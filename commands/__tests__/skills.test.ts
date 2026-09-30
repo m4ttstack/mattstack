@@ -124,7 +124,7 @@ const STUBS_TWO_VERBS = `{
 }
 `;
 
-function manifestJsonc(team: string, withForge: boolean): string {
+function manifestJsonc(withForge: boolean): string {
   const bindings = withForge
     ? `{
       "domain": "acme:watch-ci-domain",
@@ -190,10 +190,10 @@ function makePackDir(): string {
   return dir;
 }
 
-function makeManifest(team: string, withForge = true): string {
+function makeManifest(withForge = true): string {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-manifest-")));
   const path = join(dir, "skills.jsonc");
-  writeFile(path, manifestJsonc(team, withForge));
+  writeFile(path, manifestJsonc(withForge));
   return path;
 }
 
@@ -250,7 +250,7 @@ describe("skillsCompile", () => {
   test("dry-run prints a would-write summary and writes nothing", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     await skillsCompile([
       "--team", "t",
@@ -270,7 +270,7 @@ describe("skillsCompile", () => {
   test("--preview prints the compiled body and writes nothing", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     await skillsCompile(["--pack", "t", "--verb", "watch-ci", "--preview",
       "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]);
@@ -284,7 +284,7 @@ describe("skillsCompile", () => {
   test("--preview requires exactly one verb", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsCompile(["--pack", "t", "--preview",
@@ -297,7 +297,7 @@ describe("skillsCompile", () => {
   test("--preview on a retired (surface-internal) verb leaves its stale output directory alone", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
     // watch-ci is absent from surface.jsonc's public list, so it is internal/retired --
     // this is the transition-window state computeInternalRoster's own comment describes.
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": [] }\n`);
@@ -313,7 +313,7 @@ describe("skillsCompile", () => {
   test("--preview on a non-public verb still previews the compiled body, writing nothing to disk", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": [] }\n`);
 
     await skillsCompile(["--pack", "t", "--verb", "watch-ci", "--preview",
@@ -328,7 +328,7 @@ describe("skillsCompile", () => {
   test("non-public verb previewed alongside a misplaced compiled dir elsewhere: still nothing but the body on stdout", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": [] }\n`);
     // Registered on disk, absent from the public list, and NOT the requested
     // verb: exactly what the post-loop "misplaced" scan reports -- but that
@@ -346,7 +346,7 @@ describe("skillsCompile", () => {
   test("real run emits SKILL.md + vendored files matching a golden compile, byte for byte", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     await skillsCompile([
       "--team", "t",
@@ -375,7 +375,7 @@ describe("skillsCompile", () => {
   test("missing required binding: clean one-line error naming verb and slot, exit 1, no partial write", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t", false);
+    const manifestPath = makeManifest(false);
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsCompile([
@@ -399,7 +399,7 @@ describe("skillsCompile", () => {
   test("one errored verb aborts the whole compile: every error reported, nothing written", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_ONE_GOOD_TWO_BROKEN);
     // A previous compile's output for the one verb that DOES compile: surviving
     // byte for byte is what proves the failing run never reached the disk.
@@ -425,7 +425,7 @@ describe("skillsCompile", () => {
   test("an engine body reading outside the pack root: clean one-line error, exit 1, nothing written", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
     writeFile(
       join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci", "SKILL.md"),
       WATCH_CI_SKILL_MD.replace(
@@ -466,7 +466,7 @@ describe("skillsCompile", () => {
   test("unknown verb: clean one-line error, exit 1", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsCompile([
@@ -506,7 +506,7 @@ describe("skillsCompile", () => {
   test("a symlinked plugin dir under --mattstack-dir resolves as a plugin root", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
     const linkedAcme = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-acme-")));
     cpSync(join(mattstackDir, "plugins", "acme"), linkedAcme, { recursive: true });
     rmSync(join(mattstackDir, "plugins", "acme"), { recursive: true, force: true });
@@ -530,7 +530,7 @@ describe("skillsCompile", () => {
 
   test("default pack dir formula (--team + --mattstack-dir, no --pack-dir)", async () => {
     const mattstackDir = makeMattstackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
     writeFile(join(mattstackDir, "teams", "t", "mattstack", "packs", "t", "pack", "stubs.jsonc"), STUBS_JSONC);
 
     await skillsCompile([
@@ -546,7 +546,7 @@ describe("skillsCompile", () => {
   test("default manifest lookup: the one repos/*/packs/<team>/skills.jsonc", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-widgets", "packs", "t", "skills.jsonc"), manifestJsonc("t", true));
+    writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-widgets", "packs", "t", "skills.jsonc"), manifestJsonc(true));
 
     const { errors } = await runExpectingCleanExit(() =>
       skillsCompile(["--team", "t", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
@@ -558,7 +558,7 @@ describe("skillsCompile", () => {
   test("another pack's file on the same repo is never picked", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-widgets", "packs", "other", "skills.jsonc"), manifestJsonc("other", true));
+    writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-widgets", "packs", "other", "skills.jsonc"), manifestJsonc(true));
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsCompile(["--team", "t", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
@@ -570,8 +570,8 @@ describe("skillsCompile", () => {
   test("two repos for one pack: --repo picks, and without it the zone's first project wins", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-widgets", "packs", "t", "skills.jsonc"), manifestJsonc("t", true));
-    writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-gadgets", "packs", "t", "skills.jsonc"), manifestJsonc("t", false));
+    writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-widgets", "packs", "t", "skills.jsonc"), manifestJsonc(true));
+    writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-gadgets", "packs", "t", "skills.jsonc"), manifestJsonc(false));
     const base = ["--team", "t", "--json", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"];
 
     const ambiguous = await runExpectingCleanExit(() => skillsCompile(base));
@@ -604,10 +604,40 @@ describe("skillsCompile", () => {
     expect(errors[0]).toContain('no t bindings file for repo "nope"');
   });
 
+  test("a trailing bare --repo is a usage error, never the default lookup", async () => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir();
+    writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-widgets", "packs", "t", "skills.jsonc"), manifestJsonc(true));
+
+    const { exitCode, errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "t", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci", "--repo"]));
+
+    expect(exitCode).toBe(1);
+    expect(errors[0]).toContain("--repo needs a value");
+  });
+
+  test("a zone with no forge host cannot break a two-repo tie, and says so", async () => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir();
+    writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-widgets", "packs", "t", "skills.jsonc"), manifestJsonc(true));
+    writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-gadgets", "packs", "t", "skills.jsonc"), manifestJsonc(false));
+    const zone = join(mattstackDir, "teams", "acme", "mattstack");
+    writeFile(join(zone, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "t" }));
+    writeFile(join(zone, "team.jsonc"), JSON.stringify({ projects: ["acme/gadgets", "acme/widgets"] }));
+    writeFile(join(zone, "packs", "t", "pack", "skills.jsonc"), "{}");
+
+    const { exitCode, errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "t", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
+
+    expect(exitCode).toBe(1);
+    expect(errors[0]).toContain("declares no forge host");
+    expect(errors[0]).toContain("pass --repo");
+  });
+
   test("repoKey is the repo slug for the per-pack shape", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-widgets", "packs", "t", "skills.jsonc"), manifestJsonc("t", true));
+    writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-widgets", "packs", "t", "skills.jsonc"), manifestJsonc(true));
 
     const { errors } = await runExpectingCleanExit(() =>
       skillsCompile(["--team", "t", "--json", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
@@ -619,7 +649,7 @@ describe("skillsCompile", () => {
   test("a standalone pack (outside the teams zone) with no registered manifest compiles against its own pack/skills.jsonc", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    writeFile(join(packDir, "pack", "skills.jsonc"), manifestJsonc("t", true));
+    writeFile(join(packDir, "pack", "skills.jsonc"), manifestJsonc(true));
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsCompile([
@@ -641,7 +671,7 @@ describe("skillsCompile", () => {
     const worktreeRoot = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-worktree-")));
     const packDir = join(worktreeRoot, "mattstack", "packs", "t");
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
-    writeFile(join(packDir, "pack", "skills.jsonc"), manifestJsonc("t", true));
+    writeFile(join(packDir, "pack", "skills.jsonc"), manifestJsonc(true));
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsCompile([
@@ -661,7 +691,7 @@ describe("skillsCompile", () => {
     const mattstackDir = makeMattstackDir();
     const packDir = join(mattstackDir, "teams", "t", "mattstack", "packs", "t");
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
-    writeFile(join(packDir, "pack", "skills.jsonc"), manifestJsonc("t", true));
+    writeFile(join(packDir, "pack", "skills.jsonc"), manifestJsonc(true));
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsCompile([
@@ -680,7 +710,7 @@ describe("skillsCompile", () => {
   test("compilePackAll writes the pack and reports ok", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifest = makeManifest("t");
+    const manifest = makeManifest();
 
     const result = await compilePackAll({ pack: "t", packDir, mattstackDir, manifest });
 
@@ -691,7 +721,7 @@ describe("skillsCompile", () => {
   test("compilePackAll surfaces lint failures as errors, writing nothing", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifest = makeManifest("t", false); // reuses the missing-required-binding fixture
+    const manifest = makeManifest(false); // reuses the missing-required-binding fixture
 
     const result = await compilePackAll({ pack: "t", packDir, mattstackDir, manifest });
 
@@ -705,7 +735,7 @@ describe("skillsCompile --json write semantics", () => {
   test("--json --dry-run reports the plan, written false, and touches nothing", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     await skillsCompile([
       "--team", "t",
@@ -727,7 +757,7 @@ describe("skillsCompile --json write semantics", () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_ONE_GOOD_TWO_BROKEN);
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     await skillsCompile([
       "--team", "t",
@@ -750,7 +780,7 @@ describe("skillsCompile --json write semantics", () => {
   test("--preview with --json is a usage error, not a silent report", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsCompile(["--pack", "t", "--verb", "watch-ci", "--preview", "--json",
@@ -775,7 +805,7 @@ describe("skillsCompile --json write semantics", () => {
   test("--json --dry-run misplaced prediction matches what the real run leaves behind", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": ["watch-ci"] }\n`);
     // A real compile leaves a compiler-headed skills/watch-ci; retiring the
     // verb afterward is the transition window whose stale dir the next real
@@ -795,7 +825,7 @@ describe("skillsCompile --json write semantics", () => {
   test("a failure-aborted --json run does not predict sweeps: the stale dir it leaves behind stays misplaced", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": ["watch-ci"] }\n`);
     await skillsCompile(["--team", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]);
     // Retire the verb AND break a sibling: the aborted run sweeps nothing,
@@ -815,7 +845,7 @@ describe("skillsCompile --json write semantics", () => {
   test("--json reports misplaced skills in the payload, not as stray stdout lines", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": ["watch-ci"] }\n`);
     writeFile(join(packDir, "skills", "stray-skill", "SKILL.md"), "# stray\n");
 
@@ -846,7 +876,7 @@ describe("skillsCompile --pack-dir validation", () => {
 
   test("--pack-dir pointing at a missing directory is a usage error, not an empty exit 0", async () => {
     const mattstackDir = makeMattstackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
     const missing = join(tmpdir(), "rt-skills-no-such-pack-dir");
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
@@ -858,7 +888,7 @@ describe("skillsCompile --pack-dir validation", () => {
 
   test("--pack-dir pointing at a regular file is a usage error", async () => {
     const mattstackDir = makeMattstackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
     const filePath = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-file-"))), "not-a-dir");
     writeFileSync(filePath, "");
 
@@ -873,7 +903,7 @@ describe("skillsCompile --pack-dir validation", () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
     writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "t", version: "0.0.1" }));
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci", "--dry-run", "--json"]);
 
@@ -888,7 +918,7 @@ describe("skillsCompile pack resolution from cwd", () => {
     const packDir = makePackDir();
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": ["watch-ci"] }\n`);
     writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "t", version: "0.0.1" }));
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     const prevCwd = process.cwd();
     process.chdir(packDir);
@@ -906,7 +936,7 @@ describe("skillsCompile pack resolution from cwd", () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": ["watch-ci"] }\n`);
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     const prevCwd = process.cwd();
     process.chdir(packDir);
@@ -926,7 +956,7 @@ describe("skillsCompile pack resolution from cwd", () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": ["watch-ci"] }\n`);
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     const prevCwd = process.cwd();
     process.chdir(join(packDir, "pack"));
@@ -947,7 +977,7 @@ describe("skillsCompile pack resolution from cwd", () => {
     const packDir = makePackDir();
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": ["watch-ci"] }\n`);
     writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "t", version: "0.0.1" }));
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     const prevCwd = process.cwd();
     process.chdir(packDir);
@@ -967,7 +997,7 @@ describe("skillsCompile pack resolution from cwd", () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": ["watch-ci"] }\n`);
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     const prevCwd = process.cwd();
     process.chdir(packDir);
@@ -1135,7 +1165,7 @@ describe("skillsCheck", () => {
   test("reports current right after a compile", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     await skillsCompile([
       "--team", "t",
@@ -1185,7 +1215,7 @@ describe("skillsCheck", () => {
   test("hand-edited SKILL.md reports stale and exits 1", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     await skillsCompile([
       "--team", "t",
@@ -1217,7 +1247,7 @@ describe("skillsCheck", () => {
   test("orphan file left over from a previous compile reports stale and exits 1", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     await skillsCompile([
       "--team", "t",
@@ -1248,7 +1278,7 @@ describe("skillsCheck", () => {
   test("a gitignored file inside the compiled dir (a __pycache__ from running its scripts) is not an orphan", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
     execFileSync("git", ["init", "-q"], { cwd: packDir });
     writeFileSync(join(packDir, ".gitignore"), "__pycache__/\n");
 
@@ -1279,7 +1309,7 @@ describe("skillsCheck", () => {
   test("never-compiled public verb (missing outDir) reports stale and exits 1", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     await skillsCheck([
       "--team", "t",
@@ -1298,7 +1328,7 @@ describe("skillsCheck", () => {
   test("provenance-only drift (marker versions, compiled recompute) is masked out: in-sync", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     await skillsCompile([
       "--team", "t",
@@ -1334,7 +1364,7 @@ describe("skillsCheck", () => {
   test("provenance-masked drift plus a real prose change still reports stale and exits 1", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     await skillsCompile([
       "--team", "t",
@@ -1370,7 +1400,7 @@ describe("skillsCheck", () => {
   test("check --json reports installed: null under --mattstack-dir and drift alone drives the exit code", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("t");
+    const manifestPath = makeManifest();
 
     await skillsCompile(["--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]);
     logs = [];
@@ -1448,7 +1478,7 @@ describe("skillsCheck --json", () => {
   test("emits one row per verb (never compiled)", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsCheck(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
@@ -1491,7 +1521,7 @@ describe("skillsCheck --json", () => {
   test("prints ONLY json -- no human lines on stdout", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsCheck(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
@@ -1501,7 +1531,7 @@ describe("skillsCheck --json", () => {
   test("reports in-sync right after a compile", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]);
     logs = [];
@@ -1518,7 +1548,7 @@ describe("skillsCheck --json", () => {
   test("separates staleFiles (content drift) from orphanFiles (leftover) instead of merging them", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]);
     const skillMdPath = join(packDir, "skills", "watch-ci", "SKILL.md");
@@ -1538,7 +1568,7 @@ describe("skillsCheck --json", () => {
   test("engine body edited: staleBecause names the source", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]);
 
@@ -1559,7 +1589,7 @@ describe("skillsCheck --json", () => {
   test("fill body edited: staleBecause names the fill", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]);
 
@@ -1579,7 +1609,7 @@ describe("skillsCheck --json", () => {
   test("roster description edited: staleBecause names frontmatter", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]);
 
@@ -1599,7 +1629,7 @@ describe("skillsCheck --json", () => {
   test("vendored script edited: staleBecause names vendored", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]);
 
@@ -1620,7 +1650,7 @@ describe("skillsCheck --json", () => {
   test("internal verb with missing outDir: never-compiled under attachments/, and still counts as stale", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": [] }\n`);
 
     await skillsCheck(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
@@ -1637,7 +1667,7 @@ describe("skillsCompile --json", () => {
   test("compiled verb: files + warnings reported, files written to disk like the plain form", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsCompile(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci", "--json"]);
 
@@ -1664,7 +1694,7 @@ describe("skillsCompile --json", () => {
   test("internal (retired) verb: compiled row with side attachments, written to the attachments side", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": [] }\n`);
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci", "--json"]);
@@ -1690,7 +1720,7 @@ describe("skillsCompile --json", () => {
     const packDir = makePackDir();
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_WITH_INTERNAL_REF);
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": ["watch-ci"] }\n`);
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsCompile(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
@@ -1713,7 +1743,7 @@ describe("skillsCompile --json", () => {
   test("unbound required slot (compileVerb throws): errored, not a crash", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme", false);
+    const manifestPath = makeManifest(false);
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci", "--json"]);
 
@@ -1728,7 +1758,7 @@ describe("skillsCompile --json", () => {
   test("prints ONLY json -- no human lines on stdout", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci", "--json"]);
 
@@ -1742,7 +1772,7 @@ describe("skillsCompile --preview error handling", () => {
     const packDir = makePackDir();
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_WITH_INTERNAL_REF);
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": ["watch-ci"] }\n`);
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     const errors: string[] = [];
     const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
@@ -1774,7 +1804,7 @@ describe("skillsCompile --preview error handling", () => {
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_WITH_INTERNAL_REF);
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": ["watch-ci"] }\n`);
     writeFile(join(packDir, "skills", "leftover-verb", "SKILL.md"), "---\nname: leftover-verb\n---\nstale\n");
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     const errors: string[] = [];
     const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
@@ -1796,7 +1826,7 @@ describe("skillsCompile --preview error handling", () => {
   test("unbound required slot: message on stderr, empty stdout, exit code set but no crash", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme", false);
+    const manifestPath = makeManifest(false);
 
     const errors: string[] = [];
     const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
@@ -1821,7 +1851,7 @@ describe("skillsComposition --json", () => {
   test("verb, slots, fills, and binders reflect the manifest", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsComposition(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
@@ -1883,7 +1913,7 @@ describe("skillsComposition --json", () => {
   test("includes names every {{include}} the engine and its bound fills carry, pre-compile", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
     writeFile(
       join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci", "SKILL.md"),
       WATCH_CI_SKILL_MD.replace(
@@ -1905,7 +1935,7 @@ describe("skillsComposition --json", () => {
   test("an include reached only through a reference-mode (registered, public) fill is not scanned or vendored", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
     writeFile(
       join(mattstackDir, "plugins", "mattstack", "skills", "gitlab-forge", "SKILL.md"),
       FORGE_SKILL_MD + "\n{{include:forge-note}}\n",
@@ -1929,7 +1959,7 @@ describe("skillsComposition --json", () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": [] }\n`);
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsComposition(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
@@ -1980,7 +2010,7 @@ describe("skillsComposition --json", () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_TWO_VERBS);
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsComposition([
       "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
@@ -2093,7 +2123,7 @@ describe("skillsComposition --json", () => {
   test("prints ONLY json -- no human lines on stdout", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
-    const manifestPath = makeManifest("acme");
+    const manifestPath = makeManifest();
 
     await skillsComposition(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 

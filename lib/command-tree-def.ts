@@ -2376,6 +2376,7 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack to sync; auto-selects when only one pack exists" },
           { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to read ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "gitlab.example.com/acme/widgets", hint: "Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares" },
           SETUP_JSON_ARG,
         ],
       },

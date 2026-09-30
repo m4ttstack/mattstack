@@ -128,7 +128,7 @@ function parseFlags(args: string[]): Flags {
       case "--team": team = args[++i] ?? team; break;
       case "--verb": { const v = args[++i]; if (v) verbs.push(v); break; }
       case "--manifest": manifest = args[++i] ?? null; break;
-      case "--repo": repo = args[++i] ?? null; break;
+      case "--repo": repo = requireFlagValue("--repo", args[++i]); break;
       case "--dry-run": dryRun = true; break;
       case "--preview": preview = true; break;
       case "--pack-dir": packDir = requireFlagValue("--pack-dir", args[++i]); break;
@@ -406,14 +406,20 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
   if (candidates.length === 1) return candidates[0]!.path;
 
   if (candidates.length > 1) {
-    const zones = readZonesFrom(realInitFs, join(mattstackRoot, "teams"));
-    const zone = zones.find((z) => existsSync(join(z.dir, "mattstack", "packs", team)));
-    for (const project of zone?.projects ?? []) {
-      const hit = candidates.find((c) => c.slug === `${zone!.host}-${project.replaceAll("/", "-")}`);
-      if (hit) return hit.path;
+    const zones = readZonesFrom(realInitFs, join(mattstackRoot, "teams"))
+      .filter((z) => existsSync(join(z.dir, "mattstack", "packs", team)));
+    for (const zone of zones) {
+      if (!zone.host) continue;
+      for (const project of zone.projects) {
+        const hit = candidates.find((c) => c.slug === `${zone.host}-${project.replaceAll("/", "-")}`);
+        if (hit) return hit.path;
+      }
     }
+    const hostless = zones.length > 0 && zones.every((z) => !z.host);
     throw new SkillsUsageError(
-      `pack "${team}" binds ${candidates.length} repos (${candidates.map((c) => c.slug).join(", ")}); pass --repo <slug or host/path>`,
+      `pack "${team}" binds ${candidates.length} repos (${candidates.map((c) => c.slug).join(", ")})` +
+        (hostless ? `; its team zone declares no forge host, so its projects cannot pick one` : "") +
+        `; pass --repo <slug or host/path>`,
     );
   }
 
@@ -1542,7 +1548,7 @@ function parseSurfaceFlags(args: string[]): { flags: SurfaceFlags; rest: string[
       case "--pack-dir": packDir = requireFlagValue("--pack-dir", args[++i]); break;
       case "--mattstack-dir": mattstackDir = args[++i] ?? null; break;
       case "--manifest": manifest = args[++i] ?? null; break;
-      case "--repo": repo = args[++i] ?? null; break;
+      case "--repo": repo = requireFlagValue("--repo", args[++i]); break;
       case "--json": json = true; break;
       default: rest.push(a);
     }
@@ -2087,7 +2093,7 @@ function parseBindFlags(args: string[]): BindFlags {
       case "--pack":
       case "--team": team = args[++i] ?? team; break;
       case "--manifest": manifest = args[++i] ?? null; break;
-      case "--repo": repo = args[++i] ?? null; break;
+      case "--repo": repo = requireFlagValue("--repo", args[++i]); break;
       case "--dry-run": dryRun = true; break;
       case "--pack-dir": packDir = requireFlagValue("--pack-dir", args[++i]); break;
       case "--mattstack-dir": mattstackDir = args[++i] ?? null; break;

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { PackInfo } from "../../lib/skills/packs.ts";
-import { deriveEngine } from "../skills-sync.ts";
+import { deriveEngine, manifestTarget } from "../skills-sync.ts";
 
 function pack(name: string): PackInfo {
   return { name, dir: `/fake/${name}`, layout: "flat", surfacePath: `/fake/${name}/surface.jsonc`, marketplace: "local" };
@@ -79,5 +79,16 @@ describe("deriveEngine", () => {
       expect(result.error).toContain("mattstack");
       expect(result.error).toContain("extraKnownMarketplaces");
     }
+  });
+});
+
+describe("manifestTarget", () => {
+  test("carries --manifest and --repo to the compile and check calls", () => {
+    expect(manifestTarget(["--pack", "acme", "--repo", "gitlab.example.com/acme/widgets", "--manifest", "/tmp/skills.jsonc"]))
+      .toEqual({ manifest: "/tmp/skills.jsonc", repo: "gitlab.example.com/acme/widgets" });
+  });
+
+  test("omits what was not passed", () => {
+    expect(manifestTarget(["--pack", "acme", "--json"])).toEqual({});
   });
 });
