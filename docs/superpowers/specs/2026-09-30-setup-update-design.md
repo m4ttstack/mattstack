@@ -92,7 +92,11 @@ omitted when empty. "Changed" is `done` or `partial`; `skipped` is
 - `lastUpdate?: { version: string; at: string }`: written once at the end
   of every non-skipped run, regardless of outcome, so a persistently
   failing item nags once per release rather than every launch. `--force`
-  is the hand retry; the checklist's own Retry is the other.
+  is the hand retry; the checklist's own Retry is the other. The one
+  exception is a step that throws a plain `Error` (an rt bug): the run
+  ends without a stamp, as apply does, so the bug is retried at the next
+  launch. A migration that throws is reported `failed` and the run goes
+  on, so it never blocks the steps behind it.
 
 `lastApplyAt` keeps its meaning (any apply engine run) and is written by
 update runs too.
