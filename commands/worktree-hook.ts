@@ -12,7 +12,7 @@ import { daemonQuery } from "../lib/daemon-client.ts";
 import { currentRepoIdentityFor } from "../lib/repo-arg.ts";
 import { isRepoRegistered } from "../lib/repo-index.ts";
 import { claudeWorktreeHookStatus, HOOK_TIMEOUT_SECONDS, installClaudeWorktreeHooks, uninstallClaudeWorktreeHooks } from "../lib/claude-settings.ts";
-import { getSetting } from "../lib/settings/resolve.ts";
+import { explainSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { decideCreate, decideRemove, stockWorktreeAdd } from "../lib/worktree/claude-hook.ts";
 import { loadWorktreeAppConfig } from "../lib/worktree/config.ts";
@@ -34,10 +34,20 @@ export function claudeSettingsPath(): string {
   return join(process.env.HOME ?? homedir(), ".claude", "settings.json");
 }
 
-// Same key/scope as lib/worktree/config.ts's app-level toggle (`enabled`,
+// Same key as lib/worktree/config.ts's app-level toggle (`enabled`,
 // `killProcesses`)... a field-bag, not owned exclusively by either module, so
-// every read/write here must merge rather than replace.
+// every write here must merge rather than replace. `claudeHook` records whether
+// THIS machine's ~/.claude/settings.json has the hook, so it is read from and
+// written to the machine store only: a team value would silence the offer on
+// every member's machine.
 const WORKTREE_APP_SETTING_KEY = "rt.worktreeApp";
+
+function machineWorktreeAppValue(): Record<string, unknown> | undefined {
+  const row = explainSetting(WORKTREE_APP_SETTING_KEY).find((r) => r.scope === "machine");
+  if (!row?.present || row.invalid !== undefined) return undefined;
+  const value = row.value;
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
 
 /** The pure offer gate: every field must clear for the offer to fire. */
 export function shouldOfferClaudeHook(env: {
@@ -58,24 +68,19 @@ export function shouldOfferClaudeHook(env: {
   );
 }
 
-function priorClaudeHookAnswer(): string | undefined {
-  const value = getSetting<Record<string, unknown> | undefined>(WORKTREE_APP_SETTING_KEY).value;
+export function priorClaudeHookAnswer(): string | undefined {
+  const value = machineWorktreeAppValue();
   return typeof value?.claudeHook === "string" ? value.claudeHook : undefined;
 }
 
 /**
- * Merges into whatever machine-scope value already exists so sibling fields
- * (`enabled`, `killProcesses`) are never clobbered. Seeded from the
- * currently-EFFECTIVE config (`loadWorktreeAppConfig()`, which falls through
- * to the legacy file / the unowned-machine default per lib/worktree/config.ts's
- * header) so that a first-time-owns-the-key write pins the behavior that was
- * already true, rather than picking up the store branch's own
- * `enabled !== false` default (which disagrees with the unowned default).
+ * Merges `claudeHook` into the machine-scope value only, so sibling fields
+ * are kept but nothing else is pinned: a copied `enabled` would outvote the
+ * team's value forever, and a legacy worktrees.json keeps applying on its own
+ * while the machine store sets neither field (lib/worktree/config.ts).
  */
 export function recordClaudeHookAnswer(answer: "installed" | "declined"): void {
-  const effective = loadWorktreeAppConfig();
-  const existing = getSetting<Record<string, unknown> | undefined>(WORKTREE_APP_SETTING_KEY).value ?? {};
-  setSetting(WORKTREE_APP_SETTING_KEY, { ...effective, ...existing, claudeHook: answer }, "machine");
+  setSetting(WORKTREE_APP_SETTING_KEY, { ...(machineWorktreeAppValue() ?? {}), claudeHook: answer }, "machine");
 }
 
 /**
