@@ -102,6 +102,11 @@ struct ProcessPanelView: View {
             NotificationCenter.default.post(name: .rtOpenCrashLog, object: nil)
         })
         menu.addItem(.separator())
+        if !SetupCompletion.isFinished(home: AppHome.current, readFile: { FileManager.default.contents(atPath: $0) }) {
+            menu.addItem(ActionMenuItem("Resume setup…", axid: AXID.menuGearResumeSetup) {
+                NotificationCenter.default.post(name: .rtResumeSetup, object: nil)
+            })
+        }
         menu.addItem(ActionMenuItem("Setup status…", axid: AXID.menuGearSetupStatus) {
             NotificationCenter.default.post(name: .rtShowSetupStatus, object: nil)
         })

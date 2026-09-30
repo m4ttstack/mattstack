@@ -22,9 +22,39 @@ let launchChecks: [Check] = [
         c.expectEqual(again, ["--x", "--resume-setup", "checklist"])
         c.expectEqual(SetupResume.relaunchArguments(passthrough: ["--resume-setup", "team"], resumeAt: nil), [])
     },
-    Check("FirstRunDetector keys off ~/.mattstack/rt/daemon.json") { c in
-        c.expect(FirstRunDetector.needsSetup(home: "/Users/u") { _ in false })
-        c.expect(!FirstRunDetector.needsSetup(home: "/Users/u") { $0 == "/Users/u/.mattstack/rt/daemon.json" })
+    // Parity with isSetupFinished/readSetupState in lib/setup/state.ts: the
+    // daemon starts during setup, so its daemon.json is no evidence of Finish.
+    Check("SetupCompletion: finished only once Finish is on record, or a v1 file's Install ran") { c in
+        func finished(_ json: String?) -> Bool { SetupCompletion.isFinished(stateJSON: json.map { Data($0.utf8) }) }
+        c.expect(!finished(nil))
+        c.expect(!finished("not json"))
+        c.expect(!finished(#"{"v":2,"lastApplyAt":"2026-09-30T00:00:00.000Z"}"#))
+        c.expect(finished(#"{"v":2,"finishedAt":"2026-09-30T12:00:00.000Z"}"#))
+        c.expect(!finished(#"{"v":2,"finishedAt":""}"#))
+        c.expect(finished(#"{"v":1,"lastApplyAt":"2026-09-01T00:00:00.000Z"}"#))
+        c.expect(finished(#"{"lastApplyAt":"2026-09-01T00:00:00.000Z"}"#))
+        c.expect(!finished(#"{"v":1,"marketplaces":["core"]}"#))
+        c.expectEqual(SetupCompletion.statePath(home: "/Users/u"), "/Users/u/.mattstack/rt/setup-state.json")
+    },
+    Check("SetupCompletion: an unfinished setup that has begun reopens at the checklist") { c in
+        let home = "/Users/u"
+        c.expect(!SetupCompletion.hasBegun(home: home) { _ in false })
+        c.expect(SetupCompletion.hasBegun(home: home) { $0 == "/Users/u/.mattstack/rt/setup-intent.json" })
+        c.expect(SetupCompletion.hasBegun(home: home) { $0 == "/Users/u/.mattstack/rt/setup-state.json" })
+
+        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: nil, finished: true, begun: true), .none)
+        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: nil, finished: false, begun: true), .show(.checklist))
+        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: nil, finished: false, begun: false), .show(nil))
+        // --resume-setup is honored whatever the state reads.
+        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: .team, finished: true, begun: true), .show(.team))
+        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: .checklist, finished: false, begun: false), .show(.checklist))
+    },
+    Check("SetupCompletion: only closing the wizard at an open Done records Finish") { c in
+        c.expect(SetupCompletion.closeRecordsFinish(step: .done, finishEnabled: true, readOnly: false))
+        c.expect(!SetupCompletion.closeRecordsFinish(step: .done, finishEnabled: false, readOnly: false))
+        c.expect(!SetupCompletion.closeRecordsFinish(step: .checklist, finishEnabled: true, readOnly: false))
+        c.expect(!SetupCompletion.closeRecordsFinish(step: .done, finishEnabled: true, readOnly: true))
+        c.expectEqual(SetupCompletion.finishArguments, ["setup", "finish", "--json"])
     },
     Check("JoinLink parses mattstack://join/<code> only") { c in
         c.expectEqual(JoinLink.code(from: URL(string: "mattstack://join/ABCD-EFGH-IJKL")!), "ABCD-EFGH-IJKL")

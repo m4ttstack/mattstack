@@ -223,6 +223,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
         // Setup / Settings surfaces, posted by the gear menu and the Done screen
         NotificationCenter.default.addObserver(self, selector: #selector(showSetupStatus), name: .rtShowSetupStatus, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(resumeSetup), name: .rtResumeSetup, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(showSettings), name: .rtShowSettings, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(showUninstall), name: .rtShowUninstall, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(showSettingsTeam), name: .rtShowSettingsTeam, object: nil)
@@ -254,9 +255,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             // First-run Setup has no daemon dependency, so it shows before the
             // agent wait below; a genuine first run (daemon not installed yet)
             // would otherwise sit at a blank menu bar for the whole wait.
-            if let coordinator, !coordinator.setupIsComplete {
-                coordinator.showSetup(step: SetupResume.step(from: CommandLine.arguments))
-            }
+            coordinator?.showSetupOnLaunch(resumeFlag: SetupResume.step(from: CommandLine.arguments))
 
             if let launch {
                 if let takeover = launchTakeover, let failure = await takeover.value {
@@ -812,6 +811,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
     @objc private func handleSystemSessionEnding() { systemSessionEnding = true }
     @objc private func showSetupStatus() { Task { @MainActor in coordinator?.openSetupStatus() } }
+    @objc private func resumeSetup() { Task { @MainActor in coordinator?.resumeSetup() } }
     @objc private func showSettings() { Task { @MainActor in coordinator?.showSettings() } }
     @objc private func showUninstall() { Task { @MainActor in coordinator?.showSettings(pane: .uninstall) } }
     @objc private func showSettingsTeam() { Task { @MainActor in coordinator?.showSettings(pane: .team) } }

@@ -160,6 +160,7 @@ enum AXID {
     static let findBarDone = "findBar.done"
     static let menuGearMattstackWindow = "menu.gear.mattstackWindow"
     static let menuGearSetupStatus = "menu.gear.setupStatus"
+    static let menuGearResumeSetup = "menu.gear.resumeSetup"
     static let menuGearSettings = "menu.gear.settings"
     static let menuGearUninstall = "menu.gear.uninstall"
     static let menuGearCheckForUpdates = "menu.gear.checkForUpdates"

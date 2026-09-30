@@ -8,9 +8,50 @@ public enum LaunchGuard {
     }
 }
 
-public enum FirstRunDetector {
-    public static func needsSetup(home: String, fileExists: (String) -> Bool) -> Bool {
-        !fileExists("\(home)/.mattstack/rt/daemon.json")
+/// Whether this Mac finished setup, read straight from rt's
+/// ~/.mattstack/rt/setup-state.json. Parity anchor: `isSetupFinished` and
+/// `readSetupState` in lib/setup/state.ts must answer the same way.
+public enum SetupCompletion {
+    public static let finishArguments = ["setup", "finish", "--json"]
+
+    public static func statePath(home: String) -> String { "\(home)/.mattstack/rt/setup-state.json" }
+
+    /// A v1 file predates `finishedAt`; one whose Install ran reads finished so
+    /// an upgrade never sends a working Mac back through setup.
+    public static func isFinished(stateJSON: Data?) -> Bool {
+        guard let stateJSON,
+              let state = (try? JSONSerialization.jsonObject(with: stateJSON)) as? [String: Any] else { return false }
+        if let finishedAt = state["finishedAt"] as? String, !finishedAt.isEmpty { return true }
+        let version = (state["v"] as? NSNumber)?.intValue ?? 1
+        guard version < 2, let lastApplyAt = state["lastApplyAt"] as? String else { return false }
+        return !lastApplyAt.isEmpty
+    }
+
+    public static func isFinished(home: String, readFile: (String) -> Data?) -> Bool {
+        isFinished(stateJSON: readFile(statePath(home: home)))
+    }
+
+    /// A team choice (the setup intent) or an Install (the state file) is on disk.
+    public static func hasBegun(home: String, fileExists: (String) -> Bool) -> Bool {
+        fileExists("\(home)/.mattstack/rt/setup-intent.json") || fileExists(statePath(home: home))
+    }
+
+    public enum Launch: Equatable, Sendable {
+        case none
+        /// nil opens the wizard where it starts.
+        case show(SetupStep?)
+    }
+
+    public static func onLaunch(resumeFlag: SetupStep?, finished: Bool, begun: Bool) -> Launch {
+        if let resumeFlag { return .show(resumeFlag) }
+        if finished { return .none }
+        return .show(begun ? .checklist : nil)
+    }
+
+    /// Finish and the titlebar close at Done share one gate; the read-only
+    /// status window never finishes anything.
+    public static func closeRecordsFinish(step: SetupStep, finishEnabled: Bool, readOnly: Bool) -> Bool {
+        !readOnly && step == .done && finishEnabled
     }
 }
 

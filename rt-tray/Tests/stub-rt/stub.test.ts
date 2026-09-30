@@ -190,6 +190,13 @@ test("finish-gate: the extension row blocks Finish, waive moves it to waived, un
   expect(extensionRow(third.lines[0])!.waived).toBe(false);
 });
 
+test("setup finish answers the way rt does, so the wizard's Finish records cleanly", async () => {
+  const res = await run("finish-gate", ["setup", "finish", "--json"]);
+  expect(res.code).toBe(0);
+  expect(res.lines[0]).toMatchObject({ contract: 1, ok: true });
+  expect(typeof res.lines[0].finishedAt).toBe("string");
+});
+
 test("finish-gate: waive refuses a row that is not finish-gated with the contract's exit-2 envelope", async () => {
   const res = await run("finish-gate", ["setup", "waive", "tool.chrome", "--json"]);
   expect(res.code).toBe(2);

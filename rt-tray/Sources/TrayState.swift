@@ -81,6 +81,7 @@ extension Notification.Name {
     static let rtOpenCrashLog   = Notification.Name("rtOpenCrashLog")
     static let rtCheckUpdates   = Notification.Name("rtCheckUpdates")
     static let rtShowSetupStatus = Notification.Name("rtShowSetupStatus")
+    static let rtResumeSetup     = Notification.Name("rtResumeSetup")
     static let rtShowSettings    = Notification.Name("rtShowSettings")
     static let rtShowUninstall   = Notification.Name("rtShowUninstall")
     static let rtQuitMattstack   = Notification.Name("rtQuitMattstack")
