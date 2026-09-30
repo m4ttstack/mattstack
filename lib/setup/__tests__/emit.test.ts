@@ -29,4 +29,13 @@ describe("createHumanEmitter", () => {
     expect(printed.length).toBe(1);
     expect(printed[0]).toContain("→ run rt secrets set");
   });
+
+  test("prints every failed step on done, and a skipped line for a skipped run", () => {
+    const printed: string[] = [];
+    const emit = createHumanEmitter((s) => printed.push(s));
+    emit({ event: "done", ok: false, failedStep: "path.link", failedSteps: ["path.link", "verify"] });
+    emit({ event: "done", ok: true, skipped: "current" });
+
+    expect(printed).toEqual(["  ✗ failed: path.link, verify", "  - skipped: already applied for this version"]);
+  });
 });

@@ -156,14 +156,17 @@ export type NeedRequest =
 /** Uninstall streams the same event shapes with these ids (contract §uninstall: "NDJSON like apply"). */
 export type UninstallActionId = "services.unregister" | "deck.managed-remove" | "proxy.remove" | "path.unlink" | "shell.remove" | "extension.uninstall" | "plugins.uninstall" | "cron.uninstall" | "data" | "app.trash";
 
-export type EventId = StepId | UninstallActionId;
+/** A one-time migration on the update stream; the tail is the migration's own id. */
+export type MigrationEventId = `migration.${string}`;
+
+export type EventId = StepId | UninstallActionId | MigrationEventId;
 
 export type ApplyEvent =
   | { event: "plan"; steps: { id: EventId; title: string; kind: StepKind }[] }
   | { event: "step"; id: EventId; state: StepState; detail?: string; remedy?: string }
   | { event: "log"; id: EventId; line: string }
   | { event: "need"; id: EventId; request: NeedRequest }
-  | { event: "done"; ok: boolean; failedStep?: EventId };
+  | { event: "done"; ok: boolean; failedStep?: EventId; failedSteps?: EventId[]; skipped?: "not-set-up" | "current" };
 
 export function envelope<T extends object>(body: T, now: Date = new Date()): T & { contract: 1; at: string } {
   return { contract: CONTRACT_VERSION, at: now.toISOString(), ...body };
