@@ -470,14 +470,15 @@ const peering = makePeering({
   makeClient: makeSwitchboardClient,
   deps: peerDeps,
 });
-// Fire-and-forget: the daemon round trip must not hold up Bun.serve below.
+// Fire-and-forget: the daemon round trips must not hold up Bun.serve below.
 // Writer only: the runtime's tick publishes this board's state and writes
 // back what it polls, both of which belong to one process per state root.
 // /peer/join's own start path is a human joining a switchboard and stays.
-if (writer && config.switchboard.url)
+if (config.switchboard.url)
   void startPeeringWhenTokenLoads({
     peering,
     url: config.switchboard.url,
+    wanted: () => writer,
     loadToken: getSwitchboardToken,
   });
 

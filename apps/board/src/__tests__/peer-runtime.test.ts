@@ -172,6 +172,7 @@ describe('startPeeringWhenTokenLoads', () => {
     await startPeeringWhenTokenLoads({
       peering,
       url: 'https://sb',
+      wanted: () => true,
       loadToken: async () => tokens.shift() ?? null,
       retryMs: 0,
     });
@@ -190,6 +191,7 @@ describe('startPeeringWhenTokenLoads', () => {
     await startPeeringWhenTokenLoads({
       peering,
       url: 'https://sb',
+      wanted: () => true,
       loadToken: async () => {
         peering.start('https://sb', 'joined');
         return 'boot';
@@ -197,6 +199,29 @@ describe('startPeeringWhenTokenLoads', () => {
       retryMs: 0,
     });
     expect(made).toEqual(['joined']);
+    peering.stop();
+  });
+
+  test('never starts once the board has stood down from the writer lease', async () => {
+    const made: string[] = [];
+    const peering = makePeering({
+      makeClient: (_url, token) => (made.push(token), fakeClient(() => [])),
+      deps: noDeps,
+      tickMs: 999_999,
+      outboxDb: freshDb(),
+    });
+    let writer = true;
+    await startPeeringWhenTokenLoads({
+      peering,
+      url: 'https://sb',
+      wanted: () => writer,
+      loadToken: async () => {
+        writer = false;
+        return 'tok';
+      },
+      retryMs: 0,
+    });
+    expect(made).toEqual([]);
     peering.stop();
   });
 });
