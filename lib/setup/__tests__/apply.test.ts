@@ -10,6 +10,7 @@ import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../probes.ts";
 import { STEPS } from "../steps/index.ts";
 import { fakeProbes, fakeTray } from "./fakes.ts";
+import { needOutcome } from "../steps/step-utils.ts";
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -656,6 +657,237 @@ describe("runApplyWith: --only", () => {
   });
 });
 
+// A row's Retry runs one step, but some steps cannot land without an earlier
+// one: plugins.install reads the team clone team.join makes, which needs the
+// home repo home.init makes.
+describe("runApplyWith: --only runs unsatisfied prerequisites first", () => {
+  function recorder() {
+    const order: string[] = [];
+    const step = (id: StepId, extra: Partial<StepDef> = {}, outcome: StepOutcome = { state: "done" }): StepDef => ({
+      ...fakeStep(id, async () => {
+        order.push(id);
+        return outcome;
+      }),
+      ...extra,
+    });
+    return { order, step };
+  }
+
+  function stepStates(events: ApplyEvent[]): string[] {
+    return events.filter((e) => e.event === "step").map((e) => `${e.id}:${(e as { state: string }).state}`);
+  }
+
+  test("an unsatisfied prerequisite runs before the named step, and both stream their rows", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("team.join", { satisfied: () => false }),
+      step("repos.clone"),
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+    const { ctx, events } = testCtx();
+
+    expect(await runApplyWith(steps, ctx, { only: "plugins.install" })).toEqual({ ok: true });
+
+    expect(order).toEqual(["team.join", "plugins.install"]);
+    expect(stepStates(events)).toEqual(["team.join:running", "team.join:done", "plugins.install:running", "plugins.install:done"]);
+  });
+
+  test("a satisfied prerequisite is left alone", async () => {
+    const { order, step } = recorder();
+    const steps = [step("team.join", { satisfied: () => true }), step("plugins.install", { prerequisites: ["team.join"] })];
+
+    await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" });
+
+    expect(order).toEqual(["plugins.install"]);
+  });
+
+  test("prerequisites chain, and run in registry order whatever order they are listed in", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("home.init", { satisfied: () => false }),
+      step("team.create", { satisfied: () => false }),
+      step("team.join", { satisfied: () => false, prerequisites: ["home.init"] }),
+      step("plugins.install", { prerequisites: ["team.join", "team.create"] }),
+    ];
+
+    await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" });
+
+    expect(order).toEqual(["home.init", "team.create", "team.join", "plugins.install"]);
+  });
+
+  test("a satisfied prerequisite's own prerequisites are not run", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("home.init", { satisfied: () => false }),
+      step("team.join", { satisfied: () => true, prerequisites: ["home.init"] }),
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+
+    await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" });
+
+    expect(order).toEqual(["plugins.install"]);
+  });
+
+  test("a prerequisite this run gates out is skipped without a row", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("home.init", { satisfied: () => false }),
+      step("home.restore", { satisfied: () => false, applies: () => false }),
+      step("team.join", { prerequisites: ["home.init", "home.restore"], satisfied: () => false }),
+    ];
+    const { ctx, events } = testCtx();
+
+    await runApplyWith(steps, ctx, { only: "team.join" });
+
+    expect(order).toEqual(["home.init", "team.join"]);
+    expect(stepStates(events).some((s) => s.startsWith("home.restore"))).toBe(false);
+  });
+
+  test("a failed prerequisite stops the run before the named step", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("team.join", { satisfied: () => false }, { state: "failed", detail: "relay down" }),
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+
+    expect(await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" })).toEqual({ ok: false, failedStep: "team.join" });
+    expect(order).toEqual(["team.join"]);
+  });
+
+  test("a named step this run gates out runs none of its prerequisites either", async () => {
+    const { order, step } = recorder();
+    const steps = [step("team.join", { satisfied: () => false }), step("plugins.install", { prerequisites: ["team.join"], applies: () => false })];
+
+    await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" });
+
+    expect(order).toEqual([]);
+  });
+
+  test("full and --from runs are untouched: every step runs once, in order", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("home.init", { satisfied: () => false }),
+      step("team.join", { satisfied: () => false, prerequisites: ["home.init"] }),
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+
+    await runApplyWith(steps, testCtx().ctx);
+    await runApplyWith(steps, testCtx().ctx, { from: "plugins.install" });
+
+    expect(order).toEqual(["home.init", "team.join", "plugins.install", "plugins.install"]);
+  });
+
+  test("a prerequisite that feeds the intercepts still hands them its work", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("team.join", { satisfied: () => false, feedsIntercepts: true }),
+      step("intercepts.install"),
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+
+    await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" });
+
+    expect(order).toEqual(["team.join", "intercepts.install", "plugins.install"]);
+  });
+
+  // A retry skips the landed feeder as satisfied, so its intercepts must not
+  // wait behind a target that can still fail.
+  test("a target that fails after a feeder landed still leaves the intercepts installed", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("team.join", { satisfied: () => false, feedsIntercepts: true }),
+      step("intercepts.install"),
+      step("plugins.install", { prerequisites: ["team.join"] }, { state: "failed", detail: "claude missing" }),
+    ];
+
+    expect(await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" })).toEqual({ ok: false, failedStep: "plugins.install" });
+    expect(order).toEqual(["team.join", "intercepts.install", "plugins.install"]);
+  });
+
+  test("a failed prerequisite names itself in its detail, since the row shows the step it ran for", async () => {
+    const { step } = recorder();
+    const steps = [
+      { ...step("team.join", { satisfied: () => false }, { state: "failed", detail: "relay down" }), title: "Join your team" },
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+    const { ctx, events } = testCtx();
+
+    await runApplyWith(steps, ctx, { only: "plugins.install" });
+
+    expect(events).toContainEqual({ event: "step", id: "team.join", state: "failed", detail: "Join your team: relay down" });
+  });
+
+  describe("in the real registry", () => {
+    const byId = (id: StepId) => STEPS.find((s) => s.id === id)!;
+
+    test("plugins.install waits on the team clone, and the team on the home repo", () => {
+      expect(byId("plugins.install").prerequisites).toEqual(expect.arrayContaining(["team.create", "team.join"]));
+      expect(byId("team.join").prerequisites).toEqual(expect.arrayContaining(["home.init", "home.restore"]));
+      expect(byId("team.create").prerequisites).toEqual(expect.arrayContaining(["home.init", "home.restore"]));
+    });
+
+    test("every prerequisite sits earlier in the registry and can say whether it is satisfied", () => {
+      const at = (id: StepId) => STEPS.findIndex((s) => s.id === id);
+      for (const s of STEPS) {
+        for (const pre of s.prerequisites ?? []) {
+          expect(at(pre)).toBeLessThan(at(s.id));
+          expect(typeof byId(pre).satisfied).toBe("function");
+          // A prerequisite runs inside a row's Retry, where no need is pumped.
+          expect(byId(pre).kind).toBe("rt");
+        }
+      }
+    });
+
+    const keySeam = (key: "present" | "absent" | "locked") => ({
+      run: async () =>
+        key === "present"
+          ? { code: 0, stdout: "AGE-SECRET-KEY-1FAKE\n", stderr: "" }
+          : key === "absent"
+            ? { code: 44, stdout: "", stderr: "security: The specified item could not be found in the keychain." }
+            : { code: 36, stdout: "", stderr: "security: user interaction is not allowed" },
+    });
+
+    test("the home steps are satisfied only by the clone and its age key together, as home.init's own done check", async () => {
+      for (const id of ["home.init", "home.restore"] as const) {
+        const present = testCtx({ secrets: { ...fakeSecrets, ageKeySeam: keySeam("present") } }).ctx;
+        expect(await byId(id).satisfied!(present)).toBe(false);
+        present.p.mkdirp("/fake-home/.mattstack/user/.git");
+        expect(await byId(id).satisfied!(present)).toBe(true);
+
+        const absent = testCtx({ secrets: { ...fakeSecrets, ageKeySeam: keySeam("absent") } }).ctx;
+        absent.p.mkdirp("/fake-home/.mattstack/user/.git");
+        expect(await byId(id).satisfied!(absent)).toBe(false);
+
+        const locked = testCtx({ secrets: { ...fakeSecrets, ageKeySeam: keySeam("locked") } }).ctx;
+        locked.p.mkdirp("/fake-home/.mattstack/user/.git");
+        expect(await byId(id).satisfied!(locked)).toBe(false);
+      }
+    });
+
+    test("the team steps are satisfied only by a finished clone: the team settings file and an origin", async () => {
+      const { ctx } = testCtx({ team: { slug: "acme", name: "Acme", mode: "join" } });
+      const p = ctx.p as ReturnType<typeof fakeProbes>;
+      const both = async () => [await byId("team.join").satisfied!(ctx), await byId("team.create").satisfied!(ctx)];
+
+      p.mkdirp("/fake-home/.mattstack/teams/acme");
+      p.mkdirp("/fake-home/.mattstack/teams/acme/.git");
+      expect(await both()).toEqual([false, false]);
+      p.writeFile("/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc", "{}");
+      expect(await both()).toEqual([false, false]);
+      p.writeFile("/fake-home/.mattstack/teams/acme/.git/config", '[remote "upstream"]\n\turl = https://example.com/acme/other.git\n');
+      expect(await both()).toEqual([false, false]);
+      p.writeFile("/fake-home/.mattstack/teams/acme/.git/config", '[remote "origin"]\n\turl = https://example.com/acme/team.git\n');
+      expect(await both()).toEqual([true, true]);
+    });
+
+    test("a run with no team yet never reads a team step as satisfied", async () => {
+      const { ctx } = testCtx({ team: { slug: "", name: "", mode: "none" } });
+      ctx.p.mkdirp("/fake-home/.mattstack/teams/.git");
+      expect(await byId("team.create").satisfied!(ctx)).toBe(false);
+    });
+  });
+});
+
 describe("runApplyWith — need-bearing steps", () => {
   type NeedRequestForTest = Parameters<ApplyContext["need"]>[1];
 
@@ -859,13 +1091,13 @@ describe("createApplyContext", () => {
       flags: { nonInteractive: true, teamOfOne: false, ci: false },
     });
 
-    const result = await ctx.need("services.register", { type: "app-register-services", plists: [] });
+    const result = await ctx.need("services.unregister", { type: "app-unregister-services", plists: [] });
 
     expect(result).toBe("app-unanswerable");
     expect(events).toEqual([]); // refused before emitting — only an app-driven apply services needs
   });
 
-  test("ctx.need emits the need event and threads the injected clock into awaitNeed's poll loop when reachable", async () => {
+  test("ctx.need emits the need event and threads the injected clock into awaitNeed's poll loop when the app drives the run", async () => {
     let calls = 0;
     const tray = fakeTray({
       "GET /version": () => ({ status: 200, json: { version: "1.0.0" } }),
@@ -874,7 +1106,7 @@ describe("createApplyContext", () => {
         return calls < 2 ? { status: 200, json: { state: "pending" } } : { status: 200, json: { state: "done", detail: "registered" } };
       },
     });
-    const p = fakeProbes({ tray });
+    const p = fakeProbes({ tray, env: { RT_APP_SOCKET: "/fake-home/.mattstack/rt/tray.sock" } });
     const events: ApplyEvent[] = [];
     let elapsedMs = 0;
     const ctx = await createApplyContext({
@@ -898,6 +1130,131 @@ describe("createApplyContext", () => {
     expect(result).toEqual({ ok: true, detail: "registered" });
     expect(calls).toBe(2);
     expect(events).toContainEqual({ event: "need", id: "services.register", request: { type: "app-register-services", plists: ["x"] } });
+  });
+});
+
+// The app performs needs only for the rt it spawned (RT_APP_SOCKET set); a
+// terminal run used to emit a need nobody read and poll for ten minutes.
+describe("createApplyContext: a terminal run asks the app's routes directly", () => {
+  const reachable = { "GET /version": () => ({ status: 200, json: { version: "1.0.0" } }) };
+
+  async function terminalCtx(tray: ReturnType<typeof fakeTray>, opts: { nonInteractive?: boolean; tty?: boolean; env?: Record<string, string> } = {}) {
+    const events: ApplyEvent[] = [];
+    const ctx = await createApplyContext({
+      probes: fakeProbes({ tray, env: opts.env ?? {} }),
+      emit: (ev) => events.push(ev),
+      secrets: fakeSecrets,
+      relay: fakeRelay,
+      flags: { nonInteractive: opts.nonInteractive ?? false, teamOfOne: false, ci: false, tty: opts.tty ?? true },
+      needOpts: { timeoutMs: 0, sleep: async () => {} },
+    });
+    return { ctx, events };
+  }
+
+  test("services.register goes to /services/register and never emits a need", async () => {
+    const tray = fakeTray({
+      ...reachable,
+      "POST /services/register": () => ({ status: 200, json: { ok: true, results: [{ plist: "d.plist", ok: true, status: "enabled" }] } }),
+    });
+    const { ctx, events } = await terminalCtx(tray);
+
+    expect(await ctx.need("services.register", { type: "app-register-services", plists: ["d.plist"] })).toEqual({ ok: true, detail: "d.plist: enabled" });
+    expect(events.some((e) => e.event === "need")).toBe(false);
+  });
+
+  test("the proxy install goes to its privileged route", async () => {
+    const tray = fakeTray({ ...reachable, "POST /privileged/proxy-install": () => ({ status: 200, json: { ok: true, detail: "installed" } }) });
+    const { ctx } = await terminalCtx(tray);
+
+    expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" })).toEqual({ ok: true, detail: "installed" });
+  });
+
+  test("with no app running it answers no-app at once, which the step turns into open mattstack.app and retry", async () => {
+    const noTray: ReturnType<typeof fakeTray> = async () => ({ status: 0, json: null });
+    const { ctx, events } = await terminalCtx(noTray);
+
+    expect(await ctx.need("services.register", { type: "app-register-services", plists: ["d.plist"] })).toBe("no-app");
+    expect(events).toEqual([]);
+
+    const outcome = await STEPS.find((s) => s.id === "services.register")!.run(ctx);
+    expect(outcome).toMatchObject({ state: "failed", remedy: "Open mattstack.app, then Retry" });
+  });
+
+  test("a non-interactive terminal run still registers services directly", async () => {
+    const tray = fakeTray({
+      ...reachable,
+      "POST /services/register": () => ({ status: 200, json: { ok: true, results: [{ plist: "d.plist", ok: true, status: "enabled" }] } }),
+    });
+    const { ctx } = await terminalCtx(tray, { nonInteractive: true });
+
+    expect(await ctx.need("services.register", { type: "app-register-services", plists: ["d.plist"] })).toEqual({ ok: true, detail: "d.plist: enabled" });
+  });
+
+  test("a non-interactive terminal run never raises an admin prompt nobody is there to answer", async () => {
+    let asked = false;
+    const tray = fakeTray({
+      ...reachable,
+      "POST /privileged/proxy-install": () => {
+        asked = true;
+        return { status: 200, json: { ok: true, detail: "installed" } };
+      },
+    });
+    const { ctx } = await terminalCtx(tray, { nonInteractive: true });
+
+    expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" })).toBe("app-unanswerable");
+    expect(asked).toBe(false);
+  });
+
+  test("a run with no terminal (an agent's shell) never raises an admin prompt either", async () => {
+    let asked = false;
+    const tray = fakeTray({
+      ...reachable,
+      "POST /privileged/proxy-trust": () => {
+        asked = true;
+        return { status: 200, json: { ok: true, detail: "trusted" } };
+      },
+      "POST /services/register": () => ({ status: 200, json: { ok: true, results: [] } }),
+    });
+    const { ctx } = await terminalCtx(tray, { tty: false });
+
+    expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-trust" })).toBe("needs-terminal");
+    expect(asked).toBe(false);
+    expect(await ctx.need("services.register", { type: "app-register-services", plists: [] })).toEqual({ ok: true, detail: "" });
+  });
+
+  // Quitting the app, the remedy for a non-interactive run, would only swap
+  // this failure for "open mattstack.app".
+  test("the step tells a caller with no terminal where the admin prompt can be answered", async () => {
+    const tray = fakeTray({ ...reachable });
+    const { ctx } = await terminalCtx(tray, { tty: false });
+    const outcome = needOutcome(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" }), ctx, {
+      noAppDetail: "x",
+      noAppRemedy: "x",
+      timeoutRemedy: "x",
+    });
+
+    expect(outcome).toEqual({
+      state: "failed",
+      detail: "this step raises an admin prompt, which needs a person at an interactive terminal",
+      remedy: "Run rt setup apply from a terminal, or use the row's button in mattstack.app",
+    });
+  });
+
+  test("a run the app spawned keeps the need protocol, since the app pumps it", async () => {
+    let direct = false;
+    const tray = fakeTray({
+      ...reachable,
+      "POST /services/register": () => {
+        direct = true;
+        return { status: 200, json: { ok: true, results: [] } };
+      },
+      "GET /setup/need/services.register": () => ({ status: 200, json: { state: "done", detail: "pumped" } }),
+    });
+    const { ctx, events } = await terminalCtx(tray, { env: { RT_APP_SOCKET: "/fake-home/.mattstack/rt/tray.sock" } });
+
+    expect(await ctx.need("services.register", { type: "app-register-services", plists: ["d.plist"] })).toEqual({ ok: true, detail: "pumped" });
+    expect(direct).toBe(false);
+    expect(events.some((e) => e.event === "need")).toBe(true);
   });
 });
 

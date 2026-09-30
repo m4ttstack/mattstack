@@ -73,6 +73,29 @@ let needBrokerChecks: [Check] = [
         c.expectEqual(pr.trusts, 1)
         c.expectEqual(await broker.outcome(id: "proxy.install").state, "done")
     },
+    // A terminal `rt setup apply` reaches the privileged routes directly, and
+    // may do so while the app's own Install already has the dialog up.
+    Check("TrayRoutes: the direct privileged routes share the broker's one admin dialog") { c in
+        let pr = HeldPrivileged()
+        let services = FakeServices()
+        let broker = NeedBroker(services: services, privileged: pr)
+        let routes = TrayRoutes(permissions: FakePerms(), services: services, needs: broker, updater: FakeUpdater(),
+                                version: FakeVersion(), window: FakeWindowOpener())
+        let need = Task { await broker.perform(id: "proxy.install", request: installReq) }
+        try await settle()
+        let direct = Task { await routes.handle(method: "POST", path: "/privileged/proxy-install", body: nil) }
+        let trust = Task { await routes.handle(method: "POST", path: "/privileged/proxy-trust", body: nil) }
+        try await settle()
+        c.expectEqual(pr.installs, 1, "the direct install joins the open dialog")
+        c.expectEqual(pr.trusts, 0, "the direct trust waits for the open dialog to close")
+        pr.answerAll(NeedResult(ok: true, detail: "proxy installed"))
+        _ = await need.value
+        let reply = try c.requireSome(await direct.value)
+        c.expectEqual(json(reply.body)["detail"] as? String, "proxy installed")
+        _ = await trust.value
+        c.expectEqual(pr.trusts, 1)
+        c.expectEqual(await broker.outcome(id: "proxy.install").state, "done", "a direct call never touches a need id's outcome")
+    },
     Check("NeedBroker: forget(ids:) clears only the named ids") { c in
         let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
         _ = await broker.perform(id: "services.register", request: NeedRequest(type: "app-register-services", plists: [], op: nil))

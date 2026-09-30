@@ -49,7 +49,7 @@ final class FakeWindowOpener: WindowOpening, @unchecked Sendable {
 func makeRoutes() -> (TrayRoutes, FakePerms, FakeServices, FakePrivileged, FakeUpdater, NeedBroker, FakeWindowOpener) {
     let p = FakePerms(), s = FakeServices(), pr = FakePrivileged(), u = FakeUpdater(), window = FakeWindowOpener()
     let broker = NeedBroker(services: s, privileged: pr)
-    return (TrayRoutes(permissions: p, services: s, privileged: pr, needs: broker, updater: u, version: FakeVersion(), window: window), p, s, pr, u, broker, window)
+    return (TrayRoutes(permissions: p, services: s, needs: broker, updater: u, version: FakeVersion(), window: window), p, s, pr, u, broker, window)
 }
 func json(_ body: String) -> [String: Any] { (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any] ?? [:] }
 

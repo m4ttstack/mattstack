@@ -13,13 +13,14 @@ import { readTeamLocal, updateTeamLocal } from "../../team/team-local.ts";
 import { boardEnvHasSwitchboardToken } from "../../team/board-token.ts";
 import { parse } from "jsonc-parser";
 import { join } from "path";
-import { discoverTeams, readTeamSnapshot } from "../team-settings.ts";
+import { discoverTeams, parseOriginUrl, readTeamSnapshot } from "../team-settings.ts";
 import { isValidHttpsUrl } from "../host-validate.ts";
 import type { Probes } from "../probes.ts";
 import { publishTeam } from "../../team/publish.ts";
 import { forgeTokenFor } from "./forge-token.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
+import type { StepId } from "../contract.ts";
 import { UserActionableError } from "../errors.ts";
 import { readIntent } from "../intent.ts";
 import { toFailedOutcome } from "./step-utils.ts";
@@ -195,12 +196,23 @@ async function teamJoinRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 }
 
+/** A create or join that stopped partway leaves a folder without these, and must run again. */
+function teamCloned(ctx: ApplyContext): boolean {
+  if (ctx.team.slug === "" || !discoverTeams(ctx.p).includes(ctx.team.slug)) return false;
+  const config = ctx.p.readFile(join(ctx.p.home, ".mattstack", "teams", ctx.team.slug, ".git", "config"));
+  return config !== null && parseOriginUrl(config) !== null;
+}
+
+const HOME_STEPS: StepId[] = ["home.init", "home.restore"];
+
 export const teamCreateStep: StepDef = {
   reloadsTeam: true,
   id: "team.create",
   feedsIntercepts: true,
   title: "Create your team",
   kind: "rt",
+  prerequisites: HOME_STEPS,
+  satisfied: teamCloned,
   applies: (ctx) => ctx.intent?.mode === "create" || (ctx.teamOfOne && ctx.intent === null && ctx.team.slug === ""),
   run: teamCreateRun,
 };
@@ -212,6 +224,8 @@ export const teamJoinStep: StepDef = {
   title: "Join your team",
   titleFor: (ctx) => (ctx.intent?.mode === "join" ? "Join your team" : "Team membership"),
   kind: "rt",
+  prerequisites: HOME_STEPS,
+  satisfied: teamCloned,
   applies: (ctx) => ctx.intent?.mode === "join" || peeringPendingTeams(ctx).length > 0,
   run: teamJoinRun,
 };

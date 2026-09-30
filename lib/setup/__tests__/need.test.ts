@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { HELPERS_DIR, __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { setSetting } from "../../settings/write.ts";
-import { awaitNeed, deckHelperLabel, servicePlists, SERVICE_PLISTS } from "../need.ts";
+import { askAppDirectly, awaitNeed, deckHelperLabel, servicePlists, SERVICE_PLISTS } from "../need.ts";
 import { fakeProbes, fakeTray } from "./fakes.ts";
 
 const DECK_LOCK = {
@@ -172,5 +172,92 @@ describe("awaitNeed", () => {
     const { now, sleep } = fakeClock();
     const result = await awaitNeed(tray, "services.unregister", { now, sleep });
     expect(result).toEqual({ ok: true, detail: "unregistered" });
+  });
+});
+
+// A terminal `rt setup apply` has no app pumping its needs, so the requests
+// the app also serves as plain routes go straight to them.
+describe("askAppDirectly", () => {
+  test("services register POSTs the plists and reports each one's status", async () => {
+    let body: unknown;
+    let timeoutMs: number | undefined;
+    const tray = fakeTray({
+      "POST /services/register": (b, init) => {
+        body = b;
+        timeoutMs = init?.timeoutMs;
+        return { status: 200, json: { ok: true, results: [{ plist: "com.mattstack.daemon.plist", ok: true, status: "enabled" }] } };
+      },
+    });
+
+    const reply = await askAppDirectly(tray, { type: "app-register-services", plists: ["com.mattstack.daemon.plist"] });
+
+    expect(body).toEqual({ plists: ["com.mattstack.daemon.plist"] });
+    // The route answers only once the work is done, admin prompt included.
+    expect(timeoutMs).toBe(600_000);
+    expect(reply).toEqual({ ok: true, detail: "com.mattstack.daemon.plist: enabled" });
+  });
+
+  test("a failed registration names the plists that failed", async () => {
+    const tray = fakeTray({
+      "POST /services/register": () => ({
+        status: 200,
+        json: {
+          ok: false,
+          results: [
+            { plist: "a.plist", ok: true, status: "enabled" },
+            { plist: "b.plist", ok: false, status: "requiresApproval", error: "needs approval in Login Items" },
+            { plist: "c.plist", ok: false, status: "notFound" },
+          ],
+        },
+      }),
+    });
+
+    const reply = await askAppDirectly(tray, { type: "app-register-services", plists: ["a.plist", "b.plist", "c.plist"] });
+
+    expect(reply).toEqual({ ok: false, detail: "b.plist: needs approval in Login Items; c.plist: notFound" });
+  });
+
+  test("the privileged proxy ops hand back the helper's own result", async () => {
+    const tray = fakeTray({
+      "POST /privileged/proxy-install": () => ({ status: 200, json: { ok: true, detail: "installed\nMATTSTACK_TRUST=ok" } }),
+      "POST /privileged/proxy-trust": () => ({ status: 200, json: { ok: false, detail: "declined" } }),
+    });
+
+    expect(await askAppDirectly(tray, { type: "app-privileged", op: "proxy-install" })).toEqual({ ok: true, detail: "installed\nMATTSTACK_TRUST=ok" });
+    expect(await askAppDirectly(tray, { type: "app-privileged", op: "proxy-trust" })).toEqual({ ok: false, detail: "declined" });
+  });
+
+  test("a request the app serves no route for is left to the need protocol", async () => {
+    const tray = fakeTray({});
+
+    expect(await askAppDirectly(tray, { type: "app-unregister-services", plists: ["a.plist"] })).toBeNull();
+    expect(await askAppDirectly(tray, { type: "app-privileged", op: "proxy-remove" })).toBeNull();
+  });
+
+  test("a request still unanswered at its deadline reads as a timeout, not a gone app", async () => {
+    let clock = 0;
+    const tray = fakeTray({
+      "POST /privileged/proxy-install": (_b, init) => {
+        clock += init?.timeoutMs ?? 0;
+        return { status: 0, json: null };
+      },
+    });
+
+    expect(await askAppDirectly(tray, { type: "app-privileged", op: "proxy-install" }, { now: () => clock })).toBe("timeout");
+  });
+
+  test("an app that drops the connection mid-request reads as gone", async () => {
+    const tray = fakeTray({ "POST /services/register": () => ({ status: 0, json: null }) });
+
+    expect(await askAppDirectly(tray, { type: "app-register-services", plists: ["a.plist"] })).toBe("app-gone");
+  });
+
+  test("a route that answers with an error status fails with that status", async () => {
+    const tray = fakeTray({ "POST /privileged/proxy-install": () => ({ status: 500, json: { ok: false, error: "encode" } }) });
+
+    expect(await askAppDirectly(tray, { type: "app-privileged", op: "proxy-install" })).toEqual({
+      ok: false,
+      detail: "mattstack.app answered /privileged/proxy-install with status 500",
+    });
   });
 });

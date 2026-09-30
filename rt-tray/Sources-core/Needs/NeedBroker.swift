@@ -46,6 +46,12 @@ public actor NeedBroker {
         return result
     }
 
+    /// tray.sock's direct privileged routes, for an rt the app did not spawn:
+    /// no need id is recorded, but the one admin dialog is shared all the same.
+    public func performPrivileged(op: String) async -> NeedResult {
+        await privilegedTask(NeedRequest(type: "app-privileged", plists: nil, op: op)).value
+    }
+
     private func privilegedTask(_ request: NeedRequest) -> Task<NeedResult, Never> {
         let open = dialog
         if let open, open.op == request.op { return open.task }

@@ -14,12 +14,17 @@
  * past that would misread as "app-gone" after three polls. That never
  * happens against the merged app: NeedBroker's outcome read is a
  * non-blocking actor read that answers immediately either way.
+ *
+ * That exchange works only for an rt the app spawned, since the app reads
+ * `need` events off that child's stdout. A run it did not spawn uses
+ * `askAppDirectly` instead, for the requests the app also serves as plain
+ * routes.
  */
 
 import type { TrayClient } from "../daemon-client.ts";
 import { bundledToolPath } from "../deps/resolve.ts";
 import type { StepOutcome } from "./apply.ts";
-import type { EventId } from "./contract.ts";
+import type { EventId, NeedRequest } from "./contract.ts";
 import type { Probes } from "./probes.ts";
 
 /** The prod-flavor plist names; dev mode inserts ".dev" before ".plist" (see servicePlists). */
@@ -111,6 +116,56 @@ export async function awaitNeed(
   }
 }
 
+interface ServiceRegisterResult {
+  plist: string;
+  ok: boolean;
+  status: string;
+  error?: string;
+}
+
+/** Mirrors NeedBroker's own detail for app-register-services (rt-tray Sources-core/Needs/NeedBroker.swift), so a step reads the same text either way. */
+function registerReply(json: { ok?: boolean; results?: ServiceRegisterResult[] } | null): NeedReply {
+  const results = Array.isArray(json?.results) ? json.results : [];
+  const failed = results.filter((r) => !r.ok);
+  if (json?.ok === true && failed.length === 0) return { ok: true, detail: results.map((r) => `${r.plist}: ${r.status}`).join(", ") };
+  return { ok: false, detail: failed.map((r) => `${r.plist}: ${r.error ?? r.status}`).join("; ") || "mattstack.app reported failure" };
+}
+
+function directRoute(request: NeedRequest): { path: string; body?: unknown } | null {
+  if (request.type === "app-register-services") return { path: "/services/register", body: { plists: request.plists } };
+  if (request.type === "app-privileged" && (request.op === "proxy-install" || request.op === "proxy-trust")) return { path: `/privileged/${request.op}` };
+  return null;
+}
+
+/** Whether the app serves `request` as a plain tray.sock route (rt-tray Sources-core/Routes/TrayRoutes.swift) as well as a need. */
+export function hasDirectRoute(request: NeedRequest): boolean {
+  return directRoute(request) !== null;
+}
+
+/**
+ * Performs `request` through its plain route, for a run no app is pumping
+ * needs for. null means the app has no such route. The route holds the
+ * connection until the work is done, an admin prompt included, so it gets
+ * the need protocol's own deadline.
+ */
+export async function askAppDirectly(
+  tray: TrayClient,
+  request: NeedRequest,
+  opts: { now?: () => number } = {},
+): Promise<NeedReply | "timeout" | "app-gone" | null> {
+  const route = directRoute(request);
+  if (route === null) return null;
+  const { path, body } = route;
+  const now = opts.now ?? Date.now;
+  const started = now();
+  const res = await tray<{ ok?: boolean; detail?: string; results?: ServiceRegisterResult[] }>(path, { method: "POST", body, timeoutMs: DEFAULT_TIMEOUT_MS });
+  // A transport failure and our own deadline both come back as status 0.
+  if (res.status === 0) return now() - started >= DEFAULT_TIMEOUT_MS ? "timeout" : "app-gone";
+  if (res.status !== 200) return { ok: false, detail: `mattstack.app answered ${path} with status ${res.status}` };
+  if (request.type === "app-register-services") return registerReply(res.json);
+  return { ok: res.json?.ok === true, ...(typeof res.json?.detail === "string" ? { detail: res.json.detail } : {}) };
+}
+
 /**
  * The one place `ctx.need`'s ok/failed/timeout/app-gone reply becomes a
  * `StepOutcome`, so no step body hand-rolls that decision and risks turning
@@ -124,7 +179,7 @@ export async function awaitNeed(
  * Lives here (not apply.ts, which re-exports it) so a step file can import
  * it without a runtime cycle back through steps/index.ts.
  */
-export function outcomeFromNeed(reply: NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable"): StepOutcome {
+export function outcomeFromNeed(reply: NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal"): StepOutcome {
   if (reply === "no-app") return { state: "skipped", detail: "no mattstack.app running to complete this step" };
   if (reply === "app-unanswerable") {
     return {
@@ -132,6 +187,7 @@ export function outcomeFromNeed(reply: NeedReply | "timeout" | "app-gone" | "no-
       detail: "mattstack.app is running but cannot answer setup requests from this terminal — quit it and Retry, or finish setup in the app",
     };
   }
+  if (reply === "needs-terminal") return { state: "failed", detail: "this step raises an admin prompt, which needs a person at an interactive terminal" };
   if (reply === "timeout") return { state: "failed", detail: "timed out waiting for mattstack.app" };
   if (reply === "app-gone") return { state: "failed", detail: "mattstack.app stopped responding" };
   return reply.ok ? { state: "done", detail: reply.detail } : { state: "failed", detail: reply.detail ?? "mattstack.app reported failure" };
