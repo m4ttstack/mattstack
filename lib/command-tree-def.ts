@@ -2583,6 +2583,15 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      update: {
+        description: "Re-apply setup after an app update",
+        module: "./commands/setup.ts",
+        fn: "setupUpdate",
+        args: [
+          { name: "Force", flag: "--force", type: "boolean", default: false, hint: "Run even when this version was already applied" },
+          SETUP_JSON_ARG,
+        ],
+      },
       pack: {
         description: "Install a pack's plugins + skills, then check its pipeline stages resolve",
         module: "./commands/setup.ts",
