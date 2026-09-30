@@ -7,7 +7,7 @@ sidebar_label: materialize
 
 `rt › skills › materialize`
 
-Run merge-manifests.sh to materialize skill bindings for registered repos
+Write each pack's bindings file for your registered repos
 
 ## Usage
 
@@ -20,6 +20,7 @@ rt skills materialize [flags]
 | Flag / Arg | Type | Default | Description |
 | --- | --- | --- | --- |
 | [`--repo`](/guides/common-flags) | text |  | Materialize only this registered repo; omit for every known repo |
+| `--dir` | text |  | Materialize the checkout at this path instead of a registered repo |
 | [`--json`](/guides/common-flags) | boolean | `false` | Machine-readable result |
 
 _See code: [commands/skills.ts › skillsMaterialize](https://github.com/m4ttstack/mattstack/blob/main/commands/skills.ts)_

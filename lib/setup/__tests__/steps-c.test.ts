@@ -306,7 +306,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       expect(outcome.state).toBe("done");
       expect(detailOf(outcome)).toContain("4 marketplace(s), 5 plugin(s) across 1 config dir(s)");
-      expect(detailOf(outcome)).toContain(ENGINE_PACK_MISSING_CODE); // no mattstack plugin on disk yet in this fake — materialize honestly skips
+      expect(detailOf(outcome)).toContain(ENGINE_PACK_MISSING_CODE); // no mattstack plugin on disk yet in this fake, so materialize honestly skips
       // acme-skills is team-authored (came from the team's own marketplace.json) — installed, never auto-enabled.
       expect(detailOf(outcome)).toContain("awaiting your approval to enable: acme-skills@acme-market");
 

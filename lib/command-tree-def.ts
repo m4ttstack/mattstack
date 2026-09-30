@@ -2311,11 +2311,12 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       materialize: {
-        description: "Run merge-manifests.sh to materialize skill bindings for registered repos",
+        description: "Write each pack's bindings file for your registered repos",
         module: "./commands/skills.ts",
         fn: "skillsMaterialize",
         args: [
           { name: "Repo", flag: "--repo", type: "text", placeholder: "myrepo", hint: "Materialize only this registered repo; omit for every known repo" },
+          { name: "Dir", flag: "--dir", type: "text", placeholder: "/path/to/checkout", hint: "Materialize the checkout at this path instead of a registered repo" },
           SETUP_JSON_ARG,
         ],
       },

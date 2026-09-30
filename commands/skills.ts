@@ -368,8 +368,8 @@ function isUnder(parent: string, child: string): boolean {
 
 /**
  * A team-zone pack is compiled against its repo's merged manifest, never its
- * own pack/skills.jsonc: that file is one fragment merge-manifests.sh folds in
- * with the other packs' and the user's overrides, so compiling from it alone
+ * own pack/skills.jsonc: that file is one layer rt skills materialize merges
+ * with mattstack's defaults, any base pack and the user's overrides, so compiling from it alone
  * would commit an artifact that check flags as drift on every registered
  * machine. A standalone pack (the mattstack plugin) has no repo and no merge;
  * its pack/skills.jsonc IS its manifest.
@@ -1456,14 +1456,15 @@ export async function skillsComposition(args: string[]): Promise<void> {
 export async function skillsMaterialize(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const repo = skillsFlagValue(args, "--repo");
+  const dir = skillsFlagValue(args, "--dir");
 
   try {
-    const result = await materializeSkills(createRealProbes(), { repo });
+    const result = await materializeSkills(createRealProbes(), { repo, dir });
     if (json) {
       console.log(JSON.stringify(envelope(result)));
       return;
     }
-    // A top-level skip (merge-manifests.sh not installed yet) is the normal
+    // A top-level skip (mattstack plugin not installed yet) is the normal
     // fresh-machine outcome, not a failure -- exit 0, never exit 2.
     if (result.skipped) {
       console.log(`skipped: ${result.reason}`);
@@ -1471,7 +1472,9 @@ export async function skillsMaterialize(args: string[]): Promise<void> {
     }
     for (const r of result.repos) {
       console.log(`${r.ok ? "materialized" : r.noManifest ? "no skills declared for" : "failed"} ${r.name}: ${r.detail}`);
+      if (r.migrated) console.log(`  renamed the old merged file to ${r.migrated}`);
     }
+    if (result.repos.some((r) => !r.ok && !r.noManifest)) process.exitCode = 1;
   } catch (err) {
     if (err instanceof UserActionableError) exitUserError(err, json, "skills materialize", console.log);
     throw err;
@@ -2268,8 +2271,8 @@ export async function skillsBind(args: string[]): Promise<void> {
     });
     const manifestAfter = applyEdits(text, manifestEdits);
 
-    // A team pack's pack/skills.jsonc is the fragment merge-manifests folds into the
-    // per-repo manifest; the manifest write alone is undone by the next materialize and
+    // A team pack's pack/skills.jsonc is the fragment rt skills materialize layers into
+    // the per-pack manifest; the manifest write alone is undone by the next materialize and
     // never reaches a teammate. A standalone pack's fragment IS its manifest (written above).
     const fragmentPath = join(resolved.packDir, "pack", "skills.jsonc");
     let fragmentWrite: { path: string; text: string } | null = null;

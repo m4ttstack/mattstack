@@ -402,7 +402,6 @@ bun test                              # tests/desc-test.test.ts
 tests/certify.sh <skill-dir>          # certification gate for one skill
 ../../scripts/repo-purity.sh          # whole-tree purity sweep at the repo root
 plugin/tests/test-resolve-args.sh     # model-free matrix for the primitive's resolver
-plugin/tests/test-merge-manifests.sh  # manifest-merge matrix
 hooks/tests/test-herdr-doorbell.sh    # offline, stubs herdr on PATH
 tests/stubs-no-source-collision.sh    # attachments/<verb>/ vs a hand-written source
 ```
