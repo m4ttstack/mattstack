@@ -355,6 +355,45 @@ describe("syncPack", () => {
     expect(calls.filter((c) => c.args[0] === "plugin" && c.args[1] === "update").length).toBe(1);
   });
 
+  test("10b: an engine read from its installed cache is never git-checked, pulled or updated, and the pack still syncs", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = { ...fixturePack("mattstack", "mattstack", "2.0.0"), installedCache: true };
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, {
+      calls,
+      installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" },
+      drift: [false],
+      gitStatus: { [engine.dir]: " M would-refuse-if-checked" },
+    });
+
+    const report = await syncPack(pack, engine, deps);
+
+    const byName = Object.fromEntries(report.steps.map((s) => [s.name, s]));
+    expect(report.ok).toBe(true);
+    expect(byName.guards!.status).toBe("ran");
+    expect(byName.guards!.detail).toContain("installed cache");
+    expect(byName["pull-engine"]!.status).toBe("skipped");
+    expect(byName["pull-engine"]!.detail).toContain(engine.dir);
+    expect(byName["update-engine"]!.status).toBe("skipped");
+    expect(byName["pull-pack"]!.status).toBe("ran");
+    expect(byName["update-pack"]!.status).toBe("ran");
+    expect(calls.some((c) => c.cwd === engine.dir)).toBe(false);
+    expect(calls.some((c) => c.args[0] === "plugin" && c.args[1] === "update" && c.args[2] === pluginId(engine))).toBe(false);
+  });
+
+  test("10c: an installed-cache engine keeps every check on the pack checkout", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = { ...fixturePack("mattstack", "mattstack", "2.0.0"), installedCache: true };
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, { calls, gitStatus: { [pack.dir]: " M x.ts" } });
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(stepNames(report.steps)).toEqual(["guards"]);
+    expect(report.steps[0]!.status).toBe("refused");
+    expect(report.steps[0]!.detail).toContain("pack checkout dirty");
+  });
+
   test("11: cswap sweep warns about exactly the divergent session", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");

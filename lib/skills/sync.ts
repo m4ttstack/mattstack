@@ -147,7 +147,11 @@ async function inTreeBranchNote(deps: SyncDeps, root: string): Promise<string> {
   return `; shared checkout ${root} ${where}, not ${IN_TREE_REF}; the in-tree plugin installs from ${IN_TREE_REF}`;
 }
 
-function guardSummary(engineInTree: boolean, packInTree: boolean): string {
+function guardSummary(engineInTree: boolean, packInTree: boolean, engineCache: string | null): string {
+  if (engineCache !== null) {
+    const packPart = packInTree ? "pack is in-tree, its git checks skipped" : "pack checkout clean on main";
+    return `${packPart}; engine is the installed cache at ${engineCache}, read-only`;
+  }
   if (engineInTree && packInTree) return "engine and pack are in-tree; git checks skipped";
   if (engineInTree) return "pack checkout clean on main; engine is in-tree, its git checks skipped";
   if (packInTree) return "engine checkout clean on main; pack is in-tree, its git checks skipped";
@@ -160,7 +164,14 @@ async function listInstalled(deps: SyncDeps): Promise<PluginListEntry[]> {
   return JSON.parse(res.stdout) as PluginListEntry[];
 }
 
-export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps): Promise<SyncReport> {
+/**
+ * The engine as sync sees it. `installedCache` marks an engine installed from
+ * a non-directory marketplace: its dir is Claude Code's own plugin cache, so
+ * sync compiles against it as it stands and never runs git in it or updates it.
+ */
+export type SyncEngine = PackInfo & { installedCache?: boolean };
+
+export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDeps): Promise<SyncReport> {
   const steps: SyncStep[] = [];
   const warnings: string[] = [];
   const sameCheckout = pack.dir === engine.dir;
@@ -168,7 +179,9 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
   // source's ref (main), and update-machine owns that checkout, so only
   // read-only git runs there.
   const inTreeRoot = realRoot(deps.inTreeRoot);
-  const engineInTree = isInside(engine.dir, inTreeRoot);
+  const engineCached = engine.installedCache === true && !sameCheckout;
+  const engineInTree = !engineCached && isInside(engine.dir, inTreeRoot);
+  const engineGit = !engineInTree && !engineCached;
   const packInTree = isInside(pack.dir, inTreeRoot);
   const packGit = !sameCheckout && !packInTree;
 
@@ -210,7 +223,7 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
       return refused(`pack "${pack.name}" has no marketplace; it must be installed from a directory marketplace to sync`);
     }
     if (!engine.marketplace) {
-      return refused(`engine "${engine.name}" has no marketplace; it must be installed from a directory marketplace to sync`);
+      return refused(`engine "${engine.name}" has no marketplace; install it from its marketplace and re-run`);
     }
     for (const rel of [".worktrees", join(".claude", "worktrees")]) {
       const dir = join(pack.dir, rel);
@@ -219,7 +232,7 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
       }
     }
 
-    if (!engineInTree) {
+    if (engineGit) {
       const engineStatus = await deps.run("git", ["status", "--porcelain"], { cwd: engine.dir });
       if (engineStatus.code !== 0) return failed(`git status failed in ${engine.dir}: ${engineStatus.stderr.trim()}`);
       if (engineStatus.stdout.trim() !== "") {
@@ -234,7 +247,7 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
       }
     }
 
-    if (!engineInTree) {
+    if (engineGit) {
       const engineBranchRes = await deps.run("git", ["branch", "--show-current"], { cwd: engine.dir });
       if (engineBranchRes.code !== 0) return failed(`git branch --show-current failed in ${engine.dir}: ${engineBranchRes.stderr.trim()}`);
       const engineBranch = engineBranchRes.stdout.trim();
@@ -260,7 +273,7 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
     installedEngineBefore = installedVersionFor(list, pluginId(engine));
     installedPackBefore = installedVersionFor(list, pluginId(pack));
 
-    return ran(guardSummary(engineInTree, packInTree));
+    return ran(guardSummary(engineInTree, packInTree, engineCached ? engine.dir : null));
   });
   steps.push({ name: "guards", ...guards });
   if (stops(guards)) return finish();
@@ -268,6 +281,10 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
   const pullEngine = sameCheckout
     ? skipped("engine and pack share a checkout; pulled once as pull-pack")
     : await tryStep(async () => {
+        if (engineCached) {
+          engineSourceVersion = readManifestVersion(engine.dir);
+          return skipped(`engine is the installed cache at ${engine.dir} (from the ${engine.marketplace} marketplace); read-only, never pulled`);
+        }
         if (engineInTree) {
           engineSourceVersion = await readInTreeVersion(deps, inTreeRoot!, engine.dir);
           return skipped(`engine is in-tree at ${engine.dir}; kept current by update-machine${branchNote}`);
@@ -297,6 +314,7 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
 
   const updateEngine = await tryStep(async () => {
     if (sameCheckout) return skipped("engine and pack share a checkout; update handled as update-pack");
+    if (engineCached) return skipped(`engine is the installed cache; claude plugin update from the ${engine.marketplace} marketplace moves it, never sync`);
     if (installedEngineBefore === engineSourceVersion) return skipped(`engine already at ${engineSourceVersion}`);
     const id = pluginId(engine);
     const res = await deps.run(deps.claudeBin!, ["plugin", "update", id]);
