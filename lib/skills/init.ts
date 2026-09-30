@@ -74,7 +74,10 @@ function zoneHasPack(fs: InitFs, dir: string): boolean {
 }
 
 export function readZones(fs: InitFs, home: string): ZoneInfo[] {
-  const teams = join(home, ".mattstack", "teams");
+  return readZonesFrom(fs, join(home, ".mattstack", "teams"));
+}
+
+export function readZonesFrom(fs: InitFs, teams: string): ZoneInfo[] {
   const zones: ZoneInfo[] = [];
   for (const slug of fs.readDir(teams)) {
     const dir = join(teams, slug);

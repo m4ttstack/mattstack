@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chooseZone, parseRemote, readZones, type InitFs, type ZoneInfo, addMarketplacePlugin, declareRepo, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, type InitDeps, type RunResult } from "../init.ts";
+import { chooseZone, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, declareRepo, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, type InitDeps, type RunResult } from "../init.ts";
 import { stripJsonc } from "../sources.ts";
 
 /** mkdirp'd dirs and dirs that already hold a file are writable; anything else throws ENOENT, mirroring a real fs. */
@@ -56,6 +56,12 @@ const zoneFiles = (slug: string, extra: Record<string, string>, namespace = slug
 });
 
 describe("readZones", () => {
+  test("readZonesFrom reads zones under an explicit teams dir", () => {
+    const fs = memFs(zoneFiles("acme", {}));
+    const zones = readZonesFrom(fs, `${HOME}/.mattstack/teams`);
+    expect(zones.map((z) => z.slug)).toEqual(["acme"]);
+    expect(readZones(fs, HOME)).toEqual(zones);
+  });
   test("host from team.jsonc gitlabHost, projects listed, namespace from the marker, no pack", () => {
     const fs = memFs(zoneFiles("acme", {
       [`${HOME}/.mattstack/teams/acme/mattstack/team.jsonc`]: `// shim\n{ "gitlabHost": "https://GitLab.com", "projects": ["acme/api"] }`,

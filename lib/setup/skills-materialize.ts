@@ -21,6 +21,7 @@ import { join } from "path";
 import { getKnownRepos, type KnownRepo } from "../repo-index.ts";
 import { repoLabel } from "../repo-label.ts";
 import { tryResolveRepoArg } from "../repo-arg.ts";
+import { compareVersions } from "../skills/installed-plugins.ts";
 import { UserActionableError } from "./errors.ts";
 import type { Probes } from "./probes.ts";
 
@@ -32,18 +33,6 @@ const MATERIALIZE_TIMEOUT_MS = 60_000;
 
 /** The `reason` detail's stable prefix when merge-manifests.sh isn't installed yet — a future step handler may match on this instead of parsing prose. */
 export const MERGE_MANIFESTS_MISSING_CODE = "merge-manifests-missing";
-
-/** Dotted-numeric compare, missing segments treated as 0 — matches lib/setup/semver.ts's looseness; version dirs here are plain "x.y.z". */
-function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((n) => Number.parseInt(n, 10) || 0);
-  const pb = b.split(".").map((n) => Number.parseInt(n, 10) || 0);
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
 
 /** RT_MERGE_MANIFESTS env override, else the highest-semver installed mattstack plugin version's script; null when neither resolves (plugin not yet installed). */
 export function findMergeManifests(p: Pick<Probes, "readDir" | "exists" | "home" | "env">): string | null {
