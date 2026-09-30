@@ -178,10 +178,11 @@ function isTeamAuthored(provenance: { scope: string }[]): boolean {
  * substituting the attacker's source for every BASE_PLUGINS install that
  * follows.
  */
-function computeMarketplaces(ctx: ApplyContext): string[] {
+function computeMarketplaces(ctx: ApplyContext, teamMarketplace: TeamMarketplaceFile | null): string[] {
   const userSet = stringSettingArray(ctx, "claude.marketplaces", getSetting<unknown>("claude.marketplaces").value);
   const mattstackSource = mattstackMarketplaceSource(ctx.p.env);
-  const teamSource = ctx.team.slug ? [teamMarketplaceDir(ctx.p, ctx.team.slug)] : [];
+  // Before team.join clones the team, its folder does not exist and claude refuses the add.
+  const teamSource = ctx.team.slug && teamMarketplace ? [teamMarketplaceDir(ctx.p, ctx.team.slug)] : [];
   return dedupe([mattstackSource, OFFICIAL_MARKETPLACE_SOURCE, ...teamSource, ...userSet]);
 }
 
@@ -236,7 +237,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   const teamMarketplace = ctx.team.slug ? readTeamMarketplace(ctx, ctx.team.slug) : null;
-  const marketplaces = computeMarketplaces(ctx);
+  const marketplaces = computeMarketplaces(ctx, teamMarketplace);
   const mattstackSource = mattstackMarketplaceSource(ctx.p.env);
   const { trusted: trustedPlugins, teamAuthored: teamAuthoredPlugins } = computePlugins(ctx, teamMarketplace);
   const allPlugins = dedupe([...trustedPlugins, ...teamAuthoredPlugins]);
