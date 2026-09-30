@@ -51,6 +51,27 @@ test('the deps.lock skills-tree guard runs in //#turbo:test and rehashes on any 
   );
 });
 
+test('the settings bypass guard runs in //#turbo:test and rehashes on every root it scans', () => {
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+  expect(pkg.scripts['turbo:test'].split(' ')).toContain(
+    './lib/__tests__/no-settings-bypass.test.ts'
+  );
+  const turbo = JSON.parse(readFileSync(join(ROOT, 'turbo.json'), 'utf8'));
+  expect(turbo.tasks['//#turbo:test'].inputs).toEqual(
+    expect.arrayContaining([
+      'lib/__tests__/no-settings-bypass.test.ts',
+      'cli.ts',
+      'commands/**/*.{ts,tsx,mts,cts,js,mjs}',
+      'lib/**/*.{ts,tsx,mts,cts,js,mjs}',
+      'scripts/**/*.{ts,tsx,mts,cts,js,mjs}',
+      '$TURBO_ROOT$/apps/**/*.{ts,tsx,mts,cts,js,mjs}',
+      '$TURBO_ROOT$/packages/**/*.{ts,tsx,mts,cts,js,mjs}',
+      '$TURBO_ROOT$/extensions/**/*.{ts,tsx,mts,cts,js,mjs}',
+      '$TURBO_ROOT$/plugins/**/*.{ts,tsx,mts,cts,js,mjs}',
+    ])
+  );
+});
+
 test('the board skills drift guard runs in //#turbo:test and rehashes on its sources', () => {
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
   expect(pkg.scripts['turbo:test'].split(' ')).toContain(
