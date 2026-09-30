@@ -46,13 +46,16 @@ export function boardRepoSlug(gitlabHost: string, project: string): string {
 }
 
 /** The pack a launch resolves bindings with: the launching tab's pack, else
-    the board's default pack, else none. */
+    the board's default pack, else none. A pack becomes a path segment, so
+    one that could climb out of `packs/` counts as none. */
 export function packForLaunch(
   cfg: BoardConfig,
   tabId: string | undefined
 ): string | null {
   const tab = tabId ? cfg.tabs.find(t => t.id === tabId) : undefined;
-  return tab?.pack || cfg.defaultPack || null;
+  const pack = tab?.pack || cfg.defaultPack;
+  if (!pack || /[/\\]/.test(pack) || pack.includes('..')) return null;
+  return pack;
 }
 
 /**

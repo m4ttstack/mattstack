@@ -189,6 +189,25 @@ describe('packForLaunch', () => {
       packForLaunch(parseConfig(JSON.stringify(base)), undefined)
     ).toBeNull();
   });
+
+  test('a pack that could leave packs/ counts as no pack', () => {
+    for (const pack of ['../x', 'a/b', 'a\\b', '..']) {
+      const cfg = parseConfig(
+        JSON.stringify({
+          ...base,
+          defaultPack: 'gadgets',
+          tabs: [{ id: 'w', label: 'W', source: { kind: 'authors' }, pack }],
+        })
+      );
+      expect(packForLaunch(cfg, 'w')).toBeNull();
+    }
+    expect(
+      packForLaunch(
+        parseConfig(JSON.stringify({ ...base, defaultPack: '../x' })),
+        undefined
+      )
+    ).toBeNull();
+  });
 });
 
 describe('resolveLaunchSkill', () => {
