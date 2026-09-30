@@ -63,7 +63,7 @@ shows the same checklist as a post-install health view.
 
 Note that rt does **not** auto-run the installer on first invocation. An `rt`
 with no `~/.mattstack/rt/daemon.json` prints a one-line hint pointing at
-mattstack.app or `rt setup`, and nothing else. That is deliberate:
+mattstack.app or `rt setup install`, and nothing else. That is deliberate:
 auto-running would make `rt setup plan` unreachable before an install.
 
 ## Verifying an installation

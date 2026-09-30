@@ -9,7 +9,7 @@ Setup installs a local HTTPS proxy so `.mattstack` domains (used by Deck apps an
 
 ## What gets installed
 
-The `proxy.install` step runs as part of setup (mattstack.app's setup wizard, `rt setup`, or `rt --post-install`), or on its own with `rt setup apply --only proxy.install`. rt can't do privileged work itself, so the step asks mattstack.app to run its bundled root helper; the app has to be running. Then:
+The `proxy.install` step runs as part of setup (mattstack.app's setup wizard, `rt setup install`, or `rt --post-install`), or on its own with `rt setup apply --only proxy.install`. rt can't do privileged work itself, so the step asks mattstack.app to run its bundled root helper; the app has to be running. Then:
 
 1. A copy of portless is placed under `/Library/Application Support/mattstack/proxy/` (root-owned, so root never executes from the user-writable `/Applications` path).
 2. A LaunchDaemon plist (`sh.portless.proxy`) is bootstrapped to listen on port 443.

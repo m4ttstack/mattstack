@@ -2537,13 +2537,16 @@ export const TREE: Record<string, CommandNode> = {
 
   setup: {
     description: "Set this Mac up for mattstack: readiness plan, install steps, account connections",
-    module: "./commands/setup.ts",
-    fn: "setupInteractive",
-    args: [
-      { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Machine-readable plan (skips the interactive walk)" },
-      { name: "Force", flag: "--force", type: "boolean", default: false, hint: "Confirm install even though required rows are missing" },
-    ],
     subcommands: {
+      install: {
+        description: "Check what this Mac needs, then install it",
+        module: "./commands/setup.ts",
+        fn: "setupInteractive",
+        args: [
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Machine-readable plan (skips the interactive walk)" },
+          { name: "Force", flag: "--force", type: "boolean", default: false, hint: "Confirm install even though required rows are missing" },
+        ],
+      },
       plan: {
         description: "Compute the readiness checklist",
         module: "./commands/setup.ts",
