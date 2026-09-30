@@ -291,18 +291,51 @@ describe("settings/write", () => {
       return lines;
     }
 
-    test("a team write prints a tip naming the team repo to push", () => {
-      seedTeam(TEAM);
-      const lines = captureStderr(() => setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY }));
-      expect(lines).toEqual([
-        `rt: saved "rt.roles" in the team store; commit and push ${join(teamsDir(), TEAM)} to share it with the team`,
+    function giveOrigin(repo: string): void {
+      mkdirSync(join(repo, ".git"), { recursive: true });
+      writeFileSync(join(repo, ".git", "config"), `[core]\n\tbare = false\n[remote "origin"]\n\turl = https://example.com/acme/repo.git\n`);
+    }
+    const homeRepo = () => dirname(userSettingsPath());
+    const teamRepo = () => join(teamsDir(), TEAM);
+
+    test("a user write the daemon will sync prints nothing", () => {
+      giveOrigin(homeRepo());
+      expect(captureStderr(() => setSetting("rt.worktrees", { onDeck: 3 }, "user", { repoIdentity: IDENTITY }))).toEqual([]);
+    });
+
+    test("a user write with no home remote says it stays on this machine", () => {
+      expect(captureStderr(() => setSetting("rt.worktrees", { onDeck: 3 }, "user", { repoIdentity: IDENTITY }))).toEqual([
+        `rt: saved "rt.worktrees" in your user store on this machine only; ${homeRepo()} has no remote, so it will not reach your other machines`,
       ]);
     });
 
-    test("a user-scope write prints a tip naming the personal repo to push", () => {
-      const lines = captureStderr(() => setSetting("rt.worktrees", { onDeck: 3 }, "user", { repoIdentity: IDENTITY }));
-      expect(lines).toEqual([
-        `rt: saved "rt.worktrees" in your user store; commit and push ${dirname(userSettingsPath())} to share it with your other machines`,
+    test("a user write with home sync off says to commit and push", () => {
+      giveOrigin(homeRepo());
+      setSetting("rt.homeSnapshot", { enabled: false }, "machine");
+      expect(captureStderr(() => setSetting("rt.worktrees", { onDeck: 3 }, "user", { repoIdentity: IDENTITY }))).toEqual([
+        `rt: saved "rt.worktrees" in your user store, but automatic sync is off (rt.homeSnapshot); commit and push ${homeRepo()} to share it with your other machines`,
+      ]);
+    });
+
+    test("a team write the daemon will publish prints nothing", () => {
+      seedTeam(TEAM);
+      giveOrigin(teamRepo());
+      expect(captureStderr(() => setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY }))).toEqual([]);
+    });
+
+    test("a team write with no team remote points at rt team publish --remote", () => {
+      seedTeam(TEAM);
+      expect(captureStderr(() => setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY }))).toEqual([
+        `rt: saved "rt.roles" in the team store on this machine only; the team repo has no remote yet, so run \`rt team publish --team ${TEAM} --remote <url>\` to share it with the team`,
+      ]);
+    });
+
+    test("a team write with team sync off points at rt team publish", () => {
+      seedTeam(TEAM);
+      giveOrigin(teamRepo());
+      setSetting("rt.teamSnapshot", { enabled: false }, "machine");
+      expect(captureStderr(() => setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY }))).toEqual([
+        `rt: saved "rt.roles" in the team store, but automatic team sync is off (rt.teamSnapshot); run \`rt team publish --team ${TEAM}\` to share it with the team`,
       ]);
     });
 
@@ -312,19 +345,23 @@ describe("settings/write", () => {
       expect(existsSync(machineSettingsPath())).toBe(true);
     });
 
-    test("removals print the same tip per scope, and nothing for machine", () => {
+    test("removals follow the same rules", () => {
       seedTeam(TEAM);
       setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY });
       setSetting("rt.roles", { backend: {} }, "user", { repoIdentity: IDENTITY });
       setSetting("rt.roles", { backend: {} }, "machine", { repoIdentity: IDENTITY });
 
       expect(captureStderr(() => unsetSetting("rt.roles", "team", { repoIdentity: IDENTITY }))).toEqual([
-        `rt: removed "rt.roles" from the team store; commit and push ${join(teamsDir(), TEAM)} to share the change with the team`,
+        `rt: removed "rt.roles" from the team store on this machine only; the team repo has no remote yet, so run \`rt team publish --team ${TEAM} --remote <url>\` to share the change with the team`,
       ]);
       expect(captureStderr(() => unsetSetting("rt.roles", "user", { repoIdentity: IDENTITY }))).toEqual([
-        `rt: removed "rt.roles" from your user store; commit and push ${dirname(userSettingsPath())} to share the change with your other machines`,
+        `rt: removed "rt.roles" from your user store on this machine only; ${homeRepo()} has no remote, so the change will not reach your other machines`,
       ]);
       expect(captureStderr(() => unsetSetting("rt.roles", "machine", { repoIdentity: IDENTITY }))).toEqual([]);
+
+      giveOrigin(homeRepo());
+      setSetting("rt.roles", { backend: {} }, "user", { repoIdentity: IDENTITY });
+      expect(captureStderr(() => unsetSetting("rt.roles", "user", { repoIdentity: IDENTITY }))).toEqual([]);
     });
   });
 

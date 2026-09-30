@@ -66,9 +66,9 @@
  * commit+push to reach teammates; conjuring one here would produce an
  * uncommitted, unshared file masquerading as team state.
  *
- * A successful user or team write or removal prints one tip line to stderr
- * naming the repo to commit and push to share it (`shareTip`); a machine
- * write prints nothing, since the caller's own confirmation covers it.
+ * A successful write or removal prints nothing unless the daemon cannot sync
+ * the user or team repo on its own; then one tip line says what to do
+ * (`shareTip`).
  *
  * ── Malformed stores refuse rather than edit around the damage ─────────
  * An existing store's on-disk text is parsed and checked (`assertEditableJsonc`)
@@ -95,12 +95,13 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "fs";
 import { applyEdits, modify, parse, parseTree, type JSONPath, type Node, type ParseError } from "jsonc-parser";
 import { randomBytes } from "crypto";
-import { dirname } from "path";
+import { basename, dirname, join } from "path";
 import { isDeepStrictEqual } from "util";
 import { assertNotRealStoreInTest } from "../test-isolation.ts";
 import { baselinesOf, baselinesToRecord, currentStoreName, MIGRATED_PROP, olderStoreNames, readSection } from "./migrate.ts";
 import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
 import { getDef, isMigrated, isRetiredKey, type SettingDef, type SettingScope } from "./registry-machinery.ts";
+import { getSetting } from "./resolve.ts";
 import { listTeams, readStore } from "./stores.ts";
 import { isJoinedTeam } from "./team-local-read.ts";
 import { validateWrite } from "./validate-write.ts";
@@ -196,17 +197,48 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
 }
 
 /**
- * The user store is the personal repo's root file; a team store sits at
- * `<team repo>/mattstack/settings.team.jsonc`, so its repo is two levels up.
+ * The daemon's snapshot engines commit and push the user and team repos on
+ * their own, so a write normally needs no follow-up and prints nothing. A tip
+ * prints only when that sync cannot happen: the repo has no origin, or
+ * rt.homeSnapshot / rt.teamSnapshot is disabled (a read failure counts as
+ * enabled, as the daemon treats it). A pull-only (joined) team clone never
+ * gets here: resolveStorePath refuses the write.
  */
 function shareTip(verb: "saved" | "removed", key: string, scope: SettingScope, storePath: string): void {
   if (scope === "machine") return;
-  const where = verb === "saved" ? "in" : "from";
+  const lead = verb === "saved" ? `rt: saved "${key}" in` : `rt: removed "${key}" from`;
   const what = verb === "saved" ? "it" : "the change";
   if (scope === "user") {
-    console.error(`rt: ${verb} "${key}" ${where} your user store; commit and push ${dirname(storePath)} to share ${what} with your other machines`);
-  } else {
-    console.error(`rt: ${verb} "${key}" ${where} the team store; commit and push ${dirname(dirname(storePath))} to share ${what} with the team`);
+    const repo = dirname(storePath);
+    if (!hasOrigin(repo)) {
+      console.error(`${lead} your user store on this machine only; ${repo} has no remote, so ${what} will not reach your other machines`);
+    } else if (!snapshotEnabled("rt.homeSnapshot")) {
+      console.error(`${lead} your user store, but automatic sync is off (rt.homeSnapshot); commit and push ${repo} to share ${what} with your other machines`);
+    }
+    return;
+  }
+  const repo = dirname(dirname(storePath));
+  const team = basename(repo);
+  if (!hasOrigin(repo)) {
+    console.error(`${lead} the team store on this machine only; the team repo has no remote yet, so run \`rt team publish --team ${team} --remote <url>\` to share ${what} with the team`);
+  } else if (!snapshotEnabled("rt.teamSnapshot")) {
+    console.error(`${lead} the team store, but automatic team sync is off (rt.teamSnapshot); run \`rt team publish --team ${team}\` to share ${what} with the team`);
+  }
+}
+
+function hasOrigin(repo: string): boolean {
+  try {
+    return /^\s*\[remote "origin"\]/m.test(readFileSync(join(repo, ".git", "config"), "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+function snapshotEnabled(key: "rt.homeSnapshot" | "rt.teamSnapshot"): boolean {
+  try {
+    return getSetting<{ enabled?: boolean } | undefined>(key).value?.enabled !== false;
+  } catch {
+    return true;
   }
 }
 
