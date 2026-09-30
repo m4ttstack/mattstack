@@ -28,7 +28,9 @@ import { readStagedRepoRoot, stageRepoRoot } from "../repo-root.ts";
 import { fakeProbes } from "./fakes.ts";
 
 import { homeInitStep, homeRestoreStep } from "../steps/home.ts";
-import { teamCreateStep, teamJoinStep } from "../steps/team.ts";
+import { outcomeFromJoin, outcomeFromJoinError, teamCreateStep, teamJoinStep } from "../steps/team.ts";
+import { JoinPeeringStoreError, type JoinResult } from "../../team/join.ts";
+import { UserActionableError } from "../errors.ts";
 import { secretsWriteStep } from "../steps/secrets.ts";
 import { pathLinkStep } from "../steps/path.ts";
 import { settingsSeedStep } from "../steps/settings.ts";
@@ -551,6 +553,36 @@ describe("team.join", () => {
     expect((outcome as { remedy?: string }).remedy).toBe(
       "Unlock your keychain, then Retry — the invite is already redeemed, so Retry resumes here without a new code",
     );
+  });
+});
+
+describe("team.join outcomes", () => {
+  const joined: JoinResult = { team: { slug: "acme", name: "Acme", owner: "bob" }, access: "ok", peering: "applied", message: "Joined Acme (owner bob)", intent: "written" };
+
+  test("a join that peered, or had nothing to peer, is done", () => {
+    expect(outcomeFromJoin(joined)).toEqual({ state: "done", detail: "Joined Acme (owner bob)" });
+    expect(outcomeFromJoin({ ...joined, peering: "idle" }).state).toBe("done");
+  });
+
+  test("a join that ended without a stored board token is partial, never done, with the fix as its remedy", () => {
+    const fix = "ask bob for a new invite (`rt team invite --handle carol`) and run `rt team join` with it";
+    const outcome = outcomeFromJoin({ ...joined, peering: "unavailable", peeringFix: fix, message: `Joined Acme (owner bob); board peering could not be set up automatically... ${fix}` });
+    expect(outcome.state).toBe("partial");
+    expect((outcome as { remedy?: string }).remedy).toBe(fix);
+    expect((outcome as { detail: string }).detail).toContain("board peering could not be set up");
+  });
+
+  test("a board token that could not be stored after the redeem fails the step with a resume remedy, so Install stops before the intent is cleared", () => {
+    const outcome = outcomeFromJoinError(new JoinPeeringStoreError("joined Acme and redeemed the invite, but could not store your board's switchboard token (sops)"));
+    expect(outcome.state).toBe("failed");
+    expect((outcome as { remedy?: string }).remedy).toBe(
+      "Fix the secrets store (Retry from home.init if it never ran), then Retry: the invite is already redeemed, so Retry resumes here without a new code",
+    );
+  });
+
+  test("a secrets store that is not ready before the redeem fails with a home.init remedy", () => {
+    const outcome = outcomeFromJoinError(new UserActionableError("secrets-store-not-ready", "not set up yet"));
+    expect(outcome).toEqual({ state: "failed", detail: "not set up yet", remedy: "Retry from home.init (or run `rt home init`), then Retry: the invite has not been used yet" });
   });
 });
 

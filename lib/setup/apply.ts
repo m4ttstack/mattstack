@@ -44,7 +44,7 @@ export interface ApplyContext {
   team: TeamRef;
   snapshot: TeamSnapshot | null;
   reqs: PackRequirements[];
-  /** Re-reads `snapshot` and `reqs` from disk; the engine calls it after a done `reloadsTeam` step. */
+  /** Re-reads `snapshot` and `reqs` from disk; the engine calls it after a done or partial `reloadsTeam` step. */
   reloadTeam?: () => void;
   nonInteractive: boolean;
   teamOfOne: boolean;
@@ -96,7 +96,7 @@ export interface StepDef {
   kind: StepKind;
   applies(ctx: ApplyContext): boolean;
   run(ctx: ApplyContext): Promise<StepOutcome>;
-  /** The step lands or changes the team clone (team.create, team.join): once it is done, `ctx.snapshot`/`ctx.reqs` are re-read so the steps after it see the team that now exists on disk rather than the one read at apply start. */
+  /** The step lands or changes the team clone (team.create, team.join): once it is done or partial, `ctx.snapshot`/`ctx.reqs` are re-read so the steps after it see the team that now exists on disk rather than the one read at apply start. */
   reloadsTeam?: boolean;
   /** The step writes what `intercepts.install` builds its rules from (the repo index or a settings store): an `--only` run of it that lands anything is followed by `intercepts.install`, so a late retry cannot leave the shims behind. */
   feedsIntercepts?: boolean;
@@ -234,7 +234,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
         result = { ok: false, failedStep: step.id };
         break;
       }
-      if (step.reloadsTeam && outcome.state === "done") ctx.reloadTeam?.();
+      if (step.reloadsTeam && (outcome.state === "done" || outcome.state === "partial")) ctx.reloadTeam?.();
       if (opts.only !== undefined && step.feedsIntercepts && (outcome.state === "done" || outcome.state === "partial")) {
         const follow = applicable.find((s) => s.id === INTERCEPTS_STEP);
         if (follow && !queue.includes(follow)) queue.push(follow);

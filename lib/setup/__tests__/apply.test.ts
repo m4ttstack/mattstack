@@ -117,6 +117,14 @@ describe("runApplyWith — team reload", () => {
     await runApplyWith([{ ...fakeStep("team.join", { state: "failed", detail: "no" }), reloadsTeam: true }], ctx2, {});
     expect(reloads2).toBe(0);
   });
+
+  test("a partial reloadsTeam step landed its clone too, so the steps after it see the team", async () => {
+    const { ctx } = testCtx();
+    let reloads = 0;
+    ctx.reloadTeam = () => { reloads++; };
+    await runApplyWith([{ ...fakeStep("team.join", { state: "partial", detail: "joined, board not peered" }), reloadsTeam: true }], ctx, {});
+    expect(reloads).toBe(1);
+  });
 });
 
 describe("runApplyWith — happy path", () => {

@@ -7,8 +7,8 @@
 
 import { createTeam, type CreateTeamOpts } from "../../team/create.ts";
 import { forgeLogin } from "../../team/forge.ts";
-import { JoinKeyExchangeError, joinRedeem, realJoinRedeemSeams } from "../../team/join.ts";
-import { writeSecret } from "../../secrets/store.ts";
+import { JoinKeyExchangeError, JoinPeeringStoreError, joinRedeem, realJoinRedeemSeams, type JoinResult } from "../../team/join.ts";
+import { personalStoreReady, writeSecret } from "../../secrets/store.ts";
 import { publishTeam } from "../../team/publish.ts";
 import { forgeTokenFor } from "./forge-token.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -79,6 +79,43 @@ function noJoinIntentOnDisk(ctx: ApplyContext): boolean {
   return intent?.mode !== "join" || !intent.join;
 }
 
+/** A joined team with no stored board token is never "done": `partial` keeps the Install screen on the remedy instead of advancing past it. */
+export function outcomeFromJoin(result: JoinResult): StepOutcome {
+  if (result.access === "ok") {
+    if (result.peering === "unavailable") {
+      return { state: "partial", detail: result.message, ...(result.peeringFix !== undefined ? { remedy: result.peeringFix } : {}) };
+    }
+    return { state: "done", detail: result.message };
+  }
+  if (result.access === "denied") {
+    return { state: "failed", detail: result.message, remedy: "Ask the owner to grant access, then Retry" };
+  }
+  return { state: "failed", detail: result.message, remedy: "Check your network, then Retry" };
+}
+
+/** Both post-redeem errors fire after the invite is spent, so their fix is never "get a new code". */
+export function outcomeFromJoinError(err: unknown): StepOutcome {
+  if (err instanceof JoinKeyExchangeError) {
+    return {
+      state: "failed",
+      detail: err.message,
+      remedy: "Unlock your keychain, then Retry — the invite is already redeemed, so Retry resumes here without a new code",
+    };
+  }
+  if (err instanceof JoinPeeringStoreError) {
+    return {
+      state: "failed",
+      detail: err.message,
+      remedy: "Fix the secrets store (Retry from home.init if it never ran), then Retry: the invite is already redeemed, so Retry resumes here without a new code",
+    };
+  }
+  if (err instanceof UserActionableError && err.code === "secrets-store-not-ready") {
+    return { state: "failed", detail: err.message, remedy: "Retry from home.init (or run `rt home init`), then Retry: the invite has not been used yet" };
+  }
+  if (err instanceof UserActionableError) return { state: "failed", detail: err.message };
+  return toFailedOutcome(err);
+}
+
 async function teamJoinRun(ctx: ApplyContext): Promise<StepOutcome> {
   if (noJoinIntentOnDisk(ctx)) {
     return { state: "skipped", detail: "already joined — no invite in progress" };
@@ -93,29 +130,14 @@ async function teamJoinRun(ctx: ApplyContext): Promise<StepOutcome> {
     ...realJoinRedeemSeams(),
     ageKeySeam: ctx.secrets.ageKeySeam,
     forgeToken: (_p: unknown, remote: string) => forgeTokenFor(ctx, remote),
+    localStoreReady: () => personalStoreReady(ctx.secrets),
     writeLocalSecret: (key: string, value: string) => writeSecret("rt", key, value, ctx.secrets),
   };
 
   try {
-    const result = await joinRedeem(ctx.p, ctx.relay, ctx.teamSecrets, {}, seams);
-
-    if (result.access === "ok") return { state: "done", detail: result.message };
-    if (result.access === "denied") {
-      return { state: "failed", detail: result.message, remedy: "Ask the owner to grant access, then Retry" };
-    }
-    return { state: "failed", detail: result.message, remedy: "Check your network, then Retry" };
+    return outcomeFromJoin(await joinRedeem(ctx.p, ctx.relay, ctx.teamSecrets, {}, seams));
   } catch (err) {
-    // Fires only after the clone and the relay redeem have already
-    // succeeded — the invite is spent, so the fix is never "get a new code."
-    if (err instanceof JoinKeyExchangeError) {
-      return {
-        state: "failed",
-        detail: err.message,
-        remedy: "Unlock your keychain, then Retry — the invite is already redeemed, so Retry resumes here without a new code",
-      };
-    }
-    if (err instanceof UserActionableError) return { state: "failed", detail: err.message };
-    return toFailedOutcome(err);
+    return outcomeFromJoinError(err);
   }
 }
 

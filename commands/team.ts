@@ -34,7 +34,7 @@ import { createTeam } from "../lib/team/create.ts";
 import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
-import { JoinKeyExchangeError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
+import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
 import { membersRemove, membersSync, preferredRoster, teamRemote } from "../lib/team/members.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
@@ -353,6 +353,9 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
     // app's envelope decoder (exit 2 only) never sees this message at all.
     if (err instanceof JoinKeyExchangeError) {
       return exitUserError(new UserActionableError("age-key-unavailable", err.message), json, "team join", deps.print);
+    }
+    if (err instanceof JoinPeeringStoreError) {
+      return exitUserError(new UserActionableError("peering-store-failed", err.message), json, "team join", deps.print);
     }
     if (err instanceof UserActionableError) exitUserError(err, json, "team join", deps.print);
     throw err;
