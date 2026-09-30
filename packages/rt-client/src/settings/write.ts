@@ -66,10 +66,9 @@
  * commit+push to reach teammates; conjuring one here would produce an
  * uncommitted, unshared file masquerading as team state.
  *
- * Every successful `scope: "team"` write prints one reminder line to
- * stderr: the edit only exists in this local clone until it is committed
- * and pushed. No such reminder for `user`/`machine` (nothing to push there
- * in wave 1).
+ * A successful write or removal prints nothing unless the daemon cannot sync
+ * the user or team repo on its own; then one tip line says what to do
+ * (`shareTip`).
  *
  * ── Malformed stores refuse rather than edit around the damage ─────────
  * An existing store's on-disk text is parsed and checked (`assertEditableJsonc`)
@@ -93,15 +92,16 @@
  * through `JSON.stringify` — that's what keeps comments alive.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { applyEdits, modify, parse, parseTree, type JSONPath, type Node, type ParseError } from "jsonc-parser";
 import { randomBytes } from "crypto";
-import { dirname } from "path";
+import { basename, dirname, join, resolve } from "path";
 import { isDeepStrictEqual } from "util";
 import { assertNotRealStoreInTest } from "../test-isolation.ts";
 import { baselinesOf, baselinesToRecord, currentStoreName, MIGRATED_PROP, olderStoreNames, readSection } from "./migrate.ts";
 import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
 import { getDef, isMigrated, isRetiredKey, type SettingDef, type SettingScope } from "./registry-machinery.ts";
+import { getSetting } from "./resolve.ts";
 import { listTeams, readStore } from "./stores.ts";
 import { isJoinedTeam } from "./team-local-read.ts";
 import { validateWrite } from "./validate-write.ts";
@@ -193,12 +193,74 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
     /* createIfMissing */ scope !== "team",
   );
 
-  // All three stores are tracked repos with nothing auto-committing a write
-  // (H2, the snapshot daemon, is unbuilt) — every scope gets the reminder,
-  // not just team.
-  console.error(
-    `rt: wrote "${key}" to the local ${scope} store (${storePath}) — this is local only until you commit and push it.`,
-  );
+  shareTip("saved", key, scope, storePath);
+}
+
+/**
+ * The daemon's snapshot engines commit and push the user and team repos on
+ * their own, so a write normally needs no follow-up and prints nothing. A tip
+ * prints only when that sync cannot happen: the repo has no origin, or
+ * rt.homeSnapshot / rt.teamSnapshot is disabled (a read failure counts as
+ * enabled, as the daemon treats it). A pull-only (joined) team clone never
+ * gets here: resolveStorePath refuses the write. It assumes the daemon is
+ * running; nothing here checks.
+ */
+function shareTip(verb: "saved" | "removed", key: string, scope: SettingScope, storePath: string): void {
+  if (scope === "machine") return;
+  const lead = verb === "saved" ? `rt: saved "${key}" in` : `rt: removed "${key}" from`;
+  const what = verb === "saved" ? "it" : "the change";
+  if (scope === "user") {
+    const repo = dirname(storePath);
+    if (!hasOrigin(repo)) {
+      console.error(`${lead} your user store on this machine only; ${repo} has no remote, so ${what} will not reach your other machines`);
+    } else if (!snapshotEnabled("rt.homeSnapshot")) {
+      console.error(`${lead} your user store, but automatic sync is off (rt.homeSnapshot); commit and push ${repo} to share ${what} with your other machines`);
+    }
+    return;
+  }
+  const repo = dirname(dirname(storePath));
+  const team = basename(repo);
+  if (!hasOrigin(repo)) {
+    console.error(`${lead} the team store on this machine only; the team repo has no remote yet, so run \`rt team publish --team ${team} --remote <url>\` to share ${what} with the team`);
+  } else if (!snapshotEnabled("rt.teamSnapshot")) {
+    console.error(`${lead} the team store, but automatic team sync is off (rt.teamSnapshot); run \`rt team publish --team ${team}\` to share ${what} with the team`);
+  }
+}
+
+/**
+ * Mirrors parseOriginUrl in lib/setup/team-settings.ts, which the team
+ * snapshot uses to decide whether a clone has a remote at all. A `.git` file
+ * (a linked worktree or submodule) is followed one hop; anything it cannot
+ * resolve answers true, so an unreadable layout never prints a wrong tip.
+ */
+function hasOrigin(repo: string): boolean {
+  const dotGit = join(repo, ".git");
+  let gitDir = dotGit;
+  try {
+    if (statSync(dotGit).isFile()) {
+      const pointer = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1]?.trim();
+      if (!pointer) return true;
+      gitDir = resolve(repo, pointer);
+      const common = join(gitDir, "commondir");
+      if (existsSync(common)) gitDir = resolve(gitDir, readFileSync(common, "utf8").trim());
+      if (!existsSync(join(gitDir, "config"))) return true;
+    }
+  } catch {
+    return false;
+  }
+  try {
+    return /\[remote "origin"\][^[]*?(?:^|\n)\s*url\s*=\s*(\S+)/m.test(readFileSync(join(gitDir, "config"), "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+function snapshotEnabled(key: "rt.homeSnapshot" | "rt.teamSnapshot"): boolean {
+  try {
+    return getSetting<{ enabled?: boolean } | undefined>(key).value?.enabled !== false;
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -210,7 +272,7 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
  * clean no-op rather than a refusal (an explicit `opts.team` naming a team
  * with no local store included — nothing to remove is success, not an error),
  * and a key not present in the store is a no-op. Returns whether anything was
- * actually removed; the local-only reminder prints only on a real removal.
+ * actually removed; the share tip prints only on a real removal.
  * A retired key is not in the registry but may linger in a store, so it can
  * still be removed from any scope.
  */
@@ -261,11 +323,7 @@ function removeKeyFromScope(key: string, scope: SettingScope, opts: SetSettingOp
 
   const removed = removeFromStore(storePath, planPaths);
 
-  if (removed) {
-    console.error(
-      `rt: removed "${key}" from the local ${scope} store (${storePath}) — this is local only until you commit and push it.`,
-    );
-  }
+  if (removed) shareTip("removed", key, scope, storePath);
   return removed;
 }
 
@@ -532,7 +590,7 @@ export function pruneStoreName(key: string, storeName: string, scope: SettingSco
     return [[...sectionPath, storeName], ...(baselinesOf(section)[storeName] !== undefined ? [[...sectionPath, MIGRATED_PROP, storeName]] : [])];
   });
   if (!removed) return { removed };
-  console.error(`rt: removed "${storeName}" from the local ${scope} store (${storePath}); this is local only until you commit and push it.`);
+  shareTip("removed", storeName, scope, storePath);
   return { removed, authored };
 }
 
