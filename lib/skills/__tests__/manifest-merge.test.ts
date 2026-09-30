@@ -62,7 +62,7 @@ describe("parseFragment", () => {
   });
   test.each([
     ["a null binding value", '{ "bindings": { "mattstack:stage-gates": null } }'],
-    ["an empty binding fill", '{ "bindings": { "mattstack:stage-gates": { "domain": "" } } }'],
+    ["a non-string binding fill", '{ "bindings": { "mattstack:stage-gates": { "domain": 1 } } }'],
     ["a string skills.enabled", '{ "skills": { "enabled": "widgets:work" } }'],
     ["a non-array pipeline", '{ "pipelines": { "feature": "stage-plan" } }'],
     ["a non-string extends", '{ "extends": 1 }'],
@@ -70,6 +70,9 @@ describe("parseFragment", () => {
     const path = "/zone/packs/gadgets/pack/skills.jsonc";
     expect(() => parseFragment(text, path)).toThrow(FragmentError);
     expect(() => parseFragment(text, path)).toThrow(/gadgets\/pack\/skills\.jsonc/);
+  });
+  test("an empty binding fill parses, since it unbinds the slot", () => {
+    expect(parseFragment('{ "bindings": { "mattstack:stage-gates": { "domain": "" } } }', "/f.jsonc").bindings).toEqual({ "mattstack:stage-gates": { domain: "" } });
   });
 });
 

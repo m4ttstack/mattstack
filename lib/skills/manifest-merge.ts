@@ -43,8 +43,9 @@ function shapeError(doc: Record<string, unknown>): string | null {
     if (!isObject(doc.bindings)) return "bindings is not an object";
     for (const [engineRef, slots] of Object.entries(doc.bindings)) {
       if (!isObject(slots)) return `bindings.${engineRef} is not an object`;
+      // An empty fill is how a later layer unbinds a slot an earlier one filled; compile reads it as unbound.
       for (const [slot, fill] of Object.entries(slots)) {
-        if (typeof fill !== "string" || fill === "") return `bindings.${engineRef}.${slot} is not a non-empty string`;
+        if (typeof fill !== "string") return `bindings.${engineRef}.${slot} is not a string`;
       }
     }
   }
