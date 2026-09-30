@@ -20,6 +20,10 @@ describe("findInstalledPluginDir", () => {
   test("refuses a ref without a marketplace", () => {
     expect(findInstalledPluginDir(fs({}), "/h", "acme-base")).toBeNull();
   });
+  test("refuses an uppercase ref, as the manifest schema does", () => {
+    const f = fs({ [`${cache}/Acme/Acme-Base`]: ["0.1.0"], [`${cache}/Acme/Acme-Base/0.1.0`]: [] });
+    expect(findInstalledPluginDir(f, "/h", "Acme-Base@Acme")).toBeNull();
+  });
   test("the engine pack ref is mattstack@mattstack", () => {
     expect(ENGINE_PACK_REF).toBe("mattstack@mattstack");
   });

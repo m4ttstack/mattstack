@@ -1498,8 +1498,13 @@ function materializeExitCode(result: MaterializeSkillsResult, single: boolean): 
 
 export async function skillsMaterialize(args: string[]): Promise<void> {
   const json = args.includes("--json");
-  const repo = skillsFlagValue(args, "--repo");
-  const dir = skillsFlagValue(args, "--dir");
+  const flag = (name: string) => (args.includes(name) ? requireFlagValue(name, skillsFlagValue(args, name)) : undefined);
+  let repo: string | undefined;
+  let dir: string | undefined;
+  await withCleanErrors(async () => {
+    repo = flag("--repo");
+    dir = flag("--dir");
+  });
 
   try {
     const result = await materializeSkills(createRealProbes(), { repo, dir });

@@ -38,6 +38,15 @@ describe("mergeLayers", () => {
     expect(a.bindings["mattstack:stage-gates"]!.domain).toBe("widgets:gates");
     expect(b.bindings["mattstack:stage-gates"]!.domain).toBe("gadgets:gates");
   });
+
+  test("a __proto__ engine ref, slot or work type never reaches Object.prototype", () => {
+    const text = '{ "bindings": { "__proto__": { "polluted": "widgets:gates" }, "mattstack:stage-gates": { "__proto__": "widgets:x" } }, "pipelines": { "__proto__": ["stage-plan"] } }';
+    const merged = mergeLayers([{ label: "pack", fragment: parseFragment(text, "/p/skills.jsonc") }]);
+    expect(Object.prototype.hasOwnProperty.call(Object.prototype, "polluted")).toBe(false);
+    expect(Array.isArray(Object.getPrototypeOf(merged.pipelines))).toBe(false);
+    expect(Object.keys(merged.bindings)).toContain("__proto__");
+    expect(Object.keys(merged.bindings["mattstack:stage-gates"]!)).toEqual(["__proto__"]);
+  });
 });
 
 describe("parseFragment", () => {

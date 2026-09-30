@@ -33,7 +33,8 @@ export function parseFragment(text: string, path: string): Fragment {
 }
 
 export function mergeLayers(layers: Layer[]): MergedManifest {
-  const out: MergedManifest = { enabled: [], pipelines: {}, bindings: {}, provenance: {} };
+  // Fragment keys are untrusted: a "__proto__" key assigned into a plain object would write through to Object.prototype.
+  const out: MergedManifest = { enabled: [], pipelines: Object.create(null), bindings: Object.create(null), provenance: Object.create(null) };
   for (const { label, fragment } of layers) {
     for (const name of fragment.skills?.enabled ?? []) {
       if (!out.enabled.includes(name)) out.enabled.push(name);
@@ -44,7 +45,7 @@ export function mergeLayers(layers: Layer[]): MergedManifest {
     }
     for (const [engineRef, slots] of Object.entries(fragment.bindings ?? {})) {
       for (const [slot, fill] of Object.entries(slots)) {
-        (out.bindings[engineRef] ??= {})[slot] = fill;
+        (out.bindings[engineRef] ??= Object.create(null) as Record<string, string>)[slot] = fill;
         out.provenance[`${engineRef} ${slot}`] = label;
       }
     }

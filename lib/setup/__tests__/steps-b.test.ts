@@ -1156,12 +1156,13 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(logs.some((l) => l.line.includes("forge login unavailable"))).toBe(true);
     });
 
-    /** A team zone at ~/.mattstack/teams/acme whose mattstack/packs holds each named plugin dir, each with its plugin.json. */
-    function teamPackProbes(packs: string[]) {
+    /** A team zone at ~/.mattstack/teams/acme whose mattstack/packs holds each named pack with its pack/skills.jsonc, plus plugin dirs that carry only a plugin.json. */
+    function teamPackProbes(packs: string[], pluginsOnly: string[] = []) {
       const packsDir = join(home, ".mattstack", "teams", "acme", "mattstack", "packs");
       const files: Record<string, string> = {};
-      const dirs: Record<string, string[]> = { [packsDir]: [...packs] };
-      for (const pack of packs) files[join(packsDir, pack, ".claude-plugin", "plugin.json")] = JSON.stringify({ name: pack });
+      const dirs: Record<string, string[]> = { [packsDir]: [...packs, ...pluginsOnly] };
+      for (const pack of packs) files[join(packsDir, pack, "pack", "skills.jsonc")] = "{}";
+      for (const plugin of pluginsOnly) files[join(packsDir, plugin, ".claude-plugin", "plugin.json")] = JSON.stringify({ name: plugin });
       return fakeProbes({ home, files, dirs });
     }
 
@@ -1171,6 +1172,12 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx } = makeCtx(teamPackProbes(["widgets", "gadgets"]), { team: ACME_TEAM });
       const outcome = await boardKeysStep.run(ctx);
       expect(detailOf(outcome)).toContain("board.defaultPack");
+      expect(getSetting("board.defaultPack").value).toBe("gadgets");
+    });
+
+    test("a plugin dir with no pack/skills.jsonc is not a pack", async () => {
+      const { ctx } = makeCtx(teamPackProbes(["widgets", "gadgets"], ["acme-tools"]), { team: ACME_TEAM });
+      await boardKeysStep.run(ctx);
       expect(getSetting("board.defaultPack").value).toBe("gadgets");
     });
 

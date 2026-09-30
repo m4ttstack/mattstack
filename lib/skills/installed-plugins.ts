@@ -4,7 +4,7 @@ export type PluginFs = { exists(p: string): boolean; readDir(p: string): string[
 
 export const ENGINE_PACK_REF = "mattstack@mattstack";
 
-export const PLUGIN_REF_RE = /^([a-z0-9][a-z0-9-]*)@([a-z0-9][a-z0-9-]*)$/i;
+export const PLUGIN_REF_RE = /^([a-z0-9][a-z0-9-]*)@([a-z0-9][a-z0-9-]*)$/;
 
 /** Dotted-numeric compare, missing segments treated as 0; version dirs here are plain "x.y.z". */
 export function compareVersions(a: string, b: string): number {

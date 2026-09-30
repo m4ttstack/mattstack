@@ -2261,6 +2261,15 @@ describe("skillsMaterialize --dir exit codes", () => {
     writeFile(join(zone, "packs", "widgets", "pack", "skills.jsonc"), "{}");
   }
 
+  test("a bare --dir is a usage error, never the every-repo sweep", async () => {
+    process.env.RT_ENGINE_PACK_DIR = ENGINE;
+    declareWidgets();
+    const { exitCode, errors } = await runExpectingCleanExit(() => skillsMaterialize(["--dir"]));
+    expect(exitCode).toBe(1);
+    expect(errors[0]).toContain("--dir needs a value");
+    expect(logs).toEqual([]);
+  });
+
   test("a checkout no team declares exits 2", async () => {
     process.env.RT_ENGINE_PACK_DIR = ENGINE;
     await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/gadgets.git")]);
