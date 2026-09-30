@@ -48,6 +48,7 @@ import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, 
 import { STEPS } from "../lib/setup/steps/index.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
+import { markSetupFinished } from "../lib/setup/state.ts";
 import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
 import type { Plan, Row, RowStatus } from "../lib/setup/contract.ts";
 import { createRelayClient, inviteRelayUrl, type RelayClient } from "../lib/team/relay-client.ts";
@@ -558,6 +559,20 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
     }
     throw err;
   }
+}
+
+// ─── finish (`rt setup finish`) ─────────────────────────────────────────
+
+export type FinishDeps = IntentDeps;
+
+/** mattstack.app runs this at the wizard's Finish; until it has, every launch reopens setup. */
+export async function setupFinish(args: string[], _ctx: CommandContext = {}, deps: FinishDeps = realIntentDeps()): Promise<void> {
+  const { finishedAt } = markSetupFinished(deps.probes);
+  if (args.includes("--json")) {
+    deps.print(JSON.stringify(envelope({ ok: true, finishedAt }, deps.probes.now())));
+    return;
+  }
+  deps.print("setup finish: setup is finished on this Mac");
 }
 
 // ─── repo-root (`rt setup repo-root set`) ──────────────────────────────────
