@@ -303,6 +303,11 @@ describe("watchPipeline", () => {
     const { deps } = fake([mr(SHA, pipe({ status: "running" }))], { failedJobs: async () => null });
     expect(await watchPipeline({ ...base, maxWaitSeconds: 60 }, deps)).toMatchObject({ state: "running", polls: 3 });
   });
+  test("a fetched failed row replaces a cached row with the same id that still reads running", async () => {
+    const stale = { id: "gitlab:job:7", name: "integration", stage: "test", status: "running", allowFailure: false, webUrl: null };
+    const { deps } = fake([mr(SHA, pipe({ status: "running", jobs: [stale] }))], { failedJobs: async () => [{ ...stale, status: "failed" }] });
+    expect(await watchPipeline(base, deps)).toMatchObject({ state: "failed", blockingFailures: 1, polls: 1 });
+  });
   test("fetched failed jobs take the trace slots before cached ones", async () => {
     const cached = Array.from({ length: 5 }, (_, i) => ({ id: `gitlab:job:${i + 1}`, name: `c${i}`, stage: "test", status: "failed", allowFailure: false, webUrl: null }));
     const child = { id: "gitlab:job:9", name: "integration", stage: "test", status: "failed", allowFailure: false, webUrl: null };
