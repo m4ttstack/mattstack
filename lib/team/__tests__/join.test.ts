@@ -7,7 +7,7 @@ import { intentPath, readIntent, type InvitePointer, type SetupIntent } from "..
 import type { Probes } from "../../setup/probes.ts";
 import type { SettingsReader } from "../../setup/team-settings.ts";
 import { decodeCode, encodeCode, openReply, seal } from "../invite-crypto.ts";
-import { JoinKeyExchangeError, joinDryRun, joinRedeem, type JoinRedeemSeams } from "../join.ts";
+import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, type JoinRedeemSeams } from "../join.ts";
 import type { RelayClient } from "../relay-client.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
@@ -150,6 +150,7 @@ function baseJoinRedeemSeams(overrides: Partial<JoinRedeemSeams> = {}): {
       return "zaphod";
     }) as JoinRedeemSeams["forgeLogin"],
     forgeToken: async () => null,
+    localStoreReady: async () => true,
     writeLocalSecret: async (key, value) => {
       calls.secretWrites.push({ key, value });
     },
@@ -950,7 +951,7 @@ describe("joinRedeem", () => {
     expect(result.message).toContain("re-invite");
   });
 
-  test("a failing switchboardToken write → peering:unavailable without failing the join", async () => {
+  test("a minted board token that cannot be stored stops the join before the reply, keeping the intent so a plain rerun finishes it", async () => {
     const p = redeemProbes({
       fetch: async () => ({ status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-1" }), headers: {} }),
     });
@@ -963,10 +964,209 @@ describe("joinRedeem", () => {
       },
     });
 
-    const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
+    const caught = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams).catch((err: unknown) => err);
 
-    expect(result.peering).toBe("unavailable");
-    expect(result.access).toBe("ok");
+    expect(caught).toBeInstanceOf(JoinPeeringStoreError);
+    expect((caught as Error).message).toContain("keychain locked");
+    expect((caught as Error).message).toContain("run `rt team join` again");
+    expect(relay.callOrder).toEqual(["fetch", "redeem"]);
+    expect(p.calls.removed).not.toContain(intentPath(HOME));
+  });
+
+  describe("a join never burns an invite whose board token has nowhere to go", () => {
+    const DECLARED = { "mattstack.integrations": { switchboard: { url: "https://sb.test" } } };
+    const EMBEDDED = { ...POINTER, switchboard: { url: "https://sb.test", token: "tok-emb" } };
+
+    test("a declared switchboard with no personal secrets store yet refuses before redeeming, names rt home init, and keeps the intent", async () => {
+      const p = redeemProbes();
+      const relay = fakeRelay({ fetch: relayServing(EMBEDDED) });
+      const { seams, calls } = baseJoinRedeemSeams({ read: fakeRead(DECLARED), localStoreReady: async () => false });
+
+      const caught = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams).catch((err: unknown) => err);
+
+      expect(caught).toBeInstanceOf(UserActionableError);
+      expect((caught as UserActionableError).code).toBe("secrets-store-not-ready");
+      expect((caught as Error).message).toContain("rt home init");
+      expect((caught as Error).message).toContain("no new code needed");
+      expect((caught as Error).message).not.toContain("has not been used");
+      expect(relay.redeemCalls).toEqual([]);
+      expect(calls.secretWrites).toEqual([]);
+      expect(readIntent(p)?.join?.pointer.switchboard?.token).toBe("tok-emb");
+    });
+
+    test("a team with no switchboard never consults the store, so a fresh machine still joins", async () => {
+      const p = redeemProbes();
+      const relay = fakeRelay();
+      let consulted = false;
+      const { seams } = baseJoinRedeemSeams({
+        localStoreReady: async () => {
+          consulted = true;
+          return false;
+        },
+      });
+
+      const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
+
+      expect(result.access).toBe("ok");
+      expect(result.peering).toBe("idle");
+      expect(consulted).toBe(false);
+    });
+
+    test("a declared switchboard whose invite carried no token never consults the store: there is nothing sealed to lose", async () => {
+      const p = redeemProbes();
+      const relay = fakeRelay();
+      let consulted = false;
+      const { seams } = baseJoinRedeemSeams({
+        read: fakeRead(DECLARED),
+        localStoreReady: async () => {
+          consulted = true;
+          return false;
+        },
+      });
+
+      const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
+
+      expect(result.access).toBe("ok");
+      expect(result.peering).toBe("unavailable");
+      expect(consulted).toBe(false);
+    });
+
+    test("an embedded token for a different switchboard never consults the store: it is refused anyway", async () => {
+      const p = redeemProbes();
+      const relay = fakeRelay({ fetch: relayServing({ ...POINTER, switchboard: { url: "https://evil.test", token: "tok-x" } }) });
+      let consulted = false;
+      const { seams } = baseJoinRedeemSeams({
+        read: fakeRead(DECLARED),
+        localStoreReady: async () => {
+          consulted = true;
+          return false;
+        },
+      });
+
+      const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
+
+      expect(result.peering).toBe("unavailable");
+      expect(consulted).toBe(false);
+    });
+
+    test("an embedded token whose store write fails after redeem throws a resumable error: no reply, intent kept with the token", async () => {
+      const p = redeemProbes();
+      const relay = fakeRelay({ fetch: relayServing(EMBEDDED) });
+      const { seams } = baseJoinRedeemSeams({
+        read: fakeRead(DECLARED),
+        writeLocalSecret: async () => {
+          throw new Error("sops: no matching creation rules");
+        },
+      });
+
+      const caught = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams).catch((err: unknown) => err);
+
+      expect(caught).toBeInstanceOf(JoinPeeringStoreError);
+      expect((caught as Error).message).toContain("sops: no matching creation rules");
+      expect((caught as Error).message).toContain("no new code needed");
+      expect(relay.replyCalls).toEqual([]);
+      expect(p.calls.removed).not.toContain(intentPath(HOME));
+      expect(readIntent(p)?.join?.pointer.switchboard?.token).toBe("tok-emb");
+    });
+
+    test("rerunning after the store is fixed resumes from the intent: stores the sealed token, posts the reply, clears the intent", async () => {
+      const p = redeemProbes();
+      const relay = fakeRelay({ fetch: relayServing(EMBEDDED) });
+      const failing = baseJoinRedeemSeams({
+        read: fakeRead(DECLARED),
+        writeLocalSecret: async () => {
+          throw new Error("sops: no matching creation rules");
+        },
+      });
+      await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, failing.seams).catch(() => undefined);
+
+      const relay2 = fakeRelay({ fetch: async () => "gone" });
+      const { seams, calls } = baseJoinRedeemSeams({ read: fakeRead(DECLARED) });
+      const result = await joinRedeem(p, relay2.client, () => NO_SECRETS, {}, seams);
+
+      expect(result.access).toBe("ok");
+      expect(result.peering).toBe("applied");
+      expect(calls.secretWrites).toEqual([{ key: "switchboardToken", value: "tok-emb" }]);
+      expect(relay2.replyCalls).toHaveLength(1);
+      expect(p.calls.removed).toContain(intentPath(HOME));
+    });
+  });
+
+  describe("peering unavailable carries its fix in the result", () => {
+    test("an invite that carried no board token: peeringFix asks the owner for a fresh invite for this handle", async () => {
+      const p = redeemProbes();
+      const relay = fakeRelay();
+      const { seams } = baseJoinRedeemSeams({
+        read: fakeRead({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }),
+        readTeamSecret: async () => null,
+      });
+
+      const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
+
+      expect(result.access).toBe("ok");
+      expect(result.peering).toBe("unavailable");
+      expect(result.peeringFix).toContain("rt team invite --handle zaphod");
+      expect(result.peeringFix).toContain("or ask them to re-invite your board from the board's members panel");
+      expect(result.message).toContain(result.peeringFix!);
+    });
+
+    test("a non-https declared switchboard: the fix names the owner's team settings, not a re-invite", async () => {
+      const p = redeemProbes();
+      const relay = fakeRelay();
+      const { seams } = baseJoinRedeemSeams({ read: fakeRead({ "mattstack.integrations": { switchboard: { url: "http://sb.lan" } } }) });
+
+      const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
+
+      expect(result.peering).toBe("unavailable");
+      expect(result.peeringFix).toContain("must be https");
+    });
+
+    test("a join that ends with peering unavailable stamps peeringPending on the team's local record", async () => {
+      const p = redeemProbes();
+      const { seams } = baseJoinRedeemSeams({ read: fakeRead({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }) });
+
+      await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+      expect(readTeamLocal(p, POINTER.team).peeringPending).toBe(true);
+    });
+
+    test("a non-https declared switchboard is not stamped: only the owner can fix the URL, so a re-invite would not help", async () => {
+      const p = redeemProbes();
+      const { seams } = baseJoinRedeemSeams({ read: fakeRead({ "mattstack.integrations": { switchboard: { url: "http://sb.lan" } } }) });
+
+      const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+      expect(result.peering).toBe("unavailable");
+      expect(readTeamLocal(p, POINTER.team).peeringPending).toBeUndefined();
+    });
+
+    test("a join that peers clears an earlier stamp", async () => {
+      const p = redeemProbes();
+      updateTeamLocal(p, POINTER.team, { peeringPending: true });
+      const embedded = { ...POINTER, switchboard: { url: "https://sb.test", token: "tok-emb" } };
+      const { seams } = baseJoinRedeemSeams({ read: fakeRead({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }) });
+
+      await joinRedeem(p, fakeRelay({ fetch: relayServing(embedded) }).client, () => NO_SECRETS, { code: CODE }, seams);
+
+      expect(readTeamLocal(p, POINTER.team).peeringPending).toBeUndefined();
+    });
+
+    test("applied and idle peering carry no fix", async () => {
+      const idle = await joinRedeem(redeemProbes(), fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+      expect(idle.peering).toBe("idle");
+      expect("peeringFix" in idle).toBe(false);
+
+      const embedded = { ...POINTER, switchboard: { url: "https://sb.test", token: "tok-emb" } };
+      const applied = await joinRedeem(
+        redeemProbes(),
+        fakeRelay({ fetch: relayServing(embedded) }).client,
+        () => NO_SECRETS,
+        { code: CODE },
+        baseJoinRedeemSeams({ read: fakeRead({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }) }).seams,
+      );
+      expect(applied.peering).toBe("applied");
+      expect("peeringFix" in applied).toBe(false);
+    });
   });
 
   test("no switchboard url → peering idle, no peer/join request", async () => {

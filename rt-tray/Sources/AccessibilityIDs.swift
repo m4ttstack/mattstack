@@ -140,6 +140,7 @@ enum AXID {
     static let settingsTeamCopyPaste = "settings.team.copyPasteBlock"
     static let settingsTeamCopyLink = "settings.team.copyLink"
     static let settingsTeamShareInvite = "settings.team.shareInvite"
+    static let settingsTeamInvitePeeringWarning = "settings.team.invitePeeringWarning"
     static let settingsTeamJoinAnother = "settings.team.joinAnother"
     static let settingsTeamCreate = "settings.team.create"
     static let settingsUninstall = "settings.uninstall.button"

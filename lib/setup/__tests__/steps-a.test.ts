@@ -14,9 +14,9 @@ import { linkPath } from "../../deps/links.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { createRealProbes } from "../probes.ts";
 import type { ExecResult, Probes } from "../probes.ts";
-import type { SecretsExecResult, SecretsExecSeam, SecretsSeams } from "../../secrets/store.ts";
+import { secretsFilePath, type SecretsExecResult, type SecretsExecSeam, type SecretsSeams } from "../../secrets/store.ts";
 import { readTeamSecret, teamSopsYamlPath } from "../../secrets/team-store.ts";
-import { teamLocalPath, writeTeamLocal } from "../../team/team-local.ts";
+import { readTeamLocal, teamLocalPath, writeTeamLocal } from "../../team/team-local.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import { runApplyWith } from "../apply.ts";
@@ -28,7 +28,9 @@ import { readStagedRepoRoot, stageRepoRoot } from "../repo-root.ts";
 import { fakeProbes } from "./fakes.ts";
 
 import { homeInitStep, homeRestoreStep } from "../steps/home.ts";
-import { teamCreateStep, teamJoinStep } from "../steps/team.ts";
+import { outcomeFromJoin, outcomeFromJoinError, teamCreateStep, teamJoinStep } from "../steps/team.ts";
+import { JoinPeeringStoreError, type JoinResult } from "../../team/join.ts";
+import { UserActionableError } from "../errors.ts";
 import { secretsWriteStep } from "../steps/secrets.ts";
 import { pathLinkStep } from "../steps/path.ts";
 import { settingsSeedStep } from "../steps/settings.ts";
@@ -551,6 +553,115 @@ describe("team.join", () => {
     expect((outcome as { remedy?: string }).remedy).toBe(
       "Unlock your keychain, then Retry — the invite is already redeemed, so Retry resumes here without a new code",
     );
+  });
+});
+
+describe("team.join outcomes", () => {
+  const joined: JoinResult = { team: { slug: "acme", name: "Acme", owner: "bob" }, access: "ok", peering: "applied", message: "Joined Acme (owner bob)", intent: "written" };
+
+  test("a join that peered, or had nothing to peer, is done", () => {
+    expect(outcomeFromJoin(joined)).toEqual({ state: "done", detail: "Joined Acme (owner bob)" });
+    expect(outcomeFromJoin({ ...joined, peering: "idle" }).state).toBe("done");
+  });
+
+  test("a join that ended without a stored board token is partial, never done, with the fix as its remedy", () => {
+    const fix = "ask bob for a new invite (`rt team invite --handle carol`) and run `rt team join` with it";
+    const outcome = outcomeFromJoin({ ...joined, peering: "unavailable", peeringFix: fix, message: `Joined Acme (owner bob); board peering could not be set up automatically... ${fix}` });
+    expect(outcome.state).toBe("partial");
+    expect((outcome as { remedy?: string }).remedy).toBe(fix);
+    expect((outcome as { detail: string }).detail).toContain("board peering could not be set up");
+  });
+
+  test("a board token that could not be stored after the redeem fails the step with a resume remedy, so Install stops before the intent is cleared", () => {
+    const outcome = outcomeFromJoinError(new JoinPeeringStoreError("joined Acme and redeemed the invite, but could not store your board's switchboard token (sops)"));
+    expect(outcome.state).toBe("failed");
+    expect((outcome as { remedy?: string }).remedy).toBe(
+      "Fix the secrets store (Retry from home.init if it never ran), then Retry: the invite is already redeemed, so Retry resumes here without a new code",
+    );
+  });
+
+  test("a secrets store that is not ready before the redeem fails with a home.init remedy that holds on a resumed run too", () => {
+    const outcome = outcomeFromJoinError(new UserActionableError("secrets-store-not-ready", "not set up yet"));
+    expect(outcome).toEqual({ state: "failed", detail: "not set up yet", remedy: "Retry from home.init (or run `rt home init`), then Retry: no new code needed" });
+  });
+});
+
+describe("team.join after the join itself finished", () => {
+  const TEAMS = "/fake-home/.mattstack/teams";
+
+  /** Two cloned teams, so the stamp on the second proves every team is checked, not just ctx.team (teams[0]). */
+  function joinedCtx(opts: { stamp?: boolean; boardEnv?: string; secrets?: SecretsSeams; betaSwitchboard?: string | null } = {}): { ctx: ApplyContext; p: Probes; secrets: SecretsSeams } {
+    const betaSwitchboard = opts.betaSwitchboard === undefined ? "https://sb.test" : opts.betaSwitchboard;
+    const betaSettings = betaSwitchboard === null ? {} : { "mattstack.integrations": { switchboard: { url: betaSwitchboard } } };
+    const files: Record<string, string> = {
+      [`${TEAMS}/alpha/mattstack/settings.team.jsonc`]: "{}",
+      [`${TEAMS}/beta/mattstack/settings.team.jsonc`]: `// team settings\n${JSON.stringify(betaSettings)}\n`,
+    };
+    if (opts.boardEnv !== undefined) files["/fake-home/.mattstack/board/.env"] = opts.boardEnv;
+    const p = fakeProbes({ home: "/fake-home", files, dirs: { [TEAMS]: ["alpha", "beta"] } });
+    writeTeamLocal(p, "beta", { createdByRt: false, joinedByRt: true, rtMayManageMembership: false, ...(opts.stamp !== false ? { peeringPending: true } : {}) });
+    const secrets = opts.secrets ?? fakeSecrets();
+    const { ctx } = makeCtx(p, { team: { slug: "alpha", name: "alpha", mode: "none" }, secrets });
+    return { ctx, p, secrets };
+  }
+
+  test("only a team a join stamped as peering-pending keeps the step in the plan", () => {
+    expect(teamJoinStep.applies(joinedCtx().ctx)).toBe(true);
+    expect(teamJoinStep.applies(joinedCtx({ stamp: false }).ctx)).toBe(false);
+  });
+
+  test("rerun after a partial join stays partial while neither token source holds a token", async () => {
+    const { ctx, p } = joinedCtx();
+    const outcome = await teamJoinStep.run(ctx);
+    expect(outcome.state).toBe("partial");
+    expect((outcome as { detail: string }).detail).toContain("beta");
+    expect((outcome as { remedy?: string }).remedy).toContain("rt team invite --handle");
+    expect((outcome as { remedy?: string }).remedy).toContain("or ask them to re-invite your board from the board's members panel");
+    expect(readTeamLocal(p, "beta").peeringPending).toBe(true);
+  });
+
+  test("a token only in the board's own .env (its peer-join) is no partial, and clears the stamp", async () => {
+    const { ctx, p } = joinedCtx({ boardEnv: "SWITCHBOARD_TOKEN=tok-board\n" });
+    const outcome = await teamJoinStep.run(ctx);
+    expect(outcome).toEqual({ state: "skipped", detail: "already joined — no invite in progress" });
+    expect(readTeamLocal(p, "beta").peeringPending).toBeUndefined();
+  });
+
+  test("a team that dropped its switchboard, or declares a non-https one, has its stamp cleared instead of a permanent partial", async () => {
+    for (const betaSwitchboard of [null, "http://sb.lan"]) {
+      const { ctx, p } = joinedCtx({ betaSwitchboard });
+      expect(await teamJoinStep.run(ctx)).toEqual({ state: "skipped", detail: "already joined — no invite in progress" });
+      expect(readTeamLocal(p, "beta").peeringPending).toBeUndefined();
+      expect(teamJoinStep.applies(ctx)).toBe(false);
+    }
+  });
+
+  test("the stamp clears after a later store of rt's own token, and the step leaves the plan", async () => {
+    const { ctx, p, secrets } = joinedCtx();
+    expect((await teamJoinStep.run(ctx)).state).toBe("partial");
+
+    (secrets.execSeam as FakeSecretsExecSeam).files.set(secretsFilePath("rt"), JSON.stringify({ switchboardToken: "tok-later" }));
+    expect((await teamJoinStep.run(ctx)).state).toBe("skipped");
+    expect(readTeamLocal(p, "beta").peeringPending).toBeUndefined();
+    expect(teamJoinStep.applies(ctx)).toBe(false);
+  });
+
+  test("a secrets store that cannot be read is partial with a keychain remedy, never read as absent", async () => {
+    const execSeam = new FakeSecretsExecSeam();
+    execSeam.files.set(secretsFilePath("rt"), "{}");
+    const locked: SecretsSeams = { ageKeySeam: { async run() { return { code: 1, stdout: "", stderr: "keychain locked" }; } }, execSeam };
+    const { ctx, p } = joinedCtx({ secrets: locked });
+    const outcome = await teamJoinStep.run(ctx);
+    expect(outcome.state).toBe("partial");
+    expect((outcome as { detail: string }).detail).toContain("could not read your secrets store");
+    expect((outcome as { remedy?: string }).remedy).toBe("Unlock your keychain, then Retry");
+    expect(readTeamLocal(p, "beta").peeringPending).toBe(true);
+  });
+
+  test("the row reads as team membership on an already-joined machine, and as joining while an invite is in progress", () => {
+    expect(teamJoinStep.titleFor?.(joinedCtx().ctx)).toBe("Team membership");
+    const { ctx } = makeCtx(fakeProbes(), { intent: joinIntent });
+    expect(teamJoinStep.titleFor?.(ctx)).toBe("Join your team");
   });
 });
 

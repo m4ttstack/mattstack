@@ -251,7 +251,8 @@ describe("teamInvite", () => {
 
     expect(deps.lines).toHaveLength(1);
     const parsed = JSON.parse(deps.lines[0]!);
-    expect(Object.keys(parsed).sort()).toEqual(["at", "code", "contract", "expiresAt", "forgeAccess", "link", "manualSteps", "pasteBlock"]);
+    expect(Object.keys(parsed).sort()).toEqual(["at", "code", "contract", "expiresAt", "forgeAccess", "link", "manualSteps", "pasteBlock", "peering"]);
+    expect(parsed.peering).toBe("none");
     expect(typeof parsed.at).toBe("string");
     // `code` is a fresh random secret every mint — every other field is exact, and pasteBlock is exact once code is known.
     expect(typeof parsed.code).toBe("string");
@@ -266,6 +267,43 @@ describe("teamInvite", () => {
     expect(parsed.manualSteps).toHaveLength(3);
     expect((parsed.manualSteps as string[]).at(-1)).toContain("Ask whoever administers");
     expect(parsed.pasteBlock).toBe(pasteBlock(parsed.code, { link: parsed.link, teamName: "Acme Team" }));
+  });
+
+  describe("board peering the invite could not carry is never silent", () => {
+    function declareSwitchboard(): void {
+      writeFileSync(
+        join(teamDir, "mattstack", "settings.team.jsonc"),
+        `${JSON.stringify({ "board.title": "Acme Team", "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }, null, 2)}\n`,
+      );
+    }
+
+    test("--json reports peering missing with the warning, and still mints", async () => {
+      declareSwitchboard();
+      const deps = inviteDeps();
+      const stderr = spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await teamInvite(["--handle", "zaphod", "--json"], {}, deps);
+      } finally {
+        stderr.mockRestore();
+      }
+
+      const parsed = JSON.parse(deps.lines[0]!);
+      expect(parsed.peering).toBe("missing");
+      expect(parsed.peeringWarning).toContain("board peering was not embedded");
+      expect(typeof parsed.code).toBe("string");
+    });
+
+    test("--require-peering refuses with exit 2 before the relay is touched", async () => {
+      declareSwitchboard();
+      let relayCalls = 0;
+      const deps = inviteDeps({ onRelay: () => { relayCalls++; } });
+
+      const code = await runExpectingProcessExit(() => teamInvite(["--handle", "zaphod", "--require-peering", "--json"], {}, deps));
+
+      expect(code).toBe(2);
+      expect(JSON.parse(deps.lines[0]!).error.code).toBe("peering-not-embedded");
+      expect(relayCalls).toBe(0);
+    });
   });
 
   test("a joined machine refuses before the relay is ever touched", async () => {
