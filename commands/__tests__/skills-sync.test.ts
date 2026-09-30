@@ -60,7 +60,7 @@ describe("deriveEngine", () => {
       { id: "mattstack@other", installPath: disabled, enabled: false, scope: "local" },
     ]);
 
-    expect("engine" in result && result.engine).toMatchObject({ dir: projectScope, marketplace: "mirror", installedCache: true });
+    expect("engine" in result && result.engine).toMatchObject({ dir: projectScope, marketplace: "mirror", installedCache: true, scope: "project" });
   });
 
   test("a directory-marketplace engine wins over the installed cache", () => {

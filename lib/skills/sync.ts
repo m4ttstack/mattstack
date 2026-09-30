@@ -168,8 +168,17 @@ async function listInstalled(deps: SyncDeps): Promise<PluginListEntry[]> {
  * The engine as sync sees it. `installedCache` marks an engine installed from
  * a non-directory marketplace: its dir is Claude Code's own plugin cache, so
  * sync never runs git in it; Claude Code refreshes it before the pack compiles.
+ * `scope` is the chosen listing entry's install scope: the same id can sit at
+ * user, project and local scope at once, and an update without it moves the
+ * user copy.
  */
-export type SyncEngine = PackInfo & { installedCache?: boolean };
+export type SyncEngine = PackInfo & { installedCache?: boolean; scope?: string };
+
+/** The version of the one entry sync chose (last enabled match at that scope), never merely the first entry with the id. */
+function chosenEntryVersion(list: PluginListEntry[], id: string, scope: string | undefined): string | null {
+  const entry = list.findLast((e) => e.id === id && e.enabled !== false && (scope === undefined || e.scope === scope));
+  return entry ? installedVersionFor([entry], id) : null;
+}
 
 export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDeps): Promise<SyncReport> {
   const steps: SyncStep[] = [];
@@ -270,7 +279,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     }
 
     const list = await listInstalled(deps);
-    installedEngineBefore = installedVersionFor(list, pluginId(engine));
+    installedEngineBefore = engineCached ? chosenEntryVersion(list, pluginId(engine), engine.scope) : installedVersionFor(list, pluginId(engine));
     installedPackBefore = installedVersionFor(list, pluginId(pack));
 
     return ran(guardSummary(engineInTree, packInTree, engineCached ? engine.dir : null));
@@ -322,13 +331,14 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   async function refreshCachedEngine(): Promise<Outcome> {
     const id = pluginId(engine);
     const stale = "sync stopped before compiling the pack against a stale engine";
-    const market = await deps.run(deps.claudeBin!, ["plugin", "marketplace", "update", engine.marketplace!]);
+    const market = await deps.run(deps.claudeBin!, ["plugin", "marketplace", "update", engine.marketplace!, "-y"]);
     if (market.code !== 0) {
       return refused(`claude plugin marketplace update ${engine.marketplace} failed: ${market.stderr.trim()}; ${stale}`);
     }
-    const update = await deps.run(deps.claudeBin!, ["plugin", "update", id]);
+    const scopeArgs = engine.scope ? ["--scope", engine.scope] : [];
+    const update = await deps.run(deps.claudeBin!, ["plugin", "update", id, ...scopeArgs, "-y"]);
     if (update.code !== 0) return refused(`claude plugin update ${id} failed: ${update.stderr.trim()}; ${stale}`);
-    installedEngineAfter = installedVersionFor(await listInstalled(deps), id);
+    installedEngineAfter = chosenEntryVersion(await listInstalled(deps), id, engine.scope);
     if (installedEngineAfter === null) return refused(`${id} is not in claude plugin list after its update; ${stale}`);
     engineSourceVersion = installedEngineAfter;
     if (installedEngineAfter === installedEngineBefore) return skipped(`engine already current at ${installedEngineAfter} in the ${engine.marketplace} marketplace`);

@@ -50,6 +50,9 @@ type World = {
   mainVersions?: Record<string, string>;
   marketplaceUpdateFail?: Record<string, string>;
   cacheUpdateTo?: Record<string, string>;
+  /** Listed ahead of the installed entries: the same plugin id at another scope. */
+  shadowEntries?: { id: string; scope: string; version: string }[];
+  scopeOf?: Record<string, string>;
 };
 
 /**
@@ -129,7 +132,16 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
 
     if (cmd === claudeBin) {
       if (args[0] === "plugin" && args[1] === "list") {
-        const list = [...installedVersions.keys()].map((id) => ({ id, installPath: installDirFor(id) }));
+        const shadows = (world.shadowEntries ?? []).map((e) => {
+          const dir = tmp("rt-sync-shadow-");
+          mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+          writeFileSync(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: e.id.split("@")[0], version: e.version }));
+          return { id: e.id, installPath: dir, scope: e.scope, enabled: true };
+        });
+        const list = [
+          ...shadows,
+          ...[...installedVersions.keys()].map((id) => ({ id, installPath: installDirFor(id), enabled: true, ...(world.scopeOf?.[id] ? { scope: world.scopeOf[id] } : {}) })),
+        ];
         return { code: 0, stdout: JSON.stringify(list), stderr: "" };
       }
       if (args[0] === "plugin" && args[1] === "marketplace" && args[2] === "update") {
@@ -402,6 +414,29 @@ describe("syncPack", () => {
     expect(refresh).toBeGreaterThanOrEqual(0);
     expect(update).toBeGreaterThan(refresh);
     expect(order.indexOf("check")).toBeGreaterThan(update);
+  });
+
+  test("10g: a project-scope cached engine is updated at its own scope and its version read back from that entry", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = { ...fixturePack("mattstack", "mattstack", "2.0.0"), installedCache: true, scope: "project" };
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, {
+      calls,
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      scopeOf: { [pluginId(engine)]: "project" },
+      shadowEntries: [{ id: pluginId(engine), scope: "user", version: "1.5.0" }],
+      cacheUpdateTo: { [pluginId(engine)]: "2.1.0" },
+      drift: [false],
+    });
+
+    const report = await syncPack(pack, engine, deps);
+
+    const marketUpdate = calls.find((c) => c.args[1] === "marketplace" && c.args[2] === "update")!;
+    const engineUpdate = calls.find((c) => c.args[1] === "update" && c.args[2] === pluginId(engine))!;
+    expect(marketUpdate.args).toContain("-y");
+    expect(engineUpdate.args).toEqual(["plugin", "update", pluginId(engine), "--scope", "project", "-y"]);
+    expect(report.versions.engine).toEqual({ before: "2.0.0", after: "2.1.0" });
+    expect(report.steps.find((s) => s.name === "update-engine")!.detail).toContain("2.0.0 -> 2.1.0");
   });
 
   test("10d: an installed-cache engine whose marketplace cannot refresh refuses before check, compile or commit", async () => {

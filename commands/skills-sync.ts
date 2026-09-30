@@ -39,7 +39,7 @@ export function deriveEngine(packs: PackInfo[], pack: PackInfo, installed: Plugi
   const root = buildPluginRoots(candidates).byName.mattstack;
   const entry = root ? candidates.findLast((e) => realDir(e.installPath) === root.dir) : undefined;
   const cached = entry ? packFromDir("mattstack", entry.installPath, entry.id.slice("mattstack@".length)) : null;
-  if (cached) return { engine: { ...cached, installedCache: true } };
+  if (cached) return { engine: { ...cached, installedCache: true, ...(entry?.scope ? { scope: entry.scope } : {}) } };
   return {
     error: `no "mattstack" engine found for "${pack.name}" (looked for a directory checkout registered via extraKnownMarketplaces in Claude's settings.json, then an installed mattstack plugin in claude plugin list); install the mattstack plugin and re-run`,
   };
