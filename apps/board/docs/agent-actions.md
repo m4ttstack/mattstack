@@ -68,9 +68,9 @@ back. Notes cap at 2000 characters. Triage never sends one.
   installed. `bun run setup` symlinks them from `skills/` into
   `~/.claude/skills/`. `skills/` is generated from `skills-src/` by
   `bun run skills:expand:board` at the repo root.
-- Whatever domain skill you point `doctorSkill` at, or a manifest binding.
+- Whatever domain skill you point `doctorSkill` at, or a pack binding.
   Review and respond have no config fallback: their skill comes solely from
-  the manifest binding below, and with no binding the wrapper works
+  the pack binding below, and with no binding the wrapper works
   generically.
 
 ## Local-only gating
@@ -81,19 +81,33 @@ enforced twice: the client hides the menu items, and the server returns `403`
 on the launch endpoints. They never fire when the board is viewed through a
 public tunnel.
 
-## Skill bindings (`.mattstack/skills.jsonc`)
+## Skill bindings (per-pack `skills.jsonc`)
 
 The wrapper skills are parameterized skills. Each declares slots for the domain
 skills that own the actual work, and resolves them with a vendored
 `scripts/resolve-args.sh`.
 
+Every launch runs under a team pack: the launching tab's `pack`, else the
+`board.defaultPack` user setting. The launched pane gets that name as
+`MATTSTACK_PACK`. Bindings come from the file `rt skills materialize` writes
+for the MR's repo and that pack,
+`~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`, where `<slug>` is the
+forge host and project path joined by `-` (`gitlab.example.com-acme-widgets`).
+The board reads `bindings["board:<kind>"].<kind>` there for the skill it
+injects. With no pack, no file, or no binding, the launch falls back to the
+generic skill (`doctorSkill` for doctor, none for review and respond). Either
+way the board logs its pick as
+`<kind> skill: <skill> (<manifest or config>, <pack <name> or no pack>)`, for
+example `review skill: acme:mr-board-review (manifest, pack widgets)`.
+
 Resolution order in each wrapper:
 
-1. An explicit `--skill` flag, which is what the board injects (`doctorSkill`
-   from config for doctor; the manifest binding or nothing for review and
-   respond). This always wins.
+1. An explicit `--skill` flag, which is what the board injects (a tab's
+   `reviewSkill` for review, then the pack binding, then `doctorSkill` for
+   doctor or nothing for review and respond). This always wins.
 2. With no `--skill`, the wrapper resolves its slot bindings from the nearest
-   `.mattstack/skills.jsonc`, walking up from the working directory, then
+   `.mattstack/skills.jsonc`, walking up from the working directory, then the
+   per-pack file for the checkout's `origin` remote and `MATTSTACK_PACK`, then
    `~/.mattstack/skills.jsonc`.
 3. A failed resolution degrades loudly: the resolver prints machine-readable
    JSON errors and the wrapper never guesses a binding, before falling back to
@@ -110,10 +124,12 @@ Slots and contracts:
 
 A bound skill must declare the matching contract in its `metadata.provides`.
 
+A pack declares these in its own fragment, which `rt skills materialize`
+layers into each repo's per-pack file:
+
 ```jsonc
-// ~/.mattstack/skills.jsonc
+// <team zone>/mattstack/packs/widgets/pack/skills.jsonc
 {
-  "version": 1,
   "bindings": {
     "board:review": { "review": "acme:mr-board-review" },
     "board:respond": { "respond": "acme:mr-board-respond" },
