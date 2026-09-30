@@ -352,7 +352,7 @@ export async function setupPack(args: string[], _ctx: CommandContext = {}, deps:
   }
 }
 
-// ─── setup (`rt setup`, no args — the TTY walk) ────────────────────────────
+// ─── setup install (`rt setup install`, the TTY walk) ──────────────────────
 
 /** `plan.requiredMissing`'s row ids, resolved back to their titles/action labels for the human-readable blocked-list. */
 function missingRowLines(plan: Plan): string[] {
@@ -364,7 +364,7 @@ function missingRowLines(plan: Plan): string[] {
 }
 
 /**
- * `rt setup` with no args. A TTY gets the interactive walk: the plan, then a
+ * `rt setup install`. A TTY gets the interactive walk: the plan, then a
  * confirmation before running Install. Anything else (no TTY, or `--json`
  * explicitly requested) behaves exactly like `rt setup status` — never a
  * prompt, since nobody's there to answer it.

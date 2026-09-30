@@ -681,6 +681,7 @@ export const TREE: Record<string, CommandNode> = {
         description: "Rebase onto main and auto-resolve easy conflicts",
         module: "./commands/git/rebase.ts",
         fn: "rebaseCommand",
+        omitBehavior: { exempt: "rebasing this branch onto main is the command; onto is the variant" },
         context: "worktree",
         args: [
           { name: "Dry run", flag: "--dry-run", type: "boolean", default: false, hint: "Show what would happen without doing it" },
@@ -773,6 +774,7 @@ export const TREE: Record<string, CommandNode> = {
         description: "Push this branch, fixing its upstream if needed",
         module: "./commands/git/push.ts",
         fn: "pushCommand",
+        omitBehavior: { exempt: "pushing this branch is the command; force is the variant" },
         context: "worktree",
         args: [
           { name: "Remote", flag: "--remote", type: "text", placeholder: "origin", hint: "Remote to push to" },
@@ -981,6 +983,7 @@ export const TREE: Record<string, CommandNode> = {
     description: "Quick rebase your branch and auto-resolve trivial conflicts",
     module: "./commands/sync.ts",
     fn: "syncCommand",
+    omitBehavior: { exempt: "syncing this branch is the command; all is the variant" },
     context: "worktree",
     args: [
       { name: "Dry run", flag: "--dry-run", type: "boolean", default: false, hint: "Show what would happen without doing it" },
@@ -1648,6 +1651,7 @@ export const TREE: Record<string, CommandNode> = {
     description: "Pipeline run state: list, show, and the pipeline's write verbs",
     module: "./commands/runs.ts",
     fn: "runsList",
+    omitBehavior: "list",
     args: [
       { name: "Repo", flag: "--repo", type: "text", placeholder: "myrepo", hint: "Scope to one registry repo" },
     ],
@@ -1762,6 +1766,7 @@ export const TREE: Record<string, CommandNode> = {
         description: "Write a stamped state.db backup (VACUUM INTO) and prune backups past retention",
         module: "./commands/state.ts",
         fn: "stateBackup",
+        omitBehavior: { exempt: "writing a backup is the command; init and status are its setup and health views" },
         args: [
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the outcome as JSON" },
           { name: "Local", flag: "--local", type: "boolean", default: false, hint: "Local-only VACUUM INTO backup (no compression or encryption)" },
@@ -2537,13 +2542,16 @@ export const TREE: Record<string, CommandNode> = {
 
   setup: {
     description: "Set this Mac up for mattstack: readiness plan, install steps, account connections",
-    module: "./commands/setup.ts",
-    fn: "setupInteractive",
-    args: [
-      { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Machine-readable plan (skips the interactive walk)" },
-      { name: "Force", flag: "--force", type: "boolean", default: false, hint: "Confirm install even though required rows are missing" },
-    ],
     subcommands: {
+      install: {
+        description: "Check what this Mac needs, then install it",
+        module: "./commands/setup.ts",
+        fn: "setupInteractive",
+        args: [
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Machine-readable plan (skips the interactive walk)" },
+          { name: "Force", flag: "--force", type: "boolean", default: false, hint: "Confirm install even though required rows are missing" },
+        ],
+      },
       plan: {
         description: "Compute the readiness checklist",
         module: "./commands/setup.ts",

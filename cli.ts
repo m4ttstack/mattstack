@@ -149,7 +149,7 @@ if (args[0] === "--version" || args[0] === "-V") {
     const { existsSync } = await import("fs");
     const { join } = await import("path");
     if (!existsSync(join(rtDir(), "daemon.json"))) {
-      console.error("  rt is not set up yet — open mattstack.app, or run: rt setup");
+      console.error("  rt is not set up yet — open mattstack.app, or run: rt setup install");
     }
   }
 
