@@ -328,6 +328,7 @@ describe("settings/registry", () => {
         "board.gateGraceMinutes",
         "board.workspaces",
         "board.defaultMember",
+        "board.defaultPack",
         "board.hiddenMembers",
         "board.triage",
         "board.reReview",
