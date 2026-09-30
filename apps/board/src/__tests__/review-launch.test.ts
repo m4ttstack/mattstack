@@ -4,7 +4,11 @@ import { join } from 'path';
 import type { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
-import { respondFilePath, writeRespondState } from '../respond-state.ts';
+import {
+  readRespondStates,
+  respondFilePath,
+  writeRespondState,
+} from '../respond-state.ts';
 import {
   launchReReview,
   launchRespondAsk,
@@ -187,7 +191,7 @@ describe('launchReReview: agentId on file (arm i -- resumeAgentPane)', () => {
     expect(res).toMatchObject({ message: 'rt agent: unreachable' });
     const state = readReviewStates(db).get(URL_A);
     expect(state?.status).toBe('error');
-    expect(state?.message).toBe('failed to launch re-review pane');
+    expect(state?.message).toBe('rt agent: unreachable');
   });
 });
 
@@ -295,7 +299,7 @@ describe('launchReReview: sessionId only on file, no agentId (arm ii -- launchLe
     expect(res).toMatchObject({ message: 'herdr: no workspace' });
     const state = readReviewStates(db).get(URL_A);
     expect(state?.status).toBe('error');
-    expect(state?.message).toBe('failed to launch re-review pane');
+    expect(state?.message).toBe('herdr: no workspace');
   });
 });
 
@@ -426,7 +430,7 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
     });
     const state = readReviewStates(db).get(URL_A);
     expect(state?.status).toBe('error');
-    expect(state?.message).toBe('failed to launch re-review pane');
+    expect(state?.message).toBe('herdr: could not create review tab');
   });
 });
 
@@ -484,5 +488,8 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
       noSkillPath
     );
     expect(res).toEqual({ kind: 'error', message: 'no herdr' });
+    const state = readRespondStates(db).get(URL_A);
+    expect(state?.status).toBe('error');
+    expect(state?.message).toBe('no herdr');
   });
 });

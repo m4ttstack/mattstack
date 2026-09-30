@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
+import type { SwitchboardTokenRead } from '../config.ts';
 import type { SwitchboardClient } from './client.ts';
 import { runPeerTick, type MaterializeDeps } from './inbox.ts';
 
@@ -104,6 +105,27 @@ export function makePeering(host: PeeringHost) {
       if (timer) clearInterval(timer);
       timer = null;
     },
+  };
+}
+
+export const TOKEN_MISSING_LOG =
+  "board: switchboard url is set but no switchboard token is stored, so peer asks cannot arrive; re-invite this board from the team owner's members panel (rt team invite on the owner's machine)";
+
+/** Tracks whether the last read found no token, for the board banner, and
+    logs that once per process: the boot retry reads every minute forever. */
+export function tokenMissingNotice(log: (line: string) => void) {
+  let missing = false;
+  let logged = false;
+  return {
+    note(read: SwitchboardTokenRead): string | null {
+      missing = read.token === null && read.missing;
+      if (missing && !logged) {
+        logged = true;
+        log(TOKEN_MISSING_LOG);
+      }
+      return read.token;
+    },
+    missing: () => missing,
   };
 }
 

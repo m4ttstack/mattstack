@@ -1423,6 +1423,9 @@ body {
   border-color: color-mix(in srgb, var(--fill-bad) 45%, transparent);
   background: color-mix(in srgb, var(--fill-bad) 7%, transparent);
 }
+.tui-banner code {
+  white-space: nowrap;
+}
 .tui-banner-btn {
   margin-left: 0.6rem;
   font: inherit;

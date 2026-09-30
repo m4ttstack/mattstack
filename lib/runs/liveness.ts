@@ -20,9 +20,9 @@
  * restart instead of flapping every run to null and back.
  */
 import { readFileSync, statSync } from "fs";
-import { homedir } from "os";
 import { isAbsolute, join, resolve } from "path";
 import type { RunAgent } from "../../packages/rt-client/src/commands.ts";
+import { resolveHerdrBin } from "../agent-herdr.ts";
 import { runCapture } from "../subprocess.ts";
 import type { RunLiveness } from "./attention.ts";
 
@@ -51,10 +51,9 @@ interface HerdrAgent {
 export async function probeAgents(
   exec: typeof runCapture = runCapture,
 ): Promise<AgentEntry[] | null> {
-  // The daemon's launchd PATH may not carry ~/.local/bin, so resolve the
-  // binary explicitly; a machine with no herdr at all fails the spawn and
-  // runCapture reports exitCode -1.
-  const bin = Bun.which("herdr") ?? join(homedir(), ".local", "bin", "herdr");
+  // A machine with no herdr at all fails the spawn and runCapture reports
+  // exitCode -1.
+  const bin = resolveHerdrBin();
   const res = await exec([bin, "agent", "list"], { timeoutMs: HERDR_TIMEOUT_MS });
   if (res.exitCode !== 0) return null;
   try {

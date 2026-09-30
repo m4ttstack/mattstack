@@ -30,6 +30,23 @@ test("probeAgents keeps every agent with its status, session, and cwds", async (
   expect(agents?.[3]?.status).toBe("unknown");
 });
 
+test("probeAgents runs the herdr found on the live PATH, not the PATH the process started with", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "liveness-herdr-"));
+  writeFileSync(join(dir, "herdr"), "#!/bin/sh\n", { mode: 0o755 });
+  const saved = process.env.PATH;
+  process.env.PATH = `${dir}:/usr/bin:/bin`;
+  let argv0 = "";
+  try {
+    await probeAgents((async (argv: string[]) => {
+      argv0 = argv[0]!;
+      return { stdout: "", stderr: "", exitCode: 1 };
+    }) as unknown as typeof runCapture);
+  } finally {
+    process.env.PATH = saved;
+  }
+  expect(argv0).toBe(join(dir, "herdr"));
+});
+
 test("probeAgents returns null on failure — distinct from an empty answer", async () => {
   expect(await probeAgents(fakeExec("", 1))).toBeNull();
   expect(await probeAgents(fakeExec("not json"))).toBeNull();

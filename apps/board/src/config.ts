@@ -1179,8 +1179,32 @@ export async function loadSlackToken(
 export async function loadSwitchboardToken(
   deps?: BoardSecretsDeps
 ): Promise<string | null> {
-  if (process.env.SWITCHBOARD_TOKEN) return process.env.SWITCHBOARD_TOKEN;
-  return (await boardSecrets(deps)).switchboardToken ?? null;
+  return (await readSwitchboardToken(deps)).token;
+}
+
+/** A switchboard token read: `missing` only when the daemon answered and
+    holds no token, never when the daemon could not be reached. */
+export interface SwitchboardTokenRead {
+  token: string | null;
+  missing: boolean;
+}
+
+/** loadSwitchboardToken, telling "the daemon holds no token" (missing)
+    apart from "the daemon could not be read", which only a restart window
+    explains and which clears on its own. */
+export async function readSwitchboardToken(
+  deps?: BoardSecretsDeps
+): Promise<SwitchboardTokenRead> {
+  if (process.env.SWITCHBOARD_TOKEN)
+    return { token: process.env.SWITCHBOARD_TOKEN, missing: false };
+  const res = await readBoardSecrets(deps);
+  if (!res.ok) {
+    console.warn(`board: secrets unavailable (${res.message})`);
+    return { token: null, missing: false };
+  }
+  return res.switchboardToken
+    ? { token: res.switchboardToken, missing: false }
+    : { token: null, missing: true };
 }
 
 /** Switchboard ADMIN token (operator only). Presence of this secret is what

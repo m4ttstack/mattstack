@@ -221,3 +221,51 @@ test('an explicit board window wider than rt syncs: the mismatch banner', async 
     container.remove();
   }
 });
+
+const tokenBanner = (container: HTMLElement) =>
+  [...container.querySelectorAll<HTMLElement>('.tui-banner')].find(el =>
+    el.textContent?.includes('switchboard token')
+  ) ?? null;
+
+test('a switchboard url with no token: a banner naming the re-invite, and a button to paste one', async () => {
+  servedData = {
+    ...BOARD_DATA,
+    dataSyncedAt: NOW - 60_000,
+    switchboardTokenMissing: true,
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = await renderBoard(container);
+  try {
+    const el = tokenBanner(container);
+    expect(el?.dataset.intent).toBe('bad');
+    expect(el?.textContent).toContain("peer asks can't reach this board");
+    expect(el?.textContent).toContain('members panel (rt team invite)');
+    const paste = el?.querySelector<HTMLButtonElement>('.tui-banner-btn');
+    expect(paste?.textContent).toBe('paste an invite');
+    await React.act(async () => paste!.click());
+    expect(
+      container.querySelector('input[aria-label="paste your board invite"]')
+    ).not.toBeNull();
+  } finally {
+    await React.act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+test('a stored switchboard token: no token banner', async () => {
+  servedData = {
+    ...BOARD_DATA,
+    dataSyncedAt: NOW - 60_000,
+    switchboardTokenMissing: false,
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = await renderBoard(container);
+  try {
+    expect(tokenBanner(container)).toBeNull();
+  } finally {
+    await React.act(async () => root.unmount());
+    container.remove();
+  }
+});

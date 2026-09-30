@@ -6,6 +6,7 @@ import {
 } from '../doctor-state.ts';
 import type { LaunchPaneOpts } from '../herdr.ts';
 import { draftBinPath } from '../herdr.ts';
+import { launchErrorMessage } from '../launch-error.ts';
 import type { AuditEntry } from './audit.ts';
 import type { FixClasses, TriageConfig } from './config.ts';
 import { detectEdges, markHandled, observe, type OwnMrFacts } from './edge.ts';
@@ -454,7 +455,7 @@ export async function runTriage(
         if (statePath !== undefined) {
           deps.writeDoctorState(statePath, {
             status: 'error',
-            message: 'failed to launch doctor pane',
+            message: launchErrorMessage('doctor', err),
           });
         }
       }

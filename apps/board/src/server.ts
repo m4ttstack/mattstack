@@ -59,14 +59,15 @@ import {
   loadGitLabToken,
   loadSlackToken,
   loadSwitchboardAdminToken,
-  loadSwitchboardToken,
   parseConfig,
+  readSwitchboardToken,
   repoIdentityField,
   resolveLaunchRepo,
   saveMemberHidden,
   saveRosterMembers,
   saveSwitchboardUrl,
   saveTabs,
+  type SwitchboardTokenRead,
 } from './config.ts';
 import {
   aggregateSyncScope,
@@ -167,6 +168,7 @@ import {
   RESPOND_IN_FLIGHT,
   REVIEW_IN_FLIGHT,
 } from './launch-dedup.ts';
+import { launchErrorMessage } from './launch-error.ts';
 import { hasLocalOrigin, isLocalRequest, requireJsonBody } from './local.ts';
 import { resolveBoardSkill, type BoardSkillKind } from './manifest-bindings.ts';
 import { memoizeAsync } from './memoize-async.ts';
@@ -189,6 +191,7 @@ import {
 } from './peer/envelope.ts';
 import { type MaterializeDeps } from './peer/inbox.ts';
 import {
+  pendingNudgesByMr,
   pruneNudges,
   pruneSentNudges,
   readNudges,
@@ -198,6 +201,7 @@ import {
   sentNudgeDisplay,
   writeNudge,
   writeSentNudge,
+  type PendingNudge,
   type SentNudgeDisplay,
 } from './peer/nudges.ts';
 import {
@@ -214,7 +218,11 @@ import {
   writePeerReview,
   type PeerReviewState,
 } from './peer/peer-reviews.ts';
-import { makePeering, startPeeringWhenTokenLoads } from './peer/runtime.ts';
+import {
+  makePeering,
+  startPeeringWhenTokenLoads,
+  tokenMissingNotice,
+} from './peer/runtime.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachResponds,
@@ -382,10 +390,14 @@ const getSlackToken = memoizeAsync<string | null>(
   isTokenFailure
 );
 // Optional peer relay token -- see the peering-start block below.
-const getSwitchboardToken = memoizeAsync<string | null>(
-  () => (FIXTURE_DIR ? Promise.resolve(null) : loadSwitchboardToken()),
-  isTokenFailure
+const getSwitchboardToken = memoizeAsync<SwitchboardTokenRead>(
+  () =>
+    FIXTURE_DIR
+      ? Promise.resolve({ token: null, missing: false })
+      : readSwitchboardToken(),
+  read => read.token === null
 );
+const switchboardToken = tokenMissingNotice(line => console.error(line));
 // Operator-only secret: its presence is what turns on this board's invite
 // affordances. Absent, /peer/invite and /peer/boards answer 400 and the UI
 // never offers them.
@@ -479,7 +491,7 @@ if (config.switchboard.url)
     peering,
     url: config.switchboard.url,
     wanted: () => writer,
-    loadToken: getSwitchboardToken,
+    loadToken: async () => switchboardToken.note(await getSwitchboardToken()),
   });
 
 /** Send what's queued without making the caller wait on the relay. Anything
@@ -504,7 +516,17 @@ interface PeerAttachments {
     reason?: string;
     kind?: AskKind;
   };
-  nudges?: Array<{ from: string; receivedAt: number; kind?: AskKind }>;
+  nudges?: PendingNudge[];
+}
+
+/** A config that fails to parse also stops the triage pass, so its asks
+    wait for a click like triage being off. */
+function triageEnabled(): boolean {
+  try {
+    return loadTriageConfig().enabled;
+  } catch {
+    return false;
+  }
 }
 
 /** Fold every peer field onto the MRs, non-mutating. Read from disk per call
@@ -515,19 +537,7 @@ function attachPeerState<T extends { webUrl?: string | null }>(
   now: number = Date.now()
 ): Array<T & PeerAttachments> {
   const sent = readSentNudges();
-  const inbound = new Map<
-    string,
-    Array<{ from: string; receivedAt: number; kind?: AskKind }>
-  >();
-  for (const n of readNudges()) {
-    // Handled nudges stay on disk for the outcome trail; only the ones still
-    // awaiting a decision belong on the board.
-    if (n.handled) continue;
-    const entry = { from: n.from, receivedAt: n.receivedAt, kind: n.kind };
-    const list = inbound.get(n.mrUrl);
-    if (list) list.push(entry);
-    else inbound.set(n.mrUrl, [entry]);
-  }
+  const inbound = pendingNudgesByMr(readNudges(), triageEnabled());
   return attachPeerReviews(mrs, readPeerReviews()).map(mr => {
     if (!mr.webUrl) return mr;
     const s = sent.get(mr.webUrl);
@@ -1246,6 +1256,10 @@ const httpServer = Bun.serve({
               !!switchboardAdminToken &&
               !!config.switchboard.url,
             peering: peering.current() ? peering.current()!.health() : null,
+            switchboardTokenMissing:
+              !!config.switchboard.url &&
+              !peering.current() &&
+              switchboardToken.missing(),
             slackEnabled: !!slackToken,
             slackEmoji: config.slack.emoji,
             slackTemplates: {
@@ -1680,7 +1694,7 @@ const httpServer = Bun.serve({
             );
             writeReviewState(statePath, {
               status: 'error',
-              message: 'failed to launch review pane',
+              message: launchErrorMessage('review', err),
             });
           });
         return new Response(JSON.stringify({ ok: true }), {
@@ -1811,7 +1825,7 @@ const httpServer = Bun.serve({
             );
             writeRespondState(statePath, {
               status: 'error',
-              message: 'failed to launch respond pane',
+              message: launchErrorMessage('respond', err),
             });
           });
         return new Response(JSON.stringify({ ok: true }), {
@@ -1981,7 +1995,7 @@ const httpServer = Bun.serve({
             );
             writeDoctorState(statePath, {
               status: 'error',
-              message: 'failed to launch doctor pane',
+              message: launchErrorMessage('doctor', err),
             });
           });
         return new Response(JSON.stringify({ ok: true }), {
