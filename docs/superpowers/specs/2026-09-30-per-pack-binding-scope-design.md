@@ -1,6 +1,6 @@
 # Per-pack binding scope for shared repos
 
-Status: design approved in conversation 2026-09-30, awaiting spec review.
+Status: spec approved 2026-09-30.
 
 ## Problem
 
@@ -42,8 +42,9 @@ run.
 ### 1. Per-pack manifests
 
 For each repo and each pack that claims it, materialize writes
-`~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc`, built from four layers,
-later layers winning per slot:
+`~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc`, where `<pack>` is the
+plugin's short name (`widgets`, the same value `--pack` takes). The file is
+built from four layers, later layers winning per slot:
 
 1. mattstack defaults (the engine pack's own fragment, `plugins/mattstack/pack/skills.jsonc`)
 2. the base pack named by the pack's `extends` (one level)
@@ -81,8 +82,9 @@ published from whichever team repo owns it.
 
 - `rt skills compile`, `check` and `composition --pack P` read
   `repos/<repo>/packs/P/skills.jsonc` by path. `findDefaultManifest`'s header
-  grep and newest-mtime pick go away. A pack that binds several repos keeps
-  compiling against one repo, as today; `--manifest` still overrides.
+  grep and newest-mtime pick go away. A pack that binds several repos
+  compiles against the first repo its fragment lists; `--repo` picks another
+  and `--manifest` still overrides.
 - `rt skills bind --pack P` writes P's fragment and regenerates P's file.
   Binding a slot the base fills is an override, never an error.
 - `composition` reports each slot's layer. `binders` lists only this pack's
