@@ -63,7 +63,7 @@ One call is one spawn (about 15 ms in the spike), so output stays in order with 
 
 Plain text off a TTY (a pipe, an agent that did not pass `--json`) comes from the plain renderer, so it carries the new wording without color. It is not byte-identical to today's text. Keeping the old strings would mean two message sets per command. Each conversion PR greps `plugins/mattstack`, `skills/` and `apps/board/skills` for text scraped from the verbs it converts and fixes any reader in the same PR.
 
-**This differs from the ticket's first acceptance bullet and needs Matt's ruling.** See Open decisions.
+Ruled 2026-09-30: only `--json` is frozen; plain text off a TTY takes the new wording.
 
 ## Block vocabulary
 
@@ -208,10 +208,6 @@ One PR each, in this order.
 6. **Hidden verbs.** `daemon`, `services`, `state`, `state backup`, `bg`, `cron`, `apps`, `reconciler`, `endpoint`, `flavor`. Then delete the raw color modules and empty the allowlist.
 
 Leath's and Ed's pain is fixed by the end of phase 3.
-
-## Open decisions
-
-1. **Plain text off a TTY.** This spec changes it (new wording, no color) and freezes only `--json`. The ticket says both stay byte-identical. Recommended: accept the change and fix any skill that scrapes the text in the same PR. The alternative is to keep every old string as a second code path.
 
 ## Known gaps in the audit
 
