@@ -9,6 +9,7 @@
  *   discussions:reply    — post a note into an existing thread
  *   mr:comment-inline    - post a new positioned (line-anchored) discussion
  *   mr:comment           - post a new top-level note (resolvable discussion or plain note)
+ *   mr:note-update       - replace the body of an existing note
  *
  * All handlers take `{ repoName, iid }` and look up the cache entry whose
  * `mr.iid` matches. Writes go through `refreshDiscussions` in
@@ -38,7 +39,7 @@ const log = lazyChildLogger("discussions");
 export type CommentInlineMutator = Pick<NoteMutator, "fetchDiffRefs" | "createPositionedDiscussion" | "deleteNote">;
 
 /** The subset of NoteMutator mr:comment needs; test seam. */
-export type CommentMutator = Pick<NoteMutator, "createDiscussion" | "createNote">;
+export type CommentMutator = Pick<NoteMutator, "createDiscussion" | "createNote" | "updateNote">;
 
 /**
  * Injectable plumbing for `discussions:reply`, `mr:comment-inline` and
@@ -134,6 +135,7 @@ export function createDiscussionHandlers(
   & { "discussions:reply": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"discussions:reply">> }
   & { "mr:comment-inline": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:comment-inline">> }
   & { "mr:comment": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:comment">> }
+  & { "mr:note-update": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:note-update">> }
   & HandlerMap {
   const deps = { ctx, broadcast };
   const repoContextFn = seams.repoContext ?? getRepoContext;
@@ -477,6 +479,37 @@ export function createDiscussionHandlers(
 
         const mrUrl = `${repoCtx.provider.baseURL}/${repoCtx.projectPath}/-/merge_requests/${iid}`;
         return { ok: true, data: { noteId, discussionId, resolvable, url: `${mrUrl}#note_${noteId}`, mrUrl } };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "mr:note-update": async (payload) => {
+      const p = payload as { repoName?: string; iid?: number; noteId?: number; body?: string } | undefined;
+      const iid = p?.iid;
+      const noteId = p?.noteId;
+      const body = p?.body;
+      if (!p?.repoName || typeof iid !== "number" || !Number.isInteger(iid) || iid <= 0 ||
+          typeof noteId !== "number" || !Number.isInteger(noteId) || noteId <= 0 ||
+          typeof body !== "string" || !body.trim()) {
+        return { ok: false, error: "missing repoName/iid/noteId/body" };
+      }
+      const decoded = decodeRepo(payload);
+      if (!decoded.ok) {
+        return { ok: false, error: "repo must be a serialized identity" };
+      }
+      const repoName = decoded.repo;
+
+      const repoPath = ctx.repoIndex()[repoName];
+      try {
+        const repoCtx = await repoContextFn(repoName, repoPath);
+        const token = await gitlabTokenFn();
+        if (!token) return { ok: false, error: "no gitlabToken in secrets" };
+        await commentMutatorFn(repoCtx.provider.baseURL, token).updateNote(repoCtx.projectId, iid, noteId, body);
+
+        await refreshFn(repoName, iid).catch((err) =>
+          log.warn({ err, repoName, iid }, "mr:note-update: post-edit discussions refresh failed"));
+        return { ok: true, data: { noteId } };
       } catch (err) {
         return { ok: false, error: String(err) };
       }
