@@ -96,6 +96,8 @@ interface SkillsCheckVerbRow {
   status: 'in-sync' | 'stale' | 'never-compiled';
   staleFiles: string[];
   orphanFiles: string[];
+  /** Optional because an rt older than the field answers without it. */
+  staleBecause?: SkillsDriftCause[];
 }
 /** Installed-plugin-cache comparison. Optional because an rt older than the
     field answers without it; null when rt could not derive it (no marketplace

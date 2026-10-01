@@ -1,0 +1,381 @@
+// @vitest-environment node
+import { describe, expect, it } from 'vitest';
+
+import { designFixture } from '../../__tests__/designFixtures';
+import { drawerContent, parseTarget } from '../drawerContent';
+import { buildTemplateView } from '../templateModel';
+
+const anatomyWork = designFixture('anatomy.work');
+const anatomyPlan = designFixture('anatomy.stage-plan');
+const anatomyPlanUnsynced = designFixture('anatomy.stage-plan.unsynced');
+const composition = designFixture('composition');
+const compositionUnsynced = designFixture('composition.unsynced');
+const check = designFixture('check');
+const changesUnsynced = designFixture('changes.unsynced');
+
+const workView = buildTemplateView({
+  anatomy: anatomyWork,
+  composition,
+  check,
+  changes: undefined,
+  step: null,
+});
+const planView = buildTemplateView({
+  anatomy: anatomyPlan,
+  composition,
+  check,
+  changes: undefined,
+  step: 2,
+});
+
+const plan = (
+  select: string,
+  requested: 'template' | 'rendered' | null = null
+) => drawerContent(parseTarget(select)!, planView, anatomyPlan, requested);
+const work = (
+  select: string,
+  requested: 'template' | 'rendered' | null = null
+) => drawerContent(parseTarget(select)!, workView, anatomyWork, requested);
+
+describe('parseTarget', () => {
+  it.each([
+    ['row:1', { kind: 'row', line: 1 }],
+    ['row:140', { kind: 'row', line: 140 }],
+    [
+      'input:include:gate-protocol',
+      { kind: 'input', id: 'include:gate-protocol' },
+    ],
+    [
+      'input:variable:run-start.flags:work',
+      { kind: 'input', id: 'variable:run-start.flags:work' },
+    ],
+    ['output', { kind: 'output', part: null }],
+    [
+      'output:include:gate-protocol',
+      { kind: 'output', part: 'include:gate-protocol' },
+    ],
+    [
+      'link:../../attachments/gates/SKILL.md',
+      { kind: 'link', path: '../../attachments/gates/SKILL.md' },
+    ],
+  ])('%s', (select, target) => {
+    expect(parseTarget(select)).toEqual(target);
+  });
+
+  it.each([
+    null,
+    '',
+    'row:',
+    'row:0',
+    'row:x',
+    'row:1.5',
+    'input:',
+    'link:',
+    'output:',
+    'nope',
+  ])('refuses %s', select => {
+    expect(parseTarget(select)).toBeNull();
+  });
+});
+
+describe('a text range row (drawer-text-range)', () => {
+  const content = work('row:1');
+
+  it('opens the template with the range highlighted', () => {
+    expect(content).toMatchObject({
+      filePath: anatomyWork.template.path,
+      fileLabel: 'work/SKILL.md',
+      view: 'template',
+      canToggle: true,
+      highlight: { template: [1, 28], rendered: null },
+      bands: [],
+    });
+  });
+
+  it('reads as the board does', () => {
+    expect(content?.chip).toBe('L1-28');
+    expect(content?.sentence).toBe(
+      '28 lines of orchestrator text, as written in the template.'
+    );
+    expect(content?.meta).toBe('mattstack 0.30.4 · installed copy, read only');
+  });
+
+  it('draws no kind badge and no tab strip over the template', () => {
+    expect(content?.badge).toBeNull();
+    expect(content?.tabs).toEqual(['text']);
+  });
+
+  it('switches to the rendered file on request', () => {
+    const rendered = work('row:1', 'rendered');
+    expect(rendered).toMatchObject({
+      filePath: anatomyWork.rendered.path,
+      fileLabel: 'work/SKILL.md',
+      view: 'rendered',
+      badge: 'rendered',
+      meta: null,
+      tabs: ['text', 'history'],
+    });
+  });
+
+  it('says a short range is still text of its kind', () => {
+    expect(work('row:37')?.sentence).toBe(
+      '3 lines of orchestrator text, as written in the template.'
+    );
+  });
+});
+
+describe('an include row (drawer-include-row)', () => {
+  const content = plan('row:140');
+
+  it('opens the rendered file scrolled to where the partial landed', () => {
+    expect(content).toMatchObject({
+      filePath: anatomyPlan.rendered.path,
+      fileLabel: 'stage-plan/SKILL.md',
+      badge: 'rendered',
+      canToggle: true,
+      view: 'rendered',
+      highlight: { template: [140, 140], rendered: [303, 752] },
+      tabs: ['text', 'history'],
+      meta: null,
+      slot: null,
+    });
+  });
+
+  it('reads as the board does', () => {
+    expect(content?.chip).toBe('L140 → L303-752');
+    expect(content?.sentence).toBe(
+      'gate-protocol is pasted here: 450 lines, 58% of what the agent reads in this step.'
+    );
+  });
+
+  it('bands every pasted part, the clicked one in accent', () => {
+    expect(content?.bands).toEqual([
+      { from: 49, to: 197, label: 'execution-strategy', tone: 'muted' },
+      { from: 223, to: 302, label: 'plan-policy', tone: 'muted' },
+      { from: 303, to: 752, label: 'gate-protocol', tone: 'accent' },
+      { from: 753, to: 780, label: 'wrap-up-form', tone: 'muted' },
+    ]);
+  });
+
+  it('shows the template line on request, without bands', () => {
+    expect(plan('row:140', 'template')).toMatchObject({
+      filePath: anatomyPlan.template.path,
+      view: 'template',
+      badge: null,
+      bands: [],
+      tabs: ['text'],
+      chip: 'L140 → L303-752',
+    });
+  });
+
+  it('opens a stale skill on the template, its rendered view one toggle away', () => {
+    expect(work('row:246')).toMatchObject({
+      view: 'template',
+      chip: 'L246 → L344-793',
+    });
+    expect(work('row:246', 'rendered')).toMatchObject({
+      view: 'rendered',
+      highlight: { template: [246, 246], rendered: [344, 793] },
+    });
+  });
+});
+
+describe('a slot row (drawer-rebind)', () => {
+  const content = plan('row:136');
+
+  it('reads as the board does and names the slot', () => {
+    expect(content?.chip).toBe('L136 → L223-302');
+    expect(content?.sentence).toBe(
+      'The domain slot. This pack fills it with plan-policy: 80 lines.'
+    );
+    expect(content?.slot).toEqual({
+      name: 'domain',
+      contract: 'plan-domain@1',
+    });
+    expect(content?.view).toBe('rendered');
+  });
+
+  it('names the new fill once rebound here', () => {
+    const view = buildTemplateView({
+      anatomy: anatomyPlanUnsynced,
+      composition: compositionUnsynced,
+      check,
+      changes: changesUnsynced,
+      step: 2,
+    });
+    expect(
+      drawerContent(parseTarget('row:136')!, view, anatomyPlanUnsynced, null)
+        ?.sentence
+    ).toBe(
+      'The domain slot. This pack fills it with plan-policy-strict: 64 lines.'
+    );
+  });
+});
+
+describe('placeholder rows that are not files', () => {
+  it('shows what rt rendered for a variable', () => {
+    expect(plan('row:16')).toMatchObject({
+      view: 'rendered',
+      chip: 'L16 → L16-24',
+      highlight: { template: [16, 16], rendered: [16, 24] },
+      sentence: 'A variable rt fills in for each run: 9 lines here.',
+    });
+  });
+
+  it('names the step a link row points at', () => {
+    expect(work('row:30')).toMatchObject({
+      view: 'template',
+      chip: 'L30',
+      sentence: 'This line points the agent at stage-plan/SKILL.md.',
+    });
+  });
+});
+
+describe('an input card (drawer-input-card)', () => {
+  const content = plan('input:include:gate-protocol');
+
+  it('opens the partial on its own text', () => {
+    expect(content).toMatchObject({
+      filePath: '/fixture/mattstack/attachments/gate-protocol/SKILL.md',
+      fileLabel: 'gate-protocol/SKILL.md',
+      badge: 'partial',
+      canToggle: false,
+      view: 'template',
+      chip: null,
+      highlight: { template: null, rendered: null },
+      bands: [],
+      slot: null,
+    });
+    expect(content?.tabs[0]).toBe('text');
+  });
+
+  it('reads as the board does', () => {
+    expect(content?.sentence).toBe(
+      'A mattstack partial. 14 skills in this pack paste it in.'
+    );
+    expect(content?.meta).toBe('mattstack 0.30.4 · installed copy, read only');
+    expect(content?.tabs).toEqual(['text', 'used-by', 'history']);
+  });
+
+  it('calls pack text by the pack that wrote it', () => {
+    expect(plan('input:slot:domain')).toMatchObject({
+      badge: 'pack text',
+      sentence: 'Written by acme. 1 skill in this pack uses it.',
+      meta: 'acme 0.8.14',
+      slot: { name: 'domain', contract: 'plan-domain@1' },
+    });
+  });
+
+  it('calls a default fill by the plugin that ships it', () => {
+    expect(work('input:slot:tiering')?.sentence).toBe(
+      'A mattstack default. 10 skills in this pack use it.'
+    );
+  });
+
+  it('opens a variable card on what rt rendered in its place', () => {
+    expect(plan('input:variable:stage.fields')).toEqual(plan('row:16'));
+  });
+});
+
+describe('the output card (drawer-history)', () => {
+  it('reads as the board does when in sync', () => {
+    expect(plan('output')).toMatchObject({
+      filePath: anatomyPlan.rendered.path,
+      fileLabel: 'stage-plan/SKILL.md',
+      badge: 'rendered',
+      canToggle: true,
+      view: 'rendered',
+      chip: null,
+      sentence: 'In sync. 780 lines, rendered from 5 files.',
+      highlight: { template: null, rendered: null },
+      tabs: ['text', 'history'],
+    });
+  });
+
+  it('says why a stale step is stale', () => {
+    const stale = buildTemplateView({
+      anatomy: anatomyPlan,
+      composition,
+      check: {
+        ...check,
+        verbs: check.verbs.map(row =>
+          row.name === 'stage-plan'
+            ? { ...row, status: 'stale', staleBecause: ['source'] }
+            : row
+        ),
+      },
+      changes: undefined,
+      step: 2,
+    });
+    expect(
+      drawerContent({ kind: 'output', part: null }, stale, anatomyPlan, null)
+        ?.sentence
+    ).toBe('Stale: its template changed.');
+  });
+
+  it('says a rebind is rebuilt here but not synced', () => {
+    const view = buildTemplateView({
+      anatomy: anatomyPlanUnsynced,
+      composition: compositionUnsynced,
+      check,
+      changes: changesUnsynced,
+      step: 2,
+    });
+    expect(
+      drawerContent(
+        { kind: 'output', part: null },
+        view,
+        anatomyPlanUnsynced,
+        null
+      )?.sentence
+    ).toBe('Rebuilt here, not synced yet.');
+  });
+
+  it('scrolls to one part', () => {
+    expect(plan('output:include:gate-protocol')).toMatchObject({
+      view: 'rendered',
+      chip: 'L140 → L303-752',
+      highlight: { template: [140, 140], rendered: [303, 752] },
+      sentence:
+        'gate-protocol is pasted here: 450 lines, 58% of what the agent reads in this step.',
+    });
+  });
+
+  it('describes the step text as a share of the whole', () => {
+    expect(plan('output:text')).toMatchObject({
+      view: 'rendered',
+      chip: null,
+      sentence:
+        '64 lines of step text, 8% of what the agent reads in this step.',
+    });
+  });
+});
+
+describe('a links-to chip', () => {
+  it('opens the linked file beside the rendered step', () => {
+    expect(plan('link:../../attachments/gates/SKILL.md')).toMatchObject({
+      filePath: '/fixture/packs/acme/attachments/gates/SKILL.md',
+      fileLabel: 'gates/SKILL.md',
+      badge: 'pack text',
+      canToggle: false,
+      view: 'template',
+      sentence: "This step's text links to it at line 32.",
+      tabs: ['text'],
+    });
+  });
+});
+
+describe('targets the view does not hold', () => {
+  it.each([
+    'row:2',
+    'input:include:nope',
+    'output:include:nope',
+    'link:nope.md',
+  ])('%s answers null', select => {
+    expect(plan(select)).toBeNull();
+  });
+
+  it('answers null for an output on a view without one', () => {
+    expect(work('output')).toBeNull();
+  });
+});
