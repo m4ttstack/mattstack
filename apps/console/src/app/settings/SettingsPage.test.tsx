@@ -166,8 +166,13 @@ describe('SettingsPage', () => {
 
     const dialog = await screen.findByRole('dialog');
     expect(
-      await within(dialog).findByTestId('explain-sentence')
-    ).toHaveTextContent('because the machine layer sets it, overriding user');
+      await within(dialog).findByText('Weakest first. The last layer set wins.')
+    ).toBeInTheDocument();
+    expect(
+      within(await within(dialog).findByTestId('layer-machine')).getByText(
+        'in effect'
+      )
+    ).toBeInTheDocument();
     expect(new URLSearchParams(window.location.search).get('explain')).toBe(
       'board.agent.model'
     );

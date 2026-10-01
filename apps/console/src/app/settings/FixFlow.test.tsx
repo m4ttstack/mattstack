@@ -343,7 +343,7 @@ describe('Fix in the explain modal', () => {
     );
   }
 
-  it('a layer issue shows once, on its layer, not again on the row above', async () => {
+  it('a layer issue shows once, on its layer', async () => {
     openFix(
       bridges(),
       [
