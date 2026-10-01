@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { ScrollArea } from '@mantine/core';
 import type { ScrollAreaAutosizeProps } from '@mantine/core';
@@ -23,6 +23,12 @@ export interface VirtualListProps<T = unknown> {
   /** Key for each item; defaults to its index. */
   getItemKey?: (item: T, index: number) => string | number;
   /**
+   * Index of the item to bring to the top of the viewport. Applied on mount,
+   * whenever the value changes, and once `items` goes from empty to
+   * non-empty; `null` or `undefined` leaves the scroll position alone.
+   */
+  scrollToIndex?: number | null;
+  /**
    * Extra props for the outer `ScrollArea.Autosize` scroll container (the
    * same prop name `PageShell.Content` uses for the same concept).
    * `viewportRef` is excluded: the virtualizer owns the viewport ref.
@@ -43,6 +49,7 @@ export function VirtualList<T>({
   maxHeight = '20vh',
   minHeight = 'auto',
   getItemKey,
+  scrollToIndex,
   scrollAreaProps,
 }: VirtualListProps<T>) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -56,6 +63,12 @@ export function VirtualList<T>({
       ? index => getItemKey(items[index], index)
       : undefined,
   });
+
+  const hasItems = items.length > 0;
+  useEffect(() => {
+    if (scrollToIndex == null || !hasItems) return;
+    virtualizer.scrollToIndex(scrollToIndex, { align: 'start' });
+  }, [virtualizer, scrollToIndex, hasItems]);
 
   const virtualRows = virtualizer.getVirtualItems();
 

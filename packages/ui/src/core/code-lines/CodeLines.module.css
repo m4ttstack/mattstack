@@ -1,0 +1,44 @@
+.row {
+  display: flex;
+  align-items: center;
+  height: 19px;
+  /* A line longer than the viewport scrolls sideways; the row grows with it
+     so a highlight tint covers the whole line, not just the first screenful. */
+  min-width: max-content;
+}
+
+.row[data-highlighted] {
+  background-color: var(--mantine-color-accent-light);
+}
+
+.gutter {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: none;
+  width: 8rem;
+  padding: 0 var(--mantine-spacing-xs);
+  border-right: 2px solid transparent;
+  user-select: none;
+}
+
+.gutter[data-tone='accent'] {
+  border-right-color: var(--mantine-color-accent-filled);
+}
+
+.gutterLabel {
+  color: var(--tk-text-3);
+}
+
+.number {
+  flex: none;
+  box-sizing: content-box;
+  padding: 0 var(--mantine-spacing-sm);
+  color: var(--tk-text-3);
+  user-select: none;
+}
+
+.code {
+  padding-right: var(--mantine-spacing-md);
+  white-space: pre;
+}
