@@ -252,7 +252,7 @@ export function SettingRow({
               def={def}
               store={store}
               tab={open.tab}
-              onTab={tab => setOpen({ ...open, tab })}
+              onTab={tab => setOpen({ tab, fix: null })}
               value={<ValueContent def={def} parts={parts} />}
               fix={open.fix}
               onPickRepo={onPickRepo}

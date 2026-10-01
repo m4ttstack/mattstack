@@ -712,6 +712,36 @@ describe('open rows', () => {
     ).toBeInTheDocument();
   });
 
+  it('a tab switch drops ?fix=, so Where it’s set comes back with no editor open', async () => {
+    explainRows = [
+      { scope: 'default', file: null, present: false },
+      { scope: 'user', file: '/u', present: true, value: 'sonnet' },
+      { scope: 'machine', file: '/m', present: true, value: 'opus' },
+    ];
+    window.history.replaceState(
+      null,
+      '',
+      '/settings?explain=board.agent.model&fix=machine'
+    );
+    renderPage();
+    await screen.findByRole('button', { name: 'close board.agent.model' });
+    const row = rowOf('board.agent.model');
+    await within(row).findByRole('button', {
+      name: 'cancel editing board.agent.model at machine',
+    });
+    await userEvent.click(within(row).getByRole('radio', { name: 'Value' }));
+    expect(param('fix')).toBeNull();
+    await userEvent.click(
+      within(row).getByRole('radio', { name: "Where it's set" })
+    );
+    const layer = await within(row).findByTestId('layer-machine');
+    expect(
+      within(layer).getByRole('button', {
+        name: 'set board.agent.model at machine',
+      })
+    ).toBeInTheDocument();
+  });
+
   it('a link to no registered key says so above the sections and keeps the filter', async () => {
     window.history.replaceState(
       null,
