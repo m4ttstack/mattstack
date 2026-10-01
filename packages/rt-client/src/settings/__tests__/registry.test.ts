@@ -177,6 +177,7 @@ describe("settings/registry", () => {
     test("repoOnly implies repoScoped, and every repo-scoped key but rt.gitStatus is repo-only", () => {
       for (const def of allDefs()) {
         if (def.repoOnly) expect(def.repoScoped, `${def.key}: repoOnly needs repoScoped`).toBe(true);
+        if (def.repoScoped && def.key !== "rt.gitStatus") expect(def.repoOnly, `${def.key}: repoScoped needs repoOnly`).toBe(true);
       }
       const repoOnly = allDefs().filter((d) => d.repoOnly).map((d) => d.key).sort();
       expect(repoOnly).toEqual([
