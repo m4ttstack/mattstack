@@ -180,6 +180,7 @@ describe("settings/registry", () => {
       }
       const repoOnly = allDefs().filter((d) => d.repoOnly).map((d) => d.key).sort();
       expect(repoOnly).toEqual([
+        "board.codeowners",
         "rt.branchNaming",
         "rt.dopplerTemplate",
         "rt.hooks",
@@ -332,6 +333,7 @@ describe("settings/registry", () => {
         "board.hiddenMembers",
         "board.triage",
         "board.reReview",
+        "board.codeowners",
         "board.agent.account",
         "board.agent.model",
         "board.agent.effort",
@@ -384,7 +386,7 @@ describe("settings/registry", () => {
         "herd.watchdog.midRunTrustAccept",
         "panes.relocationAutoAccept",
       ];
-      expect(suiteKeys).toHaveLength(79);
+      expect(suiteKeys).toHaveLength(80);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
@@ -452,11 +454,9 @@ describe("settings/registry", () => {
       }
     });
 
-    test("none of the new suite keys carry repoScoped", () => {
-      for (const def of allDefs()) {
-        if (def.key.startsWith("rt.")) continue; // wave-1 rows, covered above
-        expect(def.repoScoped, `${def.key} should not be repoScoped`).toBeFalsy();
-      }
+    test("board.codeowners is the one suite key that is repoScoped", () => {
+      const repoScoped = allDefs().filter((d) => !d.key.startsWith("rt.") && d.repoScoped).map((d) => d.key);
+      expect(repoScoped).toEqual(["board.codeowners"]);
     });
 
     test("every def with a lock entry carries its schema and storeVersion from the lock", () => {
