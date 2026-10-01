@@ -25,6 +25,18 @@ function slot(over: Partial<SlotOutlineNode> = {}): SlotOutlineNode {
   };
 }
 
+describe('SlotRow: a binding with no fill behind it', () => {
+  test('says so in plain words beside the bound name', () => {
+    renderWithProviders(
+      <SlotRow slot={slot({ fill: null })} onShowSites={() => {}} />
+    );
+
+    expect(screen.getByTestId('slot-fill')).toHaveTextContent(
+      /^widgets:gates \(no matching fill in this pack\)$/
+    );
+  });
+});
+
 describe('SlotRow: the layer that set the slot', () => {
   test.each([
     ['default', 'default'],

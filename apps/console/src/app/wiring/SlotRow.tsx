@@ -75,7 +75,7 @@ function FillLink({
       }}
       data-testid="slot-fill"
     >
-      {slot.fill ? boundTo : `${boundTo} — no matching fill in this pack`}
+      {slot.fill ? boundTo : `${boundTo} (no matching fill in this pack)`}
     </Anchor>
   );
 }
