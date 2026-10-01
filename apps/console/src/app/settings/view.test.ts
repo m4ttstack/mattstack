@@ -14,6 +14,7 @@ import {
   isRung,
   layerLabel,
   leafWrite,
+  moveTargets,
   needsFixing,
   NO_FILTER,
   rungBase,
@@ -342,5 +343,38 @@ describe('needs fixing', () => {
         needsFixing: true,
       }).map(d => d.key)
     ).toEqual(['rt.notify.eventBridges', 'rt.homeSnapshot']);
+  });
+});
+
+describe('moveTargets', () => {
+  const base = {
+    key: 'board.agent.model',
+    type: 'string',
+    scopes: ['team', 'user', 'machine'],
+    merge: 'replace',
+    secret: false,
+    teamLocked: false,
+    repoScoped: false,
+    writable: true,
+    description: '',
+    hasDefault: false,
+    defaultValue: null,
+    storeVersion: 1,
+  } as const;
+  it('offers the other allowed store layers', () => {
+    expect(
+      moveTargets({
+        ...base,
+        scopes: [...base.scopes],
+        effective: { scope: 'user', file: '/u', value: 'x' },
+      })
+    ).toEqual(['team', 'machine']);
+  });
+  it('offers nothing for a rejected value, a repo rung, or nothing stored', () => {
+    const at = (effective: SettingDefWire['effective']) =>
+      moveTargets({ ...base, scopes: [...base.scopes], effective });
+    expect(at({ scope: 'user', file: '/u', invalid: 'bad' })).toEqual([]);
+    expect(at({ scope: 'machine.repo', file: '/m', value: 'x' })).toEqual([]);
+    expect(at({ scope: null, file: null })).toEqual([]);
   });
 });

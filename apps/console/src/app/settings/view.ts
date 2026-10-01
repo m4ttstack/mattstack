@@ -273,3 +273,30 @@ export function leafWrite(
   const own = rows.find(r => r.scope === target && r.present)?.value;
   return setLeaf(own, path, value);
 }
+
+/** A click that starts inside one of these belongs to the control it hit,
+    never to the row around it. Options and listboxes render in a portal but
+    still bubble through React to the row. */
+export const ROW_CONTROLS =
+  'input, textarea, select, button, a, label, [role="switch"], [role="combobox"], [role="listbox"], [role="option"], [role="menu"], [role="menuitem"], [contenteditable="true"]';
+
+/** Escape here abandons an edit or closes a menu, never the row or modal
+    around it. A radio or checkbox (the tab bar, a switch) has no Escape of
+    its own. */
+export const ESCAPE_OWNERS =
+  'input:not([type=radio]):not([type=checkbox]), textarea, select, [contenteditable="true"], [role="menu"], [role="listbox"]';
+
+/** Where the value in effect may move. settings-kit moves global layers
+    only, and a move re-sets the value at its target, which would reject a
+    value rt already refused. */
+export function moveTargets(def: SettingDefWire): StoreScope[] {
+  const from = def.effective.scope;
+  const base = rungBase(from);
+  const stored =
+    def.key !== APPROVAL_KEY &&
+    Boolean(def.writable && base && def.scopes.includes(base));
+  if (!stored || def.effective.invalid !== undefined || isRung(from)) return [];
+  return (def.scopes as StoreScope[]).filter(
+    s => s !== from && isStoreScope(s)
+  );
+}
