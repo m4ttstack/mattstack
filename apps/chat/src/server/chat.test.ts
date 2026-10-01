@@ -300,6 +300,7 @@ test('buddies join the live herdr pane title by sessionId', async () => {
           agentStatus: 'working',
           sessionId: 's1',
           title: 'Fix the thing',
+          tab: 'loosening mcp rules',
         },
       ],
     },
@@ -308,6 +309,9 @@ test('buddies join the live herdr pane title by sessionId', async () => {
   expect((await res.json()).buddies[0]).toMatchObject({
     handle: 'a',
     paneTitle: 'Fix the thing',
+    paneWorkspace: 'x',
+    paneTab: 'loosening mcp rules',
+    agentStatus: 'working',
   });
 });
 
