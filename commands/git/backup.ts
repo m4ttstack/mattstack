@@ -1,19 +1,15 @@
 /**
- * rt git backup — Manual branch backup.
- * rt git restore — Interactive restore from backup.
+ * rt git backup: Manual branch backup.
+ * rt git restore: Interactive restore from backup.
  *
  * Thin wrappers over lib/git-backup.ts.
  */
 
-import { bold, cyan, dim, green, yellow, red, reset } from "../../lib/tui.ts";
+import * as out from "../../lib/ui/out.ts";
 import { getCurrentBranch } from "../../lib/git-ops.ts";
-import {
-  createBackup,
-  listBackups,
-  restoreFromBackup,
-  type BackupBranch,
-} from "../../lib/git-backup.ts";
+import { createBackup, listBackups, restoreFromBackup } from "../../lib/git-backup.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
+import { NOT_ON_A_BRANCH } from "./shared.ts";
 
 // ─── rt git backup ──────────────────────────────────────────────────────────
 
@@ -25,18 +21,18 @@ export async function backupCommand(
   const branch = getCurrentBranch(cwd);
 
   if (!branch) {
-    console.error(`\n  ${red}not on a branch (detached HEAD)${reset}\n`);
+    out.fail(NOT_ON_A_BRANCH);
     process.exit(1);
   }
 
   const backupRef = createBackup("manual", cwd);
-  console.log(`\n  ${green}✓${reset} backed up ${bold}${branch}${reset} → ${dim}${backupRef}${reset}\n`);
+  out.print(out.line("done", `Backed up ${branch}`, backupRef));
 }
 
 // ─── rt git restore ─────────────────────────────────────────────────────────
 
 function formatAge(ts: string): string {
-  // Timestamp is like "2026-04-09T00-27-40" — convert back to Date
+  // Timestamp is like "2026-04-09T00-27-40"; convert it back to a Date
   const normalized = ts.replace(
     /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})$/,
     "$1:$2:$3",
@@ -61,7 +57,7 @@ export async function restoreCommand(
   const backups = listBackups(cwd);
 
   if (backups.length === 0) {
-    console.log(`\n  ${dim}no backup branches found${reset}\n`);
+    out.print(out.line("skipped", "There are no backups to restore"));
     return;
   }
 
@@ -78,14 +74,16 @@ export async function restoreCommand(
   });
 
   if (!selected) {
-    console.log(`\n  ${dim}cancelled${reset}\n`);
+    out.print(out.line("skipped", "Nothing was restored"));
     return;
   }
 
   const backup = backups.find((b) => b.ref === selected)!;
 
-  console.log(`\n  restore ${bold}${backup.originalBranch}${reset} to backup ${dim}${backup.sha}${reset}`);
-  console.log(`  ${dim}(${backup.operation} from ${formatAge(backup.timestamp)})${reset}`);
+  out.print(
+    out.line("pending", `Restore ${backup.originalBranch} to ${backup.sha}`, `${backup.operation} backup from ${formatAge(backup.timestamp)}`),
+    out.callout("note", "This throws away every change made since that backup."),
+  );
 
   const ok = await inkConfirm({
     message: "Restore? (this does a hard reset)",
@@ -93,10 +91,10 @@ export async function restoreCommand(
   });
 
   if (!ok) {
-    console.log(`\n  ${dim}cancelled${reset}\n`);
+    out.print(out.line("skipped", "Nothing was restored"));
     return;
   }
 
   restoreFromBackup(selected, cwd);
-  console.log(`\n  ${green}✓${reset} restored to ${dim}${selected}${reset}\n`);
+  out.print(out.line("done", `Restored ${backup.originalBranch}`, selected));
 }

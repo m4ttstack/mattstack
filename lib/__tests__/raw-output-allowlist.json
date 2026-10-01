@@ -13,8 +13,6 @@
   "commands/events.ts",
   "commands/flavor.ts",
   "commands/gate.ts",
-  "commands/git/backup.ts",
-  "commands/git/credential.ts",
   "commands/git/pull.ts",
   "commands/git/push.ts",
   "commands/git/rebase.ts",

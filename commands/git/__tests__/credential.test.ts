@@ -4,7 +4,8 @@ import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "os";
 import { join } from "path";
 import { rtCredentialHelper } from "../../../lib/setup/steps/repos.ts";
-import { gitCredentialReply } from "../credential.ts";
+import { gitCredentialCommand, gitCredentialReply } from "../credential.ts";
+import { captureOut } from "../../../lib/ui/__tests__/capture-out.ts";
 
 let root: string;
 
@@ -71,5 +72,31 @@ describe("rt git credential", () => {
   test("a store rt cannot read is an empty answer, never a crash git reports", async () => {
     const deps = { confirmedHost: () => null, lookupStored: async () => { throw new Error("keychain locked"); } };
     expect(await gitCredentialReply("get", "protocol=https\nhost=github.com\n\n", deps)).toBe("");
+  });
+});
+
+describe("rt git credential, as git reads it", () => {
+  const deps = { confirmedHost: () => "git.example.test", lookupStored: async () => "tok_sample" };
+
+  test("stdout is the reply byte for byte and stderr is empty", async () => {
+    const io = captureOut();
+    try {
+      await gitCredentialCommand(["get"], {}, deps, async () => "protocol=https\nhost=git.example.test\n\n");
+      expect(io.stdout()).toBe("username=x-access-token\npassword=tok_sample\n");
+      expect(io.stderr()).toBe("");
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("an operation rt does not answer writes nothing at all", async () => {
+    const io = captureOut();
+    try {
+      await gitCredentialCommand(["store"], {}, deps, async () => "protocol=https\nhost=git.example.test\n\n");
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe("");
+    } finally {
+      io.restore();
+    }
   });
 });
