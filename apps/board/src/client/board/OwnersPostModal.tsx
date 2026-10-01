@@ -27,7 +27,7 @@ function skipReason(skip: OwnerSkip) {
     case 'already-posted':
       return (
         <a href={skip.permalink} target="_blank" rel="noopener noreferrer">
-          already posted
+          already posted to #{skip.channel}
         </a>
       );
     case 'channel-unavailable':
@@ -164,20 +164,23 @@ function OwnersPostModal({
             ].join(' · ')}
           </span>
         )}
-        <Button size="sm" variant="default" onClick={onClose}>
+        <Button size="sm" intent="muted" onClick={onClose}>
           {preview && preview.channels.length === 0 ? 'close' : 'cancel'}
         </Button>
         {preview && preview.channels.length > 0 && (
           <Button
             size="sm"
             intent="accent"
+            variant="filled"
             busy={posting}
             disabled={chosen.length === 0}
             onClick={() => void confirm()}
           >
             {posting
               ? 'posting…'
-              : `post to ${chosen.length} channel${chosen.length === 1 ? '' : 's'}`}
+              : chosen.length === 0
+                ? 'no channel selected'
+                : `post to ${chosen.length} channel${chosen.length === 1 ? '' : 's'}`}
           </Button>
         )}
       </div>

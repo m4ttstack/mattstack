@@ -144,7 +144,7 @@ test('says why each skipped section is left out, and links a post already made',
   const link = document.querySelector(
     'a[href="https://team.slack.example/archives/C1/p1"]'
   );
-  expect(link?.textContent).toBe('already posted');
+  expect(link?.textContent).toBe('already posted to #pod-hub');
 });
 
 test('unchecking a channel changes the count, and unchecking all disables the confirm', async () => {
@@ -152,7 +152,11 @@ test('unchecking a channel changes the count, and unchecking all disables the co
   await click(toggle('pod-docs'));
   expect(confirmButton()!.textContent).toBe('post to 1 channel');
   await click(toggle('pod-acme'));
-  expect(confirmButton()!.disabled).toBe(true);
+  const none = [...document.querySelectorAll('button')].find(
+    b => b.textContent?.trim() === 'no channel selected'
+  ) as HTMLButtonElement;
+  expect(none.disabled).toBe(true);
+  expect(confirmButton()).toBeUndefined();
 });
 
 test('confirm sends only the channels still checked, then reports them', async () => {
