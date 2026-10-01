@@ -267,7 +267,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const outcome = await proxyInstallStep.run(ctx);
       expect(raised).toBe(false);
       expect(outcome.state).toBe("skipped");
-      expect(outcome.detail).toContain("not bundled");
+      expect(outcome.detail).toContain("does not include the local proxy installer");
     });
 
     // The gate now checks the helper's own existence in the bundle directly

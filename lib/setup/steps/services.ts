@@ -89,6 +89,14 @@ export function deployedProxyVersion(p: Pick<Probes, "readFile">): string | null
  * daemon out before bootstrapping the replacement, so adopting such a machine
  * costs the same single prompt a first install does.
  */
+export const PROXY_INSTALLER_MISSING = "this build does not include the local proxy installer; apps serve on their ports";
+
+/** True for a bundle that ships no privileged proxy helper (a dev build): the app can only refuse the install need, so nothing should offer it. */
+export function proxyInstallerMissing(p: Pick<Probes, "exists" | "home">): boolean {
+  const bundleRoot = appBundlePath(p);
+  return bundleRoot !== null && !p.exists(join(bundleRoot, HELPERS_DIR, "mattstack-proxy-install"));
+}
+
 export function proxyPredatesMattstack(p: Pick<Probes, "exists">): boolean {
   return !p.exists(PROXY_VERSION_PATH);
 }
@@ -163,9 +171,8 @@ async function proxyInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   // helper ships as its own file, not a deps.lock-tracked tool), so the gate
   // checks the file directly instead of going through bundledToolPath, which
   // would now always report a miss.
-  const bundleRoot = appBundlePath(ctx.p);
-  if (bundleRoot && !ctx.p.exists(join(bundleRoot, HELPERS_DIR, "mattstack-proxy-install"))) {
-    return { state: "skipped", detail: "local proxy installer not bundled in this build — .localhost and .mattstack domains arrive with it; apps serve on their ports meanwhile" };
+  if (proxyInstallerMissing(ctx.p)) {
+    return { state: "skipped", detail: PROXY_INSTALLER_MISSING };
   }
 
   const reply = await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" });
