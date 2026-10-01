@@ -18,6 +18,7 @@ interface Captured {
   method: string;
   headers: Record<string, string>;
   body: unknown;
+  signal?: AbortSignal | null;
 }
 
 function stub(status: number, payload: unknown): Captured[] {
@@ -28,6 +29,7 @@ function stub(status: number, payload: unknown): Captured[] {
       method: String(init.method),
       headers: init.headers as Record<string, string>,
       body: init.body,
+      signal: init.signal,
     });
     return new Response(status === 204 ? null : JSON.stringify(payload), {
       status,
@@ -332,6 +334,21 @@ describe('draft notes', () => {
     await expect(m.deleteDraftNote(42, 9, 7)).rejects.toThrow(/deleteDraftNote failed: 403/);
     await expect(m.publishDraftNotes(42, 9, { note: 's', reviewerState: 'reviewed' })).rejects.toThrow(/publishDraftNotes failed: 403/);
     await expect(m.fetchReviewerStates(42, 9)).rejects.toThrow(/fetchReviewerStates failed: 403/);
+  });
+
+  test('every draft call is bounded, so a stalled GitLab cannot hold the caller', async () => {
+    const m = new NoteMutator('https://gitlab.example.com', 'tok');
+    const reads = stub(200, []);
+    await m.listDraftNotes(42, 9);
+    await m.deleteDraftNote(42, 9, 7);
+    await m.fetchReviewerStates(42, 9);
+    const creates = stub(201, { id: 7, note: 'hi', discussion_id: null, line_code: 'x', resolve_discussion: false });
+    await m.createDraftNote(42, 9, 'hi');
+    const publishes = stub(204, null);
+    await m.publishDraftNotes(42, 9, { note: 's', reviewerState: 'reviewed' });
+    const signals = [...reads, ...creates, ...publishes].map(c => c.signal);
+    expect(signals).toHaveLength(5);
+    for (const signal of signals) expect(signal).toBeInstanceOf(AbortSignal);
   });
 
   test('a draft call failure carries the HTTP status, so a refusal is told from a server error', async () => {

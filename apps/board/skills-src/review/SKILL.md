@@ -347,7 +347,7 @@ digraph review_flow {
     "mr_review_submit result (review)?" -> "Fixed the mr_approve call once already?" [label="published, approved: false on an approve"];
     "mr_review_submit result (review)?" -> "Bad anchors moved once already (review)?" [label="published: false, bad-anchors"];
     "mr_review_submit result (review)?" -> "review off-script gate: pending comments on the MR" [label="published: false, pending-drafts"];
-    "mr_review_submit result (review)?" -> "review off-script gate: mr_review_submit refused" [label="tool error saying the outcome is unknown or only partly landed"];
+    "mr_review_submit result (review)?" -> "review off-script gate: mr_review_submit refused" [label="tool error saying it timed out, the outcome is unknown, or it only partly landed"];
     "mr_review_submit result (review)?" -> "Fixed the mr_review_submit call once already?" [label="any other tool error"];
     "mr_review_submit result (review)?" -> "STOP: a review posts whole through mr_review_submit" [label="tempted to post the pieces with mr_comment_inline or mr_comment, or with the GitLab CLI or the API"];
     "STOP: a review posts whole through mr_review_submit" -> "Fixed the mr_review_submit call once already?";
@@ -1247,10 +1247,10 @@ exactly `comment` or `approve`; `summary` non-empty; each comment a
 `discussionId` and a boolean `resolve`, with a `body` or `resolve: true`;
 at most 100 comments and replies together. An error that names no input
 has nothing to correct: call again unchanged, once, and the off-script
-gate follows. An error that says the outcome is unknown, or that the
-review only partly landed, is never retried: it goes straight to the
-off-script gate. An error is never a reason to post the findings one by
-one, or with the GitLab CLI or the API.
+gate follows. An error that says the call timed out, that the outcome is
+unknown, or that the review only partly landed, is never retried: it goes
+straight to the off-script gate. An error is never a reason to post the
+findings one by one, or with the GitLab CLI or the API.
 
 ### Fix what the mr_approve error names
 
@@ -1331,18 +1331,21 @@ unchecked.
 Take "Off-script step" with this question. Label: `review submit refused
 on !<iid>: <last error>`. Context: every `mr_review_submit` error and
 bad-anchors result this pass got, quoted, then the summary and every
-comment in full. Nothing is on the MR unless the error says the outcome
-is unknown or that the review only partly landed:
+comment in full. An error that says the call timed out, that the outcome
+is unknown, or that the review only partly landed may have left some or
+all of this review on the MR; any other error means nothing from it is
+up:
 
-- **Outcome unknown:** the context says so first, and the human looks
-  for the summary on the MR before answering.
+- **Timed out, or outcome unknown:** the context says first that some or
+  all of this review may already be on the MR, and the human looks for
+  the summary on the MR before answering.
 - **Only partly landed:** the context says first that some of this
   review's comments may be on the MR without its summary, and that the
   human checks the MR's threads. The move is take only: the human
   finishes the review in GitLab (what is missing, the summary included).
 
-After either error the context also says that iterate is only for a
-human who has confirmed nothing from this review is on the MR; it is
+After any of these errors the context also says that iterate is only for
+a human who has confirmed nothing from this review is on the MR; it is
 never a blind resubmit.
 
 | Value | Label | Description |

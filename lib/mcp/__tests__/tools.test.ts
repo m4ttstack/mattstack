@@ -519,11 +519,19 @@ describe("mcpTools", () => {
       expect(out.ok).toBe(true);
     });
 
-    test("a timeout says the review may have landed and where to look", async () => {
-      reply = () => ({ ok: false, error: "request timed out" });
+    test("a timeout from the daemon says the outcome is unknown and to look at the MR", async () => {
+      reply = () => ({ ok: false, error: "rt daemon unreachable at /tmp/rt.sock: The operation timed out." });
       const out = await tool().handler({ ...TARGET, outcome: "comment", summary: "s" }, {} as NodeJS.ProcessEnv);
       expect(out.ok).toBe(false);
-      expect(out.error).toContain("the MR's discussions");
+      expect(out.error).toStartWith("mr_review_submit timed out and its outcome is unknown; the review may still land; look at the MR before retrying");
+      expect(out.error).toContain("The operation timed out.");
+    });
+
+    test("a sequence error that names a GitLab timeout keeps the daemon's own account of what landed", async () => {
+      const error = "review not posted: TimeoutError: The operation timed out.";
+      reply = () => ({ ok: false, error });
+      const out = await tool().handler({ ...TARGET, outcome: "comment", summary: "s" }, {} as NodeJS.ProcessEnv);
+      expect(out.error).toBe(error);
     });
   });
 

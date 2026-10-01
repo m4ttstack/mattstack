@@ -85,6 +85,7 @@ export interface ReviewerState {
 
 /** Above GitLab's own request limit, so a publish GitLab is still running is never abandoned. */
 const PUBLISH_TIMEOUT_MS = 90_000;
+const DRAFT_TIMEOUT_MS = 15_000;
 
 /** A GitLab refusal: the message names the op and status, `status` carries it for callers. */
 export type HttpStatusError = Error & { status: number };
@@ -339,7 +340,7 @@ export class NoteMutator {
     method: 'GET' | 'POST' | 'DELETE',
     path: string,
     body?: unknown,
-    timeoutMs?: number,
+    timeoutMs = DRAFT_TIMEOUT_MS,
   ): Promise<Response> {
     const started = performance.now();
     const res = await fetch(`${this.baseURL}${path}`, {
@@ -349,7 +350,7 @@ export class NoteMutator {
         'PRIVATE-TOKEN': this.token,
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      ...(timeoutMs !== undefined ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     safeEmit(this.onRequest, {
       op: `noteMutator.${op}`,

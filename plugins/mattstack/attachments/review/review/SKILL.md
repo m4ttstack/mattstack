@@ -802,13 +802,15 @@ pr comment <ref>`, and leave the disposition to the human.
 
 ### Open the review off-script gate: mr_review_submit refused
 
-Nothing is on the MR unless the error says the outcome is unknown or that
-it only partly landed. The proposed move: the human posts the review in
-the forge UI, approving it on an approve (the summary and every comment
-quoted in full in `context`), and the run records it as posted by the
-human.
+An error that says the call timed out, that the outcome is unknown, or
+that it only partly landed may have left some or all of this review on
+the MR; any other error means nothing from it is up. The proposed move:
+the human posts the review in the forge UI, approving it on an approve
+(the summary and every comment quoted in full in `context`), and the run
+records it as posted by the human.
 
-- **Outcome unknown:** `context` says so first, and the human looks for
+- **Timed out, or outcome unknown:** `context` says first that some or
+  all of this review may already be on the MR, and the human looks for
   the summary on the MR before choosing: a summary already there means
   the review is up, and take records it without posting it again.
 - **Only partly landed:** `context` says first that some of this review's
@@ -817,9 +819,9 @@ human.
   review in the forge UI (what is missing, the summary included), and the
   run records it as posted by the human.
 
-After either error, `context` also says that **Iterate here** is only for
-a human who has confirmed nothing from this review is on the MR; it is
-never a blind resubmit. Reached from `This review already on the MR?`
+After any of these errors, `context` also says that **Iterate here** is
+only for a human who has confirmed nothing from this review is on the MR;
+it is never a blind resubmit. Reached from `This review already on the MR?`
 with partly, `context` quotes the hold reason and what the threads show.
 
 ### Open the review off-script gate: pending comments on the MR

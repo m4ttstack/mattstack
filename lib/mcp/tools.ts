@@ -33,7 +33,7 @@ import { runToolDefs } from "./run-tools.ts";
 import { worktreeToolDefs } from "./worktree-tools.ts";
 import {
   checkOptional, checkPositiveInts, checkRequired, checkStringArray,
-  err, fromResponse, HERD_ENV_ERROR, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok,
+  err, fromResponse, HERD_ENV_ERROR, isTimeoutError, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok,
   REPO_NAME_RULE, REPO_TARGET_PROPS, requireChatHandle, requireJobEnv, requireWorkerEnv,
   resolveSoleHerd, withLandingHint,
   type McpToolDef, type ToolResult,
@@ -46,6 +46,14 @@ const MR_UPLOAD_TIMEOUT_MS = 120_000;
 
 /** A review is one GitLab request per comment and reply, in sequence. */
 const MR_REVIEW_SUBMIT_TIMEOUT_MS = 180_000;
+
+/** The daemon's own sequence errors already say what reached the MR. */
+const REVIEW_SEQUENCE_ERROR = /^(review not posted|publish failed)/;
+
+function withReviewTimeout(res: ToolResult): ToolResult {
+  if (res.ok || REVIEW_SEQUENCE_ERROR.test(res.error ?? "") || !isTimeoutError(res.error)) return res;
+  return err(`mr_review_submit timed out and its outcome is unknown; the review may still land; look at the MR before retrying (${res.error})`);
+}
 
 type MrActionName = Commands["mr:action"]["payload"]["action"];
 
@@ -507,7 +515,7 @@ export function mcpTools(): McpToolDef[] {
           replies: (input.replies ?? []) as Commands["mr:review-submit"]["payload"]["replies"],
         };
         const res = await rtCommand<Commands["mr:review-submit"]["data"]>("mr:review-submit", payload, { timeoutMs: MR_REVIEW_SUBMIT_TIMEOUT_MS });
-        return withLandingHint(fromResponse(res), "the MR's discussions");
+        return withReviewTimeout(fromResponse(res));
       },
     },
     {
