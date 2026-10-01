@@ -27,10 +27,8 @@ the file column, so they read as part of the path. On a light terminal the peach
 caveats and the bright green on `done` marks and `explain` rungs are low contrast, and peach is shared
 by `next` and warn, so a `next` rail reads like a warning. On a dark terminal the `explain` branches are
 close to invisible. In the setup renders, the "Install is waiting on" line runs off the pane when many
-rows block it (a status line with a hint does not wrap yet). A required row that is only not done yet
-(Daemon, mattstack.app) or could not be checked (Full Disk Access with the app closed) is pending or a
-warning in `rt setup status` but coral in `rt verify`, where it is a failed check. The herdr detail
-repeats the name with an empty version (the fake probe returns none). `rt logins` prints its table with
+rows block it (a status line with a hint does not wrap yet). `rt verify` draws each row as `rt setup status` does, so its summary can count more failed checks than
+the rows drawn coral (a required row that is not set up yet is a failed check but a pending row). `rt logins` prints its table with
 no header, and the streamed lines under a failed step sit on a rail that is faint on dark.
 
 To regenerate: write the hello line and the fixture blocks as NDJSON, pipe them
