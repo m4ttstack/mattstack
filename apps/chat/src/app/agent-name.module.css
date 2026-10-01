@@ -7,6 +7,17 @@
   cursor: default;
 }
 
+.targetRow {
+  flex: 1;
+  min-width: 0;
+}
+
+.targetFit {
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .target .name {
   border-radius: 4px;
   padding: 2px 5px;
