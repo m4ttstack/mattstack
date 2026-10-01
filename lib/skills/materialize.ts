@@ -12,8 +12,8 @@ export type PackOutcome =
 
 export type MaterializeRepoOutcome =
   | { kind: "no-remote" }
-  | { kind: "undeclared"; repo: string }
-  | { kind: "written"; repo: string; slug: string; packs: PackOutcome[]; migrated: string | null };
+  | { kind: "undeclared"; repo: string; pruned: string[] }
+  | { kind: "written"; repo: string; slug: string; packs: PackOutcome[]; migrated: string | null; pruned: string[] };
 
 export type MaterializeDeps = {
   fs: MaterializeFs;
@@ -75,6 +75,19 @@ function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, re
   }
 }
 
+/** Renamed, never deleted: a file is set aside only when no pack this run claimed (ok or failed) owns it, so a broken pack keeps its last good bindings. */
+function setAsideStale(deps: MaterializeDeps, slug: string, owned: Set<string>): string[] {
+  const pruned: string[] = [];
+  for (const pack of deps.fs.readDir(join(deps.mattstackRoot, "repos", slug, "packs")).sort()) {
+    if (owned.has(pack)) continue;
+    const path = packManifestPath(deps.mattstackRoot, slug, pack);
+    if (!deps.fs.exists(path)) continue;
+    deps.fs.rename(path, `${path}.stale`);
+    pruned.push(`${path}.stale`);
+  }
+  return pruned;
+}
+
 export function materializeRepo(deps: MaterializeDeps, remote: string | null): MaterializeRepoOutcome {
   const ref = remote ? parseRemote(remote) : null;
   if (!ref) return { kind: "no-remote" };
@@ -82,7 +95,7 @@ export function materializeRepo(deps: MaterializeDeps, remote: string | null): M
 
   const zones = readZonesFrom(deps.fs, join(deps.mattstackRoot, "teams"))
     .filter((z) => z.host === ref.host && z.projects.includes(ref.path));
-  if (zones.length === 0) return { kind: "undeclared", repo };
+  if (zones.length === 0) return { kind: "undeclared", repo, pruned: setAsideStale(deps, ref.slug, new Set()) };
 
   let defaults: Layer | null = null;
   let override: Layer | null = null;
@@ -131,5 +144,6 @@ export function materializeRepo(deps: MaterializeDeps, remote: string | null): M
     deps.fs.rename(legacy, migrated);
   }
 
-  return { kind: "written", repo, slug: ref.slug, packs, migrated };
+  const pruned = setAsideStale(deps, ref.slug, new Set(packs.map((p) => p.pack)));
+  return { kind: "written", repo, slug: ref.slug, packs, migrated, pruned };
 }

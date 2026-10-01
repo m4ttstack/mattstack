@@ -2316,4 +2316,15 @@ describe("skillsMaterialize --dir exit codes", () => {
     expect(logs).toContain(`  renamed the old merged file to ${legacy}.migrated`);
     expect(existsSync(join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc"))).toBe(true);
   });
+
+  test("a bindings file no pack still owns is set aside and reported", async () => {
+    process.env.RT_ENGINE_PACK_DIR = ENGINE;
+    declareWidgets();
+    const stale = join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "gadgets", "skills.jsonc");
+    writeFile(stale, "{}");
+    await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
+    expect(process.exitCode).toBe(0);
+    expect(logs).toContain(`  set aside 1 stale bindings file: ${stale}.stale`);
+    expect(existsSync(stale)).toBe(false);
+  });
 });

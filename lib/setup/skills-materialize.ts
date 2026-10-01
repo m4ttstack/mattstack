@@ -38,6 +38,8 @@ export interface MaterializeRepoResult {
   detail: string;
   packs?: PackOutcome[];
   migrated?: string | null;
+  /** Bindings files this run renamed to `.stale` (their new paths): no pack claims them any more. */
+  pruned?: string[];
 }
 
 export type MaterializeSkillsResult =
@@ -48,12 +50,19 @@ export type MaterializeSkillsResult =
 export function materializeTally(repos: MaterializeRepoResult[]): string {
   const written = repos.flatMap((r) => r.packs ?? []).filter((pk) => pk.ok).length;
   const undeclared = repos.filter((r) => r.noManifest).length;
+  const pruned = repos.reduce((n, r) => n + (r.pruned?.length ?? 0), 0);
   const failures = repos.flatMap((r) => {
     if (r.packs) return r.packs.flatMap((pk) => (pk.ok ? [] : [`${pk.pack} (${r.name}): ${pk.detail}`]));
     return r.ok || r.noManifest ? [] : [`${r.name}: ${r.detail}`];
   });
-  const head = `materialized ${written} pack file${written === 1 ? "" : "s"}${undeclared > 0 ? `, no skills declared ${undeclared}` : ""}`;
+  const head = `materialized ${written} pack file${written === 1 ? "" : "s"}` +
+    (undeclared > 0 ? `, no skills declared ${undeclared}` : "") +
+    (pruned > 0 ? `, ${setAsideLine(pruned)}` : "");
   return failures.length > 0 ? `${head}; failed: ${failures.join("\nfailed: ")}` : head;
+}
+
+export function setAsideLine(count: number): string {
+  return `set aside ${count} stale bindings file${count === 1 ? "" : "s"}`;
 }
 
 function registeredKnownRepos(): Pick<KnownRepo, "repoName" | "worktrees">[] {
@@ -117,11 +126,11 @@ export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: 
     if (outcome.kind === "no-remote") {
       repos.push({ ...target, ok: false, noManifest: true, noRemote: true, detail: `no git remote in ${target.path}` });
     } else if (outcome.kind === "undeclared") {
-      repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares ${outcome.repo}` });
+      repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares ${outcome.repo}`, pruned: outcome.pruned });
     } else if (outcome.packs.length === 0) {
-      repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares a pack for ${outcome.repo}` });
+      repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares a pack for ${outcome.repo}`, pruned: outcome.pruned });
     } else {
-      repos.push({ ...target, ok: outcome.packs.every((pk) => pk.ok), detail: describe(outcome.packs), packs: outcome.packs, migrated: outcome.migrated });
+      repos.push({ ...target, ok: outcome.packs.every((pk) => pk.ok), detail: describe(outcome.packs), packs: outcome.packs, migrated: outcome.migrated, pruned: outcome.pruned });
     }
   }
   return { skipped: false, repos };

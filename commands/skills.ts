@@ -34,7 +34,7 @@ import { mattstackHome } from "../lib/rt-paths.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
-import { materializeSkills, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
+import { materializeSkills, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
@@ -1523,6 +1523,7 @@ export async function skillsMaterialize(args: string[]): Promise<void> {
       for (const r of result.repos) {
         console.log(`${r.ok ? "materialized" : r.noManifest ? "no skills declared for" : "failed"} ${r.name}: ${r.detail}`);
         if (r.migrated) console.log(`  renamed the old merged file to ${r.migrated}`);
+        if (r.pruned?.length) console.log(`  ${setAsideLine(r.pruned.length)}: ${r.pruned.join(", ")}`);
       }
     }
     const code = materializeExitCode(result, dir !== undefined);

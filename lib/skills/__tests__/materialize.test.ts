@@ -60,7 +60,7 @@ describe("materializeRepo", () => {
   test("no zone declares the repo -> undeclared", () => {
     const { root, engine, home } = makeWorld();
     zone(root, "acme", { projects: ["acme/other"], packs: { widgets: {} } });
-    expect(materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE)).toEqual({ kind: "undeclared", repo: "gitlab.example.com/acme/widgets" });
+    expect(materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE)).toEqual({ kind: "undeclared", repo: "gitlab.example.com/acme/widgets", pruned: [] });
   });
 
   test("two zones on one repo each get their own pack file with their own stage-gates fill", () => {
@@ -225,7 +225,7 @@ describe("materializeRepo", () => {
     zone(root, "acme", { projects: ["acme/widgets"], packs: {} });
     write(join(root, "repos", SLUG, "skills.jsonc"), "{}");
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
-    expect(out).toEqual({ kind: "written", repo: "gitlab.example.com/acme/widgets", slug: SLUG, packs: [], migrated: null });
+    expect(out).toEqual({ kind: "written", repo: "gitlab.example.com/acme/widgets", slug: SLUG, packs: [], migrated: null, pruned: [] });
     expect(existsSync(join(root, "repos", SLUG, "packs"))).toBe(false);
     expect(readFileSync(join(root, "repos", SLUG, "skills.jsonc"), "utf8")).toBe("{}");
   });
@@ -275,5 +275,79 @@ describe("materializeRepo", () => {
       if (!p.ok) expect(p.detail).toContain(join(root, "user", "skills", "overrides.jsonc"));
     }
     expect(existsSync(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc"))).toBe(false);
+  });
+});
+
+describe("materializeRepo stale bindings files", () => {
+  const packFile = (root: string, pack: string) => join(root, "repos", SLUG, "packs", pack, "skills.jsonc");
+
+  function twoZones() {
+    const world = makeWorld();
+    zone(world.root, "acme-w", { projects: ["acme/widgets"], packs: { widgets: {} } });
+    zone(world.root, "acme-g", { projects: ["acme/widgets"], packs: { gadgets: {} } });
+    const deps = { fs: realFs, mattstackRoot: world.root, claudeHome: world.home, enginePackDir: world.engine };
+    materializeRepo(deps, REMOTE);
+    return { ...world, deps };
+  }
+
+  test("a pack removed from its zone has its file set aside on the next run, replacing an older .stale", () => {
+    const { root, deps } = twoZones();
+    const gadgets = packFile(root, "gadgets");
+    const before = readFileSync(gadgets, "utf8");
+    write(`${gadgets}.stale`, "older");
+    rmSync(join(root, "teams", "acme-g", "mattstack", "packs", "gadgets"), { recursive: true });
+
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.pruned).toEqual([`${gadgets}.stale`]);
+    expect(existsSync(gadgets)).toBe(false);
+    expect(readFileSync(`${gadgets}.stale`, "utf8")).toBe(before);
+    expect(existsSync(packFile(root, "widgets"))).toBe(true);
+  });
+
+  test("a pack that turns into a base pack has its file set aside", () => {
+    const { root, deps } = twoZones();
+    write(join(root, "teams", "acme-g", "mattstack", "packs", "gadgets", "pack", "skills.jsonc"), JSON.stringify({ base: true }));
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.pruned).toEqual([`${packFile(root, "gadgets")}.stale`]);
+  });
+
+  test("a pack that fails this run keeps its last good file", () => {
+    const { root, deps } = twoZones();
+    const gadgets = packFile(root, "gadgets");
+    const before = readFileSync(gadgets, "utf8");
+    write(join(root, "teams", "acme-g", "mattstack", "packs", "gadgets", "pack", "skills.jsonc"), "{ nope");
+
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.find((p) => p.pack === "gadgets")!.ok).toBe(false);
+    expect(out.pruned).toEqual([]);
+    expect(readFileSync(gadgets, "utf8")).toBe(before);
+    expect(existsSync(`${gadgets}.stale`)).toBe(false);
+  });
+
+  test("files this run wrote are never set aside", () => {
+    const { root, deps } = twoZones();
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.pruned).toEqual([]);
+    expect(readdirSync(join(root, "repos", SLUG, "packs")).sort()).toEqual(["gadgets", "widgets"]);
+    expect(readdirSync(join(root, "repos", SLUG, "packs", "widgets"))).toEqual(["skills.jsonc"]);
+  });
+
+  test("a repo no zone declares any more has every pack file set aside", () => {
+    const { root, deps } = twoZones();
+    for (const slug of ["acme-w", "acme-g"]) {
+      write(join(root, "teams", slug, "mattstack", "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: [] }));
+    }
+    const out = materializeRepo(deps, REMOTE);
+    expect(out).toEqual({
+      kind: "undeclared",
+      repo: "gitlab.example.com/acme/widgets",
+      pruned: [`${packFile(root, "gadgets")}.stale`, `${packFile(root, "widgets")}.stale`],
+    });
+    expect(existsSync(packFile(root, "gadgets"))).toBe(false);
+    expect(existsSync(packFile(root, "widgets"))).toBe(false);
   });
 });

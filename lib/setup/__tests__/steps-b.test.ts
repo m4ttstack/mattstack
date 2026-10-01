@@ -947,6 +947,22 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
     });
 
+    test("a bindings file no pack still owns is set aside and counted", async () => {
+      const repoDir = mkdtempSync(join(home, "repo-"));
+      updateRepoIndex(basename(repoDir), repoDir);
+      const world = materializeWorld(home);
+      const packs = `${home}/.mattstack/repos/gitlab.example.com-acme-widgets/packs`;
+      const p = fakeProbes({
+        home,
+        ...world,
+        dirs: { ...world.dirs, [packs]: ["gadgets"] },
+        files: { ...world.files, [`${packs}/gadgets/skills.jsonc`]: "{}" },
+      });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file, set aside 1 stale bindings file" });
+      expect(p.readFile(`${packs}/gadgets/skills.jsonc`)).toBeNull();
+      expect(p.readFile(`${packs}/gadgets/skills.jsonc.stale`)).toBe("{}");
+    });
+
     describe("seeds board.defaultPack", () => {
       const ACME: ApplyContext["team"] = { slug: "acme", name: "Acme", mode: "join" };
 
