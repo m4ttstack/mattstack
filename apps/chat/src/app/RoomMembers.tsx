@@ -8,8 +8,8 @@ import {
 import { AnimatedChevron, Icon } from '@mattstack/app-kit/icons';
 import type { AgentStatus, RoomSummary } from '@mattstack/rt-client';
 
-import { AgentHoverCard, HandleAvatar } from './AgentName';
 import { agentState, stateSince, type AgentState } from './agent-state';
+import { AgentHoverCard, HandleAvatar } from './AgentName';
 import { useBuddies } from './buddies-context';
 import { doing, type DoingInput } from './doing';
 import classes from './room-members.module.css';

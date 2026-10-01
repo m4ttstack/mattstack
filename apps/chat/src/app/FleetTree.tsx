@@ -12,8 +12,8 @@ import { useHover } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { RoomSummary } from '@mattstack/rt-client';
 
-import { AgentHoverCard, AgentName } from './AgentName';
 import { AGENT_STATE_WORD, agentState, stateSince } from './agent-state';
+import { AgentHoverCard, AgentName } from './AgentName';
 import {
   displayName,
   dmPairLabel,
