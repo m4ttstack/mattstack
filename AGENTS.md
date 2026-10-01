@@ -218,7 +218,8 @@ so it pastes clean, which means it must never carry untrusted multi-line
 text. Step sub-lines sit under their running step: they clear when the step
 ends with `done` and stay beneath it when it fails.
 
-`lib/__tests__/no-raw-output.test.ts` fails a PR that adds `console.*`, any
+`lib/__tests__/no-raw-output.test.ts` fails a PR that adds `console.log`,
+`console.error`, `console.warn` or `console.info`, any
 use of `process.stdout` or `process.stderr` beyond reading `isTTY`,
 `columns`, `rows` or `fd` and attaching listeners, a raw escape or a color
 import under `commands/` or `lib/`. Its allowlist
