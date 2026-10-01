@@ -4077,7 +4077,7 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-review-finding-text,
 .tui-review-finding-fix {
-  max-width: 100ch;
+  max-width: 140ch;
 }
 .tui-review-finding-text [data-part='markdown'] > * {
   margin: 0;
