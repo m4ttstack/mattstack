@@ -25,7 +25,7 @@ import type { StepDef, StepOutcome } from "../apply.ts";
 import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import type { ExecResult, Probes } from "../probes.ts";
-import { isAlready, isNotFound, parsePluginList, settlePack, PACK_EXEC_TIMEOUT_MS, type ClaudeRunner } from "../pack-cache.ts";
+import { childOutput, isAlready, isNotFound, parsePluginList, settlePack, PACK_EXEC_TIMEOUT_MS, type ClaudeRunner } from "../pack-cache.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
@@ -356,6 +356,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
         // trusted plugin falls through, which is what covers a claude with no
         // `plugin update` subcommand.
         if (teamAuthored || (!isNotFound(updated) && !isUnknownSubcommand(updated))) {
+          ctx.log("plugins.install", `${plugin}: plugin update exited ${updated.code}: ${childOutput(updated) || "no output"}`);
           return { state: "failed", detail: `Updating plugins failed (exit ${updated.code})`, remedy: RETRY_REMEDY };
         }
         if (update && disabled) {
@@ -379,6 +380,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
         await enableTrusted(runner, plugin, dir);
       }
       if (outcome.kind === "failed") {
+        ctx.log("plugins.install", `${plugin}: plugin ${outcome.stage === "install" ? "install" : "uninstall"} exited ${outcome.code}: ${outcome.output || "no output"}`);
         const detail = outcome.stage === "install" ? `Installing plugins failed (exit ${outcome.code})` : `${plugin}: ${outcome.detail}`;
         return { state: "failed", detail, remedy: RETRY_REMEDY };
       }

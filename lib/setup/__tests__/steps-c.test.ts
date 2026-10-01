@@ -538,6 +538,22 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       });
     });
 
+    test("a failed plugin install logs the plugin and the child's output behind the short detail", async () => {
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          if (argv[2] === "list") return ok("[]");
+          return argv[2] === "install" ? { code: 3, stdout: "  resolving the plugin\n", stderr: "  network error\n" } : ok("");
+        },
+      });
+      const { ctx, logs } = makeCtx(p);
+
+      expect((await pluginsInstallStep.run(ctx)).state).toBe("failed");
+      expect(logs).toContainEqual({ id: "plugins.install", line: `${BASE_PLUGINS[0]}: plugin install exited 3: network error\nresolving the plugin` });
+    });
+
     test("idempotent re-run: 'already' stderr on add/install tolerated, an unknown 'enable' subcommand ignored — still done", async () => {
       const p = fakeProbes({
         home,
@@ -929,6 +945,26 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const installs = execCalls.filter((c) => c.argv[2] === "install");
       expect(installs.length).toBe(BASE_PLUGINS.length);
       expect(installs.every((c) => c.timeoutMs === 60_000)).toBe(true);
+    });
+
+    test("a failed plugin update logs the plugin and the child's output behind the short detail", async () => {
+      const installed = BASE_PLUGINS.map((id) => ({ id, version: "1.0.0", enabled: true }));
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          if (argv[2] === "list") return ok(JSON.stringify(installed));
+          if (argv[2] === "update") return { code: 2, stdout: "  fetching the index\n", stderr: "  index unreachable\n" };
+          return ok("");
+        },
+      });
+      const { ctx, logs } = makeCtx(p);
+
+      const outcome = await pluginsInstallStep.run(ctx);
+
+      expect(outcome).toEqual({ state: "failed", detail: "Updating plugins failed (exit 2)", remedy: "Open Claude Code once so it finishes first-run, then Retry." });
+      expect(logs).toContainEqual({ id: "plugins.install", line: `${BASE_PLUGINS[0]}: plugin update exited 2: index unreachable\nfetching the index` });
     });
 
     test("a claude without `plugin update` settles the installed plugin instead of failing the step", async () => {
