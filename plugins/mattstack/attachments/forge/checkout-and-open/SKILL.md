@@ -7,7 +7,6 @@ allowed-tools:
   - Bash(git fetch:*)
   - Bash(git worktree list:*)
   - Bash(gh pr view:*)
-  - Bash(glab mr view:*)
   - Bash(command -v:*)
 type: pipeline-step
 slots: {}
