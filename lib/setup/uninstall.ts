@@ -28,7 +28,7 @@ import { PORTLESS_LAUNCHD_PLIST } from "./steps/services.ts";
 import { claudeMessage, marketplaceSourceKey, parseMarketplaceList } from "./steps/plugins.ts";
 import { claudeConfigDirs } from "./tools-install.ts";
 import type { Probes } from "./probes.ts";
-import { readSetupState, updateSetupState } from "./state.ts";
+import { isSetupFinished, readSetupState, updateSetupState } from "./state.ts";
 
 export interface UninstallAction {
   id: UninstallActionId;
@@ -414,6 +414,29 @@ export async function runUninstall(ctx: ApplyContext, actions: UninstallAction[]
     }
   }
 
+  if (result.ok && !actions.some((a) => a.id === "data")) clearFinish(ctx, actions.at(-1)?.id);
+
   ctx.emit({ event: "done", ok: result.ok, ...(result.failed !== undefined ? { failedStep: result.failed } : {}) });
   return { ...result, stayed };
+}
+
+/**
+ * The kept ~/.mattstack still says setup finished, and mattstack.app reads
+ * that at launch: a reinstalled app would skip setup on a Mac this run just
+ * emptied. `lastApplyOk` goes with it, or setup would reopen at Done.
+ */
+function clearFinish(ctx: ApplyContext, lastId: UninstallActionId | undefined): void {
+  try {
+    const state = readSetupState(ctx.p);
+    if (!isSetupFinished(state) && state.lastApplyOk === undefined) return;
+    updateSetupState(ctx.p, (s) => {
+      const next = { ...s };
+      delete next.finishedAt;
+      delete next.lastApplyOk;
+      return next;
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (lastId) ctx.emit({ event: "log", id: lastId, line: `warn: setup is still recorded as finished: ${message}` });
+  }
 }

@@ -18,7 +18,7 @@ import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext } from "../apply.ts";
 import { awaitNeed, SERVICE_PLISTS } from "../need.ts";
 import { PORTLESS_LAUNCHD_PLIST } from "../steps/services.ts";
-import { readSetupState, updateSetupState } from "../state.ts";
+import { isSetupFinished, readSetupState, updateSetupState } from "../state.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { Probes } from "../probes.ts";
 import { computeUninstallActions, runUninstall, RT_CONTEXT_EXTENSION_ID, type UninstallAction, type UninstallSeams } from "../uninstall.ts";
@@ -253,6 +253,33 @@ describe("rt uninstall", () => {
 
       const result = await runUninstall(ctx, actions);
       expect(result.stayed).not.toContain("~/.mattstack (kept)");
+    });
+
+    test("a run that keeps the data takes Finish off the record, so a reinstalled app opens setup again", async () => {
+      const actions: UninstallAction[] = [{ id: "services.unregister", title: "x", kind: "app" }];
+      const p = bareProbes();
+      updateSetupState(p, (s) => ({ ...s, finishedAt: "2026-09-30T00:00:00.000Z", lastApplyOk: true, links: ["rt"] }));
+      const { ctx } = makeCtx(p, { need: async () => ({ ok: true, detail: "done" }) });
+
+      const result = await runUninstall(ctx, actions);
+
+      expect(result.ok).toBe(true);
+      const state = readSetupState(p);
+      expect(isSetupFinished(state)).toBe(false);
+      expect(state.lastApplyOk).toBeUndefined();
+      expect(state.links).toEqual(["rt"]);
+    });
+
+    test("a failed run leaves Finish on record: the Mac is still set up", async () => {
+      const actions: UninstallAction[] = [{ id: "proxy.remove", title: "x", kind: "privileged" }];
+      const p = bareProbes({ files: { [PORTLESS_LAUNCHD_PLIST]: "<plist/>" } });
+      updateSetupState(p, (s) => ({ ...s, finishedAt: "2026-09-30T00:00:00.000Z" }));
+      const { ctx } = makeCtx(p, { need: async () => "app-gone" });
+
+      const result = await runUninstall(ctx, actions);
+
+      expect(result.ok).toBe(false);
+      expect(isSetupFinished(readSetupState(p))).toBe(true);
     });
 
     test("a failed action stops the run — later actions never execute", async () => {
