@@ -68,7 +68,7 @@ let launchChecks: [Check] = [
         c.expectEqual(SetupCompletion.onLaunch(resumeFlag: .checklist, finished: false, resume: nil), .show(.checklist))
     },
     Check("SetupCompletion: the tray menu offers Resume setup only while unfinished, Setup status always") { c in
-        c.expectEqual(SetupCompletion.menuEntries(finished: false), [.resume, .status])
+        c.expectEqual(SetupCompletion.menuEntries(finished: false), [.status, .resume])
         c.expectEqual(SetupCompletion.menuEntries(finished: true), [.status])
     },
     Check("SetupCompletion: only closing the wizard at an open Done records Finish") { c in

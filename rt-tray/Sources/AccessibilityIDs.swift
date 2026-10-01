@@ -168,7 +168,7 @@ enum AXID {
     static let trayProcesses = "tray.processes"
     static let trayWorktrees = "tray.worktrees"
     static let trayRestartDaemon = "tray.restartDaemon"
-    static let trayStopDaemon = "tray.stopDaemon"
+    static let trayTroubleshoot = "tray.troubleshoot"
     static let trayViewLogs = "tray.viewLogs"
     static let trayOpenCrashLog = "tray.openCrashLog"
     static let trayResumeSetup = "tray.resumeSetup"
