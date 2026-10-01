@@ -315,6 +315,48 @@ test('buddies join the live herdr pane title by sessionId', async () => {
   });
 });
 
+test('a pane herdr reports with no session id still joins its buddy by handle', async () => {
+  vi.mocked(rt.chatBuddies).mockResolvedValueOnce({
+    ok: true,
+    data: {
+      buddies: [
+        {
+          sessionId: 's1',
+          handle: 'a',
+          baseHandle: 'a',
+          name: 'a',
+          signedInAt: 1,
+          lastSeenAt: 1,
+          status: 'idle',
+        },
+      ],
+    },
+  });
+  vi.mocked(rt.chatRooms).mockResolvedValueOnce({
+    ok: true,
+    data: { rooms: [] },
+  });
+  vi.mocked(rt.paneList).mockResolvedValueOnce({
+    ok: true,
+    data: {
+      panes: [
+        {
+          paneId: 'w1:p1',
+          workspace: 'x',
+          agentStatus: 'blocked',
+          presence: { handle: 'a', name: 'a', status: 'idle', rooms: [] },
+        },
+      ],
+    },
+  });
+  const res = await routes.request('/api/chat/buddies');
+  expect((await res.json()).buddies[0]).toMatchObject({
+    handle: 'a',
+    paneWorkspace: 'x',
+    agentStatus: 'blocked',
+  });
+});
+
 test('a failed pane:list degrades buddies to no titles, never a 502', async () => {
   vi.mocked(rt.chatBuddies).mockResolvedValueOnce({
     ok: true,

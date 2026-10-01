@@ -70,29 +70,36 @@ interface PaneInfo {
   agentStatus: AgentStatus;
 }
 
+interface PaneIndex {
+  bySession: Map<string, PaneInfo>;
+  byHandle: Map<string, PaneInfo>;
+}
+
 /**
- * sessionId -> the herdr pane that session runs in. Degrades to an empty map
- * on any failure, herdr being down included: the buddy roster is the
- * important half of `/api/chat/buddies` and must never 502 because the pane
- * list could not be read.
+ * The herdr pane each buddy runs in, by session id and, for a pane herdr
+ * reports without one, by the presence handle `pane:list` matched it to.
+ * Degrades to empty maps on any failure, herdr being down included: the
+ * buddy roster is the important half of `/api/chat/buddies` and must never
+ * 502 because the pane list could not be read.
  */
-async function paneInfoBySessionId(): Promise<Map<string, PaneInfo>> {
+async function paneIndex(): Promise<PaneIndex> {
+  const index: PaneIndex = { bySession: new Map(), byHandle: new Map() };
   try {
     const res = await paneList(rtOpts());
-    if (!res?.ok || !res.data) return new Map();
-    const map = new Map<string, PaneInfo>();
+    if (!res?.ok || !res.data) return index;
     for (const pane of res.data.panes) {
-      if (!pane.sessionId) continue;
-      map.set(pane.sessionId, {
+      const info: PaneInfo = {
         ...(pane.title ? { paneTitle: pane.title } : {}),
         paneWorkspace: pane.workspace,
         ...(pane.tab ? { paneTab: pane.tab } : {}),
         agentStatus: pane.agentStatus,
-      });
+      };
+      if (pane.sessionId) index.bySession.set(pane.sessionId, info);
+      if (pane.presence) index.byHandle.set(pane.presence.handle, info);
     }
-    return map;
+    return index;
   } catch {
-    return new Map();
+    return index;
   }
 }
 
@@ -328,7 +335,7 @@ export const chat = new Hono()
           chatRooms({ handle: b.handle }, rtOpts()).catch(() => null)
         )
       ),
-      paneInfoBySessionId(),
+      paneIndex(),
     ]);
     const roomsByHandle = new Map<string, string[]>();
     buddiesRes.data.buddies.forEach((b, i) => {
@@ -345,7 +352,8 @@ export const chat = new Hono()
     const buddies = buddiesRes.data.buddies.map(buddy => ({
       ...buddy,
       rooms: roomsByHandle.get(buddy.handle) ?? [],
-      ...panes.get(buddy.sessionId),
+      ...(panes.bySession.get(buddy.sessionId) ??
+        panes.byHandle.get(buddy.handle)),
     }));
     return c.json({ buddies }, 200);
   })
