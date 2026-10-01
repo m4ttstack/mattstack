@@ -35,8 +35,13 @@ function basePayload(overrides: Record<string, unknown> = {}) {
 }
 
 /** Builds seams around a scripted mutator; repoContext/gitlabToken use fixed stubs. */
-function makeSeams(mutator: DiscussionHandlerSeams["mutator"], refresh?: DiscussionHandlerSeams["refresh"]): DiscussionHandlerSeams {
+function makeSeams(
+  mutator: DiscussionHandlerSeams["mutator"],
+  refresh?: DiscussionHandlerSeams["refresh"],
+  diffs?: DiscussionHandlerSeams["diffs"],
+): DiscussionHandlerSeams {
   return {
+    diffs: diffs ?? (async () => ({ diffs: [], truncated: true })),
     repoContext: async () => ({ provider: { baseURL: "https://gitlab.example.com" }, projectPath: "g/repo-tools", projectId: 99 }),
     gitlabToken: async () => "tok",
     mutator,
@@ -395,5 +400,115 @@ describe("mr:comment-inline", () => {
     await h["mr:comment-inline"]!(basePayload());
 
     expect(refreshFinished).toBe(true);
+  });
+
+  describe("anchor resolution against the MR diff", () => {
+    const DIFF = ["@@ -10,4 +10,5 @@", " keep", "-gone", "+fresh", "+extra", " tail", " end"].join("\n");
+    const diffsFor = (diff: string, truncated = false): DiscussionHandlerSeams["diffs"] =>
+      async () => ({ diffs: [{ newPath: "src/foo.ts", diff }], truncated });
+
+    function recorder() {
+      const positions: TextPosition[] = [];
+      const mutator: DiscussionHandlerSeams["mutator"] = () => ({
+        fetchDiffRefs: async () => DIFF_REFS,
+        createPositionedDiscussion: async (_p, _i, _b, pos) => { positions.push(pos); return fakeDiscussion("d1", 101, "DiffNote"); },
+        deleteNote: async () => { throw new Error("should not be called"); },
+      });
+      return { positions, mutator };
+    }
+
+    test("a context line gets old_line filled in from the diff", async () => {
+      const { positions, mutator } = recorder();
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, diffsFor(DIFF)));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 13 }));
+      expect(res.ok).toBe(true);
+      expect(positions[0]).toMatchObject({ new_line: 13, old_line: 12 });
+    });
+
+    test("an added line sends no old_line", async () => {
+      const { positions, mutator } = recorder();
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, diffsFor(DIFF)));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 11 }));
+      expect(res.ok).toBe(true);
+      expect(positions[0]!.new_line).toBe(11);
+      expect("old_line" in positions[0]!).toBe(false);
+    });
+
+    test("a line outside the diff is refused with the nearby lines and no POST", async () => {
+      const { positions, mutator } = recorder();
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, diffsFor(DIFF)));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 41 }));
+      expect(res).toEqual({
+        ok: false,
+        error: "line 41 of src/foo.ts is not in this MR's diff, so GitLab cannot anchor a comment there; lines in the diff near it: 14, 13, 12",
+      });
+      expect(positions).toEqual([]);
+    });
+
+    test("a file with no diff in a complete page is refused", async () => {
+      const { positions, mutator } = recorder();
+      const none: DiscussionHandlerSeams["diffs"] = async () => ({ diffs: [{ newPath: "other.ts", diff: DIFF }], truncated: false });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, none));
+      const res = await h["mr:comment-inline"]!(basePayload());
+      expect(res).toEqual({
+        ok: false,
+        error: "line 42 of src/foo.ts is not in this MR's diff, so GitLab cannot anchor a comment there; this file has no diff in this MR",
+      });
+      expect(positions).toEqual([]);
+    });
+
+    test("a missing file on a truncated page posts as before", async () => {
+      const { positions, mutator } = recorder();
+      const none: DiscussionHandlerSeams["diffs"] = async () => ({ diffs: [], truncated: true });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, none));
+      const res = await h["mr:comment-inline"]!(basePayload());
+      expect(res.ok).toBe(true);
+      expect("old_line" in positions[0]!).toBe(false);
+    });
+
+    test("a failed diff read posts as before", async () => {
+      const { positions, mutator } = recorder();
+      const boom: DiscussionHandlerSeams["diffs"] = async () => { throw new Error("GitLab diffs API: 500"); };
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, boom));
+      const res = await h["mr:comment-inline"]!(basePayload());
+      expect(res.ok).toBe(true);
+      expect(positions).toHaveLength(1);
+    });
+
+    test("a caller-given oldLine is passed through without reading diffs", async () => {
+      const { positions, mutator } = recorder();
+      const never: DiscussionHandlerSeams["diffs"] = async () => { throw new Error("diffs should not be read"); };
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, never));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 41, oldLine: 7 }));
+      expect(res.ok).toBe(true);
+      expect(positions[0]).toMatchObject({ new_line: 41, old_line: 7 });
+    });
+
+    test("a GitLab 400 naming line_code gets the anchoring hint appended", async () => {
+      const mutator: DiscussionHandlerSeams["mutator"] = () => ({
+        fetchDiffRefs: async () => DIFF_REFS,
+        createPositionedDiscussion: async () => { throw new Error("400 Bad request - Note {:line_code=>[\"can't be blank\"]}"); },
+        deleteNote: async () => { throw new Error("should not be called"); },
+      });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, diffsFor(DIFF)));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 11 }));
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.error).toContain("line_code");
+        expect(res.error.endsWith(" (an unchanged line needs both line and oldLine; a removed line needs oldLine)")).toBe(true);
+      }
+    });
+
+    test("a failure without line_code gets no hint", async () => {
+      const mutator: DiscussionHandlerSeams["mutator"] = () => ({
+        fetchDiffRefs: async () => DIFF_REFS,
+        createPositionedDiscussion: async () => { throw new Error("403 Forbidden"); },
+        deleteNote: async () => { throw new Error("should not be called"); },
+      });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, diffsFor(DIFF)));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 11 }));
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).not.toContain("unchanged line needs");
+    });
   });
 });

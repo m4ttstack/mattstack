@@ -28,6 +28,7 @@ import { refreshDiscussions, type BroadcastFn } from "../discussions-store.ts";
 import { getDiscussionsFileStore } from "../discussions-file-store.ts";
 import { grants, loadRepoTracking } from "../../repo-tracking.ts";
 import { lazyChildLogger } from "../../daemon-logger.ts";
+import { classifyNewLine } from "../diff-line-kind.ts";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { Commands, Discussion } from "../../../packages/rt-client/src/commands.ts";
 
@@ -49,6 +50,7 @@ export interface DiscussionHandlerSeams {
   gitlabToken?: () => Promise<string | undefined>;
   mutator?: (baseURL: string, token: string) => CommentInlineMutator;
   commentMutator?: (baseURL: string, token: string) => CommentMutator;
+  diffs?: (baseURL: string, projectPath: string, iid: number, token: string) => Promise<{ diffs: Array<{ newPath: string; diff: string }>; truncated: boolean }>;
   refresh?: (repoName: string, iid: number) => Promise<unknown>;
   readCached?: (repoName: string, iid: number) => { discussions: Discussion[]; fetchedAt: number } | undefined;
 }
@@ -75,6 +77,13 @@ function buildTextPosition(
     new_line: payload.line,
     old_path,
   };
+}
+
+const ANCHOR_HINT = " (an unchanged line needs both line and oldLine; a removed line needs oldLine)";
+
+function withAnchorHint(err: unknown): string {
+  const text = String(err);
+  return text.includes("line_code") ? text + ANCHOR_HINT : text;
 }
 
 /** Discussions are stable per push; 2min TTL keeps reads fast without going stale. */
@@ -131,6 +140,7 @@ export function createDiscussionHandlers(
   const gitlabTokenFn = seams.gitlabToken ?? (async () => (await loadSecrets()).gitlabToken);
   const mutatorFn = seams.mutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
   const commentMutatorFn = seams.commentMutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
+  const diffsFn = seams.diffs ?? ((baseURL: string, projectPath: string, iid: number, token: string) => fetchMrDiffs(baseURL, projectPath, iid, token));
   const refreshFn = seams.refresh ?? ((repoName: string, iid: number) => refreshDiscussions(deps, repoName, iid));
   const readCachedFn = seams.readCached ?? ((repoName: string, iid: number) => getDiscussionsFileStore().read(repoName, iid));
 
@@ -332,6 +342,28 @@ export function createDiscussionHandlers(
         if (!token) return { ok: false, error: "no gitlabToken in secrets" };
         const mutator = mutatorFn(repoCtx.provider.baseURL, token);
 
+        if (position.oldLine === undefined) {
+          let page: Awaited<ReturnType<typeof diffsFn>> | undefined;
+          try {
+            page = await diffsFn(repoCtx.provider.baseURL, repoCtx.projectPath, iid, token);
+          } catch (err) {
+            log.warn({ err, repoName, iid }, "mr:comment-inline: diff read failed, posting the anchor unverified");
+          }
+          if (page) {
+            const file = page.diffs.find((d) => d.newPath === path);
+            const refusal = `line ${line} of ${path} is not in this MR's diff, so GitLab cannot anchor a comment there`;
+            if (file) {
+              const kind = classifyNewLine(file.diff, line);
+              if (kind.kind === "outside") {
+                return { ok: false, error: `${refusal}; lines in the diff near it: ${kind.nearest.join(", ")}` };
+              }
+              if (kind.kind === "context") position.oldLine = kind.oldLine;
+            } else if (!page.truncated) {
+              return { ok: false, error: `${refusal}; this file has no diff in this MR` };
+            }
+          }
+        }
+
         const postOnce = async () => {
           const diffRefs = await mutator.fetchDiffRefs(repoCtx.projectId, iid);
           return mutator.createPositionedDiscussion(repoCtx.projectId, iid, body, buildTextPosition(position, diffRefs));
@@ -371,7 +403,7 @@ export function createDiscussionHandlers(
           return {
             ok: false,
             error: `first attempt degraded (note ${firstNote.id} type ${firstNote.type}, deleted); `
-              + `retry failed: ${String(err)}`,
+              + `retry failed: ${withAnchorHint(err)}`,
           };
         }
         const secondNote = second.notes[0];
@@ -393,7 +425,7 @@ export function createDiscussionHandlers(
             + `note ${secondNote.id} type ${secondNote.type}); both general notes were deleted`,
         };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: withAnchorHint(err) };
       }
     },
 
