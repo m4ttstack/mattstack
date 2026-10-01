@@ -71,7 +71,7 @@ describe("rt verify for a person", () => {
     const titles = new Set(plan.groups.flatMap((g) => g.rows.map((r) => r.title)));
     const statusRows = rows.filter((l) => /^\[[a-z ]+\] /.test(l)).slice(0, -1);
     for (const l of statusRows) expect(titles.has(l.replace(/^\[[a-z ]+\] /, "").split("  ")[0]!)).toBe(true);
-    expect(rows.at(-1)).toMatch(/^(\[ok\] Everything checks out|\[failed\] \d+ checks? failed|\[needs you\] (1 check needs|\d+ checks need) attention)  (\d+ needs? attention, )?\d+ passed, \d+ warnings?$/);
+    expect(rows.at(-1)).toMatch(/^(\[ok\] Everything checks out|\[failed\] \d+ checks? failed|\[needs you\] (1 check needs attention|\d+ checks need attention|\d+ checks? could not run))(  \d+ (needs? attention|passed|warnings?)(, \d+ (needs? attention|passed|warnings?))*)?$/);
     expect(cap.stderr()).toBe("");
   });
 
@@ -84,14 +84,14 @@ describe("rt verify for a person", () => {
     const strict = withFixture();
     await run(strict, []);
     expect(strict.exitCodes).toEqual([1]);
-    expect(cap.stdout()).toBe("Accounts\n[needs you] Forge account  No account connected\n\n[needs you] 1 check needs attention  0 passed, 0 warnings\n");
+    expect(cap.stdout()).toBe("Accounts\n[needs you] Forge account  No account connected\n\n[needs you] 1 check needs attention\n");
     cap.restore();
 
     cap = capturePlain();
     const spared = withFixture();
     await run(spared, ["--ci"]);
     expect(spared.exitCodes).toEqual([]);
-    expect(cap.stdout()).toBe("Accounts\n[needs you] Forge account  No account connected\n\n[ok] Everything checks out  0 passed, 1 warning\n");
+    expect(cap.stdout()).toBe("Accounts\n[needs you] Forge account  No account connected\n\n[ok] Everything checks out  1 needs attention\n");
     expect(composed).toEqual([false, true]);
   });
 });
@@ -108,31 +108,31 @@ describe("rt verify draws each required row the way rt setup status does", () =>
     return { stdout, exitCodes: d.exitCodes };
   }
 
-  test("a row that could not be checked is a warning, and the summary is not coral", async () => {
+  test("a row that could not be checked is a warning, and the summary says its check could not run", async () => {
     const res = await verifyOne(row({ id: "perm.screen", kind: "permission", title: "Screen recording", status: "error", detail: "The helper app is not running" }));
-    expect(res.stdout).toBe("Your Mac\n[warning] Screen recording  The helper app is not running\n\n[needs you] 1 check needs attention  0 passed, 0 warnings\n");
+    expect(res.stdout).toBe("Your Mac\n[warning] Screen recording  The helper app is not running\n\n[needs you] 1 check could not run  1 warning\n");
     expect(res.exitCodes).toEqual([1]);
   });
 
   test("a tool that is not set up yet is not yet, and the summary is not coral", async () => {
     const res = await verifyOne(row({ id: "tool.widget", title: "Widget", status: "missing", detail: "Not registered yet" }));
-    expect(res.stdout).toBe("Your Mac\n[not yet] Widget  Not registered yet\n\n[needs you] 1 check needs attention  0 passed, 0 warnings\n");
+    expect(res.stdout).toBe("Your Mac\n[not yet] Widget  Not registered yet\n\n[needs you] 1 check needs attention\n");
     expect(res.exitCodes).toEqual([1]);
   });
 
   test("an account that is not connected needs you, and the summary is not coral", async () => {
     const res = await verifyOne(row({ id: "account.forge", kind: "account", title: "Forge account", status: "missing", detail: "No account connected" }));
-    expect(res.stdout).toBe("Your Mac\n[needs you] Forge account  No account connected\n\n[needs you] 1 check needs attention  0 passed, 0 warnings\n");
+    expect(res.stdout).toBe("Your Mac\n[needs you] Forge account  No account connected\n\n[needs you] 1 check needs attention\n");
     expect(res.exitCodes).toEqual([1]);
   });
 
   test("a check that ran and found something wrong is coral, and so is the summary", async () => {
     const res = await verifyOne(row({ id: "tool.widget", title: "Widget", status: "invalid", detail: "Version 1.0 is too old" }));
-    expect(res.stdout).toBe("Your Mac\n[failed] Widget  Version 1.0 is too old\n\n[failed] 1 check failed  0 passed, 0 warnings\n");
+    expect(res.stdout).toBe("Your Mac\n[failed] Widget  Version 1.0 is too old\n\n[failed] 1 check failed\n");
     expect(res.exitCodes).toEqual([1]);
   });
 
-  test("with a coral row the summary counts the coral rows as failed and the rest as needing attention; --json still counts every failed check", async () => {
+  test("the summary counts rows by what they drew, while --json keeps counting checks", async () => {
     const fixture = plan([
       {
         id: "mac",
@@ -141,6 +141,7 @@ describe("rt verify draws each required row the way rt setup status does", () =>
           row({ id: "tool.widget", title: "Widget", status: "invalid", detail: "Version 1.0 is too old" }),
           row({ id: "tool.gadget", title: "Gadget", status: "error", detail: "Could not run gadget" }),
           row({ id: "tool.gizmo", title: "Gizmo", status: "missing", detail: "Not registered yet" }),
+          row({ id: "account.forge", kind: "account", title: "Forge account", status: "missing", detail: "No account connected" }),
           row({ id: "tool.git", title: "Git", status: "ready", detail: "2.45" }),
           row({ id: "access.mirror", kind: "access", title: "Mirror", required: false, status: "error", detail: "Could not reach the mirror" }),
         ],
@@ -151,25 +152,32 @@ describe("rt verify draws each required row the way rt setup status does", () =>
     cap = capturePlain();
     const human = withFixture();
     await run(human, []);
-    expect(cap.stdout().trimEnd().split("\n").at(-1)).toBe("[failed] 1 check failed  2 need attention, 1 passed, 1 warning");
+    expect(cap.stdout().trimEnd().split("\n").at(-1)).toBe("[failed] 1 check failed  2 need attention, 1 passed, 2 warnings");
     expect(human.exitCodes).toEqual([1]);
     cap.restore();
 
     cap = capturePlain();
     const json = withFixture();
     await run(json, ["--json"]);
-    expect(JSON.parse(cap.stdout()).summary).toEqual({ total: 5, pass: 1, fail: 3, warn: 1, skip: 0 });
+    expect(JSON.parse(cap.stdout()).summary).toEqual({ total: 6, pass: 1, fail: 4, warn: 1, skip: 0 });
     expect(json.exitCodes).toEqual([1]);
   });
 
-  test("one check needing attention beside a coral row takes the singular", () => {
+  test("one row needing attention beside a coral row takes the singular", () => {
     const fixture = plan([
-      { id: "mac", title: "Your Mac", rows: [row({ id: "tool.widget", title: "Widget", status: "invalid" }), row({ id: "tool.gadget", title: "Gadget", status: "error" })] },
+      { id: "mac", title: "Your Mac", rows: [row({ id: "tool.widget", title: "Widget", status: "invalid" }), row({ id: "tool.gizmo", title: "Gizmo", status: "missing" })] },
     ]);
-    expect(renderPlain(verifyBlocks(fixture, { ci: false })).trimEnd().split("\n").at(-1)).toBe("[failed] 1 check failed  1 needs attention, 0 passed, 0 warnings");
+    expect(renderPlain(verifyBlocks(fixture, { ci: false })).trimEnd().split("\n").at(-1)).toBe("[failed] 1 check failed  1 needs attention");
   });
 
-  test("several checks that need attention take the plural", () => {
+  test("several rows needing attention take the plural", () => {
+    const fixture = plan([
+      { id: "mac", title: "Your Mac", rows: [row({ id: "tool.widget", title: "Widget", status: "missing" }), row({ id: "tool.gizmo", title: "Gizmo", status: "missing" })] },
+    ]);
+    expect(renderPlain(verifyBlocks(fixture, { ci: false })).trimEnd().split("\n").at(-1)).toBe("[needs you] 2 checks need attention");
+  });
+
+  test("with nothing coral the title counts the rows waiting on you, and a warning row stays a warning", () => {
     const fixture = plan([
       {
         id: "mac",
@@ -177,7 +185,7 @@ describe("rt verify draws each required row the way rt setup status does", () =>
         rows: [row({ id: "tool.widget", title: "Widget", status: "missing" }), row({ id: "tool.gadget", title: "Gadget", status: "error" })],
       },
     ]);
-    expect(renderPlain(verifyBlocks(fixture, { ci: false })).trimEnd().split("\n").at(-1)).toBe("[needs you] 2 checks need attention  0 passed, 0 warnings");
+    expect(renderPlain(verifyBlocks(fixture, { ci: false })).trimEnd().split("\n").at(-1)).toBe("[needs you] 1 check needs attention  1 warning");
   });
 });
 
@@ -218,7 +226,7 @@ describe("verifyBlocks", () => {
         "[needs you] Forge account  No account connected\n" +
         "  next: rt setup github connect\n" +
         "\n" +
-        "[failed] 1 check failed  1 passed, 2 warnings\n",
+        "[failed] 1 check failed  1 needs attention, 1 passed, 1 warning\n",
     );
   });
 
@@ -233,6 +241,6 @@ describe("verifyBlocks", () => {
       { id: "accounts", title: "Accounts", rows: [] },
       { id: "tools", title: "Tools", rows: [row({ id: "tool.git", title: "Git", status: "ready", detail: "2.45" })] },
     ]);
-    expect(renderPlain(verifyBlocks(fixture, { ci: false }))).toBe("Tools\n[ok] Git  2.45\n\n[ok] Everything checks out  1 passed, 0 warnings\n");
+    expect(renderPlain(verifyBlocks(fixture, { ci: false }))).toBe("Tools\n[ok] Git  2.45\n\n[ok] Everything checks out  1 passed\n");
   });
 });

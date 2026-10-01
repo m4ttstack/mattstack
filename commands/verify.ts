@@ -142,8 +142,33 @@ function nextVerb(r: Row): string | null {
   return null;
 }
 
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** Every number on the line counts rows by the status they drew, so the line cannot disagree with the rows above it. */
+function summaryBlock(drawn: RenderStatus[], blocking: number): Block {
+  const count = (...statuses: RenderStatus[]) => drawn.filter((s) => statuses.includes(s)).length;
+  const failed = count("failed");
+  const attention = count("needs-you", "pending");
+  const passed = count("done");
+  const warnings = count("warn");
+  const counts = (withAttention: boolean) =>
+    [
+      withAttention && attention > 0 ? plural(attention, "needs attention", "need attention") : null,
+      passed > 0 ? `${passed} passed` : null,
+      warnings > 0 ? plural(warnings, "warning", "warnings") : null,
+    ].filter((c): c is string => c !== null);
+
+  if (blocking === 0) return out.summary("done", "Everything checks out", counts(true));
+  if (failed > 0) return out.summary("failed", `${plural(failed, "check", "checks")} failed`, counts(true));
+  // With nothing coral and nothing waiting, every blocking row drew a warning: its check could not run.
+  const title = attention > 0 ? `${plural(attention, "check needs", "checks need")} attention` : `${plural(blocking, "check", "checks")} could not run`;
+  return out.summary("needs-you", title, counts(false));
+}
+
 export function verifyBlocks(plan: Plan, opts: { ci: boolean }): Block[] {
-  let coral = 0;
+  const drawn: RenderStatus[] = [];
   const sections = plan.groups
     .filter((g) => g.rows.length > 0)
     .map((g) =>
@@ -153,7 +178,7 @@ export function verifyBlocks(plan: Plan, opts: { ci: boolean }): Block[] {
       ...g.rows.flatMap((r) => {
         const c = rowToCheck(r, opts);
         const status = checkStatus(r, c);
-        if (status === "failed") coral++;
+        drawn.push(status);
         const blocks: Block[] = [out.line(status, r.title, r.detail)];
         const verb = c.status === "pass" || c.status === "skip" ? null : nextVerb(r);
         if (verb) blocks.push(out.callout("next", out.cmd(verb)));
@@ -161,21 +186,8 @@ export function verifyBlocks(plan: Plan, opts: { ci: boolean }): Block[] {
       }),
     ),
   );
-  const results = rowsToChecks(plan, opts);
-  const failures = results.filter((r) => r.status === "fail" && r.severity === "critical").length;
-  const warnings = results.filter((r) => r.status === "warn" || (r.status === "fail" && r.severity === "warning")).length;
-  const passes = results.filter((r) => r.status === "pass").length;
-  const counts = [`${passes} passed`, `${warnings} ${warnings === 1 ? "warning" : "warnings"}`];
-  // Only a failing check can draw coral, so the failed checks split exactly into coral rows and the rest.
-  const attention = failures - coral;
-  const attentionCount = attention === 0 ? [] : [attention === 1 ? "1 needs attention" : `${attention} need attention`];
-  const summary =
-    failures === 0
-      ? out.summary("done", "Everything checks out", counts)
-      : coral > 0
-        ? out.summary("failed", `${coral} ${coral === 1 ? "check" : "checks"} failed`, [...attentionCount, ...counts])
-        : out.summary("needs-you", failures === 1 ? "1 check needs attention" : `${failures} checks need attention`, counts);
-  return [...sections, summary];
+  const blocking = rowsToChecks(plan, opts).filter((r) => r.status === "fail" && r.severity === "critical").length;
+  return [...sections, summaryBlock(drawn, blocking)];
 }
 
 // ─── Entry ───────────────────────────────────────────────────────────────────
