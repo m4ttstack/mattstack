@@ -326,59 +326,81 @@ const held = (b: Board, iid: number) =>
   );
 
 /** Every author-only request, addressed at one MR of a board. */
+/** Every author-only request, addressed at one MR of a board. `body` takes
+    the MR the url names and, separately, the iid the body claims, so a
+    mismatched pair can be sent; routes with no iid of their own leave
+    `carriesIid` off. */
 const ROUTES: Array<{
   name: string;
   path: string;
-  body: (b: Board, iid: number) => unknown;
+  body: (b: Board, urlIid: number, iid?: number) => unknown;
+  carriesIid?: boolean;
   setup?: (b: Board, iid: number) => void;
 }> = [
   ...(['merge', 'rebase', 'setAutoMerge', 'cancelAutoMerge'] as const).map(
     action => ({
       name: `/mr/action ${action}`,
       path: '/mr/action',
-      body: (b: Board, iid: number) => ({ mrUrl: b.url(iid), iid, action }),
+      carriesIid: true,
+      body: (b: Board, u: number, iid = u) => ({
+        mrUrl: b.url(u),
+        iid,
+        action,
+      }),
     })
   ),
   {
+    name: '/draft (mark as draft)',
+    path: '/draft',
+    carriesIid: true,
+    body: (b, u, iid = u) => ({ mrUrl: b.url(u), iid, draft: true }),
+  },
+  {
     name: '/doctor',
     path: '/doctor',
-    body: (b, iid) => ({ mrUrl: b.url(iid), iid }),
+    carriesIid: true,
+    body: (b, u, iid = u) => ({ mrUrl: b.url(u), iid }),
   },
   {
     name: '/doctor rebase mode',
     path: '/doctor',
-    body: (b, iid) => ({ mrUrl: b.url(iid), iid, mode: 'rebase' }),
+    carriesIid: true,
+    body: (b, u, iid = u) => ({ mrUrl: b.url(u), iid, mode: 'rebase' }),
   },
   {
     name: '/doctor focus',
     path: '/doctor',
-    body: (b, iid) => ({ mrUrl: b.url(iid), iid, focus: true }),
+    carriesIid: true,
+    body: (b, u, iid = u) => ({ mrUrl: b.url(u), iid, focus: true }),
   },
   {
     name: '/respond',
     path: '/respond',
-    body: (b, iid) => ({ mrUrl: b.url(iid), iid }),
+    carriesIid: true,
+    body: (b, u, iid = u) => ({ mrUrl: b.url(u), iid }),
   },
   {
     name: '/respond resume',
     path: '/respond',
-    body: (b, iid) => ({ mrUrl: b.url(iid), iid, resume: true }),
+    carriesIid: true,
+    body: (b, u, iid = u) => ({ mrUrl: b.url(u), iid, resume: true }),
   },
   {
     name: '/respond focus',
     path: '/respond',
-    body: (b, iid) => ({ mrUrl: b.url(iid), iid, focus: true }),
+    carriesIid: true,
+    body: (b, u, iid = u) => ({ mrUrl: b.url(u), iid, focus: true }),
   },
   {
     name: '/slack/post',
     path: '/slack/post',
-    body: (b, iid) => ({ mrUrls: [b.url(iid)] }),
+    body: (b, u) => ({ mrUrls: [b.url(u)] }),
   },
   {
     name: '/drafts post',
     path: '/drafts',
     setup: held,
-    body: (b, iid) => ({ mrUrl: b.url(iid), kind: 'ci-note', action: 'post' }),
+    body: (b, u) => ({ mrUrl: b.url(u), kind: 'ci-note', action: 'post' }),
   },
 ];
 
@@ -459,6 +481,19 @@ describe('an "all" board owns nothing', () => {
 });
 
 describe('your own MR gets past the gate', () => {
+  test('/draft reaches GitLab', async () => {
+    const before = seated.gitlabSeen.length;
+    const res = await post(seated, '/draft', {
+      mrUrl: seated.url(7),
+      iid: 7,
+      draft: true,
+    });
+    expect(res.status).not.toBe(403);
+    expect(
+      seated.gitlabSeen.slice(before).some(r => r.includes('/merge_requests/7'))
+    ).toBe(true);
+  }, 15_000);
+
   for (const action of ['merge', 'rebase', 'setAutoMerge', 'cancelAutoMerge'])
     test(`/mr/action ${action} reaches GitLab`, async () => {
       const before = seated.gitlabSeen.length;
@@ -535,6 +570,26 @@ describe('your own MR gets past the gate', () => {
         .some(r => r.includes('/merge_requests/7/notes'))
     ).toBe(true);
   }, 15_000);
+});
+
+describe("your MR's url with someone else's iid is refused", () => {
+  const agentCalls = (b: Board) =>
+    b.daemonSeen.filter(x => x.cmd.startsWith('agent:')).length;
+  for (const r of ROUTES.filter(x => x.carriesIid))
+    test(
+      r.name,
+      async () => {
+        const gitlabBefore = seated.gitlabSeen.length;
+        const agentsBefore = agentCalls(seated);
+        const res = await post(seated, r.path, r.body(seated, 7, 20));
+        expect(res.status).toBe(400);
+        expect(await res.text()).toBe(`iid 20 does not match ${seated.url(7)}`);
+        await new Promise(x => setTimeout(x, 100));
+        expect(seated.gitlabSeen.length).toBe(gitlabBefore);
+        expect(agentCalls(seated)).toBe(agentsBefore);
+      },
+      15_000
+    );
 });
 
 describe('/discussions/resolve', () => {

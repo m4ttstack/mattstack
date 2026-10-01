@@ -724,6 +724,19 @@ async function readLatchDetail(mr: BoardMR): Promise<MRDetail | null> {
   return { discussions: res.data.discussions } as MRDetail;
 }
 
+/** A body names its MR twice, by url and by iid; the url found it, so an iid
+    that disagrees is refused rather than acted on. */
+function iidMismatch(
+  parsed: { mrUrl: string; iid: number },
+  mr: BoardMR
+): Response | null {
+  return parsed.iid === mr.iid
+    ? null
+    : new Response(`iid ${parsed.iid} does not match ${parsed.mrUrl}`, {
+        status: 400,
+      });
+}
+
 /** The one refusal every author-only route answers with when the MR is not
     the seat's; null when it is. An "all" board owns nothing, so it refuses
     everything. */
@@ -1627,6 +1640,10 @@ const httpServer = Bun.serve({
         if (!mr) {
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
         }
+        {
+          const mismatch = iidMismatch(parsed, mr);
+          if (mismatch) return mismatch;
+        }
         const author = mrAuthorLabel(mr);
         const existing = readReviewStates().get(parsed.mrUrl);
         const repo = resolveLaunchRepo(
@@ -1804,6 +1821,10 @@ const httpServer = Bun.serve({
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
         }
         {
+          const mismatch = iidMismatch(parsed, mr);
+          if (mismatch) return mismatch;
+        }
+        {
           const refused = requireOwnMr(mr);
           if (refused) return refused;
         }
@@ -1939,6 +1960,10 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr) {
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+        }
+        {
+          const mismatch = iidMismatch(parsed, mr);
+          if (mismatch) return mismatch;
         }
         {
           const refused = requireOwnMr(mr);
@@ -2190,6 +2215,10 @@ const httpServer = Bun.serve({
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
         {
+          const mismatch = iidMismatch(parsed, mr);
+          if (mismatch) return mismatch;
+        }
+        {
           const refused = requireOwnMr(mr);
           if (refused) return refused;
         }
@@ -2306,6 +2335,10 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+        {
+          const mismatch = iidMismatch(parsed, mr);
+          if (mismatch) return mismatch;
+        }
         {
           const refused = requireOwnMr(mr);
           if (refused) return refused;
@@ -2784,6 +2817,10 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+        {
+          const mismatch = iidMismatch(parsed, mr);
+          if (mismatch) return mismatch;
+        }
         // Review asks travel author -> reviewer about your own MR; a respond
         // ask is the reverse, reviewer -> author about theirs, and only ever
         // to the author.
