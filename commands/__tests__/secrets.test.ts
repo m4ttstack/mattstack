@@ -263,3 +263,34 @@ describe("secretsRotate --team <slug> (the rotate-all form, no domain/key)", () 
     expect(stdout).toContain("[skipped] No secret files to re-encrypt for team");
   });
 });
+
+describe("secretsRotate --team <slug> when a re-encrypt fails partway", () => {
+  test("the completed and the remaining files stay on separate lines, exit 1", async () => {
+    const { execSeam, seams } = teamSeams();
+    await writeTeamSecretForTest(seams, "board", "slackClientSecret", "a");
+    await writeTeamSecretForTest(seams, "rt", "switchboardAdminToken", "b");
+    let updates = 0;
+    const realRun = execSeam.run.bind(execSeam);
+    execSeam.run = async (cmd, opts) => {
+      if (cmd[1] === "updatekeys" && ++updates === 2) return { code: 1, stdout: "", stderr: "boom" };
+      return realRun(cmd, opts);
+    };
+    const exitSpy = spyOn(process, "exit").mockImplementation(((code: number) => { throw new Error(`exit ${code}`); }) as never);
+    try {
+      const { stderr, stdout } = await withCapturedOut(() => secretsRotate(["--team", "acme"], {}, seams).catch((e) => e));
+      expect(stdout).toBe("");
+      const lines = stderr.split("\n");
+      const done = lines.filter((l) => l.includes("re-encrypted (on the NEW recipients):"));
+      const left = lines.filter((l) => l.includes("NOT re-encrypted (still on the OLD recipients):"));
+      expect(done).toHaveLength(1);
+      expect(left).toHaveLength(1);
+      expect(done[0]).not.toContain("NOT re-encrypted");
+      expect(done[0]).toContain(teamSecretsFile("acme", "board"));
+      expect(left[0]).toContain(teamSecretsFile("acme", "rt"));
+      expect(lines[0]).toStartWith("[failed] team \"acme\": sops updatekeys failed after re-encrypting 1 of 2");
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+});

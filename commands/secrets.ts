@@ -89,7 +89,8 @@ function reportSecretsError(err: unknown): never {
     // TeamReencryptError's own message already names the completed vs.
     // remaining files — a half-rotated team must be loudly described here,
     // not collapsed into a bare "it failed" line.
-    out.fail({ title: err.message });
+    const [title = err.message, ...rest] = err.message.split("\n");
+    out.fail({ title, ...(rest.length > 0 ? { details: rest.join("\n") } : {}) });
     process.exit(1);
   }
   throw err;
