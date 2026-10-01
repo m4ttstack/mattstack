@@ -900,6 +900,126 @@ describe('with a repo picked', () => {
   });
 });
 
+describe('issues while Where it’s set is open', () => {
+  const rowOf = (key: string) =>
+    document.querySelector<HTMLElement>(`[data-key="${key}"]`)!;
+
+  it('an issue on a global layer shows once, on its layer; a secret’s diverged issue stays in the row', async () => {
+    explainGet.mockImplementation(async (url: string) =>
+      ok({
+        def: null,
+        rows: url.includes('chat.apiToken')
+          ? [{ scope: 'user', file: '/u', present: true }]
+          : [
+              { scope: 'default', file: null, present: false },
+              { scope: 'user', file: '/u', present: false },
+              {
+                scope: 'machine',
+                file: '/m',
+                present: true,
+                invalid: 'not a model',
+              },
+            ],
+      })
+    );
+    renderRow(
+      <>
+        <SettingRow
+          def={def('board.agent.model', {
+            effective: { scope: 'machine', file: '/m', invalid: 'not a model' },
+            issues: [
+              {
+                scope: 'machine',
+                file: '/m',
+                kind: 'invalid',
+                path: [],
+                message: 'not a model',
+              },
+            ],
+          })}
+          store={store()}
+          subhead={null}
+          query=""
+        />
+        <SettingRow
+          def={def('chat.apiToken', {
+            secret: true,
+            writable: false,
+            effective: { scope: 'user', file: '/u' },
+            issues: [
+              {
+                scope: 'user',
+                file: '/u',
+                kind: 'diverged',
+                path: [],
+                message: 'older store name changed',
+                storeName: 'chat.token',
+              },
+            ],
+          })}
+          store={store()}
+          subhead={null}
+          query=""
+        />
+      </>
+    );
+    const model = rowOf('board.agent.model');
+    const token = rowOf('chat.apiToken');
+    expect(within(model).getAllByText(/not a model/)).toHaveLength(1);
+
+    await openRow('board.agent.model');
+    const machine = await within(model).findByTestId('layer-machine');
+    expect(within(model).getAllByText(/not a model/)).toEqual([
+      within(machine).getByText('not a model'),
+    ]);
+
+    await openRow('chat.apiToken');
+    await within(token).findByTestId('layer-user');
+    expect(
+      within(token).getByText(
+        'user · chat.token differs from the current value'
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(token).queryByText(/still holds a different value/)
+    ).toBeNull();
+  });
+
+  it('a rejected value shows once, on its layer, and returns to the row when it closes', async () => {
+    explains([
+      { scope: 'default', file: null, present: false },
+      { scope: 'user', file: '/u', present: false },
+      { scope: 'machine', file: '/m', present: true, invalid: 'not a model' },
+    ]);
+    renderRow(
+      <SettingRow
+        def={def('board.agent.model', {
+          effective: { scope: 'machine', file: '/m', invalid: 'not a model' },
+        })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    expect(
+      screen.getByText('stored value rejected: not a model')
+    ).toBeInTheDocument();
+
+    await openRow('board.agent.model');
+    const machine = await screen.findByTestId('layer-machine');
+    expect(screen.getAllByText(/not a model/)).toEqual([
+      within(machine).getByText('not a model'),
+    ]);
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'close board.agent.model' })
+    );
+    expect(
+      screen.getByText('stored value rejected: not a model')
+    ).toBeInTheDocument();
+  });
+});
+
 describe('repo reach', () => {
   it('a repo-scoped row says it edits all repos and how many repos set it', () => {
     renderWithProviders(

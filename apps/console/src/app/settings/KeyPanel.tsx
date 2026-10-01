@@ -476,6 +476,23 @@ function RepoSection({
   );
 }
 
+/** The tab lists the picked repo's rungs only, so an issue on another
+    repo's rung has no layer line here. */
+function onPickedLayer(issue: WireIssue, repo: string | null): boolean {
+  return !isRung(issue.scope) || issue.repo === repo;
+}
+
+/** Whether an open Where it's set tab draws this issue: a diverged value as
+    a panel below the layers (never for a secret key), any other issue under
+    its own layer line. The row above it leaves out what this draws. */
+export function whereDraws(
+  def: Pick<SettingDefWire, 'secret'>,
+  issue: WireIssue,
+  repo: string | null
+): boolean {
+  return isDiverged(issue) ? !def.secret : onPickedLayer(issue, repo);
+}
+
 function WhereTab({
   def: storeDef,
   store,
@@ -558,13 +575,11 @@ function WhereTab({
     if (verdict.winner === row) return 'winner';
     return verdict.overridden.includes(row) ? 'overridden' : 'inert';
   };
-  const diverged = def.secret ? [] : (def.issues ?? []).filter(isDiverged);
+  const diverged = (def.issues ?? [])
+    .filter(isDiverged)
+    .filter(issue => whereDraws(def, issue, repo));
   const onLayer = (row: ExplainRowWire) => (issue: WireIssue) =>
-    issue.scope !== row.scope
-      ? false
-      : isRung(row.scope)
-        ? issue.repo === repo
-        : true;
+    issue.scope === row.scope && onPickedLayer(issue, repo);
   const replaceWithFor = (row: ExplainRowWire) => {
     const issue = diverged.find(onLayer(row));
     return issue
@@ -583,7 +598,12 @@ function WhereTab({
     return [
       ...(row.nonconforming ?? []),
       ...(stale(row) ? [] : (def.issues ?? []))
-        .filter(i => i.kind === 'nonconforming' && onLayer(row)(i))
+        .filter(
+          i =>
+            i.kind === 'nonconforming' &&
+            i.scope === row.scope &&
+            whereDraws(def, i, repo)
+        )
         .map(i => ({ path: i.path, message: i.message })),
     ].filter(i => {
       const id = JSON.stringify([i.path, i.message]);

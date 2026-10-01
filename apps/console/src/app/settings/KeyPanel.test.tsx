@@ -10,7 +10,12 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { KeyPanel, type PanelStore, type PanelTab } from './KeyPanel';
+import {
+  KeyPanel,
+  whereDraws,
+  type PanelStore,
+  type PanelTab,
+} from './KeyPanel';
 import classes from './KeyPanel.module.css';
 import { PanelToolbar } from './PanelToolbar';
 import { schemaFields } from './testSchemas';
@@ -468,5 +473,43 @@ describe('KeyPanel', () => {
         name: 'cancel editing board.agent.model at user',
       })
     ).toBeInTheDocument();
+  });
+});
+
+describe('whereDraws', () => {
+  const REPO = 'gitlab.example.com/acme/app';
+  const issue = (scope: string, extra: Record<string, unknown> = {}) => ({
+    scope,
+    file: '/f',
+    kind: 'nonconforming',
+    path: [],
+    message: 'bad',
+    ...extra,
+  });
+  const diverged = issue('user', {
+    kind: 'diverged',
+    storeName: 'old.name',
+    olderValue: 1,
+    currentValue: 2,
+  });
+
+  it('draws a global layer’s issue, and a rung’s only for the picked repo', () => {
+    const open = { secret: false };
+    expect(whereDraws(open, issue('user'), REPO)).toBe(true);
+    expect(whereDraws(open, issue('team.repo', { repo: REPO }), REPO)).toBe(
+      true
+    );
+    expect(
+      whereDraws(
+        open,
+        issue('team.repo', { repo: 'gitlab.example.com/x' }),
+        REPO
+      )
+    ).toBe(false);
+  });
+
+  it('draws a diverged value as its panel, except for a secret key', () => {
+    expect(whereDraws({ secret: false }, diverged, null)).toBe(true);
+    expect(whereDraws({ secret: true }, diverged, null)).toBe(false);
   });
 });

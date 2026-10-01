@@ -21,8 +21,13 @@ import { Icons } from '@mattstack/app-kit/icons';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 
 import { IssueLines } from './IssueLines';
-import { isDiverged, type WireIssue } from './issues';
-import { KeyPanel, type PanelStore, type PanelTab } from './KeyPanel';
+import type { WireIssue } from './issues';
+import {
+  KeyPanel,
+  whereDraws,
+  type PanelStore,
+  type PanelTab,
+} from './KeyPanel';
 import { RepoReach } from './RepoReach';
 import { SaveStatus, useRowParts, ValueContent, WriteError } from './rowParts';
 import { ScopeBadge } from './ScopeBadge';
@@ -34,7 +39,6 @@ import {
   badgeScope,
   ESCAPE_OWNERS,
   firstSentence,
-  isRung,
   ROW_CONTROLS,
   sourceText,
   splitKey,
@@ -113,15 +117,13 @@ export function SettingRow({
   // A global source label ("unset", "default") says nothing about a key
   // that only lives in repo sections; the repo reach carries it instead.
   const plain = parts.perRepo ? null : sourceText(def);
-  // Where it's set draws these under their own layer or as a diverged
-  // panel, so the header leaves them out while that tab shows.
-  const drawnBelow =
-    open?.tab === 'where'
-      ? (issue: WireIssue) =>
-          isDiverged(issue)
-            ? !def.secret
-            : !isRung(issue.scope) || issue.repo === repo
-      : undefined;
+  const onWhere = open?.tab === 'where';
+  const drawnBelow = onWhere
+    ? (issue: WireIssue) => whereDraws(def, issue, repo)
+    : undefined;
+  // The winning layer's own line shows its rejected value on Where it's set.
+  const rejected =
+    def.issues === undefined && !onWhere ? def.effective.invalid : undefined;
 
   const toggle = () =>
     setOpen(isOpen ? null : { tab: parts.body ? 'value' : 'where', fix: null });
@@ -215,12 +217,12 @@ export function SettingRow({
           </ActionIcon>
         </Tooltip>
       </Group>
-      {(row.error || (def.effective.invalid && def.issues === undefined)) && (
+      {(row.error || rejected) && (
         <Stack gap={4} px={12} pb={12}>
           <WriteError row={row} />
-          {def.effective.invalid && def.issues === undefined && (
+          {rejected && (
             <Text fz={12} ff="monospace" c="var(--tk-text-bad-small)">
-              stored value rejected: {def.effective.invalid}
+              stored value rejected: {rejected}
             </Text>
           )}
         </Stack>
