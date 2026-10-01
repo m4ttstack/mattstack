@@ -3,7 +3,7 @@ import { execFileSync } from "child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { compilePackAll, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks } from "../skills.ts";
+import { compilePackAll, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks, type DiscardIo } from "../skills.ts";
 import { compileSkill } from "../../lib/skills/compile.ts";
 import { materializeRepo, type MaterializeFs } from "../../lib/skills/materialize.ts";
 import { invocableRoster, loadAttachment, loadStepSource } from "../../lib/skills/sources.ts";
@@ -1959,8 +1959,20 @@ const SKILLS_VERBS: Record<string, (args: string[]) => Promise<void>> = {
   composition: skillsComposition,
   anatomy: skillsAnatomy,
   changes: skillsChanges,
-  discard: skillsDiscard,
+  discard: (args) => skillsDiscard(args, discardIo()),
 };
+
+/** A run with nobody at the terminal and no shared checkout to guard; a prompt here is a bug. */
+function discardIo(over: Partial<DiscardIo> = {}): DiscardIo {
+  return {
+    interactive: () => false,
+    confirm: async () => {
+      throw new Error("discard prompted off a terminal");
+    },
+    sharedCheckout: () => null,
+    ...over,
+  };
+}
 
 /** What this one run wrote to stdout, read from the suite's open capture. */
 async function runSkills(argv: string[]): Promise<string> {
@@ -2621,6 +2633,22 @@ describe("skillsChanges --json", () => {
     });
   });
 
+  test("a rename into the pack from outside its scope is listed as outside the scope, with its source", async () => {
+    const { packDir } = makeCommittedPack();
+    git(packDir, "mv", "README.md", "pack/README.md");
+
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(c.files).toEqual([]);
+    expect(c.outsideScope).toEqual([{ path: "pack/README.md", status: "R", from: "README.md" }]);
+  });
+
+  test("a rename reads as source and destination in the human list", async () => {
+    const { packDir } = makeCommittedPack();
+    git(packDir, "mv", "README.md", "pack/README.md");
+    expect(await runSkills(["changes", "--pack", "acme", "--pack-dir", packDir])).toContain("README.md -> pack/README.md");
+  });
+
   test("a clean pack is not dirty", async () => {
     const { packDir } = makeCommittedPack();
     const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
@@ -2815,5 +2843,111 @@ describe("skillsDiscard human output", () => {
     const { packDir } = makeCommittedPack();
     const text = await runSkills(["discard", "--pack", "acme", "--pack-dir", packDir]);
     expect(text).toContain("nothing");
+  });
+});
+
+async function discardWith(over: Partial<DiscardIo>, argv: string[]): Promise<{ exitCode: number | undefined; stderr: string; stdout: string }> {
+  const before = io.stdout().length;
+  const { exitCode, errors } = await runExpectingCleanExit(() => skillsDiscard(argv, discardIo(over)));
+  return { exitCode, stderr: errors.join("\n"), stdout: io.stdout().slice(before) };
+}
+
+describe("skillsDiscard guards", () => {
+  test("needs an explicit --pack, since it throws work away", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    const { exitCode, stderr } = await discardWith({}, ["--pack-dir", packDir, "--json"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("--pack");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_AFTER);
+  });
+
+  test("refuses a pack inside the shared checkout, which changes only through a pull request", async () => {
+    const { repoRoot, packDir } = makeCommittedPack("plugins/acme");
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    const { exitCode, stderr } = await discardWith({ sharedCheckout: () => repoRoot }, ["--pack", "acme", "--pack-dir", packDir, "--json"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("shared checkout");
+    expect(stderr).toContain("pull request");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_AFTER);
+  });
+
+  test("at a terminal it lists the files and keeps them all when the person says no", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const asked: string[] = [];
+
+    const { exitCode, stdout } = await discardWith(
+      { interactive: () => true, confirm: async (message) => (asked.push(message), false) },
+      ["--pack", "acme", "--pack-dir", packDir],
+    );
+
+    expect(exitCode).toBeUndefined();
+    expect(asked).toHaveLength(1);
+    expect(stdout).toContain("pack/skills.jsonc");
+    expect(stdout).toContain("Kept");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_AFTER);
+  });
+
+  test("at a terminal a yes throws the changes away", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    await discardWith({ interactive: () => true, confirm: async () => true }, ["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_BEFORE);
+  });
+
+  test("--json never prompts, even at a terminal", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    const { exitCode, stdout } = await discardWith({ interactive: () => true }, ["--pack", "acme", "--pack-dir", packDir, "--json"]);
+
+    expect(exitCode).toBeUndefined();
+    expect(JSON.parse(stdout).discarded).toEqual([{ path: "pack/skills.jsonc", status: "M" }]);
+  });
+});
+
+describe("skillsDiscard renames", () => {
+  test("a rename inside the scope is undone on both sides", async () => {
+    const { packDir } = makeCommittedPack();
+    mkdirSync(join(packDir, "skills"));
+    git(packDir, "mv", "attachments/stage-plan", "skills/stage-plan");
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d.discarded).toEqual([{ path: "skills/stage-plan/SKILL.md", status: "R", from: "attachments/stage-plan/SKILL.md" }]);
+    expect(readFileSync(join(packDir, "attachments", "stage-plan", "SKILL.md"), "utf8")).toBe("stage plan\n");
+    expect(existsSync(join(packDir, "skills"))).toBe(false);
+    expect(porcelain(packDir)).toBe("");
+  });
+
+  test("a rename across the scope boundary is left alone, even beside a pack file that is thrown away", async () => {
+    const { packDir } = makeCommittedPack();
+    git(packDir, "mv", "README.md", "pack/README.md");
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d.discarded).toEqual([{ path: "pack/skills.jsonc", status: "M" }]);
+    expect(readFileSync(join(packDir, "pack", "README.md"), "utf8")).toBe("readme\n");
+    expect(porcelain(packDir)).toBe("R  README.md -> pack/README.md\n");
+  });
+
+  test("a rename into a subdirectory pack from elsewhere in its repo is left alone", async () => {
+    const { repoRoot, packDir } = makeCommittedPack("packs/acme");
+    writeFile(join(repoRoot, "NOTES.md"), "notes\n");
+    commitAll(repoRoot);
+    git(repoRoot, "mv", "NOTES.md", "packs/acme/pack/NOTES.md");
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d.discarded).toEqual([]);
+    expect(porcelain(repoRoot)).toBe("R  NOTES.md -> packs/acme/pack/NOTES.md\n");
   });
 });

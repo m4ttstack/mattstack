@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from "fs";
 import { join, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
-import { inScope, packRelative, parsePorcelain, pendingRoots, type PendingFile } from "./changes.ts";
+import { outOfScopeSides, packRelative, parsePorcelain, pendingRoots, rootsOf, type PendingFile } from "./changes.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 
@@ -131,6 +131,11 @@ function realRoot(root: string | null): string | null {
 function isInside(dir: string, root: string | null): boolean {
   if (root === null) return false;
   return dir === root || dir.startsWith(root.endsWith(sep) ? root : root + sep);
+}
+
+/** Whether dir sits inside the shared checkout, compared by realpath on both sides so a symlinked path still matches. */
+export function insideCheckout(dir: string, root: string | null): boolean {
+  return isInside(realRoot(dir) ?? dir, realRoot(root));
 }
 
 /** Claude Code installs an in-tree plugin from its git-subdir source's ref, never the checkout's working tree. */
@@ -279,9 +284,9 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
         const prefix = await deps.run("git", ["rev-parse", "--show-prefix"], { cwd: pack.dir });
         if (prefix.code !== 0) return failed(`git rev-parse --show-prefix failed in ${pack.dir}: ${prefix.stderr.trim()}`);
         pending = packRelative(parsePorcelain(packStatus.stdout), prefix.stdout.trim());
-        const outside = pending.filter((f) => !inScope(f.path));
+        const outside = pending.flatMap(outOfScopeSides);
         if (outside.length > 0) {
-          return refused(`pack checkout at ${pack.dir} has changes outside the pack: ${outside.map((f) => f.path).join(", ")}; commit or stash those and re-run`);
+          return refused(`pack checkout at ${pack.dir} has changes outside the pack: ${outside.join(", ")}; commit or stash those and re-run`);
         }
       }
     } else if (opts.commitPending && packInTree) {
@@ -357,17 +362,24 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   steps.push({ name: "pull-pack", ...pullPack });
   if (stops(pullPack)) return finish();
 
-  // Committing only after the pull keeps the commit on top of the remote, so
-  // a pull that cannot fast-forward never strands an unpushed local commit.
+  // Staging only, after the pull: the commit waits for commit-push, so a stop
+  // anywhere before it leaves the edits uncommitted, where changes and discard
+  // still see them, and never strands an unpushed local commit.
   if (opts.commitPending) {
     const commitPending = await tryStep(async () => {
       if (pending.length === 0) return skipped("nothing waiting to commit");
-      const add = await deps.run("git", ["add", "--", ...pendingRoots(pending)], { cwd: pack.dir });
-      if (add.code !== 0) return failed(`git add failed: ${add.stderr.trim()}`);
-      const commit = await deps.run("git", ["commit", "-m", `skills: ${pack.name} changes from console`], { cwd: pack.dir });
-      if (commit.code !== 0) return failed(`git commit failed: ${commit.stderr.trim()}`);
+      const indexed = await deps.run("git", ["ls-files", "-z", "--", ...pendingRoots(pending)], { cwd: pack.dir });
+      if (indexed.code !== 0) return failed(`git ls-files failed: ${indexed.stderr.trim()}`);
+      // A root gone from both disk and index holds only deletions git has
+      // already staged, and naming it would fail the add.
+      const inIndex = new Set(rootsOf(indexed.stdout.split("\0").filter(Boolean)));
+      const roots = pendingRoots(pending).filter((r) => existsSync(join(pack.dir, r)) || inIndex.has(r));
+      if (roots.length > 0) {
+        const add = await deps.run("git", ["add", "--", ...roots], { cwd: pack.dir });
+        if (add.code !== 0) return failed(`git add failed: ${add.stderr.trim()}`);
+      }
       published = true;
-      return ran(`committed ${plural(pending.length, "file")}`);
+      return ran(`staged ${plural(pending.length, "file")}`);
     });
     steps.push({ name: "commit-pending", ...commitPending });
     if (stops(commitPending)) return finish();
@@ -456,14 +468,16 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (!rebuild) return skipped("nothing changed, so there is nothing to recompile");
     const result = await deps.compilePack(pack.name);
     if (!result.ok) {
-      // A refused compile must leave the checkout exactly as the dirty guard
-      // found it (clean) so a re-run does not strand a bare-file bump the
-      // guard cannot see committed anywhere -- revert the write-back, no git.
+      // A refused compile must leave the checkout as the guard found it
+      // (clean, or holding only the pending edits commit-pending staged) so a
+      // re-run does not strand a bare-file bump the guard cannot see committed
+      // anywhere -- revert the write-back, no git.
       if (bumpBefore) {
         writeManifestVersion(pack.dir, bumpBefore);
         packSourceVersion = bumpBefore;
       }
-      return refused(`${result.errors.join("; ")}. rt put the version back to ${bumpBefore}, so the checkout stays clean`);
+      const leftAs = published ? "your pack edits are still staged, not committed" : "the checkout stays clean";
+      return refused(`${result.errors.join("; ")}. rt put the version back to ${bumpBefore}, so ${leftAs}`);
     }
     return ran("compiled clean");
   });
@@ -485,6 +499,10 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
 
   const commitPush = await tryStep(async () => {
     if (!rebuild) return skipped("nothing changed, so there is nothing to commit");
+    if (published) {
+      const pendingCommit = await deps.run("git", ["commit", "-m", `skills: ${pack.name} changes from console`], { cwd: pack.dir });
+      if (pendingCommit.code !== 0) return failed(`git commit failed: ${pendingCommit.stderr.trim()}`);
+    }
     const addPaths = [join(".claude-plugin", "plugin.json"), "skills", "attachments"].filter((rel) => existsSync(join(pack.dir, rel)));
     const add = await deps.run("git", ["add", "--", ...addPaths], { cwd: pack.dir });
     if (add.code !== 0) return failed(`git add failed: ${add.stderr.trim()}`);

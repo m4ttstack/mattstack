@@ -1,19 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { bindingChanges, describeGitFailure, inScope, isNotARepo, packRelative, parseCleanDryRun, parsePorcelain, pendingRoots, relativeToPrefix, surfaceChanges } from "../changes.ts";
+import { bindingChanges, describeGitFailure, fullyInScope, inScope, isNotARepo, literalPathspecs, outOfScopeSides, packRelative, parseCleanDryRun, parsePorcelain, pendingRoots, relativeToPrefix, surfaceChanges } from "../changes.ts";
 
 describe("parsePorcelain", () => {
   test("reads status and path, including renames and untracked", () => {
     expect(parsePorcelain(" M pack/skills.jsonc\n?? attachments/stage-plan/new.md\nR  a.md -> b.md\n")).toEqual([
       { path: "pack/skills.jsonc", status: "M" },
       { path: "attachments/stage-plan/new.md", status: "??" },
-      { path: "b.md", status: "R" },
+      { path: "b.md", status: "R", from: "a.md" },
     ]);
   });
 
   test("unquotes a path git wrapped in quotes", () => {
     expect(parsePorcelain('?? "attachments/my skill/SKILL.md"\nR  "a b.md" -> "c d.md"\n')).toEqual([
       { path: "attachments/my skill/SKILL.md", status: "??" },
-      { path: "c d.md", status: "R" },
+      { path: "c d.md", status: "R", from: "a b.md" },
     ]);
   });
 });
@@ -43,7 +43,7 @@ describe("parsePorcelain arrows", () => {
   });
 
   test("a copy splits on the arrow like a rename", () => {
-    expect(parsePorcelain("C  a.md -> b.md\n")).toEqual([{ path: "b.md", status: "C" }]);
+    expect(parsePorcelain("C  a.md -> b.md\n")).toEqual([{ path: "b.md", status: "C", from: "a.md" }]);
   });
 });
 
@@ -169,5 +169,46 @@ describe("parseCleanDryRun", () => {
 
   test("nothing to remove reads as an empty list", () => {
     expect(parseCleanDryRun("")).toEqual([]);
+  });
+});
+
+describe("rename sources", () => {
+  test("packRelative carries the source of a rename into the pack's terms", () => {
+    expect(packRelative([{ path: "packs/acme/pack/README.md", status: "R", from: "README.md" }], "packs/acme/")).toEqual([
+      { path: "pack/README.md", status: "R", from: "../../README.md" },
+    ]);
+  });
+
+  test("relativeToPrefix carries the source of a rename into the pack's terms", () => {
+    expect(relativeToPrefix([{ path: "packs/acme/pack/b.md", status: "R", from: "packs/acme/a.md" }], "packs/acme/")).toEqual([
+      { path: "pack/b.md", status: "R", from: "a.md" },
+    ]);
+  });
+
+  test("a rename into the pack from outside its scope names only the outside side", () => {
+    const moved = { path: "pack/README.md", status: "R", from: "README.md" };
+    expect(outOfScopeSides(moved)).toEqual(["README.md"]);
+    expect(fullyInScope(moved)).toBe(false);
+  });
+
+  test("a rename out of the pack names the destination", () => {
+    expect(outOfScopeSides({ path: "README.md", status: "R", from: "pack/README.md" })).toEqual(["README.md"]);
+  });
+
+  test("a rename inside the scope is fully in scope and holds both roots", () => {
+    const flip = { path: "attachments/x/SKILL.md", status: "R", from: "skills/x/SKILL.md" };
+    expect(outOfScopeSides(flip)).toEqual([]);
+    expect(fullyInScope(flip)).toBe(true);
+    expect(pendingRoots([flip])).toEqual(["skills", "attachments"]);
+  });
+});
+
+describe("literalPathspecs", () => {
+  test("names every side of every entry literally, so a glob character in a name matches only itself", () => {
+    expect(literalPathspecs([
+      { path: "pack/skills.jsonc", status: "M" },
+      { path: "attachments/x/SKILL.md", status: "R", from: "skills/x/SKILL.md" },
+      { path: "skills/[draft]*.md", status: "D" },
+    ])).toEqual([":(literal)pack/skills.jsonc", ":(literal)skills/x/SKILL.md", ":(literal)attachments/x/SKILL.md", ":(literal)skills/[draft]*.md"]);
   });
 });

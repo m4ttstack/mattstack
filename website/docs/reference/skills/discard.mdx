@@ -19,7 +19,7 @@ rt skills discard [flags]
 
 | Flag / Arg | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--pack` | text |  | Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to act on that tree |
+| `--pack` | text |  | Pack whose changes to throw away; required, since this never guesses |
 | [`--json`](/guides/common-flags) | boolean | `false` | Machine-readable result |
 
 _See code: [commands/skills.ts › skillsDiscard](https://github.com/m4ttstack/mattstack/blob/main/commands/skills.ts)_

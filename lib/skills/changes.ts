@@ -2,7 +2,8 @@ import { posix } from "path";
 
 export const PACK_SCOPE = ["pack", "skills", "attachments", ".claude-plugin", "surface.jsonc"] as const;
 
-export type PendingFile = { path: string; status: string };
+/** `path` is where the file is now; `from` is set only on a rename or copy, naming its source. */
+export type PendingFile = { path: string; status: string; from?: string };
 export type BindingChange = { engineRef: string; slot: string; from: string | null; to: string | null };
 export type SurfaceChange = { skill: string; from: "public" | "internal"; to: "public" | "internal" };
 export type ChangesPayload = {
@@ -47,20 +48,26 @@ export function parsePorcelain(stdout: string): PendingFile[] {
     const xy = l.slice(0, 2);
     const rest = l.slice(3);
     const arrow = /[RC]/.test(xy) ? rest.indexOf(" -> ") : -1;
-    return { path: unquotePath(arrow >= 0 ? rest.slice(arrow + 4) : rest), status: xy.trim() };
+    if (arrow < 0) return { path: unquotePath(rest), status: xy.trim() };
+    return { path: unquotePath(rest.slice(arrow + 4)), status: xy.trim(), from: unquotePath(rest.slice(0, arrow)) };
   });
+}
+
+function withFrom(f: PendingFile, path: string, map: (p: string) => string): PendingFile {
+  return f.from === undefined ? { ...f, path } : { ...f, path, from: map(f.from) };
 }
 
 /** Porcelain prints repo-root paths; a pack that lives in a subdirectory of its repo needs them relative to the pack. */
 export function relativeToPrefix(files: PendingFile[], prefix: string): PendingFile[] {
   if (prefix === "") return files;
-  return files.filter((f) => f.path.startsWith(prefix)).map((f) => ({ ...f, path: f.path.slice(prefix.length) }));
+  return files.filter((f) => f.path.startsWith(prefix)).map((f) => withFrom(f, f.path.slice(prefix.length), (p) => posix.relative(prefix, p)));
 }
 
 /** Unlike relativeToPrefix, keeps a repo file beside the pack, spelled as a path that climbs out of it, so it can never pass inScope. */
 export function packRelative(files: PendingFile[], prefix: string): PendingFile[] {
   if (prefix === "") return files;
-  return files.map((f) => ({ ...f, path: posix.relative(prefix, f.path) }));
+  const rel = (p: string) => posix.relative(prefix, p);
+  return files.map((f) => withFrom(f, rel(f.path), rel));
 }
 
 function isUnder(root: string, path: string): boolean {
@@ -71,9 +78,30 @@ export function inScope(path: string): boolean {
   return PACK_SCOPE.some((root) => isUnder(root, path));
 }
 
-/** The pack roots holding at least one of these files; a root holding a pending file is known to git, so a pathspec built from them always matches. */
+function sides(f: PendingFile): string[] {
+  return f.from === undefined ? [f.path] : [f.from, f.path];
+}
+
+/** A rename counts against the scope on either side: the deletion of its source travels in the same commit as its destination. */
+export function outOfScopeSides(f: PendingFile): string[] {
+  return sides(f).filter((p) => !inScope(p));
+}
+
+export function fullyInScope(f: PendingFile): boolean {
+  return outOfScopeSides(f).length === 0;
+}
+
+/** The pack roots, in scope order, that hold at least one of these pack-relative paths. */
+export function rootsOf(paths: string[]): string[] {
+  return PACK_SCOPE.filter((root) => paths.some((p) => isUnder(root, p)));
+}
+
 export function pendingRoots(files: PendingFile[]): string[] {
-  return PACK_SCOPE.filter((root) => files.some((f) => isUnder(root, f.path)));
+  return rootsOf(files.flatMap(sides));
+}
+
+export function literalPathspecs(files: PendingFile[]): string[] {
+  return files.flatMap(sides).map((p) => `:(literal)${p}`);
 }
 
 /** Reads `git clean -n` output, which must come from a run under the C locale: the "Would remove" wording is translated. */

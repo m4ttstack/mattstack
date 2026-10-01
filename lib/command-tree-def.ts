@@ -2371,7 +2371,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "skillsSync",
         agentSafe: true,
         agentNoCwd: true,
-        agentDeniedFlags: ["--manifest"],
+        agentDeniedFlags: ["--manifest", "--commit-pending"],
         agentTimeoutMs: 600_000,
         args: [
           { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack to sync; auto-selects when only one pack exists" },
@@ -2455,7 +2455,7 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/skills.ts",
         fn: "skillsDiscard",
         args: [
-          { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to act on that tree" },
+          { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack whose changes to throw away; required, since this never guesses" },
           SETUP_JSON_ARG,
         ],
       },

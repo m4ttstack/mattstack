@@ -28,9 +28,13 @@
 import { execFileSync, spawnSync } from "child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { applyEdits, modify, parse as parseJsonc } from "jsonc-parser";
+import { homedir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { mattstackHome } from "../lib/rt-paths.ts";
 import { childEnv, runCapture } from "../lib/subprocess.ts";
+import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
+import { insideCheckout } from "../lib/skills/sync.ts";
+import { interactive } from "../lib/ui/gate.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
@@ -41,7 +45,7 @@ import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsi
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
-import { bindingChanges, describeGitFailure, inScope, isNotARepo, parseCleanDryRun, parsePorcelain, pendingRoots, relativeToPrefix, surfaceChanges, type ChangesPayload, type GitRun, type PendingFile } from "../lib/skills/changes.ts";
+import { bindingChanges, describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, parseCleanDryRun, parsePorcelain, pendingRoots, relativeToPrefix, surfaceChanges, type ChangesPayload, type GitRun, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
@@ -1778,17 +1782,30 @@ function workingCopy(packDir: string, rel: string): unknown {
   return existsSync(path) ? parseJsoncFile(readFileSync(path, "utf8")) : null;
 }
 
-/** Every pending file inside the pack's own directory, pack-relative, whether or not it is in the pack's scope. */
-async function readPackPending(packDir: string, team: string): Promise<PendingFile[]> {
+/**
+ * Every pending file, pack-relative, whether or not it is in the pack's scope.
+ * By default only the pack's own directory is read. `wholeRepo` reads the rest
+ * of the repo too, spelling those paths as ones that climb out of the pack:
+ * a status limited to the pack directory cannot pair a rename whose source
+ * lies outside it, and shows the destination as a plain add.
+ */
+async function readPackPending(packDir: string, team: string, opts: { wholeRepo?: boolean } = {}): Promise<PendingFile[]> {
   const prefixRes = await runGit(packDir, ["rev-parse", "--show-prefix"]);
   if (prefixRes.exitCode !== 0) {
     throw new SkillsUsageError(isNotARepo(prefixRes)
       ? `pack ${team} is not inside a git checkout, so there is no way to tell what changed`
       : `pack ${team}: ${describeGitFailure(prefixRes)}`);
   }
-  const statusRes = await runGit(packDir, ["status", "--porcelain=v1", "--untracked-files=all", "--", "."]);
+  const limit = opts.wholeRepo ? [] : ["--", "."];
+  const statusRes = await runGit(packDir, ["status", "--porcelain=v1", "--untracked-files=all", ...limit]);
   if (statusRes.exitCode !== 0) throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(statusRes)}`);
-  return relativeToPrefix(parsePorcelain(statusRes.stdout), prefixRes.stdout.trim());
+  const files = parsePorcelain(statusRes.stdout);
+  const prefix = prefixRes.stdout.trim();
+  return opts.wholeRepo ? packRelative(files, prefix) : relativeToPrefix(files, prefix);
+}
+
+function shownPath(f: PendingFile): string {
+  return f.from === undefined ? f.path : `${f.from} -> ${f.path}`;
 }
 
 export async function skillsChanges(args: string[]): Promise<void> {
@@ -1797,8 +1814,8 @@ export async function skillsChanges(args: string[]): Promise<void> {
     const { team, packDir } = await resolvePack(flags);
 
     const all = await readPackPending(packDir, team);
-    const files = all.filter((f) => inScope(f.path));
-    const outsideScope = all.filter((f) => !inScope(f.path));
+    const files = all.filter(fullyInScope);
+    const outsideScope = all.filter((f) => !fullyInScope(f));
 
     const surfacePath = surfaceFileFor(packDir);
     const surfaceRel = surfacePath ? relativePath(packDir, surfacePath) : null;
@@ -1820,7 +1837,7 @@ export async function skillsChanges(args: string[]): Promise<void> {
       out.print(out.line("done", `Pack ${team} has nothing waiting to sync`));
       return;
     }
-    const fileRows = (group: string, rows: ChangesPayload["files"]) => (rows.length > 0 ? [{ group }, ...rows.map((f) => [f.status, f.path])] : []);
+    const fileRows = (group: string, rows: ChangesPayload["files"]) => (rows.length > 0 ? [{ group }, ...rows.map((f) => [f.status, shownPath(f)])] : []);
     const blocks = [
       out.line("pending", `Pack ${team} has changes that are not synced yet`),
       out.table([...fileRows("Pack files", files), ...fileRows("Other files", outsideScope)], ["Status", "Path"]),
@@ -1839,19 +1856,31 @@ export async function skillsChanges(args: string[]): Promise<void> {
 
 export type DiscardPayload = { pack: string; packDir: string; discarded: PendingFile[] };
 
+export type DiscardIo = {
+  interactive: () => boolean;
+  confirm: (message: string) => Promise<boolean>;
+  sharedCheckout: () => string | null;
+};
+
+const REAL_DISCARD_IO: DiscardIo = {
+  interactive,
+  confirm: async (message) => (await import("../lib/ui/prompts.ts")).confirm({ message, destructive: true }),
+  sharedCheckout: () => resolveSharedCheckout(homedir()),
+};
+
 /**
- * Every pathspec is a pack root holding a pending file, so git never sees a
- * bare `.` or a root it does not know, and nothing outside the pack's scope
- * is restored or cleaned.
+ * Tracked files are restored by their exact paths, both sides of a rename
+ * included; untracked ones are cleaned under the pack roots that hold them.
+ * Git never sees a bare `.` or a path it does not know, and nothing outside
+ * the pack's scope is restored or cleaned.
  */
 async function discardPending(packDir: string, team: string, pending: PendingFile[]): Promise<PendingFile[]> {
   const fail = (res: GitRun) => new SkillsUsageError(`pack ${team}: ${describeGitFailure(res)}`);
   const tracked = pending.filter((f) => f.status !== "??");
   const discarded = [...tracked];
 
-  const restoreRoots = pendingRoots(tracked);
-  if (restoreRoots.length > 0) {
-    const res = await runGit(packDir, ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...restoreRoots], { timeoutMs: GIT_WRITE_TIMEOUT_MS });
+  if (tracked.length > 0) {
+    const res = await runGit(packDir, ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...literalPathspecs(tracked)], { timeoutMs: GIT_WRITE_TIMEOUT_MS });
     if (res.exitCode !== 0) throw fail(res);
   }
 
@@ -1869,12 +1898,27 @@ async function discardPending(packDir: string, team: string, pending: PendingFil
   return discarded;
 }
 
-export async function skillsDiscard(args: string[]): Promise<void> {
+export async function skillsDiscard(args: string[], io: DiscardIo = REAL_DISCARD_IO): Promise<void> {
   await withCleanErrors(async () => {
     const flags = parseFlags(args);
+    if (!flags.team) throw new SkillsUsageError("rt skills discard needs --pack <name>; it throws work away, so it never guesses which pack");
     const { team, packDir } = await resolvePack(flags);
+    const shared = io.sharedCheckout();
+    if (insideCheckout(packDir, shared)) {
+      throw new SkillsUsageError(`pack ${team} is in the shared checkout at ${shared}, which rt never writes to; changes there go through a pull request`);
+    }
 
-    const pending = (await readPackPending(packDir, team)).filter((f) => inScope(f.path));
+    const pending = (await readPackPending(packDir, team, { wholeRepo: true })).filter(fullyInScope);
+    if (pending.length > 0 && !flags.json && io.interactive()) {
+      out.print(
+        out.line("pending", `Pack ${team} has ${pending.length === 1 ? "1 change" : `${pending.length} changes`} that are not synced yet`),
+        out.table(pending.map((f) => [f.status, shownPath(f)]), ["Status", "Path"]),
+      );
+      if (!(await io.confirm("Throw these away? This cannot be undone."))) {
+        out.print(out.line("skipped", `Kept every change in pack ${team}`));
+        return;
+      }
+    }
     const payload: DiscardPayload = { pack: team, packDir, discarded: await discardPending(packDir, team, pending) };
 
     if (flags.json) {
@@ -1888,7 +1932,7 @@ export async function skillsDiscard(args: string[]): Promise<void> {
     const count = payload.discarded.length;
     out.print(
       out.line("done", `Threw away ${count} ${count === 1 ? "change" : "changes"} in pack ${team}`),
-      out.table(payload.discarded.map((f) => [f.status, f.path]), ["Status", "Path"]),
+      out.table(payload.discarded.map((f) => [f.status, shownPath(f)]), ["Status", "Path"]),
     );
   });
 }
