@@ -43,8 +43,6 @@
   "commands/runs.ts",
   "commands/sdm.ts",
   "commands/services.ts",
-  "commands/skills-audit.ts",
-  "commands/skills-expand.ts",
   "commands/skills-init.ts",
   "commands/skills-link.ts",
   "commands/skills-sync.ts",

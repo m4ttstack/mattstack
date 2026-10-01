@@ -17,16 +17,19 @@ import { mcpTools } from "../lib/mcp/tools.ts";
 import { checkExpanded, expandSkills, planRemoval, writeExpanded, type ExpandDrift, type ExpandedSkill } from "../lib/skills/expand.ts";
 import { deriveRules, formatHit, isScriptPath, lintScriptFile, lintSkillText } from "../lib/skills/mcp-lint.ts";
 import { resolvePluginRoots, resolvePluginRootsFromDir } from "../lib/skills/sources.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 
 type Flags = { src: string; out: string; mattstackDir: string | null; check: boolean; strict: boolean; dryRun: boolean; json: boolean };
 
-function fail(message: string): never {
-  console.error(`rt skills expand: ${message}`);
+function fail(failure: out.FailureInput): never {
+  out.fail(failure);
   process.exit(1);
 }
 
 function requireFlagValue(flag: string, value: string | undefined): string {
-  if (!value || value.startsWith("--")) fail(`${flag} needs a value`);
+  if (!value || value.startsWith("--")) fail({ title: `${flag} needs a value` });
   return value;
 }
 
@@ -42,25 +45,26 @@ function parseFlags(args: string[]): Flags {
       case "--strict": flags.strict = true; break;
       case "--dry-run": flags.dryRun = true; break;
       case "--json": flags.json = true; break;
-      default: fail(`unknown flag ${a}`);
+      default: fail({ title: `rt skills expand does not take ${a}` });
     }
   }
-  if (!flags.src) fail("--src <dir> is required");
-  if (!flags.out) fail("--out <dir> is required");
+  if (!flags.src) fail(usageFailure("Which folder holds the skills to expand?", "rt skills expand --src <dir> --out <dir>"));
+  if (!flags.out) fail(usageFailure("Which folder should the expanded skills go in?", "rt skills expand --src <dir> --out <dir>"));
   return flags;
 }
 
 /**
  * Lints the expansion in memory, so --check and --dry-run see what a write
  * would produce. Script hits are advisory, as they are for `skills check`:
- * they go to stderr and never fail the run.
+ * they go to stderr as one advisory block and never fail the run.
  */
-function lintExpanded(outDir: string, skills: ExpandedSkill[]): string[] {
+function lintExpanded(outDir: string, skills: ExpandedSkill[]): { lint: string[]; advisory: string[] } {
   const rules = deriveRules(
     mcpTools(),
     listAgentSafe(TREE).map((l) => ({ path: l.path, deniedFlags: l.node.agentDeniedFlags, noCwd: l.node.agentNoCwd })),
   );
   const lint: string[] = [];
+  const advisory: string[] = [];
   for (const s of skills) {
     const home = join(outDir, s.name);
     lint.push(...lintSkillText(s.skillMd, join(home, "SKILL.md"), rules).map(formatHit));
@@ -68,22 +72,22 @@ function lintExpanded(outDir: string, skills: ExpandedSkill[]): string[] {
       if (f.path.endsWith(".md")) {
         lint.push(...lintSkillText(readFileSync(f.copyFrom, "utf8"), join(home, f.path), rules).map(formatHit));
       } else if (isScriptPath(f.path)) {
-        for (const hit of lintScriptFile(readFileSync(f.copyFrom, "utf8"), join(home, f.path), rules)) {
-          console.error(`(advisory) ${formatHit(hit)}`);
-        }
+        advisory.push(...lintScriptFile(readFileSync(f.copyFrom, "utf8"), join(home, f.path), rules).map(formatHit));
       }
     }
   }
-  return lint;
+  return { lint, advisory };
 }
 
-function emit(flags: Flags, payload: { ok: boolean; mode: "expand" | "check"; skills: string[]; removed: string[]; drift: ExpandDrift[]; lint: string[] }, lines: string[]): void {
+function emit(flags: Flags, payload: { ok: boolean; mode: "expand" | "check"; skills: string[]; removed: string[]; drift: ExpandDrift[]; lint: string[] }, blocks: Block[]): void {
   if (flags.json) {
-    console.log(JSON.stringify(payload));
+    out.json(payload);
     return;
   }
-  for (const line of lines) console.log(line);
+  out.print(...blocks);
 }
+
+const hits = (n: number): string => `${n} lint ${n === 1 ? "hit" : "hits"}`;
 
 export async function skillsExpand(args: string[]): Promise<void> {
   const flags = parseFlags(args);
@@ -93,19 +97,26 @@ export async function skillsExpand(args: string[]): Promise<void> {
   try {
     skills = expandSkills({ srcDir: flags.src, outDir: flags.out, roots });
   } catch (err) {
-    fail((err as Error).message);
+    fail({ title: (err as Error).message });
   }
 
-  const lint = flags.strict ? lintExpanded(flags.out, skills) : [];
+  const { lint, advisory } = flags.strict ? lintExpanded(flags.out, skills) : { lint: [], advisory: [] };
+  if (advisory.length > 0) out.note(out.verbatim(advisory, "advisory"));
 
   if (flags.check) {
     const drift = checkExpanded(flags.out, skills);
     const ok = drift.length === 0 && lint.length === 0;
-    emit(flags, { ok, mode: "check", skills: skills.map((s) => s.name), removed: [], drift, lint }, ok ? [`expanded skills current (${skills.length})`] : []);
+    emit(
+      flags,
+      { ok, mode: "check", skills: skills.map((s) => s.name), removed: [], drift, lint },
+      ok ? [out.line("done", "The expanded skills are current", `${skills.length} ${skills.length === 1 ? "skill" : "skills"}`)] : [],
+    );
     if (!ok) {
-      for (const d of drift) console.error(`${d.skill}: ${d.causes.join(", ")}`);
-      for (const hit of lint) console.error(hit);
-      process.exit(1);
+      fail({
+        title: drift.length > 0 ? "The expanded skills are out of date" : `The expanded skills have ${hits(lint.length)}`,
+        ...(drift.length > 0 ? { next: out.cmd(`rt skills expand --src ${flags.src} --out ${flags.out}`) } : {}),
+        details: [...drift.map((d) => `${d.skill}: ${d.causes.join(", ")}`), ...lint].join("\n"),
+      });
     }
     return;
   }
@@ -114,12 +125,12 @@ export async function skillsExpand(args: string[]): Promise<void> {
   try {
     result = flags.dryRun ? { written: skills.map((s) => s.name), removed: planRemoval(flags.out, skills) } : writeExpanded(flags.out, skills);
   } catch (err) {
-    fail((err as Error).message);
+    fail({ title: (err as Error).message });
   }
-  const lines = [...result.written.map((n) => `+ ${n}`), ...result.removed.map((n) => `- ${n}`)];
-  emit(flags, { ok: lint.length === 0, mode: "expand", skills: result.written, removed: result.removed, drift: [], lint }, lines);
-  if (lint.length > 0) {
-    for (const hit of lint) console.error(hit);
-    process.exit(1);
-  }
+  const rows = [
+    ...result.written.map((name) => ({ op: "+" as const, name, ...(flags.dryRun ? { hint: "would write" } : {}) })),
+    ...result.removed.map((name) => ({ op: "-" as const, name, ...(flags.dryRun ? { hint: "would remove" } : {}) })),
+  ];
+  emit(flags, { ok: lint.length === 0, mode: "expand", skills: result.written, removed: result.removed, drift: [], lint }, rows.length > 0 ? [out.changes(rows)] : []);
+  if (lint.length > 0) fail({ title: `${hits(lint.length)} in the expanded skills`, details: lint.join("\n") });
 }

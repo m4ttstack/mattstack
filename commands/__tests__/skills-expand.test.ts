@@ -80,7 +80,24 @@ describe("rt skills expand", () => {
     expect(r.errors.join("\n")).toContain("a: vendored (scripts/old.sh)");
   });
 
-  test("a missing --src or --out is a usage error", async () => {
+  test("--check reports drift as one failure that names the fix", async () => {
+    await skillsExpand(base());
+    io.clear();
+    write(join(root, "src", "a", "SKILL.md"), "---\nname: app:a\ndescription: a\n---\n\nNew line.\n\n{{include:note}}\n");
+    const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--check"]));
+    expect(r.exitCode).toBe(1);
+    expect(r.errors[0]).toBe("The expanded skills are out of date");
+    expect(r.errors[1]).toBe(`  next: rt skills expand --src ${join(root, "src")} --out ${join(root, "out")}`);
+    expect(io.stdout()).toBe("");
+  });
+
+  test("a missing --src asks for it", async () => {
+    const r = await runExpectingCleanExit(() => skillsExpand(["--out", join(root, "out")]));
+    expect(r.exitCode).toBe(1);
+    expect(r.errors).toEqual(["Which folder holds the skills to expand?", "  next: rt skills expand --src <dir> --out <dir>"]);
+  });
+
+  test("a missing --out is a usage error", async () => {
     const r = await runExpectingCleanExit(() => skillsExpand(["--src", join(root, "src")]));
     expect(r.exitCode).toBe(1);
     expect(r.errors.join("\n")).toContain("--out");
@@ -125,7 +142,7 @@ describe("rt skills expand", () => {
     await skillsExpand(base());
     const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--check", "--strict", "--json"]));
     expect(r.exitCode).toBeUndefined();
-    expect(r.errors.join("\n")).toContain(`(advisory) ${join(root, "out", "a", "scripts", "post.sh")}:1`);
+    expect(r.errors.join("\n")).toContain(`advisory:\n  ${join(root, "out", "a", "scripts", "post.sh")}:1`);
     expect(JSON.parse(io.lines().at(-1)!).lint).toEqual([]);
   });
 

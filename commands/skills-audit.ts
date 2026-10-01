@@ -4,9 +4,11 @@ import { buildClaudeArgv } from "../lib/agent-argv/claude.ts";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import type { AgentInvocation } from "../lib/agent-argv/types.ts";
 import { mcpToolsPayload } from "./mcp.ts";
-import { checkPack, SkillsUsageError, type CheckPayload } from "./skills.ts";
+import { checkPack, SkillsUsageError, skillsFailure, type CheckPayload } from "./skills.ts";
 import { lintedMarkdownFiles } from "../lib/skills/mcp-lint.ts";
 import { runCapture } from "../lib/subprocess.ts";
+import * as out from "../lib/ui/out.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 
 const AUDIT_TIMEOUT_MS = 600_000;
 
@@ -61,7 +63,7 @@ function flag(args: string[], name: string): string | undefined {
 
 export type AuditInputsResult =
   | { ok: true; resolved: CheckPayload; claude: string }
-  | { ok: false; message: string };
+  | { ok: false; failure: out.FailureInput };
 
 /**
  * Everything skillsAudit needs before it spawns claude, as data rather than
@@ -77,23 +79,31 @@ export async function resolveAuditInputs(
 ): Promise<AuditInputsResult> {
   const pack = flag(args, "--pack");
   const packDir = flag(args, "--pack-dir");
-  if (!pack && !packDir) return { ok: false, message: "rt skills audit: pass --pack <name> or --pack-dir <dir>" };
+  if (!pack && !packDir) return { ok: false, failure: usageFailure("Which pack?", "rt skills audit --pack <name>") };
   let resolved: CheckPayload;
   try {
     resolved = await checkPack({ ...(pack ? { pack } : {}), ...(packDir ? { packDir } : {}) });
   } catch (err) {
-    if (err instanceof SkillsUsageError) return { ok: false, message: `rt skills audit: ${err.message}` };
+    if (err instanceof SkillsUsageError) return { ok: false, failure: skillsFailure(err) };
     throw err;
   }
   const claude = resolveClaude();
-  if (!claude) return { ok: false, message: "rt skills audit: no claude binary on PATH; the audit needs a Claude login" };
+  if (!claude) {
+    return {
+      ok: false,
+      failure: { title: "The audit needs Claude Code, and rt could not find it", why: "The audit runs as a Claude session, so Claude has to be installed and signed in." },
+    };
+  }
   return { ok: true, resolved, claude };
 }
 
 export async function skillsAudit(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const inputs = await resolveAuditInputs(args);
-  if (!inputs.ok) { console.error(inputs.message); process.exit(2); }
+  if (!inputs.ok) {
+    out.fail(inputs.failure);
+    process.exit(2);
+  }
   const { resolved, claude } = inputs;
   const files = lintedMarkdownFiles(resolved.packDir).map((p) => relative(resolved.packDir, p));
   const prompt = buildAuditPrompt(files, mcpToolsPayload().tools.map((t) => ({ name: t.name, description: t.description })));
@@ -106,8 +116,10 @@ export async function skillsAudit(args: string[]): Promise<void> {
   } catch {
     // claude printed plain text, not the -p --output-format json envelope
   }
-  if (r.exitCode !== 0) console.error(`rt skills audit: claude exited ${r.exitCode}: ${r.stderr.trim().split("\n").slice(-3).join(" ")}`);
-  if (json) { console.log(JSON.stringify(auditJsonPayload(resolved, files, text, r.exitCode))); return; }
-  console.log(`rt skills audit (advisory; never a gate): ${resolved.pack}\n`);
-  console.log(text);
+  if (r.exitCode !== 0) out.note(out.line("warn", `Claude exited with code ${r.exitCode}`, r.stderr.trim().split("\n").slice(-3).join(" ")));
+  if (json) {
+    out.json(auditJsonPayload(resolved, files, text, r.exitCode));
+    return;
+  }
+  out.print(out.section(`Audit of ${resolved.pack}`, "advisory, never a gate", out.paragraph(text)));
 }
