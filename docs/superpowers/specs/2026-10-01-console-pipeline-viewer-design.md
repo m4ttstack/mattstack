@@ -86,7 +86,7 @@ Cards navigate; rows and parts open the drawer.
 | A slot row (`{{slot:domain}}`) | As an include row, plus Rebind |
 | A link row (`{{verb.path:stage-plan}}`) | Drawer shows the template line and what it rendered to |
 | A variable row (`{{stage.fields}}`, `{{run-start.flags:work}}`) | Drawer shows what rt rendered in its place |
-| An input card | Drawer, that file's own text |
+| An input card | Drawer, that file's own text (Text tab; Used by and History one click away) |
 | The rendered output card, or one of its parts | Drawer, Rendered view, scrolled to that part |
 | A "links to" chip (`gates.md`) | Drawer, that file; offers its own view when it is a skill |
 | A status chip or dot | Drawer, History tab |
