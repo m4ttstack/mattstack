@@ -83,7 +83,7 @@ test("the card's status line reads herdr's state and its location reads workspac
     />
   );
   expect(screen.getByTestId('status-jay')).toHaveTextContent(
-    'Waiting on you · seen 1s ago'
+    /^Waiting on you$/
   );
   expect(screen.getByTestId('where-jay')).toHaveTextContent(
     'boxscore › metrics hardening'

@@ -56,27 +56,22 @@ export function paneLocation(b: {
     : b.paneWorkspace;
 }
 
-type SeenRow = {
-  status: BuddyStatus;
-  lastSeenAt: number;
-  signedOutAt?: number;
-};
-
-/** The age presence can vouch for: the last heartbeat (sign-in or a
-    delivery) for a signed-in buddy, the sign-out for one that left. It is
-    not how long herdr's state has held; herdr reports no such time. */
-export function seenElapsed(b: SeenRow, now: number): string {
-  const at =
-    b.status === 'offline' && b.signedOutAt !== undefined
-      ? b.signedOutAt
-      : b.lastSeenAt;
-  return formatElapsed(now - at);
-}
-
-/** `seen 3m ago`, or `13m ago` after a sign-out word. */
-export function seenAgo(b: SeenRow, now: number): string {
-  const elapsed = seenElapsed(b, now);
-  return b.status === 'offline' ? `${elapsed} ago` : `seen ${elapsed} ago`;
+/** The state word, and for an agent that left, how long ago. A signed-in
+    agent carries no age: its only timestamp is the last presence heartbeat,
+    which says nothing about how long herdr's live state has held. */
+export function stateLine(
+  b: {
+    status: BuddyStatus;
+    agentStatus?: AgentStatus;
+    signedOutAt?: number;
+  },
+  now: number
+): string {
+  const state = agentState(b);
+  if (state === 'offline' && b.signedOutAt !== undefined) {
+    return `${AGENT_STATE_WORD.offline} · ${formatElapsed(now - b.signedOutAt)} ago`;
+  }
+  return AGENT_STATE_WORD[state];
 }
 
 /** Parity anchor: lib/chat-room-name.ts's `slugifyChatName`, the rule rt
@@ -90,11 +85,11 @@ function slugifyChatName(raw: string): string {
   return slug || 'x';
 }
 
-/** Whether `room` is the room rt derives for `repo`: the slugified label,
-    or a path-kind repo's two-segment form ending in it (`pool-gamma` for
-    `gamma`, lib/chat-room.ts). Without the repo's identity the suffix rule
-    also matches an unrelated room ending in `-<repo>` (`acme-api` for
-    `api`); that only hides a chip, never shows a wrong one. */
+/** Whether `room` could be the room rt derives for `repo`: the slugified
+    label, or a path-kind repo's two-segment form ending in it (`pool-gamma`
+    for `gamma`, lib/chat-room.ts). Without the repo's identity the suffix
+    rule also matches an unrelated room ending in `-<repo>` (`acme-api` for
+    `api`), so a caller placing an agent must disambiguate. */
 export function isRoomForRepo(room: string, repo: string): boolean {
   const slug = slugifyChatName(repo);
   return room === slug || room.endsWith(`-${slug}`);

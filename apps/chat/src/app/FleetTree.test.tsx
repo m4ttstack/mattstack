@@ -94,21 +94,56 @@ test('every agent sits under the repo room it works in, in sign-in order', () =>
   );
 });
 
-test('a repo with agents but no room still gets a group, and it is not a target', () => {
+test('an agent whose repo has no room, or no repo at all, is not listed', () => {
   renderTree({
     rooms: [room('rt')],
-    buddies: [buddy('max', 'rt'), buddy('gail', 'board')],
+    buddies: [
+      buddy('max', 'rt'),
+      buddy('gail', 'board'),
+      buddy('shep', 'rt', { repo: undefined }),
+    ],
   });
 
-  const group = screen.getByTestId('repo-row-board');
-  expect(group).toHaveTextContent('board');
-  expect(group).toHaveTextContent('no room');
-  expect(group.getAttribute('role')).toBeNull();
-  expect(group.style.cursor).toBe('default');
-  // Repos with a room come first; the roomless one is appended after them.
-  expect(screen.getByTestId('room-row-rt').compareDocumentPosition(group)).toBe(
-    Node.DOCUMENT_POSITION_FOLLOWING
-  );
+  expect(screen.getByTestId('ws-max')).toBeInTheDocument();
+  expect(screen.queryByTestId('ws-gail')).toBeNull();
+  expect(screen.queryByTestId('ws-shep')).toBeNull();
+});
+
+test("an agent is listed under its repo's room even when the names differ in case or path form", () => {
+  renderTree({
+    rooms: [room('myrepo'), room('projects-scratch')],
+    buddies: [buddy('ada', 'MyRepo'), buddy('bo', 'scratch')],
+  });
+  const rows = screen
+    .getAllByTestId(/^(room-row-|ws-(?!doing|handle))/)
+    .map(el => el.dataset.testid);
+  expect(rows).toEqual([
+    'room-row-myrepo',
+    'ws-ada',
+    'room-row-projects-scratch',
+    'ws-bo',
+  ]);
+});
+
+test('two local repos sharing a basename each keep their own room, by the room the agent joined', () => {
+  renderTree({
+    rooms: [room('github-api'), room('work-api')],
+    buddies: [
+      buddy('ada', 'api', { rooms: ['work-api'] }),
+      buddy('bo', 'api', { rooms: ['github-api'] }),
+      buddy('cy', 'api', { rooms: [] }),
+    ],
+  });
+  const rows = screen
+    .getAllByTestId(/^(room-row-|ws-(?!doing|handle))/)
+    .map(el => el.dataset.testid);
+  // cy matches both rooms and joined neither, so it is not guessed into one.
+  expect(rows).toEqual([
+    'room-row-github-api',
+    'ws-bo',
+    'room-row-work-api',
+    'ws-ada',
+  ]);
 });
 
 test("a repo's signed-out members collapse into one line naming them", () => {
@@ -134,7 +169,7 @@ test("a repo's signed-out members collapse into one line naming them", () => {
 
 test('a lone signed-out member keeps its name and its age', () => {
   renderTree({
-    rooms: [],
+    rooms: [room('board')],
     buddies: [offline('gail', 'board', 3 * M)],
   });
   expect(screen.getByTestId('offline-board')).toHaveTextContent(
@@ -237,13 +272,8 @@ test('every tree row label sits on the meta step', () => {
     rooms: [room('rt')],
     buddies: [buddy('max', 'rt'), buddy('gail', 'board')],
   });
-  // The handle, the roomless group label and the task line beside them were
-  // 11.2px, 11.2px and 10.56px -- three names for a difference nobody could
-  // see. One step now carries all three.
+  // The handle and its task line share one type step.
   expect(screen.getByTestId('ws-handle-max').style.fontSize).toBe(
-    'var(--mantine-font-size-xs)'
-  );
-  expect(screen.getByTestId('repo-name-board').style.fontSize).toBe(
     'var(--mantine-font-size-xs)'
   );
   expect(screen.getByTestId('ws-doing-max').style.fontSize).toBe(
@@ -314,9 +344,11 @@ test('hovering a desktop row docks the agent card; a phone row never opens one',
     onFocusPane: vi.fn(),
   });
   await userEvent.hover(screen.getByTestId('ws-jay'));
-  expect(
-    await screen.findByTestId('detail-jay', {}, { timeout: 2000 })
-  ).toBeInTheDocument();
+  const card = await screen.findByTestId('detail-jay', {}, { timeout: 2000 });
+  // Moving onto the card keeps the row marked, so it stays clear which
+  // agent the card describes.
+  await userEvent.hover(card);
+  expect(screen.getByTestId('ws-jay')).toHaveAttribute('aria-expanded', 'true');
   unmount();
 
   renderTree({
@@ -359,9 +391,7 @@ test('rooms and DMs both close, by hover × and by right-click menu', async () =
 
   const dmClose = screen.getByTestId('dm-close-dm-jay-max');
   expect(dmClose).toHaveAttribute('aria-label', 'Close jay ↔ max');
-  expect(dmClose.style.display).toBe('none');
-  await userEvent.hover(screen.getByTestId('dm-row-dm-jay-max'));
-  expect(dmClose.style.display).toBe('');
+  expect(dmClose).not.toHaveStyle({ display: 'none' });
   await userEvent.click(dmClose);
   expect(onClose).toHaveBeenCalledWith('dm-jay-max');
   expect(onOpenRoom).not.toHaveBeenCalled();

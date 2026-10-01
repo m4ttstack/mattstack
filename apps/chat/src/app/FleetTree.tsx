@@ -8,11 +8,10 @@ import {
   Tooltip,
   UnstyledButton,
 } from '@mattstack/app-kit/core';
-import { useHover } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { RoomSummary } from '@mattstack/rt-client';
 
-import { AGENT_STATE_WORD, agentState, seenAgo } from './agent-state';
+import { agentState, isRoomForRepo, stateLine } from './agent-state';
 import { AgentHoverCard, AgentName } from './AgentName';
 import {
   displayName,
@@ -41,19 +40,19 @@ const ACCENT_DEEP =
   'light-dark(var(--mantine-color-accent-7), var(--mantine-color-accent-text))';
 const ACCENT_ON = 'light-dark(var(--mantine-color-white), var(--tk-bg))';
 const ACCENT_TEXT = 'var(--mantine-color-accent-text)';
-const ACCENT_WASH = `color-mix(in srgb, ${ACCENT_TEXT} var(--tk-wash), transparent)`;
 const BORDER = 'var(--tk-border)';
 
 /** `.ws`'s own `padding-left`. No spacing token lands on it: it is the room
     row's 9.6px plus the tree's one indent step. */
 const WORKSTREAM_INDENT = 26.4;
 
-/** The group heading a presence row lands under when its cwd derived no repo.
-    A space keeps it from ever colliding with a real repo name. */
-const NO_REPO = 'no repo';
+/** From a workstream row's right edge to the sidebar's outer edge: the
+    sidebar's inline padding plus its hairline, so a docked card meets the
+    border instead of floating off it. */
+const SIDEBAR_DOCK_OFFSET = 7;
 
-/** Everything nested inside a room -- workstream handles, the roomless
-    group label, DM names -- reads at meta. */
+/** Everything nested inside a room (workstream handles, DM names) reads at
+    meta. */
 const ROW_NAME_SIZE = 'var(--mantine-font-size-xs)';
 /** The room row itself, one step up, so the tree has a visible hierarchy. */
 const CHROME_SIZE = 'var(--mantine-font-size-sm)';
@@ -78,8 +77,8 @@ export interface FleetTreeProps {
   rooms: FleetRoom[];
   /** DM rooms, in listing order, rendered under `DIRECT`. */
   dms: FleetRoom[];
-  /** The whole fleet, not one room's members: every repo with a signed-in or
-      recently signed-out agent gets a group, room or no room. */
+  /** The whole fleet, not one room's members. An agent is listed under the
+      room named for its repo; one whose repo has no room is left out. */
   buddies: RosterBuddy[];
   /** A prop, not `Date.now()` internally, so ages are testable without fake
       timers. */
@@ -105,17 +104,35 @@ export interface FleetTreeProps {
 
 export interface FleetGroup {
   repo: string;
-  /** The repo's room, when it has one. A repo with agents and no room heads
-      its group with a plain, unclickable label instead. */
-  room?: FleetRoom;
+  room: FleetRoom;
   online: RosterBuddy[];
   offline: RosterBuddy[];
 }
 
+/** The room an agent's repo maps to. A presence row's `repo` is a display
+    label (a local repo's basename, a remote's own casing), while rt names
+    rooms by slug and, for a local repo, two path segments. An exact name
+    wins; otherwise the slug rule picks among the rooms the agent joined
+    (sign-in joins its repo's room), and only a single slug match is trusted
+    without that, since two local repos sharing a basename both match. */
+function roomForRepo(
+  rooms: FleetRoom[],
+  buddy: Pick<RosterBuddy, 'repo' | 'rooms'>
+): FleetRoom | undefined {
+  const { repo } = buddy;
+  if (!repo) return undefined;
+  const exact = rooms.find(r => r.room === repo);
+  if (exact) return exact;
+  const matches = rooms.filter(r => isRoomForRepo(r.room, repo));
+  return (
+    matches.find(r => buddy.rooms.includes(r.room)) ??
+    (matches.length === 1 ? matches[0] : undefined)
+  );
+}
+
 /**
- * One group per repo: every room first, in listing order, then the repos that
- * have agents but no room. A room's group key is its own name, since a repo's
- * room is the one sign-in derives from that repo's cwd.
+ * One group per room, in listing order, holding the agents working in the
+ * repo it is named for (the room sign-in derives from that repo's cwd).
  *
  * Members keep sign-in order inside a group and are never re-sorted by status,
  * so a working<->idle flip cannot move a row out from under the pointer.
@@ -124,16 +141,15 @@ export function groupByRepo(
   rooms: FleetRoom[],
   buddies: RosterBuddy[]
 ): FleetGroup[] {
-  const byRepo = new Map<string, RosterBuddy[]>();
+  const byRoom = new Map<string, RosterBuddy[]>();
   for (const buddy of [...buddies].sort(
     (a, b) => a.signedInAt - b.signedInAt
   )) {
-    // A presence row whose cwd derived no repo still gets a group: this is
-    // the only place the fleet is listed, so nobody may fall out of it.
-    const repo = buddy.repo || NO_REPO;
-    const members = byRepo.get(repo);
+    const room = roomForRepo(rooms, buddy);
+    if (!room) continue;
+    const members = byRoom.get(room.room);
     if (members) members.push(buddy);
-    else byRepo.set(repo, [buddy]);
+    else byRoom.set(room.room, [buddy]);
   }
 
   const split = (members: RosterBuddy[]) => ({
@@ -141,17 +157,20 @@ export function groupByRepo(
     offline: members.filter(b => b.status === 'offline'),
   });
 
-  const groups: FleetGroup[] = rooms.map(room => ({
+  return rooms.map(room => ({
     repo: room.room,
     room,
-    ...split(byRepo.get(room.room) ?? []),
+    ...split(byRoom.get(room.room) ?? []),
   }));
-  const withRoom = new Set(rooms.map(r => r.room));
-  for (const [repo, members] of byRepo) {
-    if (withRoom.has(repo)) continue;
-    groups.push({ repo, ...split(members) });
-  }
-  return groups;
+}
+
+/** The agents the tree lists: those whose repo maps to a room. The fleet
+    count reads the same set, so it always matches the rows. */
+export function listedBuddies(
+  rooms: FleetRoom[],
+  buddies: RosterBuddy[]
+): RosterBuddy[] {
+  return buddies.filter(b => roomForRepo(rooms, b) !== undefined);
 }
 
 /**
@@ -260,18 +279,18 @@ function roomLabel(room: FleetRoom): string {
     : `#${room.room}`;
 }
 
-/** The 22px hover × plus the row's right-click menu, the pair of close
-    affordances every room and DM row carries. */
+/** The 22px × plus the row's right-click menu, the pair of close
+    affordances every room and DM row carries. The × always holds its slot
+    and only fades in (`.close` in the CSS module), so revealing it never
+    moves the badges under the pointer. */
 function CloseControl({
   room,
   testId,
-  shown,
   nudge,
   onClose,
 }: {
   room: FleetRoom;
   testId: string;
-  shown: boolean;
   /** `.room .close` pulls back into the row's own padding; `.dm2 .close`
       does not. */
   nudge: boolean;
@@ -284,6 +303,7 @@ function CloseControl({
         size="sm"
         radius="md"
         color="gray"
+        className={classes.close}
         aria-label={`Close ${roomLabel(room)}`}
         data-testid={testId}
         onClick={e => {
@@ -291,7 +311,6 @@ function CloseControl({
           onClose(room.room);
         }}
         style={{
-          display: shown ? undefined : 'none',
           flex: 'none',
           marginRight: nudge ? -4 : undefined,
           // Icon-tint default (--tk-text-3): `CloseControl` mounts from
@@ -353,9 +372,9 @@ function RowMenu({
  * A tree row is a `div[role=button]`, not a `<button>`: the close control
  * inside it is a real button, and a button may not nest a button. Enter and
  * Space select, like the button they replace. The × shows on hover, on
- * focus within, and while the row's menu is open; the menu is Mantine's
- * `Menu.ContextMenu` (right-click, and a long press on touch), positioned
- * at the cursor, one instance per row.
+ * focus within, and while the row's menu is open (all in the CSS module);
+ * the menu is Mantine's `Menu.ContextMenu` (right-click, and a long press on
+ * touch), positioned at the cursor, one instance per row.
  */
 function RoomRow({
   room,
@@ -370,18 +389,17 @@ function RoomRow({
   onClose?: (room: string) => void;
   onMarkRead?: (room: string) => void;
 }) {
-  const { ref, hovered } = useHover<HTMLDivElement>();
   const [menuOpened, setMenuOpened] = useState(false);
-  const [focusWithin, setFocusWithin] = useState(false);
   const closable = onClose !== undefined;
 
   const row = (
     <Box
-      ref={ref}
       role="button"
       tabIndex={0}
+      className={classes.listRow}
       data-testid={`room-row-${room.room}`}
       data-active={active ? 'true' : undefined}
+      data-menu-open={menuOpened || undefined}
       onClick={onSelect}
       onKeyDown={e => {
         if (e.target !== e.currentTarget) return;
@@ -389,11 +407,6 @@ function RoomRow({
           e.preventDefault();
           onSelect?.();
         }
-      }}
-      onFocus={() => setFocusWithin(true)}
-      onBlur={e => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null))
-          setFocusWithin(false);
       }}
       style={{
         display: 'flex',
@@ -405,12 +418,6 @@ function RoomRow({
         padding: '0 var(--mantine-spacing-md)',
         borderRadius: 'var(--mantine-radius-md)',
         cursor: 'pointer',
-        background: active
-          ? ACCENT_WASH
-          : hovered || menuOpened
-            ? 'var(--ui-bg-4)'
-            : undefined,
-        color: active ? ACCENT_TEXT : undefined,
       }}
     >
       <Icon
@@ -435,7 +442,6 @@ function RoomRow({
         <CloseControl
           room={room}
           testId={`room-close-${room.room}`}
-          shown={hovered || focusWithin || menuOpened}
           nudge
           onClose={onClose}
         />
@@ -454,45 +460,6 @@ function RoomRow({
     >
       {row}
     </RowMenu>
-  );
-}
-
-/** A repo with agents but no room: the same 34px row, no hash, the name
-    muted, and `no room` where the badges would sit. Not a target. */
-function RepoRow({ repo }: { repo: string }) {
-  return (
-    <Box
-      data-testid={`repo-row-${repo}`}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        minWidth: 0,
-        width: '100%',
-        height: 34,
-        gap: 'var(--mantine-spacing-sm)',
-        padding: '0 var(--mantine-spacing-md)',
-        borderRadius: 'var(--mantine-radius-md)',
-        cursor: 'default',
-      }}
-    >
-      {/* `.grp`: muted, since this heading is a label rather than a place
-          to go. */}
-      <Text
-        truncate
-        data-testid={`repo-name-${repo}`}
-        style={{
-          fontSize: ROW_NAME_SIZE,
-          flex: 1,
-          minWidth: 0,
-          color: 'var(--tk-text-4)',
-        }}
-      >
-        {repo}
-      </Text>
-      <Text component="span" style={{ ...MUTED_XS, flex: 'none' }}>
-        no room
-      </Text>
-    </Box>
   );
 }
 
@@ -563,7 +530,7 @@ function WorkstreamRow({
       <Tooltip
         label={
           reachable
-            ? `${AGENT_STATE_WORD[state]} · ${seenAgo(buddy, now)}`
+            ? stateLine(buddy, now)
             : 'presence withheld while the daemon is down'
         }
         position="left"
@@ -576,7 +543,7 @@ function WorkstreamRow({
       </Tooltip>
       <Text
         component="span"
-        fw={600}
+        fw={500}
         data-testid={`ws-handle-${handle}`}
         style={{ fontSize: ROW_NAME_SIZE, flex: 'none' }}
       >
@@ -605,13 +572,15 @@ function WorkstreamRow({
     </UnstyledButton>
   );
   // The phone path opens a DM on tap and has no hover, so only the desktop
-  // tree docks the card, to the sidebar's right, level with the row.
+  // tree docks the card, flush to the sidebar's right edge, level with the
+  // row. The row stays marked while its card is open (`aria-expanded`), so
+  // moving onto the card never loses which agent it describes.
   if (onSelectBuddy) return row;
   return (
     <AgentHoverCard
       buddy={buddy}
       position="right-start"
-      offset={16}
+      offset={SIDEBAR_DOCK_OFFSET}
       reachable={reachable}
       now={now}
       task={task}
@@ -681,19 +650,18 @@ function DmRow({
   onClose?: (room: string) => void;
   onMarkRead?: (room: string) => void;
 }) {
-  const { ref, hovered } = useHover<HTMLDivElement>();
   const [menuOpened, setMenuOpened] = useState(false);
-  const [focusWithin, setFocusWithin] = useState(false);
   const closable = onClose !== undefined;
   const pair = room.participants!;
 
   const row = (
     <Box
-      ref={ref}
       role="button"
       tabIndex={0}
+      className={classes.listRow}
       data-testid={`dm-row-${room.room}`}
       data-active={active ? 'true' : undefined}
+      data-menu-open={menuOpened || undefined}
       onClick={onSelect}
       onKeyDown={e => {
         if (e.target !== e.currentTarget) return;
@@ -701,11 +669,6 @@ function DmRow({
           e.preventDefault();
           onSelect?.();
         }
-      }}
-      onFocus={() => setFocusWithin(true)}
-      onBlur={e => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null))
-          setFocusWithin(false);
       }}
       style={{
         display: 'flex',
@@ -718,17 +681,12 @@ function DmRow({
         padding: '0 var(--mantine-spacing-md)',
         borderRadius: 'var(--mantine-radius-md)',
         cursor: 'pointer',
-        background: active
-          ? ACCENT_WASH
-          : hovered || menuOpened
-            ? 'var(--ui-bg-4)'
-            : undefined,
       }}
     >
       {/* textContent, not three separate runs: the arrow needs its own span
           for the purple, but a screen reader still reads one phrase. */}
       <Text
-        fw={600}
+        fw={500}
         truncate
         style={{ fontSize: ROW_NAME_SIZE, flex: 1, minWidth: 0 }}
       >
@@ -753,7 +711,6 @@ function DmRow({
         <CloseControl
           room={room}
           testId={`dm-close-${room.room}`}
-          shown={hovered || focusWithin || menuOpened}
           nudge={false}
           onClose={onClose}
         />
@@ -818,10 +775,10 @@ function DmOverflowRow({
 }
 
 /**
- * The sidebar's one tree. Every repo the fleet works in heads a group -- its
- * room when it has one, a plain label when it does not -- with that repo's
- * signed-in sessions under it and its signed-out members rolled into a line.
- * Direct conversations follow, named by their pair.
+ * The sidebar's one tree. Each room heads a group with the signed-in
+ * sessions of the repo it is named for under it and that repo's signed-out
+ * members rolled into a line. Direct conversations follow, named by their
+ * pair.
  *
  * This replaces both of the surfaces it succeeds (a flat rooms rail and a
  * separate roster panel): a handle read next to the room it works in answers
@@ -860,17 +817,13 @@ export function FleetTree({
     <Fragment>
       {groups.map(group => (
         <Fragment key={group.repo}>
-          {group.room ? (
-            <RoomRow
-              room={group.room}
-              active={group.room.room === activeRoom}
-              onSelect={() => onOpenRoom?.(group.repo)}
-              onClose={onClose}
-              onMarkRead={onMarkRead}
-            />
-          ) : (
-            <RepoRow repo={group.repo} />
-          )}
+          <RoomRow
+            room={group.room}
+            active={group.room.room === activeRoom}
+            onSelect={() => onOpenRoom?.(group.repo)}
+            onClose={onClose}
+            onMarkRead={onMarkRead}
+          />
           {group.online.map(buddy => (
             <WorkstreamRow
               key={buddy.handle}

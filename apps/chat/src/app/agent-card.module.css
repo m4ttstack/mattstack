@@ -9,6 +9,12 @@
   min-width: 0;
 }
 
+/* The menu item's own padding, so the card's text lines up with the action
+   items below it. */
+.card[data-in-menu] {
+  padding: var(--mantine-spacing-sm);
+}
+
 .head {
   display: flex;
   align-items: center;
@@ -73,18 +79,4 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--tk-text-3);
-}
-
-.actions {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-xs);
-}
-
-.actions > * {
-  flex: none;
-}
-
-.actions > .spacer {
-  flex: 1;
 }

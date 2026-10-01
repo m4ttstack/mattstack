@@ -154,6 +154,13 @@ export const baseTheme = /* @__PURE__ */ createTheme({
     },
     MenuDropdown: { defaultProps: { p: 'xs', miw: 200 } },
     MenuItem: { defaultProps: { p: 'sm' } },
+    // `Menu.Sub.Item` and `Menu.Sub.Dropdown` read their own props keys, so a
+    // submenu only matches the menu around it when it carries the same
+    // padding. The open delay stops a pointer travelling down a list from
+    // flashing every submenu it crosses.
+    MenuSub: { defaultProps: { openDelay: 150 } },
+    MenuSubItem: { defaultProps: { p: 'sm' } },
+    MenuSubDropdown: { defaultProps: { p: 'xs' } },
     MenuDivider: { defaultProps: { my: 'xs' } },
     Popover: { defaultProps: { shadow: 'md' } },
     HoverCard: { defaultProps: { shadow: 'md' } },

@@ -199,7 +199,7 @@ test('unknown paths render the not-found page inside the chat chrome', () => {
   expect(screen.getByTestId('inbox-bar')).toBeInTheDocument();
 });
 
-test('the fleet tree lists every buddy, repo or no repo', () => {
+test('the fleet tree leaves out a buddy with no repo room', () => {
   renderWithProviders(
     <App
       initialState={{
@@ -219,10 +219,7 @@ test('the fleet tree lists every buddy, repo or no repo', () => {
       }}
     />
   );
-  // No `repo` on this presence row, so it heads its own `no repo` group
-  // rather than dropping out of the only listing the fleet has.
-  expect(screen.getByTestId('ws-rt-chat-wt')).toBeInTheDocument();
-  expect(screen.getByTestId('repo-row-no repo')).toHaveTextContent('no room');
+  expect(screen.queryByTestId('ws-rt-chat-wt')).toBeNull();
 });
 
 test('seeded messages survive to the opened room, even if the fetch rejects', async () => {
