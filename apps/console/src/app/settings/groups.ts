@@ -58,7 +58,8 @@ export const GROUPS: Group[] = [
     id: 'ci',
     label: 'CI',
     tier: 'rt',
-    blurb: 'How long a CI attendant watches one pipeline before it stops and asks.',
+    blurb:
+      'How long a CI attendant watches one pipeline before it stops and asks.',
     match: prefix('ci.'),
   },
   {
