@@ -3795,6 +3795,10 @@ a.tui-id-card-ref:focus-visible {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
   background: color-mix(in srgb, var(--card) 72%, transparent);
   backdrop-filter: blur(20px) saturate(1.4);
+  /* An outer shadow never paints under its own box, so this is a solid
+     12px band of the column's ground just below the rule: scrolling cards
+     vanish before they reach the bar instead of butting against it. */
+  box-shadow: 0 12px 0 0 var(--card);
 }
 .tui-sheet-round-n {
   margin: 0;
