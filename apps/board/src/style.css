@@ -3778,9 +3778,9 @@ a.tui-id-card-ref:focus-visible {
 }
 
 /* The round is the context every card below is read in, so it stays pinned
-   while the column scrolls. The negative top and margin pull it over the
-   column's own top padding, which a sticky box otherwise keeps clear and
-   lets cards show through. */
+   while the column scrolls. The negative top and margins pull it over the
+   column's own padding (22px 28px, `.tui-sheet-main`), so the frosted bar
+   spans the column edge to edge and no card shows through above it. */
 .tui-sheet-round {
   position: sticky;
   top: -22px;
@@ -3789,10 +3789,24 @@ a.tui-id-card-ref:focus-visible {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 12px;
-  margin: -22px 0 18px;
-  padding: 22px 0 12px;
+  margin: -22px -28px 18px;
+  padding: 22px 28px 12px;
   border-bottom: 1px solid var(--border-soft);
-  background: var(--card);
+  background: color-mix(in srgb, var(--card) 72%, transparent);
+  backdrop-filter: blur(20px) saturate(1.4);
+}
+/* A short fade under the rule, so scrolling content dissolves into the
+   heading instead of butting against it. */
+.tui-sheet-round::after {
+  content: '';
+  position: absolute;
+  inset: 100% 0 auto;
+  height: 18px;
+  background: linear-gradient(
+    color-mix(in srgb, var(--card) 80%, transparent),
+    transparent
+  );
+  pointer-events: none;
 }
 .tui-sheet-round-n {
   margin: 0;
