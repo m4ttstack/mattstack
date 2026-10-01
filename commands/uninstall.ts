@@ -9,12 +9,13 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { createRealAgeKeySeam } from "../lib/home/age-key.ts";
 import { createRealSecretsExecSeam, type SecretsSeams } from "../lib/secrets/store.ts";
 import { createApplyContext, type ApplyContext, type CreateApplyContextDeps } from "../lib/setup/apply.ts";
-import { envelope } from "../lib/setup/contract.ts";
-import { createHumanEmitter, createNdjsonEmitter } from "../lib/setup/emit.ts";
+import { envelope, type ApplyEvent } from "../lib/setup/contract.ts";
+import { createHumanEmitter } from "../lib/setup/emit.ts";
 import { UserActionableError, userErrorPayload } from "../lib/setup/errors.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { computeUninstallActions, runUninstall, type UninstallAction } from "../lib/setup/uninstall.ts";
 import { createRelayClient, inviteRelayUrl, type RelayClient } from "../lib/team/relay-client.ts";
+import * as out from "../lib/ui/out.ts";
 import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
 
 export interface UninstallDeps {
@@ -27,6 +28,8 @@ export interface UninstallDeps {
   /** Overrides `computeUninstallActions`'s own result — the seam every test drives instead of shaping a whole fake machine. */
   actions?: UninstallAction[];
   print: (s: string) => void;
+  /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
+  json: (value: unknown) => void;
   exit: (code: number) => never;
   isTTY: () => boolean;
   confirm: (message: string) => Promise<boolean>;
@@ -39,6 +42,7 @@ export function realUninstallDeps(): UninstallDeps {
     secrets: { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
     relay: createRelayClient(probes.fetch, inviteRelayUrl(probes.env)),
     print: (s) => console.log(s),
+    json: (v) => out.json(v),
     exit: process.exit,
     isTTY: () => process.stdin.isTTY === true,
     confirm: async (message: string) => {
@@ -85,7 +89,7 @@ export async function runUninstallCommand(args: string[], _ctx: CommandContext =
     if (dryRun) {
       const payload = dryRunPayload(actions, deps.probes.now());
       if (json) {
-        deps.print(JSON.stringify(payload));
+        deps.json(payload);
       } else {
         deps.print("This would remove:");
         for (const a of payload.actions) deps.print(`  - ${a.title}`);
@@ -107,9 +111,7 @@ export async function runUninstallCommand(args: string[], _ctx: CommandContext =
       if (!proceed) return;
     }
 
-    const emit = json
-      ? createNdjsonEmitter((line) => deps.print(line.endsWith("\n") ? line.slice(0, -1) : line))
-      : createHumanEmitter(deps.print);
+    const emit = json ? (ev: ApplyEvent) => deps.json(ev) : createHumanEmitter(deps.print);
 
     const ctx: ApplyContext = await createApplyContext({
       probes: deps.probes,
@@ -137,7 +139,8 @@ export async function runUninstallCommand(args: string[], _ctx: CommandContext =
     if (!result.ok) deps.exit(2);
   } catch (err) {
     if (err instanceof UserActionableError) {
-      deps.print(json ? JSON.stringify(userErrorPayload(err, deps.probes.now())) : `rt ${verb}: ${err.message}`);
+      if (json) deps.json(userErrorPayload(err, deps.probes.now()));
+      else deps.print(`rt ${verb}: ${err.message}`);
       return deps.exit(2);
     }
     throw err;

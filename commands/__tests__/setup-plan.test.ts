@@ -6,6 +6,9 @@ import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import { fakeProbes, missing, ok } from "../../lib/setup/__tests__/fakes.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
 import { dim, green, red, reset, yellow } from "../../lib/ansi.ts";
+import { composePlan } from "../../lib/setup/plan.ts";
+import { listTeams } from "../../lib/settings/stores.ts";
+import { capturePlain, realJson } from "./helpers/json-line.ts";
 
 /** setupPlan/setupStatus call process.exit(2) on a user-actionable error; the sentinel throw stops it from actually killing the test process, and the caller reads the exit code off the spy. */
 async function runExpectingExit(fn: () => Promise<void>): Promise<number | undefined> {
@@ -37,6 +40,7 @@ function captureDeps(): SetupDeps & { lines: string[] } {
     probes: fakeProbes({ exec: readyExec }),
     secrets: fakeSecrets(),
     print: (s) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     lines,
   };
 }
@@ -110,7 +114,7 @@ describe("setupStatus", () => {
       mode: "create",
       team: { slug: "acme", name: "Acme", remote: "https://github.com/o/r.git", others: false },
     });
-    const deps: SetupDeps = { probes: p, secrets: fakeSecrets(), print: (s) => lines.push(s) };
+    const deps: SetupDeps = { probes: p, secrets: fakeSecrets(), print: (s) => lines.push(s), json: (v) => lines.push(JSON.stringify(v)) };
 
     await setupStatus([], {}, deps);
 
@@ -289,5 +293,21 @@ describe("setupStatus Finish line", () => {
     const deps = captureDeps();
     await setupPlan([], {}, deps);
     expect(deps.lines.some((l) => l.startsWith("Finish: "))).toBe(false);
+  });
+});
+
+describe("setup plan --json bytes", () => {
+  test("stdout is exactly JSON.stringify(plan) plus a newline, for the same plan composePlan returns", async () => {
+    const cap = capturePlain();
+    try {
+      const probes = fakeProbes({ exec: readyExec });
+      const deps: SetupDeps = { probes, secrets: fakeSecrets(), print: () => {}, json: realJson };
+      await setupPlan(["--json"], {}, deps);
+      const plan = await composePlan({ p: probes, secrets: fakeSecrets(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() });
+      expect(cap.stdout()).toBe(JSON.stringify(plan) + "\n");
+      expect(cap.stderr()).toBe("");
+    } finally {
+      cap.restore();
+    }
   });
 });

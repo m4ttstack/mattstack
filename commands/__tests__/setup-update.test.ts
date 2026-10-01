@@ -12,6 +12,7 @@ import { createUpdateLock } from "../../lib/setup/update-lock.ts";
 import { existsSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { capturePlain, realJson } from "./helpers/json-line.ts";
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -76,6 +77,7 @@ function baseApplyDeps(
     relay: fakeRelay,
     secretPresence: fakeSecretPresence(),
     print: (s) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
       throw new Error("exit sentinel");
@@ -390,5 +392,18 @@ describe("rt setup update", () => {
       await run(updateDeps({ probes, steps: [neverRunsStep("path.link")], updateLock: current.lock }), ["--json"]);
       expect(current.order).toEqual([]);
     });
+  });
+});
+
+describe("setup update --json bytes", () => {
+  test("a skipped run is exactly one done event", async () => {
+    const cap = capturePlain();
+    try {
+      const deps = updateDeps({ steps: [neverRunsStep("path.link")], json: realJson });
+      await run(deps, ["--json"]);
+      expect(cap.stdout()).toBe('{"event":"done","ok":true,"skipped":"not-set-up"}\n');
+    } finally {
+      cap.restore();
+    }
   });
 });

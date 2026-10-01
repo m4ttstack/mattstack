@@ -6,6 +6,7 @@ import { readStagedRepoRoot } from "../../lib/setup/repo-root.ts";
 import { getSetting } from "../../lib/settings/resolve.ts";
 import { setSetting } from "../../lib/settings/write.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
+import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
 
 const HOME = "/fake-home";
 const DIR = { isDirectory: true, writable: true };
@@ -25,6 +26,7 @@ function baseDeps(overrides: Partial<RepoRootDeps> & { probes?: Probes } = {}): 
   return {
     probes: fakeProbes({ home: HOME }),
     print: (s: string) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
       throw new Error("exit sentinel");
@@ -199,5 +201,29 @@ describe("setupRepoRootSet: no-prompt argument/TTY/stdin ordering", () => {
     await expectExit(() => setupRepoRootSet(["--json"], {}, deps));
 
     expect(deps.exitCodes).toEqual([2]);
+  });
+});
+
+describe("setupRepoRootSet --json bytes", () => {
+  test("the envelope is one compact line led by contract, at, path", async () => {
+    const cap = capturePlain();
+    try {
+      const dev = join(HOME, "dev");
+      const probes = fakeProbes({ home: HOME, statPaths: { [dev]: DIR }, dirs: { [GIT_DIR]: [] } });
+      const written: [string, unknown, string][] = [];
+      const deps = baseDeps({
+        probes,
+        json: realJson,
+        writeSetting: ((key: string, value: unknown, scope: string) => {
+          written.push([key, value, scope]);
+        }) as unknown as RepoRootDeps["writeSetting"],
+      });
+      await setupRepoRootSet([dev, "--json"], {}, deps);
+      const payload = expectOneJsonLine(cap.stdout()) as { contract: number; at: string; path: string };
+      expect(Object.keys(payload).slice(0, 3)).toEqual(["contract", "at", "path"]);
+      expect(payload.path).toBe(dev);
+    } finally {
+      cap.restore();
+    }
   });
 });

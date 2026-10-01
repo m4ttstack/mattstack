@@ -35,6 +35,7 @@ function baseDeps(overrides: Partial<HomeRemoteDeps> & { probes?: Probes } = {})
   return {
     probes: fakeProbes({ home: HOME, dirs: { [GIT_DIR]: [] }, exec: scripted() }),
     print: (s: string) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
       throw new Error("exit sentinel");

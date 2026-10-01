@@ -7,6 +7,7 @@ import type { SecretsSeams } from "../../lib/secrets/store.ts";
 import type { RelayClient } from "../../lib/team/relay-client.ts";
 import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import { fakeProbes, fakeTray } from "../../lib/setup/__tests__/fakes.ts";
+import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
 
 /** Answers `/version` reachable and every `/setup/need/<id>` as immediately done — the default tray behind every test below except the one that deliberately drives a real timeout. */
 const instantTray = fakeTray({
@@ -60,6 +61,7 @@ function baseDeps(
     secretPresence: fakeSecretPresence(),
     actions: SAMPLE_ACTIONS,
     print: (s) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
       throw new Error("exit sentinel");
@@ -281,5 +283,21 @@ describe("rt uninstall — NDJSON discipline and exit codes", () => {
 
   test("realUninstallDeps() builds without throwing", () => {
     expect(() => realUninstallDeps()).not.toThrow();
+  });
+});
+
+describe("rt uninstall --json bytes", () => {
+  test("the dry-run envelope is one compact line: contract, at, actions of id and title", async () => {
+    const cap = capturePlain();
+    try {
+      const deps = baseDeps({ json: realJson });
+      await runUninstallCommand(["--json", "--dry-run"], {}, deps);
+      const payload = expectOneJsonLine(cap.stdout()) as { contract: number; at: string; actions: Array<Record<string, unknown>> };
+      expect(Object.keys(payload)).toEqual(["contract", "at", "actions"]);
+      expect(payload.at).toBe("2026-01-01T00:00:00.000Z");
+      expect(payload.actions.map((a) => [a.id, Object.keys(a)])).toEqual([["services.unregister", ["id", "title"]]]);
+    } finally {
+      cap.restore();
+    }
   });
 });

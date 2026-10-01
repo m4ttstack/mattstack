@@ -7,6 +7,7 @@ import type { TeamSnapshot } from "../../lib/setup/team-settings.ts";
 import { DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError } from "../../lib/setup/slack-app.ts";
 import { slackWaitCliMessage } from "../../lib/setup/team-slack-secret.ts";
 import { teamLocalPath } from "../../lib/team/team-local.ts";
+import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
 
 function neverCalled<T extends unknown[], R>(name: string) {
   return async (..._args: T): Promise<R> => {
@@ -29,6 +30,7 @@ function baseDeps(overrides: Partial<ConnectDeps> & { probes?: Probes } = {}): C
     probes: fakeProbes(),
     secrets: fakeSecrets(),
     print: (s: string) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
       throw new Error("exit sentinel");
@@ -974,5 +976,24 @@ describe.skipIf(skipRealOAuth)("realOAuthListen (real Bun.serve, no fakes — th
       busy.stop(true);
     }
     expect(caught).toBeInstanceOf(Error);
+  });
+});
+
+describe("integrationConnect --json bytes", () => {
+  test("the envelope is one compact line with the keys in contract order", async () => {
+    const cap = capturePlain();
+    try {
+      const deps = baseDeps({
+        probes: fakeProbes({ fetch: gitlabUserOk }),
+        stdin: async () => ({ token: "glpat-x" }),
+        writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+        json: realJson,
+      });
+      await integrationConnect("gitlab", ["--json"], deps);
+      const payload = expectOneJsonLine(cap.stdout()) as Record<string, unknown>;
+      expect(Object.keys(payload)).toEqual(["contract", "at", "integration", "status", "detail", "scopesSeen"]);
+    } finally {
+      cap.restore();
+    }
   });
 });

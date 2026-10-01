@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { setupUnwaive, setupWaive, type WaiveDeps } from "../setup.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
+import { capturePlain, realJson } from "./helpers/json-line.ts";
 
 class ExitSentinel extends Error {
   constructor(public readonly code: number) {
@@ -25,6 +26,7 @@ function deps(overrides: Partial<WaiveDeps> & { initial?: string[] } = {}) {
       },
     },
     print: (s) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     printError: (s) => errors.push(s),
     exit: (code) => {
       throw new ExitSentinel(code);
@@ -188,5 +190,18 @@ describe("rt setup waive envelope", () => {
     const j = deps({ initial: ["tool.fast-browser-extension"] });
     await setupWaive(["tool.fast-browser-extension", "--json"], {}, j.d);
     expect(JSON.parse(j.lines[0]!)).toMatchObject({ ok: true, changed: false, waived: ["tool.fast-browser-extension"] });
+  });
+});
+
+describe("setup waive --json bytes", () => {
+  test("the ok envelope is contract, at, ok, id, changed, waived", async () => {
+    const cap = capturePlain();
+    try {
+      const t = deps({ json: realJson });
+      await setupWaive(["tool.fast-browser-extension", "--json"], {}, t.d);
+      expect(cap.stdout()).toBe('{"contract":1,"at":"2026-01-01T00:00:00.000Z","ok":true,"id":"tool.fast-browser-extension","changed":true,"waived":["tool.fast-browser-extension"]}\n');
+    } finally {
+      cap.restore();
+    }
   });
 });

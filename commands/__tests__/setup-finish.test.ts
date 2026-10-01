@@ -8,6 +8,7 @@ function deps(): FinishDeps & { probes: ReturnType<typeof fakeProbes>; lines: st
   return {
     probes: fakeProbes({ now: new Date("2026-09-30T12:00:00.000Z") }),
     print: (s) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       throw new Error(`exit ${code}`);
     },

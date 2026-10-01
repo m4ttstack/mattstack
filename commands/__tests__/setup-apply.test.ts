@@ -17,6 +17,7 @@ import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import { fakeProbes, ok } from "../../lib/setup/__tests__/fakes.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
 import { UserActionableError } from "../../lib/setup/errors.ts";
+import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -81,6 +82,7 @@ function baseApplyDeps(
     relay: fakeRelay,
     secretPresence: fakeSecretPresence(),
     print: (s) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
       throw new Error("exit sentinel");
@@ -396,6 +398,7 @@ describe("setupIntent", () => {
     return {
       probes: fakeProbes(),
       print: (s) => lines.push(s),
+      json: (v) => lines.push(JSON.stringify(v)),
       exit: (code: number) => {
         exitCodes.push(code);
         throw new Error("exit sentinel");
@@ -610,5 +613,40 @@ describe("setupApply — hard-precondition gate", () => {
     await setupApply(["--json", "--force"], {}, deps);
 
     expect(deps.exitCodes).toEqual([]);
+  });
+});
+
+describe("setup apply --json bytes", () => {
+  test("the NDJSON stream is one compact object per line, newline-terminated, nothing else on stdout", async () => {
+    const cap = capturePlain();
+    try {
+      const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done", detail: "ok" })], json: realJson });
+      await setupApply(["--json"], {}, deps);
+      expect(cap.stdout()).toBe(
+        '{"event":"plan","steps":[{"id":"path.link","title":"path.link","kind":"rt"}]}\n' +
+          '{"event":"step","id":"path.link","state":"running"}\n' +
+          '{"event":"step","id":"path.link","state":"done","detail":"ok"}\n' +
+          '{"event":"done","ok":true}\n',
+      );
+      expect(cap.stderr()).toBe("");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("an exit-2 envelope is one line: contract, at, error.code, error.message, in that order", async () => {
+    const cap = capturePlain();
+    try {
+      const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })], json: realJson });
+      await runExpectingExit(() => setupApply(["--json", "--from", "bogus"], {}, deps));
+      const payload = expectOneJsonLine(cap.stdout()) as { contract: number; at: string; error: { code: string; message: string } };
+      expect(Object.keys(payload)).toEqual(["contract", "at", "error"]);
+      expect(Object.keys(payload.error)).toEqual(["code", "message"]);
+      expect(payload.at).toBe("2026-01-01T00:00:00.000Z");
+      expect(payload.error.code).toBe("unknown-step");
+      expect(payload.error.message).toContain("bogus");
+    } finally {
+      cap.restore();
+    }
   });
 });
