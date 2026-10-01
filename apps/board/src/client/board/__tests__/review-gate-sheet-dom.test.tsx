@@ -9,11 +9,18 @@
 
 import React from 'react';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
-import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test';
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import { createRoot, type Root } from 'react-dom/client';
 
 import { gateDraftKey } from '@mattstack/gate-kit/react';
-import type { GateRow } from '../../../gates/store.ts';
+import type { GateQuestion, GateRow } from '../../../gates/store.ts';
 import type { BoardMRWithReview } from '../../types.ts';
 import { useGateForm } from '../GateForm.tsx';
 import { ReviewGateSheet } from '../ReviewGateSheet.tsx';
@@ -828,4 +835,231 @@ test('the verdict dock and the lost panel each reserve their height on the scrol
   } finally {
     restore();
   }
+});
+
+describe('a later round', () => {
+  /** Every earlier thread here has an author reply, so the "never answered"
+      line appears only where a test drops one. */
+  const EARLIER: Array<{
+    thread: string;
+    file: string;
+    round: number;
+    call: string;
+    original: string;
+    authorReply: string;
+    note?: string;
+    reply: string;
+  }> = [
+    {
+      thread: 'd-query',
+      file: 'lib/db/query.ts:42',
+      round: 1,
+      call: 'fixed',
+      original: 'the search handler puts the raw `q` into the WHERE clause.',
+      authorReply: 'Switched to a parameterized query, with a test.',
+      note: 'query.ts:42 now binds $1',
+      reply: "Thanks, that's the fix. Resolving.",
+    },
+    {
+      thread: 'd-retry',
+      file: 'lib/retry.ts:41',
+      round: 2,
+      call: 'not-fixed',
+      original: 'the loop retries immediately up to five times.',
+      authorReply: 'Added exponential backoff.',
+      note: 'an aborted request still goes round the loop at retry.ts:58',
+      reply: 'The backoff looks good; an aborted request still retries.',
+    },
+    {
+      thread: 'd-errors',
+      file: 'lib/errors.ts:15',
+      round: 2,
+      call: 'pushback-accepted',
+      original: 'two of the new messages end in a period.',
+      authorReply: "These copy the upstream API's strings word for word.",
+      reply: 'Makes sense, matching the API is the better call. Resolving.',
+    },
+    {
+      thread: 'd-client',
+      file: 'lib/api/client.ts:88',
+      round: 1,
+      call: 'pushback-rejected',
+      original: 'a 204 from the upstream returns no body.',
+      authorReply: 'The upstream never sends a 204 here.',
+      reply: 'The upstream docs list a 204 for an empty page.',
+    },
+  ];
+
+  const settled = (call: string) =>
+    call === 'fixed' || call === 'pushback-accepted';
+
+  function roundThreeGate({
+    dropAuthorReplyOn,
+  }: { dropAuthorReplyOn?: number } = {}): GateRow {
+    const threads: GateQuestion[] = EARLIER.map(
+      ({ authorReply, ...carry }, i) => ({
+        id: `thread-${i + 1}`,
+        label: carry.file,
+        multi: true,
+        context: j({
+          'gate-ctx': 'carryover@1',
+          ...carry,
+          ...(i === dropAuthorReplyOn ? {} : { authorReply }),
+        }),
+        options: [
+          { value: `post:${carry.thread}`, label: 'Post reply (recommended)' },
+          {
+            value: `resolve:${carry.thread}`,
+            label: settled(carry.call)
+              ? 'Resolve thread (recommended)'
+              : 'Resolve thread',
+          },
+        ],
+      })
+    );
+    return {
+      ...GATE,
+      gateId: 'g-round-three',
+      context: j({
+        ...REVIEW,
+        summary: 'The injection fix landed; an aborted request still retries.',
+        findings: { important: 1, minor: 1 },
+        round: 3,
+        re_review: true,
+      }),
+      questions: [
+        ...threads,
+        { ...GATE.questions[1]!, id: 'findings-1' },
+        GATE.questions[2]!,
+      ],
+    };
+  }
+
+  function submitted() {
+    const post = posts.findLast(p => p.url === '/gate/answer');
+    if (!post) throw new Error('nothing was submitted');
+    return post.body as { answers: Record<string, unknown> };
+  }
+
+  function renderSheet(gate: GateRow) {
+    React.act(() => {
+      root.render(<Host gate={gate} />);
+    });
+    return { container, submitted };
+  }
+
+  const cardFor = (scope: Element, call: string) =>
+    scope
+      .querySelector(`[data-call="${call}"]`)!
+      .closest<HTMLElement>('[data-step="carryover"]')!;
+
+  async function untick(
+    scope: Element,
+    call: string,
+    value: 'post' | 'resolve'
+  ) {
+    const box = cardFor(scope, call).querySelector<HTMLInputElement>(
+      `input[value="${value}"]`
+    )!;
+    if (!box.checked) throw new Error(`${call} ${value} is not ticked`);
+    await React.act(async () => box.click());
+  }
+
+  async function editReply(scope: Element, call: string, text: string) {
+    const card = cardFor(scope, call);
+    await React.act(async () =>
+      card
+        .querySelector<HTMLButtonElement>('button[aria-label$=": edit reply"]')!
+        .click()
+    );
+    const box = card.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label$=": reply"]'
+    )!;
+    await React.act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        'value'
+      )!.set!.call(box, text);
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
+  const submit = (scope: Element) =>
+    click(scope.querySelector('.tui-sheet-submit')!);
+
+  function earlierIndex(call: string): number {
+    const i = EARLIER.findIndex(c => c.call === call);
+    if (i < 0) throw new Error(`no earlier thread called ${call}`);
+    return i;
+  }
+
+  const threadNameFor = (call: string) => `thread-${earlierIndex(call) + 1}`;
+
+  const postValueFor = (call: string) =>
+    `post:${EARLIER[earlierIndex(call)]!.thread}`;
+
+  test('the main column opens with the round and what it holds', () => {
+    const { container } = renderSheet(roundThreeGate());
+    const heading = container.querySelector('.tui-sheet-round')!;
+    expect(heading.querySelector('.tui-sheet-round-n')!.textContent).toBe(
+      'Round 3'
+    );
+    expect(
+      heading.querySelector('.tui-sheet-round-summary')!.textContent
+    ).toMatch(/earlier threads? · \d+ new finding/);
+  });
+
+  test('each earlier thread is a card naming who acts', () => {
+    const { container } = renderSheet(roundThreeGate());
+    const cards = [...container.querySelectorAll('[data-step="carryover"]')];
+    expect(cards.length).toBeGreaterThan(0);
+    const chips = cards.map(
+      c => c.querySelector('.tui-thread-outcome')!.textContent
+    );
+    for (const chip of chips) expect(chip).not.toMatch(/open|unresolved/i);
+    expect(chips).toContain('fixed by author');
+    expect(chips).toContain('waiting on author');
+  });
+
+  test('a thread the author never answered says so', () => {
+    const { container } = renderSheet(roundThreeGate({ dropAuthorReplyOn: 0 }));
+    expect(container.querySelector('.tui-thread-nothing')!.textContent).toBe(
+      "The author hasn't replied in this thread."
+    );
+  });
+
+  test('a fixed thread starts with post and resolve ticked; a waiting one with post only', () => {
+    const { container } = renderSheet(roundThreeGate());
+    const ticks = (call: string) => {
+      const card = container
+        .querySelector(`[data-call="${call}"]`)!
+        .closest('[data-step="carryover"]')!;
+      return [
+        ...card.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+      ].map(i => [i.value, i.checked]);
+    };
+    expect(ticks('fixed')).toEqual([
+      ['post', true],
+      ['resolve', true],
+    ]);
+    expect(ticks('not-fixed')).toEqual([
+      ['post', true],
+      ['resolve', false],
+    ]);
+  });
+
+  test('submitting sends each thread its picked values, and an edited reply as text', async () => {
+    const { container, submitted } = renderSheet(roundThreeGate());
+    await untick(container, 'fixed', 'resolve');
+    await editReply(container, 'fixed', 'Looks right now.');
+    await submit(container);
+    const answer = submitted().answers;
+    const fixed = answer[threadNameFor('fixed')];
+    expect(fixed).toEqual({
+      value: [postValueFor('fixed')],
+      text: 'Looks right now.',
+    });
+    const waiting = answer[threadNameFor('not-fixed')];
+    expect(waiting).toEqual([postValueFor('not-fixed')]);
+  });
 });
