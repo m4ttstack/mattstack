@@ -1,0 +1,21 @@
+{
+  "pack": "acme",
+  "packDir": "/fixture/packs/acme",
+  "dirty": true,
+  "files": [
+    {
+      "path": "pack/skills.jsonc",
+      "status": "M"
+    }
+  ],
+  "outsideScope": [],
+  "bindings": [
+    {
+      "engineRef": "mattstack:stage-plan",
+      "slot": "domain",
+      "from": "acme:plan-policy",
+      "to": "acme:plan-policy-strict"
+    }
+  ],
+  "surface": []
+}

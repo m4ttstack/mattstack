@@ -40,7 +40,9 @@ export interface TextWait {
 export type BoardAction =
   | { kind: 'click'; layer: string; waitFor: string; until?: TextWait }
   | { kind: 'hover'; layer: string; waitFor: string; until?: TextWait }
-  | { kind: 'waitText'; layer: string; until: TextWait };
+  | { kind: 'waitText'; layer: string; until: TextWait }
+  /** Clicks each layer in order, waiting for each to be visible first. */
+  | { kind: 'clicks'; layers: string[]; waitFor: string; until?: TextWait };
 
 export interface Board<Scenario extends string = string> {
   slug: string;
@@ -61,6 +63,11 @@ export interface Board<Scenario extends string = string> {
   /** Viewport height in CSS px. The design side is `viewportWidth` wide; the app side is sized so each root matches its design width. */
   height: number;
   dynamicText: string[];
+  /**
+   * Text a `<p>` under a root shows while that root is still loading. When
+   * set, the runner waits until no root shows it before collecting.
+   */
+  settleText?: string;
   action?: BoardAction;
   /** Boards drawn as several panels compare each panel on its own route, instead of `roots`. */
   panels?: { label: string; route: string; root: string }[];

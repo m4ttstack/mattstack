@@ -1,0 +1,9 @@
+{
+  "pack": "acme",
+  "packDir": "/fixture/packs/acme",
+  "dirty": false,
+  "files": [],
+  "outsideScope": [],
+  "bindings": [],
+  "surface": []
+}

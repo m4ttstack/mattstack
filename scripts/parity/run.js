@@ -228,13 +228,11 @@ async (page, { slug, scheme, harness, designOnly = false }) => {
       });
       const action = cfg.action;
       const first = sel(cfg.appAttr, group[0][1].root);
-      await page.waitForSelector(
-        action ? sel(cfg.appAttr, action.layer) : first,
-        {
-          state: 'visible',
-          timeout: 30_000,
-        }
-      );
+      const gate = action?.kind === 'clicks' ? action.layers[0] : action?.layer;
+      await page.waitForSelector(gate ? sel(cfg.appAttr, gate) : first, {
+        state: 'visible',
+        timeout: 30_000,
+      });
       const applied = await page.evaluate(() =>
         document.documentElement.getAttribute('data-mantine-color-scheme')
       );
@@ -244,6 +242,18 @@ async (page, { slug, scheme, harness, designOnly = false }) => {
       if (action?.kind === 'click') {
         step = `app: click ${action.layer}`;
         await page.locator(sel(cfg.appAttr, action.layer)).click();
+        await page.mouse.move(0, 0);
+        await page.waitForSelector(sel(cfg.appAttr, action.waitFor), {
+          state: 'visible',
+          timeout: 30_000,
+        });
+      } else if (action?.kind === 'clicks') {
+        for (const layer of action.layers) {
+          step = `app: click ${layer}`;
+          const target = page.locator(sel(cfg.appAttr, layer)).first();
+          await target.waitFor({ state: 'visible', timeout: 30_000 });
+          await target.click();
+        }
         await page.mouse.move(0, 0);
         await page.waitForSelector(sel(cfg.appAttr, action.waitFor), {
           state: 'visible',
@@ -273,13 +283,14 @@ async (page, { slug, scheme, harness, designOnly = false }) => {
         step = `app: root ${t.root}`;
         const root = sel(cfg.appAttr, t.root);
         await page.waitForSelector(root, { state: 'visible', timeout: 30_000 });
-        step = `app: evidence panel loaded in ${t.root}`;
+        if (!cfg.settleText) continue;
+        step = `app: no "${cfg.settleText}" left in ${t.root}`;
         await page.waitForFunction(
-          s =>
+          ({ s, text }) =>
             ![...(document.querySelector(s)?.querySelectorAll('p') ?? [])].some(
-              p => p.textContent?.trim() === 'Loading…'
+              p => p.textContent?.trim() === text
             ),
-          root,
+          { s: root, text: cfg.settleText },
           { timeout: 30_000 }
         );
       }

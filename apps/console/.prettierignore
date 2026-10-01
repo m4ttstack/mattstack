@@ -23,3 +23,7 @@ design/wiring/render/**
 
 # Committed design-reference sources stay byte-identical to the published canvas
 docs/design/**
+
+# Design-fixture skill files: their line numbers and spacing are the data the
+# parity boards are compared against.
+src/server/fixtures/design/files/**

@@ -1,0 +1,844 @@
+{
+  "pack": "acme",
+  "packDir": "/fixture/packs/acme",
+  "manifestPath": "/fixture/packs/acme/pack/skills.jsonc",
+  "verbs": [
+    {
+      "name": "work",
+      "engine": "work",
+      "engineRef": "mattstack:work",
+      "plugin": "mattstack",
+      "description": "Runs a unit of work end to end, from provisioning through ship and CI.",
+      "public": true,
+      "sourcePath": "/fixture/mattstack/attachments/pipeline/work/SKILL.md",
+      "artifactPath": "/fixture/packs/acme/skills/work",
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false,
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack",
+          "fillSourcePath": "/fixture/mattstack/attachments/model-tiering/SKILL.md",
+          "fillVersion": "0.30.4",
+          "registered": false,
+          "inlined": true
+        }
+      ],
+      "includes": ["gate-protocol", "wrap-up-form"]
+    },
+    {
+      "name": "shepherdr",
+      "engine": "shepherdr",
+      "engineRef": "mattstack:shepherdr",
+      "plugin": "mattstack",
+      "description": "Fans work out across parallel agents and keeps track of them.",
+      "public": true,
+      "sourcePath": "/fixture/mattstack/skills/shepherdr/SKILL.md",
+      "artifactPath": "/fixture/packs/acme/skills/shepherdr",
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false,
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack",
+          "fillSourcePath": "/fixture/mattstack/attachments/model-tiering/SKILL.md",
+          "fillVersion": "0.30.4",
+          "registered": false,
+          "inlined": true
+        },
+        {
+          "name": "domain",
+          "contract": "plan-domain@1",
+          "required": false,
+          "boundTo": "acme:plan-policy-lite",
+          "layer": "pack",
+          "fillSourcePath": "/fixture/packs/acme/attachments/plan-policy-lite/SKILL.md",
+          "fillVersion": "0.8.14",
+          "registered": false,
+          "inlined": true
+        }
+      ],
+      "includes": []
+    },
+    {
+      "name": "review",
+      "engine": "review",
+      "engineRef": "mattstack:review",
+      "plugin": "mattstack",
+      "description": "Reviews a teammate's merge request and drafts the comments.",
+      "public": true,
+      "sourcePath": "/fixture/mattstack/skills/review/SKILL.md",
+      "artifactPath": "/fixture/packs/acme/skills/review",
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false,
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack",
+          "fillSourcePath": "/fixture/mattstack/attachments/model-tiering/SKILL.md",
+          "fillVersion": "0.30.4",
+          "registered": false,
+          "inlined": true
+        }
+      ],
+      "includes": ["gate-protocol"]
+    },
+    {
+      "name": "self-review",
+      "engine": "self-review",
+      "engineRef": "mattstack:self-review",
+      "plugin": "mattstack",
+      "description": "Reviews your own branch before it ships.",
+      "public": false,
+      "sourcePath": "/fixture/mattstack/attachments/review/self-review/SKILL.md",
+      "artifactPath": "/fixture/packs/acme/attachments/self-review",
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false,
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack",
+          "fillSourcePath": "/fixture/mattstack/attachments/model-tiering/SKILL.md",
+          "fillVersion": "0.30.4",
+          "registered": false,
+          "inlined": true
+        }
+      ],
+      "includes": ["gate-protocol"]
+    },
+    {
+      "name": "receive-review",
+      "engine": "receive-review",
+      "engineRef": "mattstack:receive-review",
+      "plugin": "mattstack",
+      "description": "Works through the review comments left on your merge request.",
+      "public": false,
+      "sourcePath": "/fixture/mattstack/attachments/review/receive-review/SKILL.md",
+      "artifactPath": "/fixture/packs/acme/attachments/receive-review",
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false,
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack",
+          "fillSourcePath": "/fixture/mattstack/attachments/model-tiering/SKILL.md",
+          "fillVersion": "0.30.4",
+          "registered": false,
+          "inlined": true
+        }
+      ],
+      "includes": ["gate-protocol"]
+    },
+    {
+      "name": "ship",
+      "engine": "ship",
+      "engineRef": "mattstack:ship",
+      "plugin": "mattstack",
+      "description": "Pushes the branch and opens the merge request.",
+      "public": true,
+      "sourcePath": "/fixture/mattstack/attachments/pipeline/ship/SKILL.md",
+      "artifactPath": "/fixture/packs/acme/skills/ship",
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false,
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack",
+          "fillSourcePath": "/fixture/mattstack/attachments/model-tiering/SKILL.md",
+          "fillVersion": "0.30.4",
+          "registered": false,
+          "inlined": true
+        }
+      ],
+      "includes": ["gate-protocol"]
+    },
+    {
+      "name": "watch-ci",
+      "engine": "watch-ci",
+      "engineRef": "mattstack:watch-ci",
+      "plugin": "mattstack",
+      "description": "Watches CI on a branch and triages what fails.",
+      "public": true,
+      "sourcePath": "/fixture/mattstack/attachments/pipeline/watch-ci/SKILL.md",
+      "artifactPath": "/fixture/packs/acme/skills/watch-ci",
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false,
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack",
+          "fillSourcePath": "/fixture/mattstack/attachments/model-tiering/SKILL.md",
+          "fillVersion": "0.30.4",
+          "registered": false,
+          "inlined": true
+        }
+      ],
+      "includes": ["gate-protocol"]
+    },
+    {
+      "name": "checkout",
+      "engine": "checkout",
+      "engineRef": "mattstack:checkout",
+      "plugin": "mattstack",
+      "description": "Checks out a merge request's branch in a worktree of its own.",
+      "public": true,
+      "sourcePath": "/fixture/mattstack/skills/checkout/SKILL.md",
+      "artifactPath": "/fixture/packs/acme/skills/checkout",
+      "slots": [],
+      "includes": ["gate-protocol"]
+    },
+    {
+      "name": "sync-open-mrs",
+      "engine": "sync-open-mrs",
+      "engineRef": "mattstack:sync-open-mrs",
+      "plugin": "mattstack",
+      "description": "Rebases every open merge request onto the latest main.",
+      "public": true,
+      "sourcePath": "/fixture/mattstack/skills/sync-open-mrs/SKILL.md",
+      "artifactPath": "/fixture/packs/acme/skills/sync-open-mrs",
+      "slots": [],
+      "includes": ["gate-protocol"]
+    },
+    {
+      "name": "rebase-worktree",
+      "engine": "rebase-worktree",
+      "engineRef": "mattstack:rebase-worktree",
+      "plugin": "mattstack",
+      "description": "Rebases one worktree's branch onto the latest main.",
+      "public": true,
+      "sourcePath": "/fixture/mattstack/skills/rebase-worktree/SKILL.md",
+      "artifactPath": "/fixture/packs/acme/skills/rebase-worktree",
+      "slots": [],
+      "includes": ["gate-protocol"]
+    },
+    {
+      "name": "release-notes",
+      "engine": "release-notes",
+      "engineRef": "mattstack:release-notes",
+      "plugin": "mattstack",
+      "description": "Drafts release notes from the work merged since the last tag.",
+      "public": true,
+      "sourcePath": "/fixture/mattstack/skills/release-notes/SKILL.md",
+      "artifactPath": "/fixture/packs/acme/skills/release-notes",
+      "slots": [
+        {
+          "name": "changelog",
+          "contract": "changelog-style@1",
+          "required": true,
+          "boundTo": null,
+          "layer": null,
+          "fillSourcePath": null,
+          "fillVersion": null,
+          "registered": null,
+          "inlined": null
+        }
+      ],
+      "includes": []
+    },
+    {
+      "name": "standup",
+      "engine": "standup",
+      "engineRef": "mattstack:standup",
+      "plugin": "mattstack",
+      "description": "Summarizes yesterday's merged work for a standup.",
+      "public": true,
+      "sourcePath": "/fixture/mattstack/skills/standup/SKILL.md",
+      "artifactPath": "/fixture/packs/acme/skills/standup",
+      "slots": [],
+      "includes": []
+    }
+  ],
+  "fills": [
+    {
+      "binding": "acme:plan-policy",
+      "provides": "plan-domain@1",
+      "sourcePath": "/fixture/packs/acme/attachments/plan-policy/SKILL.md",
+      "registered": false
+    },
+    {
+      "binding": "acme:plan-policy-lite",
+      "provides": "plan-domain@1",
+      "sourcePath": "/fixture/packs/acme/attachments/plan-policy-lite/SKILL.md",
+      "registered": false
+    },
+    {
+      "binding": "acme:plan-policy-strict",
+      "provides": "plan-domain@1",
+      "sourcePath": "/fixture/packs/acme/attachments/plan-policy-strict/SKILL.md",
+      "registered": false
+    },
+    {
+      "binding": "mattstack:model-tiering",
+      "provides": "model-tiering@1",
+      "sourcePath": "/fixture/mattstack/attachments/model-tiering/SKILL.md",
+      "registered": false
+    }
+  ],
+  "binders": [
+    {
+      "ref": "mattstack:work",
+      "verb": "work",
+      "kind": "verb",
+      "slots": [
+        {
+          "name": "tiering",
+          "boundTo": "mattstack:model-tiering"
+        }
+      ]
+    },
+    {
+      "ref": "mattstack:stage-plan",
+      "verb": null,
+      "kind": "stage",
+      "slots": [
+        {
+          "name": "domain",
+          "boundTo": "acme:plan-policy"
+        }
+      ]
+    },
+    {
+      "ref": "mattstack:shepherdr",
+      "verb": "shepherdr",
+      "kind": "verb",
+      "slots": [
+        {
+          "name": "tiering",
+          "boundTo": "mattstack:model-tiering"
+        },
+        {
+          "name": "domain",
+          "boundTo": "acme:plan-policy-lite"
+        }
+      ]
+    },
+    {
+      "ref": "mattstack:review",
+      "verb": "review",
+      "kind": "verb",
+      "slots": [
+        {
+          "name": "tiering",
+          "boundTo": "mattstack:model-tiering"
+        }
+      ]
+    },
+    {
+      "ref": "mattstack:self-review",
+      "verb": "self-review",
+      "kind": "verb",
+      "slots": [
+        {
+          "name": "tiering",
+          "boundTo": "mattstack:model-tiering"
+        }
+      ]
+    },
+    {
+      "ref": "mattstack:receive-review",
+      "verb": "receive-review",
+      "kind": "verb",
+      "slots": [
+        {
+          "name": "tiering",
+          "boundTo": "mattstack:model-tiering"
+        }
+      ]
+    },
+    {
+      "ref": "mattstack:ship",
+      "verb": "ship",
+      "kind": "verb",
+      "slots": [
+        {
+          "name": "tiering",
+          "boundTo": "mattstack:model-tiering"
+        }
+      ]
+    },
+    {
+      "ref": "mattstack:watch-ci",
+      "verb": "watch-ci",
+      "kind": "verb",
+      "slots": [
+        {
+          "name": "tiering",
+          "boundTo": "mattstack:model-tiering"
+        }
+      ]
+    },
+    {
+      "ref": "board:review",
+      "verb": null,
+      "kind": "external",
+      "slots": [
+        {
+          "name": "tiering",
+          "boundTo": "mattstack:model-tiering"
+        }
+      ]
+    },
+    {
+      "ref": "board:respond",
+      "verb": null,
+      "kind": "external",
+      "slots": [
+        {
+          "name": "tiering",
+          "boundTo": "mattstack:model-tiering"
+        }
+      ]
+    },
+    {
+      "ref": "board:doctor",
+      "verb": null,
+      "kind": "external",
+      "slots": [
+        {
+          "name": "tiering",
+          "boundTo": "mattstack:model-tiering"
+        }
+      ]
+    }
+  ],
+  "pipelines": {
+    "feature": [
+      "mattstack:stage-provision",
+      "mattstack:stage-plan",
+      "mattstack:stage-gates",
+      "mattstack:stage-evidence",
+      "mattstack:stage-implement",
+      "mattstack:stage-self-review",
+      "mattstack:stage-ship",
+      "mattstack:stage-watch-ci"
+    ]
+  },
+  "targets": [
+    {
+      "name": "work",
+      "kind": "verb",
+      "public": true,
+      "artifactPath": "/fixture/packs/acme/skills/work/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/work/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "verb.path",
+          "arg": "stage-provision",
+          "line": 29
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-plan",
+          "line": 30
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-gates",
+          "line": 31
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-evidence",
+          "line": 32
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-implement",
+          "line": 33
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-self-review",
+          "line": 34
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-ship",
+          "line": 35
+        },
+        {
+          "kind": "verb.path",
+          "arg": "stage-watch-ci",
+          "line": 36
+        },
+        {
+          "kind": "run-start.flags",
+          "arg": "work",
+          "line": 40
+        },
+        {
+          "kind": "slot",
+          "arg": "tiering",
+          "line": 242
+        },
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 246
+        },
+        {
+          "kind": "include",
+          "arg": "wrap-up-form",
+          "line": 250
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "shepherdr",
+      "kind": "verb",
+      "public": true,
+      "artifactPath": "/fixture/packs/acme/skills/shepherdr/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/shepherdr/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "slot",
+          "arg": "tiering",
+          "line": 38
+        },
+        {
+          "kind": "slot",
+          "arg": "domain",
+          "line": 52
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "review",
+      "kind": "verb",
+      "public": true,
+      "artifactPath": "/fixture/packs/acme/skills/review/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/review/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "slot",
+          "arg": "tiering",
+          "line": 44
+        },
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 786
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "self-review",
+      "kind": "verb",
+      "public": false,
+      "artifactPath": "/fixture/packs/acme/attachments/self-review/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/review/self-review/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "slot",
+          "arg": "tiering",
+          "line": 31
+        },
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 442
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "receive-review",
+      "kind": "verb",
+      "public": false,
+      "artifactPath": "/fixture/packs/acme/attachments/receive-review/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/review/receive-review/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "slot",
+          "arg": "tiering",
+          "line": 52
+        },
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 1376
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "ship",
+      "kind": "verb",
+      "public": true,
+      "artifactPath": "/fixture/packs/acme/skills/ship/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/ship/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "slot",
+          "arg": "tiering",
+          "line": 27
+        },
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 712
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "watch-ci",
+      "kind": "verb",
+      "public": true,
+      "artifactPath": "/fixture/packs/acme/skills/watch-ci/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/watch-ci/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "slot",
+          "arg": "tiering",
+          "line": 35
+        },
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 804
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "checkout",
+      "kind": "verb",
+      "public": true,
+      "artifactPath": "/fixture/packs/acme/skills/checkout/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/checkout/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 271
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "sync-open-mrs",
+      "kind": "verb",
+      "public": true,
+      "artifactPath": "/fixture/packs/acme/skills/sync-open-mrs/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/sync-open-mrs/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 416
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "rebase-worktree",
+      "kind": "verb",
+      "public": true,
+      "artifactPath": "/fixture/packs/acme/skills/rebase-worktree/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/rebase-worktree/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 451
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "release-notes",
+      "kind": "verb",
+      "public": true,
+      "artifactPath": "/fixture/packs/acme/skills/release-notes/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/release-notes/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "slot",
+          "arg": "changelog",
+          "line": 22
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "standup",
+      "kind": "verb",
+      "public": true,
+      "artifactPath": "/fixture/packs/acme/skills/standup/SKILL.md",
+      "templatePath": "/fixture/mattstack/skills/standup/SKILL.md",
+      "placeholders": [],
+      "engineError": null
+    },
+    {
+      "name": "stage-provision",
+      "kind": "stage",
+      "public": false,
+      "artifactPath": "/fixture/packs/acme/attachments/stage-provision/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-provision/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "stage.fields",
+          "arg": null,
+          "line": 14
+        },
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 154
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "stage-plan",
+      "kind": "stage",
+      "public": false,
+      "artifactPath": "/fixture/packs/acme/attachments/stage-plan/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-plan/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "stage.fields",
+          "arg": null,
+          "line": 16
+        },
+        {
+          "kind": "include",
+          "arg": "execution-strategy",
+          "line": 76
+        },
+        {
+          "kind": "slot",
+          "arg": "domain",
+          "line": 136
+        },
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 140
+        },
+        {
+          "kind": "include",
+          "arg": "wrap-up-form",
+          "line": 144
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "stage-gates",
+      "kind": "stage",
+      "public": false,
+      "artifactPath": "/fixture/packs/acme/attachments/stage-gates/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-gates/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "stage.fields",
+          "arg": null,
+          "line": 14
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "stage-evidence",
+      "kind": "stage",
+      "public": false,
+      "artifactPath": "/fixture/packs/acme/attachments/stage-evidence/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-evidence/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "stage.fields",
+          "arg": null,
+          "line": 14
+        },
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 268
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "stage-implement",
+      "kind": "stage",
+      "public": false,
+      "artifactPath": "/fixture/packs/acme/attachments/stage-implement/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-implement/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "stage.fields",
+          "arg": null,
+          "line": 14
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "stage-self-review",
+      "kind": "stage",
+      "public": false,
+      "artifactPath": "/fixture/packs/acme/attachments/stage-self-review/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-self-review/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "stage.fields",
+          "arg": null,
+          "line": 14
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "stage-ship",
+      "kind": "stage",
+      "public": false,
+      "artifactPath": "/fixture/packs/acme/attachments/stage-ship/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-ship/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "stage.fields",
+          "arg": null,
+          "line": 14
+        },
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 435
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "name": "stage-watch-ci",
+      "kind": "stage",
+      "public": false,
+      "artifactPath": "/fixture/packs/acme/attachments/stage-watch-ci/SKILL.md",
+      "templatePath": "/fixture/mattstack/attachments/pipeline/stage-watch-ci/SKILL.md",
+      "placeholders": [
+        {
+          "kind": "stage.fields",
+          "arg": null,
+          "line": 14
+        },
+        {
+          "kind": "include",
+          "arg": "gate-protocol",
+          "line": 499
+        }
+      ],
+      "engineError": null
+    }
+  ]
+}

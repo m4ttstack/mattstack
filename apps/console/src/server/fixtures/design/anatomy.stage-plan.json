@@ -1,0 +1,161 @@
+{
+  "pack": "acme",
+  "skill": "stage-plan",
+  "kind": "stage",
+  "public": false,
+  "description": "Triage the approach and commit to it visibly before any implementation.",
+  "template": {
+    "ref": "mattstack:stage-plan",
+    "path": "/fixture/mattstack/attachments/pipeline/stage-plan/SKILL.md",
+    "version": "0.30.4",
+    "builtVersion": "0.28.10",
+    "lines": 144
+  },
+  "rendered": {
+    "path": "/fixture/packs/acme/attachments/stage-plan/SKILL.md",
+    "exists": true,
+    "lines": 780
+  },
+  "status": "in-sync",
+  "staleBecause": [],
+  "parts": [
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [1, 15],
+      "renderedLines": [1, 15],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "variable",
+      "name": "stage.fields",
+      "templateLines": [16, 16],
+      "renderedLines": [16, 24],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [17, 75],
+      "renderedLines": [25, 48],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "include",
+      "name": "execution-strategy",
+      "templateLines": [76, 76],
+      "renderedLines": [49, 197],
+      "mode": null,
+      "source": {
+        "ref": "mattstack:execution-strategy",
+        "path": "/fixture/mattstack/attachments/execution-strategy/SKILL.md",
+        "version": "0.30.4",
+        "builtVersion": "0.28.10",
+        "lines": 149
+      },
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [77, 135],
+      "renderedLines": [198, 222],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "slot",
+      "name": "domain",
+      "templateLines": [136, 136],
+      "renderedLines": [223, 302],
+      "mode": "inline",
+      "source": {
+        "ref": "acme:plan-policy",
+        "path": "/fixture/packs/acme/attachments/plan-policy/SKILL.md",
+        "version": "0.8.14",
+        "builtVersion": "0.8.14",
+        "lines": 80
+      },
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [137, 139],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "include",
+      "name": "gate-protocol",
+      "templateLines": [140, 140],
+      "renderedLines": [303, 752],
+      "mode": null,
+      "source": {
+        "ref": "mattstack:gate-protocol",
+        "path": "/fixture/mattstack/attachments/gate-protocol/SKILL.md",
+        "version": "0.30.4",
+        "builtVersion": "0.28.10",
+        "lines": 450
+      },
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [141, 143],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "include",
+      "name": "wrap-up-form",
+      "templateLines": [144, 144],
+      "renderedLines": [753, 780],
+      "mode": null,
+      "source": {
+        "ref": "mattstack:wrap-up-form",
+        "path": "/fixture/mattstack/attachments/wrap-up-form/SKILL.md",
+        "version": "0.30.4",
+        "builtVersion": "0.28.10",
+        "lines": 28
+      },
+      "target": null,
+      "changed": false
+    }
+  ],
+  "links": [
+    {
+      "path": "../../attachments/gates/SKILL.md",
+      "line": 32
+    },
+    {
+      "path": "../../attachments/evidence/SKILL.md",
+      "line": 41
+    },
+    {
+      "path": "../../attachments/dev-servers/SKILL.md",
+      "line": 205
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import type { Board } from '../../../../scripts/parity/config';
 export type Scenario = 'warm' | 'refreshing' | 'cold-stalled';
 
 const DYNAMIC_TEXT = ['Fresh Label', 'RS Sub'];
+const SETTLE_TEXT = 'Loading…';
 
 const PANEL_STATS: [label: string, stat: string][] = [
   ['Wait for review', 'reviewLatencyHours'],
@@ -39,6 +40,7 @@ export const BOARDS: Board<Scenario>[] = [
     ],
     height: 1000,
     dynamicText: DYNAMIC_TEXT,
+    settleText: SETTLE_TEXT,
   },
   {
     slug: '02-leaderboard-cards',
@@ -50,6 +52,7 @@ export const BOARDS: Board<Scenario>[] = [
     roots: ['Crumbs', 'Top Right', 'Page Header', 'Metric Grid'],
     height: 1400,
     dynamicText: DYNAMIC_TEXT,
+    settleText: SETTLE_TEXT,
   },
   {
     slug: '03-person-stat-detail',
@@ -68,6 +71,7 @@ export const BOARDS: Board<Scenario>[] = [
     ],
     height: 1300,
     dynamicText: DYNAMIC_TEXT,
+    settleText: SETTLE_TEXT,
   },
   {
     slug: '04-stat-evidence-variants',
@@ -79,6 +83,7 @@ export const BOARDS: Board<Scenario>[] = [
     roots: [],
     height: 1300,
     dynamicText: DYNAMIC_TEXT,
+    settleText: SETTLE_TEXT,
     panels: PANEL_STATS.map(([label, stat]) => ({
       label,
       route: `/user/srivera/${stat}`,
@@ -103,6 +108,7 @@ export const BOARDS: Board<Scenario>[] = [
     ],
     height: 1100,
     dynamicText: DYNAMIC_TEXT,
+    settleText: SETTLE_TEXT,
     action: {
       kind: 'click',
       layer: 'Refresh Button',
@@ -120,6 +126,7 @@ export const BOARDS: Board<Scenario>[] = [
     roots: ['Crumbs', 'Top Right', 'Page Header', 'Refresh Status', 'Skeleton'],
     height: 1000,
     dynamicText: DYNAMIC_TEXT,
+    settleText: SETTLE_TEXT,
     action: {
       kind: 'waitText',
       layer: 'RS Sub',
@@ -147,5 +154,6 @@ export const BOARDS: Board<Scenario>[] = [
     ],
     height: 1000,
     dynamicText: DYNAMIC_TEXT,
+    settleText: SETTLE_TEXT,
   },
 ];
