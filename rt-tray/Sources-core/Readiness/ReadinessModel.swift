@@ -27,6 +27,7 @@ public final class ReadinessModel: ObservableObject {
     @Published public private(set) var finishBlockedBy: [String] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var lastError: String?
+    @Published public private(set) var hasLoadedPlan = false
     @Published public private(set) var checkingRowIds: Set<String> = []
     @Published public private(set) var fdaNeedsRelaunch = false
     /// The last local probe — Settings > Permissions reads this instead of
@@ -77,6 +78,10 @@ public final class ReadinessModel: ObservableObject {
     /// UI on freshness must not treat a failed refresh as though it replaced
     /// stale `groups` with confirmed data.
     public var lastRefreshFailed: Bool { lastError != nil }
+
+    public var loadState: ChecklistLoadState {
+        .resolve(hasLoadedPlan: hasLoadedPlan, isLoading: isLoading, lastError: lastError)
+    }
 
     /// Every required row ready, at least one optional row (permission or
     /// otherwise) not ready — a denied optional permission counts.
@@ -183,6 +188,7 @@ public final class ReadinessModel: ObservableObject {
             finishBlockedBy = plan.finishBlockedBy
             planCanInstall = plan.canInstall
             lastError = nil
+            hasLoadedPlan = true
             // Only re-overlay once a local probe has actually run; before
             // that, rt's own permission status in the plan is the freshest
             // thing we have, and .unknown must not clobber it.
@@ -190,7 +196,7 @@ public final class ReadinessModel: ObservableObject {
             recomputeEnablement()
         } catch {
             guard generation == fetchGeneration else { return }
-            lastError = String(describing: error)
+            lastError = (error as? RtJSONFailure)?.copy ?? String(describing: error)
         }
         isLoading = false
     }

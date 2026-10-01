@@ -15,42 +15,48 @@ struct ChecklistScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.lastError != nil {
-                // A failed refresh keeps the last loaded plan on screen, and Install may still be enabled under it.
-                Label(model.groups.isEmpty ? (scope == .all ? "Couldn't load the checklist, so Install can't start yet. Re-check to try again."
-                                                            : "Couldn't load your accounts. Re-check to try again.")
-                                           : (scope == .all ? "Couldn't refresh the checklist. Re-check to try again."
-                                                            : "Couldn't refresh your accounts. Re-check to try again."),
-                      systemImage: "exclamationmark.triangle")
-                    .font(.callout).foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20).padding(.top, 12)
-            }
-            Form {
-                ForEach(model.groups(for: scope)) { group in
-                    Section(group.title) {
-                        ForEach(group.rows) { row in
-                            RowView(row: row, isChecking: model.checkingRowIds.contains(row.id), waiting: waitingOnYou[row.id]) { perform(row) }
-                            if let actionError, actionError.rowId == row.id {
-                                Text(actionError.message).font(.caption).foregroundStyle(.red)
-                                    .accessibilityIdentifier(AXID.checklistRowError(row.id))
+            switch model.loadState {
+            case .loading:
+                ChecklistLoadingView(title: scope == .all ? "Checking your setup…" : "Checking your accounts…")
+            case .failed(let message):
+                ChecklistLoadFailedView(title: scope == .all ? "Couldn't check your setup" : "Couldn't load your accounts",
+                                        message: message) { recheck() }
+            case .loaded:
+                if model.lastRefreshFailed {
+                    // A failed refresh keeps the last loaded plan on screen, and Install may still be enabled under it.
+                    Label(scope == .all ? "Couldn't refresh the checklist. Re-check to try again."
+                                        : "Couldn't refresh your accounts. Re-check to try again.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.callout).foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20).padding(.top, 12)
+                }
+                Form {
+                    ForEach(model.groups(for: scope)) { group in
+                        Section(group.title) {
+                            ForEach(group.rows) { row in
+                                RowView(row: row, isChecking: model.checkingRowIds.contains(row.id), waiting: waitingOnYou[row.id]) { perform(row) }
+                                if let actionError, actionError.rowId == row.id {
+                                    Text(actionError.message).font(.caption).foregroundStyle(.red)
+                                        .accessibilityIdentifier(AXID.checklistRowError(row.id))
+                                }
                             }
-                        }
-                        if group.id == "mac", model.fdaNeedsRelaunch {
-                            HStack {
-                                Text("Full Disk Access was granted. Relaunch mattstack to apply it.").font(.caption)
-                                Spacer()
-                                Button("Relaunch mattstack") { AppRelaunch.relaunchInPlace(resumeAt: .checklist) }.accessibilityIdentifier(AXID.checklistRelaunch)
+                            if group.id == "mac", model.fdaNeedsRelaunch {
+                                HStack {
+                                    Text("Full Disk Access was granted. Relaunch mattstack to apply it.").font(.caption)
+                                    Spacer()
+                                    Button("Relaunch mattstack") { AppRelaunch.relaunchInPlace(resumeAt: .checklist) }.accessibilityIdentifier(AXID.checklistRelaunch)
+                                }
                             }
                         }
                     }
                 }
+                .formStyle(.grouped)
             }
-            .formStyle(.grouped)
             HStack {
                 Text(footerText).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Re-check") { actionError = nil; Task { await model.recheckAll() } }.controlSize(.small).accessibilityIdentifier(scope == .all ? AXID.checklistRecheck : AXID.settingsAccountsRecheck)
+                Button("Re-check") { recheck() }.controlSize(.small).disabled(model.loadState == .loading).accessibilityIdentifier(scope == .all ? AXID.checklistRecheck : AXID.settingsAccountsRecheck)
             }
             .padding(.horizontal, 20).padding(.vertical, 6)
         }
@@ -81,10 +87,15 @@ struct ChecklistScreen: View {
     }
 
     private var footerText: String {
-        if model.groups(for: scope).isEmpty { return model.lastError == nil ? "Checking…" : "" }
+        guard model.loadState == .loaded else { return "" }
         guard scope == .all else { return "" }
         return ChecklistFooter.text(canInstall: model.canInstall, requiredMissingCount: model.requiredMissing.count,
                                     owedBeforeFinish: ChecklistFooter.owedBeforeFinish(model.allRows))
+    }
+
+    private func recheck() {
+        actionError = nil
+        Task { await model.recheckAll() }
     }
 
     private func perform(_ row: PlanRow) {
@@ -164,6 +175,47 @@ struct ChecklistScreen: View {
         }
     }
 
+}
+
+/// Fills the rows' area until the first plan arrives, so the window never opens blank.
+struct ChecklistLoadingView: View {
+    let title: String
+    var body: some View {
+        VStack(spacing: 12) {
+            ProgressView().controlSize(.large)
+            Text(title).font(.title3.weight(.semibold))
+            Text("This can take a few seconds.").font(.callout).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(AXID.checklistLoading)
+    }
+}
+
+/// Shown in place of the rows when no plan has loaded yet and the last fetch failed.
+struct ChecklistLoadFailedView: View {
+    let title: String
+    let message: String
+    let onRetry: () -> Void
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .symbolRenderingMode(.multicolor)
+                .font(.system(size: 36))
+            Text(title).font(.title3.weight(.semibold))
+            Text(message)
+                .font(.callout).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(6)
+                .textSelection(.enabled)
+                .accessibilityIdentifier(AXID.checklistLoadFailed)
+            Button("Try again", action: onRetry)
+                .accessibilityIdentifier(AXID.checklistLoadRetry)
+                .padding(.top, 4)
+        }
+        .padding(.horizontal, 40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 }
 
 struct RowWaitingCaption: View {
