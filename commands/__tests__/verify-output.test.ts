@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterEach, beforeEach } from "bun:test";
 import { runVerify, rowsToChecks, verifyBlocks, verifyPayload, type VerifyDeps } from "../verify.ts";
 import { composePlan } from "../../lib/setup/plan.ts";
 import type { Plan, Row } from "../../lib/setup/contract.ts";
@@ -32,9 +32,16 @@ async function run(d: VerifyDeps, args: string[]): Promise<void> {
 }
 
 let cap: ReturnType<typeof capturePlain> | null = null;
+let ambientCi: string | undefined;
+beforeEach(() => {
+  ambientCi = process.env.CI;
+  delete process.env.CI;
+});
 afterEach(() => {
   cap?.restore();
   cap = null;
+  if (ambientCi === undefined) delete process.env.CI;
+  else process.env.CI = ambientCi;
 });
 
 describe("rt verify --json", () => {
