@@ -1,4 +1,4 @@
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 import { discoverTeams } from "../setup/team-settings.ts";
 

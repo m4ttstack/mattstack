@@ -30,7 +30,7 @@ import type { SecretsSeams } from "../secrets/store.ts";
 import { addTeamRecipient, readTeamRecipients, removeTeamRecipient } from "../secrets/team-store.ts";
 import { readStore } from "../settings/stores.ts";
 import { setSetting } from "../settings/write.ts";
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
 import { revokeRead, type RevokeAccess } from "./forge.ts";

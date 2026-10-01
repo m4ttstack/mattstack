@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { UserActionableError } from "../../setup/errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import type { Probes } from "../../setup/probes.ts";
 import type { SettingsReader } from "../../setup/team-settings.ts";
 import { decodeCode, open } from "../invite-crypto.ts";

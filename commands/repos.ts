@@ -21,7 +21,7 @@ import { getKnownRepos, pruneRepoIndex, updateRepoIndexAsync, type PrunedEntry }
 import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.ts";
 import { CACHE_KINDS, loadMachineRepoTrackingRaw, parseCachesArg, saveRepoTrackingRaw, type CacheKind, type TrackingMode } from "../lib/repo-tracking.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
+import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { findLocateCandidates } from "../lib/repo-locate.ts";
 import { locateMovedRepo } from "../lib/repo-locate-dispatch.ts";
 import { resolveRepoArg } from "../lib/repo-arg.ts";

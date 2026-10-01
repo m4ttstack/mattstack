@@ -1,4 +1,4 @@
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 
 const MAX_LENGTH = 40;
 

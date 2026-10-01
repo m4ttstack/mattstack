@@ -29,6 +29,8 @@ export interface StartInteractiveOpts {
   rows?: number;
   cwd?: string;
   timeoutMs?: number;
+  /** Keep the pty open after rt exits so a short-lived command's final screen can still be read. */
+  holdOpen?: boolean;
 }
 
 export interface TermwrightSession {
@@ -188,13 +190,15 @@ export async function startInteractive(
     ...opts.env,
   };
 
-  // Termwright doesn't propagate cwd to the child process. Wrap the
-  // command in `bash -c 'cd <cwd> && exec <binary> ...'` so the child
-  // starts in the right directory.
+  // Termwright doesn't propagate cwd to the child process, so the command
+  // runs under `bash -c 'cd <cwd> && ...'`. The held form prints rt's exit
+  // status as `__rt_exit=<code>` once rt has finished drawing.
   const rtCmd = [RT_BINARY, ...opts.args]
     .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
     .join(" ");
-  const wrappedCmd = `cd '${cwd}' && exec ${rtCmd}`;
+  const wrappedCmd = opts.holdOpen
+    ? `cd '${cwd}' && ${rtCmd}; printf '\\n__rt_exit=%s\\n' "$?"; sleep 60`
+    : `cd '${cwd}' && exec ${rtCmd}`;
 
   const proc = Bun.spawn(
     [

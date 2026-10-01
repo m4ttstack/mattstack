@@ -34,6 +34,7 @@
  */
 
 import { join } from "path";
+import { UserActionableError } from "../errors.ts";
 import { createRealAgeKeySeam, renderSopsYamlFor } from "../home/age-key.ts";
 import { teamsDir } from "../rt-paths.ts";
 import { createRealProbes, type Probes } from "../setup/probes.ts";
@@ -41,7 +42,9 @@ import { assertNotJoined } from "../team/team-local.ts";
 import {
   createRealSecretsExecSeam,
   decryptAtLocation,
+  SopsDecryptError,
   sopsAgeKeyEnv,
+  sopsKeyMismatch,
   validateDomain,
   validateKey,
   validateSlug,
@@ -198,15 +201,35 @@ export function writeTeamRecipients(slug: string, recipients: string[], seams: S
   seams.execSeam.writeFile(path, renderSopsYamlFor(TEAM_PATH_REGEX, unique));
 }
 
+/** The failure a person hits on a Mac whose age key is not yet one of the team's recipients. The sops output goes to the log through `log`. */
+export function teamSecretsUnreadable(slug: string, cause: SopsDecryptError): UserActionableError {
+  return new UserActionableError("team-secrets-unreadable", `This Mac cannot read the ${slug} team's secrets yet`, { team: slug }, {
+    why: sopsKeyMismatch(cause.stderr)
+      ? "No age key on this Mac matches the team's recipients. The team owner adds your key, then you pull the team again."
+      : "The team's secrets file could not be decrypted on this Mac.",
+    next: "rt team pull",
+    log: cause.message,
+  });
+}
+
+async function readableBy<T>(slug: string, read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (err) {
+    if (err instanceof SopsDecryptError) throw teamSecretsUnreadable(slug, err);
+    throw err;
+  }
+}
+
 export async function readTeamSecret(slug: string, domain: string, key: string, seams: SecretsSeams): Promise<string | null> {
   validateKey(key);
-  const payload = await decryptAtLocation(teamLocation(slug, domain), seams);
+  const payload = await readableBy(slug, () => decryptAtLocation(teamLocation(slug, domain), seams));
   return payload === null ? null : payload[key] ?? null;
 }
 
 /** Names only for one team domain — mirrors `store.ts`'s `listSecretNames`, never call this to expose values. */
 export async function listTeamSecretNames(slug: string, domain: string, seams: SecretsSeams): Promise<string[]> {
-  const payload = await decryptAtLocation(teamLocation(slug, domain), seams);
+  const payload = await readableBy(slug, () => decryptAtLocation(teamLocation(slug, domain), seams));
   return payload === null ? [] : Object.keys(payload);
 }
 
@@ -227,7 +250,7 @@ export async function writeTeamSecret(
   if (recipients.length === 0) throw new NoTeamRecipientsError(slug);
 
   const location = teamLocation(slug, domain); // also validates domain
-  await writeAtLocation(location, `team-${slug}-${domain}`, key, value, seams);
+  await readableBy(slug, () => writeAtLocation(location, `team-${slug}-${domain}`, key, value, seams));
 }
 
 function listTeamDomainFiles(slug: string, seams: SecretsSeams): string[] {

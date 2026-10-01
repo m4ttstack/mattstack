@@ -10,6 +10,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { REPO_INDEX_NS } from "../../lib/repo-index.ts";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { reposReidentify } from "../repos-reidentify.ts";
 
 async function runExpectingProcessExit(fn: () => Promise<void>): Promise<number | undefined> {
@@ -61,13 +63,19 @@ describe("rt repos reidentify", () => {
   test("a refused store prints the whole table, then exits non-zero", async () => {
     setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fold", "/x");
     setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fnew", "/y");
-    const code = await runExpectingProcessExit(() =>
-      reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) }),
-    );
-    expect(code).toBe(2);
-    expect(out.some((l) => /kv:repo-index\s+refused/.test(l))).toBe(true);
-    expect(out.some((l) => /run_history\.repo\s+none/.test(l))).toBe(true);
-    expect(out.at(-1)).toContain("refused: kv:repo-index");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() =>
+        reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) }),
+      );
+      expect(code).toBe(2);
+      expect(out.some((l) => /kv:repo-index\s+refused/.test(l))).toBe(true);
+      expect(out.some((l) => /run_history\.repo\s+none/.test(l))).toBe(true);
+      expect(io.stderr()).toContain("refused: kv:repo-index");
+    } finally {
+      io.restore();
+    }
   });
 
   test("nothing under the old identity says so instead of claiming a move", async () => {
@@ -96,20 +104,41 @@ describe("rt repos reidentify", () => {
   test("a refused plain run does not claim it moved", async () => {
     setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fold", "/x");
     setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fnew", "/y");
-    await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) }));
-    expect(out[0]).toStartWith("refused, partly moved ");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) }));
+      expect(out[0]).toStartWith("refused, partly moved ");
+      expect(io.stderr()).toContain("[failed] refused");
+    } finally {
+      io.restore();
+    }
   });
 
   test("usage error on a missing positional", async () => {
-    const code = await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old"], {}, { print: (s) => out.push(s) }));
-    expect(code).toBe(2);
-    expect(out.join("\n")).toContain("usage: rt repos reidentify");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old"], {}, { print: (s) => out.push(s) }));
+      expect(code).toBe(2);
+      expect(out).toEqual([]);
+      expect(io.stderr()).toContain("[failed] reidentify takes two identities, got 1; usage: rt repos reidentify");
+      expect(io.stderr()).not.toContain("rt repos reidentify:");
+    } finally {
+      io.restore();
+    }
   });
 
   test("an identity that is not a remote is a refusal with no table", async () => {
-    const code = await runExpectingProcessExit(() => reposReidentify(["/tmp/x", "github.com/acme/new"], {}, { print: (s) => out.push(s) }));
-    expect(code).toBe(2);
-    expect(out).toHaveLength(1);
-    expect(out[0]).toContain("remote-kind");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => reposReidentify(["/tmp/x", "github.com/acme/new"], {}, { print: (s) => out.push(s) }));
+      expect(code).toBe(2);
+      expect(out).toEqual([]);
+      expect(io.stderr()).toContain("remote-kind");
+    } finally {
+      io.restore();
+    }
   });
 });

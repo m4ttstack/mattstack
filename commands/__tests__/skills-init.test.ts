@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { initMaterializeVerdict, parseInitArgs, renderInitOutcome, skillsInit } from "../skills-init.ts";
 import type { InitDeps, InitOutcome } from "../../lib/skills/init.ts";
-import { UserActionableError } from "../../lib/setup/errors.ts";
+import { UserActionableError } from "../../lib/errors.ts";
 
 describe("parseInitArgs", () => {
   test("defaults: cwd repo, no zone, human output", () => {

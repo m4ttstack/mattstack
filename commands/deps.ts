@@ -13,7 +13,7 @@
 import { join } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
+import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { DEFAULT_EXPOSED, isOurLink, link, reconcile, unlink } from "../lib/deps/links.ts";
 import { resolveTool } from "../lib/deps/resolve.ts";

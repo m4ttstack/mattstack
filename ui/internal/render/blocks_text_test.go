@@ -58,6 +58,15 @@ func TestVerbatimSplitsALineThatHoldsANewline(t *testing.T) {
 	}
 }
 
+func TestALongVerbatimLineIsCutWithTheRailOnEveryRow(t *testing.T) {
+	line := "    at run (/Users/sample/.mattstack/user/plugins/seam-fixture-with-a-long-name/boom.ts:1:41)"
+	got := ansi.Strip(render.Render([]protocol.Block{{T: "verbatim", Lines: []string{line}}}, render.Options{Width: 60}))
+	want := "    │ " + line[:54] + "\n    │ " + line[54:] + "\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
 func TestParagraphTreatsACarriageReturnAsALineBreak(t *testing.T) {
 	if got, want := plain(protocol.Block{T: "paragraph", Text: "one\r\ntwo\rthree"}), "  one\n  two\n  three\n"; got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)

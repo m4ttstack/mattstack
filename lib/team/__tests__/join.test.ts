@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, spyOn } from "bun:test";
 import { join as pathJoin } from "path";
 import { fakeProbes, type ExecScript } from "../../setup/__tests__/fakes.ts";
-import { UserActionableError } from "../../setup/errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { resetCltCacheForTests } from "../../setup/home-git.ts";
 import { intentPath, readIntent, type InvitePointer, type SetupIntent } from "../../setup/intent.ts";
 import type { Probes } from "../../setup/probes.ts";

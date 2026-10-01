@@ -4,7 +4,7 @@ import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { createTeam, scaffoldFiles } from "../create.ts";
-import { UserActionableError } from "../../setup/errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { readIntent } from "../../setup/intent.ts";
 import { resetCltCacheForTests } from "../../setup/home-git.ts";
 import { createRealProbes } from "../../setup/probes.ts";

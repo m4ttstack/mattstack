@@ -218,13 +218,28 @@ so it pastes clean, which means it must never carry untrusted multi-line
 text. Step sub-lines sit under their running step: they clear when the step
 ends with `done` and stay beneath it when it fails.
 
+Failures have one shape. A command that cannot continue throws
+`UserActionableError` (`lib/errors.ts`) with what happened in a short plain
+sentence, an optional `why`, the command to run as `next`, and any raw
+child output as `log`; the dispatch seam in `cli.ts` draws it as a `failure`
+block on stderr and exits 2, and `exitUserError` does the same for a verb
+that handles its own `--json` (the envelope stays on stdout, byte for byte).
+Anything else that reaches the seam prints one line, "rt hit an unexpected
+error", with the message as the hint and the stack in the CLI log; the stack
+also prints off a TTY or under `RT_LOG_LEVEL=debug`. Do not catch an error
+only to print it: throw the typed one, or let it reach the seam. The first
+converted failure is the team secrets file a Mac's age key cannot open
+(`teamSecretsUnreadable` in `lib/secrets/team-store.ts`); its sops output
+goes to the log, never the screen.
+
 `lib/__tests__/no-raw-output.test.ts` fails a PR that adds `console.log`,
 `console.error`, `console.warn` or `console.info`, any
 use of `process.stdout` or `process.stderr` beyond reading `isTTY`,
 `columns`, `rows` or `fd` and attaching listeners, a raw escape or a color
-import under `commands/` or `lib/`. Its allowlist
+import in `cli.ts` or under `commands/` or `lib/`. Its allowlist
 (`raw-output-allowlist.json`) names the files not yet converted and only
-shrinks: converting a file means deleting its line.
+shrinks: converting a file means deleting its line. `cli.ts` stays on it
+until its pre-dispatch notices move onto the layer.
 
 ## The TypeScript CLI is UI-free
 
