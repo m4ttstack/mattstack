@@ -13,7 +13,7 @@ digraph doctor_watch {
 
     "Trigger: the map enters Watch the pipeline" [shape=ellipse];
     "<status-bin> doctor-status <state> watching" [shape=plaintext];
-    "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, extendMinutes?, budgetMinutes?}" [shape=plaintext];
+    "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}" [shape=plaintext];
     "ci_watch state (doctor)?" [shape=diamond];
     "STOP: CI watches go through ci_watch" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "budget.spent (doctor)?" [shape=diamond];
@@ -40,8 +40,8 @@ digraph doctor_watch {
     "Watch ends the run: continue at the map's exit" [shape=doublecircle];
 
     "Trigger: the map enters Watch the pipeline" -> "<status-bin> doctor-status <state> watching";
-    "<status-bin> doctor-status <state> watching" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, extendMinutes?, budgetMinutes?}";
-    "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, extendMinutes?, budgetMinutes?}" -> "ci_watch state (doctor)?";
+    "<status-bin> doctor-status <state> watching" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}";
+    "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}" -> "ci_watch state (doctor)?";
     "ci_watch state (doctor)?" -> "Watched green: continue at the map's exit" [label="success or success_with_warnings: done"];
     "ci_watch state (doctor)?" -> "budget.spent (doctor)?" [label="running"];
     "ci_watch state (doctor)?" -> "Waiting results in a row = 2 (doctor)?" [label="waiting"];
@@ -52,26 +52,26 @@ digraph doctor_watch {
     "ci_watch state (doctor)?" -> "Fixed the ci_watch call once already?" [label="tool error"];
     "ci_watch state (doctor)?" -> "STOP: CI watches go through ci_watch" [label="tempted to poll with the GitLab CLI or a script"];
     "STOP: CI watches go through ci_watch" -> "Fixed the ci_watch call once already?";
-    "budget.spent (doctor)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, extendMinutes?, budgetMinutes?}" [label="false: call again"];
+    "budget.spent (doctor)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}" [label="false: call again"];
     "budget.spent (doctor)?" -> "doctor escalation: budget extension (watch)" [label="true"];
-    "Waiting results in a row = 2 (doctor)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, extendMinutes?, budgetMinutes?}" [label="no: call again"];
+    "Waiting results in a row = 2 (doctor)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}" [label="no: call again"];
     "Waiting results in a row = 2 (doctor)?" -> "Watch ends the run: continue at the map's exit" [label="yes: error, no pipeline ran for the sha"];
     "Fixed the ci_watch call once already?" -> "Fix what the ci_watch error names" [label="no"];
     "Fixed the ci_watch call once already?" -> "doctor off-script escalation: ci_watch refused" [label="yes"];
-    "Fix what the ci_watch error names" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, extendMinutes?, budgetMinutes?}";
+    "Fix what the ci_watch error names" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}";
     "Re-claims after a lost lease = 2 (doctor)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?} (after a lost lease)" [label="no: claim again"];
     "Re-claims after a lost lease = 2 (doctor)?" -> "doctor off-script escalation: the lease keeps vanishing" [label="yes"];
     "ci_lease_claim {mrUrl, holder: doctor, branch?} (after a lost lease)" -> "Re-claim result (after a lost lease)?";
-    "Re-claim result (after a lost lease)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, extendMinutes?, budgetMinutes?}" [label="claimed: true"];
+    "Re-claim result (after a lost lease)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}" [label="claimed: true"];
     "Re-claim result (after a lost lease)?" -> "Watch ends the run: continue at the map's exit" [label="claimed: false: stand down"];
     "Re-claim result (after a lost lease)?" -> "doctor off-script escalation: re-claim refused after a lost lease" [label="tool error"];
     "doctor escalation: budget extension (watch)" -> "Escalation outcome (watch budget)?";
-    "Escalation outcome (watch budget)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, extendMinutes?, budgetMinutes?}" [label="extend the watch by <n> minutes"];
+    "Escalation outcome (watch budget)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}" [label="extend the watch by <n> minutes"];
     "Escalation outcome (watch budget)?" -> "Watch ends the run: continue at the map's exit" [label="leave it to me in the pane: error"];
     "Escalation outcome (watch budget)?" -> "Watch ends the run: continue at the map's exit" [label="gate gone"];
     "Escalation outcome (watch budget)?" -> "Watch ends the run: continue at the map's exit" [label="degraded: error"];
     "doctor off-script escalation: re-claim refused after a lost lease" -> "Off-script outcome (re-claim after a lost lease)?";
-    "Off-script outcome (re-claim after a lost lease)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, extendMinutes?, budgetMinutes?}" [label="take: the human set the lease for this pane"];
+    "Off-script outcome (re-claim after a lost lease)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}" [label="take: the human set the lease for this pane"];
     "Off-script outcome (re-claim after a lost lease)?" -> "Off-script rounds = 2 (re-claim after a lost lease)?" [label="iterate: the cause is fixed"];
     "Off-script outcome (re-claim after a lost lease)?" -> "Watch ends the run: continue at the map's exit" [label="hold"];
     "Off-script outcome (re-claim after a lost lease)?" -> "Watch ends the run: continue at the map's exit" [label="leave it to me in the pane: error"];
@@ -80,7 +80,7 @@ digraph doctor_watch {
     "Off-script rounds = 2 (re-claim after a lost lease)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?} (after a lost lease)" [label="no: claim again"];
     "Off-script rounds = 2 (re-claim after a lost lease)?" -> "Watch ends the run: continue at the map's exit" [label="yes: error, the refusals are the reason"];
     "doctor off-script escalation: the lease keeps vanishing" -> "Off-script outcome (lease keeps vanishing)?";
-    "Off-script outcome (lease keeps vanishing)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, extendMinutes?, budgetMinutes?}" [label="take: the human set the lease for this pane"];
+    "Off-script outcome (lease keeps vanishing)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}" [label="take: the human set the lease for this pane"];
     "Off-script outcome (lease keeps vanishing)?" -> "Off-script rounds = 2 (lease keeps vanishing)?" [label="iterate: the cause is fixed"];
     "Off-script outcome (lease keeps vanishing)?" -> "Watch ends the run: continue at the map's exit" [label="hold"];
     "Off-script outcome (lease keeps vanishing)?" -> "Watch ends the run: continue at the map's exit" [label="leave it to me in the pane: error"];
@@ -95,7 +95,7 @@ digraph doctor_watch {
     "Off-script outcome (ci_watch)?" -> "Watch ends the run: continue at the map's exit" [label="leave it to me in the pane: error"];
     "Off-script outcome (ci_watch)?" -> "Watch ends the run: continue at the map's exit" [label="gate gone"];
     "Off-script outcome (ci_watch)?" -> "Watch ends the run: continue at the map's exit" [label="degraded: error"];
-    "Off-script rounds = 2 (ci_watch)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, extendMinutes?, budgetMinutes?}" [label="no: watch again"];
+    "Off-script rounds = 2 (ci_watch)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}" [label="no: watch again"];
     "Off-script rounds = 2 (ci_watch)?" -> "Watch ends the run: continue at the map's exit" [label="yes: error, the refusals are the reason"];
     "Watch verdict the human reported (doctor)?" -> "Watched green: continue at the map's exit" [label="green for the watched sha: done"];
     "Watch verdict the human reported (doctor)?" -> "Red again: continue at Classify and retry" [label="red: the failed jobs they named"];
@@ -116,10 +116,10 @@ HEAD` in the domain skill's worktree root.
   start against the `ci.watch.budgetMinutes` setting, so there are no
   calls to count. A job retry keeps the pipeline's start and a granted
   extension can be answered late, so each opens a fresh window: pass
-  `extendMinutes` (after a retry, the last result's `budget.minutes`;
-  after a granted extension, the `<n>` from the answered value) until a
-  result carries a non-null `budget`, then that result's `budget.minutes`
-  as `budgetMinutes` on every later call for the sha. `Waiting results in a row = 2 (doctor)?` counts consecutive `waiting`
+  `freshWindow: true` alone after a retry, or `extendMinutes: <n>` (the `<n>`
+  from the answered value) after a granted extension, until a result
+  carries a non-null `budget`, then that result's `budget.minutes` as
+  `budgetMinutes` on every later call for the sha. `Waiting results in a row = 2 (doctor)?` counts consecutive `waiting`
   results (their `budget` is null); any other state resets it, and so does
   a new watched sha or a job retry.
 

@@ -2282,7 +2282,11 @@ GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles 
     },
     "extendMinutes": {
       "type": "number",
-      "description": "1 to 1440: opens a fresh window this many minutes past the pipeline's current age (never shorter than the budget), fixed at the call's first match. Pass it on the first call after a job retry or a granted extension, until a result carries a non-null budget; later calls pass that budget.minutes as budgetMinutes."
+      "description": "1 to 1440: opens a fresh window this many minutes past the pipeline's current age (never shorter than the budget), fixed at the call's first match. Pass it after a granted extension until a result carries a non-null budget; later calls pass that budget.minutes as budgetMinutes."
+    },
+    "freshWindow": {
+      "type": "boolean",
+      "description": "true opens a fresh window of the ci.watch.budgetMinutes setting past the pipeline's current age, as extendMinutes does; pass it after a job retry (budgetMinutes is ignored), never with extendMinutes."
     },
     "priorPipelineId": {
       "type": "number",

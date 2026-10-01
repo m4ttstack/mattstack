@@ -247,6 +247,16 @@ describe("ci_watch", () => {
       expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA, extendMinutes: v }, A)).ok).toBe(false);
     }
   });
+  test("freshWindow opens a window of the configured budget past the pipeline's age, whatever budgetMinutes says", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    const old = { id: "gitlab:pipeline:10", status: "running", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: new Date(-200 * 60_000).toISOString(), jobs: [] };
+    const r = await watchTool({ budgetMinutes: () => 60 }, old).handler({ repoName: "remote:x", iid: 42, sha: SHA, freshWindow: true, maxWaitSeconds: 0 }, A);
+    expect(r).toMatchObject({ ok: true, body: { budget: { minutes: 260, elapsedMinutes: 200, spent: false } } });
+  });
+  test("freshWindow and extendMinutes together are refused", async () => {
+    const r = await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, freshWindow: true, extendMinutes: 5 }, A);
+    expect(r.ok).toBe(false);
+  });
   test("extendMinutes opens a fresh window past the pipeline's age", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
     const old = { id: "gitlab:pipeline:10", status: "running", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: new Date(-200 * 60_000).toISOString(), jobs: [] };

@@ -56,7 +56,7 @@ digraph watch_ci {
     "Which forge watches?" [shape=diamond];
     "Gate clarify: which forge?" [shape=box];
 
-    "ci_watch {repoName, iid, sha, priorPipelineId?, extendMinutes?, budgetMinutes?}" [shape=plaintext];
+    "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [shape=plaintext];
     "ci_watch state?" [shape=diamond];
     "STOP: GitLab CI watches go through ci_watch, reads and retries through mr_job_trace and mr_retry, never the GitLab CLI" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "budget.spent?" [shape=diamond];
@@ -143,12 +143,12 @@ digraph watch_ci {
     "Fix what the claim error names (stage)" -> "ci_lease_claim {mrUrl: <mr>, branch}";
     "STOP: while another attendant holds the lease, every commit, push and retry is theirs (stage)" -> "Stand down: report it and stop (stage)";
     "git rev-parse HEAD (the pushed sha)" -> "Which forge watches?";
-    "Which forge watches?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, extendMinutes?, budgetMinutes?}" [label="GitLab"];
+    "Which forge watches?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="GitLab"];
     "Which forge watches?" -> "gh pr checks <mr> (stage poll)" [label="GitHub"];
     "Which forge watches?" -> "Gate clarify: which forge?" [label="anything else"];
     "Gate clarify: which forge?" -> "Which forge watches?" [label="answered: the named forge"];
 
-    "ci_watch {repoName, iid, sha, priorPipelineId?, extendMinutes?, budgetMinutes?}" -> "ci_watch state?";
+    "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" -> "ci_watch state?";
     "ci_watch state?" -> "budget.spent?" [label="running"];
     "ci_watch state?" -> "Waiting results in a row = 2?" [label="waiting"];
     "ci_watch state?" -> "Forge host (stage draft check)?" [label="success or success_with_warnings"];
@@ -160,15 +160,15 @@ digraph watch_ci {
     "Re-claims after a lost lease = 2?" -> "Gate ci (table below)" [label="yes: the lease keeps vanishing"];
     "ci_watch state?" -> "Fixed the ci_watch call once already?" [label="tool error"];
     "ci_watch state?" -> "STOP: GitLab CI watches go through ci_watch, reads and retries through mr_job_trace and mr_retry, never the GitLab CLI" [label="tempted to watch with a script or the GitLab CLI"];
-    "STOP: GitLab CI watches go through ci_watch, reads and retries through mr_job_trace and mr_retry, never the GitLab CLI" -> "ci_watch {repoName, iid, sha, priorPipelineId?, extendMinutes?, budgetMinutes?}";
-    "budget.spent?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, extendMinutes?, budgetMinutes?}" [label="false: call again"];
+    "STOP: GitLab CI watches go through ci_watch, reads and retries through mr_job_trace and mr_retry, never the GitLab CLI" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}";
+    "budget.spent?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="false: call again"];
     "budget.spent?" -> "Gate ci (table below)" [label="true: timeout"];
-    "Waiting results in a row = 2?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, extendMinutes?, budgetMinutes?}" [label="no: call again"];
+    "Waiting results in a row = 2?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="no: call again"];
     "Waiting results in a row = 2?" -> "Verify the branch was pushed (stage)" [label="yes: no pipeline for the sha"];
     "Verify the branch was pushed (stage)" -> "Gate ci (table below)";
     "Fixed the ci_watch call once already?" -> "Fix what the ci_watch error names (stage)" [label="no"];
     "Fixed the ci_watch call once already?" -> "Off-script gate: ci_watch refused (gate-protocol, scope off-script:watch-ci:<n>)" [label="yes"];
-    "Fix what the ci_watch error names (stage)" -> "ci_watch {repoName, iid, sha, priorPipelineId?, extendMinutes?, budgetMinutes?}";
+    "Fix what the ci_watch error names (stage)" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}";
     "Off-script gate: ci_watch refused (gate-protocol, scope off-script:watch-ci:<n>)" -> "off-script answer (ci_watch)?";
     "off-script answer (ci_watch)?" -> "Verdict the human reported?" [label="take: the human read the pipeline"];
     "off-script answer (ci_watch)?" -> "Off-script rounds = 2 (ci_watch, stage)?" [label="iterate: the human fixed it"];
@@ -176,7 +176,7 @@ digraph watch_ci {
     "off-script answer (ci_watch)?" -> "Was a lease claimed?" [label="hand back: a failure, the refusal is the reason"];
     "Verdict the human reported?" -> "Forge host (stage draft check)?" [label="green for the pushed sha"];
     "Verdict the human reported?" -> "Gate ci (table below)" [label="red, or not for the pushed sha"];
-    "Off-script rounds = 2 (ci_watch, stage)?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, extendMinutes?, budgetMinutes?}" [label="no: watch again"];
+    "Off-script rounds = 2 (ci_watch, stage)?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="no: watch again"];
     "Off-script rounds = 2 (ci_watch, stage)?" -> "Was a lease claimed?" [label="yes: a failure, the refusals are the reason"];
 
     "gh pr checks <mr> (stage poll)" -> "gh pr checks exit?";
@@ -398,10 +398,9 @@ else's.
 `budget.spent?` reads the `budget` field of a `running` result: `ci_watch`
 measures it from the pipeline's own start against the
 `ci.watch.budgetMinutes` setting, so there are no calls to count. A job
-retry keeps the pipeline's start, so after one pass `extendMinutes` (the
-last result's `budget.minutes`) until a result carries a non-null
-`budget`, then that result's `budget.minutes` as `budgetMinutes` on every
-later call for the sha.
+retry keeps the pipeline's start, so after one pass `freshWindow: true` alone
+until a result carries a non-null `budget`, then that result's
+`budget.minutes` as `budgetMinutes` on every later call for the sha.
 `Waiting results in a row = 2?` counts consecutive `waiting` results (their
 `budget` is null); any other state resets it, and so does a new pushed sha
 or a job retry. The stage has no prior

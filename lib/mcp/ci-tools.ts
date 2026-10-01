@@ -193,7 +193,8 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           maxWaitSeconds: { type: "number" },
           intervalSeconds: { type: "number" },
           budgetMinutes: { type: "number", description: `Overrides the ci.watch.budgetMinutes setting for this call, 1 to ${BUDGET_MAX}: pass the budget.minutes an extendMinutes call returned.` },
-          extendMinutes: { type: "number", description: `1 to ${EXTEND_MAX}: opens a fresh window this many minutes past the pipeline's current age (never shorter than the budget), fixed at the call's first match. Pass it on the first call after a job retry or a granted extension, until a result carries a non-null budget; later calls pass that budget.minutes as budgetMinutes.` },
+          extendMinutes: { type: "number", description: `1 to ${EXTEND_MAX}: opens a fresh window this many minutes past the pipeline's current age (never shorter than the budget), fixed at the call's first match. Pass it after a granted extension until a result carries a non-null budget; later calls pass that budget.minutes as budgetMinutes.` },
+          freshWindow: { type: "boolean", description: "true opens a fresh window of the ci.watch.budgetMinutes setting past the pipeline's current age, as extendMinutes does; pass it after a job retry (budgetMinutes is ignored), never with extendMinutes." },
           priorPipelineId: { type: "number", description: "The MR's head pipeline id read before the push: the numeric part of a gitlab:pipeline:N id, as mr_pipeline returns it." },
           underBoardLease: { type: "boolean" },
         },
@@ -203,7 +204,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
       shellForms: ["rt ci watch"],
       async handler(input, env, signal) {
         const bad = checkRequired(input, [{ name: "sha", type: "string" }])
-          ?? checkOptional(input, [{ name: "maxWaitSeconds", type: "number" }, { name: "intervalSeconds", type: "number" }, { name: "budgetMinutes", type: "number" }, { name: "extendMinutes", type: "number" }, { name: "priorPipelineId", type: "number" }, { name: "underBoardLease", type: "boolean" }])
+          ?? checkOptional(input, [{ name: "maxWaitSeconds", type: "number" }, { name: "intervalSeconds", type: "number" }, { name: "budgetMinutes", type: "number" }, { name: "extendMinutes", type: "number" }, { name: "freshWindow", type: "boolean" }, { name: "priorPipelineId", type: "number" }, { name: "underBoardLease", type: "boolean" }])
           ?? checkPositiveInts(input, ["priorPipelineId"]);
         if (bad) return err(bad);
         const sha = (input.sha as string).trim();
@@ -214,7 +215,11 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         if (!(Number.isInteger(interval) && interval >= INTERVAL_MIN && interval <= INTERVAL_MAX)) return err(`"intervalSeconds" must be an integer from ${INTERVAL_MIN} to ${INTERVAL_MAX}`);
         if (input.budgetMinutes !== undefined && !isMinutes(input.budgetMinutes, BUDGET_MAX)) return err(`"budgetMinutes" must be an integer from 1 to ${BUDGET_MAX}`);
         if (input.extendMinutes !== undefined && !isMinutes(input.extendMinutes, EXTEND_MAX)) return err(`"extendMinutes" must be an integer from 1 to ${EXTEND_MAX}`);
-        const budgetMinutes = (input.budgetMinutes as number | undefined) ?? w.budgetMinutes();
+        const fresh = input.freshWindow === true;
+        if (fresh && input.extendMinutes !== undefined) return err('"freshWindow" and "extendMinutes" cannot be combined');
+        const setting = w.budgetMinutes();
+        const budgetMinutes = fresh ? setting : (input.budgetMinutes as number | undefined) ?? setting;
+        const extendMinutes = fresh ? setting : (input.extendMinutes as number | undefined);
         const owner = deps.owner(env);
         if (!owner) return err(NO_SESSION);
         const target = await w.resolve(input);
@@ -267,7 +272,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         }
 
         try {
-          const r = await watchPipeline({ sha, maxWaitSeconds: maxWait, intervalSeconds: interval, budgetMinutes, ...(typeof input.extendMinutes === "number" && { extendMinutes: input.extendMinutes }), ...(typeof input.priorPipelineId === "number" && { priorPipelineId: input.priorPipelineId }), ...(signal && { signal }) }, watchDeps);
+          const r = await watchPipeline({ sha, maxWaitSeconds: maxWait, intervalSeconds: interval, budgetMinutes, ...(extendMinutes !== undefined && { extendMinutes }), ...(typeof input.priorPipelineId === "number" && { priorPipelineId: input.priorPipelineId }), ...(signal && { signal }) }, watchDeps);
           return "error" in r ? err(r.error) : ok(r);
         } catch (e) {
           return err(e instanceof Error ? e.message : String(e));
