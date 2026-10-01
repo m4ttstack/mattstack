@@ -141,6 +141,14 @@ export async function run(args: string[], ctx: RtCommandContext) {
     expect(list.stdout).toContain("e2e-broken");
     const validate = await rt(["plugin", "validate", "e2e-plugin"], { home });
     expect(validate.exitCode).toBe(0);
+    const asJson = await rt(["plugin", "validate", "e2e-plugin", "--json"], { home });
+    expect(asJson.exitCode).toBe(0);
+    const body = JSON.parse(asJson.stdout);
+    expect(body.ok).toBe(true);
+    expect(body.plugins.map((p: { name: string }) => p.name)).toEqual(["e2e-plugin"]);
+    const broken = await rt(["plugin", "validate", "e2e-broken", "--json"], { home });
+    expect(broken.exitCode).toBe(1);
+    expect(JSON.parse(broken.stdout).plugins[0].problems.length).toBeGreaterThan(0);
   }, 30_000);
 
   test("rt plugin new scaffolds a working, typecheckable plugin", async () => {
