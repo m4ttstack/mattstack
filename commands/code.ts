@@ -222,7 +222,7 @@ export function resolveWorkspaceSync(dirPath: string, prefs: Prefs): string | nu
 
 // ─── Async resolvers (with pickers) ─────────────────────────────────────────
 
-/** rt nav's path: its output is read as it is today until nav moves onto the output layer. */
+/** rt nav's path: its bytes must not change. */
 function noEditorAsToday(): never {
   console.log(`\n  ${red}No supported editor CLI found.${reset}`);
   console.log(`  ${dim}Install one of: code, cursor, zed, codium, subl${reset}\n`);

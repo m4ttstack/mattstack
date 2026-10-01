@@ -126,7 +126,7 @@ function resolveOpts(repoIdentity: string | null, repoPath: string): ResolveOpts
  * command that names the fault.
  */
 function warnIgnored(key: string, repoName: string | null, err: unknown): void {
-  const detail = (err as Error).message;
+  const detail = err instanceof Error ? err.message : String(err);
   const first = detail.split("\n")[0] ?? detail;
   const next = out.cmd("rt settings check");
   if (repoName === null) {

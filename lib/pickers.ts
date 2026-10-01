@@ -167,7 +167,7 @@ export async function pickFromAllRepos(
     breadcrumb?: string[];
   },
 ): Promise<string> {
-  // rt cd passes stderr and is not on the output layer yet: its refusals keep today's bytes.
+  // rt cd passes stderr; its refusals must keep their exact bytes, since the shell wrapper reads its stdout.
   const legacyCd = opts?.stderr === true;
 
   if (repos.length === 0) {

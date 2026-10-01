@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { execSync } from "child_process";
 import { mkdtempSync, realpathSync, writeFileSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
@@ -12,6 +12,7 @@ import {
 import { settingsGet } from "../../../commands/settings-keys.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
 import * as out from "../../ui/out.ts";
+import * as resolveModule from "../../settings/resolve.ts";
 import { setWarningLog, __test__ as warnTest } from "../../ui/warn.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../../settings/identity.ts";
 import {
@@ -731,6 +732,25 @@ describe("worktree config", () => {
           expect(io.stderr()).toEndWith("  next: rt settings check\n");
           expect(io.stdout()).toBe("");
         } finally {
+          io.restore();
+          warnTest.reset();
+        }
+      });
+
+      test("a resolver that throws a non-Error still gets the warning, and the reader does not throw", () => {
+        const spy = spyOn(resolveModule, "getSetting").mockImplementation(() => {
+          throw "plain string failure";
+        });
+        const logged: string[] = [];
+        const io = capture();
+        setWarningLog((_module, message) => {
+          logged.push(message);
+        });
+        try {
+          expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
+          expect(logged).toEqual(['ignoring "rt.worktreeApp": plain string failure']);
+        } finally {
+          spy.mockRestore();
           io.restore();
           warnTest.reset();
         }
