@@ -1,7 +1,6 @@
 import { readFileSync } from 'fs';
 import { Database } from 'bun:sqlite';
 
-import { dropRounds } from './review-rounds.ts';
 import {
   dropPrunedState,
   getStateDb,
@@ -225,7 +224,13 @@ export function dropPrunedReviewState(
   db: Database = getStateDb()
 ): void {
   dropPrunedState('review', mrUrl, db);
-  dropRounds(mrUrl, db);
+  // The latch pass drops from a snapshot taken before its GitLab reads, so a
+  // relaunch can revive the row first; a live review keeps its rounds.
+  db.run(
+    `DELETE FROM review_rounds WHERE mr_url = ? AND NOT EXISTS
+       (SELECT 1 FROM agent_states WHERE lane = 'review' AND mr_url = ?)`,
+    [mrUrl, mrUrl]
+  );
 }
 
 /** Attach each MR's review state (matched by webUrl) as a `review` field. Non-mutating. */

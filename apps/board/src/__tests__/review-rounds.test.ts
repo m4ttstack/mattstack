@@ -127,4 +127,15 @@ describe('review rounds', () => {
     dropPrunedReviewState(URL_A, db);
     expect(readRounds(URL_A, db)).toEqual([]);
   });
+
+  test('a review revived before its tombstone drop keeps its rounds', async () => {
+    const { dropPrunedReviewState } = await import('../review-state.ts');
+    recordRound(round(1), db);
+    db.run(
+      "INSERT INTO agent_states (lane, mr_url, state, handle, updated_at) VALUES ('review', ?, '{}', 'h', 1)",
+      [URL_A]
+    );
+    dropPrunedReviewState(URL_A, db);
+    expect(readRounds(URL_A, db)).toHaveLength(1);
+  });
 });
