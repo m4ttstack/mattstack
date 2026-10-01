@@ -94,21 +94,20 @@ test('every agent sits under the repo room it works in, in sign-in order', () =>
   );
 });
 
-test('a repo with agents but no room still gets a group, and it is not a target', () => {
+test('an agent whose repo has no room, or no repo at all, is not listed', () => {
   renderTree({
     rooms: [room('rt')],
-    buddies: [buddy('max', 'rt'), buddy('gail', 'board')],
+    buddies: [
+      buddy('max', 'rt'),
+      buddy('gail', 'board'),
+      buddy('shep', 'rt', { repo: undefined }),
+    ],
   });
 
-  const group = screen.getByTestId('repo-row-board');
-  expect(group).toHaveTextContent('board');
-  expect(group).toHaveTextContent('no room');
-  expect(group.getAttribute('role')).toBeNull();
-  expect(group.style.cursor).toBe('default');
-  // Repos with a room come first; the roomless one is appended after them.
-  expect(screen.getByTestId('room-row-rt').compareDocumentPosition(group)).toBe(
-    Node.DOCUMENT_POSITION_FOLLOWING
-  );
+  expect(screen.getByTestId('ws-max')).toBeInTheDocument();
+  expect(screen.queryByTestId('ws-gail')).toBeNull();
+  expect(screen.queryByTestId('ws-shep')).toBeNull();
+  expect(screen.queryByText('no room')).toBeNull();
 });
 
 test("a repo's signed-out members collapse into one line naming them", () => {
@@ -134,7 +133,7 @@ test("a repo's signed-out members collapse into one line naming them", () => {
 
 test('a lone signed-out member keeps its name and its age', () => {
   renderTree({
-    rooms: [],
+    rooms: [room('board')],
     buddies: [offline('gail', 'board', 3 * M)],
   });
   expect(screen.getByTestId('offline-board')).toHaveTextContent(
@@ -237,13 +236,9 @@ test('every tree row label sits on the meta step', () => {
     rooms: [room('rt')],
     buddies: [buddy('max', 'rt'), buddy('gail', 'board')],
   });
-  // The handle, the roomless group label and the task line beside them were
-  // 11.2px, 11.2px and 10.56px -- three names for a difference nobody could
-  // see. One step now carries all three.
+  // The handle and the task line beside it were 11.2px and 10.56px, a
+  // difference nobody could see. One step now carries both.
   expect(screen.getByTestId('ws-handle-max').style.fontSize).toBe(
-    'var(--mantine-font-size-xs)'
-  );
-  expect(screen.getByTestId('repo-name-board').style.fontSize).toBe(
     'var(--mantine-font-size-xs)'
   );
   expect(screen.getByTestId('ws-doing-max').style.fontSize).toBe(

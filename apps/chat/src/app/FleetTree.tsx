@@ -48,12 +48,8 @@ const BORDER = 'var(--tk-border)';
     row's 9.6px plus the tree's one indent step. */
 const WORKSTREAM_INDENT = 26.4;
 
-/** The group heading a presence row lands under when its cwd derived no repo.
-    A space keeps it from ever colliding with a real repo name. */
-const NO_REPO = 'no repo';
-
-/** Everything nested inside a room -- workstream handles, the roomless
-    group label, DM names -- reads at meta. */
+/** Everything nested inside a room -- workstream handles, DM names -- reads
+    at meta. */
 const ROW_NAME_SIZE = 'var(--mantine-font-size-xs)';
 /** The room row itself, one step up, so the tree has a visible hierarchy. */
 const CHROME_SIZE = 'var(--mantine-font-size-sm)';
@@ -78,8 +74,8 @@ export interface FleetTreeProps {
   rooms: FleetRoom[];
   /** DM rooms, in listing order, rendered under `DIRECT`. */
   dms: FleetRoom[];
-  /** The whole fleet, not one room's members: every repo with a signed-in or
-      recently signed-out agent gets a group, room or no room. */
+  /** The whole fleet, not one room's members. An agent is listed under the
+      room named for its repo; one whose repo has no room is left out. */
   buddies: RosterBuddy[];
   /** A prop, not `Date.now()` internally, so ages are testable without fake
       timers. */
@@ -105,17 +101,14 @@ export interface FleetTreeProps {
 
 export interface FleetGroup {
   repo: string;
-  /** The repo's room, when it has one. A repo with agents and no room heads
-      its group with a plain, unclickable label instead. */
-  room?: FleetRoom;
+  room: FleetRoom;
   online: RosterBuddy[];
   offline: RosterBuddy[];
 }
 
 /**
- * One group per repo: every room first, in listing order, then the repos that
- * have agents but no room. A room's group key is its own name, since a repo's
- * room is the one sign-in derives from that repo's cwd.
+ * One group per room, in listing order, holding the agents working in the
+ * repo it is named for (the room sign-in derives from that repo's cwd).
  *
  * Members keep sign-in order inside a group and are never re-sorted by status,
  * so a working<->idle flip cannot move a row out from under the pointer.
@@ -128,9 +121,8 @@ export function groupByRepo(
   for (const buddy of [...buddies].sort(
     (a, b) => a.signedInAt - b.signedInAt
   )) {
-    // A presence row whose cwd derived no repo still gets a group: this is
-    // the only place the fleet is listed, so nobody may fall out of it.
-    const repo = buddy.repo || NO_REPO;
+    if (!buddy.repo) continue;
+    const repo = buddy.repo;
     const members = byRepo.get(repo);
     if (members) members.push(buddy);
     else byRepo.set(repo, [buddy]);
@@ -141,17 +133,21 @@ export function groupByRepo(
     offline: members.filter(b => b.status === 'offline'),
   });
 
-  const groups: FleetGroup[] = rooms.map(room => ({
+  return rooms.map(room => ({
     repo: room.room,
     room,
     ...split(byRepo.get(room.room) ?? []),
   }));
+}
+
+/** The agents the tree lists: those working in a repo that has a room. The
+    fleet count reads the same set, so it always matches the rows. */
+export function listedBuddies(
+  rooms: FleetRoom[],
+  buddies: RosterBuddy[]
+): RosterBuddy[] {
   const withRoom = new Set(rooms.map(r => r.room));
-  for (const [repo, members] of byRepo) {
-    if (withRoom.has(repo)) continue;
-    groups.push({ repo, ...split(members) });
-  }
-  return groups;
+  return buddies.filter(b => b.repo !== undefined && withRoom.has(b.repo));
 }
 
 /**
@@ -454,45 +450,6 @@ function RoomRow({
     >
       {row}
     </RowMenu>
-  );
-}
-
-/** A repo with agents but no room: the same 34px row, no hash, the name
-    muted, and `no room` where the badges would sit. Not a target. */
-function RepoRow({ repo }: { repo: string }) {
-  return (
-    <Box
-      data-testid={`repo-row-${repo}`}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        minWidth: 0,
-        width: '100%',
-        height: 34,
-        gap: 'var(--mantine-spacing-sm)',
-        padding: '0 var(--mantine-spacing-md)',
-        borderRadius: 'var(--mantine-radius-md)',
-        cursor: 'default',
-      }}
-    >
-      {/* `.grp`: muted, since this heading is a label rather than a place
-          to go. */}
-      <Text
-        truncate
-        data-testid={`repo-name-${repo}`}
-        style={{
-          fontSize: ROW_NAME_SIZE,
-          flex: 1,
-          minWidth: 0,
-          color: 'var(--tk-text-4)',
-        }}
-      >
-        {repo}
-      </Text>
-      <Text component="span" style={{ ...MUTED_XS, flex: 'none' }}>
-        no room
-      </Text>
-    </Box>
   );
 }
 
@@ -860,17 +817,13 @@ export function FleetTree({
     <Fragment>
       {groups.map(group => (
         <Fragment key={group.repo}>
-          {group.room ? (
-            <RoomRow
-              room={group.room}
-              active={group.room.room === activeRoom}
-              onSelect={() => onOpenRoom?.(group.repo)}
-              onClose={onClose}
-              onMarkRead={onMarkRead}
-            />
-          ) : (
-            <RepoRow repo={group.repo} />
-          )}
+          <RoomRow
+            room={group.room}
+            active={group.room.room === activeRoom}
+            onSelect={() => onOpenRoom?.(group.repo)}
+            onClose={onClose}
+            onMarkRead={onMarkRead}
+          />
           {group.online.map(buddy => (
             <WorkstreamRow
               key={buddy.handle}

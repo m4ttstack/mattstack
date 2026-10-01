@@ -257,10 +257,18 @@ test('the header names the fleet and counts it, and withholds the count when the
     },
   ];
   const rooms = [{ room: 'rt', memberCount: 2, unread: 0, mentions: 0 }];
+  const roomless = {
+    ...buddies[0]!,
+    sessionId: 's-gail',
+    handle: 'gail',
+    name: 'gail',
+    repo: 'board',
+  };
   const { rerender } = renderWithProviders(
-    <RoomRail rooms={rooms} buddies={buddies} />
+    <RoomRail rooms={rooms} buddies={[...buddies, roomless]} />
   );
   expect(screen.getByRole('heading', { name: 'FLEET' })).toBeInTheDocument();
+  // The count matches the rows: an agent with no repo room is not listed.
   expect(screen.getByTestId('fleet-count')).toHaveTextContent('1 on · 1 off');
 
   rerender(
