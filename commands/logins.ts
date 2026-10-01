@@ -13,8 +13,11 @@ import {
 } from "../lib/logins/store.ts";
 import { promptSecret, type PromptSecretOptions } from "../lib/prompt-secret.ts";
 import { InvalidSecretsSegmentError, NoAgeKeyError, createRealSecretsExecSeam } from "../lib/secrets/store.ts";
-import { UserActionableError, exitUserError } from "../lib/errors.ts";
+import { UserActionableError, logFailureDetail, userErrorPayload } from "../lib/errors.ts";
 import { readStdinJson } from "../lib/setup/probes.ts";
+import { userFailure } from "../lib/setup/user-failure.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Segment } from "../lib/ui/protocol.ts";
 
 export interface LoginsDeps {
   backend: () => LoginsBackend;
@@ -22,7 +25,8 @@ export interface LoginsDeps {
   promptSecret: (message: string, opts?: PromptSecretOptions) => Promise<string>;
   promptText: (message: string) => Promise<string>;
   openUrl: (url: string) => boolean;
-  print: (s: string) => void;
+  /** One machine line on stdout. Never human text. */
+  json: (value: unknown) => void;
   isTTY: boolean;
 }
 
@@ -36,7 +40,7 @@ function realDeps(): LoginsDeps {
       return (await textInput({ message: m, stderr: true })).trim();
     },
     openUrl: (u) => spawnSync("open", [u]).status === 0,
-    print: (s) => console.log(s),
+    json: (v) => out.json(v),
     isTTY: Boolean(process.stdin.isTTY) && !process.env.RT_BATCH,
   };
 }
@@ -53,14 +57,24 @@ export function devLoginAddUrl(origin: string): string {
   return `mattstack://dev-logins/add?origin=${encodeURIComponent(origin)}`;
 }
 
-function fail(verb: string, json: boolean, d: LoginsDeps, err: unknown): never {
-  if (err instanceof UserActionableError) exitUserError(err, json, `logins ${verb}`, d.print);
-  if (err instanceof InvalidOriginError) exitUserError(new UserActionableError("bad-origin", err.message), json, `logins ${verb}`, d.print);
-  if (err instanceof InvalidLoginError) exitUserError(new UserActionableError("bad-login", err.message), json, `logins ${verb}`, d.print);
-  if (err instanceof NoAgeKeyError || err instanceof CorruptLoginError || err instanceof InvalidSecretsSegmentError) {
-    exitUserError(new UserActionableError("store", err.message), json, `logins ${verb}`, d.print);
-  }
-  throw err;
+const USAGE_HUMAN: Record<string, { title: string; next: Segment }> = {
+  "usage: rt logins add <origin>": { title: "Which site?", next: out.cmd("rt logins add <origin>") },
+  "usage: rt logins open-add <origin>": { title: "Which site?", next: out.cmd("rt logins open-add <origin>") },
+  "usage: rt logins remove <origin>": { title: "Which site?", next: out.cmd("rt logins remove <origin>") },
+};
+
+function fail(json: boolean, d: LoginsDeps, err: unknown): never {
+  const user =
+    err instanceof UserActionableError ? err
+    : err instanceof InvalidOriginError ? new UserActionableError("bad-origin", err.message)
+    : err instanceof InvalidLoginError ? new UserActionableError("bad-login", err.message)
+    : err instanceof NoAgeKeyError || err instanceof CorruptLoginError || err instanceof InvalidSecretsSegmentError ? new UserActionableError("store", err.message)
+    : null;
+  if (!user) throw err;
+  logFailureDetail(user);
+  if (json) d.json(userErrorPayload(user));
+  else out.fail(userFailure(user, user.code === "usage" ? USAGE_HUMAN[user.message] : undefined));
+  process.exit(2);
 }
 
 async function originArg(verb: string, args: string[], json: boolean, d: LoginsDeps): Promise<string> {
@@ -75,11 +89,11 @@ export async function loginsList(args: string[], _ctx: CommandContext = {}, over
   const json = args.includes("--json");
   try {
     const rows = await listLogins(d.backend());
-    if (json) return d.print(JSON.stringify(rows));
-    if (rows.length === 0) return d.print("No dev logins saved. Add one with: rt logins add <origin>");
-    for (const r of rows) d.print(`${r.origin}  ${r.email}`);
+    if (json) return d.json(rows);
+    if (rows.length === 0) return out.print(out.line("pending", "No dev logins saved yet"), out.callout("next", out.cmd("rt logins add <origin>")));
+    out.print(out.table(rows.map((r) => [r.origin, r.email])));
   } catch (err) {
-    fail("list", json, d, err);
+    fail(json, d, err);
   }
 }
 
@@ -107,9 +121,10 @@ export async function loginsAdd(args: string[], _ctx: CommandContext = {}, over?
       throw new UserActionableError("needs-tty", "no terminal to prompt in; pass --json and pipe {email, password} on stdin");
     }
     const saved = await saveLogin(d.backend(), origin, email, password);
-    d.print(json ? JSON.stringify({ ok: true, origin: saved.origin, replaced: saved.replaced }) : `${saved.replaced ? "Replaced" : "Saved"} the dev login for ${saved.origin}`);
+    if (json) d.json({ ok: true, origin: saved.origin, replaced: saved.replaced });
+    else out.print(out.line("done", `${saved.replaced ? "Replaced" : "Saved"} the dev login for ${saved.origin}`));
   } catch (err) {
-    fail("add", json, d, err);
+    fail(json, d, err);
   }
 }
 
@@ -120,9 +135,10 @@ export async function loginsOpenAdd(args: string[], _ctx: CommandContext = {}, o
     const origin = await originArg("open-add", args, json, d);
     const url = devLoginAddUrl(origin);
     if (!d.openUrl(url)) throw new UserActionableError("open-failed", "couldn't open mattstack; is the app installed?");
-    d.print(json ? JSON.stringify({ ok: true, url }) : `Opened mattstack to save a dev login for ${origin}`);
+    if (json) d.json({ ok: true, url });
+    else out.print(out.line("done", `Opened mattstack to save a dev login for ${origin}`));
   } catch (err) {
-    fail("open-add", json, d, err);
+    fail(json, d, err);
   }
 }
 
@@ -142,8 +158,9 @@ export async function loginsRemove(args: string[], _ctx: CommandContext = {}, ov
     }
     if (!origin) throw new UserActionableError("usage", "usage: rt logins remove <origin>");
     const removed = await removeLogin(d.backend(), origin);
-    d.print(json ? JSON.stringify({ ok: true, removed }) : removed ? `Deleted the dev login for ${normalizeOrigin(origin).origin}` : "No dev login saved for that site");
+    if (json) d.json({ ok: true, removed });
+    else out.print(removed ? out.line("done", `Deleted the dev login for ${normalizeOrigin(origin).origin}`) : out.line("skipped", "No dev login saved for that site"));
   } catch (err) {
-    fail("remove", json, d, err);
+    fail(json, d, err);
   }
 }

@@ -28,7 +28,6 @@
   "commands/home.ts",
   "commands/hooks.ts",
   "commands/intercept.ts",
-  "commands/logins.ts",
   "commands/mcp.ts",
   "commands/nav.ts",
   "commands/pane.ts",
