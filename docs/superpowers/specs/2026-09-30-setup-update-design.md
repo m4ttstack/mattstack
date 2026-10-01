@@ -19,7 +19,7 @@ setting, moving a file) have no home at all.
   again.
 - A re-applied step never overwrites a value the user set and never
   prompts.
-- The verb is safe to run by hand and reports what it changed.
+- The verb is safe to run by hand and reports what it ran.
 - Anything that needs a person surfaces as a notification that opens the
   checklist, never a blocking prompt.
 - rt owns every decision. The tray spawns one verb at launch and maps one
@@ -78,9 +78,9 @@ stream is unchanged, so the tray's existing `InstallRunModel` could render
 an update run if it ever wanted to.
 
 The human emitter's `done` line for an update run is one summary:
-`changed: a, b · skipped: c · needs you: d · failed: e`, each group
-omitted when empty. "Changed" is `done` or `partial`; `skipped` is
-`skipped`.
+`ran: a, b · skipped: c · needs you: d · failed: e`, each group
+omitted when empty. "Ran" is `done` or `partial`: the step re-ran, and its
+own line says whether it wrote anything; `skipped` is `skipped`.
 
 ### Stamps and ledgers (`setup-state.json`)
 

@@ -47,7 +47,7 @@ describe("summarizeUpdate", () => {
       { id: "skills.link", state: "partial", detail: "1 of 2" },
       { id: "claude.permissions", state: "skipped" },
       { id: "verify", state: "needs-you", detail: "to connect: Slack" },
-    ])).toBe("changed: path.link, skills.link · skipped: claude.permissions · needs you: verify");
+    ])).toBe("ran: path.link, skills.link · skipped: claude.permissions · needs you: verify");
     expect(summarizeUpdate([{ id: "migration.a", state: "failed", detail: "boom" }])).toBe("failed: migration.a");
     expect(summarizeUpdate([])).toBe("nothing to do");
   });

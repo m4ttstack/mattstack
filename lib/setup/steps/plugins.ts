@@ -260,6 +260,9 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   // removing it could orphan every plugin that marketplace serves.
   const addedMarketplaces: string[] = [];
   const installedPlugins: string[] = [];
+  // A team pack rt lands is left disabled; one already enabled wherever it
+  // settled needs nothing more from the member.
+  const awaitingEnable = new Set<string>();
 
   for (const dir of configDirs) {
     const env = { CLAUDE_CONFIG_DIR: dir };
@@ -317,6 +320,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     for (const listed of allPlugins) {
       const teamAuthored = teamAuthoredPlugins.includes(listed);
       const plugin = teamAuthored ? listed : resolveBasePlugin(listed, (id) => byId.has(id));
+      const needsEnable = teamAuthored && !byId.get(plugin)?.enabled;
 
       if (update && !byId.has(plugin)) {
         if (recorded!.plugins.includes(plugin)) {
@@ -343,6 +347,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
           // is unattended, so a disabled plugin stays the member's choice.
           if (!teamAuthored && disabled && !update) await enableTrusted(runner, plugin, dir);
           settled.push(plugin);
+          if (needsEnable) awaitingEnable.add(plugin);
           continue;
         }
         // The listing proved this pack present, and `install` on a present pack
@@ -355,6 +360,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
         }
         if (update && disabled) {
           settled.push(plugin);
+          if (needsEnable) awaitingEnable.add(plugin);
           continue;
         }
       }
@@ -384,6 +390,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
       }
       if (outcome.kind === "installed") installedPlugins.push(plugin);
       settled.push(plugin);
+      if (needsEnable) awaitingEnable.add(plugin);
     }
   }
 
@@ -397,7 +404,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   // member to enable something that is not there and contradict its own
   // `missing` status row. `settled` is the only record of what really landed.
   const settledSet = new Set(settled);
-  const pending = teamAuthoredPlugins.filter((p) => settledSet.has(p));
+  const pending = teamAuthoredPlugins.filter((p) => settledSet.has(p) && awaitingEnable.has(p));
 
   if (pending.length > 0) {
     ctx.log("plugins.install", `installed but NOT enabled (team-authored, needs your own \`claude plugin enable <name>\`): ${pending.join(", ")}`);

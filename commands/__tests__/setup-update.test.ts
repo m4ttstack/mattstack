@@ -147,7 +147,7 @@ describe("rt setup update", () => {
   test("a run streams plan, steps and done, stamps the version, prints the summary, exits 0 and posts nothing when all clear", async () => {
     const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }) });
     await run(deps, []);
-    expect(deps.lines.at(-1)).toBe("setup update: changed: path.link, verify");
+    expect(deps.lines.at(-1)).toBe("setup update: ran: path.link, verify");
     expect(deps.exitCodes).toEqual([]);
     expect(deps.notifications).toEqual([]);
     expect(readSetupState(deps.probes).lastUpdate?.version).toBe("2.15.0");

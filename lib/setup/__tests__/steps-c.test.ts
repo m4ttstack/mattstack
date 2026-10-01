@@ -770,6 +770,27 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(logs.some((l) => l.line.includes("installed but NOT enabled"))).toBe(false);
     });
 
+    for (const enabled of [true, false]) {
+      test(`a team-authored pack the listing shows ${enabled ? "enabled is not named as awaiting approval" : "disabled is named as awaiting approval"}`, async () => {
+        const teamDir = join(home, ".mattstack", "teams", "acme");
+        const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
+        const installed = [...BASE_PLUGINS.map((id) => ({ id, version: "1.0.0", enabled: true })), { id: "acme-skills@acme-market", version: "1.0.0", enabled }];
+        const p = fakeProbes({
+          home,
+          env: { PATH: "/usr/local/bin" },
+          files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
+          exec: async (argv) => (argv[2] === "list" ? ok(JSON.stringify(installed)) : ok("")),
+        });
+        const { ctx, logs } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+
+        const outcome = await pluginsInstallStep.run(ctx);
+
+        expect(outcome.state).toBe("done");
+        expect((detailOf(outcome) ?? "").includes("awaiting your approval to enable: acme-skills@acme-market")).toBe(!enabled);
+        expect(logs.some((l) => l.line.includes("installed but NOT enabled"))).toBe(!enabled);
+      });
+    }
+
     test("a fresh trusted install is enabled by the step, since the install itself leaves it off", async () => {
       const teamDir = join(home, ".mattstack", "teams", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
