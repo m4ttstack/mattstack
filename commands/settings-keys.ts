@@ -25,6 +25,9 @@
 
 import { parse, type ParseError } from "jsonc-parser";
 import { bold, dim, green, red, reset, yellow } from "../lib/tui.ts";
+import * as out from "../lib/ui/out.ts";
+import type { CellInput, FailureInput } from "../lib/ui/out.ts";
+import type { Block, Segment } from "../lib/ui/protocol.ts";
 import { loadRepoIndex } from "../lib/repo-index.ts";
 import { resolveRepoArg } from "../lib/repo-arg.ts";
 import { repoDataDir } from "../lib/rt-paths.ts";
@@ -37,8 +40,10 @@ import {
   type ListedSetting,
   type Provenance,
   type Resolved,
+  type Scope,
 } from "../lib/settings/resolve.ts";
-import { pruneStoreName, setSetting, unsetSetting } from "../lib/settings/write.ts";
+import { pruneStoreName, setSetting, setSettingsNoticeSink, unsetSetting, type SettingsNotice } from "../lib/settings/write.ts";
+import { noticeBlocks } from "../lib/settings/notice-blocks.ts";
 import { currentStoreName } from "../lib/settings/migrate.ts";
 import { getDef, isMigrated, type SettingDef, type SettingScope } from "../lib/settings/registry.ts";
 import { firstIssueText, formatIssuePath } from "../lib/settings/schema.ts";
@@ -51,16 +56,16 @@ import { buildInterceptRules, writeInterceptRules } from "../lib/endpoint/shim.t
 const FLAGS_WITH_VALUES = new Set(["--repo", "--scope", "--team"]);
 
 function positionals(args: string[]): string[] {
-  const out: string[] = [];
+  const found: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a.startsWith("--")) {
       if (FLAGS_WITH_VALUES.has(a)) i++; // skip the flag's value slot
       continue;
     }
-    out.push(a);
+    found.push(a);
   }
-  return out;
+  return found;
 }
 
 function flagValue(args: string[], flag: string): string | undefined {
@@ -68,14 +73,15 @@ function flagValue(args: string[], flag: string): string | undefined {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
-function fail(msg: string): never {
-  console.error(`rt settings: ${msg}`);
+function fail(f: string | FailureInput): never {
+  out.fail(typeof f === "string" ? { title: f } : f);
   process.exit(1);
 }
 
-/** Renders a thrown resolver/write error cleanly — no "rt settings:" double-prefix (the resolver's own messages already start with "rt: "), no stack trace. */
+/** The resolver and writer prefix their messages with "rt: "; the failure block already says who is talking. */
 function failWithError(err: unknown): never {
-  console.error(err instanceof Error ? err.message : String(err));
+  const message = err instanceof Error ? err.message : String(err);
+  out.fail({ title: message.replace(/^rt: /, "") });
   process.exit(1);
 }
 
@@ -99,9 +105,9 @@ function repoIndex(): Record<string, string> {
  * store are simply unreachable — `${repoRoot}` still answers, so the command
  * succeeds with a strictly smaller ladder. That is an honest degrade, but a
  * SILENT one is a trap: the user asked about a repo and got an answer that
- * quietly ignored every repo-scoped value. So say it once, dim, on stderr —
- * the resolved value still lands on stdout unpolluted, and `--json` output is
- * untouched. `set` does not come through here; it refuses outright rather
+ * quietly ignored every repo-scoped value. So say it once as a warn line. The
+ * callers that print a payload or --json call out.payloadOnStdout() first, so
+ * the line lands on stderr and stdout stays the value or the one envelope. `set` does not come through here; it refuses outright rather
  * than writing into a section nothing will read back.
  */
 async function resolveRepoContext(repoName: string | undefined): Promise<RepoContext> {
@@ -110,13 +116,11 @@ async function resolveRepoContext(repoName: string | undefined): Promise<RepoCon
   // one before it can be looked up. Every registered repo reads as
   // unregistered otherwise.
   const repoPath = repoIndex()[await resolveRepoArg(repoName, fail)];
-  if (!repoPath) fail(`repo "${repoName}" is not registered in ~/.mattstack/rt/repos.json`);
+  if (!repoPath) fail({ title: `${repoName} is not a repo rt knows`, next: out.cmd("rt repos status") });
   const derived = await deriveRepoIdentity(repoPath);
   const identity = derived.kind === "remote" ? derived.id : null;
   if (!identity) {
-    console.error(
-      `${dim}identity: none derivable for ${repoName} — repo sections unreachable (see rt.repoIdentityOverrides)${reset}`,
-    );
+    out.print(out.line("warn", `Repo settings for ${repoName} are out of reach`, "its remote is not one rt can key on"));
   }
   return {
     repoIdentity: identity,
@@ -140,28 +144,40 @@ export function formatValuePretty(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-export function formatProvenance(provenance: Provenance[]): string {
-  if (provenance.length === 0) return "(no provenance — value is unset)";
-  return provenance.map((p) => (p.file ? `${p.scope} (${p.file})` : p.scope)).join(" + ");
+const SCOPE_WORDS: Record<Scope, string> = {
+  default: "the built-in default",
+  team: "the team's settings",
+  user: "your user settings",
+  "team.repo": "the team's settings for this repo",
+  "user.repo": "your user settings for this repo",
+  machine: "this Mac's settings",
+  "machine.repo": "this Mac's settings for this repo",
+};
+
+/** Weakest first, the order the resolver merges them in. */
+export function describeProvenance(provenance: Provenance[]): string {
+  if (provenance.length === 0) return "not set anywhere";
+  return `from ${provenance.map((p) => SCOPE_WORDS[p.scope]).join(", then ")}`;
 }
 
-/**
- * The `migrated:false` loud-degrade label: "reads legacy: <file>" — spec:
- * "list LABELS them (`reads legacy: <file>`)". Returns null for a migrated
- * key (nothing to render).
- */
+/** The `migrated:false` note; null for a migrated key. */
 export function migratedNote(def: SettingDef): string | null {
   if (isMigrated(def)) return null;
-  return def.legacyFile ? `reads legacy: ${def.legacyFile}` : "not writable through the settings resolver yet";
+  return def.legacyFile ? "still reads its legacy file" : "not writable through settings yet";
 }
 
 // ─── get ────────────────────────────────────────────────────────────────────
 
 export async function settingsGet(args: string[]): Promise<void> {
   const [key] = positionals(args);
-  if (!key) fail("usage: rt settings get <key> [--repo <name>] [--json]");
+  if (!key) fail({ title: "Name the setting to read", next: out.cmd("rt settings get <key>") });
   const json = args.includes("--json");
+  // The value is the payload: a script reads it from stdout, so every human line goes to stderr.
+  out.payloadOnStdout();
   const repoCtx = await resolveRepoContext(flagValue(args, "--repo"));
+
+  const def = getDef(key);
+  if (!def) fail({ title: `No setting is called ${key}`, next: out.cmd("rt settings list") });
 
   let resolved: Resolved<unknown>;
   try {
@@ -173,27 +189,21 @@ export async function settingsGet(args: string[]): Promise<void> {
     failWithError(err);
   }
 
-  const def = getDef(key) as SettingDef; // getSetting already threw for an unregistered key
-
   if (json) {
-    console.log(JSON.stringify({
+    out.json({
       ok: true,
       key,
       value: resolved.value,
       provenance: resolved.provenance,
       migrated: isMigrated(def),
       ...(isMigrated(def) ? {} : { legacyFile: def.legacyFile ?? null }),
-    }));
+    });
     return;
   }
 
-  console.log("");
-  console.log(`  ${bold}${key}${reset}`);
-  console.log(`  ${formatValuePretty(resolved.value)}`);
-  console.log(`  ${dim}${formatProvenance(resolved.provenance)}${reset}`);
   const note = migratedNote(def);
-  if (note) console.log(`  ${yellow}${note}${reset}`);
-  console.log("");
+  out.print(out.kv(key, undefined, describeProvenance(resolved.provenance)), ...(note ? [out.callout("note", note)] : []));
+  out.payload(`${formatValuePretty(resolved.value)}\n`);
 }
 
 // ─── set / unset ────────────────────────────────────────────────────────────
@@ -414,6 +424,7 @@ export async function regenerateInterceptsCache(key: string): Promise<RegenResul
 
 export async function settingsList(args: string[]): Promise<void> {
   const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
   const repoCtx = await resolveRepoContext(flagValue(args, "--repo"));
 
   const settings = listSettings({
@@ -422,24 +433,20 @@ export async function settingsList(args: string[]): Promise<void> {
   });
 
   if (json) {
-    console.log(JSON.stringify({ ok: true, settings }));
+    out.json({ ok: true, settings });
     return;
   }
 
-  console.log("");
-  for (const s of settings) {
-    console.log(renderListRow(s));
-  }
-  console.log("");
+  out.print(out.table(settings.map(renderListRow)));
 }
 
-export function renderListRow(s: ListedSetting): string {
+/** One table row: the key, then the value with any caveats beside it. */
+export function renderListRow(s: ListedSetting): CellInput[] {
   const labels: string[] = [];
   if (s.unregistered) labels.push("unregistered");
-  // `migrated` is a registry fact, so an UNREGISTERED row has none — it comes
-  // back false by default. Labelling those "reads legacy" would name a
-  // migration window that does not exist for a key rt has never heard of;
-  // "unregistered" is the whole story there.
+  // `migrated` is a registry fact, so an UNREGISTERED row has none: it comes
+  // back false by default, and labelling it "legacy" would name a migration
+  // window that does not exist for a key rt has never heard of.
   if (!s.migrated && !s.unregistered) {
     const def = getDef(s.key);
     labels.push(def ? (migratedNote(def) as string) : "reads legacy");
@@ -451,74 +458,78 @@ export function renderListRow(s: ListedSetting): string {
   for (const d of s.diverged ?? []) labels.push(`diverged[${d.scope}]: ${d.storeNames.join(", ")}`);
   if (s.newer) labels.push("from a newer rt");
 
-  const labelStr = labels.length > 0 ? `  ${yellow}(${labels.join("; ")})${reset}` : "";
-  return `  ${bold}${s.key}${reset} = ${formatValueInline(s.value)}${labelStr}`;
+  const value: Array<string | Segment> = [formatValueInline(s.value)];
+  if (labels.length > 0) value.push({ text: `  ${labels.join("; ")}`, role: "warn" });
+  return [out.key(s.key), value];
 }
 
 // ─── explain ────────────────────────────────────────────────────────────────
 
 export async function settingsExplain(args: string[]): Promise<void> {
   const [key] = positionals(args);
-  if (!key) fail("usage: rt settings explain <key> [--repo <name>] [--json]");
+  if (!key) fail({ title: "Name the setting to explain", next: out.cmd("rt settings explain <key>") });
   const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
   const repoCtx = await resolveRepoContext(flagValue(args, "--repo"));
+
+  const def = getDef(key);
+  if (!def) fail({ title: `No setting is called ${key}`, next: out.cmd("rt settings list") });
 
   let rows: ExplainRow[];
   try {
-    rows = explainSetting(key, {
-      repoIdentity: repoCtx.repoIdentity,
-    });
+    rows = explainSetting(key, { repoIdentity: repoCtx.repoIdentity });
   } catch (err) {
     failWithError(err);
   }
 
-  const def = getDef(key) as SettingDef; // explainSetting already threw for an unregistered key
   const currentName = currentStoreName(def);
 
   if (json) {
-    console.log(JSON.stringify({ ok: true, key, rows, currentStore: currentName ?? null }));
+    out.json({ ok: true, key, rows, currentStore: currentName ?? null });
     return;
   }
 
-  console.log("");
-  console.log(`  ${bold}${key}${reset}`);
-  for (const row of rows) {
-    console.log(renderExplainRow(row, currentName));
-  }
-  console.log("");
+  out.print(out.tree(out.key(key), rows.flatMap((row) => renderExplainRow(row, currentName))));
 }
 
 /**
- * One row per reachable rung, weakest-first (the order explainSetting
- * already returns them in — SCOPE_ORDER — is the stable sort). present rows
- * show their authored value; shadowed (teamLocked) and invalid rows are
- * marked but not applied.
+ * One child row per reachable rung, weakest first (the order explainSetting
+ * returns them in), plus a row per older store name beside it. A shadowed or
+ * invalid value is marked, not applied.
  */
-export function renderExplainRow(row: ExplainRow, currentName?: string): string {
-  const scopeLabel = row.scope.padEnd(11);
-  const fileLabel = row.file ?? (row.scope === "default" ? "(registry default)" : "(no file)");
-  const from =
-    currentName !== undefined && row.storeName !== undefined && row.storeName !== currentName
-      ? `  ${dim}[read from ${row.storeName}, version ${row.storedVersion}]${reset}`
-      : "";
-  const older = (row.olderNames ?? [])
-    .map((o) => `\n      ${o.label === "diverged" ? red : dim}older ${o.storeName}: ${o.label}${reset}${o.label === "diverged" ? `  ${formatValueInline(o.value)}` : ""}`)
-    .join("");
+export function renderExplainRow(row: ExplainRow, currentName?: string): CellInput[][] {
+  const where = row.file ?? (row.scope === "default" ? "built-in default" : "no file");
+  if (!row.present) return [[out.faint(row.scope), out.faint(where), out.faint("not set")]];
 
-  if (!row.present) {
-    return `  ${dim}${scopeLabel} ${fileLabel}  —${reset}`;
-  }
-
+  const marks: string[] = [];
+  let role: Segment["role"] = "done";
   if (row.shadowed) {
-    return `  ${dim}${scopeLabel}${reset} ${fileLabel}  ${formatValueInline(row.value)}  ${yellow}[shadowed: ${row.shadowed}]${reset}`;
-  }
-  if (row.invalid) {
-    return `  ${dim}${scopeLabel}${reset} ${fileLabel}  ${formatValueInline(row.value)}  ${red}[invalid: ${row.invalid}]${reset}${from}${older}`;
+    marks.push(`[shadowed: ${row.shadowed}]`);
+    role = "warn";
   }
   if (row.nonconforming) {
-    return `  ${green}${scopeLabel}${reset} ${fileLabel}  ${formatValueInline(row.value)}  ${yellow}[nonconforming: ${firstIssueText(row.nonconforming)}]${reset}${from}${older}`;
+    marks.push(`[nonconforming: ${firstIssueText(row.nonconforming)}]`);
+    role = "warn";
   }
-  return `  ${green}${scopeLabel}${reset} ${fileLabel}  ${formatValueInline(row.value)}${from}${older}`;
+  if (row.invalid) {
+    marks.push(`[invalid: ${row.invalid}]`);
+    role = "failed";
+  }
+  if (currentName !== undefined && row.storeName !== undefined && row.storeName !== currentName) {
+    marks.push(`[read from ${row.storeName}, version ${row.storedVersion}]`);
+  }
+
+  const main: CellInput[] = [{ text: row.scope, role }, out.faint(where), formatValueInline(row.value)];
+  if (marks.length > 0) main.push({ text: marks.join("  "), role: role === "done" ? "dim" : role });
+
+  const older = (row.olderNames ?? []).map((o): CellInput[] => [
+    "",
+    [
+      { text: `older ${o.storeName}: ${o.label}`, role: o.label === "diverged" ? "needs-you" : "dim" },
+      ...(o.label === "diverged" ? [`  ${formatValueInline(o.value)}`] : []),
+    ],
+  ]);
+  return [main, ...older];
 }
 
 // ─── check ──────────────────────────────────────────────────────────────────
