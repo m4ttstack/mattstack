@@ -88,6 +88,7 @@ import {
   type SyncScopeRead,
 } from './data.ts';
 import {
+  hasQuietReview,
   summarizeDiscussions,
   threadsOpenedBy,
   threadStarter,
@@ -683,6 +684,7 @@ function reopenLane(
  * fetch keeps the coarse fallback (unresolvedThreads).
  */
 async function enrichReviewerComments(mrs: BoardMR[]): Promise<void> {
+  const roster = new Set(config.members.map(member => member.username));
   for (let i = 0; i < mrs.length; i += FETCH_CONCURRENCY) {
     const chunk = mrs.slice(i, i + FETCH_CONCURRENCY);
     await Promise.all(
@@ -706,6 +708,12 @@ async function enrichReviewerComments(mrs: BoardMR[]): Promise<void> {
               threadsOpenedBy(threads, config.defaultMember)
             );
           m.generalComments = comments.length;
+          m.quietReview = hasQuietReview(
+            detail,
+            comments,
+            m.author.username,
+            roster
+          );
         } catch {
           // Keep the coarse fallback (unresolvedThreads) for this MR.
         }

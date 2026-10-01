@@ -549,6 +549,11 @@ function allReviewersApproved(mr: BoardMR): boolean {
   );
 }
 
+/** Some reviewer submitted a review without approving. */
+function anyReviewerReviewed(mr: BoardMR): boolean {
+  return (mr.reviews.reviewers ?? []).some(r => r.reviewState === 'REVIEWED');
+}
+
 /** Coarse review-readiness bucket, most-blocking first: GitLab's own review
     state, conversation states included. The row's pill says the same thing
     (see `statusPhrase`), so a row can never sit under a group header its own
@@ -566,6 +571,8 @@ export function statusBucket(mr: BoardMR): { label: string; order: number } {
   // Reviewed and all threads resolved, just not formally approved — further along
   // than an untouched MR, so it sits between "needs review" and "approved".
   if (commentsAllResolved(mr)) return { label: 'comments resolved', order: 3 };
+  if (anyReviewerReviewed(mr) || mr.quietReview)
+    return { label: 'commented', order: 1 };
   return { label: 'needs review', order: 2 };
 }
 

@@ -43,6 +43,9 @@ export type BoardMR = MRDashboardProps & {
       aren't resolvable threads. Drives the 💬 token's total and lets a
       general-comment-only MR still be flagged as having comment activity. */
   generalComments?: number;
+  /** A member reviewed without GitLab recording a reviewer state: their
+      plain note, or an armed latch. Set by the discussions fetch. */
+  quietReview?: boolean;
   pipelineState: PipelineState;
   /** Draft (unfinished) MR. Only your own drafts reach the board, so this also
       means "yours, and not marked ready yet" -- see buildBoard. */

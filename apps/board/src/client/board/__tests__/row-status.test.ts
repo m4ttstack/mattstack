@@ -1743,6 +1743,60 @@ describe('statusPhrase: the pill says what the status group says', () => {
       hue: 'green',
     });
   });
+
+  test('a reviewer who submitted a review with no threads reads commented', () => {
+    expect(
+      statusPhrase(
+        settled({
+          reviews: {
+            isApproved: false,
+            required: 2,
+            given: 0,
+            remaining: 2,
+            reviewers: [{ username: 'sam', reviewState: 'REVIEWED' }],
+          },
+          threadSummary: { awaiting: 0, replied: 0, resolved: 0 },
+        })
+      )
+    ).toEqual({ text: 'commented', hue: 'accent' });
+  });
+
+  test('a submitted review whose threads are all resolved still reads comments resolved', () => {
+    expect(
+      statusPhrase(
+        settled({
+          reviews: {
+            isApproved: false,
+            required: 2,
+            given: 0,
+            remaining: 2,
+            reviewers: [{ username: 'sam', reviewState: 'REVIEWED' }],
+          },
+          reviewerComments: 0,
+          threadSummary: { awaiting: 0, replied: 0, resolved: 3 },
+        })
+      )
+    ).toEqual({ text: 'comments resolved', hue: 'purple' });
+  });
+
+  test("a member's plain note or an armed latch reads commented on an MR GitLab never marked", () => {
+    expect(
+      statusPhrase(
+        settled({
+          ...unapproved(0, 2),
+          quietReview: true,
+          threadSummary: { awaiting: 0, replied: 0, resolved: 0 },
+        })
+      )
+    ).toEqual({ text: 'commented', hue: 'accent' });
+  });
+
+  test('approval still outranks a submitted review', () => {
+    expect(statusPhrase(settled({ quietReview: true }))).toEqual({
+      text: 'approved',
+      hue: 'green',
+    });
+  });
 });
 
 describe('rowStatus: a launch that ran with no pack', () => {

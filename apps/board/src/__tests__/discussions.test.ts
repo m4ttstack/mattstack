@@ -2,12 +2,14 @@ import { describe, expect, test } from 'bun:test';
 
 import type { MRDetail } from '@mattstack/glance';
 import {
+  hasQuietReview,
   isBotUsername,
   summarizeDiscussions,
   summarizeThreads,
   threadsOpenedBy,
   threadStarter,
   unresolvedReviewerCount,
+  type GeneralComment,
 } from '../discussions.ts';
 import { armedLatchBody, spentLatchBody } from '../latch/markers.ts';
 
@@ -40,7 +42,7 @@ function note(
 }
 
 function detail(
-  discussions: Array<{ notes: ReturnType<typeof note>[] }>
+  discussions: Array<{ notes: ReturnType<typeof note>[]; resolved?: boolean }>
 ): MRDetail {
   return {
     mrIid: 1,
@@ -48,7 +50,7 @@ function detail(
     discussions: discussions.map((d, i) => ({
       id: `d${i}`,
       resolvable: null,
-      resolved: null,
+      resolved: d.resolved ?? null,
       notes: d.notes,
     })),
   } as unknown as MRDetail;
@@ -334,5 +336,54 @@ describe('threadStarter', () => {
     expect(threadStarter(detail([{ notes: [note('kim')] }]), 'd9')).toBe(
       undefined
     );
+  });
+});
+
+describe('hasQuietReview', () => {
+  const members = new Set(['sam', 'pat']);
+  const ARMED_BODY = armedLatchBody(
+    '![re-review latch](/uploads/ab12/latch.png)'
+  );
+  const SPENT_BODY = spentLatchBody(
+    '![re-review latch](/uploads/ab12/latch.png)'
+  );
+  const comment = (username: string): GeneralComment => ({
+    id: 1,
+    name: username,
+    username,
+    at: '2026-09-01T00:00:00Z',
+    body: 'x',
+  });
+
+  test("a roster member's plain note on someone else's MR counts", () => {
+    expect(hasQuietReview(detail([]), [comment('sam')], 'pat', members)).toBe(
+      true
+    );
+  });
+  test("the author's own plain note does not", () => {
+    expect(hasQuietReview(detail([]), [comment('pat')], 'pat', members)).toBe(
+      false
+    );
+  });
+  test("an outsider's plain note does not", () => {
+    expect(hasQuietReview(detail([]), [comment('kit')], 'pat', members)).toBe(
+      false
+    );
+  });
+  test('an armed latch that is not resolved counts', () => {
+    const d = detail([
+      { notes: [note('sam', { body: ARMED_BODY })], resolved: false },
+    ]);
+    expect(hasQuietReview(d, [], 'pat', members)).toBe(true);
+  });
+  test('a resolved or spent latch does not', () => {
+    const resolved = detail([
+      { notes: [note('sam', { body: ARMED_BODY })], resolved: true },
+    ]);
+    expect(hasQuietReview(resolved, [], 'pat', members)).toBe(false);
+    const spent = detail([
+      { notes: [note('sam', { body: SPENT_BODY })], resolved: false },
+    ]);
+    expect(hasQuietReview(spent, [], 'pat', members)).toBe(false);
   });
 });
