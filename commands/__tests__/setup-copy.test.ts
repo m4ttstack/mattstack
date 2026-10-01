@@ -18,7 +18,7 @@ const readyExec: ExecScript = (argv) => (argv[0] === "sw_vers" ? ok("15.6") : ok
 const secrets: SecretPresence = { async has() { return null; } };
 
 async function plan(mode: "plan" | "status"): Promise<Plan> {
-  return composePlan({ p: fakeProbes({ exec: readyExec }), secrets, ci: false, mode, teams: [] });
+  return composePlan({ p: fakeProbes({ exec: readyExec }), secrets, ci: false, mode, teams: [], waived: [] });
 }
 
 /** The only keys inside an action that a person reads and no program does. Everything else in an action is the app's to act on. */
@@ -36,6 +36,17 @@ function splitAction(value: unknown, path: string, copy: Record<string, unknown>
   return kept;
 }
 
+/**
+ * Fields a validator reads straight off this Mac with no probe seam composePlan can fake, so the
+ * snapshot pins a token in their place. `tool.editor` lists the editor apps in /Applications.
+ */
+const MACHINE_READ: Record<string, readonly (keyof Row)[]> = { "tool.editor": ["status", "detail"] };
+
+function pinMachineReads(r: Row): Row {
+  const fields = MACHINE_READ[r.id];
+  return fields ? { ...r, ...Object.fromEntries(fields.map((f) => [f, "<read from this Mac>"])) } : r;
+}
+
 function views(p: Plan) {
   const { at: _at, ...rest } = p;
   const copy: Record<string, unknown> = {};
@@ -46,7 +57,8 @@ function views(p: Plan) {
       const { title: _title, rows, ...group } = g;
       return {
         ...group,
-        rows: rows.map((r: Row) => {
+        rows: rows.map((raw: Row) => {
+          const r = pinMachineReads(raw);
           const { title, why, detail, optionalNote, action, ...keep } = r;
           Object.assign(copy, { [`${r.id}.title`]: title, [`${r.id}.why`]: why, [`${r.id}.detail`]: detail, [`${r.id}.optionalNote`]: optionalNote });
           return { ...keep, action: splitAction(action, `${r.id}.action`, copy) };
@@ -63,14 +75,18 @@ const copyView = (p: Plan) => views(p).copy;
 describe("the setup plan's shape and copy", () => {
   // Some rows read the real HOME (legacy state folders, the state db), which other tests in this directory leave state in.
   const origHome = process.env.HOME;
+  const origCi = process.env.CI;
   let home: string;
   beforeAll(() => {
+    delete process.env.CI;
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-setup-copy-home-")));
     process.env.HOME = home;
     closeStateDb();
   });
   afterAll(() => {
     process.env.HOME = origHome;
+    if (origCi === undefined) delete process.env.CI;
+    else process.env.CI = origCi;
     closeStateDb();
     rmSync(home, { recursive: true, force: true });
   });

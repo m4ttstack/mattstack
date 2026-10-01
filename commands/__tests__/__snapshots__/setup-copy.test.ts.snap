@@ -155,7 +155,7 @@ exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`]
           "kind": "tool",
           "recheck": "on-activate",
           "required": false,
-          "status": "ready",
+          "status": "<read from this Mac>",
         },
         {
           "action": {
@@ -420,7 +420,7 @@ exports[`the setup plan's shape and copy plan: the copy is what the copy table s
   "tool.daemon.optionalNote": "Installed by Install (plugins.install).",
   "tool.daemon.title": "Daemon",
   "tool.daemon.why": "The daemon watches your repos and backs MRs and notifications.",
-  "tool.editor.detail": "Cursor, Visual Studio Code",
+  "tool.editor.detail": "<read from this Mac>",
   "tool.editor.optionalNote": "Works without this; rt just won't have an editor to open files in.",
   "tool.editor.title": "Editor",
   "tool.editor.why": "Lets rt open the rt-context extension and hand files off to an editor.",
@@ -669,7 +669,7 @@ exports[`the setup plan's shape and copy status: the machine view is unchanged 1
           "kind": "tool",
           "recheck": "on-activate",
           "required": false,
-          "status": "ready",
+          "status": "<read from this Mac>",
         },
         {
           "action": {
@@ -937,7 +937,7 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "tool.daemon.optionalNote": null,
   "tool.daemon.title": "Daemon",
   "tool.daemon.why": "The daemon watches your repos and backs MRs and notifications.",
-  "tool.editor.detail": "Cursor, Visual Studio Code",
+  "tool.editor.detail": "<read from this Mac>",
   "tool.editor.optionalNote": "Works without this; rt just won't have an editor to open files in.",
   "tool.editor.title": "Editor",
   "tool.editor.why": "Lets rt open the rt-context extension and hand files off to an editor.",
