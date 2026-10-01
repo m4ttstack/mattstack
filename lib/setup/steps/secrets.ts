@@ -51,7 +51,7 @@ async function secretsWriteRun(ctx: ApplyContext): Promise<StepOutcome> {
       // this throw (same as any other failed write), so the secret stays
       // staged rather than being silently dropped.
       if (err.code === "team-pull-only") return { state: "skipped", detail: `${err.message} Nothing was written.` };
-      return { state: "failed", detail: err.message, ...(err.next ? { remedy: err.next } : {}) };
+      return { state: "failed", detail: err.message, ...(err.next ? { remedy: `Run ${err.next}` } : {}) };
     }
     // Anything else — sops missing/non-zero, no team recipients yet, a
     // malformed .sops.yaml — is an expected store-write failure, not a bug:

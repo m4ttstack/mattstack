@@ -66,7 +66,7 @@ export function slackSecretWait(p: Pick<Probes, "readFile" | "fileSize" | "home"
 }
 
 function unreadableText(wait: { path: string; reason: string }, slug: string): string {
-  return `the team's secrets file at ${wait.path} ${wait.reason}: run \`rt team pull --team ${slug}\`, and if it stays this way ask your team owner or re-clone the team`;
+  return `The team's secrets file at ${wait.path} ${wait.reason}. Run rt team pull --team ${slug}, and if it stays this way, ask your team owner or re-clone the team`;
 }
 
 export function slackWaitRowDetail(wait: SlackSecretWait, slug: string): string {
@@ -77,10 +77,10 @@ export function slackWaitRowDetail(wait: SlackSecretWait, slug: string): string 
 
 export function slackWaitCliMessage(wait: SlackSecretWait, slug: string): string {
   if (wait.kind === "awaiting-acceptance") {
-    return `waiting for your team owner to accept you: they run \`rt team members sync\`, then you run \`rt team pull --team ${slug}\` and connect again`;
+    return `Waiting for your team owner to accept you. They run rt team members sync, then you run rt team pull --team ${slug} and connect again`;
   }
   if (wait.kind === "not-shared") {
-    return `your team owner hasn't shared the Slack app's secret yet: they connect Slack or run Install on their machine, then you run \`rt team pull --team ${slug}\` and connect again`;
+    return `Your team owner hasn't shared the Slack app's secret yet. They connect Slack or run Install on their machine, then you run rt team pull --team ${slug} and connect again`;
   }
   return unreadableText(wait, slug);
 }

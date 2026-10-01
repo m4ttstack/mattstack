@@ -751,7 +751,7 @@ describe("integrationConnect — slack (OAuth flow)", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toContain("add http://localhost:22222/callback to the Slack app's Redirect URLs at https://api.slack.com/apps/A0TEAM/oauth");
+    expect(body.detail).toBe("Slack returned an error: bad_redirect_uri. To fix it, add http://localhost:22222/callback to the Slack app's Redirect URLs at https://api.slack.com/apps/A0TEAM/oauth, then connect again");
   });
 
   test("a grant short of the user scopes names them to add to the team app, and stores nothing", async () => {
@@ -793,8 +793,9 @@ describe("integrationConnect — slack (OAuth flow)", () => {
 
     await integrationConnect("slack", ["--json"], deps);
 
-    const body = JSON.parse(deps.lines[0]!) as { status: string };
+    const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("ready");
+    expect(body.detail).toBe("Slack connected");
     expect(writerWrites).toEqual([["board", "slackToken", "xoxp-full"]]);
   });
 

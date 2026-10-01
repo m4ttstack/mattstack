@@ -134,10 +134,9 @@ export async function runUninstallCommand(args: string[], _ctx: CommandContext =
     const result = await runUninstall(ctx, actions);
     await human?.flush();
 
-    // `stayed` (e.g. "~/.mattstack (kept)", a shell block that needs manual
-    // removal) has no place in the NDJSON stream's fixed event shapes — it's
-    // printed as plain lines after the stream, human-mode only, so `--json`
-    // stays strictly one-object-per-line.
+    // `stayed` has no place in the NDJSON stream's fixed event shapes, so it is
+    // a human-only section after the stream and `--json` stays one object per
+    // line.
     if (!json && result.stayed.length > 0) {
       out.print(out.section("Kept on this Mac", undefined, ...result.stayed.map((s) => out.line("skipped", s))));
     }

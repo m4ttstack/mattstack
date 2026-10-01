@@ -171,7 +171,7 @@ async function deckManagedRemoveRun(ctx: ApplyContext): Promise<ActionResult> {
     return { outcome: { state: "failed", detail, remedy: "Retry" } };
   }
 
-  const removed = reply.removed.length > 0 ? `removed: ${reply.removed.join(", ")}` : "no mattstack apps in deck";
+  const removed = reply.removed.length > 0 ? `Removed ${reply.removed.join(", ")}` : "No mattstack apps in deck";
   if (reply.failed.length > 0) {
     const kept = reply.failed.join(", ");
     return { outcome: { state: "failed", detail: `${removed}. Could not remove ${kept}`, remedy: `Retry. If ${kept} stays, deck's own page shows what to fix first` } };
@@ -214,7 +214,7 @@ async function shellRemoveRun(): Promise<ActionResult> {
   const zshenvResult = removeZshenvPrecedence();
 
   const stayed: string[] = [];
-  if (shellResult.manual) stayed.push("shell rc block needs manual removal (written before the removable marker existed)");
+  if (shellResult.manual) stayed.push("The rt block in your shell startup file needs removing by hand (an older rt wrote it without a marker)");
   if (zshenvResult.manual) stayed.push("The PATH block in ~/.zshenv needs removing by hand (an older rt wrote it without a marker)");
 
   const detail = [

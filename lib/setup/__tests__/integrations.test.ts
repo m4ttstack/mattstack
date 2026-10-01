@@ -307,6 +307,7 @@ describe("slack validate", () => {
     const p = fakeProbes({ fetch: async () => ({ status: 200, body: JSON.stringify({ ok: false, error: "invalid_auth" }), headers: {} }) });
     const result = await INTEGRATIONS.slack.validate(p, "xoxp-token", noHost);
     expect(result.status).toBe("invalid");
+    expect(result.detail).toBe("Slack returned an error: invalid_auth");
   });
 
   test("status 0 (network down) → error, never invalid", async () => {

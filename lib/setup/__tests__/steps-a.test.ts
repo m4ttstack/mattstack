@@ -699,7 +699,7 @@ describe("secrets.write", () => {
     const { ctx } = makeCtx(p, { teamSecrets: () => teamSeams });
 
     const outcome = await secretsWriteStep.run(ctx);
-    expect(outcome).toEqual({ state: "failed", detail: "This Mac cannot read the acme team's secrets yet", remedy: "rt team pull" });
+    expect(outcome).toEqual({ state: "failed", detail: "This Mac cannot read the acme team's secrets yet", remedy: "Run rt team pull" });
 
     const dir = logsDir();
     const file = readdirSync(dir).filter((f) => f.startsWith("cli.") && f.endsWith(".log")).sort().at(-1);

@@ -561,8 +561,6 @@ function packRow(req: PackRequirements, pluginList: ExecResult, served?: ServedP
   if (served && served.servedVersion !== null && entry.version !== null && entry.version !== served.servedVersion) {
     return row({ ...base, status: "needs-you", detail: `Installed ${installed}; the team serves ${served.servedVersion}`, action: INSTALL_PLUGINS_ACTION });
   }
-  // No served pack AND no version to report: the pre-existing wording is a
-  // pinned contract string, so it stays exactly "installed".
   if (!served && entry.version === null) return row({ ...base, status: "ready", detail: "Installed" });
   if (!served || served.servedVersion === null) {
     return row({ ...base, status: "ready", detail: entry.version === null ? "Installed, version unknown" : `${installed} installed; the served version is unknown` });

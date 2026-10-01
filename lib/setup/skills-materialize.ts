@@ -59,9 +59,11 @@ export function materializeTally(repos: MaterializeRepoResult[]): string {
     return r.ok || r.noManifest ? [] : [`${r.name}: ${r.detail}`];
   });
   const warnings = repos.flatMap((r) => (r.pruneWarnings ?? []).map((w) => `${r.name}: ${w}`));
-  const head = `materialized ${written} pack file${written === 1 ? "" : "s"}` +
-    (undeclared > 0 ? `, no skills declared ${undeclared}` : "") +
-    (pruned > 0 ? `, ${setAsideLine(pruned)}` : "");
+  const head = [
+    `Materialized ${written} pack file${written === 1 ? "" : "s"}`,
+    ...(undeclared > 0 ? [`${undeclared} ${undeclared === 1 ? "repo declares" : "repos declare"} no skills`] : []),
+    ...(pruned > 0 ? [setAsideLine(pruned)] : []),
+  ].join(". ");
   const lines = [...failures.map((f) => `failed: ${f}`), ...warnings.map((w) => `warning: ${w}`)];
   return lines.length > 0 ? `${head}; ${lines.join("\n")}` : head;
 }

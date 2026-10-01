@@ -308,7 +308,8 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(detailOf(outcome)).toContain("4 marketplaces, 5 plugins across 1 Claude config folder");
       expect(detailOf(outcome)).toContain(ENGINE_PACK_MISSING_CODE); // no mattstack plugin on disk yet in this fake, so materialize honestly skips
       // acme-skills is team-authored (came from the team's own marketplace.json) — installed, never auto-enabled.
-      expect(detailOf(outcome)).toContain("awaiting your approval to enable: acme-skills@acme-market");
+      expect(detailOf(outcome)).toContain(`1 Claude config folder. Skills were not materialized: ${ENGINE_PACK_MISSING_CODE}`);
+      expect(detailOf(outcome)).toContain(". 1 plugin awaiting your approval to enable: acme-skills@acme-market");
 
       const marketAdds = execCalls.filter((c) => c.argv.includes("marketplace") && c.argv.includes("add"));
       const installs = execCalls.filter((c) => c.argv[1] === "plugin" && c.argv[2] === "install");
@@ -357,7 +358,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome.state).toBe("done");
-      expect(detailOf(outcome)).toContain("materialized 1 pack file");
+      expect(detailOf(outcome)).toContain("Materialized 1 pack file");
     });
 
     test("a repo no team pack declares is tallied as nothing to do, never as a failed materialize", async () => {
@@ -386,7 +387,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome.state).toBe("done");
-      expect(detailOf(outcome)).toContain("materialized 0 pack files, no skills declared 1");
+      expect(detailOf(outcome)).toContain("Materialized 0 pack files. 1 repo declares no skills");
       expect(detailOf(outcome)).not.toContain("failed");
       expect(logs.filter((l) => l.line.startsWith("materialize "))).toEqual([]);
     });
@@ -1746,7 +1747,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(outcomeFromChecks(checks)).toEqual({ state: "done", detail: "2 checks passed" });
       });
 
-      test("one critical failure -> failed, names the id, points at rt verify", () => {
+      test("one critical failure with no row in hand -> failed, falls back to the id, points at rt verify", () => {
         const checks = [
           { name: "a", status: "pass" as const, detail: "", severity: "critical" as const },
           { name: "tool.app", status: "fail" as const, detail: "", severity: "critical" as const },
@@ -1766,7 +1767,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.team.doppler", "tool", "doppler", "missing")];
         expect(outcomeFromChecks([fail("account.slack"), fail("tool.team.doppler")], rows)).toEqual({
           state: "needs-you",
-          detail: "to connect: Slack · to install: doppler",
+          detail: "To connect: Slack. To install: doppler",
         });
       });
 
@@ -1784,21 +1785,21 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           leftForMember: (name) => name === "account.slack",
         });
         expect(readCount).toBe(2);
-        expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "to connect: Slack" });
+        expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "To connect: Slack" });
       });
 
       test("a machine with more than one team zone reads as needs-you, so an update run reports it", () => {
         const detail = "this machine has 2 team zones (acme, globex); mattstack supports one team per machine today. Remove the extra zone, or wait for multi-team support.";
         const rows = [{ ...rowOf("team.one-per-machine", "tool", "One team per machine", "needs-you"), required: false, detail }];
         const checks = [{ name: "team.one-per-machine", status: "warn" as const, detail, severity: "warning" as const }];
-        expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "more than one team on this Mac: open Setup status" });
+        expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "More than one team on this Mac: open Setup status" });
       });
 
-      test("a genuine failure stays failed and still names what is left to connect", () => {
+      test("a genuine failure stays failed, is named by its row title, and still names what is left to connect", () => {
         const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.app", "tool", "mattstack.app", "error"), rowOf("tool.team.doppler", "tool", "doppler", "missing")];
         expect(outcomeFromChecks([fail("account.slack"), fail("tool.app"), fail("tool.team.doppler")], rows)).toEqual({
           state: "failed",
-          detail: "1 check failed: tool.app. to connect: Slack · to install: doppler",
+          detail: "1 check failed: mattstack.app. To connect: Slack. To install: doppler",
           remedy: "Run rt verify for details",
         });
       });
@@ -1811,7 +1812,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const secrets = { has: async (domain: string, key: string) => (`${domain}.${key}` === "rt.gitlabToken" ? "tok" : null) };
         const rows = await accountRows(p, team, [], secrets, null, { forgeHost: "gitlab.com" });
         expect(rows.find((r) => r.id === "account.gitlab")?.status).toBe("needs-you");
-        expect(outcomeFromChecks([fail("account.gitlab")], rows)).toEqual({ state: "needs-you", detail: "to connect: GitLab" });
+        expect(outcomeFromChecks([fail("account.gitlab")], rows)).toEqual({ state: "needs-you", detail: "To connect: GitLab" });
       });
 
       test("an unpeered joined board blocks neither Install nor Finish, yet verify reports it and the update notification counts it", async () => {
@@ -1834,9 +1835,9 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(plan.finishBlockedBy).toEqual([]);
 
         const outcome = outcomeFromChecks(rowsToChecks(plan, { ci: false }), rows);
-        expect(outcome).toEqual({ state: "needs-you", detail: "board not peered: ask the team owner to re-invite you" });
+        expect(outcome).toEqual({ state: "needs-you", detail: "Board not peered: ask the team owner to re-invite you" });
         expect(updateNotification("1.2.3", [{ id: "verify", state: outcome.state, detail: (outcome as { detail: string }).detail }])?.message).toBe(
-          "verify: board not peered: ask the team owner to re-invite you",
+          "verify: Board not peered: ask the team owner to re-invite you",
         );
       });
 
@@ -1844,7 +1845,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const rows = [rowOf("account.slack", "account", "Slack", "missing"), { ...rowOf("account.board-peering", "account", "Board peering", "needs-you"), required: false }];
         expect(outcomeFromChecks([fail("account.slack"), { name: "account.board-peering", status: "warn", detail: "", severity: "warning" }], rows)).toEqual({
           state: "needs-you",
-          detail: "to connect: Slack · board not peered: ask the team owner to re-invite you",
+          detail: "To connect: Slack. Board not peered: ask the team owner to re-invite you",
         });
       });
 
@@ -1949,7 +1950,8 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const { ctx } = makeCtx(p, { ci: true });
         const outcome = await verifyStep.run(ctx);
         expect(outcome.state).toBe("failed");
-        expect(detailOf(outcome)).toContain("tool.app");
+        expect(detailOf(outcome)).toContain("mattstack.app");
+        expect(detailOf(outcome)).not.toContain("tool.app");
         expect(remedyOf(outcome)).toBe("Run rt verify for details");
       });
 

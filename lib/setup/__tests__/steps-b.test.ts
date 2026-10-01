@@ -880,7 +880,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       const p = fakeProbes({ home, ...materializeWorld(home) });
       const { ctx } = makeCtx(p);
-      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file" });
       expect(p.calls.exec).toContainEqual(["git", "-C", repoDir, "remote", "get-url", "origin"]);
       expect(p.readFile(`${home}/.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets/skills.jsonc`)).not.toBeNull();
     });
@@ -895,7 +895,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const fragment = `${home}/.mattstack/teams/acme/mattstack/packs/widgets/pack/skills.jsonc`;
       expect(await skillsMaterializeStep.run(ctx)).toEqual({
         state: "done",
-        detail: `materialized 0 pack files; failed: widgets (${repoName}): fragment is not valid JSONC: ${fragment}`,
+        detail: `Materialized 0 pack files; failed: widgets (${repoName}): fragment is not valid JSONC: ${fragment}`,
       });
       expect(logs.some((l) => l.line === `${repoName}: widgets: fragment is not valid JSONC: ${fragment}`)).toBe(true);
     });
@@ -908,7 +908,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const p = fakeProbes({ home, ...materializeWorld(home, { siblingFragment: JSON.stringify({ extends: "acme-base@acme" }) }) });
       expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({
         state: "done",
-        detail: `materialized 1 pack file; failed: gadgets (${repoName}): gadgets extends acme-base@acme, which is not installed; add it to the team's claude.plugins`,
+        detail: `Materialized 1 pack file; failed: gadgets (${repoName}): gadgets extends acme-base@acme, which is not installed; add it to the team's claude.plugins`,
       });
     });
 
@@ -925,7 +925,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
         exec: async (argv) => (argv.includes(undeclared) ? ok("https://gitlab.example.com/acme/other.git\n") : world.exec(argv)),
       });
       const { ctx, logs } = makeCtx(p);
-      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file, no skills declared 1" });
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file. 1 repo declares no skills" });
       expect(logs.filter((l) => l.id === "skills.materialize" && !l.line.startsWith("board.defaultPack"))).toEqual([]);
     });
 
@@ -934,7 +934,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       updateRepoIndex(basename(repoDir), repoDir);
       const p = fakeProbes({ home, ...materializeWorld(home), exec: async () => ({ code: 1, stdout: "", stderr: "error: No such remote 'origin'" }) });
       const { ctx, logs } = makeCtx(p);
-      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 0 pack files, no skills declared 1" });
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "Materialized 0 pack files. 1 repo declares no skills" });
       expect(logs.filter((l) => l.id === "skills.materialize" && !l.line.startsWith("board.defaultPack"))).toEqual([]);
     });
 
@@ -943,8 +943,8 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       updateRepoIndex(basename(repoDir), repoDir);
       const p = fakeProbes({ home, ...materializeWorld(home) });
 
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file" });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file" });
     });
 
     function staleGadgetsProbes() {
@@ -963,7 +963,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
     test("a bindings file no pack still owns is set aside and counted", async () => {
       const { p, packs } = staleGadgetsProbes();
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file, Set aside 1 stale bindings file" });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file. Set aside 1 stale bindings file" });
       expect(p.readFile(`${packs}/gadgets/skills.jsonc`)).toBeNull();
       expect(p.readFile(`${packs}/gadgets/skills.jsonc.stale`)).toBe("// zone: acme\n{}");
     });
@@ -977,7 +977,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       };
       expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({
         state: "done",
-        detail: `materialized 1 pack file; warning: ${repoName}: could not set aside ${packs}/gadgets/skills.jsonc: EACCES: permission denied`,
+        detail: `Materialized 1 pack file; warning: ${repoName}: could not set aside ${packs}/gadgets/skills.jsonc: EACCES: permission denied`,
       });
       expect(p.readFile(`${packs}/gadgets/skills.jsonc`)).toBe("// zone: acme\n{}");
     });
@@ -993,7 +993,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       test("writes the team's first pack when the key is unwritten", async () => {
         const { ctx, logs } = makeCtx(materializeProbes(), { team: ACME });
-        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file" });
         expect(getSetting("board.defaultPack").value).toBe("widgets");
         expect(getSetting("board.defaultPack").provenance.some((p) => p.scope === "user")).toBe(true);
         expect(logs).toContainEqual({ id: "skills.materialize", line: "board.defaultPack: set to widgets" });
@@ -1008,13 +1008,13 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       test("an update run seeds it too", async () => {
         const { ctx } = makeCtx(materializeProbes(), { team: ACME, update: true });
-        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file" });
         expect(getSetting("board.defaultPack").value).toBe("widgets");
       });
 
       test("no team pack: nothing written, the step is still done", async () => {
         const { ctx, logs } = makeCtx(materializeProbes(), { team: { slug: "gadgets-co", name: "Gadgets", mode: "join" } });
-        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file" });
         expect(getSetting("board.defaultPack").value).toBeUndefined();
         expect(logs).toContainEqual({ id: "skills.materialize", line: "board.defaultPack: the team has no packs, left unset" });
       });

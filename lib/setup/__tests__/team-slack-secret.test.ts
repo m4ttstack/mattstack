@@ -103,10 +103,9 @@ describe("slack wait wording", () => {
   });
 
   test("awaiting acceptance: the CLI names both sides", () => {
-    const msg = slackWaitCliMessage({ kind: "awaiting-acceptance" }, SLUG);
-    expect(msg).toContain("rt team members sync");
-    expect(msg).toContain("rt team pull");
-    expect(msg[0]).toBe(msg[0]!.toLowerCase());
+    expect(slackWaitCliMessage({ kind: "awaiting-acceptance" }, SLUG)).toBe(
+      `Waiting for your team owner to accept you. They run rt team members sync, then you run rt team pull --team ${SLUG} and connect again`,
+    );
   });
 
   test("not shared: names the owner's missing step, never acceptance", () => {
@@ -114,16 +113,15 @@ describe("slack wait wording", () => {
     expect(row).toContain("Your team owner hasn't shared the Slack app's secret yet");
     expect(row).not.toContain("accept");
     const cli = slackWaitCliMessage({ kind: "not-shared" }, SLUG);
-    expect(cli).toContain("rt team pull");
+    expect(cli).toBe(`Your team owner hasn't shared the Slack app's secret yet. They connect Slack or run Install on their machine, then you run rt team pull --team ${SLUG} and connect again`);
     expect(cli).not.toContain("accept");
-    expect(cli[0]).toBe(cli[0]!.toLowerCase());
   });
 
-  test("unreadable: lowercase and names rt team pull", () => {
+  test("unreadable: one sentence-case wording for the row and the CLI, naming rt team pull", () => {
     const wait = { kind: "unreadable" as const, path: BOARD, reason: "could not be read" };
     for (const text of [slackWaitRowDetail(wait, SLUG), slackWaitCliMessage(wait, SLUG)]) {
-      expect(text[0]).toBe(text[0]!.toLowerCase());
-      expect(text).toContain("rt team pull");
+      expect(text).toBe(`The team's secrets file at ${BOARD} could not be read. Run rt team pull --team ${SLUG}, and if it stays this way, ask your team owner or re-clone the team`);
+      expect(text).not.toContain("`");
     }
   });
 });

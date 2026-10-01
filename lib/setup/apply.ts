@@ -534,7 +534,7 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
         const prompts = request.type === "app-privileged";
         if (prompts && flags.nonInteractive) return "app-unanswerable";
         if (prompts && !(flags.tty ?? process.stdin.isTTY === true)) return "needs-terminal";
-        if (prompts) emit({ event: "log", id, line: "approve the admin prompt mattstack.app shows" });
+        if (prompts) emit({ event: "log", id, line: "Approve the admin prompt mattstack.app shows" });
         const direct = await askAppDirectly(p.tray, request);
         if (direct !== null) return direct;
       }

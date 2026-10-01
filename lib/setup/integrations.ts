@@ -267,7 +267,7 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
 
       if (data.ok === true) return { status: "ready", detail: `Connected to ${data.team ?? "an unnamed workspace"}`, scopesSeen: parseHeaderList(res.headers["x-oauth-scopes"]) };
       if (res.status !== 200) return { status: "error", detail: `Slack answered HTTP ${res.status} to the sign-in check`, scopesSeen: [] };
-      return { status: "invalid", detail: data.error ? `slack error: ${data.error}` : "slack auth.test returned ok:false", scopesSeen: [] };
+      return { status: "invalid", detail: data.error ? `Slack returned an error: ${data.error}` : "Slack did not accept this token", scopesSeen: [] };
     },
   },
 

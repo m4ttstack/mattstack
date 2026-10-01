@@ -570,6 +570,8 @@ describe("setupApply: a full run with nothing left to finish records Finish", ()
     await setupApply(["--json"], {}, deps);
     expect(deps.exitCodes).toEqual([]);
     for (const line of deps.lines) expect(JSON.parse(line).event).toBeDefined();
+    expect(quiet.stdout()).toBe("");
+    expect(quiet.stderr()).toBe("");
     const log = readdirSync(logsDir()).filter((f) => f.startsWith("cli.")).map((f) => readFileSync(`${logsDir()}/${f}`, "utf8")).join("");
     expect(log).toContain("disk full");
   });

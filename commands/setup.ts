@@ -467,7 +467,7 @@ export async function setupInteractive(args: string[], _ctx: CommandContext = {}
   out.print(...planBlocks(plan, "plan"));
 
   if (!plan.canInstall && !args.includes("--force")) {
-    out.fail({ title: "This Mac is not ready to install yet", why: `Waiting on ${rowTitles(plan, plan.requiredMissing).join(", ")}` });
+    out.fail({ title: NOT_READY_TITLE, why: `Waiting on ${rowTitles(plan, plan.requiredMissing).join(", ")}` });
     return deps.exit(2);
   }
 
@@ -1452,10 +1452,10 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
       status: "invalid",
       detail:
         data.error === "bad_redirect_uri"
-          ? `slack error: bad_redirect_uri: ${redirectFix}, then connect again`
+          ? `Slack returned an error: bad_redirect_uri. To fix it, ${redirectFix}, then connect again`
           : data.error
-            ? `slack error: ${data.error}`
-            : "slack oauth.v2.access returned no user token",
+            ? `Slack returned an error: ${data.error}`
+            : "Slack returned no user token",
       scopesSeen: [],
     });
     return;
@@ -1477,7 +1477,7 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   printIntegrationResult(deps, json, {
     integration: "slack",
     status: "ready",
-    detail: staged ? "Saved for now; Install stores it once your key exists" : "slack connected",
+    detail: staged ? "Saved for now; Install stores it once your key exists" : "Slack connected",
     scopesSeen: granted,
   });
 }

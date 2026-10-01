@@ -213,7 +213,7 @@ async function runMaterializeAfterInstall(ctx: ApplyContext): Promise<string> {
   const result = await materializeSkills(ctx.p, {});
   if (result.skipped) {
     ctx.log("plugins.install", `materialize: ${result.reason}`);
-    return `materialize skipped: ${result.reason}`;
+    return `Skills were not materialized: ${result.reason}`;
   }
   for (const r of result.repos.filter((r) => !r.ok && !r.noManifest)) ctx.log("plugins.install", `materialize ${r.name}: ${r.detail}`);
   return materializeTally(result.repos);
@@ -379,8 +379,6 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
         await enableTrusted(runner, plugin, dir);
       }
       if (outcome.kind === "failed") {
-        // The install-stage wording is the setup contract's detail string for a
-        // failed install and must stay byte-identical.
         const detail = outcome.stage === "install" ? `Installing plugins failed (exit ${outcome.code})` : `${plugin}: ${outcome.detail}`;
         return { state: "failed", detail, remedy: RETRY_REMEDY };
       }
@@ -411,7 +409,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   const materializeDetail = await runMaterializeAfterInstall(ctx);
-  const pendingNote = pending.length > 0 ? ` · ${pending.length} awaiting your approval to enable: ${pending.join(", ")}` : "";
+  const pendingNote = pending.length > 0 ? `. ${pending.length} ${pending.length === 1 ? "plugin" : "plugins"} awaiting your approval to enable: ${pending.join(", ")}` : "";
   return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${pendingNote}` };
 }
 

@@ -423,14 +423,14 @@ describe("rt uninstall", () => {
       expect(seen.map((s) => [s.url, s.init?.method])).toEqual([["http://127.0.0.1:4100/api/v1/apps/managed/remove", "POST"]]);
       expect(seen[0]!.init?.body).toBeUndefined();
       expect(p.calls.exec).toEqual([]);
-      expect(lastStep(events)).toMatchObject({ state: "done", detail: "removed: board, chat, console" });
+      expect(lastStep(events)).toMatchObject({ state: "done", detail: "Removed board, chat, console" });
     });
 
     test("nothing registered -> done, says so", async () => {
       const { p } = deckUp({ status: 200, body: JSON.stringify({ ok: true, removed: [], failed: [] }) });
       const { ctx, events } = makeCtx(p);
       expect((await runUninstall(ctx, action)).ok).toBe(true);
-      expect(lastStep(events)).toMatchObject({ state: "done", detail: "no mattstack apps in deck" });
+      expect(lastStep(events)).toMatchObject({ state: "done", detail: "No mattstack apps in deck" });
     });
 
     test("partial teardown (ok:false) -> failed, names what was removed and what was kept, and where to look when Retry keeps failing", async () => {
@@ -439,7 +439,7 @@ describe("rt uninstall", () => {
       expect((await runUninstall(ctx, action)).ok).toBe(false);
       expect(lastStep(events)).toMatchObject({
         state: "failed",
-        detail: "removed: board. Could not remove chat, console",
+        detail: "Removed board. Could not remove chat, console",
         remedy: "Retry. If chat, console stays, deck's own page shows what to fix first",
       });
     });
@@ -580,7 +580,7 @@ describe("rt uninstall", () => {
       const result = await runUninstall(ctx, [{ id: "shell.remove", title: "x", kind: "rt" }]);
 
       expect(result.ok).toBe(true);
-      expect(result.stayed.some((s) => s.includes("manual"))).toBe(true);
+      expect(result.stayed).toContain("The rt block in your shell startup file needs removing by hand (an older rt wrote it without a marker)");
       expect(readFileSync(rcPath, "utf8")).toContain(MARKER); // untouched — never guessed at the extent
     });
 
