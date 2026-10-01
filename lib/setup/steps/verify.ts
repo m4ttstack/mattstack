@@ -126,6 +126,7 @@ export const verifyStep: StepDef = {
   id: "verify",
   title: "Verify your setup",
   kind: "rt",
+  updateSafe: true,
   applies: () => true,
   run: verifyRunSafe,
 };

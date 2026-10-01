@@ -16,10 +16,14 @@ export interface SetupState {
   extensionEditors: string[];
   /** Tools linked with `rt deps link --force`: reconcile() must never auto-unlink these just because a user copy showed up on PATH — force is exactly the user overriding that. */
   forcedLinks: string[];
+  /** Ids of one-time migrations that completed (done or skipped) on this machine; a failed one is never recorded, so it runs again. */
+  migrations: string[];
   lastApplyAt?: string;
+  /** The rt version the last `rt setup update` run stamped, whatever its outcome. */
+  lastUpdate?: { version: string; at: string };
 }
 
-const EMPTY_STATE: SetupState = { v: 1, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [] };
+const EMPTY_STATE: SetupState = { v: 1, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] };
 
 function statePath(home: string): string {
   return join(home, ".mattstack", "rt", "setup-state.json");
@@ -47,6 +51,7 @@ export function updateSetupState(p: Pick<Probes, "readFile" | "writeFile" | "mkd
     links: [...new Set(patched.links)],
     extensionEditors: [...new Set(patched.extensionEditors)],
     forcedLinks: [...new Set(patched.forcedLinks)],
+    migrations: [...new Set(patched.migrations)],
   };
   const path = statePath(p.home);
   p.mkdirp(dirname(path));

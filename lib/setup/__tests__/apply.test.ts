@@ -6,7 +6,9 @@ import { setSetting } from "../../settings/write.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
-import { createApplyContext, outcomeFromNeed, runApplyWith } from "../apply.ts";
+import { createApplyContext, outcomeFromNeed, runApplyWith, runUpdateWith } from "../apply.ts";
+import type { MigrationDef } from "../migrations/index.ts";
+import { readSetupState } from "../state.ts";
 import { createNdjsonEmitter, type Emit } from "../emit.ts";
 import type { ApplyEvent, StepId } from "../contract.ts";
 import { STEP_IDS } from "../contract.ts";
@@ -1355,5 +1357,145 @@ describe("ApplyContext.redact", () => {
     ctx.log("team.join", `key=${rawKey}`);
 
     expect(events).toEqual([{ event: "log", id: "team.join", line: "key=***" }]);
+  });
+});
+
+function fakeMigration(id: string, outcome: StepOutcome | (() => Promise<StepOutcome>)): MigrationDef {
+  return { id, title: id, run: typeof outcome === "function" ? outcome : async () => outcome };
+}
+
+function updateStep(id: StepId, outcome: StepOutcome, updateSafe: true | undefined = true): StepDef {
+  return { ...fakeStep(id, outcome), ...(updateSafe ? { updateSafe: true } : {}) };
+}
+
+describe("runUpdateWith", () => {
+  test("runs pending migrations, then update-safe steps in order, then verify; non-safe steps never run", async () => {
+    const { ctx, events } = testCtx();
+    const ran: string[] = [];
+    const steps: StepDef[] = [
+      updateStep("verify", { state: "done", detail: "3 checks passed" }),
+      { ...fakeStep("repos.clone", async () => { ran.push("repos.clone"); return { state: "done" }; }) },
+      updateStep("path.link", { state: "done", detail: "linked: rt" }),
+      updateStep("claude.permissions", { state: "skipped", detail: "already present" }),
+    ];
+    const migrations = [fakeMigration("2026-09-30-move-file", async () => { ran.push("m1"); return { state: "done", detail: "moved" }; })];
+
+    const result = await runUpdateWith(steps, migrations, ctx);
+
+    expect(result.ok).toBe(true);
+    expect(ran).toEqual(["m1"]);
+    const stepEvents = events.filter((e) => e.event === "step" && e.state !== "running").map((e) => (e.event === "step" ? e.id : ""));
+    expect(stepEvents).toEqual(["migration.2026-09-30-move-file", "path.link", "claude.permissions", "verify"]);
+    const plan = events.find((e) => e.event === "plan");
+    expect(plan && plan.event === "plan" ? plan.steps.map((s) => s.id) : []).toEqual(["migration.2026-09-30-move-file", "path.link", "claude.permissions", "verify"]);
+    expect(result.outcomes).toEqual([
+      { id: "migration.2026-09-30-move-file", state: "done", detail: "moved" },
+      { id: "path.link", state: "done", detail: "linked: rt" },
+      { id: "claude.permissions", state: "skipped", detail: "already present" },
+      { id: "verify", state: "done", detail: "3 checks passed" },
+    ]);
+  });
+
+  test("records done and skipped migrations in setup-state, never a failed one, and skips already-recorded ids", async () => {
+    const { ctx } = testCtx();
+    ctx.p.mkdirp("/fake-home/.mattstack/rt");
+    ctx.p.writeFile("/fake-home/.mattstack/rt/setup-state.json", JSON.stringify({ v: 1, migrations: ["old"] }));
+    const ran: string[] = [];
+    const migrations = [
+      fakeMigration("old", async () => { ran.push("old"); return { state: "done" }; }),
+      fakeMigration("a", { state: "done" }),
+      fakeMigration("b", { state: "skipped", detail: "nothing to fix" }),
+      fakeMigration("c", { state: "failed", detail: "boom" }),
+    ];
+
+    const result = await runUpdateWith([], migrations, ctx);
+
+    expect(ran).toEqual([]);
+    expect(readSetupState(ctx.p).migrations).toEqual(["old", "a", "b"]);
+    expect(result.ok).toBe(false);
+    expect(result.failedSteps).toEqual(["migration.c"]);
+  });
+
+  test("a failure never stops the run; done carries failedStep (first) and failedSteps (all)", async () => {
+    const { ctx, events } = testCtx();
+    const steps: StepDef[] = [
+      updateStep("path.link", { state: "failed", detail: "no bin dir" }),
+      updateStep("skills.link", { state: "done" }),
+      updateStep("claude.permissions", { state: "failed", detail: "not json" }),
+      updateStep("verify", { state: "needs-you", detail: "to connect: Slack" }),
+    ];
+
+    const result = await runUpdateWith(steps, [], ctx);
+
+    expect(events.filter((e) => e.event === "step" && e.state === "done").length).toBe(1);
+    const done = events.at(-1);
+    expect(done).toEqual({ event: "done", ok: false, failedStep: "path.link", failedSteps: ["path.link", "claude.permissions"] });
+    expect(result.failedSteps).toEqual(["path.link", "claude.permissions"]);
+  });
+
+  test("a migration throwing a plain Error fails alone: logged, recorded nowhere, and every later item still runs", async () => {
+    const { ctx, events } = testCtx();
+    const migrations = [fakeMigration("bad", async () => { throw new Error("kaboom"); }), fakeMigration("after", { state: "done" })];
+    const steps: StepDef[] = [updateStep("path.link", { state: "done" }), updateStep("verify", { state: "done" })];
+
+    const result = await runUpdateWith(steps, migrations, ctx);
+
+    expect(events.filter((e) => e.event === "done").length).toBe(1);
+    expect(events.filter((e) => e.event === "step" && e.id === "migration.bad" && e.state === "failed")).toEqual([
+      { event: "step", id: "migration.bad", state: "failed", detail: "bug: kaboom" },
+    ]);
+    expect(events).toContainEqual({ event: "log", id: "migration.bad", line: "warn: bug: kaboom" });
+    expect(readSetupState(ctx.p).migrations).toEqual(["after"]);
+    expect(result.outcomes.map((o) => `${o.id}:${o.state}`)).toEqual(["migration.bad:failed", "migration.after:done", "path.link:done", "verify:done"]);
+    expect(result.failedSteps).toEqual(["migration.bad"]);
+    expect(events.at(-1)).toEqual({ event: "done", ok: false, failedStep: "migration.bad", failedSteps: ["migration.bad"] });
+  });
+
+  test("a step throwing a plain Error is a bug: reported failed, later items skipped, rethrown after exactly one done", async () => {
+    const { ctx, events } = testCtx();
+    const ran: string[] = [];
+    const steps: StepDef[] = [
+      { ...updateStep("path.link", { state: "done" }), run: async () => { throw new Error("kaboom"); } },
+      { ...updateStep("verify", { state: "done" }), run: async () => { ran.push("verify"); return { state: "done" }; } },
+    ];
+
+    await expect(runUpdateWith(steps, [], ctx)).rejects.toThrow("kaboom");
+
+    expect(ran).toEqual([]);
+    expect(events.filter((e) => e.event === "done")).toEqual([{ event: "done", ok: false, failedStep: "path.link", failedSteps: ["path.link"] }]);
+    expect(events).toContainEqual({ event: "step", id: "path.link", state: "failed", detail: "bug: kaboom" });
+  });
+
+  test("a step throwing UserActionableError becomes a failed item with its remedy and the run goes on", async () => {
+    const { ctx, events } = testCtx();
+    const steps: StepDef[] = [
+      updateStep("path.link", { state: "done" }),
+      { ...updateStep("skills.link", { state: "done" }), run: async () => { throw new UserActionableError("x", "cannot link", { remedy: "relink by hand" }); } },
+      updateStep("verify", { state: "done" }),
+    ];
+    const result = await runUpdateWith(steps, [], ctx);
+    expect(result.ok).toBe(false);
+    expect(events.find((e) => e.event === "step" && e.id === "skills.link" && e.state === "failed")).toMatchObject({ detail: "cannot link", remedy: "relink by hand" });
+    expect(events.find((e) => e.event === "step" && e.id === "verify" && e.state === "done")).toBeDefined();
+  });
+
+  test("writes lastApplyAt and keeps the setup intent", async () => {
+    const { ctx } = testCtx();
+    ctx.p.mkdirp("/fake-home/.mattstack/rt");
+    ctx.p.writeFile("/fake-home/.mattstack/rt/setup-intent.json", JSON.stringify({ mode: "restore", homeRepo: "o/r" }));
+    await runUpdateWith([updateStep("verify", { state: "done" })], [], ctx);
+    expect(readSetupState(ctx.p).lastApplyAt).toBeDefined();
+    expect(ctx.p.readFile("/fake-home/.mattstack/rt/setup-intent.json")).not.toBeNull();
+  });
+
+  test("verify runs last even when listed first in the registry, and a steps list without verify still runs", async () => {
+    const { ctx, events } = testCtx();
+    const steps: StepDef[] = [updateStep("verify", { state: "done" }), updateStep("path.link", { state: "done" })];
+    await runUpdateWith(steps, [], ctx);
+    const ids = events.filter((e) => e.event === "step" && e.state !== "running").map((e) => (e.event === "step" ? e.id : ""));
+    expect(ids).toEqual(["path.link", "verify"]);
+    const { ctx: ctx2, events: events2 } = testCtx();
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], ctx2);
+    expect(events2.at(-1)).toEqual({ event: "done", ok: true });
   });
 });

@@ -199,6 +199,7 @@ export const NOTIFICATION_EVENTS = [
   "merge_conflicts", "needs_rebase", "merge_error", "new_comment", "stale_port", "runaway_process",
   "evidence_batch_ready", "evidence_failed", "chat_mention", "credential_health", "member_joined",
   "worktree_triage",
+  "setup_update",
 ] as const;
 
 /** board's slack-emoji.ts DEFAULT_SLACK_EMOJI; board asserts parity. */

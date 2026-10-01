@@ -16,7 +16,8 @@ import { fastBrowserMarketplaceSource } from "./plugins.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { hasRemote } from "../home-git.ts";
 import type { Probes } from "../probes.ts";
-import { claudeConfigDirs, NO_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
+import { readSetupState } from "../state.ts";
+import { claudeConfigDirs, NO_EDITORS_DETAIL, NO_RECORDED_EDITORS_DETAIL, setupTool, VSIX_NOT_FOUND_DETAIL, type ToolsInstallSeams } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 function realSleep(ms: number): Promise<void> {
@@ -63,6 +64,7 @@ export const fastbrowserSetupStep: StepDef = {
   id: "fastbrowser.setup",
   title: "Set up Fast Browser",
   kind: "rt",
+  updateSafe: true,
   applies: () => true,
   run: fastbrowserSetupRunSafe,
 };
@@ -91,6 +93,7 @@ export const herdrIntegrationStep: StepDef = {
   id: "herdr.integration",
   title: "Set up herdr integration",
   kind: "rt",
+  updateSafe: true,
   applies: () => true,
   run: herdrIntegrationRunSafe,
 };
@@ -99,10 +102,14 @@ export const herdrIntegrationStep: StepDef = {
 
 /** `seams` is exposed only for tests — `detectEditors`/`findVsix` read the real machine, so a test drives them the same way tools-install.test.ts does rather than through Probes. Production always takes `setupTool`'s own real-seam default. */
 export async function extensionInstallRun(ctx: ApplyContext, seams?: ToolsInstallSeams): Promise<StepOutcome> {
-  const result = await setupTool(ctx.p, "extension", { configDirs: [] }, seams);
+  // An update run touches only editors setup-state records rt installing
+  // into; any other detected editor is the member's to opt into.
+  const onlyEditors = ctx.update ? readSetupState(ctx.p).extensionEditors : undefined;
+  const result = await setupTool(ctx.p, "extension", { configDirs: [], ...(onlyEditors ? { onlyEditors } : {}) }, seams);
   if (result.ok) return { state: "done", detail: result.detail };
   if (result.detail === VSIX_NOT_FOUND_DETAIL) return { state: "skipped", detail: "extension not bundled" };
   if (result.detail === NO_EDITORS_DETAIL) return { state: "skipped", detail: "no editor found" };
+  if (result.detail === NO_RECORDED_EDITORS_DETAIL) return { state: "skipped", detail: "no editor rt installed the extension into" };
   return { state: "failed", detail: result.detail, remedy: "Install the extension manually, then Retry" };
 }
 
@@ -118,6 +125,7 @@ export const extensionInstallStep: StepDef = {
   id: "extension.install",
   title: "Install the browser extension",
   kind: "rt",
+  updateSafe: true,
   applies: () => true,
   run: extensionInstallRunSafe,
 };

@@ -48,6 +48,7 @@ export const skillsMaterializeStep: StepDef = {
   id: "skills.materialize",
   title: "Materialize skills",
   kind: "rt",
+  updateSafe: true,
   applies: () => true,
   run: skillsMaterializeRunSafe,
 };
@@ -90,6 +91,7 @@ export const skillsLinkStep: StepDef = {
   id: "skills.link",
   title: "Link bundled skills",
   kind: "rt",
+  updateSafe: true,
   applies: () => true,
   run: skillsLinkRunSafe,
 };

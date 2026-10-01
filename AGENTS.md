@@ -368,6 +368,27 @@ is added there and nowhere else. Add a row by following an existing validator in
 and its `steps-*.test.ts` twin; the tray's `PlanModels.swift` decodes the
 same contract, so a new field needs the Swift side too.
 
+## Setup after an update
+
+`rt setup update` is what the app runs at every launch once its services
+settle (`AppDelegate.settleAgentsAfterLaunch`); rt decides whether anything
+happens (`lib/setup/update.ts`: never set up, already stamped for this
+version, or run). A run is pending migrations, then every `StepDef` with
+`updateSafe: true`, then `verify`, through `runUpdateWith` in
+`lib/setup/apply.ts`. No failed outcome stops it, and a migration that
+throws is one more failed item; only a step that throws a plain error
+ends the run, as a bug (exit 1, no stamp). Otherwise the version is
+stamped in `~/.mattstack/rt/setup-state.json` whatever the outcome. Mark a
+step update-safe only when it is idempotent, never calls `ctx.need`, and
+never overwrites a value the user chose; under `ctx.update` it also leaves
+alone what the member undid since rt put it there (a disabled or removed
+plugin, an editor setup-state has no record of).
+`lib/setup/__tests__/update-safe.test.ts` pins the set. Add a one-time fix as a `MigrationDef` in
+`lib/setup/migrations/index.ts` with a dated id that is never renamed; it
+runs once per machine and is recorded when `done` or `skipped`. The tray
+only spawns the verb and routes the `setup_update` notification click to the
+Setup status window; put no decision in Swift.
+
 ## Baseline Claude permissions are provisional, and never git
 
 `lib/setup/base-permissions.ts` is the allow list Install unions into every
