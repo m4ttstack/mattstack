@@ -17,6 +17,8 @@
   group's state; an MR a later fetch adds joins push without disturbing the
   others. On GitHub, group dashboards now report connected and poll instead
   of calling `watchMR`, which throws there.
+- `channelFromCodeownerSection(section)` reads the Slack channel a CODEOWNERS
+  section name carries (`Acme - #pod-acme` gives `pod-acme`), or null.
 
 ### Patch Changes
 
