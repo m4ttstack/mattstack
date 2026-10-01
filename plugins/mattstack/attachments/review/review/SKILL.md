@@ -132,18 +132,16 @@ digraph review {
     "Open the review off-script gate: gh pr review refused" [shape=box];
     "gh pr review off-script answer?" [shape=diamond];
     "gh pr comment <ref> with the summary body" [shape=plaintext];
-    "Next selected finding with a file anchor?" [shape=diamond];
-    "mr_comment_inline {mrUrl, path, line, body}" [shape=plaintext];
-    "mr_comment_inline result?" [shape=diamond];
-    "STOP: never post with the GitLab CLI; open the review off-script gate for the refused comment" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Open the review off-script gate: mr_comment_inline refused" [shape=box];
-    "Inline comment off-script answer?" [shape=diamond];
-    "mr_comment {mrUrl, body, resolvable}" [shape=plaintext];
-    "mr_comment result?" [shape=diamond];
-    "Open the review off-script gate: mr_comment summary refused" [shape=box];
-    "Summary comment off-script answer?" [shape=diamond];
-    "Make the recorded summary move once" [shape=box];
-    "Review disposition is approve?" [shape=diamond];
+    "Compose the submitted review: comments, summary, outcome" [shape=box];
+    "mr_review_submit {mrUrl, outcome, summary, comments, replies}" [shape=plaintext];
+    "mr_review_submit result?" [shape=diamond];
+    "Bad anchors moved into the summary once already?" [shape=diamond];
+    "Move the bad-anchor findings into the summary" [shape=box];
+    "STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Open the review off-script gate: mr_review_submit refused" [shape=box];
+    "Open the review off-script gate: pending comments on the MR" [shape=box];
+    "Review submit off-script answer?" [shape=diamond];
+    "Make the recorded review move once" [shape=box];
     "mr_approve {mrUrl}" [shape=plaintext];
     "mr_approve result?" [shape=diamond];
     "Open the review off-script gate: mr_approve refused" [shape=box];
@@ -294,7 +292,7 @@ digraph review {
     "Review iterate note asks for another depth?" -> "Review report path given?" [label="no: draft edits only; the next gate is a new one"];
 
     "Review posting forge?" -> "gh pr review <ref> with the disposition and the summary body" [label="GitHub"];
-    "Review posting forge?" -> "Next selected finding with a file anchor?" [label="GitLab"];
+    "Review posting forge?" -> "Compose the submitted review: comments, summary, outcome" [label="GitLab"];
     "gh pr review <ref> with the disposition and the summary body" -> "gh pr review result?";
     "gh pr review result?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="posted"];
     "gh pr review result?" -> "Open the review off-script gate: gh pr review refused" [label="error"];
@@ -304,29 +302,25 @@ digraph review {
     "gh pr review off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
     "gh pr review off-script answer?" -> "Own review run: close it as abandoned?" [label="hand back"];
     "gh pr comment <ref> with the summary body" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}";
-    "Next selected finding with a file anchor?" -> "mr_comment_inline {mrUrl, path, line, body}" [label="yes"];
-    "Next selected finding with a file anchor?" -> "mr_comment {mrUrl, body, resolvable}" [label="no: all posted or moved to the summary"];
-    "mr_comment_inline {mrUrl, path, line, body}" -> "mr_comment_inline result?";
-    "mr_comment_inline result?" -> "Next selected finding with a file anchor?" [label="posted"];
-    "mr_comment_inline result?" -> "Open the review off-script gate: mr_comment_inline refused" [label="refused: the daemon already retried once"];
-    "mr_comment_inline result?" -> "STOP: never post with the GitLab CLI; open the review off-script gate for the refused comment" [label="tempted to post it with the GitLab CLI"];
-    "STOP: never post with the GitLab CLI; open the review off-script gate for the refused comment" -> "Open the review off-script gate: mr_comment_inline refused";
-    "Open the review off-script gate: mr_comment_inline refused" -> "Inline comment off-script answer?";
-    "Inline comment off-script answer?" -> "Next selected finding with a file anchor?" [label="take: the finding moves into the summary"];
-    "Inline comment off-script answer?" -> "mr_comment_inline {mrUrl, path, line, body}" [label="iterate here: retry with their note"];
-    "Inline comment off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
-    "Inline comment off-script answer?" -> "Own review run: close it as abandoned?" [label="hand back"];
-    "mr_comment {mrUrl, body, resolvable}" -> "mr_comment result?";
-    "mr_comment result?" -> "Review disposition is approve?" [label="posted: keep mrUrl"];
-    "mr_comment result?" -> "Open the review off-script gate: mr_comment summary refused" [label="refused"];
-    "Open the review off-script gate: mr_comment summary refused" -> "Summary comment off-script answer?";
-    "Summary comment off-script answer?" -> "Make the recorded summary move once" [label="take"];
-    "Summary comment off-script answer?" -> "mr_comment {mrUrl, body, resolvable}" [label="iterate here: retry with their note"];
-    "Summary comment off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
-    "Summary comment off-script answer?" -> "Own review run: close it as abandoned?" [label="hand back"];
-    "Make the recorded summary move once" -> "Review disposition is approve?";
-    "Review disposition is approve?" -> "mr_approve {mrUrl}" [label="yes"];
-    "Review disposition is approve?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="no"];
+    "Compose the submitted review: comments, summary, outcome" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies}";
+    "mr_review_submit {mrUrl, outcome, summary, comments, replies}" -> "mr_review_submit result?";
+    "mr_review_submit result?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="published, approved as asked: keep mrUrl"];
+    "mr_review_submit result?" -> "Open the review off-script gate: mr_approve refused" [label="published, approved: false on an approve"];
+    "mr_review_submit result?" -> "Bad anchors moved into the summary once already?" [label="published: false, bad-anchors"];
+    "mr_review_submit result?" -> "Open the review off-script gate: pending comments on the MR" [label="published: false, pending-drafts"];
+    "mr_review_submit result?" -> "Open the review off-script gate: mr_review_submit refused" [label="error"];
+    "mr_review_submit result?" -> "STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate" [label="tempted to post the pieces with mr_comment_inline, mr_comment or the GitLab CLI"];
+    "STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate" -> "Open the review off-script gate: mr_review_submit refused";
+    "Bad anchors moved into the summary once already?" -> "Move the bad-anchor findings into the summary" [label="no"];
+    "Bad anchors moved into the summary once already?" -> "Open the review off-script gate: mr_review_submit refused" [label="yes"];
+    "Move the bad-anchor findings into the summary" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies}";
+    "Open the review off-script gate: mr_review_submit refused" -> "Review submit off-script answer?";
+    "Open the review off-script gate: pending comments on the MR" -> "Review submit off-script answer?";
+    "Review submit off-script answer?" -> "Make the recorded review move once" [label="take"];
+    "Review submit off-script answer?" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies}" [label="iterate here: retry with their note"];
+    "Review submit off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
+    "Review submit off-script answer?" -> "Own review run: close it as abandoned?" [label="hand back"];
+    "Make the recorded review move once" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}";
     "mr_approve {mrUrl}" -> "mr_approve result?";
     "mr_approve result?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="approved"];
     "mr_approve result?" -> "Open the review off-script gate: mr_approve refused" [label="refused"];
@@ -645,9 +639,28 @@ block and resets the verify-round counter, since a deeper depth means new
 setup and a fresh verify pass. Anything else is a draft edit only:
 re-present, and the next gate is a NEW gate, never the old one reopened.
 
-### Make the recorded summary move once
+### Compose the submitted review: comments, summary, outcome
 
-Exactly the move the off-script gate recorded for the refused summary,
+One call carries the whole review. `comments` is one entry per selected
+finding that has both `file` and `line`: `{body, path, line}`, `body` the
+finding as the summary would state it (tier, title, what to change).
+`summary` is the review-posting summary, its issue list holding every
+selected finding with no `file` or no `line`. `outcome` is the
+disposition: `comment` or `approve`. `replies` is empty on a first review.
+A review carries at most 100 comments and replies in total; past that,
+the lowest-tier anchored findings go in the summary's issue list instead.
+
+### Move the bad-anchor findings into the summary
+
+The result's `badAnchors` names comments by their index in `comments`.
+Nothing posted. Take each named finding out of `comments` and add it to
+the summary's issue list with its `file:line` in the text, as a finding
+with no anchor. Call again with the rest unchanged. This happens once: a
+second bad-anchors result is a refusal.
+
+### Make the recorded review move once
+
+Exactly the move the off-script gate recorded for the refused review,
 once.
 
 ### Make the recorded approval move once
@@ -674,24 +687,35 @@ shape in Review off-script gates below.
 The proposed move: post the summary body as a plain PR comment with `gh
 pr comment <ref>`, and leave the disposition to the human.
 
-### Open the review off-script gate: mr_comment_inline refused
+### Open the review off-script gate: mr_review_submit refused
 
-The daemon already verified placement and retried once, so a refusal
-here is final for this position. The proposed move is to post the finding
-in the summary comment instead, as if it had no `file` anchor, so the
-summary posts resolvable.
+Nothing is on the MR unless the error says the outcome is unknown or that
+it only partly landed. The proposed move: the human posts the review in
+the forge UI, approving it on an approve (the summary and every comment
+quoted in full in `context`), and the run records it as posted by the
+human. When the error says the outcome is unknown or that it only partly
+landed, `context` says so first, and the human looks for the summary on
+the MR before choosing: a summary already there means the review is up,
+and take records it without posting it again.
 
-### Open the review off-script gate: mr_comment summary refused
+### Open the review off-script gate: pending comments on the MR
 
-The inline threads are already posted: `context` lists them. The proposed
-move: the human posts the summary body (quoted in full in `context`) in
-the forge UI, and the run records it as posted by the human.
+The reviewer already has pending comments on this MR, started in the
+forge UI or left by an earlier submit that failed; a submit would publish
+those along with the review. `context` quotes the count and the first
+lines the result gave. The way on is for the human to submit or discard
+those pending comments in the forge UI, and this gate's iterate retries
+the same call, so **Iterate here** is the recommended `next`. The proposed
+move, for a take, is the one the refused-review gate proposes: the human
+posts this review in the forge UI (the summary and every comment quoted
+in full in `context`), together with their pending comments, and the run
+records it as posted by the human.
 
 ### Open the review off-script gate: mr_approve refused
 
-The findings and the summary are posted; only the approval failed. The
-proposed move: the human approves in the forge UI, and the run records
-the approval as theirs.
+The review is posted; only the approval failed. The proposed move: the
+human approves in the forge UI, and the run records the approval as
+theirs. Iterate retries `mr_approve` alone, never the review.
 
 ## Review off-script gates
 
@@ -744,9 +768,8 @@ turn.
   hold:<stage>:<attempt>, selection: {"reason": "<their words>"},
   decidedBy: <the answer's by>}` and `run_field_set {key: hold, value:
   "<their words>", stage: <stage>}`, then ends the turn.
-- On a resume, a thread or note that the latest hold's reason names as
-  already posted is never posted again; its finding is skipped at
-  posting.
+- On a resume, a review whose summary the latest hold's reason names as
+  already posted is never submitted again.
 - A gate that comes back `closed` is a hold whose reason is "gate
   closed"; record it as any hold and end the turn.
 - A fetch, diff or `gh pr diff` that errors is a hold whose reason quotes
@@ -793,16 +816,12 @@ If a rule below asks for a move this graph marks STOP, take the off-script edge 
 
 {{include:review-posting}}
 
-Posting mechanics on GitLab: a positioned inline comment is the
-`mr_comment_inline` tool, a thread reply is `mr_reply_thread`, the summary
-is ONE `mr_comment`, and the Approve disposition is `mr_approve` once the
-findings have posted. The summary posts resolvable (the default) when its
-issue list carries a selected finding with no `file` anchor, and with
-`resolvable: false` when it carries none. The daemon verifies DiffNote
-placement and, on the silent general-note degrade, retries ONCE with fresh
-diff_refs (deleting the stray notes; it cannot fix a position GitLab
-rejects outright), so never hand-build a position payload.
-`mr_comment` returns `mrUrl`, the link the close needs. On GitHub use `gh
-pr review` / `gh pr comment`: GitHub has no inline mechanism, so every
-selected finding, anchored or not, rides in the one `gh pr review` body,
-with its `file:line` in the text.
+Posting mechanics on GitLab: the review is ONE `mr_review_submit` call
+(comments, summary, outcome; `replies` on a re-review). It answers
+`published: true` with `mrUrl`, the link the close needs, or `published:
+false` with the reason and nothing posted. The daemon checks every
+comment's placement before it publishes, so never hand-build a position
+payload and never post a finding with `mr_comment_inline` here. On GitHub
+use `gh pr review` / `gh pr comment`: GitHub has no inline mechanism, so
+every selected finding, anchored or not, rides in the one `gh pr review`
+body, with its `file:line` in the text.

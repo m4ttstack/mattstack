@@ -134,24 +134,19 @@ digraph review_flow {
     "STOP: the Posted already read goes through mr_threads (review)" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Fixed the posted-already mr_threads call once already (review)?" [shape=diamond];
     "Fix what the posted-already mr_threads error names (review)" [shape=box];
-    "Mark the findings and summary already posted" [shape=box];
+    "Mark the review already posted" [shape=box];
     "review off-script gate: mr_threads refused (posted already)" [shape=box];
     "Off-script outcome (review posted-already mr_threads)?" [shape=diamond];
     "Off-script rounds = 2 (review posted-already mr_threads)?" [shape=diamond];
-    "Findings left to post (review)?" [shape=diamond];
-    "Anchored to a diff line (this finding)?" [shape=diamond];
-    "mr_comment_inline {mrUrl, body, path, line}" [shape=plaintext];
-    "mr_comment_inline result?" [shape=diamond];
-    "STOP: review comments post through the mr_* tools" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Fixed the mr_comment_inline call once already?" [shape=diamond];
-    "Fix what the mr_comment_inline error names" [shape=box];
-    "Add the finding to the summary note" [shape=box];
-    "Summary note carries findings?" [shape=diamond];
-    "mr_comment {mrUrl, body}" [shape=plaintext];
-    "mr_comment result?" [shape=diamond];
-    "STOP: the summary note posts through mr_comment" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Fixed the mr_comment call once already?" [shape=diamond];
-    "Fix what the mr_comment error names" [shape=box];
+    "Review already posted (review)?" [shape=diamond];
+    "Compose the submitted review (review)" [shape=box];
+    "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)" [shape=plaintext];
+    "mr_review_submit result (review)?" [shape=diamond];
+    "STOP: a review posts whole through mr_review_submit" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Fixed the mr_review_submit call once already?" [shape=diamond];
+    "Fix what the mr_review_submit error names" [shape=box];
+    "Bad anchors moved once already (review)?" [shape=diamond];
+    "Move the bad-anchor findings into the summary (review)" [shape=box];
     "Outcome is approve?" [shape=diamond];
     "mr_approve {mrUrl}" [shape=plaintext];
     "mr_approve result?" [shape=diamond];
@@ -159,12 +154,12 @@ digraph review_flow {
     "Fixed the mr_approve call once already?" [shape=diamond];
     "Fix what the mr_approve error names" [shape=box];
 
-    "review off-script gate: mr_comment_inline refused" [shape=box];
-    "Off-script outcome (mr_comment_inline)?" [shape=diamond];
-    "Off-script rounds = 2 (mr_comment_inline)?" [shape=diamond];
-    "review off-script gate: mr_comment refused" [shape=box];
-    "Off-script outcome (mr_comment)?" [shape=diamond];
-    "Off-script rounds = 2 (mr_comment)?" [shape=diamond];
+    "review off-script gate: mr_review_submit refused" [shape=box];
+    "Off-script outcome (mr_review_submit)?" [shape=diamond];
+    "Off-script rounds = 2 (mr_review_submit)?" [shape=diamond];
+    "review off-script gate: pending comments on the MR" [shape=box];
+    "Off-script outcome (pending comments)?" [shape=diamond];
+    "Off-script rounds = 2 (pending comments)?" [shape=diamond];
     "review off-script gate: mr_approve refused" [shape=box];
     "Off-script outcome (mr_approve)?" [shape=diamond];
     "Off-script rounds = 2 (mr_approve)?" [shape=diamond];
@@ -309,18 +304,18 @@ digraph review_flow {
     "Writing style loaded (review act)?" -> "Resumed pane (review posting)?" [label="yes"];
     "Writing style loaded (review act)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="no: a resumed pane"];
     "Resumed pane (review posting)?" -> "mr_threads {mrUrl, refresh: true} (review posted already)" [label="yes"];
-    "Resumed pane (review posting)?" -> "Findings left to post (review)?" [label="no: this pane opened the gate, or a resumed posted-already take"];
+    "Resumed pane (review posting)?" -> "Review already posted (review)?" [label="no: this pane opened the gate, or a resumed posted-already take"];
     "mr_threads {mrUrl, refresh: true} (review posted already)" -> "mr_threads result (review posted already)?";
-    "mr_threads result (review posted already)?" -> "Mark the findings and summary already posted" [label="ok"];
+    "mr_threads result (review posted already)?" -> "Mark the review already posted" [label="ok"];
     "mr_threads result (review posted already)?" -> "Fixed the posted-already mr_threads call once already (review)?" [label="tool error"];
     "mr_threads result (review posted already)?" -> "STOP: the Posted already read goes through mr_threads (review)" [label="tempted to skip the read and post anyway"];
     "STOP: the Posted already read goes through mr_threads (review)" -> "Fixed the posted-already mr_threads call once already (review)?";
     "Fixed the posted-already mr_threads call once already (review)?" -> "Fix what the posted-already mr_threads error names (review)" [label="no"];
     "Fixed the posted-already mr_threads call once already (review)?" -> "review off-script gate: mr_threads refused (posted already)" [label="yes"];
     "Fix what the posted-already mr_threads error names (review)" -> "mr_threads {mrUrl, refresh: true} (review posted already)";
-    "Mark the findings and summary already posted" -> "Findings left to post (review)?";
+    "Mark the review already posted" -> "Review already posted (review)?";
     "review off-script gate: mr_threads refused (posted already)" -> "Off-script outcome (review posted-already mr_threads)?";
-    "Off-script outcome (review posted-already mr_threads)?" -> "Mark the findings and summary already posted" [label="take: the human names what is already up, marked in --report"];
+    "Off-script outcome (review posted-already mr_threads)?" -> "Mark the review already posted" [label="take: the human says whether the review is up, marked in --report"];
     "Off-script outcome (review posted-already mr_threads)?" -> "Off-script rounds = 2 (review posted-already mr_threads)?" [label="iterate: the cause is fixed"];
     "Off-script outcome (review posted-already mr_threads)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
     "Off-script outcome (review posted-already mr_threads)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back: nothing posts unchecked"];
@@ -328,29 +323,24 @@ digraph review_flow {
     "Off-script outcome (review posted-already mr_threads)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
     "Off-script rounds = 2 (review posted-already mr_threads)?" -> "mr_threads {mrUrl, refresh: true} (review posted already)" [label="no: read again"];
     "Off-script rounds = 2 (review posted-already mr_threads)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
-    "Findings left to post (review)?" -> "Anchored to a diff line (this finding)?" [label="yes"];
-    "Findings left to post (review)?" -> "Summary note carries findings?" [label="no"];
-    "Anchored to a diff line (this finding)?" -> "mr_comment_inline {mrUrl, body, path, line}" [label="yes"];
-    "Anchored to a diff line (this finding)?" -> "Add the finding to the summary note" [label="no"];
-    "Add the finding to the summary note" -> "Findings left to post (review)?";
-    "mr_comment_inline {mrUrl, body, path, line}" -> "mr_comment_inline result?";
-    "mr_comment_inline result?" -> "Findings left to post (review)?" [label="posted"];
-    "mr_comment_inline result?" -> "Fixed the mr_comment_inline call once already?" [label="tool error"];
-    "mr_comment_inline result?" -> "STOP: review comments post through the mr_* tools" [label="tempted to post with the GitLab CLI or the API"];
-    "STOP: review comments post through the mr_* tools" -> "Fixed the mr_comment_inline call once already?";
-    "Fixed the mr_comment_inline call once already?" -> "Fix what the mr_comment_inline error names" [label="no"];
-    "Fixed the mr_comment_inline call once already?" -> "review off-script gate: mr_comment_inline refused" [label="yes"];
-    "Fix what the mr_comment_inline error names" -> "mr_comment_inline {mrUrl, body, path, line}";
-    "Summary note carries findings?" -> "mr_comment {mrUrl, body}" [label="yes, not already posted or marked posted by hand"];
-    "Summary note carries findings?" -> "Outcome is approve?" [label="no"];
-    "mr_comment {mrUrl, body}" -> "mr_comment result?";
-    "mr_comment result?" -> "Outcome is approve?" [label="posted"];
-    "mr_comment result?" -> "Fixed the mr_comment call once already?" [label="tool error"];
-    "mr_comment result?" -> "STOP: the summary note posts through mr_comment" [label="tempted to post with the GitLab CLI or the API"];
-    "STOP: the summary note posts through mr_comment" -> "Fixed the mr_comment call once already?";
-    "Fixed the mr_comment call once already?" -> "Fix what the mr_comment error names" [label="no"];
-    "Fixed the mr_comment call once already?" -> "review off-script gate: mr_comment refused" [label="yes"];
-    "Fix what the mr_comment error names" -> "mr_comment {mrUrl, body}";
+    "Review already posted (review)?" -> "Outcome is approve?" [label="yes: its summary note is up, or a mark says the human posted it"];
+    "Review already posted (review)?" -> "Compose the submitted review (review)" [label="no: nothing landed"];
+    "Compose the submitted review (review)" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)";
+    "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)" -> "mr_review_submit result (review)?";
+    "mr_review_submit result (review)?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="published, approved as asked"];
+    "mr_review_submit result (review)?" -> "Fixed the mr_approve call once already?" [label="published, approved: false on an approve"];
+    "mr_review_submit result (review)?" -> "Bad anchors moved once already (review)?" [label="published: false, bad-anchors"];
+    "mr_review_submit result (review)?" -> "review off-script gate: pending comments on the MR" [label="published: false, pending-drafts"];
+    "mr_review_submit result (review)?" -> "review off-script gate: mr_review_submit refused" [label="tool error saying the outcome is unknown or only partly landed"];
+    "mr_review_submit result (review)?" -> "Fixed the mr_review_submit call once already?" [label="any other tool error"];
+    "mr_review_submit result (review)?" -> "STOP: a review posts whole through mr_review_submit" [label="tempted to post the pieces with mr_comment_inline or mr_comment, or with the GitLab CLI or the API"];
+    "STOP: a review posts whole through mr_review_submit" -> "Fixed the mr_review_submit call once already?";
+    "Fixed the mr_review_submit call once already?" -> "Fix what the mr_review_submit error names" [label="no"];
+    "Fixed the mr_review_submit call once already?" -> "review off-script gate: mr_review_submit refused" [label="yes"];
+    "Fix what the mr_review_submit error names" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)";
+    "Bad anchors moved once already (review)?" -> "Move the bad-anchor findings into the summary (review)" [label="no"];
+    "Bad anchors moved once already (review)?" -> "review off-script gate: mr_review_submit refused" [label="yes"];
+    "Move the bad-anchor findings into the summary (review)" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)";
     "Outcome is approve?" -> "mr_approve {mrUrl}" [label="yes, not marked approved"];
     "Outcome is approve?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="no: comment, or --report marks it approved by hand"];
     "mr_approve {mrUrl}" -> "mr_approve result?";
@@ -362,25 +352,25 @@ digraph review_flow {
     "Fixed the mr_approve call once already?" -> "review off-script gate: mr_approve refused" [label="yes"];
     "Fix what the mr_approve error names" -> "mr_approve {mrUrl}";
 
-    "review off-script gate: mr_comment_inline refused" -> "Off-script outcome (mr_comment_inline)?";
-    "Off-script outcome (mr_comment_inline)?" -> "Findings left to post (review)?" [label="take: the human posted it, marked in --report"];
-    "Off-script outcome (mr_comment_inline)?" -> "Off-script rounds = 2 (mr_comment_inline)?" [label="iterate: the cause is fixed"];
-    "Off-script outcome (mr_comment_inline)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
-    "Off-script outcome (mr_comment_inline)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
-    "Off-script outcome (mr_comment_inline)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
-    "Off-script outcome (mr_comment_inline)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
-    "Off-script rounds = 2 (mr_comment_inline)?" -> "mr_comment_inline {mrUrl, body, path, line}" [label="no: post again"];
-    "Off-script rounds = 2 (mr_comment_inline)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
+    "review off-script gate: mr_review_submit refused" -> "Off-script outcome (mr_review_submit)?";
+    "Off-script outcome (mr_review_submit)?" -> "Outcome is approve?" [label="take: the review is up, marked in --report"];
+    "Off-script outcome (mr_review_submit)?" -> "Off-script rounds = 2 (mr_review_submit)?" [label="iterate: the cause is fixed"];
+    "Off-script outcome (mr_review_submit)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
+    "Off-script outcome (mr_review_submit)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
+    "Off-script outcome (mr_review_submit)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
+    "Off-script outcome (mr_review_submit)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
+    "Off-script rounds = 2 (mr_review_submit)?" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)" [label="no: submit again"];
+    "Off-script rounds = 2 (mr_review_submit)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
 
-    "review off-script gate: mr_comment refused" -> "Off-script outcome (mr_comment)?";
-    "Off-script outcome (mr_comment)?" -> "Outcome is approve?" [label="take: the human posted it, marked in --report"];
-    "Off-script outcome (mr_comment)?" -> "Off-script rounds = 2 (mr_comment)?" [label="iterate: the cause is fixed"];
-    "Off-script outcome (mr_comment)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
-    "Off-script outcome (mr_comment)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
-    "Off-script outcome (mr_comment)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
-    "Off-script outcome (mr_comment)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
-    "Off-script rounds = 2 (mr_comment)?" -> "mr_comment {mrUrl, body}" [label="no: post again"];
-    "Off-script rounds = 2 (mr_comment)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
+    "review off-script gate: pending comments on the MR" -> "Off-script outcome (pending comments)?";
+    "Off-script outcome (pending comments)?" -> "Outcome is approve?" [label="take: the human posted the review with their pending comments, marked in --report"];
+    "Off-script outcome (pending comments)?" -> "Off-script rounds = 2 (pending comments)?" [label="iterate: the human cleared their pending comments"];
+    "Off-script outcome (pending comments)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
+    "Off-script outcome (pending comments)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
+    "Off-script outcome (pending comments)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
+    "Off-script outcome (pending comments)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
+    "Off-script rounds = 2 (pending comments)?" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)" [label="no: submit again"];
+    "Off-script rounds = 2 (pending comments)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the pending comments are the reason"];
 
     "review off-script gate: mr_approve refused" -> "Off-script outcome (mr_approve)?";
     "Off-script outcome (mr_approve)?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="take: the human approved it, marked in --report"];
@@ -416,9 +406,9 @@ What the graph cannot show:
   picked, and `Record the verdict answer in --report` records it before
   anything posts. On `review-escalation`, `Route the resumed escalation by
   its origin (review)` reads where the earlier pane stopped. Either way
-  the Posted already read (`Mark the findings and summary already posted`
-  on the generic path, the domain skill's own otherwise) drops what an
-  earlier pane already put up, and an off-script gate at a read or
+  the Posted already read (`Mark the review already posted` on the
+  generic path, the domain skill's own otherwise) finds what an earlier
+  pane already put up, and an off-script gate at a read or
   posting refusal opens normally. This invocation supersedes any earlier
   gate contract remembered in the conversation.
 - **What a resumed pane carries.** On a `review-post` resume, from the
@@ -436,53 +426,51 @@ What the graph cannot show:
 - **Finding ids.** A per-finding option's value is the finding's `id` from
   the json sibling, verbatim. The same string keys the finding in the json,
   so a picked value joins its finding with no renumbering.
-- **Posting.** On the generic path, `Findings left to post (review)?`
-  walks the picked findings in gate order, skipping every finding `Mark
-  the findings and summary already posted` marked. On the per-finding
-  path they are the union of every `findings-N` answer array; on the tier
-  fallback, every finding in the report whose tier the `tiers` answer
-  picked; on a clean review, none. An explicit empty array posts nothing
-  from that question. A finding is anchored when it has both a `file` and
-  a `line`: the `mr_comment_inline` node's `path` is the finding's `file`
-  and its `line` the finding's `line`, always both, never a `position`
-  object; for a line the diff removed, add `oldPath` and `oldLine` as
-  well. The daemon re-fetches the diff refs itself, so no sha is needed.
-  Every comment body is written in the loaded voice: the tier and title,
-  what to change, and the anchor. The summary note posts once, after
-  every anchored finding, and only when it carries findings and is not
-  already posted. `mr_approve` runs only when the outcome is `approve`,
-  after the findings; approval has no read, so a resumed pane approves
+- **Posting.** On the generic path the whole review posts in one
+  `mr_review_submit` call, built at `Compose the submitted review
+  (review)` from the picked findings. On the per-finding path they are
+  the union of every `findings-N` answer array; on the tier fallback,
+  every finding in the report whose tier the `tiers` answer picked; on a
+  clean review, none. An explicit empty array posts nothing from that
+  question. A finding is anchored when it has both a `file` and a `line`:
+  its comment's `path` is the finding's `file` and its `line` the
+  finding's `line`, always both, never a `position` object; for a line the
+  diff removed, add `oldPath` and `oldLine` as well. The daemon re-fetches
+  the diff refs and checks every placement itself, so no sha is needed.
+  Every comment body and the summary are written in the loaded voice.
+  `mr_approve` runs on its own only after the submit came back `approved:
+  false`, or when the review was already up or posted by hand and the
+  outcome is `approve`; approval has no read, so a resumed pane approves
   again unless `--report` marks it approved by hand ("Escalation marks"),
   and a refusal saying this account already approved counts as approved.
   Read each answer's `value` (an answer may be a `{value, note}` object); a
-  note is the human's steer on the wording of what posts. No finding
-  posts twice: a resumed pane reads what is already up with `mr_threads
-  {mrUrl, refresh: true} (review posted already)` before anything posts.
+  note is the human's steer on the wording of what posts. No review posts
+  twice: a resumed pane reads what is already up with `mr_threads {mrUrl,
+  refresh: true} (review posted already)` before anything posts.
 - **Escalation marks.** An off-script take at a posting origin, or at the
   Posted already read, writes a mark line into `--report` before the walk
   moves on, whether this pane or a resumed one acts on it. Each mark is
   one line with the fixed prefix `review-escalation-mark:`:
-  `review-escalation-mark: finding <id> posted by hand` (an
-  `mr_comment_inline` take, or each finding a Posted already read take's
-  note names), `review-escalation-mark: summary posted by hand` (an
-  `mr_comment` take, or a Posted already read take whose note names the
-  summary) and `review-escalation-mark: approved by hand` (an `mr_approve`
-  take). The walk reads them back: a finding marked posted by hand never
-  posts, a summary marked posted by hand never posts, and an approval
-  marked by hand never runs. A pane resumed on a later escalation has lost
+  `review-escalation-mark: review posted by hand` (a take at
+  `mr_review_submit refused` or `pending comments on the MR`, or a Posted
+  already read take whose note says the review is up) and
+  `review-escalation-mark: approved by hand` (an `mr_approve` take). A
+  take at a posting origin writes one mark for the review, never one per
+  finding. The walk reads them back: a review marked posted by hand is
+  never submitted, and an approval marked by hand never runs. A pane
+  resumed on a later escalation has lost
   every earlier answer but these, so they are what keeps a taken call from
   running twice.
-- **Budgets.** `Fixed the mr_comment_inline call once already?` counts per
-  finding; the `mr_comment` and `mr_approve` counters, and the three read
-  counters (`mr_view`, the re-review `mr_threads` and the posted-already
-  `mr_threads`), count for the whole run. A resumed pane counts them from
-  zero, except that a resumed iterate seeds its origin's counter as spent
-  (the named finding's, for `mr_comment_inline`), as a live iterate
-  leaves it. A guard STOP's re-entry passes the same counter as a tool
-  error. None resets after an off-script iterate: a refusal after an
-  iterate goes straight back to that origin's off-script gate, and its
-  `Off-script rounds = 2 (...)?` counter (per finding for
-  `mr_comment_inline`) bounds the loop. The round rides in the gate's
+- **Budgets.** The `mr_review_submit` and `mr_approve` fix-once counters,
+  `Bad anchors moved once already (review)?`, and the three read counters
+  (`mr_view`, the re-review `mr_threads` and the posted-already
+  `mr_threads`) count for the whole run. A resumed pane counts them from
+  zero, except that a resumed iterate seeds its origin's fix-once counter
+  as spent, as a live iterate leaves it. A guard STOP's re-entry passes
+  the same counter as a tool error. None resets after an off-script
+  iterate: a refusal after an iterate goes straight back to that origin's
+  off-script gate, and its `Off-script rounds = 2 (...)?` counter bounds
+  the loop. The round rides in the gate's
   option values, so the budget holds across a park: a resumed pane seeds
   the counter from it, and an iterate at round 2 is spent. `Resumed wait
   failures = 3 (review)?` counts failing resumed waits; closed, not found
@@ -561,9 +549,8 @@ pane's `Off-script rounds = 2 (...)?` answers yes to, so it writes
 `error` naming the refusals and never retries. Otherwise round `k` seeds
 that origin's `Off-script rounds = 2 (...)?` counter, and a later iterate
 at the same origin counts on from it. An iterate also seeds that origin's
-fix-once counter as spent (the named finding's, for `mr_comment_inline`),
-as a live iterate leaves it: a refusal after the retry goes straight back
-to the off-script gate.
+fix-once counter as spent, as a live iterate leaves it: a refusal after
+the retry goes straight back to the off-script gate.
 
 - **Pre-verdict origins** (`mr_view refused`, `mr_view refused on a
   re-review`, `mr_threads refused on the re-review read`): no verdict
@@ -583,8 +570,9 @@ to the off-script gate.
   missing file means no prior review, as "Re-review mode" says. The
   threads are then read again, except after a take at the re-review
   `mr_threads` read, which reviews the whole MR without them.
-- **Posting origins** (`mr_comment_inline refused`, `mr_comment refused`,
-  `mr_approve refused`, `mr_threads refused on the Posted already read`):
+- **Posting origins** (`mr_review_submit refused`, `pending comments on
+  the MR`, `mr_approve refused`, `mr_threads refused on the Posted already
+  read`):
   the verdict was answered and recorded before the escalation opened.
   `Read <--report>, its verdict line and json sibling (resumed
   escalation)` loads the `review-post-answer:` line and the files that
@@ -597,14 +585,15 @@ to the off-script gate.
   `review-escalation-mark:` line an earlier pane wrote ("Escalation
   marks"), and the walk honours them.
 - **A take at a posting origin** writes its mark before the walk
-  (`Record the resumed take's mark in --report (review)`): finding `<id>` posted
-  (`mr_comment_inline`), the summary posted (`mr_comment`), or the
-  approval done (`mr_approve`). The Posted already read then runs as for
-  any resumed pane. A take at the Posted already read itself marks exactly
-  what its note names and skips the read, since that read is what refused.
+  (`Record the resumed take's mark in --report (review)`): the review
+  posted (`mr_review_submit refused` or `pending comments on the MR`), or
+  the approval done (`mr_approve refused`). The Posted already read then
+  runs as for any resumed pane. A take at the Posted already read itself
+  marks the review posted when its note says the review is up, and skips
+  the read, since that read is what refused.
 - **An iterate at a posting origin** walks the posting again from the
-  top; the Posted already read drops what is up, so the refused call is
-  the first to post.
+  top; the Posted already read finds whether the review is up, so the
+  refused call is the first to run.
 - **Hold** keeps the pane open with nothing more posted and no terminal
   status. **Hand back** writes `error` naming the refusal the value names.
 
@@ -823,8 +812,8 @@ an earlier pass posted by hand the Posted already read finds.
 The line exists because an off-script gate moves the state's gate id to
 the escalation, and `gate wait` can then no longer return the verdict. A
 pane resumed on that escalation reads the verdict from this line, and
-`Mark the findings and summary already posted` dates its notes against
-its `answeredAt`.
+`Mark the review already posted` dates the summary note against its
+`answeredAt`.
 
 ### Hand the answer to the domain skill to post
 
@@ -859,7 +848,8 @@ The finding has no `file` and `line` to anchor to (its option's anchor was
 the json's `fileLabel`, or `file` alone). It posts in the review's summary
 comment instead of an inline thread. Add it to the summary note: its tier
 and title, what to change, and its `fileLabel` or `file` when it has one.
-The note posts once, with `mr_comment`, after the last anchored finding.
+The summary posts once, as the `summary` of the one `mr_review_submit`
+call.
 
 ### Fix what the mr_view error names (review)
 
@@ -885,31 +875,28 @@ names: `mrUrl` the MR's https URL, whose project is registered with rt;
 `refresh` a boolean. An error that names no input (the daemon down, a
 GitLab fetch failure) has nothing to correct: read again unchanged, once,
 and the off-script gate follows. An error is never a reason to skip the
-read and post anyway: a finding posted twice is what this read prevents.
+read and post anyway: a review posted twice is what this read prevents.
 
-### Mark the findings and summary already posted
+### Mark the review already posted
 
 The Posted already rule, on a resumed pane (`--resumed-gate` given) before
-anything posts. An earlier pane may have posted part of this answer before
-it died, so read what is up in the `mr_threads` result, each thread's full
-note chain, against the picked findings. A note counts only when the
-account this pane posts as wrote it after the verdict's `answeredAt`
-(from the resumed wait on a `review-post` resume, from the verdict line
-on an escalation resume):
+anything posts. A review posts whole or not at all, so one fact settles
+it: in the `mr_threads` result, a top-level note carrying this review's
+summary, written by the account this pane posts as after the verdict's
+`answeredAt` (from the resumed wait on a `review-post` resume, from the
+verdict line on an escalation resume). When it is there the review landed:
+skip the submit and go on to the approval check. When it is not, nothing
+landed: submit. A `review-escalation-mark:` line in `--report` saying the
+human posted the review counts the same as the note. Approval has no
+read: on an approve verdict `mr_approve` runs unless a mark says it was
+approved by hand; approving an approved MR is harmless.
 
-- a picked finding is posted when a thread carries such a note whose body
-  is the finding's comment (its tier and title) or that sits at the
-  finding's `path:line`;
-- the summary is posted when such a top-level note carries the summary.
+### Review already posted (review)?
 
-`Findings left to post (review)?` skips every finding marked posted, and
-`Summary note carries findings?` answers no when the summary is marked
-posted. They count as posted in the `done` summary. One read covers every
-finding and the summary. After an off-script take, what the human names
-is the list. Every `review-escalation-mark:` line in `--report` already
-marks its finding, summary or approval: keep those marks and add what the
-read finds. Approval has no read: `mr_approve` runs again unless a mark
-says it was approved by hand.
+Yes when `Mark the review already posted` found the summary note, or
+`--report` carries `review-escalation-mark: review posted by hand`. A
+pane that opened the verdict gate itself has neither (recording the
+verdict deleted every mark), so it answers no and submits.
 
 ### Record the resumed take's mark in --report (review)
 
@@ -917,36 +904,55 @@ The generic path, before the Posted already read. A refusal at that read
 opens a second escalation, which moves the state's gate id, and a pane
 resumed on it could then no longer learn this answer. So a resumed take
 writes its mark now, as "Escalation marks" spells it: the same mark the
-live pane writes when it acts on that take. A take at a posting origin
-writes the one mark its value names; a take at the Posted already read
-writes one mark per finding its note names, and one for the summary when
-the note names it. The marks outlive this pane: a pane resumed on a later
-escalation reads them back, and the posting walk honours them.
+live pane writes when it acts on that take. A take at `mr_review_submit
+refused` or `pending comments on the MR` writes the review mark, and one
+at `mr_approve refused` the approval mark; a take at the Posted already
+read writes the review mark when its note says the review is up. The
+marks outlive this pane: a pane resumed on a later escalation reads them
+back, and the posting walk honours them.
 
-### Fix what the mr_comment_inline error names
+### Compose the submitted review (review)
 
-`mr_comment_inline` refused. Correct what the error names: `mrUrl` the
-MR's https URL, `.../-/merge_requests/<iid>`, whose project is registered
-with rt; `path` the finding's file as the diff names it; `line` a line
-the diff shows, always given with `path` (plus `oldPath` and `oldLine`
-for a line the diff removed); `body` the non-empty comment. An anchor
-GitLab rejects with the anchor already matching the finding, or an error
-that names no input, has nothing to correct: post again unchanged, once,
-and the off-script gate follows. An error is never a reason to post with
-the GitLab CLI or the API.
+One `mr_review_submit` call carries the whole review, in the loaded
+voice. `comments` is one entry per picked finding anchored to a diff line
+("Posting" under Flow): `{body, path, line}`, plus `oldPath` and `oldLine`
+for a line the diff removed, `body` the tier and title and what to
+change. `summary` is the review's summary note: the report's summary
+line, then every picked finding with no anchor, each added as `Add the
+finding to the summary note` says. It is never empty: a review with
+nothing picked still carries its summary line. `outcome` is the verdict's
+`outcome` value, `comment` or `approve`. `replies` is empty. A review
+carries at most 100 comments and replies in total; past that, the
+lowest-tier anchored findings go in the summary instead.
 
-### Fix what the mr_comment error names
+### Move the bad-anchor findings into the summary (review)
 
-`mr_comment` refused. Correct what the error names: `mrUrl` the MR's https
-URL, whose project is registered with rt; `body` the non-empty summary
-note. An error that names no input has nothing to correct: post again
-unchanged, once, and the off-script gate follows. An error is never a
-reason to post with the GitLab CLI or the API.
+The result's `badAnchors` names comments by their index in `comments`.
+Nothing posted. Take each named finding out of `comments` and add it to
+the summary as `Add the finding to the summary note` says, with its
+`file:line` in the text, as a finding with no anchor. Call again with the
+rest unchanged. This happens once: a second bad-anchors result goes to
+`review off-script gate: mr_review_submit refused`.
+
+### Fix what the mr_review_submit error names
+
+`mr_review_submit` refused the call itself. Correct what the error names:
+`mrUrl` the MR's https URL, whose project is registered with rt; `outcome`
+exactly `comment` or `approve`; `summary` non-empty; each comment a
+`body`, a `path` and a positive integer `line`; each reply a
+`discussionId` and a boolean `resolve`, with a `body` or `resolve: true`;
+at most 100 comments and replies together. An error that names no input
+has nothing to correct: call again unchanged, once, and the off-script
+gate follows. An error that says the outcome is unknown, or that the
+review only partly landed, is never retried: it goes straight to the
+off-script gate. An error is never a reason to post the findings one by
+one, or with the GitLab CLI or the API.
 
 ### Fix what the mr_approve error names
 
-`mr_approve` refused. Correct what the error names: `mrUrl` the MR's https
-URL, whose project is registered with rt. A refusal about the approval
+`mr_approve` refused, or the submitted review came back `approved: false`
+with its `approveError`. Correct what the error names: `mrUrl` the MR's
+https URL, whose project is registered with rt. A refusal about the approval
 itself (the token's user may not approve this MR) has nothing to correct
 in the call: approve again unchanged, once, and the off-script gate
 follows. A refusal saying this account already approved is not an error:
@@ -999,81 +1005,88 @@ spent round budget write `error` naming the refusal.
 
 Take "Off-script step" with this question. Label: `mr_threads refused
 twice on the Posted already read for !<iid>: <second error>`. Context:
-both `mr_threads` errors, quoted, and the picked findings' ids and anchors
-this pass could post.
+both `mr_threads` errors, quoted, and the summary this pass would post.
 
 | Value | Label | Description |
 |---|---|---|
-| `take: you name the findings and summary already posted (mr_threads refused on the Posted already read, round <k>)` | Name what is posted | You name what is already up and I post only the rest. |
+| `take: you say whether this review is already on the MR (mr_threads refused on the Posted already read, round <k>)` | Say if it is up | You say whether the review is already up and I submit it only if not. |
 | `iterate: you fixed the cause, read the threads again (mr_threads refused on the Posted already read, round <k>)` | Fixed it, read again | You fixed what refused the read and I read the threads again. |
 | `hold: keep this pane open with nothing posted (mr_threads refused on the Posted already read, round <k>)` | Hold this pane | I stop before posting anything and the pane stays open. |
 | `hand back: write an error naming the refusal, nothing posted (mr_threads refused on the Posted already read, round <k>)` | Hand it back | I write an error naming the refusal and post nothing. |
 
-A take marks exactly what the human names in the note as posted already,
-one `review-escalation-mark:` line per finding and one for the summary
-("Escalation marks"), before the walk moves on.
+A take writes `review-escalation-mark: review posted by hand` into
+`--report` ("Escalation marks") when the note says the review is up, and
+nothing when it says it is not, before the walk moves on.
 Iterate passes `Off-script rounds = 2 (review posted-already
 mr_threads)?` before reading again. Hand back, gate unavailable and a
 spent round budget write `error` naming the refusal; nothing posts
 unchecked.
 
-### review off-script gate: mr_comment_inline refused
+### review off-script gate: mr_review_submit refused
 
-Take "Off-script step" with this question. Label: `inline comment on
-<file>:<line> refused twice on !<iid>: <second error>`. Context: both
-`mr_comment_inline` errors, quoted, with the finding's id, anchor and
-body.
-
-| Value | Label | Description |
-|---|---|---|
-| `take: you post finding <id> on <file>:<line> yourself (mr_comment_inline refused, round <k>)` | Post it yourself | You post this finding's comment and I continue with the next finding. |
-| `iterate: you fixed the cause, post finding <id> inline again (mr_comment_inline refused, round <k>)` | Fixed it, post again | You fixed what refused the comment and I post it inline again. |
-| `hold: keep this pane open with the remaining findings unposted (mr_comment_inline refused, round <k>)` | Hold this pane | I stop here and the findings not yet posted stay unposted. |
-| `hand back: write an error naming the refusal and what already posted (mr_comment_inline refused, round <k>)` | Hand it back | I write an error naming the refusal and what posted, and you take over. |
-
-A take counts the finding as posted, writes
-`review-escalation-mark: finding <id> posted by hand` into `--report`,
-and moves to the next one. Iterate passes `Off-script rounds = 2
-(mr_comment_inline)?` for this finding before posting again. Hand back,
-gate unavailable and a spent round budget write `error` naming the
-refusal and which findings posted.
-
-### review off-script gate: mr_comment refused
-
-Take "Off-script step" with this question. Label: `summary note refused
-twice on !<iid>: <second error>`. Context: both `mr_comment` errors,
-quoted, and the note's text.
+Take "Off-script step" with this question. Label: `review submit refused
+on !<iid>: <last error>`. Context: every `mr_review_submit` error and
+bad-anchors result this pass got, quoted, then the summary and every
+comment in full. Nothing is on the MR unless the error says the outcome
+is unknown or that the review only partly landed; then the context says
+so first, and the human looks for the summary on the MR before answering.
 
 | Value | Label | Description |
 |---|---|---|
-| `take: you post the summary note yourself, then I apply the verdict (mr_comment refused, round <k>)` | Post the summary yourself | You post the summary note and I carry on to the verdict. |
-| `iterate: you fixed the cause, post the summary note again (mr_comment refused, round <k>)` | Fixed it, post again | You fixed what refused the note and I post it again. |
-| `hold: keep this pane open with the summary unposted and no verdict applied (mr_comment refused, round <k>)` | Hold this pane | I stop here with the summary unposted and the verdict unapplied. |
-| `hand back: write an error naming the refusal and what already posted (mr_comment refused, round <k>)` | Hand it back | I write an error naming the refusal and what posted, and you take over. |
+| `take: the review is up, posted by you or by the failed call, then I apply the verdict (mr_review_submit refused, round <k>)` | Review is up | You post the review yourself, or find the failed call already did, and I carry on to the verdict. |
+| `iterate: you fixed the cause, submit the review again (mr_review_submit refused, round <k>)` | Fixed it, post again | You fixed what refused the review and I submit it again. |
+| `hold: keep this pane open and post nothing more (mr_review_submit refused, round <k>)` | Hold this pane | I stop here and post nothing more. |
+| `hand back: write an error naming the refusal (mr_review_submit refused, round <k>)` | Hand it back | I write an error naming the refusal and you take over. |
 
-A take writes `review-escalation-mark: summary posted by hand` into
-`--report` and continues to `Outcome is approve?`. Iterate passes `Off-script
-rounds = 2 (mr_comment)?` before posting again. Hand back, gate
-unavailable and a spent round budget write `error` naming the refusal and
-which findings posted inline.
+A take writes `review-escalation-mark: review posted by hand` into
+`--report` and continues to `Outcome is approve?`. Iterate passes
+`Off-script rounds = 2 (mr_review_submit)?` before submitting again. Hand
+back, gate unavailable and a spent round budget write `error` naming the
+refusal and what the MR shows.
+
+### review off-script gate: pending comments on the MR
+
+Take "Off-script step" with this question. Label: `pending comments block
+the review of !<iid>: <count> pending`. Context: the count and the first
+lines the result gave, quoted, and that these pending comments are this
+account's own, started in GitLab or left by an earlier submit that
+failed, which a submit would publish along with the review. Then the
+summary and every comment in full, for a take.
+
+| Value | Label | Description |
+|---|---|---|
+| `take: you post this review yourself together with your pending comments, then I apply the verdict (pending comments on the MR, round <k>)` | Post it yourself | You post this review along with your pending comments and I carry on to the verdict. |
+| `iterate: you submitted or discarded your pending comments, submit the review again (pending comments on the MR, round <k>)` | Cleared them, post again | You submit or discard your pending comments in GitLab and I submit the review again. |
+| `hold: keep this pane open with nothing posted (pending comments on the MR, round <k>)` | Hold this pane | I stop here with nothing posted. |
+| `hand back: write an error naming the pending comments, nothing posted (pending comments on the MR, round <k>)` | Hand it back | I write an error naming the pending comments and you take over. |
+
+Iterate is the usual answer: the human submits or discards those pending
+comments in GitLab, and iterate passes `Off-script rounds = 2 (pending
+comments)?` before submitting the same review again. A take writes
+`review-escalation-mark: review posted by hand` into `--report` and
+continues to `Outcome is approve?`. Hand back, gate unavailable and a
+spent round budget write `error` naming the pending comments; nothing
+posted.
 
 ### review off-script gate: mr_approve refused
 
 Take "Off-script step" with this question. Label: `approval of !<iid>
-refused twice: <second error>`. Context: both `mr_approve` errors, quoted.
+refused twice: <second error>`. Context: both refusals, quoted: the
+submit's `approveError` or the first `mr_approve` error, then the second.
+The review is posted; only the approval failed.
 
 | Value | Label | Description |
 |---|---|---|
 | `take: you approve !<iid> yourself, then I mark the review done (mr_approve refused, round <k>)` | Approve it yourself | You approve the MR and I mark the review done as approve. |
 | `iterate: you fixed the cause, approve !<iid> again (mr_approve refused, round <k>)` | Fixed it, approve again | You fixed what refused the approval and I approve again. |
-| `hold: keep this pane open with the findings posted and no approval (mr_approve refused, round <k>)` | Hold this pane | I stop here with the findings posted and no approval. |
-| `hand back: write an error naming the refusal, the findings stay posted (mr_approve refused, round <k>)` | Hand it back | I write an error naming the refusal and you take over. |
+| `hold: keep this pane open with the review posted and no approval (mr_approve refused, round <k>)` | Hold this pane | I stop here with the review posted and no approval. |
+| `hand back: write an error naming the refusal, the review stays posted (mr_approve refused, round <k>)` | Hand it back | I write an error naming the refusal and you take over. |
 
 A take writes `review-escalation-mark: approved by hand` into `--report`
 and marks the review `done` with `--outcome approve`. Iterate passes
-`Off-script rounds = 2 (mr_approve)?` before approving again. Hand back,
-gate unavailable and a spent round budget write `error` naming the
-refusal; the posted findings stay.
+`Off-script rounds = 2 (mr_approve)?` before running `mr_approve` alone
+again, never the review. Hand back, gate unavailable and a spent round
+budget write `error` naming the refusal; the posted review stays.
 
 ## Gate step
 
@@ -1290,7 +1303,7 @@ situation line, and the four options the box's table gives, in order take,
 iterate, hold, hand back. Each option is an object:
 
 ```json
-{"value": "iterate: you fixed the cause, post the summary note again (mr_comment refused, round 1)", "label": "Fixed it, post again", "description": "You fixed what refused the note and I post it again."}
+{"value": "iterate: you fixed the cause, submit the review again (mr_review_submit refused, round 1)", "label": "Fixed it, post again", "description": "You fixed what refused the review and I submit it again."}
 ```
 
 `value` is spelled in full, starts with its verb, names the proposed move,
@@ -1311,12 +1324,12 @@ first letter lowercased) and the description `Retries are spent, so `
 plus the hand back row's description:
 
 ```json
-{"value": "iterate: you fixed the cause, post the summary note again (mr_comment refused, round 2)", "label": "No retry: hand it back", "description": "Retries are spent, so I write an error naming the refusal and what posted, and you take over."}
+{"value": "iterate: you fixed the cause, submit the review again (mr_review_submit refused, round 2)", "label": "No retry: hand it back", "description": "Retries are spent, so I write an error naming the refusal and you take over."}
 ```
 
-`--context` quotes both errors verbatim (the first refusal and the one
-after the fix) with the call that was refused. Never send an empty
-context. It fits inside the gate's 8192 UTF-8 byte budget like
+`--context` is what the box's section names: for a refused call, the
+errors verbatim (the first refusal and the one after the fix) with the
+call that was refused. Never send an empty context. It fits inside the gate's 8192 UTF-8 byte budget like
 `review-post`'s; an oversized one is dropped loudly by the daemon, so
 never pre-trim it yourself. A nonzero open exit is not itself an
 off-script origin: it is `Off-script gate unavailable (review)`.

@@ -68,10 +68,10 @@ other channel.
 
 ## Summary comment
 
-Posting mechanics are inline threads for the selected findings plus ONE
-summary comment -- identical mechanics regardless of which disposition was
-chosen. The summary carries Strengths and the Assessment, and its issue
-list is scoped to what was actually selected: a deselected Minor does not
+A review is the inline threads for the selected findings plus ONE
+summary, identical regardless of which disposition was chosen. The
+summary carries Strengths and the Assessment, and its issue list is
+scoped to what was actually selected: a deselected Minor does not
 resurface in the summary either. A selected finding with no `file` anchor
 lives in that issue list, and only there.
 
@@ -87,7 +87,19 @@ Request changes. Where it is unavailable, post a blocking-framed Comment:
 the summary's Assessment names the findings that block the merge and says
 approval is withheld until they are fixed.
 
-On Approve: post the findings first, then approve.
+On GitLab a review is ONE submitted review: the selected findings with a
+`file` and `line` as its comments, the summary as its summary note, and
+the disposition as its outcome, all in a single call. Nothing posts on its
+own before or after that call. The forge marks the reviewer as having
+reviewed, and approves when the disposition is Approve.
+
+A comment whose line is outside the diff cannot be placed. The call says
+which ones and posts nothing: move each named finding into the summary's
+issue list, exactly as a finding with no `file` anchor, and make the call
+again, once.
+
+A review that posted but whose approval was refused is posted. Approve it
+on its own; never submit the review a second time.
 
 ## Tacit-approval rule
 
@@ -120,6 +132,8 @@ left as a bare id or number. Required every time, on every disposition.
 | "I'll close with !123" | Bare id. The close HARD-GATE needs a markdown link to the real URL, read from the forge (a posting tool's `mrUrl`; else `mr_view`'s `webUrl`, called with `mrUrl` or `repoName` plus `iid`, on GitLab, `gh pr view` on GitHub). |
 | "GitLab has no Request changes here, I'll just post a plain Comment" | Post a blocking-framed Comment: its Assessment names what blocks the merge and says approval is withheld. |
 | "The selection looked stale, I'll re-ask to be sure" | Not this part's call. A decided selection is trusted as handed; re-deciding belongs to the caller, not the executor. |
+| "I'll post the inline comments first, then the summary" | On GitLab the review is one call. Comments posted one by one never become a submitted review, and the reviewer never reads as having reviewed. |
+| "The approval failed, I'll run the whole review again" | The review is already up. Approve on its own; a second submit posts every finding twice. |
 
 ## Quick reference
 
@@ -130,7 +144,7 @@ left as a bare id or number. Required every time, on every disposition.
 | Posting inline threads | Selected findings only (legacy: whole selected levels); deselected findings drop, no side door. |
 | A selected finding carries no `file` anchor | It rides in the summary comment; never invent a line for it. |
 | Posting the summary | One comment, scoped to what was selected; an unanchorable selected finding lives here. |
-| Disposition is Approve | Post the findings first, then approve. |
+| Disposition is Approve | GitLab: outcome approve on the one submit. GitHub: gh pr review --approve. |
 | Disposition is Request changes on a forge without it (GitLab) | Blocking-framed Comment: the Assessment names what blocks the merge and says approval is withheld. |
 | Disposition carries no approval | Strip all-clear language from the summary; state the decision is deferred or withheld. |
 | About to close | Markdown link to the real URL, read from the forge (a posting tool's `mrUrl`; else `mr_view`'s `webUrl`, called with `mrUrl` or `repoName` plus `iid`, on GitLab, `gh pr view` on GitHub) -- every time. |
