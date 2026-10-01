@@ -11,7 +11,7 @@
  *   rt team status [--team <slug>] [--json]
  *
  * Every mutating path funnels through one `UserActionableError` → exit-2
- * envelope, via `exitUserError` (lib/errors.ts) — including a locked
+ * envelope, via `exitUserError` (lib/errors.ts), including a locked
  * keychain or a `members sync`/`members remove` re-encryption rollback: the
  * user can act on either (unlock, retry), so both get a distinct `code` and
  * exit 2 rather than an envelope-shaped body at exit 1, which the app's

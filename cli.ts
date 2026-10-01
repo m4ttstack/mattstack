@@ -130,7 +130,7 @@ if (args[0] === "--version" || args[0] === "-V") {
   try {
     execSync('open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"');
   } catch {
-    out.fail({ title: "System Settings did not open", why: "Open it yourself: Privacy & Security, then Full Disk Access." });
+    out.fail({ title: "System Settings did not open", next: "Open Privacy & Security, then Full Disk Access, yourself" });
     process.exit(1);
   }
 } else {
