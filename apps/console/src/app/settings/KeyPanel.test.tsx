@@ -154,6 +154,14 @@ describe('KeyPanel', () => {
     expect(screen.getByTestId('layer-value-user')).toHaveTextContent(/^30$/);
   });
 
+  it('drops the loading skeleton once the layers arrive, even when there are none', async () => {
+    const skeleton = () => document.querySelector('.mantine-Skeleton-root');
+    renderPanel(def('board.agent.model'), []);
+    expect(skeleton()).not.toBeNull();
+    await waitFor(() => expect(explainGet).toHaveBeenCalled());
+    await waitFor(() => expect(skeleton()).toBeNull());
+  });
+
   it('marks the winner in effect and mutes what it overrides', async () => {
     renderPanel(def('board.agent.model'), LAYERS);
     expect(

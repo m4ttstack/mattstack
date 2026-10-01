@@ -640,7 +640,9 @@ function WhereTab({
         <Alert color="bad" variant="light" mt="md">
           <Text fz={12}>{explained.error}</Text>
         </Alert>
-      ) : rows.length === 0 ? (
+      ) : loading && rows.length === 0 ? (
+        // Skeletons only before the first read: a re-read after a write
+        // keeps the layers on screen.
         <Stack gap={10} pt={12}>
           {[0, 1, 2].map(i => (
             <Skeleton key={i} h={36} />
