@@ -3,7 +3,7 @@ import { execFileSync } from "child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { compilePackAll, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsMaterialize, skillsPacks } from "../skills.ts";
+import { compilePackAll, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks } from "../skills.ts";
 import { compileSkill } from "../../lib/skills/compile.ts";
 import { materializeRepo, type MaterializeFs } from "../../lib/skills/materialize.ts";
 import { invocableRoster, loadAttachment, loadStepSource } from "../../lib/skills/sources.ts";
@@ -1959,6 +1959,7 @@ const SKILLS_VERBS: Record<string, (args: string[]) => Promise<void>> = {
   composition: skillsComposition,
   anatomy: skillsAnatomy,
   changes: skillsChanges,
+  discard: skillsDiscard,
 };
 
 /** What this one run wrote to stdout, read from the suite's open capture. */
@@ -2705,5 +2706,114 @@ describe("skillsChanges human output", () => {
     const text = await runSkills(["changes", "--pack", "acme", "--pack-dir", packDir]);
     expect(text).toContain("acme");
     expect(text).toContain("pack/skills.jsonc");
+  });
+});
+
+const discardJson = async (flags: string[]) => JSON.parse(await runSkills(["discard", ...flags, "--json"]));
+
+function porcelain(cwd: string): string {
+  return execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd, encoding: "utf8" });
+}
+
+describe("skillsDiscard --json", () => {
+  test("throws away pack edits and new pack files, and leaves a README edit alone", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    writeFile(join(packDir, "attachments", "x", "SKILL.md"), "new skill\n");
+    writeFile(join(packDir, "README.md"), "edited\n");
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d).toEqual({
+      pack: "acme",
+      packDir,
+      discarded: [
+        { path: "pack/skills.jsonc", status: "M" },
+        { path: "attachments/x/", status: "??" },
+      ],
+    });
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_BEFORE);
+    expect(existsSync(join(packDir, "attachments", "x"))).toBe(false);
+    expect(readFileSync(join(packDir, "README.md"), "utf8")).toBe("edited\n");
+    expect(porcelain(packDir)).toBe(" M README.md\n");
+  });
+
+  test("a clean pack has nothing to throw away", async () => {
+    const { packDir } = makeCommittedPack();
+    expect(await discardJson(["--pack", "acme", "--pack-dir", packDir])).toEqual({ pack: "acme", packDir, discarded: [] });
+  });
+
+  test("an untracked file outside the pack's scope survives", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "notes", "todo.md"), "keep me\n");
+    writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["work"] }));
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d.discarded).toEqual([{ path: "pack/surface.jsonc", status: "M" }]);
+    expect(readFileSync(join(packDir, "notes", "todo.md"), "utf8")).toBe("keep me\n");
+    expect(porcelain(packDir)).toBe("?? notes/todo.md\n");
+  });
+
+  test("a staged new file under a pack root missing from HEAD is thrown away too", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "skills", "fresh", "SKILL.md"), "fresh\n");
+    git(packDir, "add", "skills");
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d.discarded).toEqual([{ path: "skills/fresh/SKILL.md", status: "A" }]);
+    expect(existsSync(join(packDir, "skills", "fresh", "SKILL.md"))).toBe(false);
+    expect(porcelain(packDir)).toBe("");
+  });
+
+  test("a pack inside a larger repo touches nothing outside its own directory", async () => {
+    const { repoRoot, packDir } = makeCommittedPack("packs/acme");
+    writeFile(join(repoRoot, "unrelated.txt"), "elsewhere\n");
+    writeFile(join(repoRoot, "pack", "skills.jsonc"), "repo-level, not the pack\n");
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    writeFile(join(packDir, "skills", "new", "SKILL.md"), "new\n");
+    writeFile(join(packDir, "README.md"), "edited\n");
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d.discarded).toEqual([
+      { path: "pack/skills.jsonc", status: "M" },
+      { path: "skills/", status: "??" },
+    ]);
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_BEFORE);
+    expect(porcelain(repoRoot)).toBe(" M packs/acme/README.md\n?? pack/skills.jsonc\n?? unrelated.txt\n");
+  });
+
+  test("a pack outside any git checkout is a usage error", async () => {
+    const packDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-nogit-")));
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_BEFORE);
+    const { exitCode, stderr } = await runSkillsCapturing(["discard", "--pack", "acme", "--pack-dir", packDir, "--json"]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("not inside a git checkout");
+    expect(existsSync(join(packDir, "pack", "skills.jsonc"))).toBe(true);
+  });
+
+  test("prints ONLY json -- no human lines on stdout", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const text = await runSkills(["discard", "--pack", "acme", "--pack-dir", packDir, "--json"]);
+    expect(() => JSON.parse(text)).not.toThrow();
+  });
+});
+
+describe("skillsDiscard human output", () => {
+  test("names the pack and what was thrown away", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const text = await runSkills(["discard", "--pack", "acme", "--pack-dir", packDir]);
+    expect(text).toContain("acme");
+    expect(text).toContain("pack/skills.jsonc");
+  });
+
+  test("says when there is nothing to throw away", async () => {
+    const { packDir } = makeCommittedPack();
+    const text = await runSkills(["discard", "--pack", "acme", "--pack-dir", packDir]);
+    expect(text).toContain("nothing");
   });
 });

@@ -2377,6 +2377,7 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack to sync; auto-selects when only one pack exists" },
           { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to read ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc" },
           { name: "Repo", flag: "--repo", type: "text", placeholder: "gitlab.example.com/acme/widgets", hint: "Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares" },
+          { name: "Commit pending", flag: "--commit-pending", type: "boolean", default: false, hint: "Commit this pack's changes that are not synced yet, then sync them" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2444,6 +2445,15 @@ export const TREE: Record<string, CommandNode> = {
         description: "List this pack's changes that are not synced yet",
         module: "./commands/skills.ts",
         fn: "skillsChanges",
+        args: [
+          { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to act on that tree" },
+          SETUP_JSON_ARG,
+        ],
+      },
+      discard: {
+        description: "Throw away this pack's changes that are not synced yet",
+        module: "./commands/skills.ts",
+        fn: "skillsDiscard",
         args: [
           { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to act on that tree" },
           SETUP_JSON_ARG,

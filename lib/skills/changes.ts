@@ -1,3 +1,5 @@
+import { posix } from "path";
+
 export const PACK_SCOPE = ["pack", "skills", "attachments", ".claude-plugin", "surface.jsonc"] as const;
 
 export type PendingFile = { path: string; status: string };
@@ -55,8 +57,31 @@ export function relativeToPrefix(files: PendingFile[], prefix: string): PendingF
   return files.filter((f) => f.path.startsWith(prefix)).map((f) => ({ ...f, path: f.path.slice(prefix.length) }));
 }
 
+/** Unlike relativeToPrefix, keeps a repo file beside the pack, spelled as a path that climbs out of it, so it can never pass inScope. */
+export function packRelative(files: PendingFile[], prefix: string): PendingFile[] {
+  if (prefix === "") return files;
+  return files.map((f) => ({ ...f, path: posix.relative(prefix, f.path) }));
+}
+
+function isUnder(root: string, path: string): boolean {
+  return path === root || path.startsWith(`${root}/`);
+}
+
 export function inScope(path: string): boolean {
-  return PACK_SCOPE.some((root) => path === root || path.startsWith(`${root}/`));
+  return PACK_SCOPE.some((root) => isUnder(root, path));
+}
+
+/** The pack roots holding at least one of these files; a root holding a pending file is known to git, so a pathspec built from them always matches. */
+export function pendingRoots(files: PendingFile[]): string[] {
+  return PACK_SCOPE.filter((root) => files.some((f) => isUnder(root, f.path)));
+}
+
+/** Reads `git clean -n` output, which must come from a run under the C locale: the "Would remove" wording is translated. */
+export function parseCleanDryRun(stdout: string): PendingFile[] {
+  return stdout.split("\n").flatMap((l) => {
+    const m = /^Would remove (.+)$/.exec(l);
+    return m ? [{ path: unquotePath(m[1]!), status: "??" }] : [];
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

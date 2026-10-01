@@ -30,7 +30,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSy
 import { applyEdits, modify, parse as parseJsonc } from "jsonc-parser";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { mattstackHome } from "../lib/rt-paths.ts";
-import { runCapture } from "../lib/subprocess.ts";
+import { childEnv, runCapture } from "../lib/subprocess.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
@@ -41,7 +41,7 @@ import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsi
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
-import { bindingChanges, describeGitFailure, inScope, isNotARepo, parsePorcelain, relativeToPrefix, surfaceChanges, type ChangesPayload } from "../lib/skills/changes.ts";
+import { bindingChanges, describeGitFailure, inScope, isNotARepo, parseCleanDryRun, parsePorcelain, pendingRoots, relativeToPrefix, surfaceChanges, type ChangesPayload, type GitRun, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
@@ -1745,15 +1745,21 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
 const BINDINGS_FRAGMENT = "pack/skills.jsonc";
 
 const GIT_TIMEOUT_MS = 5000;
+const GIT_WRITE_TIMEOUT_MS = 60_000;
 
 /**
- * The console polls this verb, so git must never take index.lock: a plain
+ * The console polls `changes`, so a read must never take index.lock: a plain
  * `git status` refreshes the index and would lock out a concurrent add or
  * commit. `core.quotePath=false` keeps non-ASCII names literal; paths with
  * spaces or quotes still arrive quoted, which parsePorcelain undoes.
  */
-function runGit(packDir: string, args: string[]) {
-  return runCapture(["git", "--no-optional-locks", "-c", "core.quotePath=false", ...args], { cwd: packDir, stderr: "pipe", timeoutMs: GIT_TIMEOUT_MS });
+function runGit(packDir: string, args: string[], opts: { timeoutMs?: number; env?: Record<string, string | undefined> } = {}) {
+  return runCapture(["git", "--no-optional-locks", "-c", "core.quotePath=false", ...args], {
+    cwd: packDir,
+    stderr: "pipe",
+    timeoutMs: opts.timeoutMs ?? GIT_TIMEOUT_MS,
+    ...(opts.env ? { env: opts.env } : {}),
+  });
 }
 
 function parseJsoncFile(text: string): unknown {
@@ -1772,21 +1778,25 @@ function workingCopy(packDir: string, rel: string): unknown {
   return existsSync(path) ? parseJsoncFile(readFileSync(path, "utf8")) : null;
 }
 
+/** Every pending file inside the pack's own directory, pack-relative, whether or not it is in the pack's scope. */
+async function readPackPending(packDir: string, team: string): Promise<PendingFile[]> {
+  const prefixRes = await runGit(packDir, ["rev-parse", "--show-prefix"]);
+  if (prefixRes.exitCode !== 0) {
+    throw new SkillsUsageError(isNotARepo(prefixRes)
+      ? `pack ${team} is not inside a git checkout, so there is no way to tell what changed`
+      : `pack ${team}: ${describeGitFailure(prefixRes)}`);
+  }
+  const statusRes = await runGit(packDir, ["status", "--porcelain=v1", "--untracked-files=all", "--", "."]);
+  if (statusRes.exitCode !== 0) throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(statusRes)}`);
+  return relativeToPrefix(parsePorcelain(statusRes.stdout), prefixRes.stdout.trim());
+}
+
 export async function skillsChanges(args: string[]): Promise<void> {
   await withCleanErrors(async () => {
     const flags = parseFlags(args);
     const { team, packDir } = await resolvePack(flags);
 
-    const prefixRes = await runGit(packDir, ["rev-parse", "--show-prefix"]);
-    if (prefixRes.exitCode !== 0) {
-      throw new SkillsUsageError(isNotARepo(prefixRes)
-        ? `pack ${team} is not inside a git checkout, so there is no way to tell what changed`
-        : `pack ${team}: ${describeGitFailure(prefixRes)}`);
-    }
-    const statusRes = await runGit(packDir, ["status", "--porcelain=v1", "--untracked-files=all", "--", "."]);
-    if (statusRes.exitCode !== 0) throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(statusRes)}`);
-
-    const all = relativeToPrefix(parsePorcelain(statusRes.stdout), prefixRes.stdout.trim());
+    const all = await readPackPending(packDir, team);
     const files = all.filter((f) => inScope(f.path));
     const outsideScope = all.filter((f) => !inScope(f.path));
 
@@ -1822,6 +1832,64 @@ export async function skillsChanges(args: string[]): Promise<void> {
       blocks.push(out.table(payload.surface.map((c) => [c.skill, c.from, c.to]), ["Skill", "Was", "Now"]));
     }
     out.print(...blocks);
+  });
+}
+
+// ─── rt skills discard ─────────────────────────────────────────────────────
+
+export type DiscardPayload = { pack: string; packDir: string; discarded: PendingFile[] };
+
+/**
+ * Every pathspec is a pack root holding a pending file, so git never sees a
+ * bare `.` or a root it does not know, and nothing outside the pack's scope
+ * is restored or cleaned.
+ */
+async function discardPending(packDir: string, team: string, pending: PendingFile[]): Promise<PendingFile[]> {
+  const fail = (res: GitRun) => new SkillsUsageError(`pack ${team}: ${describeGitFailure(res)}`);
+  const tracked = pending.filter((f) => f.status !== "??");
+  const discarded = [...tracked];
+
+  const restoreRoots = pendingRoots(tracked);
+  if (restoreRoots.length > 0) {
+    const res = await runGit(packDir, ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...restoreRoots], { timeoutMs: GIT_WRITE_TIMEOUT_MS });
+    if (res.exitCode !== 0) throw fail(res);
+  }
+
+  const cleanRoots = pendingRoots(pending.filter((f) => f.status === "??"));
+  if (cleanRoots.length > 0) {
+    const dryRun = await runGit(packDir, ["clean", "-nd", "--", ...cleanRoots], { env: { ...childEnv(), LC_ALL: "C" } });
+    if (dryRun.exitCode !== 0) throw fail(dryRun);
+    const doomed = parseCleanDryRun(dryRun.stdout);
+    if (doomed.length > 0) {
+      const res = await runGit(packDir, ["clean", "-fd", "--", ...cleanRoots], { timeoutMs: GIT_WRITE_TIMEOUT_MS });
+      if (res.exitCode !== 0) throw fail(res);
+      discarded.push(...doomed);
+    }
+  }
+  return discarded;
+}
+
+export async function skillsDiscard(args: string[]): Promise<void> {
+  await withCleanErrors(async () => {
+    const flags = parseFlags(args);
+    const { team, packDir } = await resolvePack(flags);
+
+    const pending = (await readPackPending(packDir, team)).filter((f) => inScope(f.path));
+    const payload: DiscardPayload = { pack: team, packDir, discarded: await discardPending(packDir, team, pending) };
+
+    if (flags.json) {
+      out.json(payload);
+      return;
+    }
+    if (payload.discarded.length === 0) {
+      out.print(out.line("done", `Pack ${team} has nothing to throw away`));
+      return;
+    }
+    const count = payload.discarded.length;
+    out.print(
+      out.line("done", `Threw away ${count} ${count === 1 ? "change" : "changes"} in pack ${team}`),
+      out.table(payload.discarded.map((f) => [f.status, f.path]), ["Status", "Path"]),
+    );
   });
 }
 

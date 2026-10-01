@@ -4,10 +4,11 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { PackInfo } from "../../lib/skills/packs.ts";
 import type { MaterializeSkillsResult } from "../../lib/setup/skills-materialize.ts";
+import { TREE } from "../../lib/command-tree-def.ts";
 import type { SyncReport } from "../../lib/skills/sync.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
-import { deriveEngine, manifestTarget, syncBlocks, syncFailure, syncMaterializeVerdict, syncRefusal } from "../skills-sync.ts";
+import { deriveEngine, manifestTarget, syncBlocks, syncFailure, syncMaterializeVerdict, syncOptions, syncRefusal } from "../skills-sync.ts";
 
 function pack(name: string): PackInfo {
   return { name, dir: `/fake/${name}`, layout: "flat", surfacePath: `/fake/${name}/surface.jsonc`, marketplace: "local" };
@@ -94,6 +95,21 @@ describe("manifestTarget", () => {
 
   test("omits what was not passed", () => {
     expect(manifestTarget(["--pack", "acme", "--json"])).toEqual({});
+  });
+});
+
+describe("syncOptions", () => {
+  test("--commit-pending reaches syncPack as commitPending", () => {
+    expect(syncOptions(["--pack", "acme", "--commit-pending", "--json"])).toEqual({ commitPending: true });
+  });
+
+  test("without the flag nothing is committed", () => {
+    expect(syncOptions(["--pack", "acme"])).toEqual({ commitPending: false });
+  });
+
+  test("the sync command lists the flag", () => {
+    const sync = TREE.skills?.subcommands?.sync;
+    expect(sync?.args?.some((a) => a.flag === "--commit-pending")).toBe(true);
   });
 });
 

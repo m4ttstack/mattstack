@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bindingChanges, describeGitFailure, inScope, isNotARepo, parsePorcelain, relativeToPrefix, surfaceChanges } from "../changes.ts";
+import { bindingChanges, describeGitFailure, inScope, isNotARepo, packRelative, parseCleanDryRun, parsePorcelain, pendingRoots, relativeToPrefix, surfaceChanges } from "../changes.ts";
 
 describe("parsePorcelain", () => {
   test("reads status and path, including renames and untracked", () => {
@@ -121,5 +121,53 @@ describe("surfaceChanges", () => {
       { skill: "review", from: "public", to: "internal" },
       { skill: "ship", from: "internal", to: "public" },
     ]);
+  });
+});
+
+describe("packRelative", () => {
+  test("strips the pack prefix and keeps a repo file beside the pack as a path that climbs out of it", () => {
+    const files = [{ path: "packs/acme/pack/skills.jsonc", status: "M" }, { path: "README.md", status: "M" }, { path: "packs/other/x.md", status: "??" }];
+    expect(packRelative(files, "packs/acme/")).toEqual([
+      { path: "pack/skills.jsonc", status: "M" },
+      { path: "../../README.md", status: "M" },
+      { path: "../other/x.md", status: "??" },
+    ]);
+  });
+
+  test("an empty prefix leaves the paths alone", () => {
+    expect(packRelative([{ path: "README.md", status: "M" }], "")).toEqual([{ path: "README.md", status: "M" }]);
+  });
+
+  test("a climbing path is never in scope", () => {
+    expect(packRelative([{ path: "pack/x.jsonc", status: "M" }], "packs/acme/").every((f) => !inScope(f.path))).toBe(true);
+  });
+});
+
+describe("pendingRoots", () => {
+  test("names each pack root holding a pending file, in scope order", () => {
+    expect(pendingRoots([
+      { path: "attachments/old/SKILL.md", status: "D" },
+      { path: "pack/skills.jsonc", status: "M" },
+      { path: "surface.jsonc", status: "M" },
+      { path: "pack/surface.jsonc", status: "M" },
+    ])).toEqual(["pack", "attachments", "surface.jsonc"]);
+  });
+
+  test("ignores files outside the scope", () => {
+    expect(pendingRoots([{ path: "README.md", status: "M" }, { path: "packaging/x", status: "??" }])).toEqual([]);
+  });
+});
+
+describe("parseCleanDryRun", () => {
+  test("reads each path git clean would remove, directories and quoted names included", () => {
+    expect(parseCleanDryRun('Would remove attachments/x/\nWould remove "attachments/a/we\\"ird.md"\nWould remove pack/new notes.jsonc\n')).toEqual([
+      { path: "attachments/x/", status: "??" },
+      { path: 'attachments/a/we"ird.md', status: "??" },
+      { path: "pack/new notes.jsonc", status: "??" },
+    ]);
+  });
+
+  test("nothing to remove reads as an empty list", () => {
+    expect(parseCleanDryRun("")).toEqual([]);
   });
 });

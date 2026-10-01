@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from "fs";
 import { join, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
+import { inScope, packRelative, parsePorcelain, pendingRoots, type PendingFile } from "./changes.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 
@@ -19,6 +20,8 @@ export type SyncDeps = {
 };
 
 export type SyncStep = { name: string; status: "ran" | "skipped" | "refused" | "failed"; detail: string };
+
+export type SyncOptions = { commitPending?: boolean };
 
 export type SyncReport = {
   ok: boolean;
@@ -152,7 +155,16 @@ async function inTreeBranchNote(deps: SyncDeps, root: string): Promise<string> {
   return `; the shared checkout at ${root} ${where}, not ${IN_TREE_REF}, and the plugin installs from ${IN_TREE_REF}`;
 }
 
-function guardSummary(engineInTree: boolean, packInTree: boolean, engineCache: string | null): string {
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+function guardSummary(engineInTree: boolean, packInTree: boolean, engineCache: string | null, pendingCount: number): string {
+  const base = guardBase(engineInTree, packInTree, engineCache);
+  return pendingCount > 0 ? `${base}, apart from ${plural(pendingCount, "pack file")} waiting to commit` : base;
+}
+
+function guardBase(engineInTree: boolean, packInTree: boolean, engineCache: string | null): string {
   if (engineCache !== null) {
     const packPart = packInTree ? "the pack is in the shared checkout, so its git checks are skipped" : "pack checkout clean on main";
     return `${packPart}; the engine is Claude Code's installed cache at ${engineCache}, which git never touches`;
@@ -185,7 +197,7 @@ function chosenEntryVersion(list: PluginListEntry[], id: string, scope: string |
   return entry ? installedVersionFor([entry], id) : null;
 }
 
-export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDeps): Promise<SyncReport> {
+export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDeps, opts: SyncOptions = {}): Promise<SyncReport> {
   const steps: SyncStep[] = [];
   const warnings: string[] = [];
   const sameCheckout = pack.dir === engine.dir;
@@ -209,6 +221,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   let bumpAfter: string | null = null;
   let drift = false;
   let branchNote = "";
+  let pending: PendingFile[] = [];
+  let published = false;
 
   const finish = (): SyncReport => ({
     ok: !steps.some(stops),
@@ -254,10 +268,27 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       }
     }
     if (packGit) {
-      const packStatus = await deps.run("git", ["status", "--porcelain"], { cwd: pack.dir });
+      const statusArgs = opts.commitPending ? ["status", "--porcelain=v1", "--untracked-files=all"] : ["status", "--porcelain"];
+      const packStatus = await deps.run("git", statusArgs, { cwd: pack.dir });
       if (packStatus.code !== 0) return failed(`git status failed in ${pack.dir}: ${packStatus.stderr.trim()}`);
       if (packStatus.stdout.trim() !== "") {
-        return refused(`The pack checkout at ${pack.dir} has uncommitted changes (${packStatus.stdout.trim()}). Commit or stash them, then run this again`);
+        if (!opts.commitPending) return refused(`The pack checkout at ${pack.dir} has uncommitted changes (${packStatus.stdout.trim()}). Commit or stash them, then run this again`);
+        // The status covers the whole repo, so a dirty file beside a pack
+        // that sits in a subdirectory still refuses rather than riding along
+        // in the commit.
+        const prefix = await deps.run("git", ["rev-parse", "--show-prefix"], { cwd: pack.dir });
+        if (prefix.code !== 0) return failed(`git rev-parse --show-prefix failed in ${pack.dir}: ${prefix.stderr.trim()}`);
+        pending = packRelative(parsePorcelain(packStatus.stdout), prefix.stdout.trim());
+        const outside = pending.filter((f) => !inScope(f.path));
+        if (outside.length > 0) {
+          return refused(`pack checkout at ${pack.dir} has changes outside the pack: ${outside.map((f) => f.path).join(", ")}; commit or stash those and re-run`);
+        }
+      }
+    } else if (opts.commitPending && packInTree) {
+      const packStatus = await deps.run("git", ["--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all", "--", "."], { cwd: pack.dir });
+      if (packStatus.code !== 0) return failed(`git status failed in ${pack.dir}: ${packStatus.stderr.trim()}`);
+      if (packStatus.stdout.trim() !== "") {
+        return refused(`pack is in-tree at ${pack.dir} and has changes that are not synced; sync never commits inside the shared checkout, so commit them in a pull request to the monorepo`);
       }
     }
 
@@ -287,7 +318,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     installedEngineBefore = engineCached ? chosenEntryVersion(list, pluginId(engine), engine.scope) : installedVersionFor(list, pluginId(engine));
     installedPackBefore = installedVersionFor(list, pluginId(pack));
 
-    return ran(guardSummary(engineInTree, packInTree, engineCached ? engine.dir : null));
+    return ran(guardSummary(engineInTree, packInTree, engineCached ? engine.dir : null, pending.length));
   });
   steps.push({ name: "guards", ...guards });
   if (stops(guards)) return finish();
@@ -325,6 +356,22 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   });
   steps.push({ name: "pull-pack", ...pullPack });
   if (stops(pullPack)) return finish();
+
+  // Committing only after the pull keeps the commit on top of the remote, so
+  // a pull that cannot fast-forward never strands an unpushed local commit.
+  if (opts.commitPending) {
+    const commitPending = await tryStep(async () => {
+      if (pending.length === 0) return skipped("nothing waiting to commit");
+      const add = await deps.run("git", ["add", "--", ...pendingRoots(pending)], { cwd: pack.dir });
+      if (add.code !== 0) return failed(`git add failed: ${add.stderr.trim()}`);
+      const commit = await deps.run("git", ["commit", "-m", `skills: ${pack.name} changes from console`], { cwd: pack.dir });
+      if (commit.code !== 0) return failed(`git commit failed: ${commit.stderr.trim()}`);
+      published = true;
+      return ran(`committed ${plural(pending.length, "file")}`);
+    });
+    steps.push({ name: "commit-pending", ...commitPending });
+    if (stops(commitPending)) return finish();
+  }
 
   /**
    * A cached engine older than the one the pack was last compiled against
@@ -383,11 +430,14 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   steps.push({ name: "check", ...checkStep });
   if (stops(checkStep)) return finish();
 
-  const noOp = !drift && installedPackBefore === packSourceVersion;
+  // A published commit can leave check with no drift to report, yet the
+  // installed cache is keyed by version, so it must still bump, push and update.
+  const rebuild = drift || published;
+  const noOp = !rebuild && installedPackBefore === packSourceVersion;
   if (noOp) return finish();
 
   const bump = await tryStep(async () => {
-    if (!drift) return skipped("nothing changed, so the version stays");
+    if (!rebuild) return skipped("nothing changed, so the version stays");
     if (packInTree) {
       return refused(
         `This pack is in the shared checkout at ${pack.dir}, and its compiled skills are out of date. rt never bumps, compiles or commits there: recompile it and bump its version in a pull request to the monorepo`,
@@ -403,7 +453,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (stops(bump)) return finish();
 
   const compile = await tryStep(async () => {
-    if (!drift) return skipped("nothing changed, so there is nothing to recompile");
+    if (!rebuild) return skipped("nothing changed, so there is nothing to recompile");
     const result = await deps.compilePack(pack.name);
     if (!result.ok) {
       // A refused compile must leave the checkout exactly as the dirty guard
@@ -421,7 +471,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (stops(compile)) return finish();
 
   const recheck = await tryStep(async () => {
-    if (!drift) return skipped("nothing changed, so there is nothing to check again");
+    if (!rebuild) return skipped("nothing changed, so there is nothing to check again");
     const result = await deps.checkPack(pack.name);
     if (result.drift) {
       return refused(
@@ -434,7 +484,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (stops(recheck)) return finish();
 
   const commitPush = await tryStep(async () => {
-    if (!drift) return skipped("nothing changed, so there is nothing to commit");
+    if (!rebuild) return skipped("nothing changed, so there is nothing to commit");
     const addPaths = [join(".claude-plugin", "plugin.json"), "skills", "attachments"].filter((rel) => existsSync(join(pack.dir, rel)));
     const add = await deps.run("git", ["add", "--", ...addPaths], { cwd: pack.dir });
     if (add.code !== 0) return failed(`git add failed: ${add.stderr.trim()}`);
@@ -447,9 +497,9 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   steps.push({ name: "commit-push", ...commitPush });
   if (stops(commitPush)) return finish();
 
-  // Reached only when drift is true, or drift is false with installedPackBefore
-  // !== packSourceVersion (the noOp return above already exited the other case) --
-  // an update is always due here, so there is no further skip to check.
+  // Reached only when rebuild is true, or the installed pack lags the source
+  // (the noOp return above already exited the other case) -- an update is
+  // always due here, so there is no further skip to check.
   const updatePack = await tryStep(async () => {
     const id = pluginId(pack);
     const res = await deps.run(deps.claudeBin!, ["plugin", "update", id]);

@@ -4,7 +4,7 @@
  * recompile and recheck on drift, commit and push, update the pack plugin,
  * and flag any cswap session whose plugins symlink has drifted.
  *
- *   rt skills sync [--pack <name>] [--manifest <path>] [--repo <slug or host/path>] [--json]
+ *   rt skills sync [--pack <name>] [--manifest <path>] [--repo <slug or host/path>] [--commit-pending] [--json]
  *
  * The full step chain and its refusal conditions live in lib/skills/sync.ts;
  * this file only wires real dependencies (git/claude subprocesses, checkPack,
@@ -17,7 +17,7 @@ import { discoverPacks, packFromDir, type PackInfo } from "../lib/skills/packs.t
 import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
 import { realpathSync } from "fs";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
-import { syncPack, type SyncDeps, type SyncEngine, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
+import { syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { checkPack, compilePackAll } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
@@ -82,6 +82,10 @@ export function manifestTarget(args: string[]): { manifest?: string; repo?: stri
   return { ...(manifest ? { manifest } : {}), ...(repo ? { repo } : {}) };
 }
 
+export function syncOptions(args: string[]): SyncOptions {
+  return { commitPending: args.includes("--commit-pending") };
+}
+
 export function syncMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[] } {
   if (r.skipped) return { ok: true, detail: `nothing was written: ${r.reason}`, warnings: [] };
   const warnings = r.repos.flatMap((row) => (row.pruneWarnings ?? []).map((w) => `${row.name}: ${w}`));
@@ -95,6 +99,7 @@ const STEP_TITLE: Record<string, string> = {
   guards: "Safety checks",
   "pull-engine": "Pull the engine",
   "pull-pack": "Pull the pack",
+  "commit-pending": "Stage your pack edits",
   "update-engine": "Update the installed engine",
   materialize: "Rebuild the bindings files",
   check: "Check for drift",
@@ -224,7 +229,7 @@ export async function skillsSync(args: string[]): Promise<void> {
 
   let report: SyncReport;
   try {
-    report = await syncPack(pack!, engine, deps);
+    report = await syncPack(pack!, engine, deps, syncOptions(args));
   } catch (err) {
     fail(err instanceof Error ? err.message : String(err));
     return;

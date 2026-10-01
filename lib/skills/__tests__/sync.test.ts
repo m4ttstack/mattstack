@@ -53,6 +53,10 @@ type World = {
   /** Listed ahead of the installed entries: the same plugin id at another scope. */
   shadowEntries?: { id: string; scope: string; version: string }[];
   scopeOf?: Record<string, string>;
+  /** What `git rev-parse --show-prefix` prints in a dir: the pack's place inside its repo. */
+  prefix?: Record<string, string>;
+  /** Git subcommands that fail, keyed by subcommand name. */
+  gitFail?: Record<string, string>;
 };
 
 /**
@@ -96,6 +100,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
 
     if (cmd === "git") {
       const cwd = opts?.cwd ?? "";
+      if (args[0] === "--no-optional-locks") args = args.slice(1);
       if (args[0] === "status") {
         const stderr = world.statusFail?.[cwd];
         if (stderr) return { code: 1, stdout: "", stderr };
@@ -127,6 +132,9 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
         }
         return { code: 0, stdout: "Already up to date.", stderr: "" };
       }
+      const failure = world.gitFail?.[args[0]!];
+      if (failure) return { code: 1, stdout: "", stderr: failure };
+      if (args[0] === "rev-parse" && args[1] === "--show-prefix") return { code: 0, stdout: `${world.prefix?.[cwd] ?? ""}\n`, stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     }
 
@@ -1149,5 +1157,167 @@ describe("in-tree pack drift", () => {
     expect(stepNames(report.steps)).not.toContain("commit-push");
     expect(world.calls.some((c) => c.cmd === "git" && (c.args[0] === "commit" || c.args[0] === "push" || c.args[0] === "add"))).toBe(false);
     expect(readVersion(pack.dir)).toBe("0.1.0");
+  });
+});
+
+describe("commit-pending", () => {
+  const gitIn = (calls: Call[], dir: string) => calls.filter((c) => c.cmd === "git" && c.cwd === dir);
+  const byName = (steps: { name: string; status: string; detail: string }[]) => Object.fromEntries(steps.map((s) => [s.name, s]));
+
+  test("commits in-scope pack edits after pulling, then bumps, pushes and updates the cache even with no drift", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = {
+      calls: [],
+      gitStatus: { [pack.dir]: " M pack/skills.jsonc\n" },
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      drift: [false, false],
+    };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world), { commitPending: true });
+
+    const steps = byName(report.steps);
+    expect(report.ok).toBe(true);
+    expect(steps["commit-pending"]).toMatchObject({ status: "ran", detail: "committed 1 file" });
+    expect(steps.bump!.status).toBe("ran");
+    expect(steps["commit-push"]!.status).toBe("ran");
+    expect(steps["update-pack"]!.status).toBe("ran");
+    expect(steps["verify-installed"]!.status).toBe("ran");
+    expect(readVersion(pack.dir)).toBe("1.0.1");
+    expect(stepNames(report.steps).slice(0, 4)).toEqual(["guards", "pull-engine", "pull-pack", "commit-pending"]);
+
+    const git = gitIn(world.calls, pack.dir).map((c) => c.args);
+    expect(git).toContainEqual(["add", "--", "pack"]);
+    expect(git).toContainEqual(["commit", "-m", "skills: acme changes from console"]);
+    const order = git.map((a) => a[0]);
+    expect(order.indexOf("pull")).toBeLessThan(order.indexOf("add"));
+    expect(git.filter((a) => a[0] === "push")).toHaveLength(1);
+  });
+
+  test("stages only the pack roots that hold pending files, deletions included", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = {
+      calls: [],
+      gitStatus: { [pack.dir]: " D attachments/old/SKILL.md\n?? skills/new/SKILL.md\n M surface.jsonc\n" },
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      drift: [true, false],
+    };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world), { commitPending: true });
+
+    expect(byName(report.steps)["commit-pending"]).toMatchObject({ status: "ran", detail: "committed 3 files" });
+    expect(gitIn(world.calls, pack.dir).find((c) => c.args[0] === "add")!.args).toEqual(["add", "--", "skills", "attachments", "surface.jsonc"]);
+  });
+
+  test("refuses when the pack has edits outside its scope, naming every one", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], gitStatus: { [pack.dir]: " M README.md\n M pack/skills.jsonc\n?? notes/todo.md\n" } };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world), { commitPending: true });
+
+    const guards = report.steps.find((s) => s.name === "guards")!;
+    expect(stepNames(report.steps)).toEqual(["guards"]);
+    expect(guards.status).toBe("refused");
+    expect(guards.detail).toContain("README.md");
+    expect(guards.detail).toContain("notes/todo.md");
+    expect(guards.detail).not.toContain("pack/skills.jsonc");
+    expect(world.calls.some((c) => c.cmd === "git" && ["pull", "add", "commit", "push"].includes(c.args[0]!))).toBe(false);
+  });
+
+  test("a pack inside a larger repo reads its paths relative to the pack and refuses on repo files beside it", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = {
+      calls: [],
+      prefix: { [pack.dir]: "packs/acme/" },
+      gitStatus: { [pack.dir]: " M packs/acme/pack/skills.jsonc\n M packs/acme/README.md\n M package.json\n" },
+    };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world), { commitPending: true });
+
+    const guards = report.steps.find((s) => s.name === "guards")!;
+    expect(guards.status).toBe("refused");
+    expect(guards.detail).toContain("README.md, ../../package.json");
+    expect(guards.detail).not.toContain("pack/skills.jsonc");
+  });
+
+  test("a pack inside a larger repo stages its own roots by pack-relative path", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = {
+      calls: [],
+      prefix: { [pack.dir]: "packs/acme/" },
+      gitStatus: { [pack.dir]: " M packs/acme/pack/skills.jsonc\n" },
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      drift: [true, false],
+    };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world), { commitPending: true });
+
+    expect(report.ok).toBe(true);
+    expect(gitIn(world.calls, pack.dir).find((c) => c.args[0] === "add")!.args).toEqual(["add", "--", "pack"]);
+  });
+
+  test("a clean pack skips the step and syncs as usual", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false] };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world), { commitPending: true });
+
+    expect(report.ok).toBe(true);
+    expect(byName(report.steps)["commit-pending"]).toMatchObject({ status: "skipped" });
+    expect(stepNames(report.steps).at(-1)).toBe("check");
+    expect(world.calls.some((c) => c.cmd === "git" && ["add", "commit", "push"].includes(c.args[0]!))).toBe(false);
+  });
+
+  test("a failed commit stops the chain before anything is bumped or pushed", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = {
+      calls: [],
+      gitStatus: { [pack.dir]: " M pack/skills.jsonc\n" },
+      gitFail: { commit: "fatal: unable to write new index file" },
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      drift: [false, false],
+    };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world), { commitPending: true });
+
+    expect(report.ok).toBe(false);
+    expect(stepNames(report.steps).at(-1)).toBe("commit-pending");
+    expect(byName(report.steps)["commit-pending"]).toMatchObject({ status: "failed" });
+    expect(byName(report.steps)["commit-pending"]!.detail).toContain("unable to write new index file");
+    expect(readVersion(pack.dir)).toBe("1.0.0");
+    expect(world.calls.some((c) => c.cmd === "git" && c.args[0] === "push")).toBe(false);
+  });
+
+  test("an in-tree pack with pending edits refuses, since sync never commits in the shared checkout", async () => {
+    const root = tmp("rt-sync-checkout-");
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3");
+    const pack = fixturePack("acme", "mattstack", "0.1.0", join(root, "plugins"));
+    const world: World = { calls: [], gitStatus: { [pack.dir]: " M plugins/acme/pack/skills.jsonc\n" } };
+    const deps = { ...makeDeps(pack, engine, world), inTreeRoot: root };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    const guards = report.steps.find((s) => s.name === "guards")!;
+    expect(guards.status).toBe("refused");
+    expect(guards.detail).toContain("in-tree");
+    expect(world.calls.some((c) => c.cmd === "git" && ["add", "commit", "push", "pull"].includes(c.args[0]!))).toBe(false);
+  });
+
+  test("without commit-pending a dirty pack is refused as before and no commit-pending step appears", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], gitStatus: { [pack.dir]: " M pack/skills.jsonc\n" } };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world));
+
+    expect(stepNames(report.steps)).toEqual(["guards"]);
+    expect(report.steps[0]!.detail).toContain("has uncommitted changes");
+    expect(gitIn(world.calls, pack.dir).map((c) => c.args)).toEqual([["status", "--porcelain"]]);
   });
 });
