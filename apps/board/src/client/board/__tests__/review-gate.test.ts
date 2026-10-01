@@ -255,7 +255,7 @@ describe('prose helpers', () => {
 
   test('reviewMeta carries reviewer, round, and the prior tally', () => {
     expect(reviewMeta(review)).toBe(
-      'renee · round 2 · 3 addressed, 1 still open'
+      'renee · round 2 · 3 addressed, 1 waiting on author'
     );
     expect(reviewMeta({ ...review, prior: undefined })).toBe(
       'renee · round 2 · re-review'
@@ -266,7 +266,7 @@ describe('prose helpers', () => {
   test('reviewProse flattens the summary for a surface with no sheet', () => {
     expect(reviewProse(review)).toBe(
       '**Ready to merge: with fixes** · 1 important, 4 minor\n\n' +
-        'renee · round 2 · 3 addressed, 1 still open\n\n' +
+        'renee · round 2 · 3 addressed, 1 waiting on author\n\n' +
         'the guard only covers the parity path.'
     );
     expect(reviewProse(bare)).toBe(

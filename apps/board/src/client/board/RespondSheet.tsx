@@ -1,6 +1,5 @@
 import {
   Fragment,
-  useId,
   useLayoutEffect,
   useMemo,
   useState,
@@ -46,6 +45,7 @@ import {
 import {
   EditableReply,
   EditedChip,
+  PostResolveChoice,
   ReplyBlock,
   ReplyChoiceBody,
   SeverityPill,
@@ -223,90 +223,6 @@ function StepReplyCard({ s }: { s: StepReply }) {
         )}
       </div>
     </section>
-  );
-}
-
-/** A per-thread post question's controls: post or hold its reply, and,
-    independently of either, resolve the thread. */
-function PostResolveChoice({
-  pick,
-  form,
-}: {
-  pick: PostPick;
-  form: GateFormState;
-}) {
-  const current = form.selections[pick.name];
-  const picked = new Set(Array.isArray(current) ? current : []);
-  const posting = picked.has(pick.post);
-  const resolving = picked.has(pick.resolve);
-  const resolveHint = useId();
-  const choices = [
-    { post: true, label: 'post', subtitle: 'post this reply to the thread' },
-    { post: false, label: 'hold', subtitle: 'keep it back; nothing is posted' },
-  ];
-  return (
-    <div className="tui-post-controls">
-      <div
-        className="tui-gate-choices"
-        role="radiogroup"
-        aria-label={`${pick.label}: post or hold`}
-      >
-        {choices.map(c => {
-          const checked = posting === c.post;
-          return (
-            <label
-              className="tui-gate-choice"
-              data-checked={checked || undefined}
-              key={c.label}
-            >
-              <input
-                type="radio"
-                className="tui-gate-choice-input"
-                data-type="radio"
-                data-checked={checked ? '' : undefined}
-                name={`${pick.name}:post`}
-                value={c.label}
-                checked={checked}
-                onChange={() => form.toggleMulti(pick.name, pick.post, c.post)}
-              />
-              <span className="tui-gate-choice-label">
-                <span className="tui-gate-choice-label-row">{c.label}</span>
-                <span className="tui-gate-choice-subtitle">{c.subtitle}</span>
-              </span>
-            </label>
-          );
-        })}
-      </div>
-      <label
-        className="tui-gate-choice tui-post-resolve"
-        data-checked={resolving || undefined}
-      >
-        <span className="tui-check">
-          <input
-            type="checkbox"
-            className="tui-gate-choice-input"
-            data-type="checkbox"
-            data-checked={resolving ? '' : undefined}
-            value="resolve"
-            aria-label={`${pick.label}: resolve`}
-            aria-describedby={resolveHint}
-            checked={resolving}
-            onChange={e =>
-              form.toggleMulti(pick.name, pick.resolve, e.currentTarget.checked)
-            }
-          />
-          <span className="tui-check-tick" aria-hidden="true" />
-        </span>
-        <span className="tui-gate-choice-label">
-          <span className="tui-gate-choice-label-row">resolve</span>
-          <span className="tui-gate-choice-subtitle" id={resolveHint}>
-            {posting
-              ? 'resolve the thread once the reply posts'
-              : 'resolve the thread without replying'}
-          </span>
-        </span>
-      </label>
-    </div>
   );
 }
 

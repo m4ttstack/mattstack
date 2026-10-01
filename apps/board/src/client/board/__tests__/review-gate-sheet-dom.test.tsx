@@ -754,9 +754,9 @@ test('a disposition renders as a small state pill on its row', async () => {
     ])
   );
   expect(pills).toEqual({
-    'still-open': ['still open', 'amber'],
+    'still-open': ['waiting on author', 'amber'],
     new: ['new', 'accent'],
-    'addressed-check': ['confirm fix', 'green'],
+    'addressed-check': ['author says fixed', 'green'],
   });
 });
 
@@ -769,7 +769,7 @@ test('the decision card reads readiness, summary, counts, and the re-review line
     container.querySelector('.tui-sheet-context-reasoning')!.textContent
   ).toContain('One important finding carried over; the rest are cleanups.');
   expect(container.querySelector('.tui-sheet-context-meta')!.textContent).toBe(
-    'renee · round 2 · 3 addressed, 1 still open'
+    'renee · round 2 · 3 addressed, 1 waiting on author'
   );
   const railPills = [
     ...container.querySelectorAll(

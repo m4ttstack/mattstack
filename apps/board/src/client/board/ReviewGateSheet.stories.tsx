@@ -457,3 +457,340 @@ export const ReReview: Story = {
   ],
   render: () => <Host gate={reReviewGate} mr={boardMr} />,
 };
+
+// --- Later rounds: earlier threads, new findings, skipped findings --------
+
+const no404 = fetchStub(url =>
+  url.includes('/review/')
+    ? new Response('no structured review yet', { status: 404 })
+    : undefined
+);
+
+function carryQuestion(
+  n: number,
+  thread: string,
+  file: string,
+  defaults: { post: boolean; resolve: boolean },
+  carry: {
+    round: number;
+    call:
+      | 'fixed'
+      | 'not-fixed'
+      | 'pushback-accepted'
+      | 'pushback-rejected';
+    original: string;
+    authorReply?: string;
+    note?: string;
+    reply: string;
+  }
+): GateQuestion {
+  return question(
+    `thread-${n}`,
+    file,
+    true,
+    [
+      {
+        value: `post:${thread}`,
+        label: defaults.post ? 'Post reply (Recommended)' : 'Post reply',
+        description: 'post this reply to the thread',
+      },
+      {
+        value: `resolve:${thread}`,
+        label: defaults.resolve ? 'Resolve (Recommended)' : 'Resolve',
+        description: 'resolve the thread when the review is submitted',
+      },
+    ],
+    ctx({ 'gate-ctx': 'carryover@1', thread, file, ...carry })
+  );
+}
+
+const threadFixed = carryQuestion(
+  1,
+  'd-query',
+  'lib/db/query.ts:42',
+  { post: true, resolve: true },
+  {
+    round: 1,
+    call: 'fixed',
+    original:
+      '**issue:** the search handler interpolates the raw `q` parameter into the WHERE clause, so a crafted query string reaches the database as SQL.',
+    authorReply:
+      'Switched to a parameterized query in 4c1e9a2 and added a test with a quote in the search term.',
+    note: 'verified: query.ts:42 now binds $1, and the new test covers a quoted term',
+    reply: "Thanks, that's exactly the fix. Resolving.",
+  }
+);
+
+const threadNotFixed = carryQuestion(
+  2,
+  'd-retry',
+  'lib/retry.ts:41',
+  { post: true, resolve: false },
+  {
+    round: 2,
+    call: 'not-fixed',
+    original:
+      '**issue:** the loop retries immediately up to five times, which turns one upstream blip into a burst of six requests.',
+    authorReply: 'Added exponential backoff in 7d2f310.',
+    note: 'the backoff landed, but an aborted request still goes round the loop: retry.ts:58 never checks signal.aborted',
+    reply:
+      'The backoff looks good. One gap left: an aborted request still goes round the loop, since nothing checks `signal.aborted` before the next try (`retry.ts:58`).',
+  }
+);
+
+const threadPushbackAccepted = carryQuestion(
+  3,
+  'd-errors',
+  'lib/errors.ts:15',
+  { post: true, resolve: true },
+  {
+    round: 2,
+    call: 'pushback-accepted',
+    original:
+      '**suggestion:** two of the new messages end in a period and one does not; the style guide asks for none.',
+    authorReply:
+      "These mirror the upstream API's error strings word for word, so support can search for them. I'd rather keep them identical.",
+    note: 'fair: the strings are copied verbatim from the upstream API, and matching them is the better rule here',
+    reply:
+      'Makes sense, matching the API exactly is the better call. Resolving.',
+  }
+);
+
+const threadPushbackRejected = carryQuestion(
+  4,
+  'd-client',
+  'lib/api/client.ts:88',
+  { post: true, resolve: false },
+  {
+    round: 1,
+    call: 'pushback-rejected',
+    original:
+      '**issue:** a 204 from the upstream returns no body, and `data.items` is read before anything checks that `data` exists.',
+    authorReply: 'The upstream never sends a 204 for this endpoint.',
+    note: 'the upstream docs list a 204 for an empty page, and client.test.ts has no case for it',
+    reply:
+      "The upstream docs list a 204 for an empty page (`GET /items?page=`), so I think the guard still earns its place. Happy to be wrong if you've seen otherwise.",
+  }
+);
+
+const threadNoReply = carryQuestion(
+  5,
+  'd-cache-ttl',
+  'lib/cache.ts:9',
+  { post: true, resolve: false },
+  {
+    round: 2,
+    call: 'not-fixed',
+    original:
+      '**question:** is a 24h TTL intended here? The other caches in this module use 5 minutes.',
+    note: 'no reply and no change at cache.ts:9',
+    reply: 'Bumping this one: is the 24h TTL intended?',
+  }
+);
+
+const NEW = {
+  n1: {
+    id: 'n1',
+    severity: 'important',
+    title: 'Cache key ignores the tenant',
+    file: 'lib/cache.ts:23',
+    fix: 'prefix the key with the tenant id',
+    body: 'Two tenants asking for the same page share one cache entry, so the second one is served the first tenant’s results.',
+    disposition: 'new',
+  },
+  n2: {
+    id: 'n2',
+    severity: 'minor',
+    title: 'Debug log prints the whole session object',
+    file: 'lib/auth/session.ts:61',
+    fix: 'log the session id only',
+    body: 'The new `log.debug` call serializes the full session, refresh token included.',
+    disposition: 'new',
+  },
+};
+
+const newFindingsQuestion = question(
+  'findings-1',
+  'Post which findings to !31?',
+  true,
+  [
+    {
+      value: 'n1',
+      label: '[Important] Cache key ignores the tenant',
+      description: 'lib/cache.ts:23 · prefix the key with the tenant id',
+    },
+    {
+      value: 'n2',
+      label: '[Minor] Debug log prints the whole session object',
+      description: 'lib/auth/session.ts:61 · log the session id only',
+    },
+  ],
+  findingsCtx(NEW.n1, NEW.n2)
+);
+
+const skippedQuestion = question(
+  'skipped-1',
+  'Bring back which skipped findings?',
+  true,
+  [
+    {
+      value: 'restore:s1',
+      label: '[Minor] Unused import',
+      description: 'lib/utils.ts:3 · skipped in round 1',
+    },
+    {
+      value: 'restore:s2',
+      label: '[Minor] Inconsistent spacing',
+      description: 'lib/format.ts:9 · skipped in round 1 · code changed since',
+    },
+    {
+      value: 'restore:s3',
+      label: '[Important] Config defaults live in two files',
+      description: 'lib/config.ts:12 · skipped in round 2',
+    },
+  ],
+  ctx({
+    'gate-ctx': 'skipped@1',
+    skipped: [
+      {
+        id: 's1',
+        round: 1,
+        severity: 'minor',
+        title: 'Unused import',
+        file: 'lib/utils.ts:3',
+      },
+      {
+        id: 's2',
+        round: 1,
+        severity: 'minor',
+        title: 'Inconsistent spacing',
+        file: 'lib/format.ts:9',
+        changed: true,
+      },
+      {
+        id: 's3',
+        round: 2,
+        severity: 'important',
+        title: 'Config defaults live in two files',
+        file: 'lib/config.ts:12',
+      },
+    ],
+  })
+);
+
+const commentFirst = question('outcome', 'Verdict on !31', false, [
+  {
+    value: 'comment',
+    label: 'comment (recommended)',
+    description:
+      'Submit as a Comment review: the replies, resolves and new findings post together.',
+  },
+  {
+    value: 'approve',
+    label: 'approve',
+    description: 'Submit the review and approve !31.',
+  },
+]);
+
+const roundThreeGate: GateRow = {
+  gateId: 'sheet-round-three',
+  subject: 'mr:gitlab.example.com/acme/widgets/-/merge_requests/31',
+  kind: 'review-post',
+  label: 'review',
+  status: 'open',
+  openedAt: 1788969120000,
+  context: ctx({
+    'gate-ctx': 'review@1',
+    reviewer: 'renee',
+    readiness: 'with-fixes',
+    summary:
+      'The injection fix and the backoff both landed. An aborted request still retries, the 204 guard is still missing, and the new cache layer shares entries across tenants.',
+    findings: { important: 1, minor: 1 },
+    round: 3,
+    re_review: true,
+  }),
+  questions: [
+    threadFixed,
+    threadNotFixed,
+    threadPushbackAccepted,
+    threadPushbackRejected,
+    threadNoReply,
+    newFindingsQuestion,
+    skippedQuestion,
+    commentFirst,
+  ],
+  origin: { paneId: 'pane-1', worktree: 'widgets' },
+};
+
+/** Round 3: five earlier threads, one per call the agent can make (plus a
+    thread the author never answered), two new findings, and three findings
+    skipped in earlier rounds, collapsed. Fixed and accepted pushback start
+    on reply + resolve; the rest start on reply only. */
+export const RoundThree: Story = {
+  decorators: [no404],
+  render: () => <Host gate={roundThreeGate} mr={boardMr} />,
+};
+
+const bringingBackGate: GateRow = {
+  ...roundThreeGate,
+  gateId: 'sheet-round-three-bringing-back',
+};
+
+/** The same round with one skipped finding ticked to come back: the skipped
+    row opens on its own, its hint and the submit label count it, and the
+    rest stay off the MR. */
+export const RoundThreeBringingOneBack: Story = {
+  decorators: [no404],
+  render: () => {
+    seedDraft(bringingBackGate.gateId, {
+      selections: { skipped: ['restore:s2'] },
+      notes: {},
+      item: null,
+    });
+    return <Host gate={bringingBackGate} mr={boardMr} />;
+  },
+};
+
+const settledGate: GateRow = {
+  gateId: 'sheet-round-two-settled',
+  subject: 'mr:gitlab.example.com/acme/widgets/-/merge_requests/31',
+  kind: 'review-post',
+  label: 'review',
+  status: 'open',
+  openedAt: 1788970320000,
+  context: ctx({
+    'gate-ctx': 'review@1',
+    reviewer: 'renee',
+    readiness: 'yes',
+    summary:
+      'Both asks from round 1 are settled and nothing new turned up. Ready to approve.',
+    findings: {},
+    round: 2,
+    re_review: true,
+  }),
+  questions: [
+    threadFixed,
+    threadPushbackAccepted,
+    question('outcome', 'Verdict on !31', false, [
+      {
+        value: 'approve',
+        label: 'approve (recommended)',
+        description: 'Submit the replies and resolves, and approve !31.',
+      },
+      {
+        value: 'comment',
+        label: 'comment',
+        description: 'Submit the replies and resolves without approving.',
+      },
+    ]),
+  ],
+  origin: { paneId: 'pane-1', worktree: 'widgets' },
+};
+
+/** Round 2 where everything from round 1 is settled: the earlier threads
+    start on reply + resolve, the new-findings section says nothing turned
+    up, and approve is the recommendation. */
+export const RoundTwoAllSettled: Story = {
+  decorators: [no404],
+  render: () => <Host gate={settledGate} mr={boardMr} />,
+};

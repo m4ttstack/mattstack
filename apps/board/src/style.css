@@ -4098,6 +4098,54 @@ a.tui-id-card-ref:focus-visible {
   margin-top: 22px;
 }
 
+/* An earlier thread's two sides, quoted: what the reviewer wrote, then the
+   author's latest reply, told apart by the rule's colour. */
+.tui-carry-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--border-control);
+}
+.tui-carry-quote[data-who='author'] {
+  border-left-color: var(--fill-accent);
+}
+.tui-carry-quote-k {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.tui-carry-quote-text [data-part='markdown'] > * {
+  margin: 0;
+}
+.tui-carry-quote-text [data-part='markdown'] > * + * {
+  margin-top: 6px;
+}
+
+.tui-review-skipped {
+  margin-top: 22px;
+}
+.tui-review-skipped-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tui-review-skipped-title {
+  font-weight: 700;
+}
+.tui-review-skipped-hint {
+  color: var(--text-3);
+  font-size: var(--gate-font-meta);
+}
+.tui-review-skipped-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+}
+
 /* right rail */
 .tui-sheet-context-card {
   display: flex;
