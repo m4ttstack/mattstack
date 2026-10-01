@@ -29,6 +29,8 @@ export interface StartInteractiveOpts {
   rows?: number;
   cwd?: string;
   timeoutMs?: number;
+  /** Keep the pty open after rt exits so a short-lived command's final screen can still be read. */
+  holdOpen?: boolean;
 }
 
 export interface TermwrightSession {
@@ -194,7 +196,9 @@ export async function startInteractive(
   const rtCmd = [RT_BINARY, ...opts.args]
     .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
     .join(" ");
-  const wrappedCmd = `cd '${cwd}' && exec ${rtCmd}`;
+  const wrappedCmd = opts.holdOpen
+    ? `cd '${cwd}' && ${rtCmd}; sleep 60`
+    : `cd '${cwd}' && exec ${rtCmd}`;
 
   const proc = Bun.spawn(
     [
