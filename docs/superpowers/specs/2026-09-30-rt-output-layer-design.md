@@ -33,7 +33,7 @@ A new one-shot verb next to `prompt`, `pick`, `steps` and `session` in `ui/cmd/r
 
 - Reads blocks as NDJSON on stdin until EOF. The first line is the same `hello` line the other verbs use, carrying `PROTOCOL_VERSION`.
 - Prints the blocks to its stdout and exits 0. It takes no screen, reads no keys and never opens `/dev/tty`.
-- All styling comes from `ui/internal/theme`. Tables and trees use `lipgloss/table` and `lipgloss/tree`, which ship with the lipgloss version already in `ui/go.mod`.
+- All styling comes from `ui/internal/theme`. The render package lays out tables and trees itself, with lipgloss for styling and width math, so a cell can carry role-tagged segments and a table can carry group labels.
 - New package `ui/internal/render`, one file per block family, golden-tested.
 
 ### TypeScript: `lib/ui/out.ts`
@@ -189,8 +189,8 @@ The test starts with an allowlist of every current offender. Each phase removes 
 
 ## Testing
 
-- **Go:** a golden test per block, at truecolor and with no color, driven by fixtures in `ui/fixtures/render-*.json`.
-- **Shared fixtures:** the same files are decoded by a TS test, so the two sides cannot drift on the wire shape.
+- **Go:** a layout test per block on the escape-stripped output, color assertions for the coral rule, and black-box tests of the verb with color on and off.
+- **Shared fixture:** `ui/fixtures/render-document.json` holds one block of every type and is decoded by both a Go and a TS test, so the two sides cannot drift on the wire shape.
 - **TS unit:** the gate (TTY, `--json`, `RT_BATCH`, payload verbs), the fallback when the helper is missing or dies, the stream choice, and the plain renderer.
 - **Characterization:** before a verb is converted, a test pins its `--json` output. It must pass unchanged after.
 - **pty gate:** one settings verb, `setup apply` and one failure, driven through the real binary in `e2e/pty/`. The new paths are added to the filter in `.github/workflows/e2e.yml` so the gate runs.
