@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { setSetting, setSettingsNoticeSink } from "../../settings/write.ts";
@@ -17,6 +17,7 @@ import { STEPS } from "../steps/index.ts";
 import { fakeProbes, fakeTray } from "./fakes.ts";
 import { needOutcome } from "../steps/step-utils.ts";
 import { isSetupFinished, readSetupState, updateSetupState } from "../state.ts";
+import { logsDir } from "../../rt-paths.ts";
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -83,6 +84,12 @@ function fakeStep(id: StepId, outcome: StepOutcome | (() => Promise<StepOutcome>
     applies: () => opts.applies ?? true,
     run: typeof outcome === "function" ? outcome : async () => outcome,
   };
+}
+
+function cliLog(): string {
+  const dir = logsDir();
+  if (!existsSync(dir)) return "";
+  return readdirSync(dir).filter((f) => f.startsWith("cli.") && f.endsWith(".log")).map((f) => readFileSync(join(dir, f), "utf8")).join("");
 }
 
 function throwingStep(id: StepId, err: unknown): StepDef {
@@ -325,6 +332,17 @@ describe("runApplyWith — thrown errors", () => {
     expect(result).toEqual({ ok: false, failedStep: "home.init" });
     expect(events.at(-2)).toEqual({ event: "step", id: "home.init", state: "failed", detail: "msg", remedy: "do y" });
     expect(events.at(-1)).toEqual({ event: "done", ok: false, failedStep: "home.init" });
+  });
+
+  test("a step's UserActionableError carrying a log puts it in the CLI log and keeps the outcome as it was", async () => {
+    const { ctx, events } = testCtx();
+    const detail = `git: remote rejected (${crypto.randomUUID()})`;
+    const steps: StepDef[] = [throwingStep("home.init", new UserActionableError("x", "msg", { remedy: "do y" }, { log: detail }))];
+
+    await runApplyWith(steps, ctx, {});
+
+    expect(events.at(-2)).toEqual({ event: "step", id: "home.init", state: "failed", detail: "msg", remedy: "do y" });
+    expect(cliLog()).toContain(detail);
   });
 
   test("a step throwing a plain Error emits a failed step + exactly one done, then rethrows", async () => {
@@ -1581,6 +1599,15 @@ describe("runUpdateWith", () => {
     expect(result.ok).toBe(false);
     expect(events.find((e) => e.event === "step" && e.id === "skills.link" && e.state === "failed")).toMatchObject({ detail: "cannot link", remedy: "relink by hand" });
     expect(events.find((e) => e.event === "step" && e.id === "verify" && e.state === "done")).toBeDefined();
+  });
+
+  test("an update item's UserActionableError carrying a log puts it in the CLI log", async () => {
+    const { ctx, events } = testCtx();
+    const detail = `git: remote rejected (${crypto.randomUUID()})`;
+    const steps: StepDef[] = [{ ...updateStep("skills.link", { state: "done" }), run: async () => { throw new UserActionableError("x", "cannot link", {}, { log: detail }); } }];
+    await runUpdateWith(steps, [], ctx);
+    expect(events.find((e) => e.event === "step" && e.id === "skills.link" && e.state === "failed")).toMatchObject({ detail: "cannot link" });
+    expect(cliLog()).toContain(detail);
   });
 
   test("writes lastApplyAt and keeps the setup intent", async () => {

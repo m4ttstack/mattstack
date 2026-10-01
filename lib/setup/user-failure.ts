@@ -3,7 +3,7 @@
  * app's contract and keeps the error's own message; the failure block a
  * person sees may carry plainer words from the call site.
  */
-import { failureFor, UserActionableError, userErrorPayload } from "../errors.ts";
+import { failureFor, logFailureDetail, UserActionableError, userErrorPayload } from "../errors.ts";
 import * as out from "../ui/out.ts";
 import type { FailureInput } from "../ui/out.ts";
 
@@ -11,7 +11,7 @@ export function userFailure(err: UserActionableError, human: Partial<FailureInpu
   const base = failureFor(err);
   const pick = <K extends keyof FailureInput>(k: K) => human[k] ?? base[k];
   return {
-    title: pick("title") ?? err.message,
+    title: pick("title"),
     ...(pick("hint") ? { hint: pick("hint") } : {}),
     ...(pick("why") ? { why: pick("why") } : {}),
     ...(pick("next") ? { next: pick("next") } : {}),
@@ -26,6 +26,7 @@ export interface UserErrorSink {
 }
 
 export function exitWithUserError(err: UserActionableError, json: boolean, sink: UserErrorSink, human?: Partial<FailureInput>): never {
+  logFailureDetail(err);
   if (json) sink.json(userErrorPayload(err, sink.now()));
   else out.fail(userFailure(err, human));
   return sink.exit(2);

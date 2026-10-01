@@ -10,7 +10,7 @@ import type { Plan, Row, RowStatus } from "./contract.ts";
 const ROW_STATUS: Record<Exclude<RowStatus, "missing">, RenderStatus> = {
   ready: "done",
   invalid: "failed",
-  error: "failed",
+  error: "warn",
   "needs-you": "needs-you",
   skipped: "skipped",
   checking: "pending",
@@ -43,10 +43,12 @@ function rowBlocks(r: Row, mode: "plan" | "status"): Block[] {
 }
 
 export function planBlocks(plan: Plan, mode: "plan" | "status"): Block[] {
-  const sections = plan.groups.map((g) => {
-    const ready = g.rows.filter((r) => r.status === "ready").length;
-    return out.section(g.title, g.rows.length > 0 ? `${ready} of ${g.rows.length} ready` : undefined, ...g.rows.flatMap((r) => rowBlocks(r, mode)));
-  });
+  const sections = plan.groups
+    .filter((g) => g.rows.length > 0)
+    .map((g) => {
+      const ready = g.rows.filter((r) => r.status === "ready").length;
+      return out.section(g.title, `${ready} of ${g.rows.length} ready`, ...g.rows.flatMap((r) => rowBlocks(r, mode)));
+    });
   const install = plan.canInstall ? out.summary("done", "Install can run") : out.summary("needs-you", "Install is waiting on", rowTitles(plan, plan.requiredMissing));
   const finish =
     mode !== "status" ? [] : plan.finishBlockedBy.length === 0 ? [out.line("done", "Finish can run")] : [out.line("needs-you", "Finish is waiting on", rowTitles(plan, plan.finishBlockedBy).join(", "))];

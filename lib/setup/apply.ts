@@ -12,7 +12,7 @@ import type { SecretsSeamsFactory } from "../team/join.ts";
 import type { RelayClient } from "../team/relay-client.ts";
 import { STEP_IDS, type EventId, type NeedRequest, type StepId, type StepKind, type StepState, type TeamRef } from "./contract.ts";
 import type { Emit } from "./emit.ts";
-import { UserActionableError } from "../errors.ts";
+import { logFailureDetail, UserActionableError } from "../errors.ts";
 import { readIntent, teamRefFromIntent, clearIntent, type SetupIntent } from "./intent.ts";
 import { askAppDirectly, awaitNeed, hasDirectRoute, type NeedReply } from "./need.ts";
 import type { Probes } from "./probes.ts";
@@ -278,6 +278,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
         outcome = await step.run(ctx);
       } catch (err) {
         if (err instanceof UserActionableError) {
+          logFailureDetail(err);
           const remedy = typeof err.extra.remedy === "string" ? err.extra.remedy : undefined;
           outcome = { state: "failed", detail: err.message, ...(remedy !== undefined ? { remedy } : {}) };
         } else {
@@ -386,6 +387,7 @@ export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[]
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         if (err instanceof UserActionableError) {
+          logFailureDetail(err);
           const remedy = typeof err.extra.remedy === "string" ? err.extra.remedy : undefined;
           outcome = { state: "failed", detail: err.message, ...(remedy !== undefined ? { remedy } : {}) };
         } else if (item.migrationId !== undefined) {

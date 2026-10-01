@@ -12,10 +12,10 @@ function plan(groups: Plan["groups"], extra: Partial<Plan> = {}): Plan {
 }
 
 describe("rowStatus", () => {
-  test("ready is done; invalid and error are the only failures", () => {
+  test("ready is done; invalid is the only failure; a row that could not be checked is a warning", () => {
     expect(rowStatus({ status: "ready", kind: "tool" })).toBe("done");
     expect(rowStatus({ status: "invalid", kind: "account" })).toBe("failed");
-    expect(rowStatus({ status: "error", kind: "permission" })).toBe("failed");
+    expect(rowStatus({ status: "error", kind: "permission" })).toBe("warn");
   });
 
   test("a missing account or permission needs the person; a missing tool, access or info row is pending", () => {
@@ -114,6 +114,19 @@ describe("planBlocks", () => {
       },
     ]);
     expect(renderPlain(planBlocks(p, "plan"))).toContain("[needs you] Writing style  Not chosen yet\n  note: You can also choose from a terminal: rt skills writing-style use\n");
+  });
+
+  test("a row that could not be checked draws as a warning, never a failure", () => {
+    const p = plan([{ id: "access", title: "Access", rows: [row({ id: "access.forge", kind: "access", title: "Forge", status: "error", detail: "Could not reach the forge" })] }]);
+    expect(renderPlain(planBlocks(p, "plan"))).toBe("Access (0 of 1 ready)\n[warning] Forge  Could not reach the forge\n\n[ok] Install can run\n");
+  });
+
+  test("a group with no rows prints nothing, not a bare title", () => {
+    const p = plan([
+      { id: "accounts", title: "Accounts", rows: [] },
+      { id: "tools", title: "Tools", rows: [row({ id: "tool.git", title: "Git", status: "ready", detail: "2.45" })] },
+    ]);
+    expect(renderPlain(planBlocks(p, "plan"))).toBe("Tools (1 of 1 ready)\n[ok] Git  2.45\n\n[ok] Install can run\n");
   });
 
   test("an empty plan is only the Install summary", () => {

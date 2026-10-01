@@ -1,5 +1,8 @@
 import { test, expect, afterEach } from "bun:test";
+import { existsSync, readdirSync, readFileSync } from "fs";
+import { join } from "path";
 import { UserActionableError } from "../../errors.ts";
+import { logsDir } from "../../rt-paths.ts";
 import { exitWithUserError, userFailure } from "../user-failure.ts";
 import * as out from "../../ui/out.ts";
 import { captureOut, type CapturedOut } from "../../ui/__tests__/capture-out.ts";
@@ -57,3 +60,19 @@ test("exitWithUserError for a person writes a failure block on stderr, nothing o
   expect(cap.stderr()).toBe("[failed] Which row?\n  next: rt setup waive <row-id>\n");
   expect(exits).toEqual([2]);
 });
+
+function cliLog(): string {
+  const dir = logsDir();
+  if (!existsSync(dir)) return "";
+  return readdirSync(dir).filter((f) => f.startsWith("cli.") && f.endsWith(".log")).map((f) => readFileSync(join(dir, f), "utf8")).join("");
+}
+
+for (const json of [true, false]) {
+  test(`exitWithUserError ${json ? "under --json" : "for a person"} puts the error's log in the CLI log`, () => {
+    cap = capture();
+    const detail = `sops: could not decrypt (${json ? "json" : "human"} ${crypto.randomUUID()})`;
+    const sink = { json: () => {}, exit: ((() => { throw new Error("exit"); }) as unknown) as (code: number) => never, now: () => NOW };
+    expect(() => exitWithUserError(new UserActionableError("team-secrets-unreadable", "This Mac cannot read the team's secrets", {}, { log: detail }), json, sink)).toThrow("exit");
+    expect(cliLog()).toContain(detail);
+  });
+}

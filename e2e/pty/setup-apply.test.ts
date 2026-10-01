@@ -54,6 +54,7 @@ test("setup apply --from verify draws the verify step by its title and ends in a
   expect(screen).toMatch(/__rt_exit=[02]\b/);
   expect(screen).toMatch(/Setup (is done|needs you|stopped)/);
   expect(screen).not.toMatch(/^\s*[✓✗◆!\-]\s+verify(\s|$)/m);
+  expect(screen).not.toMatch(/\[(ok|failed|needs you)\]/);
   expect(screen).not.toMatch(/^\s+at /m);
   expect(screen).not.toContain("UserActionableError");
 });

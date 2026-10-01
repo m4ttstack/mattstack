@@ -21,7 +21,7 @@ import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { listTeams } from "../lib/settings/stores.ts";
-import { composePlan, realSecretPresence } from "../lib/setup/plan.ts";
+import { composePlan, realSecretPresence, type PlanInputs } from "../lib/setup/plan.ts";
 import { rowStatus } from "../lib/setup/plan-blocks.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
@@ -142,7 +142,9 @@ function nextVerb(r: Row): string | null {
 }
 
 export function verifyBlocks(plan: Plan, opts: { ci: boolean }): Block[] {
-  const sections = plan.groups.map((g) =>
+  const sections = plan.groups
+    .filter((g) => g.rows.length > 0)
+    .map((g) =>
     out.section(
       g.title,
       undefined,
@@ -170,11 +172,12 @@ export interface VerifyDeps {
   probes: Probes;
   secrets: SecretPresence;
   teams: () => string[];
+  compose: (i: PlanInputs) => Promise<Plan>;
   exit: (code: number) => never;
 }
 
 export function realVerifyDeps(): VerifyDeps {
-  return { probes: createRealProbes(), secrets: realSecretPresence(), teams: listTeams, exit: process.exit };
+  return { probes: createRealProbes(), secrets: realSecretPresence(), teams: listTeams, compose: composePlan, exit: process.exit };
 }
 
 export async function runVerify(args: string[], _ctx: CommandContext = {}, deps: VerifyDeps = realVerifyDeps()): Promise<void> {
@@ -183,7 +186,7 @@ export async function runVerify(args: string[], _ctx: CommandContext = {}, deps:
   const ci = args.includes("--ci") || process.env.CI === "true";
   const json = args.includes("--json");
 
-  const plan = await composePlan({ p: deps.probes, secrets: deps.secrets, ci, mode: "status", teams: deps.teams() });
+  const plan = await deps.compose({ p: deps.probes, secrets: deps.secrets, ci, mode: "status", teams: deps.teams() });
   const results = rowsToChecks(plan, { ci });
   const failures = results.filter((r) => r.status === "fail" && r.severity === "critical");
 
