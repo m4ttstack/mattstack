@@ -30,6 +30,7 @@ import {
   rtCommand,
   setSetting,
   subscribe,
+  type GateRow,
 } from '@mattstack/rt-client';
 import { settingsHandler } from '@mattstack/settings-kit/server';
 import pkg from '../package.json';
@@ -145,7 +146,7 @@ import {
 } from './gates/resume.ts';
 import { RunMrResolver } from './gates/run-mr.ts';
 import { type GateAnswers } from './gates/store.ts';
-import { planSweep, pruneOffBoardGates } from './gates/sweep.ts';
+import { domainForKind, planSweep, pruneOffBoardGates } from './gates/sweep.ts';
 import { gateOrigin } from './gates/wait-meta.ts';
 import {
   closeTab,
@@ -730,6 +731,23 @@ function requireOwnMr(mr: BoardMR): Response | null {
   return isOwnMr(mr, seatOf(config.defaultMember))
     ? null
     : new Response('not your MR', { status: 403 });
+}
+
+/** A respond or doctor gate is the MR author's to answer; a review gate
+    stays with the reviewer who ran it. The kind and MR come from the cached
+    gate row and the board snapshot, never the request. A respond or doctor
+    gate whose MR is not on the board is refused. */
+async function requireGateOwner(
+  row: GateRow | undefined
+): Promise<Response | null> {
+  if (!row) return null;
+  const domain = domainForKind(row.kind);
+  if (domain !== 'respond' && domain !== 'doctor') return null;
+  const url = row.subject.startsWith('mr:') ? row.subject.slice(3) : null;
+  const mr = url
+    ? (await cache.get()).mrs.find(m => m.webUrl === url)
+    : undefined;
+  return mr ? requireOwnMr(mr) : new Response('not your MR', { status: 403 });
 }
 
 const sendThreadWrite: ThreadWriteSend = (verb, payload) =>
@@ -2358,6 +2376,12 @@ const httpServer = Bun.serve({
           return new Response('expected { gateId: string, answers: object }', {
             status: 400,
           });
+        }
+        {
+          const refused = await requireGateOwner(
+            gateCache.rows().find(r => r.id === gateId)
+          );
+          if (refused) return refused;
         }
         const result = await answerGate(gateId, answers as GateAnswers, {
           isAnswerable: id =>

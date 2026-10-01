@@ -5,7 +5,9 @@
     pane, so each board gets its own fake GitLab and fake rt daemon and the
     tests assert what those saw. Thread resolve is author-only in a narrower
     way: allowed on every thread of your own MR and on threads you started
-    anywhere, refused on someone else's thread on someone else's MR. */
+    anywhere, refused on someone else's thread on someone else's MR. Gate
+    answers split by the gate's own kind: respond and doctor gates are the
+    author's, review gates stay with the reviewer. */
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -105,6 +107,40 @@ const DISCUSSIONS: Record<number, unknown[]> = {
   20: [thread('t20-alice', 'alice', 'bob'), thread('t20-bob', 'bob', 'alice')],
 };
 
+/** Gates waiting on a human, by kind, on MR 7 (alice's) and MR 20 (bob's). */
+const GATES: Array<[id: string, kind: string, iid: number]> = [
+  ['respond-7', 'respond-plan', 7],
+  ['doctor-7', 'doctor-escalation', 7],
+  ['respond-20', 'respond-post', 20],
+  ['doctor-20', 'doctor-escalation', 20],
+  ['review-20', 'review-post', 20],
+];
+
+function gateRow(host: string, id: string, kind: string, iid: number) {
+  return {
+    id,
+    subject: `mr:${host}/g/p/-/merge_requests/${iid}`,
+    kind,
+    questions: [{ id: 'q', label: 'Go ahead?', options: ['yes', 'no'] }],
+    meta: null,
+    status: 'open',
+    answer: null,
+    openedAt: Date.now(),
+    parkedAt: null,
+    closedAt: null,
+    closedReason: null,
+    supersededBy: null,
+    agent: null,
+    pane: null,
+    nudge: null,
+    delivery: null,
+    released: false,
+    consumedAt: null,
+    owner: null,
+    escalatedAt: null,
+  };
+}
+
 function boot(name: string, port: number, seat: string | null): Board {
   const home = mkdtempSync(join(tmpdir(), `board-own-mr-${name}-`));
   const gitlabSeen: string[] = [];
@@ -155,6 +191,7 @@ function boot(name: string, port: number, seat: string | null): Board {
   const dbPath = join(home, 'state.db');
   const db = openStateDb(dbPath);
   const prs = [fakePr(host, 7, ALICE), fakePr(host, 20, BOB)];
+  const gates = GATES.map(([id, kind, iid]) => gateRow(host, id, kind, iid));
   const daemonSeen: Seen = [];
   const rtDir = join(home, '.mattstack', 'rt');
   mkdirSync(rtDir, { recursive: true });
@@ -177,6 +214,28 @@ function boot(name: string, port: number, seat: string | null): Board {
             listSyncedAt: Date.now(),
             source: 'poll',
             syncedAt: Date.now(),
+          },
+        });
+      }
+      if (cmd === 'gate:list') {
+        const prefix = (body as { subjectPrefix?: string } | null)
+          ?.subjectPrefix;
+        return Response.json({
+          ok: true,
+          data: { gates: prefix === 'mr:' ? gates : [], cursor: 0 },
+        });
+      }
+      if (cmd === 'gate:answer') {
+        const { id, answers } = body as { id: string; answers: unknown };
+        const row = gates.find(g => g.id === id);
+        return Response.json({
+          ok: true,
+          data: {
+            row: {
+              ...row,
+              status: 'answered',
+              answer: { answers, by: 'board', answeredAt: Date.now() },
+            },
           },
         });
       }
@@ -517,4 +576,53 @@ describe('/discussions/resolve', () => {
 test("no refusal on someone else's MR reached GitLab or launched a pane", () => {
   expect(wroteTo(seated, 20)).toBe(false);
   expect(launchedOn(seated, 20)).toBe(false);
+});
+
+/** Answers one gate, waiting out the boot resync that loads gates into the
+    board's cache (until then every id is unknown, a 404). */
+async function answerGate(b: Board, gateId: string): Promise<Response> {
+  for (let i = 0; i < 50; i++) {
+    const res = await post(b, '/gate/answer', {
+      gateId,
+      answers: { q: 'yes' },
+    });
+    if (res.status !== 404) return res;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  throw new Error(`gate ${gateId} never reached the board's cache`);
+}
+
+const answered = (b: Board, gateId: string) =>
+  b.daemonSeen.some(
+    s => s.cmd === 'gate:answer' && (s.body as { id?: string }).id === gateId
+  );
+
+describe('/gate/answer', () => {
+  for (const id of ['respond-20', 'doctor-20'])
+    test(`a ${id.split('-')[0]} gate on someone else's MR is refused`, async () => {
+      const res = await answerGate(seated, id);
+      expect(res.status).toBe(403);
+      expect(await res.text()).toBe('not your MR');
+      expect(answered(seated, id)).toBe(false);
+    }, 15_000);
+
+  for (const id of ['respond-7', 'doctor-7'])
+    test(`a ${id.split('-')[0]} gate on an "all" board is refused`, async () => {
+      const res = await answerGate(everyone, id);
+      expect(res.status).toBe(403);
+      expect(answered(everyone, id)).toBe(false);
+    }, 15_000);
+
+  for (const id of ['respond-7', 'doctor-7'])
+    test(`a ${id.split('-')[0]} gate on your own MR is answered`, async () => {
+      const res = await answerGate(seated, id);
+      expect(res.status).toBe(200);
+      expect(answered(seated, id)).toBe(true);
+    }, 15_000);
+
+  test("a review gate on someone else's MR stays the reviewer's to answer", async () => {
+    const res = await answerGate(seated, 'review-20');
+    expect(res.status).toBe(200);
+    expect(answered(seated, 'review-20')).toBe(true);
+  }, 15_000);
 });
