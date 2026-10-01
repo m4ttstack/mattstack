@@ -17,6 +17,8 @@ import * as linearModule from "../linear.ts";
 import * as enrichModule from "../enrich.ts";
 import type { EnrichedBranch } from "../enrich.ts";
 import type { KnownRepo } from "../repo-index.ts";
+import * as ui from "../ui/out.ts";
+import { captureOut } from "../ui/__tests__/capture-out.ts";
 
 let home: string;
 let realHome: string | undefined;
@@ -384,5 +386,46 @@ describe("abort lines (item 5): user-cancel in lib/pickers.ts prints the shared 
     };
     fake = installFakePick([resultStep({ action: "cancel" })]);
     await expectSilentExit(() => resolveWorktreeByBranch("feat", [repo]));
+  });
+});
+
+describe("pickFromAllRepos refusals", () => {
+  let io: ReturnType<typeof captureOut>;
+
+  beforeEach(() => {
+    io = captureOut();
+    ui.__test__.reset();
+    ui.__test__.setHuman(() => false);
+    spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit sentinel");
+    }) as never);
+  });
+  afterEach(() => io.restore());
+
+  test("without the stderr flag, no known repo is a failure on stderr with the next step", async () => {
+    const { pickFromAllRepos } = await import("../pickers.ts");
+    await expect(pickFromAllRepos([])).rejects.toThrow("process.exit sentinel");
+    expect(io.stdout()).toBe("");
+    expect(io.stderr()).toBe("rt does not know any repos yet\n  next: Run rt once from inside a git repo, so it learns where that repo is\n");
+  });
+
+  test("without the stderr flag, a lost repo is the missing-repo failure", async () => {
+    const { pickFromAllRepos } = await import("../pickers.ts");
+    await expect(pickFromAllRepos([{ ...repoFixture("moved", "/x/gone"), missing: true }])).rejects.toThrow("process.exit sentinel");
+    expect(io.stdout()).toBe("");
+    expect(io.stderr()).toContain("moved is no longer where rt last saw it");
+    expect(io.stderr()).toContain("  next: rt repos locate <new-path> --repo moved");
+  });
+
+  test("with the stderr flag rt cd passes, the refusals print as today", async () => {
+    const { pickFromAllRepos } = await import("../pickers.ts");
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    await expect(pickFromAllRepos([], { stderr: true })).rejects.toThrow("process.exit sentinel");
+    expect(errSpy).toHaveBeenCalledTimes(1);
+    const [line] = errSpy.mock.calls[0] as [string];
+    expect(line).toStartWith("\n  no known repos found ");
+    expect(line).toEndWith(" run rt from inside a git repo first\n");
+    expect(io.stdout()).toBe("");
+    expect(io.stderr()).toBe("");
   });
 });

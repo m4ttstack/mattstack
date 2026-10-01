@@ -9,9 +9,10 @@ import { execSync } from "child_process";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { groupWorktrees } from "./worktree-groups.ts";
-import { pickWorktreeFromRepo, getWorkspacePackages, repoOptions, repoFromOptionValue, missingRepoRefusal, pickerWorktrees, type KnownRepo } from "./repo.ts";
+import { pickWorktreeFromRepo, getWorkspacePackages, repoOptions, repoFromOptionValue, missingRepoRefusal, missingRepoFailure, pickerWorktrees, type KnownRepo } from "./repo.ts";
 import { enrichBranches, formatBranchSegments, type EnrichedBranch } from "./enrich.ts";
 import { repoLabel } from "./repo-label.ts";
+import * as out from "./ui/out.ts";
 import type { PickHandle } from "./ui/pick.ts";
 import type { PickAction, PickRow, PickSegment } from "./ui/protocol.ts";
 
@@ -166,17 +167,20 @@ export async function pickFromAllRepos(
     breadcrumb?: string[];
   },
 ): Promise<string> {
-  const writer = opts?.stderr ? console.error : console.log;
+  // rt cd passes stderr and is not on the output layer yet: its refusals keep today's bytes.
+  const legacyCd = opts?.stderr === true;
 
   if (repos.length === 0) {
     const msg = opts?.errorMessage || "no known repos found — run rt from inside a git repo first";
-    writer(`\n  ${msg}\n`);
+    if (legacyCd) console.error(`\n  ${msg}\n`);
+    else out.fail({ title: "rt does not know any repos yet", next: "Run rt once from inside a git repo, so it learns where that repo is" });
     process.exit(1);
   }
 
   /** Refusing before the picker loads keeps a lost-repo-only index off the picker path entirely. */
   const refuse = (repo: KnownRepo): never => {
-    writer(`\n  ${missingRepoRefusal(repo)}\n`);
+    if (legacyCd) console.error(`\n  ${missingRepoRefusal(repo)}\n`);
+    else out.fail(missingRepoFailure(repo));
     process.exit(1);
   };
   if (repos.length === 1 && repos[0]!.missing) refuse(repos[0]!);
