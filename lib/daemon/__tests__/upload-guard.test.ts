@@ -5,10 +5,10 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, relative } from "path";
-import { UPLOAD_MAX_BYTES, checkUploadPath, claudeTempRoots, isInsideRoot, runEvidenceRoot, workRoot } from "../upload-guard.ts";
+import { UPLOAD_MAX_BYTES, builtInEvidenceRoot, checkUploadPath, claudeTempRoots, isInsideRoot, runEvidenceRoot, workRoot } from "../upload-guard.ts";
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52]);
 const JPG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1]);
@@ -352,10 +352,38 @@ describe("rt's built-in evidence root", () => {
     expect(checkUploadPath(put(join(base, "evidence-other", "shot.png")), [], opts()).ok).toBe(false);
   });
 
-  test("an evidence root given through a symlinked alias still admits", () => {
+  test("an evidence root that is itself a symlink is refused, even to a real evidence dir", () => {
     const alias = join(base, "evidence-alias");
     symlinkSync(evidence, alias);
-    expect(checkUploadPath(put(join(evidence, "shot.png")), [], { evidenceRoot: alias }).ok).toBe(true);
+    expect(checkUploadPath(put(join(evidence, "shot.png")), [], { evidenceRoot: alias }).ok).toBe(false);
+    expect(builtInEvidenceRoot(alias, process.getuid!())).toBeNull();
+  });
+
+  test("an evidence root symlinked to a broader folder does not admit that folder", () => {
+    const home = join(base, "home");
+    mkdirSync(join(home, ".mattstack"), { recursive: true });
+    symlinkSync(home, join(home, ".mattstack", "evidence"));
+    const p = put(join(home, "Pictures", "private.png"));
+    expect(checkUploadPath(p, [], { evidenceRoot: join(home, ".mattstack", "evidence") }).ok).toBe(false);
+  });
+
+  test("an evidence root reached through a symlinked parent still admits", () => {
+    const parentAlias = join(base, "base-alias");
+    symlinkSync(base, parentAlias);
+    expect(checkUploadPath(put(join(evidence, "shot.png")), [], { evidenceRoot: join(parentAlias, "evidence") }).ok).toBe(true);
+    expect(builtInEvidenceRoot(join(parentAlias, "evidence"), process.getuid!())).toBe(evidenceReal);
+  });
+
+  test("an evidence root owned by another uid is refused", () => {
+    const p = put(join(evidence, "shot.png"));
+    expect(checkUploadPath(p, [], { evidenceRoot: evidence, uid: process.getuid!() + 1 }).ok).toBe(false);
+    expect(checkUploadPath(p, [], { evidenceRoot: evidence, uid: null }).ok).toBe(false);
+  });
+
+  test("a hard link inside the evidence root to a file outside it is refused", () => {
+    const target = put(join(outside, "secret.png"));
+    linkSync(target, join(evidence, "hard.png"));
+    expect(checkUploadPath(join(evidence, "hard.png"), [], opts())).toEqual({ ok: false, error: "file has other hard links" });
   });
 
   test("a non-png inside the evidence root still fails the byte check", () => {

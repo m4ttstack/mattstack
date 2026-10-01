@@ -1,11 +1,13 @@
 /**
  * The network-free half of mr:upload. Every mattstack MCP tool runs with no
  * permission check, so this is the only thing between an agent and sending an
- * arbitrary local file to a forge: the realpath must be a regular file under
- * one of the caller's roots, rt's own evidence root (evidenceDir) or a run's
- * own evidence folder (see runEvidenceRoot), the extension must be an image or video type, and the size is capped. A
- * caller root must be a non-empty absolute string; anything else is skipped
- * rather than resolved against the daemon's own cwd. Symlinks resolve
+ * arbitrary local file to a forge: the realpath must be a regular file with
+ * no other hard links, under one of the caller's roots, rt's own evidence
+ * folder (see builtInEvidenceRoot) or a run's own evidence folder (see
+ * runEvidenceRoot); the extension must be an image or video type, and the
+ * size is capped. A caller root must be a non-empty absolute string;
+ * anything else is skipped rather than resolved against the daemon's own
+ * cwd. Symlinks resolve
  * before the containment check, so a link inside a root that points outside
  * it is refused without its target ever being read. The bytes returned on
  * success are read from one descriptor opened O_NOFOLLOW|O_NONBLOCK (refuses
@@ -17,9 +19,9 @@
  * open is not defended against: that already requires a writer inside an
  * allowed root, which can defeat the byte check by other means too.
  */
-import { closeSync, constants, fstatSync, openSync, readdirSync, readSync, realpathSync, statSync, type Stats } from "fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readSync, realpathSync, statSync, type Stats } from "fs";
 import { homedir } from "os";
-import { basename, extname, isAbsolute, join, relative, sep } from "path";
+import { basename, dirname, extname, isAbsolute, join, relative, sep } from "path";
 import { evidenceDir } from "../rt-paths.ts";
 import { isPathComponent, runsRoot } from "../runs/paths.ts";
 
@@ -125,6 +127,26 @@ export function runEvidenceRoot(real: string, opts: { workRoot: string; runsRoot
 }
 
 /**
+ * rt's built-in evidence folder, admitted only as a real directory owned by
+ * `uid`: a symlinked or foreign-owned folder would widen the guard to
+ * whatever it points at. Only the parent resolves through realpath, so a
+ * HOME reached through a symlink (/var to /private/var) still admits.
+ */
+export function builtInEvidenceRoot(root: string, uid: number | null): string | null {
+  if (!isValidRoot(root) || uid === null) return null;
+  const parentReal = safeRealpath(dirname(root));
+  if (parentReal === null) return null;
+  const resolved = join(parentReal, basename(root));
+  let st: Stats;
+  try {
+    st = lstatSync(resolved);
+  } catch {
+    return null;
+  }
+  return st.isDirectory() && st.uid === uid ? resolved : null;
+}
+
+/**
  * Reads the whole file from one descriptor, verified against `expect` (the
  * stat taken before this open) so the bytes returned are the bytes that were
  * checked, not whatever a later, separate open would follow or a file that
@@ -148,6 +170,7 @@ function readVerified(real: string, expect: Stats, maxBytes: number): { bytes: U
     if (fstat.dev !== expect.dev || fstat.ino !== expect.ino) {
       return { error: "file changed identity between check and read" };
     }
+    if (fstat.nlink > 1) return { error: "file has other hard links" };
     if (fstat.size > maxBytes) {
       return { error: `file is ${(fstat.size / (1024 * 1024)).toFixed(1)} MB; the upload cap is ${Math.round(UPLOAD_MAX_BYTES / (1024 * 1024))} MB` };
     }
@@ -181,7 +204,7 @@ function readVerified(real: string, expect: Stats, maxBytes: number): { bytes: U
 export function checkUploadPath(
   path: unknown,
   roots: readonly string[],
-  opts: { maxBytes?: number; workRoot?: string; runsRoot?: string; evidenceRoot?: string } = {},
+  opts: { maxBytes?: number; workRoot?: string; runsRoot?: string; evidenceRoot?: string; uid?: number | null } = {},
 ): UploadCheck {
   if (typeof path !== "string" || !isAbsolute(path)) return { ok: false, error: "path must be absolute" };
   const real = safeRealpath(path);
@@ -189,9 +212,13 @@ export function checkUploadPath(
   const stat = safeStat(real);
   if (stat === null) return { ok: false, error: "file not found" };
   if (!stat.isFile()) return { ok: false, error: "path is not a regular file" };
+  if (stat.nlink > 1) return { ok: false, error: "file has other hard links" };
 
   const evidence = { workRoot: opts.workRoot ?? workRoot(), runsRoot: opts.runsRoot ?? runsRoot() };
-  if (!contained(real, [...roots, opts.evidenceRoot ?? evidenceDir()]) && runEvidenceRoot(real, evidence) === null) {
+  const uid = opts.uid !== undefined ? opts.uid : typeof process.getuid === "function" ? process.getuid() : null;
+  const builtIn = builtInEvidenceRoot(opts.evidenceRoot ?? evidenceDir(), uid);
+  const inBuiltIn = builtIn !== null && isInsideRoot(real, builtIn);
+  if (!contained(real, roots) && !inBuiltIn && runEvidenceRoot(real, evidence) === null) {
     return { ok: false, error: "path is outside the allowed upload roots (a worktree of the target repo, the Claude Code temp root, rt's evidence folder ~/.mattstack/evidence, a run's evidence folder, or an rt.mcp.uploadRoots entry)" };
   }
 

@@ -38,9 +38,10 @@ export function mattstackHome(): string {
 }
 
 /**
- * ~/.mattstack/evidence - where capture tooling saves screenshots and
- * recordings meant for an MR. mr_upload trusts this tree out of the box
- * (lib/daemon/upload-guard.ts), so nothing else may be stored here.
+ * ~/.mattstack/evidence - for screenshots and recordings you want to
+ * upload to an MR. mr_upload trusts this tree out of the box, but only as a
+ * real directory this uid owns (lib/daemon/upload-guard.ts), so nothing
+ * else may be stored here.
  */
 export function evidenceDir(): string {
   return join(mattstackHome(), "evidence");
