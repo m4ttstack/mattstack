@@ -80,12 +80,13 @@ func Clean(s string) string {
 }
 
 // invisible reports the bidi controls and the zero-width characters: text
-// carrying them can read as something other than what it is.
+// carrying them can read as something other than what it is. The joiners
+// 200C and 200D stay: emoji sequences and Persian and Indic text need them.
 func invisible(r rune) bool {
 	switch {
-	case r == 0x061C, r == 0x200E, r == 0x200F, r == 0x2060, r == 0xFEFF:
+	case r == 0x00AD, r == 0x061C, r == 0x180E, r == 0x200B, r == 0x200E, r == 0x200F, r == 0xFEFF:
 		return true
-	case r >= 0x200B && r <= 0x200D, r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069:
+	case r >= 0x202A && r <= 0x202E, r >= 0x2060 && r <= 0x2064, r >= 0x2066 && r <= 0x2069:
 		return true
 	}
 	return false

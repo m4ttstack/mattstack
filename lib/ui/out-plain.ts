@@ -26,13 +26,18 @@ const ESCAPES = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)|\
 const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
 
 // The bidi controls and the zero-width characters: text carrying them can
-// read as something other than what it is. Built from code points so this
-// file holds none of them; the ranges match Clean in ui/internal/render.
+// read as something other than what it is. The joiners 200C and 200D stay:
+// emoji sequences and Persian and Indic text need them. Built from code
+// points so this file holds none of them; the ranges match Clean in
+// ui/internal/render.
 const INVISIBLE_RANGES: Array<[number, number]> = [
+  [0x00ad, 0x00ad],
   [0x061c, 0x061c],
-  [0x200b, 0x200f],
+  [0x180e, 0x180e],
+  [0x200b, 0x200b],
+  [0x200e, 0x200f],
   [0x202a, 0x202e],
-  [0x2060, 0x2060],
+  [0x2060, 0x2064],
   [0x2066, 0x2069],
   [0xfeff, 0xfeff],
 ];
