@@ -42,7 +42,7 @@ import {
   isResolving,
   SkippedEarlier,
 } from './ReviewRoundParts.tsx';
-import { reserveDock, SheetLost } from './SheetParts.tsx';
+import { reserveDock, RoundHeading, SheetLost } from './SheetParts.tsx';
 
 /** The engine's optional record fields (`docs/superpowers/specs/
     2026-09-18-review-gate-redesign-design.md` §1): all absent on a report
@@ -422,6 +422,19 @@ function ReviewGateSheet({
   if (!data) return null;
   const { review } = data;
   const meta = reviewMeta(review);
+  const roundSummary = [
+    carryovers.length > 0
+      ? `${carryovers.length} earlier ${carryovers.length === 1 ? 'thread' : 'threads'}`
+      : null,
+    findings.length > 0
+      ? `${findings.length} new ${findings.length === 1 ? 'finding' : 'findings'}`
+      : carryovers.length > 0
+        ? 'nothing new'
+        : null,
+    skippedEntries.length > 0 ? `${skippedEntries.length} skipped earlier` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <GateSheet
@@ -453,6 +466,9 @@ function ReviewGateSheet({
     >
       <div className="tui-sheet-body">
         <section className="tui-sheet-main" ref={mainRef}>
+          {review.round !== undefined && (
+            <RoundHeading round={review.round} summary={roundSummary} />
+          )}
           {carryovers.length > 0 && (
             <>
               <div className="tui-sheet-list-head">
@@ -685,16 +701,6 @@ function ReviewGateSheet({
                     </Markdown>
                   </div>
                   {meta && <p className="tui-sheet-context-meta">{meta}</p>}
-                  {carryovers.length > 0 && (
-                    <p className="tui-sheet-context-meta">
-                      {[
-                        `earlier threads: ${carryoverTally(carryovers)}`,
-                        findings.length > 0
-                          ? `${findings.length} new`
-                          : 'nothing new',
-                      ].join(' · ')}
-                    </p>
-                  )}
                   {SEVERITY_ORDER.some(s => review.findings[s] > 0) && (
                     <div className="tui-review-tier-pills">
                       {SEVERITY_ORDER.filter(s => review.findings[s] > 0).map(

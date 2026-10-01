@@ -3740,6 +3740,30 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-bad-small);
 }
 
+.tui-sheet-round {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin: 0 0 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.tui-sheet-round-n {
+  margin: 0;
+  font-size: var(--gate-font-display);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-1);
+}
+.tui-sheet-round-summary {
+  font-size: var(--gate-font-body);
+  color: var(--text-2);
+}
+.tui-sheet-round + .tui-sheet-list-head {
+  margin-top: 0;
+}
+
 /* findings list */
 .tui-sheet-list-head {
   display: flex;

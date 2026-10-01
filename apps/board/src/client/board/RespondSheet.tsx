@@ -63,6 +63,7 @@ import {
   Note,
   ProseContext,
   reserveDock,
+  RoundHeading,
   SheetLost,
   SheetRows,
   type RowChip,
@@ -725,6 +726,7 @@ function RespondSheetBody({
   return (
     <div className="tui-sheet-body">
       <section className="tui-sheet-main">
+        {ctx.round !== undefined && <RoundHeading round={ctx.round} />}
         <div className="tui-sheet-list-head">
           <span className="tui-sheet-list-title">
             {postThreads || perThread ? (
