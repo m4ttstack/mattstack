@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { setupUpdate, type ApplyDeps } from "../setup.ts";
+import { setupUpdate, updateAfterFinish, type ApplyDeps } from "../setup.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../../lib/setup/apply.ts";
 import type { ApplyEvent, StepId } from "../../lib/setup/contract.ts";
 import type { RelayClient } from "../../lib/team/relay-client.ts";
@@ -244,6 +244,30 @@ describe("rt setup update", () => {
     await run(deps, []);
     expect(deps.exitCodes).toEqual([2]);
     expect(deps.notifications.map((n) => n.id)).toEqual(["setup_update:2.15.0"]);
+  });
+
+  describe("after Finish", () => {
+    test("--json prints nothing of its own and a needs-you item does not exit", async () => {
+      const deps = updateDeps({
+        probes: fakeProbes({ files: { [DAEMON]: "{}" } }),
+        steps: [updateStep("verify", { state: "needs-you", detail: "to connect: Slack" })],
+      });
+      const printed: string[] = [];
+      await updateAfterFinish({ json: true, print: (s) => printed.push(s) }, deps);
+      expect(printed).toEqual([]);
+      expect(deps.lines).toEqual([]);
+      expect(deps.exitCodes).toEqual([]);
+      expect(deps.notifications.map((n) => n.id)).toEqual(["setup_update:2.15.0"]);
+      expect(readSetupState(deps.probes).lastUpdate?.version).toBe("2.15.0");
+    });
+
+    test("human mode prints the run through the caller's print", async () => {
+      const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }) });
+      const printed: string[] = [];
+      await updateAfterFinish({ json: false, print: (s) => printed.push(s) }, deps);
+      expect(printed.at(-1)).toBe("setup update: ran: path.link, verify");
+      expect(deps.lines).toEqual([]);
+    });
   });
 
   describe("single flight", () => {

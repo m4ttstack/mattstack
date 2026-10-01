@@ -107,6 +107,12 @@ own line says whether it wrote anything; `skipped` is `skipped`.
 `lastApplyAt` keeps its meaning (any apply engine run) and is written by
 update runs too.
 
+A full `rt setup apply` that ends ok also writes `lastUpdate`, unless a
+migration is still pending: it just ran every step an update run re-applies.
+`rt setup finish` starts an update run once Finish is on record, because the
+launch-time run skips a Mac whose setup is still open; on a fresh install the
+stamp makes that run a no-op.
+
 The stamp and ledger live in `setup-state.json`, an untracked runtime
 file, on purpose: the machine settings store travels with a home-repo
 restore, so a stamp there would follow the user onto a fresh Mac and
