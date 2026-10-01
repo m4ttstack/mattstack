@@ -31,6 +31,8 @@ import { applyEdits, modify } from "jsonc-parser";
 import { createInterface } from "node:readline";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { mattstackHome } from "../lib/rt-paths.ts";
+import * as out from "../lib/ui/out.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
@@ -70,19 +72,33 @@ import {
 import type { AttachmentSource, CompileResult, Side, StageEntry, StepSource, VerbDef } from "../lib/skills/types.ts";
 
 /**
- * Marks an error as an expected, user-facing condition (bad flags, absent
- * binding, unknown verb) rather than a bug in this command -- withCleanErrors
- * prints these as a one-line "rt skills: <message>" and exits 1 with no
- * stack trace; anything else propagates to the top-level crash handler.
+ * An expected, user-facing condition (bad flags, an absent binding, an
+ * unknown verb) rather than a bug in this command. `message` is the technical
+ * text: it also travels inside --json envelopes and other verbs' errors, so
+ * it never changes for the sake of the screen. `shown` is what a person reads
+ * in its place; without it the message is the failure's title.
  */
-export class SkillsUsageError extends Error {}
+export class SkillsUsageError extends Error {
+  constructor(
+    message: string,
+    readonly shown?: out.FailureInput,
+  ) {
+    super(message);
+  }
+}
+
+export function skillsFailure(err: SkillsUsageError): out.FailureInput {
+  if (err.shown) return err.shown;
+  const [title, ...rest] = err.message.split("\n");
+  return { title: title ?? err.message, ...(rest.length > 0 ? { details: rest.join("\n") } : {}) };
+}
 
 async function withCleanErrors(fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
   } catch (err) {
     if (err instanceof SkillsUsageError) {
-      console.error(`rt skills: ${err.message}`);
+      out.fail(skillsFailure(err));
       process.exit(1);
     }
     throw err;
@@ -192,7 +208,7 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   if (flags.packDir) {
     const packDir = resolvePath(flags.packDir);
     if (!existsSync(packDir) || !statSync(packDir).isDirectory()) {
-      throw new SkillsUsageError(`--pack-dir ${packDir} is not an existing directory`);
+      throw new SkillsUsageError(`--pack-dir ${packDir} is not an existing directory`, { title: "That pack folder does not exist", details: packDir });
     }
     return { team: flags.team || packTeamFor(packDir), packDir };
   }
@@ -201,10 +217,10 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   if (enclosing) {
     const name = packTeamFor(enclosing.dir);
     if (!flags.team || flags.team === name) {
-      console.error(`rt skills: acting on the pack tree enclosing cwd (${enclosing.dir})`);
+      out.note(out.callout("note", ["Using the pack this folder is inside: ", out.strong(enclosing.dir)]));
       return { team: name, packDir: enclosing.dir };
     }
-    console.error(`rt skills: cwd is inside pack tree "${name}" (${enclosing.dir}) but --pack ${flags.team} was given; resolving through the registry`);
+    out.note(out.line("warn", `This folder is inside the ${name} pack, but you asked for ${flags.team}`, "using the one you asked for"));
   }
 
   const packs = flags.mattstackDir ? [] : discoverPacks();
@@ -215,14 +231,25 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
     if (existsSync(legacy)) return { team: flags.team, packDir: legacy };
     throw new SkillsUsageError(
       `no pack named "${flags.team}" (discovered: ${packs.map((p) => p.name).join(", ") || "none"}; checked ${legacy})`,
+      { title: `No pack is called ${flags.team}`, next: out.cmd("rt skills packs"), details: `Packs here: ${packs.map((p) => p.name).join(", ") || "none"}` },
     );
   }
 
   if (packs.length === 1) return { team: packs[0]!.name, packDir: packs[0]!.dir };
-  if (packs.length === 0) throw new SkillsUsageError("no packs discovered (no directory marketplace plugin carries a surface.jsonc); pass --pack <name>");
+  if (packs.length === 0) {
+    throw new SkillsUsageError("no packs discovered (no directory marketplace plugin carries a surface.jsonc); pass --pack <name>", {
+      title: "No packs found",
+      why: "A pack is a plugin from a directory marketplace that has a surface file.",
+      next: ["Run it again with ", out.cmd("--pack <name>"), " or ", out.cmd("--pack-dir <folder>")],
+    });
+  }
 
   if (!process.stdin.isTTY) {
-    throw new SkillsUsageError(`which pack? pass --pack <name> (discovered: ${packs.map((p) => p.name).join(", ")})`);
+    throw new SkillsUsageError(`which pack? pass --pack <name> (discovered: ${packs.map((p) => p.name).join(", ")})`, {
+      title: "Which pack?",
+      why: `There is more than one: ${packs.map((p) => p.name).join(", ")}.`,
+      next: ["Run it again with ", out.cmd("--pack <name>")],
+    });
   }
   const picked = await pickPack(packs);
   if (!picked) process.exit(0);
@@ -414,6 +441,11 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
     if (hit) return hit.path;
     throw new SkillsUsageError(
       `no ${team} bindings file for repo "${repo}" under ${reposRoot} (have: ${candidates.map((c) => c.slug).join(", ") || "none"}); run rt skills materialize`,
+      {
+        title: `No ${team} bindings file for ${repo} yet`,
+        next: out.cmd("rt skills materialize"),
+        details: `Repos that have one: ${candidates.map((c) => c.slug).join(", ") || "none"}`,
+      },
     );
   }
   if (candidates.length === 1) return candidates[0]!.path;
@@ -433,6 +465,13 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
       `pack "${team}" binds ${candidates.length} repos (${candidates.map((c) => c.slug).join(", ")})` +
         (hostless ? `; its team zone declares no forge host, so its projects cannot pick one` : "") +
         `; pass --repo <slug or host/path>`,
+      {
+        title: "Which repo?",
+        why:
+          `The ${team} pack is bound in ${candidates.length} repos: ${candidates.map((c) => c.slug).join(", ")}.` +
+          (hostless ? " Its team zone names no forge host, so rt cannot pick one." : ""),
+        next: ["Run it again with ", out.cmd("--repo <slug>")],
+      },
     );
   }
 
@@ -447,6 +486,11 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
     `no repos/*/packs/${team}/skills.jsonc under ${reposRoot}` +
       (standalone ? ` and ${ownManifest} is absent` : "") +
       `; run rt skills materialize, or pass --manifest explicitly`,
+    {
+      title: `No ${team} bindings file was found`,
+      next: out.cmd("rt skills materialize"),
+      details: `Looked for repos/*/packs/${team}/skills.jsonc under ${reposRoot}` + (standalone ? `, and for ${ownManifest}` : ""),
+    },
   );
 }
 
@@ -860,10 +904,13 @@ export async function skillsCompile(args: string[]): Promise<void> {
     // Flag-shape errors before resolve(): pack resolution can open a picker
     // and shell out, and cancelling the picker would swallow the diagnostic.
     if (flags.preview && (flags.verbs?.length ?? 0) !== 1) {
-      throw new SkillsUsageError("--preview needs a single --verb");
+      throw new SkillsUsageError("--preview needs a single --verb", usageFailure("Which verb should be previewed?", "rt skills compile --preview --verb <name>"));
     }
     if (flags.preview && flags.json) {
-      throw new SkillsUsageError("--preview and --json cannot be combined (--preview prints the compiled body; --json compiles, writes, and reports)");
+      throw new SkillsUsageError("--preview and --json cannot be combined (--preview prints the compiled body; --json compiles, writes, and reports)", {
+        title: "A preview prints the compiled skill, so it cannot also print JSON",
+        next: out.cmd("rt skills compile --preview --verb <name>"),
+      });
     }
 
     const resolved = await resolve(flags);
@@ -2062,7 +2109,7 @@ export async function skillsSurface(args: string[]): Promise<void> {
         names.push(a);
       }
       if (names.length === 0) {
-        throw new SkillsUsageError("set requires a skill name: rt skills surface set <name...> --public|--internal");
+        throw new SkillsUsageError("set requires a skill name: rt skills surface set <name...> --public|--internal", usageFailure("Which skill?", "rt skills surface set <name> --public"));
       }
       const duplicate = names.find((n, i) => names.indexOf(n) !== i);
       if (duplicate) throw new SkillsUsageError(`"${duplicate}" named more than once`);
@@ -2073,7 +2120,12 @@ export async function skillsSurface(args: string[]): Promise<void> {
         else if (a === "--internal") want = "internal";
         else throw new SkillsUsageError(`unrecognized argument "${a}"`);
       }
-      if (!want) throw new SkillsUsageError("set requires --public or --internal");
+      if (!want) {
+        throw new SkillsUsageError(
+          "set requires --public or --internal",
+          usageFailure("Should it be public or internal?", "rt skills surface set <name> --public", "Say which with --public or --internal."),
+        );
+      }
       await runSet(names, want, flags);
       return;
     }
@@ -2355,7 +2407,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       }
     }
     if (!verbName || !slotName || !fill) {
-      throw new SkillsUsageError("bind requires: rt skills bind <verb> <slot> <fill>");
+      throw new SkillsUsageError("bind requires: rt skills bind <verb> <slot> <fill>", usageFailure("Bind which verb, slot and fill?", "rt skills bind <verb> <slot> <fill>"));
     }
 
     const bindFlags = parseBindFlags(rest);
@@ -2378,8 +2430,14 @@ export async function skillsBind(args: string[]): Promise<void> {
     const rosterVerb = resolved.fullRoster.find((v) => v.name === verbName);
     const verb = rosterVerb ?? resolved.stages.find((v) => v.name === verbName);
     if (!verb && resolved.base && resolved.fullRoster.length === 0) {
+      const fragment = join(resolved.packDir, "pack", "skills.jsonc");
       throw new SkillsUsageError(
-        `pack "${resolved.team}" is a base pack with no verbs of its own, so bind cannot check the slot; edit ${join(resolved.packDir, "pack", "skills.jsonc")} directly`,
+        `pack "${resolved.team}" is a base pack with no verbs of its own, so bind cannot check the slot; edit ${fragment} directly`,
+        {
+          title: `${resolved.team} is a base pack with no verbs of its own, so rt cannot check the slot`,
+          why: "Edit its bindings file by hand.",
+          details: fragment,
+        },
       );
     }
     if (!verb) {

@@ -298,7 +298,7 @@ describe("skillsCompile", () => {
         "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]));
 
     expect(exitCode).toBe(1);
-    expect(errors.join("\n")).toContain("--preview needs a single --verb");
+    expect(errors.join("\n")).toContain("Which verb should be previewed?");
   });
 
   test("--preview on a retired (surface-internal) verb leaves its stale output directory alone", async () => {
@@ -422,10 +422,10 @@ describe("skillsCompile", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors.filter((e) => e.startsWith("rt skills: "))).toHaveLength(2);
-    expect(errors.every((e) => e.startsWith("rt skills: ") || e.startsWith("/"))).toBe(true);
-    expect(errors.join("\n")).toContain("no-such-engine-a");
-    expect(errors.join("\n")).toContain("no-such-engine-b");
+    const diagnostics = errors.filter((e) => /^(rt skills: )?verb "/.test(e));
+    expect(diagnostics).toHaveLength(2);
+    expect(diagnostics[0]).toContain('verb "broken-a": loadStepSource: engine "no-such-engine-a" not found under');
+    expect(diagnostics[1]).toContain('verb "broken-b": loadStepSource: engine "no-such-engine-b" not found under');
     expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toBe("PLANTED\n");
   });
 
@@ -466,7 +466,7 @@ describe("skillsCompile", () => {
 
     expect(exitCode).toBe(1);
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
     expect(errors[0]).toContain("--bogus-flag");
   });
 
@@ -487,7 +487,7 @@ describe("skillsCompile", () => {
 
     expect(exitCode).toBe(1);
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
     expect(errors[0]).toContain("no-such-verb");
   });
 
@@ -505,9 +505,8 @@ describe("skillsCompile", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toStartWith("rt skills: ");
-    expect(errors[0]).toContain("skills.jsonc");
+    expect(errors[0]).toBe("No t bindings file was found");
+    expect(errors.join("\n")).toContain("skills.jsonc");
   });
 
   test("a symlinked plugin dir under --mattstack-dir resolves as a plugin root", async () => {
@@ -606,7 +605,8 @@ describe("skillsCompile", () => {
       skillsCompile(["--team", "t", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
 
     expect(exitCode).toBe(1);
-    expect(errors[0]).toContain("no repos/*/packs/t/skills.jsonc");
+    expect(errors[0]).toBe("No t bindings file was found");
+    expect(errors.join("\n")).toContain("repos/*/packs/t/skills.jsonc");
   });
 
   test.each([["no stale file"], ["a stale bindings file"]])("a base pack has no bindings file of its own, and the error says so (%s)", async (variant) => {
@@ -636,7 +636,8 @@ describe("skillsCompile", () => {
 
     const ambiguous = await runExpectingCleanExit(() => skillsCompile(base));
     expect(ambiguous.exitCode).toBe(1);
-    expect(ambiguous.errors[0]).toContain("pass --repo");
+    expect(ambiguous.errors[0]).toBe("Which repo?");
+    expect(ambiguous.errors.join("\n")).toContain("--repo <slug>");
 
     for (const repo of ["gitlab.example.com-acme-widgets", "gitlab.example.com/acme/widgets"]) {
       const picked = await runExpectingCleanExit(() => skillsCompile([...base, "--repo", repo]));
@@ -661,7 +662,7 @@ describe("skillsCompile", () => {
       skillsCompile(["--team", "t", "--dry-run", "--repo", "nope", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
 
     expect(exitCode).toBe(1);
-    expect(errors[0]).toContain('no t bindings file for repo "nope"');
+    expect(errors[0]).toBe("No t bindings file for nope yet");
   });
 
   test("a trailing bare --repo is a usage error, never the default lookup", async () => {
@@ -690,8 +691,8 @@ describe("skillsCompile", () => {
       skillsCompile(["--team", "t", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
 
     expect(exitCode).toBe(1);
-    expect(errors[0]).toContain("declares no forge host");
-    expect(errors[0]).toContain("pass --repo");
+    expect(errors.join("\n")).toContain("names no forge host");
+    expect(errors.join("\n")).toContain("--repo <slug>");
   });
 
   test("repoKey is the repo slug for the per-pack shape", async () => {
@@ -744,7 +745,8 @@ describe("skillsCompile", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors.join("\n")).toContain("pass --manifest");
+    expect(errors[0]).toBe("No t bindings file was found");
+    expect(errors.join("\n")).toContain("repos/*/packs/t/skills.jsonc");
   });
 
   test("a team-zone pack never falls back to its own pack/skills.jsonc: that file is a fragment, not the repo's manifest", async () => {
@@ -763,8 +765,8 @@ describe("skillsCompile", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain("skills.jsonc");
+    expect(errors[0]).toBe("No t bindings file was found");
+    expect(errors.join("\n")).toContain("skills.jsonc");
   });
 
   test("compilePackAll writes the pack and reports ok", async () => {
@@ -1003,7 +1005,7 @@ describe("skillsCompile pack resolution from cwd", () => {
     try {
       const { exitCode, errors } = await runExpectingCleanExit(() =>
         skillsCompile(["--dry-run", "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]));
-      expect(errors).toEqual([expect.stringContaining("acting on the pack tree enclosing cwd")]);
+      expect(errors).toEqual([expect.stringContaining("Using the pack this folder is inside")]);
       expect(exitCode).toBeUndefined();
     } finally {
       process.chdir(prevCwd);
@@ -1023,7 +1025,7 @@ describe("skillsCompile pack resolution from cwd", () => {
     try {
       const { exitCode, errors } = await runExpectingCleanExit(() =>
         skillsCompile(["--dry-run", "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]));
-      expect(errors).toEqual([expect.stringContaining("acting on the pack tree enclosing cwd")]);
+      expect(errors).toEqual([expect.stringContaining("Using the pack this folder is inside")]);
       expect(exitCode).toBeUndefined();
     } finally {
       process.chdir(prevCwd);
@@ -1044,7 +1046,7 @@ describe("skillsCompile pack resolution from cwd", () => {
     try {
       const { exitCode, errors } = await runExpectingCleanExit(() =>
         skillsCompile(["--pack", "t", "--dry-run", "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]));
-      expect(errors).toEqual([expect.stringContaining("acting on the pack tree enclosing cwd")]);
+      expect(errors).toEqual([expect.stringContaining("Using the pack this folder is inside")]);
       expect(exitCode).toBeUndefined();
     } finally {
       process.chdir(prevCwd);
@@ -1065,7 +1067,7 @@ describe("skillsCompile pack resolution from cwd", () => {
       const { exitCode, errors } = await runExpectingCleanExit(() =>
         skillsCompile(["--pack", "other", "--dry-run", "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]));
       expect(exitCode).toBe(1);
-      expect(errors.join("\n")).toContain(`no pack named "other"`);
+      expect(errors.join("\n")).toContain("No pack is called other");
     } finally {
       process.chdir(prevCwd);
     }
@@ -1159,7 +1161,7 @@ describe("skillsCompile/skillsCheck --verb scoping across roster verbs and pipel
 
     expect(exitCode).toBe(1);
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
     expect(errors[0]).toContain("no-such-name");
   });
 });
@@ -1182,8 +1184,7 @@ describe("skillsCompile with a broken pipeline manifest", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors.filter((e) => e.startsWith("rt skills: "))).toHaveLength(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
     expect(errors[0]).not.toContain("\n    at ");
     expect(errors[0]).toContain("feature");
     expect(errors[0]).toContain("no-such-stage");
@@ -1211,7 +1212,7 @@ describe("skillsCompile with a broken pipeline manifest", () => {
 
     expect(exitCode).toBe(1);
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
     expect(errors[0]).toContain("stage-plan");
     expect(errors[0]).toContain("both a roster verb and a pipeline stage");
     expect(existsSync(join(packDir, "skills", "stage-plan"))).toBe(false);

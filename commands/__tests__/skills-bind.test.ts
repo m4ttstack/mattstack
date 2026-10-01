@@ -291,7 +291,7 @@ describe("skillsBind", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
     expect(errors[0]).toContain("no-such-verb");
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
     // Rejection is before any compile: no artifact is left behind either.
@@ -427,9 +427,8 @@ describe("skillsBind", () => {
       );
 
       expect(exitCode).toBe(1);
-      expect(errors[0]).toContain(
-        `pack "acme-base" is a base pack with no verbs of its own, so bind cannot check the slot; edit ${fragmentPath} directly`,
-      );
+      expect(errors[0]).toBe("acme-base is a base pack with no verbs of its own, so rt cannot check the slot");
+      expect(errors.join("\n")).toContain(fragmentPath);
       expect(readFileSync(fragmentPath, "utf8")).toBe(JSON.stringify({ base: true }));
     });
   });
@@ -448,7 +447,7 @@ describe("skillsBind", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
     expect(errors[0]).toContain("no-such-slot");
     expect(errors[0]).toContain("domain");
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
@@ -469,7 +468,7 @@ describe("skillsBind", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
     expect(errors[0]).toContain("watch-ci-domain@2");
     expect(errors[0]).toContain("watch-ci-domain@1");
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
@@ -574,7 +573,7 @@ describe("skillsBind: pipeline stages", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
     expect(errors[0]).toContain("no-such-slot");
     expect(errors[0]).toContain("domain");
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
@@ -591,7 +590,7 @@ describe("skillsBind: pipeline stages", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
     expect(errors[0]).toContain('"no-such-name" is neither a roster verb nor a pipeline stage');
     expect(errors[0]).toContain("verbs: watch-ci");
     expect(errors[0]).toContain("stages: stage-plan");

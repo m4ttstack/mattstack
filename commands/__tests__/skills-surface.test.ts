@@ -176,7 +176,7 @@ describe("skillsSurface list", () => {
       skillsSurface(["list", "--bogus"]),
     );
     expect(exitCode).toBe(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
     expect(errors[0]).toContain("--bogus");
   });
 
@@ -361,7 +361,7 @@ describe("skillsSurface set", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
     expect(errors[0]).toContain("no-such-skill");
   });
 
@@ -375,7 +375,7 @@ describe("skillsSurface set", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
   });
 
   test("missing name: clean one-line error, exit 1", async () => {
@@ -384,7 +384,7 @@ describe("skillsSurface set", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
   });
 
   test("several names in one call: all move, and surface.jsonc is written once", async () => {
@@ -495,7 +495,7 @@ describe("skillsSurface apply", () => {
       skillsSurface(["apply", "--bogus"]),
     );
     expect(exitCode).toBe(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
   });
 });
 
@@ -663,7 +663,7 @@ describe("skillsSurface bare invocation (interactive palette)", () => {
       skillsSurface(["bogus-mode"]),
     );
     expect(exitCode).toBe(1);
-    expect(errors[0]).toStartWith("rt skills: ");
+    expect(errors.join("\n")).not.toContain("rt skills:");
     expect(errors[0]).toContain("bogus-mode");
   });
 
