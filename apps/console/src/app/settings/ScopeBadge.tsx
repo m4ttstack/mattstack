@@ -1,5 +1,6 @@
 import { Badge, Box } from '@mattstack/app-kit/core';
 
+import { useSettingsTeam } from './useConsoleSettings';
 import { layerLabel, rungBase, type LayerScope, type StoreScope } from './view';
 
 export const SCOPE_COLOR: Record<StoreScope, string> = {
@@ -24,8 +25,18 @@ export function ScopeDot({ scope }: { scope: StoreScope }) {
   );
 }
 
-export function ScopeBadge({ scope }: { scope: LayerScope }) {
+/** `bare` leaves the team's name off, for a fixed-width column a long slug
+    would truncate. */
+export function ScopeBadge({
+  scope,
+  bare = false,
+}: {
+  scope: LayerScope;
+  bare?: boolean;
+}) {
   const base = rungBase(scope)!;
+  const named = useSettingsTeam();
+  const team = bare ? null : named;
   return (
     <Badge
       variant="light"
@@ -44,7 +55,7 @@ export function ScopeBadge({ scope }: { scope: LayerScope }) {
       }}
       styles={{ section: { marginInlineEnd: 4 } }}
     >
-      {layerLabel(scope)}
+      {layerLabel(scope, team)}
     </Badge>
   );
 }

@@ -549,6 +549,29 @@ describe('page overflow', () => {
   });
 });
 
+describe('team name', () => {
+  it('names the machine team on the team subhead when defs carry one', async () => {
+    defsResponse = () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ defs: DEFS, team: 'acme' }),
+    });
+    renderPage();
+    await screen.findByRole('heading', { name: 'Board' });
+    expect(
+      screen.getByText('· shared with everyone through the acme team repo')
+    ).toBeInTheDocument();
+  });
+
+  it('stays bare when the defs name no team', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'Board' });
+    expect(
+      screen.getByText('· shared with everyone through the team repo')
+    ).toBeInTheDocument();
+  });
+});
+
 describe('repo picker', () => {
   const ROLES = (
     effective: SettingDefWire['effective'],

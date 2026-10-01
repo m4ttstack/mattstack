@@ -41,6 +41,7 @@ import type { RelayClient } from "./relay-client.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { forgeLabel, probeTeamRepoAccess, type RepoAccessVerdict } from "./repo-access.ts";
 import { forgeTokenLookupForRemote, mayOfferToken, mayOfferTokenToHost, tokenLookupRemoteForHost } from "./forge-token.ts";
+import { assertOnlyTeam } from "./one-team.ts";
 import { readTeamLocal, updateTeamLocal } from "./team-local.ts";
 
 export interface JoinResult {
@@ -120,7 +121,12 @@ function isAllowedRemote(remote: string): boolean {
 
 /** Strips C0 controls and DEL — defangs an ANSI escape (which opens with ESC, 0x1b) and CR/LF line-injection from an attacker-controlled display string before it ever reaches a human-readable message. `--json` needed no such treatment (`JSON.stringify` already escapes C0), but the plain-text `rt team join: <message>` line does not. */
 function sanitizeDisplay(s: string): string {
-  return s.replace(/[\x00-\x1f\x7f]/g, "");
+  return [...s]
+    .filter((ch) => {
+      const code = ch.charCodeAt(0);
+      return code > 0x1f && code !== 0x7f;
+    })
+    .join("");
 }
 
 /**
@@ -238,6 +244,8 @@ export async function joinDryRun(p: Probes, relay: RelayClient, code: string): P
   if (pointer === null) {
     return { ...unreachableResult(NO_TEAM, "could not reach the invite relay - check your network and try again"), intent: "not-written" };
   }
+
+  assertOnlyTeam(p, pointer.team);
 
   const confirmedHost = readUserIntegrationOverrides().forgeHost ?? null;
   const verdict = await probeTeamRepoAccess(p, pointer.remote, await forgeTokenLookupForRemote(p, pointer.remote, confirmedHost));
@@ -500,6 +508,7 @@ export async function joinRedeem(
   if (!isJoinSource(resolved)) return resolved;
   const { idHex, key, pointer } = resolved;
   assertNotRealStoreInTest(join(p.home, ".mattstack", "teams", pointer.team, "mattstack", "settings.team.jsonc"));
+  assertOnlyTeam(p, pointer.team);
 
   // Checkpointed BEFORE any clone/redeem attempt (not just on the dry-run
   // path) so a mid-flow failure below — relay unreachable, reply failed, the

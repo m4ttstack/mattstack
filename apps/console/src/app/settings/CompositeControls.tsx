@@ -50,7 +50,11 @@ import { ModeToggle } from './ModeToggle';
 import { ScopeBadge } from './ScopeBadge';
 import listClasses from './StringList.module.css';
 import { unitOf } from './units';
-import { useKeyExplain, useSettingsRepo } from './useConsoleSettings';
+import {
+  useKeyExplain,
+  useSettingsRepo,
+  useSettingsTeam,
+} from './useConsoleSettings';
 import type { useRowSave } from './useRowSave';
 import {
   EDITOR_KINDS,
@@ -111,10 +115,11 @@ function FieldRow({
     layer every edit here writes to, and the Form | JSON switch. */
 function LiveHeader({ row, onJson }: { row: Row; onJson: () => void }) {
   const { text } = useSchemeColors();
+  const team = useSettingsTeam();
   return (
     <Group justify="space-between" wrap="nowrap" gap={8} pt={4} pb={6}>
       <Text fz={12} c={text.muted}>
-        {`Editing the ${targetLabel(row.target)} layer`}
+        {`Editing the ${targetLabel(row.target, team)} layer`}
       </Text>
       <ModeToggle value="form" onChange={m => m === 'json' && onJson()} />
     </Group>
@@ -784,6 +789,7 @@ function DraftBody({
   onForm?: () => void;
 }) {
   const repo = useSettingsRepo();
+  const team = useSettingsTeam();
   const explained = useKeyExplain(def.key, repo);
   const [resets, setResets] = useState(0);
   const at = rungOf(row.target.scope, row.target.repo ?? null);
@@ -811,7 +817,7 @@ function DraftBody({
         form={form}
         initial={initial}
         startIn={startIn}
-        targetLabel={targetLabel(row.target)}
+        targetLabel={targetLabel(row.target, team)}
         saving={row.status === 'saving'}
         onForm={onForm}
         onCancel={() => {

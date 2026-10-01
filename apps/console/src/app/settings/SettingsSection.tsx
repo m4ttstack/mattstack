@@ -12,6 +12,7 @@ import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { useAgentModels } from '../config/useSettings';
 import type { WireIssue } from './issues';
 import { SettingRow } from './SettingRow';
+import { useSettingsTeam } from './useConsoleSettings';
 import type { RowStore } from './useRowSave';
 import type { Section, StoreScope } from './view';
 
@@ -35,6 +36,12 @@ const SUBHEAD: Record<
     color: 'var(--tk-text-accent-small)',
   },
 };
+
+function subheadNote(scope: StoreScope, team: string | null): string {
+  if (scope === 'team' && team)
+    return `shared with everyone through the ${team} team repo`;
+  return SUBHEAD[scope].note;
+}
 
 export type Provider = 'claude' | 'codex';
 
@@ -156,6 +163,7 @@ export function SettingsSection({
   onFix?: (key: string, issue: WireIssue | null) => void;
 }) {
   const { text } = useSchemeColors();
+  const team = useSettingsTeam();
   if (section.group.id === 'agents')
     return (
       <AgentsSection
@@ -197,7 +205,7 @@ export function SettingsSection({
                 {sub.defs.length}
               </Text>
               <Text fz={12} c={text.muted}>
-                {`· ${SUBHEAD[sub.scope].note}`}
+                {`· ${subheadNote(sub.scope, team)}`}
               </Text>
             </Group>
           )}

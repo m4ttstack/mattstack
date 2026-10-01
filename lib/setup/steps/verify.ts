@@ -6,7 +6,7 @@
  */
 
 import { composePlan } from "../plan.ts";
-import { isTeamSyncFirstPullPending } from "../validators/rt-health.ts";
+import { isTeamSyncFirstPullPending, ONE_TEAM_ROW_ID } from "../validators/rt-health.ts";
 import { rowsToChecks } from "../../../commands/verify.ts";
 import type { Row } from "../contract.ts";
 import { BOARD_PEERING_ROW_ID } from "../validators/accounts.ts";
@@ -19,6 +19,7 @@ type CheckResult = ReturnType<typeof rowsToChecks>[number];
 type MemberTask = { verb: "connect" | "install"; label: string };
 
 const UNPEERED_NOTE = "board not peered: ask the team owner to re-invite you";
+const SEVERAL_TEAMS_NOTE = "more than one team on this Mac: open Setup status";
 
 /**
  * Install never connects an account or installs a team-declared tool: both
@@ -57,6 +58,8 @@ export function outcomeFromChecks(checks: CheckResult[], rows: Row[] = []): Step
       .map(([verb, labels]) => `to ${verb}: ${labels.join(", ")}`),
     // Not required, so it never fails a check, but only the member can chase the owner for the token.
     ...(byId.get(BOARD_PEERING_ROW_ID)?.status === "needs-you" ? [UNPEERED_NOTE] : []),
+    // Not required either, and nothing else tells a Mac that already has two zones.
+    ...(byId.get(ONE_TEAM_ROW_ID)?.status === "needs-you" ? [SEVERAL_TEAMS_NOTE] : []),
   ].join(" · ");
   if (failures.length > 0) {
     return {

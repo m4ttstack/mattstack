@@ -30,7 +30,11 @@ import { RepoPicker } from './RepoPicker';
 import { ScopeDot } from './ScopeBadge';
 import { SettingsSection, type Provider } from './SettingsSection';
 import { UnregisteredNote } from './UnregisteredNote';
-import { SettingsRepoContext, useConsoleSettings } from './useConsoleSettings';
+import {
+  SettingsRepoContext,
+  SettingsTeamContext,
+  useConsoleSettings,
+} from './useConsoleSettings';
 import { useSectionSpy } from './useSectionSpy';
 import {
   buildSections,
@@ -235,269 +239,271 @@ export function SettingsPage() {
 
   return (
     <SettingsRepoContext.Provider value={repo}>
-      <PageShell
-        headerHeight={HEADER_HEIGHT}
-        sidebarWidth={232}
-        drawerStateKey="console-settings-index"
-      >
-        <PageShell.Sidebar hideCollapseButton>
-          <Index
-            sections={sections}
-            filtering={filtering}
-            active={active}
-            onPick={jump}
-          />
-        </PageShell.Sidebar>
-        <PageShell.Main>
-          <PageShell.Header px={0} gap={0} align="stretch">
-            <Stack gap={0} w="100%">
-              <Group
-                h={PAGE_ROW_HEIGHT}
-                px="lg"
-                justify="space-between"
-                wrap="nowrap"
-                style={{ borderBottom: '1px solid var(--tk-border-soft)' }}
-              >
-                <Group gap={16} wrap="nowrap">
-                  <Title
-                    order={2}
-                    size="h5"
-                    fw={700}
-                    style={{ whiteSpace: 'nowrap' }}
-                  >
-                    Settings
-                  </Title>
+      <SettingsTeamContext.Provider value={store.team}>
+        <PageShell
+          headerHeight={HEADER_HEIGHT}
+          sidebarWidth={232}
+          drawerStateKey="console-settings-index"
+        >
+          <PageShell.Sidebar hideCollapseButton>
+            <Index
+              sections={sections}
+              filtering={filtering}
+              active={active}
+              onPick={jump}
+            />
+          </PageShell.Sidebar>
+          <PageShell.Main>
+            <PageShell.Header px={0} gap={0} align="stretch">
+              <Stack gap={0} w="100%">
+                <Group
+                  h={PAGE_ROW_HEIGHT}
+                  px="lg"
+                  justify="space-between"
+                  wrap="nowrap"
+                  style={{ borderBottom: '1px solid var(--tk-border-soft)' }}
+                >
+                  <Group gap={16} wrap="nowrap">
+                    <Title
+                      order={2}
+                      size="h5"
+                      fw={700}
+                      style={{ whiteSpace: 'nowrap' }}
+                    >
+                      Settings
+                    </Title>
+                    <Chip
+                      checked={needsFixingOnly}
+                      onChange={setNeedsFixingOnly}
+                      variant="outline"
+                      size="sm"
+                      styles={FILTER_CHIP_STYLES}
+                    >
+                      Needs fixing{' '}
+                      <Text span inherit ff="monospace">
+                        {store.defs.filter(needsFixing).length}
+                      </Text>
+                    </Chip>
+                  </Group>
+                  <Group gap={12} wrap="nowrap">
+                    <RepoPicker value={repo} onChange={setRepo} />
+                    {asOf && (
+                      <Group gap={6} wrap="nowrap">
+                        <Text fz={12} ff="monospace" c={text.muted}>
+                          {'>_ rt settings list'}
+                        </Text>
+                        <Text fz={12} c={text.muted}>
+                          {`${total} keys · as of ${asOf.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}
+                        </Text>
+                      </Group>
+                    )}
+                  </Group>
+                </Group>
+                <Group
+                  role="toolbar"
+                  aria-label="settings filters"
+                  gap={12}
+                  px={32}
+                  h={TOOLBAR_ROW}
+                  wrap="nowrap"
+                >
+                  <TextInput
+                    ref={filterRef}
+                    aria-label="filter settings"
+                    style={{ flex: 1 }}
+                    leftSection={<Icons.search size={16} />}
+                    placeholder={`Filter ${total} settings by key or description`}
+                    styles={{ input: { fontSize: 14 } }}
+                    value={query}
+                    onTextChange={setQuery}
+                    onKeyDown={e => {
+                      if (e.key === 'Escape' && query !== '') {
+                        e.stopPropagation();
+                        setQuery('');
+                      }
+                    }}
+                    rightSectionWidth={query ? 110 : 36}
+                    rightSection={
+                      query ? (
+                        <Group gap={6} wrap="nowrap">
+                          <Text
+                            fz={12}
+                            c={text.muted}
+                          >{`${shown} of ${total}`}</Text>
+                          <CloseButton
+                            size="sm"
+                            aria-label="clear filter"
+                            onClick={() => setQuery('')}
+                          />
+                        </Group>
+                      ) : (
+                        <Kbd size="xs">/</Kbd>
+                      )
+                    }
+                  />
                   <Chip
-                    checked={needsFixingOnly}
-                    onChange={setNeedsFixingOnly}
+                    checked={changedOnly}
+                    onChange={setChangedOnly}
                     variant="outline"
                     size="sm"
                     styles={FILTER_CHIP_STYLES}
                   >
-                    Needs fixing{' '}
+                    Changed{' '}
                     <Text span inherit ff="monospace">
-                      {store.defs.filter(needsFixing).length}
+                      {store.defs.filter(isSet).length}
                     </Text>
                   </Chip>
+                  <Chip
+                    checked={editableOnly}
+                    onChange={setEditableOnly}
+                    variant="outline"
+                    size="sm"
+                    styles={FILTER_CHIP_STYLES}
+                  >
+                    Editable{' '}
+                    <Text span inherit ff="monospace">
+                      {store.defs.filter(isEditable).length}
+                    </Text>
+                  </Chip>
+                  <SegmentedControl
+                    size="xs"
+                    withItemsBorders={false}
+                    styles={{ label: { fontSize: 12, fontWeight: 500 } }}
+                    value={scope}
+                    onChange={v => setScope(v as ScopeFilter)}
+                    data={[
+                      { value: 'any', label: 'any' },
+                      ...SCOPES.map(s => ({
+                        value: s,
+                        label: (
+                          <Group gap={6} wrap="nowrap">
+                            <ScopeDot scope={s} />
+                            <span>{s}</span>
+                          </Group>
+                        ),
+                      })),
+                    ]}
+                  />
                 </Group>
-                <Group gap={12} wrap="nowrap">
-                  <RepoPicker value={repo} onChange={setRepo} />
-                  {asOf && (
-                    <Group gap={6} wrap="nowrap">
-                      <Text fz={12} ff="monospace" c={text.muted}>
-                        {'>_ rt settings list'}
-                      </Text>
-                      <Text fz={12} c={text.muted}>
-                        {`${total} keys · as of ${asOf.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}
-                      </Text>
-                    </Group>
-                  )}
-                </Group>
-              </Group>
-              <Group
-                role="toolbar"
-                aria-label="settings filters"
-                gap={12}
-                px={32}
-                h={TOOLBAR_ROW}
-                wrap="nowrap"
-              >
-                <TextInput
-                  ref={filterRef}
-                  aria-label="filter settings"
-                  style={{ flex: 1 }}
-                  leftSection={<Icons.search size={16} />}
-                  placeholder={`Filter ${total} settings by key or description`}
-                  styles={{ input: { fontSize: 14 } }}
-                  value={query}
-                  onTextChange={setQuery}
-                  onKeyDown={e => {
-                    if (e.key === 'Escape' && query !== '') {
-                      e.stopPropagation();
-                      setQuery('');
-                    }
-                  }}
-                  rightSectionWidth={query ? 110 : 36}
-                  rightSection={
-                    query ? (
-                      <Group gap={6} wrap="nowrap">
-                        <Text
-                          fz={12}
-                          c={text.muted}
-                        >{`${shown} of ${total}`}</Text>
-                        <CloseButton
-                          size="sm"
-                          aria-label="clear filter"
-                          onClick={() => setQuery('')}
-                        />
-                      </Group>
-                    ) : (
-                      <Kbd size="xs">/</Kbd>
-                    )
-                  }
-                />
-                <Chip
-                  checked={changedOnly}
-                  onChange={setChangedOnly}
-                  variant="outline"
-                  size="sm"
-                  styles={FILTER_CHIP_STYLES}
-                >
-                  Changed{' '}
-                  <Text span inherit ff="monospace">
-                    {store.defs.filter(isSet).length}
-                  </Text>
-                </Chip>
-                <Chip
-                  checked={editableOnly}
-                  onChange={setEditableOnly}
-                  variant="outline"
-                  size="sm"
-                  styles={FILTER_CHIP_STYLES}
-                >
-                  Editable{' '}
-                  <Text span inherit ff="monospace">
-                    {store.defs.filter(isEditable).length}
-                  </Text>
-                </Chip>
-                <SegmentedControl
-                  size="xs"
-                  withItemsBorders={false}
-                  styles={{ label: { fontSize: 12, fontWeight: 500 } }}
-                  value={scope}
-                  onChange={v => setScope(v as ScopeFilter)}
-                  data={[
-                    { value: 'any', label: 'any' },
-                    ...SCOPES.map(s => ({
-                      value: s,
-                      label: (
-                        <Group gap={6} wrap="nowrap">
-                          <ScopeDot scope={s} />
-                          <span>{s}</span>
-                        </Group>
-                      ),
-                    })),
-                  ]}
-                />
-              </Group>
-            </Stack>
-          </PageShell.Header>
-          <PageShell.Content
-            contentContainer={false}
-            bg={bg.level3}
-            scrollAreaProps={{ viewportRef: frame }}
-          >
-            {/* The page's one overflow guard: Mantine's ScrollArea content
+              </Stack>
+            </PageShell.Header>
+            <PageShell.Content
+              contentContainer={false}
+              bg={bg.level3}
+              scrollAreaProps={{ viewportRef: frame }}
+            >
+              {/* The page's one overflow guard: Mantine's ScrollArea content
                 wrapper is `min-width: min-content`, so without size
                 containment here any unbreakable descendant (a long path, a
                 JSON value, a nowrap label) widens the page and scrolls it
                 sideways instead of truncating or wrapping in place. */}
-            <Box px={32} pb={32} style={{ contain: 'inline-size' }}>
-              {store.error && (
-                <Alert
-                  color="bad"
-                  variant="light"
-                  mt="md"
-                  icon={<Icons.error size={14} />}
-                >
-                  <Text fz={12}>{store.error}</Text>
-                </Alert>
-              )}
-              {/* Skeletons only before the first list: a repo switch keeps the
+              <Box px={32} pb={32} style={{ contain: 'inline-size' }}>
+                {store.error && (
+                  <Alert
+                    color="bad"
+                    variant="light"
+                    mt="md"
+                    icon={<Icons.error size={14} />}
+                  >
+                    <Text fz={12}>{store.error}</Text>
+                  </Alert>
+                )}
+                {/* Skeletons only before the first list: a repo switch keeps the
                   list it has on screen until the new one arrives. */}
-              {store.loading && store.defs.length === 0 ? (
-                <Stack gap="md" pt={28}>
-                  {[220, 280, 180, 240].map(w => (
-                    <Group key={w} justify="space-between">
-                      <Stack gap={8}>
-                        <Skeleton h={12} w={w} />
-                        <Skeleton h={10} w={w + 160} />
-                      </Stack>
-                      <Skeleton h={30} w={200} />
-                    </Group>
-                  ))}
-                </Stack>
-              ) : visible.length === 0 && total > 0 ? (
-                <Stack align="center" gap={10} py={48}>
-                  <Icons.search size={24} color={text.muted} />
-                  <Text fz={14} fw={500}>
-                    {query
-                      ? `No settings match “${query}”`
-                      : 'No settings match these filters'}
-                  </Text>
-                  <Text fz={12} c={text.muted}>
-                    The filter reads key names and descriptions, not values.
-                  </Text>
-                  <Button
-                    size="xs"
-                    h={28}
-                    fz={12}
-                    variant="default"
-                    onClick={clearAll}
+                {store.loading && store.defs.length === 0 ? (
+                  <Stack gap="md" pt={28}>
+                    {[220, 280, 180, 240].map(w => (
+                      <Group key={w} justify="space-between">
+                        <Stack gap={8}>
+                          <Skeleton h={12} w={w} />
+                          <Skeleton h={10} w={w + 160} />
+                        </Stack>
+                        <Skeleton h={30} w={200} />
+                      </Group>
+                    ))}
+                  </Stack>
+                ) : visible.length === 0 && total > 0 ? (
+                  <Stack align="center" gap={10} py={48}>
+                    <Icons.search size={24} color={text.muted} />
+                    <Text fz={14} fw={500}>
+                      {query
+                        ? `No settings match “${query}”`
+                        : 'No settings match these filters'}
+                    </Text>
+                    <Text fz={12} c={text.muted}>
+                      The filter reads key names and descriptions, not values.
+                    </Text>
+                    <Button
+                      size="xs"
+                      h={28}
+                      fz={12}
+                      variant="default"
+                      onClick={clearAll}
+                    >
+                      Clear filter
+                    </Button>
+                  </Stack>
+                ) : (
+                  <Box
+                    data-testid="settings-list"
+                    inert={store.loading}
+                    aria-busy={store.loading || undefined}
+                    style={{
+                      opacity: store.loading ? 0.55 : undefined,
+                      transition: 'opacity 120ms',
+                    }}
                   >
-                    Clear filter
-                  </Button>
-                </Stack>
-              ) : (
-                <Box
-                  data-testid="settings-list"
-                  inert={store.loading}
-                  aria-busy={store.loading || undefined}
-                  style={{
-                    opacity: store.loading ? 0.55 : undefined,
-                    transition: 'opacity 120ms',
-                  }}
-                >
-                  {visible.map(s => (
-                    <SettingsSection
-                      key={s.group.id}
-                      section={s}
-                      store={store}
-                      query={query}
-                      filtering={filtering}
-                      agentProvider={agentProvider}
-                      onExplain={explain.open}
-                      onFix={(key, issue) =>
-                        explain.open(key, {
-                          fix: issue?.scope,
-                          repo: issue?.repo,
-                        })
-                      }
-                    />
-                  ))}
-                </Box>
-              )}
-              {filtering && visible.length > 0 && hiddenGroups > 0 && (
-                <Group gap={8} pt={20}>
-                  <Icons.eyeOff size={14} color={text.muted} />
-                  <Text fz={12} c={text.muted}>
-                    {hiddenGroups === 1
-                      ? '1 group has no match.'
-                      : `${hiddenGroups} groups have no match.`}
-                  </Text>
-                  <Button
-                    size="compact-xs"
-                    variant="default"
-                    onClick={clearAll}
-                  >
-                    Clear filter
-                  </Button>
-                </Group>
-              )}
-              {!store.loading && (
-                <UnregisteredNote entries={store.unregistered} />
-              )}
-            </Box>
-          </PageShell.Content>
-        </PageShell.Main>
-        <ExplainModal
-          settingKey={explain.key}
-          fix={explain.fix}
-          store={store}
-          onClose={explain.close}
-          onPickRepo={setRepo}
-        />
-      </PageShell>
+                    {visible.map(s => (
+                      <SettingsSection
+                        key={s.group.id}
+                        section={s}
+                        store={store}
+                        query={query}
+                        filtering={filtering}
+                        agentProvider={agentProvider}
+                        onExplain={explain.open}
+                        onFix={(key, issue) =>
+                          explain.open(key, {
+                            fix: issue?.scope,
+                            repo: issue?.repo,
+                          })
+                        }
+                      />
+                    ))}
+                  </Box>
+                )}
+                {filtering && visible.length > 0 && hiddenGroups > 0 && (
+                  <Group gap={8} pt={20}>
+                    <Icons.eyeOff size={14} color={text.muted} />
+                    <Text fz={12} c={text.muted}>
+                      {hiddenGroups === 1
+                        ? '1 group has no match.'
+                        : `${hiddenGroups} groups have no match.`}
+                    </Text>
+                    <Button
+                      size="compact-xs"
+                      variant="default"
+                      onClick={clearAll}
+                    >
+                      Clear filter
+                    </Button>
+                  </Group>
+                )}
+                {!store.loading && (
+                  <UnregisteredNote entries={store.unregistered} />
+                )}
+              </Box>
+            </PageShell.Content>
+          </PageShell.Main>
+          <ExplainModal
+            settingKey={explain.key}
+            fix={explain.fix}
+            store={store}
+            onClose={explain.close}
+            onPickRepo={setRepo}
+          />
+        </PageShell>
+      </SettingsTeamContext.Provider>
     </SettingsRepoContext.Provider>
   );
 }

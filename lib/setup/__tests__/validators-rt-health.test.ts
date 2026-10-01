@@ -8,7 +8,7 @@ import { DAEMON_CONFIG_PATH } from "../../daemon-config.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { setSetting } from "../../settings/write.ts";
-import { homeBackupRow, isTeamSyncFirstPullPending, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
+import { homeBackupRow, isTeamSyncFirstPullPending, oneTeamRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
 import { fakeProbes, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { createRealProbes } from "../probes.ts";
@@ -787,6 +787,41 @@ describe("rtHealthRows — home.backup (real git)", () => {
     // the correct join lands on the real, pushed repo built above.
     expect(r?.status).toBe("ready");
     expect(r?.required).toBe(false);
+  });
+});
+
+describe("oneTeamRow", () => {
+  test("no team or one team: no row", () => {
+    expect(oneTeamRow([])).toBeNull();
+    expect(oneTeamRow(["acme"])).toBeNull();
+  });
+
+  test("two zones: a fault naming both and the fix, with steps to clear it", () => {
+    const r = oneTeamRow(["globex", "acme"]);
+
+    expect(r?.id).toBe("team.one-per-machine");
+    expect(r?.status).toBe("needs-you");
+    expect(r?.required).toBe(false);
+    expect(r?.detail).toBe(
+      "this machine has 2 team zones (acme, globex); mattstack supports one team per machine today. Remove the extra zone, or wait for multi-team support.",
+    );
+    expect(r?.action?.type).toBe("steps");
+  });
+
+  test("rtHealthRows carries the row when the machine has two zones", async () => {
+    const teams = join("/home/two", ".mattstack", "teams");
+    const p = fakeProbes({
+      home: "/home/two",
+      dirs: { [teams]: ["acme", "globex"] },
+      files: {
+        [join(teams, "acme", "mattstack", "settings.team.jsonc")]: "{}",
+        [join(teams, "globex", "mattstack", "settings.team.jsonc")]: "{}",
+      },
+    });
+
+    const r = await pickRow(rtHealthRows(p, { ci: false }, () => undefined), "team.one-per-machine");
+
+    expect(r.detail).toContain("acme, globex");
   });
 });
 

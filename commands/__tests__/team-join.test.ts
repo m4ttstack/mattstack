@@ -127,6 +127,26 @@ describe("teamJoin", () => {
     expect(deps.lines[0]).not.toContain(CODE);
   });
 
+  test("a second team exits 2 with team-already-set-up in the envelope", async () => {
+    const teams = pathJoin(HOME, ".mattstack", "teams");
+    const deps = baseDeps({
+      probes: fakeProbes({
+        home: HOME,
+        fetch: relayFetch(),
+        exec: () => ({ code: 0, stdout: "", stderr: "" }),
+        dirs: { [teams]: ["globex"] },
+        files: { [pathJoin(teams, "globex", "mattstack", "settings.team.jsonc")]: "{}" },
+      }),
+    });
+
+    const code = await runExpectingProcessExit(() => teamJoin(["--json"], {}, deps));
+
+    expect(code).toBe(2);
+    const body = JSON.parse(deps.lines[0]!);
+    expect(body.error.code).toBe("team-already-set-up");
+    expect(body.error.message).toBe("this machine is set up for team globex; mattstack supports one team per machine today");
+  });
+
   test("human mode: code-on-argv prints the message and exits 2", async () => {
     const deps = baseDeps();
     const code = await runExpectingProcessExit(() => teamJoin(["ABC"], {}, deps));

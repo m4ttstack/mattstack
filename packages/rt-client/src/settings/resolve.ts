@@ -240,11 +240,27 @@ interface StoreBundle {
 }
 
 function readStores(): StoreBundle {
+  const teams = [...listTeams()].sort();
+  if (teams.length > 1) warnMultipleTeams(teams);
   return {
     user: readStore(userSettingsPath()),
     machine: readStore(machineSettingsPath()),
-    teams: [...listTeams()].sort().map((team) => readStore(teamSettingsPath(team))),
+    teams: teams.map((team) => readStore(teamSettingsPath(team))),
   };
+}
+
+let multiTeamWarned: string | null = null;
+
+/** Once per process and per set of teams, with or without a sink: every
+ *  settings read folds the stores, so an unguarded warning would repeat on
+ *  each one. */
+function warnMultipleTeams(teams: string[]): void {
+  const names = teams.join(", ");
+  if (multiTeamWarned === names) return;
+  multiTeamWarned = names;
+  emitSettingsWarning(
+    `rt: this machine has ${teams.length} team zones (${names}); mattstack supports one team per machine today. Their team settings are folded together, and the later name wins.`,
+  );
 }
 
 /**
@@ -652,6 +668,7 @@ const warnedOnce = new Set<string>();
 export function setSettingsWarnSink(sink: ((msg: string) => void) | null): void {
   warnSink = sink;
   warnedOnce.clear();
+  multiTeamWarned = null;
 }
 
 export function emitSettingsWarning(msg: string): void {

@@ -27,6 +27,7 @@ import {
   listSettings,
   listUnregisteredSettings,
   repoSectionsFor,
+  setSettingsWarnSink,
   type ExplainRow,
   type Provenance,
 } from "../resolve.ts";
@@ -314,6 +315,46 @@ describe("settings/resolve", () => {
         { scope: "team", file: teamSettingsPath("alpha") },
         { scope: "team", file: teamSettingsPath("beta") },
       ]);
+    });
+
+    test("folding more than one team store warns once per process, naming the teams", () => {
+      setSettingsWarnSink(null);
+      writeTeam("beta", { "rt.worktrees": { onDeck: 9 } });
+      writeTeam("alpha", { "rt.worktrees": { onDeck: 1 } });
+
+      getSetting("rt.worktrees", { repoIdentity: IDENTITY });
+      getSetting("rt.worktrees", { repoIdentity: IDENTITY });
+      listSettings();
+
+      const multiTeam = warnSpy.mock.calls.map((c) => String(c[0])).filter((m) => m.includes("team zones"));
+      expect(multiTeam).toEqual([
+        "rt: this machine has 2 team zones (alpha, beta); mattstack supports one team per machine today. Their team settings are folded together, and the later name wins.",
+      ]);
+    });
+
+    test("a bound sink gets the multi-team warning once, and once more after a rebind", () => {
+      writeTeam("alpha", { "rt.worktrees": { onDeck: 1 } });
+      writeTeam("beta", { "rt.worktrees": { onDeck: 9 } });
+      const seen: string[] = [];
+      setSettingsWarnSink((m) => seen.push(m));
+
+      getSetting("rt.worktrees", { repoIdentity: IDENTITY });
+      getSetting("rt.worktrees", { repoIdentity: IDENTITY });
+      expect(seen.filter((m) => m.includes("team zones"))).toHaveLength(1);
+
+      setSettingsWarnSink((m) => seen.push(m));
+      getSetting("rt.worktrees", { repoIdentity: IDENTITY });
+      expect(seen.filter((m) => m.includes("team zones"))).toHaveLength(2);
+      setSettingsWarnSink(null);
+    });
+
+    test("one team store folds without the multi-team warning", () => {
+      setSettingsWarnSink(null);
+      writeTeam("alpha", { "rt.worktrees": { onDeck: 1 } });
+
+      getSetting("rt.worktrees", { repoIdentity: IDENTITY });
+
+      expect(warnSpy.mock.calls.map((c) => String(c[0])).filter((m) => m.includes("team zones"))).toEqual([]);
     });
 
     test("resolution never mutates the registry default", () => {
