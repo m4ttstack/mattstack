@@ -76,6 +76,20 @@ describe("init outcome", () => {
     );
   });
 
+  test("a multi-line detail keeps each line: the first is the title, the rest lead the details", () => {
+    const failure = initFailure({
+      ok: false,
+      refused: false,
+      code: "compile-failed",
+      detail: "stubs.jsonc: unknown slot review\nskills.jsonc: duplicate name work",
+      wrote: ["/a"],
+      remedy: { commands: ["rt skills compile --pack-dir /z/p"] },
+    });
+    expect(renderPlain([ui.failure(failure)])).toBe(
+      "stubs.jsonc: unknown slot review\n  next: Run rt skills compile --pack-dir /z/p\n  skills.jsonc: duplicate name work\n  Written so far:\n  /a\n",
+    );
+  });
+
   test("a write failure says to delete the folder it started, then run init again", () => {
     const failure = initFailure({
       ok: false,

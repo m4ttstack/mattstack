@@ -70,9 +70,10 @@ function remedyCell(r: InitRemedy): Array<string | Segment> {
 
 export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureInput {
   if (o.refused) return { title: o.detail, ...(o.next ? { next: ui.cmd(o.next) } : {}) };
-  const details = [...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
+  const [title = o.detail, ...rest] = o.detail.split("\n");
+  const details = [...rest, ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
   return {
-    title: o.detail,
+    title,
     next: o.remedy ? remedyCell(o.remedy) : ["Fix it, then run ", ui.cmd("rt skills compile"), " and ", ui.cmd("rt skills check")],
     ...(details.length > 0 ? { details: details.join("\n") } : {}),
   };
