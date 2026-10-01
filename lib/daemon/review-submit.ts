@@ -32,6 +32,7 @@ export interface ReviewSubmitDeps {
 type Strip<T> = T extends unknown ? Omit<T, "mrUrl" | "reviewerState" | "summaryNoteId"> : never;
 export type ReviewSubmitOutcome = Strip<ReviewSubmitData>;
 
+/** Must not exceed listDraftNotes' page size: the rollback reads pending comments as one page. */
 const MAX_ITEMS = 100;
 const PENDING_PREVIEW = 5;
 
@@ -46,8 +47,8 @@ export function parseReviewSubmit(
   if (p.outcome !== "comment" && p.outcome !== "approve") return fail("outcome must be comment or approve");
   if (!isText(p.summary)) return fail("summary must be a non-empty string");
   if (!Array.isArray(p.comments) || !Array.isArray(p.replies)) return fail("comments and replies must be arrays");
-  if (p.comments.length > MAX_ITEMS || p.replies.length > MAX_ITEMS) {
-    return fail(`at most ${MAX_ITEMS} comments and ${MAX_ITEMS} replies per review`);
+  if (p.comments.length + p.replies.length > MAX_ITEMS) {
+    return fail(`at most ${MAX_ITEMS} comments and replies in total per review`);
   }
   const comments: ReviewSubmitComment[] = [];
   for (const [i, raw] of p.comments.entries()) {

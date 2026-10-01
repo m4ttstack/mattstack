@@ -223,5 +223,11 @@ describe("parseReviewSubmit", () => {
   test("refuses the same thread twice", () =>
     bad({ replies: [{ discussionId: "d1", resolve: true }, { discussionId: "d1", body: "x", resolve: false }] }, "replies[1]: discussion d1 appears more than once"));
   test("refuses more than 100 comments", () =>
-    bad({ comments: Array.from({ length: 101 }, () => ({ body: "b", path: "a.ts", line: 1 })) }, "at most 100 comments and 100 replies per review"));
+    bad({ comments: Array.from({ length: 101 }, () => ({ body: "b", path: "a.ts", line: 1 })) }, "at most 100 comments and replies in total per review"));
+  test("caps comments and replies together at 100", () => {
+    const comments = Array.from({ length: 60 }, () => ({ body: "b", path: "a.ts", line: 1 }));
+    const replies = (n: number) => Array.from({ length: n }, (_, i) => ({ discussionId: `d${i}`, resolve: true }));
+    bad({ comments, replies: replies(41) }, "at most 100 comments and replies in total per review");
+    expect(parseReviewSubmit({ ...base, comments, replies: replies(40) }).ok).toBe(true);
+  });
 });
