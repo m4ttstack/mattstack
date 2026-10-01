@@ -121,7 +121,7 @@ digraph doctor_entry {
     "Does the resumed answer end the run (doctor)?" -> "Resumed answer ends the run: continue at Which exit in the map" [label="leave it to me in the pane: error, nothing claimed"];
     "Does the resumed answer end the run (doctor)?" -> "--skill given (doctor)?" [label="no: take, iterate, retry, watch or a domain action"];
     "What does the resumed answer name (doctor)?" -> "Retry budget answered: continue at Classify and retry" [label="a job retry on a sha (retry budget extension)"];
-    "What does the resumed answer name (doctor)?" -> "Watch budget answered: continue at Watch the pipeline" [label="more watch calls (watch budget extension)"];
+    "What does the resumed answer name (doctor)?" -> "Watch budget answered: continue at Watch the pipeline" [label="a longer watch (watch budget extension)"];
     "What does the resumed answer name (doctor)?" -> "Domain action answered: continue at Domain repair" [label="a domain action: conflict strategy, override, budget extension"];
     "What does the resumed answer name (doctor)?" -> "Repair from the top: continue at Domain repair" [label="an off-script take or iterate: repair again with its note"];
     "doctor off-script escalation: ci_lease_read refused" -> "Off-script outcome (ci_lease_read)?";
@@ -181,8 +181,9 @@ pane` writes `error` naming the situation the gate described; both
   its exit. `What does the resumed answer name (doctor)?` routes every
   other value on its prefix and reads its data from the value itself:
   `retry job <id> once more on <sha>` is the retry budget (the job id and
-  the sha come from the value), `extend by <n> more watch calls on <sha>`
-  is the watch budget (the count and sha come from the value), a value
+  the sha come from the value), `extend the watch by <n> minutes on <sha>`
+  is the watch budget (the minutes and the sha come from the value), a
+  value
   starting `take:` or `iterate:` is an off-script answer, and any other
   option value is a domain action.
 - **Resumed pane on its own old lease.** "Resumed" at
