@@ -1128,7 +1128,7 @@ describe("joinRedeem", () => {
       const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
 
       expect(result.peering).toBe("unavailable");
-      expect(JSON.parse(p.readFile(teamLocalPath(p.home, POINTER.team))!)).toEqual({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false });
+      expect(JSON.parse(p.readFile(teamLocalPath(p.home, POINTER.team))!)).toEqual({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, agePublicKey: FAKE_PUBLIC_KEY });
     });
 
     test("applied and idle peering carry no fix", async () => {
@@ -1485,6 +1485,12 @@ describe("joinRedeem", () => {
 
     expect(second.access).toBe("ok");
     expect(relay2.redeemCalls).toHaveLength(1); // resumed via the intent, then proceeded normally (alreadyCloned, so "already"/"redeemed" both fine)
+  });
+
+  test("a join records the age key it sent the owner, so setup can tell without the keychain whether team secrets reach this machine yet", async () => {
+    const p = redeemProbes();
+    await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+    expect(readTeamLocal(p, POINTER.team).agePublicKey).toBe(FAKE_PUBLIC_KEY);
   });
 
   test("keychain failure after clone+redeem: JoinKeyExchangeError, not a raw crash — names what completed", async () => {

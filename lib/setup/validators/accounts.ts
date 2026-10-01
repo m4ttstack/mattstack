@@ -25,6 +25,7 @@ import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts
 import { forgeRole, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
 import { boardPeering } from "../../team/board-token.ts";
+import { slackSecretWait } from "../team-slack-secret.ts";
 
 /** Reads user-scope secrets: the real implementation goes through lib/secrets/store.readSecret (null on NoAgeKeyError) plus staged values (staging.ts) — that wiring is a later task's job; validators only depend on this narrow shape. */
 export interface SecretPresence {
@@ -179,6 +180,14 @@ async function githubRow(p: Probes, base: Omit<Row, "status" | "detail" | "actio
   return row({ ...base, status: short ? "needs-you" : result.status, detail: short ?? result.detail, action: connectAction(def, ghStatus.code === 0, forge) });
 }
 
+/**
+ * Only the team owner can clear the wait, so the row stops being required
+ * for it: Install must not hinge on a button the member cannot
+ * press. The note must not start "Works without": the app's Done screen
+ * drops rows whose note does, and the member should still see this one.
+ */
+const SLACK_WAITING_NOTE = "Slack stays unconnected until your team owner accepts you.";
+
 /** The oauth Connect action only makes sense once the team's own Slack app exists (`clientId` set) — before that, this row explains the dependency on account.slack-app instead of offering a flow that would run against an app that doesn't exist yet. */
 async function slackRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, secrets: SecretPresence, ctx: ValidateCtx, team: TeamSnapshot): Promise<Row> {
   if (!team.integrations.slack?.clientId) {
@@ -187,6 +196,11 @@ async function slackRow(p: Probes, base: Omit<Row, "status" | "detail" | "action
   const spec = secretSpec(def);
   const stored = await secrets.has(spec.domain, spec.key);
   if (stored === null) {
+    const wait = slackSecretWait(p, team.slug);
+    if (wait?.kind === "waiting") {
+      return row({ ...base, required: false, optionalNote: SLACK_WAITING_NOTE, status: "needs-you", detail: wait.detail, action: ACCOUNT_RECHECK_ACTION });
+    }
+    if (wait?.kind === "unreadable") return row({ ...base, status: "error", detail: wait.detail, action: ACCOUNT_RECHECK_ACTION });
     const hint = slackRedirectHint(team.integrations.slack.callbackPort ?? DEFAULT_CALLBACK_PORT);
     return row({ ...base, status: "missing", detail: `no Slack account connected. ${hint}`, action: SLACK_OAUTH_ACTION });
   }
