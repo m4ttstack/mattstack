@@ -26,7 +26,11 @@ import { makeEnvelope } from '../src/peer/envelope.ts';
 import { markNudgeHandled, readNudges } from '../src/peer/nudges.ts';
 import { drainOutbox, enqueueOutbox } from '../src/peer/outbox.ts';
 import { readRespondStates } from '../src/respond-state.ts';
-import { launchReReview, launchRespondAsk } from '../src/review-launch.ts';
+import {
+  launchReReview,
+  launchRespondAsk,
+  reviewLaunchForTab,
+} from '../src/review-launch.ts';
 import {
   dropPrunedReviewState,
   readPrunedReviewStates,
@@ -70,7 +74,8 @@ if (lockToken === false) {
 
 try {
   const boardConfig = loadConfig();
-  // Triage launches have no tab, so the default pack is the only one they carry.
+  // Triage has no board tab: a re-review keeps its lane's, everything else
+  // carries the default pack.
   const launchPack = packForLaunch(boardConfig, undefined);
   const memory = readMemory();
 
@@ -239,13 +244,7 @@ try {
               cwd: boardConfig.reviewCwd,
               repo: repoForMrUrl(mrUrl),
               workspaceLabel: boardConfig.reviewsWorkspace,
-              skill: resolveLaunchSkill(
-                'review',
-                mrUrl,
-                boardConfig,
-                launchPack
-              ),
-              pack: launchPack ?? undefined,
+              forTab: tab => reviewLaunchForTab(boardConfig, mrUrl, tab),
               ...loadAgentSettings(),
               claudeCommand: boardConfig.claudeCommand,
             }),
@@ -287,8 +286,7 @@ try {
             cwd: boardConfig.reviewCwd,
             repo: repoForMrUrl(mrUrl),
             workspaceLabel: boardConfig.reviewsWorkspace,
-            skill: resolveLaunchSkill('review', mrUrl, boardConfig, launchPack),
-            pack: launchPack ?? undefined,
+            forTab: tab => reviewLaunchForTab(boardConfig, mrUrl, tab),
             ...loadAgentSettings(),
             claudeCommand: boardConfig.claudeCommand,
           }),

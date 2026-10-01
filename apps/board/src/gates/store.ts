@@ -14,7 +14,8 @@ export type {
 } from '@mattstack/gate-kit';
 
 /** The fields `resume.ts` actually threads through a resume: the gate's own
-    identity/questions plus the launch plumbing (`agentId`, `tabId`) needed
+    identity/questions plus the launch plumbing (`agentId`, and the
+    `boardTabId` the lane launched from, which picks the pack) needed
     to reopen the pane. Not a general gate record -- nothing here persists
     to disk, and no answer/timestamp fields exist because resume.ts never
     sets them (it reads answers straight off the facility row instead). */
@@ -27,7 +28,7 @@ export interface GateState {
   openedAt: number;
   questions: GateQuestion[];
   agentId?: string;
-  tabId?: string;
+  boardTabId?: string;
 }
 
 /** The gate fields a board row carries -- a subset of `GateState`, leaving

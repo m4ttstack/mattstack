@@ -4,7 +4,7 @@ import { join } from "path";
 import { openStateDb } from "../db.ts";
 import {
   finishAgent, getAgent, insertAgent, listAgents, markAgentGone, markAgentResumed,
-  newAgentId, updateAgentPane, updateAgentSessionId, type AgentRecord,
+  newAgentId, updateAgentPack, updateAgentPane, updateAgentSessionId, type AgentRecord,
 } from "../agents-store.ts";
 
 let n = 0;
@@ -94,4 +94,18 @@ test("agents.yolo left unset reads back undefined", () => {
   const r = rec();
   insertAgent(r, db);
   expect(getAgent(r.id, db)?.yolo).toBeUndefined();
+});
+
+test("agents.pack round-trips, reads back undefined when unset, and updateAgentPack replaces it", () => {
+  const db = freshDb();
+  const withPack = rec({ pack: "widgets" });
+  const without = rec();
+  insertAgent(withPack, db);
+  insertAgent(without, db);
+  expect(getAgent(withPack.id, db)?.pack).toBe("widgets");
+  expect(getAgent(without.id, db)?.pack).toBeUndefined();
+  updateAgentPack(withPack.id, "gadgets", db);
+  expect(getAgent(withPack.id, db)?.pack).toBe("gadgets");
+  updateAgentPack(withPack.id, null, db);
+  expect(getAgent(withPack.id, db)?.pack).toBeUndefined();
 });

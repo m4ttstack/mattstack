@@ -23,7 +23,11 @@ export interface ReviewState {
   iid: number;
   status: ReviewStatus;
   message?: string;
+  /** The herdr tab the pane runs in; not a board tab (see boardTabId). */
   tabId?: string;
+  /** The board tab the lane launched from, "" for none (a triage launch).
+      Re-reviews, a gate resume and a reopen resolve the pack from it. */
+  boardTabId?: string;
   workspaceId?: string;
   /** The review's verdict, emitted by the skill on `done`. The board consumes
       this and drops the matching reaction on the MR's slack message. */
@@ -153,6 +157,7 @@ export function writeReviewState(
     status: patch.status,
     message: patch.message,
     tabId: patch.tabId,
+    boardTabId: patch.boardTabId,
     workspaceId: patch.workspaceId,
     outcome: patch.outcome,
     sessionId: patch.sessionId,

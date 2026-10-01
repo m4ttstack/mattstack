@@ -83,6 +83,12 @@ describe("readZones", () => {
     }));
     expect(readZones(fs, HOME)[0]!.hasPack).toBe(true);
   });
+  test("a zone holding only a base pack has no pack, so --zone can still host one", () => {
+    const fs = memFs(zoneFiles("acme", {
+      [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme-base/pack/skills.jsonc`]: `{ "base": true }`,
+    }));
+    expect(readZones(fs, HOME)[0]!.hasPack).toBe(false);
+  });
   test("a plugin.json alone under mattstack/packs/* is not a pack", () => {
     const fs = memFs(zoneFiles("acme", {
       [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/.claude-plugin/plugin.json`]: `{ "name": "acme", "version": "0.5.0" }`,

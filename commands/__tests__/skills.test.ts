@@ -612,6 +612,24 @@ describe("skillsCompile", () => {
     expect(errors[0]).toContain("no repos/*/packs/t/skills.jsonc");
   });
 
+  test.each([["no stale file"], ["a stale bindings file"]])("a base pack has no bindings file of its own, and the error says so (%s)", async (variant) => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = join(mattstackDir, "teams", "acme", "mattstack", "packs", "acme-base");
+    writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
+    writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+    if (variant === "a stale bindings file") {
+      writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-widgets", "packs", "acme-base", "skills.jsonc"), manifestJsonc(true));
+    }
+
+    const { exitCode, errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "acme-base", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
+
+    expect(exitCode).toBe(1);
+    expect(errors[0]).toContain(
+      'pack "acme-base" is a base pack and has no bindings file of its own; bind it to edit its shared fills, or compile a pack that extends it',
+    );
+  });
+
   test("two repos for one pack: --repo picks, and without it the zone's first project wins", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
@@ -2301,5 +2319,16 @@ describe("skillsMaterialize --dir exit codes", () => {
     expect(process.exitCode).toBe(0);
     expect(logs).toContain(`  renamed the old merged file to ${legacy}.migrated`);
     expect(existsSync(join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc"))).toBe(true);
+  });
+
+  test("a bindings file no pack still owns is set aside and reported", async () => {
+    process.env.RT_ENGINE_PACK_DIR = ENGINE;
+    declareWidgets();
+    const stale = join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "gadgets", "skills.jsonc");
+    writeFile(stale, "// zone: acme\n{}");
+    await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
+    expect(process.exitCode).toBe(0);
+    expect(logs).toContain(`  set aside 1 stale bindings file: ${stale}.stale`);
+    expect(existsSync(stale)).toBe(false);
   });
 });

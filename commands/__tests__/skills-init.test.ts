@@ -224,7 +224,7 @@ describe("initMaterializeVerdict", () => {
       { skipped: false, repos: [{ name: "repo-a", path: "/r/a", ok: false, detail: "widgets: boom", packs: [broken("widgets", "boom")] }] },
       "widgets",
     );
-    expect(verdict).toEqual({ ok: false, detail: "widgets (repo-a): boom", warnings: [] });
+    expect(verdict).toEqual({ ok: false, detail: "widgets (repo-a): boom", warnings: [], pruneWarnings: [] });
   });
 
   test("no outcome for the new pack carries the row's own detail", () => {
@@ -232,10 +232,19 @@ describe("initMaterializeVerdict", () => {
       { skipped: false, repos: [{ name: "repo-a", path: "/r/a", ok: false, noManifest: true, detail: "no team declares gitlab.example.com/acme/widgets" }] },
       "widgets",
     );
-    expect(verdict).toEqual({ ok: false, detail: "no team declares gitlab.example.com/acme/widgets", warnings: [] });
+    expect(verdict).toEqual({ ok: false, detail: "no team declares gitlab.example.com/acme/widgets", warnings: [], pruneWarnings: [] });
   });
 
   test("a skipped run fails with its reason", () => {
-    expect(initMaterializeVerdict({ skipped: true, reason: "engine-pack-missing", repos: [] }, "widgets")).toEqual({ ok: false, detail: "engine-pack-missing", warnings: [] });
+    expect(initMaterializeVerdict({ skipped: true, reason: "engine-pack-missing", repos: [] }, "widgets")).toEqual({ ok: false, detail: "engine-pack-missing", warnings: [], pruneWarnings: [] });
+  });
+
+  test("a stale file that could not be set aside is a prune warning, and the pack still succeeds", () => {
+    const verdict = initMaterializeVerdict(
+      { skipped: false, repos: [{ name: "repo-a", path: "/r/a", ok: true, detail: "wrote 1 pack file: widgets", packs: [written("widgets")], pruneWarnings: ["could not set aside /h/gadgets/skills.jsonc: EACCES"] }] },
+      "widgets",
+    );
+    expect(verdict.ok).toBe(true);
+    expect(verdict.pruneWarnings).toEqual(["could not set aside /h/gadgets/skills.jsonc: EACCES"]);
   });
 });

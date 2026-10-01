@@ -132,6 +132,18 @@ describe('runTriage', () => {
     expect(d.launches[0].pack).toBeUndefined();
   });
 
+  test('an auto doctor has no board tab, so its queued row clears one a manual doctor left', async () => {
+    const writes: Array<Partial<DoctorState>> = [];
+    const d = deps({ pack: 'widgets' });
+    const write = d.writeDoctorState;
+    d.writeDoctorState = (path, patch) => {
+      writes.push(patch);
+      return write(path, patch);
+    };
+    await runTriage(d);
+    expect(writes[0]).toMatchObject({ status: 'queued', boardTabId: '' });
+  });
+
   test('an auto doctor with a pack carries it and writes noPack false', async () => {
     const writes: Array<Partial<DoctorState>> = [];
     const d = deps({ pack: 'widgets' });

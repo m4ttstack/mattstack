@@ -420,6 +420,40 @@ describe('agent launch adapter', () => {
       expect(capturedPayload.tab).toBe('my-tab');
     });
 
+    test('passes env through when given and omits the key otherwise', async () => {
+      const payloads: any[] = [];
+      const fakeIo: AgentIo = {
+        agentStart: async () => {
+          throw new Error('not used');
+        },
+        agentResume: async payload => {
+          payloads.push(payload);
+          return {
+            ok: true,
+            data: {
+              id: 'a',
+              repo: 'b',
+              cwd: 'c',
+              provider: 'd',
+              surface: 'herdr' as const,
+              sessionId: 's',
+              createdAt: Date.now(),
+            },
+          };
+        },
+      };
+      const base = { agentId: 'my-agent', workspaceLabel: 'w', tabLabel: 't' };
+
+      await resumeAgentPane(
+        { ...base, env: { MATTSTACK_PACK: 'widgets' } },
+        fakeIo
+      );
+      await resumeAgentPane(base, fakeIo);
+
+      expect(payloads[0].env).toEqual({ MATTSTACK_PACK: 'widgets' });
+      expect('env' in payloads[1]).toBe(false);
+    });
+
     test('dedup error maps to focusedExisting true with empty ids', async () => {
       const fakeIo: AgentIo = {
         agentStart: async () => {

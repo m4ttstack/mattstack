@@ -142,8 +142,10 @@ publish.
   hand: `rt skills materialize` regenerates it; `pack/skills.jsonc` is the
   source. A pack that builds on another declares
   `"extends": "<plugin>@<marketplace>"` there, and its own fills override the
-  base pack's slot by slot. The team installs the base by listing it in
-  `claude.plugins`; members do not join the base's team.
+  base pack's slot by slot. The base's own `pack/skills.jsonc` says
+  `"base": true`, so it never claims a repo or gets a bindings file. The
+  team installs the base by listing it in `claude.plugins`; members do not
+  join the base's team.
 - Do not copy another team's pack: its fills carry that team's rules.
 - Do not write a fill "to have something there": an unbound slot renders as
   nothing, and that is the correct state until a rule exists.

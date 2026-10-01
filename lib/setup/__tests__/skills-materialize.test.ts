@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -113,6 +113,25 @@ describe("materializeSkills", () => {
     const result = await materializeSkills(p, {});
     if (result.skipped) throw new Error("skipped");
     expect(result.repos[0]).toMatchObject({ ok: false, noManifest: true, detail: "no team declares a pack for gitlab.example.com/acme/widgets" });
+  });
+
+  test("a declaring zone that holds no pack still reports a stale file it could not set aside", async () => {
+    seedRepo("https://gitlab.example.com/acme/widgets.git");
+    seedZone();
+    rmSync(join(home, ".mattstack", "teams", "acme", "mattstack", "packs"), { recursive: true });
+    const packs = join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs");
+    write(join(packs, "gadgets", "skills.jsonc"), "// zone: acme\n{}");
+    chmodSync(join(packs, "gadgets"), 0o555);
+    try {
+      const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
+      const result = await materializeSkills(p, {});
+      if (result.skipped) throw new Error("skipped");
+      expect(result.repos[0]).toMatchObject({ ok: false, noManifest: true });
+      expect(result.repos[0]!.detail).toStartWith("no team declares a pack for gitlab.example.com/acme/widgets; ");
+      expect(result.repos[0]!.detail).toContain(`could not set aside ${join(packs, "gadgets", "skills.jsonc")}`);
+    } finally {
+      chmodSync(join(packs, "gadgets"), 0o755);
+    }
   });
 
   test("a failed pack marks the repo not ok and names the pack and fix", async () => {

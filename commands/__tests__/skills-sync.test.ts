@@ -108,7 +108,7 @@ describe("syncMaterializeVerdict", () => {
 
   test("this pack's own failure fails, naming the pack and repo", () => {
     const r = result([{ name: "repo-a", path: "/r/a", ok: false, detail: "", packs: [written("widgets"), broken("gadgets", "gadgets extends acme-base@acme, which is not installed")] }]);
-    expect(syncMaterializeVerdict(r, "gadgets")).toEqual({ ok: false, detail: "gadgets (repo-a): gadgets extends acme-base@acme, which is not installed" });
+    expect(syncMaterializeVerdict(r, "gadgets")).toEqual({ ok: false, detail: "gadgets (repo-a): gadgets extends acme-base@acme, which is not installed", warnings: [] });
   });
 
   test("a repo-level error with no packs fails; no-remote and undeclared rows do not", () => {
@@ -116,11 +116,24 @@ describe("syncMaterializeVerdict", () => {
       { name: "repo-a", path: "/r/a", ok: false, detail: "EACCES: permission denied" },
       { name: "repo-b", path: "/r/b", ok: false, noManifest: true, detail: "no remote in /r/b" },
     ]);
-    expect(syncMaterializeVerdict(r, "widgets")).toEqual({ ok: false, detail: "repo-a: EACCES: permission denied" });
+    expect(syncMaterializeVerdict(r, "widgets")).toEqual({ ok: false, detail: "repo-a: EACCES: permission denied", warnings: [] });
     expect(syncMaterializeVerdict(result([r.repos[1]!]), "widgets").ok).toBe(true);
   });
 
   test("a skipped run is not a failure", () => {
-    expect(syncMaterializeVerdict({ skipped: true, reason: "engine-pack-missing", repos: [] }, "widgets")).toEqual({ ok: true, detail: "skipped: engine-pack-missing" });
+    expect(syncMaterializeVerdict({ skipped: true, reason: "engine-pack-missing", repos: [] }, "widgets")).toEqual({ ok: true, detail: "skipped: engine-pack-missing", warnings: [] });
+  });
+
+  test("a stale file that could not be set aside is a warning line, not a failure", () => {
+    const r = result([
+      { name: "repo-a", path: "/r/a", ok: true, detail: "", packs: [written("widgets")], pruneWarnings: ["could not set aside /h/gadgets/skills.jsonc: EACCES"] },
+      { name: "repo-b", path: "/r/b", ok: false, noManifest: true, detail: "", pruneWarnings: ["could not set aside /h/other/skills.jsonc: EACCES"] },
+    ]);
+    const verdict = syncMaterializeVerdict(r, "widgets");
+    expect(verdict.ok).toBe(true);
+    expect(verdict.warnings).toEqual([
+      "repo-a: could not set aside /h/gadgets/skills.jsonc: EACCES",
+      "repo-b: could not set aside /h/other/skills.jsonc: EACCES",
+    ]);
   });
 });

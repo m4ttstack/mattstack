@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { FragmentError, mergeLayers, parseFragment, readManifestProvenance, renderManifest } from "../manifest-merge.ts";
+import { FragmentError, mergeLayers, parseFragment, readManifestProvenance, readManifestZone, renderManifest } from "../manifest-merge.ts";
 
 const defaults = { label: "default", fragment: { bindings: { "mattstack:stage-gates": { domain: "mattstack:generic-gates" } }, pipelines: { feature: ["stage-plan", "stage-gates"] } } };
 const base = { label: "base:acme-base", fragment: { skills: { enabled: ["acme-base:shared"] }, bindings: { "mattstack:stage-gates": { domain: "acme-base:gates" }, "mattstack:watch-ci": { forge: "mattstack:gitlab-forge" } } } };
@@ -66,6 +66,7 @@ describe("parseFragment", () => {
     ["a string skills.enabled", '{ "skills": { "enabled": "widgets:work" } }'],
     ["a non-array pipeline", '{ "pipelines": { "feature": "stage-plan" } }'],
     ["a non-string extends", '{ "extends": 1 }'],
+    ["a non-boolean base", '{ "base": "yes" }'],
   ])("throws FragmentError naming the path on %s", (_label, text) => {
     const path = "/zone/packs/gadgets/pack/skills.jsonc";
     expect(() => parseFragment(text, path)).toThrow(FragmentError);
@@ -79,9 +80,10 @@ describe("parseFragment", () => {
 describe("renderManifest + readManifestProvenance", () => {
   test("round-trips the provenance header and emits version 1", () => {
     const merged = mergeLayers([defaults, base, pack]);
-    const text = renderManifest(merged, { repo: "gitlab.example.com/acme/widgets", pack: "widgets" });
+    const text = renderManifest(merged, { repo: "gitlab.example.com/acme/widgets", pack: "widgets", zone: "acme-w" });
     expect(text).toContain("// repo: gitlab.example.com/acme/widgets");
-    expect(text).toContain("// pack: widgets");
+    expect(text).toContain("// pack: widgets\n// zone: acme-w\n");
+    expect(readManifestZone(text)).toBe("acme-w");
     expect(readManifestProvenance(text)).toEqual(merged.provenance);
     const body = JSON.parse(text.split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n"));
     expect(body.version).toBe(1);
@@ -89,6 +91,10 @@ describe("renderManifest + readManifestProvenance", () => {
     expect(body.skills.enabled).toEqual(["acme-base:shared", "widgets:work"]);
   });
   test("readManifestProvenance ignores non-provenance comment lines", () => {
-    expect(readManifestProvenance("// GENERATED\n// repo: x\n//   a:b s <- pack\n{}")).toEqual({ "a:b s": "pack" });
+    expect(readManifestProvenance("// GENERATED\n// repo: x\n// zone: acme-w\n//   a:b s <- pack\n{}")).toEqual({ "a:b s": "pack" });
+  });
+  test("readManifestZone is null for a file written before the zone line, and never reads past the header", () => {
+    expect(readManifestZone("// GENERATED\n// repo: x\n// pack: widgets\n{}")).toBeNull();
+    expect(readManifestZone('{ "note": "x" }\n// zone: acme-w\n')).toBeNull();
   });
 });

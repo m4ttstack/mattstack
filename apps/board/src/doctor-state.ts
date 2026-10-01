@@ -31,7 +31,11 @@ export interface DoctorState {
   iid: number;
   status: DoctorStatus;
   message?: string;
+  /** The herdr tab the pane runs in; not a board tab (see boardTabId). */
   tabId?: string;
+  /** The board tab the launch came from, "" for one with none (triage's
+      auto doctor). A gate resume resolves the pack from it. */
+  boardTabId?: string;
   workspaceId?: string;
   /** Who queued this doctor: the policy engine or a human click. Drives the
       board's auto marker and the auto-only concurrency cap. */
@@ -100,6 +104,7 @@ export function writeDoctorState(
     status: patch.status,
     message: patch.message,
     tabId: patch.tabId,
+    boardTabId: patch.boardTabId,
     workspaceId: patch.workspaceId,
     origin: patch.origin,
     agentId: patch.agentId,

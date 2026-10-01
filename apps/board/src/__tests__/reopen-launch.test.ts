@@ -23,6 +23,8 @@ function baseCtx(overrides: Partial<ReopenCtx> = {}): ReopenCtx {
     author: 'alice',
     tabLabel: '!4821 alice ↺',
     claudeCommand: undefined,
+    boardTabId: 'tab-a',
+    pack: undefined,
     ...overrides,
   };
 }
@@ -125,6 +127,81 @@ describe('launchReopen', () => {
     expect(write.patch.workspaceId).toBe('ws-1');
     expect(write.patch.reopenedAt).toBeDefined();
     expect(write.now).toBe(write.patch.reopenedAt!);
+  });
+
+  test('a known pack rides both resume arms; no pack sends the clear signal', async () => {
+    const agentCalls: Array<Record<string, unknown>> = [];
+    const { io, legacyCalls } = makeIo({
+      resumeAgentPane: async opts => {
+        agentCalls.push(opts as unknown as Record<string, unknown>);
+        return paneResult();
+      },
+    });
+    await launchReopen(
+      { status: 'done', agentId: 'agent-1' },
+      baseCtx({ pack: 'widgets' }),
+      io
+    );
+    await launchReopen({ status: 'done', agentId: 'agent-1' }, baseCtx(), io);
+    await launchReopen(
+      { status: 'done', sessionId: 'sess-1' },
+      baseCtx({ pack: 'widgets' }),
+      io
+    );
+    expect(agentCalls[0]?.env).toEqual({ MATTSTACK_PACK: 'widgets' });
+    expect(agentCalls[1]?.env).toEqual({ MATTSTACK_PACK: '' });
+    expect(legacyCalls[0]).toMatchObject({ pack: 'widgets' });
+  });
+
+  test('the agent arm records the board tab and pack presence it launched under', async () => {
+    const agentCalls: Array<Record<string, unknown>> = [];
+    const { io, writes } = makeIo({
+      resumeAgentPane: async opts => {
+        agentCalls.push(opts as unknown as Record<string, unknown>);
+        return paneResult();
+      },
+    });
+    await launchReopen(
+      { status: 'done', agentId: 'agent-1' },
+      baseCtx({ boardTabId: 'tab-a', pack: 'widgets' }),
+      io
+    );
+    await launchReopen(
+      { status: 'done', agentId: 'agent-1' },
+      baseCtx({ boardTabId: 'tab-b', pack: undefined }),
+      io
+    );
+    expect(writes[0]!.patch).toMatchObject({
+      boardTabId: 'tab-a',
+      noPack: false,
+    });
+    expect(writes[1]!.patch).toMatchObject({
+      boardTabId: 'tab-b',
+      noPack: true,
+    });
+    expect(agentCalls[1]?.env).toEqual({ MATTSTACK_PACK: '' });
+  });
+
+  test('the legacy arm records the board tab and pack presence it launched under', async () => {
+    const { io, writes } = makeIo();
+    await launchReopen(
+      { status: 'done', sessionId: 'sess-1' },
+      baseCtx({ boardTabId: 'tab-a', pack: 'widgets' }),
+      io
+    );
+    await launchReopen(
+      { status: 'done', sessionId: 'sess-1' },
+      baseCtx({ boardTabId: 'tab-b', pack: undefined }),
+      io
+    );
+    expect(writes[0]!.patch).toMatchObject({
+      boardTabId: 'tab-a',
+      noPack: false,
+    });
+    expect(writes[1]!.patch).toMatchObject({
+      boardTabId: 'tab-b',
+      noPack: true,
+    });
   });
 
   test('neither agentId nor sessionId is no-session, with no launch and no write', async () => {

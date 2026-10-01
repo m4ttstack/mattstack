@@ -9,6 +9,7 @@ import {
   doctorResumeDispatchFields,
   parseDoctorRequestBody,
   planStandDown,
+  readDoctorStates,
   writeDoctorState,
 } from '../doctor-state.ts';
 import { dispatchPrompt } from '../herdr.ts';
@@ -35,6 +36,35 @@ describe('doctor state origin', () => {
     );
     const next = writeDoctorState(path, { status: 'diagnosing' }, 2000, db);
     expect(next.origin).toBe('auto');
+  });
+});
+
+describe('doctor state boardTabId', () => {
+  test('the launch write keeps the board tab, and a launch with none clears it', () => {
+    const path = doctorFilePath('https://x/mr/1');
+    writeDoctorState(
+      path,
+      {
+        mrUrl: 'https://x/mr/1',
+        iid: 1,
+        status: 'queued',
+        origin: 'manual',
+        boardTabId: 'gadgets-tab',
+      },
+      1000,
+      db
+    );
+    writeDoctorState(path, { status: 'fixing', tabId: 'w1:t1' }, 2000, db);
+    expect(readDoctorStates(db).get('https://x/mr/1')?.boardTabId).toBe(
+      'gadgets-tab'
+    );
+    writeDoctorState(
+      path,
+      { status: 'queued', origin: 'auto', boardTabId: '' },
+      3000,
+      db
+    );
+    expect(readDoctorStates(db).get('https://x/mr/1')?.boardTabId).toBe('');
   });
 });
 

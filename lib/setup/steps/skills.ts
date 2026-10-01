@@ -20,7 +20,7 @@ import type { StepId } from "../contract.ts";
 import { installCronTrigger, resolveBoardTriage, triageTrigger } from "../cron-install.ts";
 import { linkBundledSkills } from "../skills-link-bundled.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
-import { isPackDir } from "../../skills/init.ts";
+import { isBasePack, isPackDir } from "../../skills/init.ts";
 import { linkPersonalSkills } from "../../skills/writing-style-sources.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { resolveForge } from "./forge-identity.ts";
@@ -176,19 +176,25 @@ async function seedOwnHandle(ctx: ApplyContext, written: string[]): Promise<void
   }
 }
 
-/** The alphabetically first pack under the team's mattstack/packs; the pack `rt setup` installs first is the one a fresh board should launch with. */
-function firstTeamPack(ctx: ApplyContext): string | null {
-  if (!ctx.team.slug) return null;
+/** The team's packs in name order, each flagged when it is a base (a base claims no repo, so a board never launches with it). */
+function teamPacks(ctx: ApplyContext): { name: string; base: boolean }[] {
+  if (!ctx.team.slug) return [];
   const packs = join(ctx.p.home, ".mattstack", "teams", ctx.team.slug, "mattstack", "packs");
-  return ctx.p.readDir(packs).filter((name) => isPackDir(ctx.p, join(packs, name))).sort()[0] ?? null;
+  return ctx.p.readDir(packs)
+    .filter((name) => isPackDir(ctx.p, join(packs, name)))
+    .sort()
+    .map((name) => ({ name, base: isBasePack(ctx.p, join(packs, name)) }));
 }
 
-/** Writes board.defaultPack only while no store has written it, so a pack the member chose is never replaced. */
+/** Writes board.defaultPack only while no store has written it, so a pack the member chose is never replaced. The pack `rt setup` installs first (the first non-base by name) is the one a fresh board should launch with. */
 function seedDefaultPack(ctx: ApplyContext, stepId: StepId): boolean {
   if (!writable(ctx, "board.defaultPack", stepId) || !unwritten("board.defaultPack")) return false;
-  const pack = firstTeamPack(ctx);
+  const packs = teamPacks(ctx);
+  const pack = packs.find((p) => !p.base)?.name;
   if (!pack) {
-    ctx.log(stepId, "board.defaultPack: the team has no packs, left unset");
+    ctx.log(stepId, packs.length > 0
+      ? "board.defaultPack: the team has no pack that claims repos, left unset"
+      : "board.defaultPack: the team has no packs, left unset");
     return false;
   }
   setSetting("board.defaultPack", pack, "user");

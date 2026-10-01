@@ -21,8 +21,8 @@ import { rtDir } from "../rt-paths.ts";
 
 export type DbFlavor = "cli" | "daemon";
 
-/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13 + v14; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
-export const SCHEMA_VERSION = 14;
+/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13 + v14, plus v15's agents.pack column; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
+export const SCHEMA_VERSION = 15;
 
 // busy_timeout is per-process, not per-store (spec "The database"): a CLI
 // command may block briefly; the daemon's event loop must never block long,
@@ -421,11 +421,20 @@ function addYoloColumnIfMissing(db: Database): void {
   db.exec("ALTER TABLE agents ADD COLUMN yolo INTEGER;");
 }
 
+/** agents.pack (v15): the team pack name a launch ran under, re-applied as
+    MATTSTACK_PACK when a resume does not name one. Same conditional-exec rule
+    as the agents columns above. */
+function addPackColumnIfMissing(db: Database): void {
+  const columns = db.query("PRAGMA table_info(agents);").all() as { name: string }[];
+  if (columns.some((c) => c.name === "pack")) return;
+  db.exec("ALTER TABLE agents ADD COLUMN pack TEXT;");
+}
+
 /**
  * endpoint_claims.start_time (S068): the claiming pid's start-time, so a
  * recycled pid across a reboot reads as dead rather than pinning a port
  * forever. Called unconditionally from `openStateDb`, outside
- * `runMigrations`'s BEGIN IMMEDIATE transaction, unlike the three
+ * `runMigrations`'s BEGIN IMMEDIATE transaction, unlike the
  * `addXColumnIfMissing` helpers above: those run inside the transaction,
  * where a losing racer's duplicate-column error rolls back the whole
  * migration; this one needs its own catch-and-recheck (below) to tolerate
@@ -614,6 +623,7 @@ function runMigrations(db: Database, dir: string): void {
     addQuietColumnIfMissing(db);
     addSubjectColumnIfMissing(db);
     addYoloColumnIfMissing(db);
+    addPackColumnIfMissing(db);
     // Legacy-JSON import is single-shot and only correct from a true
     // v0 (never-migrated) database: branch-cache's UPSERT would silently
     // overwrite current rows with stale ones, and project-mrs-store's
