@@ -65,9 +65,9 @@ func TestCalloutContinuationLinesIndentPastTheLabel(t *testing.T) {
 	}
 }
 
-func TestKvPrintsSourceOnItsOwnLine(t *testing.T) {
+func TestKvPrintsSourceOnItsOwnLineIndentedUnderTheKey(t *testing.T) {
 	got := plain(protocol.Block{T: "kv", Key: "rt.worktreeApp", Value: "true", Source: "from team example"})
-	want := "  rt.worktreeApp  true\n  from team example\n"
+	want := "  rt.worktreeApp  true\n    from team example\n"
 	if got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}

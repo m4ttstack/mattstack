@@ -69,7 +69,7 @@ func (r *renderer) kv(b protocol.Block) {
 	}
 	r.emit(s)
 	if b.Source != "" {
-		r.emit(indent + faintStyle.Render(Clean(b.Source)))
+		r.emit(indent + "  " + faintStyle.Render(Clean(b.Source)))
 	}
 }
 
