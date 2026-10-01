@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { Database } from 'bun:sqlite';
 
+import { dropRounds } from './review-rounds.ts';
 import {
   dropPrunedState,
   getStateDb,
@@ -224,6 +225,7 @@ export function dropPrunedReviewState(
   db: Database = getStateDb()
 ): void {
   dropPrunedState('review', mrUrl, db);
+  dropRounds(mrUrl, db);
 }
 
 /** Attach each MR's review state (matched by webUrl) as a `review` field. Non-mutating. */

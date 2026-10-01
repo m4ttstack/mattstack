@@ -8,7 +8,7 @@ import { getKvValue } from './kv-blob.ts';
 import { importLegacyState } from './legacy-import.ts';
 
 export type DbFlavor = 'server' | 'cli';
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const BUSY_TIMEOUT_MS: Record<DbFlavor, number> = { server: 250, cli: 5000 };
 const MIGRATION_BUSY_TIMEOUT_MS = 5000;
@@ -100,6 +100,20 @@ CREATE TABLE IF NOT EXISTS kv (
 );
 `;
 
+const V4_SCHEMA = `
+CREATE TABLE IF NOT EXISTS review_rounds (
+  mr_url       TEXT NOT NULL,
+  round        INTEGER NOT NULL,
+  reviewed_sha TEXT NOT NULL,
+  outcome      TEXT NOT NULL,
+  skipped      TEXT NOT NULL,
+  restored     TEXT NOT NULL,
+  confirmed    TEXT NOT NULL,
+  recorded_at  INTEGER NOT NULL,
+  PRIMARY KEY (mr_url, round)
+);
+`;
+
 type Migration = (db: Database) => void;
 const MIGRATIONS: Migration[] = [
   db => db.run(V1_SCHEMA),
@@ -123,6 +137,10 @@ const MIGRATIONS: Migration[] = [
            'failed to launch respond pane',
            'failed to launch doctor pane')`
     ),
+  // v4: one row per review round, for what GitLab cannot hold: the findings
+  // the reviewer chose not to post, the commit reviewed, and the threads
+  // confirmed fixed but left for the author to resolve.
+  db => db.run(V4_SCHEMA),
 ];
 
 // SCHEMA_VERSION is the public constant other modules reason about;
