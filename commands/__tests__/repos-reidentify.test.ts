@@ -104,8 +104,15 @@ describe("rt repos reidentify", () => {
   test("a refused plain run does not claim it moved", async () => {
     setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fold", "/x");
     setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fnew", "/y");
-    await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) }));
-    expect(out[0]).toStartWith("refused, partly moved ");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) }));
+      expect(out[0]).toStartWith("refused, partly moved ");
+      expect(io.stderr()).toContain("[failed] refused");
+    } finally {
+      io.restore();
+    }
   });
 
   test("usage error on a missing positional", async () => {

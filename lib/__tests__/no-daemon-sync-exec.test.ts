@@ -16,7 +16,7 @@ const ALLOWLIST = new Set<string>([
   "lib/git.ts",                     // R050 / Phase 5.4 (via repo.ts)
   "lib/herdr-launch.ts",            // launchFallback's Bun.spawnSync (reachable via handlers/pane.ts's shellQuote import)
   "lib/rt-render.ts",              // R050 / Phase 5.4 (daemon carries the TUI)
-  "lib/ui/out.ts",                 // rt-ui render spawn, reachable through lib/errors.ts's failure block (never called from a daemon handler)
+  "lib/ui/out.ts",                 // rt-ui render's Bun.spawnSync (reachable via lib/team/*.ts's UserActionableError import; the daemon never draws a failure)
   "packages/rt-client/src/test-isolation.ts", // test-run only: the id -P spawn is gated by testRunSignal, never runs in a served daemon
 ]);
 
