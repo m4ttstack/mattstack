@@ -123,7 +123,7 @@ describe('App keyboard contract', () => {
 });
 
 describe('App routes', () => {
-  it('sends an old /config/<key> link to the explain modal on /settings', async () => {
+  it('sends an old /config/<key> link to that key’s row on /settings', async () => {
     window.history.pushState(null, '', '/config/board.agent.model');
     gatesGet.mockResolvedValue(ok({ gates: [] }));
 
