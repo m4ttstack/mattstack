@@ -15,12 +15,15 @@
  * same as Esc). Tree back-nav never crosses into a running command.
  */
 
-import { bold, cyan, dim, reset, yellow } from "./tui.ts";
+import * as out from "./ui/out.ts";
+import { clearScreen } from "./ui/screen.ts";
+import { warn } from "./ui/warn.ts";
+import { logFailureDetail, UserActionableError } from "./errors.ts";
 import { resolve, join } from "path";
 import { existsSync } from "fs";
 import { homedir } from "os";
 import { beginCommand, logCommand } from "./cli-logger.ts";
-import type { PickAction, PickRow } from "./ui/protocol.ts";
+import type { Block, PickAction, PickRow } from "./ui/protocol.ts";
 
 // Dev mode is active when ~/.local/bin/rt exists (the wrapper script pointing
 // at local source). Same detection used by commands/version.ts.
@@ -219,16 +222,19 @@ export async function dispatch(
 
   if (!node) {
     if (name) {
-      // Unknown command — show help
-      const { yellow } = await import("./tui.ts");
-      console.error(`\n  ${yellow}unknown command: ${name}${reset}`);
-      console.error(`  ${dim}available: ${(await visibleEntries(tree, breadcrumb)).map(([k]) => k).join(", ")}${reset}\n`);
+      const here = (await visibleEntries(tree, breadcrumb)).map(([k]) => k);
+      const crumbs = breadcrumb.join(" ");
+      out.fail({
+        title: `${crumbs} has no command called ${name}`,
+        next: out.cmd(`${crumbs} --help`),
+        ...(here.length ? { details: `Commands here: ${here.join(", ")}` } : {}),
+      });
       process.exit(1);
     }
 
     // No args → interactive picker
     if (!process.stdin.isTTY) {
-      await showUsage(tree, breadcrumb);
+      await showUsage(tree, breadcrumb, root);
       process.exit(0);
     }
 
@@ -270,7 +276,7 @@ export async function dispatch(
     } else {
       // No more args and no own handler → show subcommand picker
       if (!process.stdin.isTTY) {
-        await showUsage(node.subcommands, [...breadcrumb, resolvedName]);
+        await showUsage(node.subcommands, [...breadcrumb, resolvedName], root);
         process.exit(0);
       }
 
@@ -293,14 +299,13 @@ export async function dispatch(
 
   // Leaf node → execute
   clearScreen();
-  if (!node.fullscreen) renderHeader([...breadcrumb, resolvedName]);
+  renderHeader(node, [...breadcrumb, resolvedName]);
 
   // TTY guard — bypass when RT_BATCH=1 (called programmatically, no picker needed)
   const needsTTY = typeof node.requiresTTY === "function" ? node.requiresTTY(rest) : node.requiresTTY;
   if (needsTTY && !process.stdin.isTTY && !process.env.RT_BATCH) {
-    const { yellow } = await import("./tui.ts");
     const label = breadcrumb.slice(1).concat(resolvedName).join(" ");
-    console.error(`\n  ${yellow}rt ${label} requires an interactive terminal${reset}\n`);
+    out.fail({ title: `rt ${label} needs an interactive terminal`, why: "It asks questions or draws a screen, so a script or a pipe cannot run it." });
     process.exit(1);
   }
 
@@ -327,7 +332,7 @@ export async function dispatch(
 
     if (repoFlag) {
       // --repo provided: resolve that repo and show worktree picker (skip repo picker + cwd detection)
-      const { getKnownRepos, pickWorktreeFromRepo, getRepoIdentity, missingRepoRefusal } = await import("./repo.ts");
+      const { getKnownRepos, pickWorktreeFromRepo, getRepoIdentity, missingRepoFailure } = await import("./repo.ts");
       const { tryResolveRepoArg } = await import("./repo-arg.ts");
       const repos = getKnownRepos({ includeMissing: true });
       // The typed name is a LABEL and the index keys on identities, so resolve
@@ -343,18 +348,19 @@ export async function dispatch(
           ? repos.find(r => r.repoName === repoFlag)
           : undefined;
       if (!repo) {
-        const { yellow } = await import("./tui.ts");
         const { repoLabel, repoLabelQualified } = await import("./repo-label.ts");
-        console.error(`\n  ${yellow}${resolution.kind === "ambiguous"
-          ? `"${repoFlag}" matches more than one repo: ${resolution.matches.map(repoLabelQualified).join(", ")}`
-          : `unknown repo: ${repoFlag}`}${reset}`);
-        console.error(`  ${dim}known: ${repos.map(r => repoLabel(r.repoName)).join(", ")}${reset}\n`);
+        const known = repos.map((r) => repoLabel(r.repoName)).join(", ");
+        out.fail(
+          resolution.kind === "ambiguous"
+            ? { title: `More than one repo is called ${repoFlag}`, why: `It could be ${resolution.matches.map(repoLabelQualified).join(" or ")}. Use the full name of the one you mean.` }
+            : { title: `rt does not know a repo called ${repoFlag}`, ...(known ? { details: `Repos rt knows: ${known}` } : {}) },
+        );
         process.exit(1);
       }
-      // A missing row still resolves by name (that's the point — locate it),
+      // A missing row still resolves by name (that's the point... locate it),
       // but its one synthetic worktree is a dead path: never chdir into it.
       if (repo.missing) {
-        console.error(`\n  ${missingRepoRefusal(repo)}\n`);
+        out.fail(missingRepoFailure(repo));
         process.exit(1);
       }
       if (repo.worktrees.length === 1) {
@@ -372,7 +378,7 @@ export async function dispatch(
 
     if (process.cwd() !== cwdBefore) {
       clearScreen();
-      if (!node.fullscreen) renderHeader([...breadcrumb, resolvedName]);
+      renderHeader(node, [...breadcrumb, resolvedName]);
     }
 
     // Mark auto-resolved when identity came from cwd without user interaction
@@ -386,7 +392,7 @@ export async function dispatch(
 
     if (process.cwd() !== cwdBefore) {
       clearScreen();
-      if (!node.fullscreen) renderHeader([...breadcrumb, resolvedName]);
+      renderHeader(node, [...breadcrumb, resolvedName]);
     }
   }
 
@@ -399,7 +405,7 @@ export async function dispatch(
     rest.push(...collected);
 
     clearScreen();
-    if (!node.fullscreen) renderHeader([...breadcrumb, resolvedName]);
+    renderHeader(node, [...breadcrumb, resolvedName]);
   }
 
   const handler = await resolveHandler(node, baseDir);
@@ -436,7 +442,7 @@ export async function dispatch(
       }
 
       clearScreen();
-      if (!node.fullscreen) renderHeader([...breadcrumb, resolvedName]);
+      renderHeader(node, [...breadcrumb, resolvedName]);
 
       const { getKnownRepos, getRepoIdentity } = await import("./repo.ts");
       const { pickWorktreeWithSwitch, pickFromAllRepos, isSwitchRepo }
@@ -476,7 +482,7 @@ export async function dispatch(
 
       // Clear and re-run handler with new context
       clearScreen();
-      if (!node.fullscreen) renderHeader([...breadcrumb, resolvedName]);
+      renderHeader(node, [...breadcrumb, resolvedName]);
       continue;
     }
   }
@@ -485,30 +491,16 @@ export async function dispatch(
 // ─── Rendering ───────────────────────────────────────────────────────────────
 
 /**
- * Screen control belongs to a terminal, never a pipe. Unguarded, the
- * clear-screen sequence lands in logs and CI output and — worse — erases
- * whatever a failing command already wrote, so an error message and the
- * remedy pointing at it both survive into a log that no longer contains it.
+ * Drawn before the handler runs, so it is the first thing on screen whatever
+ * the command paints first: a step on /dev/tty, a child given the terminal,
+ * its own output. Decoration belongs to a person's terminal, and to stderr:
+ * stdout may be a payload, and a caller reading a piped stderr for a failure
+ * reason must find the error first. A hidden leaf is run by a program (git
+ * runs the credential helper at the person's terminal), so it gets none.
  */
-function clearScreen(): void {
-  if (process.stderr.isTTY) process.stderr.write("\x1b[2J\x1b[H");
-}
-
-/**
- * Decoration, same rule. It is also the first line of stderr, so a caller
- * reading `stderr` for a failure reason gets the breadcrumb instead of the
- * error unless this stays off a pipe.
- */
-function renderHeader(breadcrumb: string[]): void {
-  if (!process.stderr.isTTY) return;
-  const parts = breadcrumb.map((part, i) => {
-    if (i === 0) {
-      const base = `${bold}${cyan}${part}${reset}`;
-      return IS_DEV_MODE ? `${base} ${yellow}(dev mode)${reset}` : base;
-    }
-    return `${bold}${part}${reset}`;
-  });
-  console.error(`  ${parts.join(` ${dim}›${reset} `)}\n`);
+function renderHeader(node: CommandNode, breadcrumb: string[]): void {
+  if (node.fullscreen || node.hidden || !out.isHuman("stderr")) return;
+  out.note(out.section(breadcrumb.join(" › "), IS_DEV_MODE ? "dev mode" : undefined));
 }
 
 /** Verb paths ("pane", "worktree provision") from rt.picker.hidden, plus --all. */
@@ -538,7 +530,11 @@ function readHiddenVerbs({ getSetting }: SettingsResolver): string[] {
     const value = getSetting<string[]>("rt.picker.hidden").value;
     return Array.isArray(value) ? value : [];
   } catch (err) {
-    console.error(`  ${dim}rt.picker.hidden could not be read, listing every verb: ${err instanceof Error ? err.message : String(err)}${reset}`);
+    const remedy = err instanceof UserActionableError ? err.next : undefined;
+    if (err instanceof UserActionableError) logFailureDetail(err);
+    warn("command-tree", `rt.picker.hidden could not be read, listing every verb: ${err instanceof Error ? err.message : String(err)}`, {
+      show: { title: "Your list of hidden commands could not be read", hint: "every command is listed", next: out.cmd(remedy ?? "rt settings check") },
+    });
     return [];
   }
 }
@@ -559,24 +555,13 @@ async function visibleEntries(tree: Record<string, CommandNode>, breadcrumb: str
   return Object.entries(tree).filter(([name, n]) => isNodeVisible(n, IS_DEV_MODE, [...prefix, name].join(" "), filter));
 }
 
-async function showUsage(tree: Record<string, CommandNode>, breadcrumb: string[]): Promise<void> {
-  renderHeader(breadcrumb);
-  const visible = await visibleEntries(tree, breadcrumb);
-  for (const [name, node] of visible) {
-    const padded = name.padEnd(14);
-    console.error(`  ${bold}${padded}${reset} ${dim}${node.description}${reset}`);
-  }
-  console.error("");
+async function showUsage(tree: Record<string, CommandNode>, breadcrumb: string[], root: Record<string, CommandNode>): Promise<void> {
+  out.print(...(await branchHelp(tree, breadcrumb, root)));
 }
 
 // ─── Help (--help / -h at any node) ──────────────────────────────────────────
 
 const HELP_FLAGS = new Set(["--help", "-h"]);
-
-/** Help is the requested product: stdout, ANSI only when stdout is a TTY. */
-function helpColors(): { b: string; d: string; r: string } {
-  return process.stdout.isTTY ? { b: bold, d: dim, r: reset } : { b: "", d: "", r: "" };
-}
 
 function slugArg(name: string): string {
   return name.toLowerCase().trim().replace(/\s+/g, "-");
@@ -587,63 +572,47 @@ function argToken(a: CommandArg): string {
   return a.type === "boolean" ? `[${a.flag}]` : `[${a.flag} <${slugArg(a.name)}>]`;
 }
 
-async function printCommandListing(tree: Record<string, CommandNode>, breadcrumb: string[]): Promise<void> {
-  const { b, d, r } = helpColors();
-  const visible = await visibleEntries(tree, breadcrumb);
-  const width = Math.max(...visible.map(([name]) => name.length), 0);
-  for (const [name, sub] of visible) {
-    console.log(`  ${b}${name.padEnd(width + 2)}${r}${d}${sub.description}${r}`);
-  }
+function listing(visible: [string, CommandNode][]): Block {
+  return out.table(visible.map(([name, sub]) => [out.strong(name), out.dim(sub.description)]));
 }
 
-async function printBranchHelp(
-  tree: Record<string, CommandNode>,
-  breadcrumb: string[],
-  root: Record<string, CommandNode>,
-): Promise<void> {
-  const { b, d, r } = helpColors();
+async function branchHelp(tree: Record<string, CommandNode>, breadcrumb: string[], root: Record<string, CommandNode>): Promise<Block[]> {
   const node = nodeAtPath(root, breadcrumb.slice(1));
-  console.log(`\n  ${b}usage:${r} ${breadcrumb.join(" ")} <command>`);
-  if (node?.description) console.log(`  ${d}${node.description}${r}`);
-  console.log("");
-  await printCommandListing(tree, breadcrumb);
-  console.log("");
+  const visible = await visibleEntries(tree, breadcrumb);
+  return [
+    out.kv("usage", `${breadcrumb.join(" ")} <command>`),
+    ...(node?.description ? [out.paragraph(node.description)] : []),
+    ...(visible.length ? [out.section("Commands", undefined, listing(visible))] : []),
+  ];
+}
+
+async function printBranchHelp(tree: Record<string, CommandNode>, breadcrumb: string[], root: Record<string, CommandNode>): Promise<void> {
+  out.print(...(await branchHelp(tree, breadcrumb, root)));
 }
 
 async function printLeafHelp(node: CommandNode, breadcrumb: string[]): Promise<void> {
-  const { b, d, r } = helpColors();
   const args = node.args ?? [];
-  const tokens = [
-    ...args.filter((a) => !a.flag).map(argToken),
-    ...args.filter((a) => a.flag).map(argToken),
-  ];
+  const tokens = [...args.filter((a) => !a.flag).map(argToken), ...args.filter((a) => a.flag).map(argToken)];
   if (node.subcommands) tokens.push("[<command>]");
 
-  console.log(`\n  ${b}usage:${r} ${[...breadcrumb, ...tokens].join(" ")}`);
-  console.log(`  ${d}${node.description}${r}`);
-  if (node.aliases?.length) console.log(`  ${d}aliases: ${node.aliases.join(", ")}${r}`);
+  const blocks: Block[] = [out.kv("usage", [...breadcrumb, ...tokens].join(" ")), out.paragraph(node.description)];
+  if (node.aliases?.length) blocks.push(out.kv("aliases", node.aliases.join(", ")));
 
   if (args.length) {
-    console.log("");
     const rows = args.map((a) => {
-      const token = a.flag
-        ? (a.type === "boolean" ? a.flag : `${a.flag} <${slugArg(a.name)}>`)
-        : `<${slugArg(a.name)}>`;
+      const token = a.flag ? (a.type === "boolean" ? a.flag : `${a.flag} <${slugArg(a.name)}>`) : `<${slugArg(a.name)}>`;
       let detail = a.hint ?? a.name;
       if (a.default !== undefined) detail += `  (default: ${a.default})`;
-      return [token, detail] as const;
+      return [out.strong(token), out.dim(detail)];
     });
-    const width = Math.max(...rows.map(([t]) => t.length));
-    for (const [token, detail] of rows) {
-      console.log(`  ${b}${token.padEnd(width + 2)}${r}${d}${detail}${r}`);
-    }
+    blocks.push(out.section("Arguments", undefined, out.table(rows)));
   }
 
   if (node.subcommands) {
-    console.log("");
-    await printCommandListing(node.subcommands, breadcrumb);
+    const visible = await visibleEntries(node.subcommands, breadcrumb);
+    if (visible.length) blocks.push(out.section("Commands", undefined, listing(visible)));
   }
-  console.log("");
+  out.print(...blocks);
 }
 
 /** Resolve the node a breadcrumb path (minus "rt") points at, aliases included. */

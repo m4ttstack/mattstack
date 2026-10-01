@@ -21,8 +21,19 @@ export { updateRepoIndex, getKnownRepos, getKnownReposCached, findKnownRepo, rep
 import { getRepoRoot, getRemoteUrl } from "./git.ts";
 import { updateRepoIndex, getKnownRepos, findKnownRepo, repoOption, repoOptions, repoFromOptionValue, missingRepoRefusal, pickerWorktrees, type KnownRepo } from "./repo-index.ts";
 import { repoLabel } from "./repo-label.ts";
+import * as out from "./ui/out.ts";
 import { groupWorktrees } from "./worktree-groups.ts";
 import type { PickRow } from "./ui/protocol.ts";
+
+/** The failure every caller draws in place of working in a repo whose folder is gone. */
+export function missingRepoFailure(r: KnownRepo): out.FailureInput {
+  const gone = r.worktrees[0]?.path;
+  return {
+    title: `${repoLabel(r.repoName)} is no longer where rt last saw it`,
+    ...(gone ? { why: `It was at ${gone}.` } : {}),
+    next: out.cmd(`rt repos locate <new-path> --repo ${r.repoName}`),
+  };
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -70,10 +81,10 @@ function deriveBaseUrl(remoteUrl: string): string {
  */
 function readOriginRemoteForIdentity(repoRoot: string): string | null {
   try {
-    const out = execSync("git config --get remote.origin.url", {
+    const text = execSync("git config --get remote.origin.url", {
       cwd: repoRoot, encoding: "utf8", stdio: "pipe",
     }).trim();
-    return out || null;
+    return text || null;
   } catch {
     return null;
   }
@@ -92,10 +103,10 @@ function readOriginRemoteForIdentity(repoRoot: string): string | null {
 function mainWorktreeRoot(repoRoot: string): string {
   const toplevelOf = (dir: string): string | null => {
     try {
-      const out = execSync("git rev-parse --show-toplevel", {
+      const text = execSync("git rev-parse --show-toplevel", {
         cwd: dir, encoding: "utf8", stdio: "pipe",
       }).trim();
-      return out || null;
+      return text || null;
     } catch {
       return null;
     }

@@ -1,4 +1,5 @@
 import type { CommandArg } from "./command-tree.ts";
+import { clearScreen } from "./ui/screen.ts";
 
 export async function collectArgs(
   label: string,
@@ -55,7 +56,7 @@ export async function collectArgs(
     }
 
     // text
-    process.stderr.write("\x1b[2J\x1b[H");
+    clearScreen();
     const val = await textInput({
       message: arg.name,
       placeholder: arg.placeholder,

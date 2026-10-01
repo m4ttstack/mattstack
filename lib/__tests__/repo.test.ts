@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { execSync } from "child_process";
 import * as cp from "child_process";
+import { missingRepoFailure, type KnownRepo } from "../repo.ts";
 
 describe("getRepoIdentity identity field", () => {
   let scratch: string;
@@ -50,5 +51,21 @@ describe("getRepoIdentity identity field", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("missingRepoFailure", () => {
+  const moved: KnownRepo = { repoName: "moved", worktrees: [{ path: "/nonexistent/gone", branch: "", isBare: false }], dataDir: "/fake/moved-data", missing: true };
+
+  test("says the repo is gone, where it was, and the command that points rt at it", () => {
+    expect(missingRepoFailure(moved)).toEqual({
+      title: "moved is no longer where rt last saw it",
+      why: "It was at /nonexistent/gone.",
+      next: { text: "rt repos locate <new-path> --repo moved", role: "command" },
+    });
+  });
+
+  test("a row with no path leaves the why out", () => {
+    expect(missingRepoFailure({ ...moved, worktrees: [] }).why).toBeUndefined();
   });
 });
