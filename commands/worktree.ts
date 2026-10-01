@@ -780,6 +780,7 @@ function changeCell(r: TreeRow, eb: EnrichedBranch | undefined): Segment[] {
 
 function noteCell(r: TreeRow): Segment[] {
   const parts: Segment[] = [];
+  if (r.state === "disposable" && r.disposableReason) parts.push({ text: disposeReason(r.disposableReason).words, role: "dim" });
   if (r.duplicateBranch) parts.push({ text: "duplicate branch", role: "warn" });
   // A hold only means something while the reactor still sees a terminal MR; past that it is a leftover.
   if (r.state === "claimed" && r.heldReason && (r.mr?.state === "merged" || r.mr?.state === "closed")) {
@@ -797,7 +798,7 @@ function cellIsEmpty(cell: out.CellInput): boolean {
 function listRow(r: TreeRow, eb: EnrichedBranch | undefined): out.CellInput[] {
   const cells: out.CellInput[] = [
     out.strong(`${repoLabel(r.repoName)}/${r.name}`),
-    out.dim(stateLabel(r)),
+    out.dim(rowLabel(r)),
     out.key(r.branch ?? "(detached)"),
     out.dim(r.owner ?? ""),
     changeCell(r, eb),

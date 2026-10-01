@@ -326,7 +326,10 @@ describe("worktree CLI identity plumbing", () => {
     await worktreeList([], {});
 
     const rows = io.lines();
-    expect(rows.find((l) => l.includes("/beacon "))).toContain("disposable (it has changes that are not committed)");
+    const beacon = rows.find((l) => l.includes("/beacon "))!;
+    expect(beacon).toMatch(/\/beacon\s+disposable\s+team-step-cards\s+it has changes that are not committed$/);
+    expect(beacon).not.toContain("disposable (");
+    expect(beacon.indexOf("team-step-cards")).toBeLessThan(beacon.indexOf("disposable") + 25);
     expect(rows.find((l) => l.includes("/smaug "))).toContain("!361 merged");
     expect(rows.find((l) => l.includes("/smaug "))).toContain("held: pid 75703 (xctest) has its cwd inside");
     expect(rows.find((l) => l.includes("/gollum "))).not.toContain("held:");

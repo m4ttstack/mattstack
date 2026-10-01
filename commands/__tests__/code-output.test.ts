@@ -57,9 +57,8 @@ describe("rt code: what a person reads", () => {
       expect(io.stdout()).toBe("");
       expect(io.stderr()).toBe(
         "false did not open\n" +
-          "  why: rt ran false and it failed, or it is not installed.\n" +
-          "  next: rt settings set rt.workspacePrefs '{}' --scope machine\n" +
-          "  That clears your saved editor, so rt asks again.\n",
+          "  why: rt ran false and it failed, or it is not installed. Clearing your saved editor makes rt ask again.\n" +
+          "  next: rt settings set rt.workspacePrefs '{}' --scope machine\n",
       );
     } finally {
       exitSpy.mockRestore();

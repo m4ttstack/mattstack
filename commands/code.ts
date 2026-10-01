@@ -470,9 +470,8 @@ export async function openInEditor(args: string[]): Promise<void> {
   } else {
     out.fail({
       title: `${editorLabel} did not open`,
-      why: `rt ran ${editor} and it failed, or it is not installed.`,
+      why: `rt ran ${editor} and it failed, or it is not installed. Clearing your saved editor makes rt ask again.`,
       next: out.cmd("rt settings set rt.workspacePrefs '{}' --scope machine"),
-      details: "That clears your saved editor, so rt asks again.",
     });
     process.exit(1);
   }
