@@ -76,7 +76,8 @@ describe("rt release apps: arguments", () => {
     expect(h.runs).toEqual([]);
     expect(h.exitCalled).toBe(2);
     expect(h.logs).toEqual([]);
-    expect(h.stderr).toContain("[failed] usage: rt release apps [--dry-run]");
+    expect(h.stderr).toContain("usage: rt release apps [--dry-run]");
+    expect(h.stderr).not.toContain("[failed]");
   });
 
   test("passes every flag through, --yes-notes with its approval token", async () => {

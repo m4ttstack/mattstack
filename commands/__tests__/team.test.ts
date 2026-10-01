@@ -130,7 +130,8 @@ describe("teamCreate", () => {
       const code = await runExpectingProcessExit(() => teamCreate(["--remote", "https://github.com/acme/repo.git"], {}, deps));
       expect(code).toBe(2);
       expect(deps.lines).toEqual([]);
-      expect(io.stderr()).toContain("[failed] usage:");
+      expect(io.stderr()).toContain("usage:");
+      expect(io.stderr()).not.toContain("[failed]");
     } finally {
       io.restore();
     }
@@ -385,7 +386,8 @@ describe("teamInvite", () => {
       const code = await runExpectingProcessExit(() => teamInvite([], {}, deps));
       expect(code).toBe(2);
       expect(deps.lines).toEqual([]);
-      expect(io.stderr()).toContain("[failed] usage:");
+      expect(io.stderr()).toContain("usage:");
+      expect(io.stderr()).not.toContain("[failed]");
     } finally {
       io.restore();
     }

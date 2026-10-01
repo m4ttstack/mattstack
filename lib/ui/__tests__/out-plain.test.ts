@@ -77,10 +77,31 @@ test("paragraph, verbatim, changes, diff and banner", () => {
   expect(renderPlain([{ t: "banner", label: "PRODUCTION", subject: "db-replica", hint: "type the name to confirm" }])).toBe("PRODUCTION db-replica  type the name to confirm\n");
 });
 
-test("a failure prints why, next and details", () => {
+test("a failure that opens the output leads with its title alone", () => {
   expect(
     renderPlain([{ t: "failure", title: "This Mac cannot read the team's secrets yet", why: "No key matches.", next: [{ text: "rt setup status", role: "command" }], details: "details are in the log" }]),
-  ).toBe("[failed] This Mac cannot read the team's secrets yet\n  why: No key matches.\n  next: rt setup status\n  details are in the log\n");
+  ).toBe("This Mac cannot read the team's secrets yet\n  why: No key matches.\n  next: rt setup status\n  details are in the log\n");
+  expect(renderPlain([{ t: "failure", title: "rt hit an unexpected error", hint: "kaboom" }])).toBe("rt hit an unexpected error  kaboom\n");
+});
+
+test("a failure after another block keeps its tag", () => {
+  expect(renderPlain([{ t: "line", status: "done", title: "Fetched" }, { t: "failure", title: "The rebase stopped" }])).toBe("[ok] Fetched\n[failed] The rebase stopped\n");
+  expect(renderPlain([{ t: "section", title: "Checks", blocks: [{ t: "failure", title: "Lint failed" }] }])).toBe("Checks\n[failed] Lint failed\n");
+});
+
+test("a block that prints nothing does not count as coming first", () => {
+  expect(renderPlain([{ t: "table", rows: [] }, { t: "failure", title: "Nothing to list" }])).toBe("Nothing to list\n");
+});
+
+test("a leading failure whose title opens with a bracket keeps the tag", () => {
+  expect(renderPlain([{ t: "failure", title: "[ok] Setup complete" }])).toBe("[failed] [ok] Setup complete\n");
+  expect(renderPlain([{ t: "failure", title: "\x1b[2J[ok] forged" }])).toBe("[failed] [ok] forged\n");
+  expect(renderPlain([{ t: "failure", title: " [ok] Setup complete" }])).toBe("[failed]  [ok] Setup complete\n");
+  expect(renderPlain([{ t: "failure", title: "\t[ok] Setup complete" }])).toBe("[failed]  [ok] Setup complete\n");
+});
+
+test("a failed line keeps its tag even when it comes first", () => {
+  expect(renderPlain([{ t: "line", status: "failed", title: "pre-push" }])).toBe("[failed] pre-push\n");
 });
 
 test("plain output is cleaned of escapes and controls", () => {
@@ -127,7 +148,7 @@ test("a newline in a table cell keeps one row per row and aligned columns", () =
 
 test("line-oriented fields keep their lines, each inside the block prefix", () => {
   expect(renderPlain([{ t: "verbatim", caption: "value", lines: ["a\nb", "c"] }])).toBe("value:\n  a\n  b\n  c\n");
-  expect(renderPlain([{ t: "failure", title: "t", details: "one\ntwo" }])).toBe("[failed] t\n  one\n  two\n");
+  expect(renderPlain([{ t: "failure", title: "t", details: "one\ntwo" }])).toBe("t\n  one\n  two\n");
   expect(renderPlain([{ t: "copy", text: "l1\nl2" }])).toBe("l1\nl2\n");
   expect(renderPlain([{ t: "paragraph", text: "p1\np2" }])).toBe("  p1\n  p2\n");
   const forged = renderPlain([{ t: "paragraph", text: "note\n[ok] Setup complete" }]);

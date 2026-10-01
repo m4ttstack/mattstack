@@ -134,7 +134,7 @@ test("fail renders a failure block on stderr", () => {
   out.__test__.setHuman(() => false);
   out.fail({ title: "This Mac cannot read the team's secrets yet", why: "No key matches." });
   expect(stdout.join("")).toBe("");
-  expect(stderr.join("")).toBe("[failed] This Mac cannot read the team's secrets yet\n  why: No key matches.\n");
+  expect(stderr.join("")).toBe("This Mac cannot read the team's secrets yet\n  why: No key matches.\n");
 });
 
 test("the human gate is asked about the stream being written", () => {
@@ -203,7 +203,7 @@ test("fail renders trailing blocks under the failure in the same stderr write", 
   out.__test__.setHuman(() => false);
   out.fail({ title: "rt hit an unexpected error", hint: "kaboom" }, out.verbatim(["Error: kaboom", "    at run (boom.ts:1:7)"], "stack"));
   expect(stdout.join("")).toBe("");
-  expect(stderr).toEqual(["[failed] rt hit an unexpected error  kaboom\nstack:\n  Error: kaboom\n      at run (boom.ts:1:7)\n"]);
+  expect(stderr).toEqual(["rt hit an unexpected error  kaboom\nstack:\n  Error: kaboom\n      at run (boom.ts:1:7)\n"]);
 });
 
 test("at a terminal the trailing blocks ride in the same render call as the failure", () => {

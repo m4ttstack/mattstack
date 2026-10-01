@@ -109,7 +109,8 @@ describe("rt repos reidentify", () => {
     try {
       await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) }));
       expect(out[0]).toStartWith("refused, partly moved ");
-      expect(io.stderr()).toContain("[failed] refused");
+      expect(io.stderr()).toContain("refused");
+      expect(io.stderr()).not.toContain("[failed]");
     } finally {
       io.restore();
     }
@@ -122,7 +123,8 @@ describe("rt repos reidentify", () => {
       const code = await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old"], {}, { print: (s) => out.push(s) }));
       expect(code).toBe(2);
       expect(out).toEqual([]);
-      expect(io.stderr()).toContain("[failed] reidentify takes two identities, got 1; usage: rt repos reidentify");
+      expect(io.stderr()).toContain("reidentify takes two identities, got 1; usage: rt repos reidentify");
+      expect(io.stderr()).not.toContain("[failed]");
       expect(io.stderr()).not.toContain("rt repos reidentify:");
     } finally {
       io.restore();

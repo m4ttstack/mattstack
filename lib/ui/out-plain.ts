@@ -117,12 +117,19 @@ function render(blocks: Block[], out: string[]): void {
       case "banner":
         out.push(`${one(b.label)} ${one(b.subject)}${b.hint ? `  ${one(b.hint)}` : ""}`);
         break;
-      case "failure":
-        out.push(`${TAG.failed} ${one(b.title)}${b.hint ? `  ${one(b.hint)}` : ""}`);
+      case "failure": {
+        // The tray shows a person the first bytes of stderr as they are, so
+        // a failure that opens the output leads with its title alone. A
+        // title that opens with a bracket, leading spaces aside, keeps the
+        // tag: text from an error must not pose as another status.
+        const title = one(b.title);
+        const bare = out.length === 0 && !title.trimStart().startsWith("[");
+        out.push(`${bare ? "" : `${TAG.failed} `}${title}${b.hint ? `  ${one(b.hint)}` : ""}`);
         if (b.why) out.push(`  why: ${one(b.why)}`);
         if (b.next) out.push(`  next: ${cellText(b.next)}`);
         if (b.details) out.push(...lines(b.details, "  "));
         break;
+      }
     }
   }
 }
