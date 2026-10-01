@@ -18,14 +18,21 @@ const TAG: Record<RenderStatus, string> = {
   warn: "[warning]",
 };
 
+// Text from a branch name or a child process must not repaint the terminal
+// when the fallback writes it raw. Each field is cleaned on its own, before
+// layout: an unterminated escape stripped from the joined output would eat
+// the rows after it. The OSC body stops at a newline for the same reason.
+const ESCAPES = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
+const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
+
 /** Single-line fields: a newline in untrusted text must not start a forged row. */
 function one(s: string): string {
-  return s.replace(/[\r\n\t]+/g, " ");
+  return s.replace(ESCAPES, "").replace(/[\r\n\t]+/g, " ").replace(CONTROLS, "");
 }
 
-/** Line-oriented fields: every line gets the block's prefix. */
+/** Line-oriented fields: every line gets the block's prefix. Tabs are kept. */
 function lines(s: string, prefix: string): string[] {
-  return s.split(/\r\n|\r|\n/).map((l) => prefix + l);
+  return s.split(/\r\n|\r|\n/).map((l) => prefix + l.replace(ESCAPES, "").replace(CONTROLS, ""));
 }
 
 function cellText(cell: Cell): string {
@@ -120,15 +127,9 @@ function render(blocks: Block[], out: string[]): void {
   }
 }
 
-// Text from a branch name or a child process must not repaint the terminal
-// when the fallback writes it raw. This strip leaves newlines and tabs alone;
-// single-line fields are collapsed separately by `one`.
-const ESCAPES = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
-const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
-
 export function renderPlain(blocks: Block[]): string {
   const out: string[] = [];
   render(blocks, out);
   if (out.length === 0) return "";
-  return (out.join("\n") + "\n").replace(ESCAPES, "").replace(CONTROLS, "");
+  return out.join("\n") + "\n";
 }

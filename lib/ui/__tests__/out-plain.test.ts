@@ -88,6 +88,21 @@ test("plain output is cleaned of escapes and controls", () => {
   expect(renderPlain([{ t: "verbatim", lines: ["a\tb"] }])).toBe("  a\tb\n");
 });
 
+test("an unterminated escape in one field cannot eat the rows or fields after it", () => {
+  const text = renderPlain([
+    { t: "line", status: "done", title: "a\x1b]evil" },
+    { t: "line", status: "needs-you", title: "Slack", hint: "not connected" },
+    { t: "line", status: "done", title: "b\x07c" },
+  ]);
+  expect(text).toBe("[ok] aevil\n[needs you] Slack  not connected\n[ok] bc\n");
+  expect(renderPlain([{ t: "line", status: "done", title: "x\x1b[", hint: "hint" }])).toBe("[ok] x[  hint\n");
+  expect(renderPlain([{ t: "verbatim", lines: ["one\x1b]evil", "two\x07"] }])).toBe("  oneevil\n  two\n");
+});
+
+test("column widths are measured on cleaned text", () => {
+  expect(renderPlain([{ t: "table", rows: [{ cells: [[{ text: "a\x1b]evil" }], [{ text: "1" }]] }, { cells: [[{ text: "abc" }], [{ text: "2" }]] }] }])).toBe("aevil  1\nabc    2\n");
+});
+
 test("C1 controls and DEL are stripped like C0", () => {
   expect(renderPlain([{ t: "line", status: "done", title: "a\x7fb\x80c\x9bd\x9fe\x00f" }])).toBe("[ok] abcdef\n");
 });
