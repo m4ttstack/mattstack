@@ -19,7 +19,7 @@ import { toFailedOutcome } from "./step-utils.ts";
 
 type IdentityKey = "user.name" | "user.email";
 
-const MANUAL = "set it with git config --global user.name and user.email";
+const MANUAL = 'Set your git identity with git config --global user.name "Your Name" and git config --global user.email you@example.com';
 
 async function readGlobal(ctx: ApplyContext, key: IdentityKey): Promise<string | null> {
   // git exits 1 for a key that is simply unset, which is not an error here.
@@ -43,10 +43,10 @@ async function gitIdentityRun(ctx: ApplyContext): Promise<StepOutcome> {
   if (name && email) return { state: "skipped", detail: `Already set: ${name} <${email}>` };
 
   const forge = await resolveForge(ctx);
-  if (!forge) return { state: "skipped", detail: `No forge account connected; ${MANUAL}` };
+  if (!forge) return { state: "skipped", detail: `No forge account connected. ${MANUAL}` };
 
   const profile = await forgeProfile(ctx.p, forge.provider, forge.host, forge.token, (detail) => ctx.log("git.identity", detail));
-  if (!profile) return { state: "skipped", detail: `Your forge profile could not be read; ${MANUAL}` };
+  if (!profile) return { state: "skipped", detail: `Your forge profile could not be read. ${MANUAL}` };
 
   const remedy = "Check that ~/.gitconfig is writable, then Retry";
   if (!name) {

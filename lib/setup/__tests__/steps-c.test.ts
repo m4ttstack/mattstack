@@ -1205,7 +1205,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       expect(await gitIdentityStep.run(ctx)).toEqual({
         state: "skipped",
-        detail: "Your forge profile could not be read; set it with git config --global user.name and user.email",
+        detail: 'Your forge profile could not be read. Set your git identity with git config --global user.name "Your Name" and git config --global user.email you@example.com',
       });
       expect(writes(p)).toEqual([]);
       expect(logs.some((l) => l.id === "git.identity" && l.line.includes("not logged in"))).toBe(true);
@@ -1217,7 +1217,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       expect(await gitIdentityStep.run(ctx)).toEqual({
         state: "skipped",
-        detail: "No forge account connected; set it with git config --global user.name and user.email",
+        detail: 'No forge account connected. Set your git identity with git config --global user.name "Your Name" and git config --global user.email you@example.com',
       });
       expect(p.calls.exec).toEqual([READ_NAME, READ_EMAIL]);
     });
@@ -1250,7 +1250,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       expect(await gitIdentityStep.run(ctx)).toEqual({
         state: "skipped",
-        detail: "No forge account connected; set it with git config --global user.name and user.email",
+        detail: 'No forge account connected. Set your git identity with git config --global user.name "Your Name" and git config --global user.email you@example.com',
       });
       expect(p.calls.exec).toEqual([READ_NAME, READ_EMAIL]);
     });
