@@ -24,6 +24,7 @@ import type { PackRequirements } from "../requirements.ts";
 import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
+import { boardPeering } from "../../team/board-token.ts";
 
 /** Reads user-scope secrets: the real implementation goes through lib/secrets/store.readSecret (null on NoAgeKeyError) plus staged values (staging.ts) — that wiring is a later task's job; validators only depend on this narrow shape. */
 export interface SecretPresence {
@@ -228,6 +229,52 @@ async function switchboardRow(p: Probes, base: Omit<Row, "status" | "detail" | "
   });
 }
 
+export const BOARD_PEERING_ROW_ID = "account.board-peering";
+
+const REINVITE = "the team's owner to re-invite your board: rt team invite --handle <your forge username>";
+
+const REINVITE_STEPS: Action = {
+  type: "steps",
+  label: "Show steps…",
+  steps: [`Ask ${REINVITE}`, "Run rt team join with the new invite, or have them re-invite your board from the board's members panel", "Re-check this row"],
+};
+
+/**
+ * Never required and never finish-gated: only the team's owner can deliver
+ * the token, so the member must still be able to Install and Finish. verify
+ * reports its needs-you all the same. The note must not start "Works
+ * without": the app's Done screen drops rows whose note does.
+ */
+const BOARD_PEERING_BASE = {
+  id: BOARD_PEERING_ROW_ID,
+  kind: "account" as const,
+  title: "Board peering",
+  why: "Lets this machine's board peer with your teammates' boards through the team's switchboard.",
+  required: false,
+  optionalNote: "Your board does not peer until the team's owner re-invites it.",
+};
+
+async function boardPeeringRow(p: Probes, secrets: SecretPresence): Promise<Row | null> {
+  const peering = await boardPeering(p, (domain, key) => secrets.has(domain, key));
+  if (peering.kind === "not-applicable") return null;
+  if (peering.kind === "unpeered") {
+    return row({ ...BOARD_PEERING_BASE, status: "needs-you", detail: `you joined ${peering.teams.join(", ")} by invite, but this machine's board has no switchboard token, so it does not peer: ask ${REINVITE}`, action: REINVITE_STEPS });
+  }
+  if (peering.kind === "unreadable") {
+    return row({ ...BOARD_PEERING_BASE, status: "error", detail: `could not read your secrets store (${peering.error}) to check your board's switchboard token`, action: ACCOUNT_RECHECK_ACTION });
+  }
+  return row({ ...BOARD_PEERING_BASE, status: "ready", detail: "your board holds a switchboard token" });
+}
+
+/** Same contract as accountRowForSafe: a throw fails only this row, never the rest of the group. */
+async function boardPeeringRowSafe(p: Probes, secrets: SecretPresence): Promise<Row | null> {
+  try {
+    return await boardPeeringRow(p, secrets);
+  } catch (err) {
+    return row({ ...BOARD_PEERING_BASE, status: "error", detail: err instanceof Error ? err.message : String(err), action: ACCOUNT_RECHECK_ACTION });
+  }
+}
+
 async function genericRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, secrets: SecretPresence, ctx: ValidateCtx, forge?: ForgeConnect): Promise<Row> {
   if (!def.secret) {
     // CLI-owned session (doppler/ldcli) — rt holds no credential for it; validate() reaches the CLI directly.
@@ -399,5 +446,10 @@ export async function accountRows(
     if (entry.id === "slack" && slackAppNeeded) rows.push(slackAppRow(slackAppRequired));
     rows.push(idRows[i]!);
   });
+  // A switchboard rt cannot reach yet keeps the member on its own Confirm or Re-check first.
+  const switchboard = rows.findIndex((r) => r.id === "account.switchboard");
+  if (switchboard !== -1 && rows[switchboard]!.status !== "ready") return rows;
+  const peering = await boardPeeringRowSafe(p, secrets);
+  if (peering) rows.splice(switchboard === -1 ? rows.length : switchboard + 1, 0, peering);
   return rows;
 }

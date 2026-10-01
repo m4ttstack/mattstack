@@ -39,6 +39,8 @@ The joiner opens the invite link, or pastes the code into **Join a team** in set
 
 When the team declares a switchboard, joining confirms its URL for the joiner, so the `account.switchboard` row reads ready. If this Mac already confirmed a different switchboard URL, join leaves it alone and warns; the row then offers **Confirm** with the team's URL prefilled.
 
+The invite also carries the joiner's board token. When this Mac's board ends up without one, the **Board peering** row says the board does not peer yet. It never holds up Install or Finish, but setup keeps listing it, and the setup check after an app update notifies you about it. The fix is on the owner's side: ask them to re-invite your board, with `rt team invite --handle <your forge username>` (then run `rt team join` with the new code) or from the board's members panel. The row turns ready once the token arrives.
+
 ## When an invitee replies
 
 While you have outstanding invites, the daemon checks each one for a reply every few minutes and notifies you once per reply. The notification's **Add member…** action runs `rt team members sync` for that team, which adds the invitee's key so team secrets decrypt for them.

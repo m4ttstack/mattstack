@@ -485,6 +485,124 @@ describe("accountRows — account.switchboard", () => {
   });
 });
 
+describe("accountRows: account.board-peering", () => {
+  const HOME = "/fake-home";
+  const TEAMS = `${HOME}/.mattstack/teams`;
+  const SB = "https://sw.example.com";
+  const reachable = async (url: string) => (url.endsWith("/healthz") ? { status: 200, body: "", headers: {} } : { status: 0, body: "", headers: {} });
+
+  interface TeamFixture {
+    switchboard?: string;
+    joinedByRt?: boolean;
+  }
+
+  /** A machine as an older join left it: the team clone and a local record with joinedByRt, and nothing else. */
+  function machine(teams: Record<string, TeamFixture>, opts: { extra?: Record<string, string>; fetch?: typeof reachable } = {}) {
+    const files: Record<string, string> = { ...(opts.extra ?? {}) };
+    for (const [slug, t] of Object.entries(teams)) {
+      const settings = t.switchboard === undefined ? {} : { "mattstack.integrations": { switchboard: { url: t.switchboard } } };
+      files[`${TEAMS}/${slug}/mattstack/settings.team.jsonc`] = `// team settings\n${JSON.stringify(settings)}\n`;
+      files[`${HOME}/.mattstack/rt/teams/${slug}.json`] = JSON.stringify({ createdByRt: !t.joinedByRt, joinedByRt: t.joinedByRt === true, rtMayManageMembership: false });
+    }
+    return fakeProbes({ home: HOME, files, dirs: { [TEAMS]: Object.keys(teams) }, fetch: opts.fetch ?? reachable });
+  }
+
+  const team = baseTeam({ integrations: { switchboard: { url: SB } } });
+  const confirmed = { switchboardUrl: SB };
+  const rowsFor = (p: ReturnType<typeof fakeProbes>, secrets: SecretPresence = fakeSecrets(), snapshot = team, overrides: { switchboardUrl?: string } = confirmed) =>
+    accountRows(p, snapshot, [], secrets, null, overrides);
+  const peeringRow = async (p: ReturnType<typeof fakeProbes>, secrets?: SecretPresence) => pickRow(rowsFor(p, secrets), "account.board-peering");
+
+  test("a machine that joined a switchboard team by invite and holds no board token anywhere -> needs-you with the re-invite remedy, never required", async () => {
+    const p = machine({ acme: { switchboard: SB, joinedByRt: true } });
+    const rows = await rowsFor(p);
+    const r = rows.find((row) => row.id === "account.board-peering")!;
+    expect(r.status).toBe("needs-you");
+    expect(r.required).toBe(false);
+    expect(r.finishGated).toBeUndefined();
+    expect(r.detail).toContain("acme");
+    expect(r.detail).toContain("ask the team's owner to re-invite your board: rt team invite --handle <your forge username>");
+    expect(r.action?.type).toBe("steps");
+    expect(rows.find((row) => row.id === "account.switchboard")?.status).toBe("ready");
+  });
+
+  test("its note never reads as optional, so the app's Done screen still lists it as outstanding", async () => {
+    const r = await peeringRow(machine({ acme: { switchboard: SB, joinedByRt: true } }));
+    expect(r.optionalNote?.toLowerCase().startsWith("works without")).toBe(false);
+  });
+
+  test("a check that throws fails only the peering row", async () => {
+    const p = machine({ acme: { switchboard: SB, joinedByRt: true } });
+    p.readDir = () => {
+      throw new Error("teams dir unreadable");
+    };
+    const rows = await rowsFor(p);
+    expect(rows.find((row) => row.id === "account.switchboard")?.status).toBe("ready");
+    const r = rows.find((row) => row.id === "account.board-peering")!;
+    expect(r.status).toBe("error");
+    expect(r.required).toBe(false);
+    expect(r.detail).toContain("teams dir unreadable");
+    expect(r.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
+  });
+
+  test("a token in rt's secrets -> ready", async () => {
+    const r = await peeringRow(machine({ acme: { switchboard: SB, joinedByRt: true } }), fakeSecrets({ "rt.switchboardToken": "tok-1" }));
+    expect(r.status).toBe("ready");
+  });
+
+  test("a token only in the board's own .env -> ready, without asking the secrets store", async () => {
+    let asked = 0;
+    const secrets: SecretPresence = { async has() { asked++; return null; } };
+    const r = await peeringRow(machine({ acme: { switchboard: SB, joinedByRt: true } }, { extra: { [`${HOME}/.mattstack/board/.env`]: "SWITCHBOARD_TOKEN=tok-board\n" } }), secrets);
+    expect(r.status).toBe("ready");
+    expect(asked).toBe(0);
+  });
+
+  test("a joined team with no switchboard, or a non-https one, has no peering row", async () => {
+    for (const switchboard of [undefined, "http://sw.lan"]) {
+      const rows = await rowsFor(machine({ acme: { switchboard, joinedByRt: true } }));
+      expect(rows.some((row) => row.id === "account.board-peering")).toBe(false);
+    }
+  });
+
+  test("a creator machine (not joined by invite) has no peering row", async () => {
+    const rows = await rowsFor(machine({ acme: { switchboard: SB, joinedByRt: false } }));
+    expect(rows.some((row) => row.id === "account.board-peering")).toBe(false);
+  });
+
+  test("a joined team other than the active one is checked even when the active team declares no switchboard", async () => {
+    const p = machine({ acme: { joinedByRt: false }, beta: { switchboard: SB, joinedByRt: true } });
+    const rows = await rowsFor(p, fakeSecrets(), baseTeam(), {});
+    expect(rows.some((row) => row.id === "account.switchboard")).toBe(false);
+    const r = rows.find((row) => row.id === "account.board-peering")!;
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toContain("beta");
+    expect(r.detail).not.toContain("acme");
+  });
+
+  test("a secrets store that throws -> its own could-not-read status, never read as no token", async () => {
+    const secrets: SecretPresence = { async has() { throw new Error("keychain locked"); } };
+    const r = await peeringRow(machine({ acme: { switchboard: SB, joinedByRt: true } }), secrets);
+    expect(r.status).toBe("error");
+    expect(r.required).toBe(false);
+    expect(r.detail).toContain("could not read your secrets store");
+    expect(r.detail).toContain("keychain locked");
+    expect(r.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
+  });
+
+  test("an unconfirmed or unreachable switchboard keeps its Confirm or Re-check and skips the peering check", async () => {
+    let asked = 0;
+    const secrets: SecretPresence = { async has() { asked++; return null; } };
+    const unconfirmed = await rowsFor(machine({ acme: { switchboard: SB, joinedByRt: true } }), secrets, team, {});
+    expect(unconfirmed.find((row) => row.id === "account.switchboard")?.action?.label).toBe("Confirm");
+    const down = async () => ({ status: 0, body: "", headers: {} });
+    const unreachable = await rowsFor(machine({ acme: { switchboard: SB, joinedByRt: true } }, { fetch: down }), secrets);
+    expect(unreachable.find((row) => row.id === "account.switchboard")?.action?.label).toBe("Re-check");
+    for (const rows of [unconfirmed, unreachable]) expect(rows.some((row) => row.id === "account.board-peering")).toBe(false);
+    expect(asked).toBe(0);
+  });
+});
+
 describe("accountRows — required-ness derives from the declaring source (R-T9-b)", () => {
   test("an integration named only by an optional:true tool connect -> required:false, optionalNote mirrors the tool's own why", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "sdm-cli", why: "db tunnels", optional: true, connect: { integration: "sdm" } }] }];

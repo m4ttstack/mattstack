@@ -12,7 +12,7 @@ import type { RelayClient } from "../relay-client.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import type { ExecResult } from "../../setup/probes.ts";
-import { readTeamLocal, updateTeamLocal } from "../team-local.ts";
+import { readTeamLocal, teamLocalPath, updateTeamLocal } from "../team-local.ts";
 import * as isolation from "../../../packages/rt-client/src/test-isolation.ts";
 
 const HOME = "/home";
@@ -1121,34 +1121,14 @@ describe("joinRedeem", () => {
       expect(result.peeringFix).toContain("must be https");
     });
 
-    test("a join that ends with peering unavailable stamps peeringPending on the team's local record", async () => {
+    test("a join that ends with peering unavailable records only its provenance: the setup row reads the gap from the tokens themselves", async () => {
       const p = redeemProbes();
       const { seams } = baseJoinRedeemSeams({ read: fakeRead({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }) });
-
-      await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
-
-      expect(readTeamLocal(p, POINTER.team).peeringPending).toBe(true);
-    });
-
-    test("a non-https declared switchboard is not stamped: only the owner can fix the URL, so a re-invite would not help", async () => {
-      const p = redeemProbes();
-      const { seams } = baseJoinRedeemSeams({ read: fakeRead({ "mattstack.integrations": { switchboard: { url: "http://sb.lan" } } }) });
 
       const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
 
       expect(result.peering).toBe("unavailable");
-      expect(readTeamLocal(p, POINTER.team).peeringPending).toBeUndefined();
-    });
-
-    test("a join that peers clears an earlier stamp", async () => {
-      const p = redeemProbes();
-      updateTeamLocal(p, POINTER.team, { peeringPending: true });
-      const embedded = { ...POINTER, switchboard: { url: "https://sb.test", token: "tok-emb" } };
-      const { seams } = baseJoinRedeemSeams({ read: fakeRead({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }) });
-
-      await joinRedeem(p, fakeRelay({ fetch: relayServing(embedded) }).client, () => NO_SECRETS, { code: CODE }, seams);
-
-      expect(readTeamLocal(p, POINTER.team).peeringPending).toBeUndefined();
+      expect(JSON.parse(p.readFile(teamLocalPath(p.home, POINTER.team))!)).toEqual({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false });
     });
 
     test("applied and idle peering carry no fix", async () => {
