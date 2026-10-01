@@ -8,6 +8,10 @@ disable-model-invocation: true
 
 Fold your observations in; present exactly this shape:
 
+- **Earlier threads** -- re-review passes only, and first: one entry per
+  earlier thread the caller handed in, with its anchor, its call (one of
+  the four the structured findings file names), what was checked, and the
+  reply to post. **Issues** then hold only what is new.
 - **Strengths** -- specific.
 - **Issues** -- **Critical** (must fix) / **Important** (should fix) /
   **Minor** (nice to have). Every finding lands in one bucket, with
@@ -21,9 +25,9 @@ read the draft by them. Return the draft; never post it, approve, or ship.
 
 Whenever the draft is written to a report file, write a sibling with the
 report path's `.md` swapped for `.json`, machine-readable, mirroring the
-draft exactly (never re-judged). It is version 2 of this file:
+draft exactly (never re-judged). It is version 3 of this file:
 
-- Required: `version` (`2`), `summary` ({`readiness`: `yes` | `no` |
+- Required: `version` (`3`), `summary` ({`readiness`: `yes` | `no` |
   `with-fixes`, `reasoning`: the assessment's qualifier in one or two
   sentences; the draft's spaced "Ready to merge: with fixes" maps to
   readiness `with-fixes`, hyphenated, never the spaced form) and
@@ -40,12 +44,26 @@ draft exactly (never re-judged). It is version 2 of this file:
   (a failing test's lines, a command's result): that output verbatim,
   never paraphrased.
 - Re-review passes only (the caller framed the review as a re-review):
-  `re_review: true`; `prior` ({`addressed`, `still_open`}: how many of
-  the prior review's findings this pass found addressed, and how many
-  still open) when the prior review was in hand; and on every finding a
-  `disposition`: `new` (not in the prior review), `still-open` (re-raises
-  a prior finding), or `addressed-check` (a prior finding the author says
-  is fixed and this pass verified; the human confirms it).
+  `re_review: true`, and `threads`: one entry per earlier thread the
+  caller handed in, in the order given, never one the caller did not
+  hand in:
+  `{discussionId, file, line, round, call, original, authorReply, note,
+  reply}`. `discussionId`, `round` and `original` (the reviewer's own
+  first note, verbatim) come from the caller unchanged; `file` and `line`
+  are the thread's anchor when it has one; `authorReply` is the author's
+  latest note in the thread, verbatim, omitted when they wrote none.
+  `call` is this pass's verdict on the thread, one of four:
+  `fixed` (the code now does what the thread asked), `not-fixed` (it does
+  not, and the author gave no reason that holds), `pushback-accepted`
+  (the author declined and their reason holds), `pushback-rejected` (the
+  author declined and their reason does not hold). `note` is one line
+  saying what was checked to reach the call. `reply` is the reply to post
+  in that thread, written in the writing style, never empty.
+  `prior` is counted from the calls: `addressed` is `fixed` plus
+  `pushback-accepted`, `still_open` is the other two.
+- On a re-review, `findings` holds only what is new: an issue an earlier
+  thread already raises lives on its thread and is never a finding. Each
+  finding's `disposition` is `new` or absent.
 - From the run, not just the draft: `depth` (one line -- the REVIEW DEPTH
   line and what that setup found), `checks` (`[{tag, text}]`, tag `PASS` |
   `N/A` | `FAIL` -- the EVIDENCE CHECK line and each thing the setup
@@ -79,4 +97,4 @@ draft exactly (never re-judged). It is version 2 of this file:
 | Inputs in hand | Print REVIEW DEPTH / EVIDENCE CHECK and provider lines. |
 | Criteria bound | Its triage lines into the block, its addendum into the dispatch. |
 | About to judge the diff | Don't. The review dispatch flow (the dispatch step), reviewer shape, full payload. |
-| Draft assembled | Buckets, `file:line`-what-why-fix, assessment word; return it; write the json sibling (version 2, every body in full) when a report path exists. |
+| Draft assembled | Buckets, `file:line`-what-why-fix, assessment word; return it; write the json sibling (version 3, every body in full) when a report path exists. |

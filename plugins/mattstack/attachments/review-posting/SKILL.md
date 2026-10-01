@@ -32,6 +32,10 @@ caller.
   (whichever of Critical / Important / Minor the draft carries), for
   callers not yet migrated. Arriving with neither shape, or without a
   disposition, is a caller bug -- see the guard below.
+- On a re-review, `replies`: one `{discussionId, body, resolve}` per
+  earlier thread the human chose to act on, already decided. `body` is
+  absent when the human held the reply and only resolves. They post in
+  the same submitted review as the findings; never as separate replies.
 - The draft, in the review flow's Strengths / Issues shape: Strengths /
   Issues (Critical / Important / Minor, each `file:line`) / Assessment
   (yes | no | with fixes), when it is in context -- take it as given, never
@@ -64,7 +68,8 @@ what posts is one layer up, not here.
 Post inline threads only for the selected findings -- on the legacy form,
 every finding in the selected levels. A deselected or unraised finding
 drops entirely: not into the summary, not into a footnote, not through any
-other channel.
+other channel. An earlier thread the human left alone gets no reply and is
+not resolved.
 
 ## Summary comment
 
@@ -89,8 +94,9 @@ the summary's Assessment names the findings that block the merge and says
 approval is withheld until they are fixed.
 
 On GitLab a review is ONE submitted review: the selected findings with a
-`file` and `line` as its comments, the summary as its summary note, and
-the disposition as its outcome, all in a single call. Nothing posts on its
+`file` and `line` as its comments, the summary as its summary note, the
+disposition as its outcome, and on a re-review the decided `replies` as
+its replies, all in a single call. Nothing posts on its
 own before or after that call. The forge marks the reviewer as having
 reviewed, and approves when the disposition is Approve.
 

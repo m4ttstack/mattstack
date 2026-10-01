@@ -15,12 +15,12 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUD
 metadata:
   slots: "review"
   slot-review: "required mr-review@2 -- owns the domain review flow for one MR: resolving the MR/ticket, producing the draft review, writing the report, reporting the severity levels present, and executing the posting once handed the human's decision. Never presents posting gates or decides disposition."
-  compiled: "mattstack:gate-protocol@0.30.7"
+  compiled: "mattstack:gate-protocol@0.30.9"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-1599 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-1783 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -84,6 +84,7 @@ digraph review_flow {
 
     "Prior review at --report (re-review)?" [shape=diamond];
     "Read <--report> (prior review)" [shape=plaintext];
+    "<status-bin> review-ledger read <state>" [shape=plaintext];
     "Domain skill resolved (review)?" [shape=diamond];
     "Delegate the review to the domain skill" [shape=box];
     "Domain review result?" [shape=diamond];
@@ -112,6 +113,7 @@ digraph review_flow {
     "Review the MR yourself" [shape=box];
     "Generic review result?" [shape=diamond];
     "Write the review report to --report" [shape=box];
+    "Append the review-round line to --report" [shape=box];
 
     "Fitted review-post open file handed back?" [shape=diamond];
     "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [shape=plaintext];
@@ -126,6 +128,7 @@ digraph review_flow {
     "review-post step outcome?" [shape=diamond];
     "Ask the review questions as one combined native form (degraded)" [shape=box];
     "Record the verdict answer in --report" [shape=box];
+    "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped '[]' --restored '[]' --confirmed <json>" [shape=plaintext];
 
     "Domain skill resolved (review act)?" [shape=diamond];
     "Hand the answer to the domain skill to post" [shape=box];
@@ -209,24 +212,26 @@ digraph review_flow {
     "Report fits the resumed answer (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="no: missing or malformed for the answer's shape"];
     "Route the resumed escalation by its origin (review)" -> "Resumed escalation origin (review)?";
     "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="iterate at round 2, any origin: the refusals are the reason"];
-    "Resumed escalation origin (review)?" -> "Delegate the review to the domain skill" [label="a pre-verdict origin, take or iterate at round 1, a domain skill resolved on this resume: it reviews afresh"];
+    "Resumed escalation origin (review)?" -> "Delegate the review to the domain skill" [label="mr_view, not on a re-review: take or iterate at round 1, a domain skill resolved on this resume: it reviews afresh"];
     "Resumed escalation origin (review)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="generic path, mr_view, not on a re-review: take with branches, or iterate at round 1"];
-    "Resumed escalation origin (review)?" -> "Read <--report> (prior review, resumed re-review)" [label="generic path, a re-review origin: take, or iterate at round 1"];
+    "Resumed escalation origin (review)?" -> "Read <--report> (prior review, resumed re-review)" [label="a re-review origin: take, or iterate at round 1"];
     "Resumed escalation origin (review)?" -> "Read <--report>, its verdict line and json sibling (resumed escalation)" [label="a posting origin: take, or iterate at round 1"];
     "Resumed escalation origin (review)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
     "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back, or a generic-path take at mr_view with no branches"];
-    "Read <--report> (prior review, resumed re-review)" -> "rt_verb {args: [skills, writing-style, show]} (review)";
+    "Read <--report> (prior review, resumed re-review)" -> "<status-bin> review-ledger read <state>";
     "Read <--report>, its verdict line and json sibling (resumed escalation)" -> "Verdict line present (review)?";
     "Verdict line present (review)?" -> "Domain skill resolved (review act)?" [label="yes, and the report fits its answer"];
     "Verdict line present (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="no, or the report does not fit its answer"];
 
     "Prior review at --report (re-review)?" -> "Read <--report> (prior review)" [label="yes, and --re-review given"];
-    "Prior review at --report (re-review)?" -> "Domain skill resolved (review)?" [label="no, or not a re-review"];
-    "Read <--report> (prior review)" -> "Domain skill resolved (review)?";
+    "Prior review at --report (re-review)?" -> "<status-bin> review-ledger read <state>" [label="no file, and --re-review given"];
+    "Prior review at --report (re-review)?" -> "Domain skill resolved (review)?" [label="not a re-review"];
+    "Read <--report> (prior review)" -> "<status-bin> review-ledger read <state>";
+    "<status-bin> review-ledger read <state>" -> "Domain skill resolved (review)?";
     "Domain skill resolved (review)?" -> "Delegate the review to the domain skill" [label="yes"];
     "Domain skill resolved (review)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="no: generic path"];
     "Delegate the review to the domain skill" -> "Domain review result?";
-    "Domain review result?" -> "Fitted review-post open file handed back?" [label="report written, severity levels handed back"];
+    "Domain review result?" -> "Append the review-round line to --report" [label="report written, severity levels handed back"];
     "Domain review result?" -> "<status-bin> review-status <state> error <what went wrong>" [label="failed: bad MR, mismatched ticket, fetch failure"];
     "rt_verb {args: [skills, writing-style, show]} (review)" -> "rt_verb named a style skill (review)?";
     "rt_verb named a style skill (review)?" -> "Load the named writing-style skill (review)" [label="yes"];
@@ -278,7 +283,8 @@ digraph review_flow {
     "Review the MR yourself" -> "Generic review result?";
     "Generic review result?" -> "Write the review report to --report" [label="findings produced"];
     "Generic review result?" -> "<status-bin> review-status <state> error <what went wrong>" [label="failed: bad MR link or diff unreadable"];
-    "Write the review report to --report" -> "Fitted review-post open file handed back?";
+    "Write the review report to --report" -> "Append the review-round line to --report";
+    "Append the review-round line to --report" -> "Fitted review-post open file handed back?";
 
     "Fitted review-post open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [label="yes"];
     "Fitted review-post open file handed back?" -> "Report json sibling (review)?" [label="no"];
@@ -298,7 +304,8 @@ digraph review_flow {
     "review-post step outcome?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
     "review-post step outcome?" -> "Ask the review questions as one combined native form (degraded)" [label="the wait keeps failing"];
     "Ask the review questions as one combined native form (degraded)" -> "Record the verdict answer in --report";
-    "Record the verdict answer in --report" -> "Domain skill resolved (review act)?";
+    "Record the verdict answer in --report" -> "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped '[]' --restored '[]' --confirmed <json>";
+    "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped '[]' --restored '[]' --confirmed <json>" -> "Domain skill resolved (review act)?";
 
     "Domain skill resolved (review act)?" -> "Hand the answer to the domain skill to post" [label="yes"];
     "Domain skill resolved (review act)?" -> "Writing style loaded (review act)?" [label="no"];
@@ -421,12 +428,16 @@ What the graph cannot show:
   `{answers, by, answeredAt}` comes from the `review-post-answer:` line in
   `--report`. The verdict's keys name its shape: `findings-N` keys plus
   `outcome` are the per-finding path, `tiers` plus `outcome` the tier
-  fallback, and `outcome` alone a clean review. From `--report`'s json
+  fallback, and `outcome` alone a clean review; `thread-N` keys ride
+  beside any of them on a re-review. From `--report`'s json
   sibling (the stem swap in "Building the review-post questions"): each
   finding by its `id`, with its `tier`, `title`, `file`, `line`, `fix` and
   `kind`. From `--report` itself on the tier fallback: the findings under
-  each tier. From the launch: `<mrUrl>`. Nothing else survives the earlier
-  pane.
+  each tier. The earlier threads, each by its `discussionId` with its
+  `call` and drafted `reply`: the json sibling's `threads` on the domain
+  path, `--report`'s Earlier threads section on the generic path. From
+  `--report`'s `review-round:` line: the round and the sha it reviewed.
+  From the launch: `<mrUrl>`. Nothing else survives the earlier pane.
 - **Finding ids.** A per-finding option's value is the finding's `id` from
   the json sibling, verbatim. The same string keys the finding in the json,
   so a picked value joins its finding with no renumbering.
@@ -436,7 +447,9 @@ What the graph cannot show:
   the union of every `findings-N` answer array; on the tier fallback,
   every finding in the report whose tier the `tiers` answer picked; on a
   clean review, none. An explicit empty array posts nothing from that
-  question. A finding is anchored when it has both a `file` and a `line`:
+  question. On a re-review the same call carries `replies`, one per
+  earlier thread whose `thread-N` answer picked anything. A finding is
+  anchored when it has both a `file` and a `line`:
   its comment's `path` is the finding's `file` and its `line` the
   finding's `line`, always both, never a `position` object; for a line the
   diff removed, add `oldPath` and `oldLine` as well. The daemon re-fetches
@@ -529,13 +542,22 @@ anything posts. The answer's keys say which file it needs:
 - `tiers` plus `outcome`: `--report` itself, for the findings listed under
   each picked tier.
 - `outcome` alone: neither. A clean review posts no findings.
+- `thread-N` keys, beside any of these: the earlier threads, each joined
+  by its `discussionId` (the option value after `post:` or `resolve:`)
+  for its `call` and drafted `reply`. They come from the json sibling's
+  `threads` when a domain skill resolved, else from `--report`'s Earlier
+  threads section.
+
+Every shape also reads `--report`'s `review-round:` line, for the round
+and sha `Record the verdict answer in --report` records.
 
 Missing or malformed means what it means for the tier fallback: no
 sibling `.json`, unparseable json, or a parsed report whose `findings` is
 missing, not an array, or holds entries that don't fit the schema. On a
 resume it is never a reason to fall back, because the gate is answered
 and its shape is fixed. A per-finding answer whose json sibling is missing
-or malformed, a picked value no finding's `id` matches, or a tier answer
+or malformed, a picked value no finding's `id` matches, a `thread-N`
+value whose `discussionId` its source does not carry, or a tier answer
 whose `--report` is missing or unreadable cannot be posted as answered:
 `Report fits the resumed answer (review)?` answers no, and the `error`
 names the file and which case it was. Never rebuild the findings by
@@ -564,16 +586,18 @@ the retry goes straight back to the off-script gate.
   read; a note with no branches takes the `hand back` edge. An iterate at
   `mr_view` reads the MR again. Every pre-verdict escalation opened on the
   generic path; when this resume resolves a domain skill after all, a take
-  or round-1 iterate delegates the review afresh, and the domain skill
-  makes its own reads.
+  or round-1 iterate delegates the review afresh (on a re-review origin,
+  after the round read below), and the domain skill makes its own reads.
 - **Re-review origins** (`mr_view refused on a re-review`, `mr_threads
   refused on the re-review read`) make this pass a re-review, though the
   launch carries no `--re-review`. `--report` still holds the prior
   review, since this pass has not written one: `Read <--report> (prior
-  review, resumed re-review)` loads it before the writing style, and a
-  missing file means no prior review, as "Re-review mode" says. The
-  threads are then read again, except after a take at the re-review
-  `mr_threads` read, which reviews the whole MR without them.
+  review, resumed re-review)` loads it, and a missing file means no prior
+  review, as "Re-review mode" says. `<status-bin> review-ledger read
+  <state>` then reads the round, before the writing style on the generic
+  path or the delegation on the domain path. The threads are then read
+  again, except after a take at the re-review `mr_threads` read, which
+  reviews the whole MR without them.
 - **Posting origins** (`mr_review_submit refused`, `pending comments on
   the MR`, `mr_approve refused`, `mr_threads refused on the Posted already
   read`):
@@ -614,12 +638,14 @@ Tell the domain skill these things:
 - that this wrapper owns the gate, so it opens nothing: it hands back
   instead, including the absolute paths of the fitted `review-post` open
   file and of the `gate-ctx.sh` that fitted it, when it builds one;
-- under `--re-review`, the re-review framing: the prior review read at
-  `Read <--report> (prior review)` (or that none was found), "check what
-  the author addressed since the last review", and "flag it and fall back
-  to a full review if nothing was acted on" ("Re-review mode"). A resumed
-  re-review origin gets the same framing, with the prior review still at
-  `--report`;
+- under `--re-review`, the round ("Re-review mode"): the round number,
+  `reviewedSha` as the commit the last round reviewed, the prior review
+  read at `Read <--report> (prior review)` (or that none was found), and
+  the framing "judge each earlier thread, then find what is new". It
+  reads the threads itself, so it gets the rule that picks them in place
+  of the threads: Re-review mode's step 2, with the `rounds` list and the
+  `confirmed` ids from the round read. A resumed re-review origin gets
+  the same, with the prior review still at `--report`;
 - on a resumed pre-verdict escalation, that it reviews afresh: the
   escalation's take or iterate belonged to the generic path's own read.
 
@@ -628,11 +654,12 @@ Pass the operator note along as context when the launch carries one.
 The domain skill owns the actual review: resolving the MR and ticket,
 producing the draft, and writing the report to `--report` (the Markdown
 and its json sibling). It hands back the severity levels present in its
-findings, plus the two paths when it built a fitted open file. Carry all
-three to the gate: the paths decide `Fitted review-post open file handed
-back?`, and the levels are the tier fallback's options. It never presents
-posting gates or decides disposition; this wrapper opens the one event
-gate and later hands it the human's answer to post.
+findings, the two paths when it built a fitted open file, and the MR
+head sha it reviewed. Carry them all to the gate: the paths decide
+`Fitted review-post open file handed back?`, the levels are the tier
+fallback's options, and the sha goes in the review-round line. It never
+presents posting gates or decides disposition; this wrapper opens the
+one event gate and later hands it the human's answer to post.
 
 A failure it reports (a bad MR link, a mismatched MR and ticket, a fetch
 failure) is `error` with its message.
@@ -682,19 +709,33 @@ Honor the operator note (for example "focus on the migration files", "skip
 the vendored code").
 
 On a re-review (`--re-review` given, or a resumed re-review origin),
-frame the review as "Re-review mode" says: check the threads already read
-and the new commits since the last review against the prior review, read
-at `Read <--report> (prior review)` or, on a resumed pane, at `Read
-<--report> (prior review, resumed re-review)`. **Author acted:**
-re-review focused on that: for each prior comment, was it adequately
-addressed? Are the new changes sound? Note anything still open. **No
-action found** (no threads addressed, no relevant new changes since the
-last review): say so explicitly in the report's summary line, e.g.
-`"no author action found since last review"`, and fall back to a normal
-full review of the whole MR so the pass is still useful. **No thread
-history** (the re-review read's off-script take): a full review of the
-whole MR, its summary line saying the threads could not be read, e.g.
-`"threads unreadable; full review"`.
+"Re-review mode" hands this review the round. A re-review judges two
+things, in this order: what became of the reviewer's earlier threads,
+then what is new. Re-review mode hands in the earlier threads (each with
+its `discussionId`, anchor, `round`, the reviewer's first note and the
+author's replies), the commit the last round reviewed, and the round
+number. For each thread, read the code at the MR head and make one of
+the four calls, with a one-line note of what was checked and a reply to
+post:
+
+- `fixed`: the code now does what the thread asked;
+- `not-fixed`: it does not, and the author gave no reason that holds;
+- `pushback-accepted`: the author declined and their reason holds;
+- `pushback-rejected`: the author declined and their reason does not
+  hold.
+
+Then hunt for new issues, weighting the diff since the last reviewed
+commit (`git diff <last reviewed sha>..origin/<source branch>`) while
+still reading the whole change; with no last reviewed commit, or one the
+fetch does not have, the whole change is what changed. An issue an
+earlier thread already raises lives on its thread and is never a
+finding: the findings are new issues only. Each reply is in the loaded
+voice and never empty. With no earlier threads handed in, the pass is a
+full review framed as a re-review, and its summary line says so, e.g.
+`"no earlier threads; full review"`. **No thread history** (the
+re-review read's off-script take): a full review of the whole MR, its
+summary line saying the threads could not be read, e.g. `"threads
+unreadable; full review"`.
 
 ### Write the review report to --report
 
@@ -705,11 +746,46 @@ change. Write it before the gate opens, so the board makes the
 the gate. On the domain path the domain skill wrote the report itself;
 this box is the generic path's. Either way the file exists before `done`.
 
+On a re-review, an Earlier threads section sits between the summary line
+and the findings: one entry per earlier thread, in the order Re-review
+mode handed them in. A resumed pane posts the replies from it, so each
+entry carries the thread's id, its call and the reply verbatim:
+
+```markdown
+## Earlier threads
+
+- `<discussionId>` · `<file:line>` · round <k> · <call>
+  - Checked: <the one-line note>
+  - Reply: <the reply to post, verbatim>
+```
+
+The angle-bracketed parts are placeholders: fill each from its thread.
+An unanchored thread reads `General thread` in place of its anchor, and
+`<call>` is one of the four calls as spelled above. The section is not a
+tier, so no thread is ever read as a finding.
+
 The generic path writes the Markdown only. The json sibling is the domain
 skill's structured report, so without one the gate takes the tier
 fallback, built from your own findings' tiers. On the generic path a json
 sibling this pass did not write is stale: treat it as absent at `Report
 json sibling (review)?`.
+
+### Append the review-round line to --report
+
+The report is written, on either path. Before the gate opens, append one
+line to `--report` naming the round this pass is and the commit it
+reviewed:
+
+`review-round: {"round": <n>, "sha": "<sha>"}`
+
+`<n>` is 1 on a first review, else the round "Re-review mode" worked
+out. `<sha>` is the MR head this pass reviewed: on the generic path
+`mr_view`'s `mr.sha` (after a take at `mr_view`, which read no MR, `git
+rev-parse origin/<source branch>` from the fetch), on the domain path
+the sha the domain skill handed back. Never a guess: a domain skill that
+handed back no sha gets no line. `Record the verdict answer in --report`
+reads the line back, so a pane resumed on the verdict records the round
+this pass reviewed.
 
 ### Build the per-finding questions (findings-N, outcome)
 
@@ -739,6 +815,7 @@ Print one line in the pane naming which case it was, for example:
 
 - `report.json not found; falling back to tier-level options`
 - `report.json has no findings array; falling back to tier-level options`
+- `report.json has earlier threads but no fitted open came back; falling back to tier-level options`
 
 A human watching then knows posting will be tier-grained instead of
 per-finding.
@@ -751,7 +828,14 @@ the ones the domain skill handed back as present, or your own findings'
 tiers on the generic path. Add `tiers` only when at least one level is
 present; with none, `outcome` alone. The finding titles ride the `tiers`
 question's own `context`, one line per finding, verbatim from the report
-file. `--context` is the tier-counts line alone.
+file. `--context` is the tier-counts line alone, under a round line on a
+re-review.
+
+On a re-review with earlier threads, one hand-built `thread-<n>`
+question per thread comes first, ahead of `tiers`, in the order the
+threads were handed in ("Tier fallback" under "Building the review-post
+questions" draws it). With no levels present the gate carries the
+thread questions and `outcome`.
 
 ### review-post: take the review gate step
 
@@ -770,7 +854,8 @@ carrier:
   titles ride the `findings-N` options, never question `context`.
 - **Tier fallback:** there is no `summary` to read a readiness line from,
   so `--context` carries only the tier-counts line; the `tiers` question
-  carries the finding titles in its own `context`.
+  carries the finding titles in its own `context`. On a re-review a first
+  line `Round <n> · <k> earlier threads` sits above it.
 - **Either way,** `--context` fits inside the gate's 8192 UTF-8 byte
   budget; an oversized one is dropped loudly by the daemon, not by you:
   never pre-trim it yourself.
@@ -783,10 +868,11 @@ summary); `open-gate.sh` opens it as it stands.
 The daemon was down at open time (`gate open` or `open-gate.sh` exited
 nonzero), or the gate step's wait failed three times ("A failing wait is
 not degradation" in `board:gate-cli-recipes`). Ask one combined native
-form carrying the same questions the gate would have: every `findings-N`
-chunk plus `outcome` when the json has findings, the fallback's `tiers`
-plus `outcome` on the json-absent path, `outcome` alone on a clean
-review. Past four questions, chunk it across AskUserQuestion calls in gate
+form carrying the same questions the gate would have: every `thread-N`
+question first on a re-review, then every `findings-N` chunk plus
+`outcome` when the json has findings, the fallback's `tiers` plus
+`outcome` on the json-absent path, `outcome` alone on a clean review.
+Past four questions, chunk it across AskUserQuestion calls in gate
 order, as the pane form does, and proceed only on the answers from every
 call. It is still one form, never two gates. Render it by the same rules
 as the pane form (`Ask the review gate as a pane form`), a fitted file
@@ -819,6 +905,30 @@ pane resumed on that escalation reads the verdict from this line, and
 `Mark the review already posted` dates the summary note against its
 `answeredAt`.
 
+Then record the round, before anything posts:
+
+`<status-bin> review-ledger record <state> --round <n> --sha <the MR
+head sha this pass reviewed> --outcome <comment|approve> --skipped '[]'
+--restored '[]' --confirmed '<json array>'`
+
+`<n>` is 1 on a first review and the re-review's round otherwise.
+`--confirmed` lists the `discussionId` of every thread whose call is
+`fixed` or `pushback-accepted` where the answer picked `post:<id>` and
+not `resolve:<id>`: the reviewer said so and left resolving to the
+author, and no later round asks about it again. A resumed pane that
+finds the round already recorded records it again; the write replaces.
+The MR head sha is `mr_view`'s `mr.sha` (the source branch head as
+GitLab reports it; the field is on glance's `PullRequest`), read in the
+same pass as the review; never a guess.
+
+Both `<n>` and the sha are read from `--report`'s `review-round:` line
+(`Append the review-round line to --report`), which the pass that
+reviewed wrote, so a resumed pane records the same values. `--outcome`
+is the verdict's `outcome`. A report with no `review-round:` line
+records nothing: say so in the pane and go on. A record that exits
+nonzero does not stop the posting either: quote its stderr in the pane
+and go on, since the verdict is answered.
+
 ### Hand the answer to the domain skill to post
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
@@ -828,11 +938,15 @@ Here that means the STOP's redirect: the move passes the same fix-once counter a
 Hand the domain skill the human's answer, the MR url and the `--report`
 path, so it executes the posting:
 
-- **Per-finding path:** `{findings: [ids], outcome}`, where `ids` is the
-  union of every `findings-N` question's answer array, and empty when the
-  gate carried `outcome` alone, since a clean review has no findings to
-  post.
-- **Tier fallback:** `{tiers, outcome}`.
+- **Per-finding path:** `{findings: [ids], outcome, replies}`, where
+  `ids` is the union of every `findings-N` question's answer array, and
+  empty when the gate carried `outcome` alone, since a clean review has
+  no findings to post. `replies` is built from the `thread-N` answers by
+  the rule in `Compose the submitted review (review)`, each drafted
+  `reply` read from the json sibling's `threads`; it is empty when the
+  gate carried no `thread-N` question.
+- **Tier fallback:** `{tiers, outcome}`, plus `replies` built the same
+  way when the gate carried `thread-N` questions.
 
 Pass each answer's notes along with it. On a resumed pane
 (`--resumed-gate` given), tell the domain skill the pass is a resume, so
@@ -927,9 +1041,19 @@ change. `summary` is the review's summary note: the report's summary
 line, then every picked finding with no anchor, each added as `Add the
 finding to the summary note` says. It is never empty: a review with
 nothing picked still carries its summary line. `outcome` is the verdict's
-`outcome` value, `comment` or `approve`. `replies` is empty. A review
-carries at most 100 comments and replies in total; past that, the
-lowest-tier anchored findings go in the summary instead.
+`outcome` value, `comment` or `approve`. A review carries at most 100
+comments and replies in total; past that, the lowest-tier anchored
+findings go in the summary instead.
+
+`replies` is built from the gate's `thread-N` answers, one entry per
+thread whose answer picked anything: `discussionId` from the option
+value after `post:` or `resolve:`; `resolve` true when `resolve:<id>`
+was picked; `body` present only when `post:<id>` was picked, and then
+the answer's `text` when it carries one (the human edited the reply),
+else the drafted reply (the `Reply:` line of that thread's entry in
+`--report`'s Earlier threads section). A thread whose answer picked
+neither option gets no entry. With no `thread-N` question, `replies` is
+empty.
 
 ### Move the bad-anchor findings into the summary (review)
 
@@ -1196,8 +1320,8 @@ nuance in the `{value, note}` form. Four things stay specific to
    affordance.
 2. Your framing and reasoning go in the pane prose or option descriptions,
    never into rewritten question or option text.
-3. The question order is fixed: findings before outcome, since the human
-   weighs the findings before choosing a verdict.
+3. The question order is fixed: earlier threads, then findings, then
+   outcome, since the human weighs both before choosing a verdict.
 4. Never an option that folds another question's answer in: there is
    never a "skip and approve clean" combo option, since "post nothing" is
    every `findings-N` question answered as an explicit empty array, which
@@ -1210,8 +1334,11 @@ nuance in the `{value, note}` form. Four things stay specific to
   (the open file's name with `.open.json` swapped for `.source.json`: `sh
   <gate-ctx.sh> prose < <dir>/review-post.source.json`), print its
   `.context` as one pane line before the form call, and make each
-  `findings-N` question's form text its label, a newline, then its prose
-  `context`. Options keep the gate's labels and descriptions.
+  `thread-N` and `findings-N` question's form text its label, a newline,
+  then its prose `context`. Options keep the gate's labels and
+  descriptions.
+- **Hand-built thread questions.** Their `context` is prose already: the
+  form text is the label, a newline, then that `context` as written.
 - **Answers.** Each value is the chosen option's value verbatim, never an
   index or a paraphrase; nuance rides the note form, e.g. `{"outcome":
   {"value": "comment", "note": "approve once CI is green"}}`. A
@@ -1401,7 +1528,9 @@ session.
 that file IS this gate: `gate-ctx.sh fit` output whose `.context` carries
 the review's structured summary and whose `findings-N` questions each
 carry their findings' structured context, with options already in the
-recipe below. Open it with:
+recipe below. On a re-review its `thread-N` questions come first, one
+per earlier thread, each in the gate protocol's `carryover@1` shape.
+Open it with:
 
 ```bash
 "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh" <status-bin> <state> review-post <open-file>
@@ -1418,6 +1547,14 @@ sibling of `--report`: swap the trailing `.md` for `.json`, or append
 append onto the md path. That's the same derivation the board's own
 `readReviewReportJson` uses server-side; the wrapper just reads the file
 itself.
+
+The hand-built per-finding recipe below covers first reviews only. A
+report json whose `threads` array is non-empty reaches the gate through
+the domain skill's fitted open file (`review-source.sh`, then `gate-ctx.sh
+fit`, with `round` in the extras), which carries the `thread-N`
+questions. Handed such a json with no fitted open file, treat it as
+malformed at `Report json sibling (review)?`: the tier fallback, with
+the earlier threads as hand-built `thread-N` questions.
 
 **Per-finding questions.** When the json exists and its `findings` is a
 non-empty array, build one multi-select option per finding from that
@@ -1526,6 +1663,42 @@ the `tiers` answer to the report's tiers verbatim. The finding
 titles ride this `tiers` question's own `context` (one line per finding,
 verbatim from the report file, never re-summarized).
 
+On a re-review with earlier threads, one hand-built question per thread
+goes before `tiers`, numbered `thread-1`, `thread-2`, ... in the order
+the threads were handed in:
+
+```json
+{"id": "thread-1", "label": "lib/example/parse.ts:30", "multi": true,
+ "context": "lib/example/parse.ts:30 · round 1 · fixed by author\nYou wrote: this parser drops the trailing field\nAuthor replied: kept it in the latest push\nChecked: the parser now returns all four fields\nWill post as reply: Thanks, the trailing field comes through now.",
+ "options": [
+   {"value": "post:<discussionId>", "label": "Post reply (recommended)"},
+   {"value": "resolve:<discussionId>", "label": "Resolve thread (recommended)"}
+ ]}
+```
+
+Every string above is an invented placeholder: substitute the thread's
+real anchor, round, notes and `discussionId`, and don't copy the
+example verbatim.
+
+- **Label.** The thread's `file:line`, the file alone when it has no
+  line, or `General thread` when it has no anchor.
+- **Options.** Exactly two, `post:<discussionId>` and
+  `resolve:<discussionId>`, the thread's id verbatim in both. `Post
+  reply` always carries ` (recommended)`; `Resolve thread` carries it
+  only for the calls `fixed` and `pushback-accepted`, and reads plain
+  `Resolve thread` otherwise.
+- **Context.** Prose, its lines joined by newlines, in this order: the
+  anchor (as the label), `round <k>` and the call's words joined by
+  " · ", where `fixed` reads "fixed by author", `not-fixed` "waiting on
+  author", `pushback-accepted` "author pushed back, accept" and
+  `pushback-rejected` "author pushed back, hold firm"; then `You wrote:
+  ` and the reviewer's first note; then `Author replied: ` and the
+  author's latest note, or `The author has not replied in this thread.`
+  when they wrote none; then `Checked: ` and the note, when there is
+  one; then `Will post as reply: ` and the drafted reply. This is the
+  same prose the gate protocol's `carryover@1` flattens to, so every
+  surface reads one wording.
+
 When no levels are present here either (a clean review with no findings,
 and no json to confirm it), omit the `tiers` question the same way as the
 per-finding path and open the gate with `outcome` alone, so a clean review
@@ -1556,23 +1729,34 @@ is what governs, and a reader scrolling from the top has no way to tell the two
 apart, which is why `Print the RE-REVIEW banner as the first output` comes
 before anything else.
 
-1. **Load the prior review, if any.** If a file exists at `--report <path>`,
-   it holds the previous review: read it first so you know exactly what was
-   flagged. If it's missing, there's no board record of a prior review;
-   carry on with the re-review framing anyway, since a human may have
-   reviewed outside the board.
-2. **Check whether the author actually acted.** Look at the MR's
-   discussions (read at `mr_threads {mrUrl, refresh: true} (re-review)`
-   on the generic path; the domain skill reads them itself) and new
-   commits since the last review. Did the author address the prior
-   feedback?
-3. **Branch.** Author acted: re-review focused on that. No action found:
-   say so explicitly in the report's summary line and fall back to a
-   normal full review. `Review the MR yourself` carries both branches.
-4. **Delegating to `--skill`?** Hand it the same framing: the prior review
-   (from `--report`), "check what the author addressed since the last
-   review", and the "flag and fall back to a full review if nothing was
-   acted on" instruction.
+1. **Read the round record.** Run `<status-bin> review-ledger read
+   <state>`. It prints one line of JSON: `round` (the last round the
+   board recorded; this pass is `round + 1`), `reviewedSha` (the commit
+   that round reviewed, null when there is none), `rounds` (each round's
+   `recordedAt`), `skipped` and `confirmed`. `round: 0` means the board
+   has no record of an earlier round: this pass is round 2 when a file
+   exists at `--report`, since a prior review is in hand, else round 1.
+2. **Collect your earlier threads.** From the `mr_threads {mrUrl,
+   refresh: true} (re-review)` result (the domain skill reads them
+   itself), keep every thread that can be resolved, is not resolved, and
+   whose first note this pane's account wrote. Leave out the board's own
+   latch thread (its first note's first line is an HTML comment naming
+   `mattstack:board re-review-latch`), other reviewers' threads, and any
+   thread whose id is in `confirmed`. Each thread's `round` is
+   the highest `rounds` entry whose `recordedAt` is at or before the
+   thread's first note; 1 when none is.
+3. **Hand the round to the review.** Give the review (the domain skill,
+   or `Review the MR yourself`) the earlier threads, `reviewedSha` and
+   the round number, with the framing: judge each earlier thread, then
+   find what is new. With no earlier threads, say so explicitly in the
+   report's summary line; the pass is then a full review.
+
+A read that exits nonzero (no board db, no state row for `<state>`)
+reads as `round: 0` with nothing confirmed: quote its stderr in the pane
+and go on. On the domain path the domain skill makes the thread read,
+so step 2 travels to it as the rule that picks the threads, with the
+`rounds` list and the `confirmed` ids (`Delegate the review to the
+domain skill`).
 
 Everything else (status writes, saving the report to `--report`, the gate)
 is the same: a re-review is still a review.
@@ -1600,7 +1784,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.7 path=attachments/gate-protocol/SKILL.md lines=7-452 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.9 path=attachments/gate-protocol/SKILL.md lines=7-454 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act
@@ -1960,6 +2144,7 @@ path. The key is both the discriminant and the version:
 | `replies@1` | a replies question's `context` (the retired respond-post shape; renderers still read gates opened with it) | `replies[]`, each `thread`, `file`, `verb`, `text` | `sha` per entry |
 | `review@1` | a review-post gate's `context` | `readiness`, `summary`, `findings` (counts by severity) | `reviewer`, `round`, `re_review` (absent reads false), `prior` (`{addressed, still_open}`, both required) |
 | `findings@1` | each `findings-*` question's `context` | `findings[]`, each `id`, `severity`, `title`, `body` | `file`, `fix`, `evidence`, `disposition` per entry |
+| `carryover@1` | a review-post gate's `thread-<n>` question's `context`, one question per earlier thread, each its own question and never a chunk of one. The question is `multi` with exactly two options, `post:<thread>` and `resolve:<thread>`; an option label ending ` (recommended)` is a default. An answer is the picked values, or `{value: [...], text}` when the human edited the reply, and `text` replaces `reply` | `thread`, `round`, `call` (`fixed`, `not-fixed`, `pushback-accepted` or `pushback-rejected`), `original`, `reply` | `file` (the thread's anchor), `authorReply`, `note` |
 
 - Enums: `severity` is `blocking | non-blocking | question | none`;
   `verdict.call` is `valid | valid-low-value | pushback |
@@ -1968,7 +2153,8 @@ path. The key is both the discriminant and the version:
   posts); `verb` is `reply | fix`, and `sha` rides only a `fix`.
   `readiness` is `yes | no | with-fixes`, hyphenated; a `findings@1`
   entry's `severity` is `critical | important | minor` and its
-  `disposition` (re-review only) is `new | still-open | addressed-check`;
+  `disposition` is `new` on a re-review, or absent (`still-open` and
+  `addressed-check` are read, never written);
   a severity with no findings may omit its count, and absent reads 0.
 - A `thread@1` question's `label` is the thread's `file:line`, and its
   ordinal is its position among the gate's `thread-*` questions. The

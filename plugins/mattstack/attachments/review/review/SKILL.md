@@ -84,6 +84,9 @@ digraph review {
     "Review target answer?" [shape=diamond];
     "Own review run: record the target?" [shape=diamond];
     "Record the review target: mr, branch and any ticket" [shape=box];
+    "Caller framed a re-review?" [shape=diamond];
+    "Take the earlier threads the caller handed in" [shape=box];
+    "Earlier threads in hand?" [shape=diamond];
 
     "Print the review depth block" [shape=box];
     "Review diff forge?" [shape=diamond];
@@ -227,8 +230,13 @@ digraph review {
     "Review clarify rounds = 2?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="yes: hold, naming what was tried"];
     "Review target answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
     "Own review run: record the target?" -> "Record the review target: mr, branch and any ticket" [label="yes"];
-    "Own review run: record the target?" -> "Print the review depth block" [label="no: inherited"];
-    "Record the review target: mr, branch and any ticket" -> "Print the review depth block";
+    "Own review run: record the target?" -> "Caller framed a re-review?" [label="no: inherited"];
+    "Record the review target: mr, branch and any ticket" -> "Caller framed a re-review?";
+    "Caller framed a re-review?" -> "Take the earlier threads the caller handed in" [label="yes"];
+    "Caller framed a re-review?" -> "Print the review depth block" [label="no: a first review"];
+    "Take the earlier threads the caller handed in" -> "Earlier threads in hand?";
+    "Earlier threads in hand?" -> "Print the review depth block" [label="yes, or none to judge"];
+    "Earlier threads in hand?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="no: the thread read errored; hold, quoting its text"];
 
     "Print the review depth block" -> "Review diff forge?";
     "Review diff forge?" -> "gh pr diff <ref>" [label="GitHub"];
@@ -281,7 +289,7 @@ digraph review {
     "Caller owns the review gates?" -> "Hand back the severity line and the open's paths" [label="yes: a board wrapper said so"];
     "Caller owns the review gates?" -> "Gate review-post: open the posting gate from review-post.open.json" [label="no: direct run"];
     "Hand back the severity line and the open's paths" -> "Review caller's answer?";
-    "Review caller's answer?" -> "Review posting forge?" [label="{findings, outcome}"];
+    "Review caller's answer?" -> "Review posting forge?" [label="{findings, outcome}, with replies on a re-review"];
     "Review caller's answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
     "Gate review-post: open the posting gate from review-post.open.json" -> "Review-post next answer?";
     "Gate review-post, legacy: tiers, outcome and next" -> "Review-post next answer?";
@@ -452,6 +460,41 @@ MR or PR URL; `key: branch`, value its source branch; and, only when the
 MR or PR itself names a ticket, `key: ticket`, value that id. Never guess
 a ticket id the target does not carry.
 
+### Caller framed a re-review?
+
+Yes when the caller says this pass is a re-review of a change already
+reviewed; a review typed by hand, or a caller that says nothing of an
+earlier round, is a first review.
+
+### Take the earlier threads the caller handed in
+
+A re-review judges two things, in this order: what became of the
+reviewer's earlier threads, then what is new. The caller hands in the
+earlier threads (each with its `discussionId`, anchor, `round`, the
+reviewer's first note and the author's replies), the commit the last
+round reviewed, and the round number. For each thread, read the code at
+the MR head and make one of the four calls the structured findings file
+names, with a one-line note of what was checked and a reply to post.
+Then hunt for new issues, weighting the diff since the last reviewed
+commit (`git diff <last reviewed sha>..HEAD`) while still reading the
+whole change. With no earlier threads handed in, the pass is a full
+review framed as a re-review, and `threads` is empty.
+
+A caller may hand in the rule that picks the threads (which ones count,
+and the `round` each one gets) in place of the threads themselves. Then
+this step reads them, `mr_threads {mrUrl, refresh: true}`, and keeps
+exactly what the rule picks. A read that errors answers no at `Earlier
+threads in hand?`: a hold whose reason quotes the error.
+
+This step takes the inputs in and judges nothing yet: both judgments
+form after the depth block, in the fresh reviewer's context, like every
+judgment in this verb (`Dispatch the fresh reviewer; it forms the
+findings`). `HEAD` above is the MR head:
+the fetched `origin/mr-<iid>` (`origin/pr-<n>` on GitHub) when no
+MR-head checkout is in hand. With no last reviewed commit, or one the
+fetch does not have, the whole change is what changed. Each thread's
+reply is drafted in the writing style from its call and note.
+
 ### Print the review depth block
 
 The review flow's "Commit to a review depth" below is this step, and its
@@ -500,12 +543,18 @@ payload. The findings form in that fresh context, never here. The fresh
 reviewer has the same tools and makes any `gitlab_get` read itself when it
 needs a fact, as in "Reading a GitLab fact no read tool returns".
 
+On a re-review the payload also carries the earlier threads and the last
+reviewed commit, as one block after the standard blocks, asking for each
+thread's call and one-line note ahead of the Strengths, and for findings
+on new issues only.
+
 ### Assemble the review draft
 
 The review flow's "Assemble the draft": Strengths / Issues (Critical /
-Important / Minor, each `file:line`, what, why, fix) / Assessment. On a
-second round, keep the round-one findings that verified and take the
-re-dispatch's answer for the rest.
+Important / Minor, each `file:line`, what, why, fix) / Assessment, with
+Earlier threads first on a re-review (each thread's call, note and the
+reply drafted for it). On a second round, keep the round-one findings
+that verified and take the re-dispatch's answer for the rest.
 
 ### Verify each blocking finding against the MR head
 
@@ -570,7 +619,7 @@ from then on: each tool call is a fresh shell. Write
 | Field | Filled from |
 |---|---|
 | `target` | the MR/PR reference as its forge writes it: `!<iid>` or `#<number>` |
-| `reviewer`, `round` | only when the caller supplies them; otherwise omit the key |
+| `reviewer`, `round` | only when the caller supplies them; otherwise omit the key. On a re-review the caller supplies `round`. |
 | `outcome` label | `Verdict on <target>: ` plus a clause composed from the json's `summary`, never either field verbatim: readiness `yes` reads "ready to merge"; `with-fixes` or `no` reads "not ready" or "ready once <the gist of the reasoning>" |
 | `outcome` options | `comment` and `approve`, each described by what picking it does for this review. `request_changes` joins them only when this verb runs the gate itself and the target is on GitHub (`gh pr review --request-changes`); rt's GitLab MR tools have no Request changes. The recommendation goes FIRST, its label ending ` (recommended)`: `approve` when readiness is `yes`, else `comment` |
 | `next` | only when this verb runs the gate itself; a caller that owns the gates navigates on its own, so omit the question |
@@ -585,8 +634,10 @@ sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" fit < <dir>/review-post.source.json
 `review-source.sh` turns every finding into a `findings-<n>` option (tier
 order, four per question) whose label and description are the recipe
 older board renderers parse, and gives each question its findings in full
-as context. The output file IS the open: its `.context` and `.questions`
-go to the gate verbatim, fitted to the shared budget. A report json from
+as context. Ahead of those, each entry of the report's `threads` becomes
+its own `thread-<n>` question (the gate protocol's `carryover@1`). The
+output file IS the open: its `.context` and `.questions` go to the gate
+verbatim, fitted to the shared budget. A report json from
 before version 2 carries no bodies, so fit opens it as prose on its own;
 that is correct, not an error. Never hand-edit the open, and never shorten
 a body to make it fit. Exit 1 names a field to fix; exit 2 goes straight
@@ -601,10 +652,12 @@ the report json where it drifted from the draft. Fix exactly that, once.
 ### Hand back the severity line and the open's paths
 
 A caller that owns the gates (a board wrapper; it says so when it
-delegates) gets no gate from this verb. Hand back the severity line and
-the absolute paths of `<dir>/review-post.open.json` (its source sits
+delegates) gets no gate from this verb. Hand back the severity line, the
+absolute paths of `<dir>/review-post.open.json` (its source sits
 beside it as `review-post.source.json`) and of the `gate-ctx.sh` that
-fitted it, then wait for its `{findings, outcome}` or its hold.
+fitted it, and on GitLab the MR head sha this review read (`mr_view`'s
+`mr.sha`), then wait for its `{findings, outcome}` (with `replies` on a
+re-review) or its hold.
 `"fits": false` means even the prose is over the shared budget, and the
 caller has no daemon to drop contexts for it: drop whole question contexts
 largest first yourself and say so in the hand-back.
@@ -621,10 +674,11 @@ loudly. On the in-pane form (gate-protocol's `presentation: "form"`
 branch) the form never shows the JSON: run `sh
 "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" prose <
 <dir>/review-post.source.json`, show its `.context` in the pane before the
-first form call, and make each `findings-<n>` question's form text its
-label, a newline, then its prose `context`; options keep the gate's
-labels and descriptions. Ask in gate order, up to four questions per call,
-then submit exactly ONE `gate_answer` carrying every question. The gate
+first form call, and make each `thread-<n>` and `findings-<n>` question's
+form text its label, a newline, then its prose `context`; options keep
+the gate's labels and descriptions. Ask in gate order, up to four
+questions per call, then submit exactly ONE `gate_answer` carrying every
+question. The gate
 protocol records nothing for this gate: the `run_decision` node after
 posting is its record.
 
@@ -673,9 +727,18 @@ finding that has both `file` and `line`: `{body, path, line}`, `body` the
 finding as the summary would state it (tier, title, what to change).
 `summary` is the review-posting summary, its issue list holding every
 selected finding with no `file` or no `line`. `outcome` is the
-disposition: `comment` or `approve`. `replies` is empty on a first review.
-A review carries at most 100 comments and replies in total; past that,
-the lowest-tier anchored findings go in the summary's issue list instead.
+disposition: `comment` or `approve`. A review carries at most 100
+comments and replies in total; past that, the lowest-tier anchored
+findings go in the summary's issue list instead.
+
+`replies` is built from the gate's `thread-<n>` answers, one entry per
+thread whose answer picked anything: `discussionId` from the option value
+after `post:` or `resolve:`; `resolve` true when `resolve:<id>` was
+picked; `body` present only when `post:<id>` was picked, and then the
+answer's `text` when it carries one (the human edited the reply), else
+the report json's `reply` for that thread. A thread whose answer picked
+neither option gets no entry. A caller that decided the selection hands
+`replies` in already built; they go in unchanged.
 
 ### Move the bad-anchor findings into the summary
 
@@ -796,15 +859,19 @@ the turn.
   demoted draft's own, before any selection narrows what posts.
 - A caller's decided selection is `{findings, outcome}` (findings naming
   finding ids from the report json, outcome the disposition), or from an
-  unmigrated caller the legacy `{tiers, outcome}`. Use the decider the
-  caller names alongside it.
+  unmigrated caller the legacy `{tiers, outcome}`. On a re-review it may
+  also carry `replies`, already in the submit's shape; posting hands them
+  through unchanged. Use the decider the caller names alongside it.
 - Posting runs per review-posting below, handed `{findings: <ids>,
   disposition: <outcome>}`: `<ids>` is the union of every `findings-<n>`
   answer (unwrap a `{value, note}` object to its value), empty when the
   gate carried none, and `<outcome>` the answered value, already in
   posting's vocabulary (`comment`, `approve`, `request_changes`). A
   tier-shaped selection, or a `tiers` answer, passes as legacy `{levels:
-  <tiers>, disposition: <outcome>}`, which posting accepts unchanged.
+  <tiers>, disposition: <outcome>}`, which posting accepts unchanged. On
+  a re-review `replies` rides along: the caller's as handed, else built
+  from the `thread-<n>` answers as `Compose the submitted review:
+  comments, summary, outcome` says.
 - The post record's `selection` is that same object (for example
   `{"findings": ["f1", "f3"], "disposition": "comment"}`); `decidedBy`
   names the surface that actually answered (`board`, `console`, `pane`, or
