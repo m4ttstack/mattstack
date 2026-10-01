@@ -380,7 +380,7 @@ describe("runApplyWith: a settings share tip is the step's own log line", () => 
       const logs = events.filter((e) => e.event === "log");
       expect(logs).toHaveLength(1);
       expect(logs[0]).toMatchObject({ event: "log", id: "board.keys" });
-      expect((logs[0] as { line: string }).line).toContain(`saved "chat.humanHandle"`);
+      expect((logs[0] as { line: string }).line).toContain("Saved chat.humanHandle");
       expect(stderr).toEqual([]);
     } finally {
       console.error = origError;
