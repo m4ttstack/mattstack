@@ -6,7 +6,10 @@ import type { SkillsComposition } from '../../../outline';
 import {
   buildFocusGroups,
   findFocus,
+  firstFocus,
   onlyAttention,
+  pipelineOf,
+  workTypeOf,
   type FocusItem,
 } from '../focusModel';
 
@@ -218,5 +221,45 @@ describe('findFocus', () => {
   it('answers null for the unwired list and an unknown key', () => {
     expect(findFocus(groups, 'unwired')).toBeNull();
     expect(findFocus(groups, 'nope')).toBeNull();
+  });
+});
+
+describe('firstFocus', () => {
+  it('starts on the first pipeline', () => {
+    expect(firstFocus(buildFocusGroups(composition, check))?.key).toBe(
+      'pipeline:feature'
+    );
+  });
+
+  it('starts on the first on-demand verb when the pack declares no pipeline', () => {
+    const groups = buildFocusGroups(
+      { ...composition, pipelines: {} } as SkillsComposition,
+      check
+    );
+    expect(firstFocus(groups)?.key).toBe(groups.onDemand[0]!.key);
+  });
+});
+
+describe('pipelineOf', () => {
+  const groups = buildFocusGroups(composition, check);
+
+  it('answers the pipeline for itself and for each of its steps', () => {
+    expect(pipelineOf(groups, groups.pipelines[0]!)?.key).toBe(
+      'pipeline:feature'
+    );
+    expect(pipelineOf(groups, findFocus(groups, 'stage-plan')!)?.key).toBe(
+      'pipeline:feature'
+    );
+  });
+
+  it('answers null for a verb outside the pipeline', () => {
+    expect(pipelineOf(groups, findFocus(groups, 'shepherdr')!)).toBeNull();
+  });
+});
+
+describe('workTypeOf', () => {
+  it('reads the work type out of a pipeline key and nothing else', () => {
+    expect(workTypeOf('pipeline:feature')).toBe('feature');
+    expect(workTypeOf('stage-plan')).toBeNull();
   });
 });

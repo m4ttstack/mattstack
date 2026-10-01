@@ -64,3 +64,11 @@ task, never left silent.
 - Select chevron and dropdown shadow: Mantine `Select`.
 - Badge and Alert padding: Mantine defaults.
 - SegmentedControl track: Mantine `SegmentedControl`.
+- Wiring tab bar: `PageShell.TabBar` sits in `PageShell.Main` beside the sidebar, not above it, because only `PageShell.TabBar` takes the page title and actions; the kit's root-level tab bar takes neither.
+- Focus list box, surface and right border: the kit's `PageShell.Sidebar` draws them (216 wide with its border, the sidebar surface, and a height set by the kit's app bar and tab bar row), so the list root paints nothing and the bottom-pinned Unwired row sits as many pixels lower as the kit's sidebar is taller.
+- Focus list label type: the kit theme's `NavLink` size (`fz="sm"`), so each label is shorter than the board's 12 and 13px text and sits up to 1.5px off.
+- Focus list active row: the kit's `NavLink` light variant in `accent` (a solid tint step and its label colour), not the board's 10% accent wash and accent text.
+- Unwired row rule: a Mantine `Divider` above the row, so the rule is its own element rather than the row's top border.
+- Focus header title: the kit's `Title order={3}`, smaller than the board's 20px, which moves the kind badge left and the description up by about 1px.
+- Focus header badges: Mantine `Badge` at its default size (20px tall, its own type), not the board's 17px pills.
+- Focus header kind and in-sync badges: Mantine `Badge variant="default"` (card fill, kit border, default label colour). The gray light variant the board's fill suggests is the stage colour itself in both schemes and vanishes on the canvas.

@@ -1,3 +1,5 @@
+import '../../icons';
+
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { screen, waitFor, within } from '@testing-library/react';
@@ -7,11 +9,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const packsGet = vi.fn();
 const compositionGet = vi.fn();
 const checkGet = vi.fn();
-const compileGet = vi.fn();
-const historyGet = vi.fn();
+const anatomyGet = vi.fn();
+const changesGet = vi.fn();
 const surfaceGet = vi.fn();
-const surfaceApplyPost = vi.fn();
-const bindPost = vi.fn();
 
 vi.mock('../../api', () => ({
   client: {
@@ -20,15 +20,11 @@ vi.mock('../../api', () => ({
         packs: { $get: (...args: unknown[]) => packsGet(...args) },
         composition: { $get: (...args: unknown[]) => compositionGet(...args) },
         check: { $get: (...args: unknown[]) => checkGet(...args) },
+        anatomy: { $get: (...args: unknown[]) => anatomyGet(...args) },
+        changes: { $get: (...args: unknown[]) => changesGet(...args) },
         surface: {
           $get: (...args: unknown[]) => surfaceGet(...args),
-          apply: { $post: (...args: unknown[]) => surfaceApplyPost(...args) },
-        },
-        bind: { $post: (...args: unknown[]) => bindPost(...args) },
-        compile: { $get: (...args: unknown[]) => compileGet(...args) },
-        history: { $get: (...args: unknown[]) => historyGet(...args) },
-        diff: {
-          $get: () => Promise.resolve({ ok: true, json: async () => ({}) }),
+          apply: { $post: vi.fn() },
         },
       },
     },
@@ -56,8 +52,7 @@ const COMPOSITION = {
       artifactPath: '/p/skills/work',
       slots: [],
     },
-    // Bound by a `verb` binder outside the pipeline -- Group 1 on the
-    // On-demand tab, so that tab has content to show once selected.
+    // Bound by a `verb` binder outside the pipeline: an on-demand verb.
     {
       name: 'review',
       engine: 'review',
@@ -116,6 +111,22 @@ function mockHappyPath() {
   compositionGet.mockResolvedValue(ok(COMPOSITION));
   checkGet.mockResolvedValue(ok(CHECK));
   surfaceGet.mockResolvedValue(ok(SURFACE));
+  anatomyGet.mockResolvedValue({
+    ok: false,
+    status: 404,
+    json: async () => ({ error: 'no anatomy in this fixture' }),
+  });
+  changesGet.mockResolvedValue(
+    ok({
+      pack: 'demo',
+      packDir: '/p',
+      dirty: false,
+      files: [],
+      outsideScope: [],
+      bindings: [],
+      surface: [],
+    })
+  );
 }
 
 afterEach(() => {
@@ -124,26 +135,20 @@ afterEach(() => {
 });
 
 describe('WiringMap: top-level tabs', () => {
-  it('renders Pipeline / On-demand / Surface / Health, in that order, with Pipeline active by default', async () => {
+  it('renders Graph / Surface / Health, in that order, with Graph active by default', async () => {
     mockHappyPath();
     renderWiring();
 
-    await screen.findByTestId('wiring-timeline');
+    await screen.findByTestId('focus-list');
 
     expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual([
-      'Pipeline',
-      'On-demand',
+      'Graph',
       'Surface',
       expect.stringMatching(/^Health/),
     ]);
-
-    expect(screen.getByRole('tab', { name: 'Pipeline' })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: 'Graph' })).toHaveAttribute(
       'aria-selected',
       'true'
-    );
-    expect(screen.getByRole('tab', { name: 'On-demand' })).toHaveAttribute(
-      'aria-selected',
-      'false'
     );
     expect(screen.getByRole('tab', { name: /^Surface/ })).toHaveAttribute(
       'aria-selected',
@@ -155,75 +160,46 @@ describe('WiringMap: top-level tabs', () => {
     );
   });
 
-  it('the Pipeline tab no longer renders the retired "Not run by this pipeline" section', async () => {
-    mockHappyPath();
-    renderWiring();
-
-    await screen.findByTestId('wiring-timeline');
-
-    expect(
-      screen.queryByTestId('outside-the-pipeline')
-    ).not.toBeInTheDocument();
-    expect(screen.queryByTestId('offpipe-toggle')).not.toBeInTheDocument();
-  });
-
-  it('clicking On-demand hides the pipeline spine and shows Group 1 verbs', async () => {
-    mockHappyPath();
-    const user = userEvent.setup();
-    renderWiring();
-
-    await screen.findByTestId('wiring-timeline');
-
-    await user.click(screen.getByRole('tab', { name: 'On-demand' }));
-
-    expect(screen.queryByTestId('wiring-timeline')).not.toBeInTheDocument();
-    const view = await screen.findByTestId('ondemand-split');
-    expect(
-      within(view).getByTestId('skill-row-mattstack:review')
-    ).toBeInTheDocument();
-  });
-
   it('shows the attention count as a badge on the Health tab', async () => {
     mockHappyPath();
     renderWiring();
 
-    await screen.findByTestId('wiring-timeline');
+    await screen.findByTestId('focus-list');
 
     expect(await screen.findByTestId('health-tab-count')).toHaveTextContent(
       '1'
     );
   });
 
-  it('clicking Health hides the spine and shows the Health panel', async () => {
+  it('clicking Health hides the focus list and shows the Health panel', async () => {
     mockHappyPath();
     const user = userEvent.setup();
     renderWiring();
 
-    await screen.findByTestId('wiring-timeline');
+    await screen.findByTestId('focus-list');
 
     await user.click(screen.getByRole('tab', { name: /^Health/ }));
 
-    expect(screen.queryByTestId('wiring-timeline')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('focus-list')).not.toBeInTheDocument();
     const health = await screen.findByTestId('health-tab');
-    // CHECK's one verb ('work') is stale -- the real Health tab should show
-    // it in the "Recompile needed" group rather than the old placeholder copy.
+    // CHECK's one verb ('work') is stale, so it sits in "Recompile needed".
     expect(health).toHaveTextContent('1');
     expect(
       screen.getByTestId('health-group-recompile-needed')
     ).toBeInTheDocument();
   });
 
-  it('clicking Surface hides the spine and shows the roster inline', async () => {
+  it('clicking Surface hides the focus list and shows the roster inline', async () => {
     mockHappyPath();
     const user = userEvent.setup();
     renderWiring();
 
-    await screen.findByTestId('wiring-timeline');
+    await screen.findByTestId('focus-list');
     expect(surfaceGet).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('tab', { name: /^Surface/ }));
 
-    expect(screen.queryByTestId('wiring-timeline')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('focus-list')).not.toBeInTheDocument();
     const roster = await screen.findByTestId('surface-tab');
     await waitFor(() =>
       expect(surfaceGet).toHaveBeenCalledWith(
@@ -233,37 +209,43 @@ describe('WiringMap: top-level tabs', () => {
     expect(roster).toHaveTextContent('Public skills can be invoked by name');
   });
 
-  it('opening a Health row switches to Pipeline and opens that skill in the panel', async () => {
+  it('opening a Health row switches to Graph with that skill in focus', async () => {
     mockHappyPath();
     const user = userEvent.setup();
     renderWiring();
 
-    await screen.findByTestId('wiring-timeline');
+    await screen.findByTestId('focus-list');
     await user.click(screen.getByRole('tab', { name: /^Health/ }));
     await screen.findByTestId('health-tab');
 
     await user.click(screen.getByTestId('health-row-mattstack:work'));
 
-    expect(screen.getByRole('tab', { name: 'Pipeline' })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: 'Graph' })).toHaveAttribute(
       'aria-selected',
       'true'
     );
-    expect(await screen.findByTestId('wiring-split')).toBeInTheDocument();
-    expect(screen.getByTestId('compact-spine-header')).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get('focus')).toBe(
+      'work'
+    );
+    expect(
+      within(await screen.findByTestId('focus-list')).getByTestId(
+        'focus-pipeline:feature'
+      )
+    ).toHaveAttribute('data-active');
   });
 
-  it('returns to the spine when Pipeline is clicked again', async () => {
+  it('returns to the focus list when Graph is clicked again', async () => {
     mockHappyPath();
     const user = userEvent.setup();
     renderWiring();
 
-    await screen.findByTestId('wiring-timeline');
+    await screen.findByTestId('focus-list');
     await user.click(screen.getByRole('tab', { name: /^Health/ }));
     await screen.findByTestId('health-tab');
 
-    await user.click(screen.getByRole('tab', { name: 'Pipeline' }));
+    await user.click(screen.getByRole('tab', { name: 'Graph' }));
 
-    expect(await screen.findByTestId('wiring-timeline')).toBeInTheDocument();
+    expect(await screen.findByTestId('focus-list')).toBeInTheDocument();
     expect(screen.queryByTestId('health-tab')).not.toBeInTheDocument();
   });
 });

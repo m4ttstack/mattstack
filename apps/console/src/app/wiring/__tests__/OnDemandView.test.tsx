@@ -1,6 +1,7 @@
+import { LazyLoader } from '@mattstack/app-kit/core';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,6 +9,7 @@ const packsGet = vi.fn();
 const compositionGet = vi.fn();
 const checkGet = vi.fn();
 const bindPost = vi.fn();
+const compileGet = vi.fn();
 
 vi.mock('../../api', () => ({
   client: {
@@ -23,14 +25,7 @@ vi.mock('../../api', () => ({
           },
         },
         bind: { $post: (...args: unknown[]) => bindPost(...args) },
-        compile: {
-          $get: () =>
-            Promise.resolve({
-              ok: false,
-              status: 502,
-              json: async () => ({ error: 'not used' }),
-            }),
-        },
+        compile: { $get: (...args: unknown[]) => compileGet(...args) },
         history: {
           $get: () => Promise.resolve({ ok: true, json: async () => ({}) }),
         },
@@ -42,7 +37,7 @@ vi.mock('../../api', () => ({
   },
 }));
 
-const { WiringMap } = await import('../WiringMap');
+const { OnDemandView } = await import('../OnDemandView');
 
 function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json };
@@ -165,18 +160,27 @@ const CHECK = {
   ],
 };
 
-function renderWiring() {
+const goToHealth = vi.fn();
+
+function renderOnDemand() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return renderWithProviders(
     <QueryClientProvider client={queryClient}>
-      <WiringMap />
+      <LazyLoader>
+        <OnDemandView pack="demo" workType={null} onGoToHealth={goToHealth} />
+      </LazyLoader>
     </QueryClientProvider>
   );
 }
 
 function mockHappyPath() {
+  compileGet.mockResolvedValue({
+    ok: false,
+    status: 502,
+    json: async () => ({ error: 'not used' }),
+  });
   packsGet.mockResolvedValue(
     ok({ packs: [{ name: 'demo', dir: '/p', layout: 'flat' }] })
   );
@@ -184,10 +188,8 @@ function mockHappyPath() {
   checkGet.mockResolvedValue(ok(CHECK));
 }
 
-async function openOnDemandTab(user: ReturnType<typeof userEvent.setup>) {
-  renderWiring();
-  await screen.findByTestId('wiring-timeline');
-  await user.click(screen.getByRole('tab', { name: 'On-demand' }));
+async function openOnDemandTab() {
+  renderOnDemand();
   return screen.findByTestId('ondemand-split');
 }
 
@@ -199,8 +201,7 @@ afterEach(() => {
 describe('OnDemandView: Group 1 (invocable verbs)', () => {
   it('lists watch-ci and hides the unwired and external rows', async () => {
     mockHappyPath();
-    const user = userEvent.setup();
-    const view = await openOnDemandTab(user);
+    const view = await openOnDemandTab();
 
     expect(
       within(view).getByTestId('skill-row-mattstack:watch-ci')
@@ -216,7 +217,7 @@ describe('OnDemandView: Group 1 (invocable verbs)', () => {
   it('opens the same detail panel a pipeline row opens', async () => {
     mockHappyPath();
     const user = userEvent.setup();
-    await openOnDemandTab(user);
+    await openOnDemandTab();
 
     await user.click(
       await screen.findByRole('button', { name: 'open watch-ci' })
@@ -229,7 +230,7 @@ describe('OnDemandView: Group 1 (invocable verbs)', () => {
   it('shows every slot open, with the fill and how many sites bind it', async () => {
     mockHappyPath();
     const user = userEvent.setup();
-    await openOnDemandTab(user);
+    await openOnDemandTab();
 
     await user.click(
       await screen.findByRole('button', { name: 'open watch-ci' })
@@ -247,7 +248,7 @@ describe('OnDemandView: Group 1 (invocable verbs)', () => {
 
 describe('OnDemandView: the inverse index (Used-by tab)', () => {
   async function openWatchCiUsedBy(user: ReturnType<typeof userEvent.setup>) {
-    await openOnDemandTab(user);
+    await openOnDemandTab();
     await user.click(
       await screen.findByRole('button', { name: 'open watch-ci' })
     );
@@ -301,7 +302,7 @@ describe('OnDemandView: wiring the deferred surfaces', () => {
   it("opens Rebind inline from a bound slot's rebind action, scoped to that verb and slot", async () => {
     mockHappyPath();
     const user = userEvent.setup();
-    await openOnDemandTab(user);
+    await openOnDemandTab();
 
     await user.click(
       await screen.findByRole('button', { name: 'open watch-ci' })
@@ -317,11 +318,83 @@ describe('OnDemandView: wiring the deferred surfaces', () => {
   });
 });
 
+describe('OnDemandView: copying the agent context', () => {
+  const COMPILED = ok({
+    content:
+      '<!-- part: step source=mattstack:watch-ci version=0.8.0 path=a/SKILL.md lines=1-2 -->\n\n# watch-ci',
+  });
+
+  async function copyFromPanel(user: ReturnType<typeof userEvent.setup>) {
+    await openOnDemandTab();
+    await user.click(
+      await screen.findByRole('button', { name: 'open watch-ci' })
+    );
+    const panel = await screen.findByTestId('skill-detail-panel');
+    await user.click(within(panel).getByTestId('copy-agent-context'));
+  }
+
+  function stubClipboard(writeText: ReturnType<typeof vi.fn>) {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+  }
+
+  it('builds it from the real composition entry and its seams', async () => {
+    mockHappyPath();
+    compileGet.mockResolvedValue(COMPILED);
+    const user = userEvent.setup();
+    // After `userEvent.setup()`, which installs a clipboard stub of its own.
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    stubClipboard(writeText);
+
+    await copyFromPanel(user);
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const copied = writeText.mock.calls[0][0] as string;
+    expect(copied).toContain('Verb: watch-ci');
+    expect(copied).toContain('Engine: mattstack:watch-ci');
+    expect(copied).toContain('domain -> demo:watch-ci-domain');
+    // The seam resolves through the verb's own `sourcePath`, not the seam's
+    // bare plugin-relative `path`.
+    expect(copied).toContain(
+      '/plugins/mattstack/skills/pipeline/watch-ci/SKILL.md:1-2'
+    );
+  });
+
+  it('surfaces a failed compile preview fetch instead of a silent no-op', async () => {
+    mockHappyPath();
+    compileGet.mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({ error: 'rt exited nonzero' }),
+    });
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    stubClipboard(writeText);
+
+    await copyFromPanel(user);
+
+    await screen.findByText(/rt exited nonzero/);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a clipboard write rejection instead of a silent no-op', async () => {
+    mockHappyPath();
+    compileGet.mockResolvedValue(COMPILED);
+    const user = userEvent.setup();
+    stubClipboard(vi.fn().mockRejectedValue(new Error('denied')));
+
+    await copyFromPanel(user);
+
+    await screen.findByText(/denied/);
+  });
+});
+
 describe('OnDemandView: Group 2 (another plugin)', () => {
   it('names the external plugin as a muted footnote, not a peer row', async () => {
     mockHappyPath();
-    const user = userEvent.setup();
-    const view = await openOnDemandTab(user);
+    const view = await openOnDemandTab();
 
     expect(
       within(view).getByTestId('ondemand-external-footnote')
@@ -332,8 +405,7 @@ describe('OnDemandView: Group 2 (another plugin)', () => {
 describe('OnDemandView: Group 3 (unwired, a pointer to Health)', () => {
   it('counts the unwired verb and the orphaned fill, but not the stage-bound one', async () => {
     mockHappyPath();
-    const user = userEvent.setup();
-    const view = await openOnDemandTab(user);
+    const view = await openOnDemandTab();
 
     // `rebase-worktree` (unwired) + `demo:unused` (orphaned) = 2. The fill
     // bound by `watch-ci`/`stage-watch-ci` must not be double-counted in.
@@ -342,18 +414,14 @@ describe('OnDemandView: Group 3 (unwired, a pointer to Health)', () => {
     ).toHaveTextContent('2 unwired skills');
   });
 
-  it('switches to the Health tab on click', async () => {
+  it('asks for the Health tab on click', async () => {
     mockHappyPath();
     const user = userEvent.setup();
-    const view = await openOnDemandTab(user);
+    const view = await openOnDemandTab();
 
     await user.click(within(view).getByTestId('ondemand-unwired-pointer'));
 
-    expect(screen.getByRole('tab', { name: 'Pipeline' })).toHaveAttribute(
-      'aria-selected',
-      'false'
-    );
-    expect(await screen.findByTestId('health-tab')).toBeInTheDocument();
+    expect(goToHealth).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -375,8 +443,7 @@ describe('OnDemandView: empty state', () => {
     checkGet.mockResolvedValue(
       ok({ pack: 'demo', packDir: '/p', verbs: [CHECK.verbs[0]] })
     );
-    const user = userEvent.setup();
-    const view = await openOnDemandTab(user);
+    const view = await openOnDemandTab();
 
     expect(within(view).getByTestId('ondemand-empty')).toHaveTextContent(
       'No skills are invoked outside the pipeline.'

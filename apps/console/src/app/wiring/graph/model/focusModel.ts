@@ -188,3 +188,36 @@ export function findFocus(groups: FocusGroups, key: string): FocusItem | null {
     null
   );
 }
+
+/** What the canvas shows when the URL names no focus: the first pipeline,
+    else the first skill listed. */
+export function firstFocus(groups: FocusGroups): FocusItem | null {
+  return (
+    groups.pipelines[0] ??
+    groups.onDemand[0] ??
+    groups.board[0] ??
+    groups.unwired.items[0] ??
+    null
+  );
+}
+
+/** The pipeline an item is, or runs as a step of; null for anything else. */
+export function pipelineOf(
+  groups: FocusGroups,
+  item: FocusItem
+): FocusItem | null {
+  return (
+    groups.pipelines.find(
+      pipeline =>
+        pipeline.key === item.key ||
+        pipeline.children.some(child => child.key === item.key)
+    ) ?? null
+  );
+}
+
+/** `feature` for `pipeline:feature`; null for any other key. */
+export function workTypeOf(key: string): string | null {
+  return key.startsWith(PIPELINE_PREFIX)
+    ? key.slice(PIPELINE_PREFIX.length)
+    : null;
+}
