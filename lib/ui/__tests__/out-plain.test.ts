@@ -68,7 +68,7 @@ test("copy text sits on its own unindented line so it can be piped or pasted", (
 });
 
 test("paragraph, verbatim, changes, diff and banner", () => {
-  expect(renderPlain([{ t: "paragraph", text: "Two skills disagree." }])).toBe("Two skills disagree.\n");
+  expect(renderPlain([{ t: "paragraph", text: "Two skills disagree." }])).toBe("  Two skills disagree.\n");
   expect(renderPlain([{ t: "verbatim", caption: "value", lines: ["{", "}"] }])).toBe("value:\n  {\n  }\n");
   expect(renderPlain([{ t: "changes", changes: [{ op: "+", name: "review", hint: "now public" }, { op: "-", name: "triage" }] }])).toBe("+ review  now public\n- triage\n");
   expect(renderPlain([{ t: "diff", hunks: [{ header: "@@ -1 +1 @@", lines: [{ kind: "context", text: "a" }, { kind: "del", text: "b" }, { kind: "add", text: "c" }] }] }])).toBe(
@@ -114,7 +114,9 @@ test("line-oriented fields keep their lines, each inside the block prefix", () =
   expect(renderPlain([{ t: "verbatim", caption: "value", lines: ["a\nb", "c"] }])).toBe("value:\n  a\n  b\n  c\n");
   expect(renderPlain([{ t: "failure", title: "t", details: "one\ntwo" }])).toBe("[failed] t\n  one\n  two\n");
   expect(renderPlain([{ t: "copy", text: "l1\nl2" }])).toBe("l1\nl2\n");
-  expect(renderPlain([{ t: "paragraph", text: "p1\np2" }])).toBe("p1\np2\n");
+  expect(renderPlain([{ t: "paragraph", text: "p1\np2" }])).toBe("  p1\n  p2\n");
+  const forged = renderPlain([{ t: "paragraph", text: "note\n[ok] Setup complete" }]);
+  expect(forged.split("\n").some((l) => l.startsWith("[ok]"))).toBe(false);
 });
 
 test("no blocks render nothing, and the shared fixture renders without throwing", () => {

@@ -88,7 +88,7 @@ function render(blocks: Block[], out: string[]): void {
         out.push(`${TAG[b.status]} ${one(b.title)}${b.counts?.length ? `  ${b.counts.map(one).join(", ")}` : ""}`);
         break;
       case "paragraph":
-        out.push(...lines(b.text, ""));
+        out.push(...lines(b.text, "  "));
         break;
       case "copy":
         caption(out, b.caption);
@@ -121,7 +121,8 @@ function render(blocks: Block[], out: string[]): void {
 }
 
 // Text from a branch name or a child process must not repaint the terminal
-// when the fallback writes it raw. Newlines and tabs are kept.
+// when the fallback writes it raw. This strip leaves newlines and tabs alone;
+// single-line fields are collapsed separately by `one`.
 const ESCAPES = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
 const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
 
