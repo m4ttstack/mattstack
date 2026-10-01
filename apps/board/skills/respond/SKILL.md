@@ -19,7 +19,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=19-545 -->
+<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=19-547 -->
 # mr-board respond runner
 
 The mr-board spawned this pane to process the review feedback on ONE of your own
@@ -155,8 +155,10 @@ What the graph cannot show:
   mid-batch. So the done write is a call of its own, sent only after every
   other write of the run has returned: the domain skill's own close (under
   a run, its `run_stage` done and `run_status` done), the `--report`
-  append, and any MR update. A write sent in the same batch as the done
-  write is lost, and its run reads stale in the console.
+  writes, and every forge write (the domain skill's, or the generic path's
+  `git_push`, `mr_reply_thread` and `mr_resolve_thread`). A write sent in
+  the same batch as the done write is lost, and its run reads stale in the
+  console.
 
 ### Launch and resume (launch.md)
 

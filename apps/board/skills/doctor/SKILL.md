@@ -16,7 +16,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-565 -->
+<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-566 -->
 # mr-board doctor runner
 
 The board launched this pane because an MR has mechanical breakage (CI red
@@ -137,8 +137,9 @@ What the graph cannot show:
 - **The done write is the last call.** The board closes this pane's tab
   the moment `doctor-status <state> done` lands, which ends this session
   mid-batch. So the done write is a call of its own, sent only after every
-  other write of the run has returned: `ci_lease_release`, and any push or retry the run made. A write sent in the same
-  batch as the done write is lost.
+  other write of the run has returned: `ci_lease_release`, and any push,
+  rebase or retry the run made. A write sent in the same batch as the done
+  write is lost.
 - **Lease mode.** `Who holds the fresh lease (doctor)?` fixes the mode for
   the run: board mode (the board's `board:doctor:` owner holds it) or own
   mode (this session holds it). Every `Lease mode (...)?` diamond reads

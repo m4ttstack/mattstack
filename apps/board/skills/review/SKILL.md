@@ -20,7 +20,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-1578 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-1581 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -406,8 +406,11 @@ What the graph cannot show:
 - **The done write is the last call.** The board closes this pane's tab
   the moment `review-status <state> done` lands, which ends this session
   mid-batch. So the done write is a call of its own, sent only after every
-  other write of the run has returned: the domain skill's posting, `mr_approve`, the `--report` write, and under a run its `run_stage` done and `run_status` done. A write sent in the same
-  batch as the done write is lost.
+  other write of the run has returned: the posting (the domain skill's, or
+  this skill's own `mr_comment_inline` and `mr_comment`), `mr_approve`,
+  the `--report` write, and under a run the domain skill's `run_stage` done
+  and `run_status` done. A write sent in the same batch as the done write
+  is lost.
 - **Resumed entry.** `--resumed-gate <gateId>` means a human answered a
   gate an earlier pane on this MR opened and the board parked, and the
   board is replaying that answer into this pane. `--resumed-gate-kind`
