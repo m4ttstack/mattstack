@@ -60,6 +60,24 @@ test("a quiet log records the warning and never shows it", () => {
   expect(io.stderr()).toBe("");
 });
 
+test("the log never sees a credential in the message or the context", () => {
+  setWarningLog(log);
+  const url = "https://user:s3cret@example.invalid/x";
+  warn("sync", `could not reach ${url}`, { context: { remote: url, tries: [url], attempt: 2 } });
+  expect(logged).toEqual([
+    {
+      module: "sync",
+      message: "could not reach https://[redacted]@example.invalid/x",
+      context: { remote: "https://[redacted]@example.invalid/x", tries: ["https://[redacted]@example.invalid/x"], attempt: 2 },
+    },
+  ]);
+});
+
+test("with no log set, the stderr line carries no credential either", () => {
+  warn("sync", "could not reach https://user:s3cret@example.invalid/x");
+  expect(io.stderr()).toBe("rt: could not reach https://[redacted]@example.invalid/x\n");
+});
+
 test("a log that throws never breaks the caller", () => {
   setWarningLog(() => {
     throw new Error("disk full");

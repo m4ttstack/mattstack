@@ -7,6 +7,7 @@
  * warning is the plain stderr line it has always been, which the daemon's
  * stderr capture files where it belongs.
  */
+import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import { callout, line, note, type CellInput } from "./out.ts";
 
 export type WarningLog = (module: string, message: string, context: Record<string, unknown>) => void;
@@ -25,6 +26,22 @@ export interface WarnOptions {
   show?: ShownWarning;
 }
 
+// Mirrors redactDeep in lib/mcp/redact.ts, which is not imported here: every
+// CLI start loads this module, and that one pulls the whole daemon client.
+function redactDeep(value: unknown): unknown {
+  if (typeof value === "string") return redactCredentials(value);
+  if (Array.isArray(value)) return value.map(redactDeep);
+  if (value !== null && typeof value === "object" && typeof (value as { toJSON?: unknown }).toJSON === "function") {
+    return redactDeep((value as { toJSON: () => unknown }).toJSON());
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[redactCredentials(k)] = redactDeep(v);
+    return out;
+  }
+  return value;
+}
+
 let log: WarningLog | null = null;
 let quiet = false;
 const shown = new Set<string>();
@@ -36,12 +53,13 @@ export function setWarningLog(next: WarningLog | null, opts: { quiet?: boolean }
 }
 
 export function warn(module: string, message: string, opts: WarnOptions = {}): void {
+  const logged = redactCredentials(message);
   if (!log) {
-    process.stderr.write(`rt: ${message}\n`);
+    process.stderr.write(`rt: ${logged}\n`);
     return;
   }
   try {
-    log(module, message, opts.context ?? {});
+    log(module, logged, redactDeep(opts.context ?? {}) as Record<string, unknown>);
   } catch {
     /* a warning must never break the command that raised it */
   }
