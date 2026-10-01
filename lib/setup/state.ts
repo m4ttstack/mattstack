@@ -48,9 +48,9 @@ export interface LegacyFinishSignals {
  * and both are checked against lib/setup/fixtures/setup-finished.json.
  *
  * A file from before `finishedAt` (v1, or none at all) carries no Finish, so
- * it is judged by what the old app went on: a v1 file whose Install ran, or
- * a daemon installed with no setup in flight, reads finished. Anything that
- * is not a JSON object reads as empty.
+ * it is judged by what the old app went on: with no setup in flight, a v1
+ * file whose Install ran, or an installed daemon, reads finished. Anything
+ * that is not a JSON object reads as empty.
  */
 export function parseSetupState(raw: string | null, legacy: LegacyFinishSignals): SetupState {
   type Stored = Partial<Omit<SetupState, "v">> & { v?: unknown };
@@ -69,10 +69,24 @@ export function parseSetupState(raw: string | null, legacy: LegacyFinishSignals)
   // rather than leaving it undefined for every caller to guard against.
   const state: SetupState = { ...EMPTY_STATE, ...(parsed ?? {}), v: 2 };
   const version = typeof parsed?.v === "number" ? parsed.v : 1;
-  if (version >= 2 || isSetupFinished(state)) return state;
+  // A pending team choice means a run is mid-setup, and lastApplyAt is
+  // stamped by every run (a failed join, an --only retry, an update).
+  if (version >= 2 || isSetupFinished(state) || legacy.intentExists) return state;
   if (typeof state.lastApplyAt === "string" && state.lastApplyAt !== "") state.finishedAt = state.lastApplyAt;
-  else if (legacy.daemonInstalled && !legacy.intentExists) state.finishedAt = legacy.now().toISOString();
+  else if (legacy.daemonInstalled) state.finishedAt = legacy.now().toISOString();
   return state;
+}
+
+/** The `v` a stored file was written with; 1 for one that predates the field or is not a JSON object. */
+export function storedVersion(raw: string): number {
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return 1;
+    const v = (value as { v?: unknown }).v;
+    return typeof v === "number" ? v : 1;
+  } catch {
+    return 1;
+  }
 }
 
 export function readSetupState(p: StateProbes): SetupState {

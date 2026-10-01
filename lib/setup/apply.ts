@@ -20,7 +20,7 @@ import { realSecretPresence } from "./plan.ts";
 import { readPackRequirements, type PackRequirements } from "./requirements.ts";
 import { STEPS } from "./steps/index.ts";
 import { MIGRATIONS, migrationEventId, type MigrationDef } from "./migrations/index.ts";
-import { readSetupState, setupStatePath, updateSetupState } from "./state.ts";
+import { readSetupState, setupStatePath, storedVersion, updateSetupState } from "./state.ts";
 import { discoverTeams, readTeamSnapshot, type TeamSnapshot } from "./team-settings.ts";
 import type { SecretPresence } from "./validators/accounts.ts";
 
@@ -222,12 +222,14 @@ function persistTerminalState(ctx: ApplyContext, ok: boolean, lastRanId: EventId
 }
 
 /**
- * A Mac with a daemon and no setup files reads as a pre-app install that
- * finished (parseSetupState). That is written down before any step runs,
- * while a daemon on disk can only be one this run did not install.
+ * A state file from before `finishedAt` (v1, or none at all) is judged by the
+ * daemon and setup intent on disk (parseSetupState). That is written down
+ * before a run's first step or migration, while the daemon on disk can only
+ * be one this run did not install and the intent one it did not change.
  */
 function settleLegacyFinish(ctx: ApplyContext): void {
-  if (ctx.p.exists(setupStatePath(ctx.p.home))) return;
+  const raw = ctx.p.readFile(setupStatePath(ctx.p.home));
+  if (raw !== null && storedVersion(raw) >= 2) return;
   try {
     updateSetupState(ctx.p, (s) => s);
   } catch {
@@ -365,6 +367,7 @@ function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: read
  * not an install.
  */
 export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[], ctx: ApplyContext): Promise<UpdateRunResult> {
+  settleLegacyFinish(ctx);
   const items = updateItems(steps, migrations, readSetupState(ctx.p).migrations);
   ctx.emit({ event: "plan", steps: items.map((i) => ({ id: i.id, title: i.title, kind: "rt" as const })) });
 

@@ -19,17 +19,17 @@ public enum SetupCompletion {
     static func daemonPath(home: String) -> String { "\(home)/.mattstack/rt/daemon.json" }
 
     /// A file from before `finishedAt` (v1, or none at all) carries no Finish,
-    /// so it is judged by what the old app went on: a v1 file whose Install
-    /// ran, or a daemon installed with no setup in flight.
+    /// so it is judged by what the old app went on: with no setup in flight,
+    /// a v1 file whose Install ran, or an installed daemon. A pending team
+    /// choice means a run is mid-setup, and every run stamps lastApplyAt.
     public static func isFinished(stateJSON: Data?, daemonInstalled: Bool, intentExists: Bool) -> Bool {
-        let legacyDaemon = daemonInstalled && !intentExists
-        guard let stateJSON else { return legacyDaemon }
+        guard let stateJSON else { return daemonInstalled && !intentExists }
         guard let state = (try? JSONSerialization.jsonObject(with: stateJSON)) as? [String: Any] else { return false }
         if let finishedAt = state["finishedAt"] as? String, !finishedAt.isEmpty { return true }
         let version = (state["v"] as? NSNumber)?.intValue ?? 1
-        guard version < 2 else { return false }
+        guard version < 2, !intentExists else { return false }
         if let lastApplyAt = state["lastApplyAt"] as? String, !lastApplyAt.isEmpty { return true }
-        return legacyDaemon
+        return daemonInstalled
     }
 
     public static func isFinished(home: String, readFile: (String) -> Data?, fileExists: (String) -> Bool) -> Bool {

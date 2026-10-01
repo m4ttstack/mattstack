@@ -1431,6 +1431,53 @@ function updateStep(id: StepId, outcome: StepOutcome, updateSafe: true | undefin
   return { ...fakeStep(id, outcome), ...(updateSafe ? { updateSafe: true } : {}) };
 }
 
+// An update stamps lastApplyAt like any run, but it is not a full apply.
+describe("runUpdateWith and the finished state", () => {
+  const STATE = "/fake-home/.mattstack/rt/setup-state.json";
+
+  test("an update run never sets lastApplyOk, so it cannot reopen a failed setup at Done", async () => {
+    const { ctx } = testCtx();
+    await runApplyWith([fakeStep("path.link", { state: "failed", detail: "boom" })], ctx);
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], ctx);
+    expect(readSetupState(ctx.p as ReturnType<typeof fakeProbes>).lastApplyOk).toBe(false);
+
+    const fresh = testCtx().ctx;
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], fresh);
+    expect(readSetupState(fresh.p as ReturnType<typeof fakeProbes>).lastApplyOk).toBeUndefined();
+  });
+
+  test("on a v1 Mac the legacy finish is settled before the update's first migration runs", async () => {
+    const { ctx } = testCtx();
+    const p = ctx.p as ReturnType<typeof fakeProbes>;
+    p.writeFile("/fake-home/.mattstack/rt/daemon.json", "{}");
+    p.writeFile(STATE, JSON.stringify({ v: 1, marketplaces: [], plugins: [], links: ["gh"], extensionEditors: [], forcedLinks: [] }));
+    let seen: { v?: number; finishedAt?: string } = {};
+    const migration = fakeMigration("2026-10-01-setup-intent", async () => {
+      seen = JSON.parse(p.readFile(STATE)!);
+      p.writeFile("/fake-home/.mattstack/rt/setup-intent.json", "{}");
+      return { state: "done" };
+    });
+
+    await runUpdateWith([], [migration], ctx);
+
+    expect(seen.v).toBe(2);
+    expect(typeof seen.finishedAt).toBe("string");
+    expect(isSetupFinished(readSetupState(p))).toBe(true);
+  });
+
+  test("a run stamping lastApplyAt over a v1 file with a team choice pending does not prove finished", async () => {
+    const { ctx } = testCtx();
+    const p = ctx.p as ReturnType<typeof fakeProbes>;
+    p.writeFile("/fake-home/.mattstack/rt/setup-intent.json", "{}");
+    p.writeFile(STATE, JSON.stringify({ v: 1, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [] }));
+
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], ctx);
+    expect(isSetupFinished(readSetupState(p))).toBe(false);
+    await runApplyWith([fakeStep("path.link", { state: "done" })], ctx, { only: "path.link" });
+    expect(isSetupFinished(readSetupState(p))).toBe(false);
+  });
+});
+
 describe("runUpdateWith", () => {
   test("runs pending migrations, then update-safe steps in order, then verify; non-safe steps never run", async () => {
     const { ctx, events } = testCtx();
