@@ -382,12 +382,42 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p);
+      const { ctx, logs } = makeCtx(p);
 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome.state).toBe("done");
       expect(detailOf(outcome)).toContain("materialized 0 pack files, no skills declared 1");
       expect(detailOf(outcome)).not.toContain("failed");
+      expect(logs.filter((l) => l.line.startsWith("materialize "))).toEqual([]);
+    });
+
+    test("a pack that fails to materialize is still logged", async () => {
+      const repoDir = mkdtempSync(join(home, "repo-"));
+      const repoName = basename(repoDir);
+      updateRepoIndex(repoName, repoDir);
+
+      const zone = `${home}/.mattstack/teams/acme/mattstack`;
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/packs`]: ["widgets"] },
+        files: {
+          "/usr/local/bin/claude": "bin",
+          "/fake/engine/pack/skills.jsonc": "{}",
+          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "acme" }),
+          [`${zone}/team.jsonc`]: JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }),
+          [`${zone}/packs/widgets/pack/skills.jsonc`]: "{ nope",
+        },
+        exec: async (argv) => {
+          if (argv[2] === "list") return ok("[]");
+          if (argv[0] === "git" && argv.includes("get-url")) return ok("https://gitlab.example.com/acme/widgets.git\n");
+          return ok("");
+        },
+      });
+      const { ctx, logs } = makeCtx(p);
+
+      await pluginsInstallStep.run(ctx);
+      expect(logs.some((l) => l.id === "plugins.install" && l.line.startsWith(`materialize ${repoName}: widgets: fragment is not valid JSONC`))).toBe(true);
     });
 
     test("marketplace add exits non-zero (not 'already') -> failed with claude's own first line and the contract remedy, install never reached", async () => {

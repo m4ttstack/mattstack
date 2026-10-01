@@ -926,14 +926,16 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       });
       const { ctx, logs } = makeCtx(p);
       expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file, no skills declared 1" });
-      expect(logs.some((l) => l.line.includes("no team declares gitlab.example.com/acme/other"))).toBe(true);
+      expect(logs.filter((l) => l.id === "skills.materialize" && !l.line.startsWith("board.defaultPack"))).toEqual([]);
     });
 
     test("a repo with no git remote is nothing to do, never a failure", async () => {
       const repoDir = mkdtempSync(join(home, "repo-"));
       updateRepoIndex(basename(repoDir), repoDir);
       const p = fakeProbes({ home, ...materializeWorld(home), exec: async () => ({ code: 1, stdout: "", stderr: "error: No such remote 'origin'" }) });
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 0 pack files, no skills declared 1" });
+      const { ctx, logs } = makeCtx(p);
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 0 pack files, no skills declared 1" });
+      expect(logs.filter((l) => l.id === "skills.materialize" && !l.line.startsWith("board.defaultPack"))).toEqual([]);
     });
 
     test("idempotent re-run: same world, same repo, done again", async () => {
@@ -943,6 +945,50 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
       expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+    });
+
+    describe("seeds board.defaultPack", () => {
+      const ACME: ApplyContext["team"] = { slug: "acme", name: "Acme", mode: "join" };
+
+      function materializeProbes() {
+        const repoDir = mkdtempSync(join(home, "repo-"));
+        updateRepoIndex(basename(repoDir), repoDir);
+        return fakeProbes({ home, ...materializeWorld(home) });
+      }
+
+      test("writes the team's first pack when the key is unwritten", async () => {
+        const { ctx, logs } = makeCtx(materializeProbes(), { team: ACME });
+        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+        expect(getSetting("board.defaultPack").value).toBe("widgets");
+        expect(getSetting("board.defaultPack").provenance.some((p) => p.scope === "user")).toBe(true);
+        expect(logs).toContainEqual({ id: "skills.materialize", line: "board.defaultPack: set to widgets" });
+      });
+
+      test("leaves a value the user set alone", async () => {
+        setSetting("board.defaultPack", "gadgets", "user");
+        const { ctx } = makeCtx(materializeProbes(), { team: ACME });
+        expect((await skillsMaterializeStep.run(ctx)).state).toBe("done");
+        expect(getSetting("board.defaultPack").value).toBe("gadgets");
+      });
+
+      test("an update run seeds it too", async () => {
+        const { ctx } = makeCtx(materializeProbes(), { team: ACME, update: true });
+        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+        expect(getSetting("board.defaultPack").value).toBe("widgets");
+      });
+
+      test("no team pack: nothing written, the step is still done", async () => {
+        const { ctx, logs } = makeCtx(materializeProbes(), { team: { slug: "gadgets-co", name: "Gadgets", mode: "join" } });
+        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+        expect(getSetting("board.defaultPack").value).toBeUndefined();
+        expect(logs).toContainEqual({ id: "skills.materialize", line: "board.defaultPack: the team has no packs, left unset" });
+      });
+
+      test("a plugin that is absent skips materialize and seeds nothing", async () => {
+        const { ctx } = makeCtx(fakeProbes({ home }), { team: ACME });
+        expect((await skillsMaterializeStep.run(ctx)).state).toBe("skipped");
+        expect(getSetting("board.defaultPack").value).toBeUndefined();
+      });
     });
   });
 
