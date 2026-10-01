@@ -131,14 +131,18 @@ MRs there get a "post to code owners" action:
 
 ```sh
 rt settings set board.codeowners '{"slack":{"fromSectionName":true}}' \
-  --scope team --repo gitlab.example.com/acme/webapp
+  --scope team --repo webapp
 ```
+
+`--repo` takes the repo's name as rt knows it, or a path to its checkout.
 
 The action opens a dialog before it sends anything. It lists one channel per
 group of sections still waiting on approval, each with a switch, and the
 sections it leaves out with the reason: already approved, no channel in the
-name, already posted, or a channel the board's Slack user cannot see.
-Confirming sends the review request once to each channel left on.
+name, already posted, a channel Slack does not list, or one you have not
+joined. Slack only lets you post where you are a member, so join a channel
+first to post there. Confirming sends the review request once to each
+channel left on.
 
 `board.codeowners` is set per repo and holds one property per code owner
 feature, so a repo without it gets none of them.
