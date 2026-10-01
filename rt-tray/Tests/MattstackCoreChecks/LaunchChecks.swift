@@ -52,4 +52,17 @@ let launchChecks: [Check] = [
             c.expectEqual(JoinLink.code(fromText: k.input), k.expect, k.why)
         }
     },
+    Check("SetupUpdateOutcome reads the done line of rt setup update --json") { c in
+        let ran = Data("{\"event\":\"plan\",\"steps\":[]}\n{\"event\":\"step\",\"id\":\"path.link\",\"state\":\"failed\",\"detail\":\"x\"}\n{\"event\":\"done\",\"ok\":false,\"failedStep\":\"path.link\",\"failedSteps\":[\"path.link\",\"verify\"]}\n".utf8)
+        let r = SetupUpdateOutcome.parse(stdout: ran)
+        c.expectEqual(r.ok, false)
+        c.expectEqual(r.skipped, nil)
+        c.expectEqual(r.failedSteps, ["path.link", "verify"])
+        let skipped = SetupUpdateOutcome.parse(stdout: Data("{\"event\":\"done\",\"ok\":true,\"skipped\":\"current\"}\n".utf8))
+        c.expectEqual(skipped.ok, true)
+        c.expectEqual(skipped.skipped, "current")
+        let garbage = SetupUpdateOutcome.parse(stdout: Data("not json\n".utf8))
+        c.expectEqual(garbage.ok, false)
+        c.expectEqual(garbage.failedSteps, [])
+    },
 ]

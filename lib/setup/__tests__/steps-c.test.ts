@@ -12,7 +12,7 @@ import type { ApplyContext, StepOutcome } from "../apply.ts";
 import { BASE_PLUGINS } from "../base-plugins.ts";
 import { MERGE_MANIFESTS_MISSING_CODE } from "../skills-materialize.ts";
 import { stageSecret } from "../staging.ts";
-import { readSetupState } from "../state.ts";
+import { readSetupState, updateSetupState } from "../state.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
 import type { ToolsInstallSeams } from "../tools-install.ts";
 import type { ToolResolution } from "../../deps/resolve.ts";
@@ -905,6 +905,113 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(execCalls.some((a) => a[2] === "install")).toBe(true);
       },
     );
+
+    describe("under an update run", () => {
+      /** A claude whose `plugin list` answers `installed`, whose `marketplace list` answers `marketplaces` (or fails when null), recording every argv. */
+      function memberClaude(execCalls: string[][], installed: { id: string; enabled: boolean }[], marketplaces: string[] | null = null) {
+        return fakeProbes({
+          home,
+          env: { PATH: "/usr/local/bin" },
+          files: { "/usr/local/bin/claude": "bin" },
+          exec: async (argv) => {
+            execCalls.push(argv);
+            const [, , verb, sub] = argv;
+            if (verb === "list") return ok(JSON.stringify(installed.map((e) => ({ ...e, version: "1.0.0" }))));
+            if (verb === "marketplace" && sub === "list") {
+              return marketplaces === null ? { code: 1, stdout: "", stderr: "error: unknown option '--json'" } : ok(JSON.stringify(marketplaces.map((name) => ({ name, source: "github", repo: `owner/${name}` }))));
+            }
+            return ok("");
+          },
+        });
+      }
+
+      const allBaseExcept = (id: string, enabled = true) => BASE_PLUGINS.filter((b) => b !== id).map((b) => ({ id: b, enabled }));
+
+      test("a disabled installed plugin stays disabled", async () => {
+        const execCalls: string[][] = [];
+        const p = memberClaude(execCalls, [...allBaseExcept("chat@mattstack"), { id: "chat@mattstack", enabled: false }]);
+
+        expect((await pluginsInstallStep.run(makeCtx(p, { update: true }).ctx)).state).toBe("done");
+        expect(execCalls.filter((a) => a[2] === "enable" || a[2] === "install")).toEqual([]);
+        expect(execCalls.some((a) => a[2] === "update" && a[3] === "chat@mattstack")).toBe(true);
+      });
+
+      test("outside an update run, the same disabled plugin is re-enabled", async () => {
+        const execCalls: string[][] = [];
+        const p = memberClaude(execCalls, [...allBaseExcept("chat@mattstack"), { id: "chat@mattstack", enabled: false }]);
+
+        expect((await pluginsInstallStep.run(makeCtx(p).ctx)).state).toBe("done");
+        expect(execCalls.filter((a) => a[2] === "enable").map((a) => a[3])).toEqual(["chat@mattstack"]);
+      });
+
+      test("a disabled plugin whose claude has no `plugin update` is not reinstalled, which would re-enable it", async () => {
+        const execCalls: string[][] = [];
+        const installed = [...allBaseExcept("chat@mattstack"), { id: "chat@mattstack", enabled: false }];
+        const p = fakeProbes({
+          home,
+          env: { PATH: "/usr/local/bin" },
+          files: { "/usr/local/bin/claude": "bin" },
+          exec: async (argv) => {
+            execCalls.push(argv);
+            if (argv[2] === "list") return ok(JSON.stringify(installed.map((e) => ({ ...e, version: "1.0.0" }))));
+            if (argv[2] === "update") return { code: 1, stdout: "", stderr: "error: unknown command 'update'" };
+            return ok("");
+          },
+        });
+
+        expect((await pluginsInstallStep.run(makeCtx(p, { update: true }).ctx)).state).toBe("done");
+        expect(execCalls.filter((a) => (a[2] === "install" || a[2] === "enable") && a[3] === "chat@mattstack")).toEqual([]);
+      });
+
+      test("a plugin rt installed that the member has since removed is not reinstalled", async () => {
+        const execCalls: string[][] = [];
+        const p = memberClaude(execCalls, allBaseExcept("chat@mattstack"));
+        updateSetupState(p, (s) => ({ ...s, plugins: ["chat@mattstack"] }));
+        const { ctx, logs } = makeCtx(p, { update: true });
+
+        expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
+        expect(execCalls.some((a) => a.includes("chat@mattstack") && a[2] !== "update")).toBe(false);
+        expect(logs.some((l) => l.line.includes("chat@mattstack") && l.line.includes("removed"))).toBe(true);
+      });
+
+      test("outside an update run, the same removed plugin is reinstalled", async () => {
+        const execCalls: string[][] = [];
+        const p = memberClaude(execCalls, allBaseExcept("chat@mattstack"));
+        updateSetupState(p, (s) => ({ ...s, plugins: ["chat@mattstack"] }));
+
+        expect((await pluginsInstallStep.run(makeCtx(p).ctx)).state).toBe("done");
+        expect(execCalls.some((a) => a[2] === "install" && a[3] === "chat@mattstack")).toBe(true);
+      });
+
+      test("a plugin setup-state has no record of is new in this release and still installs", async () => {
+        const execCalls: string[][] = [];
+        const p = memberClaude(execCalls, allBaseExcept("chat@mattstack"));
+        updateSetupState(p, (s) => ({ ...s, plugins: BASE_PLUGINS.filter((b) => b !== "chat@mattstack") }));
+
+        expect((await pluginsInstallStep.run(makeCtx(p, { update: true }).ctx)).state).toBe("done");
+        expect(execCalls.some((a) => a[2] === "install" && a[3] === "chat@mattstack")).toBe(true);
+        expect(execCalls.some((a) => a[2] === "enable" && a[3] === "chat@mattstack")).toBe(true);
+      });
+
+      test("a marketplace rt added that the member has since removed is not re-added, and its new plugins are left alone", async () => {
+        const execCalls: string[][] = [];
+        const p = memberClaude(execCalls, [{ id: "superpowers@claude-plugins-official", enabled: true }], ["claude-plugins-official"]);
+        updateSetupState(p, (s) => ({ ...s, marketplaces: [MATTSTACK_MARKETPLACE_SOURCE], plugins: ["mattstack@mattstack"] }));
+
+        expect((await pluginsInstallStep.run(makeCtx(p, { update: true }).ctx)).state).toBe("done");
+        expect(execCalls.some((a) => a.includes("add") && a.at(-1) === MATTSTACK_MARKETPLACE_SOURCE)).toBe(false);
+        expect(execCalls.some((a) => a[2] === "install")).toBe(false);
+      });
+
+      test("outside an update run, the same removed marketplace is re-added", async () => {
+        const execCalls: string[][] = [];
+        const p = memberClaude(execCalls, [{ id: "superpowers@claude-plugins-official", enabled: true }], ["claude-plugins-official"]);
+        updateSetupState(p, (s) => ({ ...s, marketplaces: [MATTSTACK_MARKETPLACE_SOURCE], plugins: ["mattstack@mattstack"] }));
+
+        expect((await pluginsInstallStep.run(makeCtx(p).ctx)).state).toBe("done");
+        expect(execCalls.some((a) => a.includes("add") && a.at(-1) === MATTSTACK_MARKETPLACE_SOURCE)).toBe(true);
+      });
+    });
   });
 
   // ─── git.identity ───────────────────────────────────────────────────────
@@ -1356,6 +1463,41 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => [] };
       const outcome = await extensionInstallRun(makeCtx(p).ctx, seams);
       expect(outcome).toEqual({ state: "skipped", detail: "no editor found" });
+    });
+
+    describe("under an update run", () => {
+      const TWO_EDITORS = [
+        { name: "Cursor", cliPath: "/x/cursor", appPath: "/x" },
+        { name: "Visual Studio Code", cliPath: "/x/code", appPath: "/y" },
+      ];
+
+      test("an editor setup-state never recorded is untouched; a recorded one is refreshed", async () => {
+        const p = fakeProbes({ home, exec: async () => ok("") });
+        updateSetupState(p, (s) => ({ ...s, extensionEditors: ["Cursor"] }));
+        const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => TWO_EDITORS };
+
+        const outcome = await extensionInstallRun(makeCtx(p, { update: true }).ctx, seams);
+        expect(outcome.state).toBe("done");
+        expect(p.calls.exec).toEqual([["/x/cursor", "--install-extension", "/fake/rt-context.vsix", "--force"]]);
+      });
+
+      test("no recorded editor among those detected -> skipped, nothing installed", async () => {
+        const p = fakeProbes({ home, exec: async () => ok("") });
+        const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => TWO_EDITORS };
+
+        const outcome = await extensionInstallRun(makeCtx(p, { update: true }).ctx, seams);
+        expect(outcome).toEqual({ state: "skipped", detail: "no editor rt installed the extension into" });
+        expect(p.calls.exec).toEqual([]);
+      });
+
+      test("outside an update run, every detected editor is installed into", async () => {
+        const p = fakeProbes({ home, exec: async () => ok("") });
+        updateSetupState(p, (s) => ({ ...s, extensionEditors: ["Cursor"] }));
+        const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => TWO_EDITORS };
+
+        expect((await extensionInstallRun(makeCtx(p).ctx, seams)).state).toBe("done");
+        expect(p.calls.exec.map((a) => a[0])).toEqual(["/x/cursor", "/x/code"]);
+      });
     });
 
     test("editor found, install fails -> failed", async () => {

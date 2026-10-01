@@ -2,7 +2,8 @@
  * rt --post-install — the headless installer entry. Not auto-triggered:
  * an `rt` invocation without a daemon.json prints a setup hint (cli.ts)
  * and leaves running this to the user or the app. A Sparkle update does not
- * re-run this: the app owns download/install/restart.
+ * re-run this: the app owns download/install/restart, and runs rt setup
+ * update at its next launch instead.
  *
  * Three things happen, in order:
  *   1. A refusal if the running app is at a transient location (a mounted

@@ -25,7 +25,11 @@ import { NoTeamRecipientsError, createRealTeamSecretsSeams, readTeamSecret, writ
 import { listTeams } from "../lib/settings/stores.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
-import { createApplyContext, runApplyWith, type ApplyContext, type CreateApplyContextDeps, type StepDef } from "../lib/setup/apply.ts";
+import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
+import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
+import { decideUpdate, rtVersion, summarizeUpdate, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
+import { updateSetupState } from "../lib/setup/state.ts";
+import { notifyEnabled } from "../lib/notifier.ts";
 import { envelope, STEP_IDS, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type StepId } from "../lib/setup/contract.ts";
 import { createHumanEmitter, createNdjsonEmitter } from "../lib/setup/emit.ts";
 import { UserActionableError, userErrorPayload } from "../lib/setup/errors.ts";
@@ -191,6 +195,12 @@ export interface ApplyDeps {
   exit: (code: number) => never;
   isTTY: () => boolean;
   confirm: (message: string) => Promise<boolean>;
+  /** The running rt version `rt setup update` stamps and compares; defaults to the compile-time define. */
+  version?: string;
+  /** Overrides the shipped migrations list for `rt setup update`. */
+  migrations?: MigrationDef[];
+  /** Posts the update run's needs-you notification; defaults to the preference-gated notifier. */
+  notify?: (category: string, title: string, message: string, id: string) => void;
 }
 
 export function realApplyDeps(): ApplyDeps {
@@ -206,6 +216,7 @@ export function realApplyDeps(): ApplyDeps {
       const { confirm } = await import("../lib/rt-render.ts");
       return confirm({ message });
     },
+    notify: (category, title, message, id) => notifyEnabled(category, title, message, undefined, undefined, id),
   };
 }
 
@@ -314,6 +325,65 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
   }
 
   if (!result.ok) deps.exit(2);
+}
+
+/**
+ * `rt setup update [--force] [--json]`: the app runs this at every launch;
+ * by hand it re-applies after an update. Every decision is rt's: a Mac that
+ * never finished Install skips, a version already stamped skips, and a run
+ * stamps its version whatever happened so a broken item nags once per
+ * release. `need` events cannot occur (update-safe steps are `kind: "rt"`),
+ * so the context is non-interactive.
+ */
+export async function setupUpdate(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
+  const json = args.includes("--json");
+  const emit = json ? createNdjsonEmitter((line) => deps.print(line.endsWith("\n") ? line.slice(0, -1) : line)) : createHumanEmitter(deps.print);
+  const version = deps.version ?? rtVersion();
+
+  for (const flag of ["--from", "--only"]) {
+    if (args.includes(flag)) {
+      const err = new UserActionableError("unknown-flag", `${flag} is not a setup update flag: an update run always runs every update-safe step`);
+      deps.print(json ? JSON.stringify(userErrorPayload(err, deps.probes.now())) : `rt setup update: ${err.message}`);
+      return deps.exit(2);
+    }
+  }
+
+  const decision = decideUpdate(deps.probes, version, args.includes("--force"));
+  if (decision.kind === "not-set-up") {
+    if (json) emit({ event: "done", ok: true, skipped: "not-set-up" });
+    else deps.print("setup update: this Mac has not been set up yet");
+    return;
+  }
+  if (decision.kind === "current") {
+    if (json) emit({ event: "done", ok: true, skipped: "current" });
+    else deps.print(`setup update: already applied for ${decision.version}`);
+    return;
+  }
+
+  const ctx: ApplyContext = await createApplyContext({
+    probes: deps.probes,
+    emit,
+    secrets: deps.secrets,
+    relay: deps.relay,
+    secretPresence: deps.secretPresence,
+    flags: { nonInteractive: true, teamOfOne: false, ci: process.env.CI === "true", update: true },
+    needOpts: deps.needOpts,
+  });
+  const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx);
+
+  try {
+    updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version, at: deps.probes.now().toISOString() } }));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const lastId = result.outcomes.at(-1)?.id;
+    if (lastId) emit({ event: "log", id: lastId, line: `warn: setup update stamp not persisted: ${message}` });
+  }
+
+  const notification = updateNotification(version, result.outcomes);
+  if (notification) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notification.title, notification.message, notification.id);
+
+  if (!json) deps.print(`setup update: ${summarizeUpdate(result.outcomes)}`);
+  if (notification) deps.exit(2);
 }
 
 // ─── pack (`rt setup pack`) ─────────────────────────────────────────────

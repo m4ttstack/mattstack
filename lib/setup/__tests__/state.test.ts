@@ -5,12 +5,19 @@ import { readSetupState, updateSetupState } from "../state.ts";
 describe("readSetupState", () => {
   test("defaults to empty arrays when the state file is absent", () => {
     const p = fakeProbes();
-    expect(readSetupState(p)).toEqual({ v: 1, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [] });
+    expect(readSetupState(p)).toEqual({ v: 1, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] });
   });
 
   test("defaults to empty arrays when the state file is unparseable", () => {
     const p = fakeProbes({ files: { "/fake-home/.mattstack/rt/setup-state.json": "not json" } });
-    expect(readSetupState(p)).toEqual({ v: 1, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [] });
+    expect(readSetupState(p)).toEqual({ v: 1, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] });
+  });
+
+  test("backfills migrations to [] for a state file written before the field existed", () => {
+    const p = fakeProbes({ files: { "/fake-home/.mattstack/rt/setup-state.json": JSON.stringify({ v: 1, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [] }) } });
+    const s = readSetupState(p);
+    expect(s.migrations).toEqual([]);
+    expect(s.lastUpdate).toBeUndefined();
   });
 });
 
@@ -45,5 +52,16 @@ describe("updateSetupState", () => {
     updateSetupState(p, (s) => ({ ...s, forcedLinks: ["gh"] }));
     const result = updateSetupState(p, (s) => ({ ...s, forcedLinks: [...s.forcedLinks, "gh", "fast-browser"] }));
     expect(result.forcedLinks).toEqual(["gh", "fast-browser"]);
+  });
+
+  test("dedupes migrations and round-trips lastUpdate", () => {
+    const p = fakeProbes();
+    const result = updateSetupState(p, (s) => ({
+      ...s,
+      migrations: ["2026-09-30-a", "2026-09-30-a", "2026-10-01-b"],
+      lastUpdate: { version: "2.15.0", at: "2026-09-30T00:00:00.000Z" },
+    }));
+    expect(result.migrations).toEqual(["2026-09-30-a", "2026-10-01-b"]);
+    expect(readSetupState(p).lastUpdate).toEqual({ version: "2.15.0", at: "2026-09-30T00:00:00.000Z" });
   });
 });

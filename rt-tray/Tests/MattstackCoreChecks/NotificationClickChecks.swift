@@ -127,4 +127,9 @@ let notificationClickChecks: [Check] = [
     Check("focus-pane button with neither routes nowhere") { c in
         c.expectEqual(NotificationClick.focusPaneRoute(url: "", paneId: nil), .none)
     },
+    Check("setup_update banner click opens the Setup status window and ignores any url") { c in
+        let r = NotificationClick.bannerRoute(category: NotificationClick.setupUpdateCategory, url: "https://evil.example/", paneId: "pane-7")
+        c.expectEqual(r, .showSetupStatus)
+        c.expect(!r.suppressesActivationShow, "a window route may let activation show the shell")
+    },
 ]

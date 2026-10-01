@@ -71,6 +71,7 @@ export const claudePermissionsStep: StepDef = {
   id: "claude.permissions",
   title: "Seed baseline Claude permissions",
   kind: "rt",
+  updateSafe: true,
   applies: () => true,
   run: installClaudePermissions,
 };

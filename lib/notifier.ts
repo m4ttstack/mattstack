@@ -128,6 +128,7 @@ export const NOTIFICATION_TYPES = [
   { key: "credential_health", label: "Credential health", description: "When an integration token is rejected or nearing expiry" },
   { key: "member_joined",     label: "Member joined",       description: "When someone you invited replies, so you can add their key to the team" },
   { key: "worktree_triage", label: "Worktree summary", description: "Once a day, when worktrees need a decision" },
+  { key: "setup_update", label: "Setup after an update", description: "When a re-applied setup step needs you after the app updated" },
 ] as const;
 
 export type NotificationPrefs = Record<string, boolean>;

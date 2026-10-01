@@ -10,7 +10,7 @@ import { setSettingsNoticeSink } from "../settings/write.ts";
 import { createRealTeamSecretsSeams } from "../secrets/team-store.ts";
 import type { SecretsSeamsFactory } from "../team/join.ts";
 import type { RelayClient } from "../team/relay-client.ts";
-import { STEP_IDS, type EventId, type NeedRequest, type StepId, type StepKind, type TeamRef } from "./contract.ts";
+import { STEP_IDS, type EventId, type NeedRequest, type StepId, type StepKind, type StepState, type TeamRef } from "./contract.ts";
 import type { Emit } from "./emit.ts";
 import { UserActionableError } from "./errors.ts";
 import { readIntent, teamRefFromIntent, clearIntent, type SetupIntent } from "./intent.ts";
@@ -19,7 +19,8 @@ import type { Probes } from "./probes.ts";
 import { realSecretPresence } from "./plan.ts";
 import { readPackRequirements, type PackRequirements } from "./requirements.ts";
 import { STEPS } from "./steps/index.ts";
-import { updateSetupState } from "./state.ts";
+import { MIGRATIONS, migrationEventId, type MigrationDef } from "./migrations/index.ts";
+import { readSetupState, updateSetupState } from "./state.ts";
 import { discoverTeams, readTeamSnapshot, type TeamSnapshot } from "./team-settings.ts";
 import type { SecretPresence } from "./validators/accounts.ts";
 
@@ -48,6 +49,8 @@ export interface ApplyContext {
   /** Re-reads `snapshot` and `reqs` from disk; the engine calls it after a done or partial `reloadsTeam` step. */
   reloadTeam?: () => void;
   nonInteractive: boolean;
+  /** Set only for `rt setup update`: a step must not re-assert anything the member undid since rt put it there (a disabled or removed plugin, an editor rt never installed into). */
+  update?: true;
   teamOfOne: boolean;
   appPath: string | null;
   ci: boolean;
@@ -108,6 +111,8 @@ export interface StepDef {
   prerequisites?: StepId[];
   /** Whether what this step produces is already complete on disk, judged as strictly as the step's own done check. Read only when the step is an `--only` run's prerequisite; absent reads as unsatisfied. */
   satisfied?(ctx: ApplyContext): boolean | Promise<boolean>;
+  /** Safe for `rt setup update` to re-run unattended after an app update: idempotent, never prompts or needs the app, never overwrites a value the user chose. */
+  updateSafe?: true;
 }
 
 const INTERCEPTS_STEP: StepId = "intercepts.install";
@@ -204,7 +209,7 @@ function enqueueInOrder(queue: StepDef[], next: number, step: StepDef, applicabl
  * (and what it needs) and leaves the rest untouched, so it never does; `--from`
  * resumes and then runs everything left, so it does.
  */
-function persistTerminalState(ctx: ApplyContext, ok: boolean, lastRanId: StepId | undefined, oneStepOnly: boolean): void {
+function persistTerminalState(ctx: ApplyContext, ok: boolean, lastRanId: EventId | undefined, oneStepOnly: boolean): void {
   try {
     updateSetupState(ctx.p, (s) => ({ ...s, lastApplyAt: ctx.p.now().toISOString() }));
     if (ok && !oneStepOnly) clearIntent(ctx.p);
@@ -306,6 +311,102 @@ export async function runApply(ctx: ApplyContext, opts: { from?: StepId; only?: 
   return runApplyWith(STEPS, ctx, opts);
 }
 
+export interface UpdateOutcome {
+  id: EventId;
+  state: StepState;
+  detail?: string;
+}
+
+export interface UpdateRunResult {
+  ok: boolean;
+  failedSteps: EventId[];
+  outcomes: UpdateOutcome[];
+}
+
+interface UpdateItem {
+  id: EventId;
+  title: string;
+  run(ctx: ApplyContext): Promise<StepOutcome>;
+  migrationId?: string;
+}
+
+function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: readonly string[]): UpdateItem[] {
+  const pending = migrations.filter((m) => !applied.includes(m.id)).map<UpdateItem>((m) => ({ id: migrationEventId(m.id), title: m.title, run: (ctx) => m.run(ctx), migrationId: m.id }));
+  const safe = steps.filter((s) => s.updateSafe && s.id !== "verify").map<UpdateItem>((s) => ({ id: s.id, title: s.title, run: (ctx) => s.run(ctx) }));
+  const verify = steps.find((s) => s.id === "verify" && s.updateSafe);
+  return [...pending, ...safe, ...(verify ? [{ id: verify.id, title: verify.title, run: (ctx: ApplyContext) => verify.run(ctx) }] : [])];
+}
+
+/**
+ * The update run: pending migrations, then every update-safe step in
+ * contract order, then verify. No failed outcome stops the run; every
+ * item's outcome is collected and `done` names every failure. A migration
+ * that throws a plain Error is one more failed outcome, but a step that does
+ * is a bug: the run stops there and rethrows after `done`. Migrations that
+ * end done or skipped are recorded one at a time, so a crash mid-run loses
+ * nothing already recorded. The setup intent is never cleared: an update is
+ * not an install.
+ */
+export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[], ctx: ApplyContext): Promise<UpdateRunResult> {
+  const items = updateItems(steps, migrations, readSetupState(ctx.p).migrations);
+  ctx.emit({ event: "plan", steps: items.map((i) => ({ id: i.id, title: i.title, kind: "rt" as const })) });
+
+  const outcomes: UpdateOutcome[] = [];
+  const failedSteps: EventId[] = [];
+  let lastRanId: EventId | undefined;
+  let bug: { err: unknown } | null = null;
+
+  try {
+    for (const item of items) {
+      lastRanId = item.id;
+      ctx.emit({ event: "step", id: item.id, state: "running" });
+      let outcome: StepOutcome;
+      try {
+        outcome = await item.run(ctx);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (err instanceof UserActionableError) {
+          const remedy = typeof err.extra.remedy === "string" ? err.extra.remedy : undefined;
+          outcome = { state: "failed", detail: err.message, ...(remedy !== undefined ? { remedy } : {}) };
+        } else if (item.migrationId !== undefined) {
+          // Migrations run first, so rethrowing here would skip every step and
+          // verify; a buggy one fails alone and stays unrecorded instead.
+          ctx.log(item.id, `warn: bug: ${message}`);
+          outcome = { state: "failed", detail: `bug: ${message}` };
+        } else {
+          ctx.emit({ event: "step", id: item.id, state: "failed", detail: `bug: ${message}` });
+          outcomes.push({ id: item.id, state: "failed", detail: `bug: ${message}` });
+          failedSteps.push(item.id);
+          bug = { err };
+          break;
+        }
+      }
+      ctx.emit({ event: "step", id: item.id, state: outcome.state, ...stepEventFields(outcome) });
+      outcomes.push({ id: item.id, state: outcome.state, ...(outcome.detail !== undefined ? { detail: outcome.detail } : {}) });
+      if (outcome.state === "failed") failedSteps.push(item.id);
+      if (item.migrationId !== undefined && (outcome.state === "done" || outcome.state === "skipped")) {
+        const id = item.migrationId;
+        updateSetupState(ctx.p, (s) => ({ ...s, migrations: [...s.migrations, id] }));
+      }
+    }
+  } finally {
+    const ok = failedSteps.length === 0;
+    persistTerminalState(ctx, ok, lastRanId, true);
+    ctx.emit({
+      event: "done",
+      ok,
+      ...(failedSteps.length > 0 ? { failedStep: failedSteps[0], failedSteps } : {}),
+    });
+  }
+
+  if (bug) throw bug.err;
+  return { ok: failedSteps.length === 0, failedSteps, outcomes };
+}
+
+export async function runUpdate(ctx: ApplyContext): Promise<UpdateRunResult> {
+  return runUpdateWith(STEPS, MIGRATIONS, ctx);
+}
+
 export interface CreateApplyContextDeps {
   probes: Probes;
   emit: Emit;
@@ -316,7 +417,7 @@ export interface CreateApplyContextDeps {
   /** Defaults to `realSecretPresence()` — override for a fully-faked run/test so `verify` (and anything else reading `ctx.secretPresence`) can never reach the real keychain/sops. */
   secretPresence?: SecretPresence;
   /** `tty` defaults to whether stdin is a terminal: an admin prompt is only raised for a person at one. */
-  flags: { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; appMayDrive?: boolean; tty?: boolean };
+  flags: { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; appMayDrive?: boolean; tty?: boolean; update?: true };
   /** Threaded straight into `awaitNeed`'s poll loop for the reachable/interactive branch of `need()` — real timers and `Date.now` by default. Tests inject a fake clock/sleep so that branch is driven deterministically instead of pinned to a real 10-minute deadline and 1 s polls. */
   needOpts?: { timeoutMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number };
 }
@@ -389,6 +490,7 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
       ctx.reqs = readPackRequirements(p, ctx.team.slug);
     },
     nonInteractive: flags.nonInteractive,
+    ...(flags.update ? { update: true as const } : {}),
     teamOfOne: flags.teamOfOne,
     appPath,
     ci: flags.ci,

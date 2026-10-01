@@ -431,6 +431,8 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             NotificationCenter.default.post(name: .showProcessPanel, object: nil)
         case .showWorktreePanel:
             NotificationCenter.default.post(name: .showWorktreePanel, object: nil)
+        case .showSetupStatus:
+            NotificationCenter.default.post(name: .rtShowSetupStatus, object: nil)
         case .openURL(let urlStr):
             if let urlObj = URL(string: urlStr) { openURL(urlObj) }
         case .focusPane(let paneId):

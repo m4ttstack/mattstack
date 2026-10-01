@@ -317,13 +317,17 @@ async function setupHerdr(p: Probes, configDirs: string[]): Promise<SetupResult>
 /** Exported so a caller classifying `SetupResult.detail` (extension.install's apply step) matches against the same value this emits, rather than a copy of the prose. */
 export const VSIX_NOT_FOUND_DETAIL = "rt-context.vsix not found — expected in the app bundle or next to the binary";
 export const NO_EDITORS_DETAIL = "no compatible editors found";
+export const NO_RECORDED_EDITORS_DETAIL = "no detected editor has the extension from an earlier setup";
 
-async function setupExtension(p: Probes, seams: ToolsInstallSeams): Promise<SetupResult> {
+/** `onlyEditors` narrows the install to those editor names; an editor it leaves out is never touched. */
+async function setupExtension(p: Probes, seams: ToolsInstallSeams, onlyEditors: readonly string[] | undefined): Promise<SetupResult> {
   const vsix = seams.findVsix(p);
   if (!vsix) return { ok: false, detail: VSIX_NOT_FOUND_DETAIL };
 
-  const editors: DetectedEditor[] = seams.detectEditors();
-  if (editors.length === 0) return { ok: false, detail: NO_EDITORS_DETAIL };
+  const detected: DetectedEditor[] = seams.detectEditors();
+  if (detected.length === 0) return { ok: false, detail: NO_EDITORS_DETAIL };
+  const editors = onlyEditors ? detected.filter((e) => onlyEditors.includes(e.name)) : detected;
+  if (editors.length === 0) return { ok: false, detail: NO_RECORDED_EDITORS_DETAIL };
 
   const installed: string[] = [];
   const failed: string[] = [];
@@ -344,10 +348,10 @@ async function setupExtension(p: Probes, seams: ToolsInstallSeams): Promise<Setu
   return { ok, detail };
 }
 
-export async function setupTool(p: Probes, tool: string, opts: { configDirs: string[]; marketplaceSource?: string }, seams: ToolsInstallSeams = REAL_SEAMS): Promise<SetupResult> {
+export async function setupTool(p: Probes, tool: string, opts: { configDirs: string[]; marketplaceSource?: string; onlyEditors?: readonly string[] }, seams: ToolsInstallSeams = REAL_SEAMS): Promise<SetupResult> {
   if (tool === "fast-browser") return setupFastBrowser(p, seams, opts.marketplaceSource);
   if (tool === "herdr") return setupHerdr(p, opts.configDirs);
-  if (tool === "extension") return setupExtension(p, seams);
+  if (tool === "extension") return setupExtension(p, seams, opts.onlyEditors);
   throw new UserActionableError("unknown-tool-setup", `no setup routine for "${tool}"`);
 }
 
