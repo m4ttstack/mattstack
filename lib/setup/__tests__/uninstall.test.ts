@@ -18,7 +18,7 @@ import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext } from "../apply.ts";
 import { awaitNeed, SERVICE_PLISTS } from "../need.ts";
 import { PORTLESS_LAUNCHD_PLIST } from "../steps/services.ts";
-import { readSetupState, updateSetupState } from "../state.ts";
+import { isSetupFinished, readSetupState, updateSetupState } from "../state.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { Probes } from "../probes.ts";
 import { computeUninstallActions, runUninstall, RT_CONTEXT_EXTENSION_ID, type UninstallAction, type UninstallSeams } from "../uninstall.ts";
@@ -253,6 +253,55 @@ describe("rt uninstall", () => {
 
       const result = await runUninstall(ctx, actions);
       expect(result.stayed).not.toContain("~/.mattstack (kept)");
+    });
+
+    test("a run that keeps the data takes Finish off the record, so a reinstalled app opens setup again", async () => {
+      const actions: UninstallAction[] = [{ id: "services.unregister", title: "x", kind: "app" }];
+      const p = bareProbes();
+      updateSetupState(p, (s) => ({ ...s, finishedAt: "2026-09-30T00:00:00.000Z", lastApplyOk: true, lastUpdate: { version: "2.15.0", at: "x" }, links: ["rt"] }));
+      const { ctx } = makeCtx(p, { need: async () => ({ ok: true, detail: "done" }) });
+
+      const result = await runUninstall(ctx, actions);
+
+      expect(result.ok).toBe(true);
+      const state = readSetupState(p);
+      expect(isSetupFinished(state)).toBe(false);
+      expect(state.lastApplyOk).toBeUndefined();
+      expect(state.lastUpdate).toBeUndefined();
+      expect(state.links).toEqual(["rt"]);
+    });
+
+    test("a legacy Mac with only daemon.json comes out of a kept-data run unfinished", async () => {
+      const actions: UninstallAction[] = [{ id: "services.unregister", title: "x", kind: "app" }];
+      const p = bareProbes({ files: { [join(home, ".mattstack", "rt", "daemon.json")]: "{}" } });
+      expect(isSetupFinished(readSetupState(p))).toBe(true);
+      const { ctx } = makeCtx(p, { need: async () => ({ ok: true, detail: "done" }) });
+
+      await runUninstall(ctx, actions);
+
+      expect(isSetupFinished(readSetupState(p))).toBe(false);
+    });
+
+    test("nothing recorded: a kept-data run writes no state file", async () => {
+      const actions: UninstallAction[] = [{ id: "services.unregister", title: "x", kind: "app" }];
+      const p = bareProbes();
+      const { ctx } = makeCtx(p, { need: async () => ({ ok: true, detail: "done" }) });
+
+      await runUninstall(ctx, actions);
+
+      expect(p.exists(join(home, ".mattstack", "rt", "setup-state.json"))).toBe(false);
+    });
+
+    test("a failed run leaves Finish on record: the Mac is still set up", async () => {
+      const actions: UninstallAction[] = [{ id: "proxy.remove", title: "x", kind: "privileged" }];
+      const p = bareProbes({ files: { [PORTLESS_LAUNCHD_PLIST]: "<plist/>" } });
+      updateSetupState(p, (s) => ({ ...s, finishedAt: "2026-09-30T00:00:00.000Z" }));
+      const { ctx } = makeCtx(p, { need: async () => "app-gone" });
+
+      const result = await runUninstall(ctx, actions);
+
+      expect(result.ok).toBe(false);
+      expect(isSetupFinished(readSetupState(p))).toBe(true);
     });
 
     test("a failed action stops the run — later actions never execute", async () => {

@@ -42,6 +42,14 @@ let launchChecks: [Check] = [
         }
         c.expectEqual(SetupCompletion.statePath(home: "/Users/u"), "/Users/u/.mattstack/rt/setup-state.json")
     },
+    Check("SetupCompletion.finishReport keeps only what finish said, and caps it") { c in
+        c.expectEqual(SetupCompletion.finishReport(stderr: Data()), nil)
+        c.expectEqual(SetupCompletion.finishReport(stderr: Data("rt: saved \"rt.sync\" in the team store on this machine only\n".utf8)), nil)
+        let mixed = "rt: a settings tip\nrt setup finish: the update run after Finish did not complete: boom\n"
+        c.expectEqual(SetupCompletion.finishReport(stderr: Data(mixed.utf8)), "rt setup finish: the update run after Finish did not complete: boom")
+        let long = "rt setup finish: " + String(repeating: "x", count: 3000)
+        c.expectEqual(SetupCompletion.finishReport(stderr: Data(long.utf8))?.count, 2000)
+    },
     Check("SetupCompletion: reads the three files under the home it is given") { c in
         let files: [String: String] = ["/Users/u/.mattstack/rt/daemon.json": "{}"]
         c.expect(SetupCompletion.isFinished(home: "/Users/u", readFile: { files[$0].map { Data($0.utf8) } }, fileExists: { files[$0] != nil }))

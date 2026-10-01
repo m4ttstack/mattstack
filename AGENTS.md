@@ -390,7 +390,12 @@ one reports `skipped: "running"`. A run is pending migrations, then every
 `lib/setup/apply.ts`. No failed outcome stops it, and a migration that
 throws is one more failed item; only a step that throws a plain error
 ends the run, as a bug (exit 1, no stamp). Otherwise the version is
-stamped in `~/.mattstack/rt/setup-state.json` whatever the outcome. Mark a
+stamped in `~/.mattstack/rt/setup-state.json` whatever the outcome. Two
+other verbs feed that stamp: a full `rt setup apply` that ends ok stamps it
+too, unless a migration is still pending, and `rt setup finish` starts an
+update run of its own, since the launch-time one skipped the Mac while setup
+was open. `rt uninstall` that ends ok and keeps `~/.mattstack` takes Finish
+and the update stamp off the record, so a reinstalled app opens setup again. Mark a
 step update-safe only when it is idempotent, never calls `ctx.need`, and
 never overwrites a value the user chose; under `ctx.update` it also leaves
 alone what the member undid since rt put it there (a disabled or removed

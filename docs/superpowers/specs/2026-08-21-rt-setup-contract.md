@@ -168,6 +168,8 @@ An update run never re-asserts what the member undid: `plugins.install` leaves a
 
 `--from` and `--only` are refused (`unknown-flag`).
 
+Two other verbs meet the update run. A full `rt setup apply` that ends ok stamps `lastUpdate` with the running version, unless a migration is still pending: it just did everything an update run re-applies. `rt setup finish` records Finish and then starts an update run itself (the launch-time one skipped the Mac while setup was open); in `--json` it still prints exactly one envelope, the run's own notification covers anything that needs a person, and the run's outcome never changes the finish exit code. A full apply that records Finish itself (no finish blockers left) starts no update run: it either stamped, or left pending migrations for the next launch.
+
 `setup-state.json` gains `migrations: string[]` and `lastUpdate: { version, at }`.
 
 ## tray.sock (app → rt callbacks and app-side truth)
@@ -252,6 +254,9 @@ installed: both flavors' decks share one registry.
 `--delete-data` requires `--yes` (non-TTY without it → exit 2
 `confirm-required`; the app's confirmation sheet is the consent, so the app
 always passes `--yes`). `--keep-data` needs no `--yes`.
+A run that ends ok and keeps the data clears `finishedAt`, `lastApplyOk` and
+`lastUpdate` in `setup-state.json`, so a reinstalled app opens setup again
+and runs its update.
 
 ## Stub
 

@@ -29,7 +29,7 @@ import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, typ
 import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
 import { decideUpdate, rtVersion, summarizeUpdate, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
 import { createUpdateLock, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
-import { updateSetupState } from "../lib/setup/state.ts";
+import { readSetupState, updateSetupState } from "../lib/setup/state.ts";
 import { notifyEnabled } from "../lib/notifier.ts";
 import { envelope, STEP_IDS, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type StepId } from "../lib/setup/contract.ts";
 import { createHumanEmitter, createNdjsonEmitter } from "../lib/setup/emit.ts";
@@ -335,7 +335,25 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
   }
 
   if (!result.ok) deps.exit(2);
-  if (selection.from === undefined && selection.only === undefined) await finishIfClear(deps);
+  if (selection.from === undefined && selection.only === undefined) {
+    stampUpdateWhenNothingPends(deps);
+    await finishIfClear(deps);
+  }
+}
+
+/**
+ * A full run just did everything an update run re-applies, so only a pending
+ * migration still needs one. Unstamped, the update run a fresh Mac's Finish
+ * starts would redo the whole Install.
+ */
+function stampUpdateWhenNothingPends(deps: ApplyDeps): void {
+  try {
+    const applied = readSetupState(deps.probes).migrations;
+    if ((deps.migrations ?? MIGRATIONS).some((m) => !applied.includes(m.id))) return;
+    updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version: deps.version ?? rtVersion(), at: deps.probes.now().toISOString() } }));
+  } catch (err) {
+    (deps.printError ?? console.error)(`rt setup apply: update version not stamped: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /**
@@ -586,14 +604,35 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
 
 export type FinishDeps = IntentDeps;
 
+export interface AfterFinish {
+  update(opts: { json: boolean; print: (s: string) => void }): Promise<void>;
+  printError(s: string): void;
+}
+
+/** The update run Finish starts. In `--json` it prints nothing, so `rt setup finish --json` stays one envelope, and a needs-you item never turns the Finish into an exit 2: the run notifies on its own. */
+export async function updateAfterFinish(opts: { json: boolean; print: (s: string) => void }, deps: ApplyDeps = realApplyDeps()): Promise<void> {
+  const quiet: ApplyDeps = { ...deps, print: opts.json ? () => {} : opts.print, exit: (() => undefined) as unknown as ApplyDeps["exit"] };
+  await setupUpdate(opts.json ? ["--json"] : [], {}, quiet);
+}
+
+const REAL_AFTER_FINISH: AfterFinish = {
+  update: (opts) => updateAfterFinish(opts),
+  printError: (s) => console.error(s),
+};
+
 /** mattstack.app runs this at the wizard's Finish; until it has, every launch reopens setup. */
-export async function setupFinish(args: string[], _ctx: CommandContext = {}, deps: FinishDeps = realIntentDeps()): Promise<void> {
+export async function setupFinish(args: string[], _ctx: CommandContext = {}, deps: FinishDeps = realIntentDeps(), after: AfterFinish = REAL_AFTER_FINISH): Promise<void> {
+  const json = args.includes("--json");
   const { finishedAt } = markSetupFinished(deps.probes);
-  if (args.includes("--json")) {
-    deps.print(JSON.stringify(envelope({ ok: true, finishedAt }, deps.probes.now())));
-    return;
+  deps.print(json ? JSON.stringify(envelope({ ok: true, finishedAt }, deps.probes.now())) : "setup finish: setup is finished on this Mac");
+
+  // The launch-time update run skipped this Mac while setup was open, so
+  // without one here a pending migration would wait for the next launch.
+  try {
+    await after.update({ json, print: deps.print });
+  } catch (err) {
+    after.printError(`rt setup finish: the update run after Finish did not complete: ${err instanceof Error ? err.message : String(err)}`);
   }
-  deps.print("setup finish: setup is finished on this Mac");
 }
 
 // ─── repo-root (`rt setup repo-root set`) ──────────────────────────────────

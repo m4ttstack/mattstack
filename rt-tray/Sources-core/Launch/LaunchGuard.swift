@@ -14,6 +14,16 @@ public enum LaunchGuard {
 public enum SetupCompletion {
     public static let finishArguments = ["setup", "finish", "--json"]
 
+    /// What `rt setup finish` had to say on stderr about the update run it
+    /// starts: its own lines only, since rt's settings tips share that
+    /// stream, capped like `failureCopy`.
+    public static func finishReport(stderr: Data) -> String? {
+        guard let text = String(data: stderr, encoding: .utf8) else { return nil }
+        let lines = text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.hasPrefix("rt setup finish:") }
+        guard !lines.isEmpty else { return nil }
+        return String(lines.joined(separator: " ").prefix(2000))
+    }
+
     public static func statePath(home: String) -> String { "\(home)/.mattstack/rt/setup-state.json" }
     static func intentPath(home: String) -> String { "\(home)/.mattstack/rt/setup-intent.json" }
     static func daemonPath(home: String) -> String { "\(home)/.mattstack/rt/daemon.json" }
