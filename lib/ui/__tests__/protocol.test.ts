@@ -291,3 +291,9 @@ test("the render fixture carries one of every block type and round-trips through
     expect(JSON.parse(line)).toEqual(b);
   }
 });
+
+test("the clear fixture ends a step with a done event that carries clear", () => {
+  const events = fixture("steps-stream-clear.json") as StepEvent[];
+  expect(events.map((e) => e.t)).toEqual(["hello", "start", "sub", "done"]);
+  expect(events.at(-1)).toEqual({ t: "done", title: "scanning ports…", clear: true });
+});

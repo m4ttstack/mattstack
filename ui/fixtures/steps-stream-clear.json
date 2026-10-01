@@ -1,0 +1,6 @@
+[
+  { "t": "hello", "protocol": 1 },
+  { "t": "start", "title": "scanning ports…" },
+  { "t": "sub", "text": "asking lsof" },
+  { "t": "done", "title": "scanning ports…", "clear": true }
+]
