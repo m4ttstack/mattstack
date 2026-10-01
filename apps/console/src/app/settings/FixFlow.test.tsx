@@ -199,6 +199,22 @@ describe('Needs fixing on the page', () => {
       </QueryClientProvider>
     );
 
+  const fix = (line: HTMLElement) =>
+    userEvent.click(
+      within(line.closest('[data-testid="issue-line"]')!).getByRole('button', {
+        name: 'Fix',
+      })
+    );
+
+  async function expectOpenOnWhere(key: string) {
+    const close = await screen.findByRole('button', { name: `close ${key}` });
+    expect(close).toHaveAttribute('aria-expanded', 'true');
+    const row = document.querySelector<HTMLElement>(`[data-key="${key}"]`)!;
+    expect(
+      await within(row).findByRole('radio', { name: "Where it's set" })
+    ).toBeChecked();
+  }
+
   it('counts, lists and filters the keys that need fixing', async () => {
     renderPage();
     const chip = await screen.findByRole('checkbox', { name: /^Needs fixing/ });
@@ -221,7 +237,7 @@ describe('Needs fixing on the page', () => {
     expect(screen.getByText('roles')).toBeInTheDocument();
   });
 
-  it('Fix on a merged issue opens the modal with no layer editor', async () => {
+  it('Fix on a merged issue opens the row with no layer editor', async () => {
     vi.stubGlobal('fetch', async (url: string) => ({
       ok: true,
       status: 200,
@@ -233,14 +249,11 @@ describe('Needs fixing on the page', () => {
             : { defs: [homeSnapshot()] },
     }));
     renderPage();
-    const line = await screen.findByText(
-      'merged · enabled: expected boolean, got string'
+    await fix(
+      await screen.findByText('merged · enabled: expected boolean, got string')
     );
-    await userEvent.click(
-      within(line.closest('[data-testid="issue-line"]')!).getByRole('button', {
-        name: 'Fix',
-      })
-    );
+    await expectOpenOnWhere('rt.homeSnapshot');
+    expect(screen.queryByRole('dialog')).toBeNull();
     await waitFor(() => {
       const p = new URLSearchParams(window.location.search);
       expect(p.get('explain')).toBe('rt.homeSnapshot');
@@ -249,16 +262,15 @@ describe('Needs fixing on the page', () => {
     });
   });
 
-  it('Fix opens the explain modal on that layer, switching to the issue’s repo', async () => {
+  it('Fix opens the row on Where it’s set for that layer, switching to the issue’s repo', async () => {
     renderPage();
-    const line = await screen.findByText(
-      'team · acme/app · dev.fixedPort: expected number, got string'
+    await fix(
+      await screen.findByText(
+        'team · acme/app · dev.fixedPort: expected number, got string'
+      )
     );
-    await userEvent.click(
-      within(line.closest('[data-testid="issue-line"]')!).getByRole('button', {
-        name: 'Fix',
-      })
-    );
+    await expectOpenOnWhere('rt.roles');
+    expect(screen.queryByRole('dialog')).toBeNull();
     await waitFor(() => {
       const p = new URLSearchParams(window.location.search);
       expect([p.get('explain'), p.get('fix'), p.get('repo')]).toEqual([
@@ -269,18 +281,16 @@ describe('Needs fixing on the page', () => {
     });
   });
 
-  it('closing the modal after a Fix that switched repo keeps that repo picked', async () => {
+  it('closing the row after a Fix that switched repo keeps that repo picked', async () => {
     renderPage();
-    const line = await screen.findByText(
-      'team · acme/app · dev.fixedPort: expected number, got string'
+    await fix(
+      await screen.findByText(
+        'team · acme/app · dev.fixedPort: expected number, got string'
+      )
     );
     await userEvent.click(
-      within(line.closest('[data-testid="issue-line"]')!).getByRole('button', {
-        name: 'Fix',
-      })
+      await screen.findByRole('button', { name: 'close rt.roles' })
     );
-    await screen.findByRole('dialog');
-    await userEvent.keyboard('{Escape}');
     await waitFor(() => {
       const p = new URLSearchParams(window.location.search);
       expect(p.get('explain')).toBeNull();
@@ -289,18 +299,16 @@ describe('Needs fixing on the page', () => {
     });
   });
 
-  it('closing the modal after a Fix with no repo switch returns to the page as it was', async () => {
+  it('closing the row after a Fix with no repo switch returns to the page as it was', async () => {
     renderPage();
-    const line = await screen.findByText(
-      'user · [2].url: expected string, got number'
+    await fix(
+      await screen.findByText('user · [2].url: expected string, got number')
     );
     await userEvent.click(
-      within(line.closest('[data-testid="issue-line"]')!).getByRole('button', {
-        name: 'Fix',
+      await screen.findByRole('button', {
+        name: 'close rt.notify.eventBridges',
       })
     );
-    await screen.findByRole('dialog');
-    await userEvent.keyboard('{Escape}');
     await waitFor(() => {
       const p = new URLSearchParams(window.location.search);
       expect(p.get('explain')).toBeNull();

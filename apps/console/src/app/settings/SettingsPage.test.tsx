@@ -1,9 +1,20 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
-import type { SettingDefWire } from '@mattstack/settings-kit/react';
+import type {
+  ExplainRowWire,
+  SettingDefWire,
+} from '@mattstack/settings-kit/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from 'vitest';
 
 import { schemaFields } from './testSchemas';
 
@@ -78,12 +89,31 @@ const serve = (defs: SettingDefWire[]) => () => ({
 let defsResponse: () => unknown = serve(DEFS);
 const REPO = 'gitlab.example.com/acme/app';
 let repoDefs: SettingDefWire[] | null = null;
+let explainRows: ExplainRowWire[] = [];
+const nativeScrollIntoView = Element.prototype.scrollIntoView;
+let scrolled: Mock<Element['scrollIntoView']>;
 
 beforeEach(() => {
   defsResponse = serve(DEFS);
   repoDefs = null;
+  explainRows = [];
+  scrolled = vi.fn();
+  Element.prototype.scrollIntoView = scrolled;
   window.history.replaceState(null, '', '/settings');
   vi.stubGlobal('fetch', async (url: string) => {
+    if (url.startsWith('/api/settings/explain/')) {
+      const key = decodeURIComponent(
+        url.slice('/api/settings/explain/'.length).split('?')[0]!
+      );
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          def: DEFS.find(d => d.key === key) ?? null,
+          rows: explainRows,
+        }),
+      };
+    }
     if (url.startsWith('/api/settings/repos'))
       return {
         ok: true,
@@ -100,7 +130,10 @@ beforeEach(() => {
     return defsResponse();
   });
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  Element.prototype.scrollIntoView = nativeScrollIntoView;
+  vi.unstubAllGlobals();
+});
 
 function renderPage() {
   return renderWithProviders(
@@ -542,6 +575,169 @@ describe('SettingsPage', () => {
     expect(marked()).toEqual(['#daemon']);
     f.scrollTo(60);
     expect(marked()).toEqual(['#agents']);
+  });
+});
+
+describe('open rows', () => {
+  const param = (name: string) =>
+    new URLSearchParams(window.location.search).get(name);
+  const rowOf = (key: string) =>
+    document.querySelector<HTMLElement>(`[data-key="${key}"]`)!;
+  const chevron = (key: string) =>
+    within(rowOf(key)).getByRole('button', { name: new RegExp(` ${key}$`) });
+
+  it('?explain=<key> opens that row on Where it’s set and scrolls it into view', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/settings?explain=board.agent.model'
+    );
+    renderPage();
+    await screen.findByRole('button', { name: 'close board.agent.model' });
+    const row = rowOf('board.agent.model');
+    expect(
+      await within(row).findByRole('radio', { name: "Where it's set" })
+    ).toBeChecked();
+    await waitFor(() => expect(scrolled.mock.contexts).toContain(row));
+  });
+
+  it('opening a second row closes the first, and a click scrolls nothing', async () => {
+    renderPage();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'open board.agent.model' })
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'open agent.claude.account' })
+    );
+    expect(chevron('board.agent.model')).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+    expect(chevron('agent.claude.account')).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+    expect(param('explain')).toBe('agent.claude.account');
+    expect(scrolled).not.toHaveBeenCalled();
+  });
+
+  it('opening a row is not navigation: the history entry is replaced', async () => {
+    renderPage();
+    const before = window.history.length;
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'open board.agent.model' })
+    );
+    expect(param('explain')).toBe('board.agent.model');
+    expect(window.history.length).toBe(before);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'close board.agent.model' })
+    );
+    expect(param('explain')).toBeNull();
+    expect(window.history.length).toBe(before);
+  });
+
+  it('keeps the Value tab in ?tab=value', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/settings?explain=board.agent.model&tab=value'
+    );
+    renderPage();
+    await screen.findByRole('button', { name: 'close board.agent.model' });
+    const row = rowOf('board.agent.model');
+    expect(
+      await within(row).findByRole('radio', { name: 'Value' })
+    ).toBeChecked();
+    await userEvent.click(
+      within(row).getByRole('radio', { name: "Where it's set" })
+    );
+    expect(param('tab')).toBeNull();
+    expect(param('explain')).toBe('board.agent.model');
+  });
+
+  it('a link to a key the filter hides clears the filter', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/settings?q=Prune&explain=board.agent.model'
+    );
+    renderPage();
+    await screen.findByRole('button', { name: 'close board.agent.model' });
+    expect(
+      screen.getByRole('textbox', { name: 'filter settings' })
+    ).toHaveValue('');
+    await waitFor(() =>
+      expect(scrolled.mock.contexts).toContain(rowOf('board.agent.model'))
+    );
+  });
+
+  it('a link to an Agents key of the provider not shown switches the section to it', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/settings?explain=agent.codex.effort'
+    );
+    renderPage();
+    await screen.findByRole('button', { name: 'close agent.codex.effort' });
+    expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked();
+    await waitFor(() =>
+      expect(scrolled.mock.contexts).toContain(rowOf('agent.codex.effort'))
+    );
+  });
+
+  it('?fix=<layer> opens that layer’s editor', async () => {
+    explainRows = [
+      { scope: 'default', file: null, present: false },
+      { scope: 'user', file: '/u', present: true, value: 'sonnet' },
+      { scope: 'machine', file: '/m', present: true, value: 'opus' },
+    ];
+    window.history.replaceState(
+      null,
+      '',
+      '/settings?explain=board.agent.model&fix=machine'
+    );
+    renderPage();
+    await screen.findByRole('button', { name: 'close board.agent.model' });
+    const row = rowOf('board.agent.model');
+    const layer = await within(row).findByTestId('layer-machine');
+    expect(
+      within(layer).getByRole('button', {
+        name: 'cancel editing board.agent.model at machine',
+      })
+    ).toBeInTheDocument();
+    expect(
+      within(within(row).getByTestId('layer-user')).getByRole('button', {
+        name: 'set board.agent.model at user',
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('a link to no registered key says so above the sections and keeps the filter', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/settings?q=Prune&explain=nope.gone'
+    );
+    renderPage();
+    const note = await screen.findByText('No setting named nope.gone.');
+    const list = screen.getByTestId('settings-list');
+    expect(
+      note.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('textbox', { name: 'filter settings' })
+    ).toHaveValue('Prune');
+  });
+
+  it('mounts no modal', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/settings?explain=board.agent.model'
+    );
+    renderPage();
+    await screen.findByRole('button', { name: 'close board.agent.model' });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
 

@@ -10,9 +10,10 @@ import {
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 
 import { useAgentModels } from '../config/useSettings';
+import type { OpenRow } from './explainParam';
 import type { WireIssue } from './issues';
 import type { PanelStore } from './KeyPanel';
-import { SettingRow } from './SettingRow';
+import { SettingRow, type RowOpen } from './SettingRow';
 import { useSettingsTeam } from './useConsoleSettings';
 import type { Section, StoreScope } from './view';
 
@@ -44,6 +45,23 @@ function subheadNote(scope: StoreScope, team: string | null): string {
 }
 
 export type Provider = 'claude' | 'codex';
+
+function providerOf(key: string | undefined): Provider | null {
+  const m = /^agent\.(claude|codex)\./.exec(key ?? '');
+  return m ? (m[1] as Provider) : null;
+}
+
+interface RowWiring {
+  query: string;
+  open: OpenRow | null;
+  onOpenChange: (key: string, next: RowOpen | null) => void;
+  onPickRepo?: (repo: string) => void;
+  onFix?: (key: string, issue: WireIssue | null) => void;
+}
+
+function rowOpen(key: string, open: OpenRow | null): RowOpen | null {
+  return open?.key === key ? { tab: open.tab, fix: open.fix } : null;
+}
 
 function Header({
   section,
@@ -84,20 +102,23 @@ function countText(filtering: boolean, shown: number, total: number) {
 function AgentsSection({
   section,
   store,
-  query,
   filtering,
   initialProvider,
+  query,
+  open,
+  onOpenChange,
+  onPickRepo,
   onFix,
 }: {
   section: Section;
   store: PanelStore;
-  query: string;
   filtering: boolean;
   initialProvider: Provider;
-  onFix?: (key: string, issue: WireIssue | null) => void;
-}) {
+} & RowWiring) {
   const all = section.subsections.flatMap(s => s.defs);
-  const [chosen, setChosen] = useState<Provider>(initialProvider);
+  const [chosen, setChosen] = useState<Provider>(
+    () => providerOf(open?.key) ?? initialProvider
+  );
   const shownFor = (p: Provider) =>
     all.some(d => d.key.startsWith(`agent.${p}.`));
   const other: Provider = chosen === 'claude' ? 'codex' : 'claude';
@@ -135,6 +156,9 @@ function AgentsSection({
           query={query}
           suggestions={def.key.endsWith('.model') ? suggestions : undefined}
           onFix={onFix}
+          open={rowOpen(def.key, open)}
+          onOpenChange={next => onOpenChange(def.key, next)}
+          onPickRepo={onPickRepo}
         />
       ))}
     </Box>
@@ -144,18 +168,19 @@ function AgentsSection({
 export function SettingsSection({
   section,
   store,
-  query,
   filtering,
   agentProvider,
+  query,
+  open,
+  onOpenChange,
+  onPickRepo,
   onFix,
 }: {
   section: Section;
   store: PanelStore;
-  query: string;
   filtering: boolean;
   agentProvider: Provider;
-  onFix?: (key: string, issue: WireIssue | null) => void;
-}) {
+} & RowWiring) {
   const { text } = useSchemeColors();
   const team = useSettingsTeam();
   if (section.group.id === 'agents')
@@ -163,9 +188,12 @@ export function SettingsSection({
       <AgentsSection
         section={section}
         store={store}
-        query={query}
         filtering={filtering}
         initialProvider={agentProvider}
+        query={query}
+        open={open}
+        onOpenChange={onOpenChange}
+        onPickRepo={onPickRepo}
         onFix={onFix}
       />
     );
@@ -210,6 +238,9 @@ export function SettingsSection({
               subhead={sub.scope}
               query={query}
               onFix={onFix}
+              open={rowOpen(def.key, open)}
+              onOpenChange={next => onOpenChange(def.key, next)}
+              onPickRepo={onPickRepo}
             />
           ))}
         </Box>

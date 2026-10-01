@@ -23,8 +23,7 @@ import { isSet } from '@mattstack/settings-kit/shapes';
 import { useSearchParams } from 'wouter';
 
 import { PAGE_ROW_HEIGHT } from '../chrome';
-import { ExplainModal } from './ExplainModal';
-import { useExplainParam } from './explainParam';
+import { useOpenRow } from './explainParam';
 import { TIER_LABEL, type Tier } from './groups';
 import { RepoPicker } from './RepoPicker';
 import { ScopeDot } from './ScopeBadge';
@@ -152,7 +151,7 @@ function Index({
 
 export function SettingsPage() {
   const { text, bg } = useSchemeColors();
-  const explain = useExplainParam();
+  const openRow = useOpenRow();
   const [params, setParams] = useSearchParams();
   const query = params.get('q') ?? '';
   const repo = params.get('repo');
@@ -236,6 +235,30 @@ export function SettingsPage() {
     setNeedsFixingOnly(false);
     setScope('any');
   };
+
+  // A link (read once, at mount) or a Fix scrolls its row into view, first
+  // clearing a filter that hides it; a click on a row never scrolls.
+  const [reveal, setReveal] = useState<string | null>(
+    () => openRow.open?.key ?? null
+  );
+  useEffect(() => {
+    if (store.loading || reveal === null) return;
+    const target = Array.from(
+      frame.current?.querySelectorAll<HTMLElement>('[data-key]') ?? []
+    ).find(el => el.dataset.key === reveal);
+    if (target) {
+      target.scrollIntoView({ block: 'start' });
+      setReveal(null);
+    } else if (filtering && store.defs.some(d => d.key === reveal)) clearAll();
+    else setReveal(null);
+  }, [store.loading, reveal, filtering, sections]); // eslint-disable-line react-hooks/exhaustive-deps
+  const missing =
+    openRow.open &&
+    !store.loading &&
+    store.error === null &&
+    !store.defs.some(d => d.key === openRow.open?.key)
+      ? openRow.open.key
+      : null;
 
   return (
     <SettingsRepoContext.Provider value={repo}>
@@ -337,7 +360,7 @@ export function SettingsPage() {
                           />
                         </Group>
                       ) : (
-                        <Kbd size="xs">/</Kbd>
+                        <Kbd size="sm">/</Kbd>
                       )
                     }
                   />
@@ -366,9 +389,8 @@ export function SettingsPage() {
                     </Text>
                   </Chip>
                   <SegmentedControl
-                    size="xs"
+                    size="sm"
                     withItemsBorders={false}
-                    styles={{ label: { fontSize: 12, fontWeight: 500 } }}
                     value={scope}
                     onChange={v => setScope(v as ScopeFilter)}
                     data={[
@@ -408,6 +430,11 @@ export function SettingsPage() {
                     <Text fz={12}>{store.error}</Text>
                   </Alert>
                 )}
+                {missing && (
+                  <Alert color="gray" variant="light" mt="md">
+                    <Text fz={12}>{`No setting named ${missing}.`}</Text>
+                  </Alert>
+                )}
                 {/* Skeletons only before the first list: a repo switch keeps the
                   list it has on screen until the new one arrives. */}
                 {store.loading && store.defs.length === 0 ? (
@@ -433,13 +460,7 @@ export function SettingsPage() {
                     <Text fz={12} c={text.muted}>
                       The filter reads key names and descriptions, not values.
                     </Text>
-                    <Button
-                      size="xs"
-                      h={28}
-                      fz={12}
-                      variant="default"
-                      onClick={clearAll}
-                    >
+                    <Button size="sm" variant="default" onClick={clearAll}>
                       Clear filter
                     </Button>
                   </Stack>
@@ -461,12 +482,18 @@ export function SettingsPage() {
                         query={query}
                         filtering={filtering}
                         agentProvider={agentProvider}
-                        onFix={(key, issue) =>
-                          explain.open(key, {
-                            fix: issue?.scope,
-                            repo: issue?.repo,
-                          })
+                        open={openRow.open}
+                        onOpenChange={(key, next) =>
+                          openRow.set(next ? { key, ...next } : null)
                         }
+                        onPickRepo={setRepo}
+                        onFix={(key, issue) => {
+                          openRow.set(
+                            { key, tab: 'where', fix: issue?.scope ?? null },
+                            { repo: issue?.repo }
+                          );
+                          setReveal(key);
+                        }}
                       />
                     ))}
                   </Box>
@@ -479,11 +506,7 @@ export function SettingsPage() {
                         ? '1 group has no match.'
                         : `${hiddenGroups} groups have no match.`}
                     </Text>
-                    <Button
-                      size="compact-xs"
-                      variant="default"
-                      onClick={clearAll}
-                    >
+                    <Button size="sm" variant="default" onClick={clearAll}>
                       Clear filter
                     </Button>
                   </Group>
@@ -494,13 +517,6 @@ export function SettingsPage() {
               </Box>
             </PageShell.Content>
           </PageShell.Main>
-          <ExplainModal
-            settingKey={explain.key}
-            fix={explain.fix}
-            store={store}
-            onClose={explain.close}
-            onPickRepo={setRepo}
-          />
         </PageShell>
       </SettingsTeamContext.Provider>
     </SettingsRepoContext.Provider>
