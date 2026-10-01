@@ -543,3 +543,38 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
     expect(state?.message).toBe('no herdr');
   });
 });
+
+describe('launchReReview: a resume re-resolves the pack', () => {
+  for (const [arm, prior] of [
+    ['agentId', { agentId: 'agent-a' }],
+    ['sessionId', { sessionId: 'sess-a' }],
+  ] as const) {
+    test(`the ${arm} arm clears noPack when a pack is now chosen`, async () => {
+      writeReviewState(
+        reviewFilePath(URL_A),
+        { mrUrl: URL_A, iid: IID, status: 'done', noPack: true, ...prior },
+        1,
+        db
+      );
+      await launchReReview(
+        URL_A,
+        IID,
+        { ...CTX, pack: 'widgets' },
+        makeIo(),
+        noSkillPath
+      );
+      expect(readReviewStates(db).get(URL_A)?.noPack).toBe(false);
+    });
+
+    test(`the ${arm} arm sets noPack when the pack is now gone`, async () => {
+      writeReviewState(
+        reviewFilePath(URL_A),
+        { mrUrl: URL_A, iid: IID, status: 'done', noPack: false, ...prior },
+        1,
+        db
+      );
+      await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
+      expect(readReviewStates(db).get(URL_A)?.noPack).toBe(true);
+    });
+  }
+});

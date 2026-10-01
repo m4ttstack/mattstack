@@ -984,10 +984,11 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
         expect(logs).toContainEqual({ id: "skills.materialize", line: "board.defaultPack: the team has no packs, left unset" });
       });
 
-      test("a plugin that is absent skips materialize and seeds nothing", async () => {
-        const { ctx } = makeCtx(fakeProbes({ home }), { team: ACME });
+      test("a skipped materialize (plugin absent) still seeds it from the team zone", async () => {
+        const { ctx, logs } = makeCtx(fakeProbes({ home, ...materializeWorld(home), env: {} }), { team: ACME });
         expect((await skillsMaterializeStep.run(ctx)).state).toBe("skipped");
-        expect(getSetting("board.defaultPack").value).toBeUndefined();
+        expect(getSetting("board.defaultPack").value).toBe("widgets");
+        expect(logs).toContainEqual({ id: "skills.materialize", line: "board.defaultPack: set to widgets" });
       });
     });
   });

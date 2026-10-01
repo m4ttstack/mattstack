@@ -70,8 +70,8 @@ export interface DoctorState {
       the lane speaks again. Never clears a thing: the run stays readable. */
   dismissedAt?: number;
   /** True when the launch resolved no pack and ran mattstack's generic
-      skill. Every fresh launch writes it, so a later launch with a pack
-      clears it; a resume leaves it as the launch set it. */
+      skill. Every launch and resume that resolves a skill rewrites it, so
+      choosing a pack clears it; only a promptless reopen leaves it as it was. */
   noPack?: boolean;
   startedAt: number;
   updatedAt: number;

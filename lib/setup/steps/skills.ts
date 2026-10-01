@@ -31,19 +31,18 @@ import { toFailedOutcome, unwritten } from "./step-utils.ts";
 
 async function skillsMaterializeRun(ctx: ApplyContext): Promise<StepOutcome> {
   const result = await materializeSkills(ctx.p, {});
-  if (result.skipped) return { state: "skipped", detail: result.reason };
-
-  for (const r of result.repos.filter((r) => !r.ok && !r.noManifest)) ctx.log("skills.materialize", `${r.name}: ${r.detail}`);
-  const tally = materializeTally(result.repos);
-
-  // board.keys is not update-safe, so this is the only place an updating member gets a default pack.
+  // board.keys is not update-safe, so this is the only place an updating
+  // member gets a default pack. It needs only the team zone, so a skipped
+  // materialize still seeds; a thrown one never reaches here.
   try {
     seedDefaultPack(ctx, "skills.materialize");
   } catch (err) {
     ctx.log("skills.materialize", `board.defaultPack: not seeded: ${err instanceof Error ? err.message : String(err)}`);
   }
+  if (result.skipped) return { state: "skipped", detail: result.reason };
 
-  return { state: "done", detail: tally };
+  for (const r of result.repos.filter((r) => !r.ok && !r.noManifest)) ctx.log("skills.materialize", `${r.name}: ${r.detail}`);
+  return { state: "done", detail: materializeTally(result.repos) };
 }
 
 async function skillsMaterializeRunSafe(ctx: ApplyContext): Promise<StepOutcome> {

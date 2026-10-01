@@ -3477,6 +3477,7 @@ function reviewResumeIo(): KindResumeIo {
     filePath: reviewFilePath,
     resolveSkill: (mrUrl, tabId) =>
       reviewSkillForTab(config, tabId, mrUrl, resolveLaunchSkillFor),
+    resolvePack: launchPack,
     prompt: (
       mrUrl,
       statePath,
@@ -3513,6 +3514,7 @@ function respondResumeIo(): KindResumeIo {
       ),
     filePath: respondFilePath,
     resolveSkill: mrUrl => resolveLaunchSkillFor('respond', mrUrl, undefined),
+    resolvePack: () => launchPack(undefined),
     prompt: (
       mrUrl,
       statePath,
@@ -3550,6 +3552,7 @@ function doctorResumeIo(): KindResumeIo {
       ),
     filePath: doctorFilePath,
     resolveSkill: mrUrl => resolveLaunchSkillFor('doctor', mrUrl, undefined),
+    resolvePack: () => launchPack(undefined),
     prompt: (
       mrUrl,
       statePath,

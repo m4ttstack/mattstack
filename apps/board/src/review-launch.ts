@@ -115,7 +115,10 @@ export async function launchReReview(
   );
 
   if (existing?.agentId) {
-    io.writeReviewState(statePath, { status: 'reviewing' });
+    io.writeReviewState(statePath, {
+      status: 'reviewing',
+      noPack: !ctx.pack,
+    });
     try {
       const result = await io.resumeAgentPane({
         agentId: existing.agentId,
@@ -145,7 +148,10 @@ export async function launchReReview(
   }
 
   if (existing?.sessionId) {
-    io.writeReviewState(statePath, { status: 'reviewing' });
+    io.writeReviewState(statePath, {
+      status: 'reviewing',
+      noPack: !ctx.pack,
+    });
     try {
       const { tabId, workspaceId } = await io.launchLegacyResume({
         mrUrl,
