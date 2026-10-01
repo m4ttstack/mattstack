@@ -61,7 +61,6 @@
   "lib/daemon-logger.ts",
   "lib/daemon/inject.ts",
   "lib/endpoint/config.ts",
-  "lib/enrich.ts",
   "lib/home/age-key.ts",
   "lib/navigate.ts",
   "lib/pickers.ts",
