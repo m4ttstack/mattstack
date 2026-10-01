@@ -52,8 +52,8 @@ Block builders (`line()`, `callout()`, `kv()`, `table()` and the rest) are plain
 `out.print` does three things:
 
 1. **Gate.** Human rendering needs the target stream to be a TTY, no `--json`, and no `RT_BATCH`. This is the picker gate applied to the output stream.
-2. **Render.** When the gate passes, it resolves the binary through `lib/ui/resolve.ts` and runs `rt-ui render` with `Bun.spawnSync`, blocks on stdin, the child's stdout inherited.
-3. **Fall back.** When the gate fails, or the helper is missing or exits non-zero, it prints the same blocks through a plain TS renderer: no color, ASCII-safe glyphs, same words. A dead helper never costs the user the message. This is the pattern `lib/ui/steps.ts` already uses.
+2. **Render.** When the gate passes, it resolves the binary through `lib/ui/resolve.ts` and runs `rt-ui render` with `Bun.spawnSync`, blocks on stdin, and writes the helper's captured stdout to the target stream itself. Nothing reaches the terminal unless the helper exits 0, so a helper that dies never leaves half a render above the fallback, and a payload verb's human text can go to stderr. Because the helper's stdout is a pipe, it takes its color depth from the environment (`COLORTERM`, `TERM`, `NO_COLOR`) and its width from a `--width` flag.
+3. **Fall back.** When the gate fails, or the helper is missing or exits non-zero, it prints the same blocks through a plain TS renderer: no color, statuses as bracketed words (`[ok]`, `[needs you]`), same words, escape sequences stripped. A dead helper never costs the user the message. This is the pattern `lib/ui/steps.ts` already uses.
 
 One call is one spawn (about 15 ms in the spike), so output stays in order with step spinners. Blocks that must align with each other (hints across consecutive lines, table columns) go in the same call.
 
@@ -72,7 +72,7 @@ Ruled 2026-09-30: only `--json` is frozen; plain text off a TTY takes the new wo
 | `line` | status, title, optional hint | nearly every verb |
 | `callout` | label (`tip`, `next`, `fix`, `why`, `note`), body lines; attaches under the block before it | settings notices, setup remedies, failures |
 | `kv` | key, value, optional source line | `settings get`, `deps resolve`, `team status` |
-| `table` | optional headers, rows of cells, optional group labels between rows, optional marker column | `settings list`, `worktree list`, `chat rooms`, `accounts` |
+| `table` | optional headers, rows of cells, optional group labels between rows | `settings list`, `worktree list`, `chat rooms`, `accounts` |
 | `tree` | root, children, each child a row of cells | `settings explain`, `repos status`, `port` |
 | `section` | title, optional subtitle, nested blocks | `setup status`, `runs show`, `sync all`, `worktree each` |
 | `summary` | status, title, counts | `setup apply`, `verify`, `release preflight` |
@@ -105,24 +105,25 @@ Ten states. Every `line`, `summary` and status cell names one.
 | running | `●` | mint | live |
 | warn | `!` | peach | worked, with a caveat |
 
-The glyphs avoid Nerd Font code points and heavy filled shapes, which rendered badly in the spike.
+The glyphs avoid Nerd Font code points and heavy filled shapes, which rendered badly in the spike. Setup's `partial` outcome renders as `warn`.
 
 ## Color roles
 
+- **Terminal default:** body text, titles and commands use the terminal's own foreground, never a theme color, so output reads on light and dark backgrounds. Titles and commands are bold. Only the accents below carry theme colors. Ruled 2026-09-30.
 - **Mint:** done and running.
 - **Coral:** failures. One named exception: the `banner` block, shown only before a destructive or production confirm.
 - **Peach:** needs-you, stale, warn, and the `next` and `fix` callout labels.
 - **Lavender:** setting keys, branch names and the `tip` label.
-- **Bright bold text:** a command to run. The callout label carries the color; the command does not.
+- **Bold:** a command to run. The callout label carries the color; the command does not.
 - **Dim and faint:** hints, sources, captions, rails.
 
 ## Rules
 
 1. **Never style a payload.** Text another program reads goes through `out.payload` or straight to the child and is never touched: the `rt cd` and `rt nav` path, `git credential`, the `home key export` key, `pane peek`, `skills compile --preview`, bare-path outputs (`settings source-path`, `settings schema lock`), and any child process given the terminal (`git push`, `git pull`, `rt run`, `daemon logs`, the login flows).
 2. **Human text goes to stdout.** The exception is a verb whose stdout is a payload (`cd`, `nav`): its human text goes to stderr on purpose and the gate tests stderr.
-3. **Failures go to stderr,** drawn as a `failure` block. Nothing else does in human mode.
-4. **One spinner.** The Go step is the spinner. `lib/tui/inline-spinner.ts` and the `\r` line in `lib/enrich.ts` move onto it.
-5. **Sub-lines clear on success.** Lines streamed under a running step vanish when it resolves to done and stay when it fails. They are always in the log.
+3. **Failures go to stderr,** drawn as a `failure` block. Nothing else does in human mode, apart from rule 2's payload verbs.
+4. **One spinner.** The Go step is the spinner. `lib/tui/inline-spinner.ts` and the `\r` line in `lib/enrich.ts` move onto it in phase 5, with the verbs that use them.
+5. **Sub-lines clear on success.** Lines streamed under a running step vanish when it resolves and stay when it fails. At most the last five show at once, so a long stream never scrolls out of reach of the erase. They are always in the log.
 6. **Hints align.** Consecutive `line` blocks in one call pad their titles to a common width.
 7. **Rails.** Callouts use the thick `▌` bar in the label's color. `copy` and `verbatim` use a thin `│` rail in the theme's `Panel` tone.
 8. **Spacing.** One blank line before a `section` unless it is the first block; one before a `summary`. Blocks never print trailing blank lines.
@@ -130,9 +131,16 @@ The glyphs avoid Nerd Font code points and heavy filled shapes, which rendered b
 
 ## Steps
 
-`rt-ui steps` gains one event, `{ t: "sub", text }`: a transient dim line under the running step, drawn with the thin rail. On `done` the sub-lines are erased; on `fail` they stay. The existing `log` event keeps its meaning (a permanent line).
+`rt-ui steps` gains two things in phase 1:
 
-`sdm connect`, `sdm login` and `setup apply` use it for the child output and step logs they stream today.
+- **A `sub` event,** `{ t: "sub", text }`: a transient dim line under the running step, drawn with the thin rail. Only the last five show. On `done` they are erased; on `fail` they stay. The existing `log` event keeps its meaning (a permanent line), and makes any sub-lines above it permanent too.
+- **A `status` on `done`,** `{ t: "done", title, hint?, status? }`: the step resolves to that status's glyph and color in place of the mint check. This is how a step ends as `needs-you`, `skipped`, `pending` or `warn` without being painted as a failure. `fail` stays the only coral ending.
+
+The step verb's own glyphs come from the status set (its warning line uses `!`), and its text uses the terminal's default foreground like every other block.
+
+`sdm connect`, `sdm login` and `setup apply` use sub-lines for the child output and step logs they stream today.
+
+`lib/ui/steps.ts` still prints its fallback and `log()` lines with truecolor escapes from `lib/tui/palette.ts`, even off a TTY. Phase 5 moves those lines onto `out.print` when it converts `sync`, `git rebase` and `git reset`, the only callers; the guard exempts `lib/ui/`, so that phase's checklist carries it.
 
 ## Error seam
 
@@ -142,7 +150,7 @@ The glyphs avoid Nerd Font code points and heavy filled shapes, which rendered b
 - **Expected failure:** rendered as a `failure` block (what happened, `why`, `next`), exit 2. The type is today's `UserActionableError`, moved from `lib/setup/errors.ts` to `lib/errors.ts` and given optional `why` and `next` fields.
 - **Anything else:** one line, "rt hit an unexpected error", with the error's message as the hint and a pointer to the CLI log. The stack is written through the CLI logging seam before exit 1. Off a TTY, or with `RT_LOG_LEVEL=debug`, the stack also prints, as it does today.
 
-`exitUserError` sends its human message to stderr. Its `--json` payload stays on stdout.
+`exitUserError` sends its human message to stderr as a `failure` block, without today's `rt <verb>:` prefix (the person just typed the verb). Its `--json` payload stays on stdout.
 
 Known expected failures are converted as they are found. The first is the sops decrypt failure in `readTeamSecret`: "This Mac cannot read the <team> team's secrets yet", why "No age key on this machine matches the team's recipients", and a `next` that names a real verb. The raw sops output goes to the log.
 
@@ -152,7 +160,7 @@ Known expected failures are converted as they are found. The first is the sops d
 
 - A step's `running` event opens a step with the step's title (`StepDef.title` or `titleFor`). The id stays in `--json` and the log.
 - `log` events become sub-lines.
-- `done`, `partial`, `skipped`, `failed` and `needs-you` resolve the step to a line in the matching state, with `detail` as the hint.
+- `done`, `skipped` and `needs-you` end the step with `done` carrying that status; `partial` ends it as `warn`; `failed` ends it with `fail`. `detail` is the hint.
 - `remedy` becomes a `next` or `fix` callout holding the command.
 - The closing event becomes a `summary` with counts per state.
 
@@ -179,13 +187,20 @@ The `AGENTS.md` section is extended to cover output messages as well as descript
 
 `lib/__tests__/no-raw-output.test.ts`, named `no-*` so it runs on every PR.
 
-It fails when a file under `commands/`, or a `lib/` file that prints for a command, does any of:
+It fails when a file under `commands/` or `lib/` does any of:
 
-- import a color from `lib/ansi.ts` or `lib/tui.ts`;
+- import a color from `lib/ansi.ts`, `lib/tui.ts` or `lib/tui/palette.ts`;
 - contain a raw `\x1b[` literal;
 - call `console.log`, `console.error`, `console.warn`, `process.stdout.write` or `process.stderr.write`.
 
 The test starts with an allowlist of every current offender. Each phase removes the files it converts. The project is done when the allowlist is empty, at which point `lib/ansi.ts`, the `lib/tui.ts` shim and any unused part of `lib/tui/palette.ts` are deleted.
+
+Some offenders never print for a person: agent-only verbs (`commands/gate.ts`, `events.ts`, `mcp.ts`), logging seams (`lib/daemon-logger.ts`, `lib/cli-logger.ts`) and protocol writers. They leave the allowlist one of two ways, decided by the phase that reaches them (phase 6 takes whatever is left):
+
+- a verb that only writes JSON or a payload moves onto `out.json` or `out.payload`, a mechanical change with no wording involved;
+- a seam that must write to a stream directly goes on a permanent exemption list in the test, each entry with a one-line reason.
+
+`lib/ui/` and `lib/tui/` are exempt from the start: they are the output layer and the color modules it retires.
 
 ## Testing
 
@@ -200,12 +215,12 @@ The test starts with an allowlist of every current offender. Each phase removes 
 
 One PR each, in this order.
 
-1. **Foundation.** `rt-ui render`, `lib/ui/out.ts`, the plain renderer, fixtures, the `sub` step event, the guard with its full allowlist, and the `AGENTS.md` section. Converts nothing.
+1. **Foundation.** `rt-ui render`, `lib/ui/out.ts`, the plain renderer, the fixture, the step verb's `sub` event and `status` on `done`, the guard with its full allowlist, and the `AGENTS.md` section. Converts nothing.
 2. **Errors.** The dispatch seam, `lib/errors.ts`, `exitUserError`'s stream, and the sops failure.
 3. **Setup.** `setup` (bare, `plan`, `status`, `apply`, `update`, the connect and status pairs, `waive`, `repo-root`, `home remote`), `verify`, `uninstall`, `accounts`, `logins`, `secrets`.
 4. **Settings.** `get`, `set`, `unset`, `list`, `explain`, `check`, `migrate`, and the notice sink.
-5. **Visible verbs.** `git`, `sync`, `worktree`, `port`, `repos`, `code`, `hooks`, `intercept`, `skills`, `team`, `plugin`, `tools`, `deps`, `extension`, `release`, `sdm`, `home`, `runs`, the human `chat` verbs, and the notes in `cd` and `nav`. Split into more than one PR if the diff is too large to review.
-6. **Hidden verbs.** `daemon`, `services`, `state`, `state backup`, `bg`, `cron`, `apps`, `reconciler`, `endpoint`, `flavor`. Then delete the raw color modules and empty the allowlist.
+5. **Visible verbs.** `git`, `sync`, `worktree`, `port`, `repos`, `code`, `hooks`, `intercept`, `skills`, `team`, `plugin`, `tools`, `deps`, `extension`, `release`, `sdm`, `home`, `runs`, the human `chat` verbs, and the notes in `cd` and `nav`. This phase also folds the two extra spinners into the Go step and moves `lib/ui/steps.ts`'s static lines onto `out.print`. Split into more than one PR if the diff is too large to review.
+6. **Hidden verbs.** `daemon`, `services`, `state`, `state backup`, `bg`, `cron`, `apps`, `reconciler`, `endpoint`, `flavor`. Then settle every file still on the allowlist (convert, move to `out.json` or `out.payload`, or exempt with a reason), delete the raw color modules and empty the allowlist.
 
 Leath's and Ed's pain is fixed by the end of phase 3.
 

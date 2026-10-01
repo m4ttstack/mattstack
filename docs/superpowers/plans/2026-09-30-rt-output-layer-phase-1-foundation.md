@@ -23,13 +23,14 @@
 - `--json` output of every existing command must not change. This phase converts no command.
 - Run `bun test` only from the repo root. Run Go commands from `ui/`.
 - After any change under `ui/`, run `bun run ui:build` before running TS tests that spawn the real helper.
-- Format before each commit: `gofmt -w` on changed Go files, `bunx prettier --write` on changed TS, JSON and Markdown files.
+- Format before each commit: `gofmt -w` on changed Go files. rt's own TS, JSON and Markdown are outside prettier (`.prettierignore` lists `/lib`, `/commands`, `/ui`, `docs` and `/*.md`), so match the surrounding style by hand: double quotes, two-space indent, long lines left unwrapped.
+- Body text, titles and commands use the terminal's default foreground so output reads on light and dark terminals: `textStyle`, `strongStyle` and `commandStyle` set no color. Only accents take theme colors.
 - End every commit message with the trailer line `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
 - Sample data in tests is invented. Do not use real team, person or host names.
 
 ## Review Focus
 
-1. **Untrusted text carrying escape sequences.** A branch name or a line of child output containing `\x1b[2J` must print as plain characters and must not repaint the terminal. Pinned in Task 2 (`TestTextIsCleanedOfEscapesAndControls`).
+1. **Untrusted text carrying escape sequences.** A branch name or a line of child output containing `\x1b[2J` must print as plain characters and must not repaint the terminal. Pinned in Task 2 (`TestTextIsCleanedOfEscapesAndControls`) for the styled path and Task 7 (`plain output is cleaned of escapes and controls`) for the fallback.
 2. **Version skew between rt and rt-ui.** An older helper with no `render` verb, or a newer block type the helper does not know, must leave the person with the same words in plain text, never an error or partial styled output. Pinned in Task 5 (`TestUnknownBlockExitsTwoWithNoOutput`) and Task 8 (`falls back to plain when the helper exits non-zero`).
 3. **Wide characters in aligned columns.** CJK text or emoji in a table cell must still line up. Pinned in Task 3 (`TestTableAlignsByDisplayWidth`).
 4. **A sub-line wider than the terminal.** A long streamed line must not wrap, or the erase on success leaves fragments behind. Pinned in Task 6 (`TestLongSubLineIsTruncatedAndErased`).
@@ -390,7 +391,6 @@ Expected: both PASS.
 
 ```bash
 gofmt -w ui/internal/protocol/render.go ui/internal/protocol/render_test.go
-bunx prettier --write ui/fixtures/render-document.json lib/ui/protocol.ts lib/ui/__tests__/protocol.test.ts
 git add ui/fixtures/render-document.json ui/internal/protocol/render.go ui/internal/protocol/render_test.go lib/ui/protocol.ts lib/ui/__tests__/protocol.test.ts
 git commit -m "rt-ui: wire types for render blocks
 
@@ -409,7 +409,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `protocol.Block`, `protocol.Cell`, `protocol.Segment` (Task 1); `theme.*` colors and glyphs (existing).
-- Produces: `render.Options{Width int}`, `render.Render(blocks []protocol.Block, opts Options) string` (styled text, each line newline-terminated, no leading or trailing blank line), `render.Clean(s string) string`. Internal helpers later tasks use: `(*renderer).emit(string)`, `(*renderer).gap()`, `(*renderer).blocks([]protocol.Block)`, `cell(protocol.Cell) string`, `pad(s string, w int) string`, `joinCells(cells []string, widths []int) string`, and the styles `textStyle`, `strongStyle`, `dimStyle`, `faintStyle`, `keyStyle`, `ruleStyle`, `railStyle`, `fg`.
+- Produces: `render.Options{Width int}`, `render.Render(blocks []protocol.Block, opts Options) string` (styled text, each line newline-terminated, no leading or trailing blank line), `render.Clean(s string) string`, `render.Glyph(status string) string` (the styled glyph for a status; a dim dot for an unknown one). Internal helpers later tasks use: `(*renderer).emit(string)`, `(*renderer).gap()`, `(*renderer).blocks([]protocol.Block)`, `cell(protocol.Cell) string`, `pad(s string, w int) string`, `joinCells(cells []string, widths []int) string`, and the styles `textStyle`, `strongStyle`, `dimStyle`, `faintStyle`, `keyStyle`, `ruleStyle`, `railStyle`, `fg`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -554,7 +554,7 @@ func TestUnknownStatusFallsBackToADot(t *testing.T) {
 }
 
 func TestTextIsCleanedOfEscapesAndControls(t *testing.T) {
-	out := styled(protocol.Block{T: "line", Status: "done", Title: "evil\x1b[2Jname\x07", Hint: "a\tb"})
+	out := styled(protocol.Block{T: "line", Status: "done", Title: "evil\x1b[2Jname\x07\u009b", Hint: "a\tb"})
 	if strings.Contains(out, "\x1b[2J") || strings.Contains(out, "\x07") {
 		t.Fatalf("control sequence survived: %q", out)
 	}
@@ -573,6 +573,22 @@ func TestLinkSegmentEmitsAHyperlinkAndCleansItsURL(t *testing.T) {
 	}
 }
 
+func TestBodyTextUsesTheTerminalDefaultForeground(t *testing.T) {
+	if got := styled(protocol.Block{T: "paragraph", Text: "plain words"}); strings.Contains(got, "\x1b[38") {
+		t.Fatalf("a paragraph set a foreground color: %q", got)
+	}
+	out := styled(
+		protocol.Block{T: "line", Status: "done", Title: "Skills linked"},
+		protocol.Block{T: "kv", Key: "k", Value: "v"},
+		protocol.Block{T: "callout", Label: "next", Body: []protocol.Cell{cmd("rt setup status")}},
+	)
+	for _, fixed := range []string{"230;224;255", "210;205;235"} {
+		if strings.Contains(out, fixed) {
+			t.Fatalf("body text painted with a fixed light color %s: %q", fixed, out)
+		}
+	}
+}
+
 func TestNoLeadingOrTrailingBlankLines(t *testing.T) {
 	out := plain(protocol.Block{T: "line", Status: "done", Title: "x"})
 	if strings.HasPrefix(out, "\n") || strings.HasSuffix(out, "\n\n") {
@@ -587,7 +603,7 @@ func TestNoLeadingOrTrailingBlankLines(t *testing.T) {
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `cd ui && go test ./internal/render/`
-Expected: FAIL, package `rt-ui/internal/render` does not exist.
+Expected: FAIL, package `rt-ui/internal/render` does not exist. (`TestBodyTextUsesTheTerminalDefaultForeground` uses a paragraph, which Task 4 renders; until then it passes on empty output, and Task 4 makes it bite.)
 
 - [ ] **Step 3: Write `style.go`**
 
@@ -633,26 +649,30 @@ var statuses = map[string]statusDef{
 
 func fg(c color.Color) lipgloss.Style { return lipgloss.NewStyle().Foreground(c) }
 
+// Body text, titles and commands set no color: they take the terminal's own
+// foreground, so they read on a light background as well as a dark one.
 var (
-	textStyle    = fg(theme.TextSoft)
-	brightStyle  = fg(theme.Text)
-	strongStyle  = fg(theme.Text).Bold(true)
+	textStyle    = lipgloss.NewStyle()
+	strongStyle  = lipgloss.NewStyle().Bold(true)
+	commandStyle = lipgloss.NewStyle().Bold(true)
 	dimStyle     = fg(theme.Dimmer)
 	faintStyle   = fg(theme.Faint)
 	keyStyle     = fg(theme.Lav)
-	commandStyle = fg(theme.Text).Bold(true)
 	linkStyle    = fg(theme.Cyan).Underline(true)
 	ruleStyle    = fg(theme.Rule)
 	railStyle    = fg(theme.Panel)
 )
 
-func glyph(status string) string {
+// Glyph is the styled glyph for a status; an unknown status gets a dim dot.
+func Glyph(status string) string {
 	d, ok := statuses[status]
 	if !ok {
 		return faintStyle.Render("•")
 	}
 	return fg(d.color).Render(d.glyph)
 }
+
+func glyph(status string) string { return Glyph(status) }
 
 // Clean strips escape sequences and control characters, so text that came
 // from a branch name or a child process cannot repaint the terminal.
@@ -661,7 +681,7 @@ func Clean(s string) string {
 		switch {
 		case r == '\t':
 			return ' '
-		case r < 0x20 || r == 0x7f:
+		case r < 0x20 || (r >= 0x7f && r <= 0x9f):
 			return -1
 		}
 		return r
@@ -1307,7 +1327,7 @@ func TestDiffMarksAddedAndRemovedLines(t *testing.T) {
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `cd ui && go test ./internal/render/ -run 'Paragraph|Copy|Verbatim|Diff'`
-Expected: FAIL, each gets `""`.
+Expected: FAIL, each gets `""`. One exception: `TestParagraphIsCappedAt76ColumnsOnAWideTerminal` passes on empty output until the paragraph renders; it only starts checking in Step 5.
 
 - [ ] **Step 3: Write `blocks_text.go`**
 
@@ -1351,7 +1371,7 @@ func (r *renderer) paragraph(b protocol.Block) {
 // copy never wraps and never styles inside the text: the person selects it.
 func (r *renderer) copy(b protocol.Block) {
 	r.caption(b.Caption)
-	r.emit(calloutIndent + railStyle.Render("│") + "  " + brightStyle.Render(Clean(b.Text)))
+	r.emit(calloutIndent + railStyle.Render("│") + "  " + textStyle.Render(Clean(b.Text)))
 }
 
 func (r *renderer) verbatim(b protocol.Block) {
@@ -1536,7 +1556,7 @@ func TestLastBlockWithoutATrailingNewlineStillRenders(t *testing.T) {
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `cd ui && go test ./internal/render/ -run 'Verb|Hello|UnknownBlock|LastBlock'`
-Expected: FAIL. Every case exits 2 with the usage message, because `render` is not a verb yet.
+Expected: FAIL for every test that wants exit 0. `TestBadHelloExitsTwo` and `TestUnknownBlockExitsTwoWithNoOutput`'s exit check already see 2, from the usage exit; they only prove something once the verb exists (the second also needs `sparkline` in stderr, so it fails now).
 
 - [ ] **Step 3: Add `runRender`**
 
@@ -1639,13 +1659,7 @@ Replace the `usage` body with:
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `cd ui && go vet ./... && go test ./internal/render/ ./cmd/...`
-Expected: `ok`. If `TestRenderVerbHonorsNoColorEnv` fails because `colorprofile.Env` does not read `NO_COLOR`, add this before the `noColor` check in `runRender` and re-run:
-
-```go
-	if _, set := os.LookupEnv("NO_COLOR"); set {
-		noColor = true
-	}
-```
+Expected: `ok`. (`colorprofile.Env` reads `NO_COLOR` itself, which is what `TestRenderVerbHonorsNoColorEnv` relies on.)
 
 - [ ] **Step 6: Build the helper and look at it**
 
@@ -1660,13 +1674,13 @@ printf '%s\n' '{"t":"hello","protocol":1}' \
   | COLORTERM=truecolor ui/dist/rt-ui render --width 80
 ```
 
-Expected: four styled lines and a summary, the command in bright bold, no coral anywhere. Report in your task report what you saw; do not claim it looks right without running it.
+Expected: three lines, a callout and a summary, the command in bold, no coral anywhere, and body text in the terminal's own text color. Report in your task report what you saw; do not claim it looks right without running it.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 gofmt -w ui/cmd/rt-ui/ ui/internal/render/
-git add ui/cmd/rt-ui/main.go ui/cmd/rt-ui/verbs.go ui/internal/render/verb_test.go ui/go.mod ui/go.sum
+git add ui/cmd/rt-ui/main.go ui/cmd/rt-ui/verbs.go ui/internal/render/verb_test.go
 git commit -m "rt-ui: render verb prints static blocks to stdout
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -1674,25 +1688,48 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 6: Step sub-lines that clear on success
+### Task 6: Step sub-lines and a status on `done`
 
 **Files:**
-- Modify: `ui/internal/protocol/protocol.go` (`DecodeStep`)
-- Modify: `ui/internal/steps/steps.go`
-- Modify: `ui/internal/steps/steps_test.go` (append)
+- Modify: `ui/internal/protocol/protocol.go` (`StepEvent`, `DecodeStep`)
+- Modify: `ui/internal/steps/steps.go` (replace the file)
+- Modify: `ui/internal/steps/steps_test.go` (one assertion changed, tests appended)
 - Modify: `lib/ui/protocol.ts` (`StepEvent`)
 - Modify: `lib/ui/spawn.ts` (`StepHandle`, `openStep`)
 - Modify: `lib/ui/steps.ts` (`StepRunner.run`)
 - Modify: `lib/ui/__tests__/steps.test.ts` (append)
 
 **Interfaces:**
-- Consumes: `render.Clean` (Task 2); `testutil.RunPTY`, `testutil.Screen` (existing).
-- Produces (wire): step event `{ "t": "sub", "text": string }`.
-- Produces (TS): `StepHandle.sub(text: string): void`; `StepRunner.run<T>(pending, task: (step: { sub(text: string): void }) => Promise<T>, opts?)`. Existing callers that pass a zero-argument task keep compiling.
+- Consumes: `render.Clean`, `render.Glyph` (Task 2); `RenderStatus` (Task 1); `testutil.RunPTY`, `testutil.Screen` (existing).
+- Produces (wire): step event `{ "t": "sub", "text": string }`, and an optional `"status"` on the `done` event naming one of the ten statuses.
+- Produces (TS): `StepHandle.sub(text: string): void`; `StepHandle.done(title?: string, hint?: string, status?: RenderStatus): Promise<boolean>`; `StepRunner.run<T>(pending, task: (step: { sub(text: string): void }) => Promise<T>, opts?)`. Existing callers that pass a zero-argument task keep compiling.
+
+Behavior this task ships:
+
+- A `sub` line is transient: at most the last five show under the running step, they are erased when the step ends with `done`, and they stay when it ends with `fail`.
+- A `log` line is permanent, and makes any sub-lines above it permanent too.
+- `done` with a `status` paints that status's glyph in place of the mint check. `fail` stays the only coral ending.
+- The step verb's warning glyph becomes `!` (the status set's `warn`), and its text takes the terminal's default foreground.
 
 - [ ] **Step 1: Write the failing Go tests**
 
-Append to `ui/internal/steps/steps_test.go`:
+In `ui/internal/steps/steps_test.go`, change the last assertion of `TestLogLinesAppearAboveTheActiveStep` from
+
+```go
+	if !strings.Contains(tty, "⚠") {
+		t.Fatalf("warn glyph missing: %q", tty)
+	}
+```
+
+to
+
+```go
+	if !strings.Contains(testutil.Screen(tty), "! diverged from origin/main") {
+		t.Fatalf("warn glyph missing: %q", tty)
+	}
+```
+
+Then append:
 
 ```go
 func TestSubLinesAreErasedWhenTheStepSucceeds(t *testing.T) {
@@ -1713,6 +1750,26 @@ func TestSubLinesStayWhenTheStepFails(t *testing.T) {
 	screen := testutil.Screen(tty)
 	if !strings.Contains(screen, "checking the session") || !strings.Contains(screen, "could not connect") {
 		t.Fatalf("screen %q", screen)
+	}
+}
+
+func TestOnlyTheLastFiveSubLinesShow(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"installing…"}`}
+	for _, n := range []string{"1", "2", "3", "4", "5", "6", "7"} {
+		lines = append(lines, `{"t":"sub","text":"line-`+n+`"}`)
+	}
+	lines = append(lines, `{"t":"fail","title":"install failed"}`)
+	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	screen := testutil.Screen(tty)
+	for _, gone := range []string{"line-1", "line-2"} {
+		if strings.Contains(screen, gone) {
+			t.Fatalf("%s should have rolled off: %q", gone, screen)
+		}
+	}
+	for _, kept := range []string{"line-3", "line-4", "line-5", "line-6", "line-7", "install failed"} {
+		if !strings.Contains(screen, kept) {
+			t.Fatalf("%s missing: %q", kept, screen)
+		}
 	}
 }
 
@@ -1748,87 +1805,224 @@ func TestSubTextIsCleaned(t *testing.T) {
 		t.Fatalf("escape from sub text reached the terminal: %q", tty)
 	}
 }
+
+func TestDoneWithAStatusEndsInThatStatusNotAFailure(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"connecting Slack…"}`, `{"t":"done","title":"Slack","hint":"not connected","status":"needs-you"}`}
+	_, tty, exit := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	if exit != 0 || !strings.Contains(tty, "◆") || !strings.Contains(tty, "Slack") {
+		t.Fatalf("exit %d tty %q", exit, tty)
+	}
+	if strings.Contains(tty, "✓") || strings.Contains(tty, "✗") || strings.Contains(tty, "255;121;121") {
+		t.Fatalf("a needs-you ending was painted as done or as a failure: %q", tty)
+	}
+}
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `cd ui && go test ./internal/steps/ -run 'Sub|ALogLine'`
-Expected: FAIL. `DecodeStep` rejects `t="sub"`, so the helper exits 2 and the screens lack "connected".
+Run: `cd ui && go test ./internal/steps/`
+Expected: five FAIL, three pass.
 
-- [ ] **Step 3: Accept the event**
+- FAIL: `TestLogLinesAppearAboveTheActiveStep` (the glyph is still `⚠`), `TestSubLinesStayWhenTheStepFails`, `TestOnlyTheLastFiveSubLinesShow`, `TestALogLineMakesEarlierSubLinesPermanent`, `TestDoneWithAStatusEndsInThatStatusNotAFailure`.
+- Pass already: `TestSubLinesAreErasedWhenTheStepSucceeds`, `TestLongSubLineIsTruncatedAndErased`, `TestSubTextIsCleaned`. `runSteps` skips an event it cannot decode, so today a `sub` event is dropped and nothing is drawn to erase or clean. These three guard the implementation once it draws sub-lines; they are not expected to fail now.
 
-In `ui/internal/protocol/protocol.go`, change the `DecodeStep` switch line to:
+- [ ] **Step 3: Accept the event and the status**
+
+In `ui/internal/protocol/protocol.go`, add a field to `StepEvent` after `Text`:
+
+```go
+	Status string `json:"status,omitempty"`
+```
+
+and change the `DecodeStep` switch line to:
 
 ```go
 	case "hello", "start", "log", "sub", "done", "fail":
 ```
 
-- [ ] **Step 4: Draw and erase sub-lines**
+- [ ] **Step 4: Replace `steps.go`**
 
-In `ui/internal/steps/steps.go`:
-
-Add to the imports:
+Replace the whole of `ui/internal/steps/steps.go` with:
 
 ```go
+// Package steps renders one step: a spinner line while the parent works,
+// then a final line in the status the step ended with. The tty is write-only
+// and cooked, so Ctrl-C stays a signal to the whole group and the parent's
+// own SIGINT handling runs.
+package steps
+
+import (
+	"fmt"
+	"os"
+	"time"
+
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	xterm "github.com/charmbracelet/x/term"
 
+	"rt-ui/internal/protocol"
 	"rt-ui/internal/render"
-```
+	"rt-ui/internal/theme"
+	"rt-ui/internal/tty"
+)
 
-Add to the `var (` style block:
+type Outcome int
 
-```go
+const (
+	Done Outcome = iota
+	Failed
+	Interrupted // parent went away (stdin EOF)
+	Signalled   // SIGINT/SIGTERM/SIGHUP reached us
+)
+
+const frameEvery = theme.SpinnerInterval
+
+// maxSubs caps the transient lines under a running step: more would scroll
+// past the top of the screen, where the erase on success cannot reach.
+const maxSubs = 5
+
+var (
+	spinStyle = lipgloss.NewStyle().Foreground(theme.Mint)
+	textStyle = lipgloss.NewStyle()
+	hintStyle = lipgloss.NewStyle().Foreground(theme.Faint)
 	subStyle  = lipgloss.NewStyle().Foreground(theme.Dimmer)
 	railGlyph = lipgloss.NewStyle().Foreground(theme.Panel).Render("│")
-```
+	okGlyph   = render.Glyph("done")
+	badGlyph  = render.Glyph("failed")
+	infoGlyph = lipgloss.NewStyle().Foreground(theme.Faint).Render("•")
+)
 
-Inside `Run`, after `defer ticker.Stop()`, add:
+func logGlyph(level string) string {
+	switch level {
+	case "warn":
+		return render.Glyph("warn")
+	case "error":
+		return badGlyph
+	case "success":
+		return okGlyph
+	}
+	return infoGlyph
+}
 
-```go
-	// A sub-line that wraps occupies two rows and breaks the erase count, so
+// Run consumes events until done/fail, the channel closes (parent gone), or
+// a signal arrives. The spinner line is only ever painted once the first
+// frame tick fires, so a step that finishes inside 80 ms paints its final
+// line and nothing else.
+func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.File) Outcome {
+	var title string
+	painted := false
+	frame := 0
+	ticker := time.NewTicker(frameEvery)
+	defer ticker.Stop()
+
+	// A sub-line that wraps takes two rows and breaks the erase count, so
 	// each one is cut to fit the terminal.
 	subWidth := 72
 	if w, _, err := xterm.GetSize(term.Fd()); err == nil && w > 16 {
 		subWidth = w - 8
 	}
-	subs := 0
-	eraseSubs := func() {
-		if subs > 0 {
-			fmt.Fprintf(term, "\x1b[%dA\x1b[J", subs)
+	var subs []string
+
+	clearActive := func() {
+		if painted {
+			fmt.Fprint(term, "\r\x1b[2K")
 		}
-		subs = 0
+		painted = false
 	}
-```
+	// eraseSubs leaves the cursor where the first sub-line was. It is only
+	// valid with the cursor at column 0 of the row under the last one.
+	eraseSubs := func() {
+		if len(subs) > 0 {
+			fmt.Fprintf(term, "\x1b[%dA\x1b[J", len(subs))
+		}
+	}
+	final := func(glyph, t, hint string) {
+		clearActive()
+		line := "  " + glyph + " " + textStyle.Render(t)
+		if hint != "" {
+			line += "  " + hintStyle.Render(hint)
+		}
+		fmt.Fprint(term, line+"\n")
+	}
 
-In the `case "log":` branch, add `subs = 0` as its first statement (a permanent line below earlier sub-lines makes them permanent too).
-
-Add a new case after `case "log":`'s body:
-
-```go
+	for {
+		select {
+		case <-ticker.C:
+			if title == "" {
+				continue
+			}
+			if !painted {
+				tty.FirstPaint()
+			}
+			painted = true
+			f := theme.SpinnerFrames[frame%len(theme.SpinnerFrames)]
+			frame++
+			fmt.Fprint(term, "\r\x1b[2K  "+spinStyle.Render(f)+" "+textStyle.Render(title))
+		case <-signals:
+			if title != "" {
+				final(badGlyph, title, "interrupted")
+			}
+			return Signalled
+		case ev, ok := <-events:
+			if !ok {
+				if title != "" {
+					final(badGlyph, title, "interrupted")
+				}
+				return Interrupted
+			}
+			switch ev.T {
+			case "start":
+				title = ev.Title
+			case "log":
+				clearActive()
+				subs = nil
+				fmt.Fprint(term, "  "+logGlyph(ev.Level)+" "+textStyle.Render(ev.Text)+"\n")
 			case "sub":
 				clearActive()
-				fmt.Fprint(term, "    "+railGlyph+" "+subStyle.Render(ansi.Truncate(render.Clean(ev.Text), subWidth, "…"))+"\n")
-				subs++
-				painted = false
-```
-
-In `case "done":`, insert before the `final(okGlyph, t, ev.Hint)` call:
-
-```go
-				clearActive()
-				painted = false
 				eraseSubs()
+				subs = append(subs, "    "+railGlyph+" "+subStyle.Render(ansi.Truncate(render.Clean(ev.Text), subWidth, "…"))+"\n")
+				if len(subs) > maxSubs {
+					subs = subs[len(subs)-maxSubs:]
+				}
+				for _, l := range subs {
+					fmt.Fprint(term, l)
+				}
+			case "done":
+				t := ev.Title
+				if t == "" {
+					t = title
+				}
+				clearActive()
+				eraseSubs()
+				g := okGlyph
+				if ev.Status != "" {
+					g = render.Glyph(ev.Status)
+				}
+				final(g, t, ev.Hint)
+				return Done
+			case "fail":
+				t := ev.Title
+				if t == "" {
+					t = title
+				}
+				final(badGlyph, t, ev.Hint)
+				return Failed
+			}
+		}
+	}
+}
 ```
+
+What changed from the old file, so you can check nothing else moved: the `sub` case, `subs`, `maxSubs`, `subWidth` and `eraseSubs` are new; `done` erases sub-lines and honors `ev.Status`; `log` resets `subs` and takes its glyph from `logGlyph`; `clearActive` now resets `painted` itself (the old `log` case did that by hand); `textStyle` sets no color; the warn glyph comes from the status set. The signal and EOF paths are as before.
 
 - [ ] **Step 5: Run the Go tests to verify they pass**
 
-Run: `cd ui && go mod tidy && go vet ./... && go test ./internal/steps/ ./internal/protocol/`
-Expected: `ok` for both, and every pre-existing steps test still passes.
+Run: `cd ui && go mod tidy && go vet ./... && go test ./...`
+Expected: `ok` for every package. `go mod tidy` moves `github.com/charmbracelet/x/term` from an indirect to a direct requirement in `ui/go.mod`.
 
-- [ ] **Step 6: Write the failing TS test**
+- [ ] **Step 6: Write the failing TS tests**
 
-Append to `lib/ui/__tests__/steps.test.ts`:
+In `lib/ui/__tests__/steps.test.ts`, add `import { openStep } from "../spawn.ts";` to the imports and append:
 
 ```ts
 test("run hands the task a sub callback that streams sub events before done", async () => {
@@ -1857,37 +2051,73 @@ test("off a terminal the sub callback is a no-op and the final line still prints
   expect(out.join("")).toContain("connected");
   expect(out.join("")).not.toContain("checking");
 });
+
+test("a step can end in a status other than done", async () => {
+  const step = openStep("connecting Slack…");
+  await step.done("Slack", "not connected", "needs-you");
+  expect(sent()).toEqual([
+    { t: "hello", protocol: 1 },
+    { t: "start", title: "connecting Slack…" },
+    { t: "done", title: "Slack", hint: "not connected", status: "needs-you" },
+  ]);
+});
 ```
 
-- [ ] **Step 7: Run it to verify it fails**
+- [ ] **Step 7: Run them to verify they fail**
 
 Run (repo root): `bun test lib/ui/__tests__/steps.test.ts`
-Expected: FAIL, `step.sub is not a function` (the task receives no argument).
+Expected: three FAIL. The first two with `step.sub is not a function` (the task receives no argument); the third because the recorded `done` line has no `status`.
 
-- [ ] **Step 8: Add `sub` on the TS side**
+- [ ] **Step 8: Add `sub` and `status` on the TS side**
 
-In `lib/ui/protocol.ts`, add a member to the `StepEvent` union after the `log` member:
+In `lib/ui/protocol.ts`, change the `StepEvent` union's `log` and `done` members to:
 
 ```ts
+  | { t: "log"; level: StepLevel; text: string }
   | { t: "sub"; text: string }
+  | { t: "done"; title: string; hint?: string; status?: RenderStatus }
 ```
 
-In `lib/ui/spawn.ts`, add to the `StepHandle` interface after `log`:
+(`RenderStatus` is declared further down the same file; a type may be used before its declaration.)
+
+In `lib/ui/spawn.ts`:
+
+Add `type RenderStatus` to the import from `./protocol.ts`.
+
+Replace the `StepHandle` interface with:
 
 ```ts
-  /** A transient line under the running step: erased when it succeeds, kept when it fails. */
+export interface StepHandle {
+  log(level: StepLevel, text: string): void;
+  /** A transient line under the running step: erased when it ends done, kept when it fails. */
   sub(text: string): void;
+  /** Resolves true when rt-ui painted the final line; false when it was dead (caller prints the line itself). A status ends the step in that state in place of done. */
+  done(title?: string, hint?: string, status?: RenderStatus): Promise<boolean>;
+  fail(title?: string, hint?: string): Promise<boolean>;
+}
 ```
 
-and in the object `openStep` returns, after the `log:` property:
+In `openStep`, change `finish` to take and send the status:
 
 ```ts
+  const finish = async (t: "done" | "fail", finalTitle?: string, hint?: string, status?: RenderStatus): Promise<boolean> => {
+    const sent = send({ t, title: finalTitle ?? title, ...(hint ? { hint } : {}), ...(status ? { status } : {}) });
+```
+
+(the rest of `finish` is unchanged) and replace the returned object with:
+
+```ts
+  return {
+    log: (level, text) => send({ t: "log", level, text }),
     sub: (text) => {
       send({ t: "sub", text });
     },
+    done: (t, h, s) => finish("done", t, h, s),
+    fail: (t, h) => finish("fail", t, h),
+  };
 ```
 
-In `lib/ui/steps.ts`, change the `run` signature in the `StepRunner` interface and in `createStepRunner` so the task takes the callback. The interface member becomes:
+In `lib/ui/steps.ts`, change the `run` member of the `StepRunner` interface to:
 
 ```ts
   /** Run an async step with spinner then done/error transition. */
@@ -1898,26 +2128,25 @@ In `lib/ui/steps.ts`, change the `run` signature in the `StepRunner` interface a
   ): Promise<T>;
 ```
 
-In `createStepRunner`, give the implementation the same `task` parameter type and replace `const r = await task();` with:
+In `createStepRunner`, give the `run` implementation the same `task` parameter type and replace `const r = await task();` with:
 
 ```ts
         const r = await task({ sub: (text) => step?.sub(text) });
 ```
 
-In `withSpinner`, change the `task` parameter type to `() => Promise<T>` unchanged; it still passes `task` straight through (a zero-argument function is assignable).
+Leave `withSpinner` as it is: its zero-argument `task` is assignable to the new parameter type.
 
 - [ ] **Step 9: Run the TS tests to verify they pass**
 
-Run (repo root): `bun test lib/ui/__tests__/ && bun run typecheck`
-Expected: all pass, no type errors. The fake helper records every stdin line, so `sub` needs no change there.
+Run (repo root): `bun run ui:build && bun test lib/ui/__tests__/ && bun run typecheck`
+Expected: all pass, no type errors. The fake helper records every stdin line, so it needs no change for `sub` or `status`.
 
 - [ ] **Step 10: Commit**
 
 ```bash
 gofmt -w ui/internal/steps/ ui/internal/protocol/
-bunx prettier --write lib/ui/protocol.ts lib/ui/spawn.ts lib/ui/steps.ts lib/ui/__tests__/steps.test.ts
 git add ui/internal/steps/ ui/internal/protocol/protocol.go ui/go.mod ui/go.sum lib/ui/protocol.ts lib/ui/spawn.ts lib/ui/steps.ts lib/ui/__tests__/steps.test.ts
-git commit -m "rt-ui steps: sub-lines that clear on success and stay on failure
+git commit -m "rt-ui steps: sub-lines that clear on success, and a status on done
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -1932,7 +2161,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `Block`, `Cell`, `RenderStatus`, `TableRow` types (Task 1).
-- Produces: `renderPlain(blocks: Block[]): string`. Uncolored text, every line newline-terminated, no leading or trailing blank line, `""` for no blocks. Statuses print as bracketed words so piped output is greppable.
+- Produces: `renderPlain(blocks: Block[]): string`. Uncolored text, every line newline-terminated, no leading or trailing blank line, `""` for no blocks, escape sequences and control characters stripped. Statuses print as bracketed words so piped output is greppable.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2022,6 +2251,11 @@ test("a failure prints why, next and details", () => {
   expect(
     renderPlain([{ t: "failure", title: "This Mac cannot read the team's secrets yet", why: "No key matches.", next: [{ text: "rt setup status", role: "command" }], details: "details are in the log" }]),
   ).toBe("[failed] This Mac cannot read the team's secrets yet\n  why: No key matches.\n  next: rt setup status\n  details are in the log\n");
+});
+
+test("plain output is cleaned of escapes and controls", () => {
+  expect(renderPlain([{ t: "line", status: "done", title: "evil\x1b[2Jname\x07", hint: "a\x1b]0;title\x07b" }])).toBe("[ok] evilname  ab\n");
+  expect(renderPlain([{ t: "verbatim", lines: ["a\tb"] }])).toBe("  a\tb\n");
 });
 
 test("no blocks render nothing, and the shared fixture renders without throwing", () => {
@@ -2156,10 +2390,16 @@ function render(blocks: Block[], out: string[]): void {
   }
 }
 
+// Text from a branch name or a child process must not repaint the terminal
+// when the fallback writes it raw. Newlines and tabs are kept.
+const ESCAPES = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
+const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
+
 export function renderPlain(blocks: Block[]): string {
   const out: string[] = [];
   render(blocks, out);
-  return out.length === 0 ? "" : out.join("\n") + "\n";
+  if (out.length === 0) return "";
+  return (out.join("\n") + "\n").replace(ESCAPES, "").replace(CONTROLS, "");
 }
 ```
 
@@ -2171,7 +2411,6 @@ Expected: PASS, no type errors.
 - [ ] **Step 5: Commit**
 
 ```bash
-bunx prettier --write lib/ui/out-plain.ts lib/ui/__tests__/out-plain.test.ts
 git add lib/ui/out-plain.ts lib/ui/__tests__/out-plain.test.ts
 git commit -m "lib/ui: plain renderer for output blocks
 
@@ -2337,6 +2576,44 @@ test("the human gate is asked about the stream being written", () => {
   out.print(out.line("done", "x"));
   out.fail({ title: "y" });
   expect(asked).toEqual(["stdout", "stderr"]);
+});
+
+test("the real gate opens only on a TTY, without RT_BATCH and without --json", () => {
+  out.__test__.reset();
+  const isTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+  const argv = process.argv;
+  const batch = process.env.RT_BATCH;
+  const spawned = (): boolean => {
+    const yes = existsSync(record);
+    rmSync(record, { force: true });
+    return yes;
+  };
+  const setTTY = (value: boolean) => Object.defineProperty(process.stdout, "isTTY", { value, configurable: true });
+  try {
+    delete process.env.RT_BATCH;
+    setTTY(false);
+    out.print(out.line("done", "x"));
+    expect(spawned()).toBe(false);
+
+    setTTY(true);
+    out.print(out.line("done", "x"));
+    expect(spawned()).toBe(true);
+
+    process.env.RT_BATCH = "1";
+    out.print(out.line("done", "x"));
+    expect(spawned()).toBe(false);
+    delete process.env.RT_BATCH;
+
+    process.argv = [...argv, "--json"];
+    out.print(out.line("done", "x"));
+    expect(spawned()).toBe(false);
+  } finally {
+    process.argv = argv;
+    if (batch === undefined) delete process.env.RT_BATCH;
+    else process.env.RT_BATCH = batch;
+    if (isTTY) Object.defineProperty(process.stdout, "isTTY", isTTY);
+    else delete (process.stdout as { isTTY?: boolean }).isTTY;
+  }
 });
 
 test("after payloadOnStdout, print writes human text to stderr and payload still owns stdout", () => {
@@ -2570,7 +2847,6 @@ If you have no real terminal (a subagent usually does not), run only the second 
 - [ ] **Step 7: Commit**
 
 ```bash
-bunx prettier --write lib/ui/out.ts lib/ui/__tests__/out.test.ts lib/ui/__tests__/fake-rt-ui.ts
 git add lib/ui/out.ts lib/ui/__tests__/out.test.ts lib/ui/__tests__/fake-rt-ui.ts
 git commit -m "lib/ui: out module, the one way commands print
 
@@ -2614,7 +2890,7 @@ const SCAN_ROOTS = ["commands", "lib"];
 // The output layer itself, and the color modules it retires last.
 const EXEMPT = [/^lib\/ui\//, /^lib\/tui\//, /^lib\/ansi\.ts$/, /^lib\/tui\.ts$/];
 
-const RAW = [/\bconsole\.(log|error|warn|info)\s*\(/, /\bprocess\.std(out|err)\.write\b/, /from\s+["'][^"']*\/(ansi|tui)\.ts["']/, /\\x1b\[|\\u001b\[/];
+const RAW = [/\bconsole\.(log|error|warn|info)\s*\(/, /\bprocess\.std(out|err)\.write\b/, /from\s+["'][^"']*\/(ansi|tui|tui\/palette)\.ts["']/, /\\x1b\[|\\u001b\[/];
 
 function collect(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -2670,6 +2946,8 @@ grep -cE '"lib/(ui|tui)/' lib/__tests__/raw-output-allowlist.json
 
 Expected: `0`.
 
+The list includes files that will never be converted: agent-only verbs, logging seams and protocol writers. Leave them in. The spec's Guard section gives the rule, and the phase that reaches each one either moves it onto `out.json` or `out.payload` or adds it to `EXEMPT` with a reason. Do not add exemptions in this phase.
+
 - [ ] **Step 4: Prove the guard can fail both ways**
 
 ```bash
@@ -2691,15 +2969,12 @@ Now the other direction. Add `"commands/aaa-stale.ts",` as the first entry of th
 - [ ] **Step 5: Commit**
 
 ```bash
-bunx prettier --write lib/__tests__/no-raw-output.test.ts lib/__tests__/raw-output-allowlist.json
 bun test lib/__tests__/no-raw-output.test.ts
 git add lib/__tests__/no-raw-output.test.ts lib/__tests__/raw-output-allowlist.json
 git commit -m "guard: no new raw printing outside lib/ui/out.ts
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
-
-If prettier reflowed the JSON so the sorted check fails, re-run Step 3 and commit again.
 
 ---
 
@@ -2728,7 +3003,7 @@ helper is missing or fails. Before adding or changing output, read
 `docs/superpowers/specs/2026-09-30-rt-output-layer-design.md`: the block
 vocabulary, the ten statuses, the color roles and the rules.
 
-Four rules cost the most when broken:
+Five rules cost the most when broken:
 
 - **Coral is for failures.** A state that is not yet done, turned off,
   stopped or refused by policy has its own status (`pending`, `off`,
@@ -2742,6 +3017,9 @@ Four rules cost the most when broken:
   must read `--json`, never scrape text.
 - **No colors on the TS side.** `out.ts` holds no ANSI and no glyph styling;
   the theme lives in `ui/internal/theme` and nowhere else.
+- **Body text takes the terminal's own foreground.** Only accents (glyphs,
+  callout labels, keys, hints, rails) use theme colors, so output reads on a
+  light terminal as well as a dark one. Never give body text a fixed color.
 
 `lib/__tests__/no-raw-output.test.ts` fails a PR that adds `console.*`,
 `process.stdout.write`, a raw escape or a color import under `commands/` or
@@ -2769,11 +3047,12 @@ bun run ui:build
 bun run ui:test
 bun run typecheck
 bun run test
+bun run test:pty
 bun run picker:check
 bun run format:check
 ```
 
-Expected: all pass. `bun run test` may show a failure in a file this branch does not touch; if so, re-run that one file alone and on a clean checkout of the base commit before calling it pre-existing, and say which it was.
+Expected: all pass. `bun run test:pty` is here because Task 6 changes what `rt-ui steps` paints. `bun run test` may show a failure in a file this branch does not touch; if so, re-run that one file alone and on a clean checkout of the base commit before calling it pre-existing, and say which it was.
 
 - [ ] **Step 4: Check the text rules**
 
@@ -2790,7 +3069,6 @@ Expected: `no banned dashes`, and a count of `0` added lines carrying the banned
 - [ ] **Step 5: Commit**
 
 ```bash
-bunx prettier --write AGENTS.md
 git add AGENTS.md
 git commit -m "docs: the output layer contract, and plain language for messages
 
