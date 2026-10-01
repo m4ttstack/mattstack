@@ -83,7 +83,7 @@ function NewRoomButton({
 }
 
 /**
- * The 244px sidebar: a `FLEET` header carrying the fleet count and the `+`,
+ * The 320px sidebar: a `FLEET` header carrying the fleet count and the `+`,
  * then the tree itself. The rail owns the frame and the header; `FleetTree`
  * owns every row inside it.
  */

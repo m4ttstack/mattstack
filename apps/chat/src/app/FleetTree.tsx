@@ -8,7 +8,6 @@ import {
   Tooltip,
   UnstyledButton,
 } from '@mattstack/app-kit/core';
-import { useHover } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { RoomSummary } from '@mattstack/rt-client';
 
@@ -261,18 +260,18 @@ function roomLabel(room: FleetRoom): string {
     : `#${room.room}`;
 }
 
-/** The 22px hover × plus the row's right-click menu, the pair of close
-    affordances every room and DM row carries. */
+/** The 22px × plus the row's right-click menu, the pair of close
+    affordances every room and DM row carries. The × always holds its slot
+    and only fades in (`.close` in the CSS module), so revealing it never
+    moves the badges under the pointer. */
 function CloseControl({
   room,
   testId,
-  shown,
   nudge,
   onClose,
 }: {
   room: FleetRoom;
   testId: string;
-  shown: boolean;
   /** `.room .close` pulls back into the row's own padding; `.dm2 .close`
       does not. */
   nudge: boolean;
@@ -285,6 +284,7 @@ function CloseControl({
         size="sm"
         radius="md"
         color="gray"
+        className={classes.close}
         aria-label={`Close ${roomLabel(room)}`}
         data-testid={testId}
         onClick={e => {
@@ -292,7 +292,6 @@ function CloseControl({
           onClose(room.room);
         }}
         style={{
-          display: shown ? undefined : 'none',
           flex: 'none',
           marginRight: nudge ? -4 : undefined,
           // Icon-tint default (--tk-text-3): `CloseControl` mounts from
@@ -354,9 +353,9 @@ function RowMenu({
  * A tree row is a `div[role=button]`, not a `<button>`: the close control
  * inside it is a real button, and a button may not nest a button. Enter and
  * Space select, like the button they replace. The × shows on hover, on
- * focus within, and while the row's menu is open; the menu is Mantine's
- * `Menu.ContextMenu` (right-click, and a long press on touch), positioned
- * at the cursor, one instance per row.
+ * focus within, and while the row's menu is open (all in the CSS module);
+ * the menu is Mantine's `Menu.ContextMenu` (right-click, and a long press on
+ * touch), positioned at the cursor, one instance per row.
  */
 function RoomRow({
   room,
@@ -371,18 +370,17 @@ function RoomRow({
   onClose?: (room: string) => void;
   onMarkRead?: (room: string) => void;
 }) {
-  const { ref, hovered } = useHover<HTMLDivElement>();
   const [menuOpened, setMenuOpened] = useState(false);
-  const [focusWithin, setFocusWithin] = useState(false);
   const closable = onClose !== undefined;
 
   const row = (
     <Box
-      ref={ref}
       role="button"
       tabIndex={0}
+      className={classes.listRow}
       data-testid={`room-row-${room.room}`}
       data-active={active ? 'true' : undefined}
+      data-menu-open={menuOpened || undefined}
       onClick={onSelect}
       onKeyDown={e => {
         if (e.target !== e.currentTarget) return;
@@ -390,11 +388,6 @@ function RoomRow({
           e.preventDefault();
           onSelect?.();
         }
-      }}
-      onFocus={() => setFocusWithin(true)}
-      onBlur={e => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null))
-          setFocusWithin(false);
       }}
       style={{
         display: 'flex',
@@ -406,11 +399,7 @@ function RoomRow({
         padding: '0 var(--mantine-spacing-md)',
         borderRadius: 'var(--mantine-radius-md)',
         cursor: 'pointer',
-        background: active
-          ? ACCENT_WASH
-          : hovered || menuOpened
-            ? 'var(--ui-bg-4)'
-            : undefined,
+        background: active ? ACCENT_WASH : undefined,
         color: active ? ACCENT_TEXT : undefined,
       }}
     >
@@ -436,7 +425,6 @@ function RoomRow({
         <CloseControl
           room={room}
           testId={`room-close-${room.room}`}
-          shown={hovered || focusWithin || menuOpened}
           nudge
           onClose={onClose}
         />
@@ -649,19 +637,18 @@ function DmRow({
   onClose?: (room: string) => void;
   onMarkRead?: (room: string) => void;
 }) {
-  const { ref, hovered } = useHover<HTMLDivElement>();
   const [menuOpened, setMenuOpened] = useState(false);
-  const [focusWithin, setFocusWithin] = useState(false);
   const closable = onClose !== undefined;
   const pair = room.participants!;
 
   const row = (
     <Box
-      ref={ref}
       role="button"
       tabIndex={0}
+      className={classes.listRow}
       data-testid={`dm-row-${room.room}`}
       data-active={active ? 'true' : undefined}
+      data-menu-open={menuOpened || undefined}
       onClick={onSelect}
       onKeyDown={e => {
         if (e.target !== e.currentTarget) return;
@@ -669,11 +656,6 @@ function DmRow({
           e.preventDefault();
           onSelect?.();
         }
-      }}
-      onFocus={() => setFocusWithin(true)}
-      onBlur={e => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null))
-          setFocusWithin(false);
       }}
       style={{
         display: 'flex',
@@ -686,11 +668,7 @@ function DmRow({
         padding: '0 var(--mantine-spacing-md)',
         borderRadius: 'var(--mantine-radius-md)',
         cursor: 'pointer',
-        background: active
-          ? ACCENT_WASH
-          : hovered || menuOpened
-            ? 'var(--ui-bg-4)'
-            : undefined,
+        background: active ? ACCENT_WASH : undefined,
       }}
     >
       {/* textContent, not three separate runs: the arrow needs its own span
@@ -721,7 +699,6 @@ function DmRow({
         <CloseControl
           room={room}
           testId={`dm-close-${room.room}`}
-          shown={hovered || focusWithin || menuOpened}
           nudge={false}
           onClose={onClose}
         />

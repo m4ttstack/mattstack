@@ -7,6 +7,36 @@
   background: var(--ui-bg-4);
 }
 
+/* Room and DM rows. The × keeps its slot at rest and only fades in, so the
+   badges beside it never move under the pointer; `pointer-events: none`
+   stops a click landing on the invisible × instead of the row. */
+.close {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+@media (hover: hover) {
+  .listRow:hover {
+    background: var(--ui-bg-4);
+  }
+
+  .listRow:hover .close {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.listRow[data-menu-open] {
+  background: var(--ui-bg-4);
+}
+
+.listRow:focus-within .close,
+.listRow[data-menu-open] .close {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .dotSlot {
   display: inline-flex;
   flex: none;

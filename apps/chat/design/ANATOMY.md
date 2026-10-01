@@ -49,8 +49,10 @@ button.
 
 ## Fleet tree (the sidebar)
 
-**`PageShell.Sidebar`, 244px border-box (231px of rows inside 6px of padding
+**`PageShell.Sidebar`, 320px border-box (307px of rows inside 6px of padding
 and the 1px hairline), on `bg2` with a `border-right`; a drawer on phones.**
+The transcript column is capped at 640px, so the width the sidebar takes
+costs the conversation nothing until the window is about 1020px wide.
 `gap: 2px`. Replaces both the old rooms rail and the old roster panel: one
 tree, not two lists.
 

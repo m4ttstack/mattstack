@@ -354,9 +354,8 @@ test('rooms and DMs both close, by hover × and by right-click menu', async () =
 
   const dmClose = screen.getByTestId('dm-close-dm-jay-max');
   expect(dmClose).toHaveAttribute('aria-label', 'Close jay ↔ max');
-  expect(dmClose.style.display).toBe('none');
-  await userEvent.hover(screen.getByTestId('dm-row-dm-jay-max'));
   expect(dmClose.style.display).toBe('');
+  await userEvent.hover(screen.getByTestId('dm-row-dm-jay-max'));
   await userEvent.click(dmClose);
   expect(onClose).toHaveBeenCalledWith('dm-jay-max');
   expect(onOpenRoom).not.toHaveBeenCalled();

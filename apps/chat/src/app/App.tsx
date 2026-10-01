@@ -989,7 +989,7 @@ function ChatPage({
           capped, centred column is what boxed this page before. */}
       <PageShell
         scrollClamp
-        sidebarWidth={244}
+        sidebarWidth={320}
         drawerStateKey="chat-rooms-sidebar"
       >
         {/* The sidebar is the fleet now, not just the rooms: a machine with
