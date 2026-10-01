@@ -224,6 +224,24 @@ def trim($f; $limit):
     (candidates($f) | sort_by(-.b, .i) | first.i) as $i
     | .questions[$i].context |= drop_field($f)
     | .trimmed += ["\(.questions[$i].id):\($f)"]);
+def carry_candidates($f): [.questions | to_entries[]
+  | select(.value.context["gate-ctx"]? == "carryover@1" and (.value.context | has($f)))
+  | {i: .key, b: (.value.context | tojson | utf8bytelength)}];
+def trim_carry($f; $limit):
+  until(ctx_bytes < $limit or (carry_candidates($f) | length == 0);
+    (carry_candidates($f) | sort_by(-.b, .i) | first.i) as $i
+    | .questions[$i].context |= del(.[$f])
+    | .trimmed += ["\(.questions[$i].id):\($f)"]);
+def long_originals: [.questions | to_entries[]
+  | select(.value.context["gate-ctx"]? == "carryover@1" and (.value.context.original | length) > 80)
+  | {i: .key, b: (.value.context | tojson | utf8bytelength)}];
+def middle: length as $n | ($n / 4 | floor) as $k | .[:$k] + " ... " + .[$n - $k:];
+def trim_originals($limit):
+  until(ctx_bytes < $limit or (long_originals | length == 0);
+    (long_originals | sort_by(-.b, .i) | first.i) as $i
+    | .questions[$i].context.original |= middle
+    | "\(.questions[$i].id):original" as $tag
+    | if .trimmed | index([$tag]) then . else .trimmed += [$tag] end);
 def entry_candidates($f): [.questions | to_entries[] | .key as $i
   | select(.value.context["gate-ctx"]? == "findings@1")
   | .value.context.findings | to_entries[] | select(.value | has($f))
@@ -247,6 +265,7 @@ def main($mode; $limit):
   if $mode == "prose" or (structurable | not) then render("prose"; true)
   else . as $src
     | (.trimmed = [] | trim("points"; $limit) | trim("note"; $limit)
+        | trim_carry("authorReply"; $limit) | trim_carry("note"; $limit) | trim_originals($limit)
         | trim_entries("evidence"; $limit) | trim_entries("fix"; $limit)) as $fitted
     | if ($fitted | ctx_bytes) < $limit then $fitted | render("structured"; false)
       else ($src | render("prose"; true)) as $full

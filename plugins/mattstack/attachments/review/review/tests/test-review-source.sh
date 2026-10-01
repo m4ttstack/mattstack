@@ -146,6 +146,31 @@ Checked: worker.ts:40 returns before enqueue for non-retryable errors
 Will post as reply: Confirmed, thanks.' \
   "$(printf '%s' "$OUT" | sh "$GC" prose | jq -r '.questions[0].context')"
 
+# many long threads: carryover contexts are trimmed before the gate falls to prose
+m=$(mutate '.threads = [range(7) as $i | {discussionId: "t\($i)", file: "queue/worker.ts", line: (10 + $i), round: 1, call: "fixed", original: ("o" * 280), authorReply: ("a" * 380), note: ("n" * 280), reply: ("r" * 60)}]' "$V3")
+run "$m" "$X"; rm -f "$m"
+check "seven 1.1 KB threads overflow the gate untrimmed" true \
+  "$(q '[.context, .questions[].context | select(. != null) | tojson | utf8bytelength] | add > 8192')"
+FIT=$(printf '%s' "$OUT" | sh "$GC" fit); FRC=$?
+check "seven long threads still fit structured" '0|structured|true' "$FRC|$(printf '%s' "$FIT" | jq -r '"\(.mode)|\(.fits)"')"
+check "author replies go first, largest first, and the list names each" true \
+  "$(printf '%s' "$FIT" | jq '(.trimmed | length) > 0 and all(.trimmed[]; test("^thread-[0-9]+:authorReply$"))')"
+check "a trimmed thread drops only what the list names" 'false|true|true' \
+  "$(printf '%s' "$FIT" | jq -r '(.trimmed[0] | split(":")[0]) as $id | .questions[] | select(.id == $id) | .context | fromjson | "\(has("authorReply"))|\(has("note"))|\(.original | length == 280)"')"
+check "the findings keep their fix and evidence" '[]' \
+  "$(printf '%s' "$FIT" | jq -c '[.trimmed[] | select(startswith("findings-"))]')"
+
+m=$(mutate '.threads = [range(7) as $i | {discussionId: "t\($i)", round: 1, call: "not-fixed", original: ("o" * 1100), authorReply: "a", note: "n", reply: "r"}]' "$V3")
+run "$m" "$X"; rm -f "$m"
+FIT=$(printf '%s' "$OUT" | sh "$GC" fit)
+check "long originals are middle-truncated once replies and notes are gone" 'structured|true' \
+  "$(printf '%s' "$FIT" | jq -r '"\(.mode)|\(any(.trimmed[]; test(":original$")))"')"
+check "a truncated original keeps both ends and is never empty" true \
+  "$(printf '%s' "$FIT" | jq '[.questions[] | select(.id | startswith("thread-")) | .context | fromjson | .original]
+    | all(.[]; length > 0 and startswith("o") and endswith("o")) and any(.[]; contains(" ... "))')"
+check "each original is named once" true \
+  "$(printf '%s' "$FIT" | jq '[.trimmed[] | select(endswith(":original"))] | length == (unique | length)')"
+
 # contract violations
 m=$(mutate '.threads[0].call = "still-open"' "$V3"); run "$m" "$X"; rm -f "$m"
 check "an unknown call exits 1" 1 "$RC"
