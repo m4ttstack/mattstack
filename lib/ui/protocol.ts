@@ -65,7 +65,8 @@ export type StepEvent =
   | { t: "hello"; protocol: typeof PROTOCOL_VERSION }
   | { t: "start"; title: string }
   | { t: "log"; level: StepLevel; text: string }
-  | { t: "done"; title: string; hint?: string }
+  | { t: "sub"; text: string }
+  | { t: "done"; title: string; hint?: string; status?: RenderStatus }
   | { t: "fail"; title: string; hint?: string };
 
 // ─── render ──────────────────────────────────────────────────────────────────

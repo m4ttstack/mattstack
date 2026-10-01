@@ -17,7 +17,7 @@ export interface StepRunner {
   /** Run an async step with spinner then done/error transition. */
   run<T>(
     pending: string,
-    task: () => Promise<T>,
+    task: (step: { sub(text: string): void }) => Promise<T>,
     opts?: { done?: string; doneHint?: string; error?: string; errorHint?: string },
   ): Promise<T>;
 
@@ -69,12 +69,12 @@ export function createStepRunner(): StepRunner {
   return {
     async run<T>(
       pending: string,
-      task: () => Promise<T>,
+      task: (step: { sub(text: string): void }) => Promise<T>,
       opts?: { done?: string; doneHint?: string; error?: string; errorHint?: string },
     ) {
       const step: StepHandle | null = interactive() ? tryOpenStep(pending) : null;
       try {
-        const r = await task();
+        const r = await task({ sub: (text) => step?.sub(text) });
         const title = opts?.done ?? stripEllipsis(pending);
         if (!step) {
           process.stdout.write(plainLine("success", title, opts?.doneHint));
