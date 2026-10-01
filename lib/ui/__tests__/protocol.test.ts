@@ -17,6 +17,8 @@ import {
   type PickEvent,
   type PickModalResult,
   type PickResult,
+  type Block,
+  BLOCK_TYPES,
 } from "../protocol.ts";
 
 const FIXTURES = resolve(import.meta.dir, "..", "..", "..", "ui", "fixtures");
@@ -278,4 +280,14 @@ test("pick action footerHidden rides the wire when set and is absent otherwise (
 test("pick result value accepts null and round-trips through encodeLine", () => {
   const cancel: PickResult = { t: "result", action: "cancel", value: null, query: "" };
   expect(JSON.parse(encodeLine(cancel))).toEqual(cancel);
+});
+
+test("the render fixture carries one of every block type and round-trips through encodeLine", () => {
+  const blocks = fixture("render-document.json") as Block[];
+  expect(new Set(blocks.map((b) => b.t))).toEqual(new Set(BLOCK_TYPES));
+  for (const b of blocks) {
+    const line = encodeLine(b);
+    expect(line.slice(0, -1).includes("\n")).toBe(false);
+    expect(JSON.parse(line)).toEqual(b);
+  }
 });

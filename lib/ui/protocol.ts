@@ -68,6 +68,59 @@ export type StepEvent =
   | { t: "done"; title: string; hint?: string }
   | { t: "fail"; title: string; hint?: string };
 
+// ─── render ──────────────────────────────────────────────────────────────────
+
+export type RenderStatus = "done" | "failed" | "needs-you" | "pending" | "stale" | "refused" | "off" | "skipped" | "running" | "warn";
+
+export type SegmentRole = "text" | "strong" | "dim" | "faint" | "key" | "command" | "link" | RenderStatus;
+
+export interface Segment {
+  text: string;
+  role?: SegmentRole;
+  /** Only read for role "link". */
+  url?: string;
+}
+
+export type Cell = Segment[];
+
+export type CalloutLabel = "tip" | "next" | "fix" | "why" | "note";
+
+export type TableRow = { cells: Cell[] } | { group: string };
+
+export interface ChangeRow {
+  op: "+" | "-";
+  name: string;
+  hint?: string;
+}
+
+export interface DiffLine {
+  kind: "context" | "add" | "del";
+  text: string;
+}
+
+export interface DiffHunk {
+  header: string;
+  lines: DiffLine[];
+}
+
+export type Block =
+  | { t: "line"; status: RenderStatus; title: string; hint?: string }
+  | { t: "callout"; label: CalloutLabel; body: Cell[] }
+  | { t: "kv"; key: string; value?: string; source?: string }
+  | { t: "table"; headers?: string[]; rows: TableRow[] }
+  | { t: "tree"; root: Cell; children: Cell[][] }
+  | { t: "section"; title: string; subtitle?: string; blocks: Block[] }
+  | { t: "summary"; status: RenderStatus; title: string; counts?: string[] }
+  | { t: "paragraph"; text: string }
+  | { t: "copy"; text: string; caption?: string }
+  | { t: "verbatim"; lines: string[]; caption?: string }
+  | { t: "changes"; changes: ChangeRow[] }
+  | { t: "diff"; hunks: DiffHunk[] }
+  | { t: "banner"; label: string; subject: string; hint?: string }
+  | { t: "failure"; title: string; hint?: string; why?: string; next?: Cell; details?: string };
+
+export const BLOCK_TYPES = ["line", "callout", "kv", "table", "tree", "section", "summary", "paragraph", "copy", "verbatim", "changes", "diff", "banner", "failure"] as const satisfies ReadonlyArray<Block["t"]>;
+
 export function encodeLine(msg: object): string {
   return JSON.stringify(msg) + "\n";
 }
