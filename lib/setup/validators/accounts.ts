@@ -242,26 +242,37 @@ const REINVITE_STEPS: Action = {
 /**
  * Never required and never finish-gated: only the team's owner can deliver
  * the token, so the member must still be able to Install and Finish. verify
- * reports its needs-you all the same.
+ * reports its needs-you all the same. The note must not start "Works
+ * without": the app's Done screen drops rows whose note does.
  */
+const BOARD_PEERING_BASE = {
+  id: BOARD_PEERING_ROW_ID,
+  kind: "account" as const,
+  title: "Board peering",
+  why: "Lets this machine's board peer with your teammates' boards through the team's switchboard.",
+  required: false,
+  optionalNote: "Your board does not peer until the team's owner re-invites it.",
+};
+
 async function boardPeeringRow(p: Probes, secrets: SecretPresence): Promise<Row | null> {
   const peering = await boardPeering(p, (domain, key) => secrets.has(domain, key));
   if (peering.kind === "not-applicable") return null;
-  const base = {
-    id: BOARD_PEERING_ROW_ID,
-    kind: "account" as const,
-    title: "Board peering",
-    why: "Lets this machine's board peer with your teammates' boards through the team's switchboard.",
-    required: false,
-    optionalNote: "Works without this; your board just does not peer. Only the team's owner can re-invite it.",
-  };
   if (peering.kind === "unpeered") {
-    return row({ ...base, status: "needs-you", detail: `you joined ${peering.teams.join(", ")} by invite, but this machine's board has no switchboard token, so it does not peer: ask ${REINVITE}`, action: REINVITE_STEPS });
+    return row({ ...BOARD_PEERING_BASE, status: "needs-you", detail: `you joined ${peering.teams.join(", ")} by invite, but this machine's board has no switchboard token, so it does not peer: ask ${REINVITE}`, action: REINVITE_STEPS });
   }
   if (peering.kind === "unreadable") {
-    return row({ ...base, status: "error", detail: `could not read your secrets store (${peering.error}) to check your board's switchboard token`, action: ACCOUNT_RECHECK_ACTION });
+    return row({ ...BOARD_PEERING_BASE, status: "error", detail: `could not read your secrets store (${peering.error}) to check your board's switchboard token`, action: ACCOUNT_RECHECK_ACTION });
   }
-  return row({ ...base, status: "ready", detail: "your board holds a switchboard token" });
+  return row({ ...BOARD_PEERING_BASE, status: "ready", detail: "your board holds a switchboard token" });
+}
+
+/** Same contract as accountRowForSafe: a throw fails only this row, never the rest of the group. */
+async function boardPeeringRowSafe(p: Probes, secrets: SecretPresence): Promise<Row | null> {
+  try {
+    return await boardPeeringRow(p, secrets);
+  } catch (err) {
+    return row({ ...BOARD_PEERING_BASE, status: "error", detail: err instanceof Error ? err.message : String(err), action: ACCOUNT_RECHECK_ACTION });
+  }
 }
 
 async function genericRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, secrets: SecretPresence, ctx: ValidateCtx, forge?: ForgeConnect): Promise<Row> {
@@ -438,7 +449,7 @@ export async function accountRows(
   // A switchboard rt cannot reach yet keeps the member on its own Confirm or Re-check first.
   const switchboard = rows.findIndex((r) => r.id === "account.switchboard");
   if (switchboard !== -1 && rows[switchboard]!.status !== "ready") return rows;
-  const peering = await boardPeeringRow(p, secrets);
+  const peering = await boardPeeringRowSafe(p, secrets);
   if (peering) rows.splice(switchboard === -1 ? rows.length : switchboard + 1, 0, peering);
   return rows;
 }

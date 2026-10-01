@@ -526,6 +526,25 @@ describe("accountRows: account.board-peering", () => {
     expect(rows.find((row) => row.id === "account.switchboard")?.status).toBe("ready");
   });
 
+  test("its note never reads as optional, so the app's Done screen still lists it as outstanding", async () => {
+    const r = await peeringRow(machine({ acme: { switchboard: SB, joinedByRt: true } }));
+    expect(r.optionalNote?.toLowerCase().startsWith("works without")).toBe(false);
+  });
+
+  test("a check that throws fails only the peering row", async () => {
+    const p = machine({ acme: { switchboard: SB, joinedByRt: true } });
+    p.readDir = () => {
+      throw new Error("teams dir unreadable");
+    };
+    const rows = await rowsFor(p);
+    expect(rows.find((row) => row.id === "account.switchboard")?.status).toBe("ready");
+    const r = rows.find((row) => row.id === "account.board-peering")!;
+    expect(r.status).toBe("error");
+    expect(r.required).toBe(false);
+    expect(r.detail).toContain("teams dir unreadable");
+    expect(r.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
+  });
+
   test("a token in rt's secrets -> ready", async () => {
     const r = await peeringRow(machine({ acme: { switchboard: SB, joinedByRt: true } }), fakeSecrets({ "rt.switchboardToken": "tok-1" }));
     expect(r.status).toBe("ready");
