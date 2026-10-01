@@ -144,7 +144,9 @@ function item(
 }
 
 /** Every action this MR offers right now, in menu order. Only what is
-    possible renders: a blocked GitLab action is absent, not greyed. */
+    possible renders: a blocked GitLab action is absent, not greyed. The one
+    greyed entry is the seatless board's hint, which stands in for every
+    author action at once. */
 export function rowActions(
   mrx: BoardMRWithReview,
   env: ActionEnv

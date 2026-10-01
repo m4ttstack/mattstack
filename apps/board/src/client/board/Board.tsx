@@ -22,6 +22,7 @@ import {
 } from '../../selection.ts';
 import {
   dataAgeLabel,
+  effectiveSeat,
   filterByDraft,
   filterByMember,
   filterBySlack,
@@ -34,7 +35,6 @@ import {
   nestStacks,
   parseViewState,
   rosterUsernamesFor,
-  seatOf,
   serializeViewState,
   sortMRs,
 } from '../../view.ts';
@@ -1170,7 +1170,7 @@ export function Board() {
   // member filters.
   const selectedMrs = selectionOf(mrs, selected);
   const summaryText = boardSummary(flatMrs, data.slackTemplates);
-  const seat = seatOf(data.defaultMember);
+  const seat = effectiveSeat(data.defaultMember, data.tokenUser);
   const postableMrs = postableOf(flatMrs, seat);
   const postableSelected = postableOf(selectedMrs, seat);
   const rowCtx: RowContext = {
@@ -1598,7 +1598,7 @@ export function Board() {
           readOnly={gateReadOnlyReason(
             queue.active.gate,
             queue.active.mr,
-            seatOf(data.defaultMember)
+            effectiveSeat(data.defaultMember, data.tokenUser)
           )}
           people={
             new Map(
@@ -1621,7 +1621,10 @@ export function Board() {
           mr={draftModal.mr}
           draft={draftModal.draft}
           local={data.local}
-          canPost={isOwnMr(draftModal.mr, seatOf(data.defaultMember))}
+          canPost={isOwnMr(
+            draftModal.mr,
+            effectiveSeat(data.defaultMember, data.tokenUser)
+          )}
           onResolved={handleDraftResolved}
           onClose={() => setDraftModal(null)}
         />
@@ -1634,7 +1637,7 @@ export function Board() {
             commentsFor
           }
           local={data.local}
-          self={seatOf(data.defaultMember)}
+          self={effectiveSeat(data.defaultMember, data.tokenUser)}
           onClose={() => setCommentsFor(null)}
         />
       )}

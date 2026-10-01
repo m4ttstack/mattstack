@@ -337,6 +337,19 @@ export function seatOf(
   return defaultMember && defaultMember !== 'all' ? defaultMember : null;
 }
 
+/** The seat that may act as an author: the board's seat, unless the GitLab
+    token's user is known and is someone else, in which case nobody. Client
+    and server both read ownership through this, so neither offers what the
+    other refuses. */
+export function effectiveSeat(
+  defaultMember: string | null | undefined,
+  tokenUser: string | null | undefined
+): string | null {
+  const seat = seatOf(defaultMember);
+  if (seat === null || !tokenUser) return seat;
+  return canonicalUsername(seat) === canonicalUsername(tokenUser) ? seat : null;
+}
+
 /** Whether the seat authored this MR; on an "all" board nothing is. Every
     author-only action (merge, doctor, respond, slack post...) gates on this,
     in the menu and in the server route alike. */

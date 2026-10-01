@@ -310,7 +310,7 @@ import {
   writeStandDown,
 } from './triage/memory-store.ts';
 import { manualDoctorFields, resolveDispatchIdentity } from './triage/run.ts';
-import { isOwnMr, resolveStandDownTarget, seatOf } from './view.ts';
+import { effectiveSeat, isOwnMr, resolveStandDownTarget } from './view.ts';
 
 /** Capture-harness mode: boot from a committed fixture dir instead of live
     config, serve canned endpoint responses, hold no tokens, start no relay.
@@ -748,9 +748,14 @@ function requireOwnMr(mr: BoardMR): Response | null {
     identity /doctor and triage cache), so did that user: a seat set to
     someone else's name never borrows their MRs. */
 function ownedHere(mr: BoardMR): boolean {
-  if (!isOwnMr(mr, seatOf(config.defaultMember))) return false;
-  const tokenUser = readMemory().identity?.username;
-  return !tokenUser || isOwnMr(mr, tokenUser);
+  return isOwnMr(mr, actingSeat());
+}
+
+function actingSeat(): string | null {
+  return effectiveSeat(
+    config.defaultMember,
+    readMemory().identity?.username ?? null
+  );
 }
 
 /** A respond or doctor gate is the MR author's to answer; a review gate
@@ -1291,6 +1296,7 @@ const httpServer = Bun.serve({
           JSON.stringify({
             title: config.title,
             defaultMember: config.defaultMember,
+            tokenUser: readMemory().identity?.username ?? null,
             members: buildRoster(visible, visibleMrs, memberNames),
             allMembers: config.members.map(m => ({
               username: m.username,
@@ -1598,7 +1604,7 @@ const httpServer = Bun.serve({
           if (starter === undefined)
             return new Response('unknown thread', { status: 404 });
           // Ownership comes from the snapshot, never the body's `author`.
-          const seat = seatOf(config.defaultMember);
+          const seat = actingSeat();
           const mr = (await cache.get()).mrs.find(
             m => m.iid === change.iid && repoIdentityField(m.rtRepo) === repoId
           );

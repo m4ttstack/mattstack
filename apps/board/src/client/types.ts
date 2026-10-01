@@ -171,6 +171,9 @@ export type BoardMRWithReview = BoardMR & {
 export interface BoardData {
   title: string;
   defaultMember: string;
+  /** The GitLab token's user once the server has learned it; with the seat
+      it decides what is the board's own (effectiveSeat). */
+  tokenUser?: string | null;
   members: RosterMember[];
   allMembers: ConfigMember[];
   mrs: BoardMRWithReview[];

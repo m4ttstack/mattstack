@@ -722,6 +722,25 @@ describe("a seat that is not the token's user owns nothing", () => {
     expect(res.status).toBe(403);
   }, 15_000);
 
+  test('a thread the seat started is not resolvable under a borrowed seat', async () => {
+    const res = await post(borrowed, '/discussions/resolve', {
+      repo: borrowed.repo,
+      iid: 20,
+      discussionId: 't20-alice',
+      author: 'bob',
+      resolved: true,
+    });
+    expect(res.status).toBe(403);
+  }, 15_000);
+
+  test('the board data names the token user so the client applies the same rule', async () => {
+    await ready(borrowed);
+    const data = (await (
+      await fetch(`http://127.0.0.1:${borrowed.port}/data.json`)
+    ).json()) as { tokenUser?: string | null };
+    expect(data.tokenUser).toBe('carol');
+  }, 15_000);
+
   test('nothing reached GitLab or launched a pane', () => {
     expect(wroteTo(borrowed, 7)).toBe(false);
     expect(launchedOn(borrowed, 7)).toBe(false);

@@ -9,6 +9,7 @@ import {
   DEFAULT_VIEW,
   descendantsOf,
   dropPeer,
+  effectiveSeat,
   filterByDraft,
   filterByMember,
   filterBySlack,
@@ -66,6 +67,18 @@ describe('isOwnMr', () => {
     expect(seatOf('')).toBeNull();
     expect(seatOf(undefined)).toBeNull();
     expect(isOwnMr(named, seatOf('all'))).toBe(false);
+  });
+});
+
+describe('effectiveSeat', () => {
+  test('the seat stands while the token user is unknown or the same person', () => {
+    expect(effectiveSeat('alice', null)).toBe('alice');
+    expect(effectiveSeat('alice', 'Alice')).toBe('alice');
+  });
+
+  test("a seat that is not the token's user is no seat at all", () => {
+    expect(effectiveSeat('alice', 'carol')).toBeNull();
+    expect(effectiveSeat('all', 'alice')).toBeNull();
   });
 });
 
