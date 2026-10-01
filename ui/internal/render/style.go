@@ -48,7 +48,7 @@ var (
 	faintStyle   = fg(theme.Faint)
 	keyStyle     = fg(theme.Lav)
 	linkStyle    = fg(theme.Cyan).Underline(true)
-	ruleStyle    = fg(theme.Rule)
+	ruleStyle    = fg(theme.StaticRule)
 	railStyle    = fg(theme.Panel)
 )
 
