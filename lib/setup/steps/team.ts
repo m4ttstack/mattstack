@@ -8,14 +8,9 @@
 import { createTeam, type CreateTeamOpts } from "../../team/create.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinRedeem, realJoinRedeemSeams, type JoinResult } from "../../team/join.ts";
-import { personalStoreReady, readSecret, writeSecret } from "../../secrets/store.ts";
-import { readTeamLocal, updateTeamLocal } from "../../team/team-local.ts";
-import { boardEnvHasSwitchboardToken } from "../../team/board-token.ts";
-import { parse } from "jsonc-parser";
+import { personalStoreReady, writeSecret } from "../../secrets/store.ts";
 import { join } from "path";
-import { discoverTeams, parseOriginUrl, readTeamSnapshot } from "../team-settings.ts";
-import { isValidHttpsUrl } from "../host-validate.ts";
-import type { Probes } from "../probes.ts";
+import { discoverTeams, parseOriginUrl } from "../team-settings.ts";
 import { publishTeam } from "../../team/publish.ts";
 import { forgeTokenFor } from "./forge-token.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -124,57 +119,10 @@ export function outcomeFromJoinError(err: unknown): StepOutcome {
   return toFailedOutcome(err);
 }
 
-/** A finished join clears its intent, so the stamp it leaves is what keeps the step in a later plan while the board may still lack its token. */
-function peeringPendingTeams(ctx: ApplyContext): string[] {
-  return discoverTeams(ctx.p).filter((slug) => readTeamLocal(ctx.p, slug).peeringPending === true);
-}
-
-const REINVITE_FIX =
-  "ask the team's owner for a new invite (`rt team invite --handle <your forge username>`) and run `rt team join` with it, or ask them to re-invite your board from the board's members panel";
-
 const ALREADY_JOINED: StepOutcome = { state: "skipped", detail: "already joined — no invite in progress" };
 
-/** Reads the one team's own store, never the resolver's multi-team overlay, so each stamp is judged by its own team's declaration. */
-function declaresHttpsSwitchboard(p: Probes, slug: string): boolean {
-  const raw = p.readFile(join(p.home, ".mattstack", "teams", slug, "mattstack", "settings.team.jsonc"));
-  const parsed: unknown = raw === null ? undefined : parse(raw, [], { allowTrailingComma: true });
-  const store = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
-  const url = readTeamSnapshot(p, slug, { read: <T>(key: string) => store[key] as T | undefined, warn: () => {} }).integrations.switchboard?.url;
-  return !!url && isValidHttpsUrl(url);
-}
-
-/** The board takes its token from its own .env first (where its peer-join writes) and rt's secret second, so either one clears the stamp. */
-async function recheckPendingPeering(ctx: ApplyContext, stamped: string[]): Promise<StepOutcome> {
-  // A team that dropped its switchboard, or broke its URL, has nothing a re-invite could peer.
-  const pending = stamped.filter((slug) => declaresHttpsSwitchboard(ctx.p, slug));
-  for (const slug of stamped) if (!pending.includes(slug)) updateTeamLocal(ctx.p, slug, { peeringPending: false });
-  if (pending.length === 0) return ALREADY_JOINED;
-
-  if (!boardEnvHasSwitchboardToken(ctx.p)) {
-    let token: string | null;
-    try {
-      token = await readSecret("rt", "switchboardToken", ctx.secrets);
-    } catch (err) {
-      return {
-        state: "partial",
-        detail: `could not read your secrets store (${err instanceof Error ? err.message : String(err)}) to check your board's switchboard token`,
-        remedy: "Unlock your keychain, then Retry",
-      };
-    }
-    if (token === null) {
-      return { state: "partial", detail: `joined ${pending.join(", ")}, but this machine's board has no switchboard token, so it does not peer`, remedy: REINVITE_FIX };
-    }
-    ctx.redact(token);
-  }
-  for (const slug of pending) updateTeamLocal(ctx.p, slug, { peeringPending: false });
-  return ALREADY_JOINED;
-}
-
 async function teamJoinRun(ctx: ApplyContext): Promise<StepOutcome> {
-  if (noJoinIntentOnDisk(ctx)) {
-    const pending = peeringPendingTeams(ctx);
-    return pending.length > 0 ? recheckPendingPeering(ctx, pending) : ALREADY_JOINED;
-  }
+  if (noJoinIntentOnDisk(ctx)) return ALREADY_JOINED;
 
   // realJoinRedeemSeams()'s ageKeySeam is overridden with ctx.secrets.ageKeySeam
   // — the one already threaded through the whole apply run (and what tests
@@ -222,10 +170,9 @@ export const teamJoinStep: StepDef = {
   id: "team.join",
   feedsIntercepts: true,
   title: "Join your team",
-  titleFor: (ctx) => (ctx.intent?.mode === "join" ? "Join your team" : "Team membership"),
   kind: "rt",
   prerequisites: HOME_STEPS,
   satisfied: teamCloned,
-  applies: (ctx) => ctx.intent?.mode === "join" || peeringPendingTeams(ctx).length > 0,
+  applies: (ctx) => ctx.intent?.mode === "join",
   run: teamJoinRun,
 };

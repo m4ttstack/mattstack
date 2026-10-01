@@ -9,6 +9,7 @@ import { composePlan } from "../plan.ts";
 import { isTeamSyncFirstPullPending } from "../validators/rt-health.ts";
 import { rowsToChecks } from "../../../commands/verify.ts";
 import type { Row } from "../contract.ts";
+import { BOARD_PEERING_ROW_ID } from "../validators/accounts.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { toFailedOutcome } from "./step-utils.ts";
@@ -16,6 +17,8 @@ import { toFailedOutcome } from "./step-utils.ts";
 type CheckResult = ReturnType<typeof rowsToChecks>[number];
 
 type MemberTask = { verb: "connect" | "install"; label: string };
+
+const UNPEERED_NOTE = "board not peered: ask the team owner to re-invite you";
 
 /**
  * Install never connects an account or installs a team-declared tool: both
@@ -47,11 +50,14 @@ export function outcomeFromChecks(checks: CheckResult[], rows: Row[] = []): Step
     if (task) tasks.push(task);
     else failures.push(c);
   }
-  const note = (["connect", "install"] as const)
-    .map((verb) => [verb, tasks.filter((t) => t.verb === verb).map((t) => t.label)] as const)
-    .filter(([, labels]) => labels.length > 0)
-    .map(([verb, labels]) => `to ${verb}: ${labels.join(", ")}`)
-    .join(" · ");
+  const note = [
+    ...(["connect", "install"] as const)
+      .map((verb) => [verb, tasks.filter((t) => t.verb === verb).map((t) => t.label)] as const)
+      .filter(([, labels]) => labels.length > 0)
+      .map(([verb, labels]) => `to ${verb}: ${labels.join(", ")}`),
+    // Not required, so it never fails a check, but only the member can chase the owner for the token.
+    ...(byId.get(BOARD_PEERING_ROW_ID)?.status === "needs-you" ? [UNPEERED_NOTE] : []),
+  ].join(" · ");
   if (failures.length > 0) {
     return {
       state: "failed",

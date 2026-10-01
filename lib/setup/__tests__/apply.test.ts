@@ -125,12 +125,6 @@ describe("runApplyWith — team reload", () => {
     expect(reloads2).toBe(0);
   });
 
-  test("a step's titleFor names its row in the plan for this run", async () => {
-    const { ctx, events } = testCtx();
-    await runApplyWith([{ ...fakeStep("team.join", { state: "done" }), titleFor: () => "Team membership" }], ctx, {});
-    expect(events).toContainEqual({ event: "plan", steps: [{ id: "team.join", title: "Team membership", kind: "rt" }] });
-  });
-
   test("a partial reloadsTeam step landed its clone too, so the steps after it see the team", async () => {
     const { ctx } = testCtx();
     let reloads = 0;

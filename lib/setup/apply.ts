@@ -98,8 +98,6 @@ export interface ApplyContext {
 export interface StepDef {
   id: StepId;
   title: string;
-  /** The row's title for this run when it depends on the machine's state; `title` otherwise. */
-  titleFor?(ctx: ApplyContext): string;
   kind: StepKind;
   applies(ctx: ApplyContext): boolean;
   run(ctx: ApplyContext): Promise<StepOutcome>;
@@ -258,7 +256,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
     queue = applicable.slice(resumeStart(applicable, opts.from));
   }
 
-  ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: s.titleFor?.(ctx) ?? s.title, kind: s.kind })) });
+  ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: s.title, kind: s.kind })) });
   settleLegacyFinish(ctx);
 
   let lastRanId: StepId | undefined;
@@ -297,7 +295,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
       }
 
       if (outcome.state === "failed" && opts.only !== undefined && step.id !== opts.only && step.id !== INTERCEPTS_STEP) {
-        outcome = { ...outcome, detail: `${step.titleFor?.(ctx) ?? step.title}: ${outcome.detail}` };
+        outcome = { ...outcome, detail: `${step.title}: ${outcome.detail}` };
       }
       ctx.emit({ event: "step", id: step.id, state: outcome.state, ...stepEventFields(outcome) });
 
