@@ -314,7 +314,7 @@ with git instead.
 |---|---|
 | "The pipeline needs the default branch's fix" | A stacked MR reaches the default branch through its stack root. Rebasing it there directly destroys the stack. |
 | "Just this parent; the children catch up later" | The moment the parent rewrites, every child points at history that no longer exists. |
-| "No open MR in either direction" | On two successful reads, the `sourceBranch` result has no non-default target and the `targetBranch` result has no rows: the branch is stack-free, proceed. |
+| "No open MR in either direction" | On two complete reads (neither errored nor truncated), the `sourceBranch` result has no non-default target and the `targetBranch` result has no rows: the branch is stack-free, proceed. |
 
 ### Gate conflict:rebase-worktree:<attempt>
 
