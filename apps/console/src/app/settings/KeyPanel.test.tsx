@@ -266,6 +266,8 @@ describe('KeyPanel', () => {
     const team = await screen.findByTestId('layer-team');
     expect(within(team).getByText('not allowed here')).toBeInTheDocument();
     expect(within(team).queryByRole('button', { name: /^remove / })).toBeNull();
+    expect(within(team).queryByRole('button', { name: /^set / })).toBeNull();
+    expect(within(team).queryByRole('button', { name: /^move / })).toBeNull();
   });
 
   it('offers moves from the value in effect to the other layers the key allows', async () => {

@@ -268,9 +268,12 @@ describe('SettingRow disclosure', () => {
     inputs[1]!.focus();
     await userEvent.keyboard('{Escape}');
     expect(screen.getByRole('radio', { name: 'Value' })).toBeInTheDocument();
-    screen.getByRole('button', { name: 'close board.agent.model' }).focus();
+    screen.getByRole('radio', { name: 'Value' }).focus();
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('radio', { name: 'Value' })).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'open board.agent.model' })
+    ).toHaveFocus();
   });
 
   it('a refused write keeps the row open and shows the refusal', async () => {
