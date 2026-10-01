@@ -4,6 +4,7 @@ import { join } from 'path';
 import type { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
+import { readRounds } from '../review-rounds.ts';
 import { insertAgentState, mintHandle } from '../state/agent-states.ts';
 import { openStateDb } from '../state/db.ts';
 
@@ -244,4 +245,129 @@ describe('review-ledger CLI', () => {
     expect(r.code).toBe(1);
     expect(r.err).toMatch(/no state row/);
   });
+
+  test('a handle whose board has no db exits 1', async () => {
+    const elsewhere = mkdtempSync(join(tmpdir(), 'rl-nodb-'));
+    try {
+      const r = await run(['read', mintHandle('review', URL_A, elsewhere)]);
+      expect(r.code).toBe(1);
+      expect(r.err).toMatch(/no board db at /);
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  test('an approve outcome records', async () => {
+    const handle = mintHandle('review', URL_A, dir);
+    seed(handle, 4821);
+    const rec = await run([
+      'record',
+      handle,
+      '--round',
+      '1',
+      '--sha',
+      'abc',
+      '--outcome',
+      'approve',
+    ]);
+    expect(rec.code).toBe(0);
+    expect(readRounds(URL_A, db).map(r => [r.round, r.outcome])).toEqual([
+      [1, 'approve'],
+    ]);
+  });
+
+  test('a skipped finding with no snippet is stored with an empty one', async () => {
+    const handle = mintHandle('review', URL_A, dir);
+    seed(handle, 4821);
+    await run([
+      'record',
+      handle,
+      '--round',
+      '1',
+      '--sha',
+      'a',
+      '--outcome',
+      'comment',
+      '--skipped',
+      '[{"id":"f1","title":"t","severity":"minor","excerpt":"e"}]',
+    ]);
+    const view = JSON.parse((await run(['read', handle])).out);
+    expect(view.skipped[0].snippet).toBe('');
+  });
+
+  test('input that would lose round state exits 1 with its own reason and writes nothing', async () => {
+    const handle = mintHandle('review', URL_A, dir);
+    seed(handle, 4821);
+    const base = [
+      'record',
+      handle,
+      '--round',
+      '1',
+      '--sha',
+      'a',
+      '--outcome',
+      'comment',
+    ];
+    const entry = (over: Record<string, unknown>) =>
+      JSON.stringify([
+        { id: 'f1', title: 't', severity: 'minor', excerpt: 'e', ...over },
+      ]);
+    const cases: Array<[string[], RegExp]> = [
+      [[...base, '--skiped', '[]'], /^unknown flag --skiped$/],
+      [
+        [...base, '--restored=["r1-f1"]', '--round-two', '2'],
+        /^unknown flag --round-two$/,
+      ],
+      [
+        [...base.slice(0, 2), 'stray', ...base.slice(2)],
+        /^unexpected argument stray; usage: review-ledger/,
+      ],
+      [
+        ['read', handle, '--round', '1'],
+        /^read takes no flags; usage: review-ledger/,
+      ],
+      [
+        [...base, '--restored', '["f3"]'],
+        /^--restored: f3 is not a round-qualified id \(r<round>-<id>\)$/,
+      ],
+      [
+        [...base, '--restored', '["r1-f3","rx-f4"]'],
+        /^--restored: rx-f4 is not a round-qualified id/,
+      ],
+      [
+        [...base, '--skipped', entry({ file: '' })],
+        /^--skipped\[0\]\.file must be a non-empty string when present$/,
+      ],
+      [
+        [...base, '--skipped', entry({ file: 4 })],
+        /^--skipped\[0\]\.file must be a non-empty string when present$/,
+      ],
+      [
+        [...base, '--skipped', entry({ line: 0 })],
+        /^--skipped\[0\]\.line must be a positive integer when present$/,
+      ],
+      [
+        [...base, '--skipped', entry({ line: '4' })],
+        /^--skipped\[0\]\.line must be a positive integer when present$/,
+      ],
+      [
+        [...base, '--skipped', entry({ line: 2.5 })],
+        /^--skipped\[0\]\.line must be a positive integer when present$/,
+      ],
+      [
+        [...base, '--skipped', entry({ severity: 'blocker' })],
+        /^--skipped\[0\]\.severity must be one of critical\|important\|minor$/,
+      ],
+      [
+        [...base, '--skipped', entry({ snippet: 7 })],
+        /^--skipped\[0\]\.snippet must be a string when present$/,
+      ],
+    ];
+    for (const [args, want] of cases) {
+      const r = await run(args);
+      expect(r.code).toBe(1);
+      expect(r.err).toMatch(want);
+    }
+    expect(JSON.parse((await run(['read', handle])).out).round).toBe(0);
+  }, 60_000);
 });
