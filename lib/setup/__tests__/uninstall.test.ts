@@ -270,6 +270,44 @@ describe("rt uninstall", () => {
       expect(state.links).toEqual(["rt"]);
     });
 
+    test("a legacy Mac with only daemon.json comes out of a kept-data run unfinished", async () => {
+      const actions: UninstallAction[] = [{ id: "services.unregister", title: "x", kind: "app" }];
+      const p = bareProbes({ files: { [join(home, ".mattstack", "rt", "daemon.json")]: "{}" } });
+      expect(isSetupFinished(readSetupState(p))).toBe(true);
+      const { ctx } = makeCtx(p, { need: async () => ({ ok: true, detail: "done" }) });
+
+      await runUninstall(ctx, actions);
+
+      expect(isSetupFinished(readSetupState(p))).toBe(false);
+    });
+
+    test("nothing recorded: a kept-data run writes no state file", async () => {
+      const actions: UninstallAction[] = [{ id: "services.unregister", title: "x", kind: "app" }];
+      const p = bareProbes();
+      const { ctx } = makeCtx(p, { need: async () => ({ ok: true, detail: "done" }) });
+
+      await runUninstall(ctx, actions);
+
+      expect(p.exists(join(home, ".mattstack", "rt", "setup-state.json"))).toBe(false);
+    });
+
+    test("a run that deletes the data leaves the record alone: the file goes with the directory", async () => {
+      const actions: UninstallAction[] = [{ id: "data", title: "x", kind: "rt" }];
+      const p = bareProbes();
+      updateSetupState(p, (s) => ({ ...s, finishedAt: "2026-09-30T00:00:00.000Z" }));
+      const realRemoveDir = p.removeDir.bind(p);
+      let removed = false;
+      p.removeDir = (path) => {
+        removed = true;
+        realRemoveDir(path);
+      };
+      const { ctx } = makeCtx(p);
+
+      await runUninstall(ctx, actions);
+
+      expect(removed).toBe(true);
+    });
+
     test("a failed run leaves Finish on record: the Mac is still set up", async () => {
       const actions: UninstallAction[] = [{ id: "proxy.remove", title: "x", kind: "privileged" }];
       const p = bareProbes({ files: { [PORTLESS_LAUNCHD_PLIST]: "<plist/>" } });

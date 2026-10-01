@@ -117,6 +117,9 @@ final class SetupCoordinator {
                     TrayLog.warn("setup finish refused", ["err": e.message])
                 } else if r.exitCode != 0 {
                     TrayLog.warn("setup finish failed", ["exit": String(r.exitCode), "detail": r.failureCopy(verb: "setup finish")])
+                } else if let note = String(data: r.stderr, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
+                    // The update run Finish starts reports its own trouble on stderr and still exits 0.
+                    TrayLog.warn("setup finish reported", ["detail": note])
                 }
             } catch {
                 TrayLog.warn("setup finish did not run", ["err": String(describing: error)])

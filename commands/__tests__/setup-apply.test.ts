@@ -507,6 +507,21 @@ describe("setupApply: a full run with nothing left to finish records Finish", ()
     expect(readSetupState(deps.probes).lastUpdate).toBeUndefined();
   });
 
+  test("a stamp that cannot be written is reported and does not fail the run", async () => {
+    const errors: string[] = [];
+    const probes = fakeProbes();
+    const realWrite = probes.writeFile.bind(probes);
+    let writes = 0;
+    probes.writeFile = (path, content, mode) => {
+      if (path.includes("setup-state.json") && ++writes > 1) throw new Error("disk full");
+      return realWrite(path, content, mode);
+    };
+    const deps = baseApplyDeps({ probes, steps: [fakeStep("path.link", { state: "done" })], version: "2.15.0", migrations: [], printError: (s) => errors.push(s) });
+    await setupApply(["--json"], {}, deps);
+    expect(deps.exitCodes).toEqual([]);
+    expect(errors.some((e) => e.startsWith("rt setup apply: update version not stamped: disk full"))).toBe(true);
+  });
+
   test("a failed run and a partial run stamp no version", async () => {
     const failed = baseApplyDeps({ steps: [fakeStep("path.link", { state: "failed", detail: "boom" })], version: "2.15.0", migrations: [] });
     await runExpectingExit(() => setupApply(["--json"], {}, failed));

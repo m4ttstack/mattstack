@@ -604,7 +604,6 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
 
 export type FinishDeps = IntentDeps;
 
-/** mattstack.app runs this at the wizard's Finish; until it has, every launch reopens setup. */
 export interface AfterFinish {
   update(opts: { json: boolean; print: (s: string) => void }): Promise<void>;
   printError(s: string): void;
@@ -621,6 +620,7 @@ const REAL_AFTER_FINISH: AfterFinish = {
   printError: (s) => console.error(s),
 };
 
+/** mattstack.app runs this at the wizard's Finish; until it has, every launch reopens setup. */
 export async function setupFinish(args: string[], _ctx: CommandContext = {}, deps: FinishDeps = realIntentDeps(), after: AfterFinish = REAL_AFTER_FINISH): Promise<void> {
   const json = args.includes("--json");
   const { finishedAt } = markSetupFinished(deps.probes);

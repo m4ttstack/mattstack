@@ -394,8 +394,8 @@ stamped in `~/.mattstack/rt/setup-state.json` whatever the outcome. Two
 other verbs feed that stamp: a full `rt setup apply` that ends ok stamps it
 too, unless a migration is still pending, and `rt setup finish` starts an
 update run of its own, since the launch-time one skipped the Mac while setup
-was open. `rt uninstall` that keeps `~/.mattstack` takes Finish off the
-record, so a reinstalled app opens setup again. Mark a
+was open. `rt uninstall` that ends ok and keeps `~/.mattstack` takes Finish
+and the update stamp off the record, so a reinstalled app opens setup again. Mark a
 step update-safe only when it is idempotent, never calls `ctx.need`, and
 never overwrites a value the user chose; under `ctx.update` it also leaves
 alone what the member undid since rt put it there (a disabled or removed
