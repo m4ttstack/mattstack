@@ -39,7 +39,8 @@ import { createRealProbes } from "../lib/setup/probes.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
-import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
+import { buildParts, linksIn, partsFromMarkers, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
+import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
@@ -678,13 +679,20 @@ function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageE
   return rules;
 }
 
+type CompileAnatomy = {
+  step: StepSource;
+  includes: Record<string, AttachmentSource>;
+  fills: Record<string, AttachmentSource | null>;
+  slotMode: Record<string, "inline" | "reference">;
+};
+
 function compileVerb(
   target: CompileTarget,
   resolved: Resolved,
   emittedTargetDirs: string[],
   verbSides: Record<string, Side>,
   trace?: (entry: TraceEntry) => void,
-): CompileResult {
+): CompileResult & { anatomy?: CompileAnatomy } {
   const { isPublic, isStage } = target;
   let verb = target.verb;
   const where = `${isStage ? "stage" : "verb"} "${verb.name}"`;
@@ -711,9 +719,10 @@ function compileVerb(
 
   try {
     const fills = loadFillsFor(step, resolved, where);
-    return compileSkill(verb, step, fills, resolved.invocable, {
+    const includes = loadIncludesFor(step, fills, resolved, where);
+    const result = compileSkill(verb, step, fills, resolved.invocable, {
       internalRoster: resolved.internalRoster,
-      includes: loadIncludesFor(step, fills, resolved, where),
+      includes,
       pipelines: entries,
       repoKey: resolved.repoKey,
       mattstackSha: resolved.mattstackSha,
@@ -730,6 +739,12 @@ function compileVerb(
       side: isPublic ? "skills" : "attachments",
       trace,
     });
+    if (!trace) return result;
+    const slotMode: Record<string, "inline" | "reference"> = {};
+    for (const [slot, fill] of Object.entries(fills)) {
+      if (fill) slotMode[slot] = isInlined(fill, resolved.internalRoster) ? "inline" : "reference";
+    }
+    return { ...result, anatomy: { step, includes, fills, slotMode } };
   } catch (err) {
     const message = (err as Error).message;
     // loadFillsFor/loadIncludesFor's SkillsUsageError already carries this same
@@ -1334,6 +1349,16 @@ type CompositionBinder = {
 
 type CompositionFill = { binding: string; provides: string; sourcePath: string; registered: boolean };
 
+type CompositionTarget = {
+  name: string;
+  kind: "verb" | "stage";
+  public: boolean;
+  artifactPath: string;
+  templatePath: string | null;
+  /** Line numbers count the engine file's frontmatter, so they open the template at the right line. */
+  placeholders: { kind: string; arg: string | null; line: number }[];
+};
+
 export type CompositionPayload = {
   pack: string;
   packDir: string;
@@ -1357,6 +1382,8 @@ export type CompositionPayload = {
    * nowhere else to get it.
    */
   pipelines: Record<string, string[]>;
+  /** Every compile target, roster verbs and pipeline stages both, where `verbs` is the roster only. */
+  targets: CompositionTarget[];
 };
 
 /**
@@ -1498,6 +1525,27 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
   });
 }
 
+function buildCompositionTargets(resolved: Resolved, publicSet: Set<string> | null): CompositionTarget[] {
+  return compileTargets(resolved, publicSet, null).targets.map((t) => {
+    let step: StepSource | null;
+    try {
+      step = loadStepSource(t.verb.engine, resolved.pluginRoots);
+    } catch {
+      step = null;
+    }
+    return {
+      name: t.verb.name,
+      kind: t.isStage ? "stage" : "verb",
+      public: t.isPublic,
+      artifactPath: join(outDirFor(resolved.packDir, t.verb.name, t.isPublic), "SKILL.md"),
+      templatePath: step ? join(step.dir, "SKILL.md") : null,
+      placeholders: step
+        ? findPlaceholders(step.body).map((p) => ({ kind: p.kind, arg: p.arg, line: step.bodyStartLine + p.line - 1 }))
+        : [],
+    };
+  });
+}
+
 /**
  * Nothing else in rt enumerates the universe of fills.
  * invocableRoster walks only skills/ and the manifest's skills roots (never
@@ -1565,6 +1613,7 @@ export async function skillsComposition(args: string[]): Promise<void> {
     const verbs = resolved.fullRoster.map((verb) => buildCompositionVerb(verb, resolved, publicSet));
     const fills = enumerateFills(resolved.pluginRoots);
     const binders = buildBinders(resolved, pipelines);
+    const targets = buildCompositionTargets(resolved, publicSet);
 
     const payload: CompositionPayload = {
       pack: resolved.team,
@@ -1574,6 +1623,7 @@ export async function skillsComposition(args: string[]): Promise<void> {
       fills,
       binders,
       pipelines,
+      targets,
     };
 
     if (flags.json) {
@@ -1581,6 +1631,105 @@ export async function skillsComposition(args: string[]): Promise<void> {
       return;
     }
     out.print(...compositionBlocks(payload));
+  });
+}
+
+// ─── rt skills anatomy ─────────────────────────────────────────────────────
+
+const STEP_VERSION_RE = /^<!-- part: step .*?\bversion=(\S+) /m;
+
+/** A file's line count as an editor shows it: the trailing newline ends the last line rather than starting another. */
+function fileLineCount(text: string): number {
+  if (text === "") return 0;
+  const count = text.split("\n").length;
+  return text.endsWith("\n") ? count - 1 : count;
+}
+
+function readIfExists(path: string): string | null {
+  return existsSync(path) ? readFileSync(path, "utf8") : null;
+}
+
+function spanText(span: [number, number] | null): string {
+  return span ? `${span[0]}-${span[1]}` : "-";
+}
+
+export async function skillsAnatomy(args: string[]): Promise<void> {
+  await withCleanErrors(async () => {
+    const at = args.indexOf("--skill");
+    if (at < 0) throw new SkillsUsageError("rt skills anatomy needs --skill <name>");
+    const skill = requireFlagValue("--skill", args[at + 1]);
+    const flags = parseFlags([...args.slice(0, at), ...args.slice(at + 2)]);
+    const resolved = await resolve(flags);
+    const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
+    const plan = compileTargets(resolved, publicSet, null);
+    const target = plan.targets.find((t) => t.verb.name === skill);
+    if (!target) throw new SkillsUsageError(`no skill named "${skill}" in pack ${resolved.team}`);
+
+    const trace: TraceEntry[] = [];
+    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, (e) => trace.push(e));
+    const main = result.files.find((f) => "content" in f && f.path === "SKILL.md");
+    if (!main || !("content" in main) || !result.anatomy) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
+    const fresh = main.content;
+    const { step, includes, fills, slotMode } = result.anatomy;
+    const renderedPath = join(outDirFor(resolved.packDir, skill, target.isPublic), "SKILL.md");
+    const onDisk = readIfExists(renderedPath);
+    const shown = onDisk ?? fresh;
+
+    const builtVersions = new Map(partExtents(onDisk ?? "").map((p) => [p.key, p.version]));
+    const sources: Record<string, AnatomySource> = {};
+    for (const [name, inc] of Object.entries(includes)) {
+      const key = `include:${name}`;
+      sources[key] = { ref: `${inc.plugin}:${name}`, path: join(inc.dir, "SKILL.md"), version: inc.version, builtVersion: builtVersions.get(key) ?? null, lines: inc.body.split("\n").length };
+    }
+    for (const [slot, fill] of Object.entries(fills)) {
+      if (!fill) continue;
+      const key = `slot:${slot}`;
+      sources[key] = { ref: fill.binding, path: join(fill.dir, "SKILL.md"), version: fill.version, builtVersion: builtVersions.get(key) ?? null, lines: fill.body.split("\n").length };
+    }
+    const targets: Record<string, AnatomyTarget> = {};
+    for (const t of plan.targets) {
+      const path = join(outDirFor(resolved.packDir, t.verb.name, t.isPublic), "SKILL.md");
+      const text = readIfExists(path);
+      targets[t.verb.name] = { skill: t.verb.name, path, lines: text === null ? null : fileLineCount(text) };
+    }
+
+    const bodyOffset = fresh.split("\n").findIndex((l) => l.startsWith("<!-- part: step ")) + 2;
+    const changedKeys = onDisk ? changedPartKeys(onDisk, fresh) : new Set<string>();
+    const parts = trace.length > 0
+      ? buildParts({ bodyStartLine: step.bodyStartLine, bodyOffset, trace, sources, targets, slotModes: slotMode, changedKeys })
+      : partsFromMarkers(shown, sources, changedKeys);
+    // check masks the compiler's version and sha stamps before comparing, and so must this, or the two disagree.
+    const staleBecause = onDisk ? skillMdDriftCauses(maskProvenance(onDisk), maskProvenance(fresh)) : [];
+    const templatePath = join(step.dir, "SKILL.md");
+
+    const payload: AnatomyPayload = {
+      pack: resolved.team,
+      skill,
+      kind: target.isStage ? "stage" : "verb",
+      public: target.isPublic,
+      description: (target.isStage ? step.description : target.verb.description) || null,
+      template: {
+        ref: `${step.plugin}:${step.name}`,
+        path: templatePath,
+        version: step.version,
+        builtVersion: onDisk ? STEP_VERSION_RE.exec(onDisk)?.[1] ?? null : null,
+        lines: fileLineCount(readFileSync(templatePath, "utf8")),
+      },
+      rendered: { path: renderedPath, exists: onDisk !== null, lines: fileLineCount(shown) },
+      status: onDisk === null ? "never-compiled" : staleBecause.length > 0 ? "stale" : "in-sync",
+      staleBecause,
+      parts,
+      links: linksIn(shown),
+    };
+
+    if (flags.json) {
+      out.json(payload);
+      return;
+    }
+    out.print(out.table(
+      payload.parts.map((p) => [p.kind, p.name ?? "", spanText(p.templateLines), spanText(p.renderedLines)]),
+      ["Part", "Name", "Template lines", "Rendered lines"],
+    ));
   });
 }
 

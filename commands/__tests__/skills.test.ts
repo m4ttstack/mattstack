@@ -3,7 +3,7 @@ import { execFileSync } from "child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { compilePackAll, installedInfoFor, skillsCheck, skillsCompile, skillsComposition, skillsMaterialize, skillsPacks } from "../skills.ts";
+import { compilePackAll, installedInfoFor, skillsAnatomy, skillsCheck, skillsCompile, skillsComposition, skillsMaterialize, skillsPacks } from "../skills.ts";
 import { compileSkill } from "../../lib/skills/compile.ts";
 import { materializeRepo, type MaterializeFs } from "../../lib/skills/materialize.ts";
 import { invocableRoster, loadAttachment, loadStepSource } from "../../lib/skills/sources.ts";
@@ -1918,7 +1918,99 @@ describe("skillsCompile --preview error handling", () => {
   });
 });
 
+const GATE_PROTOCOL_MD = "---\nname: gate-protocol\n---\n\nAsk before acting.\nWait for the answer.\n";
+
+function slottedStageMd(body: string): string {
+  return `---
+name: stage-plan
+description: "plan stage"
+type: pipeline-step
+slots:
+  domain: { contract: "watch-ci-domain@1" }
+metadata:
+  stage: plan
+---
+
+${body}
+`;
+}
+
+/** watch-ci plus one internal stage, stage-plan, whose domain slot is bound to acme's inlined fill. */
+function makeStagePackFlags(stageBody: string): string[] {
+  const mattstackDir = makeMattstackDir();
+  const mattstackPluginDir = join(mattstackDir, "plugins", "mattstack");
+  writeFile(join(mattstackPluginDir, "attachments", "pipeline", "stage-plan", "SKILL.md"), slottedStageMd(stageBody));
+  writeFile(join(mattstackPluginDir, "attachments", "gate-protocol", "SKILL.md"), GATE_PROTOCOL_MD);
+  const packDir = makePackDir();
+  const manifestDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-anatomy-")));
+  const manifestPath = join(manifestDir, "skills.jsonc");
+  writeFile(manifestPath, JSON.stringify({
+    pipelines: { feature: ["mattstack:stage-plan"] },
+    bindings: {
+      "mattstack:watch-ci": { domain: "acme:watch-ci-domain", forge: "mattstack:gitlab-forge" },
+      "mattstack:stage-plan": { domain: "acme:watch-ci-domain" },
+    },
+  }));
+  return ["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath];
+}
+
+const SKILLS_VERBS: Record<string, (args: string[]) => Promise<void>> = {
+  compile: skillsCompile,
+  composition: skillsComposition,
+  anatomy: skillsAnatomy,
+};
+
+/** What this one run wrote to stdout, read from the suite's open capture. */
+async function runSkills(argv: string[]): Promise<string> {
+  const [verb, ...rest] = argv;
+  const run = SKILLS_VERBS[verb ?? ""];
+  if (!run) throw new Error(`no test runner for rt skills ${verb}`);
+  const before = io.stdout().length;
+  await run(rest);
+  return io.stdout().slice(before);
+}
+
+async function runSkillsCapturing(argv: string[]): Promise<{ exitCode: number | undefined; stderr: string }> {
+  const { exitCode, errors } = await runExpectingCleanExit(async () => {
+    await runSkills(argv);
+  });
+  return { exitCode, stderr: errors.join("\n") };
+}
+
+const compositionJson = async (flags: string[]) => JSON.parse(await runSkills(["composition", ...flags, "--json"]));
+const anatomyJson = async (flags: string[]) => JSON.parse(await runSkills(["anatomy", ...flags, "--json"]));
+
+const INCLUDE_THEN_SLOT = "intro\n{{include:gate-protocol}}\n{{slot:domain}}";
+
 describe("skillsComposition --json", () => {
+  test("composition lists every compile target with its rendered path and template placeholders", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    const packDir = packFlags[packFlags.indexOf("--pack-dir") + 1]!;
+    const mattstackDir = packFlags[packFlags.indexOf("--mattstack-dir") + 1]!;
+    const payload = await compositionJson(packFlags);
+
+    const stage = payload.targets.find((t: { name: string }) => t.name === "stage-plan");
+    expect(stage).toMatchObject({ kind: "stage", public: false });
+    expect(stage.artifactPath.endsWith("/attachments/stage-plan/SKILL.md")).toBe(true);
+    expect(stage.templatePath).toBe(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"));
+    expect(stage.placeholders.map((p: { kind: string }) => p.kind)).toEqual(["include", "slot"]);
+    expect(stage.placeholders[0].line).toBeGreaterThan(1);
+    expect(stage.placeholders).toEqual([
+      { kind: "include", arg: "gate-protocol", line: 12 },
+      { kind: "slot", arg: "domain", line: 13 },
+    ]);
+
+    const verb = payload.targets.find((t: { name: string }) => t.name === "watch-ci");
+    expect(verb).toEqual({
+      name: "watch-ci",
+      kind: "verb",
+      public: true,
+      artifactPath: join(packDir, "skills", "watch-ci", "SKILL.md"),
+      templatePath: join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci", "SKILL.md"),
+      placeholders: [],
+    });
+  });
+
   test("verb, slots, fills, and binders reflect the manifest", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
@@ -2178,7 +2270,7 @@ describe("skillsComposition --json", () => {
     await skillsComposition(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]);
 
     const parsed = JSON.parse(io.lines().join("\n"));
-    expect(parsed).toEqual({ pack: "acme", packDir, manifestPath: null, verbs: [], fills: [], binders: [], pipelines: {} });
+    expect(parsed).toEqual({ pack: "acme", packDir, manifestPath: null, verbs: [], fills: [], binders: [], pipelines: {}, targets: [] });
   });
 
   test("manifestPath is the absolute manifest the bindings came from, not <packDir>/skills.jsonc", async () => {
@@ -2238,6 +2330,87 @@ describe("skillsComposition --json", () => {
     await skillsComposition(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
     expect(() => JSON.parse(io.lines().join("\n"))).not.toThrow();
+  });
+});
+
+describe("skillsAnatomy --json", () => {
+  test("anatomy reports parts in template order with rendered ranges", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    await runSkills(["compile", ...packFlags]);
+    const a = await anatomyJson(["--skill", "stage-plan", ...packFlags]);
+    expect(a.kind).toBe("stage");
+    expect(a.status).toBe("in-sync");
+    expect(a.parts.map((p: { kind: string }) => p.kind)).toEqual(["text", "include", "slot"]);
+    const inc = a.parts[1];
+    const lines = readFileSync(a.rendered.path, "utf8").split("\n");
+    expect(lines[inc.renderedLines[0] - 1]).toStartWith("<!-- part: include:gate-protocol ");
+    expect(inc.source.lines).toBe(2);
+    expect(inc.templateLines).toEqual([12, 12]);
+    expect(lines[a.parts[0].renderedLines[0] - 1]).toBe("intro");
+    expect(lines[a.parts[2].renderedLines[0] - 1]).toStartWith("<!-- part: slot:domain ");
+    expect(a.parts[2]).toMatchObject({ mode: "inline", source: { ref: "acme:watch-ci-domain" } });
+    expect(a.template).toMatchObject({ ref: "mattstack:stage-plan", builtVersion: "1.2.0", lines: 13 });
+    expect(a.rendered).toMatchObject({ exists: true, lines: lines.length - 1 });
+  });
+
+  test("anatomy of a never-compiled stage still lists template parts", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    const a = await anatomyJson(["--skill", "stage-plan", ...packFlags]);
+    expect(a.status).toBe("never-compiled");
+    expect(a.rendered.exists).toBe(false);
+    expect(a.parts.every((p: { renderedLines: unknown }) => p.renderedLines !== undefined)).toBe(true);
+    expect(a.parts.map((p: { kind: string }) => p.kind)).toEqual(["text", "include", "slot"]);
+    expect(a.template.builtVersion).toBeNull();
+  });
+
+  test("a legacy stage engine's parts come from the compiled markers", async () => {
+    const packFlags = makeStagePackFlags("Plan the work.\nWrite the plan down.");
+    await runSkills(["compile", ...packFlags]);
+    const a = await anatomyJson(["--skill", "stage-plan", ...packFlags]);
+    expect(a.status).toBe("in-sync");
+    expect(a.parts.map((p: { kind: string; name: string | null }) => [p.kind, p.name])).toEqual([["text", null], ["slot", "domain"]]);
+    const [text, slot] = a.parts;
+    expect(text.renderedLines).not.toBeNull();
+    expect(slot.renderedLines).not.toBeNull();
+    const lines = readFileSync(a.rendered.path, "utf8").split("\n");
+    expect(lines[text.renderedLines[0] - 1]).toBe("Plan the work.");
+    expect(lines[slot.renderedLines[0] - 1]).toStartWith("<!-- part: slot:domain ");
+    expect(slot.source.ref).toBe("acme:watch-ci-domain");
+  });
+
+  test("an edited fill marks its part changed and the skill stale", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    const mattstackDir = packFlags[packFlags.indexOf("--mattstack-dir") + 1]!;
+    await runSkills(["compile", ...packFlags]);
+    const fillPath = join(mattstackDir, "plugins", "acme", "attachments", "watch-ci-domain", "SKILL.md");
+    writeFile(fillPath, readFileSync(fillPath, "utf8").replace("for details.", "for every detail."));
+    const a = await anatomyJson(["--skill", "stage-plan", ...packFlags]);
+    expect(a.status).toBe("stale");
+    expect(a.staleBecause).toEqual(["fill"]);
+    expect(a.parts.map((p: { changed: boolean }) => p.changed)).toEqual([false, false, true]);
+  });
+
+  test("anatomy rejects an unknown skill with a usage error", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    const { exitCode, stderr } = await runSkillsCapturing(["anatomy", "--skill", "nope", ...packFlags, "--json"]);
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toContain('no skill named "nope"');
+  });
+
+  test("anatomy without --skill is a usage error", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    const { exitCode, stderr } = await runSkillsCapturing(["anatomy", ...packFlags]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("rt skills anatomy needs --skill <name>");
+  });
+
+  test("without --json, prints one row per part", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    await runSkills(["compile", ...packFlags]);
+    const text = await runSkills(["anatomy", "--skill", "stage-plan", ...packFlags]);
+    expect(() => JSON.parse(text)).toThrow();
+    expect(text).toContain("gate-protocol");
+    expect(text).toContain("12-12");
   });
 });
 

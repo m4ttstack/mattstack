@@ -2428,6 +2428,18 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      anatomy: {
+        description: "Show what one compiled skill is made of",
+        module: "./commands/skills.ts",
+        fn: "skillsAnatomy",
+        args: [
+          { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to act on that tree" },
+          { name: "Skill", flag: "--skill", type: "text", placeholder: "stage-plan", hint: "Skill or stage name" },
+          { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to read ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "gitlab.example.com/acme/widgets", hint: "Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares" },
+          SETUP_JSON_ARG,
+        ],
+      },
       bind: {
         description: "Bind a fill to a slot: check it fits, save it in the pack's bindings, regenerate the pack's bindings file and recompile",
         module: "./commands/skills.ts",
