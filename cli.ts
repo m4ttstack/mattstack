@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * rt — Zero-footprint repo CLI.
+ * rt ... Zero-footprint repo CLI.
  *
  * All command navigation is handled by the command tree dispatcher.
  * Commands register declaratively; the dispatcher handles screen clearing,
@@ -36,27 +36,37 @@ const isInterceptRun = args[0] === "intercept" && args[1] === "run";
 // The daemon entry runs its own copy of this (lib/daemon.ts) for the
 // `bun run lib/daemon.ts` source path; the call is idempotent.
 //
-// The migration itself runs on EVERY entry path, intercepts included — an
-// intercepted command really can be the first rt invocation after an upgrade,
-// and skipping it there would leave the state split. Only the reporting is
-// suppressed for intercepts: the one-shot "migrated" line would corrupt a
-// wrapped command's stderr once, and the "conflict" warning would do it on
-// every single invocation until a human merges the trees.
-{
-  const migration = migrateLegacyRtDir();
-  if (isInterceptRun) {
-    // silent — see above
-  } else if (migration === "migrated") {
-    console.error(`  rt: migrated legacy ${LEGACY_RT_LABEL} state to ${RT_DIR_LABEL}`);
-  } else if (migration === "conflict") {
-    console.error(`\n  rt: WARNING — state is split between ${LEGACY_RT_LABEL} and ${RT_DIR_LABEL}.`);
-    console.error(`  rt reads only ${RT_DIR_LABEL}; merge the legacy ${LEGACY_RT_LABEL} directory into it by hand, then delete it.\n`);
+// The migration runs on EVERY entry path, intercepts included: an
+// intercepted command really can be the first rt invocation after an upgrade.
+const stateMigration = migrateLegacyRtDir();
+const pluginsMigration = migrateLegacyPluginsDir();
+
+// Called from __main: the output layer loads on demand, and a top-level
+// await here would block bytecode compilation. The intercept path stays
+// silent, since its stderr belongs to the wrapped command and a split-state
+// warning would land there on every invocation.
+async function reportMigrations(): Promise<void> {
+  if (isInterceptRun) return;
+  const acted = (result: string) => result === "migrated" || result === "conflict";
+  if (!acted(stateMigration) && !acted(pluginsMigration)) return;
+  const out = await import("./lib/ui/out.ts");
+  if (stateMigration === "migrated") {
+    out.note(out.line("done", "Moved your rt data to its new folder", RT_DIR_LABEL));
+  } else if (stateMigration === "conflict") {
+    out.note(
+      out.line("warn", "Your rt data is in two folders"),
+      out.callout("note", ["rt only reads ", out.strong(RT_DIR_LABEL)]),
+      out.callout("fix", ["Merge ", out.strong(LEGACY_RT_LABEL), " into it by hand, then delete ", out.strong(LEGACY_RT_LABEL)]),
+    );
   }
-  const plugins = migrateLegacyPluginsDir();
-  if (!isInterceptRun && plugins === "migrated") {
-    console.error("  rt: moved your plugins from ~/.mattstack/rt/plugins to ~/.mattstack/user/plugins (they now travel with your home repo)");
-  } else if (!isInterceptRun && plugins === "conflict") {
-    console.error("\n  rt: WARNING — plugins exist in both ~/.mattstack/rt/plugins (retired) and ~/.mattstack/user/plugins; rt reads only user/plugins. Merge by hand, then delete rt/plugins.\n");
+  if (pluginsMigration === "migrated") {
+    out.note(out.line("done", "Moved your plugins so they travel with your home repo", "~/.mattstack/user/plugins"));
+  } else if (pluginsMigration === "conflict") {
+    out.note(
+      out.line("warn", "Your plugins are in two folders"),
+      out.callout("note", ["rt only reads ", out.strong("~/.mattstack/user/plugins")]),
+      out.callout("fix", ["Merge ", out.strong("~/.mattstack/rt/plugins"), " into it by hand, then delete ", out.strong("~/.mattstack/rt/plugins")]),
+    );
   }
 }
 
@@ -87,9 +97,13 @@ async function __main() {
 // ~100 process.exit() sites that never return to dispatch(). The daemon path
 // is excluded — it installs its own pino crash handlers.
 if (args[0] !== "--daemon") {
-  const { installCliLogging } = await import("./lib/cli-logger.ts");
+  const { installCliLogging, logCliEvent } = await import("./lib/cli-logger.ts");
   installCliLogging(args);
+  // The daemon never sets this: its warnings stay on its own log surface.
+  const { setWarningLog } = await import("./lib/ui/warn.ts");
+  setWarningLog((module, message, context) => logCliEvent("warn", module, message, context), { quiet: isInterceptRun });
 }
+await reportMigrations();
 
 if (args[0] === "--version" || args[0] === "-V") {
   const { payload } = await import("./lib/ui/out.ts");
@@ -135,7 +149,7 @@ if (args[0] === "--version" || args[0] === "-V") {
   }
 } else {
   // ── First-run hint ────────────────────────────────────────────────────────
-  // `rt setup` (not this hook) owns getting a machine set up — an auto-run
+  // `rt setup` (not this hook) owns getting a machine set up... an auto-run
   // here would defeat `rt setup plan`'s canInstall being reachable
   // pre-install. A command that IS part of getting set up must reach its own
   // handler untouched; RT_APP_SOCKET means mattstack.app is driving rt and
@@ -152,7 +166,8 @@ if (args[0] === "--version" || args[0] === "-V") {
     const { existsSync } = await import("fs");
     const { join } = await import("path");
     if (!existsSync(join(rtDir(), "daemon.json"))) {
-      console.error("  rt is not set up yet — open mattstack.app, or run: rt setup install");
+      const out = await import("./lib/ui/out.ts");
+      out.note(out.line("needs-you", "rt is not set up yet"), out.callout("next", ["Open mattstack.app, or run ", out.cmd("rt setup install")]));
     }
   }
 
