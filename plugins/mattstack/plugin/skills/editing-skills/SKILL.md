@@ -334,7 +334,7 @@ back `failed (exit 1)`. A lagging installed cache is the other trigger. Lag
 alone leaves check's exit code at 0, so the call succeeds; read its
 `installed` object (`status: "lagging"` with its `version` and
 `sourceVersion`), not the success. The bare Bash check prints the same lag
-as `installed cache: lagging (<a> installed vs <b> source)`.
+as `[out of date] The installed copy is behind the source  <a> installed, <b> in the source`.
 
 ### Read what moved on Bash
 
@@ -488,7 +488,7 @@ doubled: a hand-authored skill compiles to nothing and so never drifts,
 leaving sync as just the cache update. Sync's own bump is for the other
 case, where a shared engine rebuilt a pack's verbs and nobody has versioned
 that yet. When content drift survives that recompile, sync refuses with
-`content drift survives recompile` and leaves its bump and compiled output
+`The compiled skills are still out of date after a recompile` and leaves its bump and compiled output
 in the pack working tree for you to carry forward. An in-tree plugin is
 never pulled, bumped, compiled or committed in the shared checkout: its
 version is read from `main`, and drift in it refuses so the fix lands as a
