@@ -406,6 +406,8 @@ export interface AgentRecord {
       so a resume re-stamps the same one, AND gates whether the gate-fork
       PreToolUse hook gets injected at all. */
   subject?: string;
+  /** The team pack name the last launch ran under, re-applied as MATTSTACK_PACK on a resume that names none. */
+  pack?: string;
   paneId?: string; tabId?: string; workspaceId?: string;
   extraArgs?: string; exitCode?: number; resultPath?: string; yolo?: boolean;
   createdAt: number; lastResumedAt?: number; finishedAt?: number;

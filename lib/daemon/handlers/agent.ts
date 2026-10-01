@@ -25,7 +25,7 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 import {
   deleteAgent, finishAgent, getAgent, identityName, insertAgent, isValidChatName, listAgents, markAgentResumed,
-  newAgentId, reserveAgentHandle, updateAgentPane, updateAgentSessionId, type AgentRecord, type AgentSurface,
+  newAgentId, reserveAgentHandle, updateAgentPack, updateAgentPane, updateAgentSessionId, type AgentRecord, type AgentSurface,
 } from "../../state/index.ts";
 import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, pointerPrompt, writePromptFile, type AgentInvocation, type AgentProvider } from "../../agent-argv/index.ts";
 import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-hooks.ts";
@@ -294,6 +294,14 @@ function envError(env: unknown, surface: AgentSurface): string | null {
   // the variables the caller thinks it passed.
   if (surface === "headless") return "env is only supported for the herdr surface";
   return null;
+}
+
+const PACK_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/** The caller's MATTSTACK_PACK when it is a well-formed pack name; only a name, never other env, is kept on the record. */
+function packFromEnv(env: Record<string, string> | undefined): string | undefined {
+  const pack = env?.MATTSTACK_PACK;
+  return pack !== undefined && PACK_NAME_RE.test(pack) ? pack : undefined;
 }
 
 const agentOwner = (id: string): string => `agent:${id}`;
@@ -581,6 +589,8 @@ export function createAgentHandlers(opts: {
       // this field is whether resolveHookSettingsPath sees an explicit
       // subject to gate hook injection on.
       if (payload.subject !== undefined) rec.subject = payload.subject;
+      const pack = packFromEnv(payload.env);
+      if (pack !== undefined) rec.pack = pack;
       const model = payload.model ?? fromSetting(`agent.${provider}.model`, log);
       const effort = payload.effort ?? fromSetting(`agent.${provider}.effort`, log);
       const extraArgs = payload.extraArgs ?? fromSetting(`agent.${provider}.extraArgs`, log);
@@ -702,6 +712,12 @@ export function createAgentHandlers(opts: {
       }
       const resumeEnvError = envError(payload.env, surface);
       if (resumeEnvError) return { ok: false, error: resumeEnvError };
+      const resumePack = packFromEnv(payload.env);
+      // The daemon's own relaunches (reconciler, gate answer-time resume)
+      // send only an id, so the stored pack stands in for the caller's.
+      const launchEnv = payload.env?.MATTSTACK_PACK === undefined && rec.pack !== undefined && surface === "herdr"
+        ? { ...payload.env, MATTSTACK_PACK: rec.pack }
+        : payload.env;
       // ↺ prefix: resume tabs must never dedup against the still-open launch
       // tab; repeated resumes share the label and dedup against each other.
       const tabLabel = payload.tab ?? `↺ ${rec.label ?? rec.id}`;
@@ -725,12 +741,13 @@ export function createAgentHandlers(opts: {
           opts.lifecycle!.watch(ensured.socket);
         }
         const res = await launch(attempt, { kind: "resume", sessionId: rec.sessionId }, payload.prompt, tabLabel, workspaceLabel, {
-          ...(payload.env !== undefined && { env: payload.env }),
+          ...(launchEnv !== undefined && { env: launchEnv }),
           ...(bgSocket !== undefined && { herdrSocket: bgSocket }),
         });
         if (!res.ok) return res;
         const now = Date.now();
         markAgentResumed(rec.id, now, db);
+        if (resumePack !== undefined && resumePack !== rec.pack) updateAgentPack(rec.id, resumePack, db);
         if (wasBg && attempt.paneId) {
           // Same owner, new pane: release the stale claim by the exact ref
           // it was registered under (releaseByPane's own convention), then
