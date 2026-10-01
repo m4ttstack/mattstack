@@ -258,7 +258,7 @@ describe("rt uninstall", () => {
     test("a run that keeps the data takes Finish off the record, so a reinstalled app opens setup again", async () => {
       const actions: UninstallAction[] = [{ id: "services.unregister", title: "x", kind: "app" }];
       const p = bareProbes();
-      updateSetupState(p, (s) => ({ ...s, finishedAt: "2026-09-30T00:00:00.000Z", lastApplyOk: true, links: ["rt"] }));
+      updateSetupState(p, (s) => ({ ...s, finishedAt: "2026-09-30T00:00:00.000Z", lastApplyOk: true, lastUpdate: { version: "2.15.0", at: "x" }, links: ["rt"] }));
       const { ctx } = makeCtx(p, { need: async () => ({ ok: true, detail: "done" }) });
 
       const result = await runUninstall(ctx, actions);
@@ -267,6 +267,7 @@ describe("rt uninstall", () => {
       const state = readSetupState(p);
       expect(isSetupFinished(state)).toBe(false);
       expect(state.lastApplyOk).toBeUndefined();
+      expect(state.lastUpdate).toBeUndefined();
       expect(state.links).toEqual(["rt"]);
     });
 
@@ -289,23 +290,6 @@ describe("rt uninstall", () => {
       await runUninstall(ctx, actions);
 
       expect(p.exists(join(home, ".mattstack", "rt", "setup-state.json"))).toBe(false);
-    });
-
-    test("a run that deletes the data leaves the record alone: the file goes with the directory", async () => {
-      const actions: UninstallAction[] = [{ id: "data", title: "x", kind: "rt" }];
-      const p = bareProbes();
-      updateSetupState(p, (s) => ({ ...s, finishedAt: "2026-09-30T00:00:00.000Z" }));
-      const realRemoveDir = p.removeDir.bind(p);
-      let removed = false;
-      p.removeDir = (path) => {
-        removed = true;
-        realRemoveDir(path);
-      };
-      const { ctx } = makeCtx(p);
-
-      await runUninstall(ctx, actions);
-
-      expect(removed).toBe(true);
     });
 
     test("a failed run leaves Finish on record: the Mac is still set up", async () => {
