@@ -3,13 +3,21 @@
 // calls resolve locally instead of over the network. Each mocked channel name
 // maps to its own distinguishable channel id, so a test can tell which channel
 // name the caller resolved purely from the id embedded in the response.
+import { appendFileSync } from 'fs';
+
 const realFetch = globalThis.fetch;
 
 const CHANNEL_IDS: Record<string, string> = {
   'code-review': 'C_DEFAULT',
   'acme-channel': 'C_ACME',
   'other-channel': 'C_OTHER',
+  'outside-channel': 'C_OUTSIDE',
+  'flaky-channel': 'C_FLAKY',
 };
+/** Channels the token's user has not joined; posting there fails. */
+const NOT_MEMBER = new Set(['C_OUTSIDE']);
+/** Channels whose posts fail even though the user is in them. */
+const POST_FAILS = new Set(['C_FLAKY']);
 
 function ok(data: Record<string, unknown>): Response {
   return new Response(JSON.stringify({ ok: true, ...data }), {
@@ -27,6 +35,7 @@ function slackApi(method: string, params: Record<string, string>): Response {
         channels: Object.entries(CHANNEL_IDS).map(([name, id]) => ({
           id,
           name,
+          is_member: !NOT_MEMBER.has(id),
         })),
         response_metadata: { next_cursor: '' },
       });
@@ -44,6 +53,17 @@ function slackApi(method: string, params: Record<string, string>): Response {
     case 'reactions.get':
       return ok({ message: { reactions: [] } });
     case 'chat.postMessage':
+      if (NOT_MEMBER.has(params.channel!) || POST_FAILS.has(params.channel!))
+        return new Response(
+          JSON.stringify({ ok: false, error: 'not_in_channel' }),
+          { headers: { 'content-type': 'application/json' } }
+        );
+      // SLACK_MOCK_POST_LOG: a file the test reads to see what was sent.
+      if (process.env.SLACK_MOCK_POST_LOG)
+        appendFileSync(
+          process.env.SLACK_MOCK_POST_LOG,
+          `${JSON.stringify(params)}\n`
+        );
       return ok({ ts: '200.000001' });
     default:
       return ok({});

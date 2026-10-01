@@ -2764,6 +2764,34 @@ a.tui-id-card-ref:focus-visible {
 .tui-draft-modal {
   max-width: 680px;
 }
+.tui-owners-modal {
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.tui-owners-modal .tui-modal-sub {
+  margin-bottom: 0;
+}
+.tui-owners-modal .tui-draft-actions {
+  margin-top: 0;
+}
+.tui-owners-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-3);
+  font-size: 0.85rem;
+}
+.tui-owners-modal a {
+  color: var(--text-accent-small);
+}
+.tui-owners-sections {
+  margin-left: 0.6rem;
+  color: var(--text-3);
+  font-size: 0.76rem;
+}
 .tui-draft-body {
   font-family: var(--font-mono);
   font-size: 0.82rem;

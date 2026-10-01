@@ -51,6 +51,7 @@ export type ActionRequest =
   | { kind: 'find-thread' }
   | { kind: 'ask'; ask: 'review' | 're-review' | 'respond'; reviewer?: string }
   | { kind: 'post-slack' }
+  | { kind: 'post-owners' }
   | { kind: 'copy' }
   | { kind: 'note' }
   | { kind: 'open'; url: string }
@@ -94,6 +95,9 @@ export interface RowAction extends MenuEntry {
 export interface ActionEnv {
   local: boolean;
   slackEnabled: boolean;
+  /** The rt repos (as stamped on a row's `rtRepo`) whose Code Owner section
+      names carry Slack channels; absent means none. */
+  ownerSlackRepos?: string[];
   /** The board's seat; null on an "all" board. */
   self: string | null;
   roster: string[];
@@ -460,6 +464,12 @@ export function rowActions(
           })
         );
     }
+    if (own && !!mrx.rtRepo && env.ownerSlackRepos?.includes(mrx.rtRepo))
+      slack.push(
+        item('slack', 'post-owners', 'post to code owners', SLACK, {
+          kind: 'post-owners',
+        })
+      );
   }
   slack.push(item('slack', 'copy', 'copy for slack', COPY, { kind: 'copy' }));
   slack.push(

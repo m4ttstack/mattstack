@@ -9,6 +9,25 @@
       }
     }
   },
+  "board.codeowners": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "slack": {
+          "type": "object",
+          "properties": {
+            "fromSectionName": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": {}
+    }
+  },
   "board.cwds": {
     "storeVersion": 1,
     "schema": {

@@ -332,6 +332,7 @@ const AUTHOR_ONLY = [
   'focus-respond',
   'resume-respond',
   'post-slack',
+  'post-owners',
 ];
 
 const brokenAndMergeable = (over: Record<string, unknown> = {}) =>
@@ -410,4 +411,62 @@ test('a seatless board says where author actions went, and nothing more', () => 
   expect(
     keys(brokenAndMergeable(), { ...ownEnv, self: null, local: false })
   ).not.toContain('seat-hint');
+});
+
+const REPO = 'gitlab.example.com/acme/webapp';
+const ownersEnv = { ...ownEnv, ownerSlackRepos: [REPO] };
+const inOptedRepo = (over: Record<string, unknown> = {}) =>
+  mrx(240, { rtRepo: REPO, ...over });
+
+test('an own MR in a repo that opted in offers the code owners post, after the slack post', () => {
+  const offered = keys(
+    inOptedRepo({
+      slack: { status: 'notfound', reactions: [], posted: false },
+    }),
+    ownersEnv
+  );
+  expect(offered).toContain('post-owners');
+  expect(offered.indexOf('post-owners')).toBe(
+    offered.indexOf('post-slack') + 1
+  );
+});
+
+test('the code owners post stays once the review request is in slack', () => {
+  const found = inOptedRepo({
+    slack: {
+      status: 'found',
+      reactions: [],
+      permalink: 'https://x',
+      posted: true,
+    },
+  });
+  expect(keys(found, ownersEnv)).toContain('post-owners');
+});
+
+test('the code owners post is wording a person reads, and never joins the bulk menu', () => {
+  const mr = inOptedRepo();
+  const action = rowActions(mr, actionEnvOf(ownersEnv, mr)).find(
+    a => a.key === 'post-owners'
+  )!;
+  expect(action.label).toBe('post to code owners');
+  expect(action.request).toEqual({ kind: 'post-owners' });
+  expect(action.bulk).toBeUndefined();
+});
+
+test('no code owners post outside an opted-in repo, without slack, or off the local board', () => {
+  expect(
+    keys(mrx(241, { rtRepo: 'gitlab.example.com/acme/other' }), ownersEnv)
+  ).not.toContain('post-owners');
+  expect(keys(mrx(242), ownersEnv)).not.toContain('post-owners');
+  expect(
+    keys(inOptedRepo(), { ...ownersEnv, slackEnabled: false })
+  ).not.toContain('post-owners');
+  expect(keys(inOptedRepo(), { ...ownersEnv, local: false })).not.toContain(
+    'post-owners'
+  );
+});
+
+test("someone else's MR in an opted-in repo offers no code owners post", () => {
+  const theirs = inOptedRepo({ author: { username: 'kim', name: 'Kim' } });
+  expect(keys(theirs, ownersEnv)).not.toContain('post-owners');
 });
