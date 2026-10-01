@@ -121,7 +121,7 @@ describe("rt accounts for a person", () => {
     const d = deps({ recheck: async () => false });
     await go(d, ["--recheck"]);
     expect(cap.stdout()).toBe("");
-    expect(cap.stderr()).toBe("[failed] Could not recheck your accounts\n  why: The rt daemon did not answer\n  next: rt daemon start\n");
+    expect(cap.stderr()).toBe("Could not recheck your accounts\n  why: The rt daemon did not answer\n  next: rt daemon start\n");
     expect(d.exitCodes).toEqual([1]);
   });
 

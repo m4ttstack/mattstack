@@ -123,7 +123,8 @@ describe("integrationConnect — gitlab (generic token flow)", () => {
     });
     await expectExit(() => integrationConnect("gitlab", [], deps));
     expect(deps.exitCodes).toEqual([2]);
-    expect(cap.stderr()).toContain("[failed] ");
+    expect(cap.stderr()).not.toContain("[failed]");
+    expect(cap.stderr().split("\n")[0]!.length).toBeGreaterThan(0);
     expect(cap.stderr()).toContain("to confirm that address");
   });
 

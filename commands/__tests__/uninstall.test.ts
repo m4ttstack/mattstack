@@ -225,7 +225,7 @@ describe("rt uninstall: takes no app name", () => {
     await runExpectingExit(() => runUninstallCommand(["gitq"], {}, deps));
     expect(deps.lines).toEqual([]);
     expect(quiet.stdout()).toBe("");
-    expect(quiet.stderr()).toMatch(/^\[failed\] [Uu]nexpected argument "gitq"\. /);
+    expect(quiet.stderr()).toMatch(/^[Uu]nexpected argument "gitq"\. /);
   });
 
   test("the handler accepts exactly the flags the command-tree node declares, and the node declares no positional", () => {

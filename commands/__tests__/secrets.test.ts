@@ -216,7 +216,7 @@ describe("secretsList usage", () => {
     try {
       const { stderr, stdout } = await withCapturedOut(() => secretsList([], {}, teamSeams().seams).catch((e) => e));
       expect(stdout).toBe("");
-      expect(stderr).toBe("[failed] Which domain?\n  next: rt secrets list <domain>\n");
+      expect(stderr).toBe("Which domain?\n  next: rt secrets list <domain>\n");
       expect(exitSpy).toHaveBeenCalledWith(1);
     } finally {
       exitSpy.mockRestore();
@@ -287,7 +287,7 @@ describe("secretsRotate --team <slug> when a re-encrypt fails partway", () => {
       expect(done[0]).not.toContain("NOT re-encrypted");
       expect(done[0]).toContain(teamSecretsFile("acme", "board"));
       expect(left[0]).toContain(teamSecretsFile("acme", "rt"));
-      expect(lines[0]).toStartWith("[failed] team \"acme\": sops updatekeys failed after re-encrypting 1 of 2");
+      expect(lines[0]).toStartWith("team \"acme\": sops updatekeys failed after re-encrypting 1 of 2");
       expect(exitSpy).toHaveBeenCalledWith(1);
     } finally {
       exitSpy.mockRestore();
