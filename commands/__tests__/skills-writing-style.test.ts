@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { personalSkillsDir } from "../../lib/skills/writing-style-sources.ts";
 import { writingStyleList, writingStyleNew, writingStyleShow, writingStyleUse, type WritingStyleDeps } from "../skills-writing-style.ts";
 
 class Exit extends Error { constructor(public code: number) { super(`exit ${code}`); } }
@@ -17,6 +20,9 @@ export function fakeDeps(over: Partial<WritingStyleDeps> = {}): WritingStyleDeps
     home: () => home,
     now: () => new Date("2026-09-22T00:00:00Z"),
     print: (s) => { out.push(s); },
+    show: (...blocks) => { out.push(...renderPlain(blocks).replace(/\n$/, "").split("\n")); },
+    note: (...blocks) => { out.push(...renderPlain(blocks).replace(/\n$/, "").split("\n")); },
+    fail: (f) => { out.push(...renderPlain([ui.failure(f)]).replace(/\n$/, "").split("\n")); },
     exit: (code) => { throw new Exit(code); },
     isTTY: () => false,
     pick: async () => null,
@@ -35,7 +41,7 @@ describe("show", () => {
   });
   test("plain output names the skill and where it came from", async () => {
     await writingStyleShow([], {}, fakeDeps({ resolve: () => ({ skill: "mattstack:writing-style-sparse", source: "team" }) }));
-    expect(out[0]).toBe("mattstack:writing-style-sparse (team default)");
+    expect(out).toEqual(["Writing style: mattstack:writing-style-sparse", "  team default"]);
   });
 });
 
@@ -61,14 +67,14 @@ describe("list", () => {
   test("plain output lists the presets, then Also available for suggestions, marking the current with *", async () => {
     teamVoice();
     await writingStyleList([], {}, fakeDeps({ resolve: () => ({ skill: "team-voice", source: "user" }) }));
-    expect(out[0]).toContain("mattstack:writing-style-sparse");
+    expect(out.some((l) => l.startsWith("mattstack:writing-style-sparse"))).toBe(true);
     expect(out).toContain("Also available (type the id):");
-    expect(out.some((l) => l.startsWith("*") && l.includes("team-voice"))).toBe(true);
+    expect(out.some((l) => l.startsWith("team-voice") && l.endsWith("current"))).toBe(true);
   });
 
   test("a current value in neither list prints after the presets as current", async () => {
     await writingStyleList([], {}, fakeDeps({ resolve: () => ({ skill: "x:custom-note", source: "user" }) }));
-    expect(out).toContain("* x:custom-note (current)");
+    expect(out.some((l) => l.startsWith("x:custom-note") && l.endsWith("current"))).toBe(true);
   });
 });
 
@@ -299,5 +305,32 @@ describe("new", () => {
     out.length = 0;
     await expect(writingStyleNew(["team-voice", "--from", "sparse", "--json"], {}, fakeDeps({ pluginListStdout: async () => list }))).rejects.toThrow();
     expect(existsSync(join(home, ".mattstack", "user", "skills", "team-voice"))).toBe(false);
+  });
+});
+
+describe("plain refusals", () => {
+  test("use with no id off a terminal asks which, on the failure seam", async () => {
+    mkdirSync(join(home, ".mattstack", "user", ".git"), { recursive: true });
+    await expect(writingStyleUse([], {}, fakeDeps())).rejects.toThrow("exit 2");
+    expect(out).toEqual(["Which writing style?", "  next: rt skills writing-style use <skill-id>"]);
+  });
+
+  test("a missing home repo points at setup", async () => {
+    await expect(writingStyleUse(["mattstack:writing-style-sparse"], {}, fakeDeps())).rejects.toThrow("exit 2");
+    expect(out).toEqual(["Your home repo does not exist yet", "  next: rt setup"]);
+  });
+
+  test("a scope that is neither user nor team asks which, with no flag in the question", async () => {
+    await expect(writingStyleUse(["mattstack:writing-style-sparse", "--scope", "everyone"], {}, fakeDeps())).rejects.toThrow("exit 2");
+    expect(out[0]).toBe("Is this style for you or for your team?");
+    expect(out[0]).not.toContain("--scope");
+  });
+
+  test("an existing style is a refused note", async () => {
+    mkdirSync(join(home, ".mattstack", "user", ".git"), { recursive: true });
+    const target = join(personalSkillsDir(home), "team-voice");
+    mkdirSync(target, { recursive: true });
+    await expect(writingStyleNew(["team-voice"], {}, fakeDeps())).rejects.toThrow("exit 2");
+    expect(out).toEqual([`[refused] You already have a writing style called team-voice  ${target}`, "  next: Edit it, then run rt skills writing-style use team-voice"]);
   });
 });
