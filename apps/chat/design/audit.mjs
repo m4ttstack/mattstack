@@ -221,13 +221,6 @@ export const TARGETS = [
     at: BOTH,
     props: ['color'],
   },
-  // A repo with agents but no room heads its group with a plain label.
-  {
-    spec: '.grp',
-    find: '[data-testid^="repo-name-"]',
-    at: BOTH,
-    props: ['color', 'font-size'],
-  },
   {
     spec: '.dm2',
     find: '[data-testid^="dm-row-"]',

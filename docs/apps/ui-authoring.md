@@ -77,7 +77,8 @@ file: `https://mantine.dev/llms-full.txt`). Then take the first rung
 that meets the need:
 
 1. **The component as it ships**, set by props: `size` (the default
-   `sm` or larger; an `xs` already in the file goes up to `sm`),
+   `sm` or larger; an `xs` already in the file goes up to `sm`; a dense
+   floating surface such as a hover card's action row uses `compact-sm`),
    `variant`, and `color` as a theme hue name. A board's numbers for a
    control's height, padding, border, font size and indicator are not
    targets.

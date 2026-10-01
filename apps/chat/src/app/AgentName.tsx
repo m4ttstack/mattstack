@@ -1,14 +1,16 @@
-import { Box, Button, Group, HoverCard, Text } from '@mattstack/app-kit/core';
+import {
+  Avatar,
+  Box,
+  Button,
+  Group,
+  HoverCard,
+  Text,
+} from '@mattstack/app-kit/core';
 import { Invadr } from 'invadrs/react';
 
 import cardClasses from './agent-card.module.css';
 import classes from './agent-name.module.css';
-import {
-  AGENT_STATE_WORD,
-  agentState,
-  paneLocation,
-  seenAgo,
-} from './agent-state';
+import { agentState, paneLocation, stateLine } from './agent-state';
 import { useBuddies } from './buddies-context';
 import { displayName } from './display-name';
 import { doing, type DoingLine } from './doing';
@@ -71,6 +73,31 @@ export function HandleAvatar({
       size={size ?? AVATAR_SIZE[variant]}
       className={classes.avatar}
     />
+  );
+}
+
+export const CARD_WIDTH = 320;
+
+const SPRITE_IN_AVATAR = { sm: 16, md: 24 } as const;
+
+/** A handle's sprite on the kit's own avatar tile, for lists and cards where
+    a bare pixel sprite reads ragged against text. */
+export function SpriteAvatar({
+  handle,
+  size,
+}: {
+  handle: string;
+  size: keyof typeof SPRITE_IN_AVATAR;
+}) {
+  return (
+    <Avatar size={size} radius="xl" color="gray" variant="light">
+      <Invadr
+        id={handle}
+        palette={HANDLE_PALETTE}
+        size={SPRITE_IN_AVATAR[size]}
+        className={classes.avatar}
+      />
+    </Avatar>
   );
 }
 
@@ -224,7 +251,7 @@ export function AgentCard({
   return (
     <div className={cardClasses.card} data-testid={`detail-${buddy.handle}`}>
       <div className={cardClasses.head}>
-        <HandleAvatar handle={buddy.handle} variant="inline" size={32} />
+        <SpriteAvatar handle={buddy.handle} size="md" />
         <div className={cardClasses.identity}>
           <span className={cardClasses.name}>{displayName(buddy)}</span>
           <span
@@ -234,7 +261,7 @@ export function AgentCard({
           >
             <StateDot state={reachable ? state : 'offline'} size="sm" />
             {reachable
-              ? `${AGENT_STATE_WORD[state]} · ${seenAgo(buddy, now)}`
+              ? stateLine(buddy, now)
               : 'presence unknown while the daemon is down'}
           </span>
         </div>
@@ -263,19 +290,18 @@ export function AgentCard({
         </div>
       )}
       {ctx?.actions && (
-        <div className={cardClasses.actions}>
+        <Group gap="sm">
           {canFocus && (
             <Button
-              size="sm"
+              size="compact-sm"
               onClick={() => ctx.actions?.focusPane?.(buddy.pane!)}
               data-testid={`card-focus-${buddy.handle}`}
             >
               Focus pane
             </Button>
           )}
-          {canFocus && <span className={cardClasses.spacer} />}
           <Button
-            size="sm"
+            size="compact-sm"
             variant="subtle"
             color="gray"
             disabled={!inRoom}
@@ -285,7 +311,7 @@ export function AgentCard({
             Mention
           </Button>
           <Button
-            size="sm"
+            size="compact-sm"
             variant="subtle"
             color="gray"
             onClick={() => ctx.actions?.dm(buddy.handle)}
@@ -293,7 +319,7 @@ export function AgentCard({
           >
             Message
           </Button>
-        </div>
+        </Group>
       )}
     </div>
   );
@@ -310,6 +336,8 @@ export function AgentHoverCard({
   now,
   inRoom,
   task,
+  onOpen,
+  onClose,
   children,
 }: {
   buddy: RosterBuddy;
@@ -319,13 +347,17 @@ export function AgentHoverCard({
   now?: number;
   inRoom?: boolean;
   task?: DoingLine | null;
+  onOpen?: () => void;
+  onClose?: () => void;
   children: React.ReactElement;
 }) {
   return (
     <HoverCard
       position={position}
       offset={offset}
-      width={340}
+      onOpen={onOpen}
+      onClose={onClose}
+      width={CARD_WIDTH}
       openDelay={500}
       closeDelay={120}
       withinPortal

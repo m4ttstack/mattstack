@@ -74,17 +74,3 @@
   text-overflow: ellipsis;
   color: var(--tk-text-3);
 }
-
-.actions {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-xs);
-}
-
-.actions > * {
-  flex: none;
-}
-
-.actions > .spacer {
-  flex: 1;
-}

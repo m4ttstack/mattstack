@@ -12,7 +12,7 @@ import { useHover } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { RoomSummary } from '@mattstack/rt-client';
 
-import { AGENT_STATE_WORD, agentState, seenAgo } from './agent-state';
+import { agentState, stateLine } from './agent-state';
 import { AgentHoverCard, AgentName } from './AgentName';
 import {
   displayName,
@@ -47,6 +47,11 @@ const BORDER = 'var(--tk-border)';
 /** `.ws`'s own `padding-left`. No spacing token lands on it: it is the room
     row's 9.6px plus the tree's one indent step. */
 const WORKSTREAM_INDENT = 26.4;
+
+/** From a workstream row's right edge to the sidebar's outer edge: the
+    sidebar's inline padding plus its hairline, so a docked card meets the
+    border instead of floating off it. */
+const SIDEBAR_DOCK_OFFSET = 7;
 
 /** Everything nested inside a room -- workstream handles, DM names -- reads
     at meta. */
@@ -489,11 +494,13 @@ function WorkstreamRow({
       : undefined;
   const clickable = onClick !== undefined;
   const state = reachable ? agentState(buddy) : 'offline';
+  const [cardOpen, setCardOpen] = useState(false);
   const row = (
     <UnstyledButton
       className={classes.wsRow}
       component={clickable ? 'button' : 'div'}
       data-testid={`ws-${handle}`}
+      data-active={cardOpen || undefined}
       aria-label={
         onSelectBuddy
           ? `Message ${shown}`
@@ -520,7 +527,7 @@ function WorkstreamRow({
       <Tooltip
         label={
           reachable
-            ? `${AGENT_STATE_WORD[state]} · ${seenAgo(buddy, now)}`
+            ? stateLine(buddy, now)
             : 'presence withheld while the daemon is down'
         }
         position="left"
@@ -562,16 +569,20 @@ function WorkstreamRow({
     </UnstyledButton>
   );
   // The phone path opens a DM on tap and has no hover, so only the desktop
-  // tree docks the card, to the sidebar's right, level with the row.
+  // tree docks the card, flush to the sidebar's right edge, level with the
+  // row. The row stays marked while its card is open, so moving onto the
+  // card never loses which agent it describes.
   if (onSelectBuddy) return row;
   return (
     <AgentHoverCard
       buddy={buddy}
       position="right-start"
-      offset={16}
+      offset={SIDEBAR_DOCK_OFFSET}
       reachable={reachable}
       now={now}
       task={task}
+      onOpen={() => setCardOpen(true)}
+      onClose={() => setCardOpen(false)}
     >
       {row}
     </AgentHoverCard>

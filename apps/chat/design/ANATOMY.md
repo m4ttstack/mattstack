@@ -65,17 +65,16 @@ a room:
 - **The room row** is a `.room` (34px, `padding: 0 9.6px`, radius 6px):
   14px hash icon, name (`.truncate`, `flex: 1`, 600 when active), then the
   badges — `.mention` (`@N`, filled) before `.unread` (`N`, outlined). The
-  active room carries `.on`. A repo with agents but **no room** renders the
-  row with no hash, the name in `.grp` (muted 11.2px), and `no room` on the
-  right; it is not clickable.
+  active room carries `.on`. An agent whose repo has no room, or no repo at
+  all, is not listed, and the fleet count leaves it out too.
 - **Workstream rows** (`.ws`, 30px, indented `26.4px`) — one per signed-in
   session in that repo, sign-in order: 8px dot in herdr's state (green
-  working, orange done, red waiting on you; tooltip `Working · seen 12s
-  ago`),
-  handle at 11.2px / 600, then the task line filling the row. Nothing
-  overlays the task on hover: the row's highlight is the click hint, and
-  after the hover delay the agent card docks to the sidebar's right, level
-  with the row (desktop only). When two or more rows in the tree share a name, each
+  working, orange done, red waiting on you; tooltip `Working`, or
+  `Signed out · 13m ago`), handle at 11.2px / 600, then the task line
+  filling the row. Nothing overlays the task on hover: the row's highlight
+  is the click hint. After the hover delay the agent card (a `HoverCard`)
+  docks flush against the sidebar's right edge, level with the row, and the
+  row stays highlighted while the card is open (desktop only). When two or more rows in the tree share a name, each
   carries its id-seeded avatar before the name, and its aria-label names it
   with its place in the tree (`Focus remy (1 of 2)'s pane`); a unique name
   gets neither. `.ws.on` marks the selected workstream. Clicking focuses
@@ -166,15 +165,15 @@ Daemon down: the banner sits above both panels; chips become
 Console's second 64px bar. Title at **20px / 700** (`#rt`, or the `a ↔ b`
 pair plus a `dm` tag for a DM).
 
-The members pill replaces the room chips, drawn on
-`docs/apps/design/chat/chat.pen` (boards 05 and 07), not the artboards: a
-stack of up to three sprites, then one dot and count per herdr state (red
-waiting on you, green working, orange done), then the chevron. It opens the
-room dropdown: `N in #room` and `wakes: <mode>` in its header, members
-grouped `Needs you` / `Working` / `Done` as two-line rows (name, a repo chip
-only when it differs from the room's, the age; the task line under it), and
-the signed-out members folded into one `N signed out` row. Hovering a row
-docks the agent card to the dropdown's right, level with the row.
+The members pill replaces the room chips: up to three sprites in an
+`Avatar.Group`, the signed-in total, then the chevron. It opens the room
+dropdown, a Mantine `Menu`: `N in #room` and `wakes: <mode>` in its
+header, members under `Needs you` / `Working` / `Done` labels as two-line
+`Menu.Sub` items (sprite `Avatar`, name, a repo badge only when it differs
+from the room's; the task line under it), and the signed-out members folded
+into one `N signed out` item. Each member's agent card is its submenu: it
+docks flush against the dropdown, level with the row, and the row stays
+active while the pointer is on the card.
 
 Right side: `add agents`, `mark read` with the count, and the expand-all
 toggle, all at the kit's `sm` size. The old `join order` select is gone —
@@ -227,15 +226,14 @@ A DM transcript opens with `start of this conversation · <day>`.
 
 ## Hover card (every handle)
 
-Drawn on `docs/apps/design/chat/chat.pen` (board 06's V2), not the
-artboards. 340px: the sprite, the name at 16px / 700, and one status line
-(dot, herdr's state word, `seen 3m ago`; red only when the agent is
-waiting on you). An away message reads quoted and italic. Then the task line (omitted when the fallback is the folder form) and
-one muted `workspace › tab` line saying where the pane lives in herdr (repo
-and branch when there is no pane; herdr's numbered default tab label is
-dropped). Then `Focus pane` as the one filled button, with quiet `Mention`
-and `Message` on the right. In the sidebar and the room dropdown the card
-docks to the list's right, level with the row, so the list never moves.
+320px: the sprite in an `Avatar`, the name at 16px / 700, and one status
+line (dot and herdr's state word, red only when the agent is waiting on
+you; a signed-out agent adds how long ago it left). An away message reads
+quoted and italic. Then the task line (omitted when the fallback is the
+folder form) and one muted `workspace › tab` line saying where the pane
+lives in herdr (repo and branch when there is no pane; herdr's numbered
+default tab label is dropped). Then the actions in a `Group` (`gap="sm"`),
+all `compact-sm`: `Focus pane` filled, `Mention` and `Message` subtle.
 
 ## Close sheet
 

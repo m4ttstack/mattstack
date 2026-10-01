@@ -17,7 +17,7 @@ afterEach(() => {
   window.localStorage.removeItem('chat-expand-all');
 });
 
-test('the members pill counts each herdr state and opens a roster grouped by it, wake mode in its header', async () => {
+test('the members pill shows the signed-in total and opens a roster grouped by herdr state, wake mode in its header', async () => {
   renderWithProviders(
     <PageBar
       room={{
@@ -36,12 +36,8 @@ test('the members pill counts each herdr state and opens a roster grouped by it,
     />
   );
   const chip = screen.getByTestId('members-chip');
-  expect(chip).toHaveAccessibleName(
-    'Members of #build: 1 waiting on you, 1 working, 1 done'
-  );
-  expect(screen.getByTestId('members-count-blocked')).toHaveTextContent('1');
-  expect(screen.getByTestId('members-count-working')).toHaveTextContent('1');
-  expect(screen.getByTestId('members-count-done')).toHaveTextContent('1');
+  expect(chip).toHaveAccessibleName('Members of #build: 3 signed in');
+  expect(chip).toHaveTextContent('3');
   await userEvent.click(chip);
   expect(await screen.findByTestId('members-dropdown')).toHaveTextContent(
     '3 in #build'
@@ -98,33 +94,49 @@ test("a card docked beside the members dropdown takes its own button's click", a
   expect(mention).toHaveBeenCalledWith('max');
 });
 
-test('an empty room reads a hollow zero on the pill', () => {
+test('an empty room reads zero on the pill, with no sprites', () => {
   renderWithProviders(
     <PageBar
       room={{ room: 'rt', memberCount: 0, unread: 0, mentions: 0 }}
       buddies={[]}
     />
   );
-  expect(screen.getByTestId('members-chip')).toHaveTextContent('0');
-  expect(screen.getByTestId('members-count-none')).toHaveAttribute(
-    'data-state',
-    'offline'
-  );
+  const chip = screen.getByTestId('members-chip');
+  expect(chip).toHaveTextContent('0');
+  expect(chip.querySelector('svg[shape-rendering="crispEdges"]')).toBeNull();
 });
 
-test("the pill's label spells out each count, so colour is never the only cue", () => {
+test("a member row's card opens beside it, and the row stays marked while it is open", async () => {
+  const max = {
+    sessionId: 's-max',
+    handle: 'max',
+    baseHandle: 'max',
+    name: 'max',
+    signedInAt: 1,
+    lastSeenAt: 1,
+    status: 'live' as const,
+    rooms: ['rt'],
+  };
   renderWithProviders(
-    <PageBar
-      room={{ room: 'build', memberCount: 2, unread: 0, mentions: 0 }}
-      buddies={[
-        { handle: 'a', status: 'live', agentStatus: 'blocked' },
-        { handle: 'b', status: 'live' },
-      ]}
-    />
+    <BuddiesProvider
+      buddies={[max]}
+      roomMembers={['max']}
+      now={2}
+      reachable
+      actions={{ mention: vi.fn(), dm: vi.fn() }}
+    >
+      <PageBar
+        room={{ room: 'rt', memberCount: 1, unread: 0, mentions: 0 }}
+        buddies={[max]}
+      />
+    </BuddiesProvider>
   );
-  expect(screen.getByTestId('members-chip')).toHaveAccessibleName(
-    'Members of #build: 1 waiting on you, 1 working'
-  );
+  await userEvent.click(screen.getByTestId('members-chip'));
+  const row = await screen.findByTestId('members-row-max');
+  await userEvent.hover(row);
+  const card = await screen.findByTestId('detail-max', {}, { timeout: 2000 });
+  await userEvent.hover(card);
+  expect(row).toHaveAttribute('data-menu-active', 'true');
 });
 
 test("a member's repo shows only when it differs from the room's", async () => {

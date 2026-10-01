@@ -2,7 +2,8 @@
    state because nothing about the row's BEHAVIOUR turns on hover -- unlike
    the room and DM rows, whose × must exist in the DOM for keyboard focus
    and for a test to reach, so those keep the JS state. */
-.wsRow:hover {
+.wsRow:hover,
+.wsRow[data-active] {
   background: var(--ui-bg-4);
 }
 
