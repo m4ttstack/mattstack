@@ -893,6 +893,52 @@ describe('a later round', () => {
   const settled = (call: string) =>
     call === 'fixed' || call === 'pushback-accepted';
 
+  /** No title here matches a new finding's (f5, f6), or a skipped title
+      showing up among the new findings could not be told apart. */
+  const SKIPPED = [
+    {
+      id: 'r1-f4',
+      round: 1,
+      severity: 'minor',
+      title: 'Unused import',
+      file: 'lib/utils.ts:3',
+      changed: false,
+    },
+    {
+      id: 'r1-f9',
+      round: 1,
+      severity: 'minor',
+      title: 'Page size is a magic number',
+      file: 'lib/paging.ts:9',
+      changed: true,
+    },
+    {
+      id: 'r2-f3',
+      round: 2,
+      severity: 'important',
+      title: 'Config defaults live in two files',
+      changed: false,
+    },
+  ];
+
+  const SKIPPED_QUESTION: GateQuestion = {
+    id: 'skipped-1',
+    label: 'Bring back a finding you skipped earlier?',
+    multi: true,
+    context: j({ 'gate-ctx': 'skipped@1', skipped: SKIPPED }),
+    options: SKIPPED.map(s => ({
+      value: `restore:${s.id}`,
+      label: `[${s.severity[0]!.toUpperCase()}${s.severity.slice(1)}] ${s.title}`,
+      description: [
+        s.file,
+        `skipped in round ${s.round}`,
+        s.changed ? 'code changed since' : undefined,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    })),
+  };
+
   function roundThreeGate({
     dropAuthorReplyOn,
   }: { dropAuthorReplyOn?: number } = {}): GateRow {
@@ -930,6 +976,7 @@ describe('a later round', () => {
       questions: [
         ...threads,
         { ...GATE.questions[1]!, id: 'findings-1' },
+        SKIPPED_QUESTION,
         GATE.questions[2]!,
       ],
     };
@@ -998,6 +1045,22 @@ describe('a later round', () => {
   const postValueFor = (call: string) =>
     `post:${EARLIER[earlierIndex(call)]!.thread}`;
 
+  async function openSkipped(scope: Element) {
+    const head = scope.querySelector<HTMLElement>('.tui-review-skipped-head')!;
+    if (head.getAttribute('aria-expanded') !== 'false')
+      throw new Error('skipped earlier is not closed');
+    await click(head);
+  }
+
+  async function tickSkipped(scope: Element, n: number) {
+    const box = scope.querySelectorAll<HTMLInputElement>(
+      '.tui-review-skipped-row input[type="checkbox"]'
+    )[n];
+    if (!box) throw new Error(`no skipped row ${n}`);
+    if (box.checked) throw new Error(`skipped row ${n} is already ticked`);
+    await click(box);
+  }
+
   test('the main column opens with the round and what it holds', () => {
     const { container } = renderSheet(roundThreeGate());
     const heading = container.querySelector('.tui-sheet-round')!;
@@ -1019,6 +1082,24 @@ describe('a later round', () => {
     for (const chip of chips) expect(chip).not.toMatch(/open|unresolved/i);
     expect(chips).toContain('fixed by author');
     expect(chips).toContain('waiting on author');
+    expect(chips).toContain('author pushed back · accept');
+    expect(chips).toContain('author pushed back · hold firm');
+  });
+
+  test('neither the round heading nor the earlier threads heading says open or unresolved', () => {
+    const { container } = renderSheet(roundThreeGate());
+    const round = container.querySelector('.tui-sheet-round')!.textContent!;
+    const earlier = [
+      ...container.querySelectorAll('.tui-sheet-list-head'),
+    ].find(h =>
+      h
+        .querySelector('.tui-sheet-list-title')
+        ?.textContent?.startsWith('Your earlier threads')
+    )!.textContent!;
+    expect(round).toContain('Round 3');
+    expect(earlier).toContain(`Your earlier threads (${EARLIER.length})`);
+    for (const text of [round, earlier])
+      expect(text).not.toMatch(/open|unresolved/i);
   });
 
   test('a thread the author never answered says so', () => {
@@ -1026,6 +1107,14 @@ describe('a later round', () => {
     expect(container.querySelector('.tui-thread-nothing')!.textContent).toBe(
       "The author hasn't replied in this thread."
     );
+    const silent = cardFor(container, EARLIER[0]!.call);
+    expect([...silent.querySelectorAll('.tui-thread-nothing')]).toHaveLength(1);
+    const answered = [
+      ...container.querySelectorAll('[data-step="carryover"]'),
+    ].filter(c => c !== silent);
+    expect(answered).toHaveLength(EARLIER.length - 1);
+    for (const card of answered)
+      expect(card.querySelector('.tui-thread-nothing')).toBeNull();
   });
 
   test('a fixed thread starts with post and resolve ticked; a waiting one with post only', () => {
@@ -1061,5 +1150,72 @@ describe('a later round', () => {
     });
     const waiting = answer[threadNameFor('not-fixed')];
     expect(waiting).toEqual([postValueFor('not-fixed')]);
+  });
+
+  describe('skipped earlier', () => {
+    test('the row is closed, counts its findings, and ticks nothing', () => {
+      const { container } = renderSheet(roundThreeGate());
+      const row = container.querySelector('.tui-review-skipped')!;
+      expect(
+        row
+          .querySelector('.tui-review-skipped-head')!
+          .getAttribute('aria-expanded')
+      ).toBe('false');
+      expect(row.querySelector('.tui-review-skipped-count')!.textContent).toBe(
+        '3'
+      );
+      expect(row.querySelector('.tui-review-skipped-hint')!.textContent).toBe(
+        'you chose not to raise these · tick one to bring it back'
+      );
+      const boxes = [
+        ...row.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+      ];
+      expect(boxes).toHaveLength(SKIPPED.length);
+      expect(boxes.some(i => i.checked)).toBe(false);
+    });
+
+    test('a finding whose code moved says so', () => {
+      const { container } = renderSheet(roundThreeGate());
+      expect(
+        container.querySelector('.tui-review-skipped-changed')!.textContent
+      ).toBe('code changed since');
+    });
+
+    test('ticking one marks it coming back and sends its restore value', async () => {
+      const { container, submitted } = renderSheet(roundThreeGate());
+      await openSkipped(container);
+      await tickSkipped(container, 0);
+      expect(
+        container.querySelector('.tui-review-skipped-restoring')!.textContent
+      ).toBe('coming back this round');
+      expect(
+        container.querySelector('.tui-review-skipped-hint')!.textContent
+      ).toBe('1 coming back this round');
+      await submit(container);
+      const answers = submitted().answers;
+      const restored = Object.entries(answers)
+        .filter(([k]) => k.startsWith('skipped'))
+        .flatMap(([, v]) => v as string[]);
+      expect(restored).toHaveLength(1);
+      expect(restored[0]).toMatch(/^restore:/);
+      expect(restored).toEqual([`restore:${SKIPPED[0]!.id}`]);
+    });
+
+    test('a skipped finding never appears among the new findings', () => {
+      const { container } = renderSheet(roundThreeGate());
+      const newTitles = [
+        ...container.querySelectorAll(
+          '.tui-review-find-list .tui-review-finding-title'
+        ),
+      ].map(n => n.textContent);
+      const skippedTitles = [
+        ...container.querySelectorAll(
+          '.tui-review-skipped .tui-review-finding-title'
+        ),
+      ].map(n => n.textContent);
+      expect(newTitles.length).toBeGreaterThan(0);
+      expect(skippedTitles).toHaveLength(SKIPPED.length);
+      for (const t of skippedTitles) expect(newTitles).not.toContain(t);
+    });
   });
 });

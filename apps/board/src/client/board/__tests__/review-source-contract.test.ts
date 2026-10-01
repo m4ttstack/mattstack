@@ -52,11 +52,38 @@ describe('the review scripts and the review sheet agree', () => {
     expect(gate!.carryovers[2]!.defaults).toEqual(['post:e5f6']);
     expect(gate!.carryovers[2]!.carry.authorReply).toBeUndefined();
     expect([...gate!.findings.keys()]).toEqual(['f1']);
+    expect(gate!.rest.map(q => q.id)).toEqual([
+      'findings-1',
+      'skipped-1',
+      'skipped-2',
+      'outcome',
+    ]);
+    expect(gate!.skipped.size).toBe(5);
+  });
+
+  test('skipped findings join their restore options across chunks', () => {
+    const gate = readReviewGate(fittedGate('findings-v3.json') as never);
+    expect([...gate!.skipped.keys()]).toEqual([
+      'restore:r1-f3',
+      'restore:r1-f5',
+      'restore:r2-f1',
+      'restore:r2-f2',
+      'restore:r2-f4',
+    ]);
+    expect(gate!.skipped.get('restore:r1-f3')).toEqual({
+      id: 'r1-f3',
+      round: 1,
+      severity: 'minor',
+      title: 'unused import in the retry module',
+      file: 'queue/retry.ts:3',
+      changed: true,
+    });
   });
 
   test('a v2 first review still opens with no earlier threads', () => {
     const gate = readReviewGate(fittedGate('findings-v2.json') as never);
     expect(gate).not.toBeNull();
     expect(gate!.carryovers).toEqual([]);
+    expect(gate!.skipped.size).toBe(0);
   });
 });
