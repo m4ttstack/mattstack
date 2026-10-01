@@ -464,7 +464,7 @@ type Resolved = {
   surface: SurfaceConfig | null;
   internalRoster: Set<string>;
   manifestPath: string | null;
-  /** Set only for bind: the manifest is the base pack's own fragment. */
+  /** Set only for bind with no --manifest: the manifest is the base pack's own fragment. */
   base: boolean;
   provenance: Record<string, string>;
   pipelines: Record<string, string[]>;
@@ -517,7 +517,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
   const fullRoster = readVerbRoster(packDir);
   // A pack with no verb roster needs no manifest: bindings only feed compile targets.
   const manifestPath = fullRoster.length === 0 ? null : (flags.manifest ?? findDefaultManifest(mattstackRoot, team, packDir, flags.repo, flags.bind === true));
-  const base = flags.bind === true && isBasePack(realInitFs, packDir);
+  const base = flags.bind === true && flags.manifest === null && isBasePack(realInitFs, packDir);
   const bindings = manifestPath ? readManifestBindings(manifestPath) : {};
   const provenance = manifestPath ? readManifestProvenance(readFileSync(manifestPath, "utf8")) : {};
   // No compile targets means nothing needs plugin roots or the invocable roster;
@@ -2281,11 +2281,15 @@ export async function applyBind(opts: {
   if (!existsSync(fragmentPath)) return writeManifestOnly();
   const fragmentReal = realpathSync(fragmentPath);
   const packDirReal = realpathSync(opts.packDir);
+  const fragmentIsManifest = fragmentReal === realpathSync(opts.manifestPath);
   if (fragmentReal !== packDirReal && !fragmentReal.startsWith(packDirReal + sep)) {
+    if (fragmentIsManifest) {
+      throw new SkillsUsageError(`the bindings file ${fragmentPath} resolves outside the pack (${fragmentReal}); nothing written`);
+    }
     console.error(`rt skills bind: ${fragmentPath} resolves outside the pack; skipping fragment write`);
     return writeManifestOnly();
   }
-  if (fragmentReal === realpathSync(opts.manifestPath)) return writeManifestOnly();
+  if (fragmentIsManifest) return writeManifestOnly();
 
   const fragmentAfter = edit(readFileSync(fragmentPath, "utf8"));
   if (opts.fixtureMode) {
@@ -2373,6 +2377,11 @@ export async function skillsBind(args: string[]): Promise<void> {
     // that collision pack-wide, so bind's own tie-break only ever matters for --dry-run.
     const rosterVerb = resolved.fullRoster.find((v) => v.name === verbName);
     const verb = rosterVerb ?? resolved.stages.find((v) => v.name === verbName);
+    if (!verb && resolved.base && resolved.fullRoster.length === 0) {
+      throw new SkillsUsageError(
+        `pack "${resolved.team}" is a base pack with no verbs of its own, so bind cannot check the slot; edit ${join(resolved.packDir, "pack", "skills.jsonc")} directly`,
+      );
+    }
     if (!verb) {
       const knownVerbs = resolved.fullRoster.map((v) => v.name).sort();
       const knownStages = resolved.stages.map((v) => v.name).sort();

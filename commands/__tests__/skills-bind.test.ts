@@ -365,7 +365,7 @@ describe("skillsBind", () => {
         }
 
         expect(result.exitCode).toBeUndefined();
-        expect(process.exitCode).toBe(0);
+        expect(process.exitCode ?? 0).toBe(0);
         expect(result.errors).toEqual([]);
         expect(readManifestBindings(fragmentPath)["mattstack:watch-ci"]?.domain).toBe("acme:watch-ci-domain-v2");
         expect(JSON.parse(stripJsonc(readFileSync(fragmentPath, "utf8"))).base).toBe(true);
@@ -383,6 +383,79 @@ describe("skillsBind", () => {
         }
       },
     );
+
+    test("an explicit --manifest takes the normal path and reports a failed regenerate", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-base-")));
+      process.env.HOME = join(root, "home");
+      mkdirSync(process.env.HOME, { recursive: true });
+      process.env.RT_ENGINE_PACK_DIR = join(root, "missing-engine-pack");
+      const packDir = join(root, "zone", "mattstack", "packs", "acme-base");
+      writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
+      writeFile(join(packDir, "pack", "skills.jsonc"), `{\n  "base": true,\n  "bindings": {}\n}\n`);
+      const manifest = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
+      writeFile(manifest, `{ "bindings": {} }`);
+      const { mattstackDir } = makeEngineFixture();
+      const rootsSpy = spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(mattstackDir));
+      const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await skillsBind([
+          "watch-ci", "domain", "acme:watch-ci-domain-v2", "--json",
+          "--pack", "acme-base", "--pack-dir", packDir, "--manifest", manifest,
+        ]);
+      } finally {
+        errorSpy.mockRestore();
+        rootsSpy.mockRestore();
+      }
+
+      expect(process.exitCode).toBe(1);
+      expect(logs).toHaveLength(1);
+      const payload = JSON.parse(logs[0]!);
+      expect(payload).toMatchObject({ ok: false, regenerated: false });
+      expect(payload.regenerateDetail).toContain("engine-pack-missing");
+      expect("base" in payload).toBe(false);
+    });
+
+    test("a fragment that symlinks outside the pack is refused, and the outside file is untouched", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-base-")));
+      const packDir = join(root, "zone", "mattstack", "packs", "acme-base");
+      writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
+      const outside = join(root, "elsewhere", "skills.jsonc");
+      const outsideText = `{\n  "base": true,\n  "bindings": {}\n}\n`;
+      writeFile(outside, outsideText);
+      symlinkSync(outside, join(packDir, "pack", "skills.jsonc"));
+      const { mattstackDir } = makeEngineFixture();
+
+      const { exitCode, errors } = await runExpectingCleanExit(() =>
+        skillsBind([
+          "watch-ci", "domain", "acme:watch-ci-domain-v2",
+          "--pack", "acme-base", "--pack-dir", packDir, "--mattstack-dir", mattstackDir,
+        ]),
+      );
+
+      expect(exitCode).toBe(1);
+      expect(errors.some((l) => l.includes("resolves outside the pack") && l.includes("nothing written"))).toBe(true);
+      expect(readFileSync(outside, "utf8")).toBe(outsideText);
+    });
+
+    test("a base with no verbs of its own says to edit its fragment directly", async () => {
+      const packDir = join(makePackDir(), "mattstack", "packs", "acme-base");
+      const fragmentPath = join(packDir, "pack", "skills.jsonc");
+      writeFile(fragmentPath, JSON.stringify({ base: true }));
+      const { mattstackDir } = makeEngineFixture();
+
+      const { exitCode, errors } = await runExpectingCleanExit(() =>
+        skillsBind([
+          "watch-ci", "domain", "acme:watch-ci-domain-v2",
+          "--pack", "acme-base", "--pack-dir", packDir, "--mattstack-dir", mattstackDir,
+        ]),
+      );
+
+      expect(exitCode).toBe(1);
+      expect(errors[0]).toContain(
+        `pack "acme-base" is a base pack with no verbs of its own, so bind cannot check the slot; edit ${fragmentPath} directly`,
+      );
+      expect(readFileSync(fragmentPath, "utf8")).toBe(JSON.stringify({ base: true }));
+    });
   });
 
   test("unknown slot: clean error naming the real slots, exit 1, writes nothing", async () => {
