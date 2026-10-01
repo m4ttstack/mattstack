@@ -75,7 +75,7 @@ async function homeInitRun(ctx: ApplyContext): Promise<StepOutcome> {
   const keyStatus = await checkLocalKey(ctx);
 
   if (alreadyCloned && keyStatus.status === "present") {
-    return { state: "done", detail: "already initialized" };
+    return { state: "done", detail: "Already set up" };
   }
 
   // A locked/unreachable keychain must fail loudly here rather than fall
@@ -83,7 +83,7 @@ async function homeInitRun(ctx: ApplyContext): Promise<StepOutcome> {
   // keychain call (and, on an already-cloned repo, redo materialize for no
   // reason) — see checkLocalKey's doc.
   if (keyStatus.status === "unreachable") {
-    return { state: "failed", detail: `local age key check failed: ${keyStatus.message}`, remedy: "Unlock your keychain, then Retry" };
+    return { state: "failed", detail: `Could not check your local age key: ${keyStatus.message}`, remedy: "Unlock your keychain, then Retry" };
   }
 
   const result = await p.runRt(["home", "init"], { timeoutMs: HOME_INIT_TIMEOUT_MS });
@@ -113,7 +113,7 @@ const MISSING_EXECUTABLE_STDERR = /Executable not found in \$PATH: "([^"]+)"/;
 function missingToolRemedy(stderr: string): string | null {
   const tool = MISSING_EXECUTABLE_STDERR.exec(stderr)?.[1];
   if (tool === undefined) return null;
-  return `"${tool}" is missing — reinstall mattstack.app, or install it yourself (brew install ${tool === "age-keygen" ? "age" : tool}), then Retry`;
+  return `${tool} is missing. Reinstall mattstack.app, or install it yourself (brew install ${tool === "age-keygen" ? "age" : tool}), then Retry`;
 }
 
 /** Stderr that names a remote/auth failure on its own terms, with no ambiguity about which end of the wire failed. */
@@ -140,7 +140,7 @@ export function homeInitRemedy(stderr: string): string {
   const remoteShaped =
     REMOTE_AUTH_STDERR.test(stderr) ||
     (AMBIGUOUS_PERMISSION_STDERR.test(stderr) && CLONE_STEP_STDERR.test(stderr));
-  return remoteShaped ? "Run `gh auth login`, then Retry" : "Check the error above, then Retry";
+  return remoteShaped ? "Run gh auth login, then Retry" : "Check the error above, then Retry";
 }
 
 async function homeRestoreRun(ctx: ApplyContext): Promise<StepOutcome> {
@@ -152,7 +152,7 @@ async function homeRestoreRun(ctx: ApplyContext): Promise<StepOutcome> {
   const keyStatus = await checkLocalKey(ctx);
 
   if (cloned && originMatches && keyStatus.status === "present") {
-    return { state: "done", detail: "restored" };
+    return { state: "done", detail: "Restored" };
   }
 
   if (keyStatus.status === "unreachable") {
@@ -162,15 +162,15 @@ async function homeRestoreRun(ctx: ApplyContext): Promise<StepOutcome> {
     // problem is this machine can't read the one it already has).
     return {
       state: "failed",
-      detail: `local age key check failed: ${keyStatus.message}`,
+      detail: `Could not check your local age key: ${keyStatus.message}`,
       remedy: "Unlock your keychain, then Retry",
     };
   }
 
   return {
     state: "failed",
-    detail: `the home repo clone or its local age key could not be confirmed at ${join(p.home, ".mattstack", "user")}`,
-    remedy: "Run `rt setup intent restore <org>/<repo>`, then `rt home key import` to paste your age key, then Retry",
+    detail: `Could not confirm the home repo or its age key at ${join(p.home, ".mattstack", "user")}`,
+    remedy: "Run rt setup intent restore <org>/<repo>, then rt home key import to paste your age key, then Retry",
   };
 }
 

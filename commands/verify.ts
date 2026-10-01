@@ -49,7 +49,7 @@ export { checkRtContextExtension };
 // ─── Row → check mapping ────────────────────────────────────────────────────
 
 function actionHint(action: Action | null): string {
-  return action ? ` — ${action.label}` : "";
+  return action ? ` (${action.label})` : "";
 }
 
 /**

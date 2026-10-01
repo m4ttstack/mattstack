@@ -1034,12 +1034,12 @@ describe("runApplyWith — need-bearing steps", () => {
   });
 
   test("outcomeFromNeed never maps timeout or app-gone to a non-failure", () => {
-    expect(outcomeFromNeed("timeout")).toEqual({ state: "failed", detail: "timed out waiting for mattstack.app" });
-    expect(outcomeFromNeed("app-gone")).toEqual({ state: "failed", detail: "mattstack.app stopped responding" });
+    expect(outcomeFromNeed("timeout")).toEqual({ state: "failed", detail: "mattstack.app did not answer in time" });
+    expect(outcomeFromNeed("app-gone")).toEqual({ state: "failed", detail: "mattstack.app stopped answering" });
     expect(outcomeFromNeed("no-app").state).toBe("skipped");
     expect(outcomeFromNeed("app-unanswerable")).toEqual({
       state: "failed",
-      detail: "mattstack.app is running but cannot answer setup requests from this terminal — quit it and Retry, or finish setup in the app",
+      detail: "mattstack.app is running but cannot answer setup requests from this terminal. Quit it and Retry, or finish setup in the app",
     });
     expect(outcomeFromNeed({ ok: true, detail: "d" })).toEqual({ state: "done", detail: "d" });
     expect(outcomeFromNeed({ ok: false, detail: "d" })).toEqual({ state: "failed", detail: "d" });
@@ -1330,7 +1330,7 @@ describe("createApplyContext: a terminal run asks the app's routes directly", ()
 
     expect(outcome).toEqual({
       state: "failed",
-      detail: "this step raises an admin prompt, which needs a person at an interactive terminal",
+      detail: "This step raises an admin prompt, which needs a person at a terminal",
       remedy: "Run rt setup apply from a terminal, or use the row's button in mattstack.app",
     });
   });

@@ -156,7 +156,7 @@ function readTeamMarketplace(ctx: ApplyContext, slug: string): TeamMarketplaceFi
   try {
     return JSON.parse(stripJsonc(raw)) as TeamMarketplaceFile;
   } catch (err) {
-    ctx.log("plugins.install", `${path} did not parse as JSONC — its plugins are omitted this run (${err instanceof Error ? err.message : String(err)})`);
+    ctx.log("plugins.install", `${path} did not parse as JSONC, so its plugins are left out of this run (${err instanceof Error ? err.message : String(err)})`);
     return null;
   }
 }
@@ -228,10 +228,10 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     // to act on a Retry must not dead-end the rest of the flow the way a
     // hard `failed` would (services.start, snapshot.push, verify still need
     // to run). Interactive keeps the loud failure — a human IS watching.
-    const detail = "claude not found (not bundled, no user copy on PATH)";
+    const detail = "Claude Code is not installed (not in this build, and no copy on your PATH)";
     return ctx.nonInteractive
       ? { state: "skipped", detail }
-      : { state: "failed", detail, remedy: "Install Claude Code (Tools row), then Retry." };
+      : { state: "failed", detail, remedy: "Install Claude Code from the Tools section, then Retry." };
   }
 
   const teamMarketplace = ctx.team.slug ? readTeamMarketplace(ctx, ctx.team.slug) : null;
@@ -285,14 +285,14 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
         if (existing) {
           return {
             state: "failed",
-            detail: `a mattstack marketplace from ${existing.source ?? "another source"} is already registered`,
-            remedy: "Run `claude plugin marketplace remove mattstack`, then Retry.",
+            detail: `A mattstack marketplace from ${existing.source ?? "another source"} is already registered`,
+            remedy: "Run claude plugin marketplace remove mattstack, then Retry.",
           };
         }
       }
       const res = await runIn(["plugin", "marketplace", "add", src]);
       if (res.code !== 0 && !isAlready(res)) {
-        return { state: "failed", detail: claudeMessage(res, `claude plugin marketplace add exited ${res.code}`), remedy: RETRY_REMEDY };
+        return { state: "failed", detail: claudeMessage(res, `Adding the marketplace failed (exit ${res.code})`), remedy: RETRY_REMEDY };
       }
       const after = known ? await listMarketplaces(runIn) : null;
       const created = known && after ? after.some((m) => !known!.some((k) => k.name === m.name)) : !addFoundExisting(res);
@@ -310,7 +310,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     if (!installedBefore) {
       return {
         state: "failed",
-        detail: "claude plugin list --json could not be read",
+        detail: "Claude Code's plugin list could not be read",
         remedy: "Update Claude Code, then Retry.",
       };
     }
@@ -356,7 +356,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
         // trusted plugin falls through, which is what covers a claude with no
         // `plugin update` subcommand.
         if (teamAuthored || (!isNotFound(updated) && !isUnknownSubcommand(updated))) {
-          return { state: "failed", detail: `claude plugin update exited ${updated.code}`, remedy: RETRY_REMEDY };
+          return { state: "failed", detail: `Updating plugins failed (exit ${updated.code})`, remedy: RETRY_REMEDY };
         }
         if (update && disabled) {
           settled.push(plugin);
@@ -381,7 +381,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
       if (outcome.kind === "failed") {
         // The install-stage wording is the setup contract's detail string for a
         // failed install and must stay byte-identical.
-        const detail = outcome.stage === "install" ? `claude plugin install exited ${outcome.code}` : `claude plugin ${plugin}: ${outcome.detail}`;
+        const detail = outcome.stage === "install" ? `Installing plugins failed (exit ${outcome.code})` : `${plugin}: ${outcome.detail}`;
         return { state: "failed", detail, remedy: RETRY_REMEDY };
       }
       if (outcome.kind === "rolledBack") {
@@ -412,7 +412,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   const materializeDetail = await runMaterializeAfterInstall(ctx);
   const pendingNote = pending.length > 0 ? ` · ${pending.length} awaiting your approval to enable: ${pending.join(", ")}` : "";
-  return { state: "done", detail: `${marketplaces.length} marketplace(s), ${settledSet.size} plugin(s) across ${configDirs.length} config dir(s) · ${materializeDetail}${pendingNote}` };
+  return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${pendingNote}` };
 }
 
 /** The plugins.install step body — also `rt setup pack`'s first phase, so it lives under one name rather than two copies of the same try/catch. */

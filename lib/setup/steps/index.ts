@@ -32,8 +32,8 @@ async function interceptsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     }
     const detail =
       total === 0 && result.skipped.length === 0
-        ? "no commands to shim"
-        : `${total} shims${result.skipped.length > 0 ? ` · skipped (occupied): ${result.skipped.join(", ")}` : ""}`;
+        ? "No commands to intercept"
+        : `${total} intercept${total === 1 ? "" : "s"}${result.skipped.length > 0 ? `; left alone because another tool owns them: ${result.skipped.join(", ")}` : ""}`;
     return { state: "done", detail };
   } catch (err) {
     return toFailedOutcome(err);

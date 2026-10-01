@@ -3,7 +3,11 @@
  * and never changes without a contract change; the copy view is every string
  * a person reads, so a wording change is a deliberate snapshot update.
  */
-import { describe, test, expect } from "bun:test";
+import { afterAll, beforeAll, describe, test, expect } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { closeStateDb } from "../../lib/state/index.ts";
 import { composePlan } from "../../lib/setup/plan.ts";
 import type { Plan, Row } from "../../lib/setup/contract.ts";
 import { fakeProbes, ok } from "../../lib/setup/__tests__/fakes.ts";
@@ -57,6 +61,20 @@ const machineView = (p: Plan) => views(p).machine;
 const copyView = (p: Plan) => views(p).copy;
 
 describe("the setup plan's shape and copy", () => {
+  // Some rows read the real HOME (legacy state folders, the state db), which other tests in this directory leave state in.
+  const origHome = process.env.HOME;
+  let home: string;
+  beforeAll(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-setup-copy-home-")));
+    process.env.HOME = home;
+    closeStateDb();
+  });
+  afterAll(() => {
+    process.env.HOME = origHome;
+    closeStateDb();
+    rmSync(home, { recursive: true, force: true });
+  });
+
   for (const mode of ["plan", "status"] as const) {
     test(`${mode}: the machine view is unchanged`, async () => {
       expect(machineView(await plan(mode))).toMatchSnapshot();

@@ -124,7 +124,7 @@ describe("integrationConnect — gitlab (generic token flow)", () => {
     await expectExit(() => integrationConnect("gitlab", [], deps));
     expect(deps.exitCodes).toEqual([2]);
     expect(cap.stderr()).toContain("[failed] ");
-    expect(cap.stderr()).toContain("unverified");
+    expect(cap.stderr()).toContain("to confirm that address");
   });
 
   test("age key present -> writer.write called instead of staging", async () => {
@@ -258,7 +258,7 @@ describe("integrationConnect: forge token scopes", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string; scopesSeen: string[] };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toBe("token is missing: api (needs api to post board review comments)");
+    expect(body.detail).toBe("This token is missing api (needs api to post board review comments)");
     expect(body.scopesSeen).toEqual(["read_api", "read_user"]);
     expect(Object.keys(probes.calls.writes).some((k) => k.includes("setup-staging"))).toBe(false);
   });
@@ -271,7 +271,7 @@ describe("integrationConnect: forge token scopes", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toBe("token is missing: api (needs api for the home-repo push and members sync)");
+    expect(body.detail).toBe("This token is missing api (needs api for the home-repo push and members sync)");
   });
 
   test("no intent (after Install): the owner of a team rt did not join is held to the owner's scopes", async () => {
@@ -287,7 +287,7 @@ describe("integrationConnect: forge token scopes", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toBe("token is missing: api (needs api for the home-repo push and members sync)");
+    expect(body.detail).toBe("This token is missing api (needs api for the home-repo push and members sync)");
   });
 
   test("a gh session token short of a scope is refused with the gh command that widens it", async () => {
@@ -301,7 +301,7 @@ describe("integrationConnect: forge token scopes", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toBe("token is missing: read:org (run: gh auth refresh -s read:org)");
+    expect(body.detail).toBe("This token is missing read:org (run: gh auth refresh -s read:org)");
   });
 
   test("a github token that reports no scopes (fine-grained) is stored as ready", async () => {

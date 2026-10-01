@@ -22,7 +22,7 @@ export async function fetchPermissions(tray: TrayClient): Promise<PermissionsRep
 }
 
 const RECHECK_ACTION: Action = { type: "run", label: "Re-check", verb: ["setup", "status"] };
-const NOT_RUNNING_DETAIL = "mattstack.app not running — permission status unavailable";
+const NOT_RUNNING_DETAIL = "mattstack.app is not running, so permissions cannot be checked";
 
 const FDA_SETTINGS_ACTION: Action = { type: "open-settings", label: "Open Full Disk Access Settings…", target: "fda" };
 /** Exported: rt-health.ts's tool.daemon row points at the same Login Items pane on the same not-responding path, and must not carry its own drifting copy of the label. */
@@ -97,7 +97,7 @@ function notificationsRow(reply: PermissionsReply | null): Row {
     case "denied":
       return row({ ...base, status: "needs-you", detail: "Denied", action: NOTIFICATIONS_SETTINGS_ACTION });
     default:
-      return row({ ...base, status: "skipped", detail: "not checked (app not running)" });
+      return row({ ...base, status: "skipped", detail: "Not checked: mattstack.app is not running" });
   }
 }
 

@@ -49,7 +49,7 @@ async function resolveCreateOpts(ctx: ApplyContext): Promise<CreateTeamOpts | "n
 async function teamCreateRun(ctx: ApplyContext): Promise<StepOutcome> {
   const opts = await resolveCreateOpts(ctx);
   if (opts === "no-remote-source") {
-    return { state: "skipped", detail: "no git remote available (set RT_TEAM_REMOTE or run gh auth login)" };
+    return { state: "skipped", detail: "No git remote available. Sign in with gh auth login, or set RT_TEAM_REMOTE" };
   }
 
   let created;
@@ -102,24 +102,24 @@ export function outcomeFromJoinError(err: unknown): StepOutcome {
     return {
       state: "failed",
       detail: err.message,
-      remedy: "Unlock your keychain, then Retry — the invite is already redeemed, so Retry resumes here without a new code",
+      remedy: "Unlock your keychain, then Retry. The invite is already redeemed, so Retry resumes here without a new code",
     };
   }
   if (err instanceof JoinPeeringStoreError) {
     return {
       state: "failed",
       detail: err.message,
-      remedy: "Fix the secrets store (Retry from home.init if it never ran), then Retry: the invite is already redeemed, so Retry resumes here without a new code",
+      remedy: "Fix the secrets store (Retry from the home repo step if it never ran), then Retry. The invite is already redeemed, so Retry resumes here without a new code",
     };
   }
   if (err instanceof UserActionableError && err.code === "secrets-store-not-ready") {
-    return { state: "failed", detail: err.message, remedy: "Retry from home.init (or run `rt home init`), then Retry: no new code needed" };
+    return { state: "failed", detail: err.message, remedy: "Retry from the home repo step, or run rt home init, then Retry. No new code is needed" };
   }
   if (err instanceof UserActionableError) return { state: "failed", detail: err.message };
   return toFailedOutcome(err);
 }
 
-const ALREADY_JOINED: StepOutcome = { state: "skipped", detail: "already joined — no invite in progress" };
+const ALREADY_JOINED: StepOutcome = { state: "skipped", detail: "Already joined; no invite in progress" };
 
 async function teamJoinRun(ctx: ApplyContext): Promise<StepOutcome> {
   if (noJoinIntentOnDisk(ctx)) return ALREADY_JOINED;

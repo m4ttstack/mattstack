@@ -70,7 +70,7 @@ function rejectStrayArgs(args: string[]): void {
   const named = stray.map((a) => `"${a}"`).join(", ");
   throw new UserActionableError(
     "unexpected-args",
-    `unexpected ${stray.length === 1 ? "argument" : "arguments"} ${named}. It takes no app name and removes all of mattstack; to remove one app from deck, run: deck remove <name> (add --force for a mattstack app; bundled apps return when deck restarts)`,
+    `Unexpected ${stray.length === 1 ? "argument" : "arguments"} ${named}. rt uninstall takes no app name and removes all of mattstack. To remove one app from deck, run deck remove <name> (add --force for a mattstack app; bundled apps return when deck restarts)`,
     { args: stray },
   );
 }
@@ -88,7 +88,7 @@ export async function runUninstallCommand(args: string[], _ctx: CommandContext =
     rejectStrayArgs(args);
 
     if (keepDataFlag && deleteData) {
-      throw new UserActionableError("conflicting-data-flags", "--keep-data and --delete-data are mutually exclusive");
+      throw new UserActionableError("conflicting-data-flags", "--keep-data and --delete-data cannot be used together");
     }
 
     const actions = deps.actions ?? computeUninstallActions(deps.probes, { keepData: !deleteData });

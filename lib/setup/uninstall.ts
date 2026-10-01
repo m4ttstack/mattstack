@@ -120,11 +120,11 @@ interface ActionResult {
 
 async function servicesUnregisterRun(ctx: ApplyContext): Promise<ActionResult> {
   const { plists, deckOmitted } = servicePlists(processFlavor(), ctx.p);
-  if (deckOmitted) ctx.log("services.unregister", "deck not bundled yet — only the daemon is unregistered");
+  if (deckOmitted) ctx.log("services.unregister", "deck not bundled yet, so only the daemon is unregistered");
 
   const reply = await ctx.need("services.unregister", { type: "app-unregister-services", plists });
   const outcome = needOutcome(reply, ctx, {
-    noAppDetail: "mattstack.app not running — open it to remove background services",
+    noAppDetail: "mattstack.app is not running; open it to remove background services",
     noAppRemedy: "Open mattstack.app, then Retry",
     timeoutRemedy: "Retry with mattstack.app running",
   });
@@ -157,34 +157,34 @@ async function deckManagedRemoveRun(ctx: ApplyContext): Promise<ActionResult> {
   const otherApp = otherFlavorApp(ctx.p);
   if (otherApp !== null) {
     const name = basename(otherApp);
-    return { outcome: { state: "skipped", detail: `kept for ${name}, which shares deck's registry` }, stayed: [`deck's mattstack apps (kept for ${name})`] };
+    return { outcome: { state: "skipped", detail: `Kept for ${name}, which shares deck's app list` }, stayed: [`deck's mattstack apps (kept for ${name})`] };
   }
 
   const port = readDeckApiPort(ctx);
   const healthy = port !== null && (await deckIsHealthy(ctx, port));
-  if (!healthy) return { outcome: { state: "skipped", detail: "deck is not running; nothing to unmanage" } };
+  if (!healthy) return { outcome: { state: "skipped", detail: "Deck is not running, so there is nothing to remove from it" } };
 
   const res = await ctx.p.fetch(`http://127.0.0.1:${port}/api/v1/apps/managed/remove`, { method: "POST", timeoutMs: DECK_MANAGED_REMOVE_TIMEOUT_MS });
   const reply = res.status === 200 ? managedRemoveReply(res.body) : null;
   if (reply === null) {
-    const detail = res.status === 0 ? "deck did not answer the managed remove" : `deck answered ${res.status} to the managed remove`;
+    const detail = res.status === 0 ? "Deck did not answer" : `Deck answered ${res.status}`;
     return { outcome: { state: "failed", detail, remedy: "Retry" } };
   }
 
   const removed = reply.removed.length > 0 ? `removed: ${reply.removed.join(", ")}` : "no mattstack apps in deck";
   if (reply.failed.length > 0) {
     const kept = reply.failed.join(", ");
-    return { outcome: { state: "failed", detail: `${removed}; teardown failed, record kept: ${kept}`, remedy: `Retry; if deck keeps ${kept} again, deck's board shows the issue to fix first` } };
+    return { outcome: { state: "failed", detail: `${removed}. Could not remove ${kept}`, remedy: `Retry. If ${kept} stays, deck's own page shows what to fix first` } };
   }
   return { outcome: { state: "done", detail: removed } };
 }
 
 async function proxyRemoveRun(ctx: ApplyContext): Promise<ActionResult> {
-  if (!ctx.p.exists(PORTLESS_LAUNCHD_PLIST)) return { outcome: { state: "skipped", detail: "local proxy not installed" } };
+  if (!ctx.p.exists(PORTLESS_LAUNCHD_PLIST)) return { outcome: { state: "skipped", detail: "The local proxy is not installed" } };
 
   const reply = await ctx.need("proxy.remove", { type: "app-privileged", op: "proxy-remove" });
   const outcome = needOutcome(reply, ctx, {
-    noAppDetail: "mattstack.app not running — open it to remove the local proxy",
+    noAppDetail: "mattstack.app is not running; open it to remove the local proxy",
     noAppRemedy: "Open mattstack.app, then Retry",
     timeoutRemedy: "Retry with mattstack.app running",
   });
@@ -206,7 +206,7 @@ async function pathUnlinkRun(ctx: ApplyContext): Promise<ActionResult> {
     if (unlink(ctx.p, name).removed) removed.push(name);
   }
 
-  return { outcome: { state: "done", detail: removed.length > 0 ? `removed: ${removed.join(", ")}` : "nothing to remove" } };
+  return { outcome: { state: "done", detail: removed.length > 0 ? `Removed ${removed.join(", ")}` : "Nothing to remove" } };
 }
 
 async function shellRemoveRun(): Promise<ActionResult> {
@@ -215,12 +215,12 @@ async function shellRemoveRun(): Promise<ActionResult> {
 
   const stayed: string[] = [];
   if (shellResult.manual) stayed.push("shell rc block needs manual removal (written before the removable marker existed)");
-  if (zshenvResult.manual) stayed.push("~/.zshenv PATH block needs manual removal (written before the removable marker existed)");
+  if (zshenvResult.manual) stayed.push("The PATH block in ~/.zshenv needs removing by hand (an older rt wrote it without a marker)");
 
   const detail = [
-    shellResult.removed ? "rc block removed" : shellResult.manual ? "rc block: manual removal needed" : "no rc block found",
-    zshenvResult.removed ? "zshenv block removed" : zshenvResult.manual ? "zshenv block: manual removal needed" : "no zshenv block found",
-  ].join(" · ");
+    shellResult.removed ? "Shell block removed" : shellResult.manual ? "Shell block needs removing by hand" : "No shell block found",
+    zshenvResult.removed ? "zshenv block removed" : zshenvResult.manual ? "zshenv block needs removing by hand" : "No zshenv block found",
+  ].join(". ");
 
   return { outcome: { state: "done", detail }, stayed: stayed.length > 0 ? stayed : undefined };
 }
@@ -238,7 +238,7 @@ async function extensionUninstallRun(ctx: ApplyContext, seams: UninstallSeams = 
     // path, so a deleted editor doesn't keep this action in every future
     // plan forever.
     updateSetupState(ctx.p, (s) => ({ ...s, extensionEditors: [] }));
-    return { outcome: { state: "skipped", detail: "no editor found" } };
+    return { outcome: { state: "skipped", detail: "No editor found" } };
   }
 
   const uninstalled: string[] = [];
@@ -252,18 +252,18 @@ async function extensionUninstallRun(ctx: ApplyContext, seams: UninstallSeams = 
   updateSetupState(ctx.p, (s) => ({ ...s, extensionEditors: s.extensionEditors.filter((e) => !uninstalled.includes(e)) }));
 
   if (failed.length > 0) {
-    return { outcome: { state: "failed", detail: `uninstalled from ${uninstalled.join(", ") || "(none)"}; failed: ${failed.join(", ")}`, remedy: "Uninstall the extension manually, then Retry" } };
+    return { outcome: { state: "failed", detail: `Uninstalled from ${uninstalled.join(", ") || "none"}; failed in ${failed.join(", ")}`, remedy: "Uninstall the extension manually, then Retry" } };
   }
-  return { outcome: { state: "done", detail: `uninstalled from ${uninstalled.join(", ") || "(none)"}` } };
+  return { outcome: { state: "done", detail: `Uninstalled from ${uninstalled.join(", ") || "none"}` } };
 }
 
 async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   const claude = resolveTool(ctx.p, "claude");
-  if (!claude.exec) return { outcome: { state: "skipped", detail: "claude not found" } };
+  if (!claude.exec) return { outcome: { state: "skipped", detail: "Claude Code is not installed" } };
 
   const state = readSetupState(ctx.p);
   if (state.plugins.length === 0 && state.marketplaces.length === 0) {
-    return { outcome: { state: "skipped", detail: "nothing recorded to remove" } };
+    return { outcome: { state: "skipped", detail: "Nothing recorded to remove" } };
   }
 
   const configDirs = claudeConfigDirs(ctx.p, []);
@@ -303,7 +303,7 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   updateSetupState(ctx.p, (s) => ({ ...s, plugins: [], marketplaces: [...new Set(unresolved)] }));
 
   if (notes.length > 0) return { outcome: { state: "failed", detail: notes.join("; "), remedy: "Retry" } };
-  return { outcome: { state: "done", detail: `removed ${state.plugins.length} plugin(s), ${state.marketplaces.length} marketplace(s) across ${configDirs.length} config dir(s)` } };
+  return { outcome: { state: "done", detail: `Removed ${state.plugins.length} plugin${state.plugins.length === 1 ? "" : "s"} and ${state.marketplaces.length} marketplace${state.marketplaces.length === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}` } };
 }
 
 function mattstackDataDir(p: Pick<Probes, "home">): string {
@@ -323,28 +323,28 @@ async function dataRun(ctx: ApplyContext): Promise<ActionResult> {
   const dir = mattstackDataDir(ctx.p);
   const homeUnsafe = !ctx.p.home || ctx.p.home.trim() === "" || ctx.p.home === "/" || !isAbsolute(ctx.p.home);
   if (homeUnsafe || basename(dir) !== ".mattstack") {
-    return { outcome: { state: "failed", detail: `refusing to delete ${dir} — HOME resolved to an unsafe value ("${ctx.p.home}")` } };
+    return { outcome: { state: "failed", detail: `Refusing to delete ${dir}: HOME resolved to an unsafe value (${ctx.p.home})` } };
   }
   if (!ctx.p.exists(dir)) return { outcome: { state: "skipped", detail: `${dir} does not exist` } };
 
   ctx.p.removeDir(dir);
-  return { outcome: { state: "done", detail: `removed ${dir}` } };
+  return { outcome: { state: "done", detail: `Removed ${dir}` } };
 }
 
 /** Refuses BEFORE trashing anything: `appBundlePath` only ever resolves to a real ".app" bundle root, but this still validates the shape rather than trusting a computed path blindly. */
 async function appTrashRun(ctx: ApplyContext): Promise<ActionResult> {
   const appPath = appBundlePath(ctx.p);
-  if (!appPath) return { outcome: { state: "skipped", detail: "no app bundle found" } };
+  if (!appPath) return { outcome: { state: "skipped", detail: "No app found" } };
   if (appPath === "/" || appPath.trim() === "" || !appPath.endsWith(".app")) {
-    return { outcome: { state: "failed", detail: `refusing to trash "${appPath}" — does not look like an app bundle` } };
+    return { outcome: { state: "failed", detail: `Refusing to trash ${appPath}: it does not look like an app` } };
   }
 
   const script = `tell application "Finder" to delete POSIX file "${appPath.replace(/"/g, '\\"')}"`;
   const res = await ctx.p.exec(["osascript", "-e", script]);
   if (res.code !== 0) {
-    return { outcome: { state: "failed", detail: `osascript exited ${res.code}: ${(res.stderr || res.stdout).trim()}`, remedy: "Drag mattstack.app to the Trash yourself" } };
+    return { outcome: { state: "failed", detail: `Could not move the app to the Trash (exit ${res.code}): ${(res.stderr || res.stdout).trim()}`, remedy: "Drag mattstack.app to the Trash yourself" } };
   }
-  return { outcome: { state: "done", detail: `moved ${appPath} to the Trash` } };
+  return { outcome: { state: "done", detail: `Moved ${appPath} to the Trash` } };
 }
 
 async function runAction(ctx: ApplyContext, id: UninstallActionId, seams: UninstallSeams): Promise<ActionResult> {
@@ -371,7 +371,7 @@ async function runAction(ctx: ApplyContext, id: UninstallActionId, seams: Uninst
       // "cron.uninstall" and any future id — never generated by
       // computeUninstallActions today, kept here only so the switch stays
       // exhaustive over UninstallActionId without a `never` cast.
-      return { outcome: { state: "failed", detail: `no uninstall handler for "${id}"` } };
+      return { outcome: { state: "failed", detail: `No uninstall step for ${id}` } };
   }
 }
 

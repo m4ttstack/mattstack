@@ -2292,7 +2292,7 @@ describe("skillsMaterialize --dir exit codes", () => {
     process.env.RT_ENGINE_PACK_DIR = ENGINE;
     await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/gadgets.git")]);
     expect(process.exitCode).toBe(2);
-    expect(logs.join("\n")).toContain("no team declares gitlab.example.com/acme/gadgets");
+    expect(logs.join("\n")).toContain("No team covers gitlab.example.com/acme/gadgets");
   });
 
   test("a checkout with no git remote exits 2", async () => {
@@ -2301,7 +2301,7 @@ describe("skillsMaterialize --dir exit codes", () => {
     execFileSync("git", ["init", "-q", dir]);
     await skillsMaterialize(["--dir", dir]);
     expect(process.exitCode).toBe(2);
-    expect(logs.join("\n")).toContain(`no git remote in ${dir}`);
+    expect(logs.join("\n")).toContain(`No git remote in ${dir}`);
   });
 
   test("no engine pack installed exits 1: nothing was written", async () => {
@@ -2328,7 +2328,7 @@ describe("skillsMaterialize --dir exit codes", () => {
     writeFile(stale, "// zone: acme\n{}");
     await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
     expect(process.exitCode).toBe(0);
-    expect(logs).toContain(`  set aside 1 stale bindings file: ${stale}.stale`);
+    expect(logs).toContain(`  Set aside 1 stale bindings file: ${stale}.stale`);
     expect(existsSync(stale)).toBe(false);
   });
 });

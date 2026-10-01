@@ -46,7 +46,7 @@ function resolveTeam(intent: SetupIntent | null, teams: string[], teamOverride: 
   if (teamOverride) {
     if (!teams.includes(teamOverride)) {
       const discovered = teams.length ? teams.join(", ") : "(none)";
-      throw new UserActionableError("unknown-team", `no cloned team named "${teamOverride}" — discovered teams: ${discovered}`);
+      throw new UserActionableError("unknown-team", `No team named ${teamOverride} is cloned on this Mac. Teams here: ${discovered}`);
     }
     return { slug: teamOverride, name: teamOverride, mode: "none" };
   }

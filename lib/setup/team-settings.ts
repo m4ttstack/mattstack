@@ -49,7 +49,7 @@ function defaultReader(warn: (message: string) => void): SettingsReader {
     try {
       return getSetting<T>(key).value;
     } catch (err) {
-      warn(`rt: ${key} could not be resolved (${err instanceof Error ? err.message : String(err)}) — treated as unset`);
+      warn(`${key} could not be resolved (${err instanceof Error ? err.message : String(err)}); treated as unset`);
       return undefined;
     }
   };

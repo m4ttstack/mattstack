@@ -73,7 +73,7 @@ describe("permissionRows — perm.fda", () => {
   test("reply null, no daemonTcc signal -> error, never invalid or ready", () => {
     const r = pickRow(permissionRows(null, null), "perm.fda");
     expect(r.status).toBe("error");
-    expect(r.detail).toBe("mattstack.app not running — permission status unavailable");
+    expect(r.detail).toBe("mattstack.app is not running, so permissions cannot be checked");
     expect(r.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
   });
 });
@@ -143,7 +143,7 @@ describe("permissionRows — perm.notifications", () => {
   test("reply null -> skipped, never invalid, not required", () => {
     const r = pickRow(permissionRows(null, null), "perm.notifications");
     expect(r.status).toBe("skipped");
-    expect(r.detail).toBe("not checked (app not running)");
+    expect(r.detail).toBe("Not checked: mattstack.app is not running");
     expect(r.required).toBe(false);
   });
 });

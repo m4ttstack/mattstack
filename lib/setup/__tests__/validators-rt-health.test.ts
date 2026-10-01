@@ -61,7 +61,7 @@ describe("rtHealthRows — tool.rt", () => {
     const exec: ExecScript = (argv) => (argv[0] === "rt" ? missing("rt") : ok());
     const r = await pickRow(rtHealthRows(fakeProbes({ exec }), { ci: false }), "tool.rt");
     expect(r.status).toBe("missing");
-    expect(r.detail).toBe("rt not found on PATH");
+    expect(r.detail).toBe("rt is not on your PATH yet");
     expect(r.action).toEqual({ type: "link-bundled", label: "Use mattstack's", tool: "rt" });
   });
 
@@ -132,7 +132,7 @@ describe("rtHealthRows — rows that resolve the app bundle", () => {
       const p = bundleProbe({ links: { [linkedPath]: join(appRoot, "Contents", "MacOS", "rt") } });
       const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.rt-link");
       expect(r.status).toBe("ready");
-      expect(r.detail).toBe("linked into the bundle");
+      expect(r.detail).toBe("Linked into mattstack.app");
       expect(r.required).toBe(false);
       expect(r.optionalNote).not.toBeNull();
     });
@@ -142,7 +142,7 @@ describe("rtHealthRows — rows that resolve the app bundle", () => {
       const p = bundleProbe({ links: { [linkedPath]: "/opt/homebrew/bin/rt" } });
       const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.rt-link");
       expect(r.status).toBe("needs-you");
-      expect(r.detail).toContain("not a link into mattstack.app");
+      expect(r.detail).toContain("Not a link into mattstack.app");
       expect(r.action).toEqual({ type: "link-bundled", label: "Use mattstack's", tool: "rt" });
     });
 
@@ -151,7 +151,7 @@ describe("rtHealthRows — rows that resolve the app bundle", () => {
       const p = bundleProbe({ files: { [linkedPath]: `#!/bin/sh\n${DEV_MODE_TAG}\nexit 0\n` } });
       const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.rt-link");
       expect(r.status).toBe("skipped");
-      expect(r.detail).toContain("mattstack-dev.app");
+      expect(r.detail).toContain("The dev app's source wrapper");
       expect(r.detail).not.toContain("dev mode");
     });
   });
@@ -173,7 +173,7 @@ describe("rtHealthRows — rows that resolve the app bundle", () => {
       const p = bundleProbe({ dirs: { [legacyPath]: [] } });
       const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.app");
       expect(r.status).toBe("ready");
-      expect(r.detail).toContain("old bundle still present");
+      expect(r.detail).toContain("An old copy is still present");
       expect(r.detail).toContain(legacyPath);
     });
   });
@@ -184,7 +184,7 @@ describe("rtHealthRows — rows that resolve the app bundle", () => {
       const p = bundleProbe({ files: { [vsix]: "" } });
       const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.vsix");
       expect(r.status).toBe("ready");
-      expect(r.detail).toBe("bundled extension present");
+      expect(r.detail).toBe("The extension ships in the app");
       expect(r.required).toBe(false);
       expect(r.optionalNote).not.toBeNull();
     });
@@ -193,7 +193,7 @@ describe("rtHealthRows — rows that resolve the app bundle", () => {
       const p = bundleProbe();
       const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.vsix");
       expect(r.status).toBe("skipped");
-      expect(r.detail).toContain("pre-bundle build");
+      expect(r.detail).toContain("This build does not ship the extension");
     });
   });
 });
@@ -203,7 +203,7 @@ describe("rtHealthRows — no app installed", () => {
     const p = fakeProbes({ home: "/nonexistent-rt-health-no-app" });
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.app");
     expect(r.status).toBe("missing");
-    expect(r.detail).toBe("mattstack.app not found in /Applications or ~/Applications");
+    expect(r.detail).toBe("mattstack.app is not in /Applications or ~/Applications");
   });
 
   test("tool.vsix -> skipped, no app", async () => {
@@ -252,7 +252,7 @@ describe("rtHealthRows — tool.legacy-dirs", () => {
     mkdirSync(join(home, ".rt"), { recursive: true });
     const r = await pickRow(rtHealthRows(fakeProbes({ home }), { ci: false }), "tool.legacy-dirs");
     expect(r.status).toBe("invalid");
-    expect(r.detail).toContain("real legacy dir present");
+    expect(r.detail).toContain("Old folder still present");
     expect(r.detail).not.toContain("dirs present");
     expect(r.detail).toContain("~/.mattstack/rt");
     // A required row must never be a dead end: an "invalid" verdict here
@@ -269,7 +269,7 @@ describe("rtHealthRows — tool.legacy-dirs", () => {
     mkdirSync(join(home, ".shepherdr"), { recursive: true });
     const r = await pickRow(rtHealthRows(fakeProbes({ home }), { ci: false }), "tool.legacy-dirs");
     expect(r.status).toBe("invalid");
-    expect(r.detail).toContain("real legacy dirs present");
+    expect(r.detail).toContain("Old folders still present");
   });
 });
 
@@ -290,7 +290,7 @@ describe("rtHealthRows — tool.intercepts", () => {
   test("no rules declared -> ready and says it is not needed, never a pending-looking skipped", async () => {
     const r = await pickRow(rtHealthRows(fakeProbes({ home }), { ci: false }), "tool.intercepts");
     expect(r.status).toBe("ready");
-    expect(r.detail).toBe("Not needed: your team declares no intercepts");
+    expect(r.detail).toBe("Not needed: your team has no intercepts");
     expect(r.action).toBeNull();
     expect(r.required).toBe(false);
     expect(r.optionalNote).not.toBeNull();
@@ -319,7 +319,7 @@ describe("rtHealthRows — tool.shell (fully Probes-driven)", () => {
     const p = fakeProbes({ home: "/fake-home" });
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("can't write");
+    expect(r.detail).toContain("rt does not know this shell");
     expect(r.detail).not.toBe("shell integration not added yet");
     expect(r.action).toBeNull();
     expect(r.optionalNote).not.toBeNull();
@@ -329,7 +329,7 @@ describe("rtHealthRows — tool.shell (fully Probes-driven)", () => {
     const p = fakeProbes({ home: "/fake-home", env: { SHELL: "/bin/tcsh" } });
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("can't write");
+    expect(r.detail).toContain("rt does not know this shell");
   });
 
   test("zsh rc file contains rtcd -> ready", async () => {
@@ -343,7 +343,7 @@ describe("rtHealthRows — tool.shell (fully Probes-driven)", () => {
     const p = fakeProbes({ home: "/fake-home", env: { SHELL: "/bin/zsh" }, files: { "/fake-home/.zshrc": `\n${MARKER}\nexport PATH="$HOME/.local/bin:$PATH"\n` } });
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("remove the old rt block from /fake-home/.zshrc by hand, then re-check");
+    expect(r.detail).toBe("Remove the old rt block from /fake-home/.zshrc by hand, then Re-check");
     expect(r.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
   });
 
@@ -351,7 +351,7 @@ describe("rtHealthRows — tool.shell (fully Probes-driven)", () => {
     const p = fakeProbes({ home: "/fake-home", env: { SHELL: "/bin/zsh" }, files: { "/fake-home/.zshrc": "# nothing here\n" } });
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("shell integration not added yet");
+    expect(r.detail).toBe("Shell integration not added yet");
     expect(r.action).toEqual({ type: "run", label: "Add to shell", verb: ["setup", "apply", "--only", "path.link"] });
   });
 });
@@ -392,7 +392,7 @@ describe("rtHealthRows — tool.daemon", () => {
     rmSync(DAEMON_CONFIG_PATH, { force: true });
     const r = await pickRow(rtHealthRows(fakeProbes(), { ci: false }), "tool.daemon");
     expect(r.status).toBe("missing");
-    expect(r.detail).toBe("not registered yet");
+    expect(r.detail).toBe("Not registered yet");
     expect(r.action).toEqual({ type: "run", label: "Register services", verb: ["setup", "apply", "--only", "services.register"] });
     expect(r.required).toBe(true);
     expect(r.recheck).toBe("on-activate");
@@ -498,7 +498,7 @@ describe("rtHealthRows — tool.flavor", () => {
     expect(r.status).toBe("invalid");
     expect(r.detail).toContain("prod daemon");
     expect(r.detail).toContain("dev CLI");
-    expect(r.detail).toContain("open mattstack-dev.app (quit it first if it is running)");
+    expect(r.detail).toContain("Open mattstack-dev.app, quitting it first if it is running");
     expect(r.detail).not.toContain("dev-mode");
     expect(r.required).toBe(true);
   });
@@ -507,7 +507,7 @@ describe("rtHealthRows — tool.flavor", () => {
     process.env.MATTSTACK_FLAVOR = "dev";
     const r = await pickRow(rtHealthRows(fakeProbes({ home: "/home/x", daemon: async () => null }), { ci: false }), "tool.flavor");
     expect(r.status).toBe("ready");
-    expect(r.detail).toContain("daemon n/a");
+    expect(r.detail).toContain("no daemon");
   });
 
   test("CLI and daemon agree: ready", async () => {
@@ -583,7 +583,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     const row = await homeBackupRow(await localOnlyRepo());
     expect(row.status).toBe("needs-you");
     expect(row.required).toBe(false);
-    expect(row.detail).toBe("local only — your settings are versioned on this machine but are not backed up anywhere (rt home remote set <url>, or --create)");
+    expect(row.detail).toBe("Local only: your settings are versioned on this Mac but backed up nowhere. Run rt home remote set <url>, or rt home remote set --create");
     expect(row.action).not.toBeNull();
   });
 
@@ -603,7 +603,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     await attachRemote(repo);
     const row = await homeBackupRow(repo);
     expect(row.status).toBe("needs-you");
-    expect(row.detail).toBe("remote configured, nothing pushed yet");
+    expect(row.detail).toBe("Remote set, nothing pushed yet");
   });
 
   // RT-139: the daemon commits and schedules a trailing push (pushDelaySec,
@@ -614,8 +614,8 @@ describe("rtHealthRows — home.backup (real git)", () => {
     await commit(repo, "later");
     const row = await homeBackupRow(repo, REAL_EXEC, NO_RECORD);
     expect(row.status).toBe("ready");
-    expect(row.detail).toContain("1 commit(s)");
-    expect(row.detail).toContain("queued for backup");
+    expect(row.detail).toContain("1 commit ");
+    expect(row.detail).toContain("waiting to back up");
     expect(row.detail).not.toContain("backed up");
     expect(row.action).toBeNull();
   });
@@ -627,7 +627,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     await commit(repo, "later");
     const row = await homeBackupRow(repo, REAL_EXEC, () => ({ at: Date.now(), ok: true }));
     expect(row.status).toBe("ready");
-    expect(row.detail).toContain("queued for backup");
+    expect(row.detail).toContain("waiting to back up");
   });
 
   // A commit whose committer date is well outside the push window (here,
@@ -638,7 +638,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     await commit(repo, "later", { committerDate: "2000-01-01T00:00:00Z" });
     const row = await homeBackupRow(repo, REAL_EXEC, NO_RECORD);
     expect(row.status).toBe("needs-you");
-    expect(row.detail).toContain("1 commit(s)");
+    expect(row.detail).toContain("1 commit ");
     expect(row.detail).not.toContain("queued for backup");
   });
 
@@ -652,7 +652,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     await commit(repo, "later", { committerDate: new Date(Date.now() + 365 * 24 * 60 * 60_000).toISOString() });
     const row = await homeBackupRow(repo, REAL_EXEC, NO_RECORD);
     expect(row.status).toBe("needs-you");
-    expect(row.detail).toContain("1 commit(s)");
+    expect(row.detail).toContain("1 commit ");
     expect(row.detail).not.toContain("queued for backup");
   });
 
@@ -666,7 +666,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     try {
       const row = await homeBackupRow(repo, REAL_EXEC, NO_RECORD);
       expect(row.status).toBe("ready");
-      expect(row.detail).toContain("queued for backup");
+      expect(row.detail).toContain("waiting to back up");
     } finally {
       setSetting("rt.homeSnapshot", { enabled: true, debounceSec: 20, pushDelaySec: 60, janitorThresholdHours: 6, janitorIntervalMin: 30 }, "machine");
     }
@@ -675,7 +675,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
   test("pushed and nothing ahead, no daemon record: ready, and names the COMMIT — the ref tip's committer date is not a push time", async () => {
     const row = await homeBackupRow(await pushedRepo(), REAL_EXEC, NO_RECORD);
     expect(row.status).toBe("ready");
-    expect(row.detail).toStartWith("in sync — last commit ");
+    expect(row.detail).toStartWith("Backed up, last commit ");
     expect(row.detail).not.toContain("pushed");
     expect(row.action).toBeNull();
   });
@@ -683,7 +683,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
   test("pushed and nothing ahead, with a recorded successful push: says pushed, off the record's real timestamp", async () => {
     const row = await homeBackupRow(await pushedRepo(), REAL_EXEC, () => ({ at: Date.now() - 5 * 60_000, ok: true }));
     expect(row.status).toBe("ready");
-    expect(row.detail).toBe("in sync — last pushed 5m ago");
+    expect(row.detail).toBe("Backed up, last pushed 5m ago");
   });
 
   // RT-139: freshness is not the only guard here. A stale, genuinely unpushed
@@ -694,7 +694,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     await commit(repo, "later", { committerDate: "2000-01-01T00:00:00Z" });
     const row = await homeBackupRow(repo, REAL_EXEC, () => ({ at: Date.now(), ok: true }));
     expect(row.status).toBe("needs-you");
-    expect(row.detail).toContain("1 commit(s)");
+    expect(row.detail).toContain("1 commit ");
   });
 
   test("commits ahead with a recorded push failure: names why, which nothing else on the machine surfaces", async () => {
@@ -706,14 +706,14 @@ describe("rtHealthRows — home.backup (real git)", () => {
       error: "remote: Permission to acme/home.git denied to matt.\nfatal: unable to access\n",
     }));
     expect(row.status).toBe("needs-you");
-    expect(row.detail).toBe("1 commit(s) not pushed — the last push failed: remote: Permission to acme/home.git denied to matt.");
+    expect(row.detail).toBe("1 commit not pushed. The last push failed: remote: Permission to acme/home.git denied to matt.");
   });
 
   test("a repo with no remote never consults the record — local-only is a state, not a push failure", async () => {
     const row = await homeBackupRow(await localOnlyRepo(), REAL_EXEC, () => {
       throw new Error("readLastPush must not be reached on the local-only path");
     });
-    expect(row.detail).toBe("local only — your settings are versioned on this machine but are not backed up anywhere (rt home remote set <url>, or --create)");
+    expect(row.detail).toBe("Local only: your settings are versioned on this Mac but backed up nowhere. Run rt home remote set <url>, or rt home remote set --create");
   });
 
   test("unborn branch (remote attached before any commit ever landed): needs-you, never crashes on a missing ref", async () => {
@@ -721,14 +721,14 @@ describe("rtHealthRows — home.backup (real git)", () => {
     await attachRemote(repoDir);
     const row = await homeBackupRow(repoDir);
     expect(row.status).toBe("needs-you");
-    expect(row.detail).toBe("no commits yet — nothing is versioned or backed up");
+    expect(row.detail).toBe("No commits yet, so nothing is versioned or backed up");
   });
 
   test("unborn branch, no remote: never claims settings are versioned on this machine when nothing is committed", async () => {
     const repoDir = freshRepoDir("rt-health-backup-unborn-local-");
     const row = await homeBackupRow(repoDir);
     expect(row.status).toBe("needs-you");
-    expect(row.detail).toBe("no commits yet — nothing is versioned or backed up");
+    expect(row.detail).toBe("No commits yet, so nothing is versioned or backed up");
   });
 
   test("a non-origin remote reads as local-only: every push and ref comparison downstream is origin-only", async () => {
@@ -739,7 +739,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     execFileSync("git", ["remote", "add", "upstream", otherDir], { cwd: repoDir });
 
     const row = await homeBackupRow(repoDir);
-    expect(row.detail).toBe("local only — your settings are versioned on this machine but are not backed up anywhere (rt home remote set <url>, or --create)");
+    expect(row.detail).toBe("Local only: your settings are versioned on this Mac but backed up nowhere. Run rt home remote set <url>, or rt home remote set --create");
   });
 
   test("remote configured, nothing pushed: the remedy names the push, not just the remote add", async () => {
@@ -754,7 +754,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     createdRoots.push(dir);
     const row = await homeBackupRow(dir);
     expect(row.status).toBe("needs-you");
-    expect(row.detail).toBe("no home repo found yet... nothing to back up");
+    expect(row.detail).toBe("No home repo yet, so nothing is backed up");
     expect(row.action).toEqual({ type: "run", label: "Create home repo", verb: ["setup", "apply", "--only", "home.init"] });
   });
 
@@ -767,7 +767,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     };
     const row = await homeBackupRow(repo, flakyExec);
     expect(row.status).toBe("needs-you");
-    expect(row.detail).toBe("could not determine push status — the rev-list check failed");
+    expect(row.detail).toBe("Could not tell whether the remote is up to date");
   });
 
   test("rtHealthRows wires home.backup off p.home/.mattstack/user, not p.home/user — catches a dropped .mattstack segment", async () => {
@@ -882,7 +882,7 @@ describe("teamSyncRow", () => {
       false,
     );
     expect(r?.status).toBe("ready");
-    expect(r?.detail).toContain("rt.teamSnapshot");
+    expect(r?.detail).toContain("team sync is disabled in settings");
     expect(r?.detail).not.toContain("not watched");
     expect(r?.detail).not.toContain("origin");
     expect(statusReads).toBe(0);
@@ -929,7 +929,7 @@ describe("teamSyncRow", () => {
       300,
     );
     expect(r?.status).toBe("needs-you");
-    expect(r?.detail).toContain("fetch failing");
+    expect(r?.detail).toContain("fetches are failing");
   });
 
   test("an empty-string fetch error still trips needs-you (lastPullError != null, not truthiness)", async () => {
@@ -974,7 +974,7 @@ describe("teamSyncRow", () => {
       300,
     );
     expect(stale?.status).toBe("needs-you");
-    expect(stale?.detail).toBe("waiting for a first pull: acme");
+    expect(stale?.detail).toBe("Waiting for a first pull: acme");
 
     const failing = await teamSyncRow(
       ["acme"],
@@ -999,8 +999,8 @@ describe("teamSyncRow", () => {
       300,
     );
     expect(isTeamSyncFirstPullPending(r!.detail)).toBe(false);
-    expect(r?.detail).toContain("acme: no pull yet");
-    expect(r?.detail).toContain("beta: push failing: denied");
+    expect(r?.detail).toContain("acme: not pulled yet");
+    expect(r?.detail).toContain("beta: pushes are failing: denied");
   });
 
   test("a pull skipped this tick is not a failure, but it is named in the ready detail without changing the status", async () => {
@@ -1011,7 +1011,7 @@ describe("teamSyncRow", () => {
       300,
     );
     expect(r?.status).toBe("ready");
-    expect(r?.detail).toContain("last pull skipped: dirty src/");
+    expect(r?.detail).toContain("Last pull skipped: dirty src/");
   });
 
   test("a pull-only clone that is up to date is ready, and says why it never pushes", async () => {
@@ -1024,7 +1024,7 @@ describe("teamSyncRow", () => {
       300,
     );
     expect(r?.status).toBe("ready");
-    expect(r?.detail).toContain("pull-only");
+    expect(r?.detail).toContain("Pull-only");
   });
 
   test("a pull-only clone is never judged on push failures (it has no push to fail)", async () => {
@@ -1066,7 +1066,7 @@ describe("teamSyncRow", () => {
       300,
     );
     expect(r?.status).toBe("needs-you");
-    expect(r?.detail).toContain("fetch failing");
+    expect(r?.detail).toContain("fetches are failing");
   });
 
   // The engine sets BOTH fields on a failed fetch: the stderr becomes lastPullError and is
@@ -1091,7 +1091,7 @@ describe("teamSyncRow", () => {
       300,
     );
     expect(r?.status).toBe("needs-you");
-    expect(r?.detail).toContain("fetch failing");
+    expect(r?.detail).toContain("fetches are failing");
     expect(r?.detail).not.toContain("cannot fast-forward");
   });
 
@@ -1207,7 +1207,7 @@ describe("rtHealthRows: team.sync wiring", () => {
     const rows = await rtHealthRows(p, { ci: false }, () => ({ ...SNAPSHOT_SETTINGS, enabled: false }));
     const r = rows.find((x) => x.id === "team.sync");
     expect(r?.status).toBe("ready");
-    expect(r?.detail).toContain("rt.teamSnapshot");
+    expect(r?.detail).toContain("team sync is disabled in settings");
   });
 
   test("a cloned team reads status through p.daemon and produces a team.sync row", async () => {

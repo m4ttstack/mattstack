@@ -103,21 +103,21 @@ async function herdrRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
   const base = { id: "tool.herdr", kind: "tool" as const, title: "herdr", why: "Drives Herdr panes for remote-control and multi-agent workflows.", required: true };
 
   const versionRes = await exec(p, ["herdr", "--version"]);
-  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "herdr not found", action: provisionedInstallAction("herdr", opts.hasBrew) });
-  if (versionRes.code === 124) return row({ ...base, status: "error", detail: "herdr --version timed out" });
-  if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `could not run herdr (exit ${versionRes.code})` });
+  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "herdr is not installed", action: provisionedInstallAction("herdr", opts.hasBrew) });
+  if (versionRes.code === 124) return row({ ...base, status: "error", detail: "herdr did not answer in time" });
+  if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run herdr (exit ${versionRes.code})` });
 
   const version = extractVersion(versionRes.stdout);
   if (!atLeast(version, HERDR_FLOOR)) {
-    return row({ ...base, status: "invalid", detail: `herdr ${version} < ${HERDR_FLOOR}`, action: provisionedInstallAction("herdr", opts.hasBrew, "Upgrade") });
+    return row({ ...base, status: "invalid", detail: `herdr ${version} is older than ${HERDR_FLOOR}`, action: provisionedInstallAction("herdr", opts.hasBrew, "Upgrade") });
   }
 
   const integrationRes = await exec(p, ["herdr", "integration", "status"]);
-  if (integrationRes.code === 124) return row({ ...base, status: "error", detail: "herdr integration status timed out" });
-  if (integrationRes.code !== 0) return row({ ...base, status: "error", detail: `could not check herdr integration status (exit ${integrationRes.code})` });
+  if (integrationRes.code === 124) return row({ ...base, status: "error", detail: "herdr's integration check did not answer in time" });
+  if (integrationRes.code !== 0) return row({ ...base, status: "error", detail: `Could not check herdr's Claude integration (exit ${integrationRes.code})` });
 
   const claude = parseHerdrClaudeState(integrationRes.stdout);
-  if (!claude.known) return row({ ...base, status: "error", detail: "could not determine herdr's Claude integration status" });
+  if (!claude.known) return row({ ...base, status: "error", detail: "Could not tell whether herdr's Claude integration is installed" });
   if (claude.installed) return row({ ...base, status: "ready", detail: `herdr ${version}, Claude integration installed` });
   // Install's own herdr.integration step adds this; only the binary gates Install.
   return row({
@@ -136,13 +136,13 @@ async function claudeRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
   const base = { id: "tool.claude", kind: "tool" as const, title: "Claude Code", why: "Runs the agent sessions rt drives and hands work off to.", required: true, recheck: "on-activate" as const };
 
   const versionRes = await exec(p, ["claude", "--version"]);
-  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "claude not found", action: provisionedInstallAction("claude", opts.hasBrew) });
-  if (versionRes.code === 124) return row({ ...base, status: "error", detail: "claude --version timed out" });
-  if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `could not run claude (exit ${versionRes.code})` });
+  if (versionRes.code === 127) return row({ ...base, status: "missing", detail: "Claude Code is not installed", action: provisionedInstallAction("claude", opts.hasBrew) });
+  if (versionRes.code === 124) return row({ ...base, status: "error", detail: "Claude Code did not answer in time" });
+  if (versionRes.code !== 0) return row({ ...base, status: "error", detail: `Could not run Claude Code (exit ${versionRes.code})` });
   const version = extractVersion(versionRes.stdout);
 
   const authRes = await exec(p, ["claude", "auth", "status"]);
-  if (authRes.code === 124) return row({ ...base, status: "error", detail: "claude auth status timed out" });
+  if (authRes.code === 124) return row({ ...base, status: "error", detail: "Claude Code's sign-in check did not answer in time" });
 
   // `claude auth status` exits 0 whether signed in or not — the JSON payload
   // is the actual signal, so it's checked before the exit code means anything.
@@ -153,8 +153,8 @@ async function claudeRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
     authState = null;
   }
   if (authState && typeof authState.loggedIn === "boolean") {
-    if (authState.loggedIn) return row({ ...base, status: "ready", detail: `claude ${version}, signed in` });
-    return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: "sign in: run claude once", action: CLAUDE_SIGNIN_STEPS });
+    if (authState.loggedIn) return row({ ...base, status: "ready", detail: `Claude Code ${version}, signed in` });
+    return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: "Not signed in yet. Run claude once and sign in", action: CLAUDE_SIGNIN_STEPS });
   }
 
   // An older `claude` with no `auth status` subcommand answers something
@@ -165,11 +165,11 @@ async function claudeRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
   // explicit not-signed-in gives a real next step instead of a dead end.
   const sniff = `${authRes.stdout} ${authRes.stderr}`.toLowerCase();
   if (sniff.includes("unknown")) {
-    return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: `claude ${version} installed, sign-in could not be checked — confirm you're signed in`, action: CLAUDE_SIGNIN_STEPS });
+    return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: `Claude Code ${version} is installed, but the sign-in could not be checked. Confirm you are signed in`, action: CLAUDE_SIGNIN_STEPS });
   }
 
-  if (authRes.code !== 0) return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: "sign in: run claude once", action: CLAUDE_SIGNIN_STEPS });
-  return row({ ...base, status: "error", detail: "claude auth status returned an unexpected response" });
+  if (authRes.code !== 0) return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: "Not signed in yet. Run claude once and sign in", action: CLAUDE_SIGNIN_STEPS });
+  return row({ ...base, status: "error", detail: "Claude Code's sign-in check gave an unexpected answer" });
 }
 
 // ─── tool.fast-browser / tool.fast-browser-extension ───────────────────────
@@ -273,23 +273,23 @@ const FASTBROWSER_SOLO_NOTE = "Works without this; only the browser skills need 
 function fastBrowserRow(probe: FastBrowserProbe, solo: boolean): Row {
   const soloNote = solo ? { optionalNote: FASTBROWSER_SOLO_NOTE } : {};
   const base = { id: "tool.fast-browser", kind: "tool" as const, title: "Fast Browser", why: "Backs rt's macro-first browser automation.", required: !solo, recheck: "on-activate" as const, ...soloNote };
-  if (!probe.resolvable) return row({ ...base, status: "missing", detail: "fast-browser not found", action: { type: "link-bundled", label: "Use mattstack's", tool: "fast-browser" } });
+  if (!probe.resolvable) return row({ ...base, status: "missing", detail: "Fast Browser is not installed", action: { type: "link-bundled", label: "Use mattstack's", tool: "fast-browser" } });
 
   const pending = { required: false, optionalNote: FASTBROWSER_SETUP_NOTE, ...soloNote };
   if (probe.failure) return row({ ...base, ...pending, status: "error", detail: probe.failure });
 
   const runtime = checkState(probe.doctor, "runtime-checksum");
-  if (runtime === "absent") return row({ ...base, ...pending, status: "error", detail: "fast-browser doctor report has no runtime-checksum check" });
-  if (runtime === "fail") return row({ ...base, ...pending, status: "needs-you", detail: "runtime not ready", action: FAST_BROWSER_SETUP_ACTION });
+  if (runtime === "absent") return row({ ...base, ...pending, status: "error", detail: "Fast Browser's doctor report has no runtime check. Update Fast Browser" });
+  if (runtime === "fail") return row({ ...base, ...pending, status: "needs-you", detail: "The runtime is not ready yet", action: FAST_BROWSER_SETUP_ACTION });
 
   // setup installs the runtime before it registers the host plugin and writes
   // config.json, so a setup refused in between leaves a passing runtime and a
   // CLI that cannot run; data-permissions is the check that reads config.json.
   const config = checkState(probe.doctor, "data-permissions");
-  if (config === "absent") return row({ ...base, ...pending, status: "error", detail: "fast-browser doctor report has no data-permissions check" });
-  if (config === "fail") return row({ ...base, ...pending, status: "needs-you", detail: "runtime ok, but setup needs to run again", action: FAST_BROWSER_SETUP_ACTION });
-  if (probe.launcherBroken) return row({ ...base, ...pending, status: "needs-you", detail: "the fast-browser command runs a copy that no longer exists", action: FAST_BROWSER_RELINK });
-  return row({ ...base, status: "ready", detail: "runtime ok" });
+  if (config === "absent") return row({ ...base, ...pending, status: "error", detail: "Fast Browser's doctor report has no permissions check. Update Fast Browser" });
+  if (config === "fail") return row({ ...base, ...pending, status: "needs-you", detail: "The runtime is ready, but setup needs to run again", action: FAST_BROWSER_SETUP_ACTION });
+  if (probe.launcherBroken) return row({ ...base, ...pending, status: "needs-you", detail: "The fast-browser command points at a copy that no longer exists", action: FAST_BROWSER_RELINK });
+  return row({ ...base, status: "ready", detail: "Ready" });
 }
 
 const PAIRING_STEPS = [
@@ -350,33 +350,33 @@ function fastBrowserExtensionRow(p: Probes, probe: FastBrowserProbe, solo: boole
     recheck: "on-activate" as const,
   };
 
-  if (!CHROME_PATHS(p.home).some((path) => p.exists(path))) return row({ ...base, status: "skipped", detail: "no Google Chrome to load it into" });
+  if (!CHROME_PATHS(p.home).some((path) => p.exists(path))) return row({ ...base, status: "skipped", detail: "Google Chrome is not installed, so there is nothing to load it into" });
   // tool.fast-browser already reports an unreadable doctor; repeating it here
   // would be two rows for one fact.
-  if (!probe.doctor) return row({ ...base, status: "skipped", detail: "fast-browser doctor could not be read (see Fast Browser)" });
+  if (!probe.doctor) return row({ ...base, status: "skipped", detail: "Fast Browser's doctor report could not be read. See the Fast Browser row" });
 
   const installed = probe.doctor.checks?.find((c) => c.id === "extension-installed");
-  if (!installed) return row({ ...base, status: "error", detail: `fast-browser doctor report has no extension-installed check; ${DOCTOR_CHECK_MISSING_REMEDY}`, action: FAST_BROWSER_RECHECK });
+  if (!installed) return row({ ...base, status: "error", detail: `Fast Browser's doctor report has no extension check; ${DOCTOR_CHECK_MISSING_REMEDY}`, action: FAST_BROWSER_RECHECK });
   // doctor tells a missing extension from a store copy on another version;
   // a store copy keeps doctor's own remedy, and a missing one gets the Web
   // Store install rather than an unpacked load that never auto-updates.
-  if (installed.status === "warn") return row({ ...base, status: "needs-you", detail: "mattstack can't read Chrome's profile; grant Full Disk Access to mattstack.app, or skip if Fast Browser shows in chrome://extensions", action: FAST_BROWSER_PROFILE_ACCESS_STEPS });
-  if (installed.status !== "pass") return row({ ...base, status: "needs-you", detail: doctorText(installed.message) ?? "not installed in Chrome", action: doctorRemedy(installed) });
+  if (installed.status === "warn") return row({ ...base, status: "needs-you", detail: "mattstack cannot read Chrome's profile. Grant Full Disk Access to mattstack.app, or skip this if Fast Browser shows in chrome://extensions", action: FAST_BROWSER_PROFILE_ACCESS_STEPS });
+  if (installed.status !== "pass") return row({ ...base, status: "needs-you", detail: doctorText(installed.message) ?? "Not installed in Chrome", action: doctorRemedy(installed) });
 
   const extension = checkState(probe.doctor, "extension-loaded");
-  if (extension === "absent") return row({ ...base, status: "error", detail: `fast-browser doctor report has no extension-loaded check; ${DOCTOR_CHECK_MISSING_REMEDY}`, action: FAST_BROWSER_RECHECK });
+  if (extension === "absent") return row({ ...base, status: "error", detail: `Fast Browser's doctor report has no extension-loaded check; ${DOCTOR_CHECK_MISSING_REMEDY}`, action: FAST_BROWSER_RECHECK });
   // A stale unpacked load needs Chrome's reload arrow; loading unpacked again
   // wipes the reconnect token and forces a re-pair.
-  if (extension === "fail") return row({ ...base, status: "needs-you", detail: "not loaded in Chrome", action: doctorRemedy(probe.doctor.checks?.find((c) => c.id === "extension-loaded")) });
+  if (extension === "fail") return row({ ...base, status: "needs-you", detail: "Not loaded in Chrome", action: doctorRemedy(probe.doctor.checks?.find((c) => c.id === "extension-loaded")) });
 
   // Trust doctor's own pairing check rather than a separate rule: pairing
   // passes whenever the connection mode isn't auto, and manual is the
   // documented default, so a loaded-but-unpaired manual-mode machine is not
   // an outstanding step.
   const pairing = checkState(probe.doctor, "pairing");
-  if (pairing === "absent") return row({ ...base, status: "error", detail: `fast-browser doctor report has no pairing check; ${DOCTOR_CHECK_MISSING_REMEDY}`, action: FAST_BROWSER_RECHECK });
-  if (pairing === "fail") return row({ ...base, status: "needs-you", detail: "loaded but not paired", action: FAST_BROWSER_PAIR_STEPS });
-  return row({ ...base, status: "ready", detail: "loaded and paired" });
+  if (pairing === "absent") return row({ ...base, status: "error", detail: `Fast Browser's doctor report has no pairing check; ${DOCTOR_CHECK_MISSING_REMEDY}`, action: FAST_BROWSER_RECHECK });
+  if (pairing === "fail") return row({ ...base, status: "needs-you", detail: "Loaded in Chrome but not paired yet", action: FAST_BROWSER_PAIR_STEPS });
+  return row({ ...base, status: "ready", detail: "Loaded and paired" });
 }
 
 // ─── tool.editor ───────────────────────────────────────────────────────────
@@ -392,7 +392,7 @@ function editorRow(seams: ToolsSeams): Row {
     recheck: "on-activate" as const,
   };
   const editors = seams.detectEditors();
-  if (editors.length === 0) return row({ ...base, status: "skipped", detail: "no editor found (works without this)" });
+  if (editors.length === 0) return row({ ...base, status: "skipped", detail: "No editor found. rt works without one" });
   return row({ ...base, status: "ready", detail: editors.map((e) => e.name).join(", ") });
 }
 
@@ -411,7 +411,7 @@ function chromeRow(p: Probes, reqs: PackRequirements[]): Row {
   };
   const found = CHROME_PATHS(p.home).some((path) => p.exists(path));
   if (found) return row({ ...base, status: "ready", detail: "Google Chrome installed" });
-  return row({ ...base, status: "missing", detail: "Google Chrome not found", action: CHROME_DOWNLOAD_ACTION });
+  return row({ ...base, status: "missing", detail: "Google Chrome is not installed", action: CHROME_DOWNLOAD_ACTION });
 }
 
 /** Not directly probeable (which Chrome profile is signed in isn't observable from disk) — surfaced only when a pack declares chrome.signedIntoApp, always as a manual confirm. */
@@ -425,7 +425,7 @@ function chromeSigninRow(reqs: PackRequirements[]): Row | null {
     title: "Chrome sign-in",
     why: `${declaring.pack} needs Chrome signed into ${profile}.`,
     required: false,
-    optionalNote: "Can't be checked automatically — confirm by hand.",
+    optionalNote: "Cannot be checked automatically; confirm it by hand.",
     recheck: "on-activate",
     status: "needs-you",
     detail: `Confirm Chrome is signed into ${profile}`,
@@ -463,11 +463,11 @@ async function missionControlRow(p: Probes): Promise<Row> {
     recheck: "on-activate" as const,
   };
   const res = await exec(p, ["defaults", "read", "com.apple.symbolichotkeys", "AppleSymbolicHotKeys"]);
-  if (res.code === 124) return row({ ...base, status: "error", detail: "defaults read timed out" });
-  if (res.code !== 0) return row({ ...base, status: "skipped", detail: "could not read Keyboard shortcut settings" });
+  if (res.code === 124) return row({ ...base, status: "error", detail: "The keyboard shortcut check did not answer in time" });
+  if (res.code !== 0) return row({ ...base, status: "skipped", detail: "Could not read your keyboard shortcut settings" });
 
-  if (missionControlUnbound(res.stdout)) return row({ ...base, status: "ready", detail: "Control+Up is free for rt's nav picker" });
-  return row({ ...base, status: "needs-you", detail: "Control+Up is bound to Mission Control (rt nav uses it)", action: MISSION_CONTROL_SETTINGS_ACTION });
+  if (missionControlUnbound(res.stdout)) return row({ ...base, status: "ready", detail: "Control+Up is free for rt's picker" });
+  return row({ ...base, status: "needs-you", detail: "Control+Up opens Mission Control, and rt's picker needs it", action: MISSION_CONTROL_SETTINGS_ACTION });
 }
 
 // ─── tool.team.<name> — team-declared tools from pack requirements.jsonc ───
@@ -491,7 +491,7 @@ function teamToolRemedyAction(req: ToolRequirement, hasBrew: boolean, verb: "Ins
   if (brew && hasBrew && isValidBrewFormula(brew)) return { type: "install", label: verb, tool: req.name, via: "brew" };
   if (req.install?.url) return { type: "open-url", label: "Download", url: req.install.url };
   if (brew && !isValidBrewFormula(brew)) {
-    return { type: "steps", label: "Show steps…", steps: [`This pack's install.brew ("${brew}") isn't a plain formula name — rt won't auto-run it`, `brew install ${brew}`, "Then re-run rt setup status"] };
+    return { type: "steps", label: "Show steps…", steps: [`This pack's install.brew (${brew}) is not a plain formula name, so rt will not run it for you`, `brew install ${brew}`, "Then re-run rt setup status"] };
   }
   const step = verb === "Upgrade" && req.floor ? `Upgrade ${req.name} to ${req.floor}+` : `Install ${req.name}`;
   return { type: "steps", label: "Show steps…", steps: [step, "Then re-run rt setup status"] };
@@ -508,13 +508,13 @@ async function teamToolRow(p: Probes, req: ToolRequirement, hasBrew: boolean): P
   };
 
   const res = await exec(p, [req.name, "--version"]);
-  if (res.code === 127) return row({ ...base, status: "missing", detail: `${req.name} not found`, action: teamToolRemedyAction(req, hasBrew, "Install") });
-  if (res.code === 124) return row({ ...base, status: "error", detail: `${req.name} --version timed out` });
-  if (res.code !== 0) return row({ ...base, status: "error", detail: `could not run ${req.name} (exit ${res.code})` });
+  if (res.code === 127) return row({ ...base, status: "missing", detail: `${req.name} is not installed`, action: teamToolRemedyAction(req, hasBrew, "Install") });
+  if (res.code === 124) return row({ ...base, status: "error", detail: `${req.name} did not answer in time` });
+  if (res.code !== 0) return row({ ...base, status: "error", detail: `Could not run ${req.name} (exit ${res.code})` });
 
   const version = extractVersion(res.stdout);
   if (req.floor && !atLeast(version, req.floor)) {
-    return row({ ...base, status: "invalid", detail: `${req.name} ${version} < ${req.floor}`, action: teamToolRemedyAction(req, hasBrew, "Upgrade") });
+    return row({ ...base, status: "invalid", detail: `${req.name} ${version} is older than ${req.floor}`, action: teamToolRemedyAction(req, hasBrew, "Upgrade") });
   }
   return row({ ...base, status: "ready", detail: `${req.name} ${version}` });
 }
@@ -539,36 +539,36 @@ function packRow(req: PackRequirements, pluginList: ExecResult, served?: ServedP
   };
   if (req.error) return row({ ...base, status: "error", detail: req.error });
 
-  if (pluginList.code === 127) return row({ ...base, status: "skipped", detail: "claude not installed" });
-  if (pluginList.code === 124) return row({ ...base, status: "error", detail: "claude plugin list timed out" });
+  if (pluginList.code === 127) return row({ ...base, status: "skipped", detail: "Claude Code is not installed" });
+  if (pluginList.code === 124) return row({ ...base, status: "error", detail: "Claude Code's plugin list did not answer in time" });
   // Any other non-zero (corrupt config, a permissions error, a crashed CLI)
   // is a real failure this module could not determine past — "skipped"
   // reads as "nothing to check here", which a genuine failure is not.
-  if (pluginList.code !== 0) return row({ ...base, status: "error", detail: `claude plugin list failed (exit ${pluginList.code})` });
+  if (pluginList.code !== 0) return row({ ...base, status: "error", detail: `Could not list Claude Code's plugins (exit ${pluginList.code})` });
 
   const entries = parsePluginList(pluginList.stdout);
-  if (!entries) return row({ ...base, status: "error", detail: "claude plugin list --json output could not be read" });
+  if (!entries) return row({ ...base, status: "error", detail: "Claude Code's plugin list could not be read" });
   const entry = entries.find((e) => e.id === `${req.pack}@${served?.id.split("@")[1] ?? ""}`) ?? entries.find((e) => e.id.startsWith(`${req.pack}@`));
 
   if (served && served.servedVersion === null && !entry) {
     // optionalNote is dropped: base carries "Installed by Install", which
     // contradicts this row's own detail.
-    return row({ ...base, optionalNote: null, status: "skipped", detail: "version unknown; rt does not track this source's version" });
+    return row({ ...base, optionalNote: null, status: "skipped", detail: "Version unknown; rt does not track this source's version" });
   }
-  if (!entry) return row({ ...base, status: "missing", detail: "not installed yet", action: applyStepAction("Install plugins", "plugins.install") });
+  if (!entry) return row({ ...base, status: "missing", detail: "Not installed yet", action: applyStepAction("Install plugins", "plugins.install") });
 
   const installed = entry.version ?? "unknown";
   if (served && served.servedVersion !== null && entry.version !== null && entry.version !== served.servedVersion) {
-    return row({ ...base, status: "needs-you", detail: `installed ${installed}, team serves ${served.servedVersion}`, action: INSTALL_PLUGINS_ACTION });
+    return row({ ...base, status: "needs-you", detail: `Installed ${installed}; the team serves ${served.servedVersion}`, action: INSTALL_PLUGINS_ACTION });
   }
   // No served pack AND no version to report: the pre-existing wording is a
   // pinned contract string, so it stays exactly "installed".
-  if (!served && entry.version === null) return row({ ...base, status: "ready", detail: "installed" });
+  if (!served && entry.version === null) return row({ ...base, status: "ready", detail: "Installed" });
   if (!served || served.servedVersion === null) {
-    return row({ ...base, status: "ready", detail: entry.version === null ? "installed version unknown, served version unknown" : `${installed} installed, served version unknown` });
+    return row({ ...base, status: "ready", detail: entry.version === null ? "Installed, version unknown" : `${installed} installed; the served version is unknown` });
   }
   if (entry.version === null) {
-    return row({ ...base, status: "ready", detail: `installed version unknown, team serves ${served.servedVersion}` });
+    return row({ ...base, status: "ready", detail: `Installed, version unknown; the team serves ${served.servedVersion}` });
   }
   const caveat = "a Claude session started before this version landed uses the old cache until it restarts";
   const enablement = entry.enabled ? "installed and enabled" : `installed, not enabled ... claude plugin enable ${entry.id}`;
@@ -587,23 +587,23 @@ function pluginsRow(pluginList: ExecResult): Row {
     required: false,
     optionalNote: INSTALLED_BY_INSTALL_NOTE,
   };
-  if (pluginList.code === 127) return row({ ...base, status: "skipped", detail: "claude not installed" });
-  if (pluginList.code === 124) return row({ ...base, status: "error", detail: "claude plugin list timed out" });
-  if (pluginList.code !== 0) return row({ ...base, status: "error", detail: `claude plugin list failed (exit ${pluginList.code})` });
+  if (pluginList.code === 127) return row({ ...base, status: "skipped", detail: "Claude Code is not installed" });
+  if (pluginList.code === 124) return row({ ...base, status: "error", detail: "Claude Code's plugin list did not answer in time" });
+  if (pluginList.code !== 0) return row({ ...base, status: "error", detail: `Could not list Claude Code's plugins (exit ${pluginList.code})` });
 
   const entries = parsePluginList(pluginList.stdout);
-  if (!entries) return row({ ...base, status: "error", detail: "claude plugin list --json output could not be read" });
+  if (!entries) return row({ ...base, status: "error", detail: "Claude Code's plugin list could not be read" });
 
   const byId = new Map(entries.map((e) => [e.id, e]));
   const expected = BASE_PLUGINS.map((id) => resolveBasePlugin(id, (candidate) => byId.has(candidate)));
   const absent = expected.filter((id) => !byId.has(id));
-  if (absent.length > 0) return row({ ...base, status: "missing", detail: `not installed: ${absent.join(", ")}`, action: INSTALL_PLUGINS_ACTION });
+  if (absent.length > 0) return row({ ...base, status: "missing", detail: `Not installed: ${absent.join(", ")}`, action: INSTALL_PLUGINS_ACTION });
 
   // `plugins.install` only enables a plugin best-effort, and disabling one is
   // a deliberate user choice rather than a broken install: needs-you (not
   // invalid) so verify names it and nags without going critical.
   const disabled = expected.filter((id) => byId.get(id)!.enabled !== true);
-  if (disabled.length > 0) return row({ ...base, status: "needs-you", detail: `disabled: ${disabled.join(", ")}`, action: ENABLE_PLUGINS_ACTION });
+  if (disabled.length > 0) return row({ ...base, status: "needs-you", detail: `Disabled: ${disabled.join(", ")}`, action: ENABLE_PLUGINS_ACTION });
 
   return row({ ...base, status: "ready", detail: `${BASE_PLUGINS.length} plugins installed` });
 }
@@ -630,22 +630,22 @@ async function proxyRow(p: Probes): Promise<Row> {
     const ready = p.exists(PORTLESS_LAUNCHD_PLIST) && !proxyPredatesMattstack(p);
     return row({ ...base, status: ready ? "ready" : "skipped", detail: ready ? `portless ${deployedProxyVersion(p) ?? "installed"}` : PROXY_INSTALLER_MISSING });
   }
-  if (!p.exists(PORTLESS_LAUNCHD_PLIST)) return row({ ...base, status: "missing", detail: "not installed", action: reRunProxyInstallAction("Install proxy") });
+  if (!p.exists(PORTLESS_LAUNCHD_PLIST)) return row({ ...base, status: "missing", detail: "Not installed", action: reRunProxyInstallAction("Install proxy") });
 
   // A plist with no VERSION beside it is the machine deck's own README
   // produces (`portless service install`), not a broken install: the same
   // remedy adopts it, because the helper replaces whatever daemon is running.
   if (proxyPredatesMattstack(p)) {
-    return row({ ...base, status: "needs-you", detail: "An existing portless install predates mattstack; Update proxy adopts it", action: reRunProxyInstallAction("Update proxy") });
+    return row({ ...base, status: "needs-you", detail: "A portless install from before mattstack is present. Update proxy adopts it", action: reRunProxyInstallAction("Update proxy") });
   }
 
   const deployedVersion = deployedProxyVersion(p);
-  if (deployedVersion === null) return row({ ...base, status: "error", detail: `${PROXY_VERSION_PATH} could not be read` });
+  if (deployedVersion === null) return row({ ...base, status: "error", detail: `Could not read ${PROXY_VERSION_PATH}` });
 
   const pinned = pinnedPortlessVersion(p);
-  if (!pinned) return row({ ...base, status: "error", detail: "bundle's deps.lock has no pinned portless version" });
+  if (!pinned) return row({ ...base, status: "error", detail: "This build does not pin a portless version" });
   if (deployedVersion !== pinned) {
-    return row({ ...base, status: "needs-you", detail: `proxy runs portless ${deployedVersion}, bundle pins ${pinned}`, action: reRunProxyInstallAction("Update proxy") });
+    return row({ ...base, status: "needs-you", detail: `The proxy runs portless ${deployedVersion}; this build ships ${pinned}`, action: reRunProxyInstallAction("Update proxy") });
   }
 
   // The right version, running, but untrusted: macOS gates the trust write
@@ -684,12 +684,12 @@ function stateBackupRow(p: Probes, seams: ToolsSeams): Row {
     return row({
       ...base,
       status: "needs-you",
-      detail: `not found: ${missing.join(", ")}`,
+      detail: `Not installed: ${missing.join(", ")}`,
       action: {
         type: "steps",
         label: "Show steps…",
         steps: [
-          "Update mattstack.app — it ships age, zstd and git-lfs",
+          "Update mattstack.app; it ships age, zstd and git-lfs",
           `Or install them yourself: brew install ${missing.join(" ")}`,
           "Then re-run rt setup status",
         ],
@@ -701,10 +701,10 @@ function stateBackupRow(p: Probes, seams: ToolsSeams): Row {
   const onPath = resolutions.filter((r) => !r.bundled).map((r) => r.tool);
   if (onPath.length === 0) return row({ ...base, status: "ready", detail: `${bundled.join(", ")} from mattstack.app` });
   if (bundled.length === 0) {
-    return row({ ...base, status: "ready", detail: `${onPath.join(", ")} from your own copies on PATH` });
+    return row({ ...base, status: "ready", detail: `${onPath.join(", ")} from your own copies on your PATH` });
   }
   const copies = onPath.length === 1 ? "copy" : "copies";
-  return row({ ...base, status: "ready", detail: `${bundled.join(", ")} from mattstack.app; ${onPath.join(", ")} from your own ${copies} on PATH` });
+  return row({ ...base, status: "ready", detail: `${bundled.join(", ")} from mattstack.app; ${onPath.join(", ")} from your own ${copies} on your PATH` });
 }
 
 // ─── tool.linear-mcp ────────────────────────────────────────────────────────
@@ -725,11 +725,11 @@ async function linearMcpRow(p: Probes, secrets: SecretPresence): Promise<Row> {
   const path = claudeJsonPath(p);
   const read = readClaudeConfig(p, path);
   if (!read.ok && read.reason === "unparsable") return row({ ...base, status: "error", detail: `${path} is not valid JSON` });
-  if (!read.ok && read.reason === "unreadable") return row({ ...base, status: "error", detail: `${path} could not be read` });
+  if (!read.ok && read.reason === "unreadable") return row({ ...base, status: "error", detail: `Could not read ${path}` });
 
   const config = read.ok ? read.config : {};
-  if (callableBySkills(config)) return row({ ...base, status: "ready", detail: "linear" });
-  if (nameTaken(config)) return row({ ...base, status: "needs-you", detail: "a server named linear is not a Linear MCP" });
+  if (callableBySkills(config)) return row({ ...base, status: "ready", detail: "Linear is set up in Claude Code" });
+  if (nameTaken(config)) return row({ ...base, status: "needs-you", detail: "Claude Code has a server named linear that is not Linear's" });
 
   // Every remaining state depends on the key, because Install skips without
   // one: a row promising Install will act, on a machine where it would not,
@@ -747,11 +747,11 @@ async function linearMcpRow(p: Probes, secrets: SecretPresence): Promise<Row> {
   if (others.length > 0) {
     const present = `Linear MCP present as ${others.join(", ")}`;
     return hasKey
-      ? row({ ...base, status: "missing", detail: `${present}; linear is not added yet, and skills call mcp__linear__*`, action: ADD_LINEAR_MCP_ACTION })
-      : row({ ...base, status: "needs-you", detail: `${present}; connect Linear so Install can add linear`, action: CONNECT_LINEAR_ACTION });
+      ? row({ ...base, status: "missing", detail: `${present}. Linear is not added to Claude Code yet, and the skills need it`, action: ADD_LINEAR_MCP_ACTION })
+      : row({ ...base, status: "needs-you", detail: `${present}. Connect Linear so Install can add it to Claude Code`, action: CONNECT_LINEAR_ACTION });
   }
 
-  if (!hasKey) return row({ ...base, status: "needs-you", detail: "no Linear account connected", action: CONNECT_LINEAR_ACTION });
+  if (!hasKey) return row({ ...base, status: "needs-you", detail: "No Linear account connected yet", action: CONNECT_LINEAR_ACTION });
   return row({ ...base, status: "missing", detail: "Linear is connected but not added to Claude Code yet", action: ADD_LINEAR_MCP_ACTION });
 }
 

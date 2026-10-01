@@ -134,7 +134,7 @@ export async function loginsOpenAdd(args: string[], _ctx: CommandContext = {}, o
   try {
     const origin = await originArg("open-add", args, json, d);
     const url = devLoginAddUrl(origin);
-    if (!d.openUrl(url)) throw new UserActionableError("open-failed", "couldn't open mattstack; is the app installed?");
+    if (!d.openUrl(url)) throw new UserActionableError("open-failed", "Could not open mattstack. Is the app installed?");
     if (json) d.json({ ok: true, url });
     else out.print(out.line("done", `Opened mattstack to save a dev login for ${origin}`));
   } catch (err) {

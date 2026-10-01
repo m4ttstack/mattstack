@@ -109,7 +109,7 @@ function stripTrailingSlash(s: string): string {
 
 /** p.fetch's documented status-0 stand-in for "the request never reached the service" — never a real HTTP response, so never a credential signal. */
 function unreachableDetail(host: string): string {
-  return `couldn't reach ${host} — check your network or proxy`;
+  return `Could not reach ${host}. Check your network or proxy`;
 }
 
 function isCredentialRejection(status: number): boolean {
@@ -148,18 +148,18 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
     async validate(p, token, ctx) {
       const userRes = await p.fetch("https://api.github.com/user", { headers: githubHeaders(token) });
       if (userRes.status === 0) return { status: "error", detail: unreachableDetail("api.github.com"), scopesSeen: [] };
-      if (isCredentialRejection(userRes.status)) return { status: "invalid", detail: `github /user returned ${userRes.status}`, scopesSeen: [] };
-      if (userRes.status !== 200) return { status: "error", detail: `github /user returned ${userRes.status}`, scopesSeen: [] };
+      if (isCredentialRejection(userRes.status)) return { status: "invalid", detail: `GitHub answered HTTP ${userRes.status} to the account check`, scopesSeen: [] };
+      if (userRes.status !== 200) return { status: "error", detail: `GitHub answered HTTP ${userRes.status} to the account check`, scopesSeen: [] };
       const scopesSeen = parseHeaderList(userRes.headers["x-oauth-scopes"]);
 
       const project = ctx.team.remote ? parseGithubRemote(ctx.team.remote) : null;
       if (project) {
         const repoRes = await p.fetch(`https://api.github.com/repos/${project.owner}/${project.repo}`, { headers: githubHeaders(token) });
         if (repoRes.status === 0) return { status: "error", detail: unreachableDetail("api.github.com"), scopesSeen };
-        if (repoRes.status === 404) return { status: "invalid", detail: `token can't see ${project.owner}/${project.repo}`, scopesSeen };
-        if (repoRes.status !== 200) return { status: "error", detail: `github repo lookup returned ${repoRes.status}`, scopesSeen };
+        if (repoRes.status === 404) return { status: "invalid", detail: `This token cannot see ${project.owner}/${project.repo}`, scopesSeen };
+        if (repoRes.status !== 200) return { status: "error", detail: `GitHub answered HTTP ${repoRes.status} to the repo lookup`, scopesSeen };
       }
-      return { status: "ready", detail: "github token valid", scopesSeen };
+      return { status: "ready", detail: "GitHub token works", scopesSeen };
     },
     expiry: githubExpiry,
   },
@@ -180,7 +180,7 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
         // ask, so this must never imply the token itself is bad.
         return {
           status: "error",
-          detail: `your team declares GitLab host "${ctx.declaredHost}" — unverified; run \`rt setup gitlab connect --host ${ctx.declaredHost}\` to confirm it yourself`,
+          detail: `Your team uses the GitLab host ${ctx.declaredHost}. Run rt setup gitlab connect --host ${ctx.declaredHost} to confirm that address`,
           scopesSeen: [],
         };
       }
@@ -189,8 +189,8 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
 
       const userRes = await p.fetch(`https://${host}/api/v4/user`, { headers });
       if (userRes.status === 0) return { status: "error", detail: unreachableDetail(host), scopesSeen: [] };
-      if (isCredentialRejection(userRes.status)) return { status: "invalid", detail: `gitlab /user returned ${userRes.status}`, scopesSeen: [] };
-      if (userRes.status !== 200) return { status: "error", detail: `gitlab /user returned ${userRes.status}`, scopesSeen: [] };
+      if (isCredentialRejection(userRes.status)) return { status: "invalid", detail: `GitLab answered HTTP ${userRes.status} to the account check`, scopesSeen: [] };
+      if (userRes.status !== 200) return { status: "error", detail: `GitLab answered HTTP ${userRes.status} to the account check`, scopesSeen: [] };
 
       let scopesSeen: string[] = [];
       const selfRes = await p.fetch(`https://${host}/api/v4/personal_access_tokens/self`, { headers });
@@ -207,10 +207,10 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
       if (path) {
         const projRes = await p.fetch(`https://${host}/api/v4/projects/${encodeURIComponent(path)}`, { headers });
         if (projRes.status === 0) return { status: "error", detail: unreachableDetail(host), scopesSeen };
-        if (projRes.status === 404 || projRes.status === 403) return { status: "invalid", detail: `token can't see ${path}`, scopesSeen };
-        if (projRes.status !== 200) return { status: "error", detail: `gitlab project lookup returned ${projRes.status}`, scopesSeen };
+        if (projRes.status === 404 || projRes.status === 403) return { status: "invalid", detail: `This token cannot see ${path}`, scopesSeen };
+        if (projRes.status !== 200) return { status: "error", detail: `GitLab answered HTTP ${projRes.status} to the project lookup`, scopesSeen };
       }
-      return { status: "ready", detail: "gitlab token valid", scopesSeen };
+      return { status: "ready", detail: "GitLab token works", scopesSeen };
     },
     expiry: gitlabExpiry,
   },
@@ -228,20 +228,20 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
         body: JSON.stringify({ query: "{ viewer { id } teams { nodes { key } } }" }),
       });
       if (res.status === 0) return { status: "error", detail: unreachableDetail("api.linear.app"), scopesSeen: [] };
-      if (isCredentialRejection(res.status)) return { status: "invalid", detail: `linear API returned ${res.status}`, scopesSeen: [] };
-      if (res.status !== 200) return { status: "error", detail: `linear API returned ${res.status}`, scopesSeen: [] };
+      if (isCredentialRejection(res.status)) return { status: "invalid", detail: `Linear answered HTTP ${res.status}`, scopesSeen: [] };
+      if (res.status !== 200) return { status: "error", detail: `Linear answered HTTP ${res.status}`, scopesSeen: [] };
 
       let teamKeys: string[] = [];
       try {
         const parsed = JSON.parse(res.body) as { data?: { teams?: { nodes?: { key: string }[] } } };
         teamKeys = parsed.data?.teams?.nodes?.map((n) => n.key) ?? [];
       } catch {
-        return { status: "error", detail: "linear API returned unparsable JSON", scopesSeen: [] };
+        return { status: "error", detail: "Linear's answer could not be read", scopesSeen: [] };
       }
 
-      if (!ctx.linearTeamKey) return { status: "ready", detail: "viewer ok", scopesSeen: [] };
-      if (teamKeys.includes(ctx.linearTeamKey)) return { status: "ready", detail: `viewer ok, team ${ctx.linearTeamKey} found`, scopesSeen: [] };
-      return { status: "invalid", detail: `token can't see team ${ctx.linearTeamKey}`, scopesSeen: [] };
+      if (!ctx.linearTeamKey) return { status: "ready", detail: "Linear key works", scopesSeen: [] };
+      if (teamKeys.includes(ctx.linearTeamKey)) return { status: "ready", detail: `Linear key works and can see team ${ctx.linearTeamKey}`, scopesSeen: [] };
+      return { status: "invalid", detail: `This key cannot see team ${ctx.linearTeamKey}`, scopesSeen: [] };
     },
   },
 
@@ -262,11 +262,11 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
       try {
         data = JSON.parse(res.body);
       } catch {
-        return { status: "error", detail: "slack auth.test returned unparsable JSON", scopesSeen: [] };
+        return { status: "error", detail: "Slack's answer could not be read", scopesSeen: [] };
       }
 
-      if (data.ok === true) return { status: "ready", detail: `connected as ${data.team ?? "unknown team"}`, scopesSeen: parseHeaderList(res.headers["x-oauth-scopes"]) };
-      if (res.status !== 200) return { status: "error", detail: `slack auth.test failed (status ${res.status})`, scopesSeen: [] };
+      if (data.ok === true) return { status: "ready", detail: `Connected to ${data.team ?? "an unnamed workspace"}`, scopesSeen: parseHeaderList(res.headers["x-oauth-scopes"]) };
+      if (res.status !== 200) return { status: "error", detail: `Slack answered HTTP ${res.status} to the sign-in check`, scopesSeen: [] };
       return { status: "invalid", detail: data.error ? `slack error: ${data.error}` : "slack auth.test returned ok:false", scopesSeen: [] };
     },
   },
@@ -288,19 +288,19 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
         if (ctx.declaredHost) {
           return {
             status: "error",
-            detail: `your team declares switchboard at "${ctx.declaredHost}" — unverified; run \`rt setup switchboard connect --host ${ctx.declaredHost}\` to confirm it yourself`,
+            detail: `Your team's switchboard is at ${ctx.declaredHost}. Run rt setup switchboard connect --host ${ctx.declaredHost} to confirm that address`,
             scopesSeen: [],
           };
         }
-        return { status: "invalid", detail: "switchboard host not configured", scopesSeen: [] };
+        return { status: "invalid", detail: "No switchboard address set", scopesSeen: [] };
       }
-      if (!isValidHttpsUrl(ctx.host)) return { status: "invalid", detail: `switchboard host "${ctx.host}" must be a valid https URL`, scopesSeen: [] };
+      if (!isValidHttpsUrl(ctx.host)) return { status: "invalid", detail: `The switchboard address ${ctx.host} must be a valid https URL`, scopesSeen: [] };
       const base = stripTrailingSlash(ctx.host);
       const res = await p.fetch(`${base}/healthz`);
       if (res.status === 0) return { status: "error", detail: unreachableDetail(base), scopesSeen: [] };
       // Never "invalid": there is no credential here to have been rejected.
-      if (res.status !== 200) return { status: "error", detail: `switchboard /healthz returned ${res.status}`, scopesSeen: [] };
-      return { status: "ready", detail: "switchboard reachable", scopesSeen: [] };
+      if (res.status !== 200) return { status: "error", detail: `The switchboard answered HTTP ${res.status} to its health check`, scopesSeen: [] };
+      return { status: "ready", detail: "Switchboard reachable", scopesSeen: [] };
     },
   },
 
@@ -311,17 +311,17 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
     fields: [{ name: "email", label: "StrongDM email", secret: false }],
     secret: { domain: "rt", key: "sdmEmail" },
     async validate(p, email) {
-      if (email.trim() === "") return { status: "invalid", detail: "no email configured", scopesSeen: [] };
+      if (email.trim() === "") return { status: "invalid", detail: "No email set", scopesSeen: [] };
       const res = await p.exec(["sdm", "status"]);
-      if (res.code === 127) return { status: "invalid", detail: "sdm not installed", scopesSeen: [] };
-      if (res.code === 124) return { status: "error", detail: "sdm status timed out", scopesSeen: [] };
+      if (res.code === 127) return { status: "invalid", detail: "sdm is not installed", scopesSeen: [] };
+      if (res.code === 124) return { status: "error", detail: "sdm did not answer in time", scopesSeen: [] };
       // `sdm status` never prints the account email, so the email is config
       // for the login flow, not the liveness signal; interpretSdmStatus's
       // table-header check is what distinguishes a live session.
       const health = interpretSdmStatus(null, res.code, `${res.stdout}\n${res.stderr}`);
-      if (health.status === "ok") return { status: "ready", detail: "sdm session active", scopesSeen: [] };
+      if (health.status === "ok") return { status: "ready", detail: "Signed in to sdm", scopesSeen: [] };
       if (health.status === "not-authenticated") {
-        return { status: "invalid", detail: "sdm is not authenticated (run `sdm login`)", scopesSeen: [] };
+        return { status: "invalid", detail: "Not signed in to sdm. Run sdm login", scopesSeen: [] };
       }
       return { status: "error", detail: health.message ?? "sdm status failed", scopesSeen: [] };
     },
@@ -334,10 +334,10 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
     fields: [],
     async validate(p) {
       const res = await p.exec(["doppler", "me", "--json"]);
-      if (res.code === 127) return { status: "invalid", detail: "doppler not installed", scopesSeen: [] };
-      if (res.code === 124) return { status: "error", detail: "doppler me timed out", scopesSeen: [] };
-      if (res.code === 0) return { status: "ready", detail: "doppler session active", scopesSeen: [] };
-      return { status: "invalid", detail: "doppler me failed", scopesSeen: [] };
+      if (res.code === 127) return { status: "invalid", detail: "doppler is not installed", scopesSeen: [] };
+      if (res.code === 124) return { status: "error", detail: "doppler did not answer in time", scopesSeen: [] };
+      if (res.code === 0) return { status: "ready", detail: "Signed in to doppler", scopesSeen: [] };
+      return { status: "invalid", detail: "Not signed in to doppler", scopesSeen: [] };
     },
   },
 
@@ -348,16 +348,16 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
     fields: [],
     async validate(p) {
       const res = await p.exec(["ldcli", "config", "--list"]);
-      if (res.code === 127) return { status: "invalid", detail: "ldcli not installed", scopesSeen: [] };
-      if (res.code === 124) return { status: "error", detail: "ldcli config --list timed out", scopesSeen: [] };
-      if (res.code === 0) return { status: "ready", detail: "ldcli session active", scopesSeen: [] };
-      return { status: "invalid", detail: "ldcli config --list failed", scopesSeen: [] };
+      if (res.code === 127) return { status: "invalid", detail: "ldcli is not installed", scopesSeen: [] };
+      if (res.code === 124) return { status: "error", detail: "ldcli did not answer in time", scopesSeen: [] };
+      if (res.code === 0) return { status: "ready", detail: "Signed in to ldcli", scopesSeen: [] };
+      return { status: "invalid", detail: "ldcli is not set up", scopesSeen: [] };
     },
   },
 };
 
 export function integrationDef(id: string): IntegrationDef {
   const def = (INTEGRATIONS as Record<string, IntegrationDef>)[id];
-  if (!def) throw new UserActionableError("unknown-integration", `unknown integration "${id}"`);
+  if (!def) throw new UserActionableError("unknown-integration", `rt does not know an integration named ${id}`);
   return def;
 }

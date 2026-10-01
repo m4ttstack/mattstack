@@ -85,7 +85,7 @@ describe("materializeSkills", () => {
     const row = result.repos.find((r) => r.name === name)!;
     expect(row.ok).toBe(true);
     expect(row.packs?.[0]).toMatchObject({ pack: "widgets", ok: true, path: join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc") });
-    expect(row.detail).toBe("wrote 1 pack file: widgets");
+    expect(row.detail).toBe("Wrote 1 pack file: widgets");
   });
 
   test("a repo with no remote is noManifest, not a failure", async () => {
@@ -102,7 +102,7 @@ describe("materializeSkills", () => {
     const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
     const result = await materializeSkills(p, {});
     if (result.skipped) throw new Error("skipped");
-    expect(result.repos[0]).toMatchObject({ ok: false, noManifest: true, detail: "no team declares gitlab.example.com/acme/other" });
+    expect(result.repos[0]).toMatchObject({ ok: false, noManifest: true, detail: "No team covers gitlab.example.com/acme/other" });
   });
 
   test("a declaring zone that holds no pack is noManifest, not a success", async () => {

@@ -210,7 +210,7 @@ function resolveStepArg(args: string[], flag: "--from" | "--only"): StepId | und
   if (i < 0) return undefined;
   const value = args[i + 1];
   if (value === undefined || value.startsWith("--")) {
-    throw new UserActionableError("unknown-step", `${flag} requires a step id; valid ids: ${STEP_IDS.join(", ")}`);
+    throw new UserActionableError("unknown-step", `${flag} needs a step. Steps: ${STEP_IDS.join(", ")}`);
   }
   return value as StepId;
 }
@@ -527,7 +527,7 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
         const folders = teams.map((slug) => `~/.mattstack/teams/${slug}`).join(" and ");
         throw new UserActionableError(
           "team-exists",
-          `a team is already set up on this Mac (${teams.join(", ")}); Just me needs a Mac with no team. Remove ${folders} or pick Join or Create instead.`,
+          `A team is already set up on this Mac (${teams.join(", ")}), and Just me needs a Mac with no team. Remove ${folders}, or pick Join or Create instead.`,
         );
       }
       writeIntent(deps.probes, { v: 1, at: deps.probes.now().toISOString(), mode: "solo" });
@@ -637,7 +637,7 @@ export async function setupRepoRootSet(args: string[], _ctx: CommandContext = {}
       }
       const input = await deps.stdin();
       raw = extractRepoRootArg(input) ?? undefined;
-      if (!raw) throw new UserActionableError("bad-stdin", 'no root path provided; pipe {"root": "<path>"} on stdin instead');
+      if (!raw) throw new UserActionableError("bad-stdin", 'No folder given. Pipe {"root": "<path>"} on stdin');
     }
 
     const check = checkRepoRoot(deps.probes, raw);
@@ -712,10 +712,10 @@ function extractHomeRemoteInput(input: unknown): { url?: string; create?: boolea
 
 function assertRemoteUrl(url: string): void {
   if (hasUrlCredentials(url)) {
-    throw new UserActionableError("bad-url", "the remote URL carries a password; drop it and let a credential helper (gh auth setup-git) supply it");
+    throw new UserActionableError("bad-url", "The remote URL carries a password. Drop it and let a credential helper (gh auth setup-git) supply it");
   }
   if (!GIT_REMOTE_URL_PATTERN.test(url)) {
-    throw new UserActionableError("bad-url", `"${withoutUrls(url)}" is not a git remote (https://host/owner/repo.git, git@host:owner/repo.git or host:owner/repo.git)`);
+    throw new UserActionableError("bad-url", `${withoutUrls(url)} is not a git remote (https://host/owner/repo.git, git@host:owner/repo.git or host:owner/repo.git)`);
   }
 }
 
@@ -744,14 +744,14 @@ export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, d
       url = input.url;
       create = input.create ?? false;
       name = input.name ?? name;
-      if (!url && !create) throw new UserActionableError("bad-stdin", 'no remote provided; pipe {"url": "<git url>"} or {"alternative": "create"} on stdin instead');
-      if (name !== undefined && !REPO_NAME_PATTERN.test(name)) throw new UserActionableError("bad-stdin", "name must be a repo name (letters, digits, dots, dashes)");
+      if (!url && !create) throw new UserActionableError("bad-stdin", 'No remote given. Pipe {"url": "<git url>"} or {"alternative": "create"} on stdin');
+      if (name !== undefined && !REPO_NAME_PATTERN.test(name)) throw new UserActionableError("bad-stdin", "The name must be a repo name (letters, digits, dots, dashes)");
     }
     if (url) assertRemoteUrl(url);
 
     const repoDir = join(deps.probes.home, ".mattstack", "user");
     if (!deps.probes.exists(homeGitDir(deps.probes.home))) {
-      throw new UserActionableError("no-home-repo", `no home repo at ${repoDir} yet; Install creates it (rt home init)`);
+      throw new UserActionableError("no-home-repo", `No home repo at ${repoDir} yet. Install creates it, or run rt home init`);
     }
 
     let created = false;
@@ -759,10 +759,10 @@ export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, d
       const repoName = name ?? HOME_REMOTE_DEFAULT_NAME;
       const gh = await deps.probes.exec(["gh", "repo", "create", repoName, "--private"], { timeoutMs: 60_000, env: NO_PROMPT_ENV });
       if (gh.code !== 0) {
-        throw new UserActionableError("create-failed", `gh repo create ${repoName} failed: ${withoutUrls((gh.stderr || gh.stdout).trim()) || `exit ${gh.code}`}`);
+        throw new UserActionableError("create-failed", `Could not create ${repoName} with gh: ${withoutUrls((gh.stderr || gh.stdout).trim()) || `exit ${gh.code}`}`);
       }
       const printed = gh.stdout.trim().split("\n").find((line) => /^https?:\/\//.test(line.trim()))?.trim();
-      if (!printed) throw new UserActionableError("create-failed", `gh repo create ${repoName} printed no repository URL`);
+      if (!printed) throw new UserActionableError("create-failed", `gh created ${repoName} but printed no repository URL`);
       url = printed.endsWith(".git") ? printed : `${printed}.git`;
       assertRemoteUrl(url);
       created = true;
@@ -776,7 +776,7 @@ export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, d
         ? ["git", "-C", repoDir, "remote", "set-url", "origin", url]
         : ["git", "-C", repoDir, "remote", "add", "origin", url],
     );
-    if (set.code !== 0) throw new UserActionableError("remote-failed", `git remote ${remote === "updated" ? "set-url" : "add"} failed: ${withoutUrls(set.stderr.trim()) || `exit ${set.code}`}`);
+    if (set.code !== 0) throw new UserActionableError("remote-failed", `Could not set the remote: ${withoutUrls(set.stderr.trim()) || `exit ${set.code}`}`);
 
     const push = await deps.probes.exec(["git", "-C", repoDir, "push", "-u", "origin", "HEAD"], { timeoutMs: 120_000, env: NO_PROMPT_ENV });
     if (push.code !== 0) {
@@ -785,11 +785,11 @@ export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, d
         // The old origin was working; a URL that cannot take a push must not replace it.
         const restore = await deps.probes.exec(["git", "-C", repoDir, "remote", "set-url", "origin", previous]);
         if (restore.code !== 0) {
-          throw new UserActionableError("push-failed", `the push to the new URL failed, and the previous origin could not be restored (${withoutUrls(restore.stderr.trim()) || `exit ${restore.code}`}); check git remote -v in ${repoDir}: ${reason}`);
+          throw new UserActionableError("push-failed", `The push to the new URL failed, and the previous origin could not be restored (${withoutUrls(restore.stderr.trim()) || `exit ${restore.code}`}). Check git remote -v in ${repoDir}: ${reason}`);
         }
-        throw new UserActionableError("push-failed", `the push to the new URL failed (origin restored to the previous remote): ${reason}`);
+        throw new UserActionableError("push-failed", `The push to the new URL failed, so origin is back on the previous remote: ${reason}`);
       }
-      throw new UserActionableError("push-failed", `origin is set, but the push failed: ${reason}`);
+      throw new UserActionableError("push-failed", `Origin is set, but the push failed: ${reason}`);
     }
 
     if (json) deps.json(envelope({ url, remote, pushed: true, created }, deps.probes.now()));
@@ -948,7 +948,7 @@ export function realOAuthListen(port: number, expectedState: string): Promise<st
           settle(() => {
             server.stop();
             if (state !== expectedState) {
-              reject(new Error("slack callback state did not match — rejecting a possibly forged authorization code"));
+              reject(new Error("The Slack callback's state did not match, so rt rejected a possibly forged authorization code"));
             } else if (code) {
               resolve(code);
             } else {
@@ -983,6 +983,9 @@ export function realConnectDeps(): ConnectDeps {
 }
 
 const EMPTY_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
+
+/** A connect that took its token from gh reports this, and the scope shortfall reads it back to offer a gh refresh. */
+const GH_SOURCE_DETAIL = "Signed in through the gh CLI";
 
 /** Mirrors composePlan's own team resolution (readIntent → teamRefFromIntent → readTeamSnapshot → forge enrichment) without the `--team` override these single-integration verbs don't take. */
 function realResolveTeamSnapshot(p: Probes): TeamSnapshot {
@@ -1095,8 +1098,8 @@ async function evalGithub(p: Probes, secrets: SecretPresence, ctx: ValidateCtx):
   let base: IntegrationEval;
   if (stored === null) {
     base = ghAuthed
-      ? { status: "ready", detail: "via gh", scopesSeen: [] }
-      : { status: "missing", detail: ghStatus.code === 127 ? "no GitHub account connected (gh CLI not installed)" : "no GitHub account connected", scopesSeen: [] };
+      ? { status: "ready", detail: GH_SOURCE_DETAIL, scopesSeen: [] }
+      : { status: "missing", detail: ghStatus.code === 127 ? "No GitHub account connected yet, and the gh CLI is not installed" : "No GitHub account connected yet", scopesSeen: [] };
   } else {
     base = nonErrorEval(await def.validate(p, stored, ctx));
   }
@@ -1112,10 +1115,10 @@ async function evalGithub(p: Probes, secrets: SecretPresence, ctx: ValidateCtx):
 async function evalSlack(p: Probes, secrets: SecretPresence, snapshot: TeamSnapshot): Promise<IntegrationEval> {
   const def = integrationDef("slack");
   if (!snapshot.integrations.slack?.clientId) {
-    return { status: "missing", detail: "waiting on the team's Slack app (see account.slack-app)", scopesSeen: [] };
+    return { status: "missing", detail: "Waiting for the team's Slack app to be set up", scopesSeen: [] };
   }
   const stored = await secrets.has(def.secret!.domain, def.secret!.key);
-  if (stored === null) return { status: "missing", detail: "no Slack account connected", scopesSeen: [] };
+  if (stored === null) return { status: "missing", detail: "No Slack account connected yet", scopesSeen: [] };
   return nonErrorEval(await def.validate(p, stored, ctxFor("slack", snapshot, {})));
 }
 
@@ -1125,7 +1128,7 @@ async function evalGeneric(id: Integration, p: Probes, secrets: SecretPresence, 
     return nonErrorEval(await def.validate(p, "", ctx));
   }
   const stored = await secrets.has(def.secret.domain, def.secret.key);
-  if (stored === null) return { status: "missing", detail: `no ${def.title} account connected`, scopesSeen: [] };
+  if (stored === null) return { status: "missing", detail: `No ${def.title} account connected yet`, scopesSeen: [] };
   return nonErrorEval(await def.validate(p, stored, ctx));
 }
 
@@ -1229,7 +1232,7 @@ export async function setupUnwaive(args: string[], _ctx: CommandContext = {}, de
 
 async function ghAuthToken(p: Probes): Promise<string> {
   const res = await p.exec(["gh", "auth", "token"]);
-  if (res.code !== 0) throw new UserActionableError("gh-token-failed", "gh auth token failed — run `gh auth login` first");
+  if (res.code !== 0) throw new UserActionableError("gh-token-failed", "Could not read a token from gh. Run gh auth login first");
   return res.stdout.trim();
 }
 
@@ -1280,8 +1283,8 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     throw new UserActionableError(
       "bad-host",
       id === "gitlab"
-        ? `--host must be a bare hostname (e.g. gitlab.example.com), got "${hostFlag}"`
-        : `the switchboard URL must be a valid https URL (e.g. https://switchboard.example.com), got "${hostFlag}"`,
+        ? `--host takes a bare hostname such as gitlab.example.com, not ${hostFlag}`
+        : `The switchboard address must be a valid https URL such as https://switchboard.example.com, not ${hostFlag}`,
     );
   }
   const overrides = overridesFor(deps);
@@ -1300,23 +1303,23 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     value = "";
   } else if (id === "github" && args.includes("--use-gh")) {
     value = await ghAuthToken(deps.probes);
-    sourceDetail = "via gh";
+    sourceDetail = GH_SOURCE_DETAIL;
   } else if (deps.isTTY()) {
     // Checked BEFORE any stdin read: reading stdin first would block on EOF
     // at a real terminal instead of prompting.
-    if (!field) throw new UserActionableError("bad-stdin", `${id} takes no interactive credential — pipe JSON on stdin instead`);
+    if (!field) throw new UserActionableError("bad-stdin", `${id} takes no typed credential. Pipe JSON on stdin`);
     value = (await deps.promptField(field)).trim();
   } else {
     const input = await deps.stdin();
     if (id === "github" && isPlainObject(input) && input.useGh === true) {
       value = await ghAuthToken(deps.probes);
-      sourceDetail = "via gh";
+      sourceDetail = GH_SOURCE_DETAIL;
     } else if (field) {
       const extracted = extractFieldValue(field, input);
-      if (extracted === null) throw new UserActionableError("bad-stdin", `no ${field.label} provided on stdin`);
+      if (extracted === null) throw new UserActionableError("bad-stdin", `No ${field.label} on stdin`);
       value = extracted;
     } else {
-      throw new UserActionableError("bad-stdin", "stdin did not contain a recognizable credential");
+      throw new UserActionableError("bad-stdin", "Stdin held no credential rt recognizes");
     }
   }
 
@@ -1333,7 +1336,7 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     const role = forgeRole({ intentMode: readIntent(deps.probes)?.mode ?? null, joinedByRt, hasTeam: team.slug !== "" });
     const missing = missingScopes(id, role, result.scopesSeen);
     if (missing.length > 0) {
-      const how = sourceDetail === "via gh" ? ` (run: gh auth refresh -s ${missing.join(",")})` : "";
+      const how = sourceDetail === GH_SOURCE_DETAIL ? ` (run: gh auth refresh -s ${missing.join(",")})` : "";
       printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "invalid", detail: `${scopeShortfallDetail(id, role, missing)}${how}`, scopesSeen: result.scopesSeen });
       return;
     }
@@ -1361,8 +1364,8 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
 
   const detail = staged
     ? sourceDetail
-      ? `${sourceDetail} — staged until Install creates your key`
-      : "staged until Install creates your key"
+      ? `${sourceDetail}. Saved for now; Install stores it once your key exists`
+      : "Saved for now; Install stores it once your key exists"
     : (sourceDetail ?? result.detail);
 
   printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "ready", detail, scopesSeen: result.scopesSeen });
@@ -1391,7 +1394,7 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   const json = args.includes("--json");
   const snapshot = snapshotFor(deps);
   const clientId = snapshot.integrations.slack?.clientId;
-  if (!clientId) throw new UserActionableError("slack-app-missing", "your team has no Slack app yet — its owner needs to create one first");
+  if (!clientId) throw new UserActionableError("slack-app-missing", "Your team has no Slack app yet. Its owner needs to create one first");
   const wait = slackSecretWait(deps.probes, snapshot.slug);
   if (wait) throw new UserActionableError(SLACK_WAIT_CODE[wait.kind], slackWaitCliMessage(wait, snapshot.slug));
 
@@ -1425,7 +1428,7 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   if (!clientSecret) {
     throw new UserActionableError(
       "slack-app-missing",
-      `the Slack client secret for team "${snapshot.slug}" is not readable on this machine yet: the team owner must run \`rt team members sync\` first (the team clone pushes it on its next cycle); try again once your clone has pulled that`,
+      `The Slack client secret for team ${snapshot.slug} cannot be read on this Mac yet. The team owner must run rt team members sync first; try again once your team clone has pulled`,
     );
   }
 
@@ -1434,13 +1437,13 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, code, redirect_uri: redirectUri }).toString(),
   });
-  if (tokenRes.status === 0) throw new UserActionableError("unreachable", "couldn't reach slack.com — check your network or proxy");
+  if (tokenRes.status === 0) throw new UserActionableError("unreachable", "Could not reach slack.com. Check your network or proxy");
 
   let data: { ok?: boolean; error?: string; authed_user?: { access_token?: string; scope?: string } };
   try {
     data = JSON.parse(tokenRes.body);
   } catch {
-    throw new UserActionableError("unreachable", "slack oauth.v2.access returned unparsable JSON");
+    throw new UserActionableError("unreachable", "Slack's answer could not be read");
   }
   const accessToken = data.ok ? data.authed_user?.access_token : undefined;
   if (!accessToken) {
@@ -1464,7 +1467,7 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
     printIntegrationResult(deps, json, {
       integration: "slack",
       status: "invalid",
-      detail: `Slack granted fewer scopes than the board reads with because the team's Slack app does not declare them: ${slackUserScopeFix(appId, missing)}, then connect again`,
+      detail: `Slack granted fewer permissions than the board needs, because the team's Slack app does not list them. To fix it, ${slackUserScopeFix(appId, missing)}, then connect again`,
       scopesSeen: granted,
     });
     return;
@@ -1474,7 +1477,7 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   printIntegrationResult(deps, json, {
     integration: "slack",
     status: "ready",
-    detail: staged ? "staged until Install creates your key" : "slack connected",
+    detail: staged ? "Saved for now; Install stores it once your key exists" : "slack connected",
     scopesSeen: granted,
   });
 }
@@ -1531,7 +1534,7 @@ async function readConfigToken(deps: ConnectDeps): Promise<string> {
   if (deps.isTTY()) return (await deps.promptField(CONFIG_TOKEN_FIELD)).trim();
   const input = await deps.stdin();
   const extracted = extractFieldValue(CONFIG_TOKEN_FIELD, input);
-  if (extracted === null) throw new UserActionableError("bad-stdin", "no Slack app configuration token provided on stdin");
+  if (extracted === null) throw new UserActionableError("bad-stdin", "No Slack app configuration token on stdin");
   return extracted;
 }
 
@@ -1540,7 +1543,7 @@ export async function setupSlackCreateApp(args: string[], _ctx: CommandContext =
   try {
     const configToken = await readConfigToken(deps);
     const snapshot = snapshotFor(deps);
-    if (!snapshot.slug) throw new UserActionableError("unknown-team", "no team to create a Slack app for — set up your team first");
+    if (!snapshot.slug) throw new UserActionableError("unknown-team", "No team to create a Slack app for. Set up your team first");
 
     const callbackPort = snapshot.integrations.slack?.callbackPort ?? DEFAULT_CALLBACK_PORT;
     const manifest = buildSlackManifest({ name: `mattstack (${snapshot.slug})`, callbackPort, scopes: DEFAULT_SCOPE_NEEDS });
@@ -1550,11 +1553,11 @@ export async function setupSlackCreateApp(args: string[], _ctx: CommandContext =
       headers: { Authorization: `Bearer ${configToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ manifest }),
     });
-    if (res.status === 0) throw new UserActionableError("unreachable", "couldn't reach slack.com — check your network or proxy");
+    if (res.status === 0) throw new UserActionableError("unreachable", "Could not reach slack.com. Check your network or proxy");
 
     const data = parseManifestResponse(res.body, res.status);
     if (!data.ok || !data.credentials || !data.app_id) {
-      throw new UserActionableError("slack-manifest-failed", data.error ?? `slack apps.manifest.create returned ok:false (status ${res.status})`);
+      throw new UserActionableError("slack-manifest-failed", data.error ?? `Slack refused the app manifest (HTTP ${res.status})`);
     }
 
     // Secrets land BEFORE the settings write: a settings write recording appId/clientId with no
@@ -1589,8 +1592,8 @@ export async function setupSlackCreateApp(args: string[], _ctx: CommandContext =
       status: "ready",
       detail: staged
         ? stagedReason === "no-recipients"
-          ? "Slack app created — team secrets staged until the team has recipients"
-          : "Slack app created — team secrets staged until the age key exists"
+          ? "Slack app created. Its team secrets are saved for now, until the team has members to encrypt for"
+          : "Slack app created. Its team secrets are saved for now, until your age key exists"
         : "Slack app created",
       scopesSeen: [],
     });

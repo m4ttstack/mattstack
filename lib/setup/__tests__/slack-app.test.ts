@@ -223,7 +223,7 @@ describe("setupSlackCreateApp", () => {
     expect(writeSettingCalls).toHaveLength(1);
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("ready");
-    expect(body.detail).toBe("Slack app created — team secrets staged until the age key exists");
+    expect(body.detail).toBe("Slack app created. Its team secrets are saved for now, until your age key exists");
   });
 
   // A zero-recipient team (exactly what a freshly-scaffolded team's
@@ -247,7 +247,7 @@ describe("setupSlackCreateApp", () => {
     expect(writeSettingCalls).toHaveLength(1);
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("ready");
-    expect(body.detail).toBe("Slack app created — team secrets staged until the team has recipients");
+    expect(body.detail).toBe("Slack app created. Its team secrets are saved for now, until the team has members to encrypt for");
   });
 
   test("a real team-secret store failure exits 2 BEFORE any settings write lands", async () => {

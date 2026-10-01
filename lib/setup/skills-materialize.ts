@@ -67,7 +67,7 @@ export function materializeTally(repos: MaterializeRepoResult[]): string {
 }
 
 export function setAsideLine(count: number): string {
-  return `set aside ${count} stale bindings file${count === 1 ? "" : "s"}`;
+  return `Set aside ${count} stale bindings file${count === 1 ? "" : "s"}`;
 }
 
 function registeredKnownRepos(): Pick<KnownRepo, "repoName" | "worktrees">[] {
@@ -107,26 +107,26 @@ async function resolveTargets(opts: { repo?: string; dir?: string }): Promise<{ 
   // which repo gets materialized.
   const resolution = await tryResolveRepoArg(opts.repo);
   if (resolution.kind === "ambiguous") {
-    throw new UserActionableError("repo-ambiguous", `"${opts.repo}" matches more than one repo: ${resolution.matches.join(", ")}... pass the full identity`);
+    throw new UserActionableError("repo-ambiguous", `${opts.repo} matches more than one repo (${resolution.matches.join(", ")}). Pass the full name`);
   }
   const match = resolution.kind === "resolved"
     ? known.find((r) => r.repoName === resolution.identity)
     : known.find((r) => r.repoName === opts.repo);
-  if (!match) throw new UserActionableError("repo-not-registered", `"${opts.repo}" is not a registered repo (rt repos register first)`);
+  if (!match) throw new UserActionableError("repo-not-registered", `${opts.repo} is not a registered repo. Run rt repos register first`);
   return [{ name: repoLabel(match.repoName), path: match.worktrees[0]!.path }];
 }
 
 function describe(packs: PackOutcome[]): string {
   const failed = packs.filter((pk) => !pk.ok);
   if (failed.length > 0) return failed.map((pk) => (pk.ok ? "" : `${pk.pack}: ${pk.detail}`)).join("; ");
-  return `wrote ${packs.length} pack file${packs.length === 1 ? "" : "s"}: ${packs.map((pk) => pk.pack).join(", ")}`;
+  return `Wrote ${packs.length} pack file${packs.length === 1 ? "" : "s"}: ${packs.map((pk) => pk.pack).join(", ")}`;
 }
 
 export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: string }): Promise<MaterializeSkillsResult> {
   if (opts.repo && opts.dir) throw new UserActionableError("flags-conflict", "pass --repo or --dir, not both");
   const enginePackDir = findEnginePackDir(p);
   if (!enginePackDir) {
-    return { skipped: true, reason: `${ENGINE_PACK_MISSING_CODE}: install the mattstack plugin first (plugins.install), then rerun`, repos: [] };
+    return { skipped: true, reason: `${ENGINE_PACK_MISSING_CODE}: install the mattstack plugin first, then run this again`, repos: [] };
   }
   const deps = { fs: p, mattstackRoot: join(p.home, ".mattstack"), claudeHome: p.home, enginePackDir };
   const repos: MaterializeRepoResult[] = [];
@@ -139,9 +139,9 @@ export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: 
       continue;
     }
     if (outcome.kind === "no-remote") {
-      repos.push({ ...target, ok: false, noManifest: true, noRemote: true, detail: `no git remote in ${target.path}` });
+      repos.push({ ...target, ok: false, noManifest: true, noRemote: true, detail: `No git remote in ${target.path}` });
     } else if (outcome.kind === "undeclared") {
-      repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares ${outcome.repo}` });
+      repos.push({ ...target, ok: false, noManifest: true, detail: `No team covers ${outcome.repo}` });
     } else if (outcome.packs.length === 0) {
       const detail = [`no team declares a pack for ${outcome.repo}`, ...outcome.pruneWarnings].join("; ");
       repos.push({ ...target, ok: false, noManifest: true, detail, pruned: outcome.pruned, pruneWarnings: outcome.pruneWarnings });

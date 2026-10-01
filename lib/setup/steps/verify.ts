@@ -64,8 +64,8 @@ export function outcomeFromChecks(checks: CheckResult[], rows: Row[] = []): Step
   if (failures.length > 0) {
     return {
       state: "failed",
-      detail: `${failures.length} check${failures.length === 1 ? "" : "s"} failed: ${failures.map((f) => f.name).join(", ")}${note ? ` · ${note}` : ""}`,
-      remedy: "Run `rt verify` for details",
+      detail: `${failures.length} check${failures.length === 1 ? "" : "s"} failed: ${failures.map((f) => f.name).join(", ")}${note ? `. ${note}` : ""}`,
+      remedy: "Run rt verify for details",
     };
   }
   if (note) return { state: "needs-you", detail: note };

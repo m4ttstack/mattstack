@@ -117,7 +117,7 @@ describe("setupRepoRootSet: no home repo yet (stage only)", () => {
     expect(deps.exitCodes).toEqual([2]);
     expect(readStagedRepoRoot(probes)).toBeNull();
     const payload = JSON.parse(deps.lines[0]!) as { error: { message: string } };
-    expect(payload.error.message).toContain("is not a directory");
+    expect(payload.error.message).toContain("is not a folder");
   });
 
   test("an unwritable directory is refused and stages nothing", async () => {
@@ -130,7 +130,7 @@ describe("setupRepoRootSet: no home repo yet (stage only)", () => {
     expect(deps.exitCodes).toEqual([2]);
     expect(readStagedRepoRoot(probes)).toBeNull();
     const payload = JSON.parse(deps.lines[0]!) as { error: { message: string } };
-    expect(payload.error.message).toContain("is not writable");
+    expect(payload.error.message).toContain("You cannot write to");
   });
 });
 

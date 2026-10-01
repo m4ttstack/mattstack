@@ -270,7 +270,7 @@ describe("homeRemoteSet", () => {
     expect(calls[calls.length - 1]).toBe(`git -C ${USER_REPO} remote set-url origin ${old}`);
     const err = payload(deps).error as { code: string; message: string };
     expect(err.code).toBe("push-failed");
-    expect(err.message).toContain("origin restored");
+    expect(err.message).toContain("origin is back on the previous remote");
   });
 
   test("push output is redacted: a token in git's stderr never reaches the message", async () => {

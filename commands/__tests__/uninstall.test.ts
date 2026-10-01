@@ -217,7 +217,7 @@ describe("rt uninstall: takes no app name", () => {
     expect(payload.contract).toBe(1);
     expect(payload.error.code).toBe("unexpected-args");
     expect(payload.error.args).toEqual(["gitq", "extra"]);
-    expect(payload.error.message).toContain("run: deck remove <name> (add --force for a mattstack app");
+    expect(payload.error.message).toContain("run deck remove <name> (add --force for a mattstack app");
   });
 
   test("human mode: a failure block naming the argument, nothing on stdout", async () => {

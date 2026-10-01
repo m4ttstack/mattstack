@@ -145,7 +145,7 @@ async function installAppleClt(p: Probes): Promise<InstallResult> {
       const install = await p.exec(["softwareupdate", "-i", label], { timeoutMs: CLT_INSTALL_TIMEOUT_MS });
       const git = await p.exec(["git", "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
       if (install.code === 0 && git.code === 0) {
-        return { via: "apple-clt", ok: true, detail: `installed "${label}" headlessly — ${git.stdout.trim()}` };
+        return { via: "apple-clt", ok: true, detail: `Installed ${label}; ${git.stdout.trim()}` };
       }
     }
   } finally {
@@ -153,17 +153,17 @@ async function installAppleClt(p: Probes): Promise<InstallResult> {
   }
 
   const res = await p.exec(["xcode-select", "--install"], { timeoutMs: PROBE_TIMEOUT_MS });
-  if (res.code === 124) return { via: "apple-clt", ok: false, detail: "xcode-select --install timed out" };
+  if (res.code === 124) return { via: "apple-clt", ok: false, detail: "The Command Line Tools installer did not answer in time" };
   if (res.code === 0) {
     // ok means "verified installed" (the headless path proves it with a git
     // re-probe); a triggered dialog is progress, not completion.
-    return { via: "apple-clt", ok: false, detail: "triggered the Command Line Tools install dialog — complete it, then re-run rt setup status" };
+    return { via: "apple-clt", ok: false, detail: "Opened Apple's Command Line Tools installer. Finish it, then run rt setup status again" };
   }
   const combined = `${res.stdout} ${res.stderr}`.toLowerCase();
   if (res.code === 1 && combined.includes("already installed")) {
     return { via: "apple-clt", ok: true, detail: "Command Line Tools already installed" };
   }
-  return { via: "apple-clt", ok: false, detail: `xcode-select --install failed (exit ${res.code}): ${firstLine(res.stderr || res.stdout)}` };
+  return { via: "apple-clt", ok: false, detail: `The Command Line Tools installer failed (exit ${res.code}): ${firstLine(res.stderr || res.stdout)}` };
 }
 
 function linkOutcomeDetail(outcome: LinkOutcome): string {
@@ -200,7 +200,7 @@ export async function installTool(p: Probes, tool: string, reqs: PackRequirement
   if (teamTool?.install?.url) {
     throw new UserActionableError(
       "manual-install-required",
-      `${tool} declares an install URL from a team pack — rt never auto-runs a team-authored install script; install it yourself: ${teamTool.install.url}`,
+      `${tool}'s team pack gives an install URL, and rt never runs a team's install script for you. Install it yourself: ${teamTool.install.url}`,
     );
   }
 
@@ -210,7 +210,7 @@ export async function installTool(p: Probes, tool: string, reqs: PackRequirement
   if (teamBrew !== undefined && !teamBrewValid) {
     throw new UserActionableError(
       "manual-install-required",
-      `${tool} declares install.brew "${teamBrew}" from a team pack — rt only auto-runs a bare formula name; install it yourself: brew install ${teamBrew}`,
+      `${tool}'s team pack names the brew formula ${teamBrew}, and rt only runs a plain formula name for you. Install it yourself: brew install ${teamBrew}`,
     );
   }
 
@@ -224,12 +224,12 @@ export async function installTool(p: Probes, tool: string, reqs: PackRequirement
  */
 async function runInstallerAndVerify(p: Probes, tool: string, via: "brew" | "vendor", argv: string[], label: string, successDetail: string): Promise<InstallResult> {
   const res = await p.exec(argv, { timeoutMs: INSTALL_TIMEOUT_MS });
-  if (res.code === 124) return { via, ok: false, detail: `${label} timed out` };
+  if (res.code === 124) return { via, ok: false, detail: `${label} did not finish in time` };
   if (res.code !== 0) return { via, ok: false, detail: `${label} failed (exit ${res.code}): ${firstLine(res.stderr || res.stdout)}` };
 
   const verify = await p.exec([tool, "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
   if (verify.code !== 0) {
-    return { via, ok: false, detail: `${label} exited 0 but "${tool} --version" still fails (exit ${verify.code}) — not claiming success` };
+    return { via, ok: false, detail: `${label} finished, but ${tool} still does not run (exit ${verify.code})` };
   }
   return { via, ok: true, detail: successDetail };
 }
@@ -240,10 +240,10 @@ function validateVendorUrl(url: string): { ok: true } | { ok: false; detail: str
   try {
     parsed = new URL(url);
   } catch {
-    return { ok: false, detail: `install URL is not a valid URL: ${url}` };
+    return { ok: false, detail: `The install URL is not valid: ${url}` };
   }
-  if (parsed.protocol !== "https:") return { ok: false, detail: `install URL must be https, got "${parsed.protocol}" (${url})` };
-  if (!VENDOR_ALLOWED_HOSTS.has(parsed.hostname)) return { ok: false, detail: `install URL host "${parsed.hostname}" is not on the known vendor host list` };
+  if (parsed.protocol !== "https:") return { ok: false, detail: `The install URL must use https, not ${parsed.protocol} (${url})` };
+  if (!VENDOR_ALLOWED_HOSTS.has(parsed.hostname)) return { ok: false, detail: `The install URL's host ${parsed.hostname} is not a known vendor` };
   return { ok: true };
 }
 
@@ -268,8 +268,8 @@ async function runVendorInstaller(p: Probes, tool: string, url: string): Promise
   p.mkdirp(dirname(path));
 
   const fetchRes = await p.exec(["curl", "-fsSL", url, "-o", path], { timeoutMs: INSTALL_TIMEOUT_MS });
-  if (fetchRes.code === 124) return { via: "vendor", ok: false, detail: "install script download timed out" };
-  if (fetchRes.code !== 0) return { via: "vendor", ok: false, detail: `install script download failed (exit ${fetchRes.code}): ${firstLine(fetchRes.stderr || fetchRes.stdout)}` };
+  if (fetchRes.code === 124) return { via: "vendor", ok: false, detail: "Downloading the install script did not finish in time" };
+  if (fetchRes.code !== 0) return { via: "vendor", ok: false, detail: `Downloading the install script failed (exit ${fetchRes.code}): ${firstLine(fetchRes.stderr || fetchRes.stdout)}` };
 
   return runInstallerAndVerify(p, tool, "vendor", ["sh", path], "install script", "installed via vendor script");
 }
@@ -296,9 +296,9 @@ async function setupFastBrowser(p: Probes, seams: ToolsInstallSeams, marketplace
   // source but the one it is told — so it is told the one plugins.install used.
   const args = ["setup", "--host", "claude", ...(marketplaceSource ? ["--source", marketplaceSource] : [])];
   const res = await p.exec([...resolved.exec, ...args], { timeoutMs: INSTALL_TIMEOUT_MS });
-  if (res.code === 124) return { ok: false, detail: "fast-browser setup timed out" };
-  if (res.code !== 0) return { ok: false, detail: `fast-browser setup failed (exit ${res.code}): ${firstLine(res.stderr || res.stdout)}` };
-  return { ok: true, detail: "fast-browser setup complete" };
+  if (res.code === 124) return { ok: false, detail: "Fast Browser's setup did not finish in time" };
+  if (res.code !== 0) return { ok: false, detail: `Fast Browser's setup failed (exit ${res.code}): ${firstLine(res.stderr || res.stdout)}` };
+  return { ok: true, detail: "Fast Browser is set up" };
 }
 
 async function setupHerdr(p: Probes, configDirs: string[]): Promise<SetupResult> {
@@ -310,14 +310,14 @@ async function setupHerdr(p: Probes, configDirs: string[]): Promise<SetupResult>
     else results.push({ dir, ok: true, detail: "ok" });
   }
   const ok = results.length > 0 && results.every((r) => r.ok);
-  const detail = results.map((r) => `${r.dir}: ${r.detail}`).join("; ") || "no config dirs to set up";
+  const detail = results.map((r) => `${r.dir}: ${r.detail}`).join("; ") || "No Claude config folders to set up";
   return { ok, detail };
 }
 
 /** Exported so a caller classifying `SetupResult.detail` (extension.install's apply step) matches against the same value this emits, rather than a copy of the prose. */
-export const VSIX_NOT_FOUND_DETAIL = "rt-context.vsix not found — expected in the app bundle or next to the binary";
-export const NO_EDITORS_DETAIL = "no compatible editors found";
-export const NO_RECORDED_EDITORS_DETAIL = "no detected editor has the extension from an earlier setup";
+export const VSIX_NOT_FOUND_DETAIL = "The editor extension file was not found in the app or next to rt";
+export const NO_EDITORS_DETAIL = "No compatible editor found";
+export const NO_RECORDED_EDITORS_DETAIL = "No editor on this Mac has the extension from an earlier setup";
 
 /** `onlyEditors` narrows the install to those editor names; an editor it leaves out is never touched. */
 async function setupExtension(p: Probes, seams: ToolsInstallSeams, onlyEditors: readonly string[] | undefined): Promise<SetupResult> {
@@ -344,7 +344,7 @@ async function setupExtension(p: Probes, seams: ToolsInstallSeams, onlyEditors: 
   }
 
   const ok = installed.length > 0 && failed.length === 0;
-  const detail = failed.length === 0 ? `installed into ${installed.join(", ")}` : `installed into ${installed.join(", ") || "(none)"}; failed: ${failed.join(", ")}`;
+  const detail = failed.length === 0 ? `Installed into ${installed.join(", ")}` : `Installed into ${installed.join(", ") || "none"}; failed in ${failed.join(", ")}`;
   return { ok, detail };
 }
 

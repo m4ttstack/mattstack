@@ -410,7 +410,7 @@ describe("rt uninstall", () => {
       const { ctx, events } = makeCtx(p);
       const result = await runUninstall(ctx, action);
       expect(result.ok).toBe(true);
-      expect(lastStep(events)).toMatchObject({ state: "skipped", detail: "deck is not running; nothing to unmanage" });
+      expect(lastStep(events)).toMatchObject({ state: "skipped", detail: "Deck is not running, so there is nothing to remove from it" });
       expect(p.calls.exec).toEqual([]);
       expect(p.calls.fetch).toEqual([]);
     });
@@ -439,8 +439,8 @@ describe("rt uninstall", () => {
       expect((await runUninstall(ctx, action)).ok).toBe(false);
       expect(lastStep(events)).toMatchObject({
         state: "failed",
-        detail: "removed: board; teardown failed, record kept: chat, console",
-        remedy: "Retry; if deck keeps chat, console again, deck's board shows the issue to fix first",
+        detail: "removed: board. Could not remove chat, console",
+        remedy: "Retry. If chat, console stays, deck's own page shows what to fix first",
       });
     });
 
@@ -457,16 +457,16 @@ describe("rt uninstall", () => {
 
         expect(result.ok).toBe(true);
         expect(seen).toEqual([]);
-        expect(lastStep(events)).toMatchObject({ state: "skipped", detail: `kept for ${basename(otherApp)}, which shares deck's registry` });
+        expect(lastStep(events)).toMatchObject({ state: "skipped", detail: `Kept for ${basename(otherApp)}, which shares deck's app list` });
         expect(result.stayed).toContain(`deck's mattstack apps (kept for ${basename(otherApp)})`);
       });
     }
 
     for (const [label, answer, detail] of [
-      ["a 500", { status: 500, body: "{}" }, "deck answered 500 to the managed remove"],
-      ["no answer (status 0)", { status: 0, body: "" }, "deck did not answer the managed remove"],
-      ["a 200 that is not JSON", { status: 200, body: "<html>" }, "deck answered 200 to the managed remove"],
-      ["a 200 without the name arrays", { status: 200, body: JSON.stringify({ ok: true }) }, "deck answered 200 to the managed remove"],
+      ["a 500", { status: 500, body: "{}" }, "Deck answered 500"],
+      ["no answer (status 0)", { status: 0, body: "" }, "Deck did not answer"],
+      ["a 200 that is not JSON", { status: 200, body: "<html>" }, "Deck answered 200"],
+      ["a 200 without the name arrays", { status: 200, body: JSON.stringify({ ok: true }) }, "Deck answered 200"],
     ] as const) {
       test(`${label} -> failed with Retry, never done`, async () => {
         const { p } = deckUp(answer);

@@ -64,12 +64,12 @@ export function realWaiverStore(): WaiverStore {
 
 function assertFinishGated(id: string): void {
   if (FINISH_GATED_ROW_IDS.includes(id)) return;
-  throw new UserActionableError("not-finish-gated", `${id} is not a finish-gated row; finish-gated rows: ${FINISH_GATED_ROW_IDS.join(", ")}`);
+  throw new UserActionableError("not-finish-gated", `${id} is not a row that blocks Finish. Rows that do: ${FINISH_GATED_ROW_IDS.join(", ")}`);
 }
 
 function assertWaivable(id: string): void {
   if (WAIVABLE_ROW_IDS.includes(id)) return;
-  throw new UserActionableError("not-waivable", `${id} cannot be skipped; waivable rows: ${WAIVABLE_ROW_IDS.join(", ")}`);
+  throw new UserActionableError("not-waivable", `${id} cannot be skipped. Rows that can: ${WAIVABLE_ROW_IDS.join(", ")}`);
 }
 
 export interface WaiverChange {
