@@ -84,6 +84,10 @@ function failWithError(err: unknown): never {
   process.exit(1);
 }
 
+function uniqueNotices(notices: SettingsNotice[]): SettingsNotice[] {
+  return [...new Map(notices.map((n) => [`${n.text}\u0000${n.next ?? ""}`, n])).values()];
+}
+
 /** Holds the share tips a write emits so the verb can print them under its own confirmation line. */
 function collectSettingsNotices<T>(fn: () => T): { result: T; notices: SettingsNotice[] } {
   const notices: SettingsNotice[] = [];
@@ -669,24 +673,28 @@ export async function settingsMigrate(args: string[], deps: MigrateDeps = {}): P
 function migrateWrite(plan: MigrationPlan, json: boolean): void {
   const written: MigrationPlan["writes"] = [];
   const errors: { key: string; file: string; repo?: string; error: string }[] = [];
-  for (const w of plan.writes) {
-    try {
-      setSetting(w.key, w.value, w.scope, { ...(w.repo ? { repoIdentity: w.repo } : {}), ...(w.team ? { team: w.team } : {}) });
-      written.push(w);
-    } catch (err) {
-      errors.push({ key: w.key, file: w.file, ...(w.repo ? { repo: w.repo } : {}), error: (err as Error).message });
+  const { notices } = collectSettingsNotices(() => {
+    for (const w of plan.writes) {
+      try {
+        setSetting(w.key, w.value, w.scope, { ...(w.repo ? { repoIdentity: w.repo } : {}), ...(w.team ? { team: w.team } : {}) });
+        written.push(w);
+      } catch (err) {
+        errors.push({ key: w.key, file: w.file, ...(w.repo ? { repo: w.repo } : {}), error: (err as Error).message });
+      }
     }
-  }
+  });
+  const tips = uniqueNotices(notices).flatMap(noticeBlocks);
   const ok = errors.length === 0 && plan.failures.length === 0;
   if (json) {
     out.json({ ok, written: written.map((w) => ({ ...w, value: redacted(w.key, w.value) })), errors, failures: plan.failures });
+    if (tips.length > 0) out.print(...tips);
   } else {
     const rows: CellInput[][] = [
       ...written.map((w): CellInput[] => [out.key(w.key), ...whereCells(w), `wrote ${w.storeName} from ${w.fromName}`]),
       ...errors.map((e): CellInput[] => [out.key(e.key), { text: e.error, role: "failed" }]),
       ...plan.failures.map(failureRow),
     ];
-    out.print(rows.length > 0 ? out.table(rows) : out.line("skipped", "Nothing to write"));
+    out.print(rows.length > 0 ? out.table(rows) : out.line("skipped", "Nothing to write"), ...tips);
   }
   if (!ok) process.exitCode = 1;
 }
@@ -697,6 +705,7 @@ async function migratePrune(
 ): Promise<void> {
   const refused: (OlderName & { reason: string })[] = [];
   const pruned: OlderName[] = [];
+  const notices: SettingsNotice[] = [];
   const byFile = new Map<string, OlderName[]>();
   for (const n of plan.older) {
     if (n.scope === "team" && !o.team) refused.push({ ...n, reason: "team store: pass --team to prune it" });
@@ -725,20 +734,26 @@ async function migratePrune(
     }
     for (const n of names) {
       if (n.label === "diverged" && !o.json) out.print(out.line("warn", `Deleting diverged ${n.storeName}`, `its value was: ${shown(n.key, n.authored)}`));
-      try {
-        pruneStoreName(n.key, n.storeName, n.scope, { ...(n.repo ? { repoIdentity: n.repo } : {}), ...(n.team ? { team: n.team } : {}), force: n.label === "diverged" });
-        pruned.push(n);
-      } catch (err) {
-        refused.push({ ...n, reason: (err as Error).message });
-      }
+      const run = collectSettingsNotices(() => {
+        try {
+          pruneStoreName(n.key, n.storeName, n.scope, { ...(n.repo ? { repoIdentity: n.repo } : {}), ...(n.team ? { team: n.team } : {}), force: n.label === "diverged" });
+          pruned.push(n);
+        } catch (err) {
+          refused.push({ ...n, reason: (err as Error).message });
+        }
+      });
+      notices.push(...run.notices);
     }
   }
+  const tips = uniqueNotices(notices).flatMap(noticeBlocks);
   if (o.json) {
     out.json({ ok: refused.length === 0, pruned: pruned.map((n) => redactOlder(n)), refused: refused.map((r) => redactOlder(r)) });
+    if (tips.length > 0) out.print(...tips);
   } else {
     out.print(
       out.table(refused.map((r): CellInput[] => [out.key(r.key), ...whereCells(r), { text: `${r.storeName}: ${r.reason}`, role: "refused" }])),
       out.summary(refused.length > 0 ? "warn" : "done", `Pruned ${pruned.length} older ${pruned.length === 1 ? "name" : "names"}`, [`${pruned.length} pruned`, `${refused.length} refused`]),
+      ...tips,
     );
   }
   if (refused.length > 0) process.exitCode = 1;

@@ -104,6 +104,36 @@ describe("rt settings migrate", () => {
     });
   });
 
+  test("--write prints the share tip once, after the table", async () => {
+    await withMigrationAsync(EB, EB_BUMP, async () => {
+      write(userSettingsPath(), { [EB]: EB_V1 });
+      await settingsMigrate(["--write"], noPrompt);
+      const text = cap.stdout();
+      expect(text.split("tip: ").length - 1).toBe(1);
+      expect(text.indexOf("tip: ")).toBeGreaterThan(text.indexOf(`wrote ${EB}@2 from ${EB}`));
+      expect(cap.stderr()).toBe("");
+    });
+  });
+
+  test("--json --write keeps stdout to the envelope and sends the tip to stderr", async () => {
+    await withMigrationAsync(EB, EB_BUMP, async () => {
+      write(userSettingsPath(), { [EB]: EB_V1 });
+      await settingsMigrate(["--write", "--json"], noPrompt);
+      expect(cap.lines()).toHaveLength(1);
+      expect(JSON.parse(cap.lines()[0]!).ok).toBe(true);
+      expect(cap.stderr()).toContain("tip: ");
+    });
+  });
+
+  test("--prune --yes prints the share tip through out, not the default sink", async () => {
+    await withMigrationAsync(EB, EB_BUMP, async () => {
+      write(userSettingsPath(), { [EB]: EB_V1, [`${EB}@2`]: EB_V2, $migrated: { [EB]: valueHash(EB_V1) } });
+      await settingsMigrate(["--prune", "--yes"], noPrompt);
+      expect(cap.stdout().split("tip: ").length - 1).toBe(1);
+      expect(cap.stderr()).toBe("");
+    });
+  });
+
   test("--write reaches the team store", async () => {
     await withMigrationAsync("rt.roles", ROLES_BUMP, async () => {
       write(teamSettingsPath(TEAM), { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } } } } });
