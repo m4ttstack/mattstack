@@ -16,6 +16,7 @@ const cfg = JSON.parse(process.env.RT_UI_FAKE ?? "{}") as {
   intents?: object[];
   closedReason?: string;
   protocol?: number;
+  renderOut?: string;
 };
 const verb = process.argv[2];
 
@@ -70,6 +71,18 @@ if (verb === "steps") {
   }
   if (cfg.record) appendFileSync(cfg.record, lines.join("\n") + "\n");
   process.exit(cfg.exit ?? 0);
+}
+
+if (verb === "render") {
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value);
+  }
+  if (cfg.record) appendFileSync(cfg.record, JSON.stringify({ argv: process.argv.slice(3) }) + "\n" + buf);
+  if (cfg.exit) process.exit(cfg.exit);
+  process.stdout.write(cfg.renderOut ?? "STYLED\n");
+  process.exit(0);
 }
 
 if (verb === "session") {
