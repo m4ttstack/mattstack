@@ -70,7 +70,8 @@ a room:
   right; it is not clickable.
 - **Workstream rows** (`.ws`, 30px, indented `26.4px`) — one per signed-in
   session in that repo, sign-in order: 8px dot in herdr's state (green
-  working, orange done, red waiting on you; tooltip `Working · 12s`),
+  working, orange done, red waiting on you; tooltip `Working · seen 12s
+  ago`),
   handle at 11.2px / 600, then the task line filling the row. Nothing
   overlays the task on hover: the row's highlight is the click hint, and
   after the hover delay the agent card docks to the sidebar's right, level
@@ -227,9 +228,9 @@ A DM transcript opens with `start of this conversation · <day>`.
 ## Hover card (every handle)
 
 Drawn on `docs/apps/design/chat/chat.pen` (board 06's V2), not the
-artboards. 320px: the sprite, the name at 16px / 700, and one status line
-(dot, herdr's state word, the age; red only when the agent is waiting on
-you). Then the task line (omitted when the fallback is the folder form) and
+artboards. 340px: the sprite, the name at 16px / 700, and one status line
+(dot, herdr's state word, `seen 3m ago`; red only when the agent is
+waiting on you). An away message reads quoted and italic. Then the task line (omitted when the fallback is the folder form) and
 one muted `workspace › tab` line saying where the pane lives in herdr (repo
 and branch when there is no pane; herdr's numbered default tab label is
 dropped). Then `Focus pane` as the one filled button, with quiet `Mention`
@@ -254,7 +255,8 @@ the phone; disabled state is `.input.off` with the dashed border and the
 draft kept.
 
 The `@` popover options (`.opt`, 44px) now carry the task line under the
-handle. Order: working, then idle, listed never filtered; a buddy outside
+handle, and herdr's state word with its dot on the right. Order: waiting on
+you, then working, then done, listed never filtered; a buddy outside
 the room reads `not in #room — DM instead`; `@here` sits last with its cost
 (`wakes N agents`). Offline buddies are left out.
 

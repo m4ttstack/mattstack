@@ -14,7 +14,7 @@ import {
   AGENT_STATE_WORD,
   agentState,
   isRoomForRepo,
-  seenElapsed,
+  seenAgo,
   type AgentState,
 } from './agent-state';
 import { AgentHoverCard, HandleAvatar } from './AgentName';
@@ -80,7 +80,7 @@ function MemberRow({
           )}
           {member.lastSeenAt !== undefined && (
             <span className={classes.age}>
-              {seenElapsed({ ...member, lastSeenAt: member.lastSeenAt }, now)}
+              {seenAgo({ ...member, lastSeenAt: member.lastSeenAt }, now)}
             </span>
           )}
         </div>

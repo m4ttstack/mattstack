@@ -81,4 +81,8 @@ describe('isRoomForRepo', () => {
   test('another repo does not', () => {
     expect(isRoomForRepo('rt', 'acme-api')).toBe(false);
   });
+
+  test('the suffix rule errs toward hiding the chip, never toward a wrong one', () => {
+    expect(isRoomForRepo('acme-api', 'api')).toBe(true);
+  });
 });

@@ -92,7 +92,9 @@ function slugifyChatName(raw: string): string {
 
 /** Whether `room` is the room rt derives for `repo`: the slugified label,
     or a path-kind repo's two-segment form ending in it (`pool-gamma` for
-    `gamma`, lib/chat-room.ts). */
+    `gamma`, lib/chat-room.ts). Without the repo's identity the suffix rule
+    also matches an unrelated room ending in `-<repo>` (`acme-api` for
+    `api`); that only hides a chip, never shows a wrong one. */
 export function isRoomForRepo(room: string, repo: string): boolean {
   const slug = slugifyChatName(repo);
   return room === slug || room.endsWith(`-${slug}`);
