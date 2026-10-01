@@ -24,7 +24,7 @@
  */
 
 import { parse, type ParseError } from "jsonc-parser";
-import { bold, dim, green, red, reset, yellow } from "../lib/tui.ts";
+import { bold, dim, red, reset } from "../lib/tui.ts";
 import * as out from "../lib/ui/out.ts";
 import type { CellInput, FailureInput } from "../lib/ui/out.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
@@ -85,6 +85,22 @@ function failWithError(err: unknown): never {
   process.exit(1);
 }
 
+/** Holds the share tips a write emits so the verb can print them under its own confirmation line. */
+function collectSettingsNotices<T>(fn: () => T): { result: T; notices: SettingsNotice[] } {
+  const notices: SettingsNotice[] = [];
+  const previous = setSettingsNoticeSink((line, notice) => notices.push(notice ?? { text: line }));
+  try {
+    return { result: fn(), notices };
+  } finally {
+    setSettingsNoticeSink(previous);
+  }
+}
+
+function whereText(scope: SettingScope, team: string | undefined, repoName: string | undefined): string {
+  const store = scope === "user" ? "your user settings" : scope === "machine" ? "this Mac's settings" : team ? `the ${team} team's settings` : "the team's settings";
+  return repoName ? `${store} for ${repoName}` : store;
+}
+
 // ─── --repo resolution ────────────────────────────────────────────────────────
 
 interface RepoContext {
@@ -107,8 +123,9 @@ function repoIndex(): Record<string, string> {
  * SILENT one is a trap: the user asked about a repo and got an answer that
  * quietly ignored every repo-scoped value. So say it once as a warn line. The
  * callers that print a payload or --json call out.payloadOnStdout() first, so
- * the line lands on stderr and stdout stays the value or the one envelope. `set` does not come through here; it refuses outright rather
- * than writing into a section nothing will read back.
+ * the line lands on stderr and stdout stays the value or the one envelope.
+ * `set` does not come through here; it refuses outright rather than writing
+ * into a section nothing will read back.
  */
 async function resolveRepoContext(repoName: string | undefined): Promise<RepoContext> {
   if (!repoName) return { repoIdentity: null };
@@ -210,6 +227,12 @@ export async function settingsGet(args: string[]): Promise<void> {
 
 const VALID_SCOPES: SettingScope[] = ["user", "team", "machine"];
 
+function requireScope(scope: string | undefined, title: string, usage: string): SettingScope {
+  if (!scope) fail({ title, why: "A value lives in exactly one of your user, team or machine settings.", next: out.cmd(usage) });
+  if (!VALID_SCOPES.includes(scope as SettingScope)) fail({ title: `${scope} is not a scope`, why: "The scopes are user, team and machine.", next: out.cmd(usage) });
+  return scope as SettingScope;
+}
+
 /**
  * The three repo forms a write needs, resolved from `--repo`. Never
  * interchangeable: `repoKey` is the SERIALIZED identity the index and data
@@ -229,91 +252,68 @@ async function resolveRepoTarget(args: string[]): Promise<{
 
   const repoKey = await resolveRepoArg(repoName, fail);
   const repoPath = repoIndex()[repoKey];
-  if (!repoPath) fail(`repo "${repoName}" is not registered in ~/.mattstack/rt/repos.json`);
+  if (!repoPath) fail({ title: `${repoName} is not a repo rt knows`, next: out.cmd("rt repos status") });
   const derived = await deriveRepoIdentity(repoPath);
-  if (derived.kind !== "remote") fail(`repo "${repoName}"'s remote does not normalize to an identity — repo-scoped settings are unreachable for it (see \`rt settings explain\`)`);
+  if (derived.kind !== "remote") {
+    fail({ title: `Repo settings for ${repoName} have nowhere to live`, why: "Its remote is not one rt can key settings on, so nothing would read a value written for it." });
+  }
   return { repoName, repoPath, repoIdentity: derived.id, repoKey };
 }
 
 /** Shared by set and unset: `--team` only means anything at team scope. */
-function teamFlag(args: string[], scope: string): string | undefined {
+function teamFlag(args: string[], scope: SettingScope): string | undefined {
   const team = flagValue(args, "--team");
   if (args.includes("--team")) {
-    if (scope !== "team") fail(`--team only applies to --scope team (got --scope ${scope})`);
-    if (team === undefined || team.startsWith("--") || team.trim() === "") fail("--team requires a team name");
+    const usage = "rt settings set <key> <value> --scope team --team <name>";
+    if (scope !== "team") fail({ title: "A team name only goes with the team scope", why: `You asked for the ${scope} scope.`, next: out.cmd(usage) });
+    if (team === undefined || team.startsWith("--") || team.trim() === "") fail({ title: "Name the team", next: out.cmd(usage) });
   }
   return team;
 }
 
+const SET_USAGE = "rt settings set <key> <value> --scope user|team|machine";
+
 export async function settingsSet(args: string[]): Promise<void> {
   const [key, rawValue] = positionals(args);
-  const scope = flagValue(args, "--scope");
-  const usage = "usage: rt settings set <key> <json-value> --scope user|team|machine [--repo <name>] [--team <name>]";
-  if (!key || rawValue === undefined) fail(usage);
-  if (!scope) fail(`${usage} (--scope is required)`);
-  if (!VALID_SCOPES.includes(scope as SettingScope)) {
-    fail(`--scope must be one of ${VALID_SCOPES.join(", ")} (got "${scope}")`);
-  }
+  if (!key || rawValue === undefined) fail({ title: "Give the setting a key and a value", next: out.cmd(SET_USAGE) });
+  const scope = requireScope(flagValue(args, "--scope"), "Say which settings to write", SET_USAGE);
 
   // `--team` is the CLI surface for `setSetting`'s team selection (see
   // write.ts's "Team selection"). Taking it silently at user/machine scope
-  // would let `rt settings set … --scope user --team acme` look like it
-  // targeted a team store while writing the user one.
+  // would let a `--scope user --team acme` write look like it targeted a team
+  // store while writing the user one.
   const team = teamFlag(args, scope);
 
   const trimmed = rawValue.trim();
-  if (trimmed === "") fail(`<json-value> is not valid JSON(C): ${rawValue}`);
   const errors: ParseError[] = [];
-  const value = parse(trimmed, errors, { allowTrailingComma: true });
-  if (errors.length > 0) fail(`<json-value> is not valid JSON(C): ${rawValue}`);
-
-  const { repoName, repoPath, repoIdentity, repoKey } = await resolveRepoTarget(args);
-
-  try {
-    setSetting(key, value, scope as SettingScope, { repoIdentity, team });
-  } catch (err) {
-    failWithError(err);
+  const value = trimmed === "" ? undefined : parse(trimmed, errors, { allowTrailingComma: true });
+  if (trimmed === "" || errors.length > 0) {
+    fail({ title: "The value is not valid JSON", hint: rawValue, why: "A string needs its own quotes, so the shell does not eat them: '\"debug\"'." });
   }
 
-  const where = [scope === "team" && team ? `team:${team}` : scope, ...(repoName ? [repoName] : [])].join(", ");
-  console.log(`\n  ${green}✓${reset} ${bold}${key}${reset} set (${where})`);
+  const target = await resolveRepoTarget(args);
 
-  // See "the intercepts.json regeneration seam" below for why the write side
-  // owns this and why it is not a full `rt intercept install`.
-  const regen = await regenerateInterceptsCache(key);
-  if (regen.regenerated) {
-    console.log(`  ${dim}intercepts.json regenerated (${regen.rules} rule${regen.rules === 1 ? "" : "s"})${reset}`);
-  } else if (regen.error) {
-    console.log(`  ${yellow}could not regenerate intercepts.json (${regen.error}) — run \`rt intercept install\`${reset}`);
-  }
-
-  // hooks.json is rt.hooks's own derived cache (commands/hooks.ts). Scoped to
-  // `--repo` writes only: a write with no --repo lands in that scope's GLOBAL
-  // section, which can change the resolved value for every OTHER registered
-  // repo too (deep merge), and rebuilding every repo's cache here would mean
-  // deriving every repo's identity (a git spawn each) on a single `set` —
-  // out of scope for this seam. `rt hooks status` (or any other `rt hooks`
-  // command) in an affected repo refreshes its cache the next time it runs;
-  // there is no detector for the gap in between yet (a natural home would be
-  // `rt verify`, not built here).
-  if (key === "rt.hooks" && repoPath && repoIdentity && repoKey) {
-    const { regenerateHooksCache } = await import("./hooks.ts");
-    const wrote = regenerateHooksCache(repoPath, repoDataDir(repoKey), repoIdentity);
-    if (wrote) {
-      console.log(`  ${dim}hooks.json regenerated (${repoName})${reset}`);
-    } else {
-      console.log(`  ${yellow}could not regenerate hooks.json for ${repoName} — run \`rt hooks status\` in that repo to refresh it${reset}`);
+  const { notices } = collectSettingsNotices(() => {
+    try {
+      setSetting(key, value, scope, { repoIdentity: target.repoIdentity, team });
+    } catch (err) {
+      failWithError(err);
     }
-  }
+  });
 
-  console.log("");
+  out.print(
+    out.line("done", `Saved ${key}`, whereText(scope, team, target.repoName)),
+    ...notices.flatMap(noticeBlocks),
+    ...(await regenBlocks(key, target)),
+  );
 }
+
+const UNSET_USAGE = "rt settings unset <key> --scope user|team|machine";
 
 /**
  * Removes a key from one authored store. The counterpart to `set`, and the
  * only supported way to take a key back out: hand-editing a store `.jsonc` is
- * banned (it silently corrupts a store into reading as empty), so without this
- * verb a key written once was permanent (RT-100).
+ * banned (it silently corrupts a store into reading as empty).
  *
  * Runs the same derived-cache regeneration as `set`, because removing a value
  * changes what the resolver returns exactly as writing one does... a stale
@@ -321,52 +321,58 @@ export async function settingsSet(args: string[]): Promise<void> {
  */
 export async function settingsUnset(args: string[]): Promise<void> {
   const [key] = positionals(args);
-  const scope = flagValue(args, "--scope");
-  const usage = "usage: rt settings unset <key> --scope user|team|machine [--repo <name>] [--team <name>]";
-  if (!key) fail(usage);
-  if (!scope) fail(`${usage} (--scope is required)`);
-  if (!VALID_SCOPES.includes(scope as SettingScope)) {
-    fail(`--scope must be one of ${VALID_SCOPES.join(", ")} (got "${scope}")`);
-  }
-
+  if (!key) fail({ title: "Name the setting to remove", next: out.cmd(UNSET_USAGE) });
+  const scope = requireScope(flagValue(args, "--scope"), "Say which settings to remove it from", UNSET_USAGE);
   const team = teamFlag(args, scope);
-  const { repoName, repoPath, repoIdentity, repoKey } = await resolveRepoTarget(args);
+  const target = await resolveRepoTarget(args);
 
-  let removed = false;
-  try {
-    removed = unsetSetting(key, scope as SettingScope, { repoIdentity, team });
-  } catch (err) {
-    failWithError(err);
-  }
+  const removed = collectSettingsNotices(() => {
+    try {
+      return unsetSetting(key, scope, { repoIdentity: target.repoIdentity, team });
+    } catch (err) {
+      failWithError(err);
+    }
+  });
 
-  const where = [scope === "team" && team ? `team:${team}` : scope, ...(repoName ? [repoName] : [])].join(", ");
+  const where = whereText(scope, team, target.repoName);
   // A key that was not there is success, not a failure: `unset` is how a
   // script makes sure a key is absent, so it has to be safe to run twice.
-  console.log(
-    removed
-      ? `\n  ${green}✓${reset} ${bold}${key}${reset} removed (${where})`
-      : `\n  ${dim}${key} was not set in ${where} — nothing to remove${reset}`,
-  );
-
-  if (removed) {
-    const regen = await regenerateInterceptsCache(key);
-    if (regen.regenerated) {
-      console.log(`  ${dim}intercepts.json regenerated (${regen.rules} rule${regen.rules === 1 ? "" : "s"})${reset}`);
-    } else if (regen.error) {
-      console.log(`  ${yellow}could not regenerate intercepts.json (${regen.error}) — run \`rt intercept install\`${reset}`);
-    }
-
-    if (key === "rt.hooks" && repoPath && repoIdentity && repoKey) {
-      const { regenerateHooksCache } = await import("./hooks.ts");
-      if (regenerateHooksCache(repoPath, repoDataDir(repoKey), repoIdentity)) {
-        console.log(`  ${dim}hooks.json regenerated (${repoName})${reset}`);
-      } else {
-        console.log(`  ${yellow}could not regenerate hooks.json for ${repoName} — run \`rt hooks status\` in that repo to refresh it${reset}`);
-      }
-    }
+  if (!removed.result) {
+    out.print(out.line("skipped", `${key} was not set`, `nothing to remove from ${where}`));
+    return;
   }
 
-  console.log("");
+  out.print(
+    out.line("done", `Removed ${key}`, `from ${where}`),
+    ...removed.notices.flatMap(noticeBlocks),
+    ...(await regenBlocks(key, target)),
+  );
+}
+
+/**
+ * The derived caches a write may have invalidated, as lines under the
+ * confirmation. hooks.json is rebuilt only for a `--repo` write: a global
+ * write can change the resolved value for every other repo too, and
+ * deriving every repo's identity (a git spawn each) on one `set` is out of
+ * scope; `rt hooks status` in an affected repo refreshes its cache.
+ */
+async function regenBlocks(key: string, target: { repoName?: string; repoPath?: string; repoIdentity?: string; repoKey?: string }): Promise<Block[]> {
+  const blocks: Block[] = [];
+  const regen = await regenerateInterceptsCache(key);
+  if (regen.regenerated) {
+    blocks.push(out.line("done", "Intercepts updated", `${regen.rules} rule${regen.rules === 1 ? "" : "s"}`));
+  } else if (regen.error) {
+    blocks.push(out.line("warn", "Intercepts not updated", regen.error), out.callout("next", out.cmd("rt intercept install")));
+  }
+  if (key === "rt.hooks" && target.repoPath && target.repoIdentity && target.repoKey) {
+    const { regenerateHooksCache } = await import("./hooks.ts");
+    if (regenerateHooksCache(target.repoPath, repoDataDir(target.repoKey), target.repoIdentity)) {
+      blocks.push(out.line("done", "Hooks updated", target.repoName));
+    } else {
+      blocks.push(out.line("warn", `Hooks not updated for ${target.repoName}`), out.callout("next", [out.cmd("rt hooks status"), " in that repo"]));
+    }
+  }
+  return blocks;
 }
 
 // ─── the intercepts.json regeneration seam ──────────────────────────────────

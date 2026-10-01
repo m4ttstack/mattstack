@@ -13,6 +13,8 @@ import { settingsUnset } from "../settings-keys.ts";
 import { setSetting } from "../../lib/settings/write.ts";
 import { userSettingsPath } from "../../lib/rt-paths.ts";
 import { closeStateDb } from "../../lib/state/index.ts";
+import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 const KEY = "rt.logRetentionDays";
 
@@ -21,6 +23,7 @@ describe("rt settings unset", () => {
   let home: string;
   let exits: number[];
   let origExit: typeof process.exit;
+  let cap: ReturnType<typeof captureOut>;
 
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-unset-home-")));
@@ -30,9 +33,12 @@ describe("rt settings unset", () => {
     origExit = process.exit;
     // fail() exits; capture rather than kill the runner.
     (process as any).exit = (code?: number) => { exits.push(code ?? 0); throw new Error(`__exit_${code}`); };
+    cap = captureOut({ console: true });
+    out.__test__.setHuman(() => false);
   });
 
   afterEach(() => {
+    cap.restore();
     (process as any).exit = origExit;
     process.env.HOME = origHome;
     closeStateDb();
