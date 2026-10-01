@@ -173,9 +173,12 @@ dropdown, a Mantine `Menu`: `N in #room` and `wakes: <mode>` in its
 header, members under `Needs you` / `Working` / `Done` labels as two-line
 `Menu.Sub` items (sprite `Avatar`, name, a repo badge only when it differs
 from the room's; the task line under it), and the signed-out members folded
-into one `N signed out` item. Each member's agent card is its submenu: it
-docks flush against the dropdown, level with the row, and the row stays
-active while the pointer is on the card.
+into one `N signed out` item. A group shows eight rows, then an `N more`
+item that lists the rest. The list scrolls under the header past 420px.
+Each member's agent card is its submenu: it docks flush against the
+dropdown, level with the row, and the row stays active while the pointer
+is on the card. In the dropdown the card's actions are menu items under a
+divider, and choosing one closes the menu.
 
 Right side: `add agents`, `mark read` with the count, and the expand-all
 toggle, all at the kit's `sm` size. The old `join order` select is gone —
@@ -235,7 +238,8 @@ quoted and italic. Then the task line (omitted when the fallback is the
 folder form) and one muted `workspace › tab` line saying where the pane
 lives in herdr (repo and branch when there is no pane; herdr's numbered
 default tab label is dropped). Then the actions in a `Group` (`gap="sm"`),
-all `compact-sm`: `Focus pane` filled, `Mention` and `Message` subtle.
+all `compact-sm`: `Focus pane` filled, `Mention` and `Message` subtle. (In
+the members dropdown the same three are menu items instead.)
 
 ## Close sheet
 
