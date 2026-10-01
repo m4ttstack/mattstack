@@ -48,7 +48,6 @@
   "commands/secrets.ts",
   "commands/services.ts",
   "commands/settings-schema.ts",
-  "commands/settings.ts",
   "commands/setup.ts",
   "commands/skills-audit.ts",
   "commands/skills-expand.ts",
