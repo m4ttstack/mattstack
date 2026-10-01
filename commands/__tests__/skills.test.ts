@@ -1117,8 +1117,30 @@ describe("skillsCompile/skillsCheck --verb scoping across roster verbs and pipel
       // orchestrator's) is the N+1-bodies bug, and one payload call is the check.
       expect(payload).toHaveBeenCalledTimes(1);
       expect(io.stdout()).toContain("The work type is `feature`. Continue.");
-      expect(io.stdout().endsWith("\n")).toBe(true);
+      const previewed = io.stdout();
+
+      // Byte parity with the old console.log(content): the body, then one newline.
+      await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "work"]);
+      const written = readFileSync(join(packDir, "skills", "work", "SKILL.md"), "utf8");
+      expect(previewed).toBe(`${written}\n`);
     } finally {
+      payload.mockRestore();
+    }
+  });
+
+  test("--preview with a pack note firing: stdout is the body alone, the note is on stderr", async () => {
+    const { mattstackDir, packDir, manifestPath } = makePipelineFixtures();
+    const cwd = process.cwd();
+    const payload = spyOn(ui, "payload");
+    try {
+      process.chdir(packDir);
+      await skillsCompile(["--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "stage-plan", "--preview"]);
+      expect(payload).toHaveBeenCalledTimes(1);
+      expect(io.stdout()).toBe(String(payload.mock.calls[0]![0]));
+      expect(io.stdout()).not.toContain("Using the pack");
+      expect(io.stderr()).toContain("Using the pack this folder is inside");
+    } finally {
+      process.chdir(cwd);
       payload.mockRestore();
     }
   });

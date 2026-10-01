@@ -23,6 +23,12 @@ test("a warning that already starts with note: is not labelled twice", () => {
   ).toBe("[warning] Compiled watch-ci  1 file in skills/\n  note: acme:qa-gates is surface-internal; inlined\n");
 });
 
+test("two warnings are one note, one line each", () => {
+  expect(renderPlain(compileBlocks([{ name: "watch-ci", side: "skills", files: 2, warnings: ["first thing", "note: second thing"] }], true))).toBe(
+    "[warning] Compiled watch-ci  2 files in skills/\n  note: first thing\n        second thing\n",
+  );
+});
+
 test("a dry run says what it would write", () => {
   expect(renderPlain(compileBlocks([{ name: "watch-ci", side: "skills", files: 3, warnings: [] }], false))).toBe("[not yet] watch-ci  would write 3 files\n");
 });
