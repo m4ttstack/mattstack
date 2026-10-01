@@ -76,7 +76,7 @@ describe('isRoomForRepo', () => {
     expect(isRoomForRepo('rt', 'acme-api')).toBe(false);
   });
 
-  test('the suffix rule errs toward hiding the chip, never toward a wrong one', () => {
+  test('without the repo identity, the suffix rule also matches an unrelated room', () => {
     expect(isRoomForRepo('acme-api', 'api')).toBe(true);
   });
 });

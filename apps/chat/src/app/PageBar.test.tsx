@@ -121,7 +121,67 @@ test('a group past eight rows ends in "N more", which lists the rest and keeps t
   await userEvent.click(more);
   expect(screen.getByTestId('members-dropdown')).toBeInTheDocument();
   expect(screen.getByTestId('members-row-w10')).toBeInTheDocument();
-  expect(screen.queryByTestId('members-more-working')).toBeNull();
+  expect(more).toHaveTextContent('Show fewer');
+  await userEvent.click(more);
+  expect(screen.queryByTestId('members-row-w8')).toBeNull();
+});
+
+test('"N more" works from the keyboard and the menu stays open after it', async () => {
+  const buddies = Array.from({ length: 9 }, (_, i) => ({
+    handle: `w${i}`,
+    status: 'live' as const,
+  }));
+  renderWithProviders(
+    <PageBar
+      room={{ room: 'rt', memberCount: 9, unread: 0, mentions: 0 }}
+      buddies={buddies}
+    />
+  );
+  await userEvent.click(screen.getByTestId('members-chip'));
+  const more = await screen.findByTestId('members-more-working');
+  more.focus();
+  await userEvent.keyboard('{Enter}');
+  expect(screen.getByTestId('members-row-w8')).toBeInTheDocument();
+  expect(more).toHaveFocus();
+  await userEvent.keyboard('{ArrowUp}');
+  expect(screen.getByTestId('members-dropdown')).toBeInTheDocument();
+});
+
+test('a member who signs out while its card is open does not reopen it when the signed-out list expands', async () => {
+  const max = {
+    sessionId: 's-max',
+    handle: 'max',
+    baseHandle: 'max',
+    name: 'max',
+    signedInAt: 1,
+    lastSeenAt: 1,
+    status: 'live' as const,
+    rooms: ['rt'],
+  };
+  const page = (status: 'live' | 'offline') => (
+    <BuddiesProvider
+      buddies={[{ ...max, status }]}
+      roomMembers={['max']}
+      now={2}
+      reachable
+      actions={{ mention: vi.fn(), dm: vi.fn() }}
+    >
+      <PageBar
+        room={{ room: 'rt', memberCount: 1, unread: 0, mentions: 0 }}
+        buddies={[{ ...max, status }]}
+      />
+    </BuddiesProvider>
+  );
+  const { rerender } = renderWithProviders(page('live'));
+  await userEvent.click(screen.getByTestId('members-chip'));
+  await userEvent.hover(await screen.findByTestId('members-row-max'));
+  await screen.findByTestId('detail-max', {}, { timeout: 2000 });
+  rerender(page('offline'));
+  await userEvent.click(await screen.findByTestId('members-signed-out'));
+  expect(await screen.findByTestId('members-row-max')).not.toHaveAttribute(
+    'data-menu-active'
+  );
+  expect(screen.queryByTestId('detail-max')).toBeNull();
 });
 
 test('an empty room reads zero on the pill, with no sprites', () => {

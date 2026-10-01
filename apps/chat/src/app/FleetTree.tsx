@@ -51,8 +51,8 @@ const WORKSTREAM_INDENT = 26.4;
     border instead of floating off it. */
 const SIDEBAR_DOCK_OFFSET = 7;
 
-/** Everything nested inside a room -- workstream handles, DM names -- reads
-    at meta. */
+/** Everything nested inside a room (workstream handles, DM names) reads at
+    meta. */
 const ROW_NAME_SIZE = 'var(--mantine-font-size-xs)';
 /** The room row itself, one step up, so the tree has a visible hierarchy. */
 const CHROME_SIZE = 'var(--mantine-font-size-sm)';
@@ -111,16 +111,22 @@ export interface FleetGroup {
 
 /** The room an agent's repo maps to. A presence row's `repo` is a display
     label (a local repo's basename, a remote's own casing), while rt names
-    rooms by slug and, for a local repo, two path segments, so an exact name
-    is tried first and the slug rule only when none matches. */
+    rooms by slug and, for a local repo, two path segments. An exact name
+    wins; otherwise the slug rule picks among the rooms the agent joined
+    (sign-in joins its repo's room), and only a single slug match is trusted
+    without that, since two local repos sharing a basename both match. */
 function roomForRepo(
   rooms: FleetRoom[],
-  repo: string | undefined
+  buddy: Pick<RosterBuddy, 'repo' | 'rooms'>
 ): FleetRoom | undefined {
+  const { repo } = buddy;
   if (!repo) return undefined;
+  const exact = rooms.find(r => r.room === repo);
+  if (exact) return exact;
+  const matches = rooms.filter(r => isRoomForRepo(r.room, repo));
   return (
-    rooms.find(r => r.room === repo) ??
-    rooms.find(r => isRoomForRepo(r.room, repo))
+    matches.find(r => buddy.rooms.includes(r.room)) ??
+    (matches.length === 1 ? matches[0] : undefined)
   );
 }
 
@@ -139,7 +145,7 @@ export function groupByRepo(
   for (const buddy of [...buddies].sort(
     (a, b) => a.signedInAt - b.signedInAt
   )) {
-    const room = roomForRepo(rooms, buddy.repo);
+    const room = roomForRepo(rooms, buddy);
     if (!room) continue;
     const members = byRoom.get(room.room);
     if (members) members.push(buddy);
@@ -164,7 +170,7 @@ export function listedBuddies(
   rooms: FleetRoom[],
   buddies: RosterBuddy[]
 ): RosterBuddy[] {
-  return buddies.filter(b => roomForRepo(rooms, b.repo) !== undefined);
+  return buddies.filter(b => roomForRepo(rooms, b) !== undefined);
 }
 
 /**
@@ -537,7 +543,7 @@ function WorkstreamRow({
       </Tooltip>
       <Text
         component="span"
-        fw={600}
+        fw={500}
         data-testid={`ws-handle-${handle}`}
         style={{ fontSize: ROW_NAME_SIZE, flex: 'none' }}
       >
@@ -680,7 +686,7 @@ function DmRow({
       {/* textContent, not three separate runs: the arrow needs its own span
           for the purple, but a screen reader still reads one phrase. */}
       <Text
-        fw={600}
+        fw={500}
         truncate
         style={{ fontSize: ROW_NAME_SIZE, flex: 1, minWidth: 0 }}
       >

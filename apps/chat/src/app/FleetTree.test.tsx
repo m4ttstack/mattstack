@@ -125,6 +125,27 @@ test("an agent is listed under its repo's room even when the names differ in cas
   ]);
 });
 
+test('two local repos sharing a basename each keep their own room, by the room the agent joined', () => {
+  renderTree({
+    rooms: [room('github-api'), room('work-api')],
+    buddies: [
+      buddy('ada', 'api', { rooms: ['work-api'] }),
+      buddy('bo', 'api', { rooms: ['github-api'] }),
+      buddy('cy', 'api', { rooms: [] }),
+    ],
+  });
+  const rows = screen
+    .getAllByTestId(/^(room-row-|ws-(?!doing|handle))/)
+    .map(el => el.dataset.testid);
+  // cy matches both rooms and joined neither, so it is not guessed into one.
+  expect(rows).toEqual([
+    'room-row-github-api',
+    'ws-bo',
+    'room-row-work-api',
+    'ws-ada',
+  ]);
+});
+
 test("a repo's signed-out members collapse into one line naming them", () => {
   renderTree({
     rooms: [room('rt')],
@@ -371,7 +392,6 @@ test('rooms and DMs both close, by hover × and by right-click menu', async () =
   const dmClose = screen.getByTestId('dm-close-dm-jay-max');
   expect(dmClose).toHaveAttribute('aria-label', 'Close jay ↔ max');
   expect(dmClose).not.toHaveStyle({ display: 'none' });
-  await userEvent.hover(screen.getByTestId('dm-row-dm-jay-max'));
   await userEvent.click(dmClose);
   expect(onClose).toHaveBeenCalledWith('dm-jay-max');
   expect(onOpenRoom).not.toHaveBeenCalled();

@@ -87,8 +87,8 @@ function MemberLabel({
     item with no card.
 
     The submenu is fixed-positioned so the list's scroll area does not clip
-    it, and controlled so a card closed by the menu closing stays closed on
-    the next open. */
+    it, and controlled so the row can carry Mantine's active mark
+    (`data-menu-active`) while the pointer is on the card. */
 function MemberItem({
   member,
   room,
@@ -125,6 +125,7 @@ function MemberItem({
       position="right-start"
       offset={DROPDOWN_DOCK_OFFSET}
       width={CARD_WIDTH}
+      radius="lg"
       floatingStrategy="fixed"
       opened={active}
       onChange={onActive}
@@ -187,18 +188,46 @@ export function RoomMembers({
 
   const capped = (key: string, members: MemberBuddy[]) =>
     uncapped.has(key) ? members : members.slice(0, GROUP_CAP);
-  const more = (key: string, members: MemberBuddy[]) =>
-    !uncapped.has(key) &&
-    members.length > GROUP_CAP && (
+  // A toggle that stays mounted: an item that removed itself would drop
+  // focus to the body, and the menu reads the next keydown as an outside
+  // click.
+  const more = (key: string, members: MemberBuddy[]) => {
+    if (members.length <= GROUP_CAP) return null;
+    const open = uncapped.has(key);
+    return (
       <Menu.Item
-        leftSection={<Icon name="chevronDown" size={12} />}
+        leftSection={
+          <Icon name={open ? 'chevronUp' : 'chevronDown'} size={12} />
+        }
+        aria-expanded={open}
         closeMenuOnClick={false}
         data-testid={`members-more-${key}`}
-        onClick={() => setUncapped(s => new Set(s).add(key))}
+        onClick={() =>
+          setUncapped(s => {
+            const next = new Set(s);
+            if (open) next.delete(key);
+            else next.add(key);
+            return next;
+          })
+        }
       >
-        <span className={classes.more}>{members.length - GROUP_CAP} more</span>
+        <span className={classes.more}>
+          {open ? 'Show fewer' : `${members.length - GROUP_CAP} more`}
+        </span>
       </Menu.Item>
     );
+  };
+  const shown = reachable
+    ? [
+        ...groups.flatMap(g => capped(g.state, g.members)),
+        ...(offlineOpen ? capped('offline', offline) : []),
+      ]
+    : [];
+  // A row that leaves the list (signed out, folded away) takes its card with
+  // it, so the card cannot reopen unasked when the row comes back.
+  if (activeHandle !== null && !shown.some(b => b.handle === activeHandle)) {
+    setActiveHandle(null);
+  }
   const onOpenChange = (open: boolean) => {
     setOpened(open);
     if (!open) setActiveHandle(null);

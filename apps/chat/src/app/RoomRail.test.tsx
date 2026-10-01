@@ -162,7 +162,6 @@ test('the hover × closes that row without selecting it', async () => {
   const close = screen.getByTestId('dm-close-dm-1');
   expect(close).toHaveAttribute('aria-label', 'Close fred ↔ gitq-main');
   expect(close).not.toHaveStyle({ display: 'none' });
-  await userEvent.hover(screen.getByTestId('dm-row-dm-1'));
   await userEvent.click(close);
   expect(onCloseRoom).toHaveBeenCalledWith('dm-1');
   expect(onSelectRoom).not.toHaveBeenCalled();
