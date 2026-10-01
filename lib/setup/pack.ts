@@ -12,10 +12,10 @@ import { materializeSkills } from "./skills-materialize.ts";
 
 const DEFAULT_WORK_TYPE = "feature";
 
-export const NO_MANIFEST_DETAIL = "no bindings file for this pack yet; run rt skills materialize";
+export const NO_MANIFEST_DETAIL = "This pack has no bindings file yet. Run rt skills materialize";
 
 /** No repo is registered yet, so the pipeline check has nothing to read: an expected first-run state, not a failure. */
-const AWAITING_CLONE_NOTE = "waiting on a repo clone to check the pipeline";
+const AWAITING_CLONE_NOTE = "the pipeline check waits for a repo clone";
 
 interface PackManifest {
   pipelines?: Record<string, string[] | undefined>;
@@ -72,8 +72,8 @@ export async function setupPackFlow(ctx: ApplyContext): Promise<{ ok: boolean; s
     const failed = outcomes.find((pk) => !pk.ok);
     if (failed && !failed.ok) return { ok: false, detail: failed.detail };
     const nothing = materialized.skipped ? undefined : materialized.repos.find((r) => r.noManifest && r.path === repo.worktrees[0]?.path);
-    if (nothing?.noRemote) return { ok: true, detail: `${repo.repoName} has no git remote; no pipeline to check` };
-    if (nothing) return { ok: true, detail: `no team pack declares ${repo.repoName}; no pipeline to check` };
+    if (nothing?.noRemote) return { ok: true, detail: `${repo.repoName} has no git remote, so there is no pipeline to check` };
+    if (nothing) return { ok: true, detail: `No team pack covers ${repo.repoName}, so there is no pipeline to check` };
     return { ok: false, detail: NO_MANIFEST_DETAIL };
   }
 
@@ -81,7 +81,7 @@ export async function setupPackFlow(ctx: ApplyContext): Promise<{ ok: boolean; s
   const manifest = parseManifest(text);
   const stages = manifest.pipelines?.[workType] ?? [];
   for (const stage of stages) {
-    if (stageUnresolved(stage, manifest.bindings)) return { ok: false, stage, detail: `stage "${stage}" is unresolved` };
+    if (stageUnresolved(stage, manifest.bindings)) return { ok: false, stage, detail: `The ${stage} stage has no skill bound to it` };
   }
-  return { ok: true, detail: `${stages.length} stage(s) resolved for "${workType}"` };
+  return { ok: true, detail: `${stages.length} stage${stages.length === 1 ? "" : "s"} resolved for ${workType} work` };
 }

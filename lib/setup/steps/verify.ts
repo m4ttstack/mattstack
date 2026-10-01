@@ -18,8 +18,8 @@ type CheckResult = ReturnType<typeof rowsToChecks>[number];
 
 type MemberTask = { verb: "connect" | "install"; label: string };
 
-const UNPEERED_NOTE = "board not peered: ask the team owner to re-invite you";
-const SEVERAL_TEAMS_NOTE = "more than one team on this Mac: open Setup status";
+const UNPEERED_NOTE = "Board not peered: ask the team owner to re-invite you";
+const SEVERAL_TEAMS_NOTE = "More than one team on this Mac: open Setup status";
 
 /**
  * Install never connects an account or installs a team-declared tool: both
@@ -55,17 +55,17 @@ export function outcomeFromChecks(checks: CheckResult[], rows: Row[] = []): Step
     ...(["connect", "install"] as const)
       .map((verb) => [verb, tasks.filter((t) => t.verb === verb).map((t) => t.label)] as const)
       .filter(([, labels]) => labels.length > 0)
-      .map(([verb, labels]) => `to ${verb}: ${labels.join(", ")}`),
+      .map(([verb, labels]) => `To ${verb}: ${labels.join(", ")}`),
     // Not required, so it never fails a check, but only the member can chase the owner for the token.
     ...(byId.get(BOARD_PEERING_ROW_ID)?.status === "needs-you" ? [UNPEERED_NOTE] : []),
     // Not required either, and nothing else tells a Mac that already has two zones.
     ...(byId.get(ONE_TEAM_ROW_ID)?.status === "needs-you" ? [SEVERAL_TEAMS_NOTE] : []),
-  ].join(" · ");
+  ].join(". ");
   if (failures.length > 0) {
     return {
       state: "failed",
-      detail: `${failures.length} check${failures.length === 1 ? "" : "s"} failed: ${failures.map((f) => f.name).join(", ")}${note ? ` · ${note}` : ""}`,
-      remedy: "Run `rt verify` for details",
+      detail: `${failures.length} check${failures.length === 1 ? "" : "s"} failed: ${failures.map((f) => byId.get(f.name)?.title ?? f.name).join(", ")}${note ? `. ${note}` : ""}`,
+      remedy: "Run rt verify for details",
     };
   }
   if (note) return { state: "needs-you", detail: note };

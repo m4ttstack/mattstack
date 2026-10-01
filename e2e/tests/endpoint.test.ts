@@ -417,7 +417,7 @@ describe("rt endpoint / intercept (just-works e2e)", () => {
     expect(out.listener.ownsClaim).toBe(true);
   }, 40_000);
 
-  test("rt intercept status reports the shim installed and current", async () => {
+  test("rt intercept status reports the shim installed and up to date", async () => {
     const res = await finished(runRt(["intercept", "status", "--json"]));
     expect(res.exitCode).toBe(0);
     const out = JSON.parse(res.stdout);
@@ -435,6 +435,6 @@ describe("rt endpoint / intercept (just-works e2e)", () => {
     const check = out.checks.find((c: { name: string }) => c.name === "tool.intercepts");
     expect(check).toBeDefined();
     expect(check.status).toBe("pass");
-    expect(check.detail).toContain("1 installed and current");
+    expect(check.detail).toContain("1 installed and up to date");
   }, 60_000);
 });

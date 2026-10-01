@@ -180,15 +180,15 @@ export async function askAppDirectly(
  * it without a runtime cycle back through steps/index.ts.
  */
 export function outcomeFromNeed(reply: NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal"): StepOutcome {
-  if (reply === "no-app") return { state: "skipped", detail: "no mattstack.app running to complete this step" };
+  if (reply === "no-app") return { state: "skipped", detail: "mattstack.app is not running, and this step needs it" };
   if (reply === "app-unanswerable") {
     return {
       state: "failed",
-      detail: "mattstack.app is running but cannot answer setup requests from this terminal — quit it and Retry, or finish setup in the app",
+      detail: "mattstack.app is running but cannot answer setup requests from this terminal. Quit it and Retry, or finish setup in the app",
     };
   }
-  if (reply === "needs-terminal") return { state: "failed", detail: "this step raises an admin prompt, which needs a person at an interactive terminal" };
-  if (reply === "timeout") return { state: "failed", detail: "timed out waiting for mattstack.app" };
-  if (reply === "app-gone") return { state: "failed", detail: "mattstack.app stopped responding" };
+  if (reply === "needs-terminal") return { state: "failed", detail: "This step raises an admin prompt, which needs a person at a terminal" };
+  if (reply === "timeout") return { state: "failed", detail: "mattstack.app did not answer in time" };
+  if (reply === "app-gone") return { state: "failed", detail: "mattstack.app stopped answering" };
   return reply.ok ? { state: "done", detail: reply.detail } : { state: "failed", detail: reply.detail ?? "mattstack.app reported failure" };
 }

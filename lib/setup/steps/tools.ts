@@ -35,7 +35,7 @@ const NO_HOST_STDERR = /Detected hosts: none|Requested \S+ host was not detected
 
 async function fastbrowserSetupRun(ctx: ApplyContext): Promise<StepOutcome> {
   const resolved = resolveTool(ctx.p, "fast-browser");
-  if (!resolved.exec) return { state: "skipped", detail: "fast-browser not bundled" };
+  if (!resolved.exec) return { state: "skipped", detail: "Fast Browser is not in this build" };
 
   const result = await setupTool(ctx.p, "fast-browser", { configDirs: [], marketplaceSource: fastBrowserMarketplaceSource(ctx.p.env) });
   if (result.ok) return { state: "done", detail: result.detail };
@@ -47,9 +47,9 @@ async function fastbrowserSetupRun(ctx: ApplyContext): Promise<StepOutcome> {
   // execute. Same shape and same reasoning as plugins.install's claude branch:
   // skip where nobody can act on a Retry, stay loud where a human is watching.
   if (NO_HOST_STDERR.test(result.detail) && ctx.nonInteractive) {
-    return { state: "skipped", detail: "no Claude Code or Codex host detected — nothing to integrate with" };
+    return { state: "skipped", detail: "No Claude Code or Codex found, so there is nothing to integrate with" };
   }
-  return { state: "failed", detail: result.detail, remedy: "Run `fast-browser setup` in a terminal for details" };
+  return { state: "failed", detail: result.detail, remedy: "Run fast-browser setup in a terminal for details" };
 }
 
 async function fastbrowserSetupRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
@@ -73,12 +73,12 @@ export const fastbrowserSetupStep: StepDef = {
 
 async function herdrIntegrationRun(ctx: ApplyContext): Promise<StepOutcome> {
   const resolved = resolveTool(ctx.p, "herdr");
-  if (!resolved.chosen) return { state: "skipped", detail: "herdr not installed (Tools row)" };
+  if (!resolved.chosen) return { state: "skipped", detail: "herdr is not installed (see the Tools section)" };
 
   const configDirs = claudeConfigDirs(ctx.p, []);
   const result = await setupTool(ctx.p, "herdr", { configDirs });
   if (result.ok) return { state: "done", detail: result.detail };
-  return { state: "failed", detail: result.detail, remedy: "Run `herdr integration install claude` in a terminal for details" };
+  return { state: "failed", detail: result.detail, remedy: "Run herdr integration install claude in a terminal for details" };
 }
 
 async function herdrIntegrationRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
@@ -107,9 +107,9 @@ export async function extensionInstallRun(ctx: ApplyContext, seams?: ToolsInstal
   const onlyEditors = ctx.update ? readSetupState(ctx.p).extensionEditors : undefined;
   const result = await setupTool(ctx.p, "extension", { configDirs: [], ...(onlyEditors ? { onlyEditors } : {}) }, seams);
   if (result.ok) return { state: "done", detail: result.detail };
-  if (result.detail === VSIX_NOT_FOUND_DETAIL) return { state: "skipped", detail: "extension not bundled" };
-  if (result.detail === NO_EDITORS_DETAIL) return { state: "skipped", detail: "no editor found" };
-  if (result.detail === NO_RECORDED_EDITORS_DETAIL) return { state: "skipped", detail: "no editor rt installed the extension into" };
+  if (result.detail === VSIX_NOT_FOUND_DETAIL) return { state: "skipped", detail: "The extension is not in this build" };
+  if (result.detail === NO_EDITORS_DETAIL) return { state: "skipped", detail: "No editor found" };
+  if (result.detail === NO_RECORDED_EDITORS_DETAIL) return { state: "skipped", detail: "No editor that rt installed the extension into" };
   return { state: "failed", detail: result.detail, remedy: "Install the extension manually, then Retry" };
 }
 
@@ -162,16 +162,16 @@ export async function servicesStartRun(ctx: ApplyContext, sleep?: (ms: number) =
   // never silently downgrade to a "not running" skip in a CI run.
   if (res.status === 0) {
     return ctx.nonInteractive
-      ? { state: "skipped", detail: "mattstack.app not running" }
-      : { state: "failed", detail: "mattstack.app not running", remedy: "Open mattstack.app" };
+      ? { state: "skipped", detail: "mattstack.app is not running" }
+      : { state: "failed", detail: "mattstack.app is not running", remedy: "Open mattstack.app" };
   }
   if (res.status !== 200) {
-    return { state: "failed", detail: `mattstack.app returned status ${res.status} starting the daemon`, remedy: "Open mattstack.app" };
+    return { state: "failed", detail: `mattstack.app answered ${res.status} when asked to start the daemon`, remedy: "Open mattstack.app" };
   }
 
   const up = await waitForDaemonUp(ctx.p, { sleep });
-  if (up) return { state: "done", detail: "daemon running" };
-  return { state: "failed", detail: "daemon did not come up", remedy: "Approve the background item in Login Items, then Retry" };
+  if (up) return { state: "done", detail: "The daemon is running" };
+  return { state: "failed", detail: "The daemon did not start", remedy: "Approve the background item in Login Items, then Retry" };
 }
 
 async function servicesStartRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
@@ -210,23 +210,23 @@ async function snapshotPushRun(ctx: ApplyContext): Promise<StepOutcome> {
   // pushed to the shared repo is not — so this skips honestly instead.
   const reply = await ctx.p.daemon("home:snapshot");
   if (reply === null) {
-    return { state: "skipped", detail: "snapshot deferred to the daemon's next cycle (daemon unreachable)" };
+    return { state: "skipped", detail: "The daemon is not running; the snapshot runs on its next cycle" };
   }
 
   if (!reply.ok) {
-    return { state: "failed", detail: withoutUrls(reply.error ?? "home:snapshot reported failure"), remedy: "check `git -C ~/.mattstack/user status`" };
+    return { state: "failed", detail: withoutUrls(reply.error ?? "The snapshot failed"), remedy: "Run git -C ~/.mattstack/user status to see why" };
   }
 
   const result = reply.data as SnapshotResult | undefined;
-  if (result?.skipped) return { state: "skipped", detail: `snapshot skipped: ${result.skipped}` };
-  if (!result?.committed) return { state: "done", detail: "no changes to snapshot" };
+  if (result?.skipped) return { state: "skipped", detail: `Snapshot skipped: ${result.skipped}` };
+  if (!result?.committed) return { state: "done", detail: "No changes to snapshot" };
 
   const sha = result.sha ? result.sha.slice(0, 8) : "(no sha)";
   // This step only ever observes the daemon's commit, never a push — the
   // daemon pushes async on its own delay, and home.backup (not this step)
   // is the row that confirms whether a push actually landed.
   const remote = await hasRemote(ctx.p.exec, join(ctx.p.home, ".mattstack", "user"));
-  return { state: "done", detail: remote ? `committed ${sha} — push follows on the daemon's next cycle` : `committed ${sha} locally — no remote, nothing pushed` };
+  return { state: "done", detail: remote ? `Committed ${sha}; the daemon pushes it on its next cycle` : `Committed ${sha} on this Mac only; there is no remote to push to` };
 }
 
 async function snapshotPushRunSafe(ctx: ApplyContext): Promise<StepOutcome> {

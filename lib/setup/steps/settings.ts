@@ -35,7 +35,7 @@ async function settingsSeedRun(ctx: ApplyContext): Promise<StepOutcome> {
     if (isTransientAppRoot(ctx.appPath)) {
       return {
         state: "failed",
-        detail: `running from ${ctx.appPath} — drag mattstack.app to /Applications, then Retry`,
+        detail: `Running from ${ctx.appPath}. Drag mattstack.app to /Applications, then Retry`,
         remedy: "Move mattstack.app to /Applications and relaunch it",
       };
     }
@@ -50,7 +50,7 @@ async function settingsSeedRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   if (promoteStagedRepoRoot(ctx.p)) written.push("rt.repoRoots");
 
-  return { state: "done", detail: written.length > 0 ? `wrote: ${written.join(", ")}` : "nothing to seed" };
+  return { state: "done", detail: written.length > 0 ? `Wrote ${written.join(", ")}` : "Nothing to write" };
 }
 
 async function settingsSeedRunSafe(ctx: ApplyContext): Promise<StepOutcome> {

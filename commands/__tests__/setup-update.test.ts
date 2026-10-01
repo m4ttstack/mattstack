@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { setupUpdate, updateAfterFinish, type ApplyDeps } from "../setup.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../../lib/setup/apply.ts";
 import type { ApplyEvent, StepId } from "../../lib/setup/contract.ts";
@@ -12,6 +12,14 @@ import { createUpdateLock } from "../../lib/setup/update-lock.ts";
 import { existsSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { capturePlain, realJson } from "./helpers/json-line.ts";
+
+let quiet: CapturedOut;
+beforeEach(() => {
+  quiet = capturePlain();
+});
+afterEach(() => quiet.restore());
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -75,7 +83,7 @@ function baseApplyDeps(
     secrets: fakeSecrets,
     relay: fakeRelay,
     secretPresence: fakeSecretPresence(),
-    print: (s) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
       throw new Error("exit sentinel");
@@ -105,7 +113,10 @@ function updateDeps(overrides: Parameters<typeof baseApplyDeps>[0] = {}) {
   const deps = baseApplyDeps({
     version: "2.15.0",
     migrations: [],
-    steps: [updateStep("path.link", { state: "done", detail: "linked" }), updateStep("verify", { state: "done", detail: "1 check passed" })],
+    steps: [
+      { ...updateStep("path.link", { state: "done", detail: "linked" }), title: "Link rt onto your PATH" },
+      { ...updateStep("verify", { state: "done", detail: "1 check passed" }), title: "Verify your setup" },
+    ],
     notify: (category, title, message, id) => { notifications.push({ category, title, message, id }); },
     ...overrides,
   });
@@ -133,10 +144,14 @@ describe("rt setup update", () => {
     expect(deps.probes.readFile(STATE)).toBeNull();
   });
 
-  test("human mode prints the not-set-up line", async () => {
-    const deps = updateDeps();
-    await run(deps, []);
-    expect(deps.lines).toEqual(["setup update: setup has not finished on this Mac"]);
+  test("human mode: not set up is a pending line with the install verb", async () => {
+    const cap = capturePlain();
+    try {
+      await run(updateDeps({ steps: [neverRunsStep("path.link")] }), []);
+      expect(cap.stdout()).toBe("[not yet] Setup has not finished on this Mac yet\n  next: rt setup install\n");
+    } finally {
+      cap.restore();
+    }
   });
 
   test("current stamp: done skipped:current, exit 0, nothing runs", async () => {
@@ -144,14 +159,26 @@ describe("rt setup update", () => {
     await run(deps, ["--json"]);
     expect(jsonEvents(deps.lines)).toEqual([{ event: "done", ok: true, skipped: "current" }]);
     const human = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 1, lastUpdate: { version: "2.15.0", at: "x" } }) } }), steps: [neverRunsStep("path.link")] });
-    await run(human, []);
-    expect(human.lines).toEqual(["setup update: already applied for 2.15.0"]);
+    const cap = capturePlain();
+    try {
+      await run(human, []);
+      expect(cap.stdout()).toBe("[skipped] Nothing to update  already applied for 2.15.0\n");
+    } finally {
+      cap.restore();
+    }
   });
 
   test("a run streams plan, steps and done, stamps the version, prints the summary, exits 0 and posts nothing when all clear", async () => {
     const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }) });
-    await run(deps, []);
-    expect(deps.lines.at(-1)).toBe("setup update: ran: path.link, verify");
+    const cap = capturePlain();
+    try {
+      await run(deps, []);
+      expect(cap.stdout()).toEndWith("[ok] Everything is up to date  2 done\n");
+      expect(cap.stdout()).toContain("[ok] Link rt onto your PATH  linked\n");
+      expect(cap.stdout()).toContain("[ok] Verify your setup  1 check passed\n");
+    } finally {
+      cap.restore();
+    }
     expect(deps.exitCodes).toEqual([]);
     expect(deps.notifications).toEqual([]);
     expect(readSetupState(deps.probes).lastUpdate?.version).toBe("2.15.0");
@@ -174,6 +201,20 @@ describe("rt setup update", () => {
     expect(deps.exitCodes).toEqual([2]);
     expect(readSetupState(deps.probes).lastUpdate?.version).toBe("2.15.0");
     expect(deps.notifications).toEqual([{ category: "setup_update", title: "Setup needs you after the update to 2.15.0", message: "verify: to connect: Slack", id: "setup_update:2.15.0" }]);
+  });
+
+  test("a needs-you item for a person ends in a needs-you summary and exits 2 after it", async () => {
+    const cap = capturePlain();
+    try {
+      let atExit = "";
+      const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }), steps: [updateStep("verify", { state: "needs-you", detail: "to connect: Slack" })] });
+      deps.exit = ((code: number) => { atExit = cap.stdout(); deps.exitCodes.push(code); throw new Error("exit sentinel"); }) as ApplyDeps["exit"];
+      await run(deps, []);
+      expect(deps.exitCodes).toEqual([2]);
+      expect(atExit).toContain("[needs you] The update needs you  1 needs you\n");
+    } finally {
+      cap.restore();
+    }
   });
 
   test("a failed item exits 2 and stamps anyway, so the next launch does not nag again", async () => {
@@ -252,20 +293,28 @@ describe("rt setup update", () => {
         probes: fakeProbes({ files: { [DAEMON]: "{}" } }),
         steps: [updateStep("verify", { state: "needs-you", detail: "to connect: Slack" })],
       });
-      const printed: string[] = [];
-      await updateAfterFinish({ json: true, print: (s) => printed.push(s) }, deps);
-      expect(printed).toEqual([]);
+      const cap = capturePlain();
+      try {
+        await updateAfterFinish({ json: true }, deps);
+        expect(cap.stdout()).toBe("");
+      } finally {
+        cap.restore();
+      }
       expect(deps.lines).toEqual([]);
       expect(deps.exitCodes).toEqual([]);
       expect(deps.notifications.map((n) => n.id)).toEqual(["setup_update:2.15.0"]);
       expect(readSetupState(deps.probes).lastUpdate?.version).toBe("2.15.0");
     });
 
-    test("human mode prints the run through the caller's print", async () => {
+    test("human mode draws the run and ends in the update summary", async () => {
       const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }) });
-      const printed: string[] = [];
-      await updateAfterFinish({ json: false, print: (s) => printed.push(s) }, deps);
-      expect(printed.at(-1)).toBe("setup update: ran: path.link, verify");
+      const cap = capturePlain();
+      try {
+        await updateAfterFinish({ json: false }, deps);
+        expect(cap.stdout()).toEndWith("[ok] Everything is up to date  2 done\n");
+      } finally {
+        cap.restore();
+      }
       expect(deps.lines).toEqual([]);
     });
   });
@@ -293,8 +342,13 @@ describe("rt setup update", () => {
 
     test("human mode prints the already-running line", async () => {
       const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }), steps: [neverRunsStep("path.link")], updateLock: fakeLock(false).lock });
-      await run(deps, []);
-      expect(deps.lines).toEqual(["setup update: another update run is in progress"]);
+      const cap = capturePlain();
+      try {
+        await run(deps, []);
+        expect(cap.stdout()).toBe("[skipped] Another update is already running\n");
+      } finally {
+        cap.restore();
+      }
     });
 
     test("a run takes the lock and releases it", async () => {
@@ -390,5 +444,18 @@ describe("rt setup update", () => {
       await run(updateDeps({ probes, steps: [neverRunsStep("path.link")], updateLock: current.lock }), ["--json"]);
       expect(current.order).toEqual([]);
     });
+  });
+});
+
+describe("setup update --json bytes", () => {
+  test("a skipped run is exactly one done event", async () => {
+    const cap = capturePlain();
+    try {
+      const deps = updateDeps({ steps: [neverRunsStep("path.link")], json: realJson });
+      await run(deps, ["--json"]);
+      expect(cap.stdout()).toBe('{"event":"done","ok":true,"skipped":"not-set-up"}\n');
+    } finally {
+      cap.restore();
+    }
   });
 });

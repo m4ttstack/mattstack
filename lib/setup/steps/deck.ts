@@ -73,20 +73,20 @@ function adoptChanged(stdout: string): boolean {
 
 async function adoptBoard(ctx: ApplyContext, deckBin: string): Promise<AdoptResult> {
   const result = await ctx.p.exec([deckBin, "adopt", "mrs", "--as", "board", "--json"]);
-  if (result.code === 0) return adoptChanged(result.stdout) ? { kind: "renamed" } : { kind: "skip", detail: "board already adopted" };
+  if (result.code === 0) return adoptChanged(result.stdout) ? { kind: "renamed" } : { kind: "skip", detail: "Board already adopted" };
 
   const frozen = matchFrozenError(`${result.stdout}\n${result.stderr}`);
 
   // Deck holds neither "mrs" nor an rt-owned "board": there is nothing to
   // adopt, which is not a failed adopt.
-  if (frozen === "unknown app") return { kind: "skip", detail: "no legacy mrs to adopt" };
+  if (frozen === "unknown app") return { kind: "skip", detail: "No old board data to adopt" };
 
   if (frozen === "deck not running") {
     // A precondition, not a rejection of the adopt itself — deck answered
     // /healthz a moment ago and stopped between then and this exec.
-    return { kind: "failed", outcome: { state: "failed", detail: "deck stopped responding before it could adopt board", remedy: "Start deck, then Retry" } };
+    return { kind: "failed", outcome: { state: "failed", detail: "Deck stopped answering before it could adopt the board", remedy: "Start deck, then Retry" } };
   }
-  return { kind: "failed", outcome: { state: "failed", detail: frozen ?? (result.stderr.trim() || result.stdout.trim() || `deck adopt exited ${result.code}`), remedy: "Retry" } };
+  return { kind: "failed", outcome: { state: "failed", detail: frozen ?? (result.stderr.trim() || result.stdout.trim() || `Deck's adopt exited ${result.code}`), remedy: "Retry" } };
 }
 
 /**
@@ -119,20 +119,20 @@ const DECK_API_TIMEOUT_MS = 120_000;
 
 async function applyAppDefaults(ctx: ApplyContext, port: number): Promise<{ ok: boolean; detail: string }> {
   // An intent is only on disk during a first run or an upgrade; a completed apply clears it. Without one this is a re-run, and a user's own toggles stand.
-  if (ctx.intent === null) return { ok: true, detail: "app defaults untouched (not an install)" };
+  if (ctx.intent === null) return { ok: true, detail: "App defaults left as they are (not an install)" };
   const res = await ctx.p.fetch(`http://127.0.0.1:${port}/api/v1/apps`, { timeoutMs: DECK_API_TIMEOUT_MS });
-  if (res.status !== 200) return { ok: false, detail: `app defaults not applied (deck answered ${res.status})` };
+  if (res.status !== 200) return { ok: false, detail: `App defaults not applied: deck answered ${res.status}` };
   let apps: DeckAppRow[];
   try {
     apps = (JSON.parse(res.body) as { apps?: DeckAppRow[] }).apps ?? [];
   } catch {
-    return { ok: false, detail: "app defaults not applied (unreadable app list)" };
+    return { ok: false, detail: "App defaults not applied: the app list could not be read" };
   }
   const targets = apps
     .filter((a) => a.managedBy === MATTSTACK_REGISTRAR && a.requiresTeam === true)
     .map((a) => a.name)
     .sort();
-  if (targets.length === 0) return { ok: true, detail: "no team-only apps" };
+  if (targets.length === 0) return { ok: true, detail: "No team-only apps" };
   const enabled = ctx.team.slug !== "";
   const headers = { "content-type": "application/json", "x-local-caller": MATTSTACK_REGISTRAR };
   const failed: string[] = [];
@@ -145,14 +145,14 @@ async function applyAppDefaults(ctx: ApplyContext, port: number): Promise<{ ok: 
     });
     if (r.status < 200 || r.status >= 300) failed.push(`${name} (${r.status})`);
   }
-  if (failed.length) return { ok: false, detail: `app defaults not applied; failed: ${failed.join(", ")}` };
+  if (failed.length) return { ok: false, detail: `App defaults not applied for ${failed.join(", ")}` };
   const names = targets.join(", ");
-  return { ok: true, detail: enabled ? `team apps on: ${names}` : `solo: ${names} off` };
+  return { ok: true, detail: enabled ? `Team apps on: ${names}` : `Solo setup: ${names} off` };
 }
 
 async function deckManagedRun(ctx: ApplyContext): Promise<StepOutcome> {
   const deckBin = bundledToolPath(ctx.p, "deck");
-  if (deckBin === null) return { state: "skipped", detail: "deck not bundled yet" };
+  if (deckBin === null) return { state: "skipped", detail: "Deck is not in this build yet" };
 
   const port = readDeckApiPort(ctx);
   const healthy = port !== null && (await deckIsHealthy(ctx, port));
@@ -163,16 +163,16 @@ async function deckManagedRun(ctx: ApplyContext): Promise<StepOutcome> {
     // down while the app IS running stays a hard stop.
     const tray = await ctx.p.tray("/version", { method: "GET" });
     if (tray.status === 0) {
-      return { state: "skipped", detail: "deck is not running and mattstack.app is not there to start it — open the app, then Retry" };
+      return { state: "skipped", detail: "Deck is not running and mattstack.app is not there to start it. Open the app, then Retry" };
     }
-    return { state: "failed", detail: "deck is not answering its own /healthz — cannot adopt board safely", remedy: "Start deck, then Retry" };
+    return { state: "failed", detail: "Deck is not answering its health check, so the board cannot be adopted safely", remedy: "Start deck, then Retry" };
   }
 
   const adopted = await adoptBoard(ctx, deckBin);
   if (adopted.kind === "failed") return adopted.outcome;
-  const adoptDetail = adopted.kind === "skip" ? adopted.detail : `board adopted from legacy mrs, ${await repointBoard(ctx, port)}`;
+  const adoptDetail = adopted.kind === "skip" ? adopted.detail : `Board adopted from the old data, ${await repointBoard(ctx, port)}`;
   const defaults = await applyAppDefaults(ctx, port);
-  return { state: defaults.ok ? "done" : "failed", detail: `deck ready; ${adoptDetail}; ${defaults.detail}` };
+  return { state: defaults.ok ? "done" : "failed", detail: `Deck is ready. ${adoptDetail}. ${defaults.detail}` };
 }
 
 async function deckManagedRunSafe(ctx: ApplyContext): Promise<StepOutcome> {

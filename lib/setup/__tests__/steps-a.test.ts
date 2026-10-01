@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { HELPERS_DIR, RT_BUNDLE_PATH, __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
-import { rtDir, teamSettingsPath } from "../../rt-paths.ts";
+import { logsDir, rtDir, teamSettingsPath } from "../../rt-paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { closeStateDb, getKvValue, setKvValue } from "../../state/index.ts";
@@ -30,7 +30,7 @@ import { fakeProbes } from "./fakes.ts";
 import { homeInitStep, homeRestoreStep } from "../steps/home.ts";
 import { outcomeFromJoin, outcomeFromJoinError, teamCreateStep, teamJoinStep } from "../steps/team.ts";
 import { JoinPeeringStoreError, type JoinResult } from "../../team/join.ts";
-import { UserActionableError } from "../errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { secretsWriteStep } from "../steps/secrets.ts";
 import { pathLinkStep } from "../steps/path.ts";
 import { settingsSeedStep } from "../steps/settings.ts";
@@ -188,7 +188,7 @@ describe("home.init", () => {
     const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
 
     const outcome = await homeInitStep.run(ctx);
-    expect(outcome).toEqual({ state: "done", detail: "already initialized" });
+    expect(outcome).toEqual({ state: "done", detail: "Already set up" });
     expect(p.calls.exec).toEqual([]);
   });
 
@@ -214,7 +214,7 @@ describe("home.init", () => {
     const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamAbsent()) });
 
     const outcome = await homeInitStep.run(ctx);
-    expect(outcome).toEqual({ state: "failed", detail: "gh: not authenticated", remedy: "Run `gh auth login`, then Retry" });
+    expect(outcome).toEqual({ state: "failed", detail: "gh: not authenticated", remedy: "Run gh auth login, then Retry" });
   });
 
   test("a local-only `git init` failure contacts no host — `gh auth login` is reserved for auth-shaped stderr", async () => {
@@ -247,7 +247,7 @@ describe("home.init", () => {
     const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamAbsent()) });
 
     const outcome = await homeInitStep.run(ctx);
-    expect(outcome).toMatchObject({ state: "failed", remedy: "Run `gh auth login`, then Retry" });
+    expect(outcome).toMatchObject({ state: "failed", remedy: "Run gh auth login, then Retry" });
   });
 
   test("a bare permission denial from the clone step IS auth-shaped — only that step ever contacts a host", async () => {
@@ -258,15 +258,15 @@ describe("home.init", () => {
     const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamAbsent()) });
 
     const outcome = await homeInitStep.run(ctx);
-    expect(outcome).toMatchObject({ state: "failed", remedy: "Run `gh auth login`, then Retry" });
+    expect(outcome).toMatchObject({ state: "failed", remedy: "Run gh auth login, then Retry" });
   });
 
   test("idempotent re-run: a repo already cloned by a prior partial run reports done again without re-running init", async () => {
     const p = fakeProbes({ home: "/fake-home", dirs: { "/fake-home/.mattstack/user": [".git"] }, files: { "/fake-home/.mattstack/user/.git": "gitdir" } });
     const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
 
-    expect(await homeInitStep.run(ctx)).toEqual({ state: "done", detail: "already initialized" });
-    expect(await homeInitStep.run(ctx)).toEqual({ state: "done", detail: "already initialized" });
+    expect(await homeInitStep.run(ctx)).toEqual({ state: "done", detail: "Already set up" });
+    expect(await homeInitStep.run(ctx)).toEqual({ state: "done", detail: "Already set up" });
   });
 });
 
@@ -293,7 +293,7 @@ describe("home.restore", () => {
     });
     const { ctx } = makeCtx(p, { intent: restoreIntent, secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
 
-    expect(await homeRestoreStep.run(ctx)).toEqual({ state: "done", detail: "restored" });
+    expect(await homeRestoreStep.run(ctx)).toEqual({ state: "done", detail: "Restored" });
     expect(p.calls.exec).toEqual([]); // never shells out to `rt restore` itself
   });
 
@@ -304,7 +304,7 @@ describe("home.restore", () => {
     const outcome = await homeRestoreStep.run(ctx);
     expect(outcome.state).toBe("failed");
     expect((outcome as { remedy?: string }).remedy).toBe(
-      "Run `rt setup intent restore <org>/<repo>`, then `rt home key import` to paste your age key, then Retry",
+      "Run rt setup intent restore <org>/<repo>, then rt home key import to paste your age key, then Retry",
     );
   });
 
@@ -360,7 +360,7 @@ describe("team.create", () => {
     const { ctx } = makeCtx(p, { teamOfOne: true, intent: null, team: { slug: "", name: "", mode: "none" } });
 
     const outcome = await teamCreateStep.run(ctx);
-    expect(outcome).toEqual({ state: "skipped", detail: "no git remote available (set RT_TEAM_REMOTE or run gh auth login)" });
+    expect(outcome).toEqual({ state: "skipped", detail: "No git remote available. Sign in with gh auth login, or set RT_TEAM_REMOTE" });
   });
 
   test("team-of-one with RT_TEAM_REMOTE -> creates and publishes the zone", async () => {
@@ -521,7 +521,7 @@ describe("team.join", () => {
     const { ctx } = makeCtx(p, { intent: joinIntent }); // ctx.intent is a stale snapshot from before applies() gated this in
 
     const outcome = await teamJoinStep.run(ctx);
-    expect(outcome).toEqual({ state: "skipped", detail: "already joined — no invite in progress" });
+    expect(outcome).toEqual({ state: "skipped", detail: "Already joined; no invite in progress" });
   });
 
   test("a locked keychain AFTER the invite is already redeemed fails the step honestly instead of crashing the run (F2), with a remedy that accounts for the spent invite", async () => {
@@ -551,7 +551,7 @@ describe("team.join", () => {
     const outcome = await teamJoinStep.run(ctx);
     expect(outcome.state).toBe("failed"); // not a thrown/crashed process
     expect((outcome as { remedy?: string }).remedy).toBe(
-      "Unlock your keychain, then Retry — the invite is already redeemed, so Retry resumes here without a new code",
+      "Unlock your keychain, then Retry. The invite is already redeemed, so Retry resumes here without a new code",
     );
   });
 });
@@ -576,13 +576,13 @@ describe("team.join outcomes", () => {
     const outcome = outcomeFromJoinError(new JoinPeeringStoreError("joined Acme and redeemed the invite, but could not store your board's switchboard token (sops)"));
     expect(outcome.state).toBe("failed");
     expect((outcome as { remedy?: string }).remedy).toBe(
-      "Fix the secrets store (Retry from home.init if it never ran), then Retry: the invite is already redeemed, so Retry resumes here without a new code",
+      "Fix the secrets store (Retry from the home repo step if it never ran), then Retry. The invite is already redeemed, so Retry resumes here without a new code",
     );
   });
 
   test("a secrets store that is not ready before the redeem fails with a home.init remedy that holds on a resumed run too", () => {
     const outcome = outcomeFromJoinError(new UserActionableError("secrets-store-not-ready", "not set up yet"));
-    expect(outcome).toEqual({ state: "failed", detail: "not set up yet", remedy: "Retry from home.init (or run `rt home init`), then Retry: no new code needed" });
+    expect(outcome).toEqual({ state: "failed", detail: "not set up yet", remedy: "Retry from the home repo step, or run rt home init, then Retry. No new code is needed" });
   });
 });
 
@@ -602,7 +602,7 @@ describe("team.join after the join itself finished", () => {
   });
 
   test("a run with no invite on disk is skipped as already joined", async () => {
-    expect(await teamJoinStep.run(joinedCtx())).toEqual({ state: "skipped", detail: "already joined — no invite in progress" });
+    expect(await teamJoinStep.run(joinedCtx())).toEqual({ state: "skipped", detail: "Already joined; no invite in progress" });
   });
 });
 
@@ -621,7 +621,7 @@ describe("secrets.write", () => {
     const { ctx } = makeCtx(p);
 
     const outcome = await secretsWriteStep.run(ctx);
-    expect(outcome).toEqual({ state: "done", detail: "1 staged secrets written" });
+    expect(outcome).toEqual({ state: "done", detail: "Wrote 1 secret" });
     expect(p.readDir(stagingDir("/fake-home"))).toEqual([]); // drained
   });
 
@@ -641,7 +641,7 @@ describe("secrets.write", () => {
     const { ctx } = makeCtx(p, { teamSecrets: () => teamSeams });
 
     const outcome = await secretsWriteStep.run(ctx);
-    expect(outcome).toEqual({ state: "done", detail: "1 staged secrets written" });
+    expect(outcome).toEqual({ state: "done", detail: "Wrote 1 secret" });
 
     // Never landed in the personal store's own exec seam.
     const personalFiles = Object.keys((ctx.secrets.execSeam as FakeSecretsExecSeam).files);
@@ -658,7 +658,7 @@ describe("secrets.write", () => {
 
     await secretsWriteStep.run(ctx);
     const outcome = await secretsWriteStep.run(ctx);
-    expect(outcome).toEqual({ state: "done", detail: "nothing staged" });
+    expect(outcome).toEqual({ state: "done", detail: "Nothing to write" });
   });
 
   test("no age key yet -> failed, remedy points back at home.init", async () => {
@@ -667,7 +667,7 @@ describe("secrets.write", () => {
 
     const outcome = await secretsWriteStep.run(ctx);
     expect(outcome.state).toBe("failed");
-    expect((outcome as { remedy?: string }).remedy).toBe("home.init did not mint a key — Retry from home.init");
+    expect((outcome as { remedy?: string }).remedy).toBe("Your home repo has no age key yet. Retry from the home repo step");
   });
 
   test("a non-NoAgeKeyError store failure (no team recipients yet) fails the step honestly instead of crashing the run", async () => {
@@ -678,6 +678,33 @@ describe("secrets.write", () => {
     const outcome = await secretsWriteStep.run(ctx);
     expect(outcome.state).toBe("failed");
     expect((outcome as { detail: string }).detail).toContain("no recipients yet");
+  });
+
+  test("a store error with a command to run carries it as the remedy and logs its raw detail", async () => {
+    const slug = "acme";
+    const sopsStderr = "no identity matched any of the recipients";
+    class UndecryptableSeam extends FakeSecretsExecSeam {
+      override fileExists(path: string): boolean {
+        return path.endsWith("board.json") || super.fileExists(path);
+      }
+      override async run(cmd: string[]): Promise<SecretsExecResult> {
+        if (cmd[0] === "sops" && cmd[1] === "-d") return { code: 1, stdout: "", stderr: sopsStderr };
+        return super.run(cmd);
+      }
+    }
+    const execSeam = new UndecryptableSeam();
+    execSeam.files.set(teamSopsYamlPath(slug), "creation_rules:\n  - path_regex: mattstack/secrets/.*\n    age: age1testrecipient\n");
+    const teamSeams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey(), execSeam };
+    const p = stagedProbes({ "team-acme-board": { slackWebhook: "https://hooks.example/x" } });
+    const { ctx } = makeCtx(p, { teamSecrets: () => teamSeams });
+
+    const outcome = await secretsWriteStep.run(ctx);
+    expect(outcome).toEqual({ state: "failed", detail: "This Mac cannot read the acme team's secrets yet", remedy: "Run rt team pull" });
+
+    const dir = logsDir();
+    const file = readdirSync(dir).filter((f) => f.startsWith("cli.") && f.endsWith(".log")).sort().at(-1);
+    const lines = file ? readFileSync(join(dir, file), "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>) : [];
+    expect(lines.some((l) => l.code === "team-secrets-unreadable" && String(l.detail).includes(sopsStderr))).toBe(true);
   });
 
   test("a staged team secret on a joined machine skips the step instead of failing Install", async () => {
@@ -843,11 +870,11 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const p = fakeProbes({ home });
 
     const first = await settingsSeedStep.run(makeCtx(p, { appPath: newAppPath }).ctx);
-    expect(first).toEqual({ state: "done", detail: "wrote: mattstack.appPath" });
+    expect(first).toEqual({ state: "done", detail: "Wrote mattstack.appPath" });
     expect(getSetting<string>("mattstack.appPath").value).toBe(newAppPath);
 
     const second = await settingsSeedStep.run(makeCtx(p, { appPath: newAppPath }).ctx);
-    expect(second).toEqual({ state: "done", detail: "nothing to seed" });
+    expect(second).toEqual({ state: "done", detail: "Nothing to write" });
     expect(getSetting<string>("mattstack.appPath").value).toBe(newAppPath);
   });
 
@@ -858,7 +885,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const before = getSetting<string>("mattstack.appPath").value;
     const outcome = await settingsSeedStep.run(ctx);
     expect(outcome.state).toBe("failed");
-    expect((outcome as { detail: string }).detail).toContain("drag mattstack.app to /Applications");
+    expect((outcome as { detail: string }).detail).toContain("Drag mattstack.app to /Applications");
     expect((outcome as { remedy?: string }).remedy).toBe("Move mattstack.app to /Applications and relaunch it");
     expect(getSetting<string>("mattstack.appPath").value).toBe(before); // untouched
   });
@@ -868,7 +895,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const { ctx } = makeCtx(p, { appPath: null });
 
     const outcome = await settingsSeedStep.run(ctx);
-    expect(outcome).toEqual({ state: "done", detail: "nothing to seed" });
+    expect(outcome).toEqual({ state: "done", detail: "Nothing to write" });
     expect(getSetting<string[]>("rt.repoRoots").value).toEqual([]); // registry default, never written
     expect(p.exists(join(home, "Documents", "GitHub"))).toBe(false);
   });
@@ -1112,7 +1139,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const { ctx, logs } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null } });
 
     const outcome = await reposCloneStep.run(ctx);
-    expect(outcome).toMatchObject({ state: "partial", detail: "cloned 0, present 0, failed 1 (acme-dev)" });
+    expect(outcome).toMatchObject({ state: "partial", detail: "cloned 0, present 0, failed 1. Failed: acme-dev" });
     expect(logs.some((l) => l.line.includes("isn't a clone of"))).toBe(true);
   });
 
@@ -1124,7 +1151,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const { ctx, logs } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null } });
 
     const outcome = await reposCloneStep.run(ctx);
-    expect(outcome).toMatchObject({ state: "partial", detail: "cloned 0, present 0, failed 1 (acme-dev)" });
+    expect(outcome).toMatchObject({ state: "partial", detail: "cloned 0, present 0, failed 1. Failed: acme-dev" });
     expect(p.calls.exec).toEqual([]); // never blindly clones into an occupied path
     expect(logs.some((l) => l.line.includes("isn't a clone of"))).toBe(true);
   });
@@ -1142,7 +1169,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const { ctx, logs } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null } });
 
     const outcome = await reposCloneStep.run(ctx);
-    expect(outcome).toMatchObject({ state: "partial", detail: "cloned 0, present 0, failed 1 (acme-dev)" });
+    expect(outcome).toMatchObject({ state: "partial", detail: "cloned 0, present 0, failed 1. Failed: acme-dev" });
     expect(logs.some((l) => l.line.includes("could not be moved"))).toBe(true);
   });
 
@@ -1173,8 +1200,8 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
 
     const outcome = await reposCloneStep.run(ctx);
     expect(outcome.state).toBe("partial");
-    expect((outcome as { detail: string }).detail).toBe("cloned 0, present 0, failed 1 (acme-dev)");
-    expect((outcome as { remedy?: string }).remedy).toContain("rt setup apply --from repos.clone");
+    expect((outcome as { detail: string }).detail).toBe("cloned 0, present 0, failed 1. Failed: acme-dev");
+    expect((outcome as { remedy?: string }).remedy).toContain("Fix that, then Retry");
     expect((outcome as { remedy?: string }).remedy).toContain("rt repos register");
     expect(logs.map((l) => l.line)).toContain("acme-dev: clone failed: timed out after 60 minutes");
   });
@@ -1304,7 +1331,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const p = fakeProbes({ home }); // no rt.repoRoots configured either — must not matter
     const { ctx } = makeCtx(p);
 
-    expect(await reposCloneStep.run(ctx)).toEqual({ state: "skipped", detail: "no repos to clone" });
+    expect(await reposCloneStep.run(ctx)).toEqual({ state: "skipped", detail: "No repos to clone" });
   });
 
   test("repos.clone: drains a staged repo root into the store even with zero identities", async () => {
@@ -1313,7 +1340,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const { ctx } = makeCtx(p);
 
     const outcome = await reposCloneStep.run(ctx);
-    expect(outcome).toEqual({ state: "skipped", detail: "no repos to clone" });
+    expect(outcome).toEqual({ state: "skipped", detail: "No repos to clone" });
     expect(getSetting<string[]>("rt.repoRoots").value).toEqual([join(home, "dev")]);
     expect(readStagedRepoRoot(p)).toBeNull();
   });
@@ -1334,7 +1361,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
   test("intercepts.install: an empty repo index reports 'no commands to shim'", async () => {
     const { ctx } = makeCtx(fakeProbes({ home }));
     const outcome = await interceptsInstallStep.run(ctx);
-    expect(outcome).toEqual({ state: "done", detail: "no commands to shim" });
+    expect(outcome).toEqual({ state: "done", detail: "No commands to intercept" });
   });
 
   test("intercepts.install: idempotent re-run — the second pass reports the same total without re-touching an already-current shim", async () => {
@@ -1351,10 +1378,10 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     writeFileSync(join(rtDir(), "repos.json"), JSON.stringify({ "r-steps-a": repoDir }));
 
     const first = await interceptsInstallStep.run(makeCtx(fakeProbes({ home })).ctx);
-    expect(first).toEqual({ state: "done", detail: "1 shims" });
+    expect(first).toEqual({ state: "done", detail: "1 intercept" });
 
     const second = await interceptsInstallStep.run(makeCtx(fakeProbes({ home })).ctx);
-    expect(second).toEqual({ state: "done", detail: "1 shims" }); // same total; installShims itself distinguishes installed vs current internally
+    expect(second).toEqual({ state: "done", detail: "1 intercept" }); // same total; installShims itself distinguishes installed vs current internally
 
     rmSync(repoDir, { recursive: true, force: true });
   });

@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { realUninstallDeps, runUninstallCommand, UNINSTALL_FLAGS, type UninstallDeps } from "../uninstall.ts";
 import { TREE } from "../../lib/command-tree-def.ts";
 import type { UninstallAction } from "../../lib/setup/uninstall.ts";
@@ -7,6 +7,14 @@ import type { SecretsSeams } from "../../lib/secrets/store.ts";
 import type { RelayClient } from "../../lib/team/relay-client.ts";
 import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import { fakeProbes, fakeTray } from "../../lib/setup/__tests__/fakes.ts";
+import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
+
+let quiet: CapturedOut;
+beforeEach(() => {
+  quiet = capturePlain();
+});
+afterEach(() => quiet.restore());
 
 /** Answers `/version` reachable and every `/setup/need/<id>` as immediately done — the default tray behind every test below except the one that deliberately drives a real timeout. */
 const instantTray = fakeTray({
@@ -59,7 +67,7 @@ function baseDeps(
     relay: fakeRelay,
     secretPresence: fakeSecretPresence(),
     actions: SAMPLE_ACTIONS,
-    print: (s) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
       throw new Error("exit sentinel");
@@ -110,11 +118,9 @@ describe("rt uninstall — dry-run", () => {
     expect(deps.probes.calls.tray).toEqual([]);
   });
 
-  test("human dry-run: one line per action title, no JSON", async () => {
-    const deps = baseDeps();
-    await runUninstallCommand(["--dry-run"], {}, deps);
-    for (const line of deps.lines) expect(() => JSON.parse(line)).toThrow();
-    expect(deps.lines.some((l) => l.includes("Stop and remove the rt daemon"))).toBe(true);
+  test("human --dry-run lists what would go as a changes block", async () => {
+    await runUninstallCommand(["--dry-run"], {}, baseDeps());
+    expect(quiet.stdout()).toBe("This would remove\n- Stop and remove the rt daemon and deck services\n");
   });
 });
 
@@ -145,7 +151,7 @@ describe("rt uninstall — the --delete-data consent gate", () => {
   test("TTY, no --yes: confirms before running; a decline runs nothing", async () => {
     const deps = baseDeps({ isTTY: () => true, confirm: async () => false });
     await runUninstallCommand([], {}, deps);
-    expect(deps.lines.some((l) => l.includes("Stop and remove the rt daemon"))).toBe(true);
+    expect(quiet.stdout()).toContain("This will remove\n- Stop and remove the rt daemon and deck services\n");
   });
 
   test("TTY, --yes: skips the confirm prompt entirely", async () => {
@@ -197,7 +203,7 @@ describe("rt uninstall: takes no app name", () => {
 
       expect(deps.exitCodes).toEqual([2]);
       expect(deps.confirmCalls).toEqual([]);
-      expect(deps.lines).toHaveLength(1);
+      expect(deps.lines).toHaveLength(args.includes("--json") ? 1 : 0);
       expect(deps.probes.calls).toEqual({ exec: [], fetch: [], fetchInits: [], tray: [], writes: {}, removed: [], symlinks: {}, modes: {}, renames: [] });
     });
   }
@@ -211,17 +217,15 @@ describe("rt uninstall: takes no app name", () => {
     expect(payload.contract).toBe(1);
     expect(payload.error.code).toBe("unexpected-args");
     expect(payload.error.args).toEqual(["gitq", "extra"]);
-    expect(payload.error.message).toContain("run: deck remove <name> (add --force for a mattstack app");
+    expect(payload.error.message).toContain("run deck remove <name> (add --force for a mattstack app");
   });
 
-  test("human mode: one line naming the argument, the whole-product scope and the per-app command", async () => {
+  test("human mode: a failure block naming the argument, nothing on stdout", async () => {
     const deps = baseDeps();
-
     await runExpectingExit(() => runUninstallCommand(["gitq"], {}, deps));
-
-    expect(deps.lines).toEqual([
-      'rt uninstall: unexpected argument "gitq". It takes no app name and removes all of mattstack; to remove one app from deck, run: deck remove <name> (add --force for a mattstack app; bundled apps return when deck restarts)',
-    ]);
+    expect(deps.lines).toEqual([]);
+    expect(quiet.stdout()).toBe("");
+    expect(quiet.stderr()).toMatch(/^\[failed\] [Uu]nexpected argument "gitq"\. /);
   });
 
   test("the handler accepts exactly the flags the command-tree node declares, and the node declares no positional", () => {
@@ -235,13 +239,21 @@ describe("rt uninstall — stayed", () => {
   test("human mode: '~/.mattstack (kept)' is printed, not silently discarded", async () => {
     const deps = baseDeps({ isTTY: () => false });
     await runUninstallCommand(["--yes"], {}, deps);
-    expect(deps.lines.some((l) => l.includes("~/.mattstack (kept)"))).toBe(true);
+    expect(quiet.stdout()).toContain("Kept on this Mac\n[skipped] ~/.mattstack (kept)\n");
+  });
+
+  test("a human run draws each action as a step by title and ends in a summary", async () => {
+    await runUninstallCommand(["--yes"], {}, baseDeps({ isTTY: () => false }));
+    expect(quiet.stdout()).toContain("[ok] Stop and remove the rt daemon and deck services");
+    expect(quiet.stdout()).toContain("[ok] mattstack is uninstalled  1 done\n");
   });
 
   test("--json mode: stayed is never printed as a bare stdout line — the NDJSON stream stays strictly one-object-per-line", async () => {
     const deps = baseDeps({ isTTY: () => false });
     await runUninstallCommand(["--json", "--yes"], {}, deps);
     for (const line of deps.lines) expect(() => JSON.parse(line)).not.toThrow();
+    expect(quiet.stdout()).toBe("");
+    expect(quiet.stderr()).toBe("");
   });
 });
 
@@ -281,5 +293,16 @@ describe("rt uninstall — NDJSON discipline and exit codes", () => {
 
   test("realUninstallDeps() builds without throwing", () => {
     expect(() => realUninstallDeps()).not.toThrow();
+  });
+});
+
+describe("rt uninstall --json bytes", () => {
+  test("the dry-run envelope is one compact line: contract, at, actions of id and title", async () => {
+    const deps = baseDeps({ json: realJson });
+    await runUninstallCommand(["--json", "--dry-run"], {}, deps);
+    const payload = expectOneJsonLine(quiet.stdout()) as { contract: number; at: string; actions: Array<Record<string, unknown>> };
+    expect(Object.keys(payload)).toEqual(["contract", "at", "actions"]);
+    expect(payload.at).toBe("2026-01-01T00:00:00.000Z");
+    expect(payload.actions.map((a) => [a.id, Object.keys(a)])).toEqual([["services.unregister", ["id", "title"]]]);
   });
 });

@@ -3,6 +3,7 @@ import { devLoginAddUrl, loginsAdd, loginsList, loginsOpenAdd, loginsRemove, typ
 import type { LoginsBackend } from "../../lib/logins/store.ts";
 import { NoAgeKeyError } from "../../lib/secrets/store.ts";
 import { readStdinJson } from "../../lib/setup/probes.ts";
+import { capturePlain } from "./helpers/json-line.ts";
 
 const CANARY = 'p@ss"\\&+% ü';
 
@@ -29,7 +30,7 @@ function deps(over: Partial<LoginsDeps> = {}) {
     promptSecret: async () => { throw new Error("no prompt expected"); },
     promptText: async () => { throw new Error("no prompt expected"); },
     openUrl: (u) => { opened.push(u); return true; },
-    print: (s) => { out.push(s); },
+    json: (v) => { out.push(JSON.stringify(v)); },
     isTTY: false,
     ...over,
   };
@@ -97,10 +98,17 @@ describe("rt logins", () => {
       promptText: async (m) => { asked.push(`text:${m}`); return answers.shift()!; },
       promptSecret: async (m, opts) => { asked.push(`secret:${m}:${opts?.mask ?? ""}`); return answers.shift()!; },
     });
-    await loginsAdd(["https://login.example.com"], {}, t.d);
+    const cap = capturePlain();
+    let printed: string;
+    try {
+      await loginsAdd(["https://login.example.com"], {}, t.d);
+      printed = cap.stdout();
+    } finally {
+      cap.restore();
+    }
+    expect(printed).toBe("[ok] Saved the dev login for https://login.example.com\n");
     expect(asked).toEqual(["text:Email for https://login.example.com", "secret:Password for https://login.example.com:*"]);
     expect(JSON.parse(t.data["login.example.com"]!)).toEqual({ origin: "https://login.example.com", email: "dev@example.com", password: CANARY });
-    const printed = t.out.join("\n");
     expect(printed).not.toContain(CANARY);
     expect(printed).not.toContain("dev@example.com");
   });
@@ -130,5 +138,31 @@ describe("rt logins", () => {
     expect(JSON.parse(t.out.pop()!)).toEqual({ ok: true, removed: true });
     await loginsRemove(["https://login.example.com", "--json"], {}, t.d);
     expect(JSON.parse(t.out.pop()!)).toEqual({ ok: true, removed: false });
+  });
+
+  test("list for a person is a table, and an empty list points at add", async () => {
+    const cap = capturePlain();
+    try {
+      const t = deps({ readStdin: async () => ({ email: "a@example.com", password: "x" }) });
+      await loginsList([], {}, t.d);
+      expect(cap.stdout()).toBe("[not yet] No dev logins saved yet\n  next: rt logins add <origin>\n");
+      await loginsAdd(["https://login.example.com", "--json"], {}, t.d);
+      await loginsList([], {}, t.d);
+      expect(cap.stdout()).toContain("https://login.example.com  a@example.com\n");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("off a TTY with no origin remove fails with usage on stderr and exit 2", async () => {
+    const cap = capturePlain();
+    trapExit();
+    try {
+      await expect(loginsRemove([], {}, deps().d)).rejects.toThrow("exit 2");
+      expect(cap.stdout()).toBe("");
+      expect(cap.stderr()).toBe("[failed] Which site?\n  next: rt logins remove <origin>\n");
+    } finally {
+      cap.restore();
+    }
   });
 });

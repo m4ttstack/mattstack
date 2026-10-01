@@ -93,7 +93,7 @@ describe("setupPackFlow", () => {
   test("every stage's slots bound -> ok", async () => {
     registerRepo(home);
     const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "mattstack:stage-gates": { domain: "widgets:gates" } }) }) });
-    expect(await setupPackFlow(makeCtx(p, { reqs: widgets("feature") }))).toEqual({ ok: true, detail: `2 stage(s) resolved for "feature"` });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets("feature") }))).toEqual({ ok: true, detail: `2 stages resolved for feature work` });
   });
 
   test("a stage with an empty slot value -> stage-unresolved", async () => {
@@ -102,7 +102,7 @@ describe("setupPackFlow", () => {
     expect(await setupPackFlow(makeCtx(p, { reqs: widgets("feature") }))).toEqual({
       ok: false,
       stage: "stage-gates",
-      detail: `stage "stage-gates" is unresolved`,
+      detail: `The stage-gates stage has no skill bound to it`,
     });
   });
 
@@ -111,7 +111,7 @@ describe("setupPackFlow", () => {
     const p = fakeProbes({ home, ...materializeWorld(home) });
     const reqs: PackRequirements[] = [{ pack: "gadgets", tools: [], integrations: [], workType: "feature" }];
     expect(await setupPackFlow(makeCtx(p, { reqs }))).toEqual({ ok: false, detail: NO_MANIFEST_DETAIL });
-    expect(NO_MANIFEST_DETAIL).toBe("no bindings file for this pack yet; run rt skills materialize");
+    expect(NO_MANIFEST_DETAIL).toBe("This pack has no bindings file yet. Run rt skills materialize");
   });
 
   test("the pack's own failed materialize outcome is the detail, not a missing-file note", async () => {
@@ -130,7 +130,7 @@ describe("setupPackFlow", () => {
       home,
       ...materializeWorld(home, { fragment: fragment({}, { feature: ["stage-plan"] }), siblingFragment: JSON.stringify({ extends: "acme-base@acme" }) }),
     });
-    expect(await setupPackFlow(makeCtx(p, { reqs: widgets() }))).toEqual({ ok: true, detail: `1 stage(s) resolved for "feature"` });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets() }))).toEqual({ ok: true, detail: `1 stage resolved for feature work` });
   });
 
   test("no registered repo, plugins installed -> not a failure, the check waits on a repo clone", async () => {
@@ -142,7 +142,7 @@ describe("setupPackFlow", () => {
     });
 
     const result = await setupPackFlow(makeCtx(p));
-    expect(result).toEqual({ ok: true, detail: "plugins installed; waiting on a repo clone to check the pipeline" });
+    expect(result).toEqual({ ok: true, detail: "plugins installed; the pipeline check waits for a repo clone" });
   });
 
   test("no registered repo, plugin install skipped -> passes the step's own detail through, never claims plugins installed", async () => {
@@ -150,7 +150,7 @@ describe("setupPackFlow", () => {
 
     const result = await setupPackFlow(makeCtx(p));
     expect(result.ok).toBe(true);
-    expect(result.detail).toBe("claude not found (not bundled, no user copy on PATH); waiting on a repo clone to check the pipeline");
+    expect(result.detail).toBe("Claude Code is not installed (not in this build, and no copy on your PATH); the pipeline check waits for a repo clone");
   });
 
   test("the first repo has no git remote -> says so, never that no team pack declares it", async () => {
@@ -162,7 +162,7 @@ describe("setupPackFlow", () => {
     });
 
     const result = await setupPackFlow(makeCtx(p, { reqs: widgets() }));
-    expect(result).toEqual({ ok: true, detail: `${repoName} has no git remote; no pipeline to check` });
+    expect(result).toEqual({ ok: true, detail: `${repoName} has no git remote, so there is no pipeline to check` });
   });
 
   test("the first repo no team pack declares -> not a failure, nothing to check", async () => {
@@ -177,19 +177,19 @@ describe("setupPackFlow", () => {
     });
 
     const result = await setupPackFlow(makeCtx(p, { reqs: widgets() }));
-    expect(result).toEqual({ ok: true, detail: `no team pack declares ${repoName}; no pipeline to check` });
+    expect(result).toEqual({ ok: true, detail: `No team pack covers ${repoName}, so there is no pipeline to check` });
   });
 
   test("defaults workType to feature when the pack declares none", async () => {
     registerRepo(home);
     const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({}, { feature: ["stage-plan"] }) }) });
-    expect(await setupPackFlow(makeCtx(p, { reqs: widgets() }))).toEqual({ ok: true, detail: `1 stage(s) resolved for "feature"` });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets() }))).toEqual({ ok: true, detail: `1 stage resolved for feature work` });
   });
 
   test("no pipeline declared for the work type -> vacuously ok, nothing to resolve", async () => {
     registerRepo(home);
     const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({}) }) });
-    expect(await setupPackFlow(makeCtx(p, { reqs: widgets("chore") }))).toEqual({ ok: true, detail: `0 stage(s) resolved for "chore"` });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets("chore") }))).toEqual({ ok: true, detail: `0 stages resolved for chore work` });
   });
 
   test("a malformed pack requirements file surfaces its own error, never a misleading stage failure", async () => {

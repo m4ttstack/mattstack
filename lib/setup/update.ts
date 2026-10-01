@@ -30,20 +30,6 @@ export function decideUpdate(p: Pick<Probes, "exists" | "home" | "readFile" | "n
   return { kind: "run" };
 }
 
-const GROUPS: { label: string; states: UpdateOutcome["state"][] }[] = [
-  { label: "ran", states: ["done", "partial"] },
-  { label: "skipped", states: ["skipped"] },
-  { label: "needs you", states: ["needs-you"] },
-  { label: "failed", states: ["failed"] },
-];
-
-export function summarizeUpdate(outcomes: UpdateOutcome[]): string {
-  const parts = GROUPS.map(({ label, states }) => ({ label, ids: outcomes.filter((o) => states.includes(o.state)).map((o) => o.id) }))
-    .filter((g) => g.ids.length > 0)
-    .map((g) => `${g.label}: ${g.ids.join(", ")}`);
-  return parts.length > 0 ? parts.join(" · ") : "nothing to do";
-}
-
 export const SETUP_UPDATE_CATEGORY = "setup_update";
 
 export function updateNotification(version: string, outcomes: UpdateOutcome[]): { id: string; title: string; message: string } | null {

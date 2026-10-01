@@ -12,7 +12,7 @@ import type { DaemonResponse } from "../daemon-client.ts";
 import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { createRealSecretsExecSeam, NoAgeKeyError, readSecret, type SecretsSeams } from "../secrets/store.ts";
 import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type Plan, type Row, type TeamRef } from "./contract.ts";
-import { UserActionableError } from "./errors.ts";
+import { UserActionableError } from "../errors.ts";
 import { applyFinishGate, readWaived } from "./finish-gate.ts";
 import { readIntent, teamRefFromIntent, type SetupIntent } from "./intent.ts";
 import { fetchPermissions, permissionRows } from "./permissions.ts";
@@ -46,7 +46,7 @@ function resolveTeam(intent: SetupIntent | null, teams: string[], teamOverride: 
   if (teamOverride) {
     if (!teams.includes(teamOverride)) {
       const discovered = teams.length ? teams.join(", ") : "(none)";
-      throw new UserActionableError("unknown-team", `no cloned team named "${teamOverride}" — discovered teams: ${discovered}`);
+      throw new UserActionableError("unknown-team", `No team named ${teamOverride} is cloned on this Mac. Teams here: ${discovered}`);
     }
     return { slug: teamOverride, name: teamOverride, mode: "none" };
   }

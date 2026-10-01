@@ -19,20 +19,20 @@ async function linearMcpRun(ctx: ApplyContext): Promise<StepOutcome> {
     return { state: "failed", detail: `${path} is not valid JSON`, remedy: "Fix or remove that file, then Retry." };
   }
   if (!read.ok && read.reason === "unreadable") {
-    return { state: "failed", detail: `${path} could not be read`, remedy: "Check that file's permissions, then Retry." };
+    return { state: "failed", detail: `Could not read ${path}`, remedy: "Check that file's permissions, then Retry." };
   }
   // Only `absent` may reach the empty config: every other reason means a file
   // is there, and the write below replaces whatever is at the path.
   const config = read.ok ? read.config : {};
-  if (nameTaken(config)) return { state: "skipped", detail: "already configured" };
+  if (nameTaken(config)) return { state: "skipped", detail: "Already set up" };
 
   const key = await ctx.secretPresence.has("rt", "linearApiKey");
-  if (key === null) return { state: "skipped", detail: "no Linear key stored (connect Linear, then Retry)" };
+  if (key === null) return { state: "skipped", detail: "No Linear account connected yet. Connect Linear, then Retry" };
   ctx.redact(key);
 
   writeClaudeConfig(ctx.p, path, withLinearEntry(config, key));
   ctx.log("linear.mcp", `added linear to ${path}`);
-  return { state: "done", detail: `added linear to ${path}` };
+  return { state: "done", detail: `Added Linear to ${path}` };
 }
 
 export async function installLinearMcp(ctx: ApplyContext): Promise<StepOutcome> {

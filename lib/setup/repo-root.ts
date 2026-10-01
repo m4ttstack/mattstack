@@ -30,11 +30,11 @@ export type RootCheck =
 
 export function checkRepoRoot(p: Pick<Probes, "home" | "statPath">, raw: string): RootCheck {
   const path = expandHome(p, raw.trim());
-  if (path === "") return { ok: false, detail: "no path given" };
+  if (path === "") return { ok: false, detail: "No folder given" };
   const s = p.statPath(path);
   if (s === null) return { ok: false, detail: `${path} does not exist` };
-  if (!s.isDirectory) return { ok: false, detail: `${path} is not a directory` };
-  if (!s.writable) return { ok: false, detail: `${path} is not writable` };
+  if (!s.isDirectory) return { ok: false, detail: `${path} is not a folder` };
+  if (!s.writable) return { ok: false, detail: `You cannot write to ${path}` };
 
   // Anchored under home: only the user's own TCC-gated directories count, so
   // an unrelated /srv/Documents is not warned about.

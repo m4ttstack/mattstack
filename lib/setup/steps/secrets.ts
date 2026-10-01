@@ -13,7 +13,7 @@
 import { drainStaged } from "../staging.ts";
 import { NoAgeKeyError, writeSecret } from "../../secrets/store.ts";
 import { writeTeamSecret } from "../../secrets/team-store.ts";
-import { UserActionableError } from "../errors.ts";
+import { logFailureDetail, UserActionableError } from "../../errors.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 
@@ -39,17 +39,19 @@ async function secretsWriteRun(ctx: ApplyContext): Promise<StepOutcome> {
         await writeSecret(domain, key, value, ctx.secrets);
       }
     });
-    return { state: "done", detail: count === 0 ? "nothing staged" : `${count} staged secrets written` };
+    return { state: "done", detail: count === 0 ? "Nothing to write" : `Wrote ${count} secret${count === 1 ? "" : "s"}` };
   } catch (err) {
     if (err instanceof NoAgeKeyError) {
-      return { state: "failed", detail: err.message, remedy: "home.init did not mint a key — Retry from home.init" };
+      return { state: "failed", detail: err.message, remedy: "Your home repo has no age key yet. Retry from the home repo step" };
     }
-    // A joined machine's pull-only clone is not a defect Install should block
-    // on: drainStaged leaves the offending domain's staging file untouched on
-    // this throw (same as any other failed write), so the secret stays
-    // staged rather than being silently dropped.
-    if (err instanceof UserActionableError && err.code === "team-pull-only") {
-      return { state: "skipped", detail: `${err.message} Nothing was written.` };
+    if (err instanceof UserActionableError) {
+      logFailureDetail(err);
+      // A joined machine's pull-only clone is not a defect Install should block
+      // on: drainStaged leaves the offending domain's staging file untouched on
+      // this throw (same as any other failed write), so the secret stays
+      // staged rather than being silently dropped.
+      if (err.code === "team-pull-only") return { state: "skipped", detail: `${err.message} Nothing was written.` };
+      return { state: "failed", detail: err.message, ...(err.next ? { remedy: `Run ${err.next}` } : {}) };
     }
     // Anything else — sops missing/non-zero, no team recipients yet, a
     // malformed .sops.yaml — is an expected store-write failure, not a bug:

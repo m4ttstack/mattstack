@@ -61,7 +61,7 @@ async function indexDest(ctx: ApplyContext, identity: string, base: string, dest
   // raw host/path the tracked-repos setting carries.
   const indexed = await updateRepoIndexAsync(serializeIdentity({ kind: "remote", id: identity }), dest);
   if (indexed.ok) return true;
-  ctx.log("repos.clone", `${base}: ${dest} is in place, but ${identity} is indexed at a path that no longer exists and could not be moved — ${indexed.error}; run: rt repos locate ${dest}`);
+  ctx.log("repos.clone", `${base}: ${dest} is in place, but ${identity} is indexed at a path that no longer exists and could not be moved (${indexed.error}). Run rt repos locate ${dest}`);
   return false;
 }
 
@@ -190,7 +190,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
   });
 
   if (identities.length === 0) {
-    return { state: "skipped", detail: "no repos to clone" };
+    return { state: "skipped", detail: "No repos to clone" };
   }
 
   // No root is a normal condition, not a terminal one: the repos.root row is
@@ -200,7 +200,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
   // write, which would accept a path that does not exist.
   const root = getSetting<string[]>("rt.repoRoots").value?.[0];
   if (!root) {
-    return { state: "skipped", detail: "no repo root chosen yet ... run rt setup repo-root set <folder>, then re-run rt setup apply to clone your tracked repos" };
+    return { state: "skipped", detail: "No repo folder chosen yet. Run rt setup repo-root set <folder>, then rt setup apply again to clone your repos" };
   }
   // A hand-authored "~/dev" through rt settings set: the row reads it ready
   // through the same expansion, so the clone must expand too or the two
@@ -219,7 +219,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
     if (p.exists(dest)) {
       if (!isCloneOf(p, dest, identity)) {
         failed.push(base);
-        ctx.log("repos.clone", `${base}: ${dest} exists but isn't a clone of ${identity} (basename collision or unrelated folder) — resolve by hand`);
+        ctx.log("repos.clone", `${base}: ${dest} exists but isn't a clone of ${identity} (basename collision or unrelated folder); resolve it by hand`);
         continue;
       }
       if (await indexDest(ctx, identity, base, dest)) present++;
@@ -259,8 +259,8 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
   if (failed.length === 0) return { state: "done", detail: tally };
   return {
     state: "partial",
-    detail: `${tally} (${failed.join(", ")})`,
-    remedy: "The step log says why. Retry this step once that is fixed (rt setup apply --from repos.clone). If you already have a clone, run rt repos register <path> first and rt uses it instead of cloning again.",
+    detail: `${tally}. Failed: ${failed.join(", ")}`,
+    remedy: "The step log says why. Fix that, then Retry. If you already have a clone, run rt repos register <path> first and rt uses it instead of cloning again.",
   };
 }
 

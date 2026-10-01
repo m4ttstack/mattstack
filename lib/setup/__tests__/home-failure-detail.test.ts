@@ -49,7 +49,7 @@ describe("homeInitRemedy: missing executable", () => {
   test("names the tool, and maps age-keygen to the package that provides it", () => {
     const remedy = homeInitRemedy('error: Executable not found in $PATH: "age-keygen"');
     expect(remedy).toContain("age-keygen");
-    expect(remedy).toContain("reinstall mattstack.app");
+    expect(remedy).toContain("Reinstall mattstack.app");
     expect(remedy).toContain("brew install age"); // the formula is `age`, not `age-keygen`
   });
 

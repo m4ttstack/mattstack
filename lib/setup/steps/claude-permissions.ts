@@ -33,7 +33,7 @@ export function applyBaselinePermissions(p: Pick<Probes, "readFile" | "exists" |
     return { path, wrote: false, failed: { detail: `${path} is not valid JSON`, remedy: "Fix or remove that file, then Retry." } };
   }
   if (!read.ok && read.reason === "unreadable") {
-    return { path, wrote: false, failed: { detail: `${path} could not be read`, remedy: "Check that file's permissions, then Retry." } };
+    return { path, wrote: false, failed: { detail: `Could not read ${path}`, remedy: "Check that file's permissions, then Retry." } };
   }
   // Only `absent` may reach the empty settings: every other reason means a
   // file is there, and the write below replaces whatever is at the path.
@@ -54,9 +54,9 @@ async function claudePermissionsRun(ctx: ApplyContext): Promise<StepOutcome> {
     if (outcome.wrote) written.push(outcome.path);
   }
 
-  if (written.length === 0) return { state: "skipped", detail: "baseline permissions already present" };
+  if (written.length === 0) return { state: "skipped", detail: "Baseline permissions already present" };
   ctx.log("claude.permissions", `added baseline permissions to ${written.join(", ")}`);
-  return { state: "done", detail: `added baseline permissions to ${written.length} config dir(s)` };
+  return { state: "done", detail: `Added baseline permissions to ${written.length} Claude config folder${written.length === 1 ? "" : "s"}` };
 }
 
 export async function installClaudePermissions(ctx: ApplyContext): Promise<StepOutcome> {

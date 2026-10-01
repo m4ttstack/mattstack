@@ -15,7 +15,6 @@
 
 import { randomBytes } from "crypto";
 import { join } from "path";
-import { dim, green, red, reset, yellow } from "../lib/ansi.ts";
 import { hasUrlCredentials, withoutUrls } from "../lib/team/redact.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { createRealAgeKeySeam } from "../lib/home/age-key.ts";
@@ -25,15 +24,19 @@ import { NoTeamRecipientsError, createRealTeamSecretsSeams, readTeamSecret, writ
 import { listTeams } from "../lib/settings/stores.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
+import * as out from "../lib/ui/out.ts";
 import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
 import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
-import { decideUpdate, rtVersion, summarizeUpdate, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
+import { decideUpdate, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
 import { createUpdateLock, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
 import { readSetupState, updateSetupState } from "../lib/setup/state.ts";
 import { notifyEnabled } from "../lib/notifier.ts";
 import { envelope, STEP_IDS, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type StepId } from "../lib/setup/contract.ts";
-import { createHumanEmitter, createNdjsonEmitter } from "../lib/setup/emit.ts";
-import { UserActionableError, userErrorPayload } from "../lib/setup/errors.ts";
+import { createStepEmitter, type Emit, type StepEmitterLabels } from "../lib/setup/emit.ts";
+import { exitWithUserError, type UserErrorSink } from "../lib/setup/user-failure.ts";
+import type { RenderStatus } from "../lib/ui/protocol.ts";
+import { logCliEvent } from "../lib/cli-logger.ts";
+import { UserActionableError } from "../lib/errors.ts";
 import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverStore } from "../lib/setup/finish-gate.ts";
 import { isValidHostname, isValidHttpsUrl } from "../lib/setup/host-validate.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
@@ -41,6 +44,7 @@ import { clearIntent, readIntent, teamRefFromIntent, writeIntent } from "../lib/
 import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
 import { readTeamLocal } from "../lib/team/team-local.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
+import { planBlocks, rowTitles } from "../lib/setup/plan-blocks.ts";
 import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/setup/plan.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
@@ -51,14 +55,15 @@ import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
 import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
-import type { Plan, Row, RowStatus } from "../lib/setup/contract.ts";
+import type { Plan } from "../lib/setup/contract.ts";
 import { createRelayClient, inviteRelayUrl, type RelayClient } from "../lib/team/relay-client.ts";
 import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
 
 export interface SetupDeps {
   probes: Probes;
   secrets: SecretPresence;
-  print: (s: string) => void;
+  /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
+  json: (value: unknown) => void;
   /** Optional: only the integration verbs below use it. Falls back to `process.exit` at the one call site that needs it. */
   exit?: (code: number) => never;
   /**
@@ -75,7 +80,7 @@ export interface SetupDeps {
 }
 
 export function realSetupDeps(): SetupDeps {
-  return { probes: createRealProbes(), secrets: realSecretPresence(), print: (s) => console.log(s), exit: process.exit };
+  return { probes: createRealProbes(), secrets: realSecretPresence(), json: (v) => out.json(v), exit: process.exit };
 }
 
 function flagValue(args: string[], flag: string): string | undefined {
@@ -83,62 +88,25 @@ function flagValue(args: string[], flag: string): string | undefined {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
-const GLYPH: Record<RowStatus, string> = {
-  ready: "✓",
-  missing: "✗",
-  invalid: "✗",
-  error: "✗",
-  "needs-you": "!",
-  skipped: "–",
-  checking: "…",
-};
-
-const GLYPH_COLOR: Record<RowStatus, string> = {
-  ready: green,
-  missing: red,
-  invalid: red,
-  error: red,
-  "needs-you": yellow,
-  skipped: dim,
-  checking: dim,
-};
-
-export function renderPlanHuman(plan: Plan): string[] {
-  const lines: string[] = [];
-  for (const group of plan.groups) {
-    lines.push(group.title);
-    for (const r of group.rows) {
-      lines.push(`  ${GLYPH_COLOR[r.status]}${GLYPH[r.status]}${reset} ${r.title}  ${r.detail}`);
-      // The row's own detail stays one line; the choose sheet's terminal alternative is
-      // the only thing a --json-less, no-app user has for reaching that action's verb.
-      if (r.action?.type === "choose" && r.action.footnote) lines.push(`  ${dim}${r.action.footnote}${reset}`);
-    }
-  }
-  lines.push(plan.canInstall ? "Install: ready" : `Install: blocked by: ${plan.requiredMissing.join(", ")}`);
-  return lines;
+function sinkOf(deps: { json: (value: unknown) => void; exit?: (code: number) => never; probes: Pick<Probes, "now"> }): UserErrorSink {
+  return { json: deps.json, exit: deps.exit ?? process.exit, now: () => deps.probes.now() };
 }
 
-/** The wizard's other gate, printed beside the Install line by `setup status`: Finish waits on finish-gated rows that are not ready, skipped, or waived on this Mac. */
-export function renderFinishLine(plan: Plan): string {
-  return plan.finishBlockedBy.length === 0 ? "Finish: ready" : `Finish: blocked by: ${plan.finishBlockedBy.join(", ")}`;
+const APPLY_LABELS: StepEmitterLabels = { done: "Setup is done", needsYou: "Setup needs you", caveat: "Setup is done, with a caveat", failed: "Setup stopped" };
+const UPDATE_LABELS: StepEmitterLabels = { done: "Everything is up to date", needsYou: "The update needs you", caveat: "Everything is up to date, with a caveat", failed: "Part of the update failed" };
+
+/** Streamed step lines go to the log at debug: the screen erases them, the log keeps every level. */
+function stepLog(module: string): (id: string, line: string) => void {
+  return (id, line) => logCliEvent("debug", module, line, { step: id });
 }
 
-/** `rt setup <integration> connect`, for a missing account row — only "connect"/"oauth" actions name that verb; the owner-once slack-app row (and any row still waiting on it, which carries no action at all) has no per-integration connect flow to point at. */
-function accountConnectVerb(r: { status: RowStatus; action: Row["action"] }): string | null {
-  if (r.status !== "missing") return null;
-  if (r.action?.type !== "connect" && r.action?.type !== "oauth") return null;
-  return `rt setup ${r.action.integration} connect`;
+/** A caveat worth a line for a person; under --json only the log keeps it, since stdout is the stream. */
+function warnLine(json: boolean, title: string, detail: string): void {
+  logCliEvent("warn", "setup", `${title}: ${detail}`);
+  if (!json) out.print(out.line("warn", title, detail));
 }
 
-function missingAccountLines(plan: Plan): string[] {
-  const rows = plan.groups.find((g) => g.id === "accounts")?.rows ?? [];
-  return rows.flatMap((r) => {
-    const verb = accountConnectVerb(r);
-    return verb ? [`  - ${r.title}: ${verb}`] : [];
-  });
-}
-
-async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status", verb: string, header?: string): Promise<void> {
+async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status"): Promise<void> {
   const json = args.includes("--json");
   let plan: Plan;
   try {
@@ -151,34 +119,23 @@ async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status",
       teamOverride: flagValue(args, "--team"),
     });
   } catch (err) {
-    if (err instanceof UserActionableError) exitWithUserError(err, json, verb, deps);
+    if (err instanceof UserActionableError) exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 
   if (json) {
-    deps.print(JSON.stringify(plan));
+    deps.json(plan);
     return;
   }
-  if (header) deps.print(header);
-  for (const line of renderPlanHuman(plan)) deps.print(line);
-
-  if (mode === "status") {
-    deps.print(renderFinishLine(plan));
-    const missingAccounts = missingAccountLines(plan);
-    if (missingAccounts.length > 0) {
-      deps.print("");
-      deps.print("Missing accounts — connect with:");
-      for (const line of missingAccounts) deps.print(line);
-    }
-  }
+  out.print(...planBlocks(plan, mode));
 }
 
 export async function setupPlan(args: string[], _ctx: CommandContext = {}, deps: SetupDeps = realSetupDeps()): Promise<void> {
-  await runPlan(args, deps, "plan", "setup");
+  await runPlan(args, deps, "plan");
 }
 
 export async function setupStatus(args: string[], _ctx: CommandContext = {}, deps: SetupDeps = realSetupDeps()): Promise<void> {
-  await runPlan(args, deps, "status", "setup", "rt setup status");
+  await runPlan(args, deps, "status");
 }
 
 // ─── apply (`rt setup apply`) ──────────────────────────────────────────────
@@ -195,10 +152,9 @@ export interface ApplyDeps {
   planForGate?: () => Promise<{ requiredMissing: string[] }>;
   /** Overrides the plan a finished full run reads its finish blockers from. */
   planForFinish?: () => Promise<{ finishBlockedBy: string[] }>;
-  /** Diagnostics kept off stdout, where `--json` streams NDJSON. */
-  printError?: (s: string) => void;
   needOpts?: CreateApplyContextDeps["needOpts"];
-  print: (s: string) => void;
+  /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
+  json: (value: unknown) => void;
   exit: (code: number) => never;
   isTTY: () => boolean;
   confirm: (message: string) => Promise<boolean>;
@@ -218,7 +174,7 @@ export function realApplyDeps(): ApplyDeps {
     probes,
     secrets: { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
     relay: createRelayClient(probes.fetch, inviteRelayUrl(probes.env)),
-    print: (s) => console.log(s),
+    json: (v) => out.json(v),
     exit: process.exit,
     isTTY: () => process.stdin.isTTY === true,
     confirm: async (message: string) => {
@@ -241,9 +197,7 @@ function applyFlags(args: string[]): { nonInteractive: boolean; teamOfOne: boole
 /**
  * `rt setup apply [--from <stepId>] --json` — the verb the app spawns for
  * Install. `--json` mode emits ONLY NDJSON on stdout, one object per line
- * (the app's spawn-and-parse contract); every other flag/branch below prints
- * through `deps.print`/`emit`, never a bare `console.*` call, so that
- * invariant holds regardless of which flags are passed. `--no-launch` (and
+ * (the app's spawn-and-parse contract). `--no-launch` (and
  * `--ci`/`CI=true`, which implies it) is accepted for compatibility with
  * scripts/e2e-cleanroom.sh and release.yml's headless job — nothing in this
  * flow (nor any of the 22 step bodies) ever spawns `open` on a GUI app, so
@@ -256,7 +210,7 @@ function resolveStepArg(args: string[], flag: "--from" | "--only"): StepId | und
   if (i < 0) return undefined;
   const value = args[i + 1];
   if (value === undefined || value.startsWith("--")) {
-    throw new UserActionableError("unknown-step", `${flag} requires a step id; valid ids: ${STEP_IDS.join(", ")}`);
+    throw new UserActionableError("unknown-step", `${flag} needs a step. Steps: ${STEP_IDS.join(", ")}`);
   }
   return value as StepId;
 }
@@ -282,9 +236,11 @@ function resolveStepSelection(args: string[]): { from?: StepId; only?: StepId } 
  */
 const HARD_PRECONDITION_IDS = new Set(["tool.macos", "tool.clt"]);
 
-const HARD_PRECONDITION_REMEDY: Record<string, string> = {
-  "tool.clt": "install Apple's Command Line Tools (rt tools install apple-clt, or xcode-select --install), then rerun",
-  "tool.macos": "rt requires macOS 14 or newer",
+const NOT_READY_TITLE = "This Mac is not ready to install yet";
+
+const HARD_PRECONDITION_COPY: Record<string, { why: string; next?: string }> = {
+  "tool.clt": { why: "Apple's Command Line Tools are not installed", next: "rt tools install apple-clt" },
+  "tool.macos": { why: "rt needs macOS 14 or newer" },
 };
 
 async function gateHardPreconditions(args: string[], deps: ApplyDeps): Promise<void> {
@@ -293,15 +249,17 @@ async function gateHardPreconditions(args: string[], deps: ApplyDeps): Promise<v
     composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() }));
   const hard = plan.requiredMissing.filter((id) => HARD_PRECONDITION_IDS.has(id));
   if (hard.length === 0) return;
-  const remedies = hard.map((id) => HARD_PRECONDITION_REMEDY[id] ?? id).join("; ");
-  throw new UserActionableError("not-ready", `blocked by: ${hard.join(", ")} — ${remedies}`);
+  // A hard id with no copy entry still names itself, so the person is never told nothing.
+  const copy = hard.map((id): { why: string; next?: string } => HARD_PRECONDITION_COPY[id] ?? { why: `${id} is not ready` });
+  const why = copy.map((c) => c.why).join(". ");
+  const next = copy.length === 1 ? copy[0]!.next : undefined;
+  throw new UserActionableError("not-ready", `${NOT_READY_TITLE}: ${why}`, {}, { why, ...(next ? { next } : {}) });
 }
 
 export async function setupApply(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
   const json = args.includes("--json");
-  const emit = json
-    ? createNdjsonEmitter((line) => deps.print(line.endsWith("\n") ? line.slice(0, -1) : line))
-    : createHumanEmitter(deps.print);
+  const human = json ? null : createStepEmitter({ labels: APPLY_LABELS, log: stepLog("setup.apply") });
+  const emit: Emit = human ? human.emit : (ev) => deps.json(ev);
 
   let result: { ok: boolean; failedStep?: StepId };
   let selection: { from?: StepId; only?: StepId } = {};
@@ -316,16 +274,17 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
       secretPresence: deps.secretPresence,
       flags: applyFlags(args),
       needOpts: deps.needOpts,
+      ...(human ? { tip: human.tip } : {}),
     });
     result = await runApplyWith(deps.steps ?? STEPS, ctx, selection);
   } catch (err) {
+    await human?.flush();
     if (err instanceof UserActionableError) {
       // Thrown before `plan` ever reaches the stream — a malformed/unknown
       // --from or --only, or the two given together, so nothing else has
       // gone out yet; print the same exit-2 envelope every other setup verb
       // uses.
-      deps.print(json ? JSON.stringify(userErrorPayload(err, deps.probes.now())) : `rt setup apply: ${err.message}`);
-      return deps.exit(2);
+      return exitWithUserError(err, json, sinkOf(deps), err.code === "not-ready" ? { title: NOT_READY_TITLE } : undefined);
     }
     // A real bug — whether it happened building the context (nothing ever
     // reached the stream) or inside runApplyWith (apply.ts's `finally`
@@ -335,10 +294,11 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
     throw err;
   }
 
-  if (!result.ok) deps.exit(2);
+  await human?.flush();
+  if (!result.ok) return deps.exit(2);
   if (selection.from === undefined && selection.only === undefined) {
-    stampUpdateWhenNothingPends(deps);
-    await finishIfClear(deps);
+    stampUpdateWhenNothingPends(deps, json);
+    await finishIfClear(deps, json);
   }
 }
 
@@ -347,13 +307,13 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
  * migration still needs one. Unstamped, the update run a fresh Mac's Finish
  * starts would redo the whole Install.
  */
-function stampUpdateWhenNothingPends(deps: ApplyDeps): void {
+function stampUpdateWhenNothingPends(deps: ApplyDeps, json: boolean): void {
   try {
     const applied = readSetupState(deps.probes).migrations;
     if ((deps.migrations ?? MIGRATIONS).some((m) => !applied.includes(m.id))) return;
     updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version: deps.version ?? rtVersion(), at: deps.probes.now().toISOString() } }));
   } catch (err) {
-    (deps.printError ?? console.error)(`rt setup apply: update version not stamped: ${err instanceof Error ? err.message : String(err)}`);
+    warnLine(json, "The update version was not saved", err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -362,13 +322,13 @@ function stampUpdateWhenNothingPends(deps: ApplyDeps): void {
  * leaves none has done everything Finish would, and a terminal or
  * `--post-install` setup has no wizard to press it in.
  */
-async function finishIfClear(deps: ApplyDeps): Promise<void> {
+async function finishIfClear(deps: ApplyDeps, json: boolean): Promise<void> {
   try {
     const plan = await (deps.planForFinish?.() ??
       composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() }));
     if (plan.finishBlockedBy.length === 0) markSetupFinished(deps.probes);
   } catch (err) {
-    (deps.printError ?? console.error)(`rt setup apply: setup left unfinished, the finish check failed: ${err instanceof Error ? err.message : String(err)}`);
+    warnLine(json, "Setup was left unfinished because the finish check failed", err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -382,26 +342,26 @@ async function finishIfClear(deps: ApplyDeps): Promise<void> {
  */
 export async function setupUpdate(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
   const json = args.includes("--json");
-  const emit = json ? createNdjsonEmitter((line) => deps.print(line.endsWith("\n") ? line.slice(0, -1) : line)) : createHumanEmitter(deps.print);
+  const human = json ? null : createStepEmitter({ labels: UPDATE_LABELS, log: stepLog("setup.update") });
+  const emit: Emit = human ? human.emit : (ev) => deps.json(ev);
   const version = deps.version ?? rtVersion();
 
   for (const flag of ["--from", "--only"]) {
     if (args.includes(flag)) {
-      const err = new UserActionableError("unknown-flag", `${flag} is not a setup update flag: an update run always runs every update-safe step`);
-      deps.print(json ? JSON.stringify(userErrorPayload(err, deps.probes.now())) : `rt setup update: ${err.message}`);
-      return deps.exit(2);
+      const err = new UserActionableError("unknown-flag", `${flag} does not apply to an update, which always runs every safe step`);
+      return exitWithUserError(err, json, sinkOf(deps));
     }
   }
 
   const decision = decideUpdate(deps.probes, version, args.includes("--force"));
   if (decision.kind === "not-set-up") {
     if (json) emit({ event: "done", ok: true, skipped: "not-set-up" });
-    else deps.print("setup update: setup has not finished on this Mac");
+    else out.print(out.line("pending", "Setup has not finished on this Mac yet"), out.callout("next", out.cmd("rt setup install")));
     return;
   }
   if (decision.kind === "current") {
     if (json) emit({ event: "done", ok: true, skipped: "current" });
-    else deps.print(`setup update: already applied for ${decision.version}`);
+    else out.print(out.line("skipped", "Nothing to update", `already applied for ${decision.version}`));
     return;
   }
 
@@ -417,7 +377,7 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
   }
   if (busy) {
     if (json) emit({ event: "done", ok: true, skipped: "running" });
-    else deps.print("setup update: another update run is in progress");
+    else out.print(out.line("skipped", "Another update is already running"));
     return;
   }
 
@@ -432,6 +392,7 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
       secretPresence: deps.secretPresence,
       flags: { nonInteractive: true, teamOfOne: false, ci: process.env.CI === "true", update: true },
       needOpts: deps.needOpts,
+      ...(human ? { tip: human.tip } : {}),
     });
     const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx);
     const lastId = result.outcomes.at(-1)?.id;
@@ -447,10 +408,10 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
     const notification = updateNotification(version, result.outcomes);
     if (notification) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notification.title, notification.message, notification.id);
 
-    if (!json) deps.print(`setup update: ${summarizeUpdate(result.outcomes)}`);
     needsAttention = notification !== null;
   } finally {
     lock?.release();
+    await human?.flush();
   }
   if (needsAttention) deps.exit(2);
 }
@@ -466,7 +427,6 @@ function packErrorCode(result: { stage?: string; detail: string }): string {
 
 export async function setupPack(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
   const json = args.includes("--json");
-  const verb = "setup pack";
   try {
     const ctx: ApplyContext = await createApplyContext({
       probes: deps.probes,
@@ -481,26 +441,15 @@ export async function setupPack(args: string[], _ctx: CommandContext = {}, deps:
     if (!result.ok) {
       throw new UserActionableError(packErrorCode(result), result.detail, result.stage ? { stage: result.stage } : {});
     }
-    deps.print(json ? JSON.stringify(envelope({ ok: true, detail: result.detail }, deps.probes.now())) : `setup pack: ${result.detail}`);
+    if (json) deps.json(envelope({ ok: true, detail: result.detail }, deps.probes.now()));
+    else out.print(out.line("done", "Pack is set up", result.detail));
   } catch (err) {
-    if (err instanceof UserActionableError) {
-      deps.print(json ? JSON.stringify(userErrorPayload(err, deps.probes.now())) : `rt ${verb}: ${err.message}`);
-      return deps.exit(2);
-    }
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 }
 
 // ─── setup install (`rt setup install`, the TTY walk) ──────────────────────
-
-/** `plan.requiredMissing`'s row ids, resolved back to their titles/action labels for the human-readable blocked-list. */
-function missingRowLines(plan: Plan): string[] {
-  const byId = new Map(plan.groups.flatMap((g) => g.rows).map((r) => [r.id, r] as const));
-  return plan.requiredMissing.map((id) => {
-    const row = byId.get(id);
-    return `  - ${row?.title ?? id}${row?.action ? ` (${row.action.label})` : ""}`;
-  });
-}
 
 /**
  * `rt setup install`. A TTY gets the interactive walk: the plan, then a
@@ -510,17 +459,15 @@ function missingRowLines(plan: Plan): string[] {
  */
 export async function setupInteractive(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
   const json = args.includes("--json");
-  const setupDeps: SetupDeps = { probes: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), print: deps.print, exit: deps.exit };
+  const setupDeps: SetupDeps = { probes: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), json: deps.json, exit: deps.exit };
 
   if (!deps.isTTY() || json) return setupStatus(args, _ctx, setupDeps);
 
   const plan = await composePlan({ p: deps.probes, secrets: setupDeps.secrets, ci: process.env.CI === "true", mode: "plan", teams: listTeams() });
-  for (const line of renderPlanHuman(plan)) deps.print(line);
+  out.print(...planBlocks(plan, "plan"));
 
   if (!plan.canInstall && !args.includes("--force")) {
-    for (const line of missingRowLines(plan)) deps.print(line);
-    const err = new UserActionableError("not-ready", `not ready to install — blocked by: ${plan.requiredMissing.join(", ")}`);
-    deps.print(`rt setup: ${err.message}`);
+    out.fail({ title: NOT_READY_TITLE, why: `Waiting on ${rowTitles(plan, plan.requiredMissing).join(", ")}` });
     return deps.exit(2);
   }
 
@@ -534,12 +481,13 @@ export async function setupInteractive(args: string[], _ctx: CommandContext = {}
 
 export interface IntentDeps {
   probes: Probes;
-  print: (s: string) => void;
+  /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
+  json: (value: unknown) => void;
   exit: (code: number) => never;
 }
 
 export function realIntentDeps(): IntentDeps {
-  return { probes: createRealProbes(), print: (s) => console.log(s), exit: process.exit };
+  return { probes: createRealProbes(), json: (v) => out.json(v), exit: process.exit };
 }
 
 // Safe as a directory-name-free identifier and readable in a log line — not a
@@ -549,10 +497,10 @@ const HOME_REPO_PATTERN = /^[\w.-]+\/[\w.-]+$/;
 
 function printIntentResult(deps: IntentDeps, json: boolean, body: Record<string, unknown>): void {
   if (json) {
-    deps.print(JSON.stringify(envelope(body, deps.probes.now())));
+    deps.json(envelope(body, deps.probes.now()));
     return;
   }
-  deps.print(`setup intent: ${body.mode}${body.homeRepo ? ` ${body.homeRepo}` : ""}`);
+  out.print(out.line("done", "Setup intent recorded", `${body.mode}${body.homeRepo ? ` ${body.homeRepo}` : ""}`));
 }
 
 /**
@@ -579,7 +527,7 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
         const folders = teams.map((slug) => `~/.mattstack/teams/${slug}`).join(" and ");
         throw new UserActionableError(
           "team-exists",
-          `a team is already set up on this Mac (${teams.join(", ")}); Just me needs a Mac with no team. Remove ${folders} or pick Join or Create instead.`,
+          `A team is already set up on this Mac (${teams.join(", ")}), and Just me needs a Mac with no team. Remove ${folders}, or pick Join or Create instead.`,
         );
       }
       writeIntent(deps.probes, { v: 1, at: deps.probes.now().toISOString(), mode: "solo" });
@@ -593,10 +541,7 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
     }
     throw new UserActionableError("bad-args", "usage: rt setup intent restore <org>/<repo> | rt setup intent solo | rt setup intent clear");
   } catch (err) {
-    if (err instanceof UserActionableError) {
-      deps.print(json ? JSON.stringify(userErrorPayload(err, deps.probes.now())) : `rt setup intent: ${err.message}`);
-      return deps.exit(2);
-    }
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 }
@@ -606,33 +551,34 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
 export type FinishDeps = IntentDeps;
 
 export interface AfterFinish {
-  update(opts: { json: boolean; print: (s: string) => void }): Promise<void>;
-  printError(s: string): void;
+  update(opts: { json: boolean }): Promise<void>;
+  warn(json: boolean, title: string, detail: string): void;
 }
 
 /** The update run Finish starts. In `--json` it prints nothing, so `rt setup finish --json` stays one envelope, and a needs-you item never turns the Finish into an exit 2: the run notifies on its own. */
-export async function updateAfterFinish(opts: { json: boolean; print: (s: string) => void }, deps: ApplyDeps = realApplyDeps()): Promise<void> {
-  const quiet: ApplyDeps = { ...deps, print: opts.json ? () => {} : opts.print, exit: (() => undefined) as unknown as ApplyDeps["exit"] };
+export async function updateAfterFinish(opts: { json: boolean }, deps: ApplyDeps = realApplyDeps()): Promise<void> {
+  const quiet: ApplyDeps = { ...deps, json: opts.json ? () => {} : deps.json, exit: (() => undefined) as unknown as ApplyDeps["exit"] };
   await setupUpdate(opts.json ? ["--json"] : [], {}, quiet);
 }
 
-const REAL_AFTER_FINISH: AfterFinish = {
+export const REAL_AFTER_FINISH: AfterFinish = {
   update: (opts) => updateAfterFinish(opts),
-  printError: (s) => console.error(s),
+  warn: warnLine,
 };
 
 /** mattstack.app runs this at the wizard's Finish; until it has, every launch reopens setup. */
 export async function setupFinish(args: string[], _ctx: CommandContext = {}, deps: FinishDeps = realIntentDeps(), after: AfterFinish = REAL_AFTER_FINISH): Promise<void> {
   const json = args.includes("--json");
   const { finishedAt } = markSetupFinished(deps.probes);
-  deps.print(json ? JSON.stringify(envelope({ ok: true, finishedAt }, deps.probes.now())) : "setup finish: setup is finished on this Mac");
+  if (json) deps.json(envelope({ ok: true, finishedAt }, deps.probes.now()));
+  else out.print(out.line("done", "Setup is finished on this Mac"));
 
   // The launch-time update run skipped this Mac while setup was open, so
   // without one here a pending migration would wait for the next launch.
   try {
-    await after.update({ json, print: deps.print });
+    await after.update({ json });
   } catch (err) {
-    after.printError(`rt setup finish: the update run after Finish did not complete: ${err instanceof Error ? err.message : String(err)}`);
+    after.warn(json, "The update after Finish did not finish", err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -640,7 +586,8 @@ export async function setupFinish(args: string[], _ctx: CommandContext = {}, dep
 
 export interface RepoRootDeps {
   probes: Probes;
-  print: (s: string) => void;
+  /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
+  json: (value: unknown) => void;
   exit: (code: number) => never;
   isTTY: () => boolean;
   /** Reads the full stdin body: valid JSON parses to its value; anything else comes back as the trimmed raw string; empty stdin is null. Never throws. */
@@ -651,7 +598,7 @@ export interface RepoRootDeps {
 export function realRepoRootDeps(): RepoRootDeps {
   return {
     probes: createRealProbes(),
-    print: (s) => console.log(s),
+    json: (v) => out.json(v),
     exit: process.exit,
     isTTY: () => process.stdin.isTTY === true,
     stdin: readSmartStdin,
@@ -678,7 +625,6 @@ function extractRepoRootArg(input: unknown): string | null {
  */
 export async function setupRepoRootSet(args: string[], _ctx: CommandContext = {}, deps: RepoRootDeps = realRepoRootDeps()): Promise<void> {
   const json = args.includes("--json");
-  const verb = "setup repo-root set";
   try {
     let raw = args.find((a) => !a.startsWith("--"));
     if (!raw) {
@@ -691,7 +637,7 @@ export async function setupRepoRootSet(args: string[], _ctx: CommandContext = {}
       }
       const input = await deps.stdin();
       raw = extractRepoRootArg(input) ?? undefined;
-      if (!raw) throw new UserActionableError("bad-stdin", 'no root path provided; pipe {"root": "<path>"} on stdin instead');
+      if (!raw) throw new UserActionableError("bad-stdin", 'No folder given. Pipe {"root": "<path>"} on stdin');
     }
 
     const check = checkRepoRoot(deps.probes, raw);
@@ -713,13 +659,12 @@ export async function setupRepoRootSet(args: string[], _ctx: CommandContext = {}
       stageRepoRoot(deps.probes, check.path);
     }
 
-    deps.print(
-      json
-        ? JSON.stringify(envelope({ path: check.path, tccWarning: check.tccWarning }, deps.probes.now()))
-        : `setup repo-root set: ${check.path}${check.tccWarning ? ` (${check.tccWarning})` : ""}`,
-    );
+    if (json) deps.json(envelope({ path: check.path, tccWarning: check.tccWarning }, deps.probes.now()));
+    else out.print(out.line("done", "Repo folder saved", check.path), ...(check.tccWarning ? [out.callout("note", check.tccWarning)] : []));
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, verb, deps);
+    if (err instanceof UserActionableError) {
+      return exitWithUserError(err, json, sinkOf(deps), err.code === "usage" ? { title: "Which folder?", next: out.cmd("rt setup repo-root set <folder>") } : undefined);
+    }
     throw err;
   }
 }
@@ -728,7 +673,8 @@ export async function setupRepoRootSet(args: string[], _ctx: CommandContext = {}
 
 export interface HomeRemoteDeps {
   probes: Probes;
-  print: (s: string) => void;
+  /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
+  json: (value: unknown) => void;
   exit: (code: number) => never;
   isTTY: () => boolean;
   /** Reads the full stdin body: valid JSON parses to its value; anything else comes back as the trimmed raw string; empty stdin is null. Never throws. */
@@ -738,7 +684,7 @@ export interface HomeRemoteDeps {
 export function realHomeRemoteDeps(): HomeRemoteDeps {
   return {
     probes: createRealProbes(),
-    print: (s) => console.log(s),
+    json: (v) => out.json(v),
     exit: process.exit,
     isTTY: () => process.stdin.isTTY === true,
     stdin: readSmartStdin,
@@ -766,10 +712,10 @@ function extractHomeRemoteInput(input: unknown): { url?: string; create?: boolea
 
 function assertRemoteUrl(url: string): void {
   if (hasUrlCredentials(url)) {
-    throw new UserActionableError("bad-url", "the remote URL carries a password; drop it and let a credential helper (gh auth setup-git) supply it");
+    throw new UserActionableError("bad-url", "The remote URL carries a password. Drop it and let a credential helper (gh auth setup-git) supply it");
   }
   if (!GIT_REMOTE_URL_PATTERN.test(url)) {
-    throw new UserActionableError("bad-url", `"${withoutUrls(url)}" is not a git remote (https://host/owner/repo.git, git@host:owner/repo.git or host:owner/repo.git)`);
+    throw new UserActionableError("bad-url", `${withoutUrls(url)} is not a git remote (https://host/owner/repo.git, git@host:owner/repo.git or host:owner/repo.git)`);
   }
 }
 
@@ -782,7 +728,6 @@ function assertRemoteUrl(url: string): void {
  */
 export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, deps: HomeRemoteDeps = realHomeRemoteDeps()): Promise<void> {
   const json = args.includes("--json");
-  const verb = "home remote set";
   try {
     const nameFlagAt = args.indexOf("--name");
     const nameValueAt = nameFlagAt >= 0 ? nameFlagAt + 1 : -1;
@@ -799,14 +744,14 @@ export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, d
       url = input.url;
       create = input.create ?? false;
       name = input.name ?? name;
-      if (!url && !create) throw new UserActionableError("bad-stdin", 'no remote provided; pipe {"url": "<git url>"} or {"alternative": "create"} on stdin instead');
-      if (name !== undefined && !REPO_NAME_PATTERN.test(name)) throw new UserActionableError("bad-stdin", "name must be a repo name (letters, digits, dots, dashes)");
+      if (!url && !create) throw new UserActionableError("bad-stdin", 'No remote given. Pipe {"url": "<git url>"} or {"alternative": "create"} on stdin');
+      if (name !== undefined && !REPO_NAME_PATTERN.test(name)) throw new UserActionableError("bad-stdin", "The name must be a repo name (letters, digits, dots, dashes)");
     }
     if (url) assertRemoteUrl(url);
 
     const repoDir = join(deps.probes.home, ".mattstack", "user");
     if (!deps.probes.exists(homeGitDir(deps.probes.home))) {
-      throw new UserActionableError("no-home-repo", `no home repo at ${repoDir} yet; Install creates it (rt home init)`);
+      throw new UserActionableError("no-home-repo", `No home repo at ${repoDir} yet. Install creates it, or run rt home init`);
     }
 
     let created = false;
@@ -814,10 +759,10 @@ export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, d
       const repoName = name ?? HOME_REMOTE_DEFAULT_NAME;
       const gh = await deps.probes.exec(["gh", "repo", "create", repoName, "--private"], { timeoutMs: 60_000, env: NO_PROMPT_ENV });
       if (gh.code !== 0) {
-        throw new UserActionableError("create-failed", `gh repo create ${repoName} failed: ${withoutUrls((gh.stderr || gh.stdout).trim()) || `exit ${gh.code}`}`);
+        throw new UserActionableError("create-failed", `Could not create ${repoName} with gh: ${withoutUrls((gh.stderr || gh.stdout).trim()) || `exit ${gh.code}`}`);
       }
       const printed = gh.stdout.trim().split("\n").find((line) => /^https?:\/\//.test(line.trim()))?.trim();
-      if (!printed) throw new UserActionableError("create-failed", `gh repo create ${repoName} printed no repository URL`);
+      if (!printed) throw new UserActionableError("create-failed", `gh created ${repoName} but printed no repository URL`);
       url = printed.endsWith(".git") ? printed : `${printed}.git`;
       assertRemoteUrl(url);
       created = true;
@@ -831,7 +776,7 @@ export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, d
         ? ["git", "-C", repoDir, "remote", "set-url", "origin", url]
         : ["git", "-C", repoDir, "remote", "add", "origin", url],
     );
-    if (set.code !== 0) throw new UserActionableError("remote-failed", `git remote ${remote === "updated" ? "set-url" : "add"} failed: ${withoutUrls(set.stderr.trim()) || `exit ${set.code}`}`);
+    if (set.code !== 0) throw new UserActionableError("remote-failed", `Could not set the remote: ${withoutUrls(set.stderr.trim()) || `exit ${set.code}`}`);
 
     const push = await deps.probes.exec(["git", "-C", repoDir, "push", "-u", "origin", "HEAD"], { timeoutMs: 120_000, env: NO_PROMPT_ENV });
     if (push.code !== 0) {
@@ -840,31 +785,24 @@ export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, d
         // The old origin was working; a URL that cannot take a push must not replace it.
         const restore = await deps.probes.exec(["git", "-C", repoDir, "remote", "set-url", "origin", previous]);
         if (restore.code !== 0) {
-          throw new UserActionableError("push-failed", `the push to the new URL failed, and the previous origin could not be restored (${withoutUrls(restore.stderr.trim()) || `exit ${restore.code}`}); check git remote -v in ${repoDir}: ${reason}`);
+          throw new UserActionableError("push-failed", `The push to the new URL failed, and the previous origin could not be restored (${withoutUrls(restore.stderr.trim()) || `exit ${restore.code}`}). Check git remote -v in ${repoDir}: ${reason}`);
         }
-        throw new UserActionableError("push-failed", `the push to the new URL failed (origin restored to the previous remote): ${reason}`);
+        throw new UserActionableError("push-failed", `The push to the new URL failed, so origin is back on the previous remote: ${reason}`);
       }
-      throw new UserActionableError("push-failed", `origin is set, but the push failed: ${reason}`);
+      throw new UserActionableError("push-failed", `Origin is set, but the push failed: ${reason}`);
     }
 
-    deps.print(
-      json
-        ? JSON.stringify(envelope({ url, remote, pushed: true, created }, deps.probes.now()))
-        : `home remote set: origin -> ${url}, pushed${created ? " (repo created)" : ""}`,
-    );
+    if (json) deps.json(envelope({ url, remote, pushed: true, created }, deps.probes.now()));
+    else out.print(out.line("done", created ? "Created a private repo and pushed your home repo to it" : "Pushed your home repo", url));
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, verb, deps);
+    if (err instanceof UserActionableError) {
+      return exitWithUserError(err, json, sinkOf(deps), err.code === "usage" ? { title: "Which remote?", next: out.cmd("rt home remote set <url>") } : undefined);
+    }
     throw err;
   }
 }
 
 // ─── Per-integration verbs ─────────────────────────────────────────────────
-
-/** Prints the exit-2 envelope (JSON or a one-line human message) then exits 2, through `deps.exit` so tests never kill the process. Timestamps via `deps.probes.now()`, the same clock every success envelope uses. */
-function exitWithUserError(err: UserActionableError, json: boolean, verb: string, deps: Pick<SetupDeps, "probes" | "print" | "exit">): never {
-  deps.print(json ? JSON.stringify(userErrorPayload(err, deps.probes.now())) : `rt ${verb}: ${err.message}`);
-  return (deps.exit ?? process.exit)(2);
-}
 
 /** Reads and writes user-scope credentials: store ready (age key + user/.sops.yaml) → the real sops store; otherwise the connect-verb caller stages instead. */
 export interface SecretWriter {
@@ -1010,7 +948,7 @@ export function realOAuthListen(port: number, expectedState: string): Promise<st
           settle(() => {
             server.stop();
             if (state !== expectedState) {
-              reject(new Error("slack callback state did not match — rejecting a possibly forged authorization code"));
+              reject(new Error("The Slack callback's state did not match, so rt rejected a possibly forged authorization code"));
             } else if (code) {
               resolve(code);
             } else {
@@ -1031,7 +969,7 @@ export function realConnectDeps(): ConnectDeps {
   return {
     probes,
     secrets: realSecretPresence(),
-    print: (s) => console.log(s),
+    json: (v) => out.json(v),
     exit: process.exit,
     stdin: readSmartStdin,
     isTTY: () => process.stdin.isTTY === true,
@@ -1045,6 +983,9 @@ export function realConnectDeps(): ConnectDeps {
 }
 
 const EMPTY_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
+
+/** A connect that took its token from gh reports this, and the scope shortfall reads it back to offer a gh refresh. */
+const GH_SOURCE_DETAIL = "Signed in through the gh CLI";
 
 /** Mirrors composePlan's own team resolution (readIntent → teamRefFromIntent → readTeamSnapshot → forge enrichment) without the `--team` override these single-integration verbs don't take. */
 function realResolveTeamSnapshot(p: Probes): TeamSnapshot {
@@ -1091,17 +1032,28 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function printIntegrationResult(deps: SetupDeps, json: boolean, body: Record<string, unknown>): void {
+type IntegrationRowStatus = "ready" | "missing" | "invalid";
+
+interface IntegrationResult {
+  integration: Integration;
+  status: IntegrationRowStatus;
+  detail: string;
+  scopesSeen: string[];
+  handle?: string;
+  owners?: string[];
+}
+
+const INTEGRATION_STATUS: Record<IntegrationRowStatus, RenderStatus> = { ready: "done", missing: "needs-you", invalid: "failed" };
+
+function printIntegrationResult(deps: SetupDeps, json: boolean, body: IntegrationResult): void {
   if (json) {
-    deps.print(JSON.stringify(envelope(body, deps.probes.now())));
+    deps.json(envelope(body, deps.probes.now()));
     return;
   }
-  deps.print(`${body.integration}: ${body.status} — ${body.detail}`);
+  out.print(out.line(INTEGRATION_STATUS[body.status], integrationDef(body.integration).title, body.detail));
 }
 
 // ─── status ─────────────────────────────────────────────────────────────
-
-type IntegrationRowStatus = "ready" | "missing" | "invalid";
 
 interface IntegrationEval {
   status: IntegrationRowStatus;
@@ -1146,8 +1098,8 @@ async function evalGithub(p: Probes, secrets: SecretPresence, ctx: ValidateCtx):
   let base: IntegrationEval;
   if (stored === null) {
     base = ghAuthed
-      ? { status: "ready", detail: "via gh", scopesSeen: [] }
-      : { status: "missing", detail: ghStatus.code === 127 ? "no GitHub account connected (gh CLI not installed)" : "no GitHub account connected", scopesSeen: [] };
+      ? { status: "ready", detail: GH_SOURCE_DETAIL, scopesSeen: [] }
+      : { status: "missing", detail: ghStatus.code === 127 ? "No GitHub account connected yet, and the gh CLI is not installed" : "No GitHub account connected yet", scopesSeen: [] };
   } else {
     base = nonErrorEval(await def.validate(p, stored, ctx));
   }
@@ -1163,10 +1115,10 @@ async function evalGithub(p: Probes, secrets: SecretPresence, ctx: ValidateCtx):
 async function evalSlack(p: Probes, secrets: SecretPresence, snapshot: TeamSnapshot): Promise<IntegrationEval> {
   const def = integrationDef("slack");
   if (!snapshot.integrations.slack?.clientId) {
-    return { status: "missing", detail: "waiting on the team's Slack app (see account.slack-app)", scopesSeen: [] };
+    return { status: "missing", detail: "Waiting for the team's Slack app to be set up", scopesSeen: [] };
   }
   const stored = await secrets.has(def.secret!.domain, def.secret!.key);
-  if (stored === null) return { status: "missing", detail: "no Slack account connected", scopesSeen: [] };
+  if (stored === null) return { status: "missing", detail: "No Slack account connected yet", scopesSeen: [] };
   return nonErrorEval(await def.validate(p, stored, ctxFor("slack", snapshot, {})));
 }
 
@@ -1176,13 +1128,12 @@ async function evalGeneric(id: Integration, p: Probes, secrets: SecretPresence, 
     return nonErrorEval(await def.validate(p, "", ctx));
   }
   const stored = await secrets.has(def.secret.domain, def.secret.key);
-  if (stored === null) return { status: "missing", detail: `no ${def.title} account connected`, scopesSeen: [] };
+  if (stored === null) return { status: "missing", detail: `No ${def.title} account connected yet`, scopesSeen: [] };
   return nonErrorEval(await def.validate(p, stored, ctx));
 }
 
 export async function integrationStatus(id: Integration, args: string[], deps: SetupDeps): Promise<void> {
   const json = args.includes("--json");
-  const verb = `setup ${id} status`;
   try {
     const snapshot = snapshotFor(deps);
     const ctx = ctxFor(id, snapshot, overridesFor(deps));
@@ -1191,12 +1142,12 @@ export async function integrationStatus(id: Integration, args: string[], deps: S
       : id === "slack" ? await evalSlack(deps.probes, deps.secrets, snapshot)
       : await evalGeneric(id, deps.probes, deps.secrets, ctx);
 
-    const body: Record<string, unknown> = { integration: id, status: r.status, detail: r.detail, scopesSeen: r.scopesSeen };
+    const body: IntegrationResult = { integration: id, status: r.status, detail: r.detail, scopesSeen: r.scopesSeen };
     if (r.handle) body.handle = r.handle;
     if (r.owners) body.owners = r.owners;
     printIntegrationResult(deps, json, body);
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, verb, deps);
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 }
@@ -1206,8 +1157,8 @@ export async function integrationStatus(id: Integration, args: string[], deps: S
 export interface WaiveDeps {
   probes: Probes;
   store: WaiverStore;
-  print: (s: string) => void;
-  printError: (s: string) => void;
+  /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
+  json: (value: unknown) => void;
   exit: (code: number) => never;
   isTTY: () => boolean;
   pick: (message: string, options: string[]) => Promise<string | null>;
@@ -1217,8 +1168,7 @@ export function realWaiveDeps(): WaiveDeps {
   return {
     probes: createRealProbes(),
     store: realWaiverStore(),
-    print: (s) => console.log(s),
-    printError: (s) => console.error(s),
+    json: (v) => out.json(v),
     exit: process.exit,
     isTTY: () => process.stdin.isTTY === true,
     pick: async (message, options) => {
@@ -1228,9 +1178,9 @@ export function realWaiveDeps(): WaiveDeps {
   };
 }
 
-const WAIVER_COPY: Record<"waive" | "unwaive", Record<"changed" | "unchanged", string>> = {
-  waive: { changed: "skipped on this Mac", unchanged: "was already skipped on this Mac" },
-  unwaive: { changed: "re-armed on this Mac", unchanged: "was not skipped on this Mac" },
+const WAIVER_LINES: Record<"waive" | "unwaive", Record<"changed" | "unchanged", [RenderStatus, string]>> = {
+  waive: { changed: ["done", "Skipped on this Mac"], unchanged: ["skipped", "Already skipped on this Mac"] },
+  unwaive: { changed: ["done", "Re-armed on this Mac"], unchanged: ["skipped", "Was not skipped on this Mac"] },
 };
 
 async function runWaiver(args: string[], deps: WaiveDeps, verb: "waive" | "unwaive"): Promise<void> {
@@ -1244,7 +1194,10 @@ async function runWaiver(args: string[], deps: WaiveDeps, verb: "waive" | "unwai
       id = (await deps.pick(verb === "waive" ? "Skip which row on this Mac?" : "Re-arm which row on this Mac?", candidates)) ?? undefined;
       if (!id) return deps.exit(0);
     } else {
-      return exitWithUserError(new UserActionableError("usage", `usage: rt setup ${verb} <row-id> [--json]`), json, `setup ${verb}`, deps);
+      return exitWithUserError(new UserActionableError("usage", `usage: rt setup ${verb} <row-id> [--json]`), json, sinkOf(deps), {
+        title: "Which row?",
+        next: out.cmd(`rt setup ${verb} <row-id>`),
+      });
     }
   }
 
@@ -1252,18 +1205,19 @@ async function runWaiver(args: string[], deps: WaiveDeps, verb: "waive" | "unwai
   try {
     change = verb === "waive" ? waiveRow(id, deps.store) : unwaiveRow(id, deps.store);
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, `setup ${verb}`, deps);
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     // A store the resolver refused to edit is reported as it was raised; the
     // app shows it in its sheet and keeps the gate closed.
-    deps.printError(`rt setup ${verb}: ${err instanceof Error ? err.message : String(err)}`);
+    out.fail({ title: "Could not save the change", why: err instanceof Error ? err.message : String(err) });
     return deps.exit(1);
   }
 
   if (json) {
-    deps.print(JSON.stringify(envelope({ ok: true, id, changed: change.changed, waived: change.waived }, deps.probes.now())));
+    deps.json(envelope({ ok: true, id, changed: change.changed, waived: change.waived }, deps.probes.now()));
     return;
   }
-  deps.print(`setup ${verb}: ${id} ${WAIVER_COPY[verb][change.changed ? "changed" : "unchanged"]}`);
+  const [status, title] = WAIVER_LINES[verb][change.changed ? "changed" : "unchanged"];
+  out.print(out.line(status, title, id));
 }
 
 export async function setupWaive(args: string[], _ctx: CommandContext = {}, deps: WaiveDeps = realWaiveDeps()): Promise<void> {
@@ -1278,7 +1232,7 @@ export async function setupUnwaive(args: string[], _ctx: CommandContext = {}, de
 
 async function ghAuthToken(p: Probes): Promise<string> {
   const res = await p.exec(["gh", "auth", "token"]);
-  if (res.code !== 0) throw new UserActionableError("gh-token-failed", "gh auth token failed — run `gh auth login` first");
+  if (res.code !== 0) throw new UserActionableError("gh-token-failed", "Could not read a token from gh. Run gh auth login first");
   return res.stdout.trim();
 }
 
@@ -1329,8 +1283,8 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     throw new UserActionableError(
       "bad-host",
       id === "gitlab"
-        ? `--host must be a bare hostname (e.g. gitlab.example.com), got "${hostFlag}"`
-        : `the switchboard URL must be a valid https URL (e.g. https://switchboard.example.com), got "${hostFlag}"`,
+        ? `--host takes a bare hostname such as gitlab.example.com, not ${hostFlag}`
+        : `The switchboard address must be a valid https URL such as https://switchboard.example.com, not ${hostFlag}`,
     );
   }
   const overrides = overridesFor(deps);
@@ -1349,23 +1303,23 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     value = "";
   } else if (id === "github" && args.includes("--use-gh")) {
     value = await ghAuthToken(deps.probes);
-    sourceDetail = "via gh";
+    sourceDetail = GH_SOURCE_DETAIL;
   } else if (deps.isTTY()) {
     // Checked BEFORE any stdin read: reading stdin first would block on EOF
     // at a real terminal instead of prompting.
-    if (!field) throw new UserActionableError("bad-stdin", `${id} takes no interactive credential — pipe JSON on stdin instead`);
+    if (!field) throw new UserActionableError("bad-stdin", `${id} takes no typed credential. Pipe JSON on stdin`);
     value = (await deps.promptField(field)).trim();
   } else {
     const input = await deps.stdin();
     if (id === "github" && isPlainObject(input) && input.useGh === true) {
       value = await ghAuthToken(deps.probes);
-      sourceDetail = "via gh";
+      sourceDetail = GH_SOURCE_DETAIL;
     } else if (field) {
       const extracted = extractFieldValue(field, input);
-      if (extracted === null) throw new UserActionableError("bad-stdin", `no ${field.label} provided on stdin`);
+      if (extracted === null) throw new UserActionableError("bad-stdin", `No ${field.label} on stdin`);
       value = extracted;
     } else {
-      throw new UserActionableError("bad-stdin", "stdin did not contain a recognizable credential");
+      throw new UserActionableError("bad-stdin", "Stdin held no credential rt recognizes");
     }
   }
 
@@ -1382,7 +1336,7 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     const role = forgeRole({ intentMode: readIntent(deps.probes)?.mode ?? null, joinedByRt, hasTeam: team.slug !== "" });
     const missing = missingScopes(id, role, result.scopesSeen);
     if (missing.length > 0) {
-      const how = sourceDetail === "via gh" ? ` (run: gh auth refresh -s ${missing.join(",")})` : "";
+      const how = sourceDetail === GH_SOURCE_DETAIL ? ` (run: gh auth refresh -s ${missing.join(",")})` : "";
       printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "invalid", detail: `${scopeShortfallDetail(id, role, missing)}${how}`, scopesSeen: result.scopesSeen });
       return;
     }
@@ -1410,8 +1364,8 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
 
   const detail = staged
     ? sourceDetail
-      ? `${sourceDetail} — staged until Install creates your key`
-      : "staged until Install creates your key"
+      ? `${sourceDetail}. Saved for now; Install stores it once your key exists`
+      : "Saved for now; Install stores it once your key exists"
     : (sourceDetail ?? result.detail);
 
   printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "ready", detail, scopesSeen: result.scopesSeen });
@@ -1440,7 +1394,7 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   const json = args.includes("--json");
   const snapshot = snapshotFor(deps);
   const clientId = snapshot.integrations.slack?.clientId;
-  if (!clientId) throw new UserActionableError("slack-app-missing", "your team has no Slack app yet — its owner needs to create one first");
+  if (!clientId) throw new UserActionableError("slack-app-missing", "Your team has no Slack app yet. Its owner needs to create one first");
   const wait = slackSecretWait(deps.probes, snapshot.slug);
   if (wait) throw new UserActionableError(SLACK_WAIT_CODE[wait.kind], slackWaitCliMessage(wait, snapshot.slug));
 
@@ -1474,7 +1428,7 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   if (!clientSecret) {
     throw new UserActionableError(
       "slack-app-missing",
-      `the Slack client secret for team "${snapshot.slug}" is not readable on this machine yet: the team owner must run \`rt team members sync\` first (the team clone pushes it on its next cycle); try again once your clone has pulled that`,
+      `The Slack client secret for team ${snapshot.slug} cannot be read on this Mac yet. The team owner must run rt team members sync first; try again once your team clone has pulled`,
     );
   }
 
@@ -1483,13 +1437,13 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, code, redirect_uri: redirectUri }).toString(),
   });
-  if (tokenRes.status === 0) throw new UserActionableError("unreachable", "couldn't reach slack.com — check your network or proxy");
+  if (tokenRes.status === 0) throw new UserActionableError("unreachable", "Could not reach slack.com. Check your network or proxy");
 
   let data: { ok?: boolean; error?: string; authed_user?: { access_token?: string; scope?: string } };
   try {
     data = JSON.parse(tokenRes.body);
   } catch {
-    throw new UserActionableError("unreachable", "slack oauth.v2.access returned unparsable JSON");
+    throw new UserActionableError("unreachable", "Slack's answer could not be read");
   }
   const accessToken = data.ok ? data.authed_user?.access_token : undefined;
   if (!accessToken) {
@@ -1498,10 +1452,10 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
       status: "invalid",
       detail:
         data.error === "bad_redirect_uri"
-          ? `slack error: bad_redirect_uri: ${redirectFix}, then connect again`
+          ? `Slack returned an error: bad_redirect_uri. To fix it, ${redirectFix}, then connect again`
           : data.error
-            ? `slack error: ${data.error}`
-            : "slack oauth.v2.access returned no user token",
+            ? `Slack returned an error: ${data.error}`
+            : "Slack returned no user token",
       scopesSeen: [],
     });
     return;
@@ -1513,7 +1467,7 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
     printIntegrationResult(deps, json, {
       integration: "slack",
       status: "invalid",
-      detail: `Slack granted fewer scopes than the board reads with because the team's Slack app does not declare them: ${slackUserScopeFix(appId, missing)}, then connect again`,
+      detail: `Slack granted fewer permissions than the board needs, because the team's Slack app does not list them. To fix it, ${slackUserScopeFix(appId, missing)}, then connect again`,
       scopesSeen: granted,
     });
     return;
@@ -1523,20 +1477,19 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   printIntegrationResult(deps, json, {
     integration: "slack",
     status: "ready",
-    detail: staged ? "staged until Install creates your key" : "slack connected",
+    detail: staged ? "Saved for now; Install stores it once your key exists" : "Slack connected",
     scopesSeen: granted,
   });
 }
 
 export async function integrationConnect(id: Integration, args: string[], deps: ConnectDeps): Promise<void> {
   const json = args.includes("--json");
-  const verb = `setup ${id} connect`;
   try {
     if (id === "slack") return await connectSlack(args, deps);
     if (id === "doppler" || id === "ldcli") return await connectCliSession(id, args, deps);
     return await connectCredential(id, args, deps);
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, verb, deps);
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 }
@@ -1581,17 +1534,16 @@ async function readConfigToken(deps: ConnectDeps): Promise<string> {
   if (deps.isTTY()) return (await deps.promptField(CONFIG_TOKEN_FIELD)).trim();
   const input = await deps.stdin();
   const extracted = extractFieldValue(CONFIG_TOKEN_FIELD, input);
-  if (extracted === null) throw new UserActionableError("bad-stdin", "no Slack app configuration token provided on stdin");
+  if (extracted === null) throw new UserActionableError("bad-stdin", "No Slack app configuration token on stdin");
   return extracted;
 }
 
 export async function setupSlackCreateApp(args: string[], _ctx: CommandContext = {}, deps: ConnectDeps = realConnectDeps()): Promise<void> {
   const json = args.includes("--json");
-  const verb = "setup slack create-app";
   try {
     const configToken = await readConfigToken(deps);
     const snapshot = snapshotFor(deps);
-    if (!snapshot.slug) throw new UserActionableError("unknown-team", "no team to create a Slack app for — set up your team first");
+    if (!snapshot.slug) throw new UserActionableError("unknown-team", "No team to create a Slack app for. Set up your team first");
 
     const callbackPort = snapshot.integrations.slack?.callbackPort ?? DEFAULT_CALLBACK_PORT;
     const manifest = buildSlackManifest({ name: `mattstack (${snapshot.slug})`, callbackPort, scopes: DEFAULT_SCOPE_NEEDS });
@@ -1601,11 +1553,11 @@ export async function setupSlackCreateApp(args: string[], _ctx: CommandContext =
       headers: { Authorization: `Bearer ${configToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ manifest }),
     });
-    if (res.status === 0) throw new UserActionableError("unreachable", "couldn't reach slack.com — check your network or proxy");
+    if (res.status === 0) throw new UserActionableError("unreachable", "Could not reach slack.com. Check your network or proxy");
 
     const data = parseManifestResponse(res.body, res.status);
     if (!data.ok || !data.credentials || !data.app_id) {
-      throw new UserActionableError("slack-manifest-failed", data.error ?? `slack apps.manifest.create returned ok:false (status ${res.status})`);
+      throw new UserActionableError("slack-manifest-failed", data.error ?? `Slack refused the app manifest (HTTP ${res.status})`);
     }
 
     // Secrets land BEFORE the settings write: a settings write recording appId/clientId with no
@@ -1640,13 +1592,13 @@ export async function setupSlackCreateApp(args: string[], _ctx: CommandContext =
       status: "ready",
       detail: staged
         ? stagedReason === "no-recipients"
-          ? "Slack app created — team secrets staged until the team has recipients"
-          : "Slack app created — team secrets staged until the age key exists"
+          ? "Slack app created. Its team secrets are saved for now, until the team has members to encrypt for"
+          : "Slack app created. Its team secrets are saved for now, until your age key exists"
         : "Slack app created",
       scopesSeen: [],
     });
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, verb, deps);
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 }

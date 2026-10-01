@@ -81,5 +81,5 @@ export function missingScopes(provider: ForgeProvider, role: ForgeRole, scopesSe
 export function scopeShortfallDetail(provider: ForgeProvider, role: ForgeRole, missing: readonly string[]): string {
   const reasons = missing.map((scope) => REASONS[provider]?.[role][scope]).filter((reason): reason is string => reason !== undefined);
   const why = reasons.length ? ` (${reasons.join("; ")})` : "";
-  return `token is missing: ${missing.join(", ")}${why}`;
+  return `This token is missing ${missing.join(", ")}${why}`;
 }

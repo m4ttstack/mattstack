@@ -142,7 +142,7 @@ describe("accessRows — access.team-repo", () => {
   test("no remote anywhere -> missing, action-less (screen 2 recomputes in-band)", async () => {
     const r = await pickRow(accessRows(fakeProbes(), baseTeam(), null), "access.team-repo");
     expect(r.status).toBe("missing");
-    expect(r.detail).toBe("no team remote yet (screen 2)");
+    expect(r.detail).toBe("No team repo yet. Create or join a team first");
     expect(r.action).toBeNull();
   });
 
@@ -216,7 +216,7 @@ describe("accessRows — access.team-repo", () => {
     const exec = gitAnswers(() => ({ code: 128, stdout: "", stderr: "remote: Permission denied" }));
     const r = await pickRow(accessRows(fakeProbes({ exec }), team, joinIntent("matt"), {}, { has: async () => "glpat_x" }), "access.team-repo");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("ask matt");
+    expect(r.detail).toContain("Ask matt");
     expect(r.detail).toContain("org admin");
     expect(r.detail).not.toContain("rt will");
   });
@@ -299,7 +299,7 @@ describe("accessRows — access.forge", () => {
     const p = fakeProbes();
     const r = await pickRow(accessRows(p, team, null), "access.forge");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("unverified");
+    expect(r.detail).toContain("Confirm that address");
     expect(p.calls.fetch).toEqual([]);
   });
 
@@ -334,7 +334,7 @@ describe("accessRows — access.forge", () => {
     const p = fakeProbes();
     const r = await pickRow(accessRows(p, team, null), "access.forge");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe(`your team declares forge host "gitlab.example.com" — unverified; confirm it yourself before rt reaches out to it`);
+    expect(r.detail).toBe(`Your team uses gitlab.example.com. Confirm that address before rt connects to it`);
     expect(p.calls.fetch).toEqual([]);
   });
 });
@@ -485,7 +485,7 @@ describe("accessRows — access.switchboard", () => {
     const fetch = async () => ({ status: 0, body: "", headers: {} });
     const r = await pickRow(accessRows(fakeProbes({ fetch }), team, null, { switchboardUrl: "https://sw.example.com" }), "access.switchboard");
     expect(r.status).toBe("error");
-    expect(r.detail).toContain("couldn't reach");
+    expect(r.detail).toContain("Could not reach");
   });
 
   test("configured, user-confirmed, /healthz non-200 -> error, distinct detail from the unreachable case", async () => {
@@ -493,7 +493,7 @@ describe("accessRows — access.switchboard", () => {
     const fetch = async () => ({ status: 503, body: "", headers: {} });
     const r = await pickRow(accessRows(fakeProbes({ fetch }), team, null, { switchboardUrl: "https://sw.example.com" }), "access.switchboard");
     expect(r.status).toBe("error");
-    expect(r.detail).toBe("switchboard /healthz returned 503");
+    expect(r.detail).toBe("The switchboard answered HTTP 503 to its health check");
   });
 
   test("team-declared switchboard, NOT user-confirmed -> needs-you, never fetched (R-F2)", async () => {
@@ -501,7 +501,7 @@ describe("accessRows — access.switchboard", () => {
     const p = fakeProbes();
     const r = await pickRow(accessRows(p, team, null), "access.switchboard");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("unverified");
+    expect(r.detail).toContain("Confirm that address");
     expect(p.calls.fetch).toEqual([]);
   });
 });

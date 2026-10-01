@@ -89,7 +89,7 @@ async function pathLinkRun(ctx: ApplyContext): Promise<StepOutcome> {
   if (repairShellWrapper()) ctx.log("path.link", "repaired shell wrapper FUNCNEST recursion bug");
 
   const base = `linked: ${linked.length > 0 ? linked.join(", ") : "none"} · skipped: ${skipped.length > 0 ? skipped.join(", ") : "none"}`;
-  return { state: "done", detail: notes.length > 0 ? `${base} · ${notes.join(" · ")}` : base };
+  return { state: "done", detail: notes.length > 0 ? `${base}. ${notes.join(". ")}` : base };
 }
 
 async function pathLinkRunSafe(ctx: ApplyContext): Promise<StepOutcome> {

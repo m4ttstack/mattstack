@@ -127,7 +127,12 @@ export type SettleOutcome =
   | { kind: "current"; id: string }
   | { kind: "rolledBack"; id: string; detail: string }
   /** `stage` and `code` let plugins.install keep its exact contract wording for a clean install failure. Only these two stages can fail terminally: a failed `disable` becomes a rollback, never a failure of its own. */
-  | { kind: "failed"; id: string; detail: string; stage: "install" | "rollback"; code: number };
+  | { kind: "failed"; id: string; detail: string; stage: "install" | "rollback"; code: number; output: string };
+
+/** A child's stderr then stdout, each trimmed, for the log behind a short on-screen failure. */
+export function childOutput(res: ExecResult): string {
+  return [res.stderr.trim(), res.stdout.trim()].filter((s) => s.length > 0).join("\n");
+}
 
 /** Anchored to known "already done" phrasing in stderr only: an unanchored match over stdout+stderr would let a genuinely failing call (whose output merely mentions the word "already" in passing) read as success. */
 export function isAlready(res: ExecResult): boolean {
@@ -167,9 +172,9 @@ export async function settlePack(runner: ClaudeRunner, id: string, opts: { teamA
     if (install.code === 124) {
       const undo = await runner.run(["plugin", "uninstall", id], timeoutMs);
       const detail = `install timed out; rollback ${undo.code === 0 || isAlreadyGone(undo) ? "ok" : `failed: ${undo.stderr.trim()}`}`;
-      return { kind: "failed", id, detail, stage: "install", code: install.code };
+      return { kind: "failed", id, detail, stage: "install", code: install.code, output: childOutput(install) };
     }
-    return { kind: "failed", id, detail: install.stderr.trim() || `install exited ${install.code}`, stage: "install", code: install.code };
+    return { kind: "failed", id, detail: install.stderr.trim() || `install exited ${install.code}`, stage: "install", code: install.code, output: childOutput(install) };
   }
 
   // A trusted plugin is installed and handed back. Enabling it is the caller's
@@ -183,7 +188,7 @@ export async function settlePack(runner: ClaudeRunner, id: string, opts: { teamA
   const undo = await runner.run(["plugin", "uninstall", id], timeoutMs);
   const why = disable.stderr.trim() || `disable exited ${disable.code}`;
   if (undo.code === 0 || isAlreadyGone(undo)) return { kind: "rolledBack", id, detail: why };
-  return { kind: "failed", id, detail: `${why}; rollback failed: ${undo.stderr.trim()}`, stage: "rollback", code: undo.code };
+  return { kind: "failed", id, detail: `${why}; rollback failed: ${undo.stderr.trim()}`, stage: "rollback", code: undo.code, output: childOutput(undo) };
 }
 
 export interface ConvergeResult {

@@ -46,12 +46,12 @@ export function repoRootRow(
   // read both or it would report needs-you against a question already answered.
   const chosen = configuredRoot() ?? readStagedRepoRoot(p);
   if (!chosen) {
-    return row({ ...base, status: "needs-you", detail: `choose where rt should clone your team's repos (${CLI_HINT})`, action: chooseAction(detectCandidate(p)) });
+    return row({ ...base, status: "needs-you", detail: `Choose the folder rt clones your team's repos into (${CLI_HINT})`, action: chooseAction(detectCandidate(p)) });
   }
 
   const check = checkRepoRoot(p, chosen);
   if (!check.ok) {
     return row({ ...base, status: "needs-you", detail: `${check.detail} (${CLI_HINT})`, action: chooseAction(detectCandidate(p)) });
   }
-  return row({ ...base, status: "ready", detail: check.tccWarning ? `${check.path} ... ${check.tccWarning}` : check.path });
+  return row({ ...base, status: "ready", detail: check.tccWarning ? `${check.path}. ${check.tccWarning}` : check.path });
 }

@@ -39,16 +39,16 @@ describe("checkRepoRoot", () => {
 
   test("a file is refused as not a directory", () => {
     const r = checkRepoRoot(p(FILE), "/Users/t/notes.txt");
-    expect(r).toEqual({ ok: false, detail: "/Users/t/notes.txt is not a directory" });
+    expect(r).toEqual({ ok: false, detail: "/Users/t/notes.txt is not a folder" });
   });
 
   test("an unwritable directory is refused", () => {
     const r = checkRepoRoot(p(RO), "/Users/t/locked");
-    expect(r).toEqual({ ok: false, detail: "/Users/t/locked is not writable" });
+    expect(r).toEqual({ ok: false, detail: "You cannot write to /Users/t/locked" });
   });
 
   test("an empty path is refused rather than resolving to home", () => {
-    expect(checkRepoRoot(p(DIR), "   ")).toEqual({ ok: false, detail: "no path given" });
+    expect(checkRepoRoot(p(DIR), "   ")).toEqual({ ok: false, detail: "No folder given" });
   });
 
   // Advisory on purpose. It is the user's machine, and ~/Documents/GitHub is a

@@ -14,7 +14,7 @@ describe("writingStyleRow", () => {
     const r = writingStyleRow({ homeReady: false, resolved: { skill: "x", source: "fallback" }, inventory: inv(), options: opts });
     expect(r.status).toBe("needs-you");
     expect(r.action).toBeNull();
-    expect(r.detail).toBe("You'll choose this after Install");
+    expect(r.detail).toBe("You choose this after Install");
     expect(r.finishGated).toBe(true);
     expect(r.kind).toBe("tool");
   });
@@ -55,7 +55,7 @@ describe("writingStyleRow", () => {
   test("a configured skill that is not installed is invalid; a disabled plugin is named", () => {
     expect(writingStyleRow({ homeReady: true, resolved: { skill: "x:writing-style-a", source: "user" }, inventory: inv(), options: opts }).status).toBe("invalid");
     const d = writingStyleRow({ homeReady: true, resolved: { skill: "x:y", source: "user" }, inventory: inv([], [["x:y", "x@m"]]), options: opts });
-    expect(d.detail).toContain("enable x@m");
+    expect(d.detail).toContain("in the disabled plugin x@m. Enable it");
   });
 
   test("preferences.md and personal choices read ready with their source", () => {

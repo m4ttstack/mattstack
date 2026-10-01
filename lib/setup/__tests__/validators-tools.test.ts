@@ -127,7 +127,7 @@ describe("toolRows — tool.herdr", () => {
   test("--version times out -> error, never missing/needs-you", async () => {
     const r = await pickRow(toolRows(fakeProbes({ exec: TIMEOUT }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("error");
-    expect(r.detail).toContain("timed out");
+    expect(r.detail).toContain("did not answer in time");
   });
 
   test("0.8.0 + the claude line reads 'current' -> ready", async () => {
@@ -195,7 +195,7 @@ describe("toolRows — tool.herdr", () => {
     const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? ok("0.7.4\n") : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
     expect(r.status).toBe("invalid");
-    expect(r.detail).toBe("herdr 0.7.4 < 0.7.5");
+    expect(r.detail).toBe("herdr 0.7.4 is older than 0.7.5");
     expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "brew" });
   });
 });
@@ -222,7 +222,7 @@ describe("toolRows — tool.claude", () => {
     };
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("ready");
-    expect(r.detail).toBe("claude 1.2.3, signed in");
+    expect(r.detail).toBe("Claude Code 1.2.3, signed in");
   });
 
   test("auth status JSON loggedIn:false, exit 0 -> needs-you (M2: exit 0 is not proof of sign-in)", async () => {
@@ -233,7 +233,7 @@ describe("toolRows — tool.claude", () => {
     };
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("sign in: run claude once");
+    expect(r.detail).toBe("Not signed in yet. Run claude once and sign in");
     expect(r.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Open a terminal", "Run: claude", "Follow the sign-in prompt"] });
     // Sign-in is an interactive step after Install; the binary gates Install, the sign-in never.
     expect(r.required).toBe(false);
@@ -271,7 +271,7 @@ describe("toolRows — tool.claude", () => {
     };
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("sign in: run claude once");
+    expect(r.detail).toBe("Not signed in yet. Run claude once and sign in");
   });
 
   test("auth status times out -> error", async () => {
@@ -351,7 +351,7 @@ describe("toolRows — tool.fast-browser", () => {
     const p = fakeProbes({ exec: doctorExec(SETUP_INCOMPLETE_DOCTOR, 1) });
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("runtime ok, but setup needs to run again");
+    expect(r.detail).toBe("The runtime is ready, but setup needs to run again");
     expect(r.required).toBe(false);
     expect(r.action).toEqual({ type: "run", label: "Run setup", verb: ["tools", "setup", "fast-browser"] });
   });
@@ -367,7 +367,7 @@ describe("toolRows — tool.fast-browser", () => {
     );
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("the fast-browser command runs a copy that no longer exists");
+    expect(r.detail).toBe("The fast-browser command points at a copy that no longer exists");
     expect(r.required).toBe(false);
     expect(r.action).toEqual({ type: "link-bundled", label: "Relink", tool: "fast-browser" });
   });
@@ -383,7 +383,7 @@ describe("toolRows — tool.fast-browser", () => {
     const p = fakeProbes({ exec: doctorExec(withoutCheck(REAL_DOCTOR, "data-permissions")) });
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("error");
-    expect(r.detail).toContain("data-permissions");
+    expect(r.detail).toContain("no permissions check");
     expect(r.required).toBe(false);
   });
 
@@ -402,7 +402,7 @@ describe("toolRows — tool.fast-browser", () => {
     const p = fakeProbes({ exec: doctorExec(withoutCheck(REAL_DOCTOR, "runtime-checksum")) });
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("error");
-    expect(r.detail).toContain("runtime-checksum");
+    expect(r.detail).toContain("no runtime check");
     expect(r.required).toBe(false);
   });
 
@@ -490,7 +490,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "extension-installed", "warn")));
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("mattstack can't read Chrome's profile; grant Full Disk Access to mattstack.app, or skip if Fast Browser shows in chrome://extensions");
+    expect(r.detail).toBe("mattstack cannot read Chrome's profile. Grant Full Disk Access to mattstack.app, or skip this if Fast Browser shows in chrome://extensions");
     expect(r.action?.type).toBe("steps");
     expect((r.action as { steps: string[] }).steps.join(" ")).not.toContain("terminal");
   });
@@ -566,7 +566,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     const p = withChrome(doctorExec(withoutCheck(REAL_DOCTOR, "extension-installed")));
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("error");
-    expect(r.detail).toContain("extension-installed");
+    expect(r.detail).toContain("no extension check");
     expect(r.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
   });
 
@@ -661,7 +661,7 @@ describe("toolRows — well-formed-JSON-but-wrong-shape doctor payloads: no thro
     expect(main.status).toBe("error");
     const extension = rows.find((r) => r.id === "tool.fast-browser-extension")!;
     expect(extension.status).toBe("skipped");
-    expect(extension.detail).toBe("fast-browser doctor could not be read (see Fast Browser)");
+    expect(extension.detail).toBe("Fast Browser's doctor report could not be read. See the Fast Browser row");
   }
 
   // `checks` present but not an array at all: {}.find is not a function is
@@ -760,7 +760,7 @@ describe("toolRows - tool.plugins", () => {
   test("claude plugin list times out -> error", async () => {
     const r = await pickRow(toolRows(fakeProbes({ exec: listExec({ code: 124, stdout: "", stderr: "" }) }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
     expect(r.status).toBe("error");
-    expect(r.detail).toContain("timed out");
+    expect(r.detail).toContain("did not answer in time");
   });
 
   // A crashed or misconfigured CLI is a real failure this row could not see
@@ -789,10 +789,10 @@ describe("toolRows — well-formed-JSON-but-wrong-shape plugin list payloads: no
     const rows = await toolRows(fakeProbes({ exec: listExec(ok(stdout)) }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS);
     const plugins = rows.find((r) => r.id === "tool.plugins")!;
     expect(plugins.status).toBe("error");
-    expect(plugins.detail).toBe("claude plugin list --json output could not be read");
+    expect(plugins.detail).toBe("Claude Code's plugin list could not be read");
     const pack = rows.find((r) => r.id === "pack.acme")!;
     expect(pack.status).toBe("error");
-    expect(pack.detail).toBe("claude plugin list --json output could not be read");
+    expect(pack.detail).toBe("Claude Code's plugin list could not be read");
   }
 
   // `entries.map((e) => [e.id, e])` and `.some((e) => ... e.id ...)` both read
@@ -820,7 +820,7 @@ describe("toolRows — tool.editor", () => {
   test("no editors detected -> skipped, works-without-this note", async () => {
     const r = await pickRow(toolRows(fakeProbes(), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.editor");
     expect(r.status).toBe("skipped");
-    expect(r.detail).toBe("no editor found (works without this)");
+    expect(r.detail).toBe("No editor found. rt works without one");
     expect(r.required).toBe(false);
     expect(r.recheck).toBe("on-activate");
   });
@@ -881,24 +881,24 @@ describe("toolRows — tool.state-backup", () => {
   test("all three only on PATH -> ready, named as the user's own", async () => {
     const r = await backupRow(all("path"));
     expect(r.status).toBe("ready");
-    expect(r.detail).toBe("age, zstd, git-lfs from your own copies on PATH");
+    expect(r.detail).toBe("age, zstd, git-lfs from your own copies on your PATH");
   });
 
   test("mixed -> ready, each source named", async () => {
     const r = await backupRow({ age: "bundled", zstd: "bundled", "git-lfs": "path" });
     expect(r.status).toBe("ready");
-    expect(r.detail).toBe("age, zstd from mattstack.app; git-lfs from your own copy on PATH");
+    expect(r.detail).toBe("age, zstd from mattstack.app; git-lfs from your own copy on your PATH");
   });
 
   test("one unresolvable -> needs-you naming it, with the bundle remedy", async () => {
     const r = await backupRow({ age: "bundled", zstd: "bundled", "git-lfs": "absent" });
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("not found: git-lfs");
+    expect(r.detail).toBe("Not installed: git-lfs");
     expect(r.action).toEqual({
       type: "steps",
       label: "Show steps…",
       steps: [
-        "Update mattstack.app — it ships age, zstd and git-lfs",
+        "Update mattstack.app; it ships age, zstd and git-lfs",
         "Or install them yourself: brew install git-lfs",
         "Then re-run rt setup status",
       ],
@@ -908,7 +908,7 @@ describe("toolRows — tool.state-backup", () => {
   test("none resolvable -> needs-you naming all three", async () => {
     const r = await backupRow(all("absent"));
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("not found: age, zstd, git-lfs");
+    expect(r.detail).toBe("Not installed: age, zstd, git-lfs");
   });
 
   // Backup is opt-in (`rt state backup init`), so a machine missing the tools
@@ -968,7 +968,7 @@ describe("toolRows — tool.mission-control", () => {
     const exec: ExecScript = (argv) => (argv[0] === "defaults" ? ok(stdout) : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.mission-control");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("Control+Up is bound to Mission Control (rt nav uses it)");
+    expect(r.detail).toBe("Control+Up opens Mission Control, and rt's picker needs it");
     expect(r.action).toEqual({ type: "open-settings", label: "Open Keyboard Settings…", target: "keyboard" });
     expect(r.recheck).toBe("on-activate");
   });
@@ -1110,6 +1110,51 @@ describe("toolRows — team-declared tool.team.<name>", () => {
   });
 });
 
+describe("toolRows: a tool that prints no version", () => {
+  const silent = (name: string): ExecScript => (argv) => (argv[0] === name && argv[1] === "--version" ? ok("") : ok());
+
+  test("herdr below the floor names the floor with no gap where the version would be", async () => {
+    const r = await pickRow(toolRows(fakeProbes({ exec: silent("herdr") }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    expect(r.detail).toBe("herdr is older than 0.7.5");
+  });
+
+  test("Claude Code signed in reads without a dangling comma", async () => {
+    const exec: ExecScript = (argv) => {
+      if (argv[0] === "claude" && argv[1] === "--version") return ok("");
+      if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: true }));
+      return ok();
+    };
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    expect(r.detail).toBe("Claude Code, signed in");
+  });
+
+  test("Claude Code whose sign-in could not be checked reads without a gap", async () => {
+    const exec: ExecScript = (argv) => {
+      if (argv[0] === "claude" && argv[1] === "--version") return ok("");
+      if (argv[0] === "claude" && argv[1] === "auth") return { code: 1, stdout: "", stderr: "error: unknown command 'auth'" };
+      return ok();
+    };
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    expect(r.detail).toBe("Claude Code is installed, but the sign-in could not be checked. Confirm you are signed in");
+  });
+
+  test("a team tool below its floor, with and without a version", async () => {
+    const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "widget", why: "does widget things", floor: "3.0.0" }] }];
+    const versioned: ExecScript = (argv) => (argv[0] === "widget" && argv[1] === "--version" ? ok("2.0.0\n") : ok());
+    const withVersion = await pickRow(toolRows(fakeProbes({ exec: versioned }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
+    expect(withVersion.detail).toBe("widget 2.0.0 is older than 3.0.0");
+    const without = await pickRow(toolRows(fakeProbes({ exec: silent("widget") }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
+    expect(without.detail).toBe("widget is older than 3.0.0");
+  });
+
+  test("a team tool with no floor is ready under its bare name", async () => {
+    const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "widget", why: "does widget things" }] }];
+    const r = await pickRow(toolRows(fakeProbes({ exec: silent("widget") }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
+    expect(r.status).toBe("ready");
+    expect(r.detail).toBe("widget");
+  });
+});
+
 describe("toolRows — pack.<pack>", () => {
   test("real plugin listing contains the pack's id -> ready, installed", async () => {
     const reqs: PackRequirements[] = [{ pack: "beta", integrations: [], tools: [] }];
@@ -1117,7 +1162,7 @@ describe("toolRows — pack.<pack>", () => {
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "plugin" && argv[2] === "list" ? ok(listWithBeta) : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "pack.beta");
     expect(r.status).toBe("ready");
-    expect(r.detail).toBe("installed");
+    expect(r.detail).toBe("Installed");
     expect(r.required).toBe(false);
     expect(r.optionalNote).not.toBeNull();
   });
@@ -1127,7 +1172,7 @@ describe("toolRows — pack.<pack>", () => {
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "plugin" && argv[2] === "list" ? ok(REAL_PLUGIN_LIST_JSON) : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "pack.acme");
     expect(r.status).toBe("missing");
-    expect(r.detail).toBe("not installed yet");
+    expect(r.detail).toBe("Not installed yet");
     expect(r.action).toEqual({ type: "run", label: "Install plugins", verb: ["setup", "apply", "--only", "plugins.install"] });
   });
 
@@ -1300,7 +1345,7 @@ describe("toolRows: tool.linear-mcp", () => {
   test("the name linear held by an unrelated server -> needs-you, and says so", async () => {
     const r = await rowFor(conf({ mcpServers: { linear: { type: "http", url: "https://mcp.railway.app/mcp" } } }), HAS_KEY);
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("not a Linear MCP");
+    expect(r.detail).toContain("that is not Linear's");
   });
 
   const ADD_TO_CLAUDE: Action = { type: "run", label: "Add to Claude", verb: ["setup", "apply", "--only", "linear.mcp"] };
@@ -1309,7 +1354,7 @@ describe("toolRows: tool.linear-mcp", () => {
     const r = await rowFor(conf({ mcpServers: { "linear-matt": hosted } }), HAS_KEY);
     expect(r.status).toBe("missing");
     expect(r.detail).toContain("linear-matt");
-    expect(r.detail).toContain("not added yet");
+    expect(r.detail).toContain("not added to Claude Code yet");
     expect(r.action).toEqual(ADD_TO_CLAUDE);
   });
 
@@ -1317,7 +1362,7 @@ describe("toolRows: tool.linear-mcp", () => {
     const r = await rowFor(conf({ mcpServers: { "linear-matt": hosted } }), NO_SECRETS);
     expect(r.status).toBe("needs-you");
     expect(r.detail).toContain("linear-matt");
-    expect(r.detail).toContain("connect Linear so Install can add linear");
+    expect(r.detail).toContain("Connect Linear so Install can add it to Claude Code");
     expect(r.action?.type).toBe("connect");
   });
 
@@ -1441,7 +1486,7 @@ describe("toolRows: tool.proxy", () => {
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.status).toBe("skipped");
     expect(r.action ?? null).toBeNull();
-    expect(r.detail).toBe("this build does not include the local proxy installer; apps serve on their ports");
+    expect(r.detail).toBe("This build has no local proxy installer, so apps serve on their own ports");
   });
 
   test("a build without the proxy installer leaves a predating portless install skipped, with no Update proxy", async () => {
@@ -1514,7 +1559,7 @@ describe("toolRows: tool.proxy", () => {
     });
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("proxy runs portless 0.15.6, bundle pins 0.16.0");
+    expect(r.detail).toBe("The proxy runs portless 0.15.6; this build ships 0.16.0");
     expect(r.action).toEqual({ type: "run", label: "Update proxy", verb: ["setup", "apply", "--only", "proxy.install"] });
   });
 
@@ -1526,7 +1571,7 @@ describe("toolRows: tool.proxy", () => {
     const p = bundledProxyProbes({ files: { [PORTLESS_LAUNCHD_PLIST]: "<plist/>" } });
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("An existing portless install predates mattstack; Update proxy adopts it");
+    expect(r.detail).toBe("A portless install from before mattstack is present. Update proxy adopts it");
     expect(r.action).toEqual({ type: "run", label: "Update proxy", verb: ["setup", "apply", "--only", "proxy.install"] });
   });
 
@@ -1579,7 +1624,7 @@ describe("toolRows: tool.proxy", () => {
       expect(verb.slice(0, 3)).toEqual(["setup", "apply", "--only"]);
       expect(STEP_IDS as readonly string[]).toContain(verb[3]!);
     }
-    expect(rows[1]!.detail).toBe("proxy runs portless 0.15.6, bundle pins 0.16.0");
+    expect(rows[1]!.detail).toBe("The proxy runs portless 0.15.6; this build ships 0.16.0");
   });
 });
 
@@ -1633,7 +1678,7 @@ test("a stale pack is needs-you and names both versions, with no restart caveat"
   });
   const row = rows.find((r) => r.id === "pack.acme-skills")!;
   expect(row.status).toBe("needs-you");
-  expect(row.detail).toContain("installed 0.5.18");
+  expect(row.detail).toContain("Installed 0.5.18");
   expect(row.detail).toContain("team serves 0.5.28");
   expect(row.detail).not.toContain("restart");
 });

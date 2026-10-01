@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { fakeProbes } from "./fakes.ts";
 import { INTEGRATIONS, integrationDef, type ValidateCtx } from "../integrations.ts";
-import { UserActionableError } from "../errors.ts";
+import { UserActionableError } from "../../errors.ts";
 
 const noHost: ValidateCtx = { host: null, team: { slug: "acme", remote: null } };
 
@@ -43,7 +43,7 @@ describe("gitlab validate", () => {
     const result = await INTEGRATIONS.gitlab.validate(p, "glpat-token", { host: "gitlab.example.com", team: { slug: "acme", remote: "https://gitlab.example.com/mattstack/acme.git" } });
 
     expect(result.status).toBe("invalid");
-    expect(result.detail).toContain("can't see");
+    expect(result.detail).toContain("cannot see");
     expect(result.scopesSeen).toEqual(["read_api"]);
   });
 
@@ -131,7 +131,7 @@ describe("github validate", () => {
 
     const result = await INTEGRATIONS.github.validate(p, "ghp-token", { host: null, team: { slug: "acme", remote: "https://github.com/mattstack/acme.git" } });
     expect(result.status).toBe("invalid");
-    expect(result.detail).toContain("can't see");
+    expect(result.detail).toContain("cannot see");
   });
 
   test("/user status 0 (network down) → error naming api.github.com, never invalid", async () => {
@@ -185,7 +185,7 @@ describe("linear validate", () => {
 
     const result = await INTEGRATIONS.linear.validate(p, "lin_api_x", { host: null, team: { slug: "acme", remote: null } });
     expect(result.status).toBe("ready");
-    expect(result.detail).toBe("viewer ok");
+    expect(result.detail).toBe("Linear key works");
   });
 
   test("declared teamKey found among viewer's teams → ready", async () => {
@@ -209,7 +209,7 @@ describe("network-free integrations only ever call through probes", () => {
   test("sdm status 127 → invalid 'not installed'", async () => {
     const p = fakeProbes({ exec: async () => ({ code: 127, stdout: "", stderr: "ENOENT: sdm" }) });
     const result = await INTEGRATIONS.sdm.validate(p, "me@example.com", noHost);
-    expect(result).toEqual({ status: "invalid", detail: "sdm not installed", scopesSeen: [] });
+    expect(result).toEqual({ status: "invalid", detail: "sdm is not installed", scopesSeen: [] });
   });
 
   // `sdm status` never prints the account email; a real resource table is the
@@ -232,7 +232,7 @@ describe("network-free integrations only ever call through probes", () => {
     const p = fakeProbes({ exec: async () => ({ code: 0, stdout: "You are not authenticated. Please login.", stderr: "" }) });
     const result = await INTEGRATIONS.sdm.validate(p, "me@example.com", noHost);
     expect(result.status).toBe("invalid");
-    expect(result.detail.toLowerCase()).toContain("not authenticated");
+    expect(result.detail.toLowerCase()).toContain("not signed in to sdm");
   });
 
   test("sdm status non-zero asking to log in → invalid", async () => {
@@ -250,7 +250,7 @@ describe("network-free integrations only ever call through probes", () => {
   test("sdm called with an empty email is never vacuously ready", async () => {
     const p = fakeProbes({ exec: async () => ({ code: 0, stdout: "logged in as somebody", stderr: "" }) });
     const result = await INTEGRATIONS.sdm.validate(p, "", noHost);
-    expect(result).toEqual({ status: "invalid", detail: "no email configured", scopesSeen: [] });
+    expect(result).toEqual({ status: "invalid", detail: "No email set", scopesSeen: [] });
     expect(p.calls.exec).toEqual([]);
   });
 
@@ -264,7 +264,7 @@ describe("network-free integrations only ever call through probes", () => {
     const p = fakeProbes({ exec: async () => ({ code: 124, stdout: "", stderr: "" }) });
     const result = await INTEGRATIONS.sdm.validate(p, "me@example.com", noHost);
     expect(result.status).toBe("error");
-    expect(result.detail).toContain("timed out");
+    expect(result.detail).toContain("did not answer in time");
   });
 
   test("doppler me --json 0 → ready", async () => {
@@ -278,7 +278,7 @@ describe("network-free integrations only ever call through probes", () => {
     const p = fakeProbes({ exec: async () => ({ code: 124, stdout: "", stderr: "" }) });
     const result = await INTEGRATIONS.doppler.validate(p, "", noHost);
     expect(result.status).toBe("error");
-    expect(result.detail).toContain("timed out");
+    expect(result.detail).toContain("did not answer in time");
   });
 
   test("ldcli config --list 0 → ready", async () => {
@@ -307,6 +307,7 @@ describe("slack validate", () => {
     const p = fakeProbes({ fetch: async () => ({ status: 200, body: JSON.stringify({ ok: false, error: "invalid_auth" }), headers: {} }) });
     const result = await INTEGRATIONS.slack.validate(p, "xoxp-token", noHost);
     expect(result.status).toBe("invalid");
+    expect(result.detail).toBe("Slack returned an error: invalid_auth");
   });
 
   test("status 0 (network down) → error, never invalid", async () => {
@@ -349,7 +350,7 @@ describe("switchboard validate", () => {
     const result = await INTEGRATIONS.switchboard.validate(p, "", { host: null, declaredHost: "https://switchboard.example.com", team: { slug: "acme", remote: null } });
     expect(result.status).toBe("error");
     expect(result.detail).toBe(
-      `your team declares switchboard at "https://switchboard.example.com" — unverified; run \`rt setup switchboard connect --host https://switchboard.example.com\` to confirm it yourself`,
+      `Your team's switchboard is at https://switchboard.example.com. Run rt setup switchboard connect --host https://switchboard.example.com to confirm that address`,
     );
     expect(p.calls.fetch).toEqual([]);
   });
@@ -393,7 +394,7 @@ describe("switchboard validate", () => {
     const p = fakeProbes({ fetch: async () => ({ status: 401, body: "", headers: {} }) });
     const result = await INTEGRATIONS.switchboard.validate(p, "", { host: "https://switchboard.example.com", team: { slug: "acme", remote: null } });
     expect(result.status).toBe("error");
-    expect(result.detail).toBe("switchboard /healthz returned 401");
+    expect(result.detail).toBe("The switchboard answered HTTP 401 to its health check");
   });
 });
 
