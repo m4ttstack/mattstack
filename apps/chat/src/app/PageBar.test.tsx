@@ -1,5 +1,5 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
@@ -60,7 +60,7 @@ test('the members pill shows the signed-in total and opens a roster grouped by h
   expect(screen.getByTestId('members-row-gitq-main')).toBeInTheDocument();
 });
 
-test("a card docked beside the members dropdown takes its own button's click", async () => {
+test('a card action in the members dropdown runs and closes the menu', async () => {
   const mention = vi.fn();
   const max = {
     sessionId: 's-max',
@@ -92,6 +92,36 @@ test("a card docked beside the members dropdown takes its own button's click", a
     await screen.findByTestId('card-mention-max', {}, { timeout: 2000 })
   );
   expect(mention).toHaveBeenCalledWith('max');
+  await waitFor(() =>
+    expect(screen.queryByTestId('members-dropdown')).toBeNull()
+  );
+  // The card closed with the menu, so the next open starts on the list.
+  await userEvent.click(screen.getByTestId('members-chip'));
+  const row = await screen.findByTestId('members-row-max');
+  expect(screen.queryByTestId('detail-max')).toBeNull();
+  expect(row).not.toHaveAttribute('data-menu-active');
+});
+
+test('a group past eight rows ends in "N more", which lists the rest and keeps the menu open', async () => {
+  const buddies = Array.from({ length: 11 }, (_, i) => ({
+    handle: `w${i}`,
+    status: 'live' as const,
+  }));
+  renderWithProviders(
+    <PageBar
+      room={{ room: 'rt', memberCount: 11, unread: 0, mentions: 0 }}
+      buddies={buddies}
+    />
+  );
+  await userEvent.click(screen.getByTestId('members-chip'));
+  expect(await screen.findByTestId('members-row-w7')).toBeInTheDocument();
+  expect(screen.queryByTestId('members-row-w8')).toBeNull();
+  const more = screen.getByTestId('members-more-working');
+  expect(more).toHaveTextContent('3 more');
+  await userEvent.click(more);
+  expect(screen.getByTestId('members-dropdown')).toBeInTheDocument();
+  expect(screen.getByTestId('members-row-w10')).toBeInTheDocument();
+  expect(screen.queryByTestId('members-more-working')).toBeNull();
 });
 
 test('an empty room reads zero on the pill, with no sprites', () => {
@@ -203,6 +233,9 @@ test('daemon down: the chip reads last known and the roster withholds presence',
   );
   const chip = screen.getByTestId('members-chip');
   expect(chip).toHaveTextContent('last known');
+  expect(chip).toHaveAccessibleName(
+    'Members of #build: 2 signed in, last known'
+  );
   await userEvent.click(chip);
   expect(
     await screen.findByText('presence withheld while the daemon is down')

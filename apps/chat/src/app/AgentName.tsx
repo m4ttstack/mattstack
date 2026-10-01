@@ -4,6 +4,7 @@ import {
   Button,
   Group,
   HoverCard,
+  Menu,
   Text,
 } from '@mattstack/app-kit/core';
 import { Invadr } from 'invadrs/react';
@@ -220,12 +221,16 @@ export function AgentCard({
   now: nowProp,
   inRoom: inRoomProp,
   task,
+  inMenu = false,
 }: {
   buddy: RosterBuddy;
   reachable?: boolean;
   now?: number;
   inRoom?: boolean;
   task?: DoingLine | null;
+  /** Inside a `Menu` dropdown: the actions are menu items under a divider,
+      so they take the menu's hover, keyboard and close-on-click. */
+  inMenu?: boolean;
 }) {
   const ctx = useBuddies();
   const reachable = reachableProp ?? ctx?.reachable ?? true;
@@ -247,9 +252,10 @@ export function AgentCard({
   const where =
     paneLocation(buddy) ??
     ([buddy.repo, buddy.branch].filter(Boolean).join(' · ') || undefined);
-  const canFocus = buddy.pane !== undefined && ctx?.actions?.focusPane;
-  return (
-    <div className={cardClasses.card} data-testid={`detail-${buddy.handle}`}>
+  const actions = ctx?.actions;
+  const canFocus = buddy.pane !== undefined && actions?.focusPane;
+  const summary = (
+    <>
       <div className={cardClasses.head}>
         <SpriteAvatar handle={buddy.handle} size="md" />
         <div className={cardClasses.identity}>
@@ -289,12 +295,52 @@ export function AgentCard({
           )}
         </div>
       )}
-      {ctx?.actions && (
+    </>
+  );
+  if (inMenu) {
+    return (
+      <div data-testid={`detail-${buddy.handle}`}>
+        <div className={cardClasses.card} data-in-menu>
+          {summary}
+        </div>
+        {actions && (
+          <>
+            <Menu.Divider />
+            {canFocus && (
+              <Menu.Item
+                onClick={() => actions.focusPane?.(buddy.pane!)}
+                data-testid={`card-focus-${buddy.handle}`}
+              >
+                Focus pane
+              </Menu.Item>
+            )}
+            <Menu.Item
+              disabled={!inRoom}
+              onClick={() => actions.mention(buddy.handle)}
+              data-testid={`card-mention-${buddy.handle}`}
+            >
+              Mention
+            </Menu.Item>
+            <Menu.Item
+              onClick={() => actions.dm(buddy.handle)}
+              data-testid={`card-dm-${buddy.handle}`}
+            >
+              Message
+            </Menu.Item>
+          </>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className={cardClasses.card} data-testid={`detail-${buddy.handle}`}>
+      {summary}
+      {actions && (
         <Group gap="sm">
           {canFocus && (
             <Button
               size="compact-sm"
-              onClick={() => ctx.actions?.focusPane?.(buddy.pane!)}
+              onClick={() => actions.focusPane?.(buddy.pane!)}
               data-testid={`card-focus-${buddy.handle}`}
             >
               Focus pane
@@ -305,7 +351,7 @@ export function AgentCard({
             variant="subtle"
             color="gray"
             disabled={!inRoom}
-            onClick={() => ctx.actions?.mention(buddy.handle)}
+            onClick={() => actions.mention(buddy.handle)}
             data-testid={`card-mention-${buddy.handle}`}
           >
             Mention
@@ -314,7 +360,7 @@ export function AgentCard({
             size="compact-sm"
             variant="subtle"
             color="gray"
-            onClick={() => ctx.actions?.dm(buddy.handle)}
+            onClick={() => actions.dm(buddy.handle)}
             data-testid={`card-dm-${buddy.handle}`}
           >
             Message
