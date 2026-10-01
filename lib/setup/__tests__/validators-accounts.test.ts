@@ -485,7 +485,7 @@ describe("accountRows — account.switchboard", () => {
   });
 });
 
-describe("accountRows — account.switchboard board peering", () => {
+describe("accountRows: account.switchboard board peering", () => {
   const HOME = "/fake-home";
   const TEAMS = `${HOME}/.mattstack/teams`;
   const SB = "https://sw.example.com";
