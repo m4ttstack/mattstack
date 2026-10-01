@@ -72,14 +72,18 @@ Pipeline runs record their stages, fields and decisions through these tools. `ru
 
 | Tool | What it does |
 | --- | --- |
-| `mr_view` | One MR by iid, from the daemon's open-MR cache; pass a small `maxAgeMs` for a live read (GitLab only). |
-| `mr_list` | A summary of each MR of a project, filtered on state (default `opened`), or live by `targetBranch` (GitLab only). |
-| `mr_for_branch` | The MR, or null, for each named source branch (GitLab only). |
-| `mr_threads` | The MR's discussion threads; `refresh: true` fetches from GitLab first (GitLab only). |
+| `mr_view` | One MR by iid, read from GitLab: any author, opened, merged or closed (GitLab only). |
+| `mr_list` | A summary of each matching MR of a project, read from GitLab, filtered by author, source branch, target branch, state or text search; at most `limit` rows, with `truncated` when there were more (GitLab only). |
+| `mr_for_branch` | The open MR, or null, for each named source branch, by any author (GitLab only). |
+| `mr_threads` | The MR's discussion threads, fetched from GitLab on every call (GitLab only). |
 | `mr_pipeline` | The MR's head pipeline, and with `jobId` that job's detail (GitLab only). |
-| `mr_job_trace` | The tail of one CI job's trace, ANSI escapes stripped, capped at 64 KiB (GitLab only). |
+| `mr_job_trace` | Part of one CI job's trace: the tail, the head, a line range, or lines matching text; ANSI escapes stripped, capped at 64 KiB (GitLab only). |
+| `pipeline_list` | Pipelines for a branch, a commit or an MR, newest first; works with no MR (GitLab only). |
+| `project_labels` | The project's labels, optionally searched by name (GitLab only). |
+| `gitlab_get` | One read-only GET against GitLab's REST API for a fact no other tool returns; paths that return credentials, query keys that carry credentials and impersonation are refused, the body is capped at 256 KiB, redirects are not followed, and token values are redacted (GitLab only). |
+| `branch_stack` | Whether a tree's branch is in a tracked stack, and its parent. Takes `tree`, the absolute root of a registered checkout or worktree; reads no forge. |
 
-`mr_view`, `mr_list` and `mr_pipeline` read the daemon's open-MR cache, so a merged or closed MR shows up only while that cache still holds it. `mr_list` with `targetBranch` is the exception: it asks GitLab live for every author's MRs targeting that branch and marks the answer `full: true`, so an empty list proves the branch has no stacked children.
+`pipeline_list`, `project_labels` and `gitlab_get` name their target with `repoName`, like the `mr_*` tools. `mr_view`, `mr_list`, `mr_for_branch`, `mr_threads`, `mr_pipeline`, `mr_job_trace`, `pipeline_list`, `project_labels` and `gitlab_get` ask GitLab on each call and none uses the daemon's open-MR cache, so an agent can read any MR its token can see. `mr_map` is the exception: it reads the daemon's synced MR list. A refusal comes back as GitLab's own status and text. `mr_list` with `targetBranch` also returns `full`, true when nothing was cut, so an empty full list proves the branch has no open MRs targeting it.
 
 Every `mr_*` tool names its target with `repoName` (the repo's serialized identity such as `remote:gitlab.com%2Fexample%2Fapp`, an absolute path to a checkout or worktree, or a repo label that matches exactly one registered repo); the tools that act on one MR also take `mrUrl` (the MR's URL; its project must be registered with rt, and the URL supplies the iid). A URL is matched to a registered repo by identity first, then by the registered checkouts' origin remotes, so a repo pinned to another identity through `rt.repoIdentityOverrides` still resolves; a URL matching two checkouts is refused as ambiguous. Given both, they must agree. `mr_map` takes `repo` (identity or label).
 

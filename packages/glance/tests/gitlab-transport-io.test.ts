@@ -83,6 +83,30 @@ describe('restRequest io', () => {
   });
 });
 
+describe('restRequest redirect option', () => {
+  function captureRedirect(): { seen: (RequestRedirect | undefined)[] } {
+    const seen: (RequestRedirect | undefined)[] = [];
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      seen.push(init?.redirect);
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    return { seen };
+  }
+
+  test("io { redirect: 'manual' } reaches fetch", async () => {
+    const c = captureRedirect();
+    await p().restRequest('GET', '/projects/1', undefined, 'op', { redirect: 'manual' });
+    expect(c.seen).toEqual(['manual']);
+  });
+
+  test('the default leaves fetch on its own redirect handling', async () => {
+    const c = captureRedirect();
+    await p().restRequest('GET', '/projects/1');
+    await p().restRequest('GET', '/projects/1', undefined, 'op', { retry: true });
+    expect(c.seen).toEqual([undefined, undefined]);
+  });
+});
+
 describe('runQuery io (via fetchGroupProjects wiring in Task 3, exercised here through a raw GraphQL call path)', () => {
   test('without io a GraphQL 502 throws once', async () => {
     const s = stubFetch([{ status: 502 }]);

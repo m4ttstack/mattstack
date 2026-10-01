@@ -176,8 +176,8 @@ tail; `mr_pipeline` lists `pipeline.jobs` (id, name, stage, status) with
 no trace, so each failed job it lists is read with `mr_job_trace`. A
 `ci_watch` tail too short to classify, or failed jobs the human reported
 without their traces, also go through `mr_job_trace`.
-`pipeline.jobs` can be empty (a cache entry written at list weight), and
-then there is no job id to trace: `Failed jobs listed in pipeline.jobs
+`pipeline.jobs` can be empty (the pipeline has no jobs yet, or the read
+failed), and then there is no job id to trace: `Failed jobs listed in pipeline.jobs
 (doctor)?` answers no, and the map watches the head sha `mr_view` read.
 `ci_watch` on a settled red pipeline returns `failed` with its
 `failedJobs` at once, and they come back here with their tails.

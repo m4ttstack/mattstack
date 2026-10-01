@@ -269,8 +269,20 @@ the `mr_*` writes and `mr_map`, `rt_verb`, the herd worker tools
 (`chat_post`, `chat_dm`, `chat_ack`, `chat_claim`, `chat_release`), and
 spreads in the rest: run tracking (`run-tools.ts`, in-process over
 `runWriteVerb`, a caller's `runDb` confined to the runs root), GitLab reads
-(`mr-read-tools.ts`; `mr_view`, `mr_list` and `mr_pipeline` read the
-daemon's open-MR cache, the others ask the daemon directly), git writes
+(`mr-read-tools.ts`, `forge-read-tools.ts`: every one asks GitLab through
+the daemon on each call and none reads the open-MR cache, so an agent can
+read any MR its token can; `mr_map` in `tools.ts` is the exception and
+reads the daemon's synced MR list; `gitlab_get` is a GET-only passthrough whose
+daemon guard in `lib/daemon/forge-reads.ts` refuses the paths that return
+credentials (`REFUSED_SEGMENTS`, also with a format suffix, and a path
+percent-encoded more than once) and the query keys that carry credentials
+or impersonation, caps the body at 256 KiB counted in bytes, never follows a
+redirect (the token header would travel with it), and redacts
+every `token` / `*_token` value; those lists are widened, never narrowed,
+without a design review), CI (`ci-tools.ts`: `ci_watch`, which reads GitLab
+on every poll, and the `ci_lease_*` tools), the stack store read
+(`stack-tool.ts`: `branch_stack` admits a tree only through
+`tree-guard.ts`), git writes
 (`git-tools.ts`), worktrees (`worktree-tools.ts`: provision, dispose,
 stop-holders, and no general kill), the other herd tools
 (`herd-tools.ts`), the other chat tools (`chat-tools.ts`) and `whoami`

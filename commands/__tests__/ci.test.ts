@@ -259,8 +259,9 @@ describe("rt ci watch exit codes (in-process)", () => {
     const pipeline = { id: "gitlab:pipeline:10", status, sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] };
     return {
       resolve: (async () => ({ ok: true, identity: "remote:x", iid: 7 })) as unknown as CiWatchToolDeps["resolve"],
-      projectMrs: (async () => ({ ok: true, data: { mrs: { a: { pr: { iid: 7, sha: SHA, webUrl: MR_URL, pipeline }, fetchedAt: 0 } }, syncedAt: 1 } })) as unknown as CiWatchToolDeps["projectMrs"],
-      command: (async () => ({ ok: true, data: [] })) as unknown as CiWatchToolDeps["command"],
+      command: (async (name: string) => (name === "mr:get"
+        ? { ok: true, data: { mr: { iid: 7, sha: SHA, webUrl: MR_URL, pipeline }, fetchedAt: 0 } }
+        : { ok: true, data: [] })) as unknown as CiWatchToolDeps["command"],
       now: () => 0,
       sleep: async () => {},
       ...over,

@@ -20,6 +20,9 @@
 
 ### Patch Changes
 
+- `GitLabProvider.restRequest`'s `io` accepts `redirect: 'manual'`, which
+  returns a 3xx to the caller instead of following it so the `PRIVATE-TOKEN`
+  header never reaches another host. Absent, `fetch` keeps its default.
 - `fetchPipelineFailedJobs` also returns failed jobs from same-project
   downstream (child) pipelines, nested ones included. Rows under an
   `allow_failure` bridge, or a bridge that does not depend on its child, come

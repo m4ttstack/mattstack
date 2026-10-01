@@ -12,7 +12,8 @@ slots:
 
 The standalone entry for reviewing someone else's change. The graph below
 is the run: follow its edges, and treat a move it does not show as a
-question for a gate, never as a judgment call.
+question for a gate, never as a judgment call. Reads through the read
+tools and `gitlab_get` are part of the step that needs them, not moves.
 
 ## Run
 
@@ -65,13 +66,16 @@ digraph review {
 
     "Resolve the review target" [shape=box];
     "Review target form?" [shape=diamond];
-    "mr_view {mrUrl, or repoName + iid, maxAgeMs: 5000}" [shape=plaintext];
-    "mr_view found the MR?" [shape=diamond];
+    "mr_view {mrUrl, or repoName + iid}" [shape=plaintext];
+    "mr_view returned the MR?" [shape=diamond];
     "mr_for_branch {repoName: <checkout>, branches: [<branch>]}" [shape=plaintext];
     "mr_for_branch entry for the branch?" [shape=diamond];
     "gh pr view <ref>" [shape=plaintext];
     "gh pr view found the PR?" [shape=diamond];
-    "STOP: never read the MR with the GitLab CLI; hold the review instead" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all}" [shape=plaintext];
+    "mr_list matches for the branch?" [shape=diamond];
+    "STOP: GitLab reads go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "STOP: GitLab branch lookups go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Gate review clarify: which target?" [shape=box];
     "Review target answer?" [shape=diamond];
     "Own review run: record the target?" [shape=diamond];
@@ -183,19 +187,26 @@ digraph review {
     "run_stage {action: start, stage: review}" -> "Resolve the review target";
 
     "Resolve the review target" -> "Review target form?";
-    "Review target form?" -> "mr_view {mrUrl, or repoName + iid, maxAgeMs: 5000}" [label="GitLab URL or iid"];
+    "Review target form?" -> "mr_view {mrUrl, or repoName + iid}" [label="GitLab URL or iid"];
     "Review target form?" -> "mr_for_branch {repoName: <checkout>, branches: [<branch>]}" [label="GitLab branch name"];
     "Review target form?" -> "gh pr view <ref>" [label="GitHub"];
     "Review target form?" -> "Gate review clarify: which target?" [label="ticket id only, or several candidates"];
     "mr_for_branch {repoName: <checkout>, branches: [<branch>]}" -> "mr_for_branch entry for the branch?";
-    "mr_for_branch entry for the branch?" -> "mr_view {mrUrl, or repoName + iid, maxAgeMs: 5000}" [label="an iid"];
-    "mr_for_branch entry for the branch?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="null: hold, rt's MR cache does not hold it"];
-    "mr_for_branch entry for the branch?" -> "STOP: never read the MR with the GitLab CLI; hold the review instead" [label="tempted to look it up with the GitLab CLI"];
-    "mr_view {mrUrl, or repoName + iid, maxAgeMs: 5000}" -> "mr_view found the MR?";
-    "mr_view found the MR?" -> "Own review run: record the target?" [label="yes"];
-    "mr_view found the MR?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="not found: hold, rt's MR cache does not hold it"];
-    "mr_view found the MR?" -> "STOP: never read the MR with the GitLab CLI; hold the review instead" [label="tempted to read it with the GitLab CLI"];
-    "STOP: never read the MR with the GitLab CLI; hold the review instead" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review";
+    "mr_for_branch entry for the branch?" -> "mr_view {mrUrl, or repoName + iid}" [label="an iid"];
+    "mr_for_branch entry for the branch?" -> "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all}" [label="null: no open MR, look for a merged or closed one"];
+    "mr_for_branch entry for the branch?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="an error: hold, quoting its text"];
+    "mr_for_branch entry for the branch?" -> "STOP: GitLab branch lookups go through the read tools or gitlab_get" [label="tempted to look it up with the GitLab CLI"];
+    "STOP: GitLab branch lookups go through the read tools or gitlab_get" -> "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all}";
+    "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all}" -> "mr_list matches for the branch?";
+    "mr_list matches for the branch?" -> "mr_view {mrUrl, or repoName + iid}" [label="exactly one: its iid"];
+    "mr_list matches for the branch?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="none: hold, GitLab has no MR for the branch"];
+    "mr_list matches for the branch?" -> "Gate review clarify: which target?" [label="several"];
+    "mr_list matches for the branch?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="an error: hold, quoting its text (never read as none)"];
+    "mr_view {mrUrl, or repoName + iid}" -> "mr_view returned the MR?";
+    "mr_view returned the MR?" -> "Own review run: record the target?" [label="yes"];
+    "mr_view returned the MR?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="an error: hold, quoting its text (usually GitLab's 404 or 403)"];
+    "mr_view returned the MR?" -> "STOP: GitLab reads go through the read tools or gitlab_get" [label="tempted to read it with the GitLab CLI"];
+    "STOP: GitLab reads go through the read tools or gitlab_get" -> "mr_view {mrUrl, or repoName + iid}";
     "gh pr view <ref>" -> "gh pr view found the PR?";
     "gh pr view found the PR?" -> "Own review run: record the target?" [label="yes"];
     "gh pr view found the PR?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="no: hold, quoting the error"];
@@ -348,14 +359,41 @@ exists yet, so there is nothing to write a hold reason into.
 
 From the conversation: an MR/PR URL, a bare `!iid` or `#number`, a ticket
 id, or a branch name. On GitLab `mr_view` takes `mrUrl` when you were
-given a URL, else `repoName` = the checkout path plus `iid`; its
-`maxAgeMs: 5000` makes the read live. A ticket id with no URL, iid or
-branch, or more than one candidate, is the clarify gate. A lookup that
-comes back empty means rt's open-MR cache does not hold the MR (outside its
-author or time window): say so, and hold with that message as the reason
-(`decidedBy: "pane"`). Never a guess. On a resume in a new session the
+given a URL, else `repoName` = the checkout path plus `iid`. The read
+asks GitLab, so any MR your token can see resolves, whoever wrote it and
+whether it is open, merged or closed. A ticket id with no URL, iid or
+branch, or more than one candidate, is the clarify gate. An `mr_view`
+error is quoted, not paraphrased: GitLab's 404 or 403 is the usual case,
+though an error can also be rt's (target not resolved, daemon unreachable,
+timeout). Hold with that text as the reason (`decidedBy: "pane"`). A null
+`mr_for_branch` entry means GitLab has no open MR for the branch, not
+that it has none: look at merged and closed ones too. On a resume in a new session the
 target is not in the conversation: the resumed snapshot's `mr` field is
 the target.
+
+### mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all}
+
+`mr_for_branch` sees open MRs only, so a null entry says nothing about a
+merged or closed one. List every MR whose source branch is the given
+branch, whatever its state.
+
+### mr_list matches for the branch?
+
+Count the returned MRs. Exactly one: take its `iid` to `mr_view`. None:
+hold, reason "GitLab has no MR for the branch" (`decidedBy: "pane"`).
+Several: the clarify gate, one option per MR (iid, title, state). Never a
+guess.
+
+### Reading a GitLab fact no read tool returns
+
+At any step of the review, including while verifying findings, a GitLab
+fact the read tools do not return (the MR's commit list, an issue it
+references, another MR's state) is read with `gitlab_get {repoName,
+path}`: `repoName` = the checkout path, `path` relative to the API root
+with `:id` for this project, for example
+`projects/:id/merge_requests/<iid>/commits`. The read is part of the step
+that needs it, not an off-script move, so it opens no gate. A GitLab error
+is quoted as GitLab wrote it. Its refusal of a credential path is final.
 
 ### Gate review clarify: which target?
 
@@ -410,14 +448,16 @@ step's command check as not run. Never reset or pull that tree.
 ### Set up for the review depth
 
 The review flow's "Set up for the depth". The GitLab fetch and diff above
-are two separate commands, `targetBranch` from the live `mr_view`. Run
+are two separate commands, `targetBranch` from `mr_view`. Run
 the checks the depth names in the MR-head checkout (the one in hand or
 the one provisioned). Record every command and its result.
 
 ### Dispatch the fresh reviewer; it forms the findings
 
 The review flow's "Dispatch the review", reviewer shape, with the full
-payload. The findings form in that fresh context, never here.
+payload. The findings form in that fresh context, never here. The fresh
+reviewer has the same tools and makes any `gitlab_get` read itself when it
+needs a fact, as in "Reading a GitLab fact no read tool returns".
 
 ### Assemble the review draft
 
@@ -441,6 +481,9 @@ Check each blocking finding's facts, never its reasoning:
   in the MR-head checkout (in hand or provisioned); with none, skip it and
   note it; at `read` depth note "not run at read depth". A command that
   passes where the finding says it fails is a failed check.
+
+A GitLab fact a check needs is read as in "Reading a GitLab fact no read
+tool returns".
 
 A round counts each time this step runs, whether the first pass or a
 re-dispatch.
