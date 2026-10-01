@@ -201,7 +201,20 @@ function EditableReply({
       )}
       {(canEdit || controls) && (
         <div className="tui-thread-reply-actions">
-          {!canEdit ? null : open ? (
+          {!canEdit ? (
+            <Button
+              type="button"
+              variant="light"
+              intent="muted"
+              size="sm"
+              className="tui-thread-reply-placeholder"
+              aria-hidden="true"
+              tabIndex={-1}
+              disabled
+            >
+              edit
+            </Button>
+          ) : open ? (
             <>
               <Button
                 type="button"
@@ -349,9 +362,9 @@ function ReplyChoiceBody({
   );
 }
 
-/** A per-thread post question's controls, one compact row: post or hold
-    its reply as a two-way switch, and, independently of either, resolve
-    the thread. What each does rides the tooltip, not a subtitle. */
+/** A per-thread post question's controls, one compact row of two ticks:
+    post the reply, and, independently, resolve the thread. Unticking post
+    holds the reply back. What each does rides the tooltip. */
 function PostResolveChoice({
   pick,
   form,
@@ -363,75 +376,54 @@ function PostResolveChoice({
   const picked = new Set(Array.isArray(current) ? current : []);
   const posting = picked.has(pick.post);
   const resolving = picked.has(pick.resolve);
-  const resolveHint = posting
-    ? 'resolve the thread once the reply posts'
-    : 'resolve the thread without replying';
-  const choices = [
+  const ticks = [
     {
-      post: true,
       value: 'post',
-      text: 'Post',
-      hint: 'post this reply to the thread',
+      option: pick.post,
+      on: posting,
+      text: 'Post reply',
+      hint: posting
+        ? 'post this reply to the thread'
+        : 'held back; nothing is posted',
     },
     {
-      post: false,
-      value: 'hold',
-      text: 'Hold',
-      hint: 'keep it back; nothing is posted',
+      value: 'resolve',
+      option: pick.resolve,
+      on: resolving,
+      text: 'Resolve thread',
+      hint: posting
+        ? 'resolve the thread once the reply posts'
+        : 'resolve the thread without replying',
     },
   ];
   return (
     <div className="tui-post-controls">
-      <div
-        className="tui-post-switch"
-        role="radiogroup"
-        aria-label={`${pick.label}: post or hold`}
-      >
-        {choices.map(c => {
-          const checked = posting === c.post;
-          return (
-            <label
-              className="tui-post-switch-item"
-              data-checked={checked || undefined}
-              title={c.hint}
-              key={c.value}
-            >
-              <input
-                type="radio"
-                className="tui-post-switch-input"
-                name={`${pick.name}:post`}
-                value={c.value}
-                checked={checked}
-                onChange={() => form.toggleMulti(pick.name, pick.post, c.post)}
-              />
-              {c.text}
-            </label>
-          );
-        })}
-      </div>
-      <label
-        className="tui-post-resolve"
-        data-checked={resolving || undefined}
-        title={resolveHint}
-      >
-        <span className="tui-check">
-          <input
-            type="checkbox"
-            className="tui-gate-choice-input"
-            data-type="checkbox"
-            data-checked={resolving ? '' : undefined}
-            value="resolve"
-            aria-label={`${pick.label}: resolve`}
-            aria-description={resolveHint}
-            checked={resolving}
-            onChange={e =>
-              form.toggleMulti(pick.name, pick.resolve, e.currentTarget.checked)
-            }
-          />
-          <span className="tui-check-tick" aria-hidden="true" />
-        </span>
-        Resolve
-      </label>
+      {ticks.map(t => (
+        <label
+          className="tui-post-tick"
+          data-checked={t.on || undefined}
+          title={t.hint}
+          key={t.value}
+        >
+          <span className="tui-check">
+            <input
+              type="checkbox"
+              className="tui-gate-choice-input"
+              data-type="checkbox"
+              data-checked={t.on ? '' : undefined}
+              value={t.value}
+              aria-label={`${pick.label}: ${t.value}`}
+              aria-description={t.hint}
+              checked={t.on}
+              onChange={e =>
+                form.toggleMulti(pick.name, t.option, e.currentTarget.checked)
+              }
+            />
+            <span className="tui-check-tick" aria-hidden="true" />
+          </span>
+          {t.text}
+        </label>
+      ))}
     </div>
   );
 }
