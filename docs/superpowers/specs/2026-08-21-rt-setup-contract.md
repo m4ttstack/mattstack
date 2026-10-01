@@ -209,17 +209,23 @@ verifies the clone and the Keychain key.
 `peering-store-failed` (after it; rerun `rt team join` with no code).
 `peeringFix` is present exactly when `peering` is `unavailable`, and the
 `team.join` step then ends `partial` with it as the remedy. Later runs do
-not keep the step: the `account.switchboard` row reads the gap at check
-time instead. Once the switchboard is reachable, that row is `needs-you`
-with the re-invite remedy while any cloned team this machine joined by
+not keep the step: the `account.board-peering` row reads the gap at check
+time instead, once `account.switchboard` is ready (or when no
+`account.switchboard` row exists because only another cloned team declares
+a switchboard). It appears while any cloned team this machine joined by
 invite (`joinedByRt` in `~/.mattstack/rt/teams/<slug>.json`) declares an
-https switchboard in its own settings store and neither source the board
-reads holds a token (its own `.env` `SWITCHBOARD_TOKEN`, or rt's
-`switchboardToken`, asked through the plan's secret presence check). A
-secrets store that cannot answer makes the row `error` with "could not read
-your secrets store", never read as absent. Because the row is required and
-`verify` runs it, a joined machine with no token, including one that joined
-before the check existed, ends `rt setup update` needing the member. A
+https switchboard in its own settings store, and is `needs-you` with the
+re-invite remedy while neither source the board reads holds a token (its own
+`.env` `SWITCHBOARD_TOKEN`, or rt's `switchboardToken`, asked through the
+plan's secret presence check). A secrets store that cannot answer makes it
+`error` with "could not read your secrets store", never read as absent. The
+row is never required or finish-gated, since only the team's owner can
+deliver the token, so it blocks neither Install nor Finish; `verify` still
+reports its `needs-you` ("board not peered: ask the team owner to re-invite
+you"), so `rt setup update` notifies. A clone made before `joinedByRt`
+existed has no such record and is not detected. One token serves the board,
+which peers with one switchboard (`board.switchboardUrl`), so a token from
+any team clears the row for all of them. A
 secrets store that keeps failing blocks the join outright, with no bypass,
 by design: finishing without the token would lose it.
 

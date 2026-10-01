@@ -330,8 +330,15 @@ invalid; a different confirmed URL is never overwritten, the join warns and
 points at `rt setup switchboard connect --host <url>` instead. The setup
 row `account.switchboard` reads that latch, probes `<url>/healthz` with no
 auth header (`/health` is not a route), and offers Confirm with the declared
-URL prefilled when the latch is empty or differs. Change any of these three
-(join, latch, row) together or not at all; `lib/team/join.ts`,
+URL prefilled when the latch is empty or differs. Its peering half is the
+`account.board-peering` row, checked only once the switchboard is reachable
+(or when only another cloned team declares one): for every team this
+machine joined by invite with an https switchboard, it reads at check time
+whether the board's `.env` or rt's `switchboardToken` holds a token.
+Unpeered is `needs-you` with the re-invite remedy; it is never required or
+finish-gated (only the owner can fix it), but `verify` reports it, so `rt
+setup update` notifies. Change any of these three (join, latch, rows)
+together or not at all; `lib/team/join.ts`, `lib/team/board-token.ts`,
 `lib/setup/validators/accounts.ts` and `lib/setup/validators/access.ts` are
 the seams, and RT-260 is the incident that made this a rule.
 
