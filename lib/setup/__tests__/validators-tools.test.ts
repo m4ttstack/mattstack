@@ -1110,6 +1110,51 @@ describe("toolRows — team-declared tool.team.<name>", () => {
   });
 });
 
+describe("toolRows: a tool that prints no version", () => {
+  const silent = (name: string): ExecScript => (argv) => (argv[0] === name && argv[1] === "--version" ? ok("") : ok());
+
+  test("herdr below the floor names the floor with no gap where the version would be", async () => {
+    const r = await pickRow(toolRows(fakeProbes({ exec: silent("herdr") }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    expect(r.detail).toBe("herdr is older than 0.7.5");
+  });
+
+  test("Claude Code signed in reads without a dangling comma", async () => {
+    const exec: ExecScript = (argv) => {
+      if (argv[0] === "claude" && argv[1] === "--version") return ok("");
+      if (argv[0] === "claude" && argv[1] === "auth") return ok(JSON.stringify({ loggedIn: true }));
+      return ok();
+    };
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    expect(r.detail).toBe("Claude Code, signed in");
+  });
+
+  test("Claude Code whose sign-in could not be checked reads without a gap", async () => {
+    const exec: ExecScript = (argv) => {
+      if (argv[0] === "claude" && argv[1] === "--version") return ok("");
+      if (argv[0] === "claude" && argv[1] === "auth") return { code: 1, stdout: "", stderr: "error: unknown command 'auth'" };
+      return ok();
+    };
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.claude");
+    expect(r.detail).toBe("Claude Code is installed, but the sign-in could not be checked. Confirm you are signed in");
+  });
+
+  test("a team tool below its floor, with and without a version", async () => {
+    const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "widget", why: "does widget things", floor: "3.0.0" }] }];
+    const versioned: ExecScript = (argv) => (argv[0] === "widget" && argv[1] === "--version" ? ok("2.0.0\n") : ok());
+    const withVersion = await pickRow(toolRows(fakeProbes({ exec: versioned }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
+    expect(withVersion.detail).toBe("widget 2.0.0 is older than 3.0.0");
+    const without = await pickRow(toolRows(fakeProbes({ exec: silent("widget") }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
+    expect(without.detail).toBe("widget is older than 3.0.0");
+  });
+
+  test("a team tool with no floor is ready under its bare name", async () => {
+    const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "widget", why: "does widget things" }] }];
+    const r = await pickRow(toolRows(fakeProbes({ exec: silent("widget") }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
+    expect(r.status).toBe("ready");
+    expect(r.detail).toBe("widget");
+  });
+});
+
 describe("toolRows — pack.<pack>", () => {
   test("real plugin listing contains the pack's id -> ready, installed", async () => {
     const reqs: PackRequirements[] = [{ pack: "beta", integrations: [], tools: [] }];

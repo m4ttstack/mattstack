@@ -71,6 +71,11 @@ export function extractVersion(stdout: string): string {
   return bare ? bare[0] : trimmed;
 }
 
+/** A tool's name with its version, or the bare name when `--version` printed nothing usable. */
+function named(name: string, version: string): string {
+  return version ? `${name} ${version}` : name;
+}
+
 function provisionedInstallAction(tool: string, hasBrew: boolean, label: "Install" | "Upgrade" = "Install"): Action {
   return { type: "install", label, tool, via: hasBrew ? "brew" : "vendor" };
 }
@@ -109,7 +114,7 @@ async function herdrRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
 
   const version = extractVersion(versionRes.stdout);
   if (!atLeast(version, HERDR_FLOOR)) {
-    return row({ ...base, status: "invalid", detail: `herdr ${version} is older than ${HERDR_FLOOR}`, action: provisionedInstallAction("herdr", opts.hasBrew, "Upgrade") });
+    return row({ ...base, status: "invalid", detail: `${named("herdr", version)} is older than ${HERDR_FLOOR}`, action: provisionedInstallAction("herdr", opts.hasBrew, "Upgrade") });
   }
 
   const integrationRes = await exec(p, ["herdr", "integration", "status"]);
@@ -118,14 +123,14 @@ async function herdrRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
 
   const claude = parseHerdrClaudeState(integrationRes.stdout);
   if (!claude.known) return row({ ...base, status: "error", detail: "Could not tell whether herdr's Claude integration is installed" });
-  if (claude.installed) return row({ ...base, status: "ready", detail: `herdr ${version}, Claude integration installed` });
+  if (claude.installed) return row({ ...base, status: "ready", detail: `${named("herdr", version)}, Claude integration installed` });
   // Install's own herdr.integration step adds this; only the binary gates Install.
   return row({
     ...base,
     required: false,
     optionalNote: "Installed by Install (herdr.integration).",
     status: "needs-you",
-    detail: `herdr ${version}, Claude integration ${claude.state}`,
+    detail: `${named("herdr", version)}, Claude integration ${claude.state}`,
     action: { type: "run", label: "Install integration", verb: ["tools", "setup", "herdr"] },
   });
 }
@@ -153,7 +158,7 @@ async function claudeRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
     authState = null;
   }
   if (authState && typeof authState.loggedIn === "boolean") {
-    if (authState.loggedIn) return row({ ...base, status: "ready", detail: `Claude Code ${version}, signed in` });
+    if (authState.loggedIn) return row({ ...base, status: "ready", detail: `${named("Claude Code", version)}, signed in` });
     return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: "Not signed in yet. Run claude once and sign in", action: CLAUDE_SIGNIN_STEPS });
   }
 
@@ -165,7 +170,7 @@ async function claudeRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
   // explicit not-signed-in gives a real next step instead of a dead end.
   const sniff = `${authRes.stdout} ${authRes.stderr}`.toLowerCase();
   if (sniff.includes("unknown")) {
-    return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: `Claude Code ${version} is installed, but the sign-in could not be checked. Confirm you are signed in`, action: CLAUDE_SIGNIN_STEPS });
+    return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: `${named("Claude Code", version)} is installed, but the sign-in could not be checked. Confirm you are signed in`, action: CLAUDE_SIGNIN_STEPS });
   }
 
   if (authRes.code !== 0) return row({ ...base, ...SIGNIN_LATER, status: "needs-you", detail: "Not signed in yet. Run claude once and sign in", action: CLAUDE_SIGNIN_STEPS });
@@ -514,9 +519,9 @@ async function teamToolRow(p: Probes, req: ToolRequirement, hasBrew: boolean): P
 
   const version = extractVersion(res.stdout);
   if (req.floor && !atLeast(version, req.floor)) {
-    return row({ ...base, status: "invalid", detail: `${req.name} ${version} is older than ${req.floor}`, action: teamToolRemedyAction(req, hasBrew, "Upgrade") });
+    return row({ ...base, status: "invalid", detail: `${named(req.name, version)} is older than ${req.floor}`, action: teamToolRemedyAction(req, hasBrew, "Upgrade") });
   }
-  return row({ ...base, status: "ready", detail: `${req.name} ${version}` });
+  return row({ ...base, status: "ready", detail: named(req.name, version) });
 }
 
 // ─── pack.<pack> ────────────────────────────────────────────────────────────
