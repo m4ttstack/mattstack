@@ -250,6 +250,37 @@ describe('parseConfig', () => {
     ).toThrow(/duplicate tab id/);
   });
 
+  test('tabs accept an optional pack and refuse a non-string one', () => {
+    const cfg = parseConfig(
+      JSON.stringify({
+        ...base,
+        tabs: [
+          { id: 'w', label: 'W', source: { kind: 'authors' }, pack: 'widgets' },
+        ],
+      })
+    );
+    expect(cfg.tabs[0]!.pack).toBe('widgets');
+    expect(() =>
+      parseConfig(
+        JSON.stringify({
+          ...base,
+          tabs: [{ id: 'w', label: 'W', source: { kind: 'authors' }, pack: 3 }],
+        })
+      )
+    ).toThrow(/"tabs\[0\]\.pack" must be a string/);
+  });
+
+  test('defaultPack defaults to "" and refuses a non-string', () => {
+    expect(parseConfig(JSON.stringify(base)).defaultPack).toBe('');
+    expect(
+      parseConfig(JSON.stringify({ ...base, defaultPack: 'widgets' }))
+        .defaultPack
+    ).toBe('widgets');
+    expect(() =>
+      parseConfig(JSON.stringify({ ...base, defaultPack: 3 }))
+    ).toThrow(/"defaultPack" must be a string/);
+  });
+
   test('port, host, reviewSkill, respondSkill, teamClone are gone from the parsed shape', () => {
     const cfg = parseConfig(
       JSON.stringify({

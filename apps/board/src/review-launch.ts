@@ -50,6 +50,8 @@ export interface ReReviewCtx {
   /** false launches a plain first review instead of the re-review framing
       (a peer's first-look ask). Absent means re-review. */
   reReview?: boolean;
+  /** Team pack the launched wrapper resolves bindings with; rides the pane as MATTSTACK_PACK. */
+  pack?: string;
 }
 
 /** Seams for the herdr launchers and the review state store, so tests can drive
@@ -113,7 +115,10 @@ export async function launchReReview(
   );
 
   if (existing?.agentId) {
-    io.writeReviewState(statePath, { status: 'reviewing' });
+    io.writeReviewState(statePath, {
+      status: 'reviewing',
+      noPack: !ctx.pack,
+    });
     try {
       const result = await io.resumeAgentPane({
         agentId: existing.agentId,
@@ -143,7 +148,10 @@ export async function launchReReview(
   }
 
   if (existing?.sessionId) {
-    io.writeReviewState(statePath, { status: 'reviewing' });
+    io.writeReviewState(statePath, {
+      status: 'reviewing',
+      noPack: !ctx.pack,
+    });
     try {
       const { tabId, workspaceId } = await io.launchLegacyResume({
         mrUrl,
@@ -176,7 +184,12 @@ export async function launchReReview(
     }
   }
 
-  io.writeReviewState(statePath, { mrUrl, iid, status: 'queued' });
+  io.writeReviewState(statePath, {
+    mrUrl,
+    iid,
+    status: 'queued',
+    noPack: !ctx.pack,
+  });
   try {
     const result = await io.launchReview({
       mrUrl,
@@ -192,6 +205,7 @@ export async function launchReReview(
       model: ctx.model,
       effort: ctx.effort,
       note: ctx.note,
+      pack: ctx.pack,
     });
     if (!result.focusedExisting) {
       io.writeReviewState(statePath, {
@@ -239,7 +253,12 @@ export async function launchRespondAsk(
   resolvePath: SkillPathResolver = resolveSkillPath
 ): Promise<ReReviewLaunch> {
   const statePath = io.respondFilePath(mrUrl);
-  io.writeRespondState(statePath, { mrUrl, iid, status: 'queued' });
+  io.writeRespondState(statePath, {
+    mrUrl,
+    iid,
+    status: 'queued',
+    noPack: !ctx.pack,
+  });
   try {
     const result = await io.launchRespond(
       {
@@ -255,6 +274,7 @@ export async function launchRespondAsk(
         model: ctx.model,
         effort: ctx.effort,
         note: ctx.note,
+        pack: ctx.pack,
       },
       undefined,
       resolvePath

@@ -1,11 +1,15 @@
 import { useEffect, useState, type ReactNode } from 'react';
 
+import { Badge, Tooltip } from '@mattstack/tui-kit';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { clauseOf } from './clause.ts';
 import { AgentGlyph, Sun } from './icons.tsx';
 import type { RowStatus, Verb, VerbKind } from './row-status.ts';
 
 type Lane = 'review' | 'respond' | 'doctor';
+
+const NO_PACK_TIP =
+  'No pack selected. Launched the generic skill. Set a pack on the tab or board.defaultPack.';
 
 /** How long an armed merge waits for its second click. */
 export const MERGE_ARM_MS = 4000;
@@ -140,6 +144,13 @@ export function StatusLine({
         <span className="tui-status-detail" title={detail.full ?? undefined}>
           {detail.text}
         </span>
+      )}
+      {line.noPack && (
+        <Tooltip tip={NO_PACK_TIP} className="tui-status-nopack">
+          <Badge intent="muted" aria-label={NO_PACK_TIP}>
+            no pack
+          </Badge>
+        </Tooltip>
       )}
       {more.length > 0 && (
         <span

@@ -215,7 +215,7 @@ async function runMaterializeAfterInstall(ctx: ApplyContext): Promise<string> {
     ctx.log("plugins.install", `materialize: ${result.reason}`);
     return `materialize skipped: ${result.reason}`;
   }
-  for (const r of result.repos.filter((r) => !r.ok)) ctx.log("plugins.install", `materialize ${r.name}: ${r.detail}`);
+  for (const r of result.repos.filter((r) => !r.ok && !r.noManifest)) ctx.log("plugins.install", `materialize ${r.name}: ${r.detail}`);
   return materializeTally(result.repos);
 }
 

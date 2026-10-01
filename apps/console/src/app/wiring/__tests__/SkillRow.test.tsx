@@ -47,6 +47,7 @@ describe('SkillRow: slim pipeline rows', () => {
           fill: null,
           siteCount: 1,
           inlined: null,
+          layer: null,
         },
         {
           name: 'extra',
@@ -57,6 +58,7 @@ describe('SkillRow: slim pipeline rows', () => {
           fill: null,
           siteCount: 0,
           inlined: null,
+          layer: null,
         },
       ],
     });

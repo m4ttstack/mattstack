@@ -1,84 +1,44 @@
 /**
- * Runs the mattstack plugin's merge-manifests.sh against every REGISTERED
- * repo (never a repo `getKnownRepos()` only discovered by scanning
- * `rt.repoRoots` — those show up with `registered:false` and are excluded
- * here, matching the "not a registered repo" refusal text below), materializing
- * each repo's skills.jsonc binding manifest.
- *
- * Idempotent and re-callable, and NEVER throws for the ordinary fresh-machine
- * case: the apply engine's skills.materialize step runs before plugins.install
- * (contract order), so merge-manifests.sh is routinely absent the first time
- * this runs. That case comes back as `{skipped: true, reason}` — a future
- * plugins.install step handler MUST read `result.skipped` (not treat any
- * non-throw as success, and not treat this function throwing as the signal —
- * it deliberately doesn't throw for this case) and map it to a skipped/done
- * step state, then call `materializeSkills` again once the plugin is on disk.
- * This module holds no state of its own, so that repeat call is just a normal
- * rerun.
+ * Materializes every registered repo's per-pack bindings files through
+ * lib/skills/materialize.ts. Idempotent and re-callable, and never throws
+ * for the ordinary fresh-machine case: the apply engine's skills.materialize
+ * step runs before plugins.install, so the mattstack plugin (the defaults
+ * layer) is routinely absent the first time. That case comes back as
+ * `{skipped: true, reason}`; callers rerun once the plugin is on disk.
  */
 
-import { join } from "path";
+import { basename, join, resolve } from "path";
 import { getKnownRepos, type KnownRepo } from "../repo-index.ts";
 import { repoLabel } from "../repo-label.ts";
 import { tryResolveRepoArg } from "../repo-arg.ts";
+import { ENGINE_PACK_REF, findInstalledPluginDir } from "../skills/installed-plugins.ts";
+import { materializeRepo, type MaterializeRepoOutcome, type PackOutcome } from "../skills/materialize.ts";
 import { UserActionableError } from "./errors.ts";
 import type { Probes } from "./probes.ts";
 
-const CACHE_DIR_SEGMENTS = ["plugins", "cache", "mattstack", "mattstack"];
-const SCRIPT_SEGMENTS = ["attachments", "parameterized-skills", "scripts", "merge-manifests.sh"];
+export const ENGINE_PACK_MISSING_CODE = "engine-pack-missing";
 
-/** Bounds the per-repo `merge-manifests.sh` call — it does real git work, so a wedged remote/auth prompt must time out (124) rather than hang the whole apply run. */
-const MATERIALIZE_TIMEOUT_MS = 60_000;
+const GIT_TIMEOUT_MS = 10_000;
 
-/** The `reason` detail's stable prefix when merge-manifests.sh isn't installed yet — a future step handler may match on this instead of parsing prose. */
-export const MERGE_MANIFESTS_MISSING_CODE = "merge-manifests-missing";
-
-/** Dotted-numeric compare, missing segments treated as 0 — matches lib/setup/semver.ts's looseness; version dirs here are plain "x.y.z". */
-function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((n) => Number.parseInt(n, 10) || 0);
-  const pb = b.split(".").map((n) => Number.parseInt(n, 10) || 0);
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
-/** RT_MERGE_MANIFESTS env override, else the highest-semver installed mattstack plugin version's script; null when neither resolves (plugin not yet installed). */
-export function findMergeManifests(p: Pick<Probes, "readDir" | "exists" | "home" | "env">): string | null {
-  const override = p.env.RT_MERGE_MANIFESTS;
-  if (override) return override;
-
-  const versionsDir = join(p.home, ".claude", ...CACHE_DIR_SEGMENTS);
-  let best: { version: string; path: string } | null = null;
-  for (const version of p.readDir(versionsDir)) {
-    const scriptPath = join(versionsDir, version, ...SCRIPT_SEGMENTS);
-    if (!p.exists(scriptPath)) continue;
-    if (!best || compareVersions(version, best.version) > 0) best = { version, path: scriptPath };
-  }
-  return best?.path ?? null;
+/** RT_ENGINE_PACK_DIR (a checkout's plugins/mattstack, for development) wins when it exists; else the installed mattstack plugin; null before plugins.install has run. */
+export function findEnginePackDir(p: Pick<Probes, "readDir" | "exists" | "home" | "env">): string | null {
+  const override = p.env.RT_ENGINE_PACK_DIR;
+  if (override && p.exists(override)) return override;
+  return findInstalledPluginDir(p, p.home, ENGINE_PACK_REF);
 }
 
 export interface MaterializeRepoResult {
   name: string;
   path: string;
   ok: boolean;
-  /** The script found nothing to materialize for this repo (no remote, or no team declares it): not a merge error. */
+  /** Nothing to materialize for this repo (no remote, or no team declares it): not a merge error. */
   noManifest?: true;
-  /** The no-manifest case is the repo having no git remote, rather than no team pack declaring it. Both script wordings say "no git remote". */
+  /** The no-manifest case is the repo having no git remote, rather than no team pack declaring it. */
   noRemote?: true;
   detail: string;
+  packs?: PackOutcome[];
+  migrated?: string | null;
 }
-
-/**
- * merge-manifests.sh's exit code and stderr markers for "nothing to
- * materialize" (no git remote, or no team pack declares the repo); exit 2
- * alone is not specific enough. The older marker is what plugin versions
- * before the rewording print, and the highest installed cache may be one.
- */
-const NO_MANIFEST_EXIT = 2;
-const NO_MANIFEST_MARKERS = ["nothing to materialize", "no per-repo manifest"];
 
 export type MaterializeSkillsResult =
   | { skipped: true; reason: string; repos: [] }
@@ -86,68 +46,101 @@ export type MaterializeSkillsResult =
 
 /** One wording for every step that reports a materialize run: a repo nothing declares is its own count, never a failure. */
 export function materializeTally(repos: MaterializeRepoResult[]): string {
-  const ok = repos.filter((r) => r.ok).length;
+  const written = repos.flatMap((r) => r.packs ?? []).filter((pk) => pk.ok).length;
   const undeclared = repos.filter((r) => r.noManifest).length;
-  const failed = repos.length - ok - undeclared;
-  return `materialized ${ok}, failed ${failed}${undeclared > 0 ? `, no skills declared ${undeclared}` : ""}`;
+  const failures = repos.flatMap((r) => {
+    if (r.packs) return r.packs.flatMap((pk) => (pk.ok ? [] : [`${pk.pack} (${r.name}): ${pk.detail}`]));
+    return r.ok || r.noManifest ? [] : [`${r.name}: ${r.detail}`];
+  });
+  const head = `materialized ${written} pack file${written === 1 ? "" : "s"}${undeclared > 0 ? `, no skills declared ${undeclared}` : ""}`;
+  return failures.length > 0 ? `${head}; failed: ${failures.join("\nfailed: ")}` : head;
 }
 
 function registeredKnownRepos(): Pick<KnownRepo, "repoName" | "worktrees">[] {
   return getKnownRepos().filter((r) => r.registered !== false);
 }
 
-export async function materializeSkills(p: Probes, opts: { repo?: string }): Promise<MaterializeSkillsResult> {
-  const script = findMergeManifests(p);
-  if (!script) {
-    return {
-      skipped: true,
-      reason: `${MERGE_MANIFESTS_MISSING_CODE}: install the mattstack plugin first (plugins.install), then rerun`,
-      repos: [],
-    };
-  }
+async function originRemote(p: Probes, dir: string): Promise<string | null> {
+  const origin = await p.exec(["git", "-C", dir, "remote", "get-url", "origin"], { timeoutMs: GIT_TIMEOUT_MS });
+  if (origin.code === 0 && origin.stdout.trim()) return origin.stdout.trim();
+  const remotes = await p.exec(["git", "-C", dir, "remote"], { timeoutMs: GIT_TIMEOUT_MS });
+  const first = remotes.stdout.split("\n")[0]?.trim();
+  if (!first) return null;
+  const url = await p.exec(["git", "-C", dir, "remote", "get-url", first], { timeoutMs: GIT_TIMEOUT_MS });
+  return url.code === 0 && url.stdout.trim() ? url.stdout.trim() : null;
+}
 
+async function resolveTargets(opts: { repo?: string; dir?: string }): Promise<{ name: string; path: string }[]> {
+  if (opts.dir) {
+    const dir = resolve(opts.dir);
+    return [{ name: basename(dir), path: dir }];
+  }
   const known = registeredKnownRepos();
-  let targets: { name: string; path: string }[];
-  if (opts.repo) {
-    // Rows are keyed by serialized identity, so a typed name resolves to one
-    // before matching. The raw-spelling fallback is for kind "none" ONLY: on an
-    // ambiguous label a legacy row spelled that way would otherwise decide
-    // which repo gets materialized.
-    const resolution = await tryResolveRepoArg(opts.repo);
-    if (resolution.kind === "ambiguous") {
-      throw new UserActionableError("repo-ambiguous", `"${opts.repo}" matches more than one repo: ${resolution.matches.join(", ")}... pass the full identity`);
-    }
-    const match = resolution.kind === "resolved"
-      ? known.find((r) => r.repoName === resolution.identity)
-      : known.find((r) => r.repoName === opts.repo);
-    if (!match) {
-      throw new UserActionableError("repo-not-registered", `"${opts.repo}" is not a registered repo (rt repos register first)`);
-    }
-    targets = [{ name: repoLabel(match.repoName), path: match.worktrees[0]!.path }];
-  } else {
-    targets = known.map((r) => ({ name: repoLabel(r.repoName), path: r.worktrees[0]!.path }));
+  if (!opts.repo) return known.map((r) => ({ name: repoLabel(r.repoName), path: r.worktrees[0]!.path }));
+  // Rows are keyed by serialized identity, so a typed name resolves to one
+  // before matching. The raw-spelling fallback is for kind "none" ONLY: on an
+  // ambiguous label a legacy row spelled that way would otherwise decide
+  // which repo gets materialized.
+  const resolution = await tryResolveRepoArg(opts.repo);
+  if (resolution.kind === "ambiguous") {
+    throw new UserActionableError("repo-ambiguous", `"${opts.repo}" matches more than one repo: ${resolution.matches.join(", ")}... pass the full identity`);
   }
+  const match = resolution.kind === "resolved"
+    ? known.find((r) => r.repoName === resolution.identity)
+    : known.find((r) => r.repoName === opts.repo);
+  if (!match) throw new UserActionableError("repo-not-registered", `"${opts.repo}" is not a registered repo (rt repos register first)`);
+  return [{ name: repoLabel(match.repoName), path: match.worktrees[0]!.path }];
+}
 
-  const mattstackHome = join(p.home, ".mattstack");
+function describe(packs: PackOutcome[]): string {
+  const failed = packs.filter((pk) => !pk.ok);
+  if (failed.length > 0) return failed.map((pk) => (pk.ok ? "" : `${pk.pack}: ${pk.detail}`)).join("; ");
+  return `wrote ${packs.length} pack file${packs.length === 1 ? "" : "s"}: ${packs.map((pk) => pk.pack).join(", ")}`;
+}
+
+export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: string }): Promise<MaterializeSkillsResult> {
+  if (opts.repo && opts.dir) throw new UserActionableError("flags-conflict", "pass --repo or --dir, not both");
+  const enginePackDir = findEnginePackDir(p);
+  if (!enginePackDir) {
+    return { skipped: true, reason: `${ENGINE_PACK_MISSING_CODE}: install the mattstack plugin first (plugins.install), then rerun`, repos: [] };
+  }
+  const deps = { fs: p, mattstackRoot: join(p.home, ".mattstack"), claudeHome: p.home, enginePackDir };
   const repos: MaterializeRepoResult[] = [];
-
-  for (const target of targets) {
-    const res = await p.exec(["bash", script, "--repo", target.path], { env: { MATTSTACK_HOME: mattstackHome }, timeoutMs: MATERIALIZE_TIMEOUT_MS });
-    const noManifest = res.code === NO_MANIFEST_EXIT && NO_MANIFEST_MARKERS.some((m) => res.stderr.includes(m));
-    repos.push(
-      res.code === 0
-        ? { name: target.name, path: target.path, ok: true, detail: res.stdout.trim() || "materialized" }
-        // Any script failure is reported per-repo, not fatal to the batch.
-        : {
-            name: target.name,
-            path: target.path,
-            ok: false,
-            ...(noManifest ? { noManifest: true as const } : {}),
-            ...(noManifest && res.stderr.includes("no git remote") ? { noRemote: true as const } : {}),
-            detail: res.stderr.trim() || `merge-manifests.sh exited ${res.code}`,
-          },
-    );
+  for (const target of await resolveTargets(opts)) {
+    let outcome: MaterializeRepoOutcome;
+    try {
+      outcome = materializeRepo(deps, await originRemote(p, target.path));
+    } catch (err) {
+      repos.push({ ...target, ok: false, detail: err instanceof Error ? err.message : String(err) });
+      continue;
+    }
+    if (outcome.kind === "no-remote") {
+      repos.push({ ...target, ok: false, noManifest: true, noRemote: true, detail: `no git remote in ${target.path}` });
+    } else if (outcome.kind === "undeclared") {
+      repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares ${outcome.repo}` });
+    } else if (outcome.packs.length === 0) {
+      repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares a pack for ${outcome.repo}` });
+    } else {
+      repos.push({ ...target, ok: outcome.packs.every((pk) => pk.ok), detail: describe(outcome.packs), packs: outcome.packs, migrated: outcome.migrated });
+    }
   }
-
   return { skipped: false, repos };
+}
+
+/** One pack's view of a run: its own failed outcomes and repo-level errors are failures; another pack's failure is only a warning. No-remote and undeclared rows are neither. */
+export function packVerdict(repos: MaterializeRepoResult[], pack: string): { written: number; failures: string[]; warnings: string[] } {
+  let written = 0;
+  const failures: string[] = [];
+  const warnings: string[] = [];
+  for (const repo of repos) {
+    if (!repo.packs) {
+      if (!repo.ok && !repo.noManifest) failures.push(`${repo.name}: ${repo.detail}`);
+      continue;
+    }
+    for (const pk of repo.packs) {
+      if (pk.ok) written += pk.pack === pack ? 1 : 0;
+      else (pk.pack === pack ? failures : warnings).push(`${pk.pack} (${repo.name}): ${pk.detail}`);
+    }
+  }
+  return { written, failures, warnings };
 }

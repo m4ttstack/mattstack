@@ -53,6 +53,8 @@ export interface ReviewInfo {
       newer of the two. */
   updatedAt?: number;
   dismissedAt?: number;
+  /** The launch resolved no pack and ran the generic skill. */
+  noPack?: boolean;
 }
 export interface RespondInfo {
   status: RespondStatus;
@@ -69,6 +71,8 @@ export interface RespondInfo {
       newer of the two. */
   updatedAt?: number;
   dismissedAt?: number;
+  /** The launch resolved no pack and ran the generic skill. */
+  noPack?: boolean;
 }
 export type DoctorStatus =
   | 'queued'
@@ -89,6 +93,8 @@ export interface DoctorInfo {
       newer of the two. */
   updatedAt?: number;
   dismissedAt?: number;
+  /** The launch resolved no pack and ran the generic skill. */
+  noPack?: boolean;
 }
 export interface DraftInfo {
   kind: string;

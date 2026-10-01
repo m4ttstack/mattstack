@@ -16,8 +16,9 @@ import type { TeamSnapshot } from "../team-settings.ts";
 import type { ApplyContext, StepOutcome } from "../apply.ts";
 import type { SetupIntent } from "../intent.ts";
 import { awaitNeed, SERVICE_PLISTS } from "../need.ts";
-import { MERGE_MANIFESTS_MISSING_CODE } from "../skills-materialize.ts";
+import { ENGINE_PACK_MISSING_CODE } from "../skills-materialize.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
+import { materializeWorld } from "./materialize-world.ts";
 import type { Probes } from "../probes.ts";
 
 import { servicesRegisterStep, proxyInstallStep, PORTLESS_LAUNCHD_PLIST, PROXY_VERSION_PATH } from "../steps/services.ts";
@@ -865,41 +866,50 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
   // ─── skills.materialize ─────────────────────────────────────────────────
 
   describe("skills.materialize", () => {
-    test("merge-manifests.sh absent -> skipped honestly, reason carries the missing code", async () => {
+    test("mattstack plugin absent -> skipped honestly, reason carries the missing code", async () => {
       const p = fakeProbes({ home });
       const { ctx } = makeCtx(p);
       const outcome = await skillsMaterializeStep.run(ctx);
       expect(outcome.state).toBe("skipped");
-      expect(detailOf(outcome)).toContain(MERGE_MANIFESTS_MISSING_CODE);
+      expect(detailOf(outcome)).toContain(ENGINE_PACK_MISSING_CODE);
     });
 
-    test("script present + a registered repo -> done, per-repo summary", async () => {
+    test("engine pack present + a registered repo a zone declares -> done, per-repo summary", async () => {
       const repoDir = mkdtempSync(join(home, "repo-"));
-      const repoName = basename(repoDir);
-      updateRepoIndex(repoName, repoDir);
+      updateRepoIndex(basename(repoDir), repoDir);
 
-      const p = fakeProbes({
-        home,
-        env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-        exec: async () => ok("materialized"),
-      });
+      const p = fakeProbes({ home, ...materializeWorld(home) });
       const { ctx } = makeCtx(p);
-      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1, failed 0" });
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+      expect(p.calls.exec).toContainEqual(["git", "-C", repoDir, "remote", "get-url", "origin"]);
+      expect(p.readFile(`${home}/.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets/skills.jsonc`)).not.toBeNull();
     });
 
-    test("a per-repo script failure is logged and tallied, never fatal to the step", async () => {
+    test("a per-repo merge failure is logged and tallied, never fatal to the step", async () => {
       const repoDir = mkdtempSync(join(home, "repo-"));
       const repoName = basename(repoDir);
       updateRepoIndex(repoName, repoDir);
 
-      const p = fakeProbes({
-        home,
-        env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-        exec: async () => ({ code: 1, stdout: "", stderr: "merge-manifests: fragment is not valid JSONC: x" }),
-      });
+      const p = fakeProbes({ home, ...materializeWorld(home, { fragment: "{ nope" }) });
       const { ctx, logs } = makeCtx(p);
-      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 0, failed 1" });
-      expect(logs.some((l) => l.line.includes("not valid JSONC"))).toBe(true);
+      const fragment = `${home}/.mattstack/teams/acme/mattstack/packs/widgets/pack/skills.jsonc`;
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({
+        state: "done",
+        detail: `materialized 0 pack files; failed: widgets (${repoName}): fragment is not valid JSONC: ${fragment}`,
+      });
+      expect(logs.some((l) => l.line === `${repoName}: widgets: fragment is not valid JSONC: ${fragment}`)).toBe(true);
+    });
+
+    test("one failed pack of two on a repo counts per pack and names the pack, repo and fix", async () => {
+      const repoDir = mkdtempSync(join(home, "repo-"));
+      const repoName = basename(repoDir);
+      updateRepoIndex(repoName, repoDir);
+
+      const p = fakeProbes({ home, ...materializeWorld(home, { siblingFragment: JSON.stringify({ extends: "acme-base@acme" }) }) });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({
+        state: "done",
+        detail: `materialized 1 pack file; failed: gadgets (${repoName}): gadgets extends acme-base@acme, which is not installed; add it to the team's claude.plugins`,
+      });
     });
 
     test("a tracked repo the team declares no skills for is nothing to do, never a failure", async () => {
@@ -908,37 +918,78 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       updateRepoIndex(basename(declared), declared);
       updateRepoIndex(basename(undeclared), undeclared);
 
+      const world = materializeWorld(home);
       const p = fakeProbes({
         home,
-        env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-        exec: async (argv) =>
-          argv.includes(undeclared)
-            ? { code: 2, stdout: "", stderr: "merge-manifests: no team declares gitlab.com/acme/tools -- no per-repo manifest" }
-            : ok("materialized"),
+        ...world,
+        exec: async (argv) => (argv.includes(undeclared) ? ok("https://gitlab.example.com/acme/other.git\n") : world.exec(argv)),
       });
       const { ctx, logs } = makeCtx(p);
-      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1, failed 0, no skills declared 1" });
-      expect(logs.some((l) => l.line.includes("no team declares"))).toBe(true);
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file, no skills declared 1" });
+      expect(logs.filter((l) => l.id === "skills.materialize" && !l.line.startsWith("board.defaultPack"))).toEqual([]);
     });
 
-    test("exit 2 without the no-manifest message is a real failure", async () => {
+    test("a repo with no git remote is nothing to do, never a failure", async () => {
       const repoDir = mkdtempSync(join(home, "repo-"));
       updateRepoIndex(basename(repoDir), repoDir);
-      const p = fakeProbes({
-        home,
-        env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-        exec: async () => ({ code: 2, stdout: "", stderr: "jq: error: something else" }),
+      const p = fakeProbes({ home, ...materializeWorld(home), exec: async () => ({ code: 1, stdout: "", stderr: "error: No such remote 'origin'" }) });
+      const { ctx, logs } = makeCtx(p);
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 0 pack files, no skills declared 1" });
+      expect(logs.filter((l) => l.id === "skills.materialize" && !l.line.startsWith("board.defaultPack"))).toEqual([]);
+    });
+
+    test("idempotent re-run: same world, same repo, done again", async () => {
+      const repoDir = mkdtempSync(join(home, "repo-"));
+      updateRepoIndex(basename(repoDir), repoDir);
+      const p = fakeProbes({ home, ...materializeWorld(home) });
+
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+    });
+
+    describe("seeds board.defaultPack", () => {
+      const ACME: ApplyContext["team"] = { slug: "acme", name: "Acme", mode: "join" };
+
+      function materializeProbes() {
+        const repoDir = mkdtempSync(join(home, "repo-"));
+        updateRepoIndex(basename(repoDir), repoDir);
+        return fakeProbes({ home, ...materializeWorld(home) });
+      }
+
+      test("writes the team's first pack when the key is unwritten", async () => {
+        const { ctx, logs } = makeCtx(materializeProbes(), { team: ACME });
+        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+        expect(getSetting("board.defaultPack").value).toBe("widgets");
+        expect(getSetting("board.defaultPack").provenance.some((p) => p.scope === "user")).toBe(true);
+        expect(logs).toContainEqual({ id: "skills.materialize", line: "board.defaultPack: set to widgets" });
       });
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 0, failed 1" });
-    });
 
-    test("idempotent re-run: same script, same repo, done again", async () => {
-      const repoDir = mkdtempSync(join(home, "repo-"));
-      updateRepoIndex(basename(repoDir), repoDir);
-      const p = fakeProbes({ home, env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" }, exec: async () => ok("materialized") });
+      test("leaves a value the user set alone", async () => {
+        setSetting("board.defaultPack", "gadgets", "user");
+        const { ctx } = makeCtx(materializeProbes(), { team: ACME });
+        expect((await skillsMaterializeStep.run(ctx)).state).toBe("done");
+        expect(getSetting("board.defaultPack").value).toBe("gadgets");
+      });
 
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1, failed 0" });
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1, failed 0" });
+      test("an update run seeds it too", async () => {
+        const { ctx } = makeCtx(materializeProbes(), { team: ACME, update: true });
+        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+        expect(getSetting("board.defaultPack").value).toBe("widgets");
+      });
+
+      test("no team pack: nothing written, the step is still done", async () => {
+        const { ctx, logs } = makeCtx(materializeProbes(), { team: { slug: "gadgets-co", name: "Gadgets", mode: "join" } });
+        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+        expect(getSetting("board.defaultPack").value).toBeUndefined();
+        expect(logs).toContainEqual({ id: "skills.materialize", line: "board.defaultPack: the team has no packs, left unset" });
+      });
+
+      test("a skipped materialize (plugin absent) still seeds it from the team zone", async () => {
+        const { ctx, logs } = makeCtx(fakeProbes({ home, ...materializeWorld(home), env: {} }), { team: ACME });
+        expect((await skillsMaterializeStep.run(ctx)).state).toBe("skipped");
+        expect(getSetting("board.defaultPack").value).toBe("widgets");
+        expect(logs).toContainEqual({ id: "skills.materialize", line: "board.defaultPack: set to widgets" });
+      });
     });
   });
 
@@ -1150,6 +1201,47 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(outcome.state).toBe("done");
       expect(getSetting("board.defaultMember").value).toBeUndefined();
       expect(logs.some((l) => l.line.includes("forge login unavailable"))).toBe(true);
+    });
+
+    /** A team zone at ~/.mattstack/teams/acme whose mattstack/packs holds each named pack with its pack/skills.jsonc, plus plugin dirs that carry only a plugin.json. */
+    function teamPackProbes(packs: string[], pluginsOnly: string[] = []) {
+      const packsDir = join(home, ".mattstack", "teams", "acme", "mattstack", "packs");
+      const files: Record<string, string> = {};
+      const dirs: Record<string, string[]> = { [packsDir]: [...packs, ...pluginsOnly] };
+      for (const pack of packs) files[join(packsDir, pack, "pack", "skills.jsonc")] = "{}";
+      for (const plugin of pluginsOnly) files[join(packsDir, plugin, ".claude-plugin", "plugin.json")] = JSON.stringify({ name: plugin });
+      return fakeProbes({ home, files, dirs });
+    }
+
+    const ACME_TEAM: ApplyContext["team"] = { slug: "acme", name: "Acme", mode: "join" };
+
+    test("seeds board.defaultPack with the team's first pack", async () => {
+      const { ctx } = makeCtx(teamPackProbes(["widgets", "gadgets"]), { team: ACME_TEAM });
+      const outcome = await boardKeysStep.run(ctx);
+      expect(detailOf(outcome)).toContain("board.defaultPack");
+      expect(getSetting("board.defaultPack").value).toBe("gadgets");
+    });
+
+    test("a plugin dir with no pack/skills.jsonc is not a pack", async () => {
+      const { ctx } = makeCtx(teamPackProbes(["widgets", "gadgets"], ["acme-tools"]), { team: ACME_TEAM });
+      await boardKeysStep.run(ctx);
+      expect(getSetting("board.defaultPack").value).toBe("gadgets");
+    });
+
+    test("leaves board.defaultPack alone when set", async () => {
+      setSetting("board.defaultPack", "widgets", "user");
+      const { ctx } = makeCtx(teamPackProbes(["gadgets", "widgets"]), { team: ACME_TEAM });
+      const outcome = await boardKeysStep.run(ctx);
+      expect(detailOf(outcome)).not.toContain("board.defaultPack");
+      expect(getSetting("board.defaultPack").value).toBe("widgets");
+    });
+
+    test("logs and leaves board.defaultPack unset when the team has no packs", async () => {
+      const { ctx, logs } = makeCtx(teamPackProbes([]), { team: ACME_TEAM });
+      const outcome = await boardKeysStep.run(ctx);
+      expect(detailOf(outcome)).not.toContain("board.defaultPack");
+      expect(getSetting("board.defaultPack").value).toBeUndefined();
+      expect(logs).toContainEqual({ id: "board.keys", line: "board.defaultPack: the team has no packs, left unset" });
     });
   });
 

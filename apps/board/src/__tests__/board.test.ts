@@ -41,6 +41,7 @@ const config: BoardConfig = {
   doctorsWorkspace: 'doctors',
   claudeCommand: '',
   doctorSkill: '',
+  defaultPack: '',
   botUsernames: [],
   rtRepos: {},
   rtRepoOverrides: {},

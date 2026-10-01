@@ -347,31 +347,27 @@ zone. Discovery: `git ls-files | grep mattstack.jsonc`.
 ## Manifest layers
 
 `resolve-args.sh` discovers a bindings manifest in this order: (1) a
-**committed in-repo file** -- nearest `.mattstack/skills.jsonc` walking up
-from `$PWD`, stopping before `$HOME`; (2) a **generated per-repo file** --
-`$MATTSTACK_HOME/repos/<slug>/skills.jsonc`, `<slug>` the git remote
-normalized (protocol/creds/`.git` stripped, host lowercased, `/` to `-`),
-e.g. `gitlab.example.com-acme-widgets`; (3) the **personal global file** --
-`~/.mattstack/skills.jsonc`, the user's own repo-independent bindings;
-(4) **none** -- generic fallback behavior, i.e. empty bindings and
-required slots fail as unbound.
+**committed in-repo file**, the nearest `.mattstack/skills.jsonc` walking up
+from `$PWD`, stopping before `$HOME`; (2) the **generated per-pack file**,
+`$HOME/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`, read only when the
+launcher set `MATTSTACK_PACK=<pack>` (`<slug>` is the git remote normalized:
+protocol, credentials and `.git` stripped, host lowercased, `/` to `-`, e.g.
+`gitlab.example.com-acme-widgets`); (3) the **personal global file**,
+`~/.mattstack/skills.jsonc`; (4) **none**: empty bindings, and required
+slots fail as unbound.
 
-RULING: `MATTSTACK_HOME` is honored by `merge-manifests.sh` only (useful
-for tests); the runtime resolvers always read `$HOME/.mattstack` -- this
-is deliberate, not a bug.
-
-`merge-manifests.sh` writes layer (2): at pack install time, or by hand
-(`merge-manifests.sh [--repo <path>]`) to refresh it after a team pack or
-override changes. It merges one fragment per team zone that declares the
-repo (`team.jsonc`'s `gitlabHost` + `projects`, fragments at
-`packs/*/pack/skills.jsonc`), then applies
-`$MATTSTACK_HOME/user/skills/overrides.jsonc` last -- the user zone's own
-rebindings win silently, even against a team's claim. Between two team
-fragments, an exclusive double-claim (same binding key + slot, different
-values) is a hard error at merge time: nothing is written, both claimants
-are named. Runtime only ever reads an already-merged, already-decided file.
-Fragments and overrides are JSONC with full-line `//` comments only -- no
-trailing same-line comments, since the strip pass is one regex per line.
+`rt skills materialize` writes layer (2), one file per repo and pack, at pack
+install time and on demand (`merge-manifests.sh [--repo <path>]` is a thin
+wrapper over it). Each file is four layers, later winning per slot:
+mattstack's own `pack/skills.jsonc` (defaults), the base pack the fragment's
+`extends` names (one level, installed through the team's `claude.plugins`),
+the pack's own `pack/skills.jsonc`, then
+`~/.mattstack/user/skills/overrides.jsonc`. Two packs never conflict: each
+gets its own file. Two packs in one team zone that both claim a repo is a
+per-pack error, and a base pack belongs in a zone that declares no
+projects. The file's header names the layer each binding came from
+(`default`, `base:<pack>`, `pack`, `override`). Fragments and overrides are
+JSONC with full-line `//` comments only.
 
 ## Stage contract v2: run state
 

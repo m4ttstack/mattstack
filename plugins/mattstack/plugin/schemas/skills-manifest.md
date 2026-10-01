@@ -1,4 +1,4 @@
-# .mattstack/skills.jsonc -- the bindings manifest
+# skills.jsonc -- the bindings manifest
 
 The consumer-side authority for parameterized skills. Plugins have no
 consumer-parameter surface, so this file is where a repo (or a machine)
@@ -9,12 +9,17 @@ compile, and which inner skill fulfills each wrapper slot. Machine schema:
 ## Discovery order (what resolve-args.sh does)
 
 1. The nearest `.mattstack/skills.jsonc` walking up from `$PWD`.
-2. `$HOME/.mattstack/skills.jsonc` (the machine-global fallback, for
+2. With `MATTSTACK_PACK` set, the generated per-pack file
+   `$HOME/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`.
+3. `$HOME/.mattstack/skills.jsonc` (the machine-global fallback, for
    wrappers invoked outside any consumer repo).
-3. Neither found: bindings are empty. Optional slots resolve to
+4. None found: bindings are empty. Optional slots resolve to
    `{"binding": null}`; required slots fail with code `unbound`.
 
-The repo manifest always wins over the home manifest; they do not merge.
+The first file found wins; files do not merge at read time. The generated
+per-pack file is itself merged from four layers by `rt skills materialize`:
+the mattstack defaults, the base pack named by `extends`, the pack's own
+fragment, then the user's overrides. Later layers win per slot.
 
 ## JSONC rules (v1)
 
@@ -30,6 +35,7 @@ The repo manifest always wins over the home manifest; they do not merge.
 | key | type | consumed by |
 |---|---|---|
 | `version` | const `1` | everyone; the only required key |
+| `extends` | `<plugin>@<marketplace>` | `rt skills materialize`; fragment only (`pack/skills.jsonc`), never in a generated file. The base pack's fills layer under this pack's, one level, overridden slot by slot |
 | `skills.enabled` | array of skill names | documentation in phase 1 |
 | `pipelines` | work type -> the stage-skill names a pack rosters (all eight `stage-*` for `work`) | `rt skills compile` (stage roster); not resolved at run time |
 | `bindings` | wrapper name -> { slot -> inner skill name } | `resolve-args.sh` (phase 1) |

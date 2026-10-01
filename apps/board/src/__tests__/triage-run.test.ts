@@ -119,6 +119,32 @@ describe('runTriage', () => {
     expect(d.memory.mrs['https://x/mr/1']!.lastHandledPipelineId).toBe(100);
   });
 
+  test('an auto doctor with no pack marks its queued row noPack', async () => {
+    const writes: Array<Partial<DoctorState>> = [];
+    const d = deps();
+    const write = d.writeDoctorState;
+    d.writeDoctorState = (path, patch) => {
+      writes.push(patch);
+      return write(path, patch);
+    };
+    await runTriage(d);
+    expect(writes[0]).toMatchObject({ status: 'queued', noPack: true });
+    expect(d.launches[0].pack).toBeUndefined();
+  });
+
+  test('an auto doctor with a pack carries it and writes noPack false', async () => {
+    const writes: Array<Partial<DoctorState>> = [];
+    const d = deps({ pack: 'widgets' });
+    const write = d.writeDoctorState;
+    d.writeDoctorState = (path, patch) => {
+      writes.push(patch);
+      return write(path, patch);
+    };
+    await runTriage(d);
+    expect(writes[0]).toMatchObject({ status: 'queued', noPack: false });
+    expect(d.launches[0].pack).toBe('widgets');
+  });
+
   test('budget exhausted notifies exactly once', async () => {
     // dayStamp must match now(): 1_000_000_000 ms is 1970-01-12, and a
     // mismatched stamp would legitimately roll the day and reset the budget.

@@ -8,6 +8,7 @@ import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { PackRequirements } from "../requirements.ts";
 import { fakeProbes } from "./fakes.ts";
+import { materializeWorld } from "./materialize-world.ts";
 import type { Probes } from "../probes.ts";
 
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../pack.ts";
@@ -63,19 +64,14 @@ function makeCtx(p: Probes, overrides: Partial<ApplyContext> = {}): ApplyContext
   };
 }
 
-function manifestPath(home: string, repoName: string): string {
-  return join(home, ".mattstack", "repos", repoName, "skills.jsonc");
-}
+const fragment = (bindings: object, pipelines: object = { feature: ["stage-plan", "stage-gates"] }) =>
+  JSON.stringify({ pipelines, bindings });
 
 function registerRepo(home: string): string {
-  const repoDir = mktempRepoDir(home);
+  const repoDir = mkdtempSync(join(home, "repo-"));
   const repoName = basename(repoDir);
   updateRepoIndex(repoName, repoDir);
   return repoName;
-}
-
-function mktempRepoDir(home: string): string {
-  return mkdtempSync(join(home, "repo-"));
 }
 
 describe("setupPackFlow", () => {
@@ -92,38 +88,49 @@ describe("setupPackFlow", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  test("every pipeline stage bound -> ok", async () => {
-    const repoName = registerRepo(home);
-    const manifest = {
-      pipelines: { feature: { stages: ["plan", "implement"] } },
-      bindings: { plan: "planner", implement: "coder" },
-    };
-    const p = fakeProbes({ home, env: {}, files: { [manifestPath(home, repoName)]: JSON.stringify(manifest) } });
-    const reqs: PackRequirements[] = [{ pack: "acme", tools: [], integrations: [], workType: "feature" }];
+  const widgets = (workType?: string): PackRequirements[] => [{ pack: "widgets", tools: [], integrations: [], workType }];
 
-    const result = await setupPackFlow(makeCtx(p, { reqs }));
-    expect(result).toEqual({ ok: true, detail: `2 stage(s) resolved for "feature"` });
-  });
-
-  test("one stage unbound -> stage-unresolved with the stage name", async () => {
-    const repoName = registerRepo(home);
-    const manifest = {
-      pipelines: { feature: { stages: ["plan", "implement"] } },
-      bindings: { plan: "planner" },
-    };
-    const p = fakeProbes({ home, env: {}, files: { [manifestPath(home, repoName)]: JSON.stringify(manifest) } });
-    const reqs: PackRequirements[] = [{ pack: "acme", tools: [], integrations: [], workType: "feature" }];
-
-    const result = await setupPackFlow(makeCtx(p, { reqs }));
-    expect(result).toEqual({ ok: false, stage: "implement", detail: `stage "implement" is unresolved` });
-  });
-
-  test("no per-repo manifest yet -> ok:false, no stage", async () => {
+  test("every stage's slots bound -> ok", async () => {
     registerRepo(home);
-    const p = fakeProbes({ home, env: {} });
+    const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "mattstack:stage-gates": { domain: "widgets:gates" } }) }) });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets("feature") }))).toEqual({ ok: true, detail: `2 stage(s) resolved for "feature"` });
+  });
 
-    const result = await setupPackFlow(makeCtx(p));
-    expect(result).toEqual({ ok: false, detail: NO_MANIFEST_DETAIL });
+  test("a stage with an empty slot value -> stage-unresolved", async () => {
+    registerRepo(home);
+    const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "mattstack:stage-gates": { domain: "" } }) }) });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets("feature") }))).toEqual({
+      ok: false,
+      stage: "stage-gates",
+      detail: `stage "stage-gates" is unresolved`,
+    });
+  });
+
+  test("no pack file for the requirements' pack -> NO_MANIFEST_DETAIL", async () => {
+    registerRepo(home);
+    const p = fakeProbes({ home, ...materializeWorld(home) });
+    const reqs: PackRequirements[] = [{ pack: "gadgets", tools: [], integrations: [], workType: "feature" }];
+    expect(await setupPackFlow(makeCtx(p, { reqs }))).toEqual({ ok: false, detail: NO_MANIFEST_DETAIL });
+    expect(NO_MANIFEST_DETAIL).toBe("no bindings file for this pack yet; run rt skills materialize");
+  });
+
+  test("the pack's own failed materialize outcome is the detail, not a missing-file note", async () => {
+    registerRepo(home);
+    const p = fakeProbes({ home, ...materializeWorld(home, { siblingFragment: JSON.stringify({ extends: "acme-base@acme" }) }) });
+    const reqs: PackRequirements[] = [{ pack: "gadgets", tools: [], integrations: [], workType: "feature" }];
+    expect(await setupPackFlow(makeCtx(p, { reqs }))).toEqual({
+      ok: false,
+      detail: "gadgets extends acme-base@acme, which is not installed; add it to the team's claude.plugins",
+    });
+  });
+
+  test("a sibling pack's failure leaves this pack's check alone", async () => {
+    registerRepo(home);
+    const p = fakeProbes({
+      home,
+      ...materializeWorld(home, { fragment: fragment({}, { feature: ["stage-plan"] }), siblingFragment: JSON.stringify({ extends: "acme-base@acme" }) }),
+    });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets() }))).toEqual({ ok: true, detail: `1 stage(s) resolved for "feature"` });
   });
 
   test("no registered repo, plugins installed -> not a failure, the check waits on a repo clone", async () => {
@@ -150,14 +157,11 @@ describe("setupPackFlow", () => {
     const repoName = registerRepo(home);
     const p = fakeProbes({
       home,
-      env: { RT_MERGE_MANIFESTS: "/fake/merge-manifests.sh" },
-      exec: async (argv) =>
-        argv.includes("--repo")
-          ? { code: 2, stdout: "", stderr: "merge-manifests: /x has no git remote; nothing to materialize" }
-          : { code: 0, stdout: "", stderr: "" },
+      ...materializeWorld(home),
+      exec: async () => ({ code: 1, stdout: "", stderr: "" }),
     });
 
-    const result = await setupPackFlow(makeCtx(p));
+    const result = await setupPackFlow(makeCtx(p, { reqs: widgets() }));
     expect(result).toEqual({ ok: true, detail: `${repoName} has no git remote; no pipeline to check` });
   });
 
@@ -165,43 +169,32 @@ describe("setupPackFlow", () => {
     const repoName = registerRepo(home);
     const p = fakeProbes({
       home,
-      env: { RT_MERGE_MANIFESTS: "/fake/merge-manifests.sh" },
+      ...materializeWorld(home),
       exec: async (argv) =>
-        argv.includes("--repo")
-          ? { code: 2, stdout: "", stderr: "merge-manifests: no team pack declares gitlab.com/acme/tools; nothing to materialize" }
+        argv[0] === "git" && argv.includes("get-url")
+          ? { code: 0, stdout: "https://gitlab.example.com/acme/other.git\n", stderr: "" }
           : { code: 0, stdout: "", stderr: "" },
     });
 
-    const result = await setupPackFlow(makeCtx(p));
+    const result = await setupPackFlow(makeCtx(p, { reqs: widgets() }));
     expect(result).toEqual({ ok: true, detail: `no team pack declares ${repoName}; no pipeline to check` });
   });
 
   test("defaults workType to feature when the pack declares none", async () => {
-    const repoName = registerRepo(home);
-    const manifest = { pipelines: { feature: { stages: ["plan"] } }, bindings: { plan: "planner" } };
-    const p = fakeProbes({ home, env: {}, files: { [manifestPath(home, repoName)]: JSON.stringify(manifest) } });
-
-    const result = await setupPackFlow(makeCtx(p));
-    expect(result).toEqual({ ok: true, detail: `1 stage(s) resolved for "feature"` });
+    registerRepo(home);
+    const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({}, { feature: ["stage-plan"] }) }) });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets() }))).toEqual({ ok: true, detail: `1 stage(s) resolved for "feature"` });
   });
 
   test("no pipeline declared for the work type -> vacuously ok, nothing to resolve", async () => {
-    const repoName = registerRepo(home);
-    const manifest = { pipelines: {}, bindings: {} };
-    const p = fakeProbes({ home, env: {}, files: { [manifestPath(home, repoName)]: JSON.stringify(manifest) } });
-    const reqs: PackRequirements[] = [{ pack: "acme", tools: [], integrations: [], workType: "chore" }];
-
-    const result = await setupPackFlow(makeCtx(p, { reqs }));
-    expect(result).toEqual({ ok: true, detail: `0 stage(s) resolved for "chore"` });
+    registerRepo(home);
+    const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({}) }) });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets("chore") }))).toEqual({ ok: true, detail: `0 stage(s) resolved for "chore"` });
   });
 
   test("a malformed pack requirements file surfaces its own error, never a misleading stage failure", async () => {
-    const repoName = registerRepo(home);
-    const manifest = { pipelines: { feature: { stages: ["plan"] } }, bindings: { plan: "planner" } };
-    const p = fakeProbes({ home, env: {}, files: { [manifestPath(home, repoName)]: JSON.stringify(manifest) } });
-    const reqs: PackRequirements[] = [{ pack: "acme", tools: [], integrations: [], error: "invalid JSON: Unexpected token" }];
-
-    const result = await setupPackFlow(makeCtx(p, { reqs }));
-    expect(result).toEqual({ ok: false, detail: "invalid JSON: Unexpected token" });
+    const p = fakeProbes({ home });
+    const reqs: PackRequirements[] = [{ pack: "widgets", tools: [], integrations: [], error: "invalid JSON: Unexpected token" }];
+    expect(await setupPackFlow(makeCtx(p, { reqs }))).toEqual({ ok: false, detail: "invalid JSON: Unexpected token" });
   });
 });

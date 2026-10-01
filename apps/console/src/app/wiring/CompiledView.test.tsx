@@ -44,6 +44,7 @@ function slot(
     fill: null,
     siteCount: 1,
     inlined: true,
+    layer: null,
     ...over,
   };
 }

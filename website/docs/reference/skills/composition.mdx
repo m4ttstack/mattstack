@@ -20,7 +20,8 @@ rt skills composition [flags]
 | Flag / Arg | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--pack` | text |  | Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to act on that tree |
-| `--manifest` | text |  | Manifest path; omit to auto-find the newest ~/.mattstack/repos/*/skills.jsonc naming this pack |
+| `--manifest` | text |  | Manifest path; omit to read ~/.mattstack/repos/&lt;repo&gt;/packs/&lt;pack&gt;/skills.jsonc |
+| [`--repo`](/guides/common-flags) | text |  | Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares |
 | [`--json`](/guides/common-flags) | boolean | `false` | Machine-readable result |
 
 _See code: [commands/skills.ts › skillsComposition](https://github.com/m4ttstack/mattstack/blob/main/commands/skills.ts)_

@@ -41,7 +41,8 @@ install, or seed the team store once and point everyone at it.
 | `reviewsWorkspace` | herdr workspace label reviews are grouped under (default `reviews`) |
 | `respondsWorkspace` | herdr workspace label responses are grouped under (default `responses`) |
 | `doctorsWorkspace` | herdr workspace label doctor sessions are grouped under (default `doctors`) |
-| `doctorSkill` | domain skill the doctor wrapper delegates to, e.g. `acme:doctor`. Empty means the wrapper repairs generically. A repo's `skills.jsonc` binding overrides it when present |
+| `doctorSkill` | domain skill the doctor wrapper delegates to, e.g. `acme:doctor`. Empty means the wrapper repairs generically. The launch pack's `board:doctor` binding for the MR's repo overrides it when present. See [skill bindings](agent-actions.md#skill-bindings-per-pack-skillsjsonc) |
+| `defaultPack` | team pack a launch resolves its skill bindings with when its tab names no `pack`, e.g. `widgets`. Read from the `board.defaultPack` user setting, which `rt setup` seeds with the team's first pack. Empty means launches use the generic skills |
 | `claudeCommand` | verbatim override for the command that starts Claude in every pane, with the prompt or resume flags appended after it. Normally unset: the board composes this from the `board.agent.*` settings. See below |
 | `slack` | review channel, post templates, sweep interval, and signal emoji. See [Slack integration](slack.md) |
 | `switchboard` | `{ "url": "..." }` for peer boards. See [peer boards](peer-boards.md) |
@@ -101,14 +102,16 @@ Per-tab overrides:
 - `slackChannel`: posts and reactions for this tab go to a different channel
   instead of `slack.channel`.
 - `reviewSkill`: skill binding for review launches from this tab, instead of
-  the manifest binding or the empty fallback.
+  the pack binding or the empty fallback.
+- `pack`: team pack whose bindings launches from this tab use, instead of
+  `board.defaultPack`. The launched pane gets it as `MATTSTACK_PACK`.
 
 ```json
 "tabs": [
   { "id": "team", "label": "Team", "source": { "kind": "authors" } },
   { "id": "codeowner-queue", "label": "Codeowner Queue",
     "source": { "kind": "codeowners", "section": "Acme", "excludeMembers": true },
-    "slackChannel": "team-codeowners" }
+    "slackChannel": "team-codeowners", "pack": "gadgets" }
 ]
 ```
 

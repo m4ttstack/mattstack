@@ -362,6 +362,39 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
     });
   });
 
+  test('threads the pack through to the fresh launch', async () => {
+    await launchReReview(
+      URL_A,
+      IID,
+      { ...CTX, pack: 'widgets' },
+      makeIo(),
+      noSkillPath
+    );
+    expect(reviewCalls[0]).toMatchObject({ pack: 'widgets' });
+  });
+
+  test('a launch with no pack marks the row noPack', async () => {
+    await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
+    expect(readReviewStates(db).get(URL_A)?.noPack).toBe(true);
+  });
+
+  test('a launch with a pack clears a noPack an earlier launch left', async () => {
+    writeReviewState(
+      reviewFilePath(URL_A),
+      { mrUrl: URL_A, iid: IID, status: 'done', noPack: true },
+      1,
+      db
+    );
+    await launchReReview(
+      URL_A,
+      IID,
+      { ...CTX, pack: 'widgets' },
+      makeIo(),
+      noSkillPath
+    );
+    expect(readReviewStates(db).get(URL_A)?.noPack).toBe(false);
+  });
+
   test('writes a queued state carrying the MR identity, then stamps the tab and agent', async () => {
     await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
 
@@ -475,6 +508,23 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
     });
   });
 
+  test('threads the pack through to the respond launch', async () => {
+    await launchRespondAsk(
+      URL_A,
+      IID,
+      { ...CTX, pack: 'widgets' },
+      makeRespondIo(),
+      noSkillPath
+    );
+    expect(respondCalls[0]).toMatchObject({ pack: 'widgets' });
+    expect(readRespondStates(db).get(URL_A)?.noPack).toBe(false);
+  });
+
+  test('a respond launch with no pack marks the row noPack', async () => {
+    await launchRespondAsk(URL_A, IID, CTX, makeRespondIo(), noSkillPath);
+    expect(readRespondStates(db).get(URL_A)?.noPack).toBe(true);
+  });
+
   test('a throwing launcher settles an error state and reports it', async () => {
     const res = await launchRespondAsk(
       URL_A,
@@ -492,4 +542,39 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
     expect(state?.status).toBe('error');
     expect(state?.message).toBe('no herdr');
   });
+});
+
+describe('launchReReview: a resume re-resolves the pack', () => {
+  for (const [arm, prior] of [
+    ['agentId', { agentId: 'agent-a' }],
+    ['sessionId', { sessionId: 'sess-a' }],
+  ] as const) {
+    test(`the ${arm} arm clears noPack when a pack is now chosen`, async () => {
+      writeReviewState(
+        reviewFilePath(URL_A),
+        { mrUrl: URL_A, iid: IID, status: 'done', noPack: true, ...prior },
+        1,
+        db
+      );
+      await launchReReview(
+        URL_A,
+        IID,
+        { ...CTX, pack: 'widgets' },
+        makeIo(),
+        noSkillPath
+      );
+      expect(readReviewStates(db).get(URL_A)?.noPack).toBe(false);
+    });
+
+    test(`the ${arm} arm sets noPack when the pack is now gone`, async () => {
+      writeReviewState(
+        reviewFilePath(URL_A),
+        { mrUrl: URL_A, iid: IID, status: 'done', noPack: false, ...prior },
+        1,
+        db
+      );
+      await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
+      expect(readReviewStates(db).get(URL_A)?.noPack).toBe(true);
+    });
+  }
 });

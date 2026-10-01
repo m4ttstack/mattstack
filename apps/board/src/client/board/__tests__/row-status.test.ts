@@ -1738,3 +1738,54 @@ describe('statusPhrase: the pill says what the status group says', () => {
     });
   });
 });
+
+describe('rowStatus: a launch that ran with no pack', () => {
+  test('marks every lane line whose launch resolved no pack', () => {
+    const lines = candidateLines(
+      mr({
+        review: { status: 'reviewing', noPack: true },
+        respond: { status: 'queued', noPack: true },
+        doctor: { status: 'fixing', noPack: true },
+      } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(lines.map(l => [l.word, l.noPack])).toEqual([
+      ['review running…', true],
+      ['response queued', true],
+      ['fixing…', true],
+    ]);
+  });
+
+  test('a launch that chose a pack, or predates the flag, is unmarked', () => {
+    const [chosen] = candidateLines(
+      mr({ review: { status: 'queued', noPack: false } } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    const [unknown] = candidateLines(
+      mr({ review: { status: 'queued' } }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(chosen!.noPack).toBeUndefined();
+    expect(unknown!.noPack).toBeUndefined();
+  });
+
+  test('a stood-down doctor is not a launch and carries no marker', () => {
+    const [line] = candidateLines(
+      mr({
+        standDown: true,
+        doctor: { status: 'error', noPack: true },
+      } as never),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line!.word).toBe('auto-doctor off');
+    expect(line!.noPack).toBeUndefined();
+  });
+});

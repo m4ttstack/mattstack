@@ -170,6 +170,8 @@ export interface TriageRunDeps {
   sendPaneText(paneId: string, text: string): Promise<void>;
   now(): number;
   attendants?: AttendantsPort;
+  /** Team pack the doctor wrapper resolves bindings with; absent means the generic skill. */
+  pack?: string;
 }
 
 /** BOARD-12: the ancestor, if any, that owns this edge instead of us. Checks
@@ -384,6 +386,7 @@ export async function runTriage(
         origin: 'auto',
         tier,
         fixClasses,
+        noPack: !deps.pack,
       });
       const launchResult = await deps.launchDoctor({
         mrUrl: edge.mrUrl,
@@ -399,6 +402,7 @@ export async function runTriage(
         tier,
         fixClasses,
         draftBin: draftBinPath(),
+        pack: deps.pack,
       });
       launched = true;
       if (!launchResult.focusedExisting) {

@@ -7,18 +7,20 @@ description: >-
   generically when none is given). Invoked as "/board:review
   <mrUrl> --state <path> --status-bin <path> [--report <path>] [--skill <name>]
   [--re-review]". When no --skill is given, the domain skill is resolved from
-  the review slot binding in .mattstack/skills.jsonc. Not for manual use.
+  the review slot binding in the pack's bindings file
+  (repos/<slug>/packs/<pack>/skills.jsonc, chosen by MATTSTACK_PACK). Not for
+  manual use.
 disable-model-invocation: true
 allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUDE_SKILL_DIR}/scripts/open-gate.sh:*)
 metadata:
   slots: "review"
   slot-review: "required mr-review@2 -- owns the domain review flow for one MR: resolving the MR/ticket, producing the draft review, writing the report, reporting the severity levels present, and executing the posting once handed the human's decision. Never presents posting gates or decides disposition."
-  compiled: "mattstack:gate-protocol@0.28.4"
+  compiled: "mattstack:gate-protocol@0.30.0"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=18-1571 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-1573 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -1572,7 +1574,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.28.4 path=attachments/gate-protocol/SKILL.md lines=7-452 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.0 path=attachments/gate-protocol/SKILL.md lines=7-452 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act

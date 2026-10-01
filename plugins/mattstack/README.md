@@ -121,8 +121,11 @@ is deliberate; see [Configuration](#configuration).
 
 The parameterized-skill primitive ships as a Claude Code plugin from the
 `plugin/` subtree: a wrapper skill declares named slots in its SKILL.md
-`metadata`; a consumer binds each slot to an installed skill in
-`.mattstack/skills.jsonc`; the wrapper's vendored `scripts/resolve-args.sh`
+`metadata`; a pack binds each slot to an installed skill in
+`pack/skills.jsonc`, which `rt skills materialize` layers into one file per
+repo and pack under `~/.mattstack/repos/<slug>/packs/<pack>/`; the wrapper's
+vendored `scripts/resolve-args.sh` reads that file (the board launches with
+`MATTSTACK_PACK` set from the tab's `pack`, else `board.defaultPack`) and
 resolves and validates the bindings deterministically (POSIX sh,
 machine-readable JSON both ways). Enforcement lives in the script, never in
 prose.
@@ -377,7 +380,10 @@ with `rt skills bind`.
 
 The bindings manifest schema lives at
 `plugin/schemas/skills-manifest.schema.json`, with a worked explanation in
-`plugin/schemas/skills-manifest.md`. `pack/skills.jsonc` in this repo is a
+`plugin/schemas/skills-manifest.md`. A pack may declare
+`"extends": "<plugin>@<marketplace>"` to build on a base pack, overriding its
+fills slot by slot. The team installs the base by listing it in
+`claude.plugins`; members do not join the base's team. `pack/skills.jsonc` in this repo is a
 real example: it binds `mattstack:shepherdr`'s `tiering`, `strategy`, and
 `accounts` slots and leaves `domain` unbound.
 
@@ -402,7 +408,7 @@ bun test                              # tests/desc-test.test.ts
 tests/certify.sh <skill-dir>          # certification gate for one skill
 ../../scripts/repo-purity.sh          # whole-tree purity sweep at the repo root
 plugin/tests/test-resolve-args.sh     # model-free matrix for the primitive's resolver
-plugin/tests/test-merge-manifests.sh  # manifest-merge matrix
+plugin/tests/test-merge-manifests-wrapper.sh  # offline, stubs rt on PATH
 hooks/tests/test-herdr-doorbell.sh    # offline, stubs herdr on PATH
 tests/stubs-no-source-collision.sh    # attachments/<verb>/ vs a hand-written source
 ```

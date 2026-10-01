@@ -203,7 +203,9 @@ export function Rebind({
   // "nothing to show" -- never a guessed path; the command itself does not
   // need it, `rt skills bind` resolves the manifest on its own.
   const manifestPath = composition.manifestPath ?? null;
-  const bindingsKey = `bindings.${verb}.${slot}`;
+  const bindingsKey = selfRef
+    ? `bindings["${selfRef}"].${slot}`
+    : `bindings.${verb}.${slot}`;
   const bindCommand = target
     ? `rt skills bind ${verb} ${slot} ${target} --pack ${pack}`
     : null;
@@ -337,7 +339,11 @@ export function Rebind({
                   {bindCommand}
                 </Text>
               </Paper>
-              <Text size="xs" c={text.muted} truncate>
+              <Text
+                size="xs"
+                c={text.muted}
+                style={{ wordBreak: 'break-word' }}
+              >
                 {bindCaption}
               </Text>
               {applyError && (

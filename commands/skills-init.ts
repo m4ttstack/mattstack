@@ -17,7 +17,7 @@ import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, userErrorPayload } from "../lib/setup/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
-import { materializeSkills } from "../lib/setup/skills-materialize.ts";
+import { materializeSkills, packVerdict, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { createTeam } from "../lib/team/create.ts";
 import { initPack, type InitDeps, type InitOutcome } from "../lib/skills/init.ts";
 import { loadStepSource, resolvePluginRoots } from "../lib/skills/sources.ts";
@@ -59,6 +59,15 @@ export function renderInitOutcome(out: InitOutcome): string {
     "run /reload-plugins in your Claude session, then try:",
     `  ${out.tryNext}`,
   ].join("\n");
+}
+
+export function initMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[] } {
+  if (r.skipped) return { ok: false, detail: r.reason, warnings: [] };
+  const row = r.repos[0];
+  if (!row) return { ok: false, detail: "materialize wrote nothing", warnings: [] };
+  const { written, failures, warnings } = packVerdict([row], pack);
+  if (failures.length > 0) return { ok: false, detail: failures.join("; "), warnings };
+  return { ok: written > 0, detail: row.detail, warnings };
 }
 
 function message(err: unknown): string {
@@ -138,11 +147,10 @@ function realDeps(opts: { json: boolean }): InitDeps {
       if (!indexed.ok) throw new UserActionableError("locate-failed", `registering ${dir} failed: ${indexed.error}`);
       return identity;
     },
-    materialize: async (repoName) => {
-      const r = await materializeSkills(p, { repo: repoName });
-      if (r.skipped) return { ok: false, detail: r.reason };
-      const row = r.repos[0];
-      return row ? { ok: row.ok, detail: row.detail } : { ok: false, detail: "materialize wrote nothing" };
+    materialize: async (repoName, pack) => {
+      const { ok, detail, warnings } = initMaterializeVerdict(await materializeSkills(p, { repo: repoName }), pack);
+      for (const w of warnings) console.error(`rt skills init: warning: another pack failed to materialize: ${w}`);
+      return { ok, detail };
     },
     // compilePackAll and checkPack resolve outside withCleanErrors, so a usage error from
     // pack resolution would escape as an uncaught throw and lose the `wrote` list.

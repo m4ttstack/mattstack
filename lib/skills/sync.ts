@@ -11,6 +11,8 @@ export type SyncDeps = {
   claudeBin: string | null;
   checkPack: (packName: string) => Promise<{ drift: boolean; lintHits: number; strict: boolean }>;
   compilePack: (packName: string) => Promise<{ ok: boolean; errors: string[] }>;
+  /** Regenerates every registered repo's per-pack files; a base pack the pack extends may have moved since the last install. Only the named pack's failures fail the step. */
+  materialize(packName: string): Promise<{ ok: boolean; detail: string }>;
   configDir: string;
   cswapSessionsDir: string;
   inTreeRoot: string | null;
@@ -357,6 +359,13 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   });
   steps.push({ name: "update-engine", ...updateEngine });
   if (stops(updateEngine)) return finish();
+
+  const materialize = await tryStep(async () => {
+    const result = await deps.materialize(pack.name);
+    return result.ok ? ran(result.detail) : failed(result.detail);
+  });
+  steps.push({ name: "materialize", ...materialize });
+  if (stops(materialize)) return finish();
 
   const checkStep = await tryStep(async () => {
     const result = await deps.checkPack(pack.name);

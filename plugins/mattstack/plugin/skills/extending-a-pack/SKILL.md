@@ -210,8 +210,11 @@ and never adds a move the engine's graph marks STOP.
 
 ### Fix what the refusal names
 
-The bind validates `provides`, writes the per-repo manifest AND
-`pack/skills.jsonc`, and recompiles. It refuses a fill that does not exist
+The bind validates `provides`, writes the fragment
+`pack/skills.jsonc`, regenerates the pack's bindings file for the repo
+(`rt skills materialize`), and recompiles. A slot the base pack named by
+`extends` already fills is overridden, never an error, and a user override
+that still wins is reported. It refuses a fill that does not exist
 yet: write it first. Other causes a refusal can name:
 
 - the fill's `provides` needs to match the slot's contract;
@@ -284,8 +287,13 @@ again at zero. Takes over: the author finishes the rule.
 ## What the graph cannot show
 
 - The write into `pack/skills.jsonc` is what reaches teammates; the
-  per-repo manifest is regenerated on every materialize. That is why the
-  fragment, not the manifest, is checked for the new `bindings` entry.
+  bindings file
+  (`~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`) is regenerated on
+  every materialize. That is why the fragment, not the generated file, is
+  checked for the new `bindings` entry.
+- Two packs on one repo never conflict: each gets its own bindings file.
+  Two packs in one zone that both claim a repo are refused, and a base pack
+  named by `extends` belongs in a zone that declares no projects.
 - When the ask has both a stage level and a verb level (`mattstack:stage-ship`
   and `mattstack:ship`), bind both, one bind call each.
 - A `shepherdr` door compiles only with its two required slots bound:
@@ -306,8 +314,8 @@ zone first; that is fine, the bump and push still go through editing-skills.
   `attachments/stage-*/`), which the next compile erases, and the engine in
   the plugin cache, which every team's compile reads and the next update
   erases.
-- Editing `~/.mattstack/repos/<slug>/skills.jsonc` by hand: regenerated on
-  the next materialize; the fragment is the source.
+- Editing `~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc` by hand:
+  regenerated on the next materialize; the fragment is the source.
 - A fill body that restates the engine: the fill carries only what the team
   adds.
 - Binding before the fill exists: `rt_verb {args: ["skills", "bind", ...]}` refuses; write first.

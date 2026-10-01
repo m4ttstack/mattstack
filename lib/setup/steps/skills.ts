@@ -16,9 +16,11 @@ import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
+import type { StepId } from "../contract.ts";
 import { installCronTrigger, resolveBoardTriage, triageTrigger } from "../cron-install.ts";
 import { linkBundledSkills } from "../skills-link-bundled.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
+import { isPackDir } from "../../skills/init.ts";
 import { linkPersonalSkills } from "../../skills/writing-style-sources.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { resolveForge } from "./forge-identity.ts";
@@ -29,10 +31,17 @@ import { toFailedOutcome, unwritten } from "./step-utils.ts";
 
 async function skillsMaterializeRun(ctx: ApplyContext): Promise<StepOutcome> {
   const result = await materializeSkills(ctx.p, {});
+  // board.keys is not update-safe, so this is the only place an updating
+  // member gets a default pack. It needs only the team zone, so a skipped
+  // materialize still seeds; a thrown one never reaches here.
+  try {
+    seedDefaultPack(ctx, "skills.materialize");
+  } catch (err) {
+    ctx.log("skills.materialize", `board.defaultPack: not seeded: ${err instanceof Error ? err.message : String(err)}`);
+  }
   if (result.skipped) return { state: "skipped", detail: result.reason };
 
-  for (const r of result.repos.filter((r) => !r.ok)) ctx.log("skills.materialize", `${r.name}: ${r.detail}`);
-
+  for (const r of result.repos.filter((r) => !r.ok && !r.noManifest)) ctx.log("skills.materialize", `${r.name}: ${r.detail}`);
   return { state: "done", detail: materializeTally(result.repos) };
 }
 
@@ -121,10 +130,10 @@ function trackedRepos(ctx: ApplyContext): { found: { name: string; path: string 
 }
 
 /** True only when a key is both registered AND write-eligible — a def missing from the registry (or shipped `migrated: false`) is logged and left alone rather than letting `setSetting`'s own refusal crash the step. */
-function writable(ctx: ApplyContext, key: string): boolean {
+function writable(ctx: ApplyContext, key: string, stepId: StepId = "board.keys"): boolean {
   const def = getDef(key);
   if (!def || !isMigrated(def)) {
-    ctx.log("board.keys", `${key}: key not in registry yet`);
+    ctx.log(stepId, `${key}: key not in registry yet`);
     return false;
   }
   return true;
@@ -167,6 +176,26 @@ async function seedOwnHandle(ctx: ApplyContext, written: string[]): Promise<void
   }
 }
 
+/** The alphabetically first pack under the team's mattstack/packs; the pack `rt setup` installs first is the one a fresh board should launch with. */
+function firstTeamPack(ctx: ApplyContext): string | null {
+  if (!ctx.team.slug) return null;
+  const packs = join(ctx.p.home, ".mattstack", "teams", ctx.team.slug, "mattstack", "packs");
+  return ctx.p.readDir(packs).filter((name) => isPackDir(ctx.p, join(packs, name))).sort()[0] ?? null;
+}
+
+/** Writes board.defaultPack only while no store has written it, so a pack the member chose is never replaced. */
+function seedDefaultPack(ctx: ApplyContext, stepId: StepId): boolean {
+  if (!writable(ctx, "board.defaultPack", stepId) || !unwritten("board.defaultPack")) return false;
+  const pack = firstTeamPack(ctx);
+  if (!pack) {
+    ctx.log(stepId, "board.defaultPack: the team has no packs, left unset");
+    return false;
+  }
+  setSetting("board.defaultPack", pack, "user");
+  ctx.log(stepId, `board.defaultPack: set to ${pack}`);
+  return true;
+}
+
 async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
   const written: string[] = [];
   const { found, missing } = trackedRepos(ctx);
@@ -200,6 +229,8 @@ async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
       ctx.log("board.keys", "gitq.workSlots: no repo root yet — left unset");
     }
   }
+
+  if (seedDefaultPack(ctx, "board.keys")) written.push("board.defaultPack");
 
   await seedOwnHandle(ctx, written);
 

@@ -20,6 +20,7 @@ export interface ResumableState {
   workspaceId?: string;
   gateId?: string;
   resumedGateId?: string;
+  noPack?: boolean;
 }
 
 /** Everything one resumable gate kind needs to rebuild its wrapper's
@@ -38,6 +39,9 @@ export interface KindResumeIo {
       review honors a tab's `reviewSkill` override via `tabId`; respond/doctor
       have no such override and ignore it. */
   resolveSkill(mrUrl: string, tabId?: string): string;
+  /** The pack `resolveSkill` resolves with for the same `tabId`; absent
+      means the generic skill, recorded on the state as `noPack`. */
+  resolvePack(tabId?: string): string | undefined;
   /** Builds the wrapper's `--resumed-gate` re-entry prompt for this kind --
       each domain's own `dispatchPrompt("board:<domain>", {...}, resolvePath)`
       call, since the SkillPromptOpts fields a domain needs (e.g. review's
@@ -136,6 +140,7 @@ export async function resumeParkedGate(
 
   const statePath = kindIo.filePath(gate.mrUrl);
   const skill = kindIo.resolveSkill(gate.mrUrl, gate.tabId);
+  const noPack = !kindIo.resolvePack(gate.tabId);
   const prompt = await kindIo.prompt(
     gate.mrUrl,
     statePath,
@@ -163,6 +168,7 @@ export async function resumeParkedGate(
   try {
     kindIo.writeState(statePath, {
       status: kindIo.resumedStatus,
+      noPack,
       agentId: result.agentId,
       paneId: result.paneId,
       tabId: result.tabId,

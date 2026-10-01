@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://mattstack.dev/schemas/skills-manifest.schema.json",
-  "title": "mattstack bindings manifest (.mattstack/skills.jsonc)",
+  "title": "mattstack bindings manifest (pack/skills.jsonc fragment or generated packs/<pack>/skills.jsonc)",
   "description": "Consumer-repo manifest: enabled stack skills, the pipeline stage roster, and slot bindings for parameterized skills. JSONC: JSON plus full-line // comments; no trailing commas.",
   "type": "object",
   "required": ["version"],
@@ -10,6 +10,11 @@
     "version": {
       "const": 1,
       "description": "Manifest format version. This schema describes version 1."
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*@[a-z0-9][a-z0-9-]*$",
+      "description": "Fragment only: the base pack whose fragment layers under this one, as <plugin>@<marketplace>. One level; a base pack cannot extend. Never present in a generated file."
     },
     "skills": {
       "type": "object",

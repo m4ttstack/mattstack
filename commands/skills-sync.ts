@@ -4,11 +4,11 @@
  * recompile and recheck on drift, commit and push, update the pack plugin,
  * and flag any cswap session whose plugins symlink has drifted.
  *
- *   rt skills sync [--pack <name>] [--manifest <path>] [--json]
+ *   rt skills sync [--pack <name>] [--manifest <path>] [--repo <slug or host/path>] [--json]
  *
  * The full step chain and its refusal conditions live in lib/skills/sync.ts;
  * this file only wires real dependencies (git/claude subprocesses, checkPack,
- * compilePackAll) and renders the resulting SyncReport.
+ * compilePackAll, materializeSkills) and renders the resulting SyncReport.
  */
 
 import { homedir } from "os";
@@ -21,6 +21,8 @@ import { syncPack, type SyncDeps, type SyncEngine, type SyncReport, type SyncSte
 import { checkPack, compilePackAll } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
+import { createRealProbes } from "../lib/setup/probes.ts";
+import { materializeSkills, packVerdict, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 
 /**
  * The mattstack pack is the only valid sync engine: falling back to the pack
@@ -71,6 +73,20 @@ function flagValue(args: string[], flag: string): string | undefined {
   return i === -1 ? undefined : args[i + 1];
 }
 
+export function manifestTarget(args: string[]): { manifest?: string; repo?: string } {
+  const manifest = flagValue(args, "--manifest");
+  const repo = flagValue(args, "--repo");
+  return { ...(manifest ? { manifest } : {}), ...(repo ? { repo } : {}) };
+}
+
+export function syncMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string } {
+  if (r.skipped) return { ok: true, detail: `skipped: ${r.reason}` };
+  const verdict = packVerdict(r.repos, pack);
+  if (verdict.failures.length > 0) return { ok: false, detail: verdict.failures.join("; ") };
+  const others = verdict.warnings.length > 0 ? `; other packs failed: ${verdict.warnings.join("; ")}` : "";
+  return { ok: true, detail: `materialized ${verdict.written} ${pack} pack file${verdict.written === 1 ? "" : "s"}${others}` };
+}
+
 function stepLine(step: SyncStep): string {
   switch (step.status) {
     case "ran": return `${step.name}: ran (${step.detail})`;
@@ -102,7 +118,7 @@ function renderHuman(report: SyncReport): void {
 export async function skillsSync(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const packFlag = flagValue(args, "--pack");
-  const manifest = flagValue(args, "--manifest");
+  const target = manifestTarget(args);
 
   const fail = (error: string): never => {
     if (json) console.log(JSON.stringify({ ok: false, error }));
@@ -130,10 +146,11 @@ export async function skillsSync(args: string[]): Promise<void> {
     },
     claudeBin: resolveClaudeBin(),
     checkPack: async (name) => {
-      const payload = await checkPack({ pack: name, ...(manifest ? { manifest } : {}) });
+      const payload = await checkPack({ pack: name, ...target });
       return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint };
     },
-    compilePack: (name) => compilePackAll({ pack: name, ...(manifest ? { manifest } : {}) }),
+    compilePack: (name) => compilePackAll({ pack: name, ...target }),
+    materialize: async (name) => syncMaterializeVerdict(await materializeSkills(createRealProbes(), {}), name),
     configDir,
     cswapSessionsDir: join(homedir(), ".claude-swap-backup", "sessions"),
     inTreeRoot: resolveSharedCheckout(homedir()),

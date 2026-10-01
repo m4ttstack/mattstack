@@ -109,6 +109,8 @@ export interface TabConfig {
   slackChannel?: string;
   /** Overrides review-launch skill resolution for this tab. Empty/absent = normal resolution. */
   reviewSkill?: string;
+  /** Which team pack's bindings a launch from this tab uses; empty/absent = board.defaultPack. */
+  pack?: string;
 }
 
 /** No config.json/store tabs = one classic authors-roster tab, never zero tabs. */
@@ -176,6 +178,8 @@ export interface BoardConfig {
   claudeCommand: string;
   /** Domain skill the doctor wrapper delegates to. Empty = generic. */
   doctorSkill: string;
+  /** Pack for launches whose tab names none. Empty = mattstack's generic skills. */
+  defaultPack: string;
   /** Extra bot accounts whose general MR comments to hide (username or display
       name, case-insensitive). Additive to the built-in heuristic — for named
       integration bots that don't match a bot-username pattern. */
@@ -322,6 +326,9 @@ export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
   if (cfg.doctorSkill !== undefined && typeof cfg.doctorSkill !== 'string') {
     throw new Error(`${source} "doctorSkill" must be a string (a skill name)`);
   }
+  if (cfg.defaultPack !== undefined && typeof cfg.defaultPack !== 'string') {
+    throw new Error(`${source} "defaultPack" must be a string (a pack name)`);
+  }
   if (cfg.botUsernames !== undefined) {
     if (
       !Array.isArray(cfg.botUsernames) ||
@@ -361,6 +368,7 @@ export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
     doctorsWorkspace: cfg.doctorsWorkspace ?? 'doctors',
     claudeCommand: cfg.claudeCommand ?? '',
     doctorSkill: cfg.doctorSkill ?? '',
+    defaultPack: cfg.defaultPack ?? '',
     botUsernames: (cfg.botUsernames ?? []).map(b => b.trim()),
     rtRepos: deriveRtRepos(cfg.gitlabHost!, cfg.projects!, rtRepos),
     rtRepoOverrides: rtRepos,
@@ -439,12 +447,16 @@ export function parseTabs(raw: unknown, source: string): TabConfig[] {
     if (t.reviewSkill !== undefined && typeof t.reviewSkill !== 'string') {
       throw new Error(`${source} "${label}.reviewSkill" must be a string`);
     }
+    if (t.pack !== undefined && typeof t.pack !== 'string') {
+      throw new Error(`${source} "${label}.pack" must be a string`);
+    }
     return {
       id: t.id,
       label: t.label,
       source: source_,
       ...(t.slackChannel !== undefined ? { slackChannel: t.slackChannel } : {}),
       ...(t.reviewSkill !== undefined ? { reviewSkill: t.reviewSkill } : {}),
+      ...(t.pack !== undefined ? { pack: t.pack } : {}),
     };
   });
 }
@@ -745,6 +757,8 @@ function withBoardStoreFallback(
     doctorsWorkspace: workspaces?.doctors ?? fileConfig.doctorsWorkspace,
     defaultMember:
       storeValue('board.defaultMember', resolve) ?? fileConfig.defaultMember,
+    defaultPack:
+      storeValue('board.defaultPack', resolve) ?? fileConfig.defaultPack,
     claudeCommand: agentCommand(resolve) ?? fileConfig.claudeCommand,
     reviewCwd: cwds?.review ?? fileConfig.reviewCwd,
     respondCwd: cwds?.respond ?? fileConfig.respondCwd,

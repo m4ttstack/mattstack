@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { parseInitArgs, renderInitOutcome, skillsInit } from "../skills-init.ts";
+import { initMaterializeVerdict, parseInitArgs, renderInitOutcome, skillsInit } from "../skills-init.ts";
 import type { InitDeps, InitOutcome } from "../../lib/skills/init.ts";
 import { UserActionableError } from "../../lib/setup/errors.ts";
 
@@ -22,7 +22,7 @@ describe("renderInitOutcome", () => {
   const okOutcome: InitOutcome = {
     ok: true,
     pack: { name: "acme", dir: "/z/mattstack/packs/acme", zone: "acme", marketplace: "acme" },
-    repo: { slug: "gitlab.com-acme-api", manifest: "/h/.mattstack/repos/gitlab.com-acme-api/skills.jsonc" },
+    repo: { slug: "gitlab.com-acme-api", manifest: "/h/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc" },
     wrote: ["/z/mattstack/packs/acme/pack/stubs.jsonc"],
     installed: { plugin: "acme@acme", version: "0.1.0" },
     restartNeeded: true,
@@ -183,7 +183,7 @@ describe("skillsInit", () => {
       claude: async () => ({ code: 0, stdout: "", stderr: "" }),
       registerRepo: async () => "gitlab.com/acme/api",
       materialize: async () => {
-        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/skills.jsonc`, "{}");
+        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc`, "{}");
         return { ok: true, detail: "merged" };
       },
       compile: async () => ({ ok: false, errors: ["boom"] }),
@@ -203,5 +203,39 @@ describe("skillsInit", () => {
     } finally {
       logSpy.mockRestore();
     }
+  });
+});
+
+describe("initMaterializeVerdict", () => {
+  const written = (pack: string) => ({ pack, zone: "acme", ok: true as const, path: `/h/${pack}/skills.jsonc`, layers: ["pack"] });
+  const broken = (pack: string, detail: string) => ({ pack, zone: "acme-gadgets", ok: false as const, detail });
+
+  test("a sibling pack's failure is a warning; the new pack's own outcome decides", () => {
+    const verdict = initMaterializeVerdict(
+      { skipped: false, repos: [{ name: "repo-a", path: "/r/a", ok: false, detail: "gadgets: boom", packs: [written("widgets"), broken("gadgets", "boom")] }] },
+      "widgets",
+    );
+    expect(verdict.ok).toBe(true);
+    expect(verdict.warnings).toEqual(["gadgets (repo-a): boom"]);
+  });
+
+  test("the new pack's own failure is materialize-failed material", () => {
+    const verdict = initMaterializeVerdict(
+      { skipped: false, repos: [{ name: "repo-a", path: "/r/a", ok: false, detail: "widgets: boom", packs: [broken("widgets", "boom")] }] },
+      "widgets",
+    );
+    expect(verdict).toEqual({ ok: false, detail: "widgets (repo-a): boom", warnings: [] });
+  });
+
+  test("no outcome for the new pack carries the row's own detail", () => {
+    const verdict = initMaterializeVerdict(
+      { skipped: false, repos: [{ name: "repo-a", path: "/r/a", ok: false, noManifest: true, detail: "no team declares gitlab.example.com/acme/widgets" }] },
+      "widgets",
+    );
+    expect(verdict).toEqual({ ok: false, detail: "no team declares gitlab.example.com/acme/widgets", warnings: [] });
+  });
+
+  test("a skipped run fails with its reason", () => {
+    expect(initMaterializeVerdict({ skipped: true, reason: "engine-pack-missing", repos: [] }, "widgets")).toEqual({ ok: false, detail: "engine-pack-missing", warnings: [] });
   });
 });

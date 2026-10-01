@@ -54,6 +54,7 @@ interface DomainCalls {
     patch: Partial<ResumableState> & { status: string };
   }>;
   resolveSkill: Array<{ mrUrl: string; tabId?: string }>;
+  resolvePack: Array<string | undefined>;
 }
 
 function makeKindIo(opts: {
@@ -62,8 +63,13 @@ function makeKindIo(opts: {
   resumedStatus: string;
   filePath: (mrUrl: string) => string;
   states: Map<string, ResumableState>;
+  pack?: string;
 }): { io: KindResumeIo; calls: DomainCalls } {
-  const calls: DomainCalls = { writeState: [], resolveSkill: [] };
+  const calls: DomainCalls = {
+    writeState: [],
+    resolveSkill: [],
+    resolvePack: [],
+  };
   const pathToMrUrl = new Map(
     [...opts.states.keys()].map(mrUrl => [opts.filePath(mrUrl), mrUrl])
   );
@@ -80,6 +86,10 @@ function makeKindIo(opts: {
     resolveSkill: (mrUrl, tabId) => {
       calls.resolveSkill.push({ mrUrl, tabId });
       return `acme:${opts.wrapper}`;
+    },
+    resolvePack: tabId => {
+      calls.resolvePack.push(tabId);
+      return opts.pack;
     },
     prompt: async (mrUrl, statePath, skill, resumedGate, resumedGateKind) =>
       `/board:${opts.wrapper} ${mrUrl}\n  --state ${statePath}\n  --skill ${skill}\n  --resumed-gate ${resumedGate}\n  --resumed-gate-kind ${resumedGateKind}`,
@@ -249,6 +259,33 @@ describe('resumeParkedGate', () => {
     expect(reviewCalls.resolveSkill).toEqual([
       { mrUrl: MR_URL, tabId: 'tab-9' },
     ]);
+  });
+
+  test('the resumed write carries noPack from the pack resolved for the same tab', async () => {
+    for (const [pack, noPack] of [
+      [undefined, true],
+      ['widgets', false],
+    ] as const) {
+      const states = new Map([[MR_URL, baseReview()]]);
+      const { io: reviewIo, calls: reviewCalls } = makeKindIo({
+        wrapper: 'review',
+        workspaceLabel: 'reviews',
+        resumedStatus: 'reviewing',
+        filePath: reviewFilePath,
+        states,
+        pack,
+      });
+      const gate = baseGate({ agentId: 'agent-1', tabId: 'tab-9' });
+      const { io: resumeIo } = fakeResumeIo({ 'review-post': reviewIo });
+
+      await resumeParkedGate(gate, resumeIo, async () => null);
+
+      expect(reviewCalls.resolvePack).toEqual(['tab-9']);
+      expect(reviewCalls.writeState[0]!.patch).toMatchObject({
+        status: 'reviewing',
+        noPack,
+      });
+    }
   });
 
   test('a focused-existing resume (already-open tab) does not overwrite state with blank ids', async () => {
@@ -891,6 +928,7 @@ describe('buildResumers', () => {
       writeState: () => {},
       filePath: () => label,
       resolveSkill: () => label,
+      resolvePack: () => undefined,
       prompt: async () => label,
       resumedStatus: label,
       workspaceLabel: label,
