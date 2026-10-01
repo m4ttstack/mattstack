@@ -170,6 +170,7 @@ digraph review_flow {
     "review off-script gate: mr_approve refused" [shape=box];
     "Off-script outcome (mr_approve)?" [shape=diamond];
     "Off-script rounds = 2 (mr_approve)?" [shape=diamond];
+    "Record the round again with nothing restored (review)" [shape=box];
 
     "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [shape=plaintext];
     "<status-bin> review-status <state> error <what went wrong>" [shape=plaintext];
@@ -211,13 +212,14 @@ digraph review_flow {
     "Report fits the resumed answer (review)?" -> "Record the verdict answer in --report" [label="yes, or the answer is outcome alone"];
     "Report fits the resumed answer (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="no: missing or malformed for the answer's shape"];
     "Route the resumed escalation by its origin (review)" -> "Resumed escalation origin (review)?";
-    "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="iterate at round 2, any origin: the refusals are the reason"];
+    "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="iterate at round 2, any other origin: the refusals are the reason"];
+    "Resumed escalation origin (review)?" -> "Record the round again with nothing restored (review)" [label="hand back, or iterate at round 2, at mr_review_submit refused or pending comments on the MR"];
     "Resumed escalation origin (review)?" -> "Delegate the review to the domain skill" [label="mr_view, not on a re-review: take or iterate at round 1, a domain skill resolved on this resume: it reviews afresh"];
     "Resumed escalation origin (review)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="generic path, mr_view, not on a re-review: take with branches, or iterate at round 1"];
     "Resumed escalation origin (review)?" -> "Read <--report> (prior review, resumed re-review)" [label="a re-review origin: take, or iterate at round 1"];
     "Resumed escalation origin (review)?" -> "Read <--report>, its verdict line and json sibling (resumed escalation)" [label="a posting origin: take, or iterate at round 1"];
     "Resumed escalation origin (review)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
-    "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back, or a generic-path take at mr_view with no branches"];
+    "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back at any other origin, or a generic-path take at mr_view with no branches"];
     "Read <--report> (prior review, resumed re-review)" -> "<status-bin> review-ledger read <state>";
     "Read <--report>, its verdict line and json sibling (resumed escalation)" -> "Verdict line present (review)?";
     "Verdict line present (review)?" -> "Domain skill resolved (review act)?" [label="yes, and the report fits its answer"];
@@ -316,7 +318,7 @@ digraph review_flow {
     "Domain skill resolved (review act)?" -> "Writing style loaded (review act)?" [label="no"];
     "Hand the answer to the domain skill to post" -> "Domain posting result (review)?";
     "Domain posting result (review)?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="posted"];
-    "Domain posting result (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="failed"];
+    "Domain posting result (review)?" -> "Record the round again with nothing restored (review)" [label="failed"];
     "Writing style loaded (review act)?" -> "Resumed pane (review posting)?" [label="yes"];
     "Writing style loaded (review act)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="no: a resumed pane"];
     "Resumed pane (review posting)?" -> "mr_threads {mrUrl, refresh: true} (review posted already)" [label="yes"];
@@ -372,21 +374,21 @@ digraph review_flow {
     "Off-script outcome (mr_review_submit)?" -> "Outcome is approve?" [label="take: the review is up, marked in --report"];
     "Off-script outcome (mr_review_submit)?" -> "Off-script rounds = 2 (mr_review_submit)?" [label="iterate: the cause is fixed and nothing from this review is up"];
     "Off-script outcome (mr_review_submit)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
-    "Off-script outcome (mr_review_submit)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
+    "Off-script outcome (mr_review_submit)?" -> "Record the round again with nothing restored (review)" [label="hand back"];
     "Off-script outcome (mr_review_submit)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
-    "Off-script outcome (mr_review_submit)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
+    "Off-script outcome (mr_review_submit)?" -> "Record the round again with nothing restored (review)" [label="gate unavailable"];
     "Off-script rounds = 2 (mr_review_submit)?" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)" [label="no: submit again"];
-    "Off-script rounds = 2 (mr_review_submit)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
+    "Off-script rounds = 2 (mr_review_submit)?" -> "Record the round again with nothing restored (review)" [label="yes: the refusals are the reason"];
 
     "review off-script gate: pending comments on the MR" -> "Off-script outcome (pending comments)?";
     "Off-script outcome (pending comments)?" -> "Outcome is approve?" [label="take: the human posted the review with their pending comments, marked in --report"];
     "Off-script outcome (pending comments)?" -> "Off-script rounds = 2 (pending comments)?" [label="iterate: the human cleared their pending comments"];
     "Off-script outcome (pending comments)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
-    "Off-script outcome (pending comments)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
+    "Off-script outcome (pending comments)?" -> "Record the round again with nothing restored (review)" [label="hand back"];
     "Off-script outcome (pending comments)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
-    "Off-script outcome (pending comments)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
+    "Off-script outcome (pending comments)?" -> "Record the round again with nothing restored (review)" [label="gate unavailable"];
     "Off-script rounds = 2 (pending comments)?" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)" [label="no: submit again"];
-    "Off-script rounds = 2 (pending comments)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the pending comments are the reason"];
+    "Off-script rounds = 2 (pending comments)?" -> "Record the round again with nothing restored (review)" [label="yes: the pending comments are the reason"];
 
     "review off-script gate: mr_approve refused" -> "Off-script outcome (mr_approve)?";
     "Off-script outcome (mr_approve)?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="take: the human approved it, marked in --report"];
@@ -399,6 +401,7 @@ digraph review_flow {
     "Off-script rounds = 2 (mr_approve)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
 
     "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" -> "Review done: the board closes this tab";
+    "Record the round again with nothing restored (review)" -> "<status-bin> review-status <state> error <what went wrong>";
     "<status-bin> review-status <state> error <what went wrong>" -> "Review error written: stay in the pane and report";
 }
 ```
@@ -652,6 +655,9 @@ the retry goes straight back to the off-script gate.
   refused call is the first to run.
 - **Hold** keeps the pane open with nothing more posted and no terminal
   status. **Hand back** writes `error` naming the refusal the value names.
+  At `mr_review_submit refused` or `pending comments on the MR`, a hand
+  back or an iterate at round 2 first takes `Record the round again with
+  nothing restored (review)`.
 
 ### Build the round-1 skipped list from the prior review
 
@@ -1079,7 +1085,9 @@ reviewed wrote, so a resumed pane records the same values. `--outcome`
 is the verdict's `outcome`. A report with no `review-round:` line
 records nothing: say so in the pane and go on. A record that exits
 nonzero does not stop the posting either: quote its stderr in the pane
-and go on, since the verdict is answered.
+and go on, since the verdict is answered. A run that then ends without
+posting this review records the round again with nothing restored or
+confirmed (`Record the round again with nothing restored (review)`).
 
 ### Hand the answer to the domain skill to post
 
@@ -1120,7 +1128,8 @@ take (at a posting origin or the Posted already read, which a
 domain-path resume has not recorded), so it skips what the human already
 posted or approved. The domain skill posts through the mr_* tools
 and hands back what posted, the findings it found already up included; a
-failure it reports is `error` with its message.
+failure it reports takes `Record the round again with nothing restored
+(review)`, then writes `error` with its message.
 
 ### Add the finding to the summary note
 
@@ -1358,7 +1367,8 @@ never a blind resubmit.
 A take writes `review-escalation-mark: review posted by hand` into
 `--report` and continues to `Outcome is approve?`. Iterate passes
 `Off-script rounds = 2 (mr_review_submit)?` before submitting again. Hand
-back, gate unavailable and a spent round budget write `error` naming the
+back, gate unavailable and a spent round budget take `Record the round
+again with nothing restored (review)`, then write `error` naming the
 refusal and what the MR shows.
 
 ### review off-script gate: pending comments on the MR
@@ -1382,7 +1392,8 @@ comments in GitLab, and iterate passes `Off-script rounds = 2 (pending
 comments)?` before submitting the same review again. A take writes
 `review-escalation-mark: review posted by hand` into `--report` and
 continues to `Outcome is approve?`. Hand back, gate unavailable and a
-spent round budget write `error` naming the pending comments; nothing
+spent round budget take `Record the round again with nothing restored
+(review)`, then write `error` naming the pending comments; nothing
 posted.
 
 ### review off-script gate: mr_approve refused
@@ -1404,6 +1415,44 @@ and marks the review `done` with `--outcome approve`. Iterate passes
 `Off-script rounds = 2 (mr_approve)?` before running `mr_approve` alone
 again, never the review. Hand back, gate unavailable and a spent round
 budget write `error` naming the refusal; the posted review stays.
+
+### Record the round again with nothing restored (review)
+
+The run is ending without posting this review, but `Record the verdict
+answer in --report` already recorded the round with the human's
+`--restored` and `--confirmed`. Left that way, a brought-back finding
+drops off the skipped list without ever posting, and a confirmed thread
+is hidden from every later round. So, before the `error` write, record
+the round again:
+
+`<status-bin> review-ledger record <state> --round <n> --sha <sha>
+--outcome <comment|approve> --skipped '<json array>' --restored '[]'
+--confirmed '[]'`
+
+`--round`, `--sha`, `--outcome` and `--skipped` are exactly what the
+verdict's record sent; the write replaces that round's row. A resumed
+pane builds them the way `Record the verdict answer in --report` does,
+from `--report`'s `review-round:` and `review-post-answer:` lines and the
+json sibling.
+
+Record again only when nothing from this review reached the MR:
+
+- **`pending comments on the MR`:** always; nothing was published.
+- **`mr_review_submit refused`:** always, unless an error this pass got
+  said the call timed out, that the outcome is unknown, or that the
+  review only partly landed. After timed out or outcome unknown, record
+  again only when the human's answer says nothing from this review is on
+  the MR: an iterate says so, a hand back only when its note does. After
+  only partly landed, never. A resumed pane holds none of the earlier
+  pane's errors, so at this origin it records again only on that same
+  answer.
+- **The domain skill's failure:** only when its report says nothing from
+  this review posted.
+
+Otherwise go straight to the `error` write. A report with no
+`review-round:` line records nothing, as at the verdict, and a record
+that exits nonzero is quoted in the pane; the `error` write follows
+either way.
 
 ## Gate step
 
