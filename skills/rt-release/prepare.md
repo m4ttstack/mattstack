@@ -193,6 +193,8 @@ Refine `RELEASE_NOTES.md` into the body CI publishes verbatim:
 - every line traces to a commit in `git log <last-tag>..HEAD`; never invent or embellish;
 - no em or en dashes: use commas, periods or "...";
 - one held-pins line per row from `Record each held row for the notes` (SKILL.md);
+- one existing-installs line per gap from `Record each held setup gap for the notes` (SKILL.md),
+  naming the manual step;
 - a `**Full Changelog**` compare link from the previous tag to the new tag at the bottom.
 
 Calibrate the tone against a prior release with `gh release view <last-tag>`. When the
