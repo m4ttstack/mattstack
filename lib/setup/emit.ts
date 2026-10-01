@@ -216,19 +216,3 @@ export function createStepEmitter(opts: StepEmitterOptions): StepEmitter {
     },
   };
 }
-
-/** TTY rendering of the same stream: one line per step transition, log lines dimmed. */
-export function createHumanEmitter(print: (s: string) => void): Emit {
-  const glyph: Record<StepState, string> = { pending: "\u00b7", running: "\u2026", done: "\u2713", partial: "~", failed: "\u2717", skipped: "-", "needs-you": "!" };
-  return (ev) => {
-    if (ev.event === "plan") print(`  ${ev.steps.length} steps`);
-    else if (ev.event === "step") print(`  ${glyph[ev.state]} ${ev.id}${ev.detail ? `  ${ev.detail}` : ""}${ev.remedy ? `\n      \u2192 ${ev.remedy}` : ""}`);
-    else if (ev.event === "log") print(`      ${ev.line}`);
-    else if (ev.event === "need") print(`  ? ${ev.id} \u2014 waiting for mattstack.app (${ev.request.type})`);
-    else if (ev.skipped === "not-set-up") print("  - skipped: setup has not finished on this Mac");
-    else if (ev.skipped === "current") print("  - skipped: already applied for this version");
-    else if (ev.skipped === "running") print("  - skipped: another update run is in progress");
-    else if (ev.failedSteps && ev.failedSteps.length > 0) print(`  \u2717 failed: ${ev.failedSteps.join(", ")}`);
-    else print(ev.ok ? "  \u2713 done" : `  \u2717 stopped at ${ev.failedStep}`);
-  };
-}

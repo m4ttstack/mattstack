@@ -60,7 +60,6 @@
   "commands/sync.ts",
   "commands/team.ts",
   "commands/tools.ts",
-  "commands/uninstall.ts",
   "commands/verify.ts",
   "commands/worktree-hook.ts",
   "commands/worktree.ts",
