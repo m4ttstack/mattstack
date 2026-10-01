@@ -331,3 +331,67 @@ func TestWrappedTextNeverBreaksAFlagAtItsHyphens(t *testing.T) {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
 }
+
+func TestLineHintWrapsInsideItsOwnColumn(t *testing.T) {
+	got := plainAt(40,
+		protocol.Block{T: "line", Status: "done", Title: "pre-commit", Hint: "on"},
+		protocol.Block{T: "line", Status: "off", Title: "pre-push", Hint: "you turned this one off last week and it stays off"},
+	)
+	want := "  ✓ pre-commit  on\n" +
+		"  ○ pre-push    you turned this one off\n" +
+		"                last week and it stays\n" +
+		"                off\n"
+	if got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+	checkWidth(t, got, 40)
+}
+
+func TestATitleTooWideForAHintColumnTakesItsHintBelow(t *testing.T) {
+	got := plainAt(40,
+		protocol.Block{T: "line", Status: "done", Title: "short", Hint: "h"},
+		protocol.Block{T: "line", Status: "warn", Title: "a title that is far too long to leave a hint column", Hint: "the hint goes below"},
+		protocol.Block{T: "line", Status: "done", Title: "a title of exactly some width", Hint: "x"},
+		protocol.Block{T: "line", Status: "done", Title: "a hintless title that is far too long to fit on one row of the pane"},
+	)
+	want := "  ✓ short  h\n" +
+		"  ! a title that is far too long to\n" +
+		"    leave a hint column\n" +
+		"    the hint goes below\n" +
+		"  ✓ a title of exactly some width  x\n" +
+		"  ✓ a hintless title that is far too\n" +
+		"    long to fit on one row of the pane\n"
+	if got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+	checkWidth(t, got, 40)
+}
+
+func TestAWrappedHintKeepsItsFaintToneOnEveryRow(t *testing.T) {
+	out := render.Render([]protocol.Block{{T: "line", Status: "off", Title: "pre-push", Hint: "you turned this one off last week and it stays off"}}, render.Options{Width: 40})
+	const faint = "38;2;127;120;160"
+	for i, row := range rows(out) {
+		if !strings.Contains(row, faint) {
+			t.Fatalf("row %d lost the hint tone: %q", i, row)
+		}
+	}
+}
+
+func TestAVeryNarrowPaneLosesNoText(t *testing.T) {
+	for _, w := range []int{20, 24, 30} {
+		got := plainAt(w,
+			protocol.Block{T: "line", Status: "done", Title: "pre-commit", Hint: "turned on for this repo"},
+			protocol.Block{T: "line", Status: "off", Title: "pre-push"},
+		)
+		for _, want := range []string{"pre-commit", "turned", "on", "for", "this", "repo", "pre-push"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("width %d lost %q:\n%s", w, want, got)
+			}
+		}
+		// At 20 the text column (16) is under minWrap: rows are emitted whole
+		// and the terminal wraps them.
+		if w >= 24 {
+			checkWidth(t, got, w)
+		}
+	}
+}
