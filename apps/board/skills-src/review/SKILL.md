@@ -81,6 +81,10 @@ digraph review_flow {
     "Prior review at --report (re-review)?" [shape=diamond];
     "Read <--report> (prior review)" [shape=plaintext];
     "<status-bin> review-ledger read <state>" [shape=plaintext];
+    "Old review to rebuild as round 1?" [shape=diamond];
+    "Build the round-1 skipped list from the prior review" [shape=box];
+    "<status-bin> review-ledger record <state> --round 1 --sha unknown --outcome <the prior verdict's outcome> --skipped <json>" [shape=plaintext];
+    "<status-bin> review-ledger read <state> (after rebuilding round 1)" [shape=plaintext];
     "Domain skill resolved (review)?" [shape=diamond];
     "Delegate the review to the domain skill" [shape=box];
     "Domain review result?" [shape=diamond];
@@ -124,7 +128,7 @@ digraph review_flow {
     "review-post step outcome?" [shape=diamond];
     "Ask the review questions as one combined native form (degraded)" [shape=box];
     "Record the verdict answer in --report" [shape=box];
-    "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped '[]' --restored '[]' --confirmed <json>" [shape=plaintext];
+    "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped <json> --restored <json> --confirmed <json>" [shape=plaintext];
 
     "Domain skill resolved (review act)?" [shape=diamond];
     "Hand the answer to the domain skill to post" [shape=box];
@@ -223,7 +227,12 @@ digraph review_flow {
     "Prior review at --report (re-review)?" -> "<status-bin> review-ledger read <state>" [label="no file, and --re-review given"];
     "Prior review at --report (re-review)?" -> "Domain skill resolved (review)?" [label="not a re-review"];
     "Read <--report> (prior review)" -> "<status-bin> review-ledger read <state>";
-    "<status-bin> review-ledger read <state>" -> "Domain skill resolved (review)?";
+    "<status-bin> review-ledger read <state>" -> "Old review to rebuild as round 1?";
+    "Old review to rebuild as round 1?" -> "Build the round-1 skipped list from the prior review" [label="yes: the read printed round 0, and --report carries a verdict line and a json sibling that parses"];
+    "Old review to rebuild as round 1?" -> "Domain skill resolved (review)?" [label="no: a recorded round, a failed read, or nothing to rebuild from"];
+    "Build the round-1 skipped list from the prior review" -> "<status-bin> review-ledger record <state> --round 1 --sha unknown --outcome <the prior verdict's outcome> --skipped <json>";
+    "<status-bin> review-ledger record <state> --round 1 --sha unknown --outcome <the prior verdict's outcome> --skipped <json>" -> "<status-bin> review-ledger read <state> (after rebuilding round 1)";
+    "<status-bin> review-ledger read <state> (after rebuilding round 1)" -> "Domain skill resolved (review)?";
     "Domain skill resolved (review)?" -> "Delegate the review to the domain skill" [label="yes"];
     "Domain skill resolved (review)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="no: generic path"];
     "Delegate the review to the domain skill" -> "Domain review result?";
@@ -300,8 +309,8 @@ digraph review_flow {
     "review-post step outcome?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
     "review-post step outcome?" -> "Ask the review questions as one combined native form (degraded)" [label="the wait keeps failing"];
     "Ask the review questions as one combined native form (degraded)" -> "Record the verdict answer in --report";
-    "Record the verdict answer in --report" -> "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped '[]' --restored '[]' --confirmed <json>";
-    "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped '[]' --restored '[]' --confirmed <json>" -> "Domain skill resolved (review act)?";
+    "Record the verdict answer in --report" -> "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped <json> --restored <json> --confirmed <json>";
+    "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped <json> --restored <json> --confirmed <json>" -> "Domain skill resolved (review act)?";
 
     "Domain skill resolved (review act)?" -> "Hand the answer to the domain skill to post" [label="yes"];
     "Domain skill resolved (review act)?" -> "Writing style loaded (review act)?" [label="no"];
@@ -424,14 +433,19 @@ What the graph cannot show:
   `{answers, by, answeredAt}` comes from the `review-post-answer:` line in
   `--report`. The verdict's keys name its shape: `findings-N` keys plus
   `outcome` are the per-finding path, `tiers` plus `outcome` the tier
-  fallback, and `outcome` alone a clean review; `thread-N` keys ride
-  beside any of them on a re-review. From `--report`'s json
+  fallback, and `outcome` alone a clean review; `thread-N` and
+  `skipped-N` keys ride beside any of them on a re-review. From
+  `--report`'s json
   sibling (the stem swap in "Building the review-post questions"): each
   finding by its `id`, with its `tier`, `title`, `file`, `line`, `fix` and
   `kind`. From `--report` itself on the tier fallback: the findings under
   each tier. The earlier threads, each by its `discussionId` with its
   `call` and drafted `reply`: the json sibling's `threads` on the domain
-  path, `--report`'s Earlier threads section on the generic path. From
+  path, `--report`'s Earlier threads section on the generic path. The
+  skipped findings, each by its round-qualified `id` with its `title`,
+  `file`, `line` and recorded `excerpt`: the json sibling's `skipped` on
+  the domain path, `--report`'s Skipped earlier section on the generic
+  path. From
   `--report`'s `review-round:` line: the round and the sha it reviewed.
   From the launch: `<mrUrl>`. Nothing else survives the earlier pane.
 - **Finding ids.** A per-finding option's value is the finding's `id` from
@@ -444,7 +458,9 @@ What the graph cannot show:
   every finding in the report whose tier the `tiers` answer picked; on a
   clean review, none. An explicit empty array posts nothing from that
   question. On a re-review the same call carries `replies`, one per
-  earlier thread whose `thread-N` answer picked anything. A finding is
+  earlier thread whose `thread-N` answer picked anything, and every
+  restored finding (a `restore:<id>` picked in a `skipped-N` answer),
+  posted like a picked one with its recorded text. A finding is
   anchored when it has both a `file` and a `line`:
   its comment's `path` is the finding's `file` and its `line` the
   finding's `line`, always both, never a `position` object; for a line the
@@ -543,6 +559,11 @@ anything posts. The answer's keys say which file it needs:
   for its `call` and drafted `reply`. They come from the json sibling's
   `threads` when a domain skill resolved, else from `--report`'s Earlier
   threads section.
+- `skipped-N` keys, beside any of these: each restored finding, joined
+  by its `id` (the option value after `restore:`) for its `title`,
+  `file`, `line` and recorded `excerpt`. They come from the json
+  sibling's `skipped` when a domain skill resolved, else from
+  `--report`'s Skipped earlier section.
 
 Every shape also reads `--report`'s `review-round:` line, for the round
 and sha `Record the verdict answer in --report` records.
@@ -553,7 +574,8 @@ missing, not an array, or holds entries that don't fit the schema. On a
 resume it is never a reason to fall back, because the gate is answered
 and its shape is fixed. A per-finding answer whose json sibling is missing
 or malformed, a picked value no finding's `id` matches, a `thread-N`
-value whose `discussionId` its source does not carry, or a tier answer
+value whose `discussionId` its source does not carry, a `restore:<id>`
+value whose `id` its source does not carry, or a tier answer
 whose `--report` is missing or unreadable cannot be posted as answered:
 `Report fits the resumed answer (review)?` answers no, and the `error`
 names the file and which case it was. Never rebuild the findings by
@@ -621,6 +643,31 @@ the retry goes straight back to the off-script gate.
 - **Hold** keeps the pane open with nothing more posted and no terminal
   status. **Hand back** writes `error` naming the refusal the value names.
 
+### Build the round-1 skipped list from the prior review
+
+The board has no round for this MR, yet `--report` holds a prior review
+and the verdict it got (its `review-post-answer:` line): an MR reviewed
+before the board kept rounds. Rebuild it as round 1 before this pass
+reviews anything, so its skipped findings are known.
+
+Its skipped findings are the prior json sibling's `findings` whose `id`
+is in no `findings-N` value of that answer (a `{value, note}` answer
+unwrapped to its value), each `{id, title, severity, file, line,
+excerpt}`: `id` and `title` are the json's, `severity` its `tier`
+lowercased, `file` and `line` its own (left out when it has none), and
+`excerpt` its `body` verbatim (its `title` when it has no `body`). An
+answer that carried `tiers` in place of `findings-N` keys gives `[]`:
+that pass's gate could not read the json finding by finding, so its
+picks name no finding ids to compare against.
+
+Record it as round 1 with `--sha unknown`, since that review's commit is
+not known (so none of its skipped findings ever reads as `changed`), and
+`--outcome` the answer's `outcome` value. Then read the ledger again:
+its `round` is now 1, so this pass is round 2, and its `skipped` holds
+the rebuilt list. A record that exits nonzero does not stop the review:
+quote its stderr in the pane and go on, and the read after it still
+prints `round: 0`.
+
 ### Delegate the review to the domain skill
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
@@ -639,8 +686,10 @@ Tell the domain skill these things:
   read at `Read <--report> (prior review)` (or that none was found), and
   the framing "judge each earlier thread, then find what is new". It
   reads the threads itself, so it gets the rule that picks them in place
-  of the threads: Re-review mode's step 2, with the `rounds` list and the
-  `confirmed` ids from the round read. A resumed re-review origin gets
+  of the threads: Re-review mode's step 3, with the `rounds` list and the
+  `confirmed` ids from the round read. It also gets the round read's
+  `skipped` list, every entry whole plus a `sha`: the `reviewedSha` of
+  that entry's round in `rounds`. A resumed re-review origin gets
   the same, with the prior review still at `--report`;
 - on a resumed pre-verdict escalation, that it reviews afresh: the
   escalation's take or iterate belonged to the generic path's own read.
@@ -733,6 +782,18 @@ re-review read's off-script take): a full review of the whole MR, its
 summary line saying the threads could not be read, e.g. `"threads
 unreadable; full review"`.
 
+Re-review mode also hands in the skipped findings: the ones the human
+chose not to raise in earlier rounds, each with its round-qualified `id`,
+`round`, `title`, `severity`, `file`, `line`, `excerpt`, `snippet` and
+the `reviewedSha` of its round. A would-be finding that says what a
+skipped one says, about the same code, is that skipped finding: it stays
+out of the findings, so out of `tiers` too, and the gate offers it back
+on its own. For each skipped finding work out `changed`: true when `git
+diff <its round's sha>..origin/<source branch> -- <file>` touches its
+`line` (any hunk in the file, when it has a `file` and no `line`), or its
+`snippet`, when it has one, is no longer in the file at `origin/<source
+branch>`; false when it has no `file` or its round's sha is `unknown`.
+
 ### Write the review report to --report
 
 Save the review to `--report <path>` as Markdown: a short summary line,
@@ -760,6 +821,25 @@ An unanchored thread reads `General thread` in place of its anchor, and
 `<call>` is one of the four calls as spelled above. The section is not a
 tier, so no thread is ever read as a finding.
 
+With skipped findings handed in, a Skipped earlier section follows, still
+ahead of the findings: one entry per skipped finding, in the order
+Re-review mode handed them in. A resumed pane posts a restored finding
+from it, so each entry carries its id, anchor, round, tier, title and
+recorded text:
+
+```markdown
+## Skipped earlier
+
+- `<id>` · `<file:line>` · round <k> · <Tier> · <title>
+  - Recorded: <its excerpt, verbatim>
+```
+
+Fill the placeholders from the skipped entry: `<Tier>` is its severity
+capitalised, and the anchor is the file alone when it has no line, or
+`no anchor` when it has no file. This section is not a tier either: no
+skipped finding is ever read as one of this round's findings or numbered
+with them.
+
 The generic path writes the Markdown only. The json sibling is the domain
 skill's structured report, so without one the gate takes the tier
 fallback, built from your own findings' tiers. On the generic path a json
@@ -779,9 +859,11 @@ out. `<sha>` is the MR head this pass reviewed: on the generic path
 `mr_view`'s `mr.sha` (after a take at `mr_view`, which read no MR, `git
 rev-parse origin/<source branch>` from the fetch), on the domain path
 the sha the domain skill handed back. Never a guess: a domain skill that
-handed back no sha gets no line. `Record the verdict answer in --report`
-reads the line back, so a pane resumed on the verdict records the round
-this pass reviewed.
+handed back no sha gets no line, and neither does a re-review whose
+ledger read exited nonzero, since its round number is a guess and a
+record of it could overwrite a round the board already holds. `Record
+the verdict answer in --report` reads the line back, so a pane resumed
+on the verdict records the round this pass reviewed.
 
 ### Build the per-finding questions (findings-N, outcome)
 
@@ -811,7 +893,7 @@ Print one line in the pane naming which case it was, for example:
 
 - `report.json not found; falling back to tier-level options`
 - `report.json has no findings array; falling back to tier-level options`
-- `report.json has earlier threads but no fitted open came back; falling back to tier-level options`
+- `report.json has earlier threads or skipped findings but no fitted open came back; falling back to tier-level options`
 
 A human watching then knows posting will be tier-grained instead of
 per-finding.
@@ -829,9 +911,23 @@ re-review.
 
 On a re-review with earlier threads, one hand-built `thread-<n>`
 question per thread comes first, ahead of `tiers`, in the order the
-threads were handed in ("Tier fallback" under "Building the review-post
-questions" draws it). With no levels present the gate carries the
-thread questions and `outcome`.
+threads were handed in. On a re-review with skipped findings, hand-built
+`skipped-<n>` questions follow `tiers`, ahead of `outcome`, four
+findings per question in the order they were handed in. "Tier fallback"
+under "Building the review-post questions" draws both. With no levels
+present the gate carries the thread and skipped questions and `outcome`.
+
+What they are built from depends on the path:
+
+- **Generic path:** the threads you judged, and the skipped list
+  Re-review mode handed in with the `changed` you worked out for each.
+- **Domain path, json sibling parses:** its `threads` and its `skipped`,
+  as the domain skill reported them.
+- **Domain path, json sibling absent or unparseable:** no thread
+  questions and no skipped questions, since there are no discussion ids
+  or reported skipped entries to build them from. The earlier threads
+  stay on the MR as they are, and the skipped findings stay in the
+  board's record for the next round.
 
 ### review-post: take the review gate step
 
@@ -865,9 +961,10 @@ The daemon was down at open time (`gate open` or `open-gate.sh` exited
 nonzero), or the gate step's wait failed three times ("A failing wait is
 not degradation" in `board:gate-cli-recipes`). Ask one combined native
 form carrying the same questions the gate would have: every `thread-N`
-question first on a re-review, then every `findings-N` chunk plus
-`outcome` when the json has findings, the fallback's `tiers` plus
-`outcome` on the json-absent path, `outcome` alone on a clean review.
+question first on a re-review, then every `findings-N` chunk when the
+json has findings or the fallback's `tiers` on the json-absent path,
+then every `skipped-N` chunk on a re-review, then `outcome`; `outcome`
+alone on a clean review with nothing skipped.
 Past four questions, chunk it across AskUserQuestion calls in gate
 order, as the pane form does, and proceed only on the answers from every
 call. It is still one form, never two gates. Render it by the same rules
@@ -904,8 +1001,40 @@ pane resumed on that escalation reads the verdict from this line, and
 Then record the round, before anything posts:
 
 `<status-bin> review-ledger record <state> --round <n> --sha <the MR
-head sha this pass reviewed> --outcome <comment|approve> --skipped '[]'
---restored '[]' --confirmed '<json array>'`
+head sha this pass reviewed> --outcome <comment|approve> --skipped
+'<json array>' --restored '<json array>' --confirmed '<json array>'`
+
+`--skipped` is this round's findings the human left unticked, one object
+each, with this round's own bare `id` (the record round-qualifies it):
+
+- **Per-finding path** (`findings-N` keys): every finding in the report
+  json whose `id` no `findings-N` answer picked, as `{id, title,
+  severity, file, line, excerpt, snippet}`. `id` and `title` are the
+  json's; `severity` is its `tier` lowercased; `file` and `line` are its
+  own, left out when it has none; `excerpt` is its `body` verbatim (its
+  `title` when the json carries no `body`); `snippet` is the code at its
+  anchor at the reviewed sha (`git show <sha>:<file>`, its `line` and up
+  to two lines either side), left out when it has no `line` or that read
+  fails.
+- **Tier fallback, generic path** (a `tiers` key): every finding listed
+  under a tier the `tiers` answer left unticked (every finding, for
+  `{"tiers": []}`), as `{id, title, severity, file, line, excerpt}`. `id`
+  numbers `--report`'s findings in the order they appear there (`f1`,
+  `f2`, ...), the same on every pass that reads that report; `severity`
+  is the tier lowercased; `file` and `line` are its anchor, left out when
+  it has none; `excerpt` is the finding's text from `--report`.
+- **Tier fallback, domain path** (a `tiers` key): `[]`.
+- **Clean review** (neither key): `[]`.
+
+`--restored` is every `skipped-N` answer value with its `restore:`
+prefix removed, already round-qualified; `[]` when no `skipped-N`
+question picked anything. For example, with an invented finding left
+unticked and one invented skipped finding brought back:
+
+`--skipped '[{"id":"f3","title":"Example retry limit ignores the config","severity":"important","file":"lib/example/retry.ts","line":14,"excerpt":"<that finding's body, verbatim>","snippet":"<lines 12 to 16 of lib/example/retry.ts at the reviewed sha>"}]' --restored '["r1-f4"]'`
+
+Every value there is invented: fill each from this round's own findings
+and answers, and never copy the example.
 
 `<n>` is 1 on a first review and the re-review's round otherwise.
 `--confirmed` lists the `discussionId` of every thread whose call is
@@ -943,6 +1072,16 @@ path, so it executes the posting:
   gate carried no `thread-N` question.
 - **Tier fallback:** `{tiers, outcome}`, plus `replies` built the same
   way when the gate carried `thread-N` questions.
+
+Either way, a gate that carried `skipped-N` questions adds `restored`:
+one `{id, title, body, file, line}` per `restore:<id>` value picked, its
+`id` as picked and the rest from the skipped entry with that `id`
+(`body` is the entry's `excerpt`; `file` and `line` left out when it has
+none). The entries come from the ledger read this pass made at the start
+of the re-review. A pane resumed on the verdict or at a posting origin
+holds no such read, and a read made after the record leaves every
+restored finding out, so it takes them from the json sibling's `skipped`
+instead. `restored` is empty when nothing was brought back.
 
 Pass each answer's notes along with it. On a resumed pane
 (`--resumed-gate` given), tell the domain skill the pass is a resume, so
@@ -1050,6 +1189,15 @@ else the drafted reply (the `Reply:` line of that thread's entry in
 `--report`'s Earlier threads section). A thread whose answer picked
 neither option gets no entry. With no `thread-N` question, `replies` is
 empty.
+
+A restored finding (a `restore:<id>` picked in a `skipped-N` answer)
+posts like a picked one: a comment at its recorded `file` and `line`,
+`body` its recorded `title` and then its `excerpt` verbatim, or in the
+summary note (`Add the finding to the summary note`) when it has no
+`file` and `line`. Its text is the board's record of it, never
+rewritten: from the ledger read this pass made at the start of the
+re-review, or on a pane resumed on the verdict or at a posting origin,
+from `--report`'s Skipped earlier section.
 
 ### Move the bad-anchor findings into the summary (review)
 
@@ -1309,7 +1457,7 @@ answer with the `gate_answer` tool, a board gate records it with
 
 A `review-escalation` gate carries its one `action` question: render its
 label and the four options verbatim and submit the chosen value verbatim,
-nuance in the `{value, note}` form. Four things stay specific to
+nuance in the `{value, note}` form. Five things stay specific to
 `review-post`, which the included gate protocol does not cover:
 
 1. A label's " (recommended)" suffix becomes the form's own (Recommended)
@@ -1317,11 +1465,15 @@ nuance in the `{value, note}` form. Four things stay specific to
 2. Your framing and reasoning go in the pane prose or option descriptions,
    never into rewritten question or option text.
 3. The question order is fixed: earlier threads, then findings, then
-   outcome, since the human weighs both before choosing a verdict.
+   skipped findings, then outcome, since the human weighs them all before
+   choosing a verdict.
 4. Never an option that folds another question's answer in: there is
    never a "skip and approve clean" combo option, since "post nothing" is
    every `findings-N` question answered as an explicit empty array, which
    the daemon records.
+5. A `skipped-N` question has no recommended option: each skipped
+   finding is offered unticked, and only the human's tick brings one
+   back. Left alone, its answer is an explicit empty array.
 
 - **Fitted files.** A gate opened from a fitted file never shows its JSON
   in the form: run the `gate-ctx.sh`
@@ -1330,11 +1482,12 @@ nuance in the `{value, note}` form. Four things stay specific to
   (the open file's name with `.open.json` swapped for `.source.json`: `sh
   <gate-ctx.sh> prose < <dir>/review-post.source.json`), print its
   `.context` as one pane line before the form call, and make each
-  `thread-N` and `findings-N` question's form text its label, a newline,
-  then its prose `context`. Options keep the gate's labels and
-  descriptions.
-- **Hand-built thread questions.** Their `context` is prose already: the
-  form text is the label, a newline, then that `context` as written.
+  `thread-N`, `findings-N` and `skipped-N` question's form text its
+  label, a newline, then its prose `context`. Options keep the gate's
+  labels and descriptions.
+- **Hand-built thread and skipped questions.** Their `context` is prose
+  already: the form text is the label, a newline, then that `context` as
+  written.
 - **Answers.** Each value is the chosen option's value verbatim, never an
   index or a paraphrase; nuance rides the note form, e.g. `{"outcome":
   {"value": "comment", "note": "approve once CI is green"}}`. A
@@ -1525,8 +1678,9 @@ that file IS this gate: `gate-ctx.sh fit` output whose `.context` carries
 the review's structured summary and whose `findings-N` questions each
 carry their findings' structured context, with options already in the
 recipe below. On a re-review its `thread-N` questions come first, one
-per earlier thread, each in the gate protocol's `carryover@1` shape.
-Open it with:
+per earlier thread, each in the gate protocol's `carryover@1` shape, and
+its `skipped-N` questions follow the findings, each in the `skipped@1`
+shape with its options unticked. Open it with:
 
 ```bash
 "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh" <status-bin> <state> review-post <open-file>
@@ -1545,12 +1699,13 @@ append onto the md path. That's the same derivation the board's own
 itself.
 
 The hand-built per-finding recipe below covers first reviews only. A
-report json whose `threads` array is non-empty reaches the gate through
-the domain skill's fitted open file (`review-source.sh`, then `gate-ctx.sh
-fit`, with `round` in the extras), which carries the `thread-N`
-questions. Handed such a json with no fitted open file, treat it as
-malformed at `Report json sibling (review)?`: the tier fallback, with
-the earlier threads as hand-built `thread-N` questions.
+report json whose `threads` or `skipped` array is non-empty reaches the
+gate through the domain skill's fitted open file (`review-source.sh`,
+then `gate-ctx.sh fit`, with `round` in the extras), which carries the
+`thread-N` and `skipped-N` questions. Handed such a json with no fitted
+open file, treat it as malformed at `Report json sibling (review)?`: the
+tier fallback, with the earlier threads as hand-built `thread-N`
+questions and the skipped findings as hand-built `skipped-N` questions.
 
 **Per-finding questions.** When the json exists and its `findings` is a
 non-empty array, build one multi-select option per finding from that
@@ -1695,10 +1850,47 @@ example verbatim.
   same prose the gate protocol's `carryover@1` flattens to, so every
   surface reads one wording.
 
+On a re-review with skipped findings, hand-built questions follow
+`tiers`, ahead of `outcome`, numbered `skipped-1`, `skipped-2`, ...,
+four findings per question in the order they were handed in:
+
+```json
+{"id": "skipped-1", "label": "Bring back a finding you skipped earlier?", "multi": true,
+ "context": "[IMPORTANT] Example cache key ignores the locale (lib/example/cache.ts:18) · skipped in round 2 · code changed since\n[MINOR] Example log line names the wrong field · skipped in round 1",
+ "options": [
+   {"value": "restore:r2-f1", "label": "[Important] Example cache key ignores the locale",
+    "description": "lib/example/cache.ts:18 · skipped in round 2 · code changed since"},
+   {"value": "restore:r1-f5", "label": "[Minor] Example log line names the wrong field",
+    "description": "skipped in round 1"}
+ ]}
+```
+
+Every string above is an invented placeholder: substitute each skipped
+finding's real id, severity, title, anchor, round and `changed`, and
+don't copy the example verbatim.
+
+- **Options.** One per skipped finding. `value` is `restore:<id>`, its
+  round-qualified `id` verbatim. `label` is `[<Tier>] <title>`, `<Tier>`
+  its severity capitalised, the title middle-truncated past the 200-byte
+  cap as for findings. `description` joins with " · " its anchor
+  (`file:line`, or the file alone when it has no line), `skipped in
+  round <k>`, and `code changed since` when `changed` is true, leaving
+  out the parts that do not apply. No label carries ` (recommended)`.
+- **Context.** Prose, one line per option in option order:
+  `[<SEVERITY>] <title>`, then ` (<anchor>)` when it has a `file`, then
+  ` · skipped in round <k>`, then ` · code changed since` when `changed`
+  is true, `<SEVERITY>` being the severity in capitals. This is the line
+  the gate protocol's `skipped@1` flattens to.
+
+A domain-path re-review whose json sibling is absent or unparseable
+carries no thread questions and no skipped questions: there are no
+discussion ids or reported skipped entries to build them from.
+
 When no levels are present here either (a clean review with no findings,
 and no json to confirm it), omit the `tiers` question the same way as the
-per-finding path and open the gate with `outcome` alone, so a clean review
-is approvable in one click on this branch too:
+per-finding path and open the gate with `outcome` after any thread and
+skipped questions (alone on a first review), so a clean review is
+approvable in one click on this branch too:
 
 ```json
 [{"id": "outcome", "label": "Verdict", "multi": false, "options": ["comment", "approve"]}]
@@ -1729,10 +1921,21 @@ before anything else.
    <state>`. It prints one line of JSON: `round` (the last round the
    board recorded; this pass is `round + 1`), `reviewedSha` (the commit
    that round reviewed, null when there is none), `rounds` (each round's
-   `recordedAt`), `skipped` and `confirmed`. `round: 0` means the board
-   has no record of an earlier round: this pass is round 2 when a file
-   exists at `--report`, since a prior review is in hand, else round 1.
-2. **Collect your earlier threads.** From the `mr_threads {mrUrl,
+   `round`, `reviewedSha` and `recordedAt`), `skipped` (every finding a
+   human left unticked in an earlier round and no round has brought back
+   since, each with its round-qualified `id` such as `r1-f2`, its
+   `round`, `title`, `severity`, `file`, `line`, `excerpt` and `snippet`)
+   and `confirmed`. `round: 0` means the board has no record of an
+   earlier round: this pass is round 2 when a file exists at `--report`,
+   since a prior review is in hand, else round 1.
+2. **Rebuild round 1 for a review the board never recorded.** When the
+   read printed `round: 0` and `--report` holds a prior review carrying a
+   `review-post-answer:` line, with a json sibling that parses, rebuild
+   that review as round 1 before reviewing (`Build the round-1 skipped
+   list from the prior review`), record it, and read the ledger again.
+   With no such json sibling, record nothing: there is no list to
+   rebuild.
+3. **Collect your earlier threads.** From the `mr_threads {mrUrl,
    refresh: true} (re-review)` result (the domain skill reads them
    itself), keep every thread that can be resolved, is not resolved, and
    whose first note this pane's account wrote. Leave out the board's own
@@ -1741,18 +1944,23 @@ before anything else.
    thread whose id is in `confirmed`. Each thread's `round` is
    the highest `rounds` entry whose `recordedAt` is at or before the
    thread's first note; 1 when none is.
-3. **Hand the round to the review.** Give the review (the domain skill,
-   or `Review the MR yourself`) the earlier threads, `reviewedSha` and
-   the round number, with the framing: judge each earlier thread, then
-   find what is new. With no earlier threads, say so explicitly in the
-   report's summary line; the pass is then a full review.
+4. **Hand the round to the review.** Give the review (the domain skill,
+   or `Review the MR yourself`) the earlier threads, `reviewedSha`, the
+   round number and the read's `skipped` list, each entry with the
+   `reviewedSha` of its round in `rounds`, with the framing: judge each
+   earlier thread, then find what is new, and raise no skipped finding
+   again. With no earlier threads, say so explicitly in the report's
+   summary line; the pass is then a full review.
 
 A read that exits nonzero (no board db, no state row for `<state>`)
-reads as `round: 0` with nothing confirmed: quote its stderr in the pane
-and go on. On the domain path the domain skill makes the thread read,
-so step 2 travels to it as the rule that picks the threads, with the
-`rounds` list and the `confirmed` ids (`Delegate the review to the
-domain skill`).
+reads as `round: 0` with nothing confirmed and nothing skipped: quote its
+stderr in the pane and go on. It rebuilds nothing, and this pass writes
+no `review-round:` line (`Append the review-round line to --report`), so
+no round is recorded for it: a guessed round number must never replace
+one the board holds. On the domain path the domain skill makes the
+thread read, so step 3 travels to it as the rule that picks the threads,
+with the `rounds` list and the `confirmed` ids (`Delegate the review to
+the domain skill`).
 
 Everything else (status writes, saving the report to `--report`, the gate)
 is the same: a re-review is still a review.
