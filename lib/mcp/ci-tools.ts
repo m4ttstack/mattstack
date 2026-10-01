@@ -6,7 +6,7 @@
  * cannot claim, heartbeat, release or watch on another session's behalf.
  */
 import {
-  boardDoctorOwner, claimCiLease, heartbeatCiLease, leaseOwner, parseMrIid, readCiLease, readProjectMRs, releaseCiLease, rtCommand,
+  boardDoctorOwner, claimCiLease, getSetting, heartbeatCiLease, leaseOwner, parseMrIid, readCiLease, readProjectMRs, releaseCiLease, rtCommand,
   type CiLeaseHolder, type CiLeaseOpts, type Commands,
 } from "../../packages/rt-client/src/index.ts";
 import { readChatSession } from "../chat-session.ts";
@@ -60,6 +60,7 @@ export interface CiWatchToolDeps {
   resolve: typeof resolveMrTarget;
   now: () => number;
   sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+  budgetMinutes: () => number;
 }
 
 export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -71,7 +72,20 @@ export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> 
   });
 }
 
-const realWatchDeps: CiWatchToolDeps = { projectMrs: readProjectMRs, command: rtCommand, resolve: resolveMrTarget, now: Date.now, sleep: abortableSleep };
+const BUDGET_DEFAULT = 75;
+const BUDGET_MAX = 10_080;
+const EXTEND_MAX = 1440;
+
+function isMinutes(v: unknown, max: number): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= max;
+}
+
+function settingBudget(): number {
+  const v = getSetting<number>("ci.watch.budgetMinutes").value;
+  return isMinutes(v, BUDGET_MAX) ? v : BUDGET_DEFAULT;
+}
+
+const realWatchDeps: CiWatchToolDeps = { projectMrs: readProjectMRs, command: rtCommand, resolve: resolveMrTarget, now: Date.now, sleep: abortableSleep, budgetMinutes: settingBudget };
 
 const WATCH_LIVE_MAX_AGE_MS = 5_000;
 const TRACE_TAIL = 40;
@@ -170,7 +184,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
     },
     {
       name: "ci_watch",
-      description: `GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap 1800) passes, polling every intervalSeconds (default 30, ${INTERVAL_MIN} to ${INTERVAL_MAX}, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs with a trace tail for up to five blocking failures (jobs in same-project downstream pipelines included), blockingFailures, lease and next. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. ${REPO_NAME_RULE}`,
+      description: `GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap 1800) passes, polling every intervalSeconds (default 30, ${INTERVAL_MIN} to ${INTERVAL_MAX}, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs with a trace tail for up to five blocking failures (jobs in same-project downstream pipelines included), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default ${BUDGET_DEFAULT}), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -178,6 +192,9 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           sha: { type: "string", description: "The pushed commit, 7 to 40 hex characters." },
           maxWaitSeconds: { type: "number" },
           intervalSeconds: { type: "number" },
+          budgetMinutes: { type: "number", description: `Overrides the ci.watch.budgetMinutes setting for this call, 1 to ${BUDGET_MAX}: pass the budget.minutes an extendMinutes call returned.` },
+          extendMinutes: { type: "number", description: `1 to ${EXTEND_MAX}: opens a fresh window this many minutes past the pipeline's current age (never shorter than the budget), fixed at the call's first match. Pass it after a granted extension until a result carries a non-null budget; later calls pass that budget.minutes as budgetMinutes.` },
+          freshWindow: { type: "boolean", description: "true opens a fresh window of the ci.watch.budgetMinutes setting past the pipeline's current age, as extendMinutes does; pass it after a job retry (budgetMinutes is ignored), never with extendMinutes." },
           priorPipelineId: { type: "number", description: "The MR's head pipeline id read before the push: the numeric part of a gitlab:pipeline:N id, as mr_pipeline returns it." },
           underBoardLease: { type: "boolean" },
         },
@@ -187,7 +204,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
       shellForms: ["rt ci watch"],
       async handler(input, env, signal) {
         const bad = checkRequired(input, [{ name: "sha", type: "string" }])
-          ?? checkOptional(input, [{ name: "maxWaitSeconds", type: "number" }, { name: "intervalSeconds", type: "number" }, { name: "priorPipelineId", type: "number" }, { name: "underBoardLease", type: "boolean" }])
+          ?? checkOptional(input, [{ name: "maxWaitSeconds", type: "number" }, { name: "intervalSeconds", type: "number" }, { name: "budgetMinutes", type: "number" }, { name: "extendMinutes", type: "number" }, { name: "freshWindow", type: "boolean" }, { name: "priorPipelineId", type: "number" }, { name: "underBoardLease", type: "boolean" }])
           ?? checkPositiveInts(input, ["priorPipelineId"]);
         if (bad) return err(bad);
         const sha = (input.sha as string).trim();
@@ -196,6 +213,13 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         if (!(Number.isInteger(maxWait) && maxWait >= 0 && maxWait <= 1800)) return err('"maxWaitSeconds" must be an integer from 0 to 1800');
         const interval = (input.intervalSeconds as number | undefined) ?? 30;
         if (!(Number.isInteger(interval) && interval >= INTERVAL_MIN && interval <= INTERVAL_MAX)) return err(`"intervalSeconds" must be an integer from ${INTERVAL_MIN} to ${INTERVAL_MAX}`);
+        if (input.budgetMinutes !== undefined && !isMinutes(input.budgetMinutes, BUDGET_MAX)) return err(`"budgetMinutes" must be an integer from 1 to ${BUDGET_MAX}`);
+        if (input.extendMinutes !== undefined && !isMinutes(input.extendMinutes, EXTEND_MAX)) return err(`"extendMinutes" must be an integer from 1 to ${EXTEND_MAX}`);
+        const fresh = input.freshWindow === true;
+        if (fresh && input.extendMinutes !== undefined) return err('"freshWindow" and "extendMinutes" cannot be combined');
+        const setting = w.budgetMinutes();
+        const budgetMinutes = fresh ? setting : (input.budgetMinutes as number | undefined) ?? setting;
+        const extendMinutes = fresh ? setting : (input.extendMinutes as number | undefined);
         const owner = deps.owner(env);
         if (!owner) return err(NO_SESSION);
         const target = await w.resolve(input);
@@ -248,7 +272,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         }
 
         try {
-          const r = await watchPipeline({ sha, maxWaitSeconds: maxWait, intervalSeconds: interval, ...(typeof input.priorPipelineId === "number" && { priorPipelineId: input.priorPipelineId }), ...(signal && { signal }) }, watchDeps);
+          const r = await watchPipeline({ sha, maxWaitSeconds: maxWait, intervalSeconds: interval, budgetMinutes, ...(extendMinutes !== undefined && { extendMinutes }), ...(typeof input.priorPipelineId === "number" && { priorPipelineId: input.priorPipelineId }), ...(signal && { signal }) }, watchDeps);
           return "error" in r ? err(r.error) : ok(r);
         } catch (e) {
           return err(e instanceof Error ? e.message : String(e));

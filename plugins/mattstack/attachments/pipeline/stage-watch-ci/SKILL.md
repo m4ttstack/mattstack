@@ -56,10 +56,11 @@ digraph watch_ci {
     "Which forge watches?" [shape=diamond];
     "Gate clarify: which forge?" [shape=box];
 
-    "ci_watch {repoName, iid, sha, priorPipelineId?}" [shape=plaintext];
+    "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [shape=plaintext];
     "ci_watch state?" [shape=diamond];
     "STOP: GitLab CI watches go through ci_watch, reads and retries through mr_job_trace and mr_retry, never the GitLab CLI" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Watch calls = 9?" [shape=diamond];
+    "budget.spent?" [shape=diamond];
+    "Waiting results in a row = 2?" [shape=diamond];
     "Re-claims after a lost lease = 2?" [shape=diamond];
     "Verify the branch was pushed (stage)" [shape=box];
     "Fixed the ci_watch call once already?" [shape=diamond];
@@ -142,13 +143,14 @@ digraph watch_ci {
     "Fix what the claim error names (stage)" -> "ci_lease_claim {mrUrl: <mr>, branch}";
     "STOP: while another attendant holds the lease, every commit, push and retry is theirs (stage)" -> "Stand down: report it and stop (stage)";
     "git rev-parse HEAD (the pushed sha)" -> "Which forge watches?";
-    "Which forge watches?" -> "ci_watch {repoName, iid, sha, priorPipelineId?}" [label="GitLab"];
+    "Which forge watches?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="GitLab"];
     "Which forge watches?" -> "gh pr checks <mr> (stage poll)" [label="GitHub"];
     "Which forge watches?" -> "Gate clarify: which forge?" [label="anything else"];
     "Gate clarify: which forge?" -> "Which forge watches?" [label="answered: the named forge"];
 
-    "ci_watch {repoName, iid, sha, priorPipelineId?}" -> "ci_watch state?";
-    "ci_watch state?" -> "Watch calls = 9?" [label="running or waiting"];
+    "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" -> "ci_watch state?";
+    "ci_watch state?" -> "budget.spent?" [label="running"];
+    "ci_watch state?" -> "Waiting results in a row = 2?" [label="waiting"];
     "ci_watch state?" -> "Forge host (stage draft check)?" [label="success or success_with_warnings"];
     "ci_watch state?" -> "Triage with what?" [label="failed"];
     "ci_watch state?" -> "Gate ci (table below)" [label="canceled, skipped, manual, superseded or aborted"];
@@ -158,14 +160,15 @@ digraph watch_ci {
     "Re-claims after a lost lease = 2?" -> "Gate ci (table below)" [label="yes: the lease keeps vanishing"];
     "ci_watch state?" -> "Fixed the ci_watch call once already?" [label="tool error"];
     "ci_watch state?" -> "STOP: GitLab CI watches go through ci_watch, reads and retries through mr_job_trace and mr_retry, never the GitLab CLI" [label="tempted to watch with a script or the GitLab CLI"];
-    "STOP: GitLab CI watches go through ci_watch, reads and retries through mr_job_trace and mr_retry, never the GitLab CLI" -> "ci_watch {repoName, iid, sha, priorPipelineId?}";
-    "Watch calls = 9?" -> "ci_watch {repoName, iid, sha, priorPipelineId?}" [label="no: call again"];
-    "Watch calls = 9?" -> "Verify the branch was pushed (stage)" [label="yes, still waiting: no pipeline for the sha"];
-    "Watch calls = 9?" -> "Gate ci (table below)" [label="yes, still running: timeout"];
+    "STOP: GitLab CI watches go through ci_watch, reads and retries through mr_job_trace and mr_retry, never the GitLab CLI" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}";
+    "budget.spent?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="false: call again"];
+    "budget.spent?" -> "Gate ci (table below)" [label="true: timeout"];
+    "Waiting results in a row = 2?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="no: call again"];
+    "Waiting results in a row = 2?" -> "Verify the branch was pushed (stage)" [label="yes: no pipeline for the sha"];
     "Verify the branch was pushed (stage)" -> "Gate ci (table below)";
     "Fixed the ci_watch call once already?" -> "Fix what the ci_watch error names (stage)" [label="no"];
     "Fixed the ci_watch call once already?" -> "Off-script gate: ci_watch refused (gate-protocol, scope off-script:watch-ci:<n>)" [label="yes"];
-    "Fix what the ci_watch error names (stage)" -> "ci_watch {repoName, iid, sha, priorPipelineId?}";
+    "Fix what the ci_watch error names (stage)" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}";
     "Off-script gate: ci_watch refused (gate-protocol, scope off-script:watch-ci:<n>)" -> "off-script answer (ci_watch)?";
     "off-script answer (ci_watch)?" -> "Verdict the human reported?" [label="take: the human read the pipeline"];
     "off-script answer (ci_watch)?" -> "Off-script rounds = 2 (ci_watch, stage)?" [label="iterate: the human fixed it"];
@@ -173,7 +176,7 @@ digraph watch_ci {
     "off-script answer (ci_watch)?" -> "Was a lease claimed?" [label="hand back: a failure, the refusal is the reason"];
     "Verdict the human reported?" -> "Forge host (stage draft check)?" [label="green for the pushed sha"];
     "Verdict the human reported?" -> "Gate ci (table below)" [label="red, or not for the pushed sha"];
-    "Off-script rounds = 2 (ci_watch, stage)?" -> "ci_watch {repoName, iid, sha, priorPipelineId?}" [label="no: watch again"];
+    "Off-script rounds = 2 (ci_watch, stage)?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="no: watch again"];
     "Off-script rounds = 2 (ci_watch, stage)?" -> "Was a lease claimed?" [label="yes: a failure, the refusals are the reason"];
 
     "gh pr checks <mr> (stage poll)" -> "gh pr checks exit?";
@@ -324,7 +327,8 @@ refusal is the reason).
 
 ### Verify the branch was pushed (stage)
 
-Nine `ci_watch` calls found no pipeline for the pushed sha. Compare `git
+Two `ci_watch` calls in a row returned `waiting`: no pipeline exists for
+the pushed sha. Compare `git
 rev-parse HEAD` with the remote branch. Unpushed: the `ci` gate says "ship
 first". Pushed: the `ci` gate says no pipeline ran for that sha.
 
@@ -391,8 +395,15 @@ unset nothing was claimed. Fix and re-push keeps it, because the re-run
 claims it again. The stand-down never touches it: that lease is someone
 else's.
 
-`Watch calls = 9` is 45 minutes of 300 second `ci_watch` calls; it resets
-when the pushed sha changes and after a job retry. The stage has no prior
+`budget.spent?` reads the `budget` field of a `running` result: `ci_watch`
+measures it from the pipeline's own start against the
+`ci.watch.budgetMinutes` setting, so there are no calls to count. A job
+retry keeps the pipeline's start, so after one pass `freshWindow: true` alone
+until a result carries a non-null `budget`, then that result's
+`budget.minutes` as `budgetMinutes` on every later call for the sha.
+`Waiting results in a row = 2?` counts consecutive `waiting` results (their
+`budget` is null); any other state resets it, and so does a new pushed sha
+or a job retry. The stage has no prior
 pipeline id: pass `priorPipelineId` only when a `ci_watch` result itself
 returns a `priorPipelineId` field, and pass that field's value. The watched
 pipeline's own `pipeline.id` is never a prior id.

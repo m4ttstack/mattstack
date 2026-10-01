@@ -370,6 +370,7 @@ describe("settings/registry", () => {
         "rt.daemonPath",
         "rt.notify.eventBridges",
         "rt.gates.escalationTtlMinutes",
+        "ci.watch.budgetMinutes",
         "skills.writingStyle",
         "herd.watchdog.enabled",
         "herd.watchdog.fastMins",
@@ -382,7 +383,7 @@ describe("settings/registry", () => {
         "herd.watchdog.midRunTrustAccept",
         "panes.relocationAutoAccept",
       ];
-      expect(suiteKeys).toHaveLength(77);
+      expect(suiteKeys).toHaveLength(78);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
