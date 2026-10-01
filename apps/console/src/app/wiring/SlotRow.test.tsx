@@ -26,22 +26,33 @@ function slot(over: Partial<SlotOutlineNode> = {}): SlotOutlineNode {
 }
 
 describe('SlotRow: the layer that set the slot', () => {
-  test('badges the layer beside the fill', () => {
+  test.each([
+    ['default', 'default'],
+    ['pack', 'this pack'],
+    ['override', 'your override'],
+    ['base:acme-base', 'base: acme-base'],
+  ])('badges the %s layer beside the fill as "%s"', (layer, shown) => {
     renderWithProviders(
-      <SlotRow slot={slot({ layer: 'override' })} onShowSites={() => {}} />
+      <SlotRow slot={slot({ layer })} onShowSites={() => {}} />
     );
 
-    expect(
-      within(screen.getByTestId('slot-gates')).getByText('override')
-    ).toBeInTheDocument();
+    const row = screen.getByTestId('slot-gates');
+    expect(within(row).getByText(shown)).toBeInTheDocument();
+    if (layer !== shown)
+      expect(within(row).queryByText(layer)).not.toBeInTheDocument();
   });
 
   test('shows no layer badge when rt states no layer', () => {
     renderWithProviders(<SlotRow slot={slot()} onShowSites={() => {}} />);
 
     const row = screen.getByTestId('slot-gates');
-    for (const layer of ['default', 'pack', 'override', 'base:acme-base']) {
-      expect(within(row).queryByText(layer)).not.toBeInTheDocument();
+    for (const shown of [
+      'default',
+      'this pack',
+      'your override',
+      'base: acme-base',
+    ]) {
+      expect(within(row).queryByText(shown)).not.toBeInTheDocument();
     }
   });
 });

@@ -11,6 +11,7 @@ import {
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 
+import { layerLabel } from './layerLabel';
 import type { SlotOutlineNode } from './outline';
 import { QuietBadge } from './QuietBadge';
 
@@ -122,7 +123,7 @@ export function SlotRow({
         </Text>
         <Icons.arrowRight size={12} color={text.muted} />
         <FillLink slot={slot} onShowSites={onShowSites} />
-        {slot.layer && <QuietBadge>{slot.layer}</QuietBadge>}
+        {slot.layer && <QuietBadge>{layerLabel(slot.layer)}</QuietBadge>}
         {unbound && slot.required === false && (
           <QuietBadge>optional</QuietBadge>
         )}
