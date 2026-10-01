@@ -11,13 +11,19 @@ on a dark and a light terminal background.
 | `statuses-dark.png`, `statuses-light.png` | the seven statuses the fixture does not use (pending, off, refused, stale, skipped, warn, running) |
 | `errors-dark.png`, `errors-light.png` | the error seam at 100 columns: an expected failure with a reason and a next step, one with only a message, a title longer than the pane, an unexpected error with and without its stack, and `rt --grant-fda` |
 | `errors-narrow-light.png` | the same at 60 columns: titles, callout bodies and stack lines wrap under their own text and keep the bar or rail |
+| `settings-dark.png`, `settings-light.png` | the settings verbs at 100 columns, blocks captured from the real verbs: `set` (tip and next), `get` (the human half; the value is the stdout payload), `list` (an excerpt with an invalid and an unregistered caveat), `explain`, `check` (one failing), `unset` twice, and the two refusals |
 
 Known at the time of these renders: the diff tints blend toward the dark theme
 background, so on a light terminal the two diff lines are dark blocks (owned by
 the phase that first prints a diff); the table rule and tree branches use the
 `Rule` tone and are faint on dark, as is the rail beside a stack. A status
 line with a hint does not wrap yet, and a wrapped `--flag` can break at its
-hyphens.
+hyphens. In the settings renders the `check` table is the worst case: a detail row's text
+widens the shared scope column, so the file path is pushed past 100 columns and wraps mid-word, and long
+`list` values (`rt.homeSnapshot`) wrap flush left with no indent. On a light terminal the peach `next`
+label and warn caveats and the bright green on `done` marks and `explain` rungs are low contrast, and
+peach is shared by `next` and warn, so a `next` rail reads like a warning. On a dark terminal the
+`explain` branches are close to invisible.
 
 To regenerate: write the hello line and the fixture blocks as NDJSON, pipe them
 through `ui/dist/rt-ui render --width 80` with `COLORTERM=truecolor`, and view
