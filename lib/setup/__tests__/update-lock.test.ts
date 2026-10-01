@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { createUpdateLock, UPDATE_LOCK_MAX_AGE_MS, updateLockPath } from "../update-lock.ts";
@@ -130,5 +130,15 @@ describe("createUpdateLock", () => {
 
     expect(() => createUpdateLock(path, { pid: 222, alive: everyoneAlive }).acquire()).toThrow();
     expect(existsSync(join(path, "inner"))).toBe(true);
+  });
+
+  test("release never throws, even when the lock path has stopped being a readable file", () => {
+    const lock = createUpdateLock(path, { pid: 111, alive: everyoneAlive });
+    lock.acquire();
+    rmSync(path);
+    mkdirSync(path);
+
+    expect(() => lock.release()).not.toThrow();
+    expect(existsSync(path)).toBe(true);
   });
 });

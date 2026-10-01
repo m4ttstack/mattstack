@@ -367,15 +367,17 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
   // A lock that cannot be taken must not stop a Mac from being updated.
   let lock = deps.updateLock;
   let lockError: string | null = null;
+  let busy = false;
   try {
-    if (lock && !lock.acquire()) {
-      if (json) emit({ event: "done", ok: true, skipped: "running" });
-      else deps.print("setup update: another update run is in progress");
-      return;
-    }
+    busy = lock !== undefined && !lock.acquire();
   } catch (err) {
     lockError = err instanceof Error ? err.message : String(err);
     lock = undefined;
+  }
+  if (busy) {
+    if (json) emit({ event: "done", ok: true, skipped: "running" });
+    else deps.print("setup update: another update run is in progress");
+    return;
   }
 
   let needsAttention = false;

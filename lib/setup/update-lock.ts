@@ -10,7 +10,7 @@ import { dirname, join } from "path";
 export interface UpdateLock {
   /** False when another live run holds the lock. Throws when the lock file cannot be created or read. */
   acquire(): boolean;
-  /** Frees the lock only if this instance holds it. */
+  /** Frees the lock only if this instance holds it. Never throws. */
   release(): void;
 }
 
@@ -52,8 +52,8 @@ export function createUpdateLock(path: string, opts: UpdateLockOptions = {}): Up
   // between.
   const take = (): boolean => {
     const scratch = `${path}.${pid}.tmp`;
-    writeFileSync(scratch, String(pid));
     try {
+      writeFileSync(scratch, String(pid));
       linkSync(scratch, path);
       return true;
     } catch (err) {
@@ -102,8 +102,14 @@ export function createUpdateLock(path: string, opts: UpdateLockOptions = {}): Up
     release() {
       if (!held) return;
       held = false;
-      // A run evicted by the age cap no longer owns the file at this path.
-      if (holderPid() === pid) rmSync(path, { force: true });
+      // A run evicted by the age cap no longer owns the file at this path, and
+      // one that cannot be read is not provably this run's either. Release sits
+      // in a finally, where a throw would replace the run's own error.
+      try {
+        if (holderPid() === pid) rmSync(path, { force: true });
+      } catch {
+        return;
+      }
     },
   };
 }
