@@ -1990,7 +1990,7 @@ describe("skillsComposition --json", () => {
     const payload = await compositionJson(packFlags);
 
     const stage = payload.targets.find((t: { name: string }) => t.name === "stage-plan");
-    expect(stage).toMatchObject({ kind: "stage", public: false });
+    expect(stage).toMatchObject({ kind: "stage", public: false, engineError: null });
     expect(stage.artifactPath.endsWith("/attachments/stage-plan/SKILL.md")).toBe(true);
     expect(stage.templatePath).toBe(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"));
     expect(stage.placeholders.map((p: { kind: string }) => p.kind)).toEqual(["include", "slot"]);
@@ -2008,7 +2008,22 @@ describe("skillsComposition --json", () => {
       artifactPath: join(packDir, "skills", "watch-ci", "SKILL.md"),
       templatePath: join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci", "SKILL.md"),
       placeholders: [],
+      engineError: null,
     });
+  });
+
+  test("a target whose engine cannot load carries the load error instead of a template", async () => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir();
+    writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_TWO_VERBS);
+    const manifestPath = makeManifest();
+
+    const payload = await compositionJson(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]);
+
+    const broken = payload.targets.find((t: { name: string }) => t.name === "broken");
+    expect(broken).toMatchObject({ kind: "verb", templatePath: null, placeholders: [] });
+    expect(broken.engineError).toContain("no-such-engine");
+    expect(payload.targets.find((t: { name: string }) => t.name === "watch-ci").engineError).toBeNull();
   });
 
   test("verb, slots, fills, and binders reflect the manifest", async () => {
@@ -2408,9 +2423,44 @@ describe("skillsAnatomy --json", () => {
     const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
     await runSkills(["compile", ...packFlags]);
     const text = await runSkills(["anatomy", "--skill", "stage-plan", ...packFlags]);
-    expect(() => JSON.parse(text)).toThrow();
-    expect(text).toContain("gate-protocol");
-    expect(text).toContain("12-12");
+    const { parts } = await anatomyJson(["--skill", "stage-plan", ...packFlags]);
+    const [header, ...rows] = text.split("\n").filter((l) => l.trim() !== "");
+    expect(header!.split(/\s{2,}/)).toEqual(["Part", "Name", "Template lines", "Rendered lines"]);
+    expect(rows).toHaveLength(parts.length);
+    rows.forEach((row, i) => {
+      const p = parts[i];
+      const cells = [p.kind, p.name, `${p.templateLines[0]}-${p.templateLines[1]}`, `${p.renderedLines[0]}-${p.renderedLines[1]}`].filter((c) => c !== null);
+      expect(row.trim().split(/\s{2,}/)).toEqual(cells);
+    });
+  });
+
+  test("anatomy of a roster verb reports it public, with the verb's own description", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    await runSkills(["compile", ...packFlags]);
+    const a = await anatomyJson(["--skill", "watch-ci", ...packFlags]);
+    expect(a).toMatchObject({ skill: "watch-ci", kind: "verb", public: true, description: "Use when watching or triaging CI.", status: "in-sync" });
+    expect(a.rendered.path.endsWith("/skills/watch-ci/SKILL.md")).toBe(true);
+    expect(a.parts.map((p: { kind: string; name: string | null }) => [p.kind, p.name])).toEqual([["text", null], ["slot", "domain"]]);
+  });
+
+  test("a stale skill whose fill grew points named parts at their markers in the file on disk", async () => {
+    const packFlags = makeStagePackFlags("intro\n{{slot:domain}}\n{{include:gate-protocol}}\noutro");
+    const mattstackDir = packFlags[packFlags.indexOf("--mattstack-dir") + 1]!;
+    await runSkills(["compile", ...packFlags]);
+    const fillPath = join(mattstackDir, "plugins", "acme", "attachments", "watch-ci-domain", "SKILL.md");
+    writeFile(fillPath, readFileSync(fillPath, "utf8").replace("for details.", "for details.\nA second rule.\nA third rule."));
+
+    const a = await anatomyJson(["--skill", "stage-plan", ...packFlags]);
+    expect(a.status).toBe("stale");
+    expect(a.parts.map((p: { kind: string }) => p.kind)).toEqual(["text", "slot", "include", "text"]);
+    const lines = readFileSync(a.rendered.path, "utf8").split("\n");
+    const [intro, slot, inc, outro] = a.parts;
+    expect(lines[slot.renderedLines[0] - 1]).toStartWith("<!-- part: slot:domain ");
+    expect(slot.renderedLines[1] - slot.renderedLines[0]).toBe(1);
+    expect(lines[inc.renderedLines[0] - 1]).toStartWith("<!-- part: include:gate-protocol ");
+    expect(lines[inc.renderedLines[1] - 1]).toBe("Wait for the answer.");
+    expect(intro.renderedLines).toBeNull();
+    expect(outro.renderedLines).toBeNull();
   });
 });
 

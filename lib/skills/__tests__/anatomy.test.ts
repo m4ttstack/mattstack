@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildParts, linksIn, partsFromMarkers, type AnatomySource } from "../anatomy.ts";
+import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPart, type AnatomySource } from "../anatomy.ts";
 import type { TraceEntry } from "../placeholders.ts";
 
 const gate: AnatomySource = { ref: "mattstack:gate-protocol", path: "/m/attachments/gate-protocol/SKILL.md", version: "0.30.4", builtVersion: "0.28.10", lines: 446 };
@@ -111,6 +111,29 @@ describe("partsFromMarkers", () => {
       ["slot", "d", [5, 11]],
       ["include", "x", [8, 10]],
     ]);
+  });
+});
+
+describe("partsOnDisk", () => {
+  const part = (kind: AnatomyPart["kind"], name: string | null, renderedLines: [number, number]): AnatomyPart =>
+    ({ kind, name, templateLines: [1, 1], renderedLines, mode: null, source: null, target: null, changed: false });
+
+  test("named parts move to their on-disk marker, preferring a top-level one over a nested one; the rest lose their range", () => {
+    const md = [
+      "<!-- part: step source=m:s version=1 path=a lines=1-2 -->", "",
+      "<!-- part: slot:d binding=acme:p version=1 path=b lines=1-2 -->",
+      "intro",
+      "<!-- part: include:x source=m:x version=1 path=c lines=1-1 -->", "x1",
+      "<!-- part: include:x source=m:x version=1 path=c lines=1-1 -->", "x1",
+      "",
+    ].join("\n");
+    const parts = [part("text", null, [1, 1]), part("slot", "d", [9, 9]), part("include", "x", [20, 21]), part("verb.path", "y", [30, 30])];
+    expect(partsOnDisk(parts, md).map((p) => p.renderedLines)).toEqual([null, [3, 6], [7, 8], null]);
+  });
+
+  test("a part with no marker left on disk has no range", () => {
+    const md = ["<!-- part: step source=m:s version=1 path=a lines=1-1 -->", "", "body"].join("\n");
+    expect(partsOnDisk([part("include", "x", [3, 4])], md)[0]!.renderedLines).toBeNull();
   });
 });
 

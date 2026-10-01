@@ -39,7 +39,7 @@ import { createRealProbes } from "../lib/setup/probes.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
-import { buildParts, linksIn, partsFromMarkers, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
+import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
@@ -647,18 +647,18 @@ function loadIncludesFor(
   resolved: Resolved,
   where: string,
 ): Record<string, AttachmentSource> {
-  const out: Record<string, AttachmentSource> = {};
+  const loaded: Record<string, AttachmentSource> = {};
   const fillBodies = Object.values(fills)
     .filter((f): f is AttachmentSource => f !== null && isInlined(f, resolved.internalRoster))
     .map((f) => f.body);
   for (const name of includeNames([step.body, ...fillBodies])) {
     try {
-      out[name] = loadInclude(name, resolved.pluginRoots);
+      loaded[name] = loadInclude(name, resolved.pluginRoots);
     } catch (err) {
       throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
     }
   }
-  return out;
+  return loaded;
 }
 
 /** Every stage's own rules plus its bound fills' rules; unioned into the orchestrator because a stage read as a file loads no frontmatter of its own. */
@@ -1357,6 +1357,7 @@ type CompositionTarget = {
   templatePath: string | null;
   /** Line numbers count the engine file's frontmatter, so they open the template at the right line. */
   placeholders: { kind: string; arg: string | null; line: number }[];
+  engineError: string | null;
 };
 
 export type CompositionPayload = {
@@ -1527,11 +1528,12 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
 
 function buildCompositionTargets(resolved: Resolved, publicSet: Set<string> | null): CompositionTarget[] {
   return compileTargets(resolved, publicSet, null).targets.map((t) => {
-    let step: StepSource | null;
+    let step: StepSource | null = null;
+    let engineError: string | null = null;
     try {
       step = loadStepSource(t.verb.engine, resolved.pluginRoots);
-    } catch {
-      step = null;
+    } catch (err) {
+      engineError = (err as Error).message;
     }
     return {
       name: t.verb.name,
@@ -1542,6 +1544,7 @@ function buildCompositionTargets(resolved: Resolved, publicSet: Set<string> | nu
       placeholders: step
         ? findPlaceholders(step.body).map((p) => ({ kind: p.kind, arg: p.arg, line: step.bodyStartLine + p.line - 1 }))
         : [],
+      engineError,
     };
   });
 }
@@ -1695,11 +1698,13 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
 
     const bodyOffset = fresh.split("\n").findIndex((l) => l.startsWith("<!-- part: step ")) + 2;
     const changedKeys = onDisk ? changedPartKeys(onDisk, fresh) : new Set<string>();
-    const parts = trace.length > 0
-      ? buildParts({ bodyStartLine: step.bodyStartLine, bodyOffset, trace, sources, targets, slotModes: slotMode, changedKeys })
-      : partsFromMarkers(shown, sources, changedKeys);
     // check masks the compiler's version and sha stamps before comparing, and so must this, or the two disagree.
     const staleBecause = onDisk ? skillMdDriftCauses(maskProvenance(onDisk), maskProvenance(fresh)) : [];
+    const status = onDisk === null ? "never-compiled" : staleBecause.length > 0 ? "stale" : "in-sync";
+    let parts = trace.length > 0
+      ? buildParts({ bodyStartLine: step.bodyStartLine, bodyOffset, trace, sources, targets, slotModes: slotMode, changedKeys })
+      : partsFromMarkers(shown, sources, changedKeys);
+    if (trace.length > 0 && onDisk !== null && status === "stale") parts = partsOnDisk(parts, onDisk);
     const templatePath = join(step.dir, "SKILL.md");
 
     const payload: AnatomyPayload = {
@@ -1716,7 +1721,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
         lines: fileLineCount(readFileSync(templatePath, "utf8")),
       },
       rendered: { path: renderedPath, exists: onDisk !== null, lines: fileLineCount(shown) },
-      status: onDisk === null ? "never-compiled" : staleBecause.length > 0 ? "stale" : "in-sync",
+      status,
       staleBecause,
       parts,
       links: linksIn(shown),

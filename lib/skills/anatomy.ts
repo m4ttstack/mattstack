@@ -1,4 +1,4 @@
-import { partExtents, type DriftCause } from "./drift.ts";
+import { partExtents, type DriftCause, type PartExtent } from "./drift.ts";
 import type { TraceEntry } from "./placeholders.ts";
 
 export type AnatomyPartKind = "text" | "include" | "slot" | "verb.path" | "variable";
@@ -103,6 +103,26 @@ export function partsFromMarkers(rendered: string, sources: Record<string, Anato
     parts.push({ kind, name: x.key.slice(colon + 1), templateLines: null, renderedLines: [x.start + 1, x.end + 1], mode: kind === "slot" ? "inline" : null, source: sources[x.key] ?? null, target: null, changed: changedKeys.has(x.key) });
   }
   return parts;
+}
+
+/**
+ * A stale file no longer lines up with a fresh compile, so only a part with a
+ * marker of its own can be found in it; text between markers has no anchor.
+ * Parts come from the step body, whose markers are the top-level ones, so a
+ * same-named include nested inside a fill is the last resort.
+ */
+export function partsOnDisk(parts: AnatomyPart[], onDisk: string): AnatomyPart[] {
+  const extents = partExtents(onDisk);
+  const nested = (x: PartExtent) => extents.some((y) => y !== x && y.start < x.start && x.end <= y.end);
+  const byKey = new Map<string, PartExtent[]>();
+  for (const x of [...extents.filter((x) => !nested(x)), ...extents.filter(nested)]) {
+    byKey.set(x.key, [...(byKey.get(x.key) ?? []), x]);
+  }
+  return parts.map((p) => {
+    if (p.kind !== "include" && p.kind !== "slot") return { ...p, renderedLines: null };
+    const x = byKey.get(`${p.kind}:${p.name}`)?.shift();
+    return { ...p, renderedLines: x ? [x.start + 1, x.end + 1] : null };
+  });
 }
 
 const LINK_RE = /(?:\.\.\/)+(?:attachments|skills)\/[a-z0-9][a-z0-9-]*\/[A-Za-z0-9_./-]+\.md|(?<![A-Za-z0-9_.-])parts\/[A-Za-z0-9_./-]+\.md/g;
