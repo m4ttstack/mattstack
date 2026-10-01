@@ -6,6 +6,7 @@ import {
   summarizeDiscussions,
   summarizeThreads,
   threadsOpenedBy,
+  threadStarter,
   unresolvedReviewerCount,
 } from '../discussions.ts';
 import { armedLatchBody, spentLatchBody } from '../latch/markers.ts';
@@ -318,5 +319,20 @@ describe('threadsOpenedBy', () => {
     expect(threadsOpenedBy(threads, 'me')).toHaveLength(2);
     expect(threadsOpenedBy(threads, 'other')).toHaveLength(1);
     expect(threadsOpenedBy(threads, 'nobody')).toHaveLength(0);
+  });
+});
+
+describe('threadStarter', () => {
+  test('is the first human note, past any system note', () => {
+    const d = detail([
+      { notes: [note('gitlab', { system: true }), note('kim'), note('pat')] },
+    ]);
+    expect(threadStarter(d, 'd0')).toBe('kim');
+  });
+
+  test('is undefined for a discussion the MR does not have', () => {
+    expect(threadStarter(detail([{ notes: [note('kim')] }]), 'd9')).toBe(
+      undefined
+    );
   });
 });

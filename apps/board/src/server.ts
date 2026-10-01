@@ -89,6 +89,7 @@ import {
 import {
   summarizeDiscussions,
   threadsOpenedBy,
+  threadStarter,
   threadStatusCounts,
   unresolvedReviewerCount,
 } from './discussions.ts';
@@ -1541,6 +1542,23 @@ const httpServer = Bun.serve({
             `"${change.repo}" is not a recognized repo identity`,
             { status: 400 }
           );
+        {
+          const read = await readDiscussions(repoId, change.iid);
+          if (!read.ok || !read.data)
+            return new Response(
+              `discussions read failed: ${read.error ?? 'empty daemon response'}`,
+              { status: 502 }
+            );
+          const starter = threadStarter(
+            { discussions: read.data.discussions } as MRDetail,
+            change.discussionId
+          );
+          if (starter === undefined)
+            return new Response('unknown thread', { status: 404 });
+          const seat = seatOf(config.defaultMember);
+          if (seat === null || starter !== seat)
+            return new Response('not your thread', { status: 403 });
+        }
         return threadWriteResponse(
           await resolveThread(
             sendThreadWrite,
