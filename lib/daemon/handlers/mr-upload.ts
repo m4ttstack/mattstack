@@ -5,7 +5,9 @@
  * gives every other GitLab verb, and it reports through providerRequestHook
  * like a provider call. The allowed roots are assembled per call: the target
  * repo's index path and worktree registry, the Claude Code temp root for this
- * uid, and rt.mcp.uploadRoots read through the resolver at call time.
+ * uid, and rt.mcp.uploadRoots read through the resolver at call time. The
+ * guard adds its own built-in roots (rt's evidence folder, a run's evidence
+ * folder) on top of these.
  */
 import { isAbsolute } from "path";
 import { decodeRepo } from "../identity-decoder.ts";

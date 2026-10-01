@@ -861,6 +861,7 @@ describe("mcpTools", () => {
       expect(tool.description.startsWith("GitLab only.")).toBe(true);
       expect(tool.description).toContain("rt.mcp.uploadRoots");
       expect(tool.description).toContain("~/.mattstack/work/<run id>/evidence/");
+      expect(tool.description).toContain("~/.mattstack/evidence/");
       expect(tool.description).toContain("png");
       expect(tool.description).toContain("50 MB");
     });

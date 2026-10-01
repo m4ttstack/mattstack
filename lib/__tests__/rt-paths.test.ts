@@ -21,7 +21,7 @@ import { tmpdir } from "os";
 const realHostname = osReal.hostname;
 import { basename, dirname, join } from "path";
 import {
-  rtDir, reposDir, repoDataDir, logsDir,
+  rtDir, reposDir, repoDataDir, logsDir, evidenceDir,
   worktreePoolRoot, legacyWorktreePoolRoots, goldenRoot,
   migrateLegacyRtDir, legacyDirsPresent,
   TRAY_APP_NAME, DEV_TRAY_APP_NAME, TRAY_APP_BUNDLE, DEV_TRAY_APP_BUNDLE,
@@ -56,6 +56,13 @@ describe("rt-paths", () => {
     expect(logsDir()).toBe("/tmp/home-logs-1/.mattstack/rt/logs");
     process.env.HOME = "/tmp/home-logs-2";
     expect(logsDir()).toBe("/tmp/home-logs-2/.mattstack/rt/logs");
+  });
+
+  test("evidenceDir sits beside the rt dir under ~/.mattstack at call-time HOME", () => {
+    process.env.HOME = "/tmp/home-evidence-1";
+    expect(evidenceDir()).toBe("/tmp/home-evidence-1/.mattstack/evidence");
+    process.env.HOME = "/tmp/home-evidence-2";
+    expect(evidenceDir()).toBe("/tmp/home-evidence-2/.mattstack/evidence");
   });
 
   test("a repo dir is NEVER directly under the rt dir (regression guard for the move)", () => {
