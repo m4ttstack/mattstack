@@ -132,6 +132,7 @@ digraph review {
     "Open the review off-script gate: gh pr review refused" [shape=box];
     "gh pr review off-script answer?" [shape=diamond];
     "gh pr comment <ref> with the summary body" [shape=plaintext];
+    "This review already on the MR?" [shape=diamond];
     "Compose the submitted review: comments, summary, outcome" [shape=box];
     "mr_review_submit {mrUrl, outcome, summary, comments, replies}" [shape=plaintext];
     "mr_review_submit result?" [shape=diamond];
@@ -292,7 +293,7 @@ digraph review {
     "Review iterate note asks for another depth?" -> "Review report path given?" [label="no: draft edits only; the next gate is a new one"];
 
     "Review posting forge?" -> "gh pr review <ref> with the disposition and the summary body" [label="GitHub"];
-    "Review posting forge?" -> "Compose the submitted review: comments, summary, outcome" [label="GitLab"];
+    "Review posting forge?" -> "This review already on the MR?" [label="GitLab"];
     "gh pr review <ref> with the disposition and the summary body" -> "gh pr review result?";
     "gh pr review result?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="posted"];
     "gh pr review result?" -> "Open the review off-script gate: gh pr review refused" [label="error"];
@@ -302,6 +303,10 @@ digraph review {
     "gh pr review off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
     "gh pr review off-script answer?" -> "Own review run: close it as abandoned?" [label="hand back"];
     "gh pr comment <ref> with the summary body" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}";
+    "This review already on the MR?" -> "Compose the submitted review: comments, summary, outcome" [label="no: nothing from it is up"];
+    "This review already on the MR?" -> "Open the review off-script gate: mr_approve refused" [label="yes, approval outstanding"];
+    "This review already on the MR?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="yes, nothing outstanding"];
+    "This review already on the MR?" -> "Open the review off-script gate: mr_review_submit refused" [label="partly: some of its comments are up without its summary"];
     "Compose the submitted review: comments, summary, outcome" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies}";
     "mr_review_submit {mrUrl, outcome, summary, comments, replies}" -> "mr_review_submit result?";
     "mr_review_submit result?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="published, approved as asked: keep mrUrl"];
@@ -639,6 +644,28 @@ block and resets the verify-round counter, since a deeper depth means new
 setup and a fresh verify pass. Anything else is a draft edit only:
 re-present, and the next gate is a NEW gate, never the old one reopened.
 
+### This review already on the MR?
+
+Asked before anything posts on GitLab. A run that never held at the
+submit or the approval gate answers no: nothing from this review is up.
+On a resume, the latest hold's reason is the record (see Review
+off-script gates): the review is already posted when that reason names
+it as posted, by the submit or by the human in the forge UI, and the same
+reason says whether the approval is outstanding. A reason that leaves it
+open (an unknown or partly landed publish, or "gate closed") is settled
+from the MR with `mr_threads {mrUrl, refresh: true}`: a top-level note carrying this
+review's summary, written by this account, means it is posted; some of
+this review's comments without that note means partly; neither means no.
+On an approve, an approval the reason does not name as landed is
+outstanding.
+
+- **Yes, approval outstanding:** the approval gate, whose iterate runs
+  `mr_approve` alone. The review is never submitted again.
+- **Yes, nothing outstanding:** the post record, with nothing posted.
+- **Partly:** the refused-review gate, whose move is the human finishing
+  the review in the forge UI.
+- **No:** compose and submit.
+
 ### Compose the submitted review: comments, summary, outcome
 
 One call carries the whole review. `comments` is one entry per selected
@@ -652,16 +679,17 @@ the lowest-tier anchored findings go in the summary's issue list instead.
 
 ### Move the bad-anchor findings into the summary
 
-The result's `badAnchors` names comments by their index in `comments`.
-Nothing posted. Take each named finding out of `comments` and add it to
-the summary's issue list with its `file:line` in the text, as a finding
-with no anchor. Call again with the rest unchanged. This happens once: a
+The result's `badAnchors` names comments by `index`, the zero-based
+position in the `comments` array that was sent. Nothing posted. Take each
+named finding out of `comments` and add it to the summary's issue list
+with its `file:line` in the text, as a finding with no anchor. Call again with the rest unchanged. This happens once: a
 second bad-anchors result is a refusal.
 
 ### Make the recorded review move once
 
-Exactly the move the off-script gate recorded for the refused review,
-once.
+The human made the move the off-script gate recorded, in the forge UI.
+The pane posts nothing here: it only records what the human did, once,
+and goes on to the post record.
 
 ### Make the recorded approval move once
 
@@ -693,10 +721,21 @@ Nothing is on the MR unless the error says the outcome is unknown or that
 it only partly landed. The proposed move: the human posts the review in
 the forge UI, approving it on an approve (the summary and every comment
 quoted in full in `context`), and the run records it as posted by the
-human. When the error says the outcome is unknown or that it only partly
-landed, `context` says so first, and the human looks for the summary on
-the MR before choosing: a summary already there means the review is up,
-and take records it without posting it again.
+human.
+
+- **Outcome unknown:** `context` says so first, and the human looks for
+  the summary on the MR before choosing: a summary already there means
+  the review is up, and take records it without posting it again.
+- **Only partly landed:** `context` says first that some of this review's
+  comments may be on the MR without its summary, and that the human
+  checks the MR's threads. The move is take only: the human finishes the
+  review in the forge UI (what is missing, the summary included), and the
+  run records it as posted by the human.
+
+After either error, `context` also says that **Iterate here** is only for
+a human who has confirmed nothing from this review is on the MR; it is
+never a blind resubmit. Reached from `This review already on the MR?`
+with partly, `context` quotes the hold reason and what the threads show.
 
 ### Open the review off-script gate: pending comments on the MR
 
@@ -715,7 +754,10 @@ records it as posted by the human.
 
 The review is posted; only the approval failed. The proposed move: the
 human approves in the forge UI, and the run records the approval as
-theirs. Iterate retries `mr_approve` alone, never the review.
+theirs. Iterate retries `mr_approve` alone, never the review. Entered from
+the submit result, `context` quotes the submit's `approveError`; from a
+refused `mr_approve`, its error; from `This review already on the MR?` on
+a resume, the hold reason that names the approval outstanding.
 
 ## Review off-script gates
 
@@ -734,10 +776,14 @@ null>"}`. `action: handback` is hand back, whatever `next` says; otherwise
 `next: iterate` is iterate here, `next: hold` is hold, and `next: proceed`
 is take. Take makes exactly that move, once, then continues after it.
 Iterate here retries the refused call with their note; each retry that
-fails opens a new gate. A hold's reason, like a hand-back's, names every
-thread and note already posted. A gate that comes back `closed` is a
-hold whose reason is "gate closed"; record it as any hold and end the
-turn.
+fails opens a new gate. A hold's reason, like a hand-back's, says what is
+on the MR. From the submit gate, the pending-comments gate or the
+approval gate it always says whether this review is posted (by the
+submit, by the human, partly, or with its outcome unknown) and, on an
+approve, whether the approval is outstanding: on a resume, `This review
+already on the MR?` reads exactly that. A gate that comes back `closed`
+is a hold whose reason is "gate closed"; record it as any hold and end
+the turn.
 
 ## What the graph cannot show
 
@@ -768,8 +814,10 @@ turn.
   hold:<stage>:<attempt>, selection: {"reason": "<their words>"},
   decidedBy: <the answer's by>}` and `run_field_set {key: hold, value:
   "<their words>", stage: <stage>}`, then ends the turn.
-- On a resume, a review whose summary the latest hold's reason names as
-  already posted is never submitted again.
+- On a resume, `This review already on the MR?` reads the latest hold's
+  reason before anything posts: a review it names as posted is never
+  submitted again, and its outstanding approval goes to the approval
+  gate.
 - A gate that comes back `closed` is a hold whose reason is "gate
   closed"; record it as any hold and end the turn.
 - A fetch, diff or `gh pr diff` that errors is a hold whose reason quotes

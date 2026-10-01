@@ -354,7 +354,7 @@ digraph review_flow {
 
     "review off-script gate: mr_review_submit refused" -> "Off-script outcome (mr_review_submit)?";
     "Off-script outcome (mr_review_submit)?" -> "Outcome is approve?" [label="take: the review is up, marked in --report"];
-    "Off-script outcome (mr_review_submit)?" -> "Off-script rounds = 2 (mr_review_submit)?" [label="iterate: the cause is fixed"];
+    "Off-script outcome (mr_review_submit)?" -> "Off-script rounds = 2 (mr_review_submit)?" [label="iterate: the cause is fixed and nothing from this review is up"];
     "Off-script outcome (mr_review_submit)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
     "Off-script outcome (mr_review_submit)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
     "Off-script outcome (mr_review_submit)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
@@ -880,16 +880,18 @@ read and post anyway: a review posted twice is what this read prevents.
 ### Mark the review already posted
 
 The Posted already rule, on a resumed pane (`--resumed-gate` given) before
-anything posts. A review posts whole or not at all, so one fact settles
-it: in the `mr_threads` result, a top-level note carrying this review's
-summary, written by the account this pane posts as after the verdict's
-`answeredAt` (from the resumed wait on a `review-post` resume, from the
-verdict line on an escalation resume). When it is there the review landed:
-skip the submit and go on to the approval check. When it is not, nothing
-landed: submit. A `review-escalation-mark:` line in `--report` saying the
-human posted the review counts the same as the note. Approval has no
-read: on an approve verdict `mr_approve` runs unless a mark says it was
-approved by hand; approving an approved MR is harmless.
+anything posts. One check settles it: in the `mr_threads` result, a
+top-level note carrying this review's summary, written by the account
+this pane posts as after the verdict's `answeredAt` (from the resumed
+wait on a `review-post` resume, from the verdict line on an escalation
+resume). When it is there the review landed: skip the submit and go on to
+the approval check. A `review-escalation-mark:` line in `--report` saying
+the human posted the review counts the same as the note, including the
+mark a take writes after a partly landed refusal, where the human
+finished the review by hand. With no such mark and no summary note, the
+pane submits. Approval has no read: on an approve verdict `mr_approve`
+runs unless a mark says it was approved by hand; approving an approved MR
+is harmless.
 
 ### Review already posted (review)?
 
@@ -927,10 +929,11 @@ lowest-tier anchored findings go in the summary instead.
 
 ### Move the bad-anchor findings into the summary (review)
 
-The result's `badAnchors` names comments by their index in `comments`.
-Nothing posted. Take each named finding out of `comments` and add it to
-the summary as `Add the finding to the summary note` says, with its
-`file:line` in the text, as a finding with no anchor. Call again with the
+The result's `badAnchors` names comments by `index`, the zero-based
+position in the `comments` array that was sent. Nothing posted. Take each
+named finding out of `comments` and add it to the summary as `Add the
+finding to the summary note` says, with its `file:line` in the text, as a
+finding with no anchor. Call again with the
 rest unchanged. This happens once: a second bad-anchors result goes to
 `review off-script gate: mr_review_submit refused`.
 
@@ -1028,13 +1031,23 @@ Take "Off-script step" with this question. Label: `review submit refused
 on !<iid>: <last error>`. Context: every `mr_review_submit` error and
 bad-anchors result this pass got, quoted, then the summary and every
 comment in full. Nothing is on the MR unless the error says the outcome
-is unknown or that the review only partly landed; then the context says
-so first, and the human looks for the summary on the MR before answering.
+is unknown or that the review only partly landed:
+
+- **Outcome unknown:** the context says so first, and the human looks
+  for the summary on the MR before answering.
+- **Only partly landed:** the context says first that some of this
+  review's comments may be on the MR without its summary, and that the
+  human checks the MR's threads. The move is take only: the human
+  finishes the review in GitLab (what is missing, the summary included).
+
+After either error the context also says that iterate is only for a
+human who has confirmed nothing from this review is on the MR; it is
+never a blind resubmit.
 
 | Value | Label | Description |
 |---|---|---|
-| `take: the review is up, posted by you or by the failed call, then I apply the verdict (mr_review_submit refused, round <k>)` | Review is up | You post the review yourself, or find the failed call already did, and I carry on to the verdict. |
-| `iterate: you fixed the cause, submit the review again (mr_review_submit refused, round <k>)` | Fixed it, post again | You fixed what refused the review and I submit it again. |
+| `take: the review is up, posted or finished by you or by the failed call, then I apply the verdict (mr_review_submit refused, round <k>)` | Review is up | You post or finish the review yourself, or find the failed call already posted it, and I carry on to the verdict. |
+| `iterate: you fixed the cause and nothing from this review is on the MR, submit it again (mr_review_submit refused, round <k>)` | Nothing up, post again | You confirmed nothing from this review is on the MR and I submit it again. |
 | `hold: keep this pane open and post nothing more (mr_review_submit refused, round <k>)` | Hold this pane | I stop here and post nothing more. |
 | `hand back: write an error naming the refusal (mr_review_submit refused, round <k>)` | Hand it back | I write an error naming the refusal and you take over. |
 
@@ -1303,7 +1316,7 @@ situation line, and the four options the box's table gives, in order take,
 iterate, hold, hand back. Each option is an object:
 
 ```json
-{"value": "iterate: you fixed the cause, submit the review again (mr_review_submit refused, round 1)", "label": "Fixed it, post again", "description": "You fixed what refused the review and I submit it again."}
+{"value": "iterate: you fixed the cause and nothing from this review is on the MR, submit it again (mr_review_submit refused, round 1)", "label": "Nothing up, post again", "description": "You confirmed nothing from this review is on the MR and I submit it again."}
 ```
 
 `value` is spelled in full, starts with its verb, names the proposed move,
@@ -1324,7 +1337,7 @@ first letter lowercased) and the description `Retries are spent, so `
 plus the hand back row's description:
 
 ```json
-{"value": "iterate: you fixed the cause, submit the review again (mr_review_submit refused, round 2)", "label": "No retry: hand it back", "description": "Retries are spent, so I write an error naming the refusal and you take over."}
+{"value": "iterate: you fixed the cause and nothing from this review is on the MR, submit it again (mr_review_submit refused, round 2)", "label": "No retry: hand it back", "description": "Retries are spent, so I write an error naming the refusal and you take over."}
 ```
 
 `--context` is what the box's section names: for a refused call, the

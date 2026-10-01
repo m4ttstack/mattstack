@@ -77,7 +77,8 @@ lives in that issue list, and only there.
 
 Empty selection (`findings`, or legacy `levels`, is empty): no inline
 threads, post only the summary. Under Approve with nothing selected: skip
-the issue list and just approve with a brief note.
+the issue list and just approve with a brief note; on GitLab that note is
+the `summary` of the one submitted review, with the approve outcome.
 
 ## Posting mechanics by disposition
 
@@ -98,8 +99,9 @@ which ones and posts nothing: move each named finding into the summary's
 issue list, exactly as a finding with no `file` anchor, and make the call
 again, once.
 
-A review that posted but whose approval was refused is posted. Approve it
-on its own; never submit the review a second time.
+A review that posted but whose approval was refused is posted. The
+approval is then settled on its own, through the caller's approval gate;
+the review is never submitted a second time.
 
 ## Tacit-approval rule
 
@@ -133,7 +135,7 @@ left as a bare id or number. Required every time, on every disposition.
 | "GitLab has no Request changes here, I'll just post a plain Comment" | Post a blocking-framed Comment: its Assessment names what blocks the merge and says approval is withheld. |
 | "The selection looked stale, I'll re-ask to be sure" | Not this part's call. A decided selection is trusted as handed; re-deciding belongs to the caller, not the executor. |
 | "I'll post the inline comments first, then the summary" | On GitLab the review is one call. Comments posted one by one never become a submitted review, and the reviewer never reads as having reviewed. |
-| "The approval failed, I'll run the whole review again" | The review is already up. Approve on its own; a second submit posts every finding twice. |
+| "The approval failed, I'll run the whole review again" | The review is already up. The approval is settled on its own, through the caller's approval gate; a second submit posts every finding twice. |
 
 ## Quick reference
 
