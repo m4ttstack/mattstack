@@ -106,7 +106,7 @@ func (r *renderer) banner(b protocol.Block) {
 }
 
 func (r *renderer) failure(b protocol.Block) {
-	w := r.width - len(calloutIndent)
+	w := min(r.width-len(calloutIndent), paragraphMax)
 	title := wrapCell(protocol.Cell{{Text: b.Title}}, w)
 	hint := Clean(b.Hint)
 	inline := hint != "" && len(title) == 1 &&

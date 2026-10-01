@@ -24,7 +24,7 @@ import { type AgeKeySeam, createRealAgeKeySeam, ensureAgeKey } from "../home/age
 import { createRealSecretsExecSeam, personalStoreReady, validateSlug, writeSecret } from "../secrets/store.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 import { readTeamSecret } from "../secrets/team-store.ts";
-import { UserActionableError } from "../errors.ts";
+import { logFailureDetail, UserActionableError } from "../errors.ts";
 import { isValidHttpsUrl } from "../setup/host-validate.ts";
 import { clearIntent, readIntent, writeIntent, type InvitePointer } from "../setup/intent.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
@@ -433,6 +433,7 @@ async function peerBoard(
       /* an unparsable register reply reads as no token */
     }
   } catch (err) {
+    if (err instanceof UserActionableError) logFailureDetail(err);
     seams.warn(`board peering: could not register this board (${errorText(err)})`);
     return reinvite;
   }
