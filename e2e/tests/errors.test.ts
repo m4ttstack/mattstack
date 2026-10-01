@@ -43,7 +43,10 @@ describe("the error seam off a terminal", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("[failed] rt hit an unexpected error  kaboom from the seam test\n  next: rt daemon logs\nstack:\n  Error: kaboom from the seam test\n");
     expect(result.stderr).toContain("      at ");
-    expect(cliLog(home)).toContain("kaboom from the seam test");
+    const seamLines = cliLog(home)
+      .split("\n")
+      .filter((l) => l.includes('"module":"cli"') && l.includes("kaboom from the seam test") && l.includes('"stack":'));
+    expect(seamLines).toHaveLength(1);
   }, 30_000);
 
   test("--json: an unexpected error leaves stdout empty and exits 1", async () => {
