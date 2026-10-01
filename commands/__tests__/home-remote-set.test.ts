@@ -226,7 +226,7 @@ describe("homeRemoteSet", () => {
 
     await expectExit(() => homeRemoteSet([], {}, deps));
 
-    expect(cap.stderr()).toBe("[failed] Which remote?\n  next: rt home remote set <url>\n");
+    expect(cap.stderr()).toBe("Which remote?\n  next: rt home remote set <url>\n");
   });
 
   test("a URL carrying a password is refused before any git call, and the secret is not echoed", async () => {

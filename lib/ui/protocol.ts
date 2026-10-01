@@ -66,7 +66,7 @@ export type StepEvent =
   | { t: "start"; title: string }
   | { t: "log"; level: StepLevel; text: string }
   | { t: "sub"; text: string }
-  | { t: "done"; title: string; hint?: string; status?: RenderStatus }
+  | { t: "done"; title: string; hint?: string; status?: RenderStatus; clear?: true }
   | { t: "fail"; title: string; hint?: string };
 
 // ─── render ──────────────────────────────────────────────────────────────────

@@ -264,8 +264,52 @@ use of `process.stdout` or `process.stderr` beyond reading `isTTY`,
 `columns`, `rows` or `fd` and attaching listeners, a raw escape or a color
 import in `cli.ts` or under `commands/` or `lib/`. Its allowlist
 (`raw-output-allowlist.json`) names the files not yet converted and only
-shrinks: converting a file means deleting its line. `cli.ts` stays on it
-until its pre-dispatch notices move onto the layer.
+shrinks: converting a file means deleting its line.
+
+`out.note(...blocks)` prints for a person on stderr whatever the verb: use it
+for a notice that fires before the verb is known or under any verb, since
+stdout may be a payload or a `--json` envelope. It does not follow
+`payloadOnStdout`. Code under `lib/` never calls `console.warn`: it calls
+`warn(module, message, { context, show })` from `lib/ui/warn.ts`. The message
+always reaches a log (the CLI log in the CLI; a plain `rt:` stderr line in the
+daemon, whose stderr is already captured), and a person sees a line only when
+`show` says what they should read, once per process. A test of such a line
+reads stderr through `captureOut()` or sets a fake with `setWarningLog`, and
+calls `__test__.reset()` from `lib/ui/warn.ts` before and after; a
+`console.warn` spy sees nothing.
+
+The dispatcher draws the breadcrumb before the handler runs, through
+`out.note`, on stderr, when a person is reading stderr (a terminal, no
+`--json`, no `RT_BATCH`) and the leaf is neither `fullscreen` nor `hidden`.
+It is its own render call (one helper launch per command), so it is first on
+screen whatever the command paints first, and one blank line follows it.
+
+A spinner that should leave nothing behind is `withTransientStep(label, task)`
+from `lib/ui/transient-step.ts`: the Go step draws it and a `done` event
+carrying `clear: true` erases it when the task settles. The flag rides `done`
+so a helper that predates it ends the step with a plain row; a source checkout
+runs the installed helper when `ui/dist/rt-ui` is missing or stale, so run
+`bun run ui:build` after pulling. It loads `lib/ui/spawn.ts` on first use, so
+a file the daemon also loads may import it; keep it that way.
+
+A usage error is `out.fail(usageFailure(title, usage, why))` from
+`lib/ui/usage.ts`: the title asks for what is missing in plain words and the
+usage line is the `next` command, never part of the sentence. The `--json`
+error string stays as it was.
+
+Off a terminal, a failure that opens the output prints its title with no
+`[failed]` tag, because the app shows the first bytes of stderr to a person as
+they are. A test of a human failure asserts the title at the start of stderr.
+A failure printed after another block, a title that starts with `[` (leading
+spaces aside), and a `line` with status `failed` keep the tag.
+
+Both renderers drop bidi controls and zero-width characters from every field
+(`ui/fixtures/clean-cases.json` is the shared test). Wrapped text breaks at
+spaces only, so a flag or a branch name is never split at a hyphen;
+`textwrap.Spans` keeps its hyphen breaks for the mission diff, and prose goes
+through `textwrap.SpansWith` with `WordsOnly`. `rt-ui render` reads
+`COLORFGBG` and paints the diff with pale tints on a light background; with no
+`COLORFGBG` it keeps the dark tints.
 
 ## The TypeScript CLI is UI-free
 

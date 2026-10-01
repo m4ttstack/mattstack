@@ -13,6 +13,8 @@ import { closeStateDb, setKvValue } from "../state/index.ts";
 import { getKnownRepos, missingRepoRefusal, repoFromOptionValue, repoOption, repoOptions, type KnownRepo } from "../repo-index.ts";
 import { pickFromAllRepos } from "../pickers.ts";
 import { pickWorktree } from "../repo.ts";
+import * as ui from "../ui/out.ts";
+import { captureOut } from "../ui/__tests__/capture-out.ts";
 
 describe("missing index rows", () => {
   const origHome = process.env.HOME;
@@ -128,13 +130,16 @@ describe("missing index rows", () => {
     const exitSpy = spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit sentinel");
     });
-    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
     try {
       await expect(pickWorktree("Pick a repo")).rejects.toThrow("process.exit sentinel");
       expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
-      expect(errSpy.mock.calls.flat().join(" ")).toContain("rt repos locate");
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toStartWith("gone is no longer where rt last saw it\n");
+      expect(io.stderr()).toContain("  next: rt repos locate <new-path> --repo gone\n");
     } finally {
-      errSpy.mockRestore();
+      io.restore();
       exitSpy.mockRestore();
     }
   });

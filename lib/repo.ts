@@ -19,10 +19,42 @@ export { updateRepoIndex, getKnownRepos, getKnownReposCached, findKnownRepo, rep
 // ─── Internal imports ────────────────────────────────────────────────────────
 
 import { getRepoRoot, getRemoteUrl } from "./git.ts";
-import { updateRepoIndex, getKnownRepos, findKnownRepo, repoOption, repoOptions, repoFromOptionValue, missingRepoRefusal, pickerWorktrees, type KnownRepo } from "./repo-index.ts";
+import { updateRepoIndex, getKnownRepos, findKnownRepo, repoOption, repoOptions, repoFromOptionValue, pickerWorktrees, type KnownRepo } from "./repo-index.ts";
 import { repoLabel } from "./repo-label.ts";
+import * as out from "./ui/out.ts";
 import { groupWorktrees } from "./worktree-groups.ts";
 import type { PickRow } from "./ui/protocol.ts";
+
+/** The failure every caller draws in place of working in a repo whose folder is gone. */
+export function missingRepoFailure(r: KnownRepo): out.FailureInput {
+  const gone = r.worktrees[0]?.path;
+  return {
+    title: `${repoLabel(r.repoName)} is no longer where rt last saw it`,
+    ...(gone ? { why: `It was at ${gone}.` } : {}),
+    next: out.cmd(`rt repos locate <new-path> --repo ${r.repoName}`),
+  };
+}
+
+const LEARN_A_REPO = "Run rt once from inside a git repo, so it learns where that repo is";
+
+function failNoRepos(title: string): never {
+  out.fail({ title, next: LEARN_A_REPO });
+  process.exit(1);
+}
+
+function failCannotAsk(): never {
+  out.fail({
+    title: "You are not in a git repo",
+    why: "rt knows more than one repo and cannot ask which one you mean without a terminal.",
+    next: "Run this from inside the repo you mean",
+  });
+  process.exit(1);
+}
+
+function failUnidentified(): never {
+  out.fail({ title: "rt could not tell which repo this is", why: "The folder it ended up in is not a git repo it can read." });
+  process.exit(1);
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -70,10 +102,10 @@ function deriveBaseUrl(remoteUrl: string): string {
  */
 function readOriginRemoteForIdentity(repoRoot: string): string | null {
   try {
-    const out = execSync("git config --get remote.origin.url", {
+    const text = execSync("git config --get remote.origin.url", {
       cwd: repoRoot, encoding: "utf8", stdio: "pipe",
     }).trim();
-    return out || null;
+    return text || null;
   } catch {
     return null;
   }
@@ -92,10 +124,10 @@ function readOriginRemoteForIdentity(repoRoot: string): string | null {
 function mainWorktreeRoot(repoRoot: string): string {
   const toplevelOf = (dir: string): string | null => {
     try {
-      const out = execSync("git rev-parse --show-toplevel", {
+      const text = execSync("git rev-parse --show-toplevel", {
         cwd: dir, encoding: "utf8", stdio: "pipe",
       }).trim();
-      return out || null;
+      return text || null;
     } catch {
       return null;
     }
@@ -198,17 +230,14 @@ export async function requireIdentity(commandLabel?: string): Promise<RepoIdenti
   process.chdir(selected);
 
   identity = getRepoIdentity();
-  if (!identity) {
-    console.log(`\n  could not identify repo\n`);
-    process.exit(1);
-  }
+  if (!identity) failUnidentified();
   return identity;
 }
 
 /** Never chdir into a repo whose indexed path is gone — locate it first. */
 function refuseIfMissing(repo: KnownRepo): void {
   if (!repo.missing) return;
-  console.error(`\n  ${missingRepoRefusal(repo)}\n`);
+  out.fail(missingRepoFailure(repo));
   process.exit(1);
 }
 
@@ -235,20 +264,13 @@ export async function requireRepoIdentity(commandLabel?: string): Promise<RepoId
 
   const repos = getKnownRepos({ includeMissing: true });
 
-  if (repos.length === 0) {
-    console.log(`\n  not in a git repo and no known repos found`);
-    console.log(`  run rt from inside a git repo first to register it\n`);
-    process.exit(1);
-  }
+  if (repos.length === 0) failNoRepos("You are not in a git repo, and rt does not know any repos yet");
 
   const choices = pickableRepos(repos);
   let selectedRepo = choices[0]!;
 
   if (choices.length > 1) {
-    if (!process.stdin.isTTY) {
-      console.log(`\n  not in a git repo — run interactively to pick one\n`);
-      process.exit(1);
-    }
+    if (!process.stdin.isTTY) failCannotAsk();
 
     const { filterableSelect } = await import("./pick-wrappers.ts");
     const picked = await filterableSelect({
@@ -265,10 +287,7 @@ export async function requireRepoIdentity(commandLabel?: string): Promise<RepoId
   process.chdir(selectedRepo.worktrees[0]!.path);
 
   identity = getRepoIdentity();
-  if (!identity) {
-    console.log(`\n  could not identify repo\n`);
-    process.exit(1);
-  }
+  if (!identity) failUnidentified();
   return identity;
 }
 
@@ -281,11 +300,7 @@ export async function requireRepoIdentity(commandLabel?: string): Promise<RepoId
 export async function pickWorktree(prompt: string): Promise<string> {
   const repos = getKnownRepos({ includeMissing: true });
 
-  if (repos.length === 0) {
-    console.log(`\n  not in a git repo and no known repos found`);
-    console.log(`  run rt from inside a git repo first to register it\n`);
-    process.exit(1);
-  }
+  if (repos.length === 0) failNoRepos("You are not in a git repo, and rt does not know any repos yet");
 
   const choices = pickableRepos(repos);
   const totalWorktrees = choices.reduce((n, r) => n + r.worktrees.length, 0);
@@ -294,10 +309,7 @@ export async function pickWorktree(prompt: string): Promise<string> {
     return choices[0]!.worktrees[0]!.path;
   }
 
-  if (!process.stdin.isTTY) {
-    console.log(`\n  not in a git repo — run interactively to pick one\n`);
-    process.exit(1);
-  }
+  if (!process.stdin.isTTY) failCannotAsk();
 
   let selectedRepo: KnownRepo;
 
@@ -382,10 +394,7 @@ export async function pickRepoInteractive(): Promise<RepoIdentity> {
   const { filterableSelect } = await import("./pick-wrappers.ts");
   const repos = getKnownRepos();
 
-  if (repos.length === 0) {
-    console.log(`\n  no known repos — run rt from inside a git repo first\n`);
-    process.exit(1);
-  }
+  if (repos.length === 0) failNoRepos("rt does not know any repos yet");
 
   // Find current repo (if any)
   const currentIdentity = getRepoIdentity();
@@ -442,10 +451,7 @@ export async function pickRepoInteractive(): Promise<RepoIdentity> {
 
   process.chdir(selectedPath);
   const identity = getRepoIdentity();
-  if (!identity) {
-    console.log(`\n  could not identify repo\n`);
-    process.exit(1);
-  }
+  if (!identity) failUnidentified();
   return identity;
 }
 

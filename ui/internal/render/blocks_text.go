@@ -75,6 +75,12 @@ func cutRows(s string, w int) []string {
 func (r *renderer) diff(b protocol.Block) {
 	add := lipgloss.NewStyle().Foreground(theme.Mint).Background(theme.DiffAddBg)
 	del := lipgloss.NewStyle().Foreground(theme.Coral).Background(theme.DiffDelBg)
+	if r.light {
+		// Mint and coral text wash out on a pale tint. The ink is fixed, not
+		// the terminal's own, so the row reads even when COLORFGBG is wrong.
+		add = lipgloss.NewStyle().Foreground(theme.Bg).Background(theme.DiffAddBgLight)
+		del = lipgloss.NewStyle().Foreground(theme.Bg).Background(theme.DiffDelBgLight)
+	}
 	for _, h := range b.Hunks {
 		r.emit(indent + keyStyle.Render(Clean(h.Header)))
 		w := 0

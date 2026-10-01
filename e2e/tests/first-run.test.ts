@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { existsSync } from "fs";
+import { existsSync, mkdirSync } from "fs";
 import { join } from "path";
-import { createTestHome, rtRaw } from "../harness.ts";
+import { createTestHome, rt, rtRaw } from "../harness.ts";
 
 describe("first-run", () => {
   let home: string;
@@ -59,6 +59,35 @@ describe("first-run", () => {
 
       const combined = result.stdout + result.stderr;
       expect(combined).not.toContain("rt is not set up yet");
+    } finally {
+      fresh.cleanup();
+    }
+  }, 30_000);
+
+  test("a legacy rt folder moved into place is reported once, on stderr", async () => {
+    const fresh = createTestHome();
+    try {
+      mkdirSync(join(fresh.path, ".rt", "logs"), { recursive: true });
+      const result = await rt(["--version"], { home: fresh.path });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toMatch(/^rt /);
+      expect(result.stderr).toBe("[ok] Moved your rt data to its new folder  ~/.mattstack/rt\n");
+    } finally {
+      fresh.cleanup();
+    }
+  }, 30_000);
+
+  test("rt data in two folders is one warning with the fix, and stdout stays the payload", async () => {
+    const fresh = createTestHome();
+    try {
+      mkdirSync(join(fresh.path, ".rt", "logs"), { recursive: true });
+      mkdirSync(join(fresh.path, ".mattstack", "rt"), { recursive: true });
+      const result = await rt(["--version"], { home: fresh.path });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toMatch(/^rt /);
+      expect(result.stderr).toBe(
+        "[warning] Your rt data is in two folders\n  note: rt only reads ~/.mattstack/rt\n  fix: Merge ~/.rt into it by hand, then delete ~/.rt\n",
+      );
     } finally {
       fresh.cleanup();
     }

@@ -8,7 +8,7 @@ describe("rt glitter", () => {
     try {
       const result = await rt(["glitter"], { home });
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain("rt glitter requires an interactive terminal");
+      expect(result.stderr).toContain("rt glitter needs an interactive terminal");
     } finally {
       cleanup();
     }

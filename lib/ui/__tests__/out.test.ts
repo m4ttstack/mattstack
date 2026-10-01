@@ -134,7 +134,7 @@ test("fail renders a failure block on stderr", () => {
   out.__test__.setHuman(() => false);
   out.fail({ title: "This Mac cannot read the team's secrets yet", why: "No key matches." });
   expect(stdout.join("")).toBe("");
-  expect(stderr.join("")).toBe("[failed] This Mac cannot read the team's secrets yet\n  why: No key matches.\n");
+  expect(stderr.join("")).toBe("This Mac cannot read the team's secrets yet\n  why: No key matches.\n");
 });
 
 test("the human gate is asked about the stream being written", () => {
@@ -203,7 +203,7 @@ test("fail renders trailing blocks under the failure in the same stderr write", 
   out.__test__.setHuman(() => false);
   out.fail({ title: "rt hit an unexpected error", hint: "kaboom" }, out.verbatim(["Error: kaboom", "    at run (boom.ts:1:7)"], "stack"));
   expect(stdout.join("")).toBe("");
-  expect(stderr).toEqual(["[failed] rt hit an unexpected error  kaboom\nstack:\n  Error: kaboom\n      at run (boom.ts:1:7)\n"]);
+  expect(stderr).toEqual(["rt hit an unexpected error  kaboom\nstack:\n  Error: kaboom\n      at run (boom.ts:1:7)\n"]);
 });
 
 test("at a terminal the trailing blocks ride in the same render call as the failure", () => {
@@ -257,4 +257,49 @@ test("off a terminal no helper runs and nothing is logged about it", () => {
   const before = cliLogLines().length;
   out.print(out.line("done", "x"));
   expect(cliLogLines().length).toBe(before);
+});
+
+test("note writes to stderr and never follows payloadOnStdout", () => {
+  out.__test__.setHuman(() => false);
+  out.note(out.line("warn", "The rt daemon is not running"), out.callout("next", out.cmd("rt daemon start")));
+  out.print(out.line("done", "Listed"));
+  expect(stderr.join("")).toBe("[warning] The rt daemon is not running\n  next: rt daemon start\n");
+  expect(stdout.join("")).toBe("[ok] Listed\n");
+});
+
+test("note is styled when stderr is a terminal, whatever stdout is", () => {
+  out.__test__.setHuman((stream) => stream === "stderr");
+  out.note(out.line("warn", "x"));
+  expect(stderr.join("")).toBe("STYLED\n");
+  expect(stdout.join("")).toBe("");
+  const [, ...lines] = sent();
+  expect(lines.map((l) => l.t)).toEqual(["hello", "line"]);
+});
+
+test("note with no blocks writes nothing", () => {
+  out.note();
+  expect(stderr.join("")).toBe("");
+  expect(existsSync(record)).toBe(false);
+});
+
+test("a failure after a note on stderr keeps its tag", () => {
+  out.__test__.setHuman(() => false);
+  out.note(out.line("warn", "x"));
+  out.fail({ title: "The rebase stopped" });
+  expect(stderr.join("")).toBe("[warning] x\n[failed] The rebase stopped\n");
+});
+
+test("a failure that is the first thing on stderr drops its tag, and a reset makes the next one first again", () => {
+  out.__test__.setHuman(() => false);
+  out.fail({ title: "The rebase stopped" });
+  expect(stderr.join("")).toBe("The rebase stopped\n");
+  stderr.length = 0;
+  out.__test__.reset();
+  out.__test__.setHuman(() => false);
+  out.note(out.line("warn", "x"));
+  out.__test__.reset();
+  out.__test__.setHuman(() => false);
+  stderr.length = 0;
+  out.fail({ title: "The rebase stopped" });
+  expect(stderr.join("")).toBe("The rebase stopped\n");
 });

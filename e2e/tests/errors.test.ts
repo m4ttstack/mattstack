@@ -41,7 +41,8 @@ describe("the error seam off a terminal", () => {
     const result = await rt(["e2e-seam-boom"], { home });
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("[failed] rt hit an unexpected error  kaboom from the seam test\n  next: rt daemon logs\nstack:\n  Error: kaboom from the seam test\n");
+    expect(result.stderr).toContain("rt hit an unexpected error  kaboom from the seam test\n  next: rt daemon logs\nstack:\n  Error: kaboom from the seam test\n");
+    expect(result.stderr).not.toContain("[failed]");
     expect(result.stderr).toContain("      at ");
     const seamLines = cliLog(home)
       .split("\n")
@@ -53,14 +54,15 @@ describe("the error seam off a terminal", () => {
     const result = await rt(["e2e-seam-boom", "--json"], { home });
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("[failed] rt hit an unexpected error");
+    expect(result.stderr).toContain("rt hit an unexpected error");
   }, 30_000);
 
   test("an expected failure prints the failure block without the verb prefix and exits 2", async () => {
     const result = await rt(["repos", "reidentify", "github.com/acme/only-one"], { home });
     expect(result.exitCode).toBe(2);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("[failed] reidentify takes two identities, got 1; usage: rt repos reidentify");
+    expect(result.stderr).toContain("reidentify takes two identities, got 1; usage: rt repos reidentify");
+    expect(result.stderr).not.toContain("[failed]");
     expect(result.stderr).not.toContain("rt repos reidentify:");
     expect(result.stderr).not.toContain("    at ");
   }, 30_000);
@@ -72,5 +74,19 @@ describe("the error seam off a terminal", () => {
     const body = JSON.parse(result.stdout.trim());
     expect(body.contract).toBe(1);
     expect(body.error.code).toBe("usage");
+  }, 30_000);
+
+  test("a repo verb run outside any repo, with none known, fails on stderr and leaves stdout empty", async () => {
+    const fresh = createTestHome();
+    try {
+      const result = await rt(["hooks"], { home: fresh.path });
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "You are not in a git repo, and rt does not know any repos yet\n  next: Run rt once from inside a git repo, so it learns where that repo is\n",
+      );
+    } finally {
+      fresh.cleanup();
+    }
   }, 30_000);
 });

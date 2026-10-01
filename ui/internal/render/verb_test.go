@@ -111,3 +111,16 @@ func TestLastBlockWithoutATrailingNewlineStillRenders(t *testing.T) {
 		t.Fatalf("exit %d out %q", exit, out)
 	}
 }
+
+func TestRenderVerbTakesALightBackgroundFromColorfgbg(t *testing.T) {
+	stdin := helloLine + `{"t":"diff","hunks":[{"header":"@@ -1 +1 @@","lines":[{"kind":"add","text":"next();"}]}]}` + "\n"
+	env := []string{"COLORTERM=truecolor", "TERM=xterm-256color"}
+	out, _, exit := runVerb(t, nil, append([]string{"COLORFGBG=0;15"}, env...), stdin)
+	if exit != 0 || !strings.Contains(out, "48;2;229;251;241") {
+		t.Fatalf("exit %d, no light tint in %q", exit, out)
+	}
+	out, _, _ = runVerb(t, nil, env, stdin)
+	if !strings.Contains(out, "48;2;34;51;57") {
+		t.Fatalf("a terminal that says nothing should keep the dark tint: %q", out)
+	}
+}

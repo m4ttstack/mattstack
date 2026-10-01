@@ -18,7 +18,7 @@ describe("smoke", () => {
   });
 
   const listedVerbs = (stdout: string) =>
-    stdout.split("\n").map((line) => line.match(/^  ([a-z-]+)  /)?.[1]).filter(Boolean);
+    stdout.split("\n").map((line) => line.match(/^([a-z-]+) {2,}\S/)?.[1]).filter(Boolean);
 
   test("rt --help lists the verbs typed by hand and leaves program verbs out", async () => {
     const result = await rt(["--help"], { home });
@@ -52,7 +52,8 @@ describe("smoke", () => {
     const result = await rt(["git"], { home });
     expect(result.exitCode).toBe(0);
 
-    const output = result.stderr;
+    const output = result.stdout;
+    expect(output).toStartWith("usage: rt git <command>\n");
     const expectedSubs = [
       "rebase", "reset", "commit",
       "backup", "restore", "pull", "push", "upstream",
@@ -65,6 +66,7 @@ describe("smoke", () => {
   test("rt nonexistent exits non-zero with error", async () => {
     const result = await rt(["nonexistent"], { home });
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("unknown command");
+    expect(result.stderr).toStartWith("rt has no command called nonexistent\n  next: rt --help\n");
+    expect(result.stdout).toBe("");
   });
 });

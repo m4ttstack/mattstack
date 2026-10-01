@@ -146,3 +146,34 @@ func dist(a, b color.Color) int {
 	d := func(x, y uint32) int { v := int(x>>8) - int(y>>8); return v * v }
 	return d(ar, br) + d(ag, bg) + d(ab, bb)
 }
+
+func contrast(a, b float64) float64 {
+	if a < b {
+		a, b = b, a
+	}
+	return (a + 0.05) / (b + 0.05)
+}
+
+func TestLightDiffTintsArePaleAndKeepTheirHue(t *testing.T) {
+	if Hex(DiffAddBgLight) != "#E5FBF1" || Hex(DiffDelBgLight) != "#FFE9E9" {
+		t.Fatalf("light tints %s %s", Hex(DiffAddBgLight), Hex(DiffDelBgLight))
+	}
+	for name, tint := range map[string]color.Color{"add": DiffAddBgLight, "del": DiffDelBgLight} {
+		if c := contrast(relLuminance(Bg), relLuminance(tint)); c < 7 {
+			t.Fatalf("%s: dark ink on the light tint is only %.1f:1", name, c)
+		}
+	}
+}
+
+func TestStaticRuleReadsOnDarkAndOnLight(t *testing.T) {
+	rule := relLuminance(StaticRule)
+	if c := contrast(rule, relLuminance(Bg)); c < 3 {
+		t.Fatalf("StaticRule on a dark background is %.2f:1, under 3:1", c)
+	}
+	if c := contrast(rule, relLuminance(lipgloss.Color("#FFFFFF"))); c < 4.5 {
+		t.Fatalf("StaticRule on a light background is %.2f:1, under 4.5:1", c)
+	}
+	if contrast(relLuminance(Rule), relLuminance(Bg)) >= contrast(rule, relLuminance(Bg)) {
+		t.Fatal("StaticRule must read stronger on dark than Rule does")
+	}
+}

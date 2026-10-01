@@ -191,6 +191,10 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 					fmt.Fprint(term, l+"\n")
 				}
 			case "done":
+				if ev.Clear {
+					clearActive()
+					return Done
+				}
 				t := ev.Title
 				if t == "" {
 					t = title
