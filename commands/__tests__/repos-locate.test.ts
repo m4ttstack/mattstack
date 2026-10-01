@@ -16,6 +16,8 @@ import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
 import { loadRepoIndex } from "../../lib/repo-index.ts";
 import { saveRegistry, loadRegistry } from "../../lib/worktree/registry.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../../lib/settings/identity.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { reposLocate, type RegisterDeps } from "../repos.ts";
 
 function testDeps(): RegisterDeps & { lines: string[] } {
@@ -118,32 +120,55 @@ describe("reposLocate", () => {
     const plain = join(scratch, "plain");
     mkdirSync(plain);
     const deps = testDeps();
-
-    const code = await runExpectingProcessExit(() => reposLocate([plain], {}, deps));
-
-    expect(code).toBe(2);
-    expect(deps.lines.join("\n")).toContain("not a git repository");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => reposLocate([plain], {}, deps));
+      expect(code).toBe(2);
+      expect(deps.lines).toEqual([]);
+      expect(io.stderr()).toContain("not a git repository");
+    } finally {
+      io.restore();
+    }
   });
 
   test("an unknown flag is a usage error", async () => {
     const deps = testDeps();
-    const code = await runExpectingProcessExit(() => reposLocate(["--nope"], {}, deps));
-    expect(code).toBe(2);
-    expect(deps.lines.join("\n")).toContain("usage: rt repos locate");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => reposLocate(["--nope"], {}, deps));
+      expect(code).toBe(2);
+      expect(io.stderr()).toContain("usage: rt repos locate");
+    } finally {
+      io.restore();
+    }
   });
 
   test("--repo without a value is a usage error", async () => {
     const deps = testDeps();
-    const code = await runExpectingProcessExit(() => reposLocate(["--repo"], {}, deps));
-    expect(code).toBe(2);
-    expect(deps.lines.join("\n")).toContain("--repo needs a value");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => reposLocate(["--repo"], {}, deps));
+      expect(code).toBe(2);
+      expect(io.stderr()).toContain("--repo needs a value");
+    } finally {
+      io.restore();
+    }
   });
 
   test("a second positional is a usage error, not a silently ignored path", async () => {
     const deps = testDeps();
-    const code = await runExpectingProcessExit(() => reposLocate([scratch, join(scratch, "other")], {}, deps));
-    expect(code).toBe(2);
-    expect(deps.lines.join("\n")).toContain("locate takes one path");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => reposLocate([scratch, join(scratch, "other")], {}, deps));
+      expect(code).toBe(2);
+      expect(io.stderr()).toContain("locate takes one path");
+    } finally {
+      io.restore();
+    }
   });
 
   test("no path and no lost rows exits 1 saying so", async () => {
