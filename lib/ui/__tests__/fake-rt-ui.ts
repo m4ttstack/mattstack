@@ -3,7 +3,7 @@
  * A scripted rt-ui. RT_UI_FAKE carries JSON: { answer?, exit?, record?,
  * holdMs? }. Every stdin line is appended to `record` so tests can assert
  * the exact spec a call site sent. `holdMs` keeps the process alive before
- * answering so tests can observe stdin staying open.
+ * answering so tests can observe stdin staying open or a render hanging.
  */
 import { appendFileSync } from "fs";
 
@@ -80,6 +80,7 @@ if (verb === "render") {
     buf += decoder.decode(value);
   }
   if (cfg.record) appendFileSync(cfg.record, JSON.stringify({ argv: process.argv.slice(3) }) + "\n" + buf);
+  if (cfg.holdMs) await Bun.sleep(cfg.holdMs);
   if (cfg.exit) process.exit(cfg.exit);
   process.stdout.write(cfg.renderOut ?? "STYLED\n");
   process.exit(0);

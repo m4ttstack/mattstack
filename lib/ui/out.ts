@@ -119,14 +119,16 @@ function write(stream: Stream, text: string): void {
   (stream === "stdout" ? process.stdout : process.stderr).write(text);
 }
 
+const RENDER_TIMEOUT_MS = 2000;
+
 function renderStyled(blocks: Block[], stream: Stream): string | null {
   try {
     const columns = (stream === "stdout" ? process.stdout : process.stderr).columns ?? 80;
     const args = [resolveRtUi(), "render", "--width", String(columns)];
     if (process.env.NO_COLOR) args.push("--no-color");
     const input = encodeLine({ t: "hello", protocol: PROTOCOL_VERSION }) + blocks.map(encodeLine).join("");
-    const r = Bun.spawnSync(args, { stdin: Buffer.from(input), stdout: "pipe", stderr: "pipe", env: { ...process.env } });
-    return r.exitCode === 0 ? r.stdout.toString() : null;
+    const r = Bun.spawnSync(args, { stdin: Buffer.from(input), stdout: "pipe", stderr: "pipe", env: { ...process.env }, timeout: RENDER_TIMEOUT_MS });
+    return r.exitCode === 0 && r.success ? r.stdout.toString() : null;
   } catch {
     // A missing or unspawnable helper must never cost the person the message.
     return null;

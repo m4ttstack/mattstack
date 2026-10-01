@@ -90,6 +90,14 @@ test("falls back to plain when the helper exits non-zero", () => {
   expect(stdout.join("")).toBe("[ok] Skills linked\n");
 });
 
+test("falls back to plain when the helper hangs past the render timeout", () => {
+  process.env.RT_UI_FAKE = JSON.stringify({ record, holdMs: 8000 });
+  const started = Date.now();
+  out.print(out.line("done", "Skills linked"));
+  expect(Date.now() - started).toBeLessThan(5000);
+  expect(stdout.join("")).toBe("[ok] Skills linked\n");
+}, 15000);
+
 test("falls back to plain when the helper cannot be found", () => {
   process.env.RT_UI_BIN = join(dir, "no-such-binary");
   out.print(out.line("done", "Skills linked"));
