@@ -204,13 +204,12 @@ export function SkippedEarlier({
         onToggle={() => setOpen(o => !o)}
         className="tui-review-skipped-head"
       >
-        <span className="tui-review-skipped-title">
-          Skipped earlier ({entries.length})
-        </span>
+        <span className="tui-review-skipped-title">Skipped earlier</span>
+        <span className="tui-review-skipped-count">{entries.length}</span>
         <span className="tui-review-skipped-hint">
           {restoring > 0
             ? `${restoring} coming back this round`
-            : 'you chose not to raise these'}
+            : 'you chose not to raise these · tick one to bring it back'}
         </span>
       </DisclosureHead>
       <Disclosure open={open}>
@@ -219,7 +218,11 @@ export function SkippedEarlier({
             const checked = selected.has(value);
             const titleId = `tui-review-skipped-title-${e.id}`;
             return (
-              <label className="tui-review-finding-row" key={value}>
+              <label
+                className="tui-review-finding-row tui-review-skipped-row"
+                data-restoring={checked || undefined}
+                key={value}
+              >
                 <input
                   type="checkbox"
                   className="tui-gate-choice-input"
@@ -231,31 +234,29 @@ export function SkippedEarlier({
                   onChange={ev => onToggle(value, ev.currentTarget.checked)}
                 />
                 <span className="tui-review-finding-body">
-                  <span className="tui-review-finding-line1">
-                    <span className="tui-review-finding-title" id={titleId}>
-                      {e.title}
+                  <span className="tui-review-finding-title" id={titleId}>
+                    {e.title}
+                  </span>
+                  <span className="tui-review-skipped-meta">
+                    {e.file && (
+                      <span className="tui-review-skipped-path">{e.file}</span>
+                    )}
+                    <span data-severity={e.severity}>
+                      {SEVERITY_LABEL[e.severity]}
                     </span>
+                    <span>skipped in round {e.round}</span>
                     {e.changed && (
-                      <span
-                        className="tui-respond-pill"
-                        data-hue="amber"
-                        data-changed=""
-                      >
+                      <span className="tui-review-skipped-changed">
                         code changed since
                       </span>
                     )}
-                    <span
-                      className="tui-review-tier-pill"
-                      data-tier={SEVERITY_LABEL[e.severity]}
-                    >
-                      {SEVERITY_LABEL[e.severity]}
-                    </span>
-                    <span className="tui-respond-pill" data-hue="grey">
-                      skipped · round {e.round}
-                    </span>
                   </span>
-                  {e.file && <FindingAnchor file={e.file} />}
                 </span>
+                {checked && (
+                  <span className="tui-review-skipped-restoring">
+                    coming back this round
+                  </span>
+                )}
               </label>
             );
           })}

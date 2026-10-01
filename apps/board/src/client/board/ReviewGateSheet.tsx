@@ -139,8 +139,12 @@ function FullReportDisclosure({ mrUrl }: { mrUrl?: string | null }) {
         open={open}
         label="full report"
         onToggle={() => setOpen(o => !o)}
+        className="tui-review-full-report-head"
       >
-        <span className="tui-review-full-report-label">full report</span>
+        <span className="tui-review-full-report-label">Full report</span>
+        <span className="tui-review-full-report-hint">
+          the agent's whole write-up
+        </span>
       </DisclosureHead>
       <Disclosure open={open}>
         {failed ? (

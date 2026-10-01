@@ -4156,7 +4156,23 @@ a.tui-id-card-ref:focus-visible {
   font-size: var(--gate-font-meta);
 }
 .tui-review-full-report {
-  margin-top: 22px;
+  margin-top: 14px;
+}
+/* Hugs its words, so the hover wash is the size of the control, not a
+   full-width bar; the chevron centres on the label. */
+.tui-review-full-report-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.tui-review-full-report-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.tui-review-full-report-hint {
+  font-size: 13px;
+  color: var(--text-3);
 }
 
 /* An earlier thread's two sides, quoted: what the reviewer wrote, then the
@@ -4218,6 +4234,8 @@ a.tui-id-card-ref:focus-visible {
 
 .tui-review-skipped {
   margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
 }
 .tui-review-skipped-head {
   display: flex;
@@ -4225,17 +4243,64 @@ a.tui-id-card-ref:focus-visible {
   gap: 8px;
 }
 .tui-review-skipped-title {
+  font-size: 15px;
   font-weight: 700;
+  color: var(--text-1);
+}
+.tui-review-skipped-count {
+  font-size: 15px;
+  color: var(--text-3);
 }
 .tui-review-skipped-hint {
+  margin-left: auto;
+  font-size: 13px;
   color: var(--text-3);
-  font-size: var(--gate-font-meta);
 }
 .tui-review-skipped-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-top: 6px;
+  gap: 2px;
+  padding-top: 8px;
+}
+.tui-review-skipped-row {
+  align-items: flex-start;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+.tui-review-skipped-row[data-restoring] {
+  background: color-mix(in srgb, var(--fill-accent) 10%, transparent);
+}
+/* One line of facts under the title, dot-separated, in words: amber marks
+   a severity worth noticing and a finding whose code has moved. */
+.tui-review-skipped-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.tui-review-skipped-meta > * + *::before {
+  content: '·';
+  margin: 0 6px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.tui-review-skipped-path {
+  font-family: var(--font-mono);
+  color: var(--text-4);
+}
+.tui-review-skipped-meta
+  :is([data-severity='critical'], [data-severity='important']),
+.tui-review-skipped-changed {
+  font-weight: 500;
+  color: var(--text-warn-small);
+}
+.tui-review-skipped-restoring {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-accent-small);
 }
 
 /* right rail */
