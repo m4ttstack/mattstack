@@ -157,11 +157,11 @@ test('the hover × closes that row without selecting it', async () => {
       onSelectRoom={onSelectRoom}
     />
   );
+  // The × is laid out at rest, never `display: none`, so revealing it
+  // cannot shift the row. Its fade-in is CSS, which this suite does not load.
   const close = screen.getByTestId('dm-close-dm-1');
   expect(close).toHaveAttribute('aria-label', 'Close fred ↔ gitq-main');
-  expect(close.style.display).toBe('none');
-  await userEvent.hover(screen.getByTestId('dm-row-dm-1'));
-  expect(close.style.display).toBe('');
+  expect(close).not.toHaveStyle({ display: 'none' });
   await userEvent.click(close);
   expect(onCloseRoom).toHaveBeenCalledWith('dm-1');
   expect(onSelectRoom).not.toHaveBeenCalled();
@@ -257,10 +257,18 @@ test('the header names the fleet and counts it, and withholds the count when the
     },
   ];
   const rooms = [{ room: 'rt', memberCount: 2, unread: 0, mentions: 0 }];
+  const roomless = {
+    ...buddies[0]!,
+    sessionId: 's-gail',
+    handle: 'gail',
+    name: 'gail',
+    repo: 'board',
+  };
   const { rerender } = renderWithProviders(
-    <RoomRail rooms={rooms} buddies={buddies} />
+    <RoomRail rooms={rooms} buddies={[...buddies, roomless]} />
   );
   expect(screen.getByRole('heading', { name: 'FLEET' })).toBeInTheDocument();
+  // The count matches the rows: an agent with no repo room is not listed.
   expect(screen.getByTestId('fleet-count')).toHaveTextContent('1 on · 1 off');
 
   rerender(

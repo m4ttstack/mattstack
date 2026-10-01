@@ -10,7 +10,7 @@ import {
 import { useHover } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 
-import { FleetTree, type FleetRoom } from './FleetTree';
+import { FleetTree, listedBuddies, type FleetRoom } from './FleetTree';
 import { PHONE_MUTED_META, PHONE_TAP, tapButtonStyle } from './phone-chrome';
 import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
@@ -83,7 +83,7 @@ function NewRoomButton({
 }
 
 /**
- * The 244px sidebar: a `FLEET` header carrying the fleet count and the `+`,
+ * The sidebar: a `FLEET` header carrying the fleet count and the `+`,
  * then the tree itself. The rail owns the frame and the header; `FleetTree`
  * owns every row inside it.
  */
@@ -110,7 +110,8 @@ export function RoomRail({
     .filter(r => r.kind === 'dm' && r.participants)
     .sort((a, b) => (b.lastPostedAt ?? 0) - (a.lastPostedAt ?? 0));
   const channelRooms = rooms.filter(r => r.kind !== 'dm');
-  const online = buddies.filter(b => b.status !== 'offline').length;
+  const listed = listedBuddies(channelRooms, buddies);
+  const online = listed.filter(b => b.status !== 'offline').length;
 
   return (
     <Stack
@@ -153,7 +154,7 @@ export function RoomRail({
         <Group gap={2} wrap="nowrap">
           <Text component="span" data-testid="fleet-count" style={MUTED_XS}>
             {daemonReachable
-              ? `${online} on · ${buddies.length - online} off`
+              ? `${online} on · ${listed.length - online} off`
               : 'last known'}
           </Text>
           {onNewRoom && (

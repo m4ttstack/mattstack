@@ -1,23 +1,16 @@
 import { Fragment, useState } from 'react';
 import {
+  Avatar,
   Badge,
   Button,
-  Popover,
+  Menu,
   ScrollArea,
-  Tooltip,
-  UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { AnimatedChevron, Icon } from '@mattstack/app-kit/icons';
 import type { AgentStatus, RoomSummary } from '@mattstack/rt-client';
 
-import {
-  AGENT_STATE_WORD,
-  agentState,
-  isRoomForRepo,
-  seenAgo,
-  type AgentState,
-} from './agent-state';
-import { AgentHoverCard, HandleAvatar } from './AgentName';
+import { agentState, isRoomForRepo, type AgentState } from './agent-state';
+import { AgentCard, CARD_WIDTH, SpriteAvatar } from './AgentName';
 import { useBuddies } from './buddies-context';
 import { doing, type DoingInput } from './doing';
 import classes from './room-members.module.css';
@@ -28,7 +21,6 @@ import { StateDot } from './StateDot';
 export type MemberBuddy = DoingInput & {
   agentStatus?: AgentStatus;
   repo?: string;
-  lastSeenAt?: number;
 };
 
 type SignedInState = Exclude<AgentState, 'offline'>;
@@ -40,20 +32,27 @@ const GROUPS: { state: SignedInState; word: string }[] = [
 ];
 
 const STACK_MAX = 3;
+const DROPDOWN_WIDTH = 320;
+/** Rows a group shows before its "N more". */
+const GROUP_CAP = 8;
+/** The list scrolls past this, under the header, so a big room never runs
+    the dropdown off the screen. */
+const LIST_MAX_HEIGHT = 420;
 
-function MemberRow({
+/** From a row's right edge to the dropdown's outer edge (its padding and
+    hairline), so a member's card meets the list instead of overlapping it. */
+const DROPDOWN_DOCK_OFFSET = 5;
+
+function MemberLabel({
   member,
   room,
-  reachable,
   now,
 }: {
   member: MemberBuddy;
   room: RoomSummary;
-  reachable: boolean;
   now: number;
 }) {
   const ctx = useBuddies();
-  const roster = ctx?.byHandle.get(member.handle);
   const task = doing(member, now);
   const name = member.name ?? ctx?.nameOf(member.handle) ?? member.handle;
   // The room is usually named for its repo, so the chip only earns its place
@@ -62,52 +61,102 @@ function MemberRow({
     room.kind !== 'dm' && member.repo && !isRoomForRepo(room.room, member.repo)
       ? member.repo
       : undefined;
-  const row = (
-    <div className={classes.row} data-testid={`members-row-${member.handle}`}>
-      <HandleAvatar handle={member.handle} variant="inline" size={22} />
-      <div className={classes.text}>
-        <div className={classes.line}>
-          <span className={classes.name}>{name}</span>
-          {otherRepo && (
-            <Badge
-              variant="outline"
-              size="sm"
-              color="gray"
-              classNames={{ root: classes.repo }}
-            >
-              {otherRepo}
-            </Badge>
-          )}
-          {member.lastSeenAt !== undefined && (
-            <span className={classes.age}>
-              {seenAgo({ ...member, lastSeenAt: member.lastSeenAt }, now)}
-            </span>
-          )}
-        </div>
-        {task && <span className={classes.task}>{task.text}</span>}
-      </div>
-    </div>
-  );
-  if (!roster) return row;
   return (
-    <AgentHoverCard
-      buddy={roster}
-      position="right-start"
-      offset={14}
-      reachable={reachable}
-      now={now}
-      inRoom
-      task={task}
-    >
-      {row}
-    </AgentHoverCard>
+    <span className={classes.label}>
+      <span className={classes.labelLine}>
+        <span className={classes.name}>{name}</span>
+        {otherRepo && (
+          <Badge
+            variant="outline"
+            size="sm"
+            color="gray"
+            classNames={{ root: classes.repo }}
+          >
+            {otherRepo}
+          </Badge>
+        )}
+      </span>
+      {task && <span className={classes.task}>{task.text}</span>}
+    </span>
   );
 }
 
-/** The room's members behind one pill: who (a stack of their sprites) and
-    how they are doing (a count per herdr state). The dropdown lists them by
-    state, an agent waiting on the human first; hovering a row docks its card
-    beside the dropdown, so the list never moves under the pointer. */
+/** One member: a submenu item whose submenu is the agent's card, so the
+    card docks flush beside the list and the row stays marked while the
+    pointer is on the card. A member presence does not know gets a plain
+    item with no card.
+
+    The submenu is fixed-positioned so the list's scroll area does not clip
+    it, and controlled so the row can carry Mantine's active mark
+    (`data-menu-active`) while the pointer is on the card. */
+function MemberItem({
+  member,
+  room,
+  reachable,
+  now,
+  active,
+  onActive,
+}: {
+  member: MemberBuddy;
+  room: RoomSummary;
+  reachable: boolean;
+  now: number;
+  active: boolean;
+  onActive: (open: boolean) => void;
+}) {
+  const ctx = useBuddies();
+  const roster = ctx?.byHandle.get(member.handle);
+  const avatar = <SpriteAvatar handle={member.handle} size="sm" />;
+  const label = <MemberLabel member={member} room={room} now={now} />;
+  if (!roster) {
+    return (
+      <Menu.Item
+        leftSection={avatar}
+        classNames={{ itemLabel: classes.itemLabel }}
+        closeMenuOnClick={false}
+        data-testid={`members-row-${member.handle}`}
+      >
+        {label}
+      </Menu.Item>
+    );
+  }
+  return (
+    <Menu.Sub
+      position="right-start"
+      offset={DROPDOWN_DOCK_OFFSET}
+      width={CARD_WIDTH}
+      radius="lg"
+      floatingStrategy="fixed"
+      opened={active}
+      onChange={onActive}
+    >
+      <Menu.Sub.Target>
+        <Menu.Sub.Item
+          leftSection={avatar}
+          classNames={{ itemLabel: classes.itemLabel }}
+          data-testid={`members-row-${member.handle}`}
+          data-menu-active={active || undefined}
+        >
+          {label}
+        </Menu.Sub.Item>
+      </Menu.Sub.Target>
+      <Menu.Sub.Dropdown>
+        <AgentCard
+          buddy={roster}
+          reachable={reachable}
+          now={now}
+          inRoom
+          task={doing(member, now)}
+          inMenu
+        />
+      </Menu.Sub.Dropdown>
+    </Menu.Sub>
+  );
+}
+
+/** The room's members behind one pill: who (their sprites) and how many.
+    The dropdown lists them by herdr state, an agent waiting on the human
+    first; each row's card opens as its submenu. */
 export function RoomMembers({
   room,
   buddies,
@@ -124,6 +173,8 @@ export function RoomMembers({
   const ctx = useBuddies();
   const [opened, setOpened] = useState(false);
   const [offlineOpen, setOfflineOpen] = useState(false);
+  const [activeHandle, setActiveHandle] = useState<string | null>(null);
+  const [uncapped, setUncapped] = useState<ReadonlySet<string>>(new Set());
   const signedIn = buddies.filter(b => b.status !== 'offline');
   const offline = buddies.filter(b => b.status === 'offline');
   const groups = GROUPS.map(g => ({
@@ -134,83 +185,102 @@ export function RoomMembers({
   const roomLabel = room.kind === 'dm' ? 'conversation' : `#${room.room}`;
   const nameOf = (b: MemberBuddy) =>
     b.name ?? ctx?.nameOf(b.handle) ?? b.handle;
-  const tally = groups.map(
-    g => `${g.members.length} ${AGENT_STATE_WORD[g.state].toLowerCase()}`
+
+  const capped = (key: string, members: MemberBuddy[]) =>
+    uncapped.has(key) ? members : members.slice(0, GROUP_CAP);
+  // A toggle that stays mounted: an item that removed itself would drop
+  // focus to the body, and the menu reads the next keydown as an outside
+  // click.
+  const more = (key: string, members: MemberBuddy[]) => {
+    if (members.length <= GROUP_CAP) return null;
+    const open = uncapped.has(key);
+    return (
+      <Menu.Item
+        leftSection={
+          <Icon name={open ? 'chevronUp' : 'chevronDown'} size={12} />
+        }
+        aria-expanded={open}
+        closeMenuOnClick={false}
+        data-testid={`members-more-${key}`}
+        onClick={() =>
+          setUncapped(s => {
+            const next = new Set(s);
+            if (open) next.delete(key);
+            else next.add(key);
+            return next;
+          })
+        }
+      >
+        <span className={classes.more}>
+          {open ? 'Show fewer' : `${members.length - GROUP_CAP} more`}
+        </span>
+      </Menu.Item>
+    );
+  };
+  const shown = reachable
+    ? [
+        ...groups.flatMap(g => capped(g.state, g.members)),
+        ...(offlineOpen ? capped('offline', offline) : []),
+      ]
+    : [];
+  // A row that leaves the list (signed out, folded away) takes its card with
+  // it, so the card cannot reopen unasked when the row comes back.
+  if (activeHandle !== null && !shown.some(b => b.handle === activeHandle)) {
+    setActiveHandle(null);
+  }
+  const onOpenChange = (open: boolean) => {
+    setOpened(open);
+    if (!open) setActiveHandle(null);
+  };
+
+  const item = (b: MemberBuddy) => (
+    <MemberItem
+      key={b.handle}
+      member={b}
+      room={room}
+      reachable={reachable}
+      now={now}
+      active={activeHandle === b.handle}
+      onActive={open =>
+        setActiveHandle(current =>
+          open ? b.handle : current === b.handle ? null : current
+        )
+      }
+    />
   );
 
   return (
-    <Popover
+    <Menu
       opened={opened}
-      onChange={setOpened}
+      onChange={onOpenChange}
       position="bottom-start"
-      withinPortal
+      width={DROPDOWN_WIDTH}
       shadow="md"
       radius="lg"
-      width={320}
-      trapFocus
-      // A row's agent card is portalled outside this dropdown, so a mousedown
-      // on its buttons would read as outside and close the list (and the card
-      // with it) before the click lands. On click, the button's handler runs
-      // first.
-      clickOutsideEvents={['click', 'touchend']}
-      classNames={{ dropdown: classes.dropdown }}
+      withinPortal
     >
-      <Popover.Target>
+      <Menu.Target>
         <Button
           variant="default"
           size="sm"
           data-testid="members-chip"
-          aria-label={
-            tally.length > 0
-              ? `Members of ${roomLabel}: ${tally.join(', ')}`
-              : `Members of ${roomLabel}`
-          }
-          onClick={() => setOpened(o => !o)}
+          aria-label={`Members of ${roomLabel}: ${signedIn.length} signed in${reachable ? '' : ', last known'}`}
           leftSection={
             stack.length > 0 ? (
-              <span className={classes.stack}>
+              <Avatar.Group spacing="xs">
                 {stack.map(b => (
-                  <HandleAvatar
-                    key={b.handle}
-                    handle={b.handle}
-                    variant="inline"
-                    size={18}
-                  />
+                  <SpriteAvatar key={b.handle} handle={b.handle} size="sm" />
                 ))}
-              </span>
+              </Avatar.Group>
             ) : undefined
           }
           rightSection={<AnimatedChevron opened={opened} size={14} />}
         >
-          <Tooltip
-            label={tally.join(' · ')}
-            disabled={opened || tally.length === 0}
-            openDelay={300}
-            withinPortal
-          >
-            <span className={classes.counts}>
-              {groups.length > 0 ? (
-                groups.map(g => (
-                  <span
-                    key={g.state}
-                    className={classes.countItem}
-                    data-testid={`members-count-${g.state}`}
-                  >
-                    <StateDot state={g.state} />
-                    {g.members.length}
-                  </span>
-                ))
-              ) : (
-                <span className={classes.countItem}>
-                  <StateDot state="offline" testId="members-count-none" />0
-                </span>
-              )}
-              {!reachable && <span>last known</span>}
-            </span>
-          </Tooltip>
+          {signedIn.length}
+          {!reachable && ' · last known'}
         </Button>
-      </Popover.Target>
-      <Popover.Dropdown data-testid="members-dropdown">
+      </Menu.Target>
+      <Menu.Dropdown data-testid="members-dropdown">
         <div className={classes.header}>
           <span className={classes.title}>
             {signedIn.length} in {roomLabel}
@@ -220,75 +290,62 @@ export function RoomMembers({
           </span>
         </div>
         {reachable ? (
-          <>
-            <ScrollArea.Autosize mah={420} type="auto" scrollbars="y">
-              <div className={classes.list}>
-                {groups.map(g => (
-                  <Fragment key={g.state}>
-                    <div
-                      className={classes.group}
-                      data-state={g.state}
-                      data-testid={`members-group-${g.state}`}
-                    >
-                      {g.state === 'blocked' && (
-                        <StateDot state="blocked" size="sm" />
-                      )}
-                      {g.word}
-                      <span className={classes.count}>{g.members.length}</span>
-                    </div>
-                    {g.members.map(b => (
-                      <MemberRow
-                        key={b.handle}
-                        member={b}
-                        room={room}
-                        reachable={reachable}
-                        now={now}
-                      />
-                    ))}
-                  </Fragment>
-                ))}
-                {offlineOpen &&
-                  offline.map(b => (
-                    <MemberRow
-                      key={b.handle}
-                      member={b}
-                      room={room}
-                      reachable={reachable}
-                      now={now}
-                    />
-                  ))}
-              </div>
-            </ScrollArea.Autosize>
+          <ScrollArea.Autosize mah={LIST_MAX_HEIGHT}>
+            {groups.map(g => (
+              <Fragment key={g.state}>
+                <Menu.Label data-testid={`members-group-${g.state}`}>
+                  <span className={classes.groupLabel} data-state={g.state}>
+                    {g.state === 'blocked' && (
+                      <StateDot state="blocked" size="sm" />
+                    )}
+                    {g.word}
+                    <span className={classes.count}>{g.members.length}</span>
+                  </span>
+                </Menu.Label>
+                {capped(g.state, g.members).map(item)}
+                {more(g.state, g.members)}
+              </Fragment>
+            ))}
             {offline.length > 0 && (
-              <div className={classes.signedOutRule}>
-                <UnstyledButton
-                  className={classes.signedOut}
-                  aria-expanded={offlineOpen}
-                  data-testid="members-signed-out"
-                  onClick={() => setOfflineOpen(o => !o)}
-                >
-                  <span className={classes.signedOutLabel}>
+              <>
+                <Menu.Divider />
+                <Menu.Item
+                  leftSection={
                     <Icon
                       name={offlineOpen ? 'chevronDown' : 'chevronRight'}
                       size={12}
                     />
+                  }
+                  classNames={{ itemLabel: classes.itemLabel }}
+                  aria-expanded={offlineOpen}
+                  closeMenuOnClick={false}
+                  data-testid="members-signed-out"
+                  onClick={() => setOfflineOpen(o => !o)}
+                >
+                  <span className={classes.signedOut}>
                     {offline.length} signed out
+                    {!offlineOpen && (
+                      <span className={classes.names}>
+                        {offline.map(nameOf).join(' ')}
+                      </span>
+                    )}
                   </span>
-                  {!offlineOpen && (
-                    <span className={classes.names}>
-                      {offline.map(nameOf).join(' ')}
-                    </span>
-                  )}
-                </UnstyledButton>
-              </div>
+                </Menu.Item>
+                {offlineOpen && (
+                  <>
+                    {capped('offline', offline).map(item)}
+                    {more('offline', offline)}
+                  </>
+                )}
+              </>
             )}
-          </>
+          </ScrollArea.Autosize>
         ) : (
           <div className={classes.withheld}>
             presence withheld while the daemon is down
           </div>
         )}
-      </Popover.Dropdown>
-    </Popover>
+      </Menu.Dropdown>
+    </Menu>
   );
 }

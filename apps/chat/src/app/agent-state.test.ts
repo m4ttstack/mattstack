@@ -4,8 +4,7 @@ import {
   agentState,
   isRoomForRepo,
   paneLocation,
-  seenAgo,
-  seenElapsed,
+  stateLine,
 } from './agent-state';
 
 describe('agentState', () => {
@@ -51,23 +50,18 @@ describe('paneLocation', () => {
   });
 });
 
-describe('seenAgo', () => {
-  test('a signed-in buddy reads as seen, never as a state age', () => {
-    expect(seenAgo({ status: 'live', lastSeenAt: 1_000 }, 181_000)).toBe(
-      'seen 3m ago'
+describe('stateLine', () => {
+  test('a signed-in agent reads its state word and no age', () => {
+    expect(stateLine({ status: 'idle', agentStatus: 'blocked' }, 0)).toBe(
+      'Waiting on you'
     );
-    expect(seenElapsed({ status: 'live', lastSeenAt: 1_000 }, 181_000)).toBe(
-      '3m'
-    );
+    expect(stateLine({ status: 'live' }, 0)).toBe('Working');
   });
 
-  test('a signed-out buddy reads how long ago it left', () => {
-    expect(
-      seenAgo(
-        { status: 'offline', lastSeenAt: 0, signedOutAt: 60_000 },
-        660_000
-      )
-    ).toBe('10m ago');
+  test('a signed-out agent reads how long ago it left', () => {
+    expect(stateLine({ status: 'offline', signedOutAt: 60_000 }, 660_000)).toBe(
+      'Signed out · 10m ago'
+    );
   });
 });
 
@@ -82,7 +76,7 @@ describe('isRoomForRepo', () => {
     expect(isRoomForRepo('rt', 'acme-api')).toBe(false);
   });
 
-  test('the suffix rule errs toward hiding the chip, never toward a wrong one', () => {
+  test('without the repo identity, the suffix rule also matches an unrelated room', () => {
     expect(isRoomForRepo('acme-api', 'api')).toBe(true);
   });
 });
