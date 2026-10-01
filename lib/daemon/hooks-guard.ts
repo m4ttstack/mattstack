@@ -7,19 +7,12 @@
  */
 
 import { existsSync, watch, type FSWatcher } from "fs";
-import { basename, dirname, join, resolve, sep } from "path";
+import { basename, dirname, join, resolve } from "path";
 import type { Logger } from "pino";
-import { repoDataDir, rtDir } from "../rt-paths.ts";
+import { repoDataDir } from "../rt-paths.ts";
 import { runCapture } from "../subprocess.ts";
 import { loadRepoIndex, resolveGitConfigPath } from "./repo-index.ts";
 import type { RepoIndex } from "./handlers/types.ts";
-
-/** True for rt's current shims layout and any legacy one, all of which live under rtDir(). */
-function isRtOwnedPath(p: string): boolean {
-  const resolvedRt = resolve(rtDir());
-  const resolvedP = resolve(p);
-  return resolvedP === resolvedRt || resolvedP.startsWith(resolvedRt + sep);
-}
 
 export interface HooksGuard {
   /** Live map of repo git-config watchers (configPath → FSWatcher). */
@@ -41,10 +34,6 @@ export function createHooksGuard(
   const loadRepoIndexFn = deps.loadRepoIndexFn ?? loadRepoIndex;
   const watchFn = deps.watchFn ?? watch;
   const watchedConfigs = new Map<string, FSWatcher>();
-  // Repos where another tool has taken over core.hooksPath (R044). Tracked
-  // so the "rt hooks disabled" warning fires once per takeover, not on
-  // every watcher tick or 60s poll sweep.
-  const takenOverRepos = new Set<string>();
 
   async function checkAndRepairHooksPath(repoName: string, repoPath: string): Promise<boolean> {
     const dataDir = repoDataDir(repoName);
@@ -63,28 +52,12 @@ export function createHooksGuard(
       // never repaired a stale-but-rt-owned path — e.g. the pre-repos/ location
       // <rtDir>/<repo>/hooks after the move to <rtDir>/repos/<repo>/hooks.
       // Compare resolved paths.
-      if (resolve(currentHooksPath) === resolve(shimsDir)) {
-        takenOverRepos.delete(repoName);
-        return false;
-      }
+      if (resolve(currentHooksPath) === resolve(shimsDir)) return false;
 
-      // Anything not under rtDir() was set by another tool (husky, lefthook,
-      // a manual `git config`), not left over from an old rt shims layout.
-      // Reverting it would silently break that tool with no visible cause.
-      // Stop guarding this repo instead (R044), and say so once.
-      if (!isRtOwnedPath(currentHooksPath)) {
-        if (!takenOverRepos.has(repoName)) {
-          takenOverRepos.add(repoName);
-          log.warn(
-            { repo: repoName, hooksPath: currentHooksPath },
-            "rt hooks disabled for this repo: core.hooksPath is now set by another tool",
-          );
-        }
-        return false;
-      }
-
-      // Hooks path was clobbered by a stale rt-owned location; re-apply
-      takenOverRepos.delete(repoName);
+      // Reclaim from anything else, foreign tools included. husky's `prepare`
+      // script rewrites core.hooksPath on every install, and the shims already
+      // delegate to `.husky/<hook>`, so yielding here would leave the rt hooks
+      // toggles silently ignored.
       const set = await runCapture(["git", "config", "core.hooksPath", shimsDir], { cwd: repoPath, timeoutMs: 5000 });
       if (set.exitCode !== 0) return false;
       log.warn({ repo: repoName, was: currentHooksPath }, "hooks-guard repaired core.hooksPath");
@@ -92,7 +65,6 @@ export function createHooksGuard(
     }
 
     // git config core.hooksPath not set — set it
-    takenOverRepos.delete(repoName);
     const set = await runCapture(["git", "config", "core.hooksPath", shimsDir], { cwd: repoPath, timeoutMs: 5000 });
     if (set.exitCode !== 0) return false;
     log.info({ repo: repoName }, "hooks-guard set core.hooksPath");
