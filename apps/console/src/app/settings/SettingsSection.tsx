@@ -15,7 +15,12 @@ import type { WireIssue } from './issues';
 import type { PanelStore } from './KeyPanel';
 import { SettingRow, type RowOpen } from './SettingRow';
 import { useSettingsTeam } from './useConsoleSettings';
-import type { Section, StoreScope } from './view';
+import {
+  providerOf,
+  type Provider,
+  type Section,
+  type StoreScope,
+} from './view';
 
 const SUBHEAD: Record<
   StoreScope,
@@ -42,13 +47,6 @@ function subheadNote(scope: StoreScope, team: string | null): string {
   if (scope === 'team' && team)
     return `shared with everyone through the ${team} team repo`;
   return SUBHEAD[scope].note;
-}
-
-export type Provider = 'claude' | 'codex';
-
-function providerOf(key: string | undefined): Provider | null {
-  const m = /^agent\.(claude|codex)\./.exec(key ?? '');
-  return m ? (m[1] as Provider) : null;
 }
 
 interface RowWiring {

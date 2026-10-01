@@ -27,7 +27,7 @@ import { useOpenRow } from './explainParam';
 import { TIER_LABEL, type Tier } from './groups';
 import { RepoPicker } from './RepoPicker';
 import { ScopeDot } from './ScopeBadge';
-import { SettingsSection, type Provider } from './SettingsSection';
+import { SettingsSection } from './SettingsSection';
 import { UnregisteredNote } from './UnregisteredNote';
 import {
   SettingsRepoContext,
@@ -39,6 +39,7 @@ import {
   buildSections,
   isEditable,
   needsFixing,
+  type Provider,
   type ScopeFilter,
   type Section,
 } from './view';

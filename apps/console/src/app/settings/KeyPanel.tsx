@@ -48,24 +48,18 @@ import {
   isStoreScope,
   layerLabel,
   moveTargets,
+  providerOf,
   repoLabel,
   rungBase,
   scopeLabel,
   type LayerScope,
+  type Provider,
 } from './view';
 
 export type PanelTab = 'value' | 'where';
 export type PanelStore = RowStore & Pick<ConsoleStore, 'prune'>;
 
 type Role = 'winner' | 'overridden' | 'contributor' | 'inert';
-type Provider = 'claude' | 'codex';
-
-/** Same rule as the Agents section: a provider's `.model` keys suggest
-    that provider's model catalog. */
-function modelProvider(key: string): Provider | null {
-  const m = /^agent\.(claude|codex)\./.exec(key);
-  return m && key.endsWith('.model') ? (m[1] as Provider) : null;
-}
 
 function Catalog({
   provider,
@@ -85,7 +79,11 @@ export function Suggested({
   settingKey: string;
   children: (suggestions?: string[]) => ReactNode;
 }) {
-  const provider = modelProvider(settingKey);
+  // Same rule as the Agents section: a provider's `.model` keys suggest
+  // that provider's model catalog.
+  const provider = settingKey.endsWith('.model')
+    ? providerOf(settingKey)
+    : null;
   return provider ? (
     <Catalog provider={provider}>{children}</Catalog>
   ) : (

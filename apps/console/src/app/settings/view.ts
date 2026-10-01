@@ -35,6 +35,14 @@ export const NO_FILTER: ViewFilter = {
   scope: 'any',
 };
 
+export type Provider = 'claude' | 'codex';
+
+/** The agent provider an `agent.<provider>.*` key belongs to. */
+export function providerOf(key: string | undefined): Provider | null {
+  const m = /^agent\.(claude|codex)\./.exec(key ?? '');
+  return m ? (m[1] as Provider) : null;
+}
+
 export function needsFixing(def: SettingDefWire): boolean {
   return (def.issues?.length ?? 0) > 0 || (def.mergedIssues?.length ?? 0) > 0;
 }

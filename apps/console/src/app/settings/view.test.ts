@@ -17,6 +17,7 @@ import {
   moveTargets,
   needsFixing,
   NO_FILTER,
+  providerOf,
   rungBase,
   rungOf,
   sourceText,
@@ -337,6 +338,19 @@ describe('layer rungs and write targets', () => {
     expect(layerLabel('team.repo')).toBe('team · repo');
     expect(layerLabel('team')).toBe('team');
     expect(layerLabel('machine.repo')).toBe('machine · repo');
+  });
+});
+
+describe('providerOf', () => {
+  it('names the provider an agent.<provider>.* key belongs to', () => {
+    expect(providerOf('agent.claude.model')).toBe('claude');
+    expect(providerOf('agent.codex.effort')).toBe('codex');
+  });
+  it('is null for any other key, and for no key', () => {
+    expect(providerOf('agent.provider')).toBeNull();
+    expect(providerOf('agent.gemini.model')).toBeNull();
+    expect(providerOf('board.agent.claude.model')).toBeNull();
+    expect(providerOf(undefined)).toBeNull();
   });
 });
 
