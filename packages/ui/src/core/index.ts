@@ -129,8 +129,6 @@ export type {
   VirtualTableProps,
   VirtualTableShellProps,
 } from './virtual-table/VirtualTable';
-// No naming collision with `@mantine/core`/`@mantine/dates` (neither exports
-// `CodeLines`).
 export { CodeLines } from './code-lines/CodeLines';
 export type { CodeLinesBand, CodeLinesProps } from './code-lines/CodeLines';
 export { RangePicker } from './range-picker/RangePicker';

@@ -1,46 +1,29 @@
 import { screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { VirtualList } from '@mattstack/app-kit/core';
-import { renderWithProviders } from '@mattstack/app-kit/test-utils';
+import {
+  renderWithProviders,
+  stubVirtualLayout,
+} from '@mattstack/app-kit/test-utils';
 
 const ROW_HEIGHT = 20;
 const VIEWPORT_HEIGHT = 200;
+const ITEM_COUNT = 1000;
 
-const TOTAL_ROWS = 1000;
+let restoreLayout: () => void;
 
-// jsdom does no layout. The virtualizer reads `offsetHeight` of its scroll
-// element and of each row wrapper (`data-index`) and bounds its scroll target
-// by `scrollHeight - clientHeight`, so the stub answers those per element,
-// and `scrollTo` behaves like a browser's: it moves `scrollTop` and fires
-// `scroll`.
-function stubLayout() {
-  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(
-    function (this: HTMLElement) {
-      return this.hasAttribute('data-index') ? ROW_HEIGHT : VIEWPORT_HEIGHT;
-    }
-  );
-  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(600);
-  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(
-    VIEWPORT_HEIGHT
-  );
-  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(
-    TOTAL_ROWS * ROW_HEIGHT
-  );
-  Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
-    configurable: true,
-    value(this: HTMLElement, options: ScrollToOptions) {
-      Object.defineProperty(this, 'scrollTop', {
-        configurable: true,
-        writable: true,
-        value: options.top ?? 0,
-      });
-      this.dispatchEvent(new Event('scroll'));
-    },
+beforeEach(() => {
+  restoreLayout = stubVirtualLayout({
+    rowHeight: ROW_HEIGHT,
+    viewportHeight: VIEWPORT_HEIGHT,
+    contentHeight: ITEM_COUNT * ROW_HEIGHT,
   });
-}
+});
 
-const items = Array.from({ length: 1000 }, (_, i) => `row ${i}`);
+afterEach(() => restoreLayout());
+
+const items = Array.from({ length: ITEM_COUNT }, (_, i) => `row ${i}`);
 
 function list(scrollToIndex?: number | null) {
   return (
@@ -53,13 +36,6 @@ function list(scrollToIndex?: number | null) {
     />
   );
 }
-
-beforeEach(stubLayout);
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo');
-});
 
 describe('VirtualList scrollToIndex', () => {
   test('starts at the top when no index is given', () => {

@@ -31,7 +31,11 @@ export interface CodeLinesProps {
   tintPattern?: RegExp;
   /** Viewport height in px. */
   height: number;
-  /** Line number to bring to the top of the viewport. */
+  /**
+   * Line number to bring to the top of the viewport. Applies again only when
+   * the value changes, so remount with a `key` when swapping the content (the
+   * Template/Rendered toggle, say).
+   */
   scrollTo?: number | null;
 }
 

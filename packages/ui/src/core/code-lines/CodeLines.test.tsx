@@ -1,51 +1,29 @@
 import { screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { CodeLines } from '@mattstack/app-kit/core';
-import { renderWithProviders } from '@mattstack/app-kit/test-utils';
+import {
+  renderWithProviders,
+  stubVirtualLayout,
+} from '@mattstack/app-kit/test-utils';
 
 const ROW_HEIGHT = 19;
 const VIEWPORT_HEIGHT = 190;
-
 const TOTAL_ROWS = 2000;
+// About ten visible rows, 20 overscan either side, and slack for partial rows.
+const MOUNTED_ROWS_BOUND = 60;
 
-// jsdom does no layout. The virtualizer reads `offsetHeight` of its scroll
-// element and of each row wrapper (`data-index`) and bounds its scroll target
-// by `scrollHeight - clientHeight`, so the stub answers those per element,
-// and `scrollTo` behaves like a browser's: it moves `scrollTop` and fires
-// `scroll`.
-function stubLayout() {
-  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(
-    function (this: HTMLElement) {
-      return this.hasAttribute('data-index') ? ROW_HEIGHT : VIEWPORT_HEIGHT;
-    }
-  );
-  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(600);
-  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(
-    VIEWPORT_HEIGHT
-  );
-  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(
-    TOTAL_ROWS * ROW_HEIGHT
-  );
-  Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
-    configurable: true,
-    value(this: HTMLElement, options: ScrollToOptions) {
-      Object.defineProperty(this, 'scrollTop', {
-        configurable: true,
-        writable: true,
-        value: options.top ?? 0,
-      });
-      this.dispatchEvent(new Event('scroll'));
-    },
+let restoreLayout: () => void;
+
+beforeEach(() => {
+  restoreLayout = stubVirtualLayout({
+    rowHeight: ROW_HEIGHT,
+    viewportHeight: VIEWPORT_HEIGHT,
+    contentHeight: TOTAL_ROWS * ROW_HEIGHT,
   });
-}
-
-beforeEach(stubLayout);
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo');
 });
+
+afterEach(() => restoreLayout());
 
 const row = (text: string) =>
   screen.getByText(text).closest('[data-line]') as HTMLElement;
@@ -193,7 +171,9 @@ describe('CodeLines', () => {
 
     expect(screen.getByText('line 1')).toBeTruthy();
     expect(screen.queryByText('line 1990')).toBeNull();
-    expect(container.querySelectorAll('[data-line]').length).toBeLessThan(100);
+    expect(
+      container.querySelectorAll('[data-line]').length
+    ).toBeLessThanOrEqual(MOUNTED_ROWS_BOUND);
 
     rerender(
       <CodeLines lines={lines} height={VIEWPORT_HEIGHT} scrollTo={1980} />
@@ -202,7 +182,9 @@ describe('CodeLines', () => {
     expect(screen.getByText('line 1980')).toBeTruthy();
     expect(screen.getByText('line 1990')).toBeTruthy();
     expect(screen.queryByText('line 10')).toBeNull();
-    expect(container.querySelectorAll('[data-line]').length).toBeLessThan(100);
+    expect(
+      container.querySelectorAll('[data-line]').length
+    ).toBeLessThanOrEqual(MOUNTED_ROWS_BOUND);
   });
 
   test('brings scrollTo to the top of the viewport on first render', () => {

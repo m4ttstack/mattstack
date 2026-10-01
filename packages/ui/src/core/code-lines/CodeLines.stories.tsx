@@ -85,8 +85,8 @@ export const TwoThousandLines: Story = {
   render: args => (
     <>
       <Text size="sm" p="sm">
-        2,000 lines in `lines`, scrolled to line 1,980 on mount. Only the rows
-        near the viewport are in the DOM.
+        2,000 lines, scrolled to line 1,980 on mount. Only the rows near the
+        viewport are in the DOM.
       </Text>
       <CodeLines {...args} />
     </>
