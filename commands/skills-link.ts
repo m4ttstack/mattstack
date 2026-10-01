@@ -17,26 +17,28 @@ import { existsSync, statSync } from "fs";
 import { join, resolve } from "path";
 import { pruneLinksFrom, readSkillsIgnore, reconcileSkillLinks, type LinkAction, type ReconcileResult } from "../lib/skills/link.ts";
 import { envelope } from "../lib/setup/contract.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
 
-function fail(message: string): never {
-  console.error(`rt skills link: ${message}`);
+function fail(title: string, next?: string): never {
+  out.fail({ title, ...(next ? { next: out.cmd(next) } : {}) });
   process.exit(1);
 }
 
-const GLYPH: Record<LinkAction["kind"], string> = {
-  create: "+",
-  ok: "=",
-  relink: "~",
-  prune: "-",
-  conflict: "!",
-  skip: "·",
+const ROW: Record<LinkAction["kind"], { status: RenderStatus; done: string; would: string }> = {
+  create: { status: "done", done: "linked", would: "would link" },
+  ok: { status: "done", done: "already linked", would: "already linked" },
+  relink: { status: "done", done: "relinked", would: "would relink" },
+  prune: { status: "off", done: "link removed", would: "would remove the link" },
+  conflict: { status: "needs-you", done: "left alone", would: "left alone" },
+  skip: { status: "skipped", done: "not linked", would: "not linked" },
 };
 
 /** The skills source: `--from` verbatim when given, else `<repo root>/skills`. */
 export function resolveSkillsDir(opts: {
   from?: string;
   repoRoot: () => string | null;
-}): { dir: string } | { error: string } {
+}): { dir: string } | { error: string; next?: string } {
   if (opts.from !== undefined) {
     const dir = resolve(opts.from);
     if (!existsSync(dir)) return { error: `${dir} does not exist` };
@@ -45,10 +47,10 @@ export function resolveSkillsDir(opts: {
   }
   const root = opts.repoRoot();
   if (root === null) {
-    return { error: "not inside a git repo — run it from the repo whose skills/ you want linked, or pass --from <dir>" };
+    return { error: "You are not inside a git repo", next: "rt skills link --from <folder>" };
   }
   const dir = join(root, "skills");
-  if (!existsSync(dir)) return { error: `${dir} does not exist — this repo has no skills/ directory` };
+  if (!existsSync(dir)) return { error: `This repo has no skills folder (${dir})` };
   return { dir };
 }
 
@@ -70,11 +72,11 @@ export async function skillsLink(args: string[]): Promise<void> {
       case "--json": json = true; break;
       case "--from": {
         const value = args[++i];
-        if (value === undefined) fail("--from needs a directory");
+        if (value === undefined) fail("--from needs a folder");
         from = value;
         break;
       }
-      default: fail(`unknown flag ${args[i]}`);
+      default: fail(`rt skills link does not take ${args[i]}`);
     }
   }
 
@@ -92,7 +94,7 @@ export async function skillsLink(args: string[]): Promise<void> {
         return;
       }
     }
-    fail(source.error);
+    fail(source.error, source.next);
   }
 
   // `.skillsignore` names skills the source declines to DISTRIBUTE, so it
@@ -104,22 +106,24 @@ export async function skillsLink(args: string[]): Promise<void> {
   report(source.dir, claudeSkillsDir, reconcileSkillLinks({ skillsDir: source.dir, claudeSkillsDir, dryRun, ignore }), dryRun, json);
 }
 
+export function linkBlocks(skillsDir: string, claudeSkillsDir: string, result: ReconcileResult, dryRun: boolean): Block[] {
+  const changes = new Set<LinkAction["kind"]>(["create", "relink", "prune"]);
+  const rows = result.actions.map((a) => {
+    const word = dryRun ? ROW[a.kind].would : ROW[a.kind].done;
+    return out.line(dryRun && changes.has(a.kind) ? "pending" : ROW[a.kind].status, a.name, a.detail ? `${word}: ${a.detail}` : word);
+  });
+  const conflicts = result.actions.filter((a) => a.kind === "conflict").length;
+  return [
+    out.section("Skill links", dryRun ? "dry run" : undefined, out.kv("From", skillsDir), out.kv("To", claudeSkillsDir), ...rows),
+    ...(conflicts > 0 ? [out.callout("note", "rt never removes a link it did not make. Sort these out by hand.")] : []),
+    ...(!result.changed && conflicts === 0 ? [out.summary("done", "Everything is already linked")] : []),
+  ];
+}
+
 function report(skillsDir: string, claudeSkillsDir: string, result: ReconcileResult, dryRun: boolean, json: boolean): void {
   if (json) {
-    console.log(JSON.stringify(envelope({ ok: true, dryRun, skillsDir, claudeSkillsDir, changed: result.changed, actions: result.actions })));
+    out.json(envelope({ ok: true, dryRun, skillsDir, claudeSkillsDir, changed: result.changed, actions: result.actions }));
     return;
   }
-
-  const label = dryRun ? " (dry run)" : "";
-  console.log(`\n  rt skills link${label} — ${skillsDir} → ${claudeSkillsDir}\n`);
-  for (const a of result.actions) {
-    const name = a.name.padEnd(24);
-    console.log(`  ${GLYPH[a.kind]} ${name} ${a.kind}${a.detail ? ` — ${a.detail}` : ""}`);
-  }
-  const conflicts = result.actions.filter((a) => a.kind === "conflict");
-  if (conflicts.length > 0) {
-    console.log(`\n  ${conflicts.length} name(s) are owned by something outside this repo — resolve by hand; rt never removes what it did not create.`);
-  }
-  if (!result.changed && conflicts.length === 0) console.log("  Everything already linked.");
-  console.log();
+  out.print(...linkBlocks(skillsDir, claudeSkillsDir, result, dryRun));
 }
