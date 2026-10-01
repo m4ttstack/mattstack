@@ -119,6 +119,7 @@ describe("ci_watch", () => {
         command: (async () => ({ ok: true, data: [] })) as any,
         now: () => 0,
         sleep: async () => {},
+        budgetMinutes: () => 75,
         ...over,
       },
     }).find((x) => x.name === "ci_watch")!;
@@ -224,6 +225,24 @@ describe("ci_watch", () => {
     expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA, intervalSeconds: 5 }, A)).ok).toBe(false);
     expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA, intervalSeconds: 121 }, A)).ok).toBe(false);
     expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA }, {})).ok).toBe(false);
+  });
+  test("the budget comes from the setting and is measured from the pipeline's createdAt", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    const old = { id: "gitlab:pipeline:10", status: "running", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: new Date(-50 * 60_000).toISOString(), jobs: [] };
+    const r = await watchTool({ budgetMinutes: () => 45 }, old).handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "running", budget: { minutes: 45, elapsedMinutes: 50, spent: true } } });
+  });
+  test("a budgetMinutes input overrides the setting", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    const old = { id: "gitlab:pipeline:10", status: "running", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: new Date(-50 * 60_000).toISOString(), jobs: [] };
+    const r = await watchTool({ budgetMinutes: () => 45 }, old).handler({ repoName: "remote:x", iid: 42, sha: SHA, budgetMinutes: 90, maxWaitSeconds: 0 }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "running", budget: { minutes: 90, spent: false } } });
+  });
+  test("budgetMinutes input bounds", async () => {
+    const t = watchTool();
+    for (const v of [0, -5, 1.5, 1441]) {
+      expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA, budgetMinutes: v }, A)).ok).toBe(false);
+    }
   });
   test("intervalSeconds at the 120 ceiling is accepted", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, A);

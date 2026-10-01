@@ -207,7 +207,9 @@ never polls less often than every half of the lease's `ttlSeconds`, so its
 own heartbeat cannot let the lease go stale), `priorPipelineId` (the numeric
 part of the `gitlab:pipeline:N` head pipeline id read before the push, so a
 fast-forward merge train's new pipeline can be told apart from an old one),
-and `underBoardLease` (default false, see below).
+`budgetMinutes` (1 to 1440, overriding the `ci.watch.budgetMinutes` setting
+for one call; the doctor passes it for a granted extension) and
+`underBoardLease` (default false, see below).
 
 A merged-results pipeline counts only when its merge commit's parents
 include the pushed sha; only a merge train falls back to "new since the
@@ -219,8 +221,8 @@ pipeline. `next` says to pass it, so the proof survives across calls.
 
 Returns `state`, `sha`, `headSha`, the matching `pipeline` (or null),
 `failedJobs` (with a 40 line trace tail for up to five blocking failures on
-a `failed` result), `blockingFailures`, `lease`, `waitedSeconds`, `polls`
-and `next`, a one line hint for what to do next. `failedJobs` includes the
+a `failed` result), `blockingFailures`, `lease`, `waitedSeconds`, `polls`,
+`budget` and `next`, a one line hint for what to do next. `failedJobs` includes the
 failed jobs of every same-project downstream (child) pipeline the bridges
 trigger, nested ones included; a child job under an `allow_failure` bridge,
 or under a bridge that does not depend on its child, counts as
@@ -256,6 +258,20 @@ pipeline) instead.
 `maxWaitSeconds` running out returns whatever state the loop was in
 (`running` or `waiting`) rather than an error, so the caller just calls
 again.
+
+### The watch budget
+
+`budget` is `{minutes, elapsedMinutes, spent}`: `minutes` is the
+`ci.watch.budgetMinutes` setting (team convention, user or machine
+override, default 75) or the call's `budgetMinutes`, and `elapsedMinutes` is
+measured from the matched pipeline's own `createdAt`, so call length,
+backgrounding and a restarted agent never reset it. A pipeline still
+running once `spent` is true returns `running` at once, and a call never
+sleeps past the budget's end; a settled pipeline and a blocking failure are
+still reported as usual, whatever the budget says. `budget` is null while
+no pipeline for the sha exists (or the pipeline has no `createdAt`), so a
+caller bounds a `waiting` watch on its own: the attendant skills verify the
+push after two `waiting` calls in a row.
 
 CLI: `rt ci watch <mr-url> --sha <sha> [--max-wait <s>] [--interval <s>] [--prior-pipeline <id>] [--json]`.
 Ctrl-C aborts the watch and exits 130; any other non-terminal-success state

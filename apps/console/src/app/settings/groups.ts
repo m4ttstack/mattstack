@@ -55,6 +55,13 @@ export const GROUPS: Group[] = [
     match: pattern(/^(herd|panes)\./),
   },
   {
+    id: 'ci',
+    label: 'CI',
+    tier: 'rt',
+    blurb: 'How long a CI attendant watches one pipeline before it stops and asks.',
+    match: prefix('ci.'),
+  },
+  {
     id: 'notifications',
     label: 'Notifications & gates',
     tier: 'rt',

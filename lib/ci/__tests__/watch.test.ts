@@ -26,7 +26,7 @@ function fake(seq: WatchMr[], over: Partial<WatchDeps> = {}) {
   };
   return { deps, calls, clock: () => t };
 }
-const base = { sha: SHA, maxWaitSeconds: 300, intervalSeconds: 30 };
+const base = { sha: SHA, maxWaitSeconds: 300, intervalSeconds: 30, budgetMinutes: 75 };
 
 describe("sha matching", () => {
   test("short uppercase sha matches", () => { expect(shaMatches(SHA, "AAAAAAA")).toBe(true); });
@@ -80,11 +80,11 @@ describe("watchPipeline", () => {
     // the head is seen at SHA on the first 1s poll, then at `other` from the second poll on;
     // the mismatch clock starts there, so maxWaitSeconds is measured from that same offset.
     const inside = fake(moved());
-    const rInside = await watchPipeline({ sha: SHA, maxWaitSeconds: 1 + graceSeconds - 1, intervalSeconds: 1 }, inside.deps);
+    const rInside = await watchPipeline({ ...base, maxWaitSeconds: 1 + graceSeconds - 1, intervalSeconds: 1 }, inside.deps);
     expect(rInside).toMatchObject({ state: "waiting" });
 
     const after = fake(moved());
-    const rAfter = await watchPipeline({ sha: SHA, maxWaitSeconds: 1 + graceSeconds + 1, intervalSeconds: 1 }, after.deps);
+    const rAfter = await watchPipeline({ ...base, maxWaitSeconds: 1 + graceSeconds + 1, intervalSeconds: 1 }, after.deps);
     expect(rAfter).toMatchObject({ state: "superseded", headSha: other });
   });
   test("merged-results pipeline matched through its merge commit's parents", async () => {
@@ -344,11 +344,54 @@ describe("watchPipeline", () => {
     const other = "c".repeat(40);
     const graceSeconds = HEAD_LAG_GRACE_MS / 1_000;
     const { deps } = fake([mr(other, pipe({ sha: other })), mr(null, null)]);
-    const r = await watchPipeline({ sha: SHA, maxWaitSeconds: graceSeconds + 10, intervalSeconds: 1 }, deps);
+    const r = await watchPipeline({ ...base, maxWaitSeconds: graceSeconds + 10, intervalSeconds: 1 }, deps);
     expect(r).toMatchObject({ state: "waiting" });
   });
   test("a read error is returned as an error", async () => {
     const { deps } = fake([], { readMr: async () => ({ ok: false, error: "daemon down" }) });
     expect(await watchPipeline(base, deps)).toEqual({ error: "daemon down" });
+  });
+});
+
+describe("watch budget", () => {
+  const MIN = 60_000;
+  const createdMinutesAgo = (m: number) => new Date(-m * MIN).toISOString();
+
+  test("a running pipeline already past the budget returns at once with the budget spent", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "running", createdAt: createdMinutesAgo(80) }))]);
+    const r = await watchPipeline(base, deps);
+    expect(r).toMatchObject({ state: "running", polls: 1, waitedSeconds: 0, budget: { minutes: 75, elapsedMinutes: 80, spent: true } });
+    expect((r as { next: string }).next).toContain("75 minute");
+  });
+  test("the budget running out mid-call ends the call at the budget, not at maxWaitSeconds", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "running", createdAt: createdMinutesAgo(74) }))]);
+    const r = await watchPipeline(base, deps);
+    expect(r).toMatchObject({ state: "running", waitedSeconds: 60, polls: 3, budget: { minutes: 75, elapsedMinutes: 75, spent: true } });
+  });
+  test("under budget at maxWaitSeconds, running reports the budget unspent", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "running", createdAt: createdMinutesAgo(10) }))]);
+    const r = await watchPipeline(base, deps);
+    expect(r).toMatchObject({ state: "running", waitedSeconds: 300, budget: { minutes: 75, elapsedMinutes: 15, spent: false } });
+  });
+  test("a settled pipeline is reported whatever its age", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "success", createdAt: createdMinutesAgo(200) }))]);
+    expect(await watchPipeline(base, deps)).toMatchObject({ state: "success", budget: { spent: true } });
+  });
+  test("a blocking failure past the budget still reports failed", async () => {
+    const job = { id: "gitlab:job:7", name: "unit", stage: "test", status: "failed", allowFailure: false, webUrl: null };
+    const { deps } = fake([mr(SHA, pipe({ status: "running", createdAt: createdMinutesAgo(90) }))], { failedJobs: async () => [job] });
+    expect(await watchPipeline(base, deps)).toMatchObject({ state: "failed", blockingFailures: 1, budget: { spent: true } });
+  });
+  test("no pipeline for the sha carries a null budget", async () => {
+    const { deps } = fake([mr(SHA, pipe({ sha: OLD, status: "running", createdAt: createdMinutesAgo(200) }))]);
+    expect(await watchPipeline({ ...base, maxWaitSeconds: 60 }, deps)).toMatchObject({ state: "waiting", budget: null });
+  });
+  test("a matched pipeline with no createdAt carries a null budget and watches to maxWaitSeconds", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "running", createdAt: null }))]);
+    expect(await watchPipeline({ ...base, maxWaitSeconds: 60 }, deps)).toMatchObject({ state: "running", waitedSeconds: 60, budget: null });
+  });
+  test("a createdAt ahead of the clock reads as zero elapsed", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "success", createdAt: createdMinutesAgo(-3) }))]);
+    expect(await watchPipeline(base, deps)).toMatchObject({ budget: { elapsedMinutes: 0, spent: false } });
   });
 });

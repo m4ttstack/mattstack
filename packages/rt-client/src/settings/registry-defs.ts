@@ -796,6 +796,14 @@ export const REGISTRY: readonly SettingDef[] = [
     merge: "replace",
     description: "Minutes an open herd-owned gate waits before the escalation sweep marks it escalated (topic gate/escalated/<id>) and counts it toward the herd/gates-waiting/<herd> summary, at most one per herd per herd.watchdog.notifyQuietMins. Fires on either trigger: the TTL elapses (reason \"ttl\"), or the owning herd's shepherd subscription is gone or dead before the TTL (reason \"owner-dead\"). 0 escalates any eligible gate on the first sweep after it opens. A fresh key, not an ownership-latch port, so a default is fine here.",
   },
+  {
+    key: "ci.watch.budgetMinutes",
+    type: "number",
+    scopes: ALL_SCOPES,
+    default: 75,
+    merge: "replace",
+    description: "Minutes a CI attendant watches one pipeline before it stops and asks (default 75), measured from the pipeline's own creation time; ci_watch reports budget.spent once it passes. A team sets the convention; a user or machine may override it. A fresh key, not an ownership-latch port, so a default is fine here.",
+  },
 
   // --- herd (watchdog) ---------------------------------------------------
   {

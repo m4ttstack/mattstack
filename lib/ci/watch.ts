@@ -15,7 +15,7 @@ export interface WatchDeps {
   traceTail(jobId: number): Promise<string | null>;
 }
 
-export interface WatchInput { sha: string; maxWaitSeconds: number; intervalSeconds: number; priorPipelineId?: number; signal?: AbortSignal }
+export interface WatchInput { sha: string; maxWaitSeconds: number; intervalSeconds: number; budgetMinutes: number; priorPipelineId?: number; signal?: AbortSignal }
 
 export type WatchState =
   | "success" | "success_with_warnings" | "failed" | "canceled" | "skipped" | "manual"
@@ -33,12 +33,16 @@ export interface WatchResult {
   priorPipelineId?: number;
   waitedSeconds: number;
   polls: number;
+  budget: WatchBudget | null;
   next: string;
 }
+
+export interface WatchBudget { minutes: number; elapsedMinutes: number; spent: boolean }
 
 export const HEAD_LAG_GRACE_MS = 120_000;
 export const TERMINAL: ReadonlySet<string> = new Set(["success", "success_with_warnings", "failed", "canceled", "skipped", "manual"]);
 const TRACE_JOBS = 5;
+const MINUTE_MS = 60_000;
 const MERGE_REF = /^refs\/merge-requests\/(\d+)\/(merge|train)$/;
 
 export function shaMatches(full: string | null, given: string): boolean {
@@ -87,6 +91,10 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
   // this call returns; the caller passes it back as priorPipelineId.
   let provenPrior: number | undefined;
   let lease: CiLease | null = null;
+  // Measured from the pipeline's own createdAt so call length, backgrounding and
+  // a restarted agent never reset it; null until a pipeline for the sha is matched.
+  let budget: WatchBudget | null = null;
+  let budgetEndsAt: number | null = null;
   let last: { state: WatchState; mr: WatchMr | null; hint: string } = { state: "waiting", mr: null, hint: "call again" };
 
   const result = (state: WatchState, mr: WatchMr | null, next: string, extra: Partial<WatchResult> = {}): WatchResult => ({
@@ -99,6 +107,7 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     lease: leaseView(lease),
     waitedSeconds: Math.round((deps.now() - start) / 1_000),
     polls,
+    budget,
     next,
     ...(provenPrior !== undefined && { priorPipelineId: provenPrior }),
     ...extra,
@@ -198,7 +207,15 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
       if (firstSeenPipelineId === undefined) firstSeenPipelineId = idNumber(mr.pipeline?.id);
       const p = mr.pipeline;
       const m = p ? await matches(mr, p) : false;
+      budget = null;
+      budgetEndsAt = null;
       if (p && m === true) {
+        const created = p.createdAt ? Date.parse(p.createdAt) : NaN;
+        if (!Number.isNaN(created)) {
+          budgetEndsAt = created + input.budgetMinutes * MINUTE_MS;
+          const elapsed = Math.max(0, deps.now() - created);
+          budget = { minutes: input.budgetMinutes, elapsedMinutes: Math.floor(elapsed / MINUTE_MS), spent: deps.now() >= budgetEndsAt };
+        }
         if (TERMINAL.has(p.status)) {
           const f = await failures(p, p.status === "failed");
           // Trace fetches can outlast the poll's heartbeat, so the lease is re-proved before reporting.
@@ -224,6 +241,9 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
             blockingFailures: early.blockingFailures,
           });
         }
+        if (budget?.spent) {
+          return result("running", mr, `the pipeline is still running past the ${budget.minutes} minute watch budget (ci.watch.budgetMinutes); stop watching and report it`);
+        }
         last = { state: "running", mr, hint: again("the pipeline for the pushed sha is still running") };
       } else {
         const hint = m === "unprovable"
@@ -233,8 +253,8 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
       }
     }
 
-    const remaining = deadline - deps.now();
-    if (remaining <= 0) return result(last.state, last.mr, last.hint);
+    if (deadline - deps.now() <= 0) return result(last.state, last.mr, last.hint);
+    const remaining = Math.min(deadline, budgetEndsAt ?? Infinity) - deps.now();
     // Half the lease's ttl bounds the interval so the heartbeat each poll gives never lets the lease go stale.
     const interval = Math.min(input.intervalSeconds * 1_000, lease ? (lease.ttlSeconds * 1_000) / 2 : Infinity);
     await deps.sleep(Math.min(interval, remaining), input.signal);
