@@ -68,7 +68,7 @@ The dispatcher draws the breadcrumb itself, before the handler runs, with `out.n
 - It is drawn up front, once per handler run, on **stderr**, only when a person is reading stderr: stderr is a terminal, no `--json` on argv, no `RT_BATCH` (`out.isHuman("stderr")`). It is never on stdout.
 - It is always the first thing on screen for the command, whether the verb is converted or not, and whatever the verb paints first (a step on `/dev/tty`, a child given the terminal, an `out.print`).
 - No header for a `fullscreen` leaf, and none for a `hidden` leaf: a hidden leaf is run by a program (`git credential` runs under git, at the person's terminal), never typed.
-- It is its own render call, so nothing follows it in that call and no blank line is printed under it. The command's first block starts on the next row, also when that block is a `section` or a `summary`: those print a blank line only before themselves inside one render call, and a call never opens with one. A slice that wants air under the breadcrumb does not add it.
+- **Amended during execution (2026-10-01, from the renders):** the dispatcher prints ONE blank line under the header, as it does today, because crumb, section title and first row stacked as three bold rows and read as one heading. The header is still its own render call on stderr. No slice test string changes: no header is drawn with the human gate closed.
 - With `out.__test__.setHuman(() => false)`, the way every plain-output test runs, no header is drawn, so **no header ever appears in a test's expected strings**. When the gate passes but the helper is missing, the plain form is one line: `rt › daemon › status` or `rt › daemon › status (dev mode)`.
 
 ### `warn` (`lib/ui/warn.ts`, Task 3)
