@@ -409,10 +409,10 @@ What the graph cannot show:
   the moment `review-status <state> done` lands, which ends this session
   mid-batch. So the done write is a call of its own, sent only after every
   other write of the run has returned: the posting (the domain skill's, or
-  this skill's own `mr_comment_inline` and `mr_comment`), `mr_approve`,
-  the `--report` write, and under a run the domain skill's `run_stage` done
-  and `run_status` done. A write sent in the same batch as the done write
-  is lost.
+  this skill's own one `mr_review_submit`, and `mr_approve` alone after a
+  refused approval), the `--report` write, and under a run the domain
+  skill's `run_stage` done and `run_status` done. A write sent in the same
+  batch as the done write is lost.
 - **Resumed entry.** `--resumed-gate <gateId>` means a human answered a
   gate an earlier pane on this MR opened and the board parked, and the
   board is replaying that answer into this pane. `--resumed-gate-kind`
