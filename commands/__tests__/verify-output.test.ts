@@ -71,7 +71,7 @@ describe("rt verify for a person", () => {
     const titles = new Set(plan.groups.flatMap((g) => g.rows.map((r) => r.title)));
     const statusRows = rows.filter((l) => /^\[[a-z ]+\] /.test(l)).slice(0, -1);
     for (const l of statusRows) expect(titles.has(l.replace(/^\[[a-z ]+\] /, "").split("  ")[0]!)).toBe(true);
-    expect(rows.at(-1)).toMatch(/^(\[ok\] Everything checks out|\[failed\] \d+ checks? failed|\[needs you\] (1 check needs|\d+ checks need) attention)  \d+ passed, \d+ warnings?$/);
+    expect(rows.at(-1)).toMatch(/^(\[ok\] Everything checks out|\[failed\] \d+ checks? failed|\[needs you\] (1 check needs|\d+ checks need) attention)  (\d+ needs? attention, )?\d+ passed, \d+ warnings?$/);
     expect(cap.stderr()).toBe("");
   });
 
@@ -130,6 +130,43 @@ describe("rt verify draws each required row the way rt setup status does", () =>
     const res = await verifyOne(row({ id: "tool.widget", title: "Widget", status: "invalid", detail: "Version 1.0 is too old" }));
     expect(res.stdout).toBe("Your Mac\n[failed] Widget  Version 1.0 is too old\n\n[failed] 1 check failed  0 passed, 0 warnings\n");
     expect(res.exitCodes).toEqual([1]);
+  });
+
+  test("with a coral row the summary counts the coral rows as failed and the rest as needing attention; --json still counts every failed check", async () => {
+    const fixture = plan([
+      {
+        id: "mac",
+        title: "Your Mac",
+        rows: [
+          row({ id: "tool.widget", title: "Widget", status: "invalid", detail: "Version 1.0 is too old" }),
+          row({ id: "tool.gadget", title: "Gadget", status: "error", detail: "Could not run gadget" }),
+          row({ id: "tool.gizmo", title: "Gizmo", status: "missing", detail: "Not registered yet" }),
+          row({ id: "tool.git", title: "Git", status: "ready", detail: "2.45" }),
+          row({ id: "access.mirror", kind: "access", title: "Mirror", required: false, status: "error", detail: "Could not reach the mirror" }),
+        ],
+      },
+    ]);
+    const withFixture = (): VerifyDeps & { exitCodes: number[] } => ({ ...deps(), compose: async () => fixture });
+
+    cap = capturePlain();
+    const human = withFixture();
+    await run(human, []);
+    expect(cap.stdout().trimEnd().split("\n").at(-1)).toBe("[failed] 1 check failed  2 need attention, 1 passed, 1 warning");
+    expect(human.exitCodes).toEqual([1]);
+    cap.restore();
+
+    cap = capturePlain();
+    const json = withFixture();
+    await run(json, ["--json"]);
+    expect(JSON.parse(cap.stdout()).summary).toEqual({ total: 5, pass: 1, fail: 3, warn: 1, skip: 0 });
+    expect(json.exitCodes).toEqual([1]);
+  });
+
+  test("one check needing attention beside a coral row takes the singular", () => {
+    const fixture = plan([
+      { id: "mac", title: "Your Mac", rows: [row({ id: "tool.widget", title: "Widget", status: "invalid" }), row({ id: "tool.gadget", title: "Gadget", status: "error" })] },
+    ]);
+    expect(renderPlain(verifyBlocks(fixture, { ci: false })).trimEnd().split("\n").at(-1)).toBe("[failed] 1 check failed  1 needs attention, 0 passed, 0 warnings");
   });
 
   test("several checks that need attention take the plural", () => {
