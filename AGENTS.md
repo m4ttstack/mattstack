@@ -373,8 +373,10 @@ same contract, so a new field needs the Swift side too.
 `rt setup update` is what the app runs at every launch once its services
 settle (`AppDelegate.settleAgentsAfterLaunch`); rt decides whether anything
 happens (`lib/setup/update.ts`: never set up, already stamped for this
-version, or run). A run is pending migrations, then every `StepDef` with
-`updateSafe: true`, then `verify`, through `runUpdateWith` in
+version, or run), and only one run at a time holds
+`~/.mattstack/rt/setup-update.lock` (`lib/setup/update-lock.ts`); a second
+one reports `skipped: "running"`. A run is pending migrations, then every
+`StepDef` with `updateSafe: true`, then `verify`, through `runUpdateWith` in
 `lib/setup/apply.ts`. No failed outcome stops it, and a migration that
 throws is one more failed item; only a step that throws a plain error
 ends the run, as a bug (exit 1, no stamp). Otherwise the version is

@@ -46,7 +46,12 @@ an updated Mac already passed them) and decides, in order:
    `setup update: already applied for <version>` and exit 0; `--json`
    emits `done` with `ok: true, skipped: "current"`. A source or dev build
    (version `dev`) never matches, so dev machines run every launch.
-3. **Run.** Otherwise run the update plan (below), stamp
+3. **Already running.** Another update run holds
+   `~/.mattstack/rt/setup-update.lock`: print
+   `setup update: another update run is in progress` and exit 0; `--json`
+   emits `done` with `ok: true, skipped: "running"`. The lock names its
+   pid; one left by a dead pid, or older than 30 minutes, is taken over.
+4. **Run.** Otherwise run the update plan (below), stamp
    `lastUpdate: { version, at }` whether or not every item passed, print
    the summary, post the notification when something needs a person, and
    exit 0 on all-clear or 2 when any item failed or is needs-you.
