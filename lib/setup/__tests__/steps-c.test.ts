@@ -1755,6 +1755,22 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(outcomeFromChecks([fail("account.gitlab")], rows)).toEqual({ state: "needs-you", detail: "to connect: GitLab" });
       });
 
+      test("a joined board with no switchboard token is left for the member, so rt setup update ends needing them", async () => {
+        const teams = "/fake-home/.mattstack/teams";
+        const p = fakeProbes({
+          fetch: async () => ({ status: 200, body: "", headers: {} }),
+          dirs: { [teams]: ["acme"] },
+          files: {
+            [`${teams}/acme/mattstack/settings.team.jsonc`]: JSON.stringify({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }),
+            "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true }),
+          },
+        });
+        const team: TeamSnapshot = { slug: "acme", integrations: { switchboard: { url: "https://sb.test" } }, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
+        const rows = await accountRows(p, team, [], { has: async () => null }, null, { switchboardUrl: "https://sb.test" });
+        expect(rows.find((r) => r.id === "account.switchboard")?.status).toBe("needs-you");
+        expect(outcomeFromChecks([fail("account.switchboard")], rows)).toEqual({ state: "needs-you", detail: "to connect: Switchboard" });
+      });
+
       test("a connected account whose credential is now invalid is a genuine failure", () => {
         const rows = [rowOf("account.github", "account", "GitHub", "invalid")];
         expect(outcomeFromChecks([fail("account.github")], rows).state).toBe("failed");
