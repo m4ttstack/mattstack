@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, spyOn } from "bun:test";
 import { join as pathJoin } from "path";
 import { fakeProbes, type ExecScript } from "../../setup/__tests__/fakes.ts";
-import { UserActionableError } from "../../setup/errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { resetCltCacheForTests } from "../../setup/home-git.ts";
 import { intentPath, readIntent, type InvitePointer, type SetupIntent } from "../../setup/intent.ts";
 import type { Probes } from "../../setup/probes.ts";
@@ -1128,7 +1128,7 @@ describe("joinRedeem", () => {
       const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
 
       expect(result.peering).toBe("unavailable");
-      expect(JSON.parse(p.readFile(teamLocalPath(p.home, POINTER.team))!)).toEqual({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false });
+      expect(JSON.parse(p.readFile(teamLocalPath(p.home, POINTER.team))!)).toEqual({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, agePublicKey: FAKE_PUBLIC_KEY });
     });
 
     test("applied and idle peering carry no fix", async () => {
@@ -1487,6 +1487,12 @@ describe("joinRedeem", () => {
     expect(relay2.redeemCalls).toHaveLength(1); // resumed via the intent, then proceeded normally (alreadyCloned, so "already"/"redeemed" both fine)
   });
 
+  test("a join records the age key it sent the owner, so setup can tell without the keychain whether team secrets reach this machine yet", async () => {
+    const p = redeemProbes();
+    await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+    expect(readTeamLocal(p, POINTER.team).agePublicKey).toBe(FAKE_PUBLIC_KEY);
+  });
+
   test("keychain failure after clone+redeem: JoinKeyExchangeError, not a raw crash — names what completed", async () => {
     const p = redeemProbes();
     const relay = fakeRelay();
@@ -1615,5 +1621,69 @@ describe("joinRedeem's relay failure reports what it actually persisted", () => 
     expect(result.access).toBe("unreachable");
     expect(result.intent).toBe("not-written");
     expect(readIntent(p)).toBeNull();
+  });
+});
+
+describe("one team per machine", () => {
+  const TEAMS_DIR = pathJoin(HOME, ".mattstack", "teams");
+  const REFUSAL = "this machine is set up for team globex; mattstack supports one team per machine today";
+
+  function zone(slug: string): { dirs: Record<string, string[]>; files: Record<string, string> } {
+    return {
+      dirs: { [TEAMS_DIR]: [slug] },
+      files: { [pathJoin(TEAMS_DIR, slug, "mattstack", "settings.team.jsonc")]: "{}" },
+    };
+  }
+
+  function probes(overrides: Parameters<typeof fakeProbes>[0]): ReturnType<typeof fakeProbes> {
+    return fakeProbes({ home: HOME, now: NOW, exec: () => ({ code: 0, stdout: "", stderr: "" }), ...overrides });
+  }
+
+  beforeEach(() => resetCltCacheForTests());
+
+  test("a dry run for a second team is refused, and saves no intent", async () => {
+    const p = probes(zone("globex"));
+
+    await expect(joinDryRun(p, fakeRelay().client, CODE)).rejects.toMatchObject({ code: "team-already-set-up", message: REFUSAL });
+
+    expect(readIntent(p)).toBeNull();
+  });
+
+  test("a redeem for a second team is refused before the clone, the intent and the redeem", async () => {
+    const p = probes(zone("globex"));
+    const relay = fakeRelay();
+    const { seams } = baseJoinRedeemSeams();
+
+    await expect(joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams)).rejects.toMatchObject({
+      code: "team-already-set-up",
+      message: REFUSAL,
+    });
+
+    expect(p.calls.exec).toEqual([]);
+    expect(relay.redeemCalls).toEqual([]);
+    expect(readIntent(p)).toBeNull();
+    expect(readTeamLocal(p, POINTER.team).joinedByRt).toBe(false);
+  });
+
+  test("a dry run for the team this machine already has stays allowed", async () => {
+    const p = probes(zone(POINTER.team));
+
+    const result = await joinDryRun(p, fakeRelay().client, CODE);
+
+    expect(result.team.slug).toBe(POINTER.team);
+    expect(result.intent).toBe("written");
+  });
+
+  test("joining the team this machine already has stays allowed", async () => {
+    const own = zone(POINTER.team);
+    const p = probes({
+      dirs: { ...own.dirs, [TEAM_DIR]: [".git", "mattstack"] },
+      files: { ...own.files, [pathJoin(TEAM_DIR, ".git", "config")]: gitConfigWithRemote(REMOTE) },
+    });
+    const { seams } = baseJoinRedeemSeams();
+
+    const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+    expect(result.access).toBe("ok");
   });
 });

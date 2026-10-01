@@ -94,5 +94,28 @@ func TestStepsFixtureDecodes(t *testing.T) {
 	}
 }
 
+func TestStepsClearFixtureDecodes(t *testing.T) {
+	var lines []json.RawMessage
+	if err := json.Unmarshal(fixture(t, "steps-stream-clear.json"), &lines); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"hello", "start", "sub", "done"}
+	if len(lines) != len(want) {
+		t.Fatalf("got %d lines", len(lines))
+	}
+	for i, raw := range lines {
+		ev, err := DecodeStep(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ev.T != want[i] {
+			t.Fatalf("line %d: t=%q want %q", i, ev.T, want[i])
+		}
+		if ev.Clear != (i == len(want)-1) {
+			t.Fatalf("line %d: clear=%v", i, ev.Clear)
+		}
+	}
+}
+
 func strPtr(s string) *string { return &s }
 func boolPtr(b bool) *bool    { return &b }

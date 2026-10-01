@@ -1,0 +1,1 @@
+{"ok":true,"settings":[{"key":"rt.repoRoots","value":[],"provenance":[{"scope":"default","file":null}],"migrated":true,"invalid":[{"scope":"machine","file":"<MACHINE_STORE>","reason":"expected array, got string"}]},{"key":"rt.logLevel","value":"debug","provenance":[{"scope":"user","file":"<HOME>/.mattstack/user/settings.user.jsonc"}],"migrated":true}]}

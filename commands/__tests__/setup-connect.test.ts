@@ -1,10 +1,20 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { integrationConnect, integrationStatus, realOAuthListen, setupGithubStatus, type ConnectDeps, type SecretWriter, type TeamSecrets } from "../setup.ts";
 import { fakeProbes, ok } from "../../lib/setup/__tests__/fakes.ts";
 import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
 import type { TeamSnapshot } from "../../lib/setup/team-settings.ts";
 import { DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError } from "../../lib/setup/slack-app.ts";
+import { slackWaitCliMessage } from "../../lib/setup/team-slack-secret.ts";
+import { teamLocalPath } from "../../lib/team/team-local.ts";
+import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
+
+let cap: CapturedOut;
+beforeEach(() => {
+  cap = capturePlain();
+});
+afterEach(() => cap.restore());
 
 function neverCalled<T extends unknown[], R>(name: string) {
   return async (..._args: T): Promise<R> => {
@@ -26,7 +36,7 @@ function baseDeps(overrides: Partial<ConnectDeps> & { probes?: Probes } = {}): C
   return {
     probes: fakeProbes(),
     secrets: fakeSecrets(),
-    print: (s: string) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
       throw new Error("exit sentinel");
@@ -111,9 +121,11 @@ describe("integrationConnect — gitlab (generic token flow)", () => {
       writer: { storeReady: async () => false, write: neverCalled("writer.write") },
       teamSnapshot: () => ({ ...slackTeamSnapshot(), integrations: { forge: { host: "gitlab.example.com", provider: "gitlab" } } }),
     });
-    await expectExit(() => integrationConnect("gitlab", ["--json"], deps));
+    await expectExit(() => integrationConnect("gitlab", [], deps));
     expect(deps.exitCodes).toEqual([2]);
-    expect(deps.lines.join("\n")).toContain("unverified");
+    expect(cap.stderr()).not.toContain("[failed]");
+    expect(cap.stderr().split("\n")[0]!.length).toBeGreaterThan(0);
+    expect(cap.stderr()).toContain("to confirm that address");
   });
 
   test("age key present -> writer.write called instead of staging", async () => {
@@ -247,7 +259,7 @@ describe("integrationConnect: forge token scopes", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string; scopesSeen: string[] };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toBe("token is missing: api (needs api to post board review comments)");
+    expect(body.detail).toBe("This token is missing api (needs api to post board review comments)");
     expect(body.scopesSeen).toEqual(["read_api", "read_user"]);
     expect(Object.keys(probes.calls.writes).some((k) => k.includes("setup-staging"))).toBe(false);
   });
@@ -260,7 +272,7 @@ describe("integrationConnect: forge token scopes", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toBe("token is missing: api (needs api for the home-repo push and members sync)");
+    expect(body.detail).toBe("This token is missing api (needs api for the home-repo push and members sync)");
   });
 
   test("no intent (after Install): the owner of a team rt did not join is held to the owner's scopes", async () => {
@@ -276,7 +288,7 @@ describe("integrationConnect: forge token scopes", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toBe("token is missing: api (needs api for the home-repo push and members sync)");
+    expect(body.detail).toBe("This token is missing api (needs api for the home-repo push and members sync)");
   });
 
   test("a gh session token short of a scope is refused with the gh command that widens it", async () => {
@@ -290,7 +302,7 @@ describe("integrationConnect: forge token scopes", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toBe("token is missing: read:org (run: gh auth refresh -s read:org)");
+    expect(body.detail).toBe("This token is missing read:org (run: gh auth refresh -s read:org)");
   });
 
   test("a github token that reports no scopes (fine-grained) is stored as ready", async () => {
@@ -597,6 +609,84 @@ describe("integrationConnect — slack (OAuth flow)", () => {
     expect(payload.error.message).toContain("team owner");
   });
 
+  describe("a joined member the owner has not accepted yet", () => {
+    const MINE = "age1mine0000000000000000000000000000000000000000000000000000000";
+    const OWNER = "age1owner000000000000000000000000000000000000000000000000000000";
+    const BOARD = "/fake-home/.mattstack/teams/acme/mattstack/secrets/board.json";
+
+    function memberProbes(recipients: string[], unreadable: string[] = []) {
+      return fakeProbes({
+        exec: async () => ok(),
+        files: {
+          [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, agePublicKey: MINE }),
+          [BOARD]: JSON.stringify({ slackClientSecret: "ENC[x]", sops: { age: recipients.map((recipient) => ({ recipient, enc: "x" })) } }),
+        },
+        unreadable,
+      });
+    }
+
+    test("refuses naming both sides before opening a browser or listening", async () => {
+      const probes = memberProbes([OWNER]);
+      const deps = baseDeps({ probes, teamSnapshot: () => slackTeamSnapshot() });
+
+      await expectExit(() => integrationConnect("slack", ["--json"], deps));
+
+      expect(deps.exitCodes).toEqual([2]);
+      const payload = JSON.parse(deps.lines[0]!) as { error: { code: string; message: string } };
+      expect(payload.error.code).toBe("slack-awaiting-owner");
+      expect(payload.error.message).toBe(slackWaitCliMessage({ kind: "awaiting-acceptance" }, "acme"));
+      expect(payload.error.message).toContain("rt team members sync");
+      expect(payload.error.message).toContain("rt team pull");
+      expect(probes.calls.exec).toEqual([]);
+    });
+
+    test("accepted but the secret is not shared yet -> refuses with the owner's missing step, never 'accept'", async () => {
+      const probes = fakeProbes({
+        exec: async () => ok(),
+        files: {
+          [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, agePublicKey: MINE }),
+          [BOARD]: JSON.stringify({ slackSigningSecret: "ENC[x]", sops: { age: [{ recipient: MINE, enc: "x" }] } }),
+        },
+      });
+      const deps = baseDeps({ probes, teamSnapshot: () => slackTeamSnapshot() });
+
+      await expectExit(() => integrationConnect("slack", ["--json"], deps));
+
+      const payload = JSON.parse(deps.lines[0]!) as { error: { code: string; message: string } };
+      expect(payload.error.code).toBe("slack-secret-not-shared");
+      expect(payload.error.message).not.toContain("accept");
+      expect(probes.calls.exec).toEqual([]);
+    });
+
+    test("an unreadable team secrets file refuses as a read failure, never as waiting", async () => {
+      const probes = memberProbes([OWNER, MINE], [BOARD]);
+      const deps = baseDeps({ probes, teamSnapshot: () => slackTeamSnapshot() });
+
+      await expectExit(() => integrationConnect("slack", ["--json"], deps));
+
+      const payload = JSON.parse(deps.lines[0]!) as { error: { code: string; message: string } };
+      expect(payload.error.code).toBe("slack-secret-unreadable");
+      expect(payload.error.message).toContain(BOARD);
+      expect(payload.error.message).toContain("rt team pull");
+      expect(probes.calls.exec).toEqual([]);
+    });
+
+    test("once accepted, connect opens the OAuth flow as before", async () => {
+      const probes = memberProbes([OWNER, MINE]);
+      const deps = baseDeps({
+        probes,
+        teamSnapshot: () => slackTeamSnapshot(),
+        listen: async () => {
+          throw new Error("stop after the browser opened");
+        },
+      });
+
+      await expectExit(() => integrationConnect("slack", ["--json"], deps));
+
+      expect(probes.calls.exec[0]?.[0]).toBe("open");
+    });
+  });
+
   test("a listen() rejection (state mismatch, timeout, busy port) maps to exit 2, never an unhandled rejection", async () => {
     const deps = baseDeps({
       teamSnapshot: () => slackTeamSnapshot(),
@@ -662,7 +752,7 @@ describe("integrationConnect — slack (OAuth flow)", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toContain("add http://localhost:22222/callback to the Slack app's Redirect URLs at https://api.slack.com/apps/A0TEAM/oauth");
+    expect(body.detail).toBe("Slack returned an error: bad_redirect_uri. To fix it, add http://localhost:22222/callback to the Slack app's Redirect URLs at https://api.slack.com/apps/A0TEAM/oauth, then connect again");
   });
 
   test("a grant short of the user scopes names them to add to the team app, and stores nothing", async () => {
@@ -704,8 +794,9 @@ describe("integrationConnect — slack (OAuth flow)", () => {
 
     await integrationConnect("slack", ["--json"], deps);
 
-    const body = JSON.parse(deps.lines[0]!) as { status: string };
+    const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("ready");
+    expect(body.detail).toBe("Slack connected");
     expect(writerWrites).toEqual([["board", "slackToken", "xoxp-full"]]);
   });
 
@@ -894,5 +985,32 @@ describe.skipIf(skipRealOAuth)("realOAuthListen (real Bun.serve, no fakes — th
       busy.stop(true);
     }
     expect(caught).toBeInstanceOf(Error);
+  });
+});
+
+describe("integrationConnect --json bytes", () => {
+  test("the envelope is one compact line with the keys in contract order", async () => {
+    const deps = baseDeps({
+      probes: fakeProbes({ fetch: gitlabUserOk }),
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      json: realJson,
+    });
+    await integrationConnect("gitlab", ["--json"], deps);
+    const payload = expectOneJsonLine(cap.stdout()) as Record<string, unknown>;
+    expect(Object.keys(payload)).toEqual(["contract", "at", "integration", "status", "detail", "scopesSeen"]);
+  });
+});
+
+describe("integration human output", () => {
+  test("human mode prints one line with the integration's title, never its id", async () => {
+    const deps = baseDeps({
+      probes: fakeProbes({ fetch: gitlabUserOk }),
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+    });
+    await integrationConnect("gitlab", [], deps);
+    expect(cap.stdout()).toMatch(/^\[ok\] GitLab  /);
+    expect(cap.stdout()).not.toContain("gitlab:");
   });
 });

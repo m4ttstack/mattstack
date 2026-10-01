@@ -1,4 +1,4 @@
-import { describe, test, expect, spyOn } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import {
   teamSecretsFile,
   teamSopsYamlPath,
@@ -16,11 +16,14 @@ import {
   TeamSopsYamlHandEditedError,
   TeamReencryptError,
 } from "../team-store.ts";
-import { InvalidSecretsSegmentError, type SecretsExecResult, type SecretsExecSeam, type SecretsSeams } from "../store.ts";
+import { UserActionableError } from "../../errors.ts";
+import { InvalidSecretsSegmentError, SopsDecryptError, type SecretsExecResult, type SecretsExecSeam, type SecretsSeams } from "../store.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { teamsDir } from "../../rt-paths.ts";
 import { join } from "path";
 import { secretsList } from "../../../commands/secrets.ts";
+import * as out from "../../ui/out.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { teamLocalPath } from "../../team/team-local.ts";
 
@@ -66,10 +69,12 @@ class FakeTeamExecSeam implements SecretsExecSeam {
   private updatekeysResult: SecretsExecResult;
   private failUpdatekeysOnCall?: number;
   private updatekeysCallCount = 0;
+  private decryptResult?: SecretsExecResult;
 
-  constructor(opts: { updatekeys?: SecretsExecResult; failUpdatekeysOnCall?: number } = {}) {
+  constructor(opts: { updatekeys?: SecretsExecResult; failUpdatekeysOnCall?: number; decrypt?: SecretsExecResult } = {}) {
     this.updatekeysResult = opts.updatekeys ?? { code: 0, stdout: "", stderr: "" };
     this.failUpdatekeysOnCall = opts.failUpdatekeysOnCall;
+    this.decryptResult = opts.decrypt;
   }
 
   fileExists(path: string): boolean {
@@ -137,6 +142,7 @@ class FakeTeamExecSeam implements SecretsExecSeam {
     this.calls.push({ cmd, opts: runOpts });
 
     if (cmd[0] === "sops" && cmd[1] === "-d") {
+      if (this.decryptResult) return this.decryptResult;
       const target = cmd[cmd.length - 1]!;
       const staged = this.roundTrippablePlaintext.get(target);
       return { code: 0, stdout: staged ?? "{}", stderr: "" };
@@ -554,26 +560,88 @@ describe("team secrets never leak a value", () => {
     await writeTeamSecret("acme", "board", "apiKey", CANARY, seams);
     await writeTeamSecret("acme", "board", "other", "value2", seams);
 
-    const logs: string[] = [];
-    const errors: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation((...parts: unknown[]) => {
-      logs.push(parts.map(String).join(" "));
-    });
-    const errorSpy = spyOn(console, "error").mockImplementation((...parts: unknown[]) => {
-      errors.push(parts.map(String).join(" "));
-    });
-
+    const cap = captureOut();
+    out.__test__.setHuman(() => false);
+    let output: string;
     try {
       await secretsList(["board", "--team", "acme"], {}, seams);
     } finally {
-      logSpy.mockRestore();
-      errorSpy.mockRestore();
+      output = cap.stdout() + cap.stderr();
+      cap.restore();
     }
 
-    const output = [...logs, ...errors].join("\n");
     expect(output).toContain("apiKey");
     expect(output).toContain("other");
     expect(output).not.toContain(CANARY);
     expect(output).not.toContain("value2");
+  });
+});
+
+const SOPS_WRONG_KEY_STDERR = [
+  "Failed to get the data key required to decrypt the SOPS file.",
+  "",
+  "Group 0: FAILED",
+  "  age1examplerecipientqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq: FAILED",
+  "    - | failed to create reader for decrypting sops data key with",
+  "      | age: identity did not match any of the recipients: incorrect",
+  "      | identity for recipient block.",
+  "",
+  "Recovery failed because no master key was able to decrypt the file.",
+].join("\n");
+
+/** A cloned team whose board.json this Mac's key cannot open. */
+function unreadableTeam(stderr = SOPS_WRONG_KEY_STDERR): { execSeam: FakeTeamExecSeam; seams: SecretsSeams } {
+  const execSeam = new FakeTeamExecSeam({ decrypt: { code: 128, stdout: "", stderr } });
+  execSeam.files.set(teamCloneRootFor("acme"), "");
+  execSeam.writeFile(teamSopsYamlPath("acme"), "creation_rules:\n  - path_regex: mattstack/secrets/.*\n    age: age1aaa\n");
+  execSeam.writeFile(teamSecretsFile("acme", "board"), "ciphertext");
+  return { execSeam, seams: { ageKeySeam: fakeAgeKeySeamWithKey("AGE-TEAM-KEY"), execSeam } };
+}
+
+describe("a team file this Mac's key cannot decrypt", () => {
+  test("readTeamSecret throws the expected failure, with the raw sops output kept for the log", async () => {
+    const { seams } = unreadableTeam();
+
+    const err = await readTeamSecret("acme", "board", "slackClientSecret", seams).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(UserActionableError);
+    const failure = err as UserActionableError;
+    expect(failure.code).toBe("team-secrets-unreadable");
+    expect(failure.message).toBe("This Mac cannot read the acme team's secrets yet");
+    expect(failure.why).toBe("No age key on this Mac matches the team's recipients. The team owner adds your key, then you pull the team again.");
+    expect(failure.next).toBe("rt team pull");
+    expect(failure.extra).toEqual({ team: "acme" });
+    expect(failure.log).toContain(`sops -d ${teamSecretsFile("acme", "board")}`);
+    expect(failure.log).toContain("did not match any of the recipients");
+    expect(failure.message).not.toContain("sops");
+    expect(failure.why).not.toContain("sops");
+  });
+
+  test("listTeamSecretNames and writeTeamSecret convert the same failure", async () => {
+    const { seams } = unreadableTeam();
+
+    await expect(listTeamSecretNames("acme", "board", seams)).rejects.toBeInstanceOf(UserActionableError);
+    const write = await writeTeamSecret("acme", "board", "slackClientSecret", "shh", seams, fakeProbes({ home: "/home/x" })).catch((e: unknown) => e);
+    expect(write).toBeInstanceOf(UserActionableError);
+    expect((write as UserActionableError).code).toBe("team-secrets-unreadable");
+  });
+
+  test("a sops failure that is not a key mismatch keeps the title and says less in why", async () => {
+    const { seams } = unreadableTeam("sops: no matching creation rule");
+
+    const err = (await readTeamSecret("acme", "board", "slackClientSecret", seams).catch((e: unknown) => e)) as UserActionableError;
+
+    expect(err.code).toBe("team-secrets-unreadable");
+    expect(err.message).toBe("This Mac cannot read the acme team's secrets yet");
+    expect(err.why).toBe("The team's secrets file could not be decrypted on this Mac.");
+    expect(err.next).toBe("rt team pull");
+    expect(err.log).toContain("no matching creation rule");
+  });
+
+  test("a personal-store decrypt failure is not converted: the team is the one the person can act on", async () => {
+    const { seams } = unreadableTeam();
+    const { decryptAtLocation } = await import("../store.ts");
+
+    await expect(decryptAtLocation({ filePath: teamSecretsFile("acme", "board"), filenameOverride: "mattstack/secrets/board.json", cwd: teamCloneRootFor("acme") }, seams)).rejects.toBeInstanceOf(SopsDecryptError);
   });
 });

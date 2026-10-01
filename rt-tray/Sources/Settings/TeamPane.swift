@@ -66,7 +66,10 @@ struct TeamPane: View {
                         }
                     }
                 }
-                Section { Button("Join another team…", action: env.onJoinAnotherTeam).accessibilityIdentifier(AXID.settingsTeamJoinAnother) }
+                Section {
+                    Button("Rejoin this team…", action: env.onJoinAnotherTeam).accessibilityIdentifier(AXID.settingsTeamJoinAnother)
+                    Text("Use a new invite from your team owner. This Mac holds one team today.").font(.caption).foregroundStyle(.secondary)
+                }
             }
             if let e = model.error { Text(e).font(.caption).foregroundStyle(.red) }
         }

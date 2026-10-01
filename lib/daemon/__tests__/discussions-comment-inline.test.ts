@@ -35,8 +35,13 @@ function basePayload(overrides: Record<string, unknown> = {}) {
 }
 
 /** Builds seams around a scripted mutator; repoContext/gitlabToken use fixed stubs. */
-function makeSeams(mutator: DiscussionHandlerSeams["mutator"], refresh?: DiscussionHandlerSeams["refresh"]): DiscussionHandlerSeams {
+function makeSeams(
+  mutator: DiscussionHandlerSeams["mutator"],
+  refresh?: DiscussionHandlerSeams["refresh"],
+  diffs?: DiscussionHandlerSeams["diffs"],
+): DiscussionHandlerSeams {
   return {
+    diffs: diffs ?? (async () => ({ diffs: [], truncated: true })),
     repoContext: async () => ({ provider: { baseURL: "https://gitlab.example.com" }, projectPath: "g/repo-tools", projectId: 99 }),
     gitlabToken: async () => "tok",
     mutator,
@@ -395,5 +400,211 @@ describe("mr:comment-inline", () => {
     await h["mr:comment-inline"]!(basePayload());
 
     expect(refreshFinished).toBe(true);
+  });
+
+  describe("anchor resolution against the MR diff", () => {
+    const DIFF = ["@@ -10,4 +10,5 @@", " keep", "-gone", "+fresh", "+extra", " tail", " end"].join("\n");
+    const diffsFor = (diff: string, truncated = false): DiscussionHandlerSeams["diffs"] =>
+      async () => ({ diffs: [{ newPath: "src/foo.ts", diff }], truncated });
+
+    function recorder() {
+      const positions: TextPosition[] = [];
+      const mutator: DiscussionHandlerSeams["mutator"] = () => ({
+        fetchDiffRefs: async () => DIFF_REFS,
+        createPositionedDiscussion: async (_p, _i, _b, pos) => { positions.push(pos); return fakeDiscussion("d1", 101, "DiffNote"); },
+        deleteNote: async () => { throw new Error("should not be called"); },
+      });
+      return { positions, mutator };
+    }
+
+    test("a context line gets old_line filled in from the diff", async () => {
+      const { positions, mutator } = recorder();
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, diffsFor(DIFF)));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 13 }));
+      expect(res.ok).toBe(true);
+      expect(positions[0]).toMatchObject({ new_line: 13, old_line: 12 });
+    });
+
+    test("an added line sends no old_line", async () => {
+      const { positions, mutator } = recorder();
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, diffsFor(DIFF)));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 11 }));
+      expect(res.ok).toBe(true);
+      expect(positions[0]!.new_line).toBe(11);
+      expect("old_line" in positions[0]!).toBe(false);
+    });
+
+    test("a line outside the diff is refused with the nearby lines and no POST", async () => {
+      const { positions, mutator } = recorder();
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, diffsFor(DIFF)));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 41 }));
+      expect(res).toEqual({
+        ok: false,
+        error: "line 41 of src/foo.ts is not in this MR's diff, so GitLab cannot anchor a comment there; lines in the diff near it: 14, 13, 12",
+      });
+      expect(positions).toEqual([]);
+    });
+
+    test("a file with no diff in a complete page is refused", async () => {
+      const { positions, mutator } = recorder();
+      const none: DiscussionHandlerSeams["diffs"] = async () => ({ diffs: [{ newPath: "other.ts", diff: DIFF }], truncated: false });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, none));
+      const res = await h["mr:comment-inline"]!(basePayload());
+      expect(res).toEqual({
+        ok: false,
+        error: "line 42 of src/foo.ts is not in this MR's diff, so GitLab cannot anchor a comment there; this file has no diff in this MR",
+      });
+      expect(positions).toEqual([]);
+    });
+
+    test("a missing file on a truncated page posts as before", async () => {
+      const { positions, mutator } = recorder();
+      const none: DiscussionHandlerSeams["diffs"] = async () => ({ diffs: [], truncated: true });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, none));
+      const res = await h["mr:comment-inline"]!(basePayload());
+      expect(res.ok).toBe(true);
+      expect("old_line" in positions[0]!).toBe(false);
+    });
+
+    test("a failed diff read posts as before", async () => {
+      const { positions, mutator } = recorder();
+      const boom: DiscussionHandlerSeams["diffs"] = async () => { throw new Error("GitLab diffs API: 500"); };
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, boom));
+      const res = await h["mr:comment-inline"]!(basePayload());
+      expect(res.ok).toBe(true);
+      expect(positions).toHaveLength(1);
+    });
+
+    test("the diff read gets the caller's signal and a short timeout", async () => {
+      const { mutator } = recorder();
+      const controller = new AbortController();
+      let seen: { reqSignal?: AbortSignal; timeoutMs?: number } | undefined;
+      const spy: DiscussionHandlerSeams["diffs"] = async (_b, _p, _i, _t, opts) => {
+        seen = opts;
+        return { diffs: [{ newPath: "src/foo.ts", diff: DIFF }], truncated: false };
+      };
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, spy));
+      await h["mr:comment-inline"]!(basePayload({ line: 11 }), controller.signal);
+      expect(seen?.reqSignal).toBe(controller.signal);
+      expect(seen?.timeoutMs).toBe(8_000);
+    });
+
+    test("a caller who aborts during the diff read gets a failure and no POST", async () => {
+      const { positions, mutator } = recorder();
+      const controller = new AbortController();
+      const aborting: DiscussionHandlerSeams["diffs"] = async () => {
+        controller.abort();
+        throw new Error("aborted");
+      };
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, aborting));
+      const res = await h["mr:comment-inline"]!(basePayload(), controller.signal);
+      expect(res.ok).toBe(false);
+      expect(positions).toEqual([]);
+    });
+
+    test("a caller who aborts after a successful read gets a failure and no POST", async () => {
+      const { positions, mutator } = recorder();
+      const controller = new AbortController();
+      const slow: DiscussionHandlerSeams["diffs"] = async () => {
+        controller.abort();
+        return { diffs: [{ newPath: "src/foo.ts", diff: DIFF }], truncated: false };
+      };
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, slow));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 11 }), controller.signal);
+      expect(res.ok).toBe(false);
+      expect(positions).toEqual([]);
+    });
+
+    test("a collapsed or too-large file posts as before", async () => {
+      for (const flags of [{ collapsed: true }, { tooLarge: true }, {}]) {
+        const { positions, mutator } = recorder();
+        const rows: DiscussionHandlerSeams["diffs"] = async () => ({ diffs: [{ newPath: "src/foo.ts", diff: "", ...flags }], truncated: false });
+        const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, rows));
+        const res = await h["mr:comment-inline"]!(basePayload({ line: 41 }));
+        expect(res.ok).toBe(true);
+        expect(positions).toHaveLength(1);
+      }
+    });
+
+    test("a file with no new-side lines points at oldLine instead of an empty list", async () => {
+      const { positions, mutator } = recorder();
+      const deleted = "@@ -1,2 +0,0 @@\n-a\n-b";
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, diffsFor(deleted)));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 1 }));
+      expect(res).toEqual({
+        ok: false,
+        error: "line 1 of src/foo.ts is not in this MR's diff, so GitLab cannot anchor a comment there; the file has no new-side lines, so pass oldLine to comment on a removed line",
+      });
+      expect(positions).toEqual([]);
+    });
+
+    test("a renamed file's old path defaults from the diff row", async () => {
+      const { positions, mutator } = recorder();
+      const renamed: DiscussionHandlerSeams["diffs"] = async () => ({
+        diffs: [{ newPath: "src/foo.ts", oldPath: "src/bar.ts", diff: DIFF }],
+        truncated: false,
+      });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, renamed));
+      await h["mr:comment-inline"]!(basePayload({ line: 13 }));
+      expect(positions[0]).toMatchObject({ new_path: "src/foo.ts", old_path: "src/bar.ts", old_line: 12 });
+    });
+
+    test("a caller-given oldPath wins over the row's", async () => {
+      const { positions, mutator } = recorder();
+      const renamed: DiscussionHandlerSeams["diffs"] = async () => ({
+        diffs: [{ newPath: "src/foo.ts", oldPath: "src/bar.ts", diff: DIFF }],
+        truncated: false,
+      });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, renamed));
+      await h["mr:comment-inline"]!(basePayload({ line: 13, oldPath: "src/baz.ts" }));
+      expect(positions[0]).toMatchObject({ old_path: "src/baz.ts" });
+    });
+
+    test("a failed diff read logs a warning", async () => {
+      const { mutator } = recorder();
+      const warnings: string[] = [];
+      const boom: DiscussionHandlerSeams["diffs"] = async () => { throw new Error("GitLab diffs API: 500"); };
+      const seams = { ...makeSeams(mutator, undefined, boom), warn: (_o: object, msg: string) => { warnings.push(msg); } };
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams);
+      await h["mr:comment-inline"]!(basePayload());
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("diff read failed");
+    });
+
+    test("a caller-given oldLine is passed through without reading diffs", async () => {
+      const { positions, mutator } = recorder();
+      const never: DiscussionHandlerSeams["diffs"] = async () => { throw new Error("diffs should not be read"); };
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, never));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 41, oldLine: 7 }));
+      expect(res.ok).toBe(true);
+      expect(positions[0]).toMatchObject({ new_line: 41, old_line: 7 });
+    });
+
+    test("a GitLab 400 naming line_code gets the anchoring hint appended", async () => {
+      const mutator: DiscussionHandlerSeams["mutator"] = () => ({
+        fetchDiffRefs: async () => DIFF_REFS,
+        createPositionedDiscussion: async () => { throw new Error("400 Bad request - Note {:line_code=>[\"can't be blank\"]}"); },
+        deleteNote: async () => { throw new Error("should not be called"); },
+      });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, diffsFor(DIFF)));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 11 }));
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.error).toContain("line_code");
+        expect(res.error.endsWith(" (an unchanged line needs both line and oldLine; a removed line needs oldLine)")).toBe(true);
+      }
+    });
+
+    test("a failure without line_code gets no hint", async () => {
+      const mutator: DiscussionHandlerSeams["mutator"] = () => ({
+        fetchDiffRefs: async () => DIFF_REFS,
+        createPositionedDiscussion: async () => { throw new Error("403 Forbidden"); },
+        deleteNote: async () => { throw new Error("should not be called"); },
+      });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, diffsFor(DIFF)));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 11 }));
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).not.toContain("unchanged line needs");
+    });
   });
 });

@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { slugify } from "../slug.ts";
-import { UserActionableError } from "../../setup/errors.ts";
+import { UserActionableError } from "../../errors.ts";
 
 describe("slugify", () => {
   test("lowercases and dashes punctuation/spaces", () => {

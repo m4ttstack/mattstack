@@ -58,6 +58,15 @@ func TestVerbatimSplitsALineThatHoldsANewline(t *testing.T) {
 	}
 }
 
+func TestALongVerbatimLineIsCutWithTheRailOnEveryRow(t *testing.T) {
+	line := "    at run (/Users/sample/.mattstack/user/plugins/seam-fixture-with-a-long-name/boom.ts:1:41)"
+	got := ansi.Strip(render.Render([]protocol.Block{{T: "verbatim", Lines: []string{line}}}, render.Options{Width: 60}))
+	want := "    │ " + line[:54] + "\n    │ " + line[54:] + "\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
 func TestParagraphTreatsACarriageReturnAsALineBreak(t *testing.T) {
 	if got, want := plain(protocol.Block{T: "paragraph", Text: "one\r\ntwo\rthree"}), "  one\n  two\n  three\n"; got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
@@ -103,5 +112,35 @@ func TestTextBlocksTolerateEmptyFields(t *testing.T) {
 	}
 	if got := plain(protocol.Block{T: "diff", Hunks: []protocol.DiffHunk{{Header: "@@"}}}); got != "  @@\n" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestLightBackgroundReadsColorfgbg(t *testing.T) {
+	for value, want := range map[string]bool{
+		"": false, "15;0": false, "7;8": false, "12;default": false, "0;99": false,
+		"0;15": true, "0;default;15": true, "0;7": true,
+	} {
+		if got := render.LightBackground(value); got != want {
+			t.Errorf("COLORFGBG=%q: got %v want %v", value, got, want)
+		}
+	}
+}
+
+func TestDiffTintsFollowTheBackground(t *testing.T) {
+	blocks := []protocol.Block{{T: "diff", Hunks: []protocol.DiffHunk{{Header: "@@ -1 +1 @@", Lines: []protocol.DiffLine{{Kind: "del", Text: "old();"}, {Kind: "add", Text: "next();"}}}}}}
+	dark := render.Render(blocks, render.Options{Width: 80})
+	light := render.Render(blocks, render.Options{Width: 80, Light: true})
+	for _, want := range []string{"48;2;59;34;49", "48;2;34;51;57"} {
+		if !strings.Contains(dark, want) {
+			t.Fatalf("dark render lost its tint %s: %q", want, dark)
+		}
+	}
+	for _, want := range []string{"38;2;22;18;36;48;2;255;233;233", "38;2;22;18;36;48;2;229;251;241"} {
+		if !strings.Contains(light, want) {
+			t.Fatalf("light render has no dark ink on a pale tint %s: %q", want, light)
+		}
+	}
+	if strings.Contains(light, coral) {
+		t.Fatalf("light render kept coral text, which washes out on the pale tint: %q", light)
 	}
 }

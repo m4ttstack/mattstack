@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { deleteKvValue, getKvValue } from "../../lib/state/index.ts";
 import { sourcePathCommand } from "../settings.ts";
+import * as out from "../../lib/ui/out.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
 
 const HOME = process.env.HOME!;
 const RT_LINK = join(HOME, ".local", "bin", "rt");
@@ -16,13 +18,16 @@ function checkout(): string {
   return dir;
 }
 
-async function run(args: string[]): Promise<{ out: string[]; err: string[]; exitCode: number | null }> {
-  const r = { out: [] as string[], err: [] as string[], exitCode: null as number | null };
+async function run(args: string[]): Promise<{ out: string[]; human: string[]; err: string[]; exitCode: number | null }> {
+  const r = { out: [] as string[], human: [] as string[], err: [] as string[], exitCode: null as number | null };
   await sourcePathCommand(args, {}, {
-    log: (l) => r.out.push(l),
-    error: (l) => r.err.push(l),
+    print: (...blocks) => r.human.push(renderPlain(blocks)),
+    fail: (f) => r.err.push(renderPlain([out.failure(f)])),
+    json: (v) => r.out.push(JSON.stringify(v) + "\n"),
+    payload: (text) => r.out.push(text),
     exit: ((code: number) => { r.exitCode = code; }) as unknown as (code: number) => never,
   });
+  out.__test__.reset();
   return r;
 }
 
@@ -33,6 +38,28 @@ afterEach(() => {
 });
 
 describe("rt settings source-path", () => {
+  test("the stored path is the payload, bare and alone on stdout", async () => {
+    const src = checkout();
+    await run([src]);
+    const r = await run([]);
+    expect(r.out).toEqual([`${src}\n`]);
+    expect(r.human).toEqual([]);
+  });
+
+  test("with no checkout stored, stdout stays empty and the hint is human text", async () => {
+    const r = await run([]);
+    expect(r.out).toEqual([]);
+    expect(r.human).toEqual(["[not yet] No source checkout set yet\n  next: rt settings source-path <path>\n"]);
+  });
+
+  test("a folder that is not a checkout fails with the path as the hint and exits 2", async () => {
+    const notRt = mkdtempSync(join(tmpdir(), "rt-source-path-bad-"));
+    dirs.push(notRt);
+    const r = await run([notRt]);
+    expect(r.err).toEqual([`That folder is not an rt checkout  ${notRt}\n  why: It has no cli.ts.\n`]);
+    expect(r.exitCode).toBe(2);
+  });
+
   test("unset reads as null", async () => {
     const r = await run(["--json"]);
     expect(JSON.parse(r.out.join("\n")).sourcePath).toBeNull();

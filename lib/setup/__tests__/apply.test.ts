@@ -1,22 +1,23 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { setSetting } from "../../settings/write.ts";
+import { setSetting, setSettingsNoticeSink } from "../../settings/write.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import { createApplyContext, outcomeFromNeed, runApplyWith, runUpdateWith } from "../apply.ts";
 import type { MigrationDef } from "../migrations/index.ts";
-import { createNdjsonEmitter, type Emit } from "../emit.ts";
+import type { Emit } from "../emit.ts";
 import type { ApplyEvent, StepId } from "../contract.ts";
 import { STEP_IDS } from "../contract.ts";
-import { UserActionableError } from "../errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import type { Probes } from "../probes.ts";
 import { STEPS } from "../steps/index.ts";
 import { fakeProbes, fakeTray } from "./fakes.ts";
 import { needOutcome } from "../steps/step-utils.ts";
 import { isSetupFinished, readSetupState, updateSetupState } from "../state.ts";
+import { logsDir } from "../../rt-paths.ts";
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -83,6 +84,12 @@ function fakeStep(id: StepId, outcome: StepOutcome | (() => Promise<StepOutcome>
     applies: () => opts.applies ?? true,
     run: typeof outcome === "function" ? outcome : async () => outcome,
   };
+}
+
+function cliLog(): string {
+  const dir = logsDir();
+  if (!existsSync(dir)) return "";
+  return readdirSync(dir).filter((f) => f.startsWith("cli.") && f.endsWith(".log")).map((f) => readFileSync(join(dir, f), "utf8")).join("");
 }
 
 function throwingStep(id: StepId, err: unknown): StepDef {
@@ -327,6 +334,17 @@ describe("runApplyWith — thrown errors", () => {
     expect(events.at(-1)).toEqual({ event: "done", ok: false, failedStep: "home.init" });
   });
 
+  test("a step's UserActionableError carrying a log puts it in the CLI log and keeps the outcome as it was", async () => {
+    const { ctx, events } = testCtx();
+    const detail = `git: remote rejected (${crypto.randomUUID()})`;
+    const steps: StepDef[] = [throwingStep("home.init", new UserActionableError("x", "msg", { remedy: "do y" }, { log: detail }))];
+
+    await runApplyWith(steps, ctx, {});
+
+    expect(events.at(-2)).toEqual({ event: "step", id: "home.init", state: "failed", detail: "msg", remedy: "do y" });
+    expect(cliLog()).toContain(detail);
+  });
+
   test("a step throwing a plain Error emits a failed step + exactly one done, then rethrows", async () => {
     const { ctx, events } = testCtx();
     const boom = new Error("unexpected");
@@ -380,7 +398,7 @@ describe("runApplyWith: a settings share tip is the step's own log line", () => 
       const logs = events.filter((e) => e.event === "log");
       expect(logs).toHaveLength(1);
       expect(logs[0]).toMatchObject({ event: "log", id: "board.keys" });
-      expect((logs[0] as { line: string }).line).toContain(`saved "chat.humanHandle"`);
+      expect((logs[0] as { line: string }).line).toContain("Saved chat.humanHandle");
       expect(stderr).toEqual([]);
     } finally {
       console.error = origError;
@@ -1034,12 +1052,12 @@ describe("runApplyWith — need-bearing steps", () => {
   });
 
   test("outcomeFromNeed never maps timeout or app-gone to a non-failure", () => {
-    expect(outcomeFromNeed("timeout")).toEqual({ state: "failed", detail: "timed out waiting for mattstack.app" });
-    expect(outcomeFromNeed("app-gone")).toEqual({ state: "failed", detail: "mattstack.app stopped responding" });
+    expect(outcomeFromNeed("timeout")).toEqual({ state: "failed", detail: "mattstack.app did not answer in time" });
+    expect(outcomeFromNeed("app-gone")).toEqual({ state: "failed", detail: "mattstack.app stopped answering" });
     expect(outcomeFromNeed("no-app").state).toBe("skipped");
     expect(outcomeFromNeed("app-unanswerable")).toEqual({
       state: "failed",
-      detail: "mattstack.app is running but cannot answer setup requests from this terminal — quit it and Retry, or finish setup in the app",
+      detail: "mattstack.app is running but cannot answer setup requests from this terminal. Quit it and Retry, or finish setup in the app",
     });
     expect(outcomeFromNeed({ ok: true, detail: "d" })).toEqual({ state: "done", detail: "d" });
     expect(outcomeFromNeed({ ok: false, detail: "d" })).toEqual({ state: "failed", detail: "d" });
@@ -1063,11 +1081,11 @@ describe("STEPS registry", () => {
   });
 });
 
-describe("wire bytes — createNdjsonEmitter", () => {
+describe("wire bytes", () => {
   test("every line is single-object NDJSON; hostile detail/log content round-trips byte-identical", async () => {
     const lines: string[] = [];
     const hostile = "line1\nline2\r\nx\0y\uD800z\tw";
-    const { ctx } = testCtx({ emit: createNdjsonEmitter((line) => lines.push(line)) });
+    const { ctx } = testCtx({ emit: (ev) => lines.push(JSON.stringify(ev) + "\n") });
     const step: StepDef = {
       id: "home.init",
       title: "x",
@@ -1330,7 +1348,7 @@ describe("createApplyContext: a terminal run asks the app's routes directly", ()
 
     expect(outcome).toEqual({
       state: "failed",
-      detail: "this step raises an admin prompt, which needs a person at an interactive terminal",
+      detail: "This step raises an admin prompt, which needs a person at a terminal",
       remedy: "Run rt setup apply from a terminal, or use the row's button in mattstack.app",
     });
   });
@@ -1583,6 +1601,15 @@ describe("runUpdateWith", () => {
     expect(events.find((e) => e.event === "step" && e.id === "verify" && e.state === "done")).toBeDefined();
   });
 
+  test("an update item's UserActionableError carrying a log puts it in the CLI log", async () => {
+    const { ctx, events } = testCtx();
+    const detail = `git: remote rejected (${crypto.randomUUID()})`;
+    const steps: StepDef[] = [{ ...updateStep("skills.link", { state: "done" }), run: async () => { throw new UserActionableError("x", "cannot link", {}, { log: detail }); } }];
+    await runUpdateWith(steps, [], ctx);
+    expect(events.find((e) => e.event === "step" && e.id === "skills.link" && e.state === "failed")).toMatchObject({ detail: "cannot link" });
+    expect(cliLog()).toContain(detail);
+  });
+
   test("writes lastApplyAt and keeps the setup intent", async () => {
     const { ctx } = testCtx();
     ctx.p.mkdirp("/fake-home/.mattstack/rt");
@@ -1602,4 +1629,24 @@ describe("runUpdateWith", () => {
     await runUpdateWith([updateStep("path.link", { state: "done" })], [], ctx2);
     expect(events2.at(-1)).toEqual({ event: "done", ok: true });
   });
+});
+
+test("a settings tip raised inside a step reaches ctx.tip, not the log event", async () => {
+  const tips: Array<[string, string]> = [];
+  const { ctx, events } = testCtx({ tip: (id, line) => tips.push([id, line]) });
+  const step: StepDef = {
+    id: "path.link",
+    title: "x",
+    kind: "rt",
+    applies: () => true,
+    async run() {
+      const engine = setSettingsNoticeSink(null);
+      (engine as unknown as (line: string) => void)("Saved on this Mac only.");
+      setSettingsNoticeSink(engine);
+      return { state: "done" };
+    },
+  };
+  await runApplyWith([step], ctx, {});
+  expect(tips).toEqual([["path.link", "Saved on this Mac only."]]);
+  expect(events.some((e) => e.event === "log")).toBe(false);
 });

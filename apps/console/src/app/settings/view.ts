@@ -80,8 +80,18 @@ export function rungOf(scope: StoreScope, repo: string | null): LayerScope {
     global layer as its own name. The one source every layer-naming string
     reads from, so a rung and its global layer never share an accessible
     name. */
-export function layerLabel(scope: LayerScope): string {
-  return isRung(scope) ? `${rungBase(scope)} · repo` : scope;
+export function layerLabel(
+  scope: LayerScope,
+  team: string | null = null
+): string {
+  const base = scopeLabel(rungBase(scope)!, team);
+  return isRung(scope) ? `${base} · repo` : base;
+}
+
+/** A store's name, with the machine's team named on the team store so a
+    team edit says where it goes. */
+export function scopeLabel(scope: StoreScope, team: string | null): string {
+  return scope === 'team' && team ? `team (${team})` : scope;
 }
 
 /** A repo identity's display label: everything after the host, the same
@@ -115,8 +125,12 @@ export function writeTarget(
   return { scope: targetScope(def) as StoreScope };
 }
 
-export function targetLabel(t: WriteTarget): string {
-  return t.repo ? `${t.scope} · ${repoLabel(t.repo)}` : t.scope;
+export function targetLabel(
+  t: WriteTarget,
+  team: string | null = null
+): string {
+  const scope = scopeLabel(t.scope, team);
+  return t.repo ? `${scope} · ${repoLabel(t.repo)}` : scope;
 }
 
 /** A layer line's scope as a write target; a repo rung needs the picked

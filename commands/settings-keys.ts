@@ -24,7 +24,9 @@
  */
 
 import { parse, type ParseError } from "jsonc-parser";
-import { bold, dim, green, red, reset, yellow } from "../lib/tui.ts";
+import * as out from "../lib/ui/out.ts";
+import type { CellInput, FailureInput } from "../lib/ui/out.ts";
+import type { Block, Segment } from "../lib/ui/protocol.ts";
 import { loadRepoIndex } from "../lib/repo-index.ts";
 import { resolveRepoArg } from "../lib/repo-arg.ts";
 import { repoDataDir } from "../lib/rt-paths.ts";
@@ -37,8 +39,10 @@ import {
   type ListedSetting,
   type Provenance,
   type Resolved,
+  type Scope,
 } from "../lib/settings/resolve.ts";
-import { pruneStoreName, setSetting, unsetSetting } from "../lib/settings/write.ts";
+import { pruneStoreName, setSetting, setSettingsNoticeSink, unsetSetting, type SettingsNotice } from "../lib/settings/write.ts";
+import { noticeBlocks } from "../lib/settings/notice-blocks.ts";
 import { currentStoreName } from "../lib/settings/migrate.ts";
 import { getDef, isMigrated, type SettingDef, type SettingScope } from "../lib/settings/registry.ts";
 import { firstIssueText, formatIssuePath } from "../lib/settings/schema.ts";
@@ -51,16 +55,16 @@ import { buildInterceptRules, writeInterceptRules } from "../lib/endpoint/shim.t
 const FLAGS_WITH_VALUES = new Set(["--repo", "--scope", "--team"]);
 
 function positionals(args: string[]): string[] {
-  const out: string[] = [];
+  const found: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a.startsWith("--")) {
       if (FLAGS_WITH_VALUES.has(a)) i++; // skip the flag's value slot
       continue;
     }
-    out.push(a);
+    found.push(a);
   }
-  return out;
+  return found;
 }
 
 function flagValue(args: string[], flag: string): string | undefined {
@@ -68,15 +72,36 @@ function flagValue(args: string[], flag: string): string | undefined {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
-function fail(msg: string): never {
-  console.error(`rt settings: ${msg}`);
+function fail(f: string | FailureInput): never {
+  out.fail(typeof f === "string" ? { title: f } : f);
   process.exit(1);
 }
 
-/** Renders a thrown resolver/write error cleanly — no "rt settings:" double-prefix (the resolver's own messages already start with "rt: "), no stack trace. */
+/** The resolver and writer prefix their messages with "rt: "; the failure block already says who is talking. */
 function failWithError(err: unknown): never {
-  console.error(err instanceof Error ? err.message : String(err));
+  const message = err instanceof Error ? err.message : String(err);
+  out.fail({ title: message.replace(/^rt: /, "") });
   process.exit(1);
+}
+
+function uniqueNotices(notices: SettingsNotice[]): SettingsNotice[] {
+  return [...new Map(notices.map((n) => [`${n.text}\u0000${n.next ?? ""}`, n])).values()];
+}
+
+/** Holds the share tips a write emits so the verb can print them under its own confirmation line. */
+function collectSettingsNotices<T>(fn: () => T): { result: T; notices: SettingsNotice[] } {
+  const notices: SettingsNotice[] = [];
+  const previous = setSettingsNoticeSink((line, notice) => notices.push(notice ?? { text: line }));
+  try {
+    return { result: fn(), notices };
+  } finally {
+    setSettingsNoticeSink(previous);
+  }
+}
+
+function whereText(scope: SettingScope, team: string | undefined, repoName: string | undefined): string {
+  const store = scope === "user" ? "your user settings" : scope === "machine" ? "this Mac's settings" : team ? `the ${team} team's settings` : "the team's settings";
+  return repoName ? `${store} for ${repoName}` : store;
 }
 
 // ─── --repo resolution ────────────────────────────────────────────────────────
@@ -99,10 +124,11 @@ function repoIndex(): Record<string, string> {
  * store are simply unreachable — `${repoRoot}` still answers, so the command
  * succeeds with a strictly smaller ladder. That is an honest degrade, but a
  * SILENT one is a trap: the user asked about a repo and got an answer that
- * quietly ignored every repo-scoped value. So say it once, dim, on stderr —
- * the resolved value still lands on stdout unpolluted, and `--json` output is
- * untouched. `set` does not come through here; it refuses outright rather
- * than writing into a section nothing will read back.
+ * quietly ignored every repo-scoped value. So say it once as a warn line. The
+ * callers that print a payload or --json call out.payloadOnStdout() first, so
+ * the line lands on stderr and stdout stays the value or the one envelope.
+ * `set` does not come through here; it refuses outright rather than writing
+ * into a section nothing will read back.
  */
 async function resolveRepoContext(repoName: string | undefined): Promise<RepoContext> {
   if (!repoName) return { repoIdentity: null };
@@ -110,12 +136,13 @@ async function resolveRepoContext(repoName: string | undefined): Promise<RepoCon
   // one before it can be looked up. Every registered repo reads as
   // unregistered otherwise.
   const repoPath = repoIndex()[await resolveRepoArg(repoName, fail)];
-  if (!repoPath) fail(`repo "${repoName}" is not registered in ~/.mattstack/rt/repos.json`);
+  if (!repoPath) fail({ title: `${repoName} is not a repo rt knows`, next: out.cmd("rt repos status") });
   const derived = await deriveRepoIdentity(repoPath);
   const identity = derived.kind === "remote" ? derived.id : null;
   if (!identity) {
-    console.error(
-      `${dim}identity: none derivable for ${repoName} — repo sections unreachable (see rt.repoIdentityOverrides)${reset}`,
+    out.print(
+      out.line("warn", `Repo settings for ${repoName} are out of reach`, "its remote is not one rt can key on"),
+      out.callout("next", out.cmd("rt settings explain rt.repoIdentityOverrides")),
     );
   }
   return {
@@ -140,28 +167,40 @@ export function formatValuePretty(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-export function formatProvenance(provenance: Provenance[]): string {
-  if (provenance.length === 0) return "(no provenance — value is unset)";
-  return provenance.map((p) => (p.file ? `${p.scope} (${p.file})` : p.scope)).join(" + ");
+const SCOPE_WORDS: Record<Scope, string> = {
+  default: "the built-in default",
+  team: "the team's settings",
+  user: "your user settings",
+  "team.repo": "the team's settings for this repo",
+  "user.repo": "your user settings for this repo",
+  machine: "this Mac's settings",
+  "machine.repo": "this Mac's settings for this repo",
+};
+
+/** Weakest first, the order the resolver merges them in. */
+export function describeProvenance(provenance: Provenance[]): string {
+  if (provenance.length === 0) return "not set anywhere";
+  return `from ${provenance.map((p) => SCOPE_WORDS[p.scope]).join(", then ")}`;
 }
 
-/**
- * The `migrated:false` loud-degrade label: "reads legacy: <file>" — spec:
- * "list LABELS them (`reads legacy: <file>`)". Returns null for a migrated
- * key (nothing to render).
- */
+/** The `migrated:false` note; null for a migrated key. */
 export function migratedNote(def: SettingDef): string | null {
   if (isMigrated(def)) return null;
-  return def.legacyFile ? `reads legacy: ${def.legacyFile}` : "not writable through the settings resolver yet";
+  return def.legacyFile ? "still reads its legacy file" : "not writable through settings yet";
 }
 
 // ─── get ────────────────────────────────────────────────────────────────────
 
 export async function settingsGet(args: string[]): Promise<void> {
   const [key] = positionals(args);
-  if (!key) fail("usage: rt settings get <key> [--repo <name>] [--json]");
+  if (!key) fail({ title: "Name the setting to read", next: out.cmd("rt settings get <key>") });
   const json = args.includes("--json");
+  // The value is the payload: a script reads it from stdout, so every human line goes to stderr.
+  out.payloadOnStdout();
   const repoCtx = await resolveRepoContext(flagValue(args, "--repo"));
+
+  const def = getDef(key);
+  if (!def) fail({ title: `No setting is called ${key}`, next: out.cmd("rt settings list") });
 
   let resolved: Resolved<unknown>;
   try {
@@ -173,32 +212,32 @@ export async function settingsGet(args: string[]): Promise<void> {
     failWithError(err);
   }
 
-  const def = getDef(key) as SettingDef; // getSetting already threw for an unregistered key
-
   if (json) {
-    console.log(JSON.stringify({
+    out.json({
       ok: true,
       key,
       value: resolved.value,
       provenance: resolved.provenance,
       migrated: isMigrated(def),
       ...(isMigrated(def) ? {} : { legacyFile: def.legacyFile ?? null }),
-    }));
+    });
     return;
   }
 
-  console.log("");
-  console.log(`  ${bold}${key}${reset}`);
-  console.log(`  ${formatValuePretty(resolved.value)}`);
-  console.log(`  ${dim}${formatProvenance(resolved.provenance)}${reset}`);
   const note = migratedNote(def);
-  if (note) console.log(`  ${yellow}${note}${reset}`);
-  console.log("");
+  out.print(out.kv(key, undefined, describeProvenance(resolved.provenance)), ...(note ? [out.callout("note", note)] : []));
+  out.payload(`${formatValuePretty(resolved.value)}\n`);
 }
 
 // ─── set / unset ────────────────────────────────────────────────────────────
 
 const VALID_SCOPES: SettingScope[] = ["user", "team", "machine"];
+
+function requireScope(scope: string | undefined, title: string, usage: string): SettingScope {
+  if (!scope) fail({ title, why: "A value lives in exactly one of your user, team or machine settings.", next: out.cmd(usage) });
+  if (!VALID_SCOPES.includes(scope as SettingScope)) fail({ title: `${scope} is not a scope`, why: "The scopes are user, team and machine.", next: out.cmd(usage) });
+  return scope as SettingScope;
+}
 
 /**
  * The three repo forms a write needs, resolved from `--repo`. Never
@@ -219,91 +258,67 @@ async function resolveRepoTarget(args: string[]): Promise<{
 
   const repoKey = await resolveRepoArg(repoName, fail);
   const repoPath = repoIndex()[repoKey];
-  if (!repoPath) fail(`repo "${repoName}" is not registered in ~/.mattstack/rt/repos.json`);
+  if (!repoPath) fail({ title: `${repoName} is not a repo rt knows`, next: out.cmd("rt repos status") });
   const derived = await deriveRepoIdentity(repoPath);
-  if (derived.kind !== "remote") fail(`repo "${repoName}"'s remote does not normalize to an identity — repo-scoped settings are unreachable for it (see \`rt settings explain\`)`);
+  if (derived.kind !== "remote") {
+    fail({ title: `Repo settings for ${repoName} have nowhere to live`, why: "Its remote is not one rt can key settings on, so nothing would read a value written for it." });
+  }
   return { repoName, repoPath, repoIdentity: derived.id, repoKey };
 }
 
 /** Shared by set and unset: `--team` only means anything at team scope. */
-function teamFlag(args: string[], scope: string): string | undefined {
+function teamFlag(args: string[], scope: SettingScope, usage: string): string | undefined {
   const team = flagValue(args, "--team");
   if (args.includes("--team")) {
-    if (scope !== "team") fail(`--team only applies to --scope team (got --scope ${scope})`);
-    if (team === undefined || team.startsWith("--") || team.trim() === "") fail("--team requires a team name");
+    if (scope !== "team") fail({ title: "A team name only goes with the team scope", why: `You asked for the ${scope} scope.`, next: out.cmd(usage) });
+    if (team === undefined || team.startsWith("--") || team.trim() === "") fail({ title: "Name the team", next: out.cmd(usage) });
   }
   return team;
 }
 
+const SET_USAGE = "rt settings set <key> <value> --scope user|team|machine";
+
 export async function settingsSet(args: string[]): Promise<void> {
   const [key, rawValue] = positionals(args);
-  const scope = flagValue(args, "--scope");
-  const usage = "usage: rt settings set <key> <json-value> --scope user|team|machine [--repo <name>] [--team <name>]";
-  if (!key || rawValue === undefined) fail(usage);
-  if (!scope) fail(`${usage} (--scope is required)`);
-  if (!VALID_SCOPES.includes(scope as SettingScope)) {
-    fail(`--scope must be one of ${VALID_SCOPES.join(", ")} (got "${scope}")`);
-  }
+  if (!key || rawValue === undefined) fail({ title: "Give the setting a key and a value", next: out.cmd(SET_USAGE) });
+  const scope = requireScope(flagValue(args, "--scope"), "Say which settings to write", SET_USAGE);
 
   // `--team` is the CLI surface for `setSetting`'s team selection (see
   // write.ts's "Team selection"). Taking it silently at user/machine scope
-  // would let `rt settings set … --scope user --team acme` look like it
-  // targeted a team store while writing the user one.
-  const team = teamFlag(args, scope);
+  // would let a `--scope user --team acme` write look like it targeted a team
+  // store while writing the user one.
+  const team = teamFlag(args, scope, "rt settings set <key> <value> --scope team --team <name>");
 
   const trimmed = rawValue.trim();
-  if (trimmed === "") fail(`<json-value> is not valid JSON(C): ${rawValue}`);
   const errors: ParseError[] = [];
-  const value = parse(trimmed, errors, { allowTrailingComma: true });
-  if (errors.length > 0) fail(`<json-value> is not valid JSON(C): ${rawValue}`);
-
-  const { repoName, repoPath, repoIdentity, repoKey } = await resolveRepoTarget(args);
-
-  try {
-    setSetting(key, value, scope as SettingScope, { repoIdentity, team });
-  } catch (err) {
-    failWithError(err);
+  const value = trimmed === "" ? undefined : parse(trimmed, errors, { allowTrailingComma: true });
+  if (trimmed === "" || errors.length > 0) {
+    fail({ title: "The value is not valid JSON", hint: rawValue, why: "A string needs its own quotes, so the shell does not eat them: '\"debug\"'." });
   }
 
-  const where = [scope === "team" && team ? `team:${team}` : scope, ...(repoName ? [repoName] : [])].join(", ");
-  console.log(`\n  ${green}✓${reset} ${bold}${key}${reset} set (${where})`);
+  const target = await resolveRepoTarget(args);
 
-  // See "the intercepts.json regeneration seam" below for why the write side
-  // owns this and why it is not a full `rt intercept install`.
-  const regen = await regenerateInterceptsCache(key);
-  if (regen.regenerated) {
-    console.log(`  ${dim}intercepts.json regenerated (${regen.rules} rule${regen.rules === 1 ? "" : "s"})${reset}`);
-  } else if (regen.error) {
-    console.log(`  ${yellow}could not regenerate intercepts.json (${regen.error}) — run \`rt intercept install\`${reset}`);
-  }
-
-  // hooks.json is rt.hooks's own derived cache (commands/hooks.ts). Scoped to
-  // `--repo` writes only: a write with no --repo lands in that scope's GLOBAL
-  // section, which can change the resolved value for every OTHER registered
-  // repo too (deep merge), and rebuilding every repo's cache here would mean
-  // deriving every repo's identity (a git spawn each) on a single `set` —
-  // out of scope for this seam. `rt hooks status` (or any other `rt hooks`
-  // command) in an affected repo refreshes its cache the next time it runs;
-  // there is no detector for the gap in between yet (a natural home would be
-  // `rt verify`, not built here).
-  if (key === "rt.hooks" && repoPath && repoIdentity && repoKey) {
-    const { regenerateHooksCache } = await import("./hooks.ts");
-    const wrote = regenerateHooksCache(repoPath, repoDataDir(repoKey), repoIdentity);
-    if (wrote) {
-      console.log(`  ${dim}hooks.json regenerated (${repoName})${reset}`);
-    } else {
-      console.log(`  ${yellow}could not regenerate hooks.json for ${repoName} — run \`rt hooks status\` in that repo to refresh it${reset}`);
+  const { notices } = collectSettingsNotices(() => {
+    try {
+      setSetting(key, value, scope, { repoIdentity: target.repoIdentity, team });
+    } catch (err) {
+      failWithError(err);
     }
-  }
+  });
 
-  console.log("");
+  out.print(
+    out.line("done", `Saved ${key}`, whereText(scope, team, target.repoName)),
+    ...notices.flatMap(noticeBlocks),
+    ...(await regenBlocks(key, target)),
+  );
 }
+
+const UNSET_USAGE = "rt settings unset <key> --scope user|team|machine";
 
 /**
  * Removes a key from one authored store. The counterpart to `set`, and the
  * only supported way to take a key back out: hand-editing a store `.jsonc` is
- * banned (it silently corrupts a store into reading as empty), so without this
- * verb a key written once was permanent (RT-100).
+ * banned (it silently corrupts a store into reading as empty).
  *
  * Runs the same derived-cache regeneration as `set`, because removing a value
  * changes what the resolver returns exactly as writing one does... a stale
@@ -311,52 +326,58 @@ export async function settingsSet(args: string[]): Promise<void> {
  */
 export async function settingsUnset(args: string[]): Promise<void> {
   const [key] = positionals(args);
-  const scope = flagValue(args, "--scope");
-  const usage = "usage: rt settings unset <key> --scope user|team|machine [--repo <name>] [--team <name>]";
-  if (!key) fail(usage);
-  if (!scope) fail(`${usage} (--scope is required)`);
-  if (!VALID_SCOPES.includes(scope as SettingScope)) {
-    fail(`--scope must be one of ${VALID_SCOPES.join(", ")} (got "${scope}")`);
-  }
+  if (!key) fail({ title: "Name the setting to remove", next: out.cmd(UNSET_USAGE) });
+  const scope = requireScope(flagValue(args, "--scope"), "Say which settings to remove it from", UNSET_USAGE);
+  const team = teamFlag(args, scope, "rt settings unset <key> --scope team --team <name>");
+  const target = await resolveRepoTarget(args);
 
-  const team = teamFlag(args, scope);
-  const { repoName, repoPath, repoIdentity, repoKey } = await resolveRepoTarget(args);
+  const removed = collectSettingsNotices(() => {
+    try {
+      return unsetSetting(key, scope, { repoIdentity: target.repoIdentity, team });
+    } catch (err) {
+      failWithError(err);
+    }
+  });
 
-  let removed = false;
-  try {
-    removed = unsetSetting(key, scope as SettingScope, { repoIdentity, team });
-  } catch (err) {
-    failWithError(err);
-  }
-
-  const where = [scope === "team" && team ? `team:${team}` : scope, ...(repoName ? [repoName] : [])].join(", ");
+  const where = whereText(scope, team, target.repoName);
   // A key that was not there is success, not a failure: `unset` is how a
   // script makes sure a key is absent, so it has to be safe to run twice.
-  console.log(
-    removed
-      ? `\n  ${green}✓${reset} ${bold}${key}${reset} removed (${where})`
-      : `\n  ${dim}${key} was not set in ${where} — nothing to remove${reset}`,
-  );
-
-  if (removed) {
-    const regen = await regenerateInterceptsCache(key);
-    if (regen.regenerated) {
-      console.log(`  ${dim}intercepts.json regenerated (${regen.rules} rule${regen.rules === 1 ? "" : "s"})${reset}`);
-    } else if (regen.error) {
-      console.log(`  ${yellow}could not regenerate intercepts.json (${regen.error}) — run \`rt intercept install\`${reset}`);
-    }
-
-    if (key === "rt.hooks" && repoPath && repoIdentity && repoKey) {
-      const { regenerateHooksCache } = await import("./hooks.ts");
-      if (regenerateHooksCache(repoPath, repoDataDir(repoKey), repoIdentity)) {
-        console.log(`  ${dim}hooks.json regenerated (${repoName})${reset}`);
-      } else {
-        console.log(`  ${yellow}could not regenerate hooks.json for ${repoName} — run \`rt hooks status\` in that repo to refresh it${reset}`);
-      }
-    }
+  if (!removed.result) {
+    out.print(out.line("skipped", `${key} was not set`, `nothing to remove from ${where}`));
+    return;
   }
 
-  console.log("");
+  out.print(
+    out.line("done", `Removed ${key}`, `from ${where}`),
+    ...removed.notices.flatMap(noticeBlocks),
+    ...(await regenBlocks(key, target)),
+  );
+}
+
+/**
+ * The derived caches a write may have invalidated, as lines under the
+ * confirmation. hooks.json is rebuilt only for a `--repo` write: a global
+ * write can change the resolved value for every other repo too, and
+ * deriving every repo's identity (a git spawn each) on one `set` is out of
+ * scope; `rt hooks status` in an affected repo refreshes its cache.
+ */
+async function regenBlocks(key: string, target: { repoName?: string; repoPath?: string; repoIdentity?: string; repoKey?: string }): Promise<Block[]> {
+  const blocks: Block[] = [];
+  const regen = await regenerateInterceptsCache(key);
+  if (regen.regenerated) {
+    blocks.push(out.line("done", "Intercepts updated", `${regen.rules} rule${regen.rules === 1 ? "" : "s"}`));
+  } else if (regen.error) {
+    blocks.push(out.line("warn", "Intercepts not updated", regen.error), out.callout("next", out.cmd("rt intercept install")));
+  }
+  if (key === "rt.hooks" && target.repoPath && target.repoIdentity && target.repoKey) {
+    const { regenerateHooksCache } = await import("./hooks.ts");
+    if (regenerateHooksCache(target.repoPath, repoDataDir(target.repoKey), target.repoIdentity)) {
+      blocks.push(out.line("done", "Hooks updated", target.repoName));
+    } else {
+      blocks.push(out.line("warn", `Hooks not updated for ${target.repoName}`), out.callout("next", [out.cmd("rt hooks status"), " in that repo"]));
+    }
+  }
+  return blocks;
 }
 
 // ─── the intercepts.json regeneration seam ──────────────────────────────────
@@ -414,6 +435,7 @@ export async function regenerateInterceptsCache(key: string): Promise<RegenResul
 
 export async function settingsList(args: string[]): Promise<void> {
   const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
   const repoCtx = await resolveRepoContext(flagValue(args, "--repo"));
 
   const settings = listSettings({
@@ -422,24 +444,20 @@ export async function settingsList(args: string[]): Promise<void> {
   });
 
   if (json) {
-    console.log(JSON.stringify({ ok: true, settings }));
+    out.json({ ok: true, settings });
     return;
   }
 
-  console.log("");
-  for (const s of settings) {
-    console.log(renderListRow(s));
-  }
-  console.log("");
+  out.print(out.table(settings.map(renderListRow)));
 }
 
-export function renderListRow(s: ListedSetting): string {
+/** One table row: the key, then the value with any caveats beside it. */
+export function renderListRow(s: ListedSetting): CellInput[] {
   const labels: string[] = [];
   if (s.unregistered) labels.push("unregistered");
-  // `migrated` is a registry fact, so an UNREGISTERED row has none — it comes
-  // back false by default. Labelling those "reads legacy" would name a
-  // migration window that does not exist for a key rt has never heard of;
-  // "unregistered" is the whole story there.
+  // `migrated` is a registry fact, so an UNREGISTERED row has none: it comes
+  // back false by default, and labelling it "legacy" would name a migration
+  // window that does not exist for a key rt has never heard of.
   if (!s.migrated && !s.unregistered) {
     const def = getDef(s.key);
     labels.push(def ? (migratedNote(def) as string) : "reads legacy");
@@ -451,93 +469,106 @@ export function renderListRow(s: ListedSetting): string {
   for (const d of s.diverged ?? []) labels.push(`diverged[${d.scope}]: ${d.storeNames.join(", ")}`);
   if (s.newer) labels.push("from a newer rt");
 
-  const labelStr = labels.length > 0 ? `  ${yellow}(${labels.join("; ")})${reset}` : "";
-  return `  ${bold}${s.key}${reset} = ${formatValueInline(s.value)}${labelStr}`;
+  const value: Array<string | Segment> = [formatValueInline(s.value)];
+  if (labels.length > 0) value.push({ text: `  ${labels.join("; ")}`, role: "warn" });
+  return [out.key(s.key), value];
 }
 
 // ─── explain ────────────────────────────────────────────────────────────────
 
 export async function settingsExplain(args: string[]): Promise<void> {
   const [key] = positionals(args);
-  if (!key) fail("usage: rt settings explain <key> [--repo <name>] [--json]");
+  if (!key) fail({ title: "Name the setting to explain", next: out.cmd("rt settings explain <key>") });
   const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
   const repoCtx = await resolveRepoContext(flagValue(args, "--repo"));
+
+  const def = getDef(key);
+  if (!def) fail({ title: `No setting is called ${key}`, next: out.cmd("rt settings list") });
 
   let rows: ExplainRow[];
   try {
-    rows = explainSetting(key, {
-      repoIdentity: repoCtx.repoIdentity,
-    });
+    rows = explainSetting(key, { repoIdentity: repoCtx.repoIdentity });
   } catch (err) {
     failWithError(err);
   }
 
-  const def = getDef(key) as SettingDef; // explainSetting already threw for an unregistered key
   const currentName = currentStoreName(def);
 
   if (json) {
-    console.log(JSON.stringify({ ok: true, key, rows, currentStore: currentName ?? null }));
+    out.json({ ok: true, key, rows, currentStore: currentName ?? null });
     return;
   }
 
-  console.log("");
-  console.log(`  ${bold}${key}${reset}`);
-  for (const row of rows) {
-    console.log(renderExplainRow(row, currentName));
-  }
-  console.log("");
+  out.print(out.tree(out.key(key), rows.flatMap((row) => renderExplainRow(row, currentName))));
 }
 
 /**
- * One row per reachable rung, weakest-first (the order explainSetting
- * already returns them in — SCOPE_ORDER — is the stable sort). present rows
- * show their authored value; shadowed (teamLocked) and invalid rows are
- * marked but not applied.
+ * One child row per reachable rung, weakest first (the order explainSetting
+ * returns them in), plus a row per older store name beside it. A shadowed or
+ * invalid value is marked, not applied.
  */
-export function renderExplainRow(row: ExplainRow, currentName?: string): string {
-  const scopeLabel = row.scope.padEnd(11);
-  const fileLabel = row.file ?? (row.scope === "default" ? "(registry default)" : "(no file)");
-  const from =
-    currentName !== undefined && row.storeName !== undefined && row.storeName !== currentName
-      ? `  ${dim}[read from ${row.storeName}, version ${row.storedVersion}]${reset}`
-      : "";
-  const older = (row.olderNames ?? [])
-    .map((o) => `\n      ${o.label === "diverged" ? red : dim}older ${o.storeName}: ${o.label}${reset}${o.label === "diverged" ? `  ${formatValueInline(o.value)}` : ""}`)
-    .join("");
+export function renderExplainRow(row: ExplainRow, currentName?: string): CellInput[][] {
+  const where = row.file ?? (row.scope === "default" ? "built-in default" : "no file");
+  if (!row.present) return [[out.faint(row.scope), out.faint(where), out.faint("not set")]];
 
-  if (!row.present) {
-    return `  ${dim}${scopeLabel} ${fileLabel}  —${reset}`;
-  }
-
+  const marks: string[] = [];
+  let role: Segment["role"] = "done";
   if (row.shadowed) {
-    return `  ${dim}${scopeLabel}${reset} ${fileLabel}  ${formatValueInline(row.value)}  ${yellow}[shadowed: ${row.shadowed}]${reset}`;
-  }
-  if (row.invalid) {
-    return `  ${dim}${scopeLabel}${reset} ${fileLabel}  ${formatValueInline(row.value)}  ${red}[invalid: ${row.invalid}]${reset}${from}${older}`;
+    marks.push(`[shadowed: ${row.shadowed}]`);
+    role = "warn";
   }
   if (row.nonconforming) {
-    return `  ${green}${scopeLabel}${reset} ${fileLabel}  ${formatValueInline(row.value)}  ${yellow}[nonconforming: ${firstIssueText(row.nonconforming)}]${reset}${from}${older}`;
+    marks.push(`[nonconforming: ${firstIssueText(row.nonconforming)}]`);
+    role = "warn";
   }
-  return `  ${green}${scopeLabel}${reset} ${fileLabel}  ${formatValueInline(row.value)}${from}${older}`;
+  if (row.invalid) {
+    marks.push(`[invalid: ${row.invalid}]`);
+    role = "failed";
+  }
+  if (currentName !== undefined && row.storeName !== undefined && row.storeName !== currentName) {
+    marks.push(`[read from ${row.storeName}, version ${row.storedVersion}]`);
+  }
+
+  const main: CellInput[] = [{ text: row.scope, role }, out.faint(where), formatValueInline(row.value)];
+  if (marks.length > 0) main.push({ text: marks.join("  "), role: role === "done" ? "dim" : role });
+
+  const older = (row.olderNames ?? []).map((o): CellInput[] => [
+    "",
+    [
+      { text: `older ${o.storeName}: ${o.label}`, role: o.label === "diverged" ? "needs-you" : "dim" },
+      ...(o.label === "diverged" ? [`  ${formatValueInline(o.value)}`] : []),
+    ],
+  ]);
+  return [main, ...older];
 }
 
 // ─── check ──────────────────────────────────────────────────────────────────
 
-/** A header line per finding, then values or issues. A `merged` finding
-    carries no scope or file, so its header names only the repo, if any. */
-export function renderCheckFinding(f: CheckFinding): string {
+/** Drops empty trailing cells so a row without a store name or file does not end in padding. */
+function trimRow(cells: CellInput[]): CellInput[] {
+  const text = (c: CellInput): string => (typeof c === "string" ? c : Array.isArray(c) ? c.map((s) => (typeof s === "string" ? s : s.text)).join("") : c.text);
+  while (cells.length > 1 && text(cells[cells.length - 1]!) === "") cells.pop();
+  return cells;
+}
+
+/**
+ * A row per finding, then a row per value or issue under it. A `merged`
+ * finding carries no scope or file, so its row names only the repo, if any.
+ */
+export function renderCheckFinding(f: CheckFinding): CellInput[][] {
   const where = [f.scope, f.repo].filter(Boolean).join("/");
-  const label = where ? `${where}  ` : "";
-  const file = f.file ? `  ${dim}${f.file}${reset}` : "";
   const kindText = f.newer ? "unregistered (from a newer rt)" : f.kind;
-  const kind = f.kind === "stale" || f.kind === "leftover" ? `${dim}${kindText}${reset}` : `${red}${kindText}${reset}`;
-  const name = f.storeName ? `  ${f.storeName}` : "";
-  const values =
-    f.kind === "diverged" && "olderValue" in f
-      ? `\n      ${f.storeName}: ${formatValueInline(f.olderValue)}\n      current: ${formatValueInline(f.currentValue)}`
-      : "";
-  const issues = f.issues.map((i) => `\n      ${formatIssuePath(i.path)}: ${i.message}`).join("");
-  return `  ${bold}${f.key}${reset}  ${label}${kind}${name}${file}${values}${issues}`;
+  const role: Segment["role"] = f.kind === "stale" || f.kind === "leftover" ? "dim" : f.kind === "unregistered" ? "warn" : "failed";
+  const rows: CellInput[][] = [trimRow([out.key(f.key), where, { text: kindText, role }, f.storeName ?? "", out.faint(f.file ?? "")])];
+  // Detail text sits in the last column, where the file path already is: in any
+  // earlier column it would pad every finding's row to the detail's width.
+  const detail = (text: string): CellInput[] => ["", "", "", "", text];
+  if (f.kind === "diverged" && "olderValue" in f) {
+    rows.push(detail(`${f.storeName}: ${formatValueInline(f.olderValue)}`), detail(`current: ${formatValueInline(f.currentValue)}`));
+  }
+  for (const i of f.issues) rows.push(detail(`${formatIssuePath(i.path)}: ${i.message}`));
+  return rows;
 }
 
 export async function settingsCheck(args: string[]): Promise<void> {
@@ -545,14 +576,18 @@ export async function settingsCheck(args: string[]): Promise<void> {
   const report = checkStores();
 
   if (json) {
-    console.log(JSON.stringify({ ok: report.failing === 0, findings: report.findings }));
+    out.json({ ok: report.failing === 0, findings: report.findings });
   } else {
-    console.log("");
-    for (const f of report.findings) console.log(renderCheckFinding(f));
     const unregistered = report.findings.filter((f) => f.kind === "unregistered").length;
     const older = report.findings.filter((f) => f.kind === "stale" || f.kind === "leftover").length;
-    console.log(`\n  ${report.failing} failing, ${unregistered} unregistered, ${older} stale or leftover`);
-    console.log("");
+    out.print(
+      out.table(report.findings.flatMap(renderCheckFinding)),
+      out.summary(
+        report.failing > 0 ? "failed" : "done",
+        report.failing > 0 ? "Some stored settings need fixing" : "Your stored settings check out",
+        [`${report.failing} failing`, `${unregistered} unregistered`, `${older} stale or leftover`],
+      ),
+    );
   }
 
   if (report.failing > 0) process.exitCode = 1;
@@ -565,7 +600,7 @@ export interface MigrateDeps {
   interactive?: boolean;
 }
 
-const whereOf = (x: { scope: string; repo?: string; file: string }) => `${[x.scope, x.repo].filter(Boolean).join("/")}  ${dim}${x.file}${reset}`;
+const whereCells = (x: { scope: string; repo?: string; file: string }): CellInput[] => [[x.scope, x.repo].filter(Boolean).join("/"), out.faint(x.file)];
 const isSecret = (key: string) => getDef(key)?.secret === true;
 const shown = (key: string, value: unknown) => (isSecret(key) ? "(secret)" : formatValueInline(value));
 /** `undefined` rather than a placeholder string: JSON.stringify drops the property entirely, matching check.ts's own secret handling. */
@@ -577,11 +612,13 @@ const redactOlder = <T extends OlderName>(o: T): T => ({
   authored: redacted(o.key, o.authored),
 });
 
-function renderOlder(o: OlderName): string {
-  const color = o.label === "diverged" ? red : dim;
-  const values = o.label === "diverged" ? `\n      ${o.storeName}: ${shown(o.key, o.olderValue)}\n      current: ${shown(o.key, o.currentValue)}` : "";
-  return `  ${bold}${o.key}${reset}  ${whereOf(o)}  ${color}${o.storeName}: ${o.label}${reset}${values}`;
+function olderRows(o: OlderName): CellInput[][] {
+  const row: CellInput[] = [out.key(o.key), ...whereCells(o), { text: `${o.storeName}: ${o.label}`, role: o.label === "diverged" ? "needs-you" : "dim" }];
+  if (o.label !== "diverged") return [row];
+  return [row, ["", "", "", `${o.storeName}: ${shown(o.key, o.olderValue)}`], ["", "", "", `current: ${shown(o.key, o.currentValue)}`]];
 }
+
+const failureRow = (f: MigrationPlan["failures"][number]): CellInput[] => [out.key(f.key), ...whereCells(f), { text: `cannot migrate ${f.fromName}: ${f.message}`, role: "failed" }];
 
 /**
  * rt settings migrate [--write | --prune [--team] [--force <key>]... [--yes]] [--json]
@@ -591,10 +628,11 @@ function renderOlder(o: OlderName): string {
  */
 export async function settingsMigrate(args: string[], deps: MigrateDeps = {}): Promise<void> {
   const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
   const write = args.includes("--write");
   const prune = args.includes("--prune");
   if (write && prune) {
-    console.error("rt settings: run --write and --prune separately (write first; prune once every reader of the store knows the new names)");
+    out.fail({ title: "Write and prune are separate runs", why: "Prune only once every reader of the store knows the new names.", next: out.cmd("rt settings migrate --write") });
     process.exitCode = 1;
     return;
   }
@@ -610,33 +648,30 @@ export async function settingsMigrate(args: string[], deps: MigrateDeps = {}): P
       else forced.add(value);
     });
     if (forceUsageError) {
-      console.error("rt settings migrate --prune: --force needs a key (e.g. --force rt.notify.eventBridges)");
+      out.fail({ title: "--force needs a key", hint: "for example --force rt.notify.eventBridges" });
       process.exitCode = 1;
       return;
     }
-    for (const key of forced) {
-      if (!plan.older.some((o) => o.key === key)) {
-        console.error(`rt settings migrate --prune: --force ${key} matches no older store name in this plan`);
-      }
-    }
+    const unmatched = [...forced].filter((key) => !plan.older.some((o) => o.key === key));
+    if (unmatched.length > 0) out.print(...unmatched.map((key) => out.line("warn", `--force ${key} matches no older store name in this plan`)));
     const interactive = deps.interactive ?? (process.stdin.isTTY === true && !json && !process.env.RT_BATCH);
     const ask = deps.confirm ?? (async (message: string) => (await import("../lib/ui/prompts.ts")).confirm({ message, destructive: true }));
     return migratePrune(plan, { json, team: args.includes("--team"), yes: args.includes("--yes"), forced, interactive, ask });
   }
   if (json) {
-    console.log(JSON.stringify({
+    out.json({
       ok: plan.failures.length === 0,
       writes: plan.writes.map((w) => ({ ...w, value: redacted(w.key, w.value) })),
       failures: plan.failures,
       older: plan.older.map((o) => redactOlder(o)),
-    }));
+    });
   } else {
-    console.log("");
-    for (const w of plan.writes) console.log(`  ${bold}${w.key}${reset}  ${whereOf(w)}  would write ${w.storeName} from ${w.fromName}: ${shown(w.key, w.value)}`);
-    for (const f of plan.failures) console.log(`  ${bold}${f.key}${reset}  ${whereOf(f)}  ${red}cannot migrate ${f.fromName}${reset}: ${f.message}`);
-    for (const o of plan.older) console.log(renderOlder(o));
-    if (plan.writes.length + plan.failures.length + plan.older.length === 0) console.log("  every stored key is under its current store name");
-    console.log("");
+    const rows: CellInput[][] = [
+      ...plan.writes.map((w): CellInput[] => [out.key(w.key), ...whereCells(w), `would write ${w.storeName} from ${w.fromName}: ${shown(w.key, w.value)}`]),
+      ...plan.failures.map(failureRow),
+      ...plan.older.flatMap(olderRows),
+    ];
+    out.print(rows.length > 0 ? out.table(rows) : out.line("done", "Every stored setting is under its current name"));
   }
   if (plan.failures.length > 0) process.exitCode = 1;
 }
@@ -644,24 +679,28 @@ export async function settingsMigrate(args: string[], deps: MigrateDeps = {}): P
 function migrateWrite(plan: MigrationPlan, json: boolean): void {
   const written: MigrationPlan["writes"] = [];
   const errors: { key: string; file: string; repo?: string; error: string }[] = [];
-  for (const w of plan.writes) {
-    try {
-      setSetting(w.key, w.value, w.scope, { ...(w.repo ? { repoIdentity: w.repo } : {}), ...(w.team ? { team: w.team } : {}) });
-      written.push(w);
-    } catch (err) {
-      errors.push({ key: w.key, file: w.file, ...(w.repo ? { repo: w.repo } : {}), error: (err as Error).message });
+  const { notices } = collectSettingsNotices(() => {
+    for (const w of plan.writes) {
+      try {
+        setSetting(w.key, w.value, w.scope, { ...(w.repo ? { repoIdentity: w.repo } : {}), ...(w.team ? { team: w.team } : {}) });
+        written.push(w);
+      } catch (err) {
+        errors.push({ key: w.key, file: w.file, ...(w.repo ? { repo: w.repo } : {}), error: (err as Error).message });
+      }
     }
-  }
+  });
+  const tips = uniqueNotices(notices).flatMap(noticeBlocks);
   const ok = errors.length === 0 && plan.failures.length === 0;
   if (json) {
-    console.log(JSON.stringify({ ok, written: written.map((w) => ({ ...w, value: redacted(w.key, w.value) })), errors, failures: plan.failures }));
+    out.json({ ok, written: written.map((w) => ({ ...w, value: redacted(w.key, w.value) })), errors, failures: plan.failures });
+    if (tips.length > 0) out.print(...tips);
   } else {
-    console.log("");
-    for (const w of written) console.log(`  ${bold}${w.key}${reset}  ${whereOf(w)}  wrote ${w.storeName} from ${w.fromName}`);
-    for (const e of errors) console.log(`  ${bold}${e.key}${reset}  ${red}${e.error}${reset}`);
-    for (const f of plan.failures) console.log(`  ${bold}${f.key}${reset}  ${whereOf(f)}  ${red}cannot migrate ${f.fromName}${reset}: ${f.message}`);
-    if (written.length + errors.length + plan.failures.length === 0) console.log("  nothing to write");
-    console.log("");
+    const rows: CellInput[][] = [
+      ...written.map((w): CellInput[] => [out.key(w.key), ...whereCells(w), `wrote ${w.storeName} from ${w.fromName}`]),
+      ...errors.map((e): CellInput[] => [out.key(e.key), { text: e.error, role: "failed" }]),
+      ...plan.failures.map(failureRow),
+    ];
+    out.print(rows.length > 0 ? out.table(rows) : out.line("skipped", "Nothing to write"), ...tips);
   }
   if (!ok) process.exitCode = 1;
 }
@@ -672,6 +711,7 @@ async function migratePrune(
 ): Promise<void> {
   const refused: (OlderName & { reason: string })[] = [];
   const pruned: OlderName[] = [];
+  const notices: SettingsNotice[] = [];
   const byFile = new Map<string, OlderName[]>();
   for (const n of plan.older) {
     if (n.scope === "team" && !o.team) refused.push({ ...n, reason: "team store: pass --team to prune it" });
@@ -681,10 +721,15 @@ async function migratePrune(
   for (const [file, names] of byFile) {
     const scope = names[0]!.scope;
     if (!o.json) {
-      console.log(`\n  ${bold}${scope} store${reset}  ${dim}${file}${reset}`);
-      for (const n of names) console.log(`    ${n.storeName}${n.repo ? `  (${n.repo})` : ""}  ${n.label}`);
       const versions = [...new Map(names.map((n) => [n.key, n.storeVersion])).entries()].map(([k, v]) => `${k} (storeVersion ${v})`);
-      console.log(`    every reader of this store must know: ${versions.join(", ")}`);
+      out.print(
+        out.section(
+          `${scope} store`,
+          file,
+          out.table(names.map((n): CellInput[] => [n.storeName, n.repo ?? "", n.label])),
+          out.paragraph(`Every reader of this store must know: ${versions.join(", ")}`),
+        ),
+      );
     }
     const noun = names.length === 1 ? "name" : "names";
     const approved = o.yes || (o.interactive && (await o.ask(`Delete ${names.length} older store ${noun} from the ${scope} store (${file})?`)));
@@ -694,22 +739,28 @@ async function migratePrune(
       continue;
     }
     for (const n of names) {
-      if (n.label === "diverged" && !o.json) console.log(`  deleting diverged ${n.storeName}; its value was: ${shown(n.key, n.authored)}`);
-      try {
-        pruneStoreName(n.key, n.storeName, n.scope, { ...(n.repo ? { repoIdentity: n.repo } : {}), ...(n.team ? { team: n.team } : {}), force: n.label === "diverged" });
-        pruned.push(n);
-      } catch (err) {
-        refused.push({ ...n, reason: (err as Error).message });
-      }
+      if (n.label === "diverged" && !o.json) out.print(out.line("warn", `Deleting diverged ${n.storeName}`, `its value was: ${shown(n.key, n.authored)}`));
+      const run = collectSettingsNotices(() => {
+        try {
+          pruneStoreName(n.key, n.storeName, n.scope, { ...(n.repo ? { repoIdentity: n.repo } : {}), ...(n.team ? { team: n.team } : {}), force: n.label === "diverged" });
+          pruned.push(n);
+        } catch (err) {
+          refused.push({ ...n, reason: (err as Error).message });
+        }
+      });
+      notices.push(...run.notices);
     }
   }
+  const tips = uniqueNotices(notices).flatMap(noticeBlocks);
   if (o.json) {
-    console.log(JSON.stringify({ ok: refused.length === 0, pruned: pruned.map((n) => redactOlder(n)), refused: refused.map((r) => redactOlder(r)) }));
+    out.json({ ok: refused.length === 0, pruned: pruned.map((n) => redactOlder(n)), refused: refused.map((r) => redactOlder(r)) });
+    if (tips.length > 0) out.print(...tips);
   } else {
-    console.log("");
-    for (const r of refused) console.log(`  ${bold}${r.key}${reset}  ${whereOf(r)}  ${r.storeName}: ${red}${r.reason}${reset}`);
-    console.log(`  pruned ${pruned.length}, refused ${refused.length}`);
-    console.log("");
+    out.print(
+      out.table(refused.map((r): CellInput[] => [out.key(r.key), ...whereCells(r), { text: `${r.storeName}: ${r.reason}`, role: "refused" }])),
+      out.summary(refused.length > 0 ? "warn" : "done", `Pruned ${pruned.length} older ${pruned.length === 1 ? "name" : "names"}`, [`${pruned.length} pruned`, `${refused.length} refused`]),
+      ...tips,
+    );
   }
   if (refused.length > 0) process.exitCode = 1;
 }

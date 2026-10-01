@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { UpdateMachineSeams } from "../../lib/release/update-machine.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { releaseUpdateMachine } from "../release.ts";
 
 const ok = (stdout = "") => Promise.resolve({ stdout, stderr: "", exitCode: 0 });
@@ -76,8 +78,10 @@ async function run(args: string[], seams: UpdateMachineSeams): Promise<{ logs: s
 }
 
 /** exitUserError always calls the real process.exit, never a seam... spy on it to catch the code without killing the test process. */
-async function runExpectingProcessExit(fn: () => Promise<void>): Promise<{ code: number | undefined; logs: string[] }> {
+async function runExpectingProcessExit(fn: () => Promise<void>): Promise<{ code: number | undefined; logs: string[]; stdout: string; stderr: string }> {
   const logs: string[] = [];
+  const io = captureOut();
+  ui.__test__.setHuman(() => false);
   const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
     logs.push(a.map(String).join(" "));
   });
@@ -86,10 +90,11 @@ async function runExpectingProcessExit(fn: () => Promise<void>): Promise<{ code:
   });
   try {
     await fn();
-    return { code: undefined, logs };
+    return { code: undefined, logs, stdout: io.stdout(), stderr: io.stderr() };
   } catch {
-    return { code: exitSpy.mock.calls.at(-1)?.[0] as number | undefined, logs };
+    return { code: exitSpy.mock.calls.at(-1)?.[0] as number | undefined, logs, stdout: io.stdout(), stderr: io.stderr() };
   } finally {
+    io.restore();
     exitSpy.mockRestore();
     logSpy.mockRestore();
   }
@@ -142,18 +147,20 @@ describe("rt release update-machine", () => {
 
   test("non-interactive without --yes refuses via the real process.exit(2) and the contract error envelope", async () => {
     const seams = fakeSeams({ isTTY: false });
-    const { code, logs } = await runExpectingProcessExit(() => releaseUpdateMachine(["--json"], {}, seams));
+    const { code, stdout } = await runExpectingProcessExit(() => releaseUpdateMachine(["--json"], {}, seams));
     expect(code).toBe(2);
-    const body = JSON.parse(logs[0]!);
+    const body = JSON.parse(stdout.trim());
     expect(body.contract).toBe(1);
     expect(body.error.code).toBe("update-machine-noninteractive");
   });
 
   test("non-interactive without --yes, human mode, also exits 2", async () => {
     const seams = fakeSeams({ isTTY: false });
-    const { code, logs } = await runExpectingProcessExit(() => releaseUpdateMachine([], {}, seams));
+    const { code, logs, stderr } = await runExpectingProcessExit(() => releaseUpdateMachine([], {}, seams));
     expect(code).toBe(2);
-    expect(logs[0]).toContain("release update-machine");
+    expect(logs).toEqual([]);
+    expect(stderr).toContain("refuses to run state-changing legs on a non-interactive terminal without --yes");
+    expect(stderr).not.toContain("[failed]");
   });
 
   test("non-interactive with --verify-only never hits the refusal (read-only)", async () => {
@@ -164,9 +171,9 @@ describe("rt release update-machine", () => {
 
   test("--plan and --verify-only together are refused via the real process.exit(2), not a silent pick-one", async () => {
     const seams = fakeSeams();
-    const { code, logs } = await runExpectingProcessExit(() => releaseUpdateMachine(["--plan", "--verify-only", "--json"], {}, seams));
+    const { code, stdout } = await runExpectingProcessExit(() => releaseUpdateMachine(["--plan", "--verify-only", "--json"], {}, seams));
     expect(code).toBe(2);
-    const body = JSON.parse(logs[0]!);
+    const body = JSON.parse(stdout.trim());
     expect(body.error.code).toBe("update-machine-plan-verify-only");
   });
 

@@ -882,6 +882,13 @@ export interface Commands {
     data: { noteId: number; discussionId: string | null; resolvable: boolean; url: string; mrUrl: string };
   };
 
+  /** Replaces the body of an existing MR note. GitLab decides who may edit;
+      its refusal comes back as the error text. */
+  "mr:note-update": {
+    payload: { repoName: string; iid: number; noteId: number; body: string };
+    data: { noteId: number };
+  };
+
   /** One whole review in one call: every comment and reply becomes a
       pending comment, then one publish posts them with the summary and
       marks the caller as having reviewed; `approve` approves afterwards.
@@ -1183,6 +1190,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "discussions:diffs",
   "mr:comment-inline",
   "mr:comment",
+  "mr:note-update",
   "mr:review-submit",
   "mr:action",
   "mr:create",

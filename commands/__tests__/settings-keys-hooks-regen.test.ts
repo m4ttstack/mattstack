@@ -17,6 +17,8 @@ import { repoDataDir } from "../../lib/rt-paths.ts";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
 import { hooksConfigPath } from "../hooks.ts";
 import { settingsSet } from "../settings-keys.ts";
+import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 const REMOTE = "git@gitlab.com:fake/hooks-regen-repo.git";
 
@@ -62,13 +64,16 @@ describe("rt settings set rt.hooks --repo -> hooks.json regeneration seam", () =
     const exitSpy = spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit sentinel");
     });
-    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const cap = captureOut();
+    out.__test__.setHuman(() => false);
     try {
       await expect(settingsSet(["rt.hooks", '{"enabled":false,"hooks":{}}', "--scope", "user"])).rejects.toThrow("process.exit sentinel");
-      expect(errSpy.mock.calls.map((c) => String(c[0])).join("\n")).toMatch(/repo-only/);
+      expect(cap.stderr()).toMatch(/repo-only/);
+      expect(cap.stderr()).toStartWith("refusing to set");
+      expect(cap.stderr()).not.toContain("[failed]");
     } finally {
       exitSpy.mockRestore();
-      errSpy.mockRestore();
+      cap.restore();
     }
     expect(() => readFileSync(hooksConfigPath(repoDataDir("hooks-regen-repo")), "utf8")).toThrow();
   });

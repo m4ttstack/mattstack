@@ -196,7 +196,24 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
   shareTip("saved", key, scope, storePath);
 }
 
-export type SettingsNoticeSink = (line: string) => void;
+export interface SettingsNotice {
+  /** One plain sentence: what was saved or removed, where, and why it stays on this Mac. */
+  text: string;
+  /** The command that shares it, when one exists. */
+  next?: string;
+}
+
+/**
+ * `line` is the sentence and the command joined for a plain log; `notice`
+ * carries them apart for a renderer. The write path always passes both; the
+ * second is optional so a one-argument sink, and a caller that only has a
+ * line, both type-check.
+ */
+export type SettingsNoticeSink = (line: string, notice?: SettingsNotice) => void;
+
+export function noticeLine(notice: SettingsNotice): string {
+  return notice.next ? `${notice.text} Run: ${notice.next}` : notice.text;
+}
 
 const stderrSink: SettingsNoticeSink = (line) => console.error(line);
 let noticeSink: SettingsNoticeSink = stderrSink;
@@ -214,6 +231,10 @@ export function setSettingsNoticeSink(sink: SettingsNoticeSink | null): Settings
   return previous;
 }
 
+function notify(notice: SettingsNotice): void {
+  noticeSink(noticeLine(notice), notice);
+}
+
 /**
  * The daemon's snapshot engines commit and push the user and team repos on
  * their own, so a write normally needs no follow-up and prints nothing. A tip
@@ -225,23 +246,24 @@ export function setSettingsNoticeSink(sink: SettingsNoticeSink | null): Settings
  */
 function shareTip(verb: "saved" | "removed", key: string, scope: SettingScope, storePath: string): void {
   if (scope === "machine") return;
-  const lead = verb === "saved" ? `rt: saved "${key}" in` : `rt: removed "${key}" from`;
-  const what = verb === "saved" ? "it" : "the change";
+  const did = verb === "saved" ? `Saved ${key}` : `Removed ${key}`;
+  const prep = verb === "saved" ? "in" : "from";
+  const it = verb === "saved" ? "it" : "the change";
   if (scope === "user") {
     const repo = dirname(storePath);
     if (!hasOrigin(repo)) {
-      noticeSink(`${lead} your user store on this machine only; ${repo} has no remote, so ${what} will not reach your other machines`);
+      notify({ text: `${did} on this Mac only. Your home repo has no remote yet, so ${it} will not reach your other Macs.`, next: "rt home remote set" });
     } else if (!snapshotEnabled("rt.homeSnapshot")) {
-      noticeSink(`${lead} your user store, but automatic sync is off (rt.homeSnapshot); commit and push ${repo} to share ${what} with your other machines`);
+      notify({ text: `${did} ${prep} your user settings, but automatic home sync is off. Commit and push your home repo to share ${it} with your other Macs.` });
     }
     return;
   }
   const repo = dirname(dirname(storePath));
   const team = basename(repo);
   if (!hasOrigin(repo)) {
-    noticeSink(`${lead} the team store on this machine only; the team repo has no remote yet, so run \`rt team publish --team ${team} --remote <url>\` to share ${what} with the team`);
+    notify({ text: `${did} ${prep} the ${team} team's settings on this Mac only. The team repo has no remote yet.`, next: `rt team publish --team ${team} --remote <url>` });
   } else if (!snapshotEnabled("rt.teamSnapshot")) {
-    noticeSink(`${lead} the team store, but automatic team sync is off (rt.teamSnapshot); run \`rt team publish --team ${team}\` to share ${what} with the team`);
+    notify({ text: `${did} ${prep} the ${team} team's settings, but automatic team sync is off.`, next: `rt team publish --team ${team}` });
   }
 }
 

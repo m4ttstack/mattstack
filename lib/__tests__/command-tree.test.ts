@@ -6,6 +6,10 @@ import { join } from "path";
 import { dispatch, walkTree, showPicker, BACK, type CommandContext, type CommandNode } from "../command-tree.ts";
 import { installFakePick, type PickFakeStep } from "../ui/pick-fake.ts";
 import type { KnownRepo, RepoIdentity } from "../repo.ts";
+import * as ui from "../ui/out.ts";
+import { captureOut } from "../ui/__tests__/capture-out.ts";
+
+afterEach(() => ui.__test__.reset());
 
 // mock.module mutates the live "../repo.ts" namespace object IN PLACE, so
 // `realRepoModule.getKnownRepos` itself becomes the mock the moment it's
@@ -345,7 +349,8 @@ describe("dispatch --repo flag scoping", () => {
 
     let reached = false;
     const exitSpy = spyOn(process, "exit").mockImplementation((() => { throw new Error("exited"); }) as never);
-    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
     const tree: Record<string, CommandNode> = {
       cmd: { description: "test", context: "worktree", handler: async () => { reached = true; } },
     };
@@ -355,7 +360,40 @@ describe("dispatch --repo flag scoping", () => {
     expect(reached).toBe(false);
     expect(exitSpy).toHaveBeenCalledWith(1);
     exitSpy.mockRestore();
-    errSpy.mockRestore();
+    expect(io.stderr()).toContain("More than one repo is called app\n  why: It could be ");
+    io.restore();
+  });
+
+  test('context:"worktree" node: --repo <unknown name> fails and lists the repos rt knows', async () => {
+    const real = realRepoModule;
+    const known: KnownRepo = { repoName: "app", worktrees: [{ path: process.cwd(), branch: "main", isBare: false }], dataDir: "/fake/app-data" };
+    mock.module("../repo.ts", () => ({
+      ...real,
+      getKnownRepos: () => [known],
+      pickWorktreeFromRepo: async () => null,
+      getRepoIdentity: () => null,
+    }));
+    mock.module("../repo-arg.ts", () => ({
+      ...realRepoArgModule,
+      tryResolveRepoArg: async () => ({ kind: "none" }),
+    }));
+
+    let reached = false;
+    const exitSpy = spyOn(process, "exit").mockImplementation((() => { throw new Error("exited"); }) as never);
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    const tree: Record<string, CommandNode> = {
+      cmd: { description: "test", context: "worktree", handler: async () => { reached = true; } },
+    };
+
+    await dispatch(tree, ["cmd", "--repo", "nope"]).catch(() => {});
+
+    expect(reached).toBe(false);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    // toEndWith: run from a terminal, the dispatcher's screen clear comes first.
+    expect(io.stderr()).toEndWith("rt does not know a repo called nope\n  Repos rt knows: app\n");
+    exitSpy.mockRestore();
+    io.restore();
   });
 
   test('node without context: --repo survives untouched in its own args (no repo.ts mocking needed)', async () => {
@@ -375,8 +413,8 @@ describe("dispatch --repo flag scoping", () => {
   });
 
   // A `missing: true` row's single worktree is a dead path (its indexed
-  // directory no longer exists) — resolving it by name must refuse with
-  // missingRepoRefusal instead of chdir-ing into that path.
+  // directory no longer exists), so resolving it by name must refuse with
+  // missingRepoFailure instead of chdir-ing into that path.
   test('context:"worktree" node: --repo <missing repo> refuses before any chdir', async () => {
     const real = realRepoModule;
     const missingRepo: KnownRepo = {
@@ -393,7 +431,8 @@ describe("dispatch --repo flag scoping", () => {
     }));
 
     const chdirSpy = spyOn(process, "chdir").mockImplementation(() => {});
-    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
     const exitSpy = spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit sentinel");
     });
@@ -406,10 +445,11 @@ describe("dispatch --repo flag scoping", () => {
       await expect(dispatch(tree, ["cmd", "--repo", "moved"])).rejects.toThrow("process.exit sentinel");
       expect(chdirSpy).not.toHaveBeenCalled();
       expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
-      expect(errSpy.mock.calls.flat().join(" ")).toContain("rt repos locate");
+      expect(io.stderr()).toContain("is no longer where rt last saw it\n");
+      expect(io.stderr()).toContain("  next: rt repos locate <new-path> --repo moved\n");
     } finally {
       chdirSpy.mockRestore();
-      errSpy.mockRestore();
+      io.restore();
       exitSpy.mockRestore();
     }
   });

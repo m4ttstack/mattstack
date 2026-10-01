@@ -226,13 +226,9 @@ export function logCommand(entry: CommandLog): void {
 let current: { command: string; args: string[]; t0: number } | null = null;
 let finalized = false;
 
-/**
- * A single structured log line on the cli surface, outside the per-command
- * CommandLog shape logCommand() writes (R052: lib/state/busy.ts's injected
- * sink, for a busy-write warning hit inside a CLI process rather than the
- * daemon).
- */
-function writeCliLogLine(level: "warn" | "error", module: string, message: string, context: Record<string, unknown>): void {
+export type CliLogLevel = "debug" | "warn" | "error";
+
+function writeCliLogLine(level: CliLogLevel, module: string, message: string, context: Record<string, unknown>): void {
   try {
     const dir = logsDir();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -244,6 +240,15 @@ function writeCliLogLine(level: "warn" | "error", module: string, message: strin
       closeSync(fd);
     }
   } catch { /* logging must never break a command */ }
+}
+
+/**
+ * One structured line on the cli surface outside the per-command record:
+ * a failure's raw detail, a stack with no command record to carry it, a
+ * helper that would not spawn. Never throws.
+ */
+export function logCliEvent(level: CliLogLevel, module: string, message: string, context: Record<string, unknown> = {}): void {
+  writeCliLogLine(level, module, message, context);
 }
 
 /** Called by dispatch() once the command label is resolved. */

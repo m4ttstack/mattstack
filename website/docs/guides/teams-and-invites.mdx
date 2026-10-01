@@ -32,7 +32,7 @@ The same pane shows the team's name, remote, last push, and the members who have
 
 ## What a joiner sees
 
-The joiner opens the invite link, or pastes the code into **Join a team** in setup's **Your team** step. An already set-up Mac joins through **Settings → Team → Join another team…**. The checklist then runs a forge-auth preflight against the team repo:
+The joiner opens the invite link, or pastes the code into **Join a team** in setup's **Your team** step. A Mac holds one team today: a join is refused while another team is set up on it, and joining your own team again is fine: **Settings → Team → Rejoin this team…** takes a new invite from your team owner. The checklist then runs a forge-auth preflight against the team repo:
 
 - If the joiner's forge account (GitHub or GitLab) cannot see the repo, a warning names the problem and suggests asking the owner or org admin for access. The `access.team-repo` checklist row holds Install until access is resolved.
 - If access is confirmed, setup continues normally.

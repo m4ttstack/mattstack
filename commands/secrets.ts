@@ -40,6 +40,7 @@ import {
   teamSecretsFile,
   writeTeamSecret,
 } from "../lib/secrets/team-store.ts";
+import * as out from "../lib/ui/out.ts";
 
 function createRealSecretsSeams(): SecretsSeams {
   return { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() };
@@ -88,7 +89,8 @@ function reportSecretsError(err: unknown): never {
     // TeamReencryptError's own message already names the completed vs.
     // remaining files — a half-rotated team must be loudly described here,
     // not collapsed into a bare "it failed" line.
-    console.error(`rt secrets: ${err.message}`);
+    const [title = err.message, ...rest] = err.message.split("\n");
+    out.fail({ title, ...(rest.length > 0 ? { details: rest.join("\n") } : {}) });
     process.exit(1);
   }
   throw err;
@@ -123,7 +125,7 @@ export async function secretsSet(args: string[], _ctx: CommandContext = {}, seam
     }
   }
   if (!domain || !key) {
-    console.error("rt secrets set: usage: rt secrets set <domain> <key> [--team <slug>] [--stdin]");
+    out.fail({ title: "Which secret?", next: out.cmd("rt secrets set <domain> <key>") });
     process.exit(1);
   }
 
@@ -138,7 +140,7 @@ export async function secretsSet(args: string[], _ctx: CommandContext = {}, seam
   } catch (err) {
     reportSecretsError(err);
   }
-  console.log(`rt secrets set: wrote ${team ? `${team}/` : ""}${domain}.${key}`);
+  out.print(out.line("done", "Saved the secret", `${team ? `${team}/` : ""}${domain}.${key}`));
 }
 
 export async function secretsList(args: string[], _ctx: CommandContext = {}, seams?: SecretsSeams): Promise<void> {
@@ -158,7 +160,7 @@ export async function secretsList(args: string[], _ctx: CommandContext = {}, sea
     }
   }
   if (!domain) {
-    console.error("rt secrets list: usage: rt secrets list <domain> [--team <slug>]");
+    out.fail({ title: "Which domain?", next: out.cmd("rt secrets list <domain>") });
     process.exit(1);
   }
 
@@ -173,11 +175,10 @@ export async function secretsList(args: string[], _ctx: CommandContext = {}, sea
 
   const label = team ? `${team}/${domain}` : domain;
   if (names.length === 0) {
-    console.log(`rt secrets list: no secrets set for domain "${label}"`);
+    out.print(out.line("pending", `No secrets in ${label} yet`));
     return;
   }
-  console.log(`Secrets for "${label}":`);
-  for (const name of names) console.log(`  ${name}`);
+  out.print(out.section(`Secrets in ${label}`, `${names.length} ${names.length === 1 ? "key" : "keys"}`, out.table(names.map((n) => [n]))));
 }
 
 async function rotateTeamAll(team: string, seams?: SecretsSeams): Promise<void> {
@@ -190,14 +191,13 @@ async function rotateTeamAll(team: string, seams?: SecretsSeams): Promise<void> 
   }
 
   if (reencrypted.length === 0) {
-    console.log(`rt secrets rotate: no domain files to re-encrypt for team "${team}"`);
+    out.print(out.line("skipped", `No secret files to re-encrypt for team ${team}`));
     return;
   }
-  console.log(`rt secrets rotate: re-encrypted ${reencrypted.length} file(s) for team "${team}":`);
-  for (const f of reencrypted) console.log(`  ${f}`);
-  console.log(
-    "Note: any member already removed from this team keeps whatever plaintext they already decrypted before " +
-      "removal — re-encrypting only stops future decryption, it can't retroactively revoke what they already read.",
+  out.print(
+    out.line("done", `Re-encrypted ${reencrypted.length} ${reencrypted.length === 1 ? "file" : "files"} for team ${team}`),
+    out.verbatim(reencrypted),
+    out.callout("note", "Anyone already removed from the team keeps what they decrypted before. Re-encrypting stops future reads only."),
   );
 }
 
@@ -233,10 +233,11 @@ export async function secretsRotate(args: string[], _ctx: CommandContext = {}, s
   }
 
   if (!domain || !key) {
-    console.error(
-      "rt secrets rotate: usage: rt secrets rotate <domain> <key> [--team <slug>] [--stdin]\n" +
-        "                or: rt secrets rotate --team <slug>   (re-encrypts every domain file — no value, so no --stdin)",
-    );
+    out.fail({
+      title: "Which secret?",
+      why: "Name a domain and key, or a team alone to re-encrypt every file",
+      next: out.cmd("rt secrets rotate <domain> <key>"),
+    });
     process.exit(1);
   }
 
@@ -248,7 +249,7 @@ export async function secretsRotate(args: string[], _ctx: CommandContext = {}, s
     } catch (err) {
       reportSecretsError(err);
     }
-    console.log(`rt secrets rotate: secrets: rotate ${team}/${domain}.${key}`);
+    out.print(out.line("done", "Rotated the secret", `${team}/${domain}.${key}`));
     return;
   }
 
@@ -258,5 +259,5 @@ export async function secretsRotate(args: string[], _ctx: CommandContext = {}, s
   } catch (err) {
     reportSecretsError(err);
   }
-  console.log(`rt secrets rotate: ${message}`);
+  out.print(out.line("done", "Rotated the secret", `${domain}.${key}`), out.copy(message, "commit message"));
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "./fakes.ts";
-import { decideUpdate, summarizeUpdate, updateNotification, SETUP_UPDATE_CATEGORY } from "../update.ts";
+import { decideUpdate, updateNotification, SETUP_UPDATE_CATEGORY } from "../update.ts";
 
 const DAEMON = "/fake-home/.mattstack/rt/daemon.json";
 const STATE = "/fake-home/.mattstack/rt/setup-state.json";
@@ -60,19 +60,6 @@ describe("decideUpdate", () => {
   test("a Finish on record runs even when daemon.json is gone", () => {
     const p = fakeProbes({ files: { [STATE]: JSON.stringify({ v: 2, finishedAt: "2026-09-30T00:00:00.000Z" }) } });
     expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "run" });
-  });
-});
-
-describe("summarizeUpdate", () => {
-  test("groups outcomes and omits empty groups", () => {
-    expect(summarizeUpdate([
-      { id: "path.link", state: "done" },
-      { id: "skills.link", state: "partial", detail: "1 of 2" },
-      { id: "claude.permissions", state: "skipped" },
-      { id: "verify", state: "needs-you", detail: "to connect: Slack" },
-    ])).toBe("ran: path.link, skills.link · skipped: claude.permissions · needs you: verify");
-    expect(summarizeUpdate([{ id: "migration.a", state: "failed", detail: "boom" }])).toBe("failed: migration.a");
-    expect(summarizeUpdate([])).toBe("nothing to do");
   });
 });
 

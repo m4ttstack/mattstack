@@ -26,11 +26,11 @@ function rowFromVerdict(v: RepoAccessVerdict, ctx: { grantedBy: string; provider
     case "ok":
       return { status: "ready", detail: v.detail, action: null };
     case "no-clt":
-      return { status: "missing", detail: "needs Apple's Command Line Tools first (see the tool row), then re-check", action: RECHECK_ACTION };
+      return { status: "missing", detail: "Needs Apple's Command Line Tools first. Install them, then Re-check", action: RECHECK_ACTION };
     case "no-account":
       return { status: "needs-you", detail: `Connect your ${forge} account so rt can prove access`, action: { type: "connect", label: "Connect", integration: ctx.provider, fields: integrationDef(ctx.provider).fields } };
     case "denied":
-      return { status: "needs-you", detail: `your ${forge} account cannot see this repo yet: ask ${ctx.grantedBy} or your org admin to grant read access`, action: RECHECK_ACTION };
+      return { status: "needs-you", detail: `Your ${forge} account cannot see this repo yet. Ask ${ctx.grantedBy} or your org admin for read access`, action: RECHECK_ACTION };
     default:
       return { status: "error", detail: v.detail, action: RECHECK_ACTION };
   }
@@ -48,7 +48,7 @@ async function teamRepoRow(p: Probes, team: TeamSnapshot, intent: SetupIntent | 
   const base = { id: "access.team-repo", kind: "access" as const, title: "Team repo", why, required: true, recheck: "on-activate" as const };
   const remote = intent?.team?.remote ?? intent?.join?.pointer.remote ?? team.remote;
   // Screen 2 recomputes the whole plan in-band once a remote exists — nothing to re-check here yet.
-  if (!remote) return row({ ...base, status: "missing", detail: "no team remote yet (screen 2)" });
+  if (!remote) return row({ ...base, status: "missing", detail: "No team repo yet. Create or join a team first" });
 
   const provider = forgeFromRemote(remote)?.provider ?? "github";
   const lookup = withholdFromUntrustedHost(await forgeTokenLookupFromPresence(remote, secrets), remote, overrides.forgeHost);
@@ -66,7 +66,7 @@ async function forgeRow(p: Probes, team: TeamSnapshot, intent: SetupIntent | nul
   const base = { id: "access.forge", kind: "access" as const, title: "Forge reachability", why: "Confirms your network can reach the team's forge host before rt tries to open PRs/MRs there.", required: true, recheck: "on-activate" as const };
   const declaredHost = team.integrations.forge?.host;
   // No forge configured yet is resolved by an earlier screen, same as team-repo's missing branch.
-  if (!declaredHost) return row({ ...base, status: "missing", detail: "no forge configured yet" });
+  if (!declaredHost) return row({ ...base, status: "missing", detail: "No forge chosen yet" });
 
   // A team the user is creating declares only the host of the remote they
   // pasted themselves — nothing an inviter chose, nothing left to confirm.
@@ -88,12 +88,12 @@ async function forgeRow(p: Probes, team: TeamSnapshot, intent: SetupIntent | nul
           : null;
   if (!confirmedHost) {
     const verb = team.integrations.forge?.provider === "github" ? "github" : "gitlab";
-    return row({ ...base, status: "needs-you", detail: `your team declares forge host "${declaredHost}" — unverified; confirm it yourself before rt reaches out to it`, action: connectHostSteps(verb, declaredHost) });
+    return row({ ...base, status: "needs-you", detail: `Your team uses ${declaredHost}. Confirm that address before rt connects to it`, action: connectHostSteps(verb, declaredHost) });
   }
 
   const res = await p.fetch(`https://${confirmedHost}/`, { method: "HEAD", timeoutMs: 5000 });
-  if (res.status > 0) return row({ ...base, status: "ready", detail: `${confirmedHost} reachable (status ${res.status})` });
-  return row({ ...base, status: "error", detail: `couldn't reach ${confirmedHost} — check your network or proxy`, action: RECHECK_ACTION });
+  if (res.status > 0) return row({ ...base, status: "ready", detail: `Reached ${confirmedHost} (HTTP ${res.status})` });
+  return row({ ...base, status: "error", detail: `Could not reach ${confirmedHost}. Check your network or proxy`, action: RECHECK_ACTION });
 }
 
 async function repoRow(p: Probes, identity: string, overrides: UserIntegrationOverrides, secrets: SecretPresence | undefined): Promise<Row> {
@@ -129,13 +129,13 @@ async function switchboardRow(p: Probes, team: TeamSnapshot, overrides: UserInte
 
   const confirmedUrl = overrides.switchboardUrl && isValidHttpsUrl(overrides.switchboardUrl) ? overrides.switchboardUrl.replace(/\/+$/, "") : null;
   if (!confirmedUrl) {
-    return row({ ...base, status: "needs-you", detail: `your team declares switchboard at "${declaredUrl}" — unverified; confirm it yourself before rt reaches out to it`, action: connectHostSteps("switchboard", declaredUrl) });
+    return row({ ...base, status: "needs-you", detail: `Your team's switchboard is at ${declaredUrl}. Confirm that address before rt connects to it`, action: connectHostSteps("switchboard", declaredUrl) });
   }
 
   const res = await p.fetch(`${confirmedUrl}/healthz`);
-  if (res.status === 200) return row({ ...base, status: "ready", detail: "reachable" });
-  if (res.status === 0) return row({ ...base, status: "error", detail: `couldn't reach ${confirmedUrl} — check your network or proxy` });
-  return row({ ...base, status: "error", detail: `switchboard /healthz returned ${res.status}` });
+  if (res.status === 200) return row({ ...base, status: "ready", detail: "Reachable" });
+  if (res.status === 0) return row({ ...base, status: "error", detail: `Could not reach ${confirmedUrl}. Check your network or proxy` });
+  return row({ ...base, status: "error", detail: `The switchboard answered HTTP ${res.status} to its health check` });
 }
 
 /** Every probe here is independent (different remote/host/URL each), so they run concurrently — worst-case latency is the slowest single probe, not their sum; team-repo/forge/switchboard/each tracking identity all keep their own bounded timeout. */

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * rt — Zero-footprint repo CLI.
+ * rt: the repo tools CLI.
  *
  * All command navigation is handled by the command tree dispatcher.
  * Commands register declaratively; the dispatcher handles screen clearing,
@@ -36,27 +36,38 @@ const isInterceptRun = args[0] === "intercept" && args[1] === "run";
 // The daemon entry runs its own copy of this (lib/daemon.ts) for the
 // `bun run lib/daemon.ts` source path; the call is idempotent.
 //
-// The migration itself runs on EVERY entry path, intercepts included — an
-// intercepted command really can be the first rt invocation after an upgrade,
-// and skipping it there would leave the state split. Only the reporting is
-// suppressed for intercepts: the one-shot "migrated" line would corrupt a
-// wrapped command's stderr once, and the "conflict" warning would do it on
-// every single invocation until a human merges the trees.
-{
-  const migration = migrateLegacyRtDir();
-  if (isInterceptRun) {
-    // silent — see above
-  } else if (migration === "migrated") {
-    console.error(`  rt: migrated legacy ${LEGACY_RT_LABEL} state to ${RT_DIR_LABEL}`);
-  } else if (migration === "conflict") {
-    console.error(`\n  rt: WARNING — state is split between ${LEGACY_RT_LABEL} and ${RT_DIR_LABEL}.`);
-    console.error(`  rt reads only ${RT_DIR_LABEL}; merge the legacy ${LEGACY_RT_LABEL} directory into it by hand, then delete it.\n`);
+// The migration runs on EVERY entry path, intercepts included: an
+// intercepted command really can be the first rt invocation after an upgrade.
+const stateMigration = migrateLegacyRtDir();
+const pluginsMigration = migrateLegacyPluginsDir();
+
+// Called from __main: the output layer loads on demand, and a top-level
+// await here would block bytecode compilation. The intercept path stays
+// silent, since its stderr belongs to the wrapped command and a split-state
+// warning would land there on every invocation. The daemon stays silent too:
+// its stderr is a log, and drawing here could spawn rt-ui from it.
+async function reportMigrations(): Promise<void> {
+  if (isInterceptRun || args[0] === "--daemon") return;
+  const acted = (result: string) => result === "migrated" || result === "conflict";
+  if (!acted(stateMigration) && !acted(pluginsMigration)) return;
+  const out = await import("./lib/ui/out.ts");
+  if (stateMigration === "migrated") {
+    out.note(out.line("done", "Moved your rt data to its new folder", RT_DIR_LABEL));
+  } else if (stateMigration === "conflict") {
+    out.note(
+      out.line("warn", "Your rt data is in two folders"),
+      out.callout("note", ["rt only reads ", out.strong(RT_DIR_LABEL)]),
+      out.callout("fix", ["Merge ", out.strong(LEGACY_RT_LABEL), " into it by hand, then delete ", out.strong(LEGACY_RT_LABEL)]),
+    );
   }
-  const plugins = migrateLegacyPluginsDir();
-  if (!isInterceptRun && plugins === "migrated") {
-    console.error("  rt: moved your plugins from ~/.mattstack/rt/plugins to ~/.mattstack/user/plugins (they now travel with your home repo)");
-  } else if (!isInterceptRun && plugins === "conflict") {
-    console.error("\n  rt: WARNING — plugins exist in both ~/.mattstack/rt/plugins (retired) and ~/.mattstack/user/plugins; rt reads only user/plugins. Merge by hand, then delete rt/plugins.\n");
+  if (pluginsMigration === "migrated") {
+    out.note(out.line("done", "Moved your plugins so they travel with your home repo", "~/.mattstack/user/plugins"));
+  } else if (pluginsMigration === "conflict") {
+    out.note(
+      out.line("warn", "Your plugins are in two folders"),
+      out.callout("note", ["rt only reads ", out.strong("~/.mattstack/user/plugins")]),
+      out.callout("fix", ["Merge ", out.strong("~/.mattstack/rt/plugins"), " into it by hand, then delete ", out.strong("~/.mattstack/rt/plugins")]),
+    );
   }
 }
 
@@ -87,12 +98,17 @@ async function __main() {
 // ~100 process.exit() sites that never return to dispatch(). The daemon path
 // is excluded — it installs its own pino crash handlers.
 if (args[0] !== "--daemon") {
-  const { installCliLogging } = await import("./lib/cli-logger.ts");
+  const { installCliLogging, logCliEvent } = await import("./lib/cli-logger.ts");
   installCliLogging(args);
+  // The daemon never sets this: its warnings stay on its own log surface.
+  const { setWarningLog } = await import("./lib/ui/warn.ts");
+  setWarningLog((module, message, context) => logCliEvent("warn", module, message, context), { quiet: isInterceptRun });
 }
+await reportMigrations();
 
 if (args[0] === "--version" || args[0] === "-V") {
-  console.log(versionBanner(_RT_VERSION, processFlavor(), buildFlavor(), { execPath: process.execPath, sourceDir: import.meta.dir }));
+  const { payload } = await import("./lib/ui/out.ts");
+  payload(versionBanner(_RT_VERSION, processFlavor(), buildFlavor(), { execPath: process.execPath, sourceDir: import.meta.dir }) + "\n");
 } else if (args[0] === "--daemon") {
   // Hidden entry point: start the daemon server directly.
   // Used when rt is a compiled binary — daemon install spawns `rt --daemon`
@@ -119,20 +135,22 @@ if (args[0] === "--version" || args[0] === "-V") {
   // The daemon inherits TCC grants from mattstack.app via SMAppService's
   // AssociatedBundleIdentifiers, so the grant goes on the tray app, not on rt.
   const { execSync } = await import("child_process");
+  const out = await import("./lib/ui/out.ts");
   const trayPath = trayAppPath();
-  console.log("\n  Opening System Settings → Privacy → Full Disk Access…\n");
-  console.log(`  1. Click ${"\x1b[1m"}+${"\x1b[0m"} and add: ${"\x1b[1m"}${trayPath}${"\x1b[0m"}`);
-  console.log(`     (the rt daemon inherits this grant via SMAppService)`);
-  console.log(`  2. Restart the daemon: ${"\x1b[1m"}rt daemon restart${"\x1b[0m"}\n`);
+  out.print(
+    out.line("needs-you", "Grant Full Disk Access to mattstack.app", "System Settings is opening"),
+    out.callout("note", ["Click + under Full Disk Access and add ", out.strong(trayPath)], "The rt daemon takes the grant from the app."),
+    out.callout("next", out.cmd("rt daemon restart")),
+  );
   try {
     execSync('open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"');
   } catch {
-    console.error("  Could not open System Settings — open it manually: System Settings → Privacy & Security → Full Disk Access");
+    out.fail({ title: "System Settings did not open", next: "Open Privacy & Security, then Full Disk Access, yourself" });
     process.exit(1);
   }
 } else {
   // ── First-run hint ────────────────────────────────────────────────────────
-  // `rt setup` (not this hook) owns getting a machine set up — an auto-run
+  // `rt setup` (not this hook) owns getting a machine set up... an auto-run
   // here would defeat `rt setup plan`'s canInstall being reachable
   // pre-install. A command that IS part of getting set up must reach its own
   // handler untouched; RT_APP_SOCKET means mattstack.app is driving rt and
@@ -149,7 +167,8 @@ if (args[0] === "--version" || args[0] === "-V") {
     const { existsSync } = await import("fs");
     const { join } = await import("path");
     if (!existsSync(join(rtDir(), "daemon.json"))) {
-      console.error("  rt is not set up yet — open mattstack.app, or run: rt setup install");
+      const out = await import("./lib/ui/out.ts");
+      out.note(out.line("needs-you", "rt is not set up yet"), out.callout("next", ["Open mattstack.app, or run ", out.cmd("rt setup install")]));
     }
   }
 
@@ -165,7 +184,8 @@ if (args[0] === "--version" || args[0] === "-V") {
 
   // User plugins merge into the tree at the root; built-ins always win.
   // ExecFailure propagates a plugin exec target's exit code as rt's own
-  // (dispatch has already logged the error outcome by the time it rethrows).
+  // (dispatch has already logged the error outcome by the time it rethrows);
+  // every other error is sorted by lib/errors.ts.
   const { loadPluginTree, ExecFailure } = await import("./lib/plugins.ts");
   const fullTree = loadPluginTree(TREE);
   try {
@@ -173,14 +193,15 @@ if (args[0] === "--version" || args[0] === "-V") {
     await dispatch(fullTree, args, ["rt"], baseDir);
   } catch (err) {
     if (err instanceof ExecFailure) process.exit(err.code);
-    throw err;
+    const { exitFromDispatch } = await import("./lib/errors.ts");
+    exitFromDispatch(err);
   }
 }
 }
 
-// Rethrowing here reproduces exactly what a top-level await throw used to
-// do: Bun formats a rethrow-from-.catch the same as an uncaught top-level
-// exception (full stack, exit code 1) — verified empirically, not assumed.
-__main().catch((err) => {
-  throw err;
+// An error from before dispatch (the plugin tree, notice routing) takes the
+// same exit as one from a command, so no path prints a bare stack.
+__main().catch(async (err) => {
+  const { exitFromDispatch } = await import("./lib/errors.ts");
+  exitFromDispatch(err);
 });

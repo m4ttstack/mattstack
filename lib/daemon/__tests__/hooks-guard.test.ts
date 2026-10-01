@@ -6,8 +6,10 @@
  * refreshWatchedRepos is add-only, so a relocated or removed repo's stale
  * watcher on a dead .git dir is kept forever.
  *
- * R044: checkAndRepairHooksPath must not revert core.hooksPath when
- * another tool (husky, lefthook, a manual `git config`) owns it now.
+ * checkAndRepairHooksPath must win core.hooksPath back from any tool that
+ * overwrites it: husky's `prepare` script rewrites it on every install, and
+ * the shims already delegate to `.husky/<hook>`, so yielding leaves the
+ * rt hooks toggles silently ignored.
  *
  * R045: startWatchingRepo must not let a synchronous fs.watch() throw
  * (EMFILE/ENOSPC at creation) escape and crash the daemon.
@@ -92,23 +94,21 @@ test("refreshWatchedRepos closes and drops a watcher whose repo left the index (
   guard.closeAll();
 });
 
-test("checkAndRepairHooksPath leaves core.hooksPath alone once another tool owns it, and warns once", async () => {
-  const { repoPath } = makeRtManagedRepo("husky-repo");
-  execFileSync("git", ["config", "core.hooksPath", ".husky/_"], { cwd: repoPath });
+test("checkAndRepairHooksPath reclaims core.hooksPath every time another tool overwrites it", async () => {
+  const { repoPath, shimsDir } = makeRtManagedRepo("husky-repo");
+  const readHooksPath = () =>
+    execFileSync("git", ["config", "core.hooksPath"], { cwd: repoPath }).toString().trim();
+  const guard = createHooksGuard(log);
 
-  const { log: fakeLog, warnings } = makeFakeLog();
-  const guard = createHooksGuard(fakeLog);
+  execFileSync("git", ["config", "core.hooksPath", ".husky"], { cwd: repoPath });
+  expect(await guard.checkAndRepairHooksPath("husky-repo", repoPath)).toBe(true);
+  expect(readHooksPath()).toBe(shimsDir);
 
-  const repaired = await guard.checkAndRepairHooksPath("husky-repo", repoPath);
-  expect(repaired).toBe(false);
+  execFileSync("git", ["config", "core.hooksPath", ".husky"], { cwd: repoPath });
+  expect(await guard.checkAndRepairHooksPath("husky-repo", repoPath)).toBe(true);
+  expect(readHooksPath()).toBe(shimsDir);
 
-  const current = execFileSync("git", ["config", "core.hooksPath"], { cwd: repoPath }).toString().trim();
-  expect(current).toBe(".husky/_");
-  expect(warnings.length).toBe(1);
-
-  // A second check on the same still-foreign value must not warn again.
-  await guard.checkAndRepairHooksPath("husky-repo", repoPath);
-  expect(warnings.length).toBe(1);
+  expect(await guard.checkAndRepairHooksPath("husky-repo", repoPath)).toBe(false);
 });
 
 test("checkAndRepairHooksPath still repairs a stale rt-owned hooksPath (pre-repos/ legacy layout)", async () => {

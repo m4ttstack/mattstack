@@ -105,6 +105,8 @@ Every git clone under `~/.mattstack/teams/<slug>/` with an `origin` gets its
 own instance of the same engine, supervised by the daemon (a clone created by
 `rt team create` or `rt team join` is picked up within the debounce window; a
 clone with no remote is skipped until `rt team publish --remote` gives it one).
+A machine holds one team: `rt team join` and `rt team create` refuse a second
+zone while one exists, since every team store is folded into one settings view.
 The team instance differs from the home one in three ways:
 
 - **Scope.** It stages only `mattstack/**`, `.sops.yaml` and

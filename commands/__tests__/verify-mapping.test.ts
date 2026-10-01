@@ -211,7 +211,7 @@ describe("rowsToChecks", () => {
       ],
       { ci: false },
     );
-    expect(check.detail).toBe("jq not found — Use mattstack's");
+    expect(check.detail).toBe("jq not found (Use mattstack's)");
   });
 
   test("no action on the row leaves detail untouched", () => {

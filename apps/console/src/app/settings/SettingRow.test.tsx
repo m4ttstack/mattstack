@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { SettingRow } from './SettingRow';
 import { schemaFields } from './testSchemas';
-import { SettingsRepoContext } from './useConsoleSettings';
+import { SettingsRepoContext, SettingsTeamContext } from './useConsoleSettings';
 
 function def(key: string, over: Partial<SettingDefWire> = {}): SettingDefWire {
   return {
@@ -564,6 +564,45 @@ describe('SettingRow', () => {
     );
     expect(
       await screen.findByText('rt: the machine store is locked')
+    ).toBeInTheDocument();
+  });
+
+  it('the team badge names the machine team when the page knows it', () => {
+    renderWithProviders(
+      <SettingsTeamContext.Provider value="acme">
+        <SettingRow
+          def={def('board.title', {
+            scopes: ['team'],
+            effective: { scope: 'team', file: '/t', value: 'x' },
+          })}
+          store={store()}
+          subhead={null}
+          query=""
+        />
+      </SettingsTeamContext.Provider>
+    );
+    expect(screen.getByText('team (acme)')).toBeInTheDocument();
+  });
+
+  it('the row menu names the team a value is removed from or moved to', async () => {
+    renderWithProviders(
+      <SettingsTeamContext.Provider value="acme">
+        <SettingRow
+          def={def('board.agent.model', {
+            scopes: ['team', 'user'],
+            effective: { scope: 'user', file: '/u', value: 'x' },
+          })}
+          store={store()}
+          subhead={null}
+          query=""
+        />
+      </SettingsTeamContext.Provider>
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'board.agent.model actions' })
+    );
+    expect(
+      await screen.findByRole('menuitem', { name: 'Move to team (acme)' })
     ).toBeInTheDocument();
   });
 

@@ -52,6 +52,12 @@ the `team.sync` checklist row instead of resolving it. So a `--scope team`
 write or a `members sync` reaches every member's machine without a hand
 commit, publish, or pull (`docs/home-repo.md`, "Team clones").
 
+One team per machine: the resolver folds every team store it finds, last
+name wins for a `replace` key, so `rt team join` and `rt team create` refuse
+to add a second zone (`team-already-set-up`), `rt setup` reports two zones as
+the `team.one-per-machine` row, and a read on such a machine warns once per
+process naming the teams. An active-team model is the follow-up (MAT-424).
+
 ## The resolver and registry
 
 One in-process resolver for the whole suite, in `@mattstack/rt-client`

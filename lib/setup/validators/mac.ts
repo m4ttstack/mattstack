@@ -28,10 +28,10 @@ async function macosVersionRow(p: Probes): Promise<Row> {
   // to be too old" — RULING (honesty): never report "invalid" for a probe
   // that couldn't run.
   if (res.code !== 0 || Number.isNaN(major)) {
-    return row({ ...base, status: "error", detail: "Could not determine your macOS version" });
+    return row({ ...base, status: "error", detail: "Could not read your macOS version" });
   }
   if (major >= 14) return row({ ...base, status: "ready", detail: `macOS ${version}` });
-  return row({ ...base, status: "invalid", detail: "macOS 14 or newer required" });
+  return row({ ...base, status: "invalid", detail: "rt needs macOS 14 or newer" });
 }
 
 async function cltRow(p: Probes): Promise<Row> {
@@ -42,13 +42,13 @@ async function cltRow(p: Probes): Promise<Row> {
   // tools?" dialog. The stub must never run until CLT is actually selected.
   const xcodeSelect = await p.exec(["xcode-select", "-p"]);
   if (xcodeSelect.code !== 0) {
-    return row({ ...base, status: "missing", detail: "Apple command line tools not installed", action: CLT_INSTALL_ACTION });
+    return row({ ...base, status: "missing", detail: "Apple's Command Line Tools are not installed", action: CLT_INSTALL_ACTION });
   }
   const gitVersion = await p.exec(["git", "--version"]);
   if (gitVersion.code === 0) {
-    return row({ ...base, status: "ready", detail: gitVersion.stdout.trim() || "git installed" });
+    return row({ ...base, status: "ready", detail: gitVersion.stdout.trim() || "Git is installed" });
   }
-  return row({ ...base, status: "missing", detail: "Apple command line tools not installed", action: CLT_INSTALL_ACTION });
+  return row({ ...base, status: "missing", detail: "Apple's Command Line Tools are not installed", action: CLT_INSTALL_ACTION });
 }
 
 async function archRow(p: Probes): Promise<Row> {
@@ -65,10 +65,10 @@ async function archRow(p: Probes): Promise<Row> {
   // Same honesty ruling as macosVersionRow: a probe that couldn't run reports
   // "error", not "invalid": only a definite non-arm64 result is invalid.
   if (res.code !== 0 || !arch) {
-    return row({ ...base, status: "error", detail: "Could not determine your processor" });
+    return row({ ...base, status: "error", detail: "Could not read your processor type" });
   }
   if (arch === "arm64") return row({ ...base, status: "ready", detail: "Apple silicon (arm64)" });
-  return row({ ...base, status: "invalid", detail: `${arch}: Apple silicon (arm64) required` });
+  return row({ ...base, status: "invalid", detail: `This Mac is ${arch}; rt needs Apple silicon` });
 }
 
 function pathRow(p: Probes): Row {
@@ -80,19 +80,19 @@ function pathRow(p: Probes): Row {
   const hasMarker = rc.includes(PATH_PRECEDENCE_MARKER);
 
   if (firstExisting === localBin && hasMarker) {
-    return row({ ...base, status: "ready", detail: `~/.local/bin is first on PATH (${RC_FILE_DISPLAY})` });
+    return row({ ...base, status: "ready", detail: `~/.local/bin is first on your PATH, set in ${RC_FILE_DISPLAY}` });
   }
   if (hasMarker) {
-    return row({ ...base, status: "needs-you", detail: `~/.local/bin is on PATH but not first — team intercept shims may not fire (${RC_FILE_DISPLAY})` });
+    return row({ ...base, status: "needs-you", detail: `~/.local/bin is on your PATH but not first, so team intercepts may not fire. Check ${RC_FILE_DISPLAY}` });
   }
   // Precedence holds without rt's marker. The detail names no owner (an
   // unmarked block is unattributable) and predicts no failure; it also claims
   // only that rt's own entry is absent, never that some other block exists in
   // this file — the probe never establishes where the precedence came from.
   if (firstExisting === localBin) {
-    return row({ ...base, status: "needs-you", detail: `~/.local/bin is first on PATH, but not via rt's own ${RC_FILE_DISPLAY} entry`, action: pathLinkAction("Add rt's PATH entry") });
+    return row({ ...base, status: "needs-you", detail: `~/.local/bin is first on your PATH, but not through rt's own entry in ${RC_FILE_DISPLAY}`, action: pathLinkAction("Add rt's PATH entry") });
   }
-  return row({ ...base, status: "missing", detail: `Install adds ~/.local/bin to PATH (${RC_FILE_DISPLAY})`, action: pathLinkAction("Set up PATH") });
+  return row({ ...base, status: "missing", detail: `Install adds ~/.local/bin to your PATH in ${RC_FILE_DISPLAY}`, action: pathLinkAction("Set up PATH") });
 }
 
 export async function macRows(p: Probes): Promise<Row[]> {

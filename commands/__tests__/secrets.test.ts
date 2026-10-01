@@ -14,6 +14,7 @@ import { teamSecretsFile, writeTeamRecipients, writeTeamSecret, readTeamSecret }
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import { teamsDir } from "../../lib/rt-paths.ts";
 import { join } from "path";
+import { capturePlain } from "./helpers/json-line.ts";
 
 function fakeAgeKeySeamWithKey(key: string): AgeKeySeam {
   return {
@@ -148,16 +149,13 @@ async function withFakeStdin<T>(value: string, fn: () => Promise<T>): Promise<T>
   }
 }
 
-async function withCapturedLogs<T>(fn: () => Promise<T>): Promise<{ result: T; logs: string[] }> {
-  const logs: string[] = [];
-  const logSpy = spyOn(console, "log").mockImplementation((...parts: unknown[]) => {
-    logs.push(parts.map(String).join(" "));
-  });
+async function withCapturedOut<T>(fn: () => Promise<T>): Promise<{ result: T; stdout: string; stderr: string }> {
+  const cap = capturePlain();
   try {
     const result = await fn();
-    return { result, logs };
+    return { result, stdout: cap.stdout(), stderr: cap.stderr() };
   } finally {
-    logSpy.mockRestore();
+    cap.restore();
   }
 }
 
@@ -166,26 +164,33 @@ describe("--team argv parsing (positional() skips the flag AND its value, any po
     const { seams } = teamSeams();
     await writeTeamSecretForTest(seams, "board", "apiKey", "shh");
 
-    const { logs } = await withCapturedLogs(() => secretsList(["--team", "acme", "board"], {}, seams));
+    const { stdout } = await withCapturedOut(() => secretsList(["--team", "acme", "board"], {}, seams));
 
-    expect(logs.join("\n")).toContain("apiKey");
+    expect(stdout).toContain("apiKey");
   });
 
   test("--team <slug> after the domain positional resolves identically", async () => {
     const { seams } = teamSeams();
     await writeTeamSecretForTest(seams, "board", "apiKey", "shh");
 
-    const { logs } = await withCapturedLogs(() => secretsList(["board", "--team", "acme"], {}, seams));
+    const { stdout } = await withCapturedOut(() => secretsList(["board", "--team", "acme"], {}, seams));
 
-    expect(logs.join("\n")).toContain("apiKey");
+    expect(stdout).toContain("apiKey");
   });
 });
 
 describe("secretsSet --team", () => {
+  test("set prints a done line naming the key, never the value", async () => {
+    const { seams } = teamSeams();
+    const { stdout } = await withCapturedOut(() => withFakeStdin("shh\n", () => secretsSet(["--team", "acme", "board", "apiKey", "--stdin"], {}, seams)));
+    expect(stdout).toBe("[ok] Saved the secret  acme/board.apiKey\n");
+    expect(stdout).not.toContain("shh");
+  });
+
   test("writes to the team store, never the personal one", async () => {
     const { execSeam, seams } = teamSeams();
 
-    await withFakeStdin("shh", () => secretsSet(["board", "apiKey", "--team", "acme", "--stdin"], {}, seams));
+    await withCapturedOut(() => withFakeStdin("shh", () => secretsSet(["board", "apiKey", "--team", "acme", "--stdin"], {}, seams)));
 
     expect(await readTeamSecret("acme", "board", "apiKey", seams)).toBe("shh");
     expect(execSeam.fileExists(secretsFilePath("board"))).toBe(false);
@@ -196,10 +201,28 @@ describe("secretsSet --team", () => {
     const execSeam = new FakeExecSeam();
     const seams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey("AGE-X"), execSeam };
 
-    await withFakeStdin("shh", () => secretsSet(["board", "apiKey", "--stdin"], {}, seams));
+    await withCapturedOut(() => withFakeStdin("shh", () => secretsSet(["board", "apiKey", "--stdin"], {}, seams)));
 
     expect(execSeam.fileExists(secretsFilePath("board"))).toBe(true);
     expect(execSeam.fileExists(teamSecretsFile("acme", "board"))).toBe(false);
+  });
+});
+
+describe("secretsList usage", () => {
+  test("off a TTY with no domain list fails with usage on stderr and exit 1", async () => {
+    const exitSpy = spyOn(process, "exit").mockImplementation(((code: number) => { throw new Error(`exit ${code}`); }) as never);
+    const batch = process.env.RT_BATCH;
+    process.env.RT_BATCH = "1";
+    try {
+      const { stderr, stdout } = await withCapturedOut(() => secretsList([], {}, teamSeams().seams).catch((e) => e));
+      expect(stdout).toBe("");
+      expect(stderr).toBe("Which domain?\n  next: rt secrets list <domain>\n");
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    } finally {
+      exitSpy.mockRestore();
+      if (batch === undefined) delete process.env.RT_BATCH;
+      else process.env.RT_BATCH = batch;
+    }
   });
 });
 
@@ -208,7 +231,7 @@ describe("secretsRotate --team <domain> <key> (the with-key form)", () => {
     const { seams } = teamSeams();
     await writeTeamSecretForTest(seams, "board", "apiKey", "old-value");
 
-    await withFakeStdin("new-value", () => secretsRotate(["board", "apiKey", "--team", "acme", "--stdin"], {}, seams));
+    await withCapturedOut(() => withFakeStdin("new-value", () => secretsRotate(["board", "apiKey", "--team", "acme", "--stdin"], {}, seams)));
 
     expect(await readTeamSecret("acme", "board", "apiKey", seams)).toBe("new-value");
   });
@@ -221,22 +244,53 @@ describe("secretsRotate --team <slug> (the rotate-all form, no domain/key)", () 
     await writeTeamSecretForTest(seams, "rt", "switchboardAdminToken", "b");
     execSeam.calls.length = 0;
 
-    const { logs } = await withCapturedLogs(() => secretsRotate(["--team", "acme"], {}, seams));
+    const { stdout } = await withCapturedOut(() => secretsRotate(["--team", "acme"], {}, seams));
 
     const updatekeysCalls = execSeam.calls.filter((c) => c.cmd[1] === "updatekeys");
     expect(updatekeysCalls.length).toBe(2);
-    const output = logs.join("\n");
-    expect(output).toContain("re-encrypted 2 file(s)");
+    const output = stdout;
+    expect(output).toContain("[ok] Re-encrypted 2 files for team");
     expect(output).toContain(teamSecretsFile("acme", "board"));
     expect(output).toContain(teamSecretsFile("acme", "rt"));
-    expect(output).toMatch(/already decrypted before/); // the removed-member residue note
+    expect(output).toMatch(/decrypted before/); // the removed-member residue note
   });
 
   test("no domain files yet -> a clean 'nothing to re-encrypt' message, not an error", async () => {
     const { seams } = teamSeams();
 
-    const { logs } = await withCapturedLogs(() => secretsRotate(["--team", "acme"], {}, seams));
+    const { stdout } = await withCapturedOut(() => secretsRotate(["--team", "acme"], {}, seams));
 
-    expect(logs.join("\n")).toContain("no domain files to re-encrypt");
+    expect(stdout).toContain("[skipped] No secret files to re-encrypt for team");
+  });
+});
+
+describe("secretsRotate --team <slug> when a re-encrypt fails partway", () => {
+  test("the completed and the remaining files stay on separate lines, exit 1", async () => {
+    const { execSeam, seams } = teamSeams();
+    await writeTeamSecretForTest(seams, "board", "slackClientSecret", "a");
+    await writeTeamSecretForTest(seams, "rt", "switchboardAdminToken", "b");
+    let updates = 0;
+    const realRun = execSeam.run.bind(execSeam);
+    execSeam.run = async (cmd, opts) => {
+      if (cmd[1] === "updatekeys" && ++updates === 2) return { code: 1, stdout: "", stderr: "boom" };
+      return realRun(cmd, opts);
+    };
+    const exitSpy = spyOn(process, "exit").mockImplementation(((code: number) => { throw new Error(`exit ${code}`); }) as never);
+    try {
+      const { stderr, stdout } = await withCapturedOut(() => secretsRotate(["--team", "acme"], {}, seams).catch((e) => e));
+      expect(stdout).toBe("");
+      const lines = stderr.split("\n");
+      const done = lines.filter((l) => l.includes("re-encrypted (on the NEW recipients):"));
+      const left = lines.filter((l) => l.includes("NOT re-encrypted (still on the OLD recipients):"));
+      expect(done).toHaveLength(1);
+      expect(left).toHaveLength(1);
+      expect(done[0]).not.toContain("NOT re-encrypted");
+      expect(done[0]).toContain(teamSecretsFile("acme", "board"));
+      expect(left[0]).toContain(teamSecretsFile("acme", "rt"));
+      expect(lines[0]).toStartWith("team \"acme\": sops updatekeys failed after re-encrypting 1 of 2");
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    } finally {
+      exitSpy.mockRestore();
+    }
   });
 });

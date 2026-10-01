@@ -1,4 +1,4 @@
-import { afterAll, describe, test, expect } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { join } from "path";
 import { setupRepoRootSet, type RepoRootDeps } from "../setup.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
@@ -6,6 +6,14 @@ import { readStagedRepoRoot } from "../../lib/setup/repo-root.ts";
 import { getSetting } from "../../lib/settings/resolve.ts";
 import { setSetting } from "../../lib/settings/write.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
+import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
+
+let cap: CapturedOut;
+beforeEach(() => {
+  cap = capturePlain();
+});
+afterEach(() => cap.restore());
 
 const HOME = "/fake-home";
 const DIR = { isDirectory: true, writable: true };
@@ -24,7 +32,7 @@ function baseDeps(overrides: Partial<RepoRootDeps> & { probes?: Probes } = {}): 
   const exitCodes: number[] = [];
   return {
     probes: fakeProbes({ home: HOME }),
-    print: (s: string) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
       throw new Error("exit sentinel");
@@ -109,7 +117,7 @@ describe("setupRepoRootSet: no home repo yet (stage only)", () => {
     expect(deps.exitCodes).toEqual([2]);
     expect(readStagedRepoRoot(probes)).toBeNull();
     const payload = JSON.parse(deps.lines[0]!) as { error: { message: string } };
-    expect(payload.error.message).toContain("is not a directory");
+    expect(payload.error.message).toContain("is not a folder");
   });
 
   test("an unwritable directory is refused and stages nothing", async () => {
@@ -122,7 +130,7 @@ describe("setupRepoRootSet: no home repo yet (stage only)", () => {
     expect(deps.exitCodes).toEqual([2]);
     expect(readStagedRepoRoot(probes)).toBeNull();
     const payload = JSON.parse(deps.lines[0]!) as { error: { message: string } };
-    expect(payload.error.message).toContain("is not writable");
+    expect(payload.error.message).toContain("You cannot write to");
   });
 });
 
@@ -199,5 +207,41 @@ describe("setupRepoRootSet: no-prompt argument/TTY/stdin ordering", () => {
     await expectExit(() => setupRepoRootSet(["--json"], {}, deps));
 
     expect(deps.exitCodes).toEqual([2]);
+  });
+});
+
+describe("setupRepoRootSet --json bytes", () => {
+  test("the envelope is one compact line led by contract, at, path", async () => {
+    const dev = join(HOME, "dev");
+    const probes = fakeProbes({ home: HOME, statPaths: { [dev]: DIR }, dirs: { [GIT_DIR]: [] } });
+    const written: [string, unknown, string][] = [];
+    const deps = baseDeps({
+      probes,
+      json: realJson,
+      writeSetting: ((key: string, value: unknown, scope: string) => {
+        written.push([key, value, scope]);
+      }) as unknown as RepoRootDeps["writeSetting"],
+    });
+    await setupRepoRootSet([dev, "--json"], {}, deps);
+    const payload = expectOneJsonLine(cap.stdout()) as { contract: number; at: string; path: string };
+    expect(Object.keys(payload).slice(0, 3)).toEqual(["contract", "at", "path"]);
+    expect(payload.path).toBe(dev);
+  });
+});
+
+describe("setupRepoRootSet human output", () => {
+  test("a TTY with no argument shows the usage as a failure with the command to run", async () => {
+    const deps = baseDeps({ isTTY: () => true, stdin: neverCalled("stdin") });
+    await expectExit(() => setupRepoRootSet([], {}, deps));
+    expect(deps.exitCodes).toEqual([2]);
+    expect(cap.stderr()).toBe("Which folder?\n  next: rt setup repo-root set <folder>\n");
+  });
+
+  test("a saved folder prints one done line", async () => {
+    const dev = join(HOME, "dev");
+    const probes = fakeProbes({ home: HOME, statPaths: { [dev]: DIR } });
+    const deps = baseDeps({ probes });
+    await setupRepoRootSet([dev], {}, deps);
+    expect(cap.stdout()).toBe(`[ok] Repo folder saved  ${dev}\n`);
   });
 });

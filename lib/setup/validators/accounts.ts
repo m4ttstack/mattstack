@@ -15,6 +15,7 @@ import type { Action, Integration, Row } from "../contract.ts";
 import { row } from "../contract.ts";
 import { readCredentialHealth, type CredentialHealthRow } from "../../credential-health/db.ts";
 import { daysUntil } from "../../credential-health/sweep.ts";
+import { CREDENTIAL_STATUS_WORD } from "../../credential-health/status-word.ts";
 import { getStateDb } from "../../state/index.ts";
 import { isValidHostname, isValidHttpsUrl } from "../host-validate.ts";
 import { integrationDef, type IntegrationDef, type ValidateCtx } from "../integrations.ts";
@@ -25,6 +26,7 @@ import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts
 import { forgeRole, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
 import { boardPeering } from "../../team/board-token.ts";
+import { slackSecretWait, slackWaitRowDetail, type SlackSecretWait } from "../team-slack-secret.ts";
 
 /** Reads user-scope secrets: the real implementation goes through lib/secrets/store.readSecret (null on NoAgeKeyError) plus staged values (staging.ts) — that wiring is a later task's job; validators only depend on this narrow shape. */
 export interface SecretPresence {
@@ -73,7 +75,7 @@ function scopeShortfall(forge: ForgeConnect | undefined, result: { status: strin
 }
 
 function secretSpec(def: IntegrationDef): { domain: string; key: string } {
-  if (!def.secret) throw new Error(`${def.id} has no secret spec — this integration is CLI-owned and must not reach a code path that reads one`);
+  if (!def.secret) throw new Error(`${def.id} has no secret spec; this integration is CLI-owned and must not reach a code path that reads one`);
   return def.secret;
 }
 
@@ -163,9 +165,9 @@ async function githubRow(p: Probes, base: Omit<Row, "status" | "detail" | "actio
     const ghStatus = await p.exec(["gh", "auth", "status"]);
     if (ghStatus.code === 0) {
       const user = parseGhUser(`${ghStatus.stdout}\n${ghStatus.stderr}`);
-      return row({ ...base, status: "ready", detail: user ? `via gh (${user})` : "via gh" });
+      return row({ ...base, status: "ready", detail: user ? `Signed in through the gh CLI as ${user}` : "Signed in through the gh CLI" });
     }
-    const detail = ghStatus.code === 127 ? "no GitHub account connected (gh CLI not installed)" : "no GitHub account connected";
+    const detail = ghStatus.code === 127 ? "No GitHub account connected yet, and the gh CLI is not installed" : "No GitHub account connected yet";
     return row({ ...base, status: "missing", detail, action: connectAction(def, false, forge) });
   }
 
@@ -179,21 +181,48 @@ async function githubRow(p: Probes, base: Omit<Row, "status" | "detail" | "actio
   return row({ ...base, status: short ? "needs-you" : result.status, detail: short ?? result.detail, action: connectAction(def, ghStatus.code === 0, forge) });
 }
 
+/**
+ * Only the team owner (or a re-clone, for an unreadable file) can clear a
+ * wait, so the row stops being required for it: Install must not hinge on
+ * a button the member cannot press. A note must not start "Works without":
+ * the app's Done screen drops rows whose note does, and the member should
+ * still see this one. The app re-reads the row after its action runs, so a
+ * pull is the whole of Re-check.
+ */
+const SLACK_WAIT_NOTE: Record<SlackSecretWait["kind"], string> = {
+  "awaiting-acceptance": "Slack stays unconnected until your team owner accepts you.",
+  "not-shared": "Slack stays unconnected until your team owner shares the Slack app's secret.",
+  unreadable: "Slack stays unconnected until the team's secrets file can be read.",
+};
+
+function slackWaitRow(base: Omit<Row, "status" | "detail" | "action" | "recheck">, wait: SlackSecretWait, slug: string): Row {
+  return row({
+    ...base,
+    required: false,
+    optionalNote: SLACK_WAIT_NOTE[wait.kind],
+    status: wait.kind === "unreadable" ? "error" : "needs-you",
+    detail: slackWaitRowDetail(wait, slug),
+    action: { type: "run", label: "Re-check", verb: ["team", "pull", "--team", slug] },
+  });
+}
+
 /** The oauth Connect action only makes sense once the team's own Slack app exists (`clientId` set) — before that, this row explains the dependency on account.slack-app instead of offering a flow that would run against an app that doesn't exist yet. */
 async function slackRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, secrets: SecretPresence, ctx: ValidateCtx, team: TeamSnapshot): Promise<Row> {
   if (!team.integrations.slack?.clientId) {
-    return row({ ...base, status: "missing", detail: "waiting on the team's Slack app (see account.slack-app)" });
+    return row({ ...base, status: "missing", detail: "Waiting for the team's Slack app to be set up" });
   }
   const spec = secretSpec(def);
   const stored = await secrets.has(spec.domain, spec.key);
   if (stored === null) {
+    const wait = slackSecretWait(p, team.slug);
+    if (wait) return slackWaitRow(base, wait, team.slug);
     const hint = slackRedirectHint(team.integrations.slack.callbackPort ?? DEFAULT_CALLBACK_PORT);
-    return row({ ...base, status: "missing", detail: `no Slack account connected. ${hint}`, action: SLACK_OAUTH_ACTION });
+    return row({ ...base, status: "missing", detail: `No Slack account connected yet. ${hint}`, action: SLACK_OAUTH_ACTION });
   }
   const result = await def.validate(p, stored, ctx);
   // An empty list means auth.test sent no x-oauth-scopes header, so the grant is unknown rather than empty.
   const missing = result.status === "ready" && result.scopesSeen.length > 0 ? missingSlackUserScopes(result.scopesSeen) : [];
-  if (missing.length) return row({ ...base, status: "needs-you", detail: `reconnect Slack to grant: ${missing.join(", ")}`, action: SLACK_OAUTH_ACTION });
+  if (missing.length) return row({ ...base, status: "needs-you", detail: `Reconnect Slack to grant these permissions: ${missing.join(", ")}`, action: SLACK_OAUTH_ACTION });
   if (result.status === "ready") return row({ ...base, status: "ready", detail: result.detail });
   return row({ ...base, status: result.status, detail: result.detail, action: SLACK_OAUTH_ACTION });
 }
@@ -215,7 +244,7 @@ async function switchboardRow(p: Probes, base: Omit<Row, "status" | "detail" | "
   // The row is required when the team declares a switchboard, so an
   // unconfirmed URL with no button would block Install with nothing to click.
   // The app sends the field back as `host` on stdin to `setup switchboard connect`.
-  const detail = ctx.host ? `${result.detail}; you confirmed "${ctx.host}", this team declares "${ctx.declaredHost}". Confirm it to use it instead` : result.detail;
+  const detail = ctx.host ? `${result.detail}. You confirmed ${ctx.host}, but this team uses ${ctx.declaredHost}. Confirm the team's address to switch` : result.detail;
   return row({
     ...base,
     status: result.status,
@@ -231,7 +260,7 @@ async function switchboardRow(p: Probes, base: Omit<Row, "status" | "detail" | "
 
 export const BOARD_PEERING_ROW_ID = "account.board-peering";
 
-const REINVITE = "the team's owner to re-invite your board: rt team invite --handle <your forge username>";
+const REINVITE = "the team's owner to invite you again (rt team invite --handle <your forge username>)";
 
 const REINVITE_STEPS: Action = {
   type: "steps",
@@ -258,12 +287,12 @@ async function boardPeeringRow(p: Probes, secrets: SecretPresence): Promise<Row 
   const peering = await boardPeering(p, (domain, key) => secrets.has(domain, key));
   if (peering.kind === "not-applicable") return null;
   if (peering.kind === "unpeered") {
-    return row({ ...BOARD_PEERING_BASE, status: "needs-you", detail: `you joined ${peering.teams.join(", ")} by invite, but this machine's board has no switchboard token, so it does not peer: ask ${REINVITE}`, action: REINVITE_STEPS });
+    return row({ ...BOARD_PEERING_BASE, status: "needs-you", detail: `You joined ${peering.teams.join(", ")} by invite, but this Mac's board has no switchboard token, so it cannot peer. Ask ${REINVITE}`, action: REINVITE_STEPS });
   }
   if (peering.kind === "unreadable") {
-    return row({ ...BOARD_PEERING_BASE, status: "error", detail: `could not read your secrets store (${peering.error}) to check your board's switchboard token`, action: ACCOUNT_RECHECK_ACTION });
+    return row({ ...BOARD_PEERING_BASE, status: "error", detail: `Could not read your secrets store to check the board's switchboard token (${peering.error})`, action: ACCOUNT_RECHECK_ACTION });
   }
-  return row({ ...BOARD_PEERING_BASE, status: "ready", detail: "your board holds a switchboard token" });
+  return row({ ...BOARD_PEERING_BASE, status: "ready", detail: "Your board holds a switchboard token" });
 }
 
 /** Same contract as accountRowForSafe: a throw fails only this row, never the rest of the group. */
@@ -284,7 +313,7 @@ async function genericRow(p: Probes, base: Omit<Row, "status" | "detail" | "acti
     return row({ ...base, status: result.status, detail: result.detail });
   }
   const stored = await secrets.has(def.secret.domain, def.secret.key);
-  if (stored === null) return row({ ...base, status: "missing", detail: `no ${def.title} account connected`, action: connectAction(def, true, forge) });
+  if (stored === null) return row({ ...base, status: "missing", detail: `No ${def.title} account connected yet`, action: connectAction(def, true, forge) });
   const result = await def.validate(p, stored, ctx);
   const short = scopeShortfall(forge, result);
   if (result.status === "ready" && !short) return row({ ...base, status: "ready", detail: result.detail });
@@ -301,7 +330,7 @@ function forgeConnectFor(p: Probes, id: Integration, ctx: ValidateCtx, intent: S
 }
 
 /** doppler/ldcli's real blocker (install + sign in) already has a required row in the tools group (tool.team.<name>) — a second required, action-less row here for the same fact would be both a duplicate and a dead end. */
-const CLI_SESSION_OPTIONAL_NOTE = "Works without a stored credential here — install and sign in are tracked in the Tools group.";
+const CLI_SESSION_OPTIONAL_NOTE = "Works without a stored credential here; install and sign in are tracked in the Tools group.";
 
 async function accountRowFor(p: Probes, entry: DeclaredEntry, team: TeamSnapshot, secrets: SecretPresence, intent: SetupIntent | null, overrides: UserIntegrationOverrides): Promise<Row> {
   const { id } = entry;
@@ -359,14 +388,14 @@ function withCredentialHealth(r: Row, id: Integration): Row {
   if (r.status === "ready" && health.status === "ready" && health.expiresAt) {
     const days = daysUntil(health.expiresAt, Date.now());
     if (days > 0 && days <= 7) {
-      return { ...r, detail: `${r.detail} (expires in ${days} day${days === 1 ? "" : "s"}, ${health.expiresAt})` };
+      return { ...r, detail: `${r.detail}. Expires in ${days} day${days === 1 ? "" : "s"}, on ${health.expiresAt}` };
     }
     return r;
   }
 
   if (r.status === "error" && health.status !== "error") {
     const ago = humanCheckedAgo(Date.now() - health.checkedAt);
-    return { ...r, status: health.status, detail: `last checked ${ago} ago: ${health.status} (${health.detail})` };
+    return { ...r, status: health.status, detail: `Last checked ${ago} ago, ${CREDENTIAL_STATUS_WORD[health.status]}: ${health.detail}` };
   }
 
   return r;
@@ -408,11 +437,11 @@ function slackAppRow(required: boolean): Row {
     id: "account.slack-app",
     kind: "account",
     title: "Slack app",
-    why: "Your team needs its own Slack app before anyone can connect Slack — one owner creates it once.",
+    why: "Your team needs its own Slack app before anyone can connect Slack. One owner creates it once.",
     required,
-    optionalNote: required ? null : "Works without this until the team's Slack app exists — only the team's owner can create it; ask them, or re-check once it does.",
+    optionalNote: required ? null : "Works without this until the team's Slack app exists. Only the team's owner can create it; ask them, or re-check once it does.",
     status: "missing",
-    detail: "the team has no Slack app yet",
+    detail: "The team has no Slack app yet",
     action: {
       type: "owner-once",
       label: "Create the team's Slack app…",

@@ -15,12 +15,12 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUD
 metadata:
   slots: "review"
   slot-review: "required mr-review@2 -- owns the domain review flow for one MR: resolving the MR/ticket, producing the draft review, writing the report, reporting the severity levels present, and executing the posting once handed the human's decision. Never presents posting gates or decides disposition."
-  compiled: "mattstack:gate-protocol@0.30.12"
+  compiled: "mattstack:gate-protocol@0.30.13"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2012 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2020 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -180,7 +180,7 @@ digraph review_flow {
     "Review error written: stay in the pane and report" [shape=doublecircle];
     "Review gate gone: ended cleanly, no status write" [shape=doublecircle];
     "Held at a review off-script gate: the pane stays" [shape=doublecircle];
-    "Review done: stay in the pane" [shape=doublecircle style=filled fillcolor=lightgreen];
+    "Review done: the board closes this tab" [shape=doublecircle style=filled fillcolor=lightgreen];
 
     "Trigger: the board launched /board:review" -> "--resumed-gate given (review)?";
     "--resumed-gate given (review)?" -> "<status-bin> review-status <state> reviewing" [label="yes"];
@@ -402,13 +402,21 @@ digraph review_flow {
     "Off-script rounds = 2 (mr_approve)?" -> "mr_approve {mrUrl}" [label="no: approve again"];
     "Off-script rounds = 2 (mr_approve)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
 
-    "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" -> "Review done: stay in the pane";
+    "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" -> "Review done: the board closes this tab";
     "<status-bin> review-status <state> error <what went wrong>" -> "Review error written: stay in the pane and report";
 }
 ```
 
 What the graph cannot show:
 
+- **The done write is the last call.** The board closes this pane's tab
+  the moment `review-status <state> done` lands, which ends this session
+  mid-batch. So the done write is a call of its own, sent only after every
+  other write of the run has returned: the posting (the domain skill's, or
+  this skill's own `mr_comment_inline` and `mr_comment`), `mr_approve`,
+  the `--report` write, and under a run the domain skill's `run_stage` done
+  and `run_status` done. A write sent in the same batch as the done write
+  is lost.
 - **Resumed entry.** `--resumed-gate <gateId>` means a human answered a
   gate an earlier pane on this MR opened and the board parked, and the
   board is replaying that answer into this pane. `--resumed-gate-kind`
@@ -2013,7 +2021,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.12 path=attachments/gate-protocol/SKILL.md lines=7-456 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.13 path=attachments/gate-protocol/SKILL.md lines=7-456 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act

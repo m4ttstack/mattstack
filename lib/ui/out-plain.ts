@@ -25,14 +25,32 @@ const TAG: Record<RenderStatus, string> = {
 const ESCAPES = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
 const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
 
+// The bidi controls and the zero-width characters: text carrying them can
+// read as something other than what it is. The joiners 200C and 200D stay:
+// emoji sequences and Persian and Indic text need them. Built from code
+// points so this file holds none of them; the ranges match Clean in
+// ui/internal/render.
+const INVISIBLE_RANGES: Array<[number, number]> = [
+  [0x00ad, 0x00ad],
+  [0x061c, 0x061c],
+  [0x180e, 0x180e],
+  [0x200b, 0x200b],
+  [0x200e, 0x200f],
+  [0x202a, 0x202e],
+  [0x2060, 0x2064],
+  [0x2066, 0x2069],
+  [0xfeff, 0xfeff],
+];
+const INVISIBLE = new RegExp(`[${INVISIBLE_RANGES.map(([from, to]) => `${String.fromCodePoint(from)}-${String.fromCodePoint(to)}`).join("")}]`, "g");
+
 /** Single-line fields: a newline in untrusted text must not start a forged row. */
 function one(s: string): string {
-  return s.replace(ESCAPES, "").replace(/[\r\n\t]+/g, " ").replace(CONTROLS, "");
+  return s.replace(ESCAPES, "").replace(/[\r\n\t]+/g, " ").replace(CONTROLS, "").replace(INVISIBLE, "");
 }
 
 /** Line-oriented fields: every line gets the block's prefix. Tabs are kept. */
 function lines(s: string, prefix: string): string[] {
-  return s.split(/\r\n|\r|\n/).map((l) => prefix + l.replace(ESCAPES, "").replace(CONTROLS, ""));
+  return s.split(/\r\n|\r|\n/).map((l) => prefix + l.replace(ESCAPES, "").replace(CONTROLS, "").replace(INVISIBLE, ""));
 }
 
 function cellText(cell: Cell): string {
@@ -58,7 +76,7 @@ function caption(out: string[], text: string | undefined): void {
   if (text) out.push(`${one(text)}:`);
 }
 
-function render(blocks: Block[], out: string[]): void {
+function render(blocks: Block[], out: string[], continuing: boolean): void {
   for (const b of blocks) {
     switch (b.t) {
       case "line":
@@ -88,7 +106,7 @@ function render(blocks: Block[], out: string[]): void {
       case "section":
         gap(out);
         out.push(b.subtitle ? `${one(b.title)} (${one(b.subtitle)})` : one(b.title));
-        render(b.blocks, out);
+        render(b.blocks, out, continuing);
         break;
       case "summary":
         gap(out);
@@ -117,19 +135,27 @@ function render(blocks: Block[], out: string[]): void {
       case "banner":
         out.push(`${one(b.label)} ${one(b.subject)}${b.hint ? `  ${one(b.hint)}` : ""}`);
         break;
-      case "failure":
-        out.push(`${TAG.failed} ${one(b.title)}${b.hint ? `  ${one(b.hint)}` : ""}`);
+      case "failure": {
+        // The tray shows a person the first bytes of stderr as they are, so
+        // a failure that opens the stream leads with its title alone. A
+        // title that opens with a bracket, leading spaces aside, keeps the
+        // tag: text from an error must not pose as another status.
+        const title = one(b.title);
+        const bare = !continuing && out.length === 0 && !title.trimStart().startsWith("[");
+        out.push(`${bare ? "" : `${TAG.failed} `}${title}${b.hint ? `  ${one(b.hint)}` : ""}`);
         if (b.why) out.push(`  why: ${one(b.why)}`);
         if (b.next) out.push(`  next: ${cellText(b.next)}`);
         if (b.details) out.push(...lines(b.details, "  "));
         break;
+      }
     }
   }
 }
 
-export function renderPlain(blocks: Block[]): string {
+/** continuing: the stream already carries earlier output, so nothing here opens it. */
+export function renderPlain(blocks: Block[], opts: { continuing?: boolean } = {}): string {
   const out: string[] = [];
-  render(blocks, out);
+  render(blocks, out, opts.continuing ?? false);
   if (out.length === 0) return "";
   return out.join("\n") + "\n";
 }

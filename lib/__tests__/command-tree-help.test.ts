@@ -5,6 +5,8 @@ import { join } from "path";
 import { dispatch, type CommandNode } from "../command-tree.ts";
 import { toCommandNode } from "../plugins.ts";
 import { verbHelpRequested } from "../cli-verb-help.ts";
+import * as ui from "../ui/out.ts";
+import { captureOut } from "../ui/__tests__/capture-out.ts";
 
 const noop = async () => {};
 
@@ -41,25 +43,28 @@ function makeTree(onRun?: (args: string[]) => void): Record<string, CommandNode>
   };
 }
 
-let logSpy: ReturnType<typeof spyOn>;
-let errSpy: ReturnType<typeof spyOn>;
+let io: ReturnType<typeof captureOut>;
 let exitSpy: ReturnType<typeof spyOn>;
+let batch: string | undefined;
 
 beforeEach(() => {
-  logSpy = spyOn(console, "log").mockImplementation(() => {});
-  errSpy = spyOn(console, "error").mockImplementation(() => {});
+  io = captureOut();
+  ui.__test__.setHuman(() => false);
+  batch = process.env.RT_BATCH;
+  delete process.env.RT_BATCH;
   exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("exit sentinel");
   });
 });
 
 afterEach(() => {
-  logSpy.mockRestore();
-  errSpy.mockRestore();
+  io.restore();
   exitSpy.mockRestore();
+  if (batch === undefined) delete process.env.RT_BATCH;
+  else process.env.RT_BATCH = batch;
 });
 
-const stdout = () => logSpy.mock.calls.flat().join("\n");
+const stdout = () => io.stdout();
 
 describe("branch --help", () => {
   test("prints subcommand names and descriptions to stdout, exits 0", async () => {
@@ -189,4 +194,79 @@ describe("self-dispatching leaves guard --help (RT-114)", () => {
       expect(readFileSync(mod, "utf8")).toContain("verbHelpRequested(");
     });
   }
+});
+
+const fruit = (): Record<string, CommandNode> => ({
+  fruit: {
+    description: "Work with fruit",
+    subcommands: {
+      peel: { description: "Peel one", handler: noop },
+      slice: { description: "Slice one", handler: noop },
+    },
+  },
+});
+
+const FRUIT_HELP = "usage: rt fruit <command>\n  Work with fruit\n\nCommands\npeel   Peel one\nslice  Slice one\n";
+
+describe("the dispatcher's plain output", () => {
+  let stdinDescriptor: PropertyDescriptor | undefined;
+  beforeEach(() => {
+    stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+  });
+  afterEach(() => {
+    if (stdinDescriptor) Object.defineProperty(process.stdin, "isTTY", stdinDescriptor);
+    else delete (process.stdin as { isTTY?: boolean }).isTTY;
+  });
+
+  test("branch help is a usage line, the description and the commands, on stdout", async () => {
+    await expect(dispatch(fruit(), ["fruit", "--help"])).rejects.toThrow("exit sentinel");
+    expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(0);
+    expect(stdout()).toBe(FRUIT_HELP);
+    expect(io.stderr()).toBe("");
+  });
+
+  test("a bare branch off a terminal prints the same help on stdout and exits 0", async () => {
+    await expect(dispatch(fruit(), ["fruit"])).rejects.toThrow("exit sentinel");
+    expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(0);
+    expect(stdout()).toBe(FRUIT_HELP);
+    expect(io.stderr()).toBe("");
+  });
+
+  test("leaf help lists its arguments under a heading", async () => {
+    await expect(dispatch(makeTree(), ["join", "--help"])).rejects.toThrow("exit sentinel");
+    expect(stdout()).toBe(
+      "usage: rt join <room> [--as <handle>] [--force]\n" +
+        "  Join a room\n" +
+        "aliases: j\n" +
+        "\n" +
+        "Arguments\n" +
+        "<room>         room to join\n" +
+        "--as <handle>  post as this handle\n" +
+        "--force        skip confirmation\n",
+    );
+  });
+
+  test("an unknown command is a failure on stderr that names where to look, exit 1", async () => {
+    await expect(dispatch(fruit(), ["fruit", "bogus"])).rejects.toThrow("exit sentinel");
+    expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
+    expect(stdout()).toBe("");
+    expect(io.stderr()).toBe("rt fruit has no command called bogus\n  next: rt fruit --help\n  Commands here: peel, slice\n");
+  });
+
+  test("an unknown command name carrying an escape cannot repaint the terminal", async () => {
+    await expect(dispatch(fruit(), ["fruit", "bo\x1b[2Jgus"])).rejects.toThrow("exit sentinel");
+    expect(io.stderr()).not.toContain("\x1b");
+    expect(io.stderr()).toStartWith("rt fruit has no command called bogus\n");
+  });
+
+  test("a command that needs a terminal says so on stderr and exits 1", async () => {
+    const tree: Record<string, CommandNode> = { needy: { description: "Needs a terminal", requiresTTY: true, handler: noop } };
+    await expect(dispatch(tree, ["needy"])).rejects.toThrow("exit sentinel");
+    expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
+    expect(stdout()).toBe("");
+    // toEndWith: run from a terminal, the dispatcher's screen clear comes first.
+    expect(io.stderr()).toEndWith("rt needy needs an interactive terminal\n  why: It asks questions or draws a screen, so a script or a pipe cannot run it.\n");
+    expect(io.stderr()).not.toContain("[failed]");
+  });
 });

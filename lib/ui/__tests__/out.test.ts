@@ -1,7 +1,8 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
+import { logsDir } from "../../rt-paths.ts";
 import * as out from "../out.ts";
 
 const FAKE = resolve(import.meta.dir, "fake-rt-ui.ts");
@@ -39,6 +40,21 @@ const sent = () =>
     .trim()
     .split("\n")
     .map((l) => JSON.parse(l));
+
+/** Every line on the newest cli log file of the test HOME the preload set; empty when none was written. */
+function cliLogLines(): Record<string, unknown>[] {
+  const dir = logsDir();
+  if (!existsSync(dir)) return [];
+  const file = readdirSync(dir).filter((f) => f.startsWith("cli.") && f.endsWith(".log")).sort().at(-1);
+  if (!file) return [];
+  return readFileSync(join(dir, file), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
+}
+
+function lastCliLogLine(): Record<string, unknown> {
+  const entry = cliLogLines().at(-1);
+  if (!entry) throw new Error("no cli log was written");
+  return entry;
+}
 
 test("builders produce wire blocks and normalize cell input", () => {
   expect(out.line("done", "Skills linked", "16 skills")).toEqual({ t: "line", status: "done", title: "Skills linked", hint: "16 skills" });
@@ -96,6 +112,10 @@ test("falls back to plain when the helper hangs past the render timeout", () => 
   out.print(out.line("done", "Skills linked"));
   expect(Date.now() - started).toBeLessThan(5000);
   expect(stdout.join("")).toBe("[ok] Skills linked\n");
+  const entry = lastCliLogLine();
+  expect(entry.msg).toBe("rt-ui render exited non-zero; printed plain text instead");
+  expect(entry.exitCode).toBeNull();
+  expect(entry.signalCode).toBe("SIGTERM");
 }, 15000);
 
 test("falls back to plain when the helper cannot be found", () => {
@@ -114,7 +134,7 @@ test("fail renders a failure block on stderr", () => {
   out.__test__.setHuman(() => false);
   out.fail({ title: "This Mac cannot read the team's secrets yet", why: "No key matches." });
   expect(stdout.join("")).toBe("");
-  expect(stderr.join("")).toBe("[failed] This Mac cannot read the team's secrets yet\n  why: No key matches.\n");
+  expect(stderr.join("")).toBe("This Mac cannot read the team's secrets yet\n  why: No key matches.\n");
 });
 
 test("the human gate is asked about the stream being written", () => {
@@ -177,4 +197,109 @@ test("payload writes its text byte for byte and json writes one line", () => {
   out.json({ ok: true, n: 1 });
   out.json({ a: 1 }, 2);
   expect(stdout.join("")).toBe('no newline added{"ok":true,"n":1}\n{\n  "a": 1\n}\n');
+});
+
+test("fail renders trailing blocks under the failure in the same stderr write", () => {
+  out.__test__.setHuman(() => false);
+  out.fail({ title: "rt hit an unexpected error", hint: "kaboom" }, out.verbatim(["Error: kaboom", "    at run (boom.ts:1:7)"], "stack"));
+  expect(stdout.join("")).toBe("");
+  expect(stderr).toEqual(["rt hit an unexpected error  kaboom\nstack:\n  Error: kaboom\n      at run (boom.ts:1:7)\n"]);
+});
+
+test("at a terminal the trailing blocks ride in the same render call as the failure", () => {
+  out.fail({ title: "x" }, out.verbatim(["Error: x"], "stack"));
+  const [, ...lines] = sent();
+  expect(lines.map((l) => l.t)).toEqual(["hello", "failure", "verbatim"]);
+});
+
+test("isHuman asks the gate about the named stream and defaults to stdout", () => {
+  out.__test__.setHuman((stream) => stream === "stderr");
+  expect(out.isHuman("stderr")).toBe(true);
+  expect(out.isHuman("stdout")).toBe(false);
+  expect(out.isHuman()).toBe(false);
+});
+
+test("a helper that exits non-zero leaves a warn line in the cli log", () => {
+  process.env.RT_UI_FAKE = JSON.stringify({ record, exit: 2 });
+  out.print(out.line("done", "Skills linked"));
+  expect(stdout.join("")).toBe("[ok] Skills linked\n");
+  const entry = lastCliLogLine();
+  expect(entry.level).toBe("warn");
+  expect(entry.module).toBe("rt-ui");
+  expect(entry.msg).toBe("rt-ui render exited non-zero; printed plain text instead");
+  expect(entry.exitCode).toBe(2);
+  expect(entry.bin).toBe(FAKE);
+});
+
+test("a missing helper leaves a warn line naming what was tried", () => {
+  const missing = join(dir, "no-such-binary");
+  process.env.RT_UI_BIN = missing;
+  out.print(out.line("done", "Skills linked"));
+  expect(stdout.join("")).toBe("[ok] Skills linked\n");
+  const entry = lastCliLogLine();
+  expect(entry.level).toBe("warn");
+  expect(entry.module).toBe("rt-ui");
+  expect(entry.msg).toBe("rt-ui was not found; printed plain text instead");
+  expect(String(entry.error)).toContain(missing);
+});
+
+test("the helper-failure warn line is written once per process", () => {
+  process.env.RT_UI_FAKE = JSON.stringify({ record, exit: 2 });
+  const before = cliLogLines().filter((e) => e.module === "rt-ui").length;
+  out.print(out.line("done", "one"));
+  out.print(out.line("done", "two"));
+  expect(stdout.join("")).toBe("[ok] one\n[ok] two\n");
+  expect(cliLogLines().filter((e) => e.module === "rt-ui").length).toBe(before + 1);
+});
+
+test("off a terminal no helper runs and nothing is logged about it", () => {
+  out.__test__.setHuman(() => false);
+  const before = cliLogLines().length;
+  out.print(out.line("done", "x"));
+  expect(cliLogLines().length).toBe(before);
+});
+
+test("note writes to stderr and never follows payloadOnStdout", () => {
+  out.__test__.setHuman(() => false);
+  out.note(out.line("warn", "The rt daemon is not running"), out.callout("next", out.cmd("rt daemon start")));
+  out.print(out.line("done", "Listed"));
+  expect(stderr.join("")).toBe("[warning] The rt daemon is not running\n  next: rt daemon start\n");
+  expect(stdout.join("")).toBe("[ok] Listed\n");
+});
+
+test("note is styled when stderr is a terminal, whatever stdout is", () => {
+  out.__test__.setHuman((stream) => stream === "stderr");
+  out.note(out.line("warn", "x"));
+  expect(stderr.join("")).toBe("STYLED\n");
+  expect(stdout.join("")).toBe("");
+  const [, ...lines] = sent();
+  expect(lines.map((l) => l.t)).toEqual(["hello", "line"]);
+});
+
+test("note with no blocks writes nothing", () => {
+  out.note();
+  expect(stderr.join("")).toBe("");
+  expect(existsSync(record)).toBe(false);
+});
+
+test("a failure after a note on stderr keeps its tag", () => {
+  out.__test__.setHuman(() => false);
+  out.note(out.line("warn", "x"));
+  out.fail({ title: "The rebase stopped" });
+  expect(stderr.join("")).toBe("[warning] x\n[failed] The rebase stopped\n");
+});
+
+test("a failure that is the first thing on stderr drops its tag, and a reset makes the next one first again", () => {
+  out.__test__.setHuman(() => false);
+  out.fail({ title: "The rebase stopped" });
+  expect(stderr.join("")).toBe("The rebase stopped\n");
+  stderr.length = 0;
+  out.__test__.reset();
+  out.__test__.setHuman(() => false);
+  out.note(out.line("warn", "x"));
+  out.__test__.reset();
+  out.__test__.setHuman(() => false);
+  stderr.length = 0;
+  out.fail({ title: "The rebase stopped" });
+  expect(stderr.join("")).toBe("The rebase stopped\n");
 });

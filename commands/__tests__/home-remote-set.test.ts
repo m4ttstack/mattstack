@@ -1,8 +1,16 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { join } from "path";
 import { homeRemoteSet, type HomeRemoteDeps } from "../setup.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { ExecResult, Probes } from "../../lib/setup/probes.ts";
+import { capturePlain } from "./helpers/json-line.ts";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
+
+let cap: CapturedOut;
+beforeEach(() => {
+  cap = capturePlain();
+});
+afterEach(() => cap.restore());
 
 const HOME = "/fake-home";
 const USER_REPO = join(HOME, ".mattstack", "user");
@@ -34,7 +42,7 @@ function baseDeps(overrides: Partial<HomeRemoteDeps> & { probes?: Probes } = {})
   const exitCodes: number[] = [];
   return {
     probes: fakeProbes({ home: HOME, dirs: { [GIT_DIR]: [] }, exec: scripted() }),
-    print: (s: string) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
       throw new Error("exit sentinel");
@@ -210,7 +218,15 @@ describe("homeRemoteSet", () => {
 
     await homeRemoteSet([URL], {}, deps);
 
-    expect(deps.lines[0]).toBe(`home remote set: origin -> ${URL}, pushed`);
+    expect(cap.stdout()).toBe(`[ok] Pushed your home repo  ${URL}\n`);
+  });
+
+  test("a TTY with no argument shows the usage as a failure with the command to run", async () => {
+    const deps = baseDeps({ isTTY: () => true });
+
+    await expectExit(() => homeRemoteSet([], {}, deps));
+
+    expect(cap.stderr()).toBe("Which remote?\n  next: rt home remote set <url>\n");
   });
 
   test("a URL carrying a password is refused before any git call, and the secret is not echoed", async () => {
@@ -254,7 +270,7 @@ describe("homeRemoteSet", () => {
     expect(calls[calls.length - 1]).toBe(`git -C ${USER_REPO} remote set-url origin ${old}`);
     const err = payload(deps).error as { code: string; message: string };
     expect(err.code).toBe("push-failed");
-    expect(err.message).toContain("origin restored");
+    expect(err.message).toContain("origin is back on the previous remote");
   });
 
   test("push output is redacted: a token in git's stderr never reaches the message", async () => {

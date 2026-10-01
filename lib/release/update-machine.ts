@@ -11,7 +11,7 @@
 import { homedir } from "os";
 import { join } from "path";
 import type { RunResult } from "../subprocess.ts";
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 
 export type LegId = "prod-app" | "dev-bundle" | "checkout-sync" | "daemon" | "served-suite" | "verify";
 export type LegStatus = "ok" | "skipped" | "aborted" | "error" | "planned";

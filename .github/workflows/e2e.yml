@@ -14,7 +14,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # Which of this PR's files can affect the glitter board. Cheap ubuntu job so
+  # Which of this PR's files can affect what the pty gate paints. Cheap ubuntu job so
   # the expensive macos one below can be skipped outright.
   changes:
     runs-on: ubuntu-latest
@@ -35,7 +35,7 @@ jobs:
             echo "glitter=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -qE '^(ui/|lib/mission/|lib/ui/|commands/glitter\.ts|packages/git-core/|e2e/(pty/|glitter-repo\.ts|interactive\.ts|harness\.ts|setup\.ts|socket-path\.ts)|test-setup\.ts|\.github/workflows/e2e\.yml|package\.json)'; then
+          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -qE '^(cli\.ts|ui/|lib/mission/|lib/ui/|lib/setup/|commands/setup\.ts|lib/errors\.ts|lib/cli-logger\.ts|lib/secrets/|commands/glitter\.ts|commands/settings[^/]*\.ts|lib/settings/|packages/rt-client/src/settings/write\.ts|packages/git-core/|e2e/(pty/|glitter-repo\.ts|interactive\.ts|harness\.ts|setup\.ts|socket-path\.ts)|test-setup\.ts|\.github/workflows/e2e\.yml|package\.json|commands/repos-reidentify\.ts|lib/command-tree\.ts|lib/plugins\.ts)'; then
             echo "glitter=true" >> "$GITHUB_OUTPUT"
           else
             echo "glitter=false" >> "$GITHUB_OUTPUT"

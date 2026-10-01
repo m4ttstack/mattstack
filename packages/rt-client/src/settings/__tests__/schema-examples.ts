@@ -312,6 +312,14 @@ export const EXAMPLES: Record<string, Example> = {
     bad: [{ value: { enabled: "no" }, path: ["enabled"] }],
     layer: [{ enabled: true }],
   },
+  "board.codeowners": {
+    good: [{}, { slack: {} }, { slack: { fromSectionName: true } }],
+    bad: [
+      { value: { slack: { fromSectionName: "yes" } }, path: ["slack", "fromSectionName"] },
+      { value: { slack: true }, path: ["slack"] },
+    ],
+    layer: [{ slack: { fromSectionName: true } }],
+  },
   "board.cwds": {
     good: [{}, { review: "/Users/dev/src/app", respond: "", doctor: "/Users/dev/src/app" }],
     bad: [{ value: { review: ["/Users/dev/src/app"] }, path: ["review"] }],

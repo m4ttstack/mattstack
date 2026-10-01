@@ -13,7 +13,7 @@ import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { machineSettingsPath, teamLocalPath, teamSettingsPath, teamsDir, userSettingsPath } from "../paths.ts";
-import { setSetting, setSettingsNoticeSink, unsetSetting } from "../write.ts";
+import { setSetting, setSettingsNoticeSink, unsetSetting, type SettingsNotice } from "../write.ts";
 import * as isolation from "../../test-isolation.ts";
 import { withSchema } from "./with-schema.ts";
 import { suspendRepoOnly } from "./without-repo-only.ts";
@@ -305,7 +305,7 @@ describe("settings/write", () => {
 
     test("a user write with no home remote says it stays on this machine", () => {
       expect(captureStderr(() => setSetting("rt.worktrees", { onDeck: 3 }, "user", { repoIdentity: IDENTITY }))).toEqual([
-        `rt: saved "rt.worktrees" in your user store on this machine only; ${homeRepo()} has no remote, so it will not reach your other machines`,
+        `Saved rt.worktrees on this Mac only. Your home repo has no remote yet, so it will not reach your other Macs. Run: rt home remote set`,
       ]);
     });
 
@@ -339,7 +339,7 @@ describe("settings/write", () => {
       giveOrigin(homeRepo());
       setSetting("rt.homeSnapshot", { enabled: false }, "machine");
       expect(captureStderr(() => setSetting("rt.worktrees", { onDeck: 3 }, "user", { repoIdentity: IDENTITY }))).toEqual([
-        `rt: saved "rt.worktrees" in your user store, but automatic sync is off (rt.homeSnapshot); commit and push ${homeRepo()} to share it with your other machines`,
+        `Saved rt.worktrees in your user settings, but automatic home sync is off. Commit and push your home repo to share it with your other Macs.`,
       ]);
     });
 
@@ -352,7 +352,7 @@ describe("settings/write", () => {
     test("a team write with no team remote points at rt team publish --remote", () => {
       seedTeam(TEAM);
       expect(captureStderr(() => setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY }))).toEqual([
-        `rt: saved "rt.roles" in the team store on this machine only; the team repo has no remote yet, so run \`rt team publish --team ${TEAM} --remote <url>\` to share it with the team`,
+        `Saved rt.roles in the ${TEAM} team's settings on this Mac only. The team repo has no remote yet. Run: rt team publish --team ${TEAM} --remote <url>`,
       ]);
     });
 
@@ -361,13 +361,13 @@ describe("settings/write", () => {
       giveOrigin(teamRepo());
       setSetting("rt.teamSnapshot", { enabled: false }, "machine");
       expect(captureStderr(() => setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY }))).toEqual([
-        `rt: saved "rt.roles" in the team store, but automatic team sync is off (rt.teamSnapshot); run \`rt team publish --team ${TEAM}\` to share it with the team`,
+        `Saved rt.roles in the ${TEAM} team's settings, but automatic team sync is off. Run: rt team publish --team ${TEAM}`,
       ]);
     });
 
-    test("a notice sink receives the tip instead of stderr, and the previous sink comes back on restore", () => {
-      const seen: string[] = [];
-      const previous = setSettingsNoticeSink((line) => seen.push(line));
+    test("a notice sink receives the sentence and the command apart, and the previous sink comes back on restore", () => {
+      const seen: { line: string; notice: SettingsNotice | undefined }[] = [];
+      const previous = setSettingsNoticeSink((line, notice) => seen.push({ line, notice }));
       let stderr: string[];
       try {
         stderr = captureStderr(() => setSetting("rt.worktrees", { onDeck: 3 }, "user", { repoIdentity: IDENTITY }));
@@ -376,7 +376,10 @@ describe("settings/write", () => {
       }
       expect(stderr).toEqual([]);
       expect(seen).toEqual([
-        `rt: saved "rt.worktrees" in your user store on this machine only; ${homeRepo()} has no remote, so it will not reach your other machines`,
+        {
+          line: "Saved rt.worktrees on this Mac only. Your home repo has no remote yet, so it will not reach your other Macs. Run: rt home remote set",
+          notice: { text: "Saved rt.worktrees on this Mac only. Your home repo has no remote yet, so it will not reach your other Macs.", next: "rt home remote set" },
+        },
       ]);
       expect(captureStderr(() => setSetting("rt.worktrees", { onDeck: 4 }, "user", { repoIdentity: IDENTITY }))).toHaveLength(1);
     });
@@ -394,10 +397,10 @@ describe("settings/write", () => {
       setSetting("rt.roles", { backend: {} }, "machine", { repoIdentity: IDENTITY });
 
       expect(captureStderr(() => unsetSetting("rt.roles", "team", { repoIdentity: IDENTITY }))).toEqual([
-        `rt: removed "rt.roles" from the team store on this machine only; the team repo has no remote yet, so run \`rt team publish --team ${TEAM} --remote <url>\` to share the change with the team`,
+        `Removed rt.roles from the ${TEAM} team's settings on this Mac only. The team repo has no remote yet. Run: rt team publish --team ${TEAM} --remote <url>`,
       ]);
       expect(captureStderr(() => unsetSetting("rt.roles", "user", { repoIdentity: IDENTITY }))).toEqual([
-        `rt: removed "rt.roles" from your user store on this machine only; ${homeRepo()} has no remote, so the change will not reach your other machines`,
+        `Removed rt.roles on this Mac only. Your home repo has no remote yet, so the change will not reach your other Macs. Run: rt home remote set`,
       ]);
       expect(captureStderr(() => unsetSetting("rt.roles", "machine", { repoIdentity: IDENTITY }))).toEqual([]);
 

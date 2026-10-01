@@ -14,8 +14,9 @@ import { parseRemoteUrl } from "../enrich.ts";
 import { type AgeKeySeam, createRealAgeKeySeam, ensureAgeKey, renderSopsYamlFor } from "../home/age-key.ts";
 import { TEAM_PATH_REGEX } from "../secrets/team-store.ts";
 import { forgeArgv } from "./forge.ts";
+import { assertOnlyTeam } from "./one-team.ts";
 import { updateTeamLocal } from "./team-local.ts";
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 import { readIntent, writeIntent } from "../setup/intent.ts";
 import { gitUsable } from "../setup/home-git.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
@@ -157,6 +158,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   const slug = slugify(opts.name);
   const dir = join(p.home, ".mattstack", "teams", slug);
   assertNotRealStoreInTest(join(dir, "mattstack", "settings.team.jsonc"));
+  assertOnlyTeam(p, slug);
 
   const originConfigured = p.exists(dir) ? readExistingOrigin(p, dir) : null;
   if (originConfigured !== null && opts.remote !== null && opts.remote !== originConfigured) {

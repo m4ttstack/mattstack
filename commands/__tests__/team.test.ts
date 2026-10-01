@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, test, expect, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { teamCreate, teamInvite, teamManageMembership, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
@@ -93,6 +95,23 @@ describe("teamCreate", () => {
     expect(body.error.code).toBe("remote-required");
   });
 
+  test("a second team exits 2 with team-already-set-up in the envelope", async () => {
+    const teams = "/home/x/.mattstack/teams";
+    const deps = baseDeps({
+      probes: fakeProbes({
+        home: "/home/x",
+        dirs: { [teams]: ["globex"] },
+        files: { [join(teams, "globex", "mattstack", "settings.team.jsonc")]: "{}" },
+      }),
+    });
+    const code = await runExpectingProcessExit(() => teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git", "--json"], {}, deps));
+
+    expect(code).toBe(2);
+    const body = JSON.parse(deps.lines[0]!);
+    expect(body.error.code).toBe("team-already-set-up");
+    expect(body.error.message).toBe("this machine is set up for team globex; mattstack supports one team per machine today");
+  });
+
   test("missing name, --json: exits 2 with the usage envelope, not a plain-text line", async () => {
     const deps = baseDeps();
     const code = await runExpectingProcessExit(() => teamCreate(["--remote", "https://github.com/acme/repo.git", "--json"], {}, deps));
@@ -105,10 +124,17 @@ describe("teamCreate", () => {
 
   test("missing name, human mode: prints usage and exits 2", async () => {
     const deps = baseDeps();
-    const code = await runExpectingProcessExit(() => teamCreate(["--remote", "https://github.com/acme/repo.git"], {}, deps));
-
-    expect(code).toBe(2);
-    expect(deps.lines[0]).toContain("usage:");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => teamCreate(["--remote", "https://github.com/acme/repo.git"], {}, deps));
+      expect(code).toBe(2);
+      expect(deps.lines).toEqual([]);
+      expect(io.stderr()).toContain("usage:");
+      expect(io.stderr()).not.toContain("[failed]");
+    } finally {
+      io.restore();
+    }
   });
 
   test("human output on success names the slug and remote", async () => {
@@ -354,10 +380,17 @@ describe("teamInvite", () => {
 
   test("missing --handle, human mode: prints usage and exits 2", async () => {
     const deps = baseDeps();
-    const code = await runExpectingProcessExit(() => teamInvite([], {}, deps));
-
-    expect(code).toBe(2);
-    expect(deps.lines[0]).toContain("usage:");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => teamInvite([], {}, deps));
+      expect(code).toBe(2);
+      expect(deps.lines).toEqual([]);
+      expect(io.stderr()).toContain("usage:");
+      expect(io.stderr()).not.toContain("[failed]");
+    } finally {
+      io.restore();
+    }
   });
 
   test("team invite prints the join link on its own line", async () => {
@@ -451,9 +484,15 @@ describe("teamPull", () => {
   });
   test("daemon unreachable (daemonQuery returns null) exits 2 with a plain message, never a stack", async () => {
     const deps = depsWithZone({ daemon: async () => null });
-    const code = await runExpectingProcessExit(() => teamPull(["--team", "acme"], {}, deps));
-    expect(code).toBe(2);
-    expect(deps.lines.join("\n")).toContain("daemon");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => teamPull(["--team", "acme"], {}, deps));
+      expect(code).toBe(2);
+      expect(io.stderr()).toContain("daemon");
+    } finally {
+      io.restore();
+    }
   });
   test("a daemon failure envelope surfaces its code", async () => {
     const deps = depsWithZone({ daemon: async () => ({ ok: false, error: "team \"acme\" is not cloned locally", failure: { code: "no-team", message: "team \"acme\" is not cloned locally" } }) });

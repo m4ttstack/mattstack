@@ -218,13 +218,98 @@ so it pastes clean, which means it must never carry untrusted multi-line
 text. Step sub-lines sit under their running step: they clear when the step
 ends with `done` and stay beneath it when it fails.
 
+`out.print` writes plain text to stdout under `--json` too, so a verb whose
+`--json` branch can still print a note (a repo whose identity cannot derive,
+a lock file that is missing) calls `out.payloadOnStdout()` as soon as it
+knows `--json` was passed; otherwise the note lands inside the envelope a
+program is parsing. A verb that prints a payload (`rt settings get`'s value,
+a bare path) calls it unconditionally. The `--json` byte-identity tests
+(`commands/__tests__/settings-json-frozen.test.ts` is the model) assert an
+empty stderr as well as the frozen stdout.
+
+A setup run (`rt setup apply`, `rt setup update`, `rt uninstall`) reaches a
+person through `createStepEmitter` in `lib/setup/emit.ts`: one rt-ui step per
+`step` event, titled from the `plan` event (never the id), streamed `log`
+lines as sub-lines that also go to the CLI log through `logCliEvent` at
+`debug`, a `fix` callout for a remedy, and a `summary` at the end; a verb
+awaits `flush()` before it exits. The NDJSON stream and the plan are the app's
+contract and go through each verb's `json` seam (`out.json`): their shape
+(keys, structure, types, exit codes, every value a program reads) never
+changes without a contract change, while a `Row.detail`, a
+`StepOutcome.detail` or `remedy` and a `UserActionableError` message are copy
+the tray displays and never parses. `commands/__tests__/setup-copy.test.ts`
+pins both views as snapshots, so a wording change is a deliberate
+`bun test --update-snapshots`, and a machine view change is a failing test.
+Write that copy in the command-description style, and never put a plain-words
+key into an envelope: plainer words for a person ride the error's `why` and
+`next` or `exitWithUserError`'s `human` argument.
+
+Failures have one shape. A command that cannot continue throws
+`UserActionableError` (`lib/errors.ts`) with what happened in a short plain
+sentence, an optional `why`, the command to run as `next`, and any raw
+child output as `log`; the dispatch seam in `cli.ts` draws it as a `failure`
+block on stderr and exits 2, and `exitUserError` does the same for a verb
+that handles its own `--json` (the envelope stays on stdout, byte for byte).
+Anything else that reaches the seam prints one line, "rt hit an unexpected
+error", with the message as the hint and the stack in the CLI log; the stack
+also prints off a TTY or under `RT_LOG_LEVEL=debug`. Do not catch an error
+only to print it: throw the typed one, or let it reach the seam. The first
+converted failure is the team secrets file a Mac's age key cannot open
+(`teamSecretsUnreadable` in `lib/secrets/team-store.ts`); its sops output
+goes to the log, never the screen.
+
 `lib/__tests__/no-raw-output.test.ts` fails a PR that adds `console.log`,
 `console.error`, `console.warn` or `console.info`, any
 use of `process.stdout` or `process.stderr` beyond reading `isTTY`,
 `columns`, `rows` or `fd` and attaching listeners, a raw escape or a color
-import under `commands/` or `lib/`. Its allowlist
+import in `cli.ts` or under `commands/` or `lib/`. Its allowlist
 (`raw-output-allowlist.json`) names the files not yet converted and only
 shrinks: converting a file means deleting its line.
+
+`out.note(...blocks)` prints for a person on stderr whatever the verb: use it
+for a notice that fires before the verb is known or under any verb, since
+stdout may be a payload or a `--json` envelope. It does not follow
+`payloadOnStdout`. Code under `lib/` never calls `console.warn`: it calls
+`warn(module, message, { context, show })` from `lib/ui/warn.ts`. The message
+always reaches a log (the CLI log in the CLI; a plain `rt:` stderr line in the
+daemon, whose stderr is already captured), and a person sees a line only when
+`show` says what they should read, once per process. A test of such a line
+reads stderr through `captureOut()` or sets a fake with `setWarningLog`, and
+calls `__test__.reset()` from `lib/ui/warn.ts` before and after; a
+`console.warn` spy sees nothing.
+
+The dispatcher draws the breadcrumb before the handler runs, through
+`out.note`, on stderr, when a person is reading stderr (a terminal, no
+`--json`, no `RT_BATCH`) and the leaf is neither `fullscreen` nor `hidden`.
+It is its own render call (one helper launch per command), so it is first on
+screen whatever the command paints first, and one blank line follows it.
+
+A spinner that should leave nothing behind is `withTransientStep(label, task)`
+from `lib/ui/transient-step.ts`: the Go step draws it and a `done` event
+carrying `clear: true` erases it when the task settles. The flag rides `done`
+so a helper that predates it ends the step with a plain row; a source checkout
+runs the installed helper when `ui/dist/rt-ui` is missing or stale, so run
+`bun run ui:build` after pulling. It loads `lib/ui/spawn.ts` on first use, so
+a file the daemon also loads may import it; keep it that way.
+
+A usage error is `out.fail(usageFailure(title, usage, why))` from
+`lib/ui/usage.ts`: the title asks for what is missing in plain words and the
+usage line is the `next` command, never part of the sentence. The `--json`
+error string stays as it was.
+
+Off a terminal, a failure that opens the output prints its title with no
+`[failed]` tag, because the app shows the first bytes of stderr to a person as
+they are. A test of a human failure asserts the title at the start of stderr.
+A failure printed after another block, a title that starts with `[` (leading
+spaces aside), and a `line` with status `failed` keep the tag.
+
+Both renderers drop bidi controls and zero-width characters from every field
+(`ui/fixtures/clean-cases.json` is the shared test). Wrapped text breaks at
+spaces only, so a flag or a branch name is never split at a hyphen;
+`textwrap.Spans` keeps its hyphen breaks for the mission diff, and prose goes
+through `textwrap.SpansWith` with `WordsOnly`. `rt-ui render` reads
+`COLORFGBG` and paints the diff with pale tints on a light background; with no
+`COLORFGBG` it keeps the dark tints.
 
 ## The TypeScript CLI is UI-free
 
@@ -355,12 +440,12 @@ strips credentials from URLs, query params, token shapes and auth headers; a
 new tool inherits it and must never answer around it.
 
 The `mr_*` tools cover what board panes and pipeline verbs write (notes,
-whole submitted reviews, approvals, resolves, draft state, retries, rebase,
-create, update, upload, merge). `mr_review_submit` posts a review the way
-GitLab's own submit does: pending comments, one publish with the summary and
-a reviewed state, then the approval; it refuses when the caller already has
-pending comments on the MR, because a publish would post those too.
-`mr_merge` is on the server (GitLab still enforces approvals and
+whole submitted reviews, approvals, resolves, note edits, draft state,
+retries, rebase, create, update, upload, merge). `mr_review_submit` posts a
+review the way GitLab's own submit does: pending comments, one publish with
+the summary and a reviewed state, then the approval; it refuses when the
+caller already has pending comments on the MR, because a publish would post
+those too. `mr_merge` is on the server (GitLab still enforces approvals and
 pipeline rules); the skill's ship gate is the human check. `mr_upload` is
 the one tool that sends a local file off the machine, so its daemon guard
 (`lib/daemon/upload-guard.ts`) refuses anything outside the target repo's

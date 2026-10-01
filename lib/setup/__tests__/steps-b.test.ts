@@ -184,7 +184,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx } = makeCtx(p, { nonInteractive: true, need: async () => "no-app" });
 
       const outcome = await servicesRegisterStep.run(ctx);
-      expect(outcome).toEqual({ state: "skipped", detail: "mattstack.app not running — open it to register services" });
+      expect(outcome).toEqual({ state: "skipped", detail: "mattstack.app is not running; open it to register services" });
     });
 
     test("no-app + interactive -> failed with remedy", async () => {
@@ -192,7 +192,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx } = makeCtx(p, { nonInteractive: false, need: async () => "no-app" });
 
       const outcome = await servicesRegisterStep.run(ctx);
-      expect(outcome).toEqual({ state: "failed", detail: "mattstack.app not running — open it to register services", remedy: "Open mattstack.app, then Retry" });
+      expect(outcome).toEqual({ state: "failed", detail: "mattstack.app is not running; open it to register services", remedy: "Open mattstack.app, then Retry" });
     });
 
     test("timeout -> failed with retry remedy", async () => {
@@ -201,7 +201,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx } = makeCtx(p, { need: needViaTray({ "GET /setup/need/services.register": () => ({ status: 200, json: { state: "pending" } }) }) });
 
       const outcome = await servicesRegisterStep.run(ctx);
-      expect(outcome).toEqual({ state: "failed", detail: "timed out waiting for mattstack.app", remedy: "Retry with mattstack.app running" });
+      expect(outcome).toEqual({ state: "failed", detail: "mattstack.app did not answer in time", remedy: "Retry with mattstack.app running" });
     });
 
     test("app reports failure -> failed with its own detail, no remedy", async () => {
@@ -268,7 +268,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const outcome = await proxyInstallStep.run(ctx);
       expect(raised).toBe(false);
       expect(outcome.state).toBe("skipped");
-      expect(outcome.detail).toContain("does not include the local proxy installer");
+      expect(outcome.detail).toContain("has no local proxy installer");
     });
 
     // The gate now checks the helper's own existence in the bundle directly
@@ -293,13 +293,13 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx: nonInteractive } = makeCtx(fakeProbes({ home }), { nonInteractive: true, need: async () => "no-app" });
       expect(await proxyInstallStep.run(nonInteractive)).toEqual({
         state: "skipped",
-        detail: "mattstack.app not running — open it to install the local proxy",
+        detail: "mattstack.app is not running; open it to install the local proxy",
       });
 
       const { ctx: interactive } = makeCtx(fakeProbes({ home }), { nonInteractive: false, need: async () => "no-app" });
       expect(await proxyInstallStep.run(interactive)).toEqual({
         state: "failed",
-        detail: "mattstack.app not running — open it to install the local proxy",
+        detail: "mattstack.app is not running; open it to install the local proxy",
         remedy: "Open mattstack.app, then Retry",
       });
     });
@@ -308,7 +308,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx } = makeCtx(fakeProbes({ home }), { need: async () => "app-gone" });
       expect(await proxyInstallStep.run(ctx)).toEqual({
         state: "failed",
-        detail: "mattstack.app stopped responding",
+        detail: "mattstack.app stopped answering",
         remedy: "Retry with mattstack.app running",
       });
     });
@@ -339,7 +339,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       // Proven, not assumed: a second run against the state the first left
       // behind must never call ctx.need again.
-      expect(await proxyInstallStep.run(makeCtx(p, { need }).ctx)).toEqual({ state: "done", detail: "already installed" });
+      expect(await proxyInstallStep.run(makeCtx(p, { need }).ctx)).toEqual({ state: "done", detail: "Already installed" });
       expect(needCalls).toBe(1);
     });
 
@@ -361,7 +361,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
         },
       });
 
-      expect(await proxyInstallStep.run(ctx)).toEqual({ state: "done", detail: "already installed" });
+      expect(await proxyInstallStep.run(ctx)).toEqual({ state: "done", detail: "Already installed" });
       expect(needCalled).toBe(false);
     });
 
@@ -438,7 +438,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       let needCalled = false;
       const { ctx } = makeCtx(p, { need: async () => { needCalled = true; return { ok: true, detail: "" }; } });
 
-      expect(await proxyInstallStep.run(ctx)).toEqual({ state: "done", detail: "already installed" });
+      expect(await proxyInstallStep.run(ctx)).toEqual({ state: "done", detail: "Already installed" });
       expect(needCalled).toBe(false);
     });
 
@@ -460,7 +460,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       let needCalled = false;
       const { ctx } = makeCtx(p, { need: async () => { needCalled = true; return { ok: true, detail: "" }; } });
 
-      expect(await proxyInstallStep.run(ctx)).toEqual({ state: "done", detail: `${PROXY_VERSION_PATH} could not be read` });
+      expect(await proxyInstallStep.run(ctx)).toEqual({ state: "done", detail: `Could not read ${PROXY_VERSION_PATH}` });
       expect(needCalled).toBe(false);
     });
 
@@ -500,7 +500,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       let needCalled = false;
       const { ctx } = makeCtx(p, { need: async () => { needCalled = true; return { ok: true, detail: "" }; } });
 
-      expect(await proxyInstallStep.run(ctx)).toEqual({ state: "done", detail: "already installed" });
+      expect(await proxyInstallStep.run(ctx)).toEqual({ state: "done", detail: "Already installed" });
       expect(needCalled).toBe(false);
     });
 
@@ -524,7 +524,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const outcome = await proxyInstallStep.run(ctx);
       expect(captured).toEqual({ type: "app-privileged", op: "proxy-trust" });
       expect(outcome.state).toBe("done");
-      expect(outcome.detail).toContain("certificate not trusted (failed)");
+      expect(outcome.detail).toContain("The certificate is not trusted yet (failed)");
       // Nothing to verify against, so the probe is never run on a missing file.
       expect(p.calls.exec).not.toContainEqual(expect.arrayContaining(["verify-cert"]));
     });
@@ -537,7 +537,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       });
       const outcome = await proxyInstallStep.run(ctx);
       expect(outcome.state).toBe("done");
-      expect(outcome.detail).toContain("certificate not trusted (declined)");
+      expect(outcome.detail).toContain("The certificate is not trusted yet (declined)");
       expect(outcome.detail).toContain("bootstrap: ok");
     });
 
@@ -584,7 +584,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
     test("deck not bundled -> skipped", async () => {
       const p = fakeProbes({ home });
       const { ctx } = makeCtx(p);
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "skipped", detail: "deck not bundled yet" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "skipped", detail: "Deck is not in this build yet" });
     });
 
     test("deck bundled but unhealthy with NO app running -> skipped, never runs adopt — nothing has started deck yet (fresh non-interactive install)", async () => {
@@ -593,7 +593,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const outcome = await deckManagedStep.run(ctx);
       expect(outcome).toEqual({
         state: "skipped",
-        detail: "deck is not running and mattstack.app is not there to start it — open the app, then Retry",
+        detail: "Deck is not running and mattstack.app is not there to start it. Open the app, then Retry",
       });
       expect(p.calls.exec).toEqual([]);
     });
@@ -604,7 +604,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const outcome = await deckManagedStep.run(ctx);
       expect(outcome).toEqual({
         state: "failed",
-        detail: "deck is not answering its own /healthz — cannot adopt board safely",
+        detail: "Deck is not answering its health check, so the board cannot be adopted safely",
         remedy: "Start deck, then Retry",
       });
       expect(p.calls.exec).toEqual([]);
@@ -622,7 +622,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       });
       const { ctx, logs } = makeCtx(p);
 
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board adopted from legacy mrs, repointed; app defaults untouched (not an install)" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "Deck is ready. Board adopted from the old data, repointed. App defaults left as they are (not an install)" });
 
       const deckBin = join(appRoot, HELPERS_DIR, "deck");
       expect(p.calls.exec).toEqual([[deckBin, "adopt", "mrs", "--as", "board", "--json"]]);
@@ -643,7 +643,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       });
       const { ctx, logs } = makeCtx(p);
 
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board adopted from legacy mrs, repoint skipped (board not bundled yet); app defaults untouched (not an install)" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "Deck is ready. Board adopted from the old data, repoint skipped (board not bundled yet). App defaults left as they are (not an install)" });
       expect(p.calls.fetch.some((u) => u.includes("/api/v1/apps/board"))).toBe(false);
       expect(p.calls.exec).toHaveLength(1);
       expect(logs).toEqual([]);
@@ -660,7 +660,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       });
       const { ctx, logs } = makeCtx(p);
 
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; app defaults untouched (not an install)" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "Deck is ready. Board already adopted. App defaults left as they are (not an install)" });
       expect(p.calls.exec).toHaveLength(1);
       expect(p.calls.fetch.some((u) => u.includes("/api/v1/apps/"))).toBe(false);
       expect(logs).toEqual([]);
@@ -677,7 +677,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       });
       const { ctx } = makeCtx(p);
 
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board adopted from legacy mrs, repoint failed (deck answered 500); app defaults untouched (not an install)" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "Deck is ready. Board adopted from the old data, repoint failed (deck answered 500). App defaults left as they are (not an install)" });
     });
 
     test("adopt fails with 'deck not running' -> failed, retryable precondition (not a rejection)", async () => {
@@ -693,7 +693,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       expect(await deckManagedStep.run(ctx)).toEqual({
         state: "failed",
-        detail: "deck stopped responding before it could adopt board",
+        detail: "Deck stopped answering before it could adopt the board",
         remedy: "Start deck, then Retry",
       });
     });
@@ -724,7 +724,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       });
       const { ctx } = makeCtx(p);
 
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; no legacy mrs to adopt; app defaults untouched (not an install)" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "Deck is ready. No old board data to adopt. App defaults left as they are (not an install)" });
       expect(p.calls.exec).toHaveLength(1);
       expect(p.calls.fetch.some((u) => u.includes("/api/v1/apps/"))).toBe(false);
     });
@@ -742,8 +742,8 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx: first } = makeCtx(p);
       const { ctx: second } = makeCtx(p);
 
-      expect(await deckManagedStep.run(first)).toEqual({ state: "done", detail: "deck ready; board adopted from legacy mrs, repointed; app defaults untouched (not an install)" });
-      expect(await deckManagedStep.run(second)).toEqual({ state: "done", detail: "deck ready; board already adopted; app defaults untouched (not an install)" });
+      expect(await deckManagedStep.run(first)).toEqual({ state: "done", detail: "Deck is ready. Board adopted from the old data, repointed. App defaults left as they are (not an install)" });
+      expect(await deckManagedStep.run(second)).toEqual({ state: "done", detail: "Deck is ready. Board already adopted. App defaults left as they are (not an install)" });
       expect(p.calls.exec.every((argv) => argv[1] === "adopt" && argv[2] === "mrs")).toBe(true);
       expect(p.calls.fetch.filter((u) => u.includes("/api/v1/apps/board"))).toHaveLength(1);
     });
@@ -761,14 +761,14 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
     test("no intent (a plain rt setup apply after install): nothing is PATCHed, whatever the mode", async () => {
       const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 200, CATALOG), exec: async () => adoptReply(false) } });
       const { ctx } = makeCtx(p, { intent: null, team: { slug: "", name: "", mode: "none" } });
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; app defaults untouched (not an install)" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "Deck is ready. Board already adopted. App defaults left as they are (not an install)" });
       expect(p.calls.fetchInits.filter((c) => c.init?.method === "PATCH")).toEqual([]);
     });
 
     test("solo: every requiresTeam app is PATCHed off; console's manual off is left alone", async () => {
       const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 200, CATALOG), exec: async () => adoptReply(false) } });
       const { ctx } = makeCtx(p, { intent: SOLO_INTENT, team: { slug: "", name: "", mode: "none" } });
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; solo: board, boxscore off" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "Deck is ready. Board already adopted. Solo setup: board, boxscore off" });
       const patches = p.calls.fetchInits.filter((c) => c.init?.method === "PATCH").map((c) => [c.url, c.init?.body]);
       expect(patches).toEqual([
         ["http://127.0.0.1:4100/api/v1/apps/board", JSON.stringify({ enabled: false })],
@@ -779,7 +779,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
     test("team: every requiresTeam app is PATCHed on; console's manual off is left alone", async () => {
       const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 200, CATALOG), exec: async () => adoptReply(false) } });
       const { ctx } = makeCtx(p, { intent: CREATE_INTENT, team: { slug: "acme", name: "Acme", mode: "create" } });
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; team apps on: board, boxscore" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "Deck is ready. Board already adopted. Team apps on: board, boxscore" });
       const patched = p.calls.fetchInits.filter((c) => c.init?.method === "PATCH").map((c) => c.url);
       expect(patched).toEqual(["http://127.0.0.1:4100/api/v1/apps/board", "http://127.0.0.1:4100/api/v1/apps/boxscore"]);
     });
@@ -788,7 +788,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 200, CATALOG), exec: async () => adoptReply(false) } });
       const restoreIntent: SetupIntent = { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "restore", restore: { homeRepo: "me/home" } };
       const { ctx } = makeCtx(p, { intent: restoreIntent, team: { slug: "", name: "", mode: "restore" } });
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; solo: board, boxscore off" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "Deck is ready. Board already adopted. Solo setup: board, boxscore off" });
       const patches = p.calls.fetchInits.filter((c) => c.init?.method === "PATCH").map((c) => [c.url, c.init?.body]);
       expect(patches).toEqual([
         ["http://127.0.0.1:4100/api/v1/apps/board", JSON.stringify({ enabled: false })],
@@ -813,13 +813,13 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
         },
       });
       const { ctx } = makeCtx(p, { intent: SOLO_INTENT, team: { slug: "", name: "", mode: "none" } });
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "failed", detail: "deck ready; board already adopted; app defaults not applied (deck answered 404)" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "failed", detail: "Deck is ready. Board already adopted. App defaults not applied: deck answered 404" });
     });
 
     test("solo: a PATCH answering 500 fails the step", async () => {
       const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 500, CATALOG), exec: async () => adoptReply(false) } });
       const { ctx } = makeCtx(p, { intent: SOLO_INTENT, team: { slug: "", name: "", mode: "none" } });
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "failed", detail: "deck ready; board already adopted; app defaults not applied; failed: board (500), boxscore (500)" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "failed", detail: "Deck is ready. Board already adopted. App defaults not applied for board (500), boxscore (500)" });
     });
   });
 
@@ -843,7 +843,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const p = fakeProbes({ home });
       const { ctx } = makeCtx(p);
       const outcome = await skillsLinkStep.run(ctx);
-      expect(outcome).toEqual({ state: "skipped", detail: "not running from an app bundle" });
+      expect(outcome).toEqual({ state: "skipped", detail: "rt is not running from the app" });
     });
 
     test("a personal skill link conflict is logged, not silently dropped", async () => {
@@ -880,7 +880,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       const p = fakeProbes({ home, ...materializeWorld(home) });
       const { ctx } = makeCtx(p);
-      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file" });
       expect(p.calls.exec).toContainEqual(["git", "-C", repoDir, "remote", "get-url", "origin"]);
       expect(p.readFile(`${home}/.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets/skills.jsonc`)).not.toBeNull();
     });
@@ -895,7 +895,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const fragment = `${home}/.mattstack/teams/acme/mattstack/packs/widgets/pack/skills.jsonc`;
       expect(await skillsMaterializeStep.run(ctx)).toEqual({
         state: "done",
-        detail: `materialized 0 pack files; failed: widgets (${repoName}): fragment is not valid JSONC: ${fragment}`,
+        detail: `Materialized 0 pack files; failed: widgets (${repoName}): fragment is not valid JSONC: ${fragment}`,
       });
       expect(logs.some((l) => l.line === `${repoName}: widgets: fragment is not valid JSONC: ${fragment}`)).toBe(true);
     });
@@ -908,7 +908,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const p = fakeProbes({ home, ...materializeWorld(home, { siblingFragment: JSON.stringify({ extends: "acme-base@acme" }) }) });
       expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({
         state: "done",
-        detail: `materialized 1 pack file; failed: gadgets (${repoName}): gadgets extends acme-base@acme, which is not installed; add it to the team's claude.plugins`,
+        detail: `Materialized 1 pack file; failed: gadgets (${repoName}): gadgets extends acme-base@acme, which is not installed; add it to the team's claude.plugins`,
       });
     });
 
@@ -925,7 +925,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
         exec: async (argv) => (argv.includes(undeclared) ? ok("https://gitlab.example.com/acme/other.git\n") : world.exec(argv)),
       });
       const { ctx, logs } = makeCtx(p);
-      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file, no skills declared 1" });
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file. 1 repo declares no skills" });
       expect(logs.filter((l) => l.id === "skills.materialize" && !l.line.startsWith("board.defaultPack"))).toEqual([]);
     });
 
@@ -934,7 +934,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       updateRepoIndex(basename(repoDir), repoDir);
       const p = fakeProbes({ home, ...materializeWorld(home), exec: async () => ({ code: 1, stdout: "", stderr: "error: No such remote 'origin'" }) });
       const { ctx, logs } = makeCtx(p);
-      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 0 pack files, no skills declared 1" });
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "Materialized 0 pack files. 1 repo declares no skills" });
       expect(logs.filter((l) => l.id === "skills.materialize" && !l.line.startsWith("board.defaultPack"))).toEqual([]);
     });
 
@@ -943,8 +943,8 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       updateRepoIndex(basename(repoDir), repoDir);
       const p = fakeProbes({ home, ...materializeWorld(home) });
 
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file" });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file" });
     });
 
     function staleGadgetsProbes() {
@@ -963,7 +963,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
     test("a bindings file no pack still owns is set aside and counted", async () => {
       const { p, packs } = staleGadgetsProbes();
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file, set aside 1 stale bindings file" });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file. Set aside 1 stale bindings file" });
       expect(p.readFile(`${packs}/gadgets/skills.jsonc`)).toBeNull();
       expect(p.readFile(`${packs}/gadgets/skills.jsonc.stale`)).toBe("// zone: acme\n{}");
     });
@@ -977,7 +977,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       };
       expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({
         state: "done",
-        detail: `materialized 1 pack file; warning: ${repoName}: could not set aside ${packs}/gadgets/skills.jsonc: EACCES: permission denied`,
+        detail: `Materialized 1 pack file; warning: ${repoName}: could not set aside ${packs}/gadgets/skills.jsonc: EACCES: permission denied`,
       });
       expect(p.readFile(`${packs}/gadgets/skills.jsonc`)).toBe("// zone: acme\n{}");
     });
@@ -993,7 +993,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       test("writes the team's first pack when the key is unwritten", async () => {
         const { ctx, logs } = makeCtx(materializeProbes(), { team: ACME });
-        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file" });
         expect(getSetting("board.defaultPack").value).toBe("widgets");
         expect(getSetting("board.defaultPack").provenance.some((p) => p.scope === "user")).toBe(true);
         expect(logs).toContainEqual({ id: "skills.materialize", line: "board.defaultPack: set to widgets" });
@@ -1008,13 +1008,13 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       test("an update run seeds it too", async () => {
         const { ctx } = makeCtx(materializeProbes(), { team: ACME, update: true });
-        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file" });
         expect(getSetting("board.defaultPack").value).toBe("widgets");
       });
 
       test("no team pack: nothing written, the step is still done", async () => {
         const { ctx, logs } = makeCtx(materializeProbes(), { team: { slug: "gadgets-co", name: "Gadgets", mode: "join" } });
-        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+        expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file" });
         expect(getSetting("board.defaultPack").value).toBeUndefined();
         expect(logs).toContainEqual({ id: "skills.materialize", line: "board.defaultPack: the team has no packs, left unset" });
       });
@@ -1155,7 +1155,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const p = fakeProbes({ home });
       const { ctx, logs } = makeCtx(p);
       const outcome = await boardKeysStep.run(ctx);
-      expect(outcome).toEqual({ state: "done", detail: "wrote: gitq.board" });
+      expect(outcome).toEqual({ state: "done", detail: "Wrote gitq.board" });
       expect(getSetting("gitq.board").value).toEqual({ repos: [], port: 11008 });
       expect(getSetting("board.cwds").value).toBeUndefined();
       expect(getSetting("gitq.workSlots").value).toBeUndefined();
@@ -1302,7 +1302,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       setSetting("board.reReview", { enabled: false }, "user");
       const p = bundledProbes({ tools: ["board"] });
       const { ctx } = makeCtx(p);
-      expect(await cronTriageStep.run(ctx)).toEqual({ state: "skipped", detail: "board.reReview disabled" });
+      expect(await cronTriageStep.run(ctx)).toEqual({ state: "skipped", detail: "The board's re-review hook is off" });
       expect(getSetting("rt.cron").value).toBeUndefined();
     });
 
@@ -1310,7 +1310,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const p = bundledProbes({ tools: ["board"] });
       const { ctx } = makeCtx(p);
       const outcome = await cronTriageStep.run(ctx);
-      expect(outcome).toEqual({ state: "done", detail: "installed board-triage" });
+      expect(outcome).toEqual({ state: "done", detail: "Installed the board triage skill" });
     });
 
     test("enabled, board only bundled (no checkout) -> installs the trigger against the bundled binary's triage subcommand", async () => {
@@ -1319,7 +1319,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx } = makeCtx(p);
 
       const outcome = await cronTriageStep.run(ctx);
-      expect(outcome).toEqual({ state: "done", detail: "installed board-triage" });
+      expect(outcome).toEqual({ state: "done", detail: "Installed the board triage skill" });
       const triggers = getSetting<{ triggers: { name: string; run: string[] }[] }>("rt.cron").value?.triggers ?? [];
       expect(triggers).toHaveLength(1);
       expect(triggers[0]!.run).toEqual([join(appRoot, HELPERS_DIR, "board"), "triage"]);
@@ -1331,7 +1331,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx } = makeCtx(p);
 
       const outcome = await cronTriageStep.run(ctx);
-      expect(outcome).toEqual({ state: "skipped", detail: "board binary not found — resolve it first (`rt deps resolve board`)" });
+      expect(outcome).toEqual({ state: "skipped", detail: "The board binary was not found. Run rt deps resolve board first" });
     });
 
     test("enabled, a registered board checkout carrying bin/triage.ts -> done, installs the trigger", async () => {
@@ -1347,7 +1347,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx } = makeCtx(p);
 
       const outcome = await cronTriageStep.run(ctx);
-      expect(outcome).toEqual({ state: "done", detail: "installed board-triage" });
+      expect(outcome).toEqual({ state: "done", detail: "Installed the board triage skill" });
       const triggers = getSetting<{ triggers: { name: string; run: string[] }[] }>("rt.cron").value?.triggers ?? [];
       expect(triggers).toHaveLength(1);
       expect(triggers[0]!.run).toEqual(["bun", "run", join(boardCheckout, "bin", "triage.ts")]);

@@ -264,3 +264,46 @@ func TestSubLinesInATwoRowPaneCompleteCleanly(t *testing.T) {
 		t.Fatalf("exit %d, want the final line alone: %q", exit, rows)
 	}
 }
+
+const clearDone = `{"t":"done","title":"scanning ports…","clear":true}`
+
+func TestADoneThatClearsLeavesNothingOnScreen(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"scanning ports…"}`, `{"t":"sub","text":"asking lsof"}`, clearDone}
+	stdout, tty, exit := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	if exit != 0 || stdout != "" {
+		t.Fatalf("exit %d stdout %q", exit, stdout)
+	}
+	if !strings.Contains(tty, "scanning ports") {
+		t.Fatalf("the spinner row never painted, so the test proves nothing: %q", tty)
+	}
+	if screen := testutil.Screen(tty); strings.TrimSpace(screen) != "" {
+		t.Fatalf("a clearing done left text on screen: %q", screen)
+	}
+}
+
+func TestADoneThatClearsAnInstantStepPaintsNothing(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"scanning ports…"}`, clearDone}
+	_, tty, exit := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	if exit != 0 || tty != "" {
+		t.Fatalf("exit %d tty %q", exit, tty)
+	}
+}
+
+func TestADoneThatClearsKeepsEarlierLogLines(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"scanning ports…"}`, `{"t":"log","level":"warn","text":"one port did not answer"}`, clearDone}
+	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	screen := testutil.Screen(tty)
+	if !strings.Contains(screen, "one port did not answer") || strings.Contains(screen, "scanning ports") {
+		t.Fatalf("screen %q", screen)
+	}
+}
+
+// What a helper without the flag does with the same event, minus the flag:
+// the row a new CLI gets from an old helper.
+func TestADoneWithoutTheFlagStillPaintsItsRow(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"scanning ports…"}`, `{"t":"done","title":"scanning ports…"}`}
+	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	if !strings.Contains(testutil.Screen(tty), "✓ scanning ports…") {
+		t.Fatalf("screen %q", testutil.Screen(tty))
+	}
+}

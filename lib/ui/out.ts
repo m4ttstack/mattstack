@@ -7,6 +7,7 @@
 import { renderPlain } from "./out-plain.ts";
 import { encodeLine, PROTOCOL_VERSION, type Block, type CalloutLabel, type Cell, type ChangeRow, type DiffHunk, type RenderStatus, type Segment } from "./protocol.ts";
 import { resolveRtUi } from "./resolve.ts";
+import { logCliEvent } from "../cli-logger.ts";
 
 export type CellInput = string | Segment | Array<string | Segment>;
 
@@ -18,7 +19,7 @@ export interface FailureInput {
   details?: string;
 }
 
-type Stream = "stdout" | "stderr";
+export type Stream = "stdout" | "stderr";
 
 function toCell(input: CellInput): Cell {
   const parts = Array.isArray(input) ? input : [input];
@@ -121,24 +122,55 @@ function write(stream: Stream, text: string): void {
 
 const RENDER_TIMEOUT_MS = 2000;
 
+let helperWarned = false;
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+// The plain fallback keeps the person's words; the log keeps the reason they
+// were plain, which is otherwise invisible on an installed machine. One line
+// per process: every later block set on that machine fails the same way.
+function helperFailed(what: string, context: Record<string, unknown>): void {
+  if (helperWarned) return;
+  helperWarned = true;
+  logCliEvent("warn", "rt-ui", `${what}; printed plain text instead`, context);
+}
+
 function renderStyled(blocks: Block[], stream: Stream): string | null {
+  let bin: string;
+  try {
+    bin = resolveRtUi();
+  } catch (err) {
+    helperFailed("rt-ui was not found", { error: errorText(err) });
+    return null;
+  }
   try {
     const columns = (stream === "stdout" ? process.stdout : process.stderr).columns ?? 80;
-    const args = [resolveRtUi(), "render", "--width", String(columns)];
+    const args = [bin, "render", "--width", String(columns)];
     if (process.env.NO_COLOR) args.push("--no-color");
     const input = encodeLine({ t: "hello", protocol: PROTOCOL_VERSION }) + blocks.map(encodeLine).join("");
     const r = Bun.spawnSync(args, { stdin: Buffer.from(input), stdout: "pipe", stderr: "pipe", env: { ...process.env }, timeout: RENDER_TIMEOUT_MS });
-    return r.exitCode === 0 && r.success ? r.stdout.toString() : null;
-  } catch {
-    // A missing or unspawnable helper must never cost the person the message.
+    if (r.exitCode === 0 && r.success) return r.stdout.toString();
+    // A helper killed by the timeout has exitCode null and signalCode SIGTERM.
+    helperFailed("rt-ui render exited non-zero", { bin, exitCode: r.exitCode, signalCode: r.signalCode, stderr: r.stderr.toString().trim().slice(-500) });
+    return null;
+  } catch (err) {
+    helperFailed("rt-ui render did not spawn", { bin, error: errorText(err) });
     return null;
   }
 }
 
+// Only stderr: the plain failure that opens it drops its tag, and one
+// printed under a note must not read as part of that note.
+let stderrWritten = false;
+
 function emit(blocks: Block[], stream: Stream): void {
   if (blocks.length === 0) return;
   const styled = human(stream) ? renderStyled(blocks, stream) : null;
-  write(stream, styled ?? renderPlain(blocks));
+  const text = styled ?? renderPlain(blocks, { continuing: stream === "stderr" && stderrWritten });
+  write(stream, text);
+  if (stream === "stderr" && text !== "") stderrWritten = true;
 }
 
 /** Human-facing blocks. Blocks that must align with each other go in one call. */
@@ -146,9 +178,23 @@ export function print(...blocks: Block[]): void {
   emit(blocks, humanStream);
 }
 
-/** A failure, on stderr. */
-export function fail(f: FailureInput): void {
-  emit([failure(f)], "stderr");
+/** A failure, on stderr, with any blocks that belong under it (a stack, an excerpt) in the same write. */
+export function fail(f: FailureInput, ...after: Block[]): void {
+  emit([failure(f), ...after], "stderr");
+}
+
+/**
+ * Blocks for a person on stderr, whatever the verb. A notice that fires
+ * before the verb is known, or under any verb, cannot use stdout: another
+ * program may be reading it. It does not follow payloadOnStdout.
+ */
+export function note(...blocks: Block[]): void {
+  emit(blocks, "stderr");
+}
+
+/** Whether a person is reading `stream` right now: the gate print and fail apply. */
+export function isHuman(stream: Stream = "stdout"): boolean {
+  return human(stream);
 }
 
 /** A --json envelope, exactly as JSON.stringify writes it. */
@@ -166,6 +212,8 @@ export const __test__ = {
     human = fn ?? realHuman;
   },
   reset(): void {
+    helperWarned = false;
+    stderrWritten = false;
     human = realHuman;
     humanStream = "stdout";
   },

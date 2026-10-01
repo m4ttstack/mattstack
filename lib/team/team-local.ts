@@ -12,7 +12,7 @@
  */
 
 import { dirname, join } from "path";
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 
 export interface TeamLocalRecord {
@@ -41,6 +41,13 @@ export interface TeamLocalRecord {
    * team that predates this file is therefore off, with no migration.
    */
   rtMayManageMembership: boolean;
+  /**
+   * The age recipient this machine sent the owner when it redeemed its
+   * invite. Read without the keychain, it tells whether the team's secrets
+   * are encrypted to this machine yet, before Install has written the
+   * personal recipients file.
+   */
+  agePublicKey?: string;
 }
 
 const RECORD_MODE = 0o600;
@@ -62,6 +69,7 @@ export function readTeamLocal(p: Pick<Probes, "readFile" | "home">, slug: string
       createdByRt: parsed.createdByRt === true,
       joinedByRt: parsed.joinedByRt === true,
       rtMayManageMembership: parsed.rtMayManageMembership === true,
+      ...(typeof parsed.agePublicKey === "string" && parsed.agePublicKey.startsWith("age1") ? { agePublicKey: parsed.agePublicKey } : {}),
     };
   } catch {
     return { ...EMPTY };

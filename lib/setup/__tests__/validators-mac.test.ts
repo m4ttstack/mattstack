@@ -61,7 +61,7 @@ describe("macRows — tool.clt", () => {
     };
     const r = await pickRow(macRows(fakeProbes({ exec: execScript })), "tool.clt");
     expect(r.status).toBe("missing");
-    expect(r.detail).toBe("Apple command line tools not installed");
+    expect(r.detail).toBe("Apple's Command Line Tools are not installed");
     expect(r.action).toEqual({ type: "install", label: "Install…", tool: "apple-clt", via: "apple-clt" });
     expect(probed).not.toContain("git");
   });
@@ -148,7 +148,7 @@ describe("macRows — tool.path", () => {
     });
     const r = await pickRow(macRows(p), "tool.path");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("not via rt's own");
+    expect(r.detail).toContain("not through rt's own");
   });
 
   test("the unowned-precedence row offers the step that makes rt own it", async () => {

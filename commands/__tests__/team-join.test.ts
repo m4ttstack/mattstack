@@ -1,5 +1,7 @@
 import { describe, test, expect, spyOn } from "bun:test";
 import { join as pathJoin } from "path";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { teamJoin, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
@@ -127,12 +129,38 @@ describe("teamJoin", () => {
     expect(deps.lines[0]).not.toContain(CODE);
   });
 
-  test("human mode: code-on-argv prints the message and exits 2", async () => {
-    const deps = baseDeps();
-    const code = await runExpectingProcessExit(() => teamJoin(["ABC"], {}, deps));
+  test("a second team exits 2 with team-already-set-up in the envelope", async () => {
+    const teams = pathJoin(HOME, ".mattstack", "teams");
+    const deps = baseDeps({
+      probes: fakeProbes({
+        home: HOME,
+        fetch: relayFetch(),
+        exec: () => ({ code: 0, stdout: "", stderr: "" }),
+        dirs: { [teams]: ["globex"] },
+        files: { [pathJoin(teams, "globex", "mattstack", "settings.team.jsonc")]: "{}" },
+      }),
+    });
+
+    const code = await runExpectingProcessExit(() => teamJoin(["--json"], {}, deps));
 
     expect(code).toBe(2);
-    expect(deps.lines[0]).toContain("pass the invite code on stdin, never as an argument");
+    const body = JSON.parse(deps.lines[0]!);
+    expect(body.error.code).toBe("team-already-set-up");
+    expect(body.error.message).toBe("this machine is set up for team globex; mattstack supports one team per machine today");
+  });
+
+  test("human mode: code-on-argv prints the message and exits 2", async () => {
+    const deps = baseDeps();
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => teamJoin(["ABC"], {}, deps));
+      expect(code).toBe(2);
+      expect(deps.lines).toEqual([]);
+      expect(io.stderr()).toContain("pass the invite code on stdin, never as an argument");
+    } finally {
+      io.restore();
+    }
   });
 
   test("--dry-run --json prints the exact contract envelope for an accessible invite", async () => {
@@ -356,12 +384,19 @@ describe("teamJoin", () => {
   test("a keychain failure in human mode prints a clean one-liner, not a raw stack", async () => {
     const probes = fakeProbes({ home: HOME, fetch: relayFetch(), exec: () => ({ code: 0, stdout: "", stderr: "" }) });
     const deps = baseDeps({ probes, ageKeySeam: new FakeAgeKeySeamLocked() });
-
-    const code = await runExpectingProcessExit(() => teamJoin([], {}, deps));
-
-    expect(code).toBe(2);
-    expect(deps.lines[0]).toContain("rt team join:");
-    expect(deps.lines[0]).not.toContain("at ");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => teamJoin([], {}, deps));
+      expect(code).toBe(2);
+      expect(deps.lines).toEqual([]);
+      expect(io.stderr()).not.toContain("[failed]");
+      expect(io.stderr().split("\n")[0]!.length).toBeGreaterThan(0);
+      expect(io.stderr()).toContain("keychain");
+      expect(io.stderr()).not.toContain("\n    at ");
+    } finally {
+      io.restore();
+    }
   });
 
   test("an undeterminable forge login exits 2, does not seal a guessed identity, and never redeems the invite (N1/R-T18-e)", async () => {

@@ -128,8 +128,8 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome).toEqual({
         state: "failed",
-        detail: "claude not found (not bundled, no user copy on PATH)",
-        remedy: "Install Claude Code (Tools row), then Retry.",
+        detail: "Claude Code is not installed (not in this build, and no copy on your PATH)",
+        remedy: "Install Claude Code from the Tools section, then Retry.",
       });
       expect(p.calls.exec).toEqual([]);
     });
@@ -138,7 +138,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({ home, env: {} });
       const { ctx } = makeCtx(p, { nonInteractive: true });
       const outcome = await pluginsInstallStep.run(ctx);
-      expect(outcome).toEqual({ state: "skipped", detail: "claude not found (not bundled, no user copy on PATH)" });
+      expect(outcome).toEqual({ state: "skipped", detail: "Claude Code is not installed (not in this build, and no copy on your PATH)" });
       expect(p.calls.exec).toEqual([]);
     });
 
@@ -305,10 +305,11 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const outcome = await pluginsInstallStep.run(ctx);
 
       expect(outcome.state).toBe("done");
-      expect(detailOf(outcome)).toContain("4 marketplace(s), 5 plugin(s) across 1 config dir(s)");
+      expect(detailOf(outcome)).toContain("4 marketplaces, 5 plugins across 1 Claude config folder");
       expect(detailOf(outcome)).toContain(ENGINE_PACK_MISSING_CODE); // no mattstack plugin on disk yet in this fake, so materialize honestly skips
       // acme-skills is team-authored (came from the team's own marketplace.json) — installed, never auto-enabled.
-      expect(detailOf(outcome)).toContain("awaiting your approval to enable: acme-skills@acme-market");
+      expect(detailOf(outcome)).toContain(`1 Claude config folder. Skills were not materialized: ${ENGINE_PACK_MISSING_CODE}`);
+      expect(detailOf(outcome)).toContain(". 1 plugin awaiting your approval to enable: acme-skills@acme-market");
 
       const marketAdds = execCalls.filter((c) => c.argv.includes("marketplace") && c.argv.includes("add"));
       const installs = execCalls.filter((c) => c.argv[1] === "plugin" && c.argv[2] === "install");
@@ -357,7 +358,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome.state).toBe("done");
-      expect(detailOf(outcome)).toContain("materialized 1 pack file");
+      expect(detailOf(outcome)).toContain("Materialized 1 pack file");
     });
 
     test("a repo no team pack declares is tallied as nothing to do, never as a failed materialize", async () => {
@@ -386,7 +387,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome.state).toBe("done");
-      expect(detailOf(outcome)).toContain("materialized 0 pack files, no skills declared 1");
+      expect(detailOf(outcome)).toContain("Materialized 0 pack files. 1 repo declares no skills");
       expect(detailOf(outcome)).not.toContain("failed");
       expect(logs.filter((l) => l.line.startsWith("materialize "))).toEqual([]);
     });
@@ -447,7 +448,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       });
       const { ctx } = makeCtx(p);
 
-      expect(detailOf(await pluginsInstallStep.run(ctx))).toBe("claude plugin marketplace add exited 1");
+      expect(detailOf(await pluginsInstallStep.run(ctx))).toBe("Adding the marketplace failed (exit 1)");
     });
 
     test("rt's own add is the .git https form Claude Code records, so fast-browser's --source matches it exactly", () => {
@@ -511,7 +512,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome.state).toBe("failed");
-      expect(detailOf(outcome)).toBe("a mattstack marketplace from someone-else/mattstack-marketplace is already registered");
+      expect(detailOf(outcome)).toBe("A mattstack marketplace from someone-else/mattstack-marketplace is already registered");
       expect(remedyOf(outcome)).toContain("claude plugin marketplace remove mattstack");
       expect(p.calls.exec.some((a) => a.includes("add") && a.at(-1) === MATTSTACK_MARKETPLACE_SOURCE)).toBe(false);
       expect(p.calls.exec.some((a) => a.includes("install"))).toBe(false);
@@ -532,9 +533,25 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome).toEqual({
         state: "failed",
-        detail: "claude plugin install exited 3",
+        detail: "Installing plugins failed (exit 3)",
         remedy: "Open Claude Code once so it finishes first-run, then Retry.",
       });
+    });
+
+    test("a failed plugin install logs the plugin and the child's output behind the short detail", async () => {
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          if (argv[2] === "list") return ok("[]");
+          return argv[2] === "install" ? { code: 3, stdout: "  resolving the plugin\n", stderr: "  network error\n" } : ok("");
+        },
+      });
+      const { ctx, logs } = makeCtx(p);
+
+      expect((await pluginsInstallStep.run(ctx)).state).toBe("failed");
+      expect(logs).toContainEqual({ id: "plugins.install", line: `${BASE_PLUGINS[0]}: plugin install exited 3: network error\nresolving the plugin` });
     });
 
     test("idempotent re-run: 'already' stderr on add/install tolerated, an unknown 'enable' subcommand ignored — still done", async () => {
@@ -816,7 +833,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const outcome = await pluginsInstallStep.run(ctx);
 
       expect(outcome.state).toBe("done");
-      expect(detailOf(outcome)).toContain(`${BASE_PLUGINS.length} plugin(s)`);
+      expect(detailOf(outcome)).toContain(`${BASE_PLUGINS.length} plugins`);
       expect(detailOf(outcome)).not.toContain("awaiting your approval");
       expect(detailOf(outcome)).not.toContain("acme-skills@acme-market");
       expect(logs.some((l) => l.line.includes("installed but NOT enabled"))).toBe(false);
@@ -928,6 +945,26 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const installs = execCalls.filter((c) => c.argv[2] === "install");
       expect(installs.length).toBe(BASE_PLUGINS.length);
       expect(installs.every((c) => c.timeoutMs === 60_000)).toBe(true);
+    });
+
+    test("a failed plugin update logs the plugin and the child's output behind the short detail", async () => {
+      const installed = BASE_PLUGINS.map((id) => ({ id, version: "1.0.0", enabled: true }));
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          if (argv[2] === "list") return ok(JSON.stringify(installed));
+          if (argv[2] === "update") return { code: 2, stdout: "  fetching the index\n", stderr: "  index unreachable\n" };
+          return ok("");
+        },
+      });
+      const { ctx, logs } = makeCtx(p);
+
+      const outcome = await pluginsInstallStep.run(ctx);
+
+      expect(outcome).toEqual({ state: "failed", detail: "Updating plugins failed (exit 2)", remedy: "Open Claude Code once so it finishes first-run, then Retry." });
+      expect(logs).toContainEqual({ id: "plugins.install", line: `${BASE_PLUGINS[0]}: plugin update exited 2: index unreachable\nfetching the index` });
     });
 
     test("a claude without `plugin update` settles the installed plugin instead of failing the step", async () => {
@@ -1120,7 +1157,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       });
       const { ctx } = makeCtx(p, { snapshot: GITHUB_FORGE });
 
-      expect(await gitIdentityStep.run(ctx)).toEqual({ state: "skipped", detail: "already configured: Ada Lovelace <ada@example.com>" });
+      expect(await gitIdentityStep.run(ctx)).toEqual({ state: "skipped", detail: "Already set: Ada Lovelace <ada@example.com>" });
       expect(p.calls.exec).toEqual([READ_NAME, READ_EMAIL]);
     });
 
@@ -1204,7 +1241,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       expect(await gitIdentityStep.run(ctx)).toEqual({
         state: "skipped",
-        detail: "forge profile unavailable; run git config --global user.name / user.email",
+        detail: 'Your forge profile could not be read. Set your git identity with git config --global user.name "Your Name" and git config --global user.email you@example.com',
       });
       expect(writes(p)).toEqual([]);
       expect(logs.some((l) => l.id === "git.identity" && l.line.includes("not logged in"))).toBe(true);
@@ -1216,7 +1253,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       expect(await gitIdentityStep.run(ctx)).toEqual({
         state: "skipped",
-        detail: "no forge connected; run git config --global user.name / user.email",
+        detail: 'No forge account connected. Set your git identity with git config --global user.name "Your Name" and git config --global user.email you@example.com',
       });
       expect(p.calls.exec).toEqual([READ_NAME, READ_EMAIL]);
     });
@@ -1249,7 +1286,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       expect(await gitIdentityStep.run(ctx)).toEqual({
         state: "skipped",
-        detail: "no forge connected; run git config --global user.name / user.email",
+        detail: 'No forge account connected. Set your git identity with git config --global user.name "Your Name" and git config --global user.email you@example.com',
       });
       expect(p.calls.exec).toEqual([READ_NAME, READ_EMAIL]);
     });
@@ -1350,15 +1387,15 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     test("resolvable + setup succeeds -> done", async () => {
       const p = fakeProbes({ home, env: { PATH: "/usr/local/bin" }, files: { "/usr/local/bin/fast-browser": "bin" }, exec: async () => ok("") });
       const { ctx } = makeCtx(p);
-      expect(await fastbrowserSetupStep.run(ctx)).toEqual({ state: "done", detail: "fast-browser setup complete" });
+      expect(await fastbrowserSetupStep.run(ctx)).toEqual({ state: "done", detail: "Fast Browser is set up" });
       expect(p.calls.exec).toEqual([["/usr/local/bin/fast-browser", "setup", "--host", "claude", "--source", "https://github.com/m4ttstack/mattstack-marketplace.git"]]);
     });
 
     test("idempotent re-run: two independent setups each make their own real call — nothing memoized between runs", async () => {
       const p = fakeProbes({ home, env: { PATH: "/usr/local/bin" }, files: { "/usr/local/bin/fast-browser": "bin" }, exec: async () => ok("") });
-      expect(await fastbrowserSetupStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "fast-browser setup complete" });
+      expect(await fastbrowserSetupStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Fast Browser is set up" });
       expect(p.calls.exec).toEqual([["/usr/local/bin/fast-browser", "setup", "--host", "claude", "--source", "https://github.com/m4ttstack/mattstack-marketplace.git"]]);
-      expect(await fastbrowserSetupStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "fast-browser setup complete" });
+      expect(await fastbrowserSetupStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Fast Browser is set up" });
       const call = ["/usr/local/bin/fast-browser", "setup", "--host", "claude", "--source", "https://github.com/m4ttstack/mattstack-marketplace.git"];
       expect(p.calls.exec).toEqual([call, call]);
     });
@@ -1366,7 +1403,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     test("not bundled, no user copy -> skipped honestly, never execs", async () => {
       const p = fakeProbes({ home, env: {} });
       const { ctx } = makeCtx(p);
-      expect(await fastbrowserSetupStep.run(ctx)).toEqual({ state: "skipped", detail: "fast-browser not bundled" });
+      expect(await fastbrowserSetupStep.run(ctx)).toEqual({ state: "skipped", detail: "Fast Browser is not in this build" });
       expect(p.calls.exec).toEqual([]);
     });
 
@@ -1386,7 +1423,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const { ctx } = makeCtx(p, { nonInteractive: true });
       const outcome = await fastbrowserSetupStep.run(ctx);
       expect(outcome.state).toBe("skipped");
-      expect(detailOf(outcome)).toContain("no Claude Code or Codex host detected");
+      expect(detailOf(outcome)).toContain("No Claude Code or Codex found");
     });
 
     // fast-browser 0.1.1 reworded the refusal when a specific --host is asked
@@ -1403,7 +1440,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const { ctx } = makeCtx(p, { nonInteractive: true });
       const outcome = await fastbrowserSetupStep.run(ctx);
       expect(outcome.state).toBe("skipped");
-      expect(detailOf(outcome)).toContain("no Claude Code or Codex host detected");
+      expect(detailOf(outcome)).toContain("No Claude Code or Codex found");
     });
 
     // A human IS watching, so the failure stays loud — same split plugins.install makes.
@@ -1441,7 +1478,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const { ctx } = makeCtx(p);
       const outcome = await fastbrowserSetupStep.run(ctx);
       expect(outcome.state).toBe("failed");
-      expect(remedyOf(outcome)).toBe("Run `fast-browser setup` in a terminal for details");
+      expect(remedyOf(outcome)).toBe("Run fast-browser setup in a terminal for details");
     });
   });
 
@@ -1470,7 +1507,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     test("herdr not installed -> skipped, points at the Tools row", async () => {
       const p = fakeProbes({ home, env: {} });
       const { ctx } = makeCtx(p);
-      expect(await herdrIntegrationStep.run(ctx)).toEqual({ state: "skipped", detail: "herdr not installed (Tools row)" });
+      expect(await herdrIntegrationStep.run(ctx)).toEqual({ state: "skipped", detail: "herdr is not installed (see the Tools section)" });
       expect(p.calls.exec).toEqual([]);
     });
 
@@ -1528,14 +1565,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({ home });
       const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => null, detectEditors: () => [{ name: "Cursor", cliPath: "/x/cursor", appPath: "/x" }] };
       const outcome = await extensionInstallRun(makeCtx(p).ctx, seams);
-      expect(outcome).toEqual({ state: "skipped", detail: "extension not bundled" });
+      expect(outcome).toEqual({ state: "skipped", detail: "The extension is not in this build" });
     });
 
     test("no compatible editor -> skipped 'no editor found'", async () => {
       const p = fakeProbes({ home });
       const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => [] };
       const outcome = await extensionInstallRun(makeCtx(p).ctx, seams);
-      expect(outcome).toEqual({ state: "skipped", detail: "no editor found" });
+      expect(outcome).toEqual({ state: "skipped", detail: "No editor found" });
     });
 
     describe("under an update run", () => {
@@ -1559,7 +1596,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const seams: ToolsInstallSeams = { ...NOOP_SEAMS, findVsix: () => "/fake/rt-context.vsix", detectEditors: () => TWO_EDITORS };
 
         const outcome = await extensionInstallRun(makeCtx(p, { update: true }).ctx, seams);
-        expect(outcome).toEqual({ state: "skipped", detail: "no editor rt installed the extension into" });
+        expect(outcome).toEqual({ state: "skipped", detail: "No editor that rt installed the extension into" });
         expect(p.calls.exec).toEqual([]);
       });
 
@@ -1592,7 +1629,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         daemon: async () => ({ ok: true }),
       });
       const { ctx } = makeCtx(p);
-      expect(await servicesStartStep.run(ctx)).toEqual({ state: "done", detail: "daemon running" });
+      expect(await servicesStartStep.run(ctx)).toEqual({ state: "done", detail: "The daemon is running" });
     });
 
     test("idempotent re-run: two independent starts each hit the tray and poll the daemon again — nothing memoized between runs", async () => {
@@ -1605,10 +1642,10 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return { ok: true };
         },
       });
-      expect(await servicesStartStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "daemon running" });
+      expect(await servicesStartStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "The daemon is running" });
       expect(p.calls.tray).toEqual(["/daemon/start"]);
       expect(pings).toBe(1);
-      expect(await servicesStartStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "daemon running" });
+      expect(await servicesStartStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "The daemon is running" });
       expect(p.calls.tray).toEqual(["/daemon/start", "/daemon/start"]);
       expect(pings).toBe(2);
     });
@@ -1616,27 +1653,27 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     test("tray unreachable + nonInteractive -> skipped", async () => {
       const p = fakeProbes({ home }); // default tray: status 0
       const { ctx } = makeCtx(p, { nonInteractive: true });
-      expect(await servicesStartStep.run(ctx)).toEqual({ state: "skipped", detail: "mattstack.app not running" });
+      expect(await servicesStartStep.run(ctx)).toEqual({ state: "skipped", detail: "mattstack.app is not running" });
     });
 
     test("tray unreachable + interactive -> failed with remedy", async () => {
       const p = fakeProbes({ home });
       const { ctx } = makeCtx(p, { nonInteractive: false });
-      expect(await servicesStartStep.run(ctx)).toEqual({ state: "failed", detail: "mattstack.app not running", remedy: "Open mattstack.app" });
+      expect(await servicesStartStep.run(ctx)).toEqual({ state: "failed", detail: "mattstack.app is not running", remedy: "Open mattstack.app" });
     });
 
     test("tray 500 (app running, refused the start) -> always failed, even nonInteractive — never buried as 'not running'", async () => {
       const p = fakeProbes({ home, tray: fakeTray({ "POST /daemon/start": () => ({ status: 500, json: null }) }) });
       const { ctx } = makeCtx(p, { nonInteractive: true });
       const outcome = await servicesStartStep.run(ctx);
-      expect(outcome).toEqual({ state: "failed", detail: "mattstack.app returned status 500 starting the daemon", remedy: "Open mattstack.app" });
+      expect(outcome).toEqual({ state: "failed", detail: "mattstack.app answered 500 when asked to start the daemon", remedy: "Open mattstack.app" });
     });
 
     test("tray 404 (stale/unrecognized route) -> failed naming the status, not 'not running'", async () => {
       const p = fakeProbes({ home, tray: fakeTray({ "POST /daemon/start": () => ({ status: 404, json: null }) }) });
       const { ctx } = makeCtx(p);
       const outcome = await servicesStartStep.run(ctx);
-      expect(outcome).toEqual({ state: "failed", detail: "mattstack.app returned status 404 starting the daemon", remedy: "Open mattstack.app" });
+      expect(outcome).toEqual({ state: "failed", detail: "mattstack.app answered 404 when asked to start the daemon", remedy: "Open mattstack.app" });
     });
 
     test("tray 200 but the daemon never comes up -> failed after exhausting the poll (fast sleep)", async () => {
@@ -1651,7 +1688,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       });
       const { ctx } = makeCtx(p);
       const outcome = await servicesStartRun(ctx, async () => {});
-      expect(outcome).toEqual({ state: "failed", detail: "daemon did not come up", remedy: "Approve the background item in Login Items, then Retry" });
+      expect(outcome).toEqual({ state: "failed", detail: "The daemon did not start", remedy: "Approve the background item in Login Items, then Retry" });
       expect(pings).toBe(12);
     });
   });
@@ -1662,7 +1699,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     test("daemon reachable, commits, no remote -> done, honest that nothing was pushed", async () => {
       const p = fakeProbes({ home, daemon: async () => ({ ok: true, data: { committed: true, sha: "abcdef1234567890", paths: ["a"], reason: "manual" } }) });
       const outcome = await snapshotPushStep.run(makeCtx(p).ctx);
-      expect(outcome).toEqual({ state: "done", detail: "committed abcdef12 locally — no remote, nothing pushed" });
+      expect(outcome).toEqual({ state: "done", detail: "Committed abcdef12 on this Mac only; there is no remote to push to" });
     });
 
     test("daemon reachable, commits, remote attached -> done, defers the push claim to the daemon's next cycle (never asserts a push happened)", async () => {
@@ -1672,7 +1709,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         exec: async (argv) => (argv[0] === "git" && argv[1] === "remote" ? ok("origin\n") : ok("")),
       });
       const outcome = await snapshotPushStep.run(makeCtx(p).ctx);
-      expect(outcome).toEqual({ state: "done", detail: "committed abcdef12 — push follows on the daemon's next cycle" });
+      expect(outcome).toEqual({ state: "done", detail: "Committed abcdef12; the daemon pushes it on its next cycle" });
     });
 
     test("idempotent re-run: two independent triggers each call the daemon again — nothing memoized between runs", async () => {
@@ -1693,19 +1730,19 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     test("daemon reachable, snapshot disabled -> skipped honestly", async () => {
       const p = fakeProbes({ home, daemon: async () => ({ ok: true, data: { committed: false, sha: null, paths: [], reason: "manual", skipped: "disabled" } }) });
       const outcome = await snapshotPushStep.run(makeCtx(p).ctx);
-      expect(outcome).toEqual({ state: "skipped", detail: "snapshot skipped: disabled" });
+      expect(outcome).toEqual({ state: "skipped", detail: "Snapshot skipped: disabled" });
     });
 
     test("daemon reachable, nothing to commit -> done", async () => {
       const p = fakeProbes({ home, daemon: async () => ({ ok: true, data: { committed: false, sha: null, paths: [], reason: "manual" } }) });
       const outcome = await snapshotPushStep.run(makeCtx(p).ctx);
-      expect(outcome).toEqual({ state: "done", detail: "no changes to snapshot" });
+      expect(outcome).toEqual({ state: "done", detail: "No changes to snapshot" });
     });
 
     test("daemon reports failure -> failed with the git-status remedy", async () => {
       const p = fakeProbes({ home, daemon: async () => ({ ok: false, error: "commit failed" }) });
       const outcome = await snapshotPushStep.run(makeCtx(p).ctx);
-      expect(outcome).toEqual({ state: "failed", detail: "commit failed", remedy: "check `git -C ~/.mattstack/user status`" });
+      expect(outcome).toEqual({ state: "failed", detail: "commit failed", remedy: "Run git -C ~/.mattstack/user status to see why" });
     });
 
     test("daemon-reported failure text is run through stripUserinfo — a credential-bearing origin URL never reaches detail", async () => {
@@ -1729,7 +1766,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         },
       });
       const outcome = await snapshotPushStep.run(makeCtx(p).ctx);
-      expect(outcome).toEqual({ state: "skipped", detail: "snapshot deferred to the daemon's next cycle (daemon unreachable)" });
+      expect(outcome).toEqual({ state: "skipped", detail: "The daemon is not running; the snapshot runs on its next cycle" });
       expect(execCalls).toEqual([]);
     });
   });
@@ -1746,7 +1783,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(outcomeFromChecks(checks)).toEqual({ state: "done", detail: "2 checks passed" });
       });
 
-      test("one critical failure -> failed, names the id, points at rt verify", () => {
+      test("one critical failure with no row in hand -> failed, falls back to the id, points at rt verify", () => {
         const checks = [
           { name: "a", status: "pass" as const, detail: "", severity: "critical" as const },
           { name: "tool.app", status: "fail" as const, detail: "", severity: "critical" as const },
@@ -1754,7 +1791,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(outcomeFromChecks(checks)).toEqual({
           state: "failed",
           detail: "1 check failed: tool.app",
-          remedy: "Run `rt verify` for details",
+          remedy: "Run rt verify for details",
         });
       });
 
@@ -1766,7 +1803,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.team.doppler", "tool", "doppler", "missing")];
         expect(outcomeFromChecks([fail("account.slack"), fail("tool.team.doppler")], rows)).toEqual({
           state: "needs-you",
-          detail: "to connect: Slack · to install: doppler",
+          detail: "To connect: Slack. To install: doppler",
         });
       });
 
@@ -1784,15 +1821,22 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           leftForMember: (name) => name === "account.slack",
         });
         expect(readCount).toBe(2);
-        expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "to connect: Slack" });
+        expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "To connect: Slack" });
       });
 
-      test("a genuine failure stays failed and still names what is left to connect", () => {
+      test("a machine with more than one team zone reads as needs-you, so an update run reports it", () => {
+        const detail = "this machine has 2 team zones (acme, globex); mattstack supports one team per machine today. Remove the extra zone, or wait for multi-team support.";
+        const rows = [{ ...rowOf("team.one-per-machine", "tool", "One team per machine", "needs-you"), required: false, detail }];
+        const checks = [{ name: "team.one-per-machine", status: "warn" as const, detail, severity: "warning" as const }];
+        expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "More than one team on this Mac: open Setup status" });
+      });
+
+      test("a genuine failure stays failed, is named by its row title, and still names what is left to connect", () => {
         const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.app", "tool", "mattstack.app", "error"), rowOf("tool.team.doppler", "tool", "doppler", "missing")];
         expect(outcomeFromChecks([fail("account.slack"), fail("tool.app"), fail("tool.team.doppler")], rows)).toEqual({
           state: "failed",
-          detail: "1 check failed: tool.app · to connect: Slack · to install: doppler",
-          remedy: "Run `rt verify` for details",
+          detail: "1 check failed: mattstack.app. To connect: Slack. To install: doppler",
+          remedy: "Run rt verify for details",
         });
       });
 
@@ -1804,7 +1848,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const secrets = { has: async (domain: string, key: string) => (`${domain}.${key}` === "rt.gitlabToken" ? "tok" : null) };
         const rows = await accountRows(p, team, [], secrets, null, { forgeHost: "gitlab.com" });
         expect(rows.find((r) => r.id === "account.gitlab")?.status).toBe("needs-you");
-        expect(outcomeFromChecks([fail("account.gitlab")], rows)).toEqual({ state: "needs-you", detail: "to connect: GitLab" });
+        expect(outcomeFromChecks([fail("account.gitlab")], rows)).toEqual({ state: "needs-you", detail: "To connect: GitLab" });
       });
 
       test("an unpeered joined board blocks neither Install nor Finish, yet verify reports it and the update notification counts it", async () => {
@@ -1827,9 +1871,9 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(plan.finishBlockedBy).toEqual([]);
 
         const outcome = outcomeFromChecks(rowsToChecks(plan, { ci: false }), rows);
-        expect(outcome).toEqual({ state: "needs-you", detail: "board not peered: ask the team owner to re-invite you" });
+        expect(outcome).toEqual({ state: "needs-you", detail: "Board not peered: ask the team owner to re-invite you" });
         expect(updateNotification("1.2.3", [{ id: "verify", state: outcome.state, detail: (outcome as { detail: string }).detail }])?.message).toBe(
-          "verify: board not peered: ask the team owner to re-invite you",
+          "verify: Board not peered: ask the team owner to re-invite you",
         );
       });
 
@@ -1837,7 +1881,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const rows = [rowOf("account.slack", "account", "Slack", "missing"), { ...rowOf("account.board-peering", "account", "Board peering", "needs-you"), required: false }];
         expect(outcomeFromChecks([fail("account.slack"), { name: "account.board-peering", status: "warn", detail: "", severity: "warning" }], rows)).toEqual({
           state: "needs-you",
-          detail: "to connect: Slack · board not peered: ask the team owner to re-invite you",
+          detail: "To connect: Slack. Board not peered: ask the team owner to re-invite you",
         });
       });
 
@@ -1942,8 +1986,9 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const { ctx } = makeCtx(p, { ci: true });
         const outcome = await verifyStep.run(ctx);
         expect(outcome.state).toBe("failed");
-        expect(detailOf(outcome)).toContain("tool.app");
-        expect(remedyOf(outcome)).toBe("Run `rt verify` for details");
+        expect(detailOf(outcome)).toContain("mattstack.app");
+        expect(detailOf(outcome)).not.toContain("tool.app");
+        expect(remedyOf(outcome)).toBe("Run rt verify for details");
       });
 
       test("idempotent re-run: the same bare machine reports the same failure twice", async () => {
@@ -1993,7 +2038,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     test("no stored key -> skipped, nothing written", async () => {
       const p = fakeProbes({ home, env: {} });
       const { ctx } = makeCtx(p, { secretPresence: noKey });
-      expect(await linearMcpStep.run(ctx)).toEqual({ state: "skipped", detail: "no Linear key stored (connect Linear, then Retry)" });
+      expect(await linearMcpStep.run(ctx)).toEqual({ state: "skipped", detail: "No Linear account connected yet. Connect Linear, then Retry" });
       expect(p.calls.writes).toEqual({});
     });
 
@@ -2024,7 +2069,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect((await linearMcpStep.run(ctx)).state).toBe("done");
       const afterFirst = p.readFile(`${home}/.claude.json`);
       const renamesAfterFirst = p.calls.renames.length;
-      expect(await linearMcpStep.run(ctx)).toEqual({ state: "skipped", detail: "already configured" });
+      expect(await linearMcpStep.run(ctx)).toEqual({ state: "skipped", detail: "Already set up" });
       expect(p.readFile(`${home}/.claude.json`)).toBe(afterFirst);
       expect(p.calls.renames.length).toBe(renamesAfterFirst);
     });
@@ -2033,7 +2078,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const railway = { type: "http", url: "https://mcp.railway.app/mcp" };
       const p = fakeProbes({ home, env: {}, files: { [`${home}/.claude.json`]: JSON.stringify({ mcpServers: { linear: railway } }) } });
       const { ctx } = makeCtx(p, { secretPresence: withKey });
-      expect(await linearMcpStep.run(ctx)).toEqual({ state: "skipped", detail: "already configured" });
+      expect(await linearMcpStep.run(ctx)).toEqual({ state: "skipped", detail: "Already set up" });
       expect(JSON.parse(p.readFile(`${home}/.claude.json`)!).mcpServers.linear).toEqual(railway);
     });
 
@@ -2051,7 +2096,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const { ctx } = makeCtx(p, { secretPresence: withKey });
       const outcome = await linearMcpStep.run(ctx);
       expect(outcome.state).toBe("failed");
-      expect(detailOf(outcome)).toContain("could not be read");
+      expect(detailOf(outcome)).toContain("Could not read");
       expect(p.calls.writes).toEqual({});
       expect(p.calls.renames).toEqual([]);
     });
@@ -2245,7 +2290,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect((await claudePermissionsStep.run(ctx)).state).toBe("done");
       const afterFirst = p.readFile(settingsPath());
       const renamesAfterFirst = p.calls.renames.length;
-      expect(await claudePermissionsStep.run(ctx)).toEqual({ state: "skipped", detail: "baseline permissions already present" });
+      expect(await claudePermissionsStep.run(ctx)).toEqual({ state: "skipped", detail: "Baseline permissions already present" });
       expect(p.readFile(settingsPath())).toBe(afterFirst);
       expect(p.calls.renames.length).toBe(renamesAfterFirst);
     });

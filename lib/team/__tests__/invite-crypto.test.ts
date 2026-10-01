@@ -12,7 +12,7 @@ import {
   sealBytes,
   openBytes,
 } from "../invite-crypto.ts";
-import { UserActionableError } from "../../setup/errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import type { InvitePointer } from "../../setup/intent.ts";
 import fixture from "../fixtures/invite-code-inputs.json";
 

@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import {
   readSecret,
   writeSecret,
@@ -12,6 +12,8 @@ import {
   createRealSecretsExecSeam,
   personalStoreReady,
   NoAgeKeyError,
+  SopsDecryptError,
+  sopsKeyMismatch,
   InvalidSecretsSegmentError,
   SecretsTimeoutError,
   type SecretsExecResult,
@@ -22,6 +24,8 @@ import { rtDir, mattstackHome } from "../../rt-paths.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { dirname, join } from "path";
 import { secretsList } from "../../../commands/secrets.ts";
+import * as out from "../../ui/out.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
 
 const NOT_FOUND_STDERR = "The specified item could not be found in the keychain.";
 const DEFAULT_CIPHERTEXT = JSON.stringify({ data: "opaque", sops: { age: [] } });
@@ -641,23 +645,16 @@ describe("rt secrets list (command layer)", () => {
     execSeam.writeFile(path, "ciphertext");
     const seams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey("AGE-X"), execSeam };
 
-    const logs: string[] = [];
-    const errors: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation((...parts: unknown[]) => {
-      logs.push(parts.map(String).join(" "));
-    });
-    const errorSpy = spyOn(console, "error").mockImplementation((...parts: unknown[]) => {
-      errors.push(parts.map(String).join(" "));
-    });
-
+    const cap = captureOut();
+    out.__test__.setHuman(() => false);
+    let output: string;
     try {
       await secretsList([domain], {}, seams);
     } finally {
-      logSpy.mockRestore();
-      errorSpy.mockRestore();
+      output = cap.stdout() + cap.stderr();
+      cap.restore();
     }
 
-    const output = [...logs, ...errors].join("\n");
     expect(output).toContain("apiKey");
     expect(output).toContain("other");
     expect(output).not.toContain(CANARY);
@@ -721,5 +718,46 @@ describe("removeSecret", () => {
 
     await expect(removeSecret("rt", "a", seams)).rejects.toThrow(/read-back/);
     expect(execSeam.fsyncAndRenameCalls).toEqual([]);
+  });
+});
+
+const SOPS_WRONG_KEY_STDERR = [
+  "Failed to get the data key required to decrypt the SOPS file.",
+  "",
+  "Group 0: FAILED",
+  "  age1examplerecipientqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq: FAILED",
+  "    - | failed to create reader for decrypting sops data key with",
+  "      | age: identity did not match any of the recipients: incorrect",
+  "      | identity for recipient block.",
+  "",
+  "Recovery failed because no master key was able to decrypt the file.",
+].join("\n");
+
+describe("a sops decrypt failure is typed", () => {
+  test("sopsDecrypt throws SopsDecryptError carrying the path and the raw stderr, with the message callers already match", async () => {
+    const domain = "rt";
+    const path = secretsFilePath(domain);
+    const execSeam = new FakeSecretsExecSeam({ decrypt: () => ({ code: 128, stdout: "", stderr: SOPS_WRONG_KEY_STDERR }) });
+    execSeam.writeFile(path, "ciphertext");
+    const seams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey("AGE-X"), execSeam };
+
+    const err = await readSecret(domain, "key", seams).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SopsDecryptError);
+    expect((err as SopsDecryptError).filePath).toBe(path);
+    expect((err as SopsDecryptError).stderr).toBe(SOPS_WRONG_KEY_STDERR);
+    expect((err as Error).message).toBe(`sops -d ${path}: ${SOPS_WRONG_KEY_STDERR}`);
+  });
+
+  test("sopsKeyMismatch recognises the no-matching-recipient output and nothing else", () => {
+    expect(sopsKeyMismatch(SOPS_WRONG_KEY_STDERR)).toBe(true);
+    expect(sopsKeyMismatch("age: identity did not match any of the recipients")).toBe(true);
+    expect(sopsKeyMismatch("sops: no matching creation rule")).toBe(false);
+    expect(sopsKeyMismatch("")).toBe(false);
+    expect(sopsKeyMismatch("Failed to get the data key required to decrypt the SOPS file.")).toBe(false);
+    expect(sopsKeyMismatch([
+      "    - | failed to create reader for decrypting sops data key with",
+      "      | age: identity did not match any of the",
+      "      | recipients: incorrect identity for recipient block.",
+    ].join("\n"))).toBe(true);
   });
 });

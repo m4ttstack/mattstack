@@ -1,5 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { releaseApps } from "../release.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import type { ReleaseAppOptions, ReleaseAppReport, ReleaseAppSeams } from "../../lib/release/release-app.ts";
 
 function seams(): ReleaseAppSeams {
@@ -28,12 +30,16 @@ function report(status: ReleaseAppReport["status"], extra: Partial<ReleaseAppRep
 interface Harness {
   runs: ReleaseAppOptions[];
   logs: string[];
+  stdout: string;
+  stderr: string;
   exitCode: number;
   exitCalled: number | undefined;
 }
 
 async function invoke(args: string[], o: { result?: ReleaseAppReport } = {}): Promise<Harness> {
-  const h: Harness = { runs: [], logs: [], exitCode: 0, exitCalled: undefined };
+  const h: Harness = { runs: [], logs: [], stdout: "", stderr: "", exitCode: 0, exitCalled: undefined };
+  const io = captureOut();
+  ui.__test__.setHuman(() => false);
   const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => { h.logs.push(a.map(String).join(" ")); });
   const exitSpy = spyOn(process, "exit").mockImplementation((code?: number) => {
     h.exitCalled = code;
@@ -48,6 +54,9 @@ async function invoke(args: string[], o: { result?: ReleaseAppReport } = {}): Pr
   } catch (err) {
     if (!String(err).includes("process.exit sentinel")) throw err;
   } finally {
+    h.stdout = io.stdout();
+    h.stderr = io.stderr();
+    io.restore();
     h.exitCode = Number(process.exitCode ?? 0);
     process.exitCode = 0;
     exitSpy.mockRestore();
@@ -66,7 +75,9 @@ describe("rt release apps: arguments", () => {
     const h = await invoke(["board"]);
     expect(h.runs).toEqual([]);
     expect(h.exitCalled).toBe(2);
-    expect(h.logs.join("\n")).toContain("usage: rt release apps [--dry-run]");
+    expect(h.logs).toEqual([]);
+    expect(h.stderr).toContain("usage: rt release apps [--dry-run]");
+    expect(h.stderr).not.toContain("[failed]");
   });
 
   test("passes every flag through, --yes-notes with its approval token", async () => {
@@ -79,7 +90,7 @@ describe("rt release apps: arguments", () => {
       const h = await invoke(["--yes-notes", token]);
       expect(h.runs).toEqual([]);
       expect(h.exitCalled).toBe(2);
-      expect(h.logs.join("\n")).toContain("--yes-notes <notes hash>");
+      expect(h.stderr).toContain("--yes-notes <notes hash>");
     }
   });
 
@@ -92,7 +103,7 @@ describe("rt release apps: arguments", () => {
   test("--json usage errors come back as a JSON envelope", async () => {
     const h = await invoke(["board", "--json"]);
     expect(h.exitCalled).toBe(2);
-    const body = JSON.parse(h.logs.at(-1)!) as { error: { code: string } };
+    const body = JSON.parse(h.stdout.trim()) as { error: { code: string } };
     expect(body.error.code).toBe("usage");
   });
 });

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"rt-ui/internal/protocol"
+	"rt-ui/internal/textwrap"
 	"rt-ui/internal/theme"
 )
 
@@ -47,7 +48,7 @@ var (
 	faintStyle   = fg(theme.Faint)
 	keyStyle     = fg(theme.Lav)
 	linkStyle    = fg(theme.Cyan).Underline(true)
-	ruleStyle    = fg(theme.Rule)
+	ruleStyle    = fg(theme.StaticRule)
 	railStyle    = fg(theme.Panel)
 )
 
@@ -71,11 +72,24 @@ func Clean(s string) string {
 		switch {
 		case r == '\t' || r == '\n' || r == '\r':
 			return ' '
-		case r < 0x20 || (r >= 0x7f && r <= 0x9f):
+		case r < 0x20 || (r >= 0x7f && r <= 0x9f) || invisible(r):
 			return -1
 		}
 		return r
 	}, ansi.Strip(s))
+}
+
+// invisible reports the bidi controls and the zero-width characters: text
+// carrying them can read as something other than what it is. The joiners
+// 200C and 200D stay: emoji sequences and Persian and Indic text need them.
+func invisible(r rune) bool {
+	switch {
+	case r == 0x00AD, r == 0x061C, r == 0x180E, r == 0x200B, r == 0x200E, r == 0x200F, r == 0xFEFF:
+		return true
+	case r >= 0x202A && r <= 0x202E, r >= 0x2060 && r <= 0x2064, r >= 0x2066 && r <= 0x2069:
+		return true
+	}
+	return false
 }
 
 var lineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n")
@@ -116,6 +130,44 @@ func cell(c protocol.Cell) string {
 		b.WriteString(segment(s))
 	}
 	return b.String()
+}
+
+// minWrap is the narrowest column worth wrapping into: below it, text is
+// emitted whole and the terminal wraps it.
+const minWrap = 20
+
+func segText(s protocol.Segment) string { return s.Text }
+
+func withSegText(s protocol.Segment, t string) protocol.Segment {
+	s.Text = t
+	return s
+}
+
+// wrapCell breaks a cell into rows of at most w cells. Text is cleaned first
+// so the wrap measures exactly what segment paints.
+func wrapCell(c protocol.Cell, w int) []protocol.Cell {
+	if w < minWrap {
+		return []protocol.Cell{c}
+	}
+	clean := make(protocol.Cell, len(c))
+	for i, s := range c {
+		clean[i] = withSegText(s, Clean(s.Text))
+	}
+	rows := textwrap.SpansWith(clean, w, textwrap.Options{WordsOnly: true}, segText, withSegText)
+	out := make([]protocol.Cell, len(rows))
+	for i, r := range rows {
+		out[i] = r
+	}
+	return out
+}
+
+func hasCommand(c protocol.Cell) bool {
+	for _, s := range c {
+		if s.Role == "command" {
+			return true
+		}
+	}
+	return false
 }
 
 func pad(s string, w int) string {

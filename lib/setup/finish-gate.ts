@@ -8,7 +8,8 @@
 import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
 import { FINISH_GATED_ROW_IDS, WAIVABLE_ROW_IDS, type Group } from "./contract.ts";
-import { UserActionableError } from "./errors.ts";
+import { logCliEvent } from "../cli-logger.ts";
+import { UserActionableError } from "../errors.ts";
 import type { SettingsReader } from "./team-settings.ts";
 
 export const WAIVED_SETTING_KEY = "setup.waived";
@@ -16,7 +17,7 @@ export const WAIVED_NOTE = "Skipped on this Mac: agents cannot capture screensho
 
 /** The row ids waived on this Mac, read through the resolver on every call. A store the resolver cannot read means the waivers are unknown, so the gate stays closed: none. */
 export function readWaived(opts: { read?: SettingsReader; warn?: (message: string) => void } = {}): string[] {
-  const warn = opts.warn ?? ((message: string) => console.error(message));
+  const warn = opts.warn ?? ((message: string) => logCliEvent("warn", "setup.finish-gate", message));
   const read = opts.read ?? (<T>(key: string): T | undefined => getSetting<T>(key).value);
   let value: unknown;
   try {
@@ -63,12 +64,12 @@ export function realWaiverStore(): WaiverStore {
 
 function assertFinishGated(id: string): void {
   if (FINISH_GATED_ROW_IDS.includes(id)) return;
-  throw new UserActionableError("not-finish-gated", `${id} is not a finish-gated row; finish-gated rows: ${FINISH_GATED_ROW_IDS.join(", ")}`);
+  throw new UserActionableError("not-finish-gated", `${id} is not a row that blocks Finish. Rows that do: ${FINISH_GATED_ROW_IDS.join(", ")}`);
 }
 
 function assertWaivable(id: string): void {
   if (WAIVABLE_ROW_IDS.includes(id)) return;
-  throw new UserActionableError("not-waivable", `${id} cannot be skipped; waivable rows: ${WAIVABLE_ROW_IDS.join(", ")}`);
+  throw new UserActionableError("not-waivable", `${id} cannot be skipped. Rows that can: ${WAIVABLE_ROW_IDS.join(", ")}`);
 }
 
 export interface WaiverChange {

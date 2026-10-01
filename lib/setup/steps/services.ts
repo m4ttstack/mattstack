@@ -18,11 +18,11 @@ import { needOutcome, toFailedOutcome } from "./step-utils.ts";
 
 async function servicesRegisterRun(ctx: ApplyContext): Promise<StepOutcome> {
   const { plists, deckOmitted } = servicePlists(processFlavor(), ctx.p);
-  if (deckOmitted) ctx.log("services.register", "deck not bundled yet — only the daemon is registered");
+  if (deckOmitted) ctx.log("services.register", "deck not bundled yet, so only the daemon is registered");
 
   const reply = await ctx.need("services.register", { type: "app-register-services", plists });
   const outcome = needOutcome(reply, ctx, {
-    noAppDetail: "mattstack.app not running — open it to register services",
+    noAppDetail: "mattstack.app is not running; open it to register services",
     noAppRemedy: "Open mattstack.app, then Retry",
     timeoutRemedy: "Retry with mattstack.app running",
   });
@@ -89,7 +89,7 @@ export function deployedProxyVersion(p: Pick<Probes, "readFile">): string | null
  * daemon out before bootstrapping the replacement, so adopting such a machine
  * costs the same single prompt a first install does.
  */
-export const PROXY_INSTALLER_MISSING = "this build does not include the local proxy installer; apps serve on their ports";
+export const PROXY_INSTALLER_MISSING = "This build has no local proxy installer, so apps serve on their own ports";
 
 /** True for a bundle that ships no privileged proxy helper (a dev build): the app can only refuse the install need, so nothing should offer it. */
 export function proxyInstallerMissing(p: Pick<Probes, "exists" | "home">): boolean {
@@ -133,7 +133,7 @@ export function proxyVersionDrift(p: Probes): { deployed: string; pinned: string
  * success and changes nothing, forever.
  */
 async function proxyTrustOnly(ctx: ApplyContext): Promise<StepOutcome> {
-  if (await proxyCaIsTrusted(ctx.p)) return { state: "done", detail: "already installed" };
+  if (await proxyCaIsTrusted(ctx.p)) return { state: "done", detail: "Already installed" };
 
   const reply = await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-trust" });
   return withTrustOutcome(needOutcome(reply, ctx, {
@@ -157,7 +157,7 @@ async function proxyInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
       // A version nobody can compare must not be prompted: this step cannot
       // tell install from update without it, and tool.proxy already reports
       // that state as an error naming the path.
-      if (deployed === null) return { state: "done", detail: `${PROXY_VERSION_PATH} could not be read` };
+      if (deployed === null) return { state: "done", detail: `Could not read ${PROXY_VERSION_PATH}` };
 
       const drift = proxyVersionDrift(ctx.p);
       if (!drift) return await proxyTrustOnly(ctx);
@@ -177,7 +177,7 @@ async function proxyInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   const reply = await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" });
   return withTrustOutcome(needOutcome(reply, ctx, {
-    noAppDetail: "mattstack.app not running — open it to install the local proxy",
+    noAppDetail: "mattstack.app is not running; open it to install the local proxy",
     noAppRemedy: "Open mattstack.app, then Retry",
     timeoutRemedy: "Retry with mattstack.app running",
   }));
@@ -193,7 +193,7 @@ function withTrustOutcome(outcome: StepOutcome): StepOutcome {
   if (outcome.state !== "done") return outcome;
   const trust = /^MATTSTACK_TRUST=(ok|declined|failed)$/m.exec(outcome.detail ?? "")?.[1];
   if (trust === undefined || trust === "ok") return outcome;
-  const note = `certificate not trusted (${trust}); browsers will warn until it is`;
+  const note = `The certificate is not trusted yet (${trust}); browsers will warn until it is`;
   return { ...outcome, detail: outcome.detail ? `${note}\n${outcome.detail}` : note };
 }
 

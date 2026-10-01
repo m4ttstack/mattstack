@@ -6,7 +6,7 @@ import { getDef, validateValue } from "../../settings/registry.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { FINISH_GATED_ROW_IDS, WAIVABLE_ROW_IDS, finishBlockers, row } from "../contract.ts";
-import { UserActionableError } from "../errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { WAIVED_SETTING_KEY, applyFinishGate, readWaived, realWaiverStore, unwaiveRow, waiveRow } from "../finish-gate.ts";
 
 let home: string;

@@ -152,6 +152,8 @@ export type BoardMRWithReview = BoardMR & {
       attachStandDown. */
   standDown?: true;
   slack?: SlackInfo;
+  /** The channel "post to slack" sends this MR to. */
+  slackChannel?: string;
   drafts?: DraftInfo[];
   /** The seat's own note on this MR (B10), kept in the board's state db and
       shown as the row's last line. */
@@ -185,6 +187,9 @@ export interface BoardData {
   fetchError: string | null;
   local: boolean;
   slackEnabled: boolean;
+  /** The rt repos whose Code Owner section names carry Slack channels;
+      absent on older servers. */
+  ownerSlackRepos?: string[];
   /** Configured review-signal emoji names by role; absent on older servers. */
   slackEmoji?: { looking: string; commented: string; approved: string };
   slackTemplates: SlackTemplates;

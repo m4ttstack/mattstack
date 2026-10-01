@@ -12,7 +12,7 @@ import type { SecretsSeamsFactory } from "../team/join.ts";
 import type { RelayClient } from "../team/relay-client.ts";
 import { STEP_IDS, type EventId, type NeedRequest, type StepId, type StepKind, type StepState, type TeamRef } from "./contract.ts";
 import type { Emit } from "./emit.ts";
-import { UserActionableError } from "./errors.ts";
+import { logFailureDetail, UserActionableError } from "../errors.ts";
 import { readIntent, teamRefFromIntent, clearIntent, type SetupIntent } from "./intent.ts";
 import { askAppDirectly, awaitNeed, hasDirectRoute, type NeedReply } from "./need.ts";
 import type { Probes } from "./probes.ts";
@@ -42,6 +42,8 @@ export interface ApplyContext {
    * are scrubbed; this is not a pattern scanner.
    */
   log(id: EventId, line: string): void;
+  /** A settings tip raised while a step ran. Absent, the tip is a `log` line. A tip bypasses the redactor that wraps `emit`: it is rt's own copy, never a child's output. */
+  tip?: (id: EventId, line: string) => void;
   intent: SetupIntent | null;
   team: TeamRef;
   snapshot: TeamSnapshot | null;
@@ -143,7 +145,7 @@ function resumeStart(applicable: StepDef[], from: StepId | undefined): number {
   if (from === undefined) return 0;
 
   if (!STEP_IDS.includes(from)) {
-    throw new UserActionableError("unknown-step", `unknown --from step id "${from}" — valid ids: ${STEP_IDS.join(", ")}`);
+    throw new UserActionableError("unknown-step", `--from does not name a step: ${from}. Steps: ${STEP_IDS.join(", ")}`);
   }
 
   const exact = applicable.findIndex((s) => s.id === from);
@@ -163,7 +165,7 @@ function resumeStart(applicable: StepDef[], from: StepId | undefined): number {
  */
 function onlyIndex(applicable: StepDef[], only: StepId): number {
   if (!STEP_IDS.includes(only)) {
-    throw new UserActionableError("unknown-step", `unknown --only step id "${only}"; valid ids: ${STEP_IDS.join(", ")}`);
+    throw new UserActionableError("unknown-step", `--only does not name a step: ${only}. Steps: ${STEP_IDS.join(", ")}`);
   }
   const exact = applicable.findIndex((s) => s.id === only);
   return exact < 0 ? applicable.length : exact;
@@ -271,11 +273,12 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
       ctx.emit({ event: "step", id: step.id, state: "running" });
 
       let outcome: StepOutcome;
-      const outerSink = setSettingsNoticeSink((line) => ctx.log(step.id, line));
+      const outerSink = setSettingsNoticeSink((line) => (ctx.tip ?? ctx.log)(step.id, line));
       try {
         outcome = await step.run(ctx);
       } catch (err) {
         if (err instanceof UserActionableError) {
+          logFailureDetail(err);
           const remedy = typeof err.extra.remedy === "string" ? err.extra.remedy : undefined;
           outcome = { state: "failed", detail: err.message, ...(remedy !== undefined ? { remedy } : {}) };
         } else {
@@ -384,6 +387,7 @@ export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[]
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         if (err instanceof UserActionableError) {
+          logFailureDetail(err);
           const remedy = typeof err.extra.remedy === "string" ? err.extra.remedy : undefined;
           outcome = { state: "failed", detail: err.message, ...(remedy !== undefined ? { remedy } : {}) };
         } else if (item.migrationId !== undefined) {
@@ -428,6 +432,7 @@ export async function runUpdate(ctx: ApplyContext): Promise<UpdateRunResult> {
 export interface CreateApplyContextDeps {
   probes: Probes;
   emit: Emit;
+  tip?: (id: EventId, line: string) => void;
   secrets: SecretsSeams;
   /** Defaults to `createRealTeamSecretsSeams` — override for a fully-faked run/test so a team-secret read/write can never fall through to a real keychain/sops. */
   teamSecrets?: SecretsSeamsFactory;
@@ -498,6 +503,7 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
     log(id, line) {
       emit({ event: "log", id, line });
     },
+    ...(deps.tip ? { tip: deps.tip } : {}),
     intent,
     team,
     snapshot,
@@ -528,7 +534,7 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
         const prompts = request.type === "app-privileged";
         if (prompts && flags.nonInteractive) return "app-unanswerable";
         if (prompts && !(flags.tty ?? process.stdin.isTTY === true)) return "needs-terminal";
-        if (prompts) emit({ event: "log", id, line: "approve the admin prompt mattstack.app shows" });
+        if (prompts) emit({ event: "log", id, line: "Approve the admin prompt mattstack.app shows" });
         const direct = await askAppDirectly(p.tray, request);
         if (direct !== null) return direct;
       }

@@ -11,7 +11,7 @@
  *   rt team status [--team <slug>] [--json]
  *
  * Every mutating path funnels through one `UserActionableError` → exit-2
- * envelope, via `exitUserError` (lib/setup/errors.ts) — including a locked
+ * envelope, via `exitUserError` (lib/errors.ts), including a locked
  * keychain or a `members sync`/`members remove` re-encryption rollback: the
  * user can act on either (unlock, retry), so both get a distinct `code` and
  * exit 2 rather than an envelope-shaped body at exit 1, which the app's
@@ -27,7 +27,7 @@ import { createRealTeamSecretsSeams } from "../lib/secrets/team-store.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { listTeams, readStore } from "../lib/settings/stores.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
+import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { createRealProbes, readStdinJson, type Probes } from "../lib/setup/probes.ts";
 import { readTeamSnapshot, stripUserinfo, type SettingsReader } from "../lib/setup/team-settings.ts";
 import { createTeam } from "../lib/team/create.ts";

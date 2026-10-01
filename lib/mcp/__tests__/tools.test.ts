@@ -8,7 +8,7 @@ import type { GateQuestion } from "../../../packages/rt-client/src/commands.ts";
 import { REPO_INDEX_NS } from "../../repo-index.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
 
-const NAMES = ["gate_answer","gate_ask","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_comment_inline","mr_comment","mr_review_submit","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_follow_up","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone","chat_read","chat_mark","chat_rooms","chat_who","chat_buddies","chat_join","chat_leave","chat_away","chat_back","chat_sign_in","chat_sign_out","chat_archive","chat_invite","whoami","ci_lease_claim","ci_lease_heartbeat","ci_lease_release","ci_lease_read","ci_watch","project_labels","pipeline_list","gitlab_get","branch_stack"];
+const NAMES = ["gate_answer","gate_ask","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_update_note","mr_comment_inline","mr_comment","mr_review_submit","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_follow_up","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone","chat_read","chat_mark","chat_rooms","chat_who","chat_buddies","chat_join","chat_leave","chat_away","chat_back","chat_sign_in","chat_sign_out","chat_archive","chat_invite","whoami","ci_lease_claim","ci_lease_heartbeat","ci_lease_release","ci_lease_read","ci_watch","project_labels","pipeline_list","gitlab_get","branch_stack"];
 
 // Captured before any mock.module call, per the repo's convention (see
 // lib/__tests__/repo-locate-dispatch.test.ts): mock.module mutates the live
@@ -325,6 +325,7 @@ describe("mcpTools", () => {
   test("every mr tool's repo-arg description names the serialized identity form", () => {
     const repoArgTools: Array<{ name: string; field: string }> = [
       { name: "mr_reply_thread", field: "repoName" },
+      { name: "mr_update_note", field: "repoName" },
       { name: "mr_comment_inline", field: "repoName" },
       { name: "mr_comment", field: "repoName" },
       { name: "mr_create", field: "repoName" },
@@ -730,7 +731,7 @@ describe("mcpTools", () => {
     });
 
     test("every MR-level write tool offers repoName, iid and mrUrl with none required; mr_create offers repoName and mrUrl", () => {
-      for (const name of ["mr_reply_thread", "mr_comment_inline", "mr_comment", "mr_update", "mr_approve", "mr_resolve_thread", "mr_ready", "mr_retry", "mr_rebase", "mr_merge"]) {
+      for (const name of ["mr_reply_thread", "mr_update_note", "mr_comment_inline", "mr_comment", "mr_update", "mr_approve", "mr_resolve_thread", "mr_ready", "mr_retry", "mr_rebase", "mr_merge"]) {
         const schema = mcpTools().find((t) => t.name === name)!.inputSchema as { properties: Record<string, unknown>; required?: string[] };
         expect(Object.keys(schema.properties), name).toEqual(expect.arrayContaining(["repoName", "iid", "mrUrl"]));
         expect(schema.required ?? [], name).not.toContain("repoName");
@@ -740,6 +741,33 @@ describe("mcpTools", () => {
       expect(Object.keys(create.properties)).toEqual(expect.arrayContaining(["repoName", "mrUrl"]));
       expect(create.properties.iid).toBeUndefined();
       expect(create.required).not.toContain("repoName");
+    });
+  });
+
+  describe("mr_update_note", () => {
+    afterEach(() => {
+      mock.module("../../../packages/rt-client/src/transport.ts", () => ({ ...realTransport, rtCommand: realRtCommand }));
+    });
+
+    test("forwards repoName, iid, noteId and body to mr:note-update", async () => {
+      const sent: Array<{ command: string; payload: unknown }> = [];
+      mock.module("../../../packages/rt-client/src/transport.ts", () => ({
+        ...realTransport,
+        rtCommand: async (command: string, payload: unknown) => {
+          sent.push({ command, payload });
+          return { ok: true, data: { noteId: 55 } };
+        },
+      }));
+      const tool = mcpTools().find((t) => t.name === "mr_update_note")!;
+      const res = await tool.handler({ repoName: "remote:x", iid: 7, noteId: 55, body: "edited" }, {} as NodeJS.ProcessEnv);
+      expect(sent).toEqual([{ command: "mr:note-update", payload: { repoName: "remote:x", iid: 7, noteId: 55, body: "edited" } }]);
+      expect(res.ok).toBe(true);
+    });
+
+    test("requires noteId and body", async () => {
+      const tool = mcpTools().find((t) => t.name === "mr_update_note")!;
+      expect((await tool.handler({ repoName: "remote:x", iid: 7, body: "x" }, {} as NodeJS.ProcessEnv)).error).toBe('"noteId" is required');
+      expect((await tool.handler({ repoName: "remote:x", iid: 7, noteId: 5 }, {} as NodeJS.ProcessEnv)).error).toBe('"body" is required');
     });
   });
 

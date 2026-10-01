@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { createTeamSnapshotHandlers } from "../handlers/team-snapshot.ts";
-import { UserActionableError } from "../../setup/errors.ts";
+import { UserActionableError } from "../../errors.ts";
 
 const fakeHandle = {
   status: () => [{ slug: "acme", id: "team:acme" }],

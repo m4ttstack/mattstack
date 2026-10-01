@@ -14,13 +14,17 @@
  * Designed to run in CI or as a post-install check:
  *   rt verify           # full check with human output
  *   rt verify --json    # machine-readable JSON output
- *   rt verify --ci      # minimal output, strict exit codes
+ *   rt verify --ci      # spares the rows a CI runner cannot satisfy
  */
 
-import { bold, cyan, dim, green, yellow, red, reset } from "../lib/tui.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
+import type { CommandContext } from "../lib/command-tree.ts";
 import { listTeams } from "../lib/settings/stores.ts";
-import { composePlan, realSecretPresence } from "../lib/setup/plan.ts";
-import { createRealProbes } from "../lib/setup/probes.ts";
+import { composePlan, realSecretPresence, type PlanInputs } from "../lib/setup/plan.ts";
+import { rowStatus } from "../lib/setup/plan-blocks.ts";
+import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
+import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
 import type { Action, Plan, Row } from "../lib/setup/contract.ts";
 import { checkRtContextExtension } from "../lib/setup/validators/rt-health.ts";
 
@@ -45,7 +49,7 @@ export { checkRtContextExtension };
 // ─── Row → check mapping ────────────────────────────────────────────────────
 
 function actionHint(action: Action | null): string {
-  return action ? ` — ${action.label}` : "";
+  return action ? ` (${action.label})` : "";
 }
 
 /**
@@ -102,46 +106,11 @@ export function rowsToChecks(plan: Plan, opts: { ci: boolean }): CheckResult[] {
   return plan.groups.flatMap((g) => g.rows.map((r) => rowToCheck(r, opts)));
 }
 
-// ─── Output formatters ────────────────────────────────────────────────────────
+// ─── Output ──────────────────────────────────────────────────────────────────
 
-/**
- * Shared human-readable format — used for both terminal and CI.
- * When noColor=true, ANSI codes are stripped so CI logs stay readable.
- */
-function printHuman(results: CheckResult[], noColor = false): void {
-  const c = (code: string) => (noColor ? "" : code);
-
-  const icons: Record<Status, string> = {
-    pass: `${c(green)}✓${c(reset)}`,
-    fail: `${c(red)}✗${c(reset)}`,
-    warn: `${c(yellow)}⚠${c(reset)}`,
-    skip: `${c(dim)}–${c(reset)}`,
-  };
-
-  console.log("");
-  console.log(`  ${c(bold)}${c(cyan)}rt verify${c(reset)}`);
-  console.log("");
-
-  for (const r of results) {
-    console.log(`  ${icons[r.status]} ${r.name}  ${c(dim)}${r.detail}${c(reset)}`);
-  }
-
+export function verifyPayload(results: CheckResult[], plan: Plan) {
   const failures = results.filter((r) => r.status === "fail" && r.severity === "critical");
-  const warnings = results.filter((r) => r.status === "warn" || (r.status === "fail" && r.severity === "warning"));
-  const passes = results.filter((r) => r.status === "pass");
-
-  console.log("");
-  if (failures.length === 0) {
-    console.log(`  ${c(green)}${c(bold)}✓ all critical checks passed${c(reset)}  ${c(dim)}${passes.length} passed, ${warnings.length} warnings${c(reset)}`);
-  } else {
-    console.log(`  ${c(red)}${c(bold)}✗ ${failures.length} critical check${failures.length !== 1 ? "s" : ""} failed${c(reset)}  ${c(dim)}${passes.length} passed, ${warnings.length} warnings${c(reset)}`);
-  }
-  console.log("");
-}
-
-function printJSON(results: CheckResult[], plan: Plan): void {
-  const failures = results.filter((r) => r.status === "fail" && r.severity === "critical");
-  console.log(JSON.stringify({
+  return {
     passed: failures.length === 0,
     summary: {
       total: results.length,
@@ -152,39 +121,101 @@ function printJSON(results: CheckResult[], plan: Plan): void {
     },
     checks: results,
     plan,
-  }, null, 2));
+  };
+}
+
+/** Coral only for a required check that ran and found something wrong; a row verify spares never draws it. */
+function checkStatus(r: Row, c: CheckResult): RenderStatus {
+  if (c.status === "pass") return "done";
+  if (c.status === "skip") return "skipped";
+  const own = rowStatus(r);
+  if (c.status === "fail") return own;
+  return own === "failed" ? "warn" : own;
+}
+
+/** A command the person can run for a row that is not passing; the app's other buttons have no terminal form. */
+function nextVerb(r: Row): string | null {
+  const a = r.action;
+  if (!a) return null;
+  if (a.type === "connect" || a.type === "oauth") return `rt setup ${a.integration} connect`;
+  if (a.type === "run") return `rt ${a.verb.join(" ")}`;
+  return null;
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** Every number on the line counts rows by the status they drew, so the line cannot disagree with the rows above it. */
+function summaryBlock(drawn: RenderStatus[], blocking: number): Block {
+  const count = (...statuses: RenderStatus[]) => drawn.filter((s) => statuses.includes(s)).length;
+  const failed = count("failed");
+  const attention = count("needs-you", "pending");
+  const passed = count("done");
+  const warnings = count("warn");
+  const counts = (withAttention: boolean) =>
+    [
+      withAttention && attention > 0 ? plural(attention, "needs attention", "need attention") : null,
+      passed > 0 ? `${passed} passed` : null,
+      warnings > 0 ? plural(warnings, "warning", "warnings") : null,
+    ].filter((c): c is string => c !== null);
+
+  if (blocking === 0) return out.summary("done", "Everything checks out", counts(true));
+  if (failed > 0) return out.summary("failed", `${plural(failed, "check", "checks")} failed`, counts(true));
+  // With nothing coral and nothing waiting, every blocking row drew a warning: its check could not run.
+  const title = attention > 0 ? `${plural(attention, "check needs", "checks need")} attention` : `${plural(blocking, "check", "checks")} could not run`;
+  return out.summary("needs-you", title, counts(false));
+}
+
+export function verifyBlocks(plan: Plan, opts: { ci: boolean }): Block[] {
+  const drawn: RenderStatus[] = [];
+  const sections = plan.groups
+    .filter((g) => g.rows.length > 0)
+    .map((g) =>
+    out.section(
+      g.title,
+      undefined,
+      ...g.rows.flatMap((r) => {
+        const c = rowToCheck(r, opts);
+        const status = checkStatus(r, c);
+        drawn.push(status);
+        const blocks: Block[] = [out.line(status, r.title, r.detail)];
+        const verb = c.status === "pass" || c.status === "skip" ? null : nextVerb(r);
+        if (verb) blocks.push(out.callout("next", out.cmd(verb)));
+        return blocks;
+      }),
+    ),
+  );
+  const blocking = rowsToChecks(plan, opts).filter((r) => r.status === "fail" && r.severity === "critical").length;
+  return [...sections, summaryBlock(drawn, blocking)];
 }
 
 // ─── Entry ───────────────────────────────────────────────────────────────────
 
-export async function runVerify(args: string[]): Promise<void> {
-  // One CI notion for formatting AND row sparing: --ci without the env var
-  // must spare account.*/access.* exactly like CI=true does, or a manual
-  // `rt verify --ci` reports criticals the CI contract deliberately excludes.
-  const isCI = args.includes("--ci") || process.env.CI === "true";
-  const isJSON = args.includes("--json");
-  const ci = isCI;
+export interface VerifyDeps {
+  probes: Probes;
+  secrets: SecretPresence;
+  teams: () => string[];
+  compose: (i: PlanInputs) => Promise<Plan>;
+  exit: (code: number) => never;
+}
 
-  const plan = await composePlan({
-    p: createRealProbes(),
-    secrets: realSecretPresence(),
-    ci,
-    mode: "status",
-    teams: listTeams(),
-  });
+export function realVerifyDeps(): VerifyDeps {
+  return { probes: createRealProbes(), secrets: realSecretPresence(), teams: listTeams, compose: composePlan, exit: process.exit };
+}
 
+export async function runVerify(args: string[], _ctx: CommandContext = {}, deps: VerifyDeps = realVerifyDeps()): Promise<void> {
+  // One CI notion for row sparing: --ci without the env var must spare
+  // account.*/access.* exactly like CI=true does.
+  const ci = args.includes("--ci") || process.env.CI === "true";
+  const json = args.includes("--json");
+
+  const plan = await deps.compose({ p: deps.probes, secrets: deps.secrets, ci, mode: "status", teams: deps.teams() });
   const results = rowsToChecks(plan, { ci });
   const failures = results.filter((r) => r.status === "fail" && r.severity === "critical");
 
-  if (isJSON) {
-    printJSON(results, plan);
-  } else if (isCI) {
-    printHuman(results, /* noColor */ true);
-  } else {
-    printHuman(results);
-  }
+  if (json) out.json(verifyPayload(results, plan), 2);
+  else out.print(...verifyBlocks(plan, { ci }));
 
-  if (failures.length > 0) {
-    process.exit(1);
-  }
+  if (failures.length > 0) return deps.exit(1);
 }

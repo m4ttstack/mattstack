@@ -668,10 +668,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         let main = NSMenu()
         let appItem = NSMenuItem(); main.addItem(appItem)
         let appMenu = NSMenu()
-        let settingsItem = appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
-        settingsItem.setAccessibilityIdentifier(AXID.menuAppSettings)
+        appMenu.addItem(withTitle: "About mattstack", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+                        keyEquivalent: "").setAccessibilityIdentifier(AXID.menuAppAbout)
+        appMenu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates),
+                        keyEquivalent: "").setAccessibilityIdentifier(AXID.menuAppCheckForUpdates)
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit mattstack", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings),
+                        keyEquivalent: ",").setAccessibilityIdentifier(AXID.menuAppSettings)
+        appMenu.addItem(withTitle: "Setup status…", action: #selector(showSetupStatus),
+                        keyEquivalent: "").setAccessibilityIdentifier(AXID.menuAppSetupStatus)
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Quit mattstack", action: #selector(NSApplication.terminate(_:)),
+                        keyEquivalent: "q").setAccessibilityIdentifier(AXID.menuAppQuit)
         appItem.submenu = appMenu
         let editItem = NSMenuItem(); main.addItem(editItem)
         let edit = NSMenu(title: "Edit")
@@ -687,7 +695,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowItem.submenu = windowMenu
+        let helpItem = NSMenuItem(); main.addItem(helpItem)
+        let help = NSMenu(title: "Help")
+        help.addItem(withTitle: "mattstack Help", action: #selector(openDocsSite),
+                     keyEquivalent: "?").setAccessibilityIdentifier(AXID.menuHelpDocs)
+        help.addItem(withTitle: "View Logs…", action: #selector(viewDaemonLogs),
+                     keyEquivalent: "").setAccessibilityIdentifier(AXID.menuHelpViewLogs)
+        help.addItem(withTitle: "Open Crash Log", action: #selector(openCrashLog),
+                     keyEquivalent: "").setAccessibilityIdentifier(AXID.menuHelpOpenCrashLog)
+        helpItem.submenu = help
         NSApp.mainMenu = main
+        NSApp.helpMenu = help
+    }
+
+    @objc private func openDocsSite() {
+        NSWorkspace.shared.open(DocsSite.home)
     }
 
     /// Gatekeeper's translocation and a DMG mount both make SMAppService and
@@ -878,14 +900,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         })
         if BundleFlavor.isDevBuild { addDevBuildItems(to: menu) }
         menu.addItem(.separator())
-        let status = NSMenuItem(title: TrayState.shared.statusText, action: nil, keyEquivalent: "")
-        status.isEnabled = false
+        let statusText = TrayState.shared.statusText
+        let status = Self.infoMenuItem(statusText, quiet: DaemonStatusLines.isQuiet(statusText))
         status.setAccessibilityIdentifier(AXID.trayStatus)
         menu.addItem(status)
-        for line in Self.daemonDiagnostics(TrayState.shared) {
-            let item = NSMenuItem(title: line, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
+        let diagnostics = DaemonStatusLines.diagnostics(status: statusText,
+                                                        bootVerdict: TrayState.shared.bootVerdict,
+                                                        lastCrashReason: TrayState.shared.lastCrashReason)
+        for line in diagnostics {
+            menu.addItem(Self.infoMenuItem(line, quiet: false))
         }
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Processes…", axid: AXID.trayProcesses) { [weak self] in
@@ -923,7 +946,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         let updateItem = ActionMenuItem(trayUpdateMenuTitle, axid: AXID.trayCheckForUpdates) {
             NotificationCenter.default.post(name: .rtCheckUpdates, object: nil)
         }
-        updateItem.isEnabled = TrayState.shared.canCheckForUpdates || TrayState.shared.updateAvailable != nil
+        updateItem.isEnabled = canCheckForUpdates
         menu.addItem(updateItem)
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Uninstall mattstack…", axid: AXID.trayUninstall) {
@@ -954,16 +977,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         return item
     }
 
-    /// Restart count, last-crash reason, boot verdict and a degraded
-    /// subsystem, shown only when there is something to report.
+    /// Disabled so it never highlights or fires; AppKit draws an attributed
+    /// title's explicit color as given, so the line is not dimmed.
     @MainActor
-    private static func daemonDiagnostics(_ state: TrayState) -> [String] {
-        var lines: [String] = []
-        if let count = state.restartCount, count > 0 { lines.append("Restarts: \(count)") }
-        if let verdict = state.bootVerdict { lines.append("Status: \(verdict)") }
-        if let reason = state.lastCrashReason { lines.append("Last crash: \(reason)") }
-        if let subsystem = state.failingSubsystem { lines.append("Degraded: \(subsystem)") }
-        return lines
+    private static func infoMenuItem(_ title: String, quiet: Bool) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: NSFont.menuFont(ofSize: 0),
+            .foregroundColor: quiet ? NSColor.secondaryLabelColor : NSColor.labelColor,
+        ])
+        item.isEnabled = false
+        return item
     }
 
     @MainActor
@@ -1078,6 +1102,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             return "Update Available: \(tag)"
         }
         return "Check for Updates…"
+    }
+
+    @MainActor
+    private var canCheckForUpdates: Bool {
+        TrayState.shared.canCheckForUpdates || TrayState.shared.updateAvailable != nil
     }
 
     /// The user's start-at-login switch, and the authority on it. Launch
@@ -1727,11 +1756,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         currentHealth = health
         updateMenuBarTitle(status: health)
         TrayState.shared.health = health
-        TrayState.shared.failingSubsystem = failingSubsystem
         if let failingSubsystem {
-            TrayState.shared.statusText = "Daemon: degraded — \(failingSubsystem)"
+            TrayState.shared.statusText = DaemonStatusLines.degraded(failingSubsystem)
         } else {
-            TrayState.shared.statusText = "Daemon: running · pid \(status.pid) · \(formatUptime(status.uptime))"
+            TrayState.shared.statusText = DaemonStatusLines.running(pid: status.pid, uptime: formatUptime(status.uptime))
         }
         // The daemon being reachable only proves the daemon's own agent is
         // approved — another registered agent (deck) can still be pending.
@@ -1765,7 +1793,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
     }
 
-    /// Restart count, last-crash reason, and boot verdict (S026) — a separate
+    /// Last-crash reason and boot verdict (S026) — a separate
     /// query from the main status poll since this data only lives on the
     /// `ping` reply (see `DaemonClient.querySupervision`), not `tray:status`.
     /// Best-effort: a nil result just means the tray menu shows no boot info,
@@ -1780,7 +1808,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     @MainActor
     private func refreshBootDiagnostics() async {
         guard let supervision = await daemonClient.querySupervision() else { return }
-        TrayState.shared.restartCount = supervision.bootAttempts
         let now = Date()
         if let (verdict, reason) = bootVerdict(from: supervision, now: now) {
             TrayState.shared.bootVerdict = verdict
@@ -1893,6 +1920,18 @@ extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         // AppKit delivers menu-delegate callbacks on the main thread.
         MainActor.assumeIsolated { rebuildTrayMenu(menu) }
+    }
+}
+
+extension AppDelegate: NSMenuItemValidation {
+    /// The tray menu sets its update item by hand (it does not autoenable);
+    /// the app menu's copy is validated here so both read the same state.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(checkForUpdates) else { return true }
+        return MainActor.assumeIsolated {
+            menuItem.title = trayUpdateMenuTitle
+            return canCheckForUpdates
+        }
     }
 }
 
