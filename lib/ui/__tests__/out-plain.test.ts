@@ -92,6 +92,31 @@ test("C1 controls and DEL are stripped like C0", () => {
   expect(renderPlain([{ t: "line", status: "done", title: "a\x7fb\x80c\x9bd\x9fe\x00f" }])).toBe("[ok] abcdef\n");
 });
 
+test("a newline in a single-line field cannot forge a second line", () => {
+  const text = renderPlain([{ t: "line", status: "done", title: "x\n[ok] Setup complete", hint: "a\r\nb\tc" }]);
+  expect(text).toBe("[ok] x [ok] Setup complete  a b c\n");
+  expect(text.split("\n").filter(Boolean)).toHaveLength(1);
+});
+
+test("a newline in a table cell keeps one row per row and aligned columns", () => {
+  expect(
+    renderPlain([
+      {
+        t: "table",
+        headers: ["KEY", "VALUE"],
+        rows: [{ cells: [[{ text: "a\nb" }], [{ text: "1" }]] }, { cells: [[{ text: "abcd" }], [{ text: "2" }]] }],
+      },
+    ]),
+  ).toBe("KEY   VALUE\na b   1\nabcd  2\n");
+});
+
+test("line-oriented fields keep their lines, each inside the block prefix", () => {
+  expect(renderPlain([{ t: "verbatim", caption: "value", lines: ["a\nb", "c"] }])).toBe("value:\n  a\n  b\n  c\n");
+  expect(renderPlain([{ t: "failure", title: "t", details: "one\ntwo" }])).toBe("[failed] t\n  one\n  two\n");
+  expect(renderPlain([{ t: "copy", text: "l1\nl2" }])).toBe("l1\nl2\n");
+  expect(renderPlain([{ t: "paragraph", text: "p1\np2" }])).toBe("p1\np2\n");
+});
+
 test("no blocks render nothing, and the shared fixture renders without throwing", () => {
   expect(renderPlain([])).toBe("");
   const fixture = JSON.parse(readFileSync(resolve(import.meta.dir, "..", "..", "..", "ui", "fixtures", "render-document.json"), "utf8")) as Block[];

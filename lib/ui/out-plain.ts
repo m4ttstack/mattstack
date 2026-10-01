@@ -18,8 +18,18 @@ const TAG: Record<RenderStatus, string> = {
   warn: "[warning]",
 };
 
+/** Single-line fields: a newline in untrusted text must not start a forged row. */
+function one(s: string): string {
+  return s.replace(/[\r\n\t]+/g, " ");
+}
+
+/** Line-oriented fields: every line gets the block's prefix. */
+function lines(s: string, prefix: string): string[] {
+  return s.split(/\r\n|\r|\n/).map((l) => prefix + l);
+}
+
 function cellText(cell: Cell): string {
-  return cell.map((s) => (s.role === "link" && s.url ? `${s.text} (${s.url})` : s.text)).join("");
+  return cell.map((s) => (s.role === "link" && s.url ? `${one(s.text)} (${one(s.url)})` : one(s.text))).join("");
 }
 
 function pad(s: string, width: number): string {
@@ -38,30 +48,30 @@ function gap(out: string[]): void {
 }
 
 function caption(out: string[], text: string | undefined): void {
-  if (text) out.push(`${text}:`);
+  if (text) out.push(`${one(text)}:`);
 }
 
 function render(blocks: Block[], out: string[]): void {
   for (const b of blocks) {
     switch (b.t) {
       case "line":
-        out.push(`${TAG[b.status]} ${b.title}${b.hint ? `  ${b.hint}` : ""}`);
+        out.push(`${TAG[b.status]} ${one(b.title)}${b.hint ? `  ${one(b.hint)}` : ""}`);
         break;
       case "callout":
-        b.body.forEach((c, i) => out.push(i === 0 ? `  ${b.label}: ${cellText(c)}` : `  ${" ".repeat(b.label.length + 2)}${cellText(c)}`));
+        b.body.forEach((c, i) => out.push(i === 0 ? `  ${one(b.label)}: ${cellText(c)}` : `  ${" ".repeat(Bun.stringWidth(one(b.label)) + 2)}${cellText(c)}`));
         break;
       case "kv":
-        out.push(b.value ? `${b.key}: ${b.value}` : `${b.key}:`);
-        if (b.source) out.push(`  ${b.source}`);
+        out.push(b.value ? `${one(b.key)}: ${one(b.value)}` : `${one(b.key)}:`);
+        if (b.source) out.push(`  ${one(b.source)}`);
         break;
       case "table": {
         const grid: string[][] = [];
-        if (b.headers) grid.push(b.headers);
+        if (b.headers) grid.push(b.headers.map(one));
         for (const row of b.rows) if ("cells" in row) grid.push(row.cells.map(cellText));
-        const lines = columns(grid);
+        const rendered = columns(grid);
         let at = 0;
-        if (b.headers) out.push(lines[at++]!);
-        for (const row of b.rows) out.push("group" in row ? `${row.group}:` : lines[at++]!);
+        if (b.headers) out.push(rendered[at++]!);
+        for (const row of b.rows) out.push("group" in row ? `${one(row.group)}:` : rendered[at++]!);
         break;
       }
       case "tree":
@@ -70,41 +80,41 @@ function render(blocks: Block[], out: string[]): void {
         break;
       case "section":
         gap(out);
-        out.push(b.subtitle ? `${b.title} (${b.subtitle})` : b.title);
+        out.push(b.subtitle ? `${one(b.title)} (${one(b.subtitle)})` : one(b.title));
         render(b.blocks, out);
         break;
       case "summary":
         gap(out);
-        out.push(`${TAG[b.status]} ${b.title}${b.counts?.length ? `  ${b.counts.join(", ")}` : ""}`);
+        out.push(`${TAG[b.status]} ${one(b.title)}${b.counts?.length ? `  ${b.counts.map(one).join(", ")}` : ""}`);
         break;
       case "paragraph":
-        out.push(b.text);
+        out.push(...lines(b.text, ""));
         break;
       case "copy":
         caption(out, b.caption);
-        out.push(b.text);
+        out.push(...lines(b.text, ""));
         break;
       case "verbatim":
         caption(out, b.caption);
-        for (const l of b.lines) out.push(`  ${l}`);
+        for (const l of b.lines) out.push(...lines(l, "  "));
         break;
       case "changes":
-        for (const c of b.changes) out.push(`${c.op} ${c.name}${c.hint ? `  ${c.hint}` : ""}`);
+        for (const c of b.changes) out.push(`${c.op} ${one(c.name)}${c.hint ? `  ${one(c.hint)}` : ""}`);
         break;
       case "diff":
         for (const h of b.hunks) {
-          out.push(h.header);
-          for (const l of h.lines) out.push(`${l.kind === "add" ? "+" : l.kind === "del" ? "-" : " "} ${l.text}`);
+          out.push(one(h.header));
+          for (const l of h.lines) out.push(`${l.kind === "add" ? "+" : l.kind === "del" ? "-" : " "} ${one(l.text)}`);
         }
         break;
       case "banner":
-        out.push(`${b.label} ${b.subject}${b.hint ? `  ${b.hint}` : ""}`);
+        out.push(`${one(b.label)} ${one(b.subject)}${b.hint ? `  ${one(b.hint)}` : ""}`);
         break;
       case "failure":
-        out.push(`${TAG.failed} ${b.title}${b.hint ? `  ${b.hint}` : ""}`);
-        if (b.why) out.push(`  why: ${b.why}`);
+        out.push(`${TAG.failed} ${one(b.title)}${b.hint ? `  ${one(b.hint)}` : ""}`);
+        if (b.why) out.push(`  why: ${one(b.why)}`);
         if (b.next) out.push(`  next: ${cellText(b.next)}`);
-        if (b.details) out.push(`  ${b.details}`);
+        if (b.details) out.push(...lines(b.details, "  "));
         break;
     }
   }
