@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
@@ -200,41 +202,17 @@ function makeEngineFixture(domainBinding: string | null = "acme:watch-ci-domain-
   return { mattstackDir, manifestPath };
 }
 
-let logSpy: ReturnType<typeof spyOn>;
-let logs: string[];
+let io: CapturedOut;
 
 beforeEach(() => {
-  logs = [];
-  logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-    logs.push(args.map(String).join(" "));
-  });
+  io = captureSkills();
 });
 
 afterEach(() => {
-  logSpy.mockRestore();
+  io.restore();
   // Bun ignores process.exitCode = undefined once truthy; 0 is the only value that clears it.
   process.exitCode = 0;
 });
-
-async function runExpectingCleanExit(fn: () => Promise<void>): Promise<{ exitCode: number | undefined; errors: string[] }> {
-  const errors: string[] = [];
-  const exitSpy = spyOn(process, "exit").mockImplementation(() => {
-    throw new Error("process.exit sentinel");
-  });
-  const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-    errors.push(args.map(String).join(" "));
-  });
-  try {
-    await fn();
-    return { exitCode: undefined, errors };
-  } catch {
-    const exitCode = exitSpy.mock.calls.at(-1)?.[0] as number | undefined;
-    return { exitCode, errors };
-  } finally {
-    exitSpy.mockRestore();
-    errorSpy.mockRestore();
-  }
-}
 
 describe("skillsBind", () => {
   test("valid bind changes bindings.<engineRef>.<slot> and recompiles", async () => {
@@ -264,8 +242,8 @@ describe("skillsBind", () => {
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
-    expect(logs).toHaveLength(1);
-    const payload = JSON.parse(logs[0]!);
+    expect(io.lines()).toHaveLength(1);
+    const payload = JSON.parse(io.lines()[0]!);
     expect(payload).toEqual({
       ok: true,
       verb: "watch-ci",
@@ -372,12 +350,12 @@ describe("skillsBind", () => {
         expect(existsSync(join(packDir, "skills"))).toBe(false);
         if (staleBefore !== null) expect(readFileSync(stale, "utf8")).toBe(staleBefore);
         if (mode === "--json") {
-          expect(logs).toHaveLength(1);
-          const payload = JSON.parse(logs[0]!);
+          expect(io.lines()).toHaveLength(1);
+          const payload = JSON.parse(io.lines()[0]!);
           expect(payload).toMatchObject({ ok: true, base: true, from: "(unbound)", to: "acme:watch-ci-domain-v2" });
           expect("regenerated" in payload).toBe(false);
         } else {
-          expect(logs).toContain(
+          expect(io.lines()).toContain(
             "acme-base is a base pack: packs that extend it pick this up once it is published and their bindings files are regenerated",
           );
         }
@@ -396,20 +374,18 @@ describe("skillsBind", () => {
       writeFile(manifest, `{ "bindings": {} }`);
       const { mattstackDir } = makeEngineFixture();
       const rootsSpy = spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(mattstackDir));
-      const errorSpy = spyOn(console, "error").mockImplementation(() => {});
       try {
         await skillsBind([
           "watch-ci", "domain", "acme:watch-ci-domain-v2", "--json",
           "--pack", "acme-base", "--pack-dir", packDir, "--manifest", manifest,
         ]);
       } finally {
-        errorSpy.mockRestore();
         rootsSpy.mockRestore();
       }
 
       expect(process.exitCode).toBe(1);
-      expect(logs).toHaveLength(1);
-      const payload = JSON.parse(logs[0]!);
+      expect(io.lines()).toHaveLength(1);
+      const payload = JSON.parse(io.lines()[0]!);
       expect(payload).toMatchObject({ ok: false, regenerated: false });
       expect(payload.regenerateDetail).toContain("engine-pack-missing");
       expect("base" in payload).toBe(false);
@@ -513,7 +489,7 @@ describe("skillsBind", () => {
 
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
-    expect(logs.some((l) => l.includes("acme:watch-ci-domain-v1") && l.includes("acme:watch-ci-domain-v2"))).toBe(true);
+    expect(io.lines().some((l) => l.includes("acme:watch-ci-domain-v1") && l.includes("acme:watch-ci-domain-v2"))).toBe(true);
   });
 
   test("binding a previously-unbound slot (new key) works", async () => {
@@ -583,7 +559,7 @@ describe("skillsBind: pipeline stages", () => {
     ]);
 
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
-    expect(logs).toContain("stage-plan.domain: (unbound) -> acme:plan-policy");
+    expect(io.lines()).toContain("stage-plan.domain: (unbound) -> acme:plan-policy");
   });
 
   test("a slot the stage does not declare still errors with the known-slots list", async () => {
@@ -639,7 +615,7 @@ describe("skillsBind: pipeline stages", () => {
 
     // watch-ci's engine (not stage-plan's) is the one loaded when a name collides:
     // its slot is "domain" with contract "watch-ci-domain@1", satisfied by this fill.
-    expect(logs).toContain("stage-plan.domain: (unbound) -> acme:watch-ci-domain-v1");
+    expect(io.lines()).toContain("stage-plan.domain: (unbound) -> acme:watch-ci-domain-v1");
   });
 
   test("binding a stage's slot recompiles the whole pack, updating the orchestrator's baked-in allowed-tools", async () => {
@@ -692,7 +668,7 @@ describe("skillsBind: pipeline stages", () => {
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
-    expect(logs).toContain("stage-plan.domain: acme:plan-policy -> acme:plan-policy-v2");
+    expect(io.lines()).toContain("stage-plan.domain: acme:plan-policy -> acme:plan-policy-v2");
     const bindings = readManifestBindings(manifestPath);
     expect(bindings["mattstack:stage-plan"]?.domain).toBe("acme:plan-policy-v2");
   });
@@ -721,7 +697,7 @@ describe("bind writes the team pack fragment", () => {
     expect(JSON.parse(stripJsonc(fragment)).bindings).toEqual({ "mattstack:stage-plan": { domain: "acme:plan-policy" } });
     expect(readManifestBindings(manifest)["mattstack:stage-plan"]).toEqual({ domain: "acme:plan-policy" });
     // The summary suffix is the only observable proof the fragment write ran.
-    expect(logs.some((l) => l.includes(`fragment updated: ${fragmentPath}`))).toBe(true);
+    expect(io.lines().some((l) => l.includes(`fragment updated: ${fragmentPath}`))).toBe(true);
   });
 
   test("a standalone pack whose fragment is the manifest is written once", async () => {
@@ -732,7 +708,7 @@ describe("bind writes the team pack fragment", () => {
     expect(text.match(/acme:plan-policy/g)?.length).toBe(1);
     // A second write onto the same text is idempotent, so the count above alone
     // cannot prove the realpath guard skipped it; the missing summary suffix can.
-    expect(logs.some((l) => l.includes("fragment updated"))).toBe(false);
+    expect(io.lines().some((l) => l.includes("fragment updated"))).toBe(false);
   });
 
   test("a fragment with no top-level bindings key gains one", async () => {
@@ -752,15 +728,9 @@ describe("bind writes the team pack fragment", () => {
     rmSync(fragmentPath);
     symlinkSync(outsidePath, fragmentPath);
 
-    const errors: string[] = [];
-    const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-      errors.push(args.map(String).join(" "));
-    });
-    try {
-      await skillsBind(["stage-plan", "domain", "acme:plan-policy", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest]);
-    } finally {
-      errorSpy.mockRestore();
-    }
+    io.clear();
+    await skillsBind(["stage-plan", "domain", "acme:plan-policy", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest]);
+    const errors = io.errLines();
 
     expect(readFileSync(outsidePath, "utf8")).toBe(outsideBefore);
     const warning = errors.find((l) => l.includes(fragmentPath));
@@ -858,23 +828,20 @@ describe("applyBind", () => {
       const manifest = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
       writeFile(manifest, `{\n  "pipelines": { "feature": ["mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship"] },\n  "bindings": {}\n}\n`);
       const rootsSpy = spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(join(root, "mattstack-home")));
-      const errors: string[] = [];
-      const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-        errors.push(args.map(String).join(" "));
-      });
+      io.clear();
       try {
         await skillsBind(["stage-plan", "domain", "acme:plan-policy", "--pack-dir", pack, "--manifest", manifest, ...(mode === "--json" ? ["--json"] : [])]);
       } finally {
-        errorSpy.mockRestore();
         rootsSpy.mockRestore();
       }
+      const errors = io.errLines();
 
       expect(existsSync(join(pack, "skills"))).toBe(false);
       expect(process.exitCode).toBe(1);
       expect(JSON.parse(readFileSync(fragmentPath, "utf8")).bindings["mattstack:stage-plan"].domain).toBe("acme:plan-policy");
       if (mode === "--json") {
-        expect(logs).toHaveLength(1);
-        const payload = JSON.parse(logs[0]!);
+        expect(io.lines()).toHaveLength(1);
+        const payload = JSON.parse(io.lines()[0]!);
         expect(payload).toMatchObject({ ok: false, regenerated: false, fragmentUpdated: fragmentPath });
         expect(payload.regenerateDetail).toContain("engine-pack-missing");
       } else {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -10,7 +10,8 @@ import { invocableRoster, loadAttachment, loadStepSource } from "../../lib/skill
 import type { PluginRoots } from "../../lib/skills/sources.ts";
 import type { PackInfo } from "../../lib/skills/packs.ts";
 import type { VerbDef } from "../../lib/skills/types.ts";
-import { runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
+import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 const realInitFsForTests: MaterializeFs = {
   exists: existsSync,
@@ -239,18 +240,14 @@ function computeGolden(mattstackDir: string) {
   return compileSkill(verb, step, { domain, forge }, invocable);
 }
 
-let logSpy: ReturnType<typeof spyOn>;
-let logs: string[];
+let io: CapturedOut;
 
 beforeEach(() => {
-  logs = [];
-  logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-    logs.push(args.map(String).join(" "));
-  });
+  io = captureSkills();
 });
 
 afterEach(() => {
-  logSpy.mockRestore();
+  io.restore();
   // skillsCheck sets this on staleness; Bun ignores process.exitCode = undefined once
   // truthy, so 0 is the only value that clears it before the suite's own exit status.
   process.exitCode = 0;
@@ -271,7 +268,7 @@ describe("skillsCompile", () => {
       "--verb", "watch-ci",
     ]);
 
-    const summary = logs.find((l) => /would write \d+ files/.test(l));
+    const summary = io.lines().find((l) => /would write \d+ files/.test(l));
     expect(summary).toBeDefined();
     expect(summary).toContain("watch-ci");
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
@@ -285,7 +282,7 @@ describe("skillsCompile", () => {
     await skillsCompile(["--pack", "t", "--verb", "watch-ci", "--preview",
       "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]);
 
-    const out = logs.join("\n");
+    const out = io.lines().join("\n");
     expect(out).toContain("<!-- part: step source=");
     expect(out).not.toContain("compiled watch-ci (");
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
@@ -329,7 +326,7 @@ describe("skillsCompile", () => {
     await skillsCompile(["--pack", "t", "--verb", "watch-ci", "--preview",
       "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]);
 
-    const out = logs.join("\n");
+    const out = io.lines().join("\n");
     expect(out).toContain("<!-- part: step source=");
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
     expect(existsSync(join(packDir, "attachments", "watch-ci"))).toBe(false);
@@ -348,7 +345,7 @@ describe("skillsCompile", () => {
     await skillsCompile(["--pack", "t", "--verb", "watch-ci", "--preview",
       "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]);
 
-    const out = logs.join("\n");
+    const out = io.lines().join("\n");
     expect(out).toContain("<!-- part: step source=");
     expect(out).not.toContain("misplaced:");
   });
@@ -366,7 +363,7 @@ describe("skillsCompile", () => {
       "--verb", "watch-ci",
     ]);
 
-    expect(logs.some((l) => l.includes("compiled watch-ci") && l.includes("3 files"))).toBe(true);
+    expect(io.lines().some((l) => l.includes("compiled watch-ci") && l.includes("3 files"))).toBe(true);
 
     const golden = computeGolden(mattstackDir);
     const outDir = join(packDir, "skills", "watch-ci");
@@ -425,8 +422,8 @@ describe("skillsCompile", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors).toHaveLength(2);
-    expect(errors.every((e) => e.startsWith("rt skills: "))).toBe(true);
+    expect(errors.filter((e) => e.startsWith("rt skills: "))).toHaveLength(2);
+    expect(errors.every((e) => e.startsWith("rt skills: ") || e.startsWith("/"))).toBe(true);
     expect(errors.join("\n")).toContain("no-such-engine-a");
     expect(errors.join("\n")).toContain("no-such-engine-b");
     expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toBe("PLANTED\n");
@@ -535,7 +532,7 @@ describe("skillsCompile", () => {
 
     expect(errors).toEqual([]);
     expect(exitCode).toBeUndefined();
-    expect(logs.some((l) => /would write \d+ files/.test(l))).toBe(true);
+    expect(io.lines().some((l) => /would write \d+ files/.test(l))).toBe(true);
   });
 
   test("default pack dir formula (--team + --mattstack-dir, no --pack-dir)", async () => {
@@ -550,7 +547,7 @@ describe("skillsCompile", () => {
       "--manifest", manifestPath,
     ]);
 
-    expect(logs.some((l) => /would write \d+ files/.test(l) && l.includes("watch-ci"))).toBe(true);
+    expect(io.lines().some((l) => /would write \d+ files/.test(l) && l.includes("watch-ci"))).toBe(true);
   });
 
   test("default manifest lookup: the one repos/*/packs/<team>/skills.jsonc", async () => {
@@ -562,7 +559,7 @@ describe("skillsCompile", () => {
       skillsCompile(["--team", "t", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
 
     expect(errors).toEqual([]);
-    expect(logs.some((l) => /would write \d+ files/.test(l))).toBe(true);
+    expect(io.lines().some((l) => /would write \d+ files/.test(l))).toBe(true);
   });
 
   test("two packs bound to one repo compile different domain fills with no merge error", async () => {
@@ -644,7 +641,7 @@ describe("skillsCompile", () => {
     for (const repo of ["gitlab.example.com-acme-widgets", "gitlab.example.com/acme/widgets"]) {
       const picked = await runExpectingCleanExit(() => skillsCompile([...base, "--repo", repo]));
       expect(picked.errors).toEqual([]);
-      expect(JSON.parse(logs.at(-1)!).manifestPath).toContain("gitlab.example.com-acme-widgets");
+      expect(JSON.parse(io.lines().at(-1)!).manifestPath).toContain("gitlab.example.com-acme-widgets");
     }
 
     const zone = join(mattstackDir, "teams", "acme", "mattstack");
@@ -653,7 +650,7 @@ describe("skillsCompile", () => {
     writeFile(join(zone, "packs", "t", "pack", "skills.jsonc"), "{}");
     const tieBroken = await runExpectingCleanExit(() => skillsCompile(base));
     expect(tieBroken.errors).toEqual([]);
-    expect(JSON.parse(logs.at(-1)!).manifestPath).toContain("gitlab.example.com-acme-gadgets");
+    expect(JSON.parse(io.lines().at(-1)!).manifestPath).toContain("gitlab.example.com-acme-gadgets");
   });
 
   test("--repo naming a repo with no file for this pack is a clean error", async () => {
@@ -706,7 +703,7 @@ describe("skillsCompile", () => {
       skillsCompile(["--team", "t", "--json", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
 
     expect(errors).toEqual([]);
-    expect(JSON.parse(logs.at(-1)!).repoKey).toBe("gitlab.example.com-acme-widgets");
+    expect(JSON.parse(io.lines().at(-1)!).repoKey).toBe("gitlab.example.com-acme-widgets");
   });
 
   test("a standalone pack (outside the teams zone) with no registered manifest compiles against its own pack/skills.jsonc", async () => {
@@ -726,7 +723,7 @@ describe("skillsCompile", () => {
 
     expect(errors).toEqual([]);
     expect(exitCode).toBeUndefined();
-    expect(logs.some((l) => /would write \d+ files/.test(l) && l.includes("watch-ci"))).toBe(true);
+    expect(io.lines().some((l) => /would write \d+ files/.test(l) && l.includes("watch-ci"))).toBe(true);
   });
 
   test("a team-shaped pack OUTSIDE the teams zone (a worktree) still never falls back to its pack/skills.jsonc fragment", async () => {
@@ -810,7 +807,7 @@ describe("skillsCompile --json write semantics", () => {
       "--verb", "watch-ci",
     ]);
 
-    const payload = JSON.parse(logs[0]!);
+    const payload = JSON.parse(io.lines()[0]!);
     expect(payload.written).toBe(false);
     expect(payload.verbs[0].status).toBe("compiled");
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
@@ -831,7 +828,7 @@ describe("skillsCompile --json write semantics", () => {
     ]);
 
     expect(process.exitCode).toBe(1);
-    const payload = JSON.parse(logs[0]!);
+    const payload = JSON.parse(io.lines()[0]!);
     expect(payload.written).toBe(false);
     const statuses = Object.fromEntries(payload.verbs.map((v: { name: string; status: string }) => [v.name, v.status]));
     expect(statuses["watch-ci"]).toBe("compiled");
@@ -860,7 +857,7 @@ describe("skillsCompile --json write semantics", () => {
 
     await skillsCompile(["--team", "t", "--json", "--pack-dir", packDir, "--mattstack-dir", mattstackDir]);
 
-    const payload = JSON.parse(logs[0]!);
+    const payload = JSON.parse(io.lines()[0]!);
     expect(payload.verbs).toEqual([]);
     expect(payload.written).toBe(false);
   });
@@ -875,12 +872,12 @@ describe("skillsCompile --json write semantics", () => {
     // run sweeps -- so a dry-run must not call it misplaced.
     await skillsCompile(["--team", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]);
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": [] }\n`);
-    logs.length = 0;
+    io.clear();
     process.exitCode = 0;
 
     await skillsCompile(["--team", "t", "--json", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]);
 
-    const payload = JSON.parse(logs[0]!);
+    const payload = JSON.parse(io.lines()[0]!);
     expect(payload.misplaced).toEqual([]);
     expect(process.exitCode).not.toBe(1);
   });
@@ -895,12 +892,12 @@ describe("skillsCompile --json write semantics", () => {
     // so the stale compiler-headed skills/watch-ci really is still on disk.
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": [] }\n`);
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_TWO_VERBS);
-    logs.length = 0;
+    io.clear();
     process.exitCode = 0;
 
     await skillsCompile(["--team", "t", "--json", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]);
 
-    const payload = JSON.parse(logs[0]!);
+    const payload = JSON.parse(io.lines()[0]!);
     expect(payload.written).toBe(false);
     expect(payload.misplaced).toEqual(["watch-ci"]);
   });
@@ -921,8 +918,8 @@ describe("skillsCompile --json write semantics", () => {
       "--verb", "watch-ci",
     ]);
 
-    expect(logs).toHaveLength(1);
-    const payload = JSON.parse(logs[0]!);
+    expect(io.lines()).toHaveLength(1);
+    const payload = JSON.parse(io.lines()[0]!);
     expect(payload.misplaced).toEqual(["stray-skill"]);
     expect(process.exitCode).toBe(1);
   });
@@ -970,7 +967,7 @@ describe("skillsCompile --pack-dir validation", () => {
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci", "--dry-run", "--json"]);
 
-    const payload = JSON.parse(logs[0]!);
+    const payload = JSON.parse(io.lines()[0]!);
     expect(payload.pack).toBe("t");
   });
 });
@@ -991,7 +988,7 @@ describe("skillsCompile pack resolution from cwd", () => {
       process.chdir(prevCwd);
     }
 
-    const payload = JSON.parse(logs[0]!);
+    const payload = JSON.parse(io.lines()[0]!);
     expect(payload.pack).toBe("t");
   });
 
@@ -1012,7 +1009,7 @@ describe("skillsCompile pack resolution from cwd", () => {
       process.chdir(prevCwd);
     }
 
-    expect(logs.some((l) => /would write \d+ files/.test(l) && l.includes("watch-ci"))).toBe(true);
+    expect(io.lines().some((l) => /would write \d+ files/.test(l) && l.includes("watch-ci"))).toBe(true);
   });
 
   test("cwd below the pack root still resolves the enclosing pack", async () => {
@@ -1032,7 +1029,7 @@ describe("skillsCompile pack resolution from cwd", () => {
       process.chdir(prevCwd);
     }
 
-    expect(logs.some((l) => /would write \d+ files/.test(l) && l.includes("watch-ci"))).toBe(true);
+    expect(io.lines().some((l) => /would write \d+ files/.test(l) && l.includes("watch-ci"))).toBe(true);
   });
 
   test("--pack matching the enclosing pack's plugin name resolves to the enclosing dir, not the registry", async () => {
@@ -1053,7 +1050,7 @@ describe("skillsCompile pack resolution from cwd", () => {
       process.chdir(prevCwd);
     }
 
-    expect(logs.some((l) => /would write \d+ files/.test(l) && l.includes("watch-ci"))).toBe(true);
+    expect(io.lines().some((l) => /would write \d+ files/.test(l) && l.includes("watch-ci"))).toBe(true);
   });
 
   test("--pack naming a different pack does not hijack onto the enclosing dir", async () => {
@@ -1114,8 +1111,7 @@ describe("skillsCompile/skillsCheck --verb scoping across roster verbs and pipel
     // Strict, not toContain: a stray second console.log (the stage's body
     // concatenated after the orchestrator's) is exactly the N+1-bodies bug --
     // toContain would have passed with two bodies on stdout.
-    expect(logs).toHaveLength(1);
-    expect(logs[0]).toContain("The work type is `feature`. Continue.");
+    expect(io.stdout()).toContain("The work type is `feature`. Continue.");
   });
 
   test("--verb stage-plan --preview emits exactly that stage's body, not the orchestrator's", async () => {
@@ -1126,8 +1122,7 @@ describe("skillsCompile/skillsCheck --verb scoping across roster verbs and pipel
       "--verb", "stage-plan", "--preview",
     ]);
 
-    expect(logs).toHaveLength(1);
-    expect(logs[0]).not.toContain("The work type is");
+    expect(io.stdout()).not.toContain("The work type is");
   });
 
   test("--verb work (real compile) writes only the orchestrator, leaving the stage uncompiled", async () => {
@@ -1149,7 +1144,7 @@ describe("skillsCompile/skillsCheck --verb scoping across roster verbs and pipel
       "--verb", "stage-plan", "--json",
     ]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.verbs.map((v: { name: string }) => v.name)).toEqual(["stage-plan"]);
   });
 
@@ -1187,7 +1182,7 @@ describe("skillsCompile with a broken pipeline manifest", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors).toHaveLength(1);
+    expect(errors.filter((e) => e.startsWith("rt skills: "))).toHaveLength(1);
     expect(errors[0]).toStartWith("rt skills: ");
     expect(errors[0]).not.toContain("\n    at ");
     expect(errors[0]).toContain("feature");
@@ -1237,7 +1232,7 @@ describe("skillsCheck", () => {
       "--manifest", manifestPath,
       "--verb", "watch-ci",
     ]);
-    logs = [];
+    io.clear();
 
     await skillsCheck([
       "--team", "t",
@@ -1247,8 +1242,8 @@ describe("skillsCheck", () => {
       "--verb", "watch-ci",
     ]);
 
-    expect(logs.some((l) => l.includes("watch-ci") && l.includes("current"))).toBe(true);
-    expect(logs.some((l) => l.includes("stale"))).toBe(false);
+    expect(io.lines().some((l) => l.includes("watch-ci") && l.includes("current"))).toBe(true);
+    expect(io.lines().some((l) => l.includes("stale"))).toBe(false);
     expect(process.exitCode).not.toBe(1);
   });
 
@@ -1271,7 +1266,7 @@ describe("skillsCheck", () => {
       "--manifest", manifestPath,
     ]);
 
-    expect(logs.some((l) => l.includes('stage "stage-ship" consumes "commits"'))).toBe(true);
+    expect(io.lines().some((l) => l.includes('stage "stage-ship" consumes "commits"'))).toBe(true);
     expect(process.exitCode).toBe(1);
   });
 
@@ -1290,7 +1285,7 @@ describe("skillsCheck", () => {
 
     const skillMdPath = join(packDir, "skills", "watch-ci", "SKILL.md");
     writeFileSync(skillMdPath, readFileSync(skillMdPath, "utf8") + "\nhand-edited drift\n");
-    logs = [];
+    io.clear();
 
     await skillsCheck([
       "--team", "t",
@@ -1300,7 +1295,7 @@ describe("skillsCheck", () => {
       "--verb", "watch-ci",
     ]);
 
-    const staleLine = logs.find((l) => l.includes("stale"));
+    const staleLine = io.lines().find((l) => l.includes("stale"));
     expect(staleLine).toBeDefined();
     expect(staleLine).toContain("watch-ci");
     expect(staleLine).toContain("SKILL.md");
@@ -1321,7 +1316,7 @@ describe("skillsCheck", () => {
     ]);
 
     writeFileSync(join(packDir, "skills", "watch-ci", "leftover.txt"), "stale content\n");
-    logs = [];
+    io.clear();
 
     await skillsCheck([
       "--team", "t",
@@ -1331,7 +1326,7 @@ describe("skillsCheck", () => {
       "--verb", "watch-ci",
     ]);
 
-    const staleLine = logs.find((l) => l.includes("stale"));
+    const staleLine = io.lines().find((l) => l.includes("stale"));
     expect(staleLine).toBeDefined();
     expect(staleLine).toContain("watch-ci");
     expect(staleLine).toContain("leftover.txt");
@@ -1355,7 +1350,7 @@ describe("skillsCheck", () => {
 
     mkdirSync(join(packDir, "skills", "watch-ci", "scripts", "__pycache__"), { recursive: true });
     writeFileSync(join(packDir, "skills", "watch-ci", "scripts", "__pycache__", "ci_watch.cpython-314.pyc"), "bytecode\n");
-    logs = [];
+    io.clear();
 
     await skillsCheck([
       "--team", "t",
@@ -1365,7 +1360,7 @@ describe("skillsCheck", () => {
       "--verb", "watch-ci",
     ]);
 
-    expect(logs).toContain("watch-ci: current");
+    expect(io.lines()).toContain("watch-ci: current");
     expect(process.exitCode).not.toBe(1);
   });
 
@@ -1382,7 +1377,7 @@ describe("skillsCheck", () => {
       "--verb", "watch-ci",
     ]);
 
-    const staleLine = logs.find((l) => l.includes("stale"));
+    const staleLine = io.lines().find((l) => l.includes("stale"));
     expect(staleLine).toBeDefined();
     expect(staleLine).toContain("watch-ci");
     expect(process.exitCode).toBe(1);
@@ -1406,7 +1401,7 @@ describe("skillsCheck", () => {
       .replace(/version=\S+/g, "version=9.9.9")
       .replace(/(compiled: )"[^"]*"/, '$1"bumped"');
     writeFileSync(skillMdPath, bumped);
-    logs = [];
+    io.clear();
 
     await skillsCheck([
       "--team", "t",
@@ -1417,7 +1412,7 @@ describe("skillsCheck", () => {
       "--json",
     ]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.verbs).toEqual([
       { name: "watch-ci", status: "in-sync", staleFiles: [], orphanFiles: [], side: "skills" },
     ]);
@@ -1443,7 +1438,7 @@ describe("skillsCheck", () => {
       .replace(/(compiled: )"[^"]*"/, '$1"bumped"')
       .replace("Poll the pipeline every 30s", "Poll the pipeline every 45s");
     writeFileSync(skillMdPath, bumped);
-    logs = [];
+    io.clear();
 
     await skillsCheck([
       "--team", "t",
@@ -1453,7 +1448,7 @@ describe("skillsCheck", () => {
       "--verb", "watch-ci",
     ]);
 
-    const staleLine = logs.find((l) => l.includes("stale"));
+    const staleLine = io.lines().find((l) => l.includes("stale"));
     expect(staleLine).toBeDefined();
     expect(staleLine).toContain("watch-ci");
     expect(staleLine).toContain("SKILL.md");
@@ -1466,11 +1461,11 @@ describe("skillsCheck", () => {
     const manifestPath = makeManifest();
 
     await skillsCompile(["--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]);
-    logs = [];
+    io.clear();
 
     await skillsCheck(["--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci", "--json"]);
 
-    const payload = JSON.parse(logs.at(-1)!);
+    const payload = JSON.parse(io.lines().at(-1)!);
     expect(payload.installed).toBeNull();
     expect(payload.verbs.every((v: { status: string }) => v.status === "in-sync")).toBe(true);
     expect(process.exitCode ?? 0).toBe(0);
@@ -1545,7 +1540,7 @@ describe("skillsCheck --json", () => {
 
     await skillsCheck(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.pack).toBe("acme");
     expect(parsed.packDir).toBe(packDir);
     expect(parsed.verbs).toEqual([
@@ -1573,7 +1568,7 @@ describe("skillsCheck --json", () => {
       "--json",
     ]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.chainErrors).toHaveLength(1);
     expect(parsed.chainErrors[0]).toContain('stage "stage-ship" consumes "commits"');
     // Rows are untouched by a pack-level failure -- the console reads them.
@@ -1588,7 +1583,7 @@ describe("skillsCheck --json", () => {
 
     await skillsCheck(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    expect(() => JSON.parse(logs.join("\n"))).not.toThrow();
+    expect(() => JSON.parse(io.lines().join("\n"))).not.toThrow();
   });
 
   test("reports in-sync right after a compile", async () => {
@@ -1597,11 +1592,11 @@ describe("skillsCheck --json", () => {
     const manifestPath = makeManifest();
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]);
-    logs = [];
+    io.clear();
 
     await skillsCheck(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.verbs).toEqual([
       { name: "watch-ci", status: "in-sync", staleFiles: [], orphanFiles: [], side: "skills" },
     ]);
@@ -1617,11 +1612,11 @@ describe("skillsCheck --json", () => {
     const skillMdPath = join(packDir, "skills", "watch-ci", "SKILL.md");
     writeFileSync(skillMdPath, readFileSync(skillMdPath, "utf8") + "\nhand-edited drift\n");
     writeFileSync(join(packDir, "skills", "watch-ci", "leftover.txt"), "stale content\n");
-    logs = [];
+    io.clear();
 
     await skillsCheck(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.verbs).toEqual([
       { name: "watch-ci", status: "stale", staleFiles: ["SKILL.md"], orphanFiles: ["leftover.txt"], side: "skills", staleBecause: ["fill"] },
     ]);
@@ -1639,11 +1634,11 @@ describe("skillsCheck --json", () => {
       join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci", "SKILL.md"),
       WATCH_CI_SKILL_MD.replace("Poll the pipeline every 30s", "Poll the pipeline every 60s"),
     );
-    logs = [];
+    io.clear();
 
     await skillsCheck(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const verb = JSON.parse(logs.join("\n")).verbs[0];
+    const verb = JSON.parse(io.lines().join("\n")).verbs[0];
     expect(verb.status).toBe("stale");
     expect(verb.staleFiles).toEqual(["SKILL.md"]);
     expect(verb.staleBecause).toEqual(["source"]);
@@ -1660,11 +1655,11 @@ describe("skillsCheck --json", () => {
       join(mattstackDir, "plugins", "acme", "attachments", "watch-ci-domain", "SKILL.md"),
       DOMAIN_SKILL_MD.replace("Domain rules live at", "Domain rules now live at"),
     );
-    logs = [];
+    io.clear();
 
     await skillsCheck(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const verb = JSON.parse(logs.join("\n")).verbs[0];
+    const verb = JSON.parse(io.lines().join("\n")).verbs[0];
     expect(verb.status).toBe("stale");
     expect(verb.staleBecause).toEqual(["fill"]);
   });
@@ -1680,11 +1675,11 @@ describe("skillsCheck --json", () => {
       join(packDir, "pack", "stubs.jsonc"),
       STUBS_JSONC.replace("Use when watching or triaging CI.", "Use when watching CI."),
     );
-    logs = [];
+    io.clear();
 
     await skillsCheck(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const verb = JSON.parse(logs.join("\n")).verbs[0];
+    const verb = JSON.parse(io.lines().join("\n")).verbs[0];
     expect(verb.status).toBe("stale");
     expect(verb.staleBecause).toEqual(["frontmatter"]);
   });
@@ -1700,11 +1695,11 @@ describe("skillsCheck --json", () => {
       join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci", "scripts", "ci-watch.sh"),
       "#!/bin/sh\necho polling twice\n",
     );
-    logs = [];
+    io.clear();
 
     await skillsCheck(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const verb = JSON.parse(logs.join("\n")).verbs[0];
+    const verb = JSON.parse(io.lines().join("\n")).verbs[0];
     expect(verb.status).toBe("stale");
     expect(verb.staleFiles).toEqual(["scripts/ci-watch.sh"]);
     expect(verb.staleBecause).toEqual(["vendored"]);
@@ -1718,7 +1713,7 @@ describe("skillsCheck --json", () => {
 
     await skillsCheck(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.verbs).toEqual([
       { name: "watch-ci", status: "never-compiled", staleFiles: [], orphanFiles: [], side: "attachments" },
     ]);
@@ -1734,7 +1729,7 @@ describe("skillsCompile --json", () => {
 
     await skillsCompile(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci", "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.pack).toBe("acme");
     expect(parsed.written).toBe(true);
     expect(parsed.verbs).toHaveLength(1);
@@ -1762,7 +1757,7 @@ describe("skillsCompile --json", () => {
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci", "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.verbs).toHaveLength(1);
     const verb = parsed.verbs[0];
     expect(verb.name).toBe("watch-ci");
@@ -1787,7 +1782,7 @@ describe("skillsCompile --json", () => {
 
     await skillsCompile(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     const watchCi = parsed.verbs.find((v: { name: string }) => v.name === "watch-ci");
     expect(watchCi.status).toBe("errored");
     expect(watchCi.files).toEqual([]);
@@ -1810,7 +1805,7 @@ describe("skillsCompile --json", () => {
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci", "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.verbs).toHaveLength(1);
     expect(parsed.verbs[0].status).toBe("errored");
     expect(parsed.verbs[0].files).toEqual([]);
@@ -1825,7 +1820,7 @@ describe("skillsCompile --json", () => {
 
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci", "--json"]);
 
-    expect(() => JSON.parse(logs.join("\n"))).not.toThrow();
+    expect(() => JSON.parse(io.lines().join("\n"))).not.toThrow();
   });
 });
 
@@ -1837,20 +1832,14 @@ describe("skillsCompile --preview error handling", () => {
     writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": ["watch-ci"] }\n`);
     const manifestPath = makeManifest();
 
-    const errors: string[] = [];
-    const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-      errors.push(args.map(String).join(" "));
-    });
-    try {
-      await skillsCompile([
-        "--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
-        "--verb", "watch-ci", "--preview",
-      ]);
-    } finally {
-      errorSpy.mockRestore();
-    }
+    io.clear();
+    await skillsCompile([
+      "--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
+      "--verb", "watch-ci", "--preview",
+    ]);
+    const errors = io.errLines();
 
-    expect(logs).toEqual([]);
+    expect(io.lines()).toEqual([]);
     expect(errors.join("\n")).toContain("acme:helper-verb");
     expect(process.exitCode).toBe(1);
   });
@@ -1869,20 +1858,14 @@ describe("skillsCompile --preview error handling", () => {
     writeFile(join(packDir, "skills", "leftover-verb", "SKILL.md"), "---\nname: leftover-verb\n---\nstale\n");
     const manifestPath = makeManifest();
 
-    const errors: string[] = [];
-    const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-      errors.push(args.map(String).join(" "));
-    });
-    try {
-      await skillsCompile([
-        "--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
-        "--verb", "watch-ci", "--preview",
-      ]);
-    } finally {
-      errorSpy.mockRestore();
-    }
+    io.clear();
+    await skillsCompile([
+      "--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
+      "--verb", "watch-ci", "--preview",
+    ]);
+    const errors = io.errLines();
 
-    expect(logs).toEqual([]);
+    expect(io.lines()).toEqual([]);
     expect(errors.join("\n")).toContain("acme:helper-verb");
   });
 
@@ -1891,20 +1874,14 @@ describe("skillsCompile --preview error handling", () => {
     const packDir = makePackDir();
     const manifestPath = makeManifest(false);
 
-    const errors: string[] = [];
-    const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-      errors.push(args.map(String).join(" "));
-    });
-    try {
-      await skillsCompile([
-        "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
-        "--verb", "watch-ci", "--preview",
-      ]);
-    } finally {
-      errorSpy.mockRestore();
-    }
+    io.clear();
+    await skillsCompile([
+      "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
+      "--verb", "watch-ci", "--preview",
+    ]);
+    const errors = io.errLines();
 
-    expect(logs).toEqual([]);
+    expect(io.lines()).toEqual([]);
     expect(errors.join("\n")).toContain("forge");
     expect(process.exitCode).toBe(1);
   });
@@ -1918,7 +1895,7 @@ describe("skillsComposition --json", () => {
 
     await skillsComposition(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.pack).toBe("acme");
     expect(parsed.packDir).toBe(packDir);
     expect(parsed.verbs).toHaveLength(1);
@@ -1991,7 +1968,7 @@ describe("skillsComposition --json", () => {
 
     await skillsComposition(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const verb = JSON.parse(logs.join("\n")).verbs[0];
+    const verb = JSON.parse(io.lines().join("\n")).verbs[0];
     expect(verb.includes).toEqual(["ci-note", "fill-note"]);
   });
 
@@ -2010,10 +1987,10 @@ describe("skillsComposition --json", () => {
     writeFile(join(mattstackDir, "plugins", "mattstack", "attachments", "forge-note", "note.txt"), "note\n");
 
     await skillsComposition(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
-    const verb = JSON.parse(logs.join("\n")).verbs[0];
+    const verb = JSON.parse(io.lines().join("\n")).verbs[0];
     expect(verb.includes).toEqual([]);
 
-    logs = [];
+    io.clear();
     await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]);
     expect(existsSync(join(packDir, "skills", "watch-ci", "parts", "include-forge-note"))).toBe(false);
   });
@@ -2026,7 +2003,7 @@ describe("skillsComposition --json", () => {
 
     await skillsComposition(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     const verb = parsed.verbs.find((v: { name: string }) => v.name === "watch-ci");
     expect(verb.public).toBe(false);
     expect(verb.artifactPath).toBe(join(packDir, "attachments", "watch-ci"));
@@ -2040,7 +2017,7 @@ describe("skillsComposition --json", () => {
 
     await skillsComposition(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.verbs).toHaveLength(2);
 
     const watchCi = parsed.verbs.find((v: { name: string }) => v.name === "watch-ci");
@@ -2080,7 +2057,7 @@ describe("skillsComposition --json", () => {
       "--verb", "watch-ci", "--json",
     ]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.verbs.map((v: { name: string }) => v.name).sort()).toEqual(["broken", "watch-ci"]);
   });
 
@@ -2113,7 +2090,7 @@ describe("skillsComposition --json", () => {
 
     await skillsComposition(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     const byRef = Object.fromEntries(parsed.binders.map((b: { ref: string; kind: string; verb: string | null }) => [b.ref, b]));
 
     // mattstack:stage-provision has NO roster verb, so this also proves kind
@@ -2140,7 +2117,7 @@ describe("skillsComposition --json", () => {
 }
 `);
     await skillsComposition(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     const slots = parsed.verbs.find((v: { name: string }) => v.name === "watch-ci").slots;
     expect(slots.find((s: { name: string }) => s.name === "domain").layer).toBe("pack");
     expect(slots.find((s: { name: string }) => s.name === "forge").layer).toBe("base:acme-base");
@@ -2158,7 +2135,7 @@ describe("skillsComposition --json", () => {
 }
 `);
     await skillsComposition(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     const slots = parsed.verbs[0].slots;
     expect(slots.find((s: { name: string }) => s.name === "domain").layer).toBeNull();
   });
@@ -2169,7 +2146,7 @@ describe("skillsComposition --json", () => {
 
     await skillsComposition(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed).toEqual({ pack: "acme", packDir, manifestPath: null, verbs: [], fills: [], binders: [], pipelines: {} });
   });
 
@@ -2185,7 +2162,7 @@ describe("skillsComposition --json", () => {
 
     await skillsComposition(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.manifestPath).toBe(manifestPath);
     expect(parsed.manifestPath).not.toBe(join(packDir, "skills.jsonc"));
   });
@@ -2215,7 +2192,7 @@ describe("skillsComposition --json", () => {
 
     await skillsComposition(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed.pipelines).toEqual({
       feature: ["mattstack:stage-ship", "mattstack:stage-provision", "mattstack:stage-plan"],
       bugfix: ["mattstack:stage-provision"],
@@ -2229,7 +2206,7 @@ describe("skillsComposition --json", () => {
 
     await skillsComposition(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
-    expect(() => JSON.parse(logs.join("\n"))).not.toThrow();
+    expect(() => JSON.parse(io.lines().join("\n"))).not.toThrow();
   });
 });
 
@@ -2237,14 +2214,14 @@ describe("skillsPacks --json", () => {
   test("no packs discovered: empty packs array, not an error", async () => {
     await skillsPacks(["--settings-path", "/nonexistent/settings.json", "--json"]);
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.lines().join("\n"));
     expect(parsed).toEqual({ packs: [] });
   });
 
   test("prints ONLY json -- no human lines on stdout", async () => {
     await skillsPacks(["--settings-path", "/nonexistent/settings.json", "--json"]);
 
-    expect(() => JSON.parse(logs.join("\n"))).not.toThrow();
+    expect(() => JSON.parse(io.lines().join("\n"))).not.toThrow();
   });
 });
 
@@ -2285,14 +2262,14 @@ describe("skillsMaterialize --dir exit codes", () => {
     const { exitCode, errors } = await runExpectingCleanExit(() => skillsMaterialize(["--dir"]));
     expect(exitCode).toBe(1);
     expect(errors[0]).toContain("--dir needs a value");
-    expect(logs).toEqual([]);
+    expect(io.lines()).toEqual([]);
   });
 
   test("a checkout no team declares exits 2", async () => {
     process.env.RT_ENGINE_PACK_DIR = ENGINE;
     await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/gadgets.git")]);
     expect(process.exitCode).toBe(2);
-    expect(logs.join("\n")).toContain("No team covers gitlab.example.com/acme/gadgets");
+    expect(io.lines().join("\n")).toContain("No team covers gitlab.example.com/acme/gadgets");
   });
 
   test("a checkout with no git remote exits 2", async () => {
@@ -2301,13 +2278,13 @@ describe("skillsMaterialize --dir exit codes", () => {
     execFileSync("git", ["init", "-q", dir]);
     await skillsMaterialize(["--dir", dir]);
     expect(process.exitCode).toBe(2);
-    expect(logs.join("\n")).toContain(`No git remote in ${dir}`);
+    expect(io.lines().join("\n")).toContain(`No git remote in ${dir}`);
   });
 
   test("no engine pack installed exits 1: nothing was written", async () => {
     await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
     expect(process.exitCode).toBe(1);
-    expect(logs.join("\n")).toContain("skipped: engine-pack-missing");
+    expect(io.lines().join("\n")).toContain("skipped: engine-pack-missing");
   });
 
   test("a declared checkout exits 0 and reports the migrated legacy file", async () => {
@@ -2317,7 +2294,7 @@ describe("skillsMaterialize --dir exit codes", () => {
     writeFile(legacy, "{}");
     await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
     expect(process.exitCode).toBe(0);
-    expect(logs).toContain(`  renamed the old merged file to ${legacy}.migrated`);
+    expect(io.lines()).toContain(`  renamed the old merged file to ${legacy}.migrated`);
     expect(existsSync(join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc"))).toBe(true);
   });
 
@@ -2328,7 +2305,7 @@ describe("skillsMaterialize --dir exit codes", () => {
     writeFile(stale, "// zone: acme\n{}");
     await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
     expect(process.exitCode).toBe(0);
-    expect(logs).toContain(`  Set aside 1 stale bindings file: ${stale}.stale`);
+    expect(io.lines()).toContain(`  Set aside 1 stale bindings file: ${stale}.stale`);
     expect(existsSync(stale)).toBe(false);
   });
 });

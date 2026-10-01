@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { skillsCompile, skillsCheck } from "../../../commands/skills.ts";
-import { runExpectingCleanExit } from "./helpers.ts";
+import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "compile-native");
 
@@ -91,17 +91,14 @@ describe("compile-native end to end", () => {
     const notePath = join(ms, "plugins", "mattstack", "attachments", "gitlab-note", "SKILL.md");
     writeFileSync(notePath, readFileSync(notePath, "utf8").replace("note body", "note body v2"));
 
-    const logs: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-      logs.push(args.map(String).join(" "));
-    });
+    const io = captureSkills();
     try {
       await skillsCheck(["--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest, "--json"]);
     } finally {
-      logSpy.mockRestore();
+      io.restore();
     }
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.stdout());
     const stagePlan = parsed.verbs.find((v: { name: string }) => v.name === "stage-plan");
     expect(stagePlan.status).toBe("stale");
     expect(stagePlan.staleBecause).toEqual(["include"]);
@@ -113,17 +110,14 @@ describe("compile-native end to end", () => {
     const policyPath = join(pack, "attachments", "plan-policy", "SKILL.md");
     writeFileSync(policyPath, readFileSync(policyPath, "utf8").replace("\n{{include:gitlab-note}}\n", "\n"));
 
-    const logs: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-      logs.push(args.map(String).join(" "));
-    });
+    const io = captureSkills();
     try {
       await skillsCheck(["--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest, "--json"]);
     } finally {
-      logSpy.mockRestore();
+      io.restore();
     }
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.stdout());
     const stagePlan = parsed.verbs.find((v: { name: string }) => v.name === "stage-plan");
     expect(stagePlan.status).toBe("stale");
     expect(stagePlan.staleBecause).toEqual(["structure"]);
@@ -241,19 +235,16 @@ function buildWithRosterVerbs(): { pack: string; ms: string; manifest: string } 
 
 type CompileRun = { logs: string[]; errors: string[]; exitCode: number | undefined };
 
-/** A failing compile prints through console.error and calls process.exit(1); runExpectingCleanExit turns that into a test failure instead of ending the bun process. */
+/** A failing compile calls process.exit(1); runExpectingCleanExit turns that into a result instead of ending the bun process. */
 async function compileCapturingLogs(pack: string, ms: string, manifest: string, extra: string[] = []): Promise<CompileRun> {
-  const logs: string[] = [];
-  const logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-    logs.push(args.map(String).join(" "));
-  });
+  const io = captureSkills();
   try {
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsCompile(["--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest, ...extra]),
     );
-    return { logs, errors, exitCode };
+    return { logs: io.lines(), errors, exitCode };
   } finally {
-    logSpy.mockRestore();
+    io.restore();
   }
 }
 

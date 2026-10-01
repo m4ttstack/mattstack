@@ -1,13 +1,13 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { skillsExpand } from "../skills-expand.ts";
-import { runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
+import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 let root: string;
-let logs: string[];
-let logSpy: ReturnType<typeof spyOn>;
+let io: CapturedOut;
 
 function write(path: string, text: string): void {
   mkdirSync(join(path, ".."), { recursive: true });
@@ -19,14 +19,11 @@ beforeEach(() => {
   write(join(root, "plugins", "mattstack", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "mattstack", version: "1.2.3" }));
   write(join(root, "plugins", "mattstack", "attachments", "note", "SKILL.md"), "---\nname: note\ndescription: n\n---\n\nShared.\n");
   write(join(root, "src", "a", "SKILL.md"), "---\nname: app:a\ndescription: a\n---\n\n{{include:note}}\n");
-  logs = [];
-  logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-    logs.push(args.map(String).join(" "));
-  });
+  io = captureSkills();
 });
 
 afterEach(() => {
-  logSpy.mockRestore();
+  io.restore();
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -36,7 +33,7 @@ describe("rt skills expand", () => {
   test("writes the output and reports each skill", async () => {
     await skillsExpand(base());
     expect(readFileSync(join(root, "out", "a", "SKILL.md"), "utf8")).toContain("Shared.");
-    expect(logs.join("\n")).toContain("+ a");
+    expect(io.lines().join("\n")).toContain("+ a");
   });
 
   test("--check is clean after expand and exits 1 naming the drift after an edit", async () => {
@@ -53,14 +50,14 @@ describe("rt skills expand", () => {
     await skillsExpand(base());
     rmSync(join(root, "out", "a"), { recursive: true });
     await runExpectingCleanExit(() => skillsExpand([...base(), "--check", "--json"]));
-    const parsed = JSON.parse(logs.at(-1)!);
+    const parsed = JSON.parse(io.lines().at(-1)!);
     expect(parsed).toMatchObject({ ok: false, mode: "check", drift: [{ skill: "a", causes: ["missing"] }] });
   });
 
   test("--dry-run writes nothing", async () => {
     await skillsExpand([...base(), "--dry-run"]);
     expect(existsSync(join(root, "out"))).toBe(false);
-    expect(logs.join("\n")).toContain("+ a");
+    expect(io.lines().join("\n")).toContain("+ a");
   });
 
   test("a hand-written dir in --out fails the write and the dry run, naming it, and survives", async () => {
@@ -99,7 +96,7 @@ describe("rt skills expand", () => {
     write(join(root, "src", "a", "SKILL.md"), "---\nname: app:a\ndescription: a\n---\n\nPost with `glab mr note 3 -m hi`.\n\n{{include:note}}\n");
     const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--strict", "--dry-run", "--json"]));
     expect(r.exitCode).toBe(1);
-    const parsed = JSON.parse(logs.at(-1)!);
+    const parsed = JSON.parse(io.lines().at(-1)!);
     expect(parsed.ok).toBe(false);
     expect(parsed.lint).toHaveLength(1);
     expect(parsed.lint[0]).toContain(join(root, "out", "a", "SKILL.md"));
@@ -110,7 +107,7 @@ describe("rt skills expand", () => {
     write(join(root, "src", "a", "stage.md"), "# Stage\n\nPost with `glab mr note 3 -m hi`.\n");
     const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--strict", "--json"]));
     expect(r.exitCode).toBe(1);
-    const parsed = JSON.parse(logs.at(-1)!);
+    const parsed = JSON.parse(io.lines().at(-1)!);
     expect(parsed.ok).toBe(false);
     expect(parsed.lint).toHaveLength(1);
     expect(parsed.lint[0]).toContain(`${join(root, "out", "a", "stage.md")}:3`);
@@ -120,7 +117,7 @@ describe("rt skills expand", () => {
     write(join(root, "src", "a", "SKILL.md"), "---\nname: app:a\ndescription: a\n---\n\nPost with `glab mr note 3 -m hi`. <!-- mcp-lint: allow -->\n\n{{include:note}}\n");
     const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--strict", "--json"]));
     expect(r.exitCode).toBeUndefined();
-    expect(JSON.parse(logs.at(-1)!)).toMatchObject({ ok: true, lint: [] });
+    expect(JSON.parse(io.lines().at(-1)!)).toMatchObject({ ok: true, lint: [] });
   });
 
   test("--strict reports script hits as advisory without failing", async () => {
@@ -129,7 +126,7 @@ describe("rt skills expand", () => {
     const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--check", "--strict", "--json"]));
     expect(r.exitCode).toBeUndefined();
     expect(r.errors.join("\n")).toContain(`(advisory) ${join(root, "out", "a", "scripts", "post.sh")}:1`);
-    expect(JSON.parse(logs.at(-1)!).lint).toEqual([]);
+    expect(JSON.parse(io.lines().at(-1)!).lint).toEqual([]);
   });
 
   test("an expand error exits 1 with the file named", async () => {
