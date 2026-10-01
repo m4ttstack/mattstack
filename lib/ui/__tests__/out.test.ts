@@ -281,3 +281,25 @@ test("note with no blocks writes nothing", () => {
   expect(stderr.join("")).toBe("");
   expect(existsSync(record)).toBe(false);
 });
+
+test("a failure after a note on stderr keeps its tag", () => {
+  out.__test__.setHuman(() => false);
+  out.note(out.line("warn", "x"));
+  out.fail({ title: "The rebase stopped" });
+  expect(stderr.join("")).toBe("[warning] x\n[failed] The rebase stopped\n");
+});
+
+test("a failure that is the first thing on stderr drops its tag, and a reset makes the next one first again", () => {
+  out.__test__.setHuman(() => false);
+  out.fail({ title: "The rebase stopped" });
+  expect(stderr.join("")).toBe("The rebase stopped\n");
+  stderr.length = 0;
+  out.__test__.reset();
+  out.__test__.setHuman(() => false);
+  out.note(out.line("warn", "x"));
+  out.__test__.reset();
+  out.__test__.setHuman(() => false);
+  stderr.length = 0;
+  out.fail({ title: "The rebase stopped" });
+  expect(stderr.join("")).toBe("The rebase stopped\n");
+});

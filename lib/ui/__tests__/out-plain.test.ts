@@ -89,6 +89,11 @@ test("a failure after another block keeps its tag", () => {
   expect(renderPlain([{ t: "section", title: "Checks", blocks: [{ t: "failure", title: "Lint failed" }] }])).toBe("Checks\n[failed] Lint failed\n");
 });
 
+test("a failure that continues output already on the stream keeps its tag", () => {
+  expect(renderPlain([{ t: "failure", title: "The rebase stopped" }], { continuing: true })).toBe("[failed] The rebase stopped\n");
+  expect(renderPlain([{ t: "failure", title: "The rebase stopped" }], { continuing: false })).toBe("The rebase stopped\n");
+});
+
 test("a block that prints nothing does not count as coming first", () => {
   expect(renderPlain([{ t: "table", rows: [] }, { t: "failure", title: "Nothing to list" }])).toBe("Nothing to list\n");
 });

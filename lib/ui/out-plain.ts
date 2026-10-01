@@ -71,7 +71,7 @@ function caption(out: string[], text: string | undefined): void {
   if (text) out.push(`${one(text)}:`);
 }
 
-function render(blocks: Block[], out: string[]): void {
+function render(blocks: Block[], out: string[], continuing: boolean): void {
   for (const b of blocks) {
     switch (b.t) {
       case "line":
@@ -101,7 +101,7 @@ function render(blocks: Block[], out: string[]): void {
       case "section":
         gap(out);
         out.push(b.subtitle ? `${one(b.title)} (${one(b.subtitle)})` : one(b.title));
-        render(b.blocks, out);
+        render(b.blocks, out, continuing);
         break;
       case "summary":
         gap(out);
@@ -132,11 +132,11 @@ function render(blocks: Block[], out: string[]): void {
         break;
       case "failure": {
         // The tray shows a person the first bytes of stderr as they are, so
-        // a failure that opens the output leads with its title alone. A
+        // a failure that opens the stream leads with its title alone. A
         // title that opens with a bracket, leading spaces aside, keeps the
         // tag: text from an error must not pose as another status.
         const title = one(b.title);
-        const bare = out.length === 0 && !title.trimStart().startsWith("[");
+        const bare = !continuing && out.length === 0 && !title.trimStart().startsWith("[");
         out.push(`${bare ? "" : `${TAG.failed} `}${title}${b.hint ? `  ${one(b.hint)}` : ""}`);
         if (b.why) out.push(`  why: ${one(b.why)}`);
         if (b.next) out.push(`  next: ${cellText(b.next)}`);
@@ -147,9 +147,10 @@ function render(blocks: Block[], out: string[]): void {
   }
 }
 
-export function renderPlain(blocks: Block[]): string {
+/** continuing: the stream already carries earlier output, so nothing here opens it. */
+export function renderPlain(blocks: Block[], opts: { continuing?: boolean } = {}): string {
   const out: string[] = [];
-  render(blocks, out);
+  render(blocks, out, opts.continuing ?? false);
   if (out.length === 0) return "";
   return out.join("\n") + "\n";
 }
