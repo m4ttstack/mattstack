@@ -140,7 +140,7 @@ func wrapCell(c protocol.Cell, w int) []protocol.Cell {
 	for i, s := range c {
 		clean[i] = withSegText(s, Clean(s.Text))
 	}
-	rows := textwrap.Spans(clean, w, segText, withSegText)
+	rows := textwrap.SpansWith(clean, w, textwrap.Options{WordsOnly: true}, segText, withSegText)
 	out := make([]protocol.Cell, len(rows))
 	for i, r := range rows {
 		out[i] = r

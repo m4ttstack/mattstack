@@ -321,3 +321,13 @@ func TestFailureDetailsWrap(t *testing.T) {
 		t.Fatalf("details lost text: %q", strings.Join(got, " "))
 	}
 }
+
+func TestWrappedTextNeverBreaksAFlagAtItsHyphens(t *testing.T) {
+	got := plainAt(40, protocol.Block{T: "callout", Label: "note", Body: []protocol.Cell{text("Pushing again needs --force-with-lease so nothing is lost")}})
+	want := "    ▌ note Pushing again needs\n" +
+		"    ▌      --force-with-lease so nothing\n" +
+		"    ▌      is lost\n"
+	if got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+}
