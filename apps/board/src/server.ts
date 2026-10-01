@@ -30,6 +30,7 @@ import {
   rtCommand,
   setSetting,
   subscribe,
+  type ForgeGetData,
   type GateRow,
 } from '@mattstack/rt-client';
 import { settingsHandler } from '@mattstack/settings-kit/server';
@@ -51,7 +52,13 @@ import {
   type TabIdResolver,
 } from './close-on-done.ts';
 import {
+  ownerRulesFromApprovalState,
+  planOwnersPost,
+  type OwnersPostPlan,
+} from './codeowner-posts.ts';
+import {
   applyRosterEdit,
+  codeownerSlackOn,
   CONFIG_PATH,
   daemonRepoField,
   displayName,
@@ -263,13 +270,17 @@ import {
 import { attachNotes, MAX_NOTE_LEN, readNotes, writeNote } from './row-note.ts';
 import {
   attachSlack,
+  listChannels,
+  postToOwnerChannel,
   postToSlack,
   reactToMR,
+  readOwnerPosts,
   readSlackRefs,
   resolveSlackRef,
   slackSweepTargets,
   sweepSlackRefs,
   unreactFromMR,
+  type ListedChannel,
 } from './slack.ts';
 import {
   beatStillValid,
@@ -742,6 +753,148 @@ function iidMismatch(
     everything. */
 function requireOwnMr(mr: BoardMR): Response | null {
   return ownedHere(mr) ? null : new Response('not your MR', { status: 403 });
+}
+
+/** The review-request text for these MRs, from the board's Slack templates.
+    A header forces the multi rendering even for one MR, since the single
+    template has no header line to put it on. */
+function mrPostText(mrs: BoardMR[], header: string | null = null): string {
+  const facts: MrFacts[] = mrs.map(m => ({
+    iid: m.iid,
+    title: m.title,
+    url: m.webUrl ?? '',
+    ticket: m.title.match(/([A-Z]+-\d+)/)?.[1] ?? '',
+    author: m.author.username,
+    sourceBranch: m.sourceBranch,
+    targetBranch: m.targetBranch,
+  }));
+  return renderPost(
+    {
+      single: config.slack.singleTemplate,
+      multiHeader: config.slack.multiHeader,
+      multiItem: config.slack.multiItem,
+    },
+    facts,
+    header
+  );
+}
+
+/** Which Code Owner channels this MR would post to right now, from GitLab's
+    live approval state, plus the id of every channel Slack lists. A Response
+    is the refusal to send back. */
+async function ownersPostPlan(
+  mr: BoardMR,
+  slackToken: string
+): Promise<
+  { plan: OwnersPostPlan; channels: Map<string, ListedChannel> } | Response
+> {
+  const projectPath = mr.webUrl
+    ? projectPathFromWebUrl(mr.webUrl, config.gitlabHost)
+    : null;
+  if (!projectPath || !codeownerSlackOn(config, projectPath)) {
+    return new Response('code owner posts are not turned on for this repo', {
+      status: 400,
+    });
+  }
+  const repoName = daemonRepoField(config, projectPath);
+  if (!repoName) {
+    return new Response(`${projectPath}: no rtRepos mapping in config.json`, {
+      status: 400,
+    });
+  }
+  const res = await rtCommand<ForgeGetData>(
+    'forge:get',
+    {
+      repoName,
+      path: `projects/:id/merge_requests/${mr.iid}/approval_state`,
+    },
+    { timeoutMs: 30_000 }
+  );
+  if (!res.ok || !res.data || res.data.status !== 200) {
+    return new Response(
+      `could not read approvals from GitLab: ${res.error ?? `status ${res.data?.status ?? 'unknown'}`}`,
+      { status: 502 }
+    );
+  }
+  if (res.data.truncated) {
+    return new Response(
+      "GitLab's approval answer for this MR is too large to read",
+      { status: 502 }
+    );
+  }
+  let channels: Map<string, ListedChannel>;
+  try {
+    channels = await listChannels(slackToken);
+  } catch (err) {
+    return new Response(
+      `could not list Slack channels: ${err instanceof Error ? err.message : err}`,
+      { status: 502 }
+    );
+  }
+  const posted = Object.fromEntries(
+    Object.entries(readOwnerPosts(mr.webUrl!)).map(([channel, post]) => [
+      channel,
+      post.permalink,
+    ])
+  );
+  return {
+    plan: planOwnersPost(ownerRulesFromApprovalState(res.data.body), {
+      posted,
+      slack: channels,
+    }),
+    channels,
+  };
+}
+
+/** Confirms run one at a time per MR: the plan is read before the posts and
+    the record is written after each, so two at once would both post. */
+const ownerPostsRunning = new Set<string>();
+
+/** The preview when `channels` is null; otherwise posts to those channels,
+    each of which must be in the plan rebuilt here. */
+async function ownersPreviewOrPost(
+  mr: BoardMR,
+  slackToken: string,
+  channels: unknown
+): Promise<Response> {
+  const planned = await ownersPostPlan(mr, slackToken);
+  if (planned instanceof Response) return planned;
+  const text = mrPostText([mr]);
+  if (channels === null) return Response.json({ text, ...planned.plan });
+  const offered = new Set(planned.plan.channels.map(c => c.channel));
+  if (
+    !Array.isArray(channels) ||
+    channels.length === 0 ||
+    !channels.every(c => typeof c === 'string' && offered.has(c)) ||
+    new Set(channels).size !== channels.length
+  ) {
+    return new Response(
+      `"channels" must be one or more of: ${[...offered].join(', ') || '(none to post to)'}`,
+      { status: 400 }
+    );
+  }
+  const posted: Array<{ channel: string; permalink: string }> = [];
+  const failed: Array<{ channel: string; error: string }> = [];
+  for (const name of channels as string[]) {
+    try {
+      const sent = await postToOwnerChannel(
+        slackToken,
+        { name, id: planned.channels.get(name)!.id },
+        text,
+        mr.webUrl!
+      );
+      posted.push({ channel: name, permalink: sent.permalink });
+    } catch (err) {
+      failed.push({
+        channel: name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return Response.json(
+    { posted, failed },
+    { status: posted.length > 0 || failed.length === 0 ? 200 : 502 }
+  );
 }
 
 /** The seat authored it and, once the GitLab token's user is known (the
@@ -1330,6 +1483,11 @@ const httpServer = Bun.serve({
               !peering.current() &&
               switchboardToken.missing(),
             slackEnabled: !!slackToken,
+            ownerSlackRepos: slackToken
+              ? config.projects
+                  .filter(p => codeownerSlackOn(config, p))
+                  .flatMap(p => (config.rtRepos[p] ? [config.rtRepos[p]] : []))
+              : [],
             slackEmoji: config.slack.emoji,
             slackTemplates: {
               single: config.slack.singleTemplate,
@@ -3342,26 +3500,7 @@ const httpServer = Bun.serve({
             { status: 409 }
           );
         }
-        const facts: MrFacts[] = picked.map(m => ({
-          iid: m.iid,
-          title: m.title,
-          url: m.webUrl ?? '',
-          ticket: m.title.match(/([A-Z]+-\d+)/)?.[1] ?? '',
-          author: m.author.username,
-          sourceBranch: m.sourceBranch,
-          targetBranch: m.targetBranch,
-        }));
-        // A supplied header forces the multi rendering even for one MR — the
-        // single template has no header line to put it on. See renderPost.
-        const text = renderPost(
-          {
-            single: config.slack.singleTemplate,
-            multiHeader: config.slack.multiHeader,
-            multiItem: config.slack.multiItem,
-          },
-          facts,
-          headerOverride
-        );
+        const text = mrPostText(picked, headerOverride);
         try {
           const refs = await postToSlack(
             slackToken,
@@ -3384,6 +3523,51 @@ const httpServer = Bun.serve({
             `slack post failed: ${err instanceof Error ? err.message : err}`,
             { status: 502 }
           );
+        }
+      }
+      case '/slack/owners/preview':
+      case '/slack/owners/post': {
+        // Preview says which Code Owner channels an MR would post to; post
+        // sends to the channels the user confirmed. Post rebuilds the plan
+        // and takes only channels in it, so the request can never name a
+        // channel the MR's own section names do not.
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        if (!slackToken)
+          return new Response('slack not configured', { status: 400 });
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const { mrUrl, channels } = (body ?? {}) as {
+          mrUrl?: unknown;
+          channels?: unknown;
+        };
+        if (typeof mrUrl !== 'string')
+          return new Response('expected { mrUrl: string }', { status: 400 });
+        const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
+        if (!mr) return new Response('MR is not on the board', { status: 400 });
+        const refused = requireOwnMr(mr);
+        if (refused) return refused;
+        if (pathname === '/slack/owners/preview')
+          return ownersPreviewOrPost(mr, slackToken, null);
+        if (ownerPostsRunning.has(mrUrl))
+          return new Response('a post for this MR is still running', {
+            status: 409,
+          });
+        ownerPostsRunning.add(mrUrl);
+        try {
+          return await ownersPreviewOrPost(mr, slackToken, channels);
+        } finally {
+          ownerPostsRunning.delete(mrUrl);
         }
       }
       case '/slack/react': {

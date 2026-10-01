@@ -19,3 +19,14 @@ export function parseCodeownerSections(text: string): string[] {
   }
   return [...byKey.values()].sort();
 }
+
+/**
+ * The Slack channel a section name carries (`Acme - #pod-acme` gives
+ * `pod-acme`), or null. A hash only opens a channel at the start of the name
+ * or after whitespace, so `C#Tools` carries none.
+ */
+export function channelFromCodeownerSection(section: string): string | null {
+  const matches = [...section.matchAll(/(?:^|\s)#([A-Za-z0-9][A-Za-z0-9_-]*)/g)];
+  const last = matches.at(-1);
+  return last ? last[1]!.toLowerCase() : null;
+}

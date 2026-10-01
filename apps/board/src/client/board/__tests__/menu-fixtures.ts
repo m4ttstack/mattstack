@@ -34,6 +34,7 @@ export interface MenuEnv {
   self: string | null;
   local?: boolean;
   slackEnabled?: boolean;
+  ownerSlackRepos?: string[];
   roster?: string[];
   peers?: string[];
   allMrs?: BoardMR[];
@@ -112,6 +113,7 @@ export function actionEnvOf(env: MenuEnv, mr: BoardMR): ActionEnv {
   return {
     local: env.local ?? true,
     slackEnabled: env.slackEnabled ?? false,
+    ownerSlackRepos: env.ownerSlackRepos ?? [],
     self: env.self,
     roster: env.roster ?? [],
     peers: env.peers,

@@ -205,6 +205,9 @@ export const SCHEMAS = {
     }).optional(),
   }),
   "board.reReview": z.looseObject({ enabled: z.boolean().optional() }),
+  "board.codeowners": z.looseObject({
+    slack: z.looseObject({ fromSectionName: z.boolean().optional() }).optional(),
+  }),
   "board.cwds": z.looseObject({ review: z.string().optional(), respond: z.string().optional(), doctor: z.string().optional() }),
   "boxscore.projects": z.array(z.string()),
   "boxscore.linearDoneStates": z.array(z.string()),

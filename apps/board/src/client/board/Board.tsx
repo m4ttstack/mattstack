@@ -96,6 +96,7 @@ import {
 } from './hooks.ts';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
 import { overlay, overlayMerging } from './optimistic.ts';
+import { OwnersPostModal } from './OwnersPostModal.tsx';
 import { RespondModal, ReviewModal } from './ReviewModal.tsx';
 import {
   bulkActions,
@@ -433,6 +434,7 @@ export function Board() {
     mr: BoardMRWithReview;
     draft: DraftInfo;
   } | null>(null);
+  const [ownersPost, setOwnersPost] = useState<BoardMR | null>(null);
   const [draftResolved, setDraftResolved] = useState<
     ReadonlyMap<string, 'posted' | 'dismissed'>
   >(new Map());
@@ -840,6 +842,7 @@ export function Board() {
       dismiss: handleDismissLane,
       standDown: handleStandDown,
       postSlack: handlePostSlack,
+      postOwners: setOwnersPost,
     }),
     [handleCopy, handleDismissLane, handleStandDown, handlePostSlack]
   );
@@ -1204,6 +1207,7 @@ export function Board() {
   const actionEnv: ActionEnv = {
     local: data.local,
     slackEnabled: data.slackEnabled,
+    ownerSlackRepos: data.ownerSlackRepos,
     self: seat,
     roster: data.members.map(m => m.username),
     peers: data.peers,
@@ -1627,6 +1631,19 @@ export function Board() {
           )}
           onResolved={handleDraftResolved}
           onClose={() => setDraftModal(null)}
+        />
+      )}
+
+      {ownersPost && (
+        <OwnersPostModal
+          mr={ownersPost}
+          onPosted={channels => {
+            addToast(
+              `posted !${ownersPost.iid} to ${channels.map(c => `#${c}`).join(', ')}`
+            );
+            setOwnersPost(null);
+          }}
+          onClose={() => setOwnersPost(null)}
         />
       )}
 

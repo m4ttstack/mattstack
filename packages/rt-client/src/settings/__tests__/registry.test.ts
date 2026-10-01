@@ -177,9 +177,11 @@ describe("settings/registry", () => {
     test("repoOnly implies repoScoped, and every repo-scoped key but rt.gitStatus is repo-only", () => {
       for (const def of allDefs()) {
         if (def.repoOnly) expect(def.repoScoped, `${def.key}: repoOnly needs repoScoped`).toBe(true);
+        if (def.repoScoped && def.key !== "rt.gitStatus") expect(def.repoOnly, `${def.key}: repoScoped needs repoOnly`).toBe(true);
       }
       const repoOnly = allDefs().filter((d) => d.repoOnly).map((d) => d.key).sort();
       expect(repoOnly).toEqual([
+        "board.codeowners",
         "rt.branchNaming",
         "rt.dopplerTemplate",
         "rt.hooks",
@@ -332,6 +334,7 @@ describe("settings/registry", () => {
         "board.hiddenMembers",
         "board.triage",
         "board.reReview",
+        "board.codeowners",
         "board.agent.account",
         "board.agent.model",
         "board.agent.effort",
@@ -384,7 +387,7 @@ describe("settings/registry", () => {
         "herd.watchdog.midRunTrustAccept",
         "panes.relocationAutoAccept",
       ];
-      expect(suiteKeys).toHaveLength(79);
+      expect(suiteKeys).toHaveLength(80);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
@@ -449,13 +452,6 @@ describe("settings/registry", () => {
         expect(def.scopes.sort()).toEqual(["team", "user"]);
         expect(def.type).toBe("array");
         expect(def.merge).toBe("replace");
-      }
-    });
-
-    test("none of the new suite keys carry repoScoped", () => {
-      for (const def of allDefs()) {
-        if (def.key.startsWith("rt.")) continue; // wave-1 rows, covered above
-        expect(def.repoScoped, `${def.key} should not be repoScoped`).toBeFalsy();
       }
     });
 

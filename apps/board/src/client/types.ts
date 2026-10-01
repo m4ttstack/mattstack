@@ -185,6 +185,9 @@ export interface BoardData {
   fetchError: string | null;
   local: boolean;
   slackEnabled: boolean;
+  /** The rt repos whose Code Owner section names carry Slack channels;
+      absent on older servers. */
+  ownerSlackRepos?: string[];
   /** Configured review-signal emoji names by role; absent on older servers. */
   slackEmoji?: { looking: string; commented: string; approved: string };
   slackTemplates: SlackTemplates;

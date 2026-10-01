@@ -542,6 +542,15 @@ export const REGISTRY: readonly SettingDef[] = [
     default: { enabled: true },
     description: "Gate for the board's automatic re-review sweep ({enabled}); rt's cron.triage step installs the board-triage trigger only while this is on. A fresh key, not an ownership-latch port, so a default is fine here.",
   },
+  {
+    key: "board.codeowners",
+    type: "object",
+    scopes: ALL_SCOPES,
+    merge: "deep",
+    repoScoped: true,
+    repoOnly: true,
+    description: "What the board does with one repo's Code Owner sections, a property per feature. slack.fromSectionName says the repo's section names carry the owning team's Slack channel (Acme - #pod-acme), which turns on posting an MR to the channels of the owners who have not approved it.",
+  },
 
   // --- board (machine) ---------------------------------------------------
   {

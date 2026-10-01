@@ -72,6 +72,30 @@ export function daemonRepoField(
   return repoIdentityField(config.rtRepos[projectPath]);
 }
 
+/** Whether a project's Code Owner section names carry Slack channels
+    (`board.codeowners`, read from the project's own repo section). The
+    section is keyed by the project's host and path, never by an rtRepos
+    override, which names where a checkout tracks rather than the project. */
+export function codeownerSlackOn(
+  config: Pick<BoardConfig, 'gitlabHost'>,
+  projectPath: string,
+  resolve: typeof getSetting = getSetting
+): boolean {
+  const repoIdentity = deriveRtRepos(config.gitlabHost, [projectPath])[
+    projectPath
+  ];
+  try {
+    const value = resolve<{ slack?: { fromSectionName?: boolean } }>(
+      'board.codeowners',
+      { repoIdentity }
+    ).value;
+    return value?.slack?.fromSectionName === true;
+  } catch (err) {
+    console.warn('board: board.codeowners unavailable', err);
+    return false;
+  }
+}
+
 /** Resolve the rt agent daemon's `repo` identity for a launch (startAgentPane's
     `repo`, matched by `rt agent list --repo <identity>`'s exact-string
     filter). Prefers the project's configured rtRepos value -- the same
