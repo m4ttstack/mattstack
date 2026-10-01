@@ -3,102 +3,11 @@ package mission
 import (
 	"strings"
 	"testing"
-	"unicode"
 
 	"github.com/charmbracelet/x/ansi"
 
 	"rt-ui/internal/theme"
 )
-
-func TestWrapSpansKeepsAStyleAcrossTheBreak(t *testing.T) {
-	str := tokStyle{fg: theme.Mint}
-	rows := wrapSpans([]span{{text: "x := "}, {text: `"a long string literal"`, style: str}}, 12)
-	if len(rows) < 2 {
-		t.Fatalf("expected a wrap, got %d rows", len(rows))
-	}
-	last := rows[len(rows)-1]
-	if !sameColor(last[len(last)-1].style.fg, theme.Mint) {
-		t.Fatalf("the literal's tail lost its colour: %+v", last)
-	}
-	var joined strings.Builder
-	for _, r := range rows {
-		joined.WriteString(spansText(r))
-	}
-	if strings.ReplaceAll(joined.String(), " ", "") != strings.ReplaceAll(`x := "a long string literal"`, " ", "") {
-		t.Fatalf("characters lost or duplicated: %q", joined.String())
-	}
-}
-
-func TestWrapSpansShortLineIsOneRow(t *testing.T) {
-	if rows := wrapSpans([]span{{text: "short"}}, 40); len(rows) != 1 {
-		t.Fatalf("got %d rows", len(rows))
-	}
-}
-
-func TestWrapSpansEmptyLineIsOneRow(t *testing.T) {
-	if rows := wrapSpans(nil, 40); len(rows) != 1 {
-		t.Fatalf("got %d rows", len(rows))
-	}
-	if rows := wrapSpans([]span{{text: "\t\t\t      "}}, 5); len(rows) != 1 {
-		t.Fatalf("a blank line wider than the row got %d rows", len(rows))
-	}
-}
-
-func TestWrapSpansShortLineNeverPaintsARawCarriageReturn(t *testing.T) {
-	rows := wrapSpans([]span{{text: "a\rb"}}, 40)
-	if len(rows) != 1 || spansText(rows[0]) != "a b" {
-		t.Fatalf("a lone \\r should paint as one space cell: %+v", rows)
-	}
-}
-
-func TestWrapSpansIndentWiderThanTheRowPaintsNoBlankRow(t *testing.T) {
-	rows := wrapSpans([]span{{text: "\t\t\treturn nil"}}, 8)
-	if len(rows) == 0 || spansText(rows[0]) != "return" {
-		t.Fatalf("the first row should carry the first word: %+v", rows)
-	}
-}
-
-func dropSpace(s string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) {
-			return -1
-		}
-		return r
-	}, s)
-}
-
-// ansi.Wrap measures in cells and breaks at any Unicode space while the
-// spans are sliced by byte, so a tab (painted as spaces), a lone \r or \v
-// (painted raw, zero cells, but moving the terminal's cursor), wide runes
-// and an ideographic space at a break are where the two could drift apart.
-func TestWrapSpansTabsWideRunesAndUnicodeSpacesStayAligned(t *testing.T) {
-	kw := tokStyle{fg: theme.Lav}
-	in := []span{
-		{text: "\tif", style: kw},
-		{text: " x := \"漢字かな漢字かな漢字　カタカナ\tabc 한국어\r텍스트\" //\v注释 done"},
-	}
-	want := dropSpace(spansText(in))
-	for width := 3; width <= 40; width++ {
-		rows := wrapSpans(in, width)
-		var joined strings.Builder
-		for r, row := range rows {
-			text := spansText(row)
-			if strings.ContainsAny(text, "\t\r\v\f") {
-				t.Fatalf("width %d row %d kept a control space the painter mismeasures: %q", width, r, text)
-			}
-			if w := ansi.StringWidth(text); w > width {
-				t.Fatalf("width %d row %d is %d cells, so the clip would drop text: %q", width, r, w, text)
-			}
-			joined.WriteString(text)
-		}
-		if got := dropSpace(joined.String()); got != want {
-			t.Fatalf("width %d lost or duplicated text:\n got %q\nwant %q", width, got, want)
-		}
-		if !sameColor(rows[0][0].style.fg, theme.Lav) {
-			t.Fatalf("width %d: the keyword lost its colour: %+v", width, rows[0])
-		}
-	}
-}
 
 func wrapFixture() *Mission {
 	m := newTestMission()

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"rt-ui/internal/testutil"
 )
 
@@ -58,6 +60,20 @@ func TestRenderVerbPassesWidthToParagraphs(t *testing.T) {
 	out, _, _ := runVerb(t, []string{"--no-color", "--width", "30"}, nil, stdin)
 	if out != "  one two three four five\n  six seven eight nine ten\n" {
 		t.Fatalf("out %q", out)
+	}
+}
+
+func TestRenderVerbFitsAFailureToANarrowPane(t *testing.T) {
+	stdin := helloLine + `{"t":"failure","title":"reidentify takes two identities, got 1; usage: rt repos reidentify <old> <new>","hint":"from the seam test","why":"No age key on this Mac matches the team's recipients. The team owner adds your key, then you pull the team again.","next":[{"text":"Open Privacy & Security, then Full Disk Access, yourself"}],"details":"details are in the log at a path that is longer than the pane"}` + "\n" +
+		`{"t":"verbatim","lines":["    at run (/Users/sample/.mattstack/user/plugins/seam-fixture/boom.ts:1:41)"]}` + "\n"
+	out, _, exit := runVerb(t, []string{"--no-color", "--width", "40"}, nil, stdin)
+	if exit != 0 {
+		t.Fatalf("exit %d", exit)
+	}
+	for _, l := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
+		if n := ansi.StringWidth(l); n > 40 {
+			t.Fatalf("line is %d cells: %q\n%s", n, l, out)
+		}
 	}
 }
 
