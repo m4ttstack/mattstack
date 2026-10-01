@@ -15,13 +15,13 @@
 import { spawnSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { bold, cyan, dim, green, red, reset, yellow } from "../lib/tui.ts";
+import { bold, dim, green, red, reset } from "../lib/tui.ts";
 import { RT_DIR } from "../lib/daemon-config.ts";
 import { getRepoIdentity } from "../lib/repo.ts";
 import { loadRepoIndex } from "../lib/repo-index.ts";
 import { currentRepoIdentity, repoLabel, resolveRepoArg, tryResolveRepoArg } from "../lib/repo-arg.ts";
 import { changeMarker, repoLabelFull } from "../lib/repo-label.ts";
-import { loadWorktreeRepoConfig, inspectReadyGate } from "../lib/worktree/config.ts";
+import { loadWorktreeRepoConfig, inspectReadyGate, type ReadyStep } from "../lib/worktree/config.ts";
 import { explainError } from "../lib/explain-error.ts";
 import type { MergeCleanupGap } from "../lib/worktree/merge-cleanup-gap.ts";
 import { shellQuote } from "../lib/herdr-launch.ts";
@@ -40,7 +40,8 @@ import {
   type WorktreeBinding,
 } from "../lib/worktree-each.ts";
 import * as out from "../lib/ui/out.ts";
-import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
+import type { EnrichedBranch } from "../lib/enrich.ts";
+import type { Block, PickRow, PickSegment, RenderStatus, Segment } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import type { RestorableEntry } from "../lib/worktree/restore.ts";
 
@@ -241,6 +242,9 @@ export { explainError };
 /** A refusal is rt declining by policy: it prints as `refused` on stderr, never as a coral failure. */
 type CodeCopy = out.FailureInput & { refused?: true };
 
+/** Parity: `validateGitRef` in lib/daemon/git-ref-validation.ts writes this prefix before the ref. */
+const UNSAFE_REF = "unsafe git ref (starts with '-' or empty): ";
+
 function copyForCode(error: string): CodeCopy {
   if (error === "busy") return { refused: true, title: "That worktree is busy right now", hint: "another rt operation is using it", next: "Try again in a moment" };
   if (error === "repo-unknown") return { title: "rt does not know that repo", why: "Name a repo rt knows, or run this from inside one.", next: out.cmd("rt repos status") };
@@ -261,9 +265,17 @@ function copyForCode(error: string): CodeCopy {
     const [step, ...output] = error.slice("create-failed:".length).split("\n");
     return {
       title: "The worktree could not be created",
-      why: `It stopped at the ${step} step.`,
+      why: step === "unknown" ? "It stopped before finishing setup." : `It stopped at the ${step} step.`,
       next: out.cmd("rt daemon logs"),
       ...(output.length > 0 ? { details: output.join("\n") } : {}),
+    };
+  }
+  if (error.startsWith(UNSAFE_REF)) {
+    const ref = error.slice(UNSAFE_REF.length);
+    return {
+      title: "That is not a branch name rt can use",
+      why: ref ? `${ref} starts with a dash, so git would read it as an option.` : "The branch name is empty.",
+      next: out.cmd("rt worktree provision --branch <name>"),
     };
   }
   if (error === "claim-write-failed") return { title: "rt could not mark the worktree as yours", why: "Writing its record failed, so it was given back.", next: out.cmd("rt daemon logs") };
@@ -288,7 +300,6 @@ function copyForCode(error: string): CodeCopy {
   return { title: explainError(error) };
 }
 
-/** A status line and, when there is one, the command or step that follows it. */
 function lineWithNext(status: RenderStatus, title: string, hint?: string, next?: out.CellInput): Block[] {
   return [out.line(status, title, hint), ...(next ? [out.callout("next", next)] : [])];
 }
@@ -336,7 +347,7 @@ function setupFailedLine(failedStep: string | undefined, tree?: string): Block {
   return out.line("warn", tree ? `${what} in ${tree}` : what, STALE_DEPS);
 }
 
-export const __test__ = { copyForCode, restorableEntriesBlock };
+export const __test__ = { copyForCode, restorableEntriesBlock, readyStepsBlock, disposeReason };
 
 function requireQueryResult(json: boolean, res: DaemonResponse | null): DaemonResponse {
   if (res === null) daemonUnavailable();
@@ -365,18 +376,62 @@ interface TreeRow {
 
 type MergeCleanupOffRow = { repo: string; path: string } & MergeCleanupGap;
 
-function mergeCleanupOffLine(gap: MergeCleanupOffRow): string {
-  const why = gap.reason === "no-branches-grant"
-    ? `${gap.mode === "off" ? "not tracked" : "tracked without branch PR checks"} ... run \`rt repos register ${shellQuote(gap.path)} --track ${gap.mode === "off" ? "poll" : gap.mode} --caches ${[...gap.caches, "branches"].join(",")}\``
-    : gap.forge === "github"
-      ? "no GitHub token ... run `rt setup github connect --use-gh`"
-      : "no GitLab token ... run `rt setup gitlab connect`";
-  return `  ${yellow}merged worktrees are not cleaned up in ${repoLabel(gap.repo)}${reset}  ${dim}${why}${reset}`;
+function mergeCleanupOffBlocks(gap: MergeCleanupOffRow): Block[] {
+  const title = `Merged worktrees are not cleaned up in ${repoLabel(gap.repo)}`;
+  if (gap.reason === "no-branches-grant") {
+    const mode = gap.mode === "off" ? "poll" : gap.mode;
+    return lineWithNext(
+      "warn",
+      title,
+      gap.mode === "off" ? "rt is not watching this repo" : "rt watches this repo, but not its pull requests",
+      out.cmd(`rt repos register ${shellQuote(gap.path)} --track ${mode} --caches ${[...gap.caches, "branches"].join(",")}`),
+    );
+  }
+  return gap.forge === "github"
+    ? lineWithNext("warn", title, "rt has no GitHub login", out.cmd("rt setup github connect --use-gh"))
+    : lineWithNext("warn", title, "rt has no GitLab login", out.cmd("rt setup gitlab connect"));
 }
 
 /** The golden's state is readiness bookkeeping; its kind is what a human needs to see. */
 function rowLabel(r: { kind: string; state?: string }): string {
   return r.kind === "golden" ? "golden" : (r.state ?? r.kind);
+}
+
+const DISPOSE_WORDS: Record<string, string> = {
+  changed: "it was modified while rt was checking it, try again",
+  "kind-main": "it is the repo's main folder",
+  "kind-golden": "it is the copy rt builds new worktrees from",
+  dirty: "it has changes that are not committed",
+  unpushed: "it has commits that are not merged or pushed",
+  attended: "someone is working on its merge request right now",
+  grace: "it was claimed moments ago",
+  "no-trash": "rt could not keep a copy to bring it back from",
+  busy: "another rt operation is using it, try again in a moment",
+  "remove-failed": "it could not be moved away, try again",
+  unknown: "rt has no worktree by that name",
+};
+
+/**
+ * Why rt left a tree, in words. `detail` is lib/worktree/dispose.ts's sentence
+ * for the two run guards, read here and never printed as written. `failed`
+ * marks the codes that are faults rather than a guard declining.
+ */
+function disposeReason(reason: string, detail?: string): { words: string; next?: out.CellInput; failed?: true } {
+  if (reason === "running-run") {
+    const m = detail ? /^running run (\S+) at (\S+);/.exec(detail) : null;
+    if (!m) return { words: detail ?? "a pipeline run is still working in it" };
+    return { words: `a pipeline run is still working in it (run ${m[1]}, at ${m[2]})`, next: out.cmd(`rt runs abandon ${m[1]}`) };
+  }
+  if (reason === "runs-unreadable") return { words: "rt could not check whether a pipeline run is using it", next: out.cmd("rt runs") };
+  if (reason === "remove-failed") return { words: DISPOSE_WORDS[reason]!, failed: true };
+  if (reason === "unknown") return { words: DISPOSE_WORDS[reason]!, next: out.cmd("rt worktree list"), failed: true };
+  if (DISPOSE_WORDS[reason]) return { words: DISPOSE_WORDS[reason]! };
+  if (reason.startsWith("kind-")) return { words: "rt did not make it, so rt does not remove it" };
+  return { words: reason };
+}
+
+function stateLabel(r: TreeRow): string {
+  return r.state === "disposable" && r.disposableReason ? `disposable (${disposeReason(r.disposableReason).words})` : rowLabel(r);
 }
 
 async function fetchTreeRows(json: boolean, repoName?: string): Promise<TreeRow[]> {
@@ -385,22 +440,13 @@ async function fetchTreeRows(json: boolean, repoName?: string): Promise<TreeRow[
   return (ok.data?.trees ?? []) as TreeRow[];
 }
 
-/**
- * MR/pipeline/ticket metadata for each tree, reusing the same `enrich`
- * pipeline `rt cd` renders — one daemon `cache:read` per repo, same source as
- * `worktree:list`. Returns the `enrich` trailing (`✓ ● TICKET`) keyed by path.
- *
- * The linearId is appended when `enrich` would otherwise omit it: for a ticket
- * branch it parks the ticket title in the label's leading half, which these
- * pickers don't render (their label is the tree name), so the id must ride in
- * the trailing to stay visible.
- */
-async function enrichTrailingByPath(rows: TreeRow[]): Promise<Map<string, string>> {
-  const byPath = new Map<string, string>();
+/** One daemon `cache:read` per repo, the same source `rt cd` renders from. */
+async function enrichByPath(rows: TreeRow[]): Promise<Map<string, EnrichedBranch>> {
+  const byPath = new Map<string, EnrichedBranch>();
   const withBranch = rows.filter((r): r is TreeRow & { branch: string } => Boolean(r.branch));
   if (withBranch.length === 0) return byPath;
 
-  const { enrichBranches, formatBranchLabelParts } = await import("../lib/enrich.ts");
+  const { enrichBranches } = await import("../lib/enrich.ts");
   const { getRemoteUrl } = await import("../lib/pickers.ts");
   const repoIndex = loadRepoIndex();
 
@@ -415,17 +461,8 @@ async function enrichTrailingByPath(rows: TreeRow[]): Promise<Map<string, string
     [...byRepo].map(async ([repoName, group]) => {
       const repoPath = repoIndex[repoName];
       const remoteUrl = repoPath ? await getRemoteUrl(repoPath) : undefined;
-      const enriched = await enrichBranches(
-        group.map((r) => ({ path: r.path, branch: r.branch })),
-        remoteUrl,
-      );
-      for (const eb of enriched) {
-        let trailing = formatBranchLabelParts(eb).trailing;
-        if (eb.linearId && !trailing.includes(eb.linearId)) {
-          trailing = trailing ? `${trailing} ${eb.linearId}` : eb.linearId;
-        }
-        if (trailing) byPath.set(eb.path, trailing);
-      }
+      const enriched = await enrichBranches(group.map((r) => ({ path: r.path, branch: r.branch })), remoteUrl);
+      for (const eb of enriched) byPath.set(eb.path, eb);
     }),
   );
   return byPath;
@@ -434,21 +471,19 @@ async function enrichTrailingByPath(rows: TreeRow[]): Promise<Map<string, string
 async function pickOneTree(rows: TreeRow[], message: string, breadcrumb: string[]): Promise<TreeRow | null> {
   if (rows.length === 0) return null;
   const { filterableSelect } = await import("../lib/pick-wrappers.ts");
-  const trailingByPath = await enrichTrailingByPath(rows);
+  const { formatBranchSegments } = await import("../lib/enrich.ts");
+  const enriched = await enrichByPath(rows);
   const nameWidth = Math.max(...rows.map((r) => r.name.length));
-  const options = rows.map((r) => {
+  const pickRows: PickRow[] = rows.map((r) => {
     const state = rowLabel(r);
-    const base =
-      state === "disposable"
-        ? r.disposableReason
-          ? `disposable — ${r.disposableReason}`
-          : "disposable"
-        : `${state}${r.branch ? `  ${r.branch}` : ""}${r.owner ? `  ${r.owner}` : ""}`;
-    const trailing = trailingByPath.get(r.path);
-    const hint = trailing ? `${base}  ${trailing}` : base;
-    return { value: r.path, label: r.name.padEnd(nameWidth), hint };
+    const base = state === "disposable" ? stateLabel(r) : `${state}${r.branch ? `  ${r.branch}` : ""}${r.owner ? `  ${r.owner}` : ""}`;
+    const name = r.name.padEnd(nameWidth);
+    const left: PickSegment[] = [{ text: name, bold: true, column: true }, { text: `  ${base}`, tone: "dim" }];
+    const eb = enriched.get(r.path);
+    if (eb) left.push({ text: "  ", tone: "dim" }, ...formatBranchSegments(eb).right);
+    return { value: r.path, match: name, left };
   });
-  const picked = await filterableSelect({ message, options, stderr: true, breadcrumb });
+  const picked = await filterableSelect({ message, options: [], stderr: true, breadcrumb }, { rows: pickRows });
   if (!picked) return null;
   return rows.find((r) => r.path === picked) ?? null;
 }
@@ -599,7 +634,7 @@ export async function worktreeDispose(args: string[], _ctx: unknown): Promise<vo
       (await fetchTreeRows(parsed.json, repoName)).filter((r) => r.kind === "ephemeral"),
     );
     const picked = await pickOneTree(rows, "Dispose which worktree?", ["rt", "worktree", "dispose"]);
-    if (!picked) { console.log(`\n  ${dim}nothing selected${reset}\n`); return; }
+    if (!picked) { nothingSelected(); return; }
     treeName = picked.name;
     repoName = picked.repoName;
   }
@@ -620,20 +655,20 @@ export async function worktreeDispose(args: string[], _ctx: unknown): Promise<vo
   // Set before either return path — --json must not exit 0 on a partial failure.
   if (refused.length > 0) process.exitCode = 1;
 
-  if (parsed.json) { console.log(JSON.stringify(ok.data, null, 2)); return; }
+  if (parsed.json) { out.json(ok.data, 2); return; }
 
-  console.log("");
-  for (const name of disposed) {
+  const done = disposed.map((name) => {
     const kept = recoverable?.find((r) => r.tree === name);
-    const note = kept ? ` ${dim}— recoverable at ${kept.path} until ${kept.until.slice(0, 10)}${reset}` : "";
-    console.log(`  ${green}✓${reset} ${name} disposed${note}`);
-  }
-  for (const r of refused) {
-    const hint = r.detail ? `: ${r.detail}` : r.reason === "remove-failed" ? ": transient, try again" : "";
-    console.log(`  ${red}✗${reset} ${r.tree} ${dim}(${r.reason}${hint})${reset}`);
-  }
-  if (disposed.length === 0 && refused.length === 0) console.log(`  ${dim}nothing to dispose${reset}`);
-  console.log("");
+    return out.line("done", `${name} cleaned up`, kept ? `you can bring it back until ${kept.until.slice(0, 10)}` : undefined);
+  });
+  if (done.length > 0) out.print(...done);
+  else if (refused.length === 0) out.print(out.line("skipped", "Nothing to clean up"));
+
+  const notes = refused.flatMap((r) => {
+    const why = disposeReason(r.reason, r.detail);
+    return why.failed ? lineWithNext("failed", r.tree, why.words, why.next) : refusalBlocks({ title: r.tree, hint: why.words, next: why.next });
+  });
+  if (notes.length > 0) out.note(...notes);
   await maybeOfferClaudeHook(parsed.json);
 }
 
@@ -720,6 +755,59 @@ export async function worktreeRestore(args: string[], _ctx: unknown): Promise<vo
 
 // ─── list ────────────────────────────────────────────────────────────────────
 
+const CHECKS: Record<string, Segment> = {
+  success: { text: "checks passed", role: "done" },
+  success_with_warnings: { text: "checks passed with warnings", role: "warn" },
+  failed: { text: "checks failed", role: "failed" },
+  running: { text: "checks running", role: "running" },
+  pending: { text: "checks waiting", role: "pending" },
+  created: { text: "checks waiting", role: "pending" },
+  canceled: { text: "checks canceled", role: "off" },
+};
+
+function spaced(parts: Segment[]): Segment[] {
+  return parts.flatMap((p, i) => (i === 0 ? [p] : [{ text: " " }, p]));
+}
+
+function changeCell(r: TreeRow, eb: EnrichedBranch | undefined): Segment[] {
+  const mr = eb?.mr ?? r.mr ?? null;
+  const parts: Segment[] = [];
+  if (mr) parts.push(out.dim(`${changeMarker(r.repoName)}${mr.iid} ${mr.state}`));
+  const checks = eb?.mr?.pipeline ? CHECKS[eb.mr.pipeline.status] : undefined;
+  if (checks) parts.push(checks);
+  if (eb?.linearId) parts.push(out.dim(eb.linearId));
+  return spaced(parts);
+}
+
+function noteCell(r: TreeRow): Segment[] {
+  const parts: Segment[] = [];
+  if (r.duplicateBranch) parts.push({ text: "duplicate branch", role: "warn" });
+  // A hold only means something while the reactor still sees a terminal MR; past that it is a leftover.
+  if (r.state === "claimed" && r.heldReason && (r.mr?.state === "merged" || r.mr?.state === "closed")) {
+    parts.push({ text: `held: ${r.heldReason}`, role: "warn" });
+  }
+  return spaced(parts);
+}
+
+function cellIsEmpty(cell: out.CellInput): boolean {
+  const parts = Array.isArray(cell) ? cell : [cell];
+  return parts.every((p) => (typeof p === "string" ? p : p.text) === "");
+}
+
+/** A row ends at its last cell with text, so no line carries trailing spaces. */
+function listRow(r: TreeRow, eb: EnrichedBranch | undefined): out.CellInput[] {
+  const cells: out.CellInput[] = [
+    out.strong(`${repoLabel(r.repoName)}/${r.name}`),
+    out.dim(stateLabel(r)),
+    out.key(r.branch ?? "(detached)"),
+    out.dim(r.owner ?? ""),
+    changeCell(r, eb),
+    noteCell(r),
+  ];
+  while (cells.length > 0 && cellIsEmpty(cells[cells.length - 1]!)) cells.pop();
+  return cells;
+}
+
 export async function worktreeList(args: string[], _ctx: unknown): Promise<void> {
   const parsed = parseListArgs(args);
   const repoName = parsed.repoName ? await resolveRepo(parsed.json, parsed.repoName) : undefined;
@@ -729,41 +817,23 @@ export async function worktreeList(args: string[], _ctx: unknown): Promise<void>
   const readyHeldRepos = (ok.data?.readyHeldRepos ?? []) as string[];
   const mergeCleanupOff = (ok.data?.mergeCleanupOff ?? []) as MergeCleanupOffRow[];
 
-  if (parsed.json) { console.log(JSON.stringify({ trees: rows, readyHeldRepos, mergeCleanupOff }, null, 2)); return; }
+  if (parsed.json) { out.json({ trees: rows, readyHeldRepos, mergeCleanupOff }, 2); return; }
+
+  const blocks: Block[] = [];
+  if (readyHeldRepos.length > 0) {
+    blocks.push(
+      ...lineWithNext("needs-you", "The team's setup steps are waiting for your approval", readyHeldRepos.map(repoLabel).join(", "), out.cmd("rt worktree ready-approve <repo>")),
+    );
+  }
+  for (const gap of mergeCleanupOff) blocks.push(...mergeCleanupOffBlocks(gap));
 
   if (rows.length === 0) {
-    if (readyHeldRepos.length > 0) {
-      console.log(`\n  ${yellow}team \`ready\` steps held pending approval${reset}  ${dim}${readyHeldRepos.map(repoLabel).join(", ")} ... run \`rt worktree ready-approve <repo>\`${reset}`);
-    }
-    console.log(`\n  ${dim}no worktrees${reset}\n`);
+    out.print(...blocks, out.line("skipped", "No worktrees"));
     return;
   }
 
-  const trailingByPath = await enrichTrailingByPath(rows);
-  console.log("");
-  if (readyHeldRepos.length > 0) {
-    console.log(`  ${yellow}team \`ready\` steps held pending approval${reset}  ${dim}${readyHeldRepos.map(repoLabel).join(", ")} ... run \`rt worktree ready-approve <repo>\`${reset}`);
-  }
-  for (const gap of mergeCleanupOff) console.log(mergeCleanupOffLine(gap));
-  for (const r of rows) {
-    const trailing = trailingByPath.get(r.path);
-    const mrPart = trailing
-      ? `  ${trailing}`
-      : r.mr
-        ? `  ${dim}!${r.mr.iid} ${r.mr.state}${reset}`
-        : "";
-    const dupPart = r.duplicateBranch ? `  ${yellow}duplicate branch${reset}` : "";
-    const ownerPart = r.owner ? `  ${dim}${r.owner}${reset}` : "";
-    // A hold only means something while the reactor still sees a terminal MR; past that it is a leftover.
-    const heldPart = r.state === "claimed" && r.heldReason && (r.mr?.state === "merged" || r.mr?.state === "closed")
-      ? `  ${yellow}held: ${r.heldReason}${reset}`
-      : "";
-    const label = r.state === "disposable" && r.disposableReason ? `disposable (${r.disposableReason})` : rowLabel(r);
-    console.log(
-      `  ${bold}${repoLabel(r.repoName)}/${r.name}${reset}  ${dim}${label}${reset}  ${cyan}${r.branch ?? "(detached)"}${reset}${ownerPart}${mrPart}${dupPart}${heldPart}`,
-    );
-  }
-  console.log("");
+  const enriched = await enrichByPath(rows);
+  out.print(...blocks, out.table(rows.map((r) => listRow(r, enriched.get(r.path)))));
 }
 
 // ─── triage ──────────────────────────────────────────────────────────────────
@@ -773,22 +843,28 @@ export async function worktreeTriage(args: string[], _ctx: unknown): Promise<voi
   const repoName = parsed.repoName ? await resolveRepo(parsed.json, parsed.repoName) : undefined;
   const res = await queryDaemon("worktree:triage", repoName ? { repoName } : undefined);
   const ok = requireQueryResult(parsed.json, res);
-  if (parsed.json) { console.log(JSON.stringify(ok.data, null, 2)); return; }
+  if (parsed.json) { out.json(ok.data, 2); return; }
   const { rows, banners, counts } = ok.data as {
     rows: Array<Record<string, any>>;
-    banners: Array<{ repo: string; reason: string }>;
+    banners: MergeCleanupOffRow[];
     counts: { needsDecision: number };
   };
   const header = counts.needsDecision === 1 ? "1 worktree needs a decision" : `${counts.needsDecision} worktrees need a decision`;
-  console.log(`\n  ${bold}${header}${reset}\n`);
-  for (const b of banners ?? []) {
-    console.log(`  ${dim}${repoLabel(b.repo)}: merge cleanup is off (${b.reason})${reset}`);
-  }
-  for (const r of rows) {
-    const mr = r.mr ? `  ${dim}${changeMarker(r.repo)}${r.mr.iid} ${r.mr.state}${reset}` : "";
-    console.log(`  ${bold}${repoLabel(r.repo)}/${r.tree}${reset}  ${dim}${r.group}${reset}${mr}  ${r.verdict}`);
-  }
-  console.log("");
+  out.print(
+    out.section(
+      header,
+      undefined,
+      ...(banners ?? []).flatMap(mergeCleanupOffBlocks),
+      out.table(
+        rows.map((r) => [
+          out.strong(`${repoLabel(r.repo)}/${r.tree}`),
+          out.dim(r.group),
+          out.dim(r.mr ? `${changeMarker(r.repo)}${r.mr.iid} ${r.mr.state}` : ""),
+          String(r.verdict),
+        ]),
+      ),
+    ),
+  );
 }
 
 // ─── ready-approve ────────────────────────────────────────────────────────────
@@ -820,6 +896,14 @@ async function confirmApprove(): Promise<boolean> {
   return picked === "approve";
 }
 
+function readyStepsBlock(label: string, hash: string, ladder: ReadyStep[]): Block {
+  return out.section(
+    `Setup steps the team wrote for ${label}`,
+    `hash ${hash}`,
+    out.verbatim(ladder.map((s) => (s.when ? `${s.run}  (${s.when})` : s.run))),
+  );
+}
+
 /**
  * Approve a repo's team-authored `ready` shell before it runs (RT-89). The
  * daemon fail-closes on an unapproved team ladder; this records the user's
@@ -839,7 +923,7 @@ export async function worktreeReadyApprove(args: string[], _ctx: unknown): Promi
   if (!repoName) {
     if (!interactive) failText(json, "no repo... pass a repo name (no TTY for the picker)", usageFailure("Which repo?", "rt worktree ready-approve <repo>"));
     repoName = await pickRepoName(repoIndex);
-    if (!repoName) { console.log(`\n  ${dim}nothing selected${reset}\n`); return; }
+    if (!repoName) { nothingSelected(); return; }
   }
 
   const repoPath = repoIndex[repoName];
@@ -849,13 +933,13 @@ export async function worktreeReadyApprove(args: string[], _ctx: unknown): Promi
   const info = await inspectReadyGate(cfg, repoPath);
 
   if (!info.teamOwned) {
-    if (json) { console.log(JSON.stringify({ teamOwned: false })); return; }
-    console.log(`\n  ${dim}no team-authored ready steps to approve for ${repoLabel(repoName)}${reset}\n`);
+    if (json) { out.json({ teamOwned: false }); return; }
+    out.print(out.line("skipped", `${repoLabel(repoName)} has no team setup steps to approve`));
     return;
   }
   if (info.approved) {
-    if (json) { console.log(JSON.stringify({ teamOwned: true, approved: true, hash: info.hash })); return; }
-    console.log(`\n  ${green}already approved${reset}  ${dim}${info.hash}${reset}\n`);
+    if (json) { out.json({ teamOwned: true, approved: true, hash: info.hash }); return; }
+    out.print(out.line("done", "Already approved", info.hash));
     return;
   }
   if (!info.identity) failText(json, "repo has no derivable identity; cannot record an approval", { title: "rt cannot record an approval for this repo", why: "It has no remote or folder rt can name it by." });
@@ -881,15 +965,11 @@ export async function worktreeReadyApprove(args: string[], _ctx: unknown): Promi
     );
   }
 
-  console.log(`\n  ${yellow}team-authored ready steps${reset} for ${bold}${repoLabel(repoName)}${reset}  ${dim}(hash ${info.hash})${reset}\n`);
-  for (const s of info.ladder) {
-    console.log(`    ${s.run}${s.when ? `  ${dim}(${s.when})${reset}` : ""}`);
-  }
-  console.log("");
+  out.print(readyStepsBlock(repoLabel(repoName), info.hash, info.ladder));
 
-  if (!(await confirmApprove())) { console.log(`  ${dim}not approved${reset}\n`); return; }
+  if (!(await confirmApprove())) { out.print(out.line("skipped", "Not approved")); return; }
   writeReadyApproval(info.identity, info.hash);
-  console.log(`  ${green}approved${reset}  ${dim}${info.hash}${reset}\n`);
+  out.print(out.line("done", "Approved", info.hash));
 }
 
 // ─── freshen ─────────────────────────────────────────────────────────────────
@@ -908,7 +988,7 @@ export async function worktreeFreshen(args: string[], _ctx: unknown): Promise<vo
       .filter((r) => ((r.kind === "ephemeral" || r.kind === "golden") && r.state === "on-deck") || r.kind === "main")
       .sort((a, b) => a.name.localeCompare(b.name));
     const picked = await pickOneTree(rows, "Freshen which worktree?", ["rt", "worktree", "freshen"]);
-    if (!picked) { console.log(`\n  ${dim}nothing selected${reset}\n`); return; }
+    if (!picked) { nothingSelected(); return; }
     treeName = picked.name;
     repoName = picked.repoName;
   }
@@ -920,13 +1000,10 @@ export async function worktreeFreshen(args: string[], _ctx: unknown): Promise<vo
   const res = await queryDaemon("worktree:freshen", payload, FRESHEN_TIMEOUT_MS);
   const ok = requireQueryResult(parsed.json, res);
 
-  if (parsed.json) { console.log(JSON.stringify(ok.data, null, 2)); return; }
+  if (parsed.json) { out.json(ok.data, 2); return; }
 
   const ran = (ok.data?.ran ?? []) as string[];
-  console.log("");
-  if (ran.length === 0) console.log(`  ${dim}nothing needed freshening${reset}`);
-  else for (const name of ran) console.log(`  ${green}✓${reset} ${name} freshened`);
-  console.log("");
+  out.print(...(ran.length === 0 ? [out.line("skipped", "Nothing needed freshening")] : ran.map((name) => out.line("done", `${name} freshened`))));
   await maybeOfferClaudeHook(parsed.json);
 }
 
@@ -943,24 +1020,27 @@ export async function worktreeAdopt(args: string[], _ctx: unknown): Promise<void
   const res = await queryDaemon("worktree:adopt", { repoName, claim: parsed.claim }, ADOPT_TIMEOUT_MS);
   const ok = requireQueryResult(parsed.json, res);
 
-  if (parsed.json) { console.log(JSON.stringify(ok.data, null, 2)); return; }
+  if (parsed.json) { out.json(ok.data, 2); return; }
 
   const d = ok.data as {
     main: string;
     claimed: string[];
     unmanaged: string[];
     disposed: string[];
-    refused: Array<{ tree: string; reason: string }>;
+    refused: Array<{ tree: string; reason: string; detail?: string }>;
   };
-  console.log("");
-  console.log(
-    `  ${green}✓${reset} adopted ${d.main ? `main=${d.main}, ` : ""}${d.claimed.length} claimed, ` +
-      `${d.unmanaged.length} unmanaged, ${d.disposed.length} disposed`,
+  // Adopt cleans up parked trees on its own, unasked: a tree a guard kept is
+  // skipped rather than refused, and one rt failed to move is a warning.
+  const left = (r: { tree: string; reason: string; detail?: string }) => {
+    const why = disposeReason(r.reason, r.detail);
+    return out.line(why.failed ? "warn" : "skipped", `${r.tree} was left as it is`, why.words);
+  };
+  out.print(
+    ...d.claimed.map((name) => out.line("done", name, "now looked after by rt")),
+    ...d.unmanaged.map((name) => out.line("skipped", name, "left alone")),
+    ...d.refused.map(left),
+    out.summary("done", "Adopted this repo's worktrees", [`${d.claimed.length} claimed`, `${d.unmanaged.length} left alone`, `${d.disposed.length} cleaned up`]),
   );
-  for (const name of d.claimed) console.log(`  ${green}✓${reset} ${name} ${dim}(kind: ephemeral, claimed)${reset}`);
-  for (const name of d.unmanaged) console.log(`  ${dim}·${reset} ${name} ${dim}(kind: unmanaged, untouched)${reset}`);
-  for (const r of d.refused) console.log(`  ${yellow}⚠${reset} ${r.tree} not disposed: ${r.reason}`);
-  console.log("");
 }
 
 // ─── each ────────────────────────────────────────────────────────────────────
