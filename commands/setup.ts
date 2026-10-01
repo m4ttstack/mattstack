@@ -28,6 +28,7 @@ import { setSetting } from "../lib/settings/write.ts";
 import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
 import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
 import { decideUpdate, rtVersion, summarizeUpdate, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
+import { createUpdateLock, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
 import { updateSetupState } from "../lib/setup/state.ts";
 import { notifyEnabled } from "../lib/notifier.ts";
 import { envelope, STEP_IDS, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type StepId } from "../lib/setup/contract.ts";
@@ -201,6 +202,8 @@ export interface ApplyDeps {
   migrations?: MigrationDef[];
   /** Posts the update run's needs-you notification; defaults to the preference-gated notifier. */
   notify?: (category: string, title: string, message: string, id: string) => void;
+  /** Single flight for `rt setup update`; absent means the run is not guarded. */
+  updateLock?: UpdateLock;
 }
 
 export function realApplyDeps(): ApplyDeps {
@@ -217,6 +220,7 @@ export function realApplyDeps(): ApplyDeps {
       return confirm({ message });
     },
     notify: (category, title, message, id) => notifyEnabled(category, title, message, undefined, undefined, id),
+    updateLock: createUpdateLock(updateLockPath(probes.home)),
   };
 }
 
@@ -360,30 +364,44 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
     return;
   }
 
-  const ctx: ApplyContext = await createApplyContext({
-    probes: deps.probes,
-    emit,
-    secrets: deps.secrets,
-    relay: deps.relay,
-    secretPresence: deps.secretPresence,
-    flags: { nonInteractive: true, teamOfOne: false, ci: process.env.CI === "true", update: true },
-    needOpts: deps.needOpts,
-  });
-  const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx);
-
-  try {
-    updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version, at: deps.probes.now().toISOString() } }));
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const lastId = result.outcomes.at(-1)?.id;
-    if (lastId) emit({ event: "log", id: lastId, line: `warn: setup update stamp not persisted: ${message}` });
+  const lock = deps.updateLock;
+  if (lock && !lock.acquire()) {
+    if (json) emit({ event: "done", ok: true, skipped: "running" });
+    else deps.print("setup update: another update run is in progress");
+    return;
   }
 
-  const notification = updateNotification(version, result.outcomes);
-  if (notification) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notification.title, notification.message, notification.id);
+  let needsAttention = false;
+  // Released here rather than after the exit: process.exit skips a finally.
+  try {
+    const ctx: ApplyContext = await createApplyContext({
+      probes: deps.probes,
+      emit,
+      secrets: deps.secrets,
+      relay: deps.relay,
+      secretPresence: deps.secretPresence,
+      flags: { nonInteractive: true, teamOfOne: false, ci: process.env.CI === "true", update: true },
+      needOpts: deps.needOpts,
+    });
+    const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx);
 
-  if (!json) deps.print(`setup update: ${summarizeUpdate(result.outcomes)}`);
-  if (notification) deps.exit(2);
+    try {
+      updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version, at: deps.probes.now().toISOString() } }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const lastId = result.outcomes.at(-1)?.id;
+      if (lastId) emit({ event: "log", id: lastId, line: `warn: setup update stamp not persisted: ${message}` });
+    }
+
+    const notification = updateNotification(version, result.outcomes);
+    if (notification) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notification.title, notification.message, notification.id);
+
+    if (!json) deps.print(`setup update: ${summarizeUpdate(result.outcomes)}`);
+    needsAttention = notification !== null;
+  } finally {
+    lock?.release();
+  }
+  if (needsAttention) deps.exit(2);
 }
 
 // ─── pack (`rt setup pack`) ─────────────────────────────────────────────
