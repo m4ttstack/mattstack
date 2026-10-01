@@ -124,11 +124,12 @@ export function verifyPayload(results: CheckResult[], plan: Plan) {
   };
 }
 
+/** Coral only for a required check that ran and found something wrong; a row verify spares never draws it. */
 function checkStatus(r: Row, c: CheckResult): RenderStatus {
   if (c.status === "pass") return "done";
   if (c.status === "skip") return "skipped";
-  if (c.status === "fail") return "failed";
   const own = rowStatus(r);
+  if (c.status === "fail") return own;
   return own === "failed" ? "warn" : own;
 }
 
@@ -142,6 +143,7 @@ function nextVerb(r: Row): string | null {
 }
 
 export function verifyBlocks(plan: Plan, opts: { ci: boolean }): Block[] {
+  let coral = false;
   const sections = plan.groups
     .filter((g) => g.rows.length > 0)
     .map((g) =>
@@ -150,7 +152,9 @@ export function verifyBlocks(plan: Plan, opts: { ci: boolean }): Block[] {
       undefined,
       ...g.rows.flatMap((r) => {
         const c = rowToCheck(r, opts);
-        const blocks: Block[] = [out.line(checkStatus(r, c), r.title, r.detail)];
+        const status = checkStatus(r, c);
+        if (status === "failed") coral = true;
+        const blocks: Block[] = [out.line(status, r.title, r.detail)];
         const verb = c.status === "pass" || c.status === "skip" ? null : nextVerb(r);
         if (verb) blocks.push(out.callout("next", out.cmd(verb)));
         return blocks;
@@ -162,7 +166,12 @@ export function verifyBlocks(plan: Plan, opts: { ci: boolean }): Block[] {
   const warnings = results.filter((r) => r.status === "warn" || (r.status === "fail" && r.severity === "warning")).length;
   const passes = results.filter((r) => r.status === "pass").length;
   const counts = [`${passes} passed`, `${warnings} ${warnings === 1 ? "warning" : "warnings"}`];
-  const summary = failures === 0 ? out.summary("done", "Everything checks out", counts) : out.summary("failed", `${failures} ${failures === 1 ? "check" : "checks"} failed`, counts);
+  const summary =
+    failures === 0
+      ? out.summary("done", "Everything checks out", counts)
+      : coral
+        ? out.summary("failed", `${failures} ${failures === 1 ? "check" : "checks"} failed`, counts)
+        : out.summary("needs-you", failures === 1 ? "1 check needs attention" : `${failures} checks need attention`, counts);
   return [...sections, summary];
 }
 
