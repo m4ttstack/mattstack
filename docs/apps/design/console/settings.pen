@@ -1840,7 +1840,8 @@
                                   "fill": "$text-3",
                                   "content": "Where it's set",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -1922,7 +1923,8 @@
                                       "fill": "$text-3",
                                       "content": "JSON",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -2910,7 +2912,8 @@
                                       "fill": "$text-3",
                                       "content": "JSON",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -4982,7 +4985,8 @@
                                   "fill": "$text-3",
                                   "content": "Value",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -6452,7 +6456,8 @@
                               "fill": "$text-4",
                               "content": "info",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -6505,7 +6510,8 @@
                               "fill": "$text-4",
                               "content": "debug",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -7017,7 +7023,8 @@
                               "fill": "$text-4",
                               "content": "—",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -7212,7 +7219,8 @@
                                       "fill": "$text-3",
                                       "content": "JSON",
                                       "fontFamily": "$font",
-                                      "fontSize": 11
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -8266,7 +8274,8 @@
                               "fill": "$text-3",
                               "content": "Value",
                               "fontFamily": "$font",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -8394,7 +8403,8 @@
                               "width": "fill_container",
                               "content": "info",
                               "fontFamily": "$mono",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -8463,7 +8473,8 @@
                               "width": "fill_container",
                               "content": "debug",
                               "fontFamily": "$mono",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "frame",
@@ -9043,7 +9054,8 @@
                                   "fill": "$text-3",
                                   "content": "Where it's set",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -9125,7 +9137,8 @@
                                       "fill": "$text-3",
                                       "content": "JSON",
                                       "fontFamily": "$font",
-                                      "fontSize": 11
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -9887,7 +9900,7 @@
                           "content": "logLevel",
                           "fontFamily": "$mono",
                           "fontSize": 15,
-                          "fontWeight": "600"
+                          "fontWeight": "500"
                         }
                       ]
                     },
@@ -10018,7 +10031,8 @@
                               "fill": "$text-3",
                               "content": "Value",
                               "fontFamily": "$font",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -10146,7 +10160,8 @@
                               "width": "fill_container",
                               "content": "info",
                               "fontFamily": "$mono",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -10215,7 +10230,8 @@
                               "width": "fill_container",
                               "content": "debug",
                               "fontFamily": "$mono",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "frame",
