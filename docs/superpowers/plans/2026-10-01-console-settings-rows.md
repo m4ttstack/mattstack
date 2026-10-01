@@ -57,6 +57,9 @@
 
 ### Task 1: The Value tab's toolbar slot
 
+> **Pre-flight rulings (binding, override the text below where they differ):**
+> - The guide's rung 1 says "an `xs` already in the file goes up to `sm`". Raise every `size="xs"` in `DraftEditor.tsx` and `CompositeControls.tsx` to `size="sm"`, and every `compact-xs` to `compact-sm`. Add both to the Step 4 run (the editor suites must stay green).
+
 **Files:**
 - Create: `apps/console/src/app/settings/PanelToolbar.tsx`
 - Create: `apps/console/src/app/settings/PanelToolbar.test.tsx`
@@ -193,6 +196,20 @@ git commit -m "console settings: editor headers can move onto a panel tab bar"
 ---
 
 ### Task 2: KeyPanel, and the thin run-detail modal around it
+
+> **Pre-flight rulings (binding, override the text below where they differ):**
+> - Two suites outside the migrate list break when the verdict sentence and the `>_` title go: migrate `apps/console/src/app/runs/EffectiveInputs.test.tsx:257-258` (assert the key name instead of `'rt settings explain rt.runsPruneDays'`) and `SettingsPage.test.tsx:144-183` (its `explain-sentence` assertion becomes the Where it's set caption). Add `apps/console/src/app/runs/EffectiveInputs.test.tsx` to the Step 9 `git add`.
+> - `Modal.Root` does not receive the kit's `Modal` theme defaults (they key on `Modal`, not `ModalRoot`). Pass `centered padding="lg"` on `Modal.Root`.
+> - The run-detail `Detail` keeps `useRowSave`; render its `row.error` and the saving / saved status under `ValueContent`, the way `SettingRow.tsx:242-302` does today, so a refused write in run detail is visible.
+> - Accessible names stay byte-identical to today's modal: `set <key> at <layer>`, `cancel editing <key> at <layer>` and `remove <key> from <layer>` use the team-less `layerLabel(scope)` (as `ExplainModal.tsx:141` does). Only visible text (the Remove tooltip, Move menu items) carries the team name. Rework the "names the team in Remove and Move" test to assert that visible text, add the missing Move assertion, and query menu items with `findByRole`.
+> - `ScopeBadge`: do not hoist the existing `style` / `styles` objects; leave them in place, unchanged. The `default` branch takes `color="gray" variant="light"` and no `c` (keep `c` only for the three store scopes, as today). `ScopeDot` takes the grey hue inside its existing expression. The controller lists the pre-existing overrides for Matt.
+> - The Repos list's Show button is `size="compact-sm"`, not `compact-xs`.
+> - The WhereTab sketch's JSX comments are instructions to you; replace them with code and ship none of them. Add the `.repo` class and the `.reposHead` border the Repos note promises to `KeyPanel.module.css` (`var(--tk-border-soft)`, spacing matching `.line`).
+> - The secret rotate note sits BELOW the layer list (after the diverged panels), per the spec.
+> - The caption keys on `def.merge === 'deep' && def.type === 'object'` (the predicate `analyzeChain` uses), not on `verdict?.kind`, so it is right before rows load.
+> - `ESCAPE_OWNERS` treats only text-like inputs as owners: use `input:not([type=radio]):not([type=checkbox])` in place of a bare `input`, so Escape on the tab bar or a switch closes the row.
+> - The spec puts a `Tooltip` on every `ActionIcon`: add one to the Move target (check the `Menu.Target` + `Tooltip` pairing in the Mantine docs first) and to the run-detail close button.
+> - Key `WhereTab` on `` `${def.key}:${fix ?? ''}` `` so a second Fix on an already-open row opens its editor.
 
 **Files:**
 - Modify: `apps/console/src/app/settings/view.ts` (append helpers)
@@ -1627,6 +1644,20 @@ git commit -m "console settings: KeyPanel with Value | Where it's set; the expla
 
 ### Task 3: The row is one disclosure
 
+> **Pre-flight rulings (binding, override the text below where they differ):**
+> - Task 3 must pass its own typecheck, so it also changes `SettingsSection.tsx`: `SettingRow` gets no `onExplain` and its `store` is typed `PanelStore`; `SettingsSection` drops its own `onExplain` prop and `SettingsPage` stops passing it. The page keeps mounting `ExplainModal` from `?explain=` until Task 4 replaces that. Migrate `SettingsPage.test.tsx:164,357,370` (the `explain <key>` buttons) to opening the row inline with the `open <key>` chevron, and `:144-183` to assert the inline open (the caption); the URL assertion is Task 4's.
+> - In `SettingsSection.tsx`, raise `size="xs"` (around :120) to `sm` per the guide. If the `styles` object beside it (around :122) is layout only, move it to a CSS module through `classNames`; if it carries colour, leave it and say so in the report.
+> - Add `prune: vi.fn(async () => null as string | null)` to the store helpers in `CompositeControls.test.tsx`, `ItemCards.test.tsx`, `NamedSections.test.tsx` and `SpecialRows.test.tsx`.
+> - The enum test's Select is a `combobox`, not a `textbox`.
+> - Drop the "no explain button" half of "has no actions menu and no explain button" (it asserts nothing); keep the actions-menu half.
+> - Short inline string lists keep Edit as JSON through the spec's Form | JSON toggle: their Value tab shows the description, the inline control and a `ModeToggle` rendered through `PanelToolbar`; choosing JSON sets `asJson`, so the row's body becomes the existing JSON `DraftBody`. Migrate `JsonEditor.test.tsx:190-215` and `CompositeControls.test.tsx:986-1018` to: open the row, Value tab, choose JSON.
+> - Migration table addition: a test that tabs to `<key> actions` now expects focus on the `open <key>` chevron.
+> - Renders that reach a layer line need a `QueryClientProvider` (`useEditorHref` calls `useQuery`); wrap them the way the existing `ExplainModal` suites do.
+> - The header's click handler also ignores clicks whose target is outside the header's own DOM node (`!e.currentTarget.contains(e.target as Node)`), so a click on a portalled dropdown's chrome never toggles the row.
+> - While the row is open on Where it's set, the header's `IssueLines` is hidden (the layer line shows the issue), so no issue draws twice.
+> - The chevron `ActionIcon` gets a `Tooltip` per the spec.
+> - Reword the `compositeParts` docstring to match the new contract (no summary toggle, body always built).
+
 **Files:**
 - Rewrite: `apps/console/src/app/settings/SettingRow.tsx`; create `SettingRow.module.css`
 - Modify: `apps/console/src/app/settings/rowParts.tsx` (drop `open`, `onToggle`)
@@ -2128,6 +2159,14 @@ git commit -m "console settings: each row is one disclosure that opens its panel
 
 ### Task 4: The page keeps one open row
 
+> **Pre-flight rulings (binding, override the text below where they differ):**
+> - The new tests use keys the `SettingsPage.test.tsx` fixture actually holds: `board.agent.model` and `agent.claude.account` in place of `agent.claude.effort` / `agent.claude.model` (confirm `q=Prune` still hides them, or pick a query that does).
+> - Restore `Element.prototype.scrollIntoView` in `afterEach`, and assert it was called on the `[data-key="<key>"]` row element, not merely called.
+> - A `?explain=` link must open its row: when it names an Agents key of the provider not shown, the Agents section switches to that key's provider; when it names no registered key, the page shows a kit `Alert` (`color="gray"`) reading "No setting named <key>." above the sections.
+> - Add a `?explain=<key>&fix=<layer>` test asserting that layer's editor is open.
+> - Raise every `size="xs"` in `SettingsPage.tsx` to `sm` per the guide.
+> - Update `apps/console/AGENTS.md` (around :37, "a row's explain opens a modal over the page") to the new behaviour.
+
 **Files:**
 - Rewrite: `apps/console/src/app/settings/explainParam.ts`
 - Modify: `apps/console/src/app/settings/SettingsSection.tsx`, `apps/console/src/app/settings/SettingsPage.tsx`
@@ -2338,6 +2377,9 @@ git commit -m "console settings: one open row on the page, kept in ?explain= wit
 ---
 
 ### Task 5: Stories with the boards' content
+
+> **Pre-flight rulings (binding, override the text below where they differ):**
+> - The `Stage` wrapper takes no inline `style`: give it a story-local CSS module class for its surface and width.
 
 **Files:**
 - Create: `apps/console/src/app/settings/SettingsRows.stories.tsx`
