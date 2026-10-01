@@ -67,7 +67,11 @@ import { CommentsDrawer } from './CommentsDrawer.tsx';
 import { ConfigModal } from './ConfigModal.tsx';
 import { Controls, ThemeControl } from './Controls.tsx';
 import type { QueueEntry } from './decision-queue.ts';
-import { decidedEntries, useDecisionQueue } from './decision-queue.ts';
+import {
+  decidedEntries,
+  gateReadOnlyReason,
+  useDecisionQueue,
+} from './decision-queue.ts';
 import {
   DecisionQueueComplete,
   DecisionQueueModal,
@@ -1591,6 +1595,11 @@ export function Board() {
           onAnswered={retireActiveGate}
           onContinue={retireActiveGate}
           onLostChange={lost => queue.hold(lost ? activeGateId : null)}
+          readOnly={gateReadOnlyReason(
+            queue.active.gate,
+            queue.active.mr,
+            seatOf(data.defaultMember)
+          )}
           people={
             new Map(
               data.members.flatMap(m =>

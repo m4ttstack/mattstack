@@ -6,7 +6,7 @@
     all reads its standing state for whoever the board's seat is. The
     pill and the line may name the same fact ("changes requested" twice):
     one is where the MR is, the other is what to do about it. */
-import { unwrapGateAnswer } from '@mattstack/gate-kit';
+import { domainForKind, unwrapGateAnswer } from '@mattstack/gate-kit';
 import type { BoardMR } from '../../data.ts';
 import { hasChangesRequested } from '../../data.ts';
 import { respondOutcome } from '../../respond-outcome.ts';
@@ -204,12 +204,19 @@ function openGateWord(gate: BoardMRWithReview['gates'][number]): string {
 function gateLines(mr: BoardMRWithReview): Candidate[] {
   const out: Candidate[] = [];
   for (const gate of mr.gates) {
+    const domain = domainForKind(gate.kind);
+    const answer = (label: string): Verb => ({
+      kind: 'answer',
+      label,
+      gateId: gate.gateId,
+      ...(domain ? { domain } : {}),
+    });
     if (gate.status === 'open' || gate.status === 'parked') {
       out.push({
         tone: 'warn',
         word: openGateWord(gate),
         detail: gate.status === 'parked' ? 'parked' : undefined,
-        verbs: [{ kind: 'answer', label: 'answer', gateId: gate.gateId }],
+        verbs: [answer('answer')],
       });
       continue;
     }
@@ -218,7 +225,7 @@ function gateLines(mr: BoardMRWithReview): Candidate[] {
       out.push({
         tone: 'bad',
         word: DELIVERY_STUCK_MESSAGE,
-        verbs: [{ kind: 'answer', label: 'retry', gateId: gate.gateId }],
+        verbs: [answer('retry')],
       });
       continue;
     }
@@ -226,7 +233,7 @@ function gateLines(mr: BoardMRWithReview): Candidate[] {
       out.push({
         tone: 'bad',
         word: EXECUTION_UNASSIGNED_MESSAGE,
-        verbs: [{ kind: 'answer', label: 'relaunch', gateId: gate.gateId }],
+        verbs: [answer('relaunch')],
       });
       continue;
     }
@@ -829,12 +836,12 @@ const AUTHOR_ONLY_VERBS = new Set<VerbKind>([
   'resume-respond',
 ]);
 
-/** Focusing or relaunching a respond or doctor pane goes back through that
-    lane's route, which refuses someone else's MR. */
+/** Focusing or relaunching a respond or doctor pane, or answering its gate,
+    goes back through a route that refuses someone else's MR. */
 function authorOnly(v: Verb): boolean {
   return (
     AUTHOR_ONLY_VERBS.has(v.kind) ||
-    ((v.kind === 'relaunch' || v.kind === 'focus') &&
+    ((v.kind === 'relaunch' || v.kind === 'focus' || v.kind === 'answer') &&
       (v.domain === 'respond' || v.domain === 'doctor'))
   );
 }

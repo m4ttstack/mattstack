@@ -1,9 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { domainForKind } from '@mattstack/gate-kit';
 import type { GateRow } from '../../gates/store.ts';
+import { isOwnMr } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import type { TriageGateState } from './DecisionQueueModal.tsx';
-import { cleanTitle } from './format.ts';
+import { cleanTitle, SEAT_HINT } from './format.ts';
+
+/** Why the queue shows this gate read-only, or null when the seat can
+    answer it: a respond or doctor gate is its MR author's decision, and the
+    server refuses anyone else's answer. */
+export function gateReadOnlyReason(
+  gate: Pick<GateRow, 'kind'>,
+  mr: BoardMRWithReview | undefined,
+  self: string | null
+): string | null {
+  const lane = domainForKind(gate.kind);
+  if (lane !== 'respond' && lane !== 'doctor') return null;
+  if (self === null) return SEAT_HINT;
+  if (mr && isOwnMr(mr, self)) return null;
+  return mr
+    ? `only !${mr.iid}'s author answers this gate`
+    : "only the MR's author answers this gate";
+}
 
 export interface QueueEntry {
   gate: GateRow;

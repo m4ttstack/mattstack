@@ -66,6 +66,7 @@ function DecisionQueueModal({
   onContinue,
   onLostChange,
   people,
+  readOnly,
 }: {
   gate: GateRow & { executor?: ExecutorState };
   /** Absent for a non-MR gate (queueExtras) -- the strip and face below
@@ -94,6 +95,9 @@ function DecisionQueueModal({
   /** Team roster usernames to full names, for the reviewer a respond gate
       answers. */
   people?: ReadonlyMap<string, string>;
+  /** Set when the seat cannot answer this gate (gateReadOnlyReason): the
+      face shows the questions and says why, with no form to submit. */
+  readOnly?: string | null;
 }) {
   const form = useGateForm(gate, onAnswered);
   const paneGone = gate.executor === 'gone';
@@ -175,6 +179,28 @@ function DecisionQueueModal({
       {stateChips && <GateStateChips gate={gate} />}
     </>
   );
+
+  if (readOnly) {
+    return (
+      <GateSheet
+        variant="stage"
+        ariaLabel="decision queue"
+        queue={queue}
+        tag={gate.label}
+        onClose={onClose}
+        actions={<GateStateChips gate={gate} />}
+      >
+        <StageSheetBody
+          gate={gate}
+          mr={mr}
+          form={form}
+          context={proseContext}
+          readOnly={readOnly}
+          onContinue={onContinue}
+        />
+      </GateSheet>
+    );
+  }
 
   // An answered review-post gate, stuck or not, goes to the answered sheet:
   // the review sheet only builds a fresh answer.

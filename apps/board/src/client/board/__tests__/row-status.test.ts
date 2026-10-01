@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
+import { domainForKind } from '@mattstack/gate-kit';
+
 import type { BoardMRWithReview } from '../../types.ts';
 import {
   candidateLines,
@@ -569,7 +571,7 @@ describe('rowStatus: gates', () => {
       word: 'post which findings?',
     });
     expect(s.line.verbs).toEqual([
-      { kind: 'answer', label: 'answer', gateId: 'g1' },
+      { kind: 'answer', label: 'answer', gateId: 'g1', domain: 'review' },
     ]);
   });
 
@@ -655,7 +657,7 @@ describe('rowStatus: gates', () => {
     );
     expect(s.line).toMatchObject({ tone: 'bad', word: DELIVERY_STUCK_MESSAGE });
     expect(s.line.verbs).toEqual([
-      { kind: 'answer', label: 'retry', gateId: 'g1' },
+      { kind: 'answer', label: 'retry', gateId: 'g1', domain: 'review' },
     ]);
   });
 
@@ -679,7 +681,7 @@ describe('rowStatus: gates', () => {
       word: EXECUTION_UNASSIGNED_MESSAGE,
     });
     expect(s.line.verbs).toEqual([
-      { kind: 'answer', label: 'relaunch', gateId: 'g1' },
+      { kind: 'answer', label: 'relaunch', gateId: 'g1', domain: 'review' },
     ]);
   });
 
@@ -1796,13 +1798,34 @@ describe('rowStatus: a launch that ran with no pack', () => {
 });
 
 describe("author-only verbs stay off someone else's row", () => {
-  const AUTHOR_ONLY = new Set([
-    'merge',
-    'call-doctor',
-    'launch-respond',
-    'restart-respond',
-    'resume-respond',
+  // Independent of row-status.ts's own list: anything not named here as a
+  // reviewer's verb counts as the author's, so a new author verb that the
+  // filter misses fails these tests rather than slipping through.
+  const REVIEWER_VERBS = new Set([
+    'read-review',
+    'read-respond',
+    'open-mr',
+    'view-peer',
+    'dismiss',
+    'clear',
+    'launch-review',
+    're-review',
+    'read-note',
   ]);
+  const reviewerSafe = (
+    v: { kind: string; domain?: string; gateId?: string },
+    row: BoardMRWithReview
+  ) => {
+    if (REVIEWER_VERBS.has(v.kind)) return true;
+    if (v.kind === 'focus' || v.kind === 'relaunch')
+      return v.domain === 'review';
+    if (v.kind === 'answer') {
+      const kind = row.gates.find(g => g.gateId === v.gateId)?.kind ?? '';
+      const lane = domainForKind(kind);
+      return lane !== 'respond' && lane !== 'doctor';
+    }
+    return false;
+  };
   const orphan = {
     agentId: 'ag-1',
     repo: 'acme/webapp',
@@ -1848,23 +1871,60 @@ describe("author-only verbs stay off someone else's row", () => {
         respond: { status: 'done', posted: 2, threads: 2 },
       },
     ],
+    [
+      'an open respond gate',
+      { gates: [gate({ kind: 'respond-plan', domain: 'respond' })] },
+    ],
+    [
+      'an open doctor gate',
+      { gates: [gate({ kind: 'doctor-escalation', domain: 'doctor' })] },
+    ],
+    [
+      'a respond answer that never reached its pane',
+      {
+        gates: [
+          gate({
+            kind: 'respond-post',
+            domain: 'respond',
+            status: 'answered',
+            delivery: { outcome: 'stuck', at: NOW },
+          }),
+        ],
+      },
+    ],
+    [
+      'a doctor answer with no pane to run it',
+      {
+        gates: [
+          gate({
+            kind: 'doctor-escalation',
+            domain: 'doctor',
+            status: 'answered',
+            execution: 'unassigned',
+          }),
+        ],
+      },
+    ],
   ];
   const verbsOf = (row: BoardMRWithReview, self: string | null) =>
     candidateLines(row, NOW, NONE, self).flatMap(l => l.verbs);
-  const authorOnly = (v: { kind: string; domain?: string }) =>
-    AUTHOR_ONLY.has(v.kind) ||
-    ((v.kind === 'relaunch' || v.kind === 'focus') &&
-      (v.domain === 'respond' || v.domain === 'doctor'));
+  const unsafe = (row: BoardMRWithReview, self: string | null) =>
+    verbsOf(row, self).filter(v => !reviewerSafe(v, row));
 
   for (const [name, over] of rows) {
     test(`${name}: none on someone else's MR`, () => {
-      expect(verbsOf(mr(over as never), ME).filter(authorOnly)).toEqual([]);
+      expect(unsafe(mr(over as never), ME)).toEqual([]);
     });
     test(`${name}: offered on your own`, () => {
-      expect(verbsOf(own(over), ME).some(authorOnly)).toBe(true);
+      expect(unsafe(own(over), ME).length).toBeGreaterThan(0);
     });
     test(`${name}: none on an "all" board`, () => {
-      expect(verbsOf(own(over), null).filter(authorOnly)).toEqual([]);
+      expect(unsafe(own(over), null)).toEqual([]);
     });
   }
+
+  test("a review gate on someone else's MR keeps its answer verb", () => {
+    const row = mr({ gates: [gate()] } as never);
+    expect(verbsOf(row, ME).map(v => v.kind)).toContain('answer');
+  });
 });
