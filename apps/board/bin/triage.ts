@@ -56,6 +56,7 @@ import {
   resolveDispatchIdentity,
   runTriage,
 } from '../src/triage/run.ts';
+import { seatOf } from '../src/view.ts';
 
 // Fully disabled is the common cron-invoked case: decide it BEFORE taking the
 // lock, because process.exit() skips finally blocks and would strand the lock
@@ -219,11 +220,18 @@ try {
       boardConfig.switchboard.url,
       switchboardToken
     );
+    // A respond ask acts on your own MR only: authored by the token identity
+    // AND the board's seat, so an "all" board answers none of them.
+    const seat = seatOf(boardConfig.defaultMember);
+    const ownUrls = new Set(
+      (await fetchOwnMrs()).filter(m => m.author === seat).map(m => m.mrUrl)
+    );
     const nudgeResult = await runNudgePass({
       readNudges,
       markNudgeHandled: (id, r, reason) => markNudgeHandled(id, r, reason),
       readReviewStates,
       readRespondStates,
+      isOwnMr: mrUrl => ownUrls.has(mrUrl),
       launchAsk: (mrUrl, iid, kind) =>
         kind === 'respond'
           ? launchRespondAsk(mrUrl, iid, {
