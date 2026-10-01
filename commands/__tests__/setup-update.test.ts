@@ -136,7 +136,7 @@ describe("rt setup update", () => {
   test("human mode prints the not-set-up line", async () => {
     const deps = updateDeps();
     await run(deps, []);
-    expect(deps.lines).toEqual(["setup update: this Mac has not been set up yet"]);
+    expect(deps.lines).toEqual(["setup update: setup has not finished on this Mac"]);
   });
 
   test("current stamp: done skipped:current, exit 0, nothing runs", async () => {

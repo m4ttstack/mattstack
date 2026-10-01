@@ -377,7 +377,7 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
   const decision = decideUpdate(deps.probes, version, args.includes("--force"));
   if (decision.kind === "not-set-up") {
     if (json) emit({ event: "done", ok: true, skipped: "not-set-up" });
-    else deps.print("setup update: this Mac has not been set up yet");
+    else deps.print("setup update: setup has not finished on this Mac");
     return;
   }
   if (decision.kind === "current") {
