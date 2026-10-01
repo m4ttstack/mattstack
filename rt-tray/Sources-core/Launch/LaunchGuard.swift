@@ -72,7 +72,7 @@ public enum SetupCompletion {
 
     /// The tray menu's setup items, read fresh each time it opens.
     public static func menuEntries(finished: Bool) -> [MenuEntry] {
-        finished ? [.status] : [.resume, .status]
+        finished ? [.status] : [.status, .resume]
     }
 
     /// Finish and the titlebar close at Done share one gate; the read-only

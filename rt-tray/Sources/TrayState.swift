@@ -72,11 +72,10 @@ class TrayState: ObservableObject {
     }
 }
 
-// Gear-menu actions the panel posts back to AppDelegate, which owns the
+// Tray menu actions posted back to AppDelegate, which owns the
 // daemon lifecycle and update checker.
 extension Notification.Name {
     static let rtRestartDaemon  = Notification.Name("rtRestartDaemon")
-    static let rtStopDaemon     = Notification.Name("rtStopDaemon")
     static let rtViewDaemonLogs = Notification.Name("rtViewDaemonLogs")
     static let rtOpenCrashLog   = Notification.Name("rtOpenCrashLog")
     static let rtCheckUpdates   = Notification.Name("rtCheckUpdates")

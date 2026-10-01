@@ -47,6 +47,9 @@ enum AXID {
     static func checklistRowWaiting(_ id: String) -> String { "setup.checklist.row.\(id).waiting" }
     static let checklistRecheck = "setup.checklist.recheck"
     static let checklistRelaunch = "setup.checklist.relaunch"
+    static let checklistLoading = "setup.checklist.loading"
+    static let checklistLoadFailed = "setup.checklist.loadFailed"
+    static let checklistLoadRetry = "setup.checklist.loadRetry"
     static func connectField(_ name: String) -> String { "setup.checklist.connect.field.\(name)" }
     static func connectAlternative(_ id: String) -> String { "setup.checklist.connect.alt.\(id)" }
     static let connectSubmit = "setup.checklist.connect.submit"
@@ -165,7 +168,7 @@ enum AXID {
     static let trayProcesses = "tray.processes"
     static let trayWorktrees = "tray.worktrees"
     static let trayRestartDaemon = "tray.restartDaemon"
-    static let trayStopDaemon = "tray.stopDaemon"
+    static let trayTroubleshoot = "tray.troubleshoot"
     static let trayViewLogs = "tray.viewLogs"
     static let trayOpenCrashLog = "tray.openCrashLog"
     static let trayResumeSetup = "tray.resumeSetup"

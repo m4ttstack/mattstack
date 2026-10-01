@@ -185,11 +185,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             MainActor.assumeIsolated { self?.showWorktreePanel() }
         }
 
-        // Gear-menu actions posted by the panel's status strip
+        // Tray menu actions
         NotificationCenter.default.addObserver(
             self, selector: #selector(restartDaemon), name: .rtRestartDaemon, object: nil)
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(stopDaemon), name: .rtStopDaemon, object: nil)
         NotificationCenter.default.addObserver(
             self, selector: #selector(viewDaemonLogs), name: .rtViewDaemonLogs, object: nil)
         NotificationCenter.default.addObserver(
@@ -878,11 +876,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                                     keyEquivalent: "m", keyEquivalentModifierMask: [.control, .option, .command]) {
             NotificationCenter.default.post(name: .showMattstackWindow, object: nil)
         })
+        if BundleFlavor.isDevBuild { addDevBuildItems(to: menu) }
         menu.addItem(.separator())
-        if BundleFlavor.isDevBuild {
-            addDevBuildItems(to: menu)
-            menu.addItem(.separator())
-        }
         let status = NSMenuItem(title: TrayState.shared.statusText, action: nil, keyEquivalent: "")
         status.isEnabled = false
         status.setAccessibilityIdentifier(AXID.trayStatus)
@@ -904,17 +899,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         worktreesMenuItem = worktrees
         refreshTriageCount()
         menu.addItem(.separator())
-        menu.addItem(ActionMenuItem("Restart Daemon", axid: AXID.trayRestartDaemon) {
-            NotificationCenter.default.post(name: .rtRestartDaemon, object: nil)
-        })
-        menu.addItem(ActionMenuItem("Stop Daemon", axid: AXID.trayStopDaemon) {
-            NotificationCenter.default.post(name: .rtStopDaemon, object: nil)
-        })
-        menu.addItem(ActionMenuItem("View Logs…", axid: AXID.trayViewLogs) {
-            NotificationCenter.default.post(name: .rtViewDaemonLogs, object: nil)
-        })
-        menu.addItem(ActionMenuItem("Open Crash Log", axid: AXID.trayOpenCrashLog) {
-            NotificationCenter.default.post(name: .rtOpenCrashLog, object: nil)
+        menu.addItem(ActionMenuItem("Settings…", axid: AXID.traySettings) {
+            NotificationCenter.default.post(name: .rtShowSettings, object: nil)
         })
         for entry in SetupCompletion.menuEntries(finished: SetupSession.isFinished) {
             switch entry {
@@ -928,9 +914,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 })
             }
         }
-        menu.addItem(ActionMenuItem("Settings…", axid: AXID.traySettings) {
-            NotificationCenter.default.post(name: .rtShowSettings, object: nil)
-        })
+        menu.addItem(troubleshootMenuItem())
         menu.addItem(.separator())
         let startAtLogin = SMAppService.mainApp.status == .enabled
         menu.addItem(ActionMenuItem("Start at Login", state: startAtLogin ? .on : .off, axid: AXID.trayStartAtLogin) { [weak self] in
@@ -949,6 +933,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         menu.addItem(ActionMenuItem("Quit mattstack", axid: AXID.trayQuit) { [weak self] in
             self?.quitFromTray()
         })
+    }
+
+    @MainActor
+    private func troubleshootMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Troubleshoot", action: nil, keyEquivalent: "")
+        item.setAccessibilityIdentifier(AXID.trayTroubleshoot)
+        let sub = NSMenu()
+        sub.autoenablesItems = false
+        sub.addItem(ActionMenuItem("Restart Daemon", axid: AXID.trayRestartDaemon) {
+            NotificationCenter.default.post(name: .rtRestartDaemon, object: nil)
+        })
+        sub.addItem(ActionMenuItem("View Logs…", axid: AXID.trayViewLogs) {
+            NotificationCenter.default.post(name: .rtViewDaemonLogs, object: nil)
+        })
+        sub.addItem(ActionMenuItem("Open Crash Log", axid: AXID.trayOpenCrashLog) {
+            NotificationCenter.default.post(name: .rtOpenCrashLog, object: nil)
+        })
+        item.submenu = sub
+        return item
     }
 
     /// Restart count, last-crash reason, boot verdict and a degraded
@@ -1276,17 +1279,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     return
                 }
             }
-            setHealth(.down)
-        }
-    }
-
-    @objc private func stopDaemon() {
-        Task { @MainActor in
-            // Unregister from launchd — the agent has KeepAlive=true, so an
-            // HTTP shutdown alone would be undone by a launchd restart.
-            // Unregistering makes launchd SIGTERM the daemon and keep it down.
-            await daemonLifecycle.stopDaemon(origin: DaemonOrigin.menu)
-            try? await Task.sleep(nanoseconds: 500_000_000)
             setHealth(.down)
         }
     }
