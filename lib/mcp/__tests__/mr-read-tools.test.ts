@@ -8,31 +8,17 @@ const pr = (iid: number, state: string, draft = false) => ({
   pipeline: { status: "success", id: "gitlab:pipeline:9", jobs: [] },
 });
 
-function fake(overrides: Partial<MrReadDeps> = {}, data: Record<string, unknown> = {}): { deps: MrReadDeps; calls: string[] } {
-  const calls: string[] = [];
+type Call = { name: string; payload: Record<string, unknown> };
+
+function fake(answers: Record<string, unknown> = {}): { deps: MrReadDeps; calls: Call[] } {
+  const calls: Call[] = [];
   const deps: MrReadDeps = {
-    projectMrs: async (repo, maxAgeMs) => {
-      calls.push(`mrs:${repo}:${maxAgeMs ?? ""}`);
-      return {
-        ok: true,
-        data: {
-          mrs: {
-            a: { pr: pr(1, "opened"), fetchedAt: 1 },
-            b: { pr: pr(2, "merged"), fetchedAt: 2 },
-            c: { pr: pr(3, "opened", true), fetchedAt: 3 },
-            d: { pr: pr(4, "closed"), fetchedAt: 4 },
-          },
-          listSyncedAt: 3,
-          source: "poll",
-          syncedAt: 3,
-          ...data,
-        },
-      } as any;
-    },
-    discussions: async (repo, iid) => { calls.push(`disc:${repo}:${iid}`); return { ok: true, data: { discussions: [], fetchedAt: 1 } } as any; },
-    byBranch: async (repo, branches) => { calls.push(`branch:${repo}:${branches.join(",")}`); return { ok: true, data: { byBranch: {}, syncedAt: 1 } } as any; },
-    command: (async (name: string) => { calls.push(`cmd:${name}`); return { ok: true, data: name === "mr:fetch-job-trace" ? "log text" : { type: "trace", content: "full log" } }; }) as any,
-    ...overrides,
+    command: (async (name: string, payload: Record<string, unknown>) => {
+      calls.push({ name, payload });
+      const a = answers[name];
+      if (a instanceof Error) return { ok: false, error: a.message };
+      return { ok: true, data: a };
+    }) as any,
   };
   return { deps, calls };
 }
@@ -40,210 +26,171 @@ const tool = (deps: MrReadDeps, name: string) => mrReadToolDefs(deps).find((t) =
 // Targeting is exercised in mr-target.test.ts; here every call passes an identity so resolveMrTarget succeeds without a registry.
 const ID = "remote:gitlab.com%2Facme%2Facme-dev";
 
-describe("mr read tools", () => {
-  test("mr_view returns the one MR whose iid matches", async () => {
-    const { deps, calls } = fake();
-    const res = await tool(deps, "mr_view").handler({ repoName: ID, iid: 2, maxAgeMs: 5000 }, {} as NodeJS.ProcessEnv);
-    expect(res.ok).toBe(true);
-    expect((res.body as any).mr.iid).toBe(2);
-    expect(calls).toEqual([`mrs:${ID}:5000`]);
-  });
-  test("mr_view on an unknown iid errors naming it and the daemon's open-MR cache", async () => {
-    const { deps } = fake();
-    const res = await tool(deps, "mr_view").handler({ repoName: ID, iid: 9 }, {} as NodeJS.ProcessEnv);
-    expect(res.ok).toBe(false);
-    expect(res.error).toContain("no MR !9 in the daemon's open-MR cache for");
-    expect(res.error).toContain("certain authors and a time window");
-  });
-  test("mr_view on a never-synced cache says so and suggests a small maxAgeMs", async () => {
-    const { deps } = fake({}, { mrs: {}, syncedAt: 0 });
-    const res = await tool(deps, "mr_view").handler({ repoName: ID, iid: 9 }, {} as NodeJS.ProcessEnv);
-    expect(res.ok).toBe(false);
-    expect(res.error).toContain("no MR !9 in the daemon's open-MR cache for");
-    expect(res.error).toContain("never synced");
-    expect(res.error).toContain("maxAgeMs");
-    expect(res.error).not.toContain("certain authors");
-  });
-  test("mr_view and mr_list pass the daemon's scope and syncError through", async () => {
-    const scope = { authors: ["alice"], windowDays: 14, uncovered: [] };
-    const syncError = { since: 1, lastAt: 2, kind: "rate-limited", message: "429" };
-    const { deps } = fake({}, { scope, syncError });
-    const view = await tool(deps, "mr_view").handler({ repoName: ID, iid: 1 }, {} as NodeJS.ProcessEnv);
-    const list = await tool(deps, "mr_list").handler({ repoName: ID }, {} as NodeJS.ProcessEnv);
-    expect(view.body).toMatchObject({ scope, syncError });
-    expect(list.body).toMatchObject({ scope, syncError });
-  });
-  test("mr_view and mr_list omit scope and syncError when the daemon sent none", async () => {
-    const { deps } = fake();
-    const view = await tool(deps, "mr_view").handler({ repoName: ID, iid: 1 }, {} as NodeJS.ProcessEnv);
-    const list = await tool(deps, "mr_list").handler({ repoName: ID }, {} as NodeJS.ProcessEnv);
-    for (const body of [view.body as object, list.body as object]) {
-      expect("scope" in body).toBe(false);
-      expect("syncError" in body).toBe(false);
-    }
-  });
-  test("mr_list on a never-synced cache is an empty ok list carrying syncedAt 0", async () => {
-    const { deps } = fake({}, { mrs: {}, syncedAt: 0 });
-    const res = await tool(deps, "mr_list").handler({ repoName: ID }, {} as NodeJS.ProcessEnv);
-    expect(res).toEqual({ ok: true, body: { mrs: [], syncedAt: 0 } });
-  });
-  test("mr_view, mr_list and mr_pipeline refuse a negative maxAgeMs before any daemon call", async () => {
-    const { deps, calls } = fake();
-    for (const name of ["mr_view", "mr_list", "mr_pipeline"]) {
-      const res = await tool(deps, name).handler({ repoName: ID, iid: 1, maxAgeMs: -1 }, {} as NodeJS.ProcessEnv);
-      expect(res.ok).toBe(false);
-      expect(res.error).toBe('"maxAgeMs" must be a non-negative number');
-    }
-    expect(calls).toEqual([]);
-  });
-  test("mr_list defaults to opened (draft included) and honors state all", async () => {
-    const { deps } = fake();
-    const opened = await tool(deps, "mr_list").handler({ repoName: ID }, {} as NodeJS.ProcessEnv);
-    const all = await tool(deps, "mr_list").handler({ repoName: ID, state: "all" }, {} as NodeJS.ProcessEnv);
-    expect((opened.body as any).mrs.map((m: any) => m.iid)).toEqual([1, 3]);
-    expect((all.body as any).mrs.map((m: any) => m.iid)).toEqual([1, 2, 3, 4]);
-  });
-  test("mr_list state opened includes an open draft MR, marked by draft: true", async () => {
-    const { deps } = fake();
-    const res = await tool(deps, "mr_list").handler({ repoName: ID, state: "opened" }, {} as NodeJS.ProcessEnv);
-    expect((res.body as any).mrs.map((m: any) => [m.iid, m.state, m.draft])).toEqual([[1, "opened", false], [3, "opened", true]]);
-  });
-  test("mr_list state merged filters exactly", async () => {
-    const { deps } = fake();
-    const res = await tool(deps, "mr_list").handler({ repoName: ID, state: "merged" }, {} as NodeJS.ProcessEnv);
-    expect((res.body as any).mrs.map((m: any) => m.iid)).toEqual([2]);
-  });
-  test("mr_list state closed filters exactly", async () => {
-    const { deps } = fake();
-    const res = await tool(deps, "mr_list").handler({ repoName: ID, state: "closed" }, {} as NodeJS.ProcessEnv);
-    expect((res.body as any).mrs.map((m: any) => m.iid)).toEqual([4]);
-  });
-  test("mr_list returns a summary per MR, not the full MR", async () => {
-    const { deps } = fake();
-    const res = await tool(deps, "mr_list").handler({ repoName: ID }, {} as NodeJS.ProcessEnv);
-    expect((res.body as any).mrs[0]).toEqual({
-      iid: 1, title: "t1", state: "opened", draft: false, sourceBranch: "b1", targetBranch: "main", author: "alice",
-      webUrl: "https://gitlab.com/acme/acme-dev/-/merge_requests/1", pipelineStatus: "success", detailedMergeStatus: "mergeable",
+describe("mr read tools ask GitLab, never the cache", () => {
+  test("no tool sends project-mrs:read, mr:by-branch or discussions:read", async () => {
+    const { deps, calls } = fake({
+      "mr:get": { mr: pr(2, "merged"), fetchedAt: 5 },
+      "mr:list-live": { mrs: [], truncated: false },
+      "mr:live-by-branch": { byBranch: {} },
+      "discussions:refresh": { discussions: [], fetchedAt: 5 },
     });
+    await tool(deps, "mr_view").handler({ repoName: ID, iid: 2 }, {} as NodeJS.ProcessEnv);
+    await tool(deps, "mr_list").handler({ repoName: ID }, {} as NodeJS.ProcessEnv);
+    await tool(deps, "mr_for_branch").handler({ repoName: ID, branches: ["b"] }, {} as NodeJS.ProcessEnv);
+    await tool(deps, "mr_threads").handler({ repoName: ID, iid: 2 }, {} as NodeJS.ProcessEnv);
+    await tool(deps, "mr_pipeline").handler({ repoName: ID, iid: 2 }, {} as NodeJS.ProcessEnv);
+    expect(calls.map((c) => c.name)).toEqual(["mr:get", "mr:list-live", "mr:live-by-branch", "discussions:refresh", "mr:get"]);
   });
-  test("mr_list gives a null pipelineStatus for an MR with no pipeline", async () => {
-    const { deps } = fake({}, { mrs: { a: { pr: { ...pr(1, "opened"), pipeline: null }, fetchedAt: 1 } } });
-    const res = await tool(deps, "mr_list").handler({ repoName: ID }, {} as NodeJS.ProcessEnv);
-    expect((res.body as any).mrs[0].pipelineStatus).toBeNull();
+
+  test("mr_view returns a merged MR by another author", async () => {
+    const { deps, calls } = fake({ "mr:get": { mr: pr(2, "merged"), fetchedAt: 5 } });
+    const res = await tool(deps, "mr_view").handler({ repoName: ID, iid: 2 }, {} as NodeJS.ProcessEnv);
+    expect(res).toMatchObject({ ok: true, body: { mr: { iid: 2, state: "merged" }, fetchedAt: 5 } });
+    expect(calls[0]!.payload).toEqual({ repoName: ID, iid: 2 });
   });
-  test("mr_list targetBranch reads the forge live, not the cache, and an empty answer is a full-view empty list", async () => {
-    const payloads: unknown[] = [];
-    const { deps, calls } = fake(
-      { command: (async (name: string, payload: unknown) => { calls.push(`cmd:${name}`); payloads.push(payload); return { ok: true, data: { mrs: [] } }; }) as any },
-      { scope: { authors: ["alice"], windowDays: 30, uncovered: [] } },
-    );
-    const res = await tool(deps, "mr_list").handler({ repoName: ID, targetBranch: "feat" }, {} as NodeJS.ProcessEnv);
-    expect(res).toEqual({ ok: true, body: { mrs: [], targetBranch: "feat", full: true } });
-    expect(calls).toEqual(["cmd:mr:by-target"]);
-    expect(payloads).toEqual([{ repoName: ID, targetBranch: "feat", state: "opened" }]);
-  });
-  test("mr_list targetBranch finds a child MR by an author outside the cache's scope", async () => {
-    const child = { iid: 12, title: "child", state: "opened", draft: false, sourceBranch: "child", targetBranch: "feat", author: "bob", webUrl: "https://gitlab.com/acme/acme-dev/-/merge_requests/12", detailedMergeStatus: "mergeable" };
-    const { deps } = fake(
-      { command: (async () => ({ ok: true, data: { mrs: [child] } })) as any },
-      { scope: { authors: ["alice"], windowDays: 30, uncovered: [] } },
-    );
-    const res = await tool(deps, "mr_list").handler({ repoName: ID, targetBranch: "feat" }, {} as NodeJS.ProcessEnv);
-    expect(res.ok).toBe(true);
-    expect((res.body as any).mrs).toEqual([child]);
-    expect((res.body as any).full).toBe(true);
-    expect("scope" in (res.body as object)).toBe(false);
-  });
-  test("mr_list targetBranch surfaces a forge error as an error, never an empty list", async () => {
-    const { deps } = fake({ command: (async () => ({ ok: false, error: "GitLab returned 502 Bad Gateway: boom" })) as any });
-    const res = await tool(deps, "mr_list").handler({ repoName: ID, targetBranch: "feat" }, {} as NodeJS.ProcessEnv);
+
+  test("mr_view passes GitLab's refusal through", async () => {
+    const { deps } = fake({ "mr:get": new Error("GitLab returned 403 Forbidden: no access") });
+    const res = await tool(deps, "mr_view").handler({ repoName: ID, iid: 9 }, {} as NodeJS.ProcessEnv);
     expect(res.ok).toBe(false);
-    expect(res.error).toContain("GitLab returned 502 Bad Gateway: boom");
-    expect(res.body).toBeUndefined();
+    expect(res.error).toContain("GitLab returned 403 Forbidden");
+    expect(res.error).not.toContain("cache");
   });
-  test("mr_list targetBranch passes state through", async () => {
-    const payloads: unknown[] = [];
-    const { deps } = fake({ command: (async (_name: string, payload: unknown) => { payloads.push(payload); return { ok: true, data: { mrs: [] } }; }) as any });
-    await tool(deps, "mr_list").handler({ repoName: ID, targetBranch: "feat", state: "all" }, {} as NodeJS.ProcessEnv);
-    expect(payloads).toEqual([{ repoName: ID, targetBranch: "feat", state: "all" }]);
+
+  test("the old maxAgeMs and refresh arguments are accepted and not sent", async () => {
+    const { deps, calls } = fake({ "mr:get": { mr: pr(1, "opened"), fetchedAt: 1 }, "mr:list-live": { mrs: [], truncated: false }, "discussions:refresh": { discussions: [], fetchedAt: 1 } });
+    expect((await tool(deps, "mr_view").handler({ repoName: ID, iid: 1, maxAgeMs: 5000 }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+    expect((await tool(deps, "mr_list").handler({ repoName: ID, maxAgeMs: 5000, state: "opened" }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+    expect((await tool(deps, "mr_pipeline").handler({ repoName: ID, iid: 1, maxAgeMs: 5000 }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+    expect((await tool(deps, "mr_threads").handler({ repoName: ID, iid: 1, refresh: true }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+    for (const c of calls) expect(c.payload).not.toHaveProperty("maxAgeMs");
   });
-  test("mr_list refuses a blank targetBranch, or one with maxAgeMs, before any daemon call", async () => {
-    const { deps, calls } = fake();
-    for (const targetBranch of ["", "  ", 3]) {
-      const res = await tool(deps, "mr_list").handler({ repoName: ID, targetBranch }, {} as NodeJS.ProcessEnv);
+
+  test("mr_list sends its filters and reports truncation", async () => {
+    const { deps, calls } = fake({ "mr:list-live": { mrs: [{ iid: 1 }], truncated: true } });
+    const res = await tool(deps, "mr_list").handler({ repoName: ID, author: "me", sourceBranch: "feat", state: "all", search: "refund", limit: 10 }, {} as NodeJS.ProcessEnv);
+    expect(res.body).toEqual({ mrs: [{ iid: 1 }], truncated: true });
+    expect(calls[0]!.payload).toEqual({ repoName: ID, author: "me", sourceBranch: "feat", state: "all", search: "refund", limit: 10 });
+  });
+
+  test("mr_list by targetBranch keeps full, true only when nothing was cut", async () => {
+    const whole = fake({ "mr:list-live": { mrs: [], truncated: false } });
+    expect((await tool(whole.deps, "mr_list").handler({ repoName: ID, targetBranch: "feat" }, {} as NodeJS.ProcessEnv)).body).toEqual({ mrs: [], truncated: false, targetBranch: "feat", full: true });
+    const cut = fake({ "mr:list-live": { mrs: [], truncated: true } });
+    expect((await tool(cut.deps, "mr_list").handler({ repoName: ID, targetBranch: "feat" }, {} as NodeJS.ProcessEnv)).body).toMatchObject({ full: false });
+  });
+
+  test("mr_list rejects a bad state and a non-string filter", async () => {
+    const { deps } = fake();
+    expect((await tool(deps, "mr_list").handler({ repoName: ID, state: "weird" }, {} as NodeJS.ProcessEnv)).error).toContain('"state" must be one of');
+    expect((await tool(deps, "mr_list").handler({ repoName: ID, author: 3 }, {} as NodeJS.ProcessEnv)).error).toBe('"author" must be a string');
+  });
+
+  test("mr_list refuses a filter that is blank after trimming, before any daemon call", async () => {
+    for (const field of ["targetBranch", "sourceBranch", "author", "search"]) {
+      const { deps, calls } = fake({ "mr:list-live": { mrs: [], truncated: false } });
+      const res = await tool(deps, "mr_list").handler({ repoName: ID, [field]: "  " }, {} as NodeJS.ProcessEnv);
       expect(res.ok).toBe(false);
+      expect(res.error).toContain(`"${field}"`);
+      expect(res.error).toContain("blank");
+      expect(calls).toEqual([]);
     }
-    const both = await tool(deps, "mr_list").handler({ repoName: ID, targetBranch: "feat", maxAgeMs: 5000 }, {} as NodeJS.ProcessEnv);
-    expect(both.error).toBe('"maxAgeMs" reads the cache; a targetBranch read is always live, so pass one or the other');
-    expect(calls).toEqual([]);
   });
-  test("mr_for_branch passes the branches through", async () => {
-    const { deps, calls } = fake();
-    await tool(deps, "mr_for_branch").handler({ repoName: ID, branches: ["x", "y"] }, {} as NodeJS.ProcessEnv);
-    expect(calls).toEqual([`branch:${ID}:x,y`]);
+
+  test("mr_for_branch keeps its entry shape and marks the source forge", async () => {
+    const { deps } = fake({ "mr:live-by-branch": { byBranch: { feat: pr(9, "opened"), none: null } } });
+    const res = await tool(deps, "mr_for_branch").handler({ repoName: ID, branches: ["feat", "none"] }, {} as NodeJS.ProcessEnv);
+    expect(res.body).toMatchObject({ byBranch: { feat: { pr: { iid: 9 }, source: "forge" }, none: null } });
   });
-  test("mr_threads refreshes first only when asked", async () => {
-    const { deps, calls } = fake();
-    await tool(deps, "mr_threads").handler({ repoName: ID, iid: 1 }, {} as NodeJS.ProcessEnv);
-    await tool(deps, "mr_threads").handler({ repoName: ID, iid: 1, refresh: true }, {} as NodeJS.ProcessEnv);
-    expect(calls).toEqual([`disc:${ID}:1`, "cmd:discussions:refresh", `disc:${ID}:1`]);
+
+  test("mr_threads always refreshes", async () => {
+    const { deps, calls } = fake({ "discussions:refresh": { discussions: [{ id: "d1" }], fetchedAt: 7 } });
+    const res = await tool(deps, "mr_threads").handler({ repoName: ID, iid: 2 }, {} as NodeJS.ProcessEnv);
+    expect(res.body).toEqual({ discussions: [{ id: "d1" }], fetchedAt: 7, stale: false });
+    expect(calls.map((c) => c.name)).toEqual(["discussions:refresh"]);
   });
-  test("mr_pipeline reads live by default and replaces a trace job's log with a pointer to mr_job_trace", async () => {
-    const { deps, calls } = fake();
+
+  test("mr_pipeline returns the live MR's head pipeline", async () => {
+    const { deps } = fake({ "mr:get": { mr: pr(2, "opened"), fetchedAt: 5 } });
+    const res = await tool(deps, "mr_pipeline").handler({ repoName: ID, iid: 2 }, {} as NodeJS.ProcessEnv);
+    expect(res.body).toEqual({ pipeline: { status: "success", id: "gitlab:pipeline:9", jobs: [] } });
+  });
+
+  test("an unfiltered mr_list carrying maxAgeMs is the legacy stack-check call: 200 rows, syncedAt, never a partial list", async () => {
+    const whole = fake({ "mr:list-live": { mrs: [{ iid: 1 }], truncated: false } });
+    const res = await tool(whole.deps, "mr_list").handler({ repoName: ID, maxAgeMs: 5000 }, {} as NodeJS.ProcessEnv);
+    expect(whole.calls[0]!.payload).toEqual({ repoName: ID, limit: 200 });
+    expect(res.body).toMatchObject({ mrs: [{ iid: 1 }], truncated: false });
+    expect(typeof (res.body as any).syncedAt).toBe("number");
+    const cut = fake({ "mr:list-live": { mrs: [], truncated: true } });
+    const refused = await tool(cut.deps, "mr_list").handler({ repoName: ID, maxAgeMs: 5000 }, {} as NodeJS.ProcessEnv);
+    expect(refused.error).toBe("more than 200 open MRs; pass sourceBranch or targetBranch to read the ones that matter");
+  });
+
+  test("maxAgeMs with a filter is an ordinary call", async () => {
+    const { deps, calls } = fake({ "mr:list-live": { mrs: [], truncated: false } });
+    const res = await tool(deps, "mr_list").handler({ repoName: ID, maxAgeMs: 5000, sourceBranch: "feat" }, {} as NodeJS.ProcessEnv);
+    expect(calls[0]!.payload).toEqual({ repoName: ID, sourceBranch: "feat" });
+    expect(res.body).toEqual({ mrs: [], truncated: false });
+  });
+});
+
+const withPipeline = (pipeline: unknown) => ({ mr: { ...pr(1, "opened"), pipeline }, fetchedAt: 1 });
+
+describe("mr_pipeline job detail", () => {
+  test("replaces a trace job's log with a pointer to mr_job_trace", async () => {
+    const { deps, calls } = fake({ "mr:get": withPipeline(pr(1, "opened").pipeline), "mr:fetch-job-detail": { type: "trace", content: "full log" } });
     const res = await tool(deps, "mr_pipeline").handler({ repoName: ID, iid: 1, jobId: 7 }, {} as NodeJS.ProcessEnv);
     expect((res.body as any).pipeline.status).toBe("success");
     expect((res.body as any).job).toEqual({ type: "trace", traceVia: "mr_job_trace" });
     expect(JSON.stringify(res.body)).not.toContain("full log");
-    expect(calls).toEqual([`mrs:${ID}:5000`, "cmd:mr:fetch-job-detail"]);
+    expect(calls.map((c) => c.name)).toEqual(["mr:get", "mr:fetch-job-detail"]);
   });
-  test("mr_pipeline passes a bridge job's detail through unchanged", async () => {
+  test("passes a bridge job's detail through unchanged", async () => {
     const bridge = { type: "bridge", downstreamPipeline: { id: "gitlab:pipeline:10", status: "failed", createdAt: null, webUrl: null, jobs: [] } };
-    const { deps } = fake({ command: (async () => ({ ok: true, data: bridge })) as any });
+    const { deps } = fake({ "mr:get": withPipeline(pr(1, "opened").pipeline), "mr:fetch-job-detail": bridge });
     const res = await tool(deps, "mr_pipeline").handler({ repoName: ID, iid: 1, jobId: 7 }, {} as NodeJS.ProcessEnv);
     expect((res.body as any).job).toEqual(bridge);
   });
-  test("mr_pipeline passes sha, ref and mergeRequestEventType through unchanged", async () => {
-    const { deps } = fake({}, { mrs: { a: { pr: { ...pr(1, "opened"), pipeline: { ...pr(1, "opened").pipeline, sha: "abc", ref: "feat", mergeRequestEventType: null } }, fetchedAt: 1 } } });
+  test("passes sha, ref and mergeRequestEventType through unchanged", async () => {
+    const { deps } = fake({ "mr:get": withPipeline({ ...pr(1, "opened").pipeline, sha: "abc", ref: "feat", mergeRequestEventType: null }) });
     const res = await tool(deps, "mr_pipeline").handler({ repoName: ID, iid: 1 }, {} as NodeJS.ProcessEnv);
     expect((res.body as any).pipeline).toMatchObject({ sha: "abc", ref: "feat", mergeRequestEventType: null });
   });
-  test("mr_pipeline sends the head pipeline's numeric id as pipelineId", async () => {
-    const payloads: unknown[] = [];
-    const { deps } = fake({ command: (async (_name: string, payload: unknown) => { payloads.push(payload); return { ok: true, data: { type: "trace", content: "" } }; }) as any });
+  test("sends the head pipeline's numeric id as pipelineId", async () => {
+    const { deps, calls } = fake({ "mr:get": withPipeline(pr(1, "opened").pipeline), "mr:fetch-job-detail": { type: "trace", content: "" } });
     await tool(deps, "mr_pipeline").handler({ repoName: ID, iid: 1, jobId: 7 }, {} as NodeJS.ProcessEnv);
-    expect(payloads).toEqual([{ repoName: ID, iid: 1, jobId: 7, pipelineId: 9 }]);
+    expect(calls[1]!.payload).toEqual({ repoName: ID, iid: 1, jobId: 7, pipelineId: 9 });
   });
-  test("mr_pipeline omits pipelineId when the MR has no pipeline or a non-numeric id", async () => {
+  test("omits pipelineId when the MR has no pipeline or a non-numeric id", async () => {
     for (const pipeline of [null, { status: "success", id: "gitlab:pipeline:abc", jobs: [] }]) {
-      const payloads: unknown[] = [];
-      const { deps } = fake(
-        { command: (async (_name: string, payload: unknown) => { payloads.push(payload); return { ok: true, data: { type: "trace", content: "" } }; }) as any },
-        { mrs: { a: { pr: { ...pr(1, "opened"), pipeline }, fetchedAt: 1 } } },
-      );
+      const { deps, calls } = fake({ "mr:get": withPipeline(pipeline), "mr:fetch-job-detail": { type: "trace", content: "" } });
       await tool(deps, "mr_pipeline").handler({ repoName: ID, iid: 1, jobId: 7 }, {} as NodeJS.ProcessEnv);
-      expect(payloads).toEqual([{ repoName: ID, iid: 1, jobId: 7 }]);
+      expect(calls[1]!.payload).toEqual({ repoName: ID, iid: 1, jobId: 7 });
     }
   });
+});
+
+describe("mr job trace", () => {
+  test("mr_job_trace says grep results are always truncated", () => {
+    const { deps } = fake();
+    expect(tool(deps, "mr_job_trace").description).toContain("always true for grep results");
+  });
+
   test("mr_pipeline and mr_job_trace descriptions say jobId is not checked against the MR", () => {
     const { deps } = fake();
     for (const name of ["mr_pipeline", "mr_job_trace"]) {
       expect(tool(deps, name).description).toContain("may name any job in the MR's project");
     }
   });
-  test("mr_pipeline on an unknown iid errors naming it and the daemon's open-MR cache", async () => {
-    const { deps } = fake();
-    const res = await tool(deps, "mr_pipeline").handler({ repoName: ID, iid: 9 }, {} as NodeJS.ProcessEnv);
-    expect(res.ok).toBe(false);
-    expect(res.error).toContain("no MR !9 in the daemon's open-MR cache for");
-  });
   test("mr_job_trace returns the trace text with its line count", async () => {
-    const { deps } = fake();
+    const { deps } = fake({ "mr:fetch-job-trace": "log text" });
     const res = await tool(deps, "mr_job_trace").handler({ repoName: ID, iid: 1, jobId: 7 }, {} as NodeJS.ProcessEnv);
     expect(res.body).toEqual({ trace: "log text", truncated: false, totalLines: 1 });
   });
   test("mr_job_trace keeps the last tailLines lines, default 200, and strips ANSI sequences", async () => {
     const raw = Array.from({ length: 250 }, (_, i) => `\x1b[32;1mline ${i}\x1b[0m`).join("\n") + "\n";
-    const { deps } = fake({ command: (async () => ({ ok: true, data: raw })) as any });
+    const { deps } = fake({ "mr:fetch-job-trace": raw });
     const byDefault = (await tool(deps, "mr_job_trace").handler({ repoName: ID, iid: 1, jobId: 7 }, {} as NodeJS.ProcessEnv)).body as any;
     expect(byDefault.totalLines).toBe(250);
     expect(byDefault.truncated).toBe(true);
@@ -279,5 +226,31 @@ describe("mr read tools", () => {
     const res = await tool(deps, "mr_job_trace").handler({ repoName: ID, iid: 1, jobId: 0 }, {} as NodeJS.ProcessEnv);
     expect(res.ok).toBe(false);
     expect(calls).toEqual([]);
+  });
+});
+
+describe("mr_job_trace modes", () => {
+  const text = Array.from({ length: 300 }, (_, i) => `l${i + 1}`).join("\n");
+  const run = async (input: Record<string, unknown>) => {
+    const { deps } = fake({ "mr:fetch-job-trace": text });
+    return tool(deps, "mr_job_trace").handler({ repoName: ID, iid: 1, jobId: 5, ...input }, {} as NodeJS.ProcessEnv);
+  };
+  test("no mode is the 200-line tail", async () => {
+    expect(((await run({})).body as any).trace.split("\n").length).toBe(200);
+  });
+  test("headLines reads the start", async () => {
+    expect(((await run({ headLines: 2 })).body as any).trace).toBe("l1\nl2");
+  });
+  test("fromLine with lineCount reads a range", async () => {
+    expect(((await run({ fromLine: 10, lineCount: 2 })).body as any).trace).toBe("l10\nl11");
+  });
+  test("grep returns numbered matches", async () => {
+    expect(((await run({ grep: "l299", contextLines: 0 })).body as any).trace).toBe("299: l299");
+  });
+  test("two modes at once are refused", async () => {
+    expect((await run({ headLines: 2, grep: "x" })).error).toBe("pass one of tailLines, headLines, fromLine or grep");
+  });
+  test("lineCount without fromLine is refused", async () => {
+    expect((await run({ lineCount: 5 })).error).toBe('"lineCount" needs "fromLine"');
   });
 });

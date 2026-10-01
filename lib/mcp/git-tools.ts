@@ -27,7 +27,7 @@ const HEADS = "refs/heads/";
 // The short form prints `heads/<b>` when a tag or other ref shares the name,
 // and that string names a different ref in a refspec, so the name is always
 // the full ref with its prefix stripped.
-async function currentBranch(cwd: string, git: GitRunner): Promise<string | null> {
+export async function currentBranch(cwd: string, git: GitRunner): Promise<string | null> {
   const r = await git(["symbolic-ref", "--quiet", "HEAD"], cwd);
   if (r.code !== 0) return null;
   const full = r.stdout.trim();

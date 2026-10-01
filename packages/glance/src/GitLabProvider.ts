@@ -57,6 +57,8 @@ import { RetryableError, asRetryable, isTransientStatus, retryAfterMs, withRetry
 export interface RequestIO {
   signal?: AbortSignal;
   retry?: boolean;
+  /** `'manual'` hands a 3xx back to the caller, so the token header never follows a redirect to another host. */
+  redirect?: 'manual';
 }
 
 // ---------------------------------------------------------------------------
@@ -1869,7 +1871,7 @@ export class GitLabProvider implements GitProvider {
       const started = performance.now();
       let res: Response;
       try {
-        res = await fetch(url, { method, headers, body: bodyStr, signal });
+        res = await fetch(url, { method, headers, body: bodyStr, signal, ...(io?.redirect ? { redirect: io.redirect } : {}) });
       } catch (err) {
         throw io ? asRetryable(err, io.signal) : err;
       }

@@ -58,7 +58,7 @@ digraph watch_ci {
 
     "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [shape=plaintext];
     "ci_watch state?" [shape=diamond];
-    "STOP: GitLab CI watches go through ci_watch, reads and retries through mr_job_trace and mr_retry, never the GitLab CLI" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "STOP: GitLab CI watches go through ci_watch, reads through the read tools or gitlab_get, retries through mr_retry" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "budget.spent?" [shape=diamond];
     "Waiting results in a row = 2?" [shape=diamond];
     "Re-claims after a lost lease = 2?" [shape=diamond];
@@ -87,7 +87,7 @@ digraph watch_ci {
     "<scripts>/ci-triage.sh --forge <forge> --pipeline <N> (stage)" [shape=plaintext];
     "Read the triage report (stage)" [shape=box];
     "Trace tails enough to classify?" [shape=diamond];
-    "mr_job_trace {repoName, iid, jobId} per failed job (stage)" [shape=plaintext];
+    "mr_job_trace {repoName, iid, jobId, tailLines?, headLines?, grep?} per failed job (stage)" [shape=plaintext];
     "Classify each failure REAL or INFRA" [shape=box];
     "Classify each failing check REAL or INFRA" [shape=box];
     "Only INFRA blocking failures, none retried yet?" [shape=diamond];
@@ -104,7 +104,7 @@ digraph watch_ci {
     "run_field_set {key: ci, value: red: <triage>, stage: watch-ci}" [shape=plaintext];
     "run_status {status: abandoned}" [shape=plaintext];
     "Forge host (stage draft check)?" [shape=diamond];
-    "mr_view {repoName, iid, maxAgeMs: 5000}" [shape=plaintext];
+    "mr_view {repoName, iid}" [shape=plaintext];
     "gh pr view <mr> --json isDraft" [shape=plaintext];
     "MR still a draft?" [shape=diamond];
     "Gate mark-ready (table below)" [shape=box];
@@ -159,8 +159,8 @@ digraph watch_ci {
     "Re-claims after a lost lease = 2?" -> "ci_lease_claim {mrUrl: <mr>, branch}" [label="no: claim it again"];
     "Re-claims after a lost lease = 2?" -> "Gate ci (table below)" [label="yes: the lease keeps vanishing"];
     "ci_watch state?" -> "Fixed the ci_watch call once already?" [label="tool error"];
-    "ci_watch state?" -> "STOP: GitLab CI watches go through ci_watch, reads and retries through mr_job_trace and mr_retry, never the GitLab CLI" [label="tempted to watch with a script or the GitLab CLI"];
-    "STOP: GitLab CI watches go through ci_watch, reads and retries through mr_job_trace and mr_retry, never the GitLab CLI" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}";
+    "ci_watch state?" -> "STOP: GitLab CI watches go through ci_watch, reads through the read tools or gitlab_get, retries through mr_retry" [label="tempted to watch with a script or the GitLab CLI"];
+    "STOP: GitLab CI watches go through ci_watch, reads through the read tools or gitlab_get, retries through mr_retry" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}";
     "budget.spent?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="false: call again"];
     "budget.spent?" -> "Gate ci (table below)" [label="true: timeout"];
     "Waiting results in a row = 2?" -> "ci_watch {repoName, iid, sha, priorPipelineId?, freshWindow?, budgetMinutes?}" [label="no: call again"];
@@ -207,12 +207,12 @@ digraph watch_ci {
     "<scripts>/ci-triage.sh --forge <forge> --pipeline <N> (stage)" -> "Read the triage report (stage)";
     "Read the triage report (stage)" -> "Only INFRA blocking failures, none retried yet?";
     "Trace tails enough to classify?" -> "Classify each failure REAL or INFRA" [label="yes"];
-    "Trace tails enough to classify?" -> "mr_job_trace {repoName, iid, jobId} per failed job (stage)" [label="no"];
-    "mr_job_trace {repoName, iid, jobId} per failed job (stage)" -> "Classify each failure REAL or INFRA";
+    "Trace tails enough to classify?" -> "mr_job_trace {repoName, iid, jobId, tailLines?, headLines?, grep?} per failed job (stage)" [label="no: missing, short or teardown-only tail"];
+    "mr_job_trace {repoName, iid, jobId, tailLines?, headLines?, grep?} per failed job (stage)" -> "Classify each failure REAL or INFRA";
     "Classify each failure REAL or INFRA" -> "Only INFRA blocking failures, none retried yet?";
     "Classify each failing check REAL or INFRA" -> "Only INFRA blocking failures, none retried yet?";
     "Only INFRA blocking failures, none retried yet?" -> "ci_lease_claim {mrUrl: <mr>, branch} (before the retry)" [label="yes"];
-    "Only INFRA blocking failures, none retried yet?" -> "Gate ci (table below)" [label="no: a REAL or unclassified failure, or retried already"];
+    "Only INFRA blocking failures, none retried yet?" -> "Gate ci (table below)" [label="no: a REAL or still-unclear failure, or retried already"];
     "ci_lease_claim {mrUrl: <mr>, branch} (before the retry)" -> "Re-claim result (before the retry, stage)?";
     "Re-claim result (before the retry, stage)?" -> "Retry on which forge?" [label="claimed: true"];
     "Re-claim result (before the retry, stage)?" -> "STOP: while another attendant holds the lease, every commit, push and retry is theirs (stage)" [label="claimed: false"];
@@ -250,9 +250,9 @@ digraph watch_ci {
     "Retried the failed job once already?" -> "ci_lease_claim {mrUrl: <mr>, branch} (before the retry)" [label="no"];
     "Retried the failed job once already?" -> "ci gate iterations = 3?" [label="yes: reopen, the retry is spent"];
     "run_status {status: abandoned}" -> "Run abandoned";
-    "Forge host (stage draft check)?" -> "mr_view {repoName, iid, maxAgeMs: 5000}" [label="GitLab"];
+    "Forge host (stage draft check)?" -> "mr_view {repoName, iid}" [label="GitLab"];
     "Forge host (stage draft check)?" -> "gh pr view <mr> --json isDraft" [label="GitHub"];
-    "mr_view {repoName, iid, maxAgeMs: 5000}" -> "MR still a draft?";
+    "mr_view {repoName, iid}" -> "MR still a draft?";
     "gh pr view <mr> --json isDraft" -> "MR still a draft?";
     "MR still a draft?" -> "Gate mark-ready (table below)" [label="yes"];
     "MR still a draft?" -> "run_field_set {key: ci, value: green, stage: watch-ci}" [label="no"];
@@ -352,8 +352,7 @@ claim, no watch, no retry, no push inside it.
 or INFRA) with its job id. `<N>` is the number in `ci_watch`'s
 `pipeline.id` on GitLab, and the run id from the failing check's link on
 GitHub. A script that fails instead of reporting: quote its output and
-classify from `failedJobs` as the unbound flow does, including its rule
-for blocking failures `failedJobs` does not return. INFRA job ids go to
+classify from `failedJobs` as the unbound flow does. INFRA job ids go to
 `mr_retry` (GitLab) or `gh run rerun` (GitHub); the adapter's printed
 retry command is not run.
 
@@ -364,17 +363,44 @@ then classify as for GitLab: REAL goes to the gate, INFRA gets one retry.
 
 ### Classify each failure REAL or INFRA
 
-Read each failed job's `traceTail` in `ci_watch`'s `failedJobs` first;
-`mr_job_trace` is for a tail too short to classify. REAL: the change broke
-it (a test, type or lint failure in touched code). INFRA: unrelated to the
-change (a runner, network or dependency outage, a known flake). One retry
-per INFRA job; a REAL failure goes to the gate.
+Read each failed job's `traceTail` in `ci_watch`'s `failedJobs`. A job
+with no `traceTail` (past the first five blocking), or a tail too short to
+classify, is read with `mr_job_trace`: the tail first, then `grep` for the
+failure text or `headLines` when the failure sits far above the end. A
+tail of only teardown lines (cleanup, artifact upload, runner exit) says
+nothing about the cause, so read more of the log the same way before
+classifying; that tail is not enough, so the read goes through `mr_job_trace`.
+No failure is classified until its log has been read. When `ci_watch`
+reports `failed` and `failedJobs` is empty, the red is likely in a
+cross-project downstream pipeline (same-project downstream jobs are
+already in `failedJobs`): read `gitlab_get` on
+`projects/:id/pipelines/<pipelineId>/bridges` for the bridge job's id and
+its downstream pipeline, then the downstream pipeline's jobs with
+`gitlab_get`, before classifying. The downstream job's log is read with
+`gitlab_get` on `projects/<downstream project id>/jobs/<jobId>/trace`,
+since `mr_job_trace` reads only this project's jobs. `gitlab_get` returns
+at most the first 256 KiB of a trace, so a long downstream log's end may be
+out of reach: classify such a failure as still unclear (it goes to the
+gate), never INFRA. Never classify a failed pipeline with no job read as
+INFRA.
+REAL: the change broke it (a test, type or lint failure in touched code).
+INFRA: unrelated to the change (a runner, network or dependency outage, a
+known flake). One retry per INFRA job; a REAL failure goes to the gate.
 
-`ci_watch` details at most five blocking failures. When `blockingFailures`
-is larger than the blocking jobs in `failedJobs`, the rest are
-unclassified, so the red is not INFRA only: answer no at `Only INFRA
-blocking failures, none retried yet?` and let the `ci` gate name the
-count.
+A pipeline fact `ci_watch` and `mr_pipeline` do not return (an earlier
+pipeline on the branch, a pipeline with no MR) is read with
+`pipeline_list`; anything else is read as in "Reading a GitLab fact no
+read tool returns".
+
+### Reading a GitLab fact no read tool returns
+
+At any step of this stage, a GitLab fact the read tools do not return is
+read with `gitlab_get {repoName, path}`: `repoName` = the checkout or
+tree this stage already targets, `path` relative to the API root with `:id`
+for this project, for example `projects/:id/jobs/<jobId>`. The read is
+part of the step that needs it, not an off-script move, so it opens no
+gate. A GitLab error is quoted as GitLab wrote it. Its refusal of a
+credential path is final.
 
 ## The attendant lease
 

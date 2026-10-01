@@ -6,7 +6,7 @@
  * cannot claim, heartbeat, release or watch on another session's behalf.
  */
 import {
-  boardDoctorOwner, claimCiLease, getSetting, heartbeatCiLease, leaseOwner, parseMrIid, readCiLease, readProjectMRs, releaseCiLease, rtCommand,
+  boardDoctorOwner, claimCiLease, getSetting, heartbeatCiLease, leaseOwner, parseMrIid, readCiLease, releaseCiLease, rtCommand,
   type CiLeaseHolder, type CiLeaseOpts, type Commands,
 } from "../../packages/rt-client/src/index.ts";
 import { readChatSession } from "../chat-session.ts";
@@ -55,7 +55,6 @@ const realLeaseDeps: CiLeaseToolDeps = {
 const MR_URL_PROP = { mrUrl: { type: "string", description: "The MR or PR https URL (.../-/merge_requests/<iid> or .../pull/<n>)." } };
 
 export interface CiWatchToolDeps {
-  projectMrs: typeof readProjectMRs;
   command: typeof rtCommand;
   resolve: typeof resolveMrTarget;
   now: () => number;
@@ -85,14 +84,13 @@ function settingBudget(): number {
   return isMinutes(v, BUDGET_MAX) ? v : BUDGET_DEFAULT;
 }
 
-const realWatchDeps: CiWatchToolDeps = { projectMrs: readProjectMRs, command: rtCommand, resolve: resolveMrTarget, now: Date.now, sleep: abortableSleep, budgetMinutes: settingBudget };
+const realWatchDeps: CiWatchToolDeps = { command: rtCommand, resolve: resolveMrTarget, now: Date.now, sleep: abortableSleep, budgetMinutes: settingBudget };
 
-const WATCH_LIVE_MAX_AGE_MS = 5_000;
 const TRACE_TAIL = 40;
 
-// glance's Pipeline carries sha/ref/mergeRequestEventType as optional (a cache entry
-// or an older provider snapshot may lack them); WatchPipeline requires string | null,
-// never undefined, so a missing field maps to null rather than an unmatchable pipeline.
+// glance's Pipeline carries sha/ref/mergeRequestEventType as optional (an older provider
+// snapshot may lack them); WatchPipeline requires string | null, never undefined, so a
+// missing field maps to null rather than an unmatchable pipeline.
 function toWatchPipeline(p: GlancePipeline | null | undefined): WatchPipeline | null {
   if (!p) return null;
   return {
@@ -184,7 +182,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
     },
     {
       name: "ci_watch",
-      description: `GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap 1800) passes, polling every intervalSeconds (default 30, ${INTERVAL_MIN} to ${INTERVAL_MAX}, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs with a trace tail for up to five blocking failures (jobs in same-project downstream pipelines included), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default ${BUDGET_DEFAULT}), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. ${REPO_NAME_RULE}`,
+      description: `GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap 1800) passes, polling every intervalSeconds (default 30, ${INTERVAL_MIN} to ${INTERVAL_MAX}, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs listing every failed job, with a trace tail on the first five blocking ones (jobs in same-project downstream pipelines included; read any other job's log with mr_job_trace), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default ${BUDGET_DEFAULT}), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -227,6 +225,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
 
         let mrUrl: string | null = null;
         const underBoard = input.underBoardLease === true;
+        let firstRead: Awaited<ReturnType<WatchDeps["readMr"]>> | null = null;
         const watchDeps: WatchDeps = {
           now: w.now,
           sleep: w.sleep,
@@ -242,11 +241,14 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
             return hb.ok ? { ok: true, lease: hb.lease } : { ok: false, holder: hb.reason === "lost" ? hb.holder : null, reason: hb.reason };
           },
           readMr: async () => {
-            const res = await w.projectMrs(target.identity, WATCH_LIVE_MAX_AGE_MS);
-            if (!res.ok || !res.data) return { ok: false, error: explainError(res.error ?? "failed to read MRs") };
-            const entry = Object.values(res.data.mrs).find((e) => e.pr.iid === target.iid);
-            if (!entry) return { ok: false, error: `no MR !${target.iid} in the daemon's open-MR cache for ${target.identity}` };
-            const pr = entry.pr;
+            if (firstRead) {
+              const memo = firstRead;
+              firstRead = null;
+              return memo;
+            }
+            const res = await w.command<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: 30_000 });
+            if (!res.ok || !res.data) return { ok: false, error: explainError(res.error ?? "failed to read the MR") };
+            const pr = res.data.mr;
             return { ok: true, mr: { iid: pr.iid, sha: pr.sha ?? null, webUrl: pr.webUrl ?? null, pipeline: toWatchPipeline(pr.pipeline) } };
           },
           commitParents: async (s) => {
@@ -265,8 +267,9 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
 
         const first = await watchDeps.readMr();
         if (!first.ok) return err(first.error);
+        firstRead = first;
         mrUrl = first.mr.webUrl;
-        if (!mrUrl) return err(`MR !${target.iid} has no web URL in the cache; retry once the daemon has synced it`);
+        if (!mrUrl) return err(`GitLab returned MR !${target.iid} with no web URL`);
         if (parseMrUrl(mrUrl) === null || (first.mr.pipeline !== null && !first.mr.pipeline.id.startsWith("gitlab:"))) {
           return err("ci_watch is GitLab only");
         }
