@@ -363,8 +363,9 @@ mattstack.app sits in the menu bar and shows daemon health at a glance:
 | Red | Daemon not reachable |
 | Grey | State unknown |
 
-From its menu you can restart or stop the daemon, toggle launch-at-login, and
-check for updates.
+From its menu you can open Processes and Worktrees, reach Settings and the
+setup checklist, restart the daemon or read its logs (under **Troubleshoot**),
+toggle launch-at-login, and check for updates.
 
 The `rt-context` extension for VS Code and Cursor puts your worktree, branch,
 and linked ticket in the editor status bar:

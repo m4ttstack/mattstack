@@ -194,16 +194,26 @@ final class SetupCoordinator {
 struct RtPlanSource: PlanSource {
     let rt: RtRunning
     let verb: [String]
-    /// The setup UI shows plain copy for a failed fetch, so the raw error is logged here, where every fetch passes.
+    /// The setup UI shows a failure's `RtJSONFailure.copy` as is, so the raw error is logged here, where every fetch passes.
     func fetchPlan() async throws -> Plan {
+        let label = verb.filter { $0 != "--json" }.joined(separator: " ")
+        let result: RtResult
         do {
-            let r = try await rt.run(verb, stdin: nil)
-            if let e = r.userError { throw e }
-            return try r.decode(Plan.self)
+            result = try await rt.run(verb, stdin: nil)
         } catch {
-            TrayLog.warn("plan fetch failed", ["verb": verb.joined(separator: " "), "err": String(describing: error)])
-            throw error
+            throw failure(error, copy: (error as? RtClientError)?.copy ?? "rt \(label) failed to start.")
         }
+        if let e = result.userError { throw failure(e, copy: e.message) }
+        do {
+            return try result.decode(Plan.self)
+        } catch {
+            throw failure(error, copy: result.failureCopy(verb: label))
+        }
+    }
+
+    private func failure(_ error: Error, copy: String) -> RtJSONFailure {
+        TrayLog.warn("plan fetch failed", ["verb": verb.joined(separator: " "), "err": String(describing: error)])
+        return RtJSONFailure(copy: copy)
     }
 }
 

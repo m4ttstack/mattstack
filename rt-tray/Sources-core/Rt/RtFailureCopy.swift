@@ -40,6 +40,7 @@ public extension RtClientError {
 
 public struct RtJSONFailure: Error, Equatable {
     public let copy: String
+    public init(copy: String) { self.copy = copy }
 }
 
 public extension RtRunning {
