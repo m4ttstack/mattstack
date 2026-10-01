@@ -100,7 +100,9 @@ async function installInto(
   let installed = 0;
   for (const editor of editors) {
     const step = stepFor(`Installing in ${editor.name}`);
-    const result = await install(editor.cliPath, vsixPath);
+    const result = await install(editor.cliPath, vsixPath).catch(
+      (err): InstallOutcome => ({ ok: false, output: err instanceof Error ? err.message : String(err) }),
+    );
     if (result.ok) {
       installed++;
       const title = `Installed in ${editor.name}`;

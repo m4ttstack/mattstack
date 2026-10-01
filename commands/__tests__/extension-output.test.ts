@@ -78,3 +78,18 @@ test("an install that was stopped at 30 seconds says it timed out", async () => 
   await __test__.installInto([EDITORS[1]!], "/x/rt-context.vsix", async () => ({ ok: false, timedOut: true, output: "Installing extensions..." }));
   expect(io.lines()).toEqual(["[failed] Sample Editor did not take the extension  it did not finish within 30 seconds"]);
 });
+
+test("an installer that throws fails its editor and the next one is still tried", async () => {
+  gate.setInteractive(() => false);
+  const throwing = async (cliPath: string) => {
+    if (cliPath === "/apps/sample-editor") throw new Error("Executable not found in $PATH: /apps/sample-editor");
+    return { ok: true as const };
+  };
+  expect(await __test__.installInto([EDITORS[1]!, EDITORS[0]!], "/x/rt-context.vsix", throwing)).toBe(1);
+  expect(io.lines()).toEqual([
+    "[failed] Sample Editor did not take the extension  Executable not found in $PATH: /apps/sample-editor",
+    "[ok] Installed in Sample Code",
+    "[ok] RT Context is installed  1 of 2 editors",
+    "  next: Restart your editor to turn it on",
+  ]);
+});
