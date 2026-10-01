@@ -3,19 +3,22 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { worktreeHydrateClone } from "../worktree.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 const realExit = process.exit;
 let exitCode: number | undefined;
-let stderr = "";
-const realErr = console.error;
+let io: ReturnType<typeof captureOut> | undefined;
 
 function arm() {
   exitCode = undefined;
-  stderr = "";
+  io?.restore();
+  io = captureOut();
+  ui.__test__.reset();
+  ui.__test__.setHuman(() => false);
   process.exit = ((code?: number) => { exitCode = code ?? 0; throw new Error("__exit__"); }) as never;
-  console.error = (...a: unknown[]) => { stderr += a.join(" ") + "\n"; };
 }
-afterEach(() => { process.exit = realExit; console.error = realErr; });
+afterEach(() => { process.exit = realExit; io?.restore(); io = undefined; });
 
 async function run(args: string[]): Promise<number | undefined> {
   arm();
@@ -28,6 +31,7 @@ describe("worktreeHydrateClone", () => {
     expect(await run([])).toBe(2);
     expect(await run(["/a"])).toBe(2);
     expect(await run(["/a", "/a"])).toBe(2);
+    expect(io!.stderr()).toBe("usage: rt worktree hydrate-clone <src> <dst>\n");
   });
 
   test("clones and exits 0", async () => {
@@ -43,6 +47,7 @@ describe("worktreeHydrateClone", () => {
     mkdirSync(join(dir, "src"));
     mkdirSync(join(dir, "dst"));
     expect(await run([join(dir, "src"), join(dir, "dst")])).toBe(5);
-    expect(stderr).toMatch(/^clonefile: /m);
+    expect(io!.stderr()).toMatch(/^clonefile: /);
+    expect(io!.stdout()).toBe("");
   });
 });

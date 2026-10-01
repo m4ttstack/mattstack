@@ -4,7 +4,7 @@ import {
   isOnDeck,
   filterTargets,
   relWorktreeName,
-  formatSummary,
+  summarizeEach,
   hasFailures,
   type WorktreeBinding,
 } from "../worktree-each.ts";
@@ -30,12 +30,15 @@ describe("parseEachArgs", () => {
   });
   test("both --all and --on-deck → error", () => {
     expect(parseEachArgs(["--all", "--on-deck", "ls"]).error).toMatch(/mutually exclusive/i);
+    expect(parseEachArgs(["--all", "--on-deck", "ls"]).errorKind).toBe("both-flags");
   });
   test("both --all and --parked → error", () => {
     expect(parseEachArgs(["--all", "--parked", "ls"]).error).toMatch(/mutually exclusive/i);
+    expect(parseEachArgs(["--all", "--parked", "ls"]).errorKind).toBe("both-flags");
   });
   test("no command → error", () => {
     expect(parseEachArgs(["--all"]).error).toMatch(/no command/i);
+    expect(parseEachArgs(["--all"]).errorKind).toBe("no-command");
   });
 });
 
@@ -99,17 +102,24 @@ describe("relWorktreeName", () => {
   });
 });
 
-describe("formatSummary / hasFailures", () => {
-  test("all ok", () => {
-    const r = [{ name: "wt0", code: 0 }, { name: "wt1", code: 0 }];
+describe("summarizeEach / hasFailures", () => {
+  test("all ok: a done summary that counts the worktrees", () => {
+    const r = [{ name: "wt1", code: 0 }, { name: "wt2", code: 0 }];
+    expect(summarizeEach(r)).toEqual({ status: "done", title: "Ran in 2 worktrees", counts: [] });
     expect(hasFailures(r)).toBe(false);
-    expect(formatSummary(r)).toMatch(/2 ok/);
   });
-  test("some failed lists names + codes", () => {
-    const r = [{ name: "wt0", code: 0 }, { name: "wt1", code: 1 }];
+
+  test("one worktree reads as one", () => {
+    expect(summarizeEach([{ name: "wt1", code: 0 }]).title).toBe("Ran in 1 worktree");
+  });
+
+  test("a failure names each failed worktree with its exit code or its reason", () => {
+    const r = [
+      { name: "wt1", code: 2 },
+      { name: "wt2", code: 0 },
+      { name: "wt3", code: 1, reason: "path gone" },
+    ];
+    expect(summarizeEach(r)).toEqual({ status: "failed", title: "2 of 3 failed", counts: ["1 ok", "wt1: exit 2", "wt3: path gone"] });
     expect(hasFailures(r)).toBe(true);
-    expect(formatSummary(r)).toMatch(/1 ok/);
-    expect(formatSummary(r)).toMatch(/1 failed/);
-    expect(formatSummary(r)).toMatch(/wt1 \(exit 1\)/);
   });
 });

@@ -11,7 +11,6 @@
   "commands/deps.ts",
   "commands/endpoint.ts",
   "commands/events.ts",
-  "commands/extension.ts",
   "commands/flavor.ts",
   "commands/gate.ts",
   "commands/git/backup.ts",
@@ -57,14 +56,11 @@
   "commands/team.ts",
   "commands/tools.ts",
   "commands/worktree-hook.ts",
-  "commands/worktree.ts",
   "lib/chat-viewer-url.ts",
   "lib/cli-logger.ts",
   "lib/daemon-logger.ts",
   "lib/daemon/inject.ts",
   "lib/endpoint/config.ts",
-  "lib/enrich.ts",
-  "lib/herdr-launch.ts",
   "lib/home/age-key.ts",
   "lib/navigate.ts",
   "lib/pickers.ts",
@@ -88,6 +84,5 @@
   "lib/state/legacy-import.ts",
   "lib/team/invite.ts",
   "lib/team/join.ts",
-  "lib/team/members.ts",
-  "lib/worktree/config.ts"
+  "lib/team/members.ts"
 ]

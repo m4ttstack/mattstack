@@ -1,8 +1,7 @@
 /**
- * formatBranchSegments is the picker's segment-form sibling of
- * formatBranchLabelParts: same source fields, but tones/hex instead of ANSI
- * escapes. These are golden tests against the glyph vocabulary in
- * docs/design/picker/Enrichment.dc.html.
+ * formatBranchSegments builds the picker's branch label as segments with
+ * tones and hex values. These are golden tests against the glyph vocabulary
+ * in docs/design/picker/Enrichment.dc.html.
  */
 
 import { describe, expect, test } from "bun:test";

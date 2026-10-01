@@ -33,7 +33,7 @@ import {
   getMRDashboardProps,
   type MRDashboardProps,
 } from "@mattstack/glance";
-import { green, blue, red, reset, dim, yellow, cyan } from "./tui.ts";
+import { withTransientStep } from "./ui/transient-step.ts";
 import { resolveGithubToken } from "./github-token.ts";
 import { remoteDefaultRef, runGit } from "./worktree/git-async.ts";
 import {
@@ -181,100 +181,11 @@ function writeEnriched(store: BranchCacheStore, rows: Array<[string, CacheEntry]
 
 // ─── Label formatting ────────────────────────────────────────────────────────
 
-const MR_STATE_ICONS: Record<string, string> = {
-  opened: `${green}◉${reset}`,
-  merged: `${blue}●${reset}`,
-  closed: `${red}○${reset}`,
-};
-
-const PIPELINE_ICONS: Record<string, string> = {
-  success: `${green}✓${reset}`,
-  success_with_warnings: `${yellow}✓${reset}`,
-  failed: `${red}✗${reset}`,
-  running: `${cyan}⟳${reset}`,
-  pending: `${dim}⟳${reset}`,
-  created: `${dim}○${reset}`,
-  canceled: `${dim}✗${reset}`,
-};
-
-function hexToAnsi(hex: string): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `\x1b[38;2;${r};${g};${b}m`;
-}
-
 const DEFAULT_BRANCHES = new Set(["master", "main", "develop", "development", "staging", "production"]);
 
 /** Exported so pre-enrichment rows can apply the same dirName-leads exception. */
 export function isDefaultBranch(branch: string): boolean {
   return DEFAULT_BRANCHES.has(branch);
-}
-
-/**
- * A split label: `leading` is the dir + branch/title text (grows, clips on
- * overflow), `trailing` is the right-edge metadata (icons, state tags) that
- * the runner pins to the right of the row so it never gets truncated off.
- */
-export interface BranchLabelParts {
-  leading: string;
-  trailing: string;
-}
-
-/**
- * Build the split-label form used by the runner's row layout.
- *
- * Runner rows render as `<leading> <spacer flex=1> <trailing>`, so the trailing
- * bit stays anchored to the right edge and the leading bit is what clips when
- * the title is longer than the row width. Putting icons/state tags into
- * `trailing` keeps them visible regardless of title length.
- *
- * Format (ticket branch):   leading = "dirname · Title [In Progress]"
- *                           trailing = "✓ ◉"
- * Format (normal branch):   leading = "dirname · branch"
- *                           trailing = "✓ ◉ DEV-123"   (or "[Local Only]")
- */
-export function formatBranchLabelParts(eb: EnrichedBranch): BranchLabelParts {
-  const sep = `${dim} · ${reset}`;
-
-  // MR pipeline + state icons
-  const iconParts: string[] = [];
-  if (eb.mr?.pipeline) {
-    const icon = PIPELINE_ICONS[eb.mr.pipeline.status] || "";
-    if (icon) iconParts.push(icon);
-  }
-  if (eb.mr) {
-    const stateIcon = MR_STATE_ICONS[eb.mr.state] || "";
-    if (stateIcon) iconParts.push(stateIcon);
-  }
-
-  const isDefault = DEFAULT_BRANCHES.has(eb.branch);
-  const isTicketBranch = !!(eb.linearId && eb.ticket);
-
-  if (isTicketBranch) {
-    let status = "";
-    if (eb.ticket!.stateName) {
-      const color = eb.ticket!.stateColor ? hexToAnsi(eb.ticket!.stateColor) : dim;
-      status = ` ${color}[${eb.ticket!.stateName}]${reset}`;
-    }
-    return {
-      leading:  `${eb.dirName}${sep}${eb.ticket!.title}${status}`,
-      trailing: iconParts.join(" "),
-    };
-  }
-
-  // Normal branch: name is meaningful; keep it in `leading`.
-  const leading = eb.branch
-    ? `${eb.dirName}${sep}${dim}${eb.branch}${reset}`
-    : eb.dirName;
-
-  const infoParts: string[] = [...iconParts];
-  if (eb.linearId) infoParts.push(eb.linearId);
-  const trailing = infoParts.length > 0
-    ? infoParts.join(" ")
-    : (isDefault ? `${dim}[main branch]${reset}` : `${dim}[Local Only]${reset}`);
-
-  return { leading, trailing };
 }
 
 // ─── Segment-form label (rt-ui picker rows) ──────────────────────────────────
@@ -297,12 +208,11 @@ const MR_STATE_GLYPHS: Record<string, { glyph: string; tone: string }> = {
 
 
 /**
- * Segment-form sibling of `formatBranchLabelParts` for the rt-ui picker's row
- * model — same source fields and the same leading/trailing split, but tones
- * and hex values replace ANSI escapes so the picker can recolor per-theme and
- * step cursor-row weight itself. Linear's `stateColor` rides as `hex` because
- * it's a workspace's own dynamic truecolor, not one of the picker's named
- * theme tones.
+ * The branch label for the rt-ui picker's row model: a leading half (dir,
+ * branch or ticket title) and a right-pinned half (pipeline, MR state, ticket
+ * id), as segments with tones so the picker can recolor per theme and step
+ * cursor-row weight itself. Linear's `stateColor` rides as `hex` because it
+ * is a workspace's own truecolor, not one of the picker's named tones.
  *
  * `match` is the row's filter text: the picker only ranks against left-side
  * text by default, which would make the right-pinned linearId — and, on
@@ -497,15 +407,18 @@ async function fetchAndCache(
   silent: boolean,
 ): Promise<EnrichedBranch[]> {
   const secrets = await loadSecretsForRemote(remoteUrl);
-  const hasForgeToken = !!(secrets.gitlabToken || secrets.githubToken);
-  const willFetch = !!(secrets.linearApiKey || hasForgeToken);
-  const identity = identityForRemote(remoteUrl);
+  const willFetch = !!(secrets.linearApiKey || secrets.gitlabToken || secrets.githubToken);
+  const fetch = () => fetchFresh(branches, remoteUrl, store, secrets);
+  return !silent && willFetch ? withTransientStep("Fetching branch info", fetch) : fetch();
+}
 
-  let showSpinner = false;
-  if (!silent && willFetch && process.stderr.isTTY) {
-    showSpinner = true;
-    process.stderr.write(`  ${cyan}⟳${reset} Fetching branch info…\r`);
-  }
+async function fetchFresh(
+  branches: Array<{ path: string; branch: string }>,
+  remoteUrl: string | undefined,
+  store: BranchCacheStore,
+  secrets: Awaited<ReturnType<typeof loadSecrets>>,
+): Promise<EnrichedBranch[]> {
+  const identity = identityForRemote(remoteUrl);
 
   // ── Step 1: Fetch MR/PR data via glance-sdk (already batched) ──
   let mrMap = new Map<string, PullRequest | null>();
@@ -591,15 +504,6 @@ async function fetchAndCache(
   });
 
   writeEnriched(store, enriched);
-
-  if (showSpinner) {
-    const ticketCount = results.filter(r => r.ticket).length;
-    const mrCount = results.filter(r => r.mr).length;
-    const parts: string[] = [];
-    if (mrCount > 0) parts.push(`${mrCount} MR${mrCount !== 1 ? "s" : ""}`);
-    if (ticketCount > 0) parts.push(`${ticketCount} ticket${ticketCount !== 1 ? "s" : ""}`);
-    process.stderr.write(`  ${green}✓${reset} ${parts.length > 0 ? parts.join(", ") + " loaded" : "Done"}          \n`);
-  }
 
   return results;
 }

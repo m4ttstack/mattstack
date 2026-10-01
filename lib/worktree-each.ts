@@ -16,6 +16,8 @@ export interface ParsedEachArgs {
   command: string;
   /** Set when the args are invalid; callers should print it and exit non-zero. */
   error?: string;
+  /** Set with `error`, so a caller can word its own message without matching on `error`'s text. */
+  errorKind?: "both-flags" | "no-command";
 }
 
 /** One worktree's outcome after running the command. code 0 == success. */
@@ -54,7 +56,7 @@ export function parseEachArgs(args: string[]): ParsedEachArgs {
   const all    = args.includes("--all");
   const onDeck = args.includes("--on-deck") || args.includes("--parked");
   if (all && onDeck) {
-    return { mode: "all", command: "", error: "--all and --on-deck are mutually exclusive" };
+    return { mode: "all", command: "", error: "--all and --on-deck are mutually exclusive", errorKind: "both-flags" };
   }
   const mode: SelectionMode = all ? "all" : onDeck ? "on-deck" : "pick";
   const command = args
@@ -62,7 +64,7 @@ export function parseEachArgs(args: string[]): ParsedEachArgs {
     .join(" ")
     .trim();
   if (!command) {
-    return { mode, command: "", error: "no command given — usage: rt worktree each '<command>'" };
+    return { mode, command: "", error: "no command given — usage: rt worktree each '<command>'", errorKind: "no-command" };
   }
   return { mode, command };
 }
@@ -101,13 +103,21 @@ export function relWorktreeName(repoPath: string, worktreePath: string): string 
     : worktreePath;
 }
 
-/** One-line end summary: "N ok" plus failed names and their exit codes. */
-export function formatSummary(results: EachResult[]): string {
-  const ok     = results.filter(r => r.code === 0).length;
-  const failed = results.filter(r => r.code !== 0);
-  if (failed.length === 0) return `${ok} ok`;
-  const detail = failed.map(r => `${r.name} (${r.reason ?? `exit ${r.code}`})`).join(", ");
-  return `${ok} ok, ${failed.length} failed: ${detail}`;
+export interface EachSummary {
+  status: "done" | "failed";
+  title: string;
+  counts: string[];
+}
+
+export function summarizeEach(results: EachResult[]): EachSummary {
+  const ok = results.filter((r) => r.code === 0).length;
+  const failed = results.filter((r) => r.code !== 0);
+  if (failed.length === 0) return { status: "done", title: `Ran in ${ok} worktree${ok === 1 ? "" : "s"}`, counts: [] };
+  return {
+    status: "failed",
+    title: `${failed.length} of ${results.length} failed`,
+    counts: [`${ok} ok`, ...failed.map((r) => `${r.name}: ${r.reason ?? `exit ${r.code}`}`)],
+  };
 }
 
 export function hasFailures(results: EachResult[]): boolean {
