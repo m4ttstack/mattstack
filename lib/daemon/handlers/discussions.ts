@@ -9,6 +9,7 @@
  *   discussions:reply    — post a note into an existing thread
  *   mr:comment-inline    - post a new positioned (line-anchored) discussion
  *   mr:comment           - post a new top-level note (resolvable discussion or plain note)
+ *   mr:review-submit     - post one whole review: pending comments, one publish, approve, resolve
  *
  * All handlers take `{ repoName, iid }` and look up the cache entry whose
  * `mr.iid` matches. Writes go through `refreshDiscussions` in
@@ -22,7 +23,8 @@
 
 import { NoteMutator, type TextPosition, type CreatedDiscussion } from "@mattstack/glance";
 import { decodeRepo } from "../identity-decoder.ts";
-import { getRepoContext, providerRequestHook } from "../freshness.ts";
+import { getRepoContext, getSelfUsername, providerRequestHook } from "../freshness.ts";
+import { parseReviewSubmit, submitReview, type ReviewMutator } from "../review-submit.ts";
 import { loadSecrets } from "../../linear.ts";
 import { refreshDiscussions, type BroadcastFn } from "../discussions-store.ts";
 import { getDiscussionsFileStore } from "../discussions-file-store.ts";
@@ -39,6 +41,9 @@ export type CommentInlineMutator = Pick<NoteMutator, "fetchDiffRefs" | "createPo
 /** The subset of NoteMutator mr:comment needs; test seam. */
 export type CommentMutator = Pick<NoteMutator, "createDiscussion" | "createNote">;
 
+/** What mr:review-submit needs from NoteMutator; test seam. */
+export type ReviewSubmitMutator = ReviewMutator & Pick<NoteMutator, "fetchReviewerStates">;
+
 /**
  * Injectable plumbing for `discussions:reply`, `mr:comment-inline` and
  * `mr:comment`. Every field defaults to the real daemon plumbing; tests
@@ -51,6 +56,12 @@ export interface DiscussionHandlerSeams {
   commentMutator?: (baseURL: string, token: string) => CommentMutator;
   refresh?: (repoName: string, iid: number) => Promise<unknown>;
   readCached?: (repoName: string, iid: number) => { discussions: Discussion[]; fetchedAt: number } | undefined;
+  reviewMutator?: (baseURL: string, token: string) => ReviewSubmitMutator;
+  reviewActions?: (repoName: string, repoPath?: string) => Promise<{
+    approve: (iid: number) => Promise<void>;
+    resolve: (iid: number, discussionId: string) => Promise<void>;
+  }>;
+  selfUsername?: () => string | null;
 }
 
 function buildTextPosition(
@@ -125,6 +136,7 @@ export function createDiscussionHandlers(
   & { "discussions:reply": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"discussions:reply">> }
   & { "mr:comment-inline": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:comment-inline">> }
   & { "mr:comment": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:comment">> }
+  & { "mr:review-submit": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:review-submit">> }
   & HandlerMap {
   const deps = { ctx, broadcast };
   const repoContextFn = seams.repoContext ?? getRepoContext;
@@ -133,6 +145,15 @@ export function createDiscussionHandlers(
   const commentMutatorFn = seams.commentMutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
   const refreshFn = seams.refresh ?? ((repoName: string, iid: number) => refreshDiscussions(deps, repoName, iid));
   const readCachedFn = seams.readCached ?? ((repoName: string, iid: number) => getDiscussionsFileStore().read(repoName, iid));
+  const reviewMutatorFn = seams.reviewMutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
+  const reviewActionsFn = seams.reviewActions ?? (async (repoName: string, repoPath?: string) => {
+    const { provider, projectPath } = await getRepoContext(repoName, repoPath);
+    return {
+      approve: (iid: number) => provider.approvePullRequest(projectPath, iid),
+      resolve: (iid: number, discussionId: string) => provider.resolveDiscussion(projectPath, iid, discussionId),
+    };
+  });
+  const selfUsernameFn = seams.selfUsername ?? getSelfUsername;
 
   return {
     // `force` is a legacy daemon-client-only escape hatch (lib/daemon-client.ts),
@@ -445,6 +466,65 @@ export function createDiscussionHandlers(
 
         const mrUrl = `${repoCtx.provider.baseURL}/${repoCtx.projectPath}/-/merge_requests/${iid}`;
         return { ok: true, data: { noteId, discussionId, resolvable, url: `${mrUrl}#note_${noteId}`, mrUrl } };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "mr:review-submit": async (payload) => {
+      const p = payload as { repoName?: string; iid?: number } | undefined;
+      const iid = p?.iid;
+      if (!p?.repoName || typeof iid !== "number" || !Number.isInteger(iid) || iid <= 0) {
+        return { ok: false, error: "missing repoName/iid" };
+      }
+      const parsed = parseReviewSubmit(payload);
+      if (!parsed.ok) return { ok: false, error: parsed.error };
+      const decoded = decodeRepo(payload);
+      if (!decoded.ok) {
+        return { ok: false, error: "repo must be a serialized identity" };
+      }
+      const repoName = decoded.repo;
+
+      const repoPath = ctx.repoIndex()[repoName];
+      try {
+        const repoCtx = await repoContextFn(repoName, repoPath);
+        const token = await gitlabTokenFn();
+        if (!token) return { ok: false, error: "no gitlabToken in secrets" };
+        const mutator = reviewMutatorFn(repoCtx.provider.baseURL, token);
+        const actions = await reviewActionsFn(repoName, repoPath);
+        const mrUrl = `${repoCtx.provider.baseURL}/${repoCtx.projectPath}/-/merge_requests/${iid}`;
+
+        const outcome = await submitReview({
+          mutator,
+          projectId: repoCtx.projectId,
+          iid,
+          position: buildTextPosition,
+          approve: () => actions.approve(iid),
+          resolve: (discussionId) => actions.resolve(iid, discussionId),
+        }, parsed.input);
+        if (!outcome.published) return { ok: true, data: { ...outcome, mrUrl } };
+
+        // Everything below describes a review that already landed, so none of
+        // it may answer ok:false: the caller would submit the review again.
+        const self = selfUsernameFn();
+        const refreshed = await refreshFn(repoName, iid).catch((err) => {
+          log.warn({ err, repoName, iid }, "mr:review-submit: post-review discussions refresh failed");
+          return undefined;
+        }) as { discussions?: Discussion[] } | undefined;
+        let summaryNoteId: number | null = null;
+        for (const d of refreshed?.discussions ?? []) {
+          for (const n of d.notes) {
+            if (n.body === parsed.input.summary && (!self || n.author?.username === self) && n.id > (summaryNoteId ?? 0)) {
+              summaryNoteId = n.id;
+            }
+          }
+        }
+        const states = await mutator.fetchReviewerStates(repoCtx.projectId, iid).catch((err) => {
+          log.warn({ err, repoName, iid }, "mr:review-submit: reviewer state read failed");
+          return [];
+        });
+        const reviewerState = self ? states.find((s) => s.username === self)?.state ?? null : null;
+        return { ok: true, data: { ...outcome, reviewerState, summaryNoteId, mrUrl } };
       } catch (err) {
         return { ok: false, error: String(err) };
       }
