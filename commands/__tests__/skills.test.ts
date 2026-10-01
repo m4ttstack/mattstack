@@ -3,7 +3,7 @@ import { execFileSync } from "child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { compilePackAll, installedCacheLine, installedInfoFor, skillsCheck, skillsCompile, skillsComposition, skillsMaterialize, skillsPacks } from "../skills.ts";
+import { compilePackAll, installedInfoFor, skillsCheck, skillsCompile, skillsComposition, skillsMaterialize, skillsPacks } from "../skills.ts";
 import { compileSkill } from "../../lib/skills/compile.ts";
 import { materializeRepo, type MaterializeFs } from "../../lib/skills/materialize.ts";
 import { invocableRoster, loadAttachment, loadStepSource } from "../../lib/skills/sources.ts";
@@ -1290,8 +1290,8 @@ describe("skillsCheck", () => {
       "--verb", "watch-ci",
     ]);
 
-    expect(io.lines().some((l) => l.includes("watch-ci") && l.includes("current"))).toBe(true);
-    expect(io.lines().some((l) => l.includes("stale"))).toBe(false);
+    expect(io.lines()).toContain("[ok] watch-ci  current");
+    expect(io.lines().some((l) => l.includes("[out of date]"))).toBe(false);
     expect(process.exitCode).not.toBe(1);
   });
 
@@ -1343,7 +1343,7 @@ describe("skillsCheck", () => {
       "--verb", "watch-ci",
     ]);
 
-    const staleLine = io.lines().find((l) => l.includes("stale"));
+    const staleLine = io.lines().find((l) => l.includes("[out of date]"));
     expect(staleLine).toBeDefined();
     expect(staleLine).toContain("watch-ci");
     expect(staleLine).toContain("SKILL.md");
@@ -1374,7 +1374,7 @@ describe("skillsCheck", () => {
       "--verb", "watch-ci",
     ]);
 
-    const staleLine = io.lines().find((l) => l.includes("stale"));
+    const staleLine = io.lines().find((l) => l.includes("[out of date]"));
     expect(staleLine).toBeDefined();
     expect(staleLine).toContain("watch-ci");
     expect(staleLine).toContain("leftover.txt");
@@ -1408,7 +1408,7 @@ describe("skillsCheck", () => {
       "--verb", "watch-ci",
     ]);
 
-    expect(io.lines()).toContain("watch-ci: current");
+    expect(io.lines()).toContain("[ok] watch-ci  current");
     expect(process.exitCode).not.toBe(1);
   });
 
@@ -1425,7 +1425,7 @@ describe("skillsCheck", () => {
       "--verb", "watch-ci",
     ]);
 
-    const staleLine = io.lines().find((l) => l.includes("stale"));
+    const staleLine = io.lines().find((l) => l.includes("[out of date]"));
     expect(staleLine).toBeDefined();
     expect(staleLine).toContain("watch-ci");
     expect(process.exitCode).toBe(1);
@@ -1496,7 +1496,7 @@ describe("skillsCheck", () => {
       "--verb", "watch-ci",
     ]);
 
-    const staleLine = io.lines().find((l) => l.includes("stale"));
+    const staleLine = io.lines().find((l) => l.includes("[out of date]"));
     expect(staleLine).toBeDefined();
     expect(staleLine).toContain("watch-ci");
     expect(staleLine).toContain("SKILL.md");
@@ -1560,23 +1560,6 @@ describe("installedInfoFor", () => {
     expect(installedInfoFor({ packDir: dir, pluginRoots: installedFixture(null) }, [packAt(dir)])).toBeNull();
     const noMkt = { ...packAt(dir), marketplace: null };
     expect(installedInfoFor({ packDir: dir, pluginRoots: installedFixture("0.5.3") }, [noMkt])).toBeNull();
-  });
-});
-
-describe("installedCacheLine", () => {
-  test("lagging: exact contract string", () => {
-    const line = installedCacheLine({ plugin: "acme", marketplace: "beacon", version: "0.5.2", sourceVersion: "0.5.3", status: "lagging" });
-    expect(line).toBe("installed cache: lagging (0.5.2 installed vs 0.5.3 source) -- run rt skills sync");
-  });
-
-  test("missing: exact contract string", () => {
-    const line = installedCacheLine({ plugin: "acme", marketplace: "beacon", version: null, sourceVersion: "0.5.3", status: "missing" });
-    expect(line).toBe("installed cache: missing (no installed record for acme@beacon) -- run rt skills sync");
-  });
-
-  test("current: no line", () => {
-    const line = installedCacheLine({ plugin: "acme", marketplace: "beacon", version: "0.5.3", sourceVersion: "0.5.3", status: "current" });
-    expect(line).toBeNull();
   });
 });
 
@@ -2332,7 +2315,7 @@ describe("skillsMaterialize --dir exit codes", () => {
   test("no engine pack installed exits 1: nothing was written", async () => {
     await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
     expect(process.exitCode).toBe(1);
-    expect(io.lines().join("\n")).toContain("skipped: engine-pack-missing");
+    expect(io.lines().join("\n")).toContain("[skipped] Nothing was written  engine-pack-missing");
   });
 
   test("a declared checkout exits 0 and reports the migrated legacy file", async () => {
@@ -2342,7 +2325,7 @@ describe("skillsMaterialize --dir exit codes", () => {
     writeFile(legacy, "{}");
     await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
     expect(process.exitCode).toBe(0);
-    expect(io.lines()).toContain(`  renamed the old merged file to ${legacy}.migrated`);
+    expect(io.lines()).toContain(`  note: Renamed the old merged file to ${legacy}.migrated`);
     expect(existsSync(join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc"))).toBe(true);
   });
 
@@ -2353,7 +2336,7 @@ describe("skillsMaterialize --dir exit codes", () => {
     writeFile(stale, "// zone: acme\n{}");
     await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
     expect(process.exitCode).toBe(0);
-    expect(io.lines()).toContain(`  Set aside 1 stale bindings file: ${stale}.stale`);
+    expect(io.lines()).toContain(`  note: Set aside 1 stale bindings file: ${stale}.stale`);
     expect(existsSync(stale)).toBe(false);
   });
 });

@@ -1189,14 +1189,52 @@ export async function checkPack(opts: { pack?: string; packDir?: string; manifes
   return computeCheck(parseFlags(args));
 }
 
-export function installedCacheLine(installed: InstalledInfo): string | null {
+export function installedCacheBlocks(installed: InstalledInfo): Block[] {
+  const next = out.callout("next", out.cmd("rt skills sync"));
   if (installed.status === "lagging") {
-    return `installed cache: lagging (${installed.version} installed vs ${installed.sourceVersion} source) -- run rt skills sync`;
+    return [out.line("stale", "The installed copy is behind the source", `${installed.version} installed, ${installed.sourceVersion} in the source`), next];
   }
   if (installed.status === "missing") {
-    return `installed cache: missing (no installed record for ${installed.plugin}@${installed.marketplace}) -- run rt skills sync`;
+    return [out.line("pending", "This pack is not installed here", `${installed.plugin}@${installed.marketplace}`), next];
   }
-  return null;
+  return [];
+}
+
+export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[] {
+  const blocks: Block[] = payload.chainErrors.map((chainError) => out.line("failed", chainError));
+  let stale = false;
+  for (const row of payload.verbs) {
+    if (row.status === "never-compiled") {
+      stale = true;
+      blocks.push(out.line("stale", row.name, "never compiled"));
+    } else if (row.status === "stale") {
+      stale = true;
+      const files = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)].join(", ");
+      const causes = row.staleBecause ?? [];
+      blocks.push(out.line("stale", row.name, causes.length > 0 ? `${causes.join(", ")} moved: ${files}` : `changed since the last compile: ${files}`));
+    } else {
+      blocks.push(out.line("done", row.name, "current"));
+    }
+  }
+  if (stale) blocks.push(out.callout("next", out.cmd("rt skills compile")));
+  if (payload.installed) blocks.push(...installedCacheBlocks(payload.installed));
+
+  if (payload.mcpLint.length === 0) {
+    blocks.push(out.line("done", "mcp lint", "clean"));
+  } else {
+    const policy = payload.strictLint
+      ? "this pack is strict, so they fail a strict check and the sync"
+      : strictFlag
+        ? "they fail a strict check"
+        : "advisory; they fail a strict check";
+    blocks.push(out.verbatim(payload.mcpLint.map(formatHit), "mcp lint"));
+    blocks.push(out.line(strictFlag ? "failed" : "warn", `mcp lint: ${countOf(payload.mcpLint.length, "hit", "hits")}`, policy));
+  }
+  if (payload.scriptLint.length > 0) {
+    blocks.push(out.verbatim(payload.scriptLint.map(formatHit), "pack scripts, advisory"));
+    blocks.push(out.line("warn", `pack scripts: ${countOf(payload.scriptLint.length, "hit", "hits")}`, "advisory"));
+  }
+  return blocks;
 }
 
 export async function skillsCheck(args: string[]): Promise<void> {
@@ -1204,46 +1242,28 @@ export async function skillsCheck(args: string[]): Promise<void> {
     const flags = parseFlags(args);
     const payload = await computeCheck(flags);
 
-    if (!flags.json) {
-      for (const chainError of payload.chainErrors) console.log(chainError);
-      for (const row of payload.verbs) {
-        if (row.status === "never-compiled") {
-          console.log(`${row.name}: stale (never compiled -- outDir missing; run rt skills compile)`);
-        } else if (row.status === "stale") {
-          const humanFiles = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)];
-          const causes = row.staleBecause ?? [];
-          const movedPrefix = causes.length > 0 ? `${causes.join(", ")} moved; ` : "";
-          console.log(`${row.name}: stale (${movedPrefix}recompile or investigate drift with git diff) -- ${humanFiles.join(", ")}`);
-        } else {
-          console.log(`${row.name}: current`);
-        }
-      }
-      if (payload.installed) {
-        const line = installedCacheLine(payload.installed);
-        if (line) console.log(line);
-      }
-      for (const hit of payload.mcpLint) console.log(formatHit(hit));
-      const policy = payload.strictLint
-        ? "strict: --strict and rt skills sync fail on them"
-        : flags.strict ? "--strict fails on them" : "advisory; --strict fails on them";
-      console.log(payload.mcpLint.length > 0 ? `mcp lint: ${payload.mcpLint.length} hits (${policy})` : "mcp lint: clean");
-      for (const hit of payload.scriptLint) console.log(`(advisory) ${formatHit(hit)}`);
-      if (payload.scriptLint.length > 0) console.log(`mcp lint (pack scripts, advisory): ${payload.scriptLint.length} ${payload.scriptLint.length === 1 ? "hit" : "hits"}`);
-    }
-
     if (payload.drift) process.exitCode = 1;
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
       const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint } = payload;
-      console.log(JSON.stringify({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint }));
+      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint });
+      return;
     }
+    out.print(...checkBlocks(payload, flags.strict));
   });
 }
 
 function skillsFlagValue(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
   return i >= 0 ? args[i + 1] : undefined;
+}
+
+export function packsBlocks(rows: Array<{ name: string; dir: string; layout: string }>): Block[] {
+  if (rows.length === 0) {
+    return [out.line("pending", "No packs found"), out.callout("note", "A pack is a plugin from a directory marketplace that has a surface file.")];
+  }
+  return [out.table(rows.map((row) => [out.strong(row.name), row.layout, out.dim(row.dir)]), ["Pack", "Layout", "Folder"])];
 }
 
 export async function skillsPacks(args: string[]): Promise<void> {
@@ -1257,15 +1277,10 @@ export async function skillsPacks(args: string[]): Promise<void> {
   const rows = packs.map((p) => ({ name: p.name, dir: p.dir, layout: p.layout }));
 
   if (json) {
-    console.log(JSON.stringify({ packs: rows }));
+    out.json({ packs: rows });
     return;
   }
-
-  if (rows.length === 0) {
-    console.log("no packs discovered (no directory marketplace plugin carries a surface.jsonc)");
-    return;
-  }
-  for (const row of rows) console.log(`${row.name}  ${row.layout}  ${row.dir}`);
+  out.print(...packsBlocks(rows));
 }
 
 // ─── rt skills composition ─────────────────────────────────────────────────
@@ -1313,7 +1328,7 @@ type CompositionBinder = {
 
 type CompositionFill = { binding: string; provides: string; sourcePath: string; registered: boolean };
 
-type CompositionPayload = {
+export type CompositionPayload = {
   pack: string;
   packDir: string;
   /**
@@ -1513,6 +1528,21 @@ function enumerateFills(pluginRoots: PluginRoots): CompositionFill[] {
   return fills.sort((a, b) => a.binding.localeCompare(b.binding));
 }
 
+export function compositionBlocks(payload: CompositionPayload): Block[] {
+  const verbs = payload.verbs.map((verb) =>
+    verb.engineError
+      ? out.line("failed", verb.name, verb.engineError)
+      : out.tree(
+          [out.strong(verb.name), "  ", out.dim(`${verb.engineRef ?? verb.engine}, ${verb.public ? "public" : "internal"}`)],
+          verb.slots.map((slot) => {
+            const bound = slot.resolveError ? `error: ${slot.resolveError}` : (slot.boundTo ?? "not bound");
+            return slot.layer ? [slot.name, bound, out.dim(slot.layer)] : [slot.name, bound];
+          }),
+        ),
+  );
+  return [out.section(`Pack ${payload.pack}`, undefined, ...verbs), out.kv("Fills", String(payload.fills.length)), out.kv("Binders", String(payload.binders.length))];
+}
+
 export async function skillsComposition(args: string[]): Promise<void> {
   await withCleanErrors(async () => {
     // composition never takes --verb: resolved.roster is selectVerbs-filtered,
@@ -1541,25 +1571,10 @@ export async function skillsComposition(args: string[]): Promise<void> {
     };
 
     if (flags.json) {
-      console.log(JSON.stringify(payload));
+      out.json(payload);
       return;
     }
-
-    console.log(`rt skills composition -- pack ${payload.pack}`);
-    for (const verb of payload.verbs) {
-      if (verb.engineError) {
-        console.log(`  ${verb.name}: ENGINE ERROR -- ${verb.engineError}`);
-        continue;
-      }
-      console.log(`  ${verb.name} (${verb.engineRef}) ${verb.public ? "public" : "internal"}`);
-      for (const slot of verb.slots) {
-        const status = slot.resolveError
-          ? `ERROR -- ${slot.resolveError}`
-          : slot.boundTo ?? "(unbound)";
-        console.log(`    ${slot.name}: ${status}${slot.layer ? ` [${slot.layer}]` : ""}`);
-      }
-    }
-    console.log(`  ${payload.fills.length} fills, ${payload.binders.length} binders`);
+    out.print(...compositionBlocks(payload));
   });
 }
 
@@ -1575,6 +1590,15 @@ function materializeExitCode(result: MaterializeSkillsResult, single: boolean): 
   return result.repos.some((r) => !r.ok && !r.noManifest) ? 1 : 0;
 }
 
+export function materializeBlocks(result: MaterializeSkillsResult): Block[] {
+  if (result.skipped) return [out.line("skipped", "Nothing was written", result.reason)];
+  return result.repos.flatMap((r) => [
+    out.line(r.ok ? "done" : r.noManifest ? "skipped" : "failed", r.name, r.detail),
+    ...(r.migrated ? [out.callout("note", ["Renamed the old merged file to ", out.dim(r.migrated)])] : []),
+    ...(r.pruned?.length ? [out.callout("note", `${setAsideLine(r.pruned.length)}: ${r.pruned.join(", ")}`)] : []),
+  ]);
+}
+
 export async function skillsMaterialize(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const flag = (name: string) => (args.includes(name) ? requireFlagValue(name, skillsFlagValue(args, name)) : undefined);
@@ -1587,21 +1611,12 @@ export async function skillsMaterialize(args: string[]): Promise<void> {
 
   try {
     const result = await materializeSkills(createRealProbes(), { repo, dir });
-    if (json) {
-      console.log(JSON.stringify(envelope(result)));
-    } else if (result.skipped) {
-      console.log(`skipped: ${result.reason}`);
-    } else {
-      for (const r of result.repos) {
-        console.log(`${r.ok ? "materialized" : r.noManifest ? "no skills declared for" : "failed"} ${r.name}: ${r.detail}`);
-        if (r.migrated) console.log(`  renamed the old merged file to ${r.migrated}`);
-        if (r.pruned?.length) console.log(`  ${setAsideLine(r.pruned.length)}: ${r.pruned.join(", ")}`);
-      }
-    }
+    if (json) out.json(envelope(result));
+    else out.print(...materializeBlocks(result));
     const code = materializeExitCode(result, dir !== undefined);
     if (code !== 0) process.exitCode = code;
   } catch (err) {
-    if (err instanceof UserActionableError) exitUserError(err, json, "skills materialize", console.log);
+    if (err instanceof UserActionableError) exitUserError(err, json, "skills materialize");
     throw err;
   }
 }
