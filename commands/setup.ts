@@ -15,7 +15,6 @@
 
 import { randomBytes } from "crypto";
 import { join } from "path";
-import { dim, green, red, reset, yellow } from "../lib/ansi.ts";
 import { hasUrlCredentials, withoutUrls } from "../lib/team/redact.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { createRealAgeKeySeam } from "../lib/home/age-key.ts";
@@ -42,6 +41,7 @@ import { clearIntent, readIntent, teamRefFromIntent, writeIntent } from "../lib/
 import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
 import { readTeamLocal } from "../lib/team/team-local.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
+import { planBlocks, rowTitles } from "../lib/setup/plan-blocks.ts";
 import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/setup/plan.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
@@ -52,7 +52,7 @@ import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
 import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
-import type { Plan, Row, RowStatus } from "../lib/setup/contract.ts";
+import type { Plan } from "../lib/setup/contract.ts";
 import { createRelayClient, inviteRelayUrl, type RelayClient } from "../lib/team/relay-client.ts";
 import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
 
@@ -86,62 +86,7 @@ function flagValue(args: string[], flag: string): string | undefined {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
-const GLYPH: Record<RowStatus, string> = {
-  ready: "✓",
-  missing: "✗",
-  invalid: "✗",
-  error: "✗",
-  "needs-you": "!",
-  skipped: "–",
-  checking: "…",
-};
-
-const GLYPH_COLOR: Record<RowStatus, string> = {
-  ready: green,
-  missing: red,
-  invalid: red,
-  error: red,
-  "needs-you": yellow,
-  skipped: dim,
-  checking: dim,
-};
-
-export function renderPlanHuman(plan: Plan): string[] {
-  const lines: string[] = [];
-  for (const group of plan.groups) {
-    lines.push(group.title);
-    for (const r of group.rows) {
-      lines.push(`  ${GLYPH_COLOR[r.status]}${GLYPH[r.status]}${reset} ${r.title}  ${r.detail}`);
-      // The row's own detail stays one line; the choose sheet's terminal alternative is
-      // the only thing a --json-less, no-app user has for reaching that action's verb.
-      if (r.action?.type === "choose" && r.action.footnote) lines.push(`  ${dim}${r.action.footnote}${reset}`);
-    }
-  }
-  lines.push(plan.canInstall ? "Install: ready" : `Install: blocked by: ${plan.requiredMissing.join(", ")}`);
-  return lines;
-}
-
-/** The wizard's other gate, printed beside the Install line by `setup status`: Finish waits on finish-gated rows that are not ready, skipped, or waived on this Mac. */
-export function renderFinishLine(plan: Plan): string {
-  return plan.finishBlockedBy.length === 0 ? "Finish: ready" : `Finish: blocked by: ${plan.finishBlockedBy.join(", ")}`;
-}
-
-/** `rt setup <integration> connect`, for a missing account row — only "connect"/"oauth" actions name that verb; the owner-once slack-app row (and any row still waiting on it, which carries no action at all) has no per-integration connect flow to point at. */
-function accountConnectVerb(r: { status: RowStatus; action: Row["action"] }): string | null {
-  if (r.status !== "missing") return null;
-  if (r.action?.type !== "connect" && r.action?.type !== "oauth") return null;
-  return `rt setup ${r.action.integration} connect`;
-}
-
-function missingAccountLines(plan: Plan): string[] {
-  const rows = plan.groups.find((g) => g.id === "accounts")?.rows ?? [];
-  return rows.flatMap((r) => {
-    const verb = accountConnectVerb(r);
-    return verb ? [`  - ${r.title}: ${verb}`] : [];
-  });
-}
-
-async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status", verb: string, header?: string): Promise<void> {
+async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status", verb: string): Promise<void> {
   const json = args.includes("--json");
   let plan: Plan;
   try {
@@ -162,18 +107,7 @@ async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status",
     deps.json(plan);
     return;
   }
-  if (header) deps.print(header);
-  for (const line of renderPlanHuman(plan)) deps.print(line);
-
-  if (mode === "status") {
-    deps.print(renderFinishLine(plan));
-    const missingAccounts = missingAccountLines(plan);
-    if (missingAccounts.length > 0) {
-      deps.print("");
-      deps.print("Missing accounts — connect with:");
-      for (const line of missingAccounts) deps.print(line);
-    }
-  }
+  out.print(...planBlocks(plan, mode));
 }
 
 export async function setupPlan(args: string[], _ctx: CommandContext = {}, deps: SetupDeps = realSetupDeps()): Promise<void> {
@@ -181,7 +115,7 @@ export async function setupPlan(args: string[], _ctx: CommandContext = {}, deps:
 }
 
 export async function setupStatus(args: string[], _ctx: CommandContext = {}, deps: SetupDeps = realSetupDeps()): Promise<void> {
-  await runPlan(args, deps, "status", "setup", "rt setup status");
+  await runPlan(args, deps, "status", "setup");
 }
 
 // ─── apply (`rt setup apply`) ──────────────────────────────────────────────
@@ -501,15 +435,6 @@ export async function setupPack(args: string[], _ctx: CommandContext = {}, deps:
 
 // ─── setup install (`rt setup install`, the TTY walk) ──────────────────────
 
-/** `plan.requiredMissing`'s row ids, resolved back to their titles/action labels for the human-readable blocked-list. */
-function missingRowLines(plan: Plan): string[] {
-  const byId = new Map(plan.groups.flatMap((g) => g.rows).map((r) => [r.id, r] as const));
-  return plan.requiredMissing.map((id) => {
-    const row = byId.get(id);
-    return `  - ${row?.title ?? id}${row?.action ? ` (${row.action.label})` : ""}`;
-  });
-}
-
 /**
  * `rt setup install`. A TTY gets the interactive walk: the plan, then a
  * confirmation before running Install. Anything else (no TTY, or `--json`
@@ -523,12 +448,10 @@ export async function setupInteractive(args: string[], _ctx: CommandContext = {}
   if (!deps.isTTY() || json) return setupStatus(args, _ctx, setupDeps);
 
   const plan = await composePlan({ p: deps.probes, secrets: setupDeps.secrets, ci: process.env.CI === "true", mode: "plan", teams: listTeams() });
-  for (const line of renderPlanHuman(plan)) deps.print(line);
+  out.print(...planBlocks(plan, "plan"));
 
   if (!plan.canInstall && !args.includes("--force")) {
-    for (const line of missingRowLines(plan)) deps.print(line);
-    const err = new UserActionableError("not-ready", `not ready to install — blocked by: ${plan.requiredMissing.join(", ")}`);
-    deps.print(`rt setup: ${err.message}`);
+    out.fail({ title: "This Mac is not ready to install yet", why: `Waiting on ${rowTitles(plan, plan.requiredMissing).join(", ")}` });
     return deps.exit(2);
   }
 

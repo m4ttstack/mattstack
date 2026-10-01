@@ -323,10 +323,14 @@ describe("setupInteractive — TTY-vs-json branch", () => {
 
   test("non-TTY behaves as `setup status`: prints the plan groups, never confirms", async () => {
     const deps = baseApplyDeps({ isTTY: () => false, probes: fakeProbes({ exec: readyExec }) });
+    const cap = capturePlain();
+    try {
+      await setupInteractive([], {}, deps);
+      expect(cap.stdout()).toContain("Your Mac (");
+    } finally {
+      cap.restore();
+    }
 
-    await setupInteractive([], {}, deps);
-
-    expect(deps.lines).toContain("Your Mac");
     expect(deps.confirmCalls).toEqual([]);
   });
 
@@ -345,11 +349,17 @@ describe("setupInteractive — TTY-vs-json branch", () => {
       probes: fakeProbes({ exec: (argv) => (argv[0] === "sw_vers" ? { code: 1, stdout: "", stderr: "no" } : ok()) }),
     });
 
-    await runExpectingExit(() => setupInteractive([], {}, deps));
+    const cap = capturePlain();
+    try {
+      await runExpectingExit(() => setupInteractive([], {}, deps));
+      expect(cap.stderr()).toContain("[failed] This Mac is not ready to install yet");
+      expect(cap.stderr()).toContain("  why: Waiting on ");
+    } finally {
+      cap.restore();
+    }
 
     expect(deps.exitCodes).toEqual([2]);
     expect(deps.confirmCalls).toEqual([]);
-    expect(deps.lines.some((l) => l.includes("not ready to install"))).toBe(true);
   });
 
   // `--force` bypasses the canInstall gate deterministically — a real
@@ -365,7 +375,12 @@ describe("setupInteractive — TTY-vs-json branch", () => {
       steps: [neverRunsStep("path.link")],
     });
 
-    await setupInteractive(["--force"], {}, deps);
+    const cap = capturePlain();
+    try {
+      await setupInteractive(["--force"], {}, deps);
+    } finally {
+      cap.restore();
+    }
 
     // `confirm` is overridden above (to resolve false), which bypasses the
     // default's own confirmCalls tracking — the real proof a decline works
@@ -383,7 +398,12 @@ describe("setupInteractive — TTY-vs-json branch", () => {
       steps: [{ id: "path.link", title: "x", kind: "rt", applies: () => true, run: async () => { ran = true; return { state: "done" }; } }],
     });
 
-    await setupInteractive(["--force"], {}, deps);
+    const cap = capturePlain();
+    try {
+      await setupInteractive(["--force"], {}, deps);
+    } finally {
+      cap.restore();
+    }
 
     expect(ran).toBe(true);
   });

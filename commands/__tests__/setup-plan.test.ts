@@ -1,11 +1,10 @@
 import { describe, test, expect, spyOn } from "bun:test";
-import { setupPlan, setupStatus, renderFinishLine, renderPlanHuman, type SetupDeps } from "../setup.ts";
+import { setupPlan, setupStatus, type SetupDeps } from "../setup.ts";
 import type { Plan } from "../../lib/setup/contract.ts";
 import { writeIntent } from "../../lib/setup/intent.ts";
 import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import { fakeProbes, missing, ok } from "../../lib/setup/__tests__/fakes.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
-import { dim, green, red, reset, yellow } from "../../lib/ansi.ts";
 import { composePlan } from "../../lib/setup/plan.ts";
 import { listTeams } from "../../lib/settings/stores.ts";
 import { capturePlain, realJson } from "./helpers/json-line.ts";
@@ -56,11 +55,14 @@ describe("setupPlan", () => {
     expect(plan.groups.map((g) => g.id)).toEqual(["mac", "accounts", "access", "tools"]);
   });
 
-  test("human mode prints the mac group's title", async () => {
-    const deps = captureDeps();
-    await setupPlan([], {}, deps);
-
-    expect(deps.lines).toContain("Your Mac");
+  test("human mode prints the mac group's section title", async () => {
+    const cap = capturePlain();
+    try {
+      await setupPlan([], {}, captureDeps());
+      expect(cap.stdout()).toContain("Your Mac (");
+    } finally {
+      cap.restore();
+    }
   });
 
   test("--team naming an unknown team --json: exit 2 with the contract's error envelope on stdout (deps.print)", async () => {
@@ -87,13 +89,6 @@ describe("setupPlan", () => {
 });
 
 describe("setupStatus", () => {
-  test("human mode prints the 'rt setup status' header", async () => {
-    const deps = captureDeps();
-    await setupStatus([], {}, deps);
-
-    expect(deps.lines[0]).toBe("rt setup status");
-  });
-
   test("--json prints exactly one line that parses to a Plan", async () => {
     const deps = captureDeps();
     await setupStatus(["--json"], {}, deps);
@@ -103,196 +98,91 @@ describe("setupStatus", () => {
     expect(plan.contract).toBe(1);
   });
 
-  test("human mode appends a footer naming `rt setup <integration> connect` for each missing account", async () => {
-    const lines: string[] = [];
-    const p = fakeProbes({
-      exec: (argv) => (argv[0] === "sw_vers" ? ok("15.6") : argv[0] === "gh" ? missing("gh") : ok()),
-    });
-    writeIntent(p, {
-      v: 1,
-      at: "2026-08-21T00:00:00.000Z",
-      mode: "create",
-      team: { slug: "acme", name: "Acme", remote: "https://github.com/o/r.git", others: false },
-    });
-    const deps: SetupDeps = { probes: p, secrets: fakeSecrets(), print: (s) => lines.push(s), json: (v) => lines.push(JSON.stringify(v)) };
+  test("human mode puts a next callout naming `rt setup <integration> connect` under each missing account", async () => {
+    const cap = capturePlain();
+    try {
+      const lines: string[] = [];
+      const p = fakeProbes({
+        exec: (argv) => (argv[0] === "sw_vers" ? ok("15.6") : argv[0] === "gh" ? missing("gh") : ok()),
+      });
+      writeIntent(p, {
+        v: 1,
+        at: "2026-08-21T00:00:00.000Z",
+        mode: "create",
+        team: { slug: "acme", name: "Acme", remote: "https://github.com/o/r.git", others: false },
+      });
+      const deps: SetupDeps = { probes: p, secrets: fakeSecrets(), print: (s) => lines.push(s), json: (v) => lines.push(JSON.stringify(v)) };
 
-    await setupStatus([], {}, deps);
+      await setupStatus([], {}, deps);
 
-    expect(lines).toContain("Missing accounts — connect with:");
-    expect(lines).toContain("  - GitHub: rt setup github connect");
+      expect(cap.stdout()).toContain("[needs you] GitHub");
+      const rows = cap.stdout().split("\n");
+      const github = rows.findIndex((l) => l.startsWith("[needs you] GitHub"));
+      expect(rows[github + 1]).toBe("  next: rt setup github connect");
+    } finally {
+      cap.restore();
+    }
   });
 
-  test("human mode omits the missing-accounts footer entirely when nothing is missing", async () => {
-    const deps = captureDeps();
-    await setupStatus([], {}, deps);
+  test("plan mode prints no connect callout", async () => {
+    const cap = capturePlain();
+    try {
+      const p = fakeProbes({
+        exec: (argv) => (argv[0] === "sw_vers" ? ok("15.6") : argv[0] === "gh" ? missing("gh") : ok()),
+      });
+      writeIntent(p, {
+        v: 1,
+        at: "2026-08-21T00:00:00.000Z",
+        mode: "create",
+        team: { slug: "acme", name: "Acme", remote: "https://github.com/o/r.git", others: false },
+      });
+      const deps: SetupDeps = { probes: p, secrets: fakeSecrets(), print: () => {}, json: () => {} };
 
-    expect(deps.lines.some((l) => l.includes("Missing accounts"))).toBe(false);
+      await setupPlan([], {}, deps);
+
+      expect(cap.stdout()).not.toContain("next: rt setup");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("human status omits the connect callouts entirely when nothing is missing", async () => {
+    const cap = capturePlain();
+    try {
+      await setupStatus([], {}, captureDeps());
+      expect(cap.stdout()).not.toContain("next: rt setup");
+    } finally {
+      cap.restore();
+    }
   });
 });
 
 // setupInteractive (the real TTY walk, not the old setupStatus alias) is
 // covered in commands/__tests__/setup-apply.test.ts.
 
-describe("renderPlanHuman", () => {
-  test("group headers, one line per row with a status glyph, and an install footer", () => {
-    const plan: Plan = {
-      contract: 1,
-      at: "2026-08-21T00:00:00.000Z",
-      team: { slug: "acme", name: "Acme", mode: "join" },
-      groups: [
-        {
-          id: "mac",
-          title: "Your Mac",
-          rows: [
-            { id: "perm.fda", kind: "permission", title: "Full Disk Access", why: "x", required: true, optionalNote: null, status: "ready", detail: "Granted", action: null, recheck: "on-activate" },
-          ],
-        },
-      ],
-      canInstall: false,
-      requiredMissing: ["perm.fda"],
-      finishBlockedBy: [],
-    };
-
-    const lines = renderPlanHuman(plan);
-    expect(lines[0]).toBe("Your Mac");
-    expect(lines[1]).toBe(`  ${green}✓${reset} Full Disk Access  Granted`);
-    expect(lines.at(-1)).toBe("Install: blocked by: perm.fda");
-  });
-
-  test("a missing row's glyph is colored red", () => {
-    const plan: Plan = {
-      contract: 1,
-      at: "2026-08-21T00:00:00.000Z",
-      team: { slug: "acme", name: "Acme", mode: "join" },
-      groups: [
-        {
-          id: "accounts",
-          title: "Accounts",
-          rows: [
-            { id: "account.linear", kind: "account", title: "Linear", why: "x", required: true, optionalNote: null, status: "missing", detail: "no account connected", action: null, recheck: "on-change" },
-          ],
-        },
-      ],
-      canInstall: false,
-      requiredMissing: ["account.linear"],
-      finishBlockedBy: [],
-    };
-
-    expect(renderPlanHuman(plan)[1]).toBe(`  ${red}✗${reset} Linear  no account connected`);
-  });
-
-  test("canInstall:true renders 'Install: ready'", () => {
-    const plan: Plan = {
-      contract: 1,
-      at: "2026-08-21T00:00:00.000Z",
-      team: { slug: "acme", name: "Acme", mode: "join" },
-      groups: [],
-      canInstall: true,
-      requiredMissing: [],
-      finishBlockedBy: [],
-    };
-    expect(renderPlanHuman(plan).at(-1)).toBe("Install: ready");
-  });
-
-  test("a choose row's footnote renders on its own line under the row, dim-styled", () => {
-    const plan: Plan = {
-      contract: 1,
-      at: "2026-08-21T00:00:00.000Z",
-      team: { slug: "acme", name: "Acme", mode: "join" },
-      groups: [
-        {
-          id: "tools",
-          title: "Tools",
-          rows: [
-            {
-              id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, optionalNote: null,
-              status: "needs-you", detail: "Not chosen yet",
-              action: {
-                type: "choose", label: "Choose style…", verb: ["skills", "writing-style", "use"], options: [],
-                footnote: "You can also choose from a terminal: rt skills writing-style use",
-              },
-              recheck: "on-change",
-            },
-          ],
-        },
-      ],
-      canInstall: true,
-      requiredMissing: [],
-      finishBlockedBy: [],
-    };
-
-    const lines = renderPlanHuman(plan);
-    expect(lines[1]).toBe(`  ${yellow}!${reset} Writing style  Not chosen yet`);
-    expect(lines[2]).toBe(`  ${dim}You can also choose from a terminal: rt skills writing-style use${reset}`);
-    expect(lines.at(-1)).toBe("Install: ready");
-  });
-
-  test("a choose row without a footnote, and a non-choose action, render no extra line", () => {
-    const plan: Plan = {
-      contract: 1,
-      at: "2026-08-21T00:00:00.000Z",
-      team: { slug: "acme", name: "Acme", mode: "join" },
-      groups: [
-        {
-          id: "tools",
-          title: "Tools",
-          rows: [
-            {
-              id: "skills.writing-style", kind: "tool", title: "Writing style", why: "x", required: false, optionalNote: null,
-              status: "needs-you", detail: "Not chosen yet",
-              action: { type: "choose", label: "Choose style…", verb: ["skills", "writing-style", "use"], options: [] },
-              recheck: "on-change",
-            },
-            {
-              id: "tool.chrome", kind: "tool", title: "Google Chrome", why: "x", required: false, optionalNote: null,
-              status: "ready", detail: "installed",
-              action: { type: "open-url", label: "Download", url: "https://example.com" },
-              recheck: "manual",
-            },
-          ],
-        },
-      ],
-      canInstall: true,
-      requiredMissing: [],
-      finishBlockedBy: [],
-    };
-
-    const lines = renderPlanHuman(plan);
-    expect(lines).toEqual([
-      "Tools",
-      `  ${yellow}!${reset} Writing style  Not chosen yet`,
-      `  ${green}✓${reset} Google Chrome  installed`,
-      "Install: ready",
-    ]);
-  });
-});
-
-describe("renderFinishLine", () => {
-  const base: Plan = { contract: 1, at: "2026-08-21T00:00:00.000Z", team: { slug: "", name: "", mode: "none" }, groups: [], canInstall: true, requiredMissing: [], finishBlockedBy: [] };
-
-  test("no blockers -> Finish: ready", () => {
-    expect(renderFinishLine(base)).toBe("Finish: ready");
-  });
-
-  test("blockers are listed by id", () => {
-    expect(renderFinishLine({ ...base, finishBlockedBy: ["tool.fast-browser-extension"] })).toBe("Finish: blocked by: tool.fast-browser-extension");
-  });
-});
-
 describe("setupStatus Finish line", () => {
-  test("human mode prints the Finish line right after the Install line", async () => {
-    const deps = captureDeps();
-    await setupStatus([], {}, deps);
-    const install = deps.lines.findIndex((l) => l.startsWith("Install: "));
-    expect(install).toBeGreaterThan(0);
-    // The fake home has no home repo, so skills.writing-style blocks Finish here.
-    expect(deps.lines[install + 1]).toBe("Finish: blocked by: skills.writing-style");
+  test("human status prints the Finish line right after the Install summary", async () => {
+    const cap = capturePlain();
+    try {
+      await setupStatus([], {}, captureDeps());
+      const rows = cap.stdout().trimEnd().split("\n");
+      const install = rows.findIndex((l) => l.includes("Install can run") || l.includes("Install is waiting on"));
+      expect(install).toBeGreaterThan(0);
+      // The fake home has no home repo, so the writing-style row blocks Finish here.
+      expect(rows[install + 1]).toBe("[needs you] Finish is waiting on  Writing style");
+    } finally {
+      cap.restore();
+    }
   });
 
   test("setup plan (human) prints no Finish line", async () => {
-    const deps = captureDeps();
-    await setupPlan([], {}, deps);
-    expect(deps.lines.some((l) => l.startsWith("Finish: "))).toBe(false);
+    const cap = capturePlain();
+    try {
+      await setupPlan([], {}, captureDeps());
+      expect(cap.stdout()).not.toContain("Finish");
+    } finally {
+      cap.restore();
+    }
   });
 });
 
