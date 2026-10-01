@@ -259,7 +259,7 @@ describe("internal roster verbs", () => {
     expect(md).toContain("${CLAUDE_SKILL_DIR}/../../attachments/receive-review/parts/include-gitlab-note/scripts/note.sh");
     expect(md).not.toContain("${CLAUDE_SKILL_DIR}/parts/");
     expect(existsSync(join(pack, "attachments", "receive-review", "parts", "include-gitlab-note", "scripts", "note.sh"))).toBe(true);
-    expect(logs.find((l) => l.startsWith("compiled receive-review"))).toMatch(/0 warnings\)$/);
+    expect(logs.some((l) => l.startsWith("[ok] Compiled receive-review  "))).toBe(true);
   });
 });
 
@@ -272,7 +272,7 @@ describe("verb.path end to end", () => {
 
     const md = readFileSync(join(pack, "skills", "checkout", "SKILL.md"), "utf8");
     expect(md).toContain("Read ../../attachments/receive-review/SKILL.md first, then ../work/SKILL.md.");
-    expect(logs.find((l) => l.startsWith("compiled checkout"))).toMatch(/0 warnings\)$/);
+    expect(logs.some((l) => l.startsWith("[ok] Compiled checkout  "))).toBe(true);
   });
 
   test("a --verb compile still renders a path to a sibling it is not emitting, and lints it clean", async () => {
@@ -306,7 +306,7 @@ describe("pack.path end to end", () => {
     const anchored = "${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh";
     expect(readFileSync(join(pack, "attachments", "stage-plan", "SKILL.md"), "utf8")).toContain(`Capture with ${anchored}.`);
     expect(readFileSync(join(pack, "skills", "checkout", "SKILL.md"), "utf8")).toContain(`then ${anchored}.`);
-    expect(logs.find((l) => l.startsWith("compiled stage-plan"))).toMatch(/0 warnings\)$/);
-    expect(logs.find((l) => l.startsWith("compiled checkout"))).toMatch(/0 warnings\)$/);
+    expect(logs.some((l) => l.startsWith("[ok] Compiled stage-plan  "))).toBe(true);
+    expect(logs.some((l) => l.startsWith("[ok] Compiled checkout  "))).toBe(true);
   });
 });

@@ -318,7 +318,7 @@ describe("skillsCompile with a surface config", () => {
       "--manifest", manifestPath,
     ]);
 
-    expect(io.lines().some((l) => l.startsWith("compiled old-verb -> attachments"))).toBe(true);
+    expect(io.lines().some((l) => l.includes("Compiled old-verb") && l.endsWith("in attachments/"))).toBe(true);
     expect(existsSync(join(packDir, "skills", "old-verb"))).toBe(false);
     expect(existsSync(join(packDir, "attachments", "old-verb", "SKILL.md"))).toBe(true);
     expect(existsSync(join(packDir, "skills", "watch-ci", "SKILL.md"))).toBe(true);
@@ -338,7 +338,7 @@ describe("skillsCompile with a surface config", () => {
       "--manifest", manifestPath,
     ]);
 
-    expect(io.lines()).toContain("misplaced: stray-skill (run rt skills surface apply, or move it)");
+    expect(io.errLines()).toContain("stray-skill is in the wrong folder");
     expect(process.exitCode).toBe(1);
     // it never moves anything
     expect(existsSync(join(packDir, "skills", "stray-skill", "SKILL.md"))).toBe(true);
@@ -383,7 +383,7 @@ describe("skillsCompile with a surface config", () => {
     ]);
 
     expect(io.lines().some((l) => l.startsWith("internal:"))).toBe(false);
-    expect(io.lines().some((l) => l.startsWith("misplaced:"))).toBe(false);
+    expect(io.stderr()).not.toContain("in the wrong folder");
     expect(existsSync(join(packDir, "skills", "watch-ci", "SKILL.md"))).toBe(true);
     expect(existsSync(join(packDir, "skills", "old-verb", "SKILL.md"))).toBe(true);
     expect(process.exitCode).not.toBe(1);
@@ -470,10 +470,11 @@ describe("computeInternalRoster integration (pack dir doubles as plugin root)", 
     expect(content).toContain("Domain rules inlined from qa-gates for the transition window.");
     expect(content).not.toContain("invoke that skill when this flow needs it");
 
-    expect(io.lines()).toContain("  note: acme:qa-gates is surface-internal; inlined");
+    expect(io.lines().some((l) => l.endsWith("acme:qa-gates is surface-internal; inlined"))).toBe(true);
+    expect(io.stdout()).not.toContain("note: note:");
     // qa-gates is still physically under skills/ and isn't in surface.public --
     // it compiles (inlined) AND is flagged for the move surface apply would do.
-    expect(io.lines()).toContain("misplaced: qa-gates (run rt skills surface apply, or move it)");
+    expect(io.errLines()).toContain("qa-gates is in the wrong folder");
     expect(process.exitCode).toBe(1);
   });
 
@@ -506,11 +507,11 @@ describe("computeInternalRoster integration (pack dir doubles as plugin root)", 
     );
 
     expect(exitCode).toBe(1);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toStartWith("rt skills: ");
-    expect(errors[0]).toContain("gate-check");
-    expect(errors[0]).toContain("acme:qa-gates");
-    expect(errors[0]).toContain("surface-internal");
+    expect(errors).toHaveLength(2);
+    expect(errors[0]).toBe("1 verb did not compile");
+    expect(errors[1]).toContain("gate-check");
+    expect(errors[1]).toContain("acme:qa-gates");
+    expect(errors[1]).toContain("surface-internal");
     expect(existsSync(join(acmeDir, "skills", "gate-check"))).toBe(false);
   });
 
@@ -545,11 +546,11 @@ describe("computeInternalRoster integration (pack dir doubles as plugin root)", 
     );
 
     expect(exitCode).toBe(1);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toStartWith("rt skills: ");
-    expect(errors[0]).toContain("gate-check");
-    expect(errors[0]).toContain("acme:qa-gates");
-    expect(errors[0]).toContain("surface-internal");
+    expect(errors).toHaveLength(2);
+    expect(errors[0]).toBe("1 verb did not compile");
+    expect(errors[1]).toContain("gate-check");
+    expect(errors[1]).toContain("acme:qa-gates");
+    expect(errors[1]).toContain("surface-internal");
     expect(existsSync(join(acmeDir, "skills", "gate-check"))).toBe(false);
   });
 });

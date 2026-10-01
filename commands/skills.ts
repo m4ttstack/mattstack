@@ -32,6 +32,7 @@ import { createInterface } from "node:readline";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { mattstackHome } from "../lib/rt-paths.ts";
 import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/errors.ts";
@@ -897,6 +898,34 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   return { outcomes, failures, misplaced };
 }
 
+export type CompiledRow = { name: string; side: Side; files: number; warnings: string[] };
+
+const countOf = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+export function compileBlocks(rows: CompiledRow[], writing: boolean): Block[] {
+  if (rows.length === 0) return [out.line("skipped", "Nothing to compile", "this pack has no verbs")];
+  return rows.flatMap((row) => [
+    writing
+      ? out.line(row.warnings.length > 0 ? "warn" : "done", `Compiled ${row.name}`, `${countOf(row.files, "file", "files")} in ${row.side}/`)
+      : out.line("pending", row.name, `would write ${countOf(row.files, "file", "files")}`),
+    // compile.ts writes its surface-internal notes with their own "note: " label.
+    ...(row.warnings.length > 0 ? [out.callout("note", ...row.warnings.map((w) => w.replace(/^note: /, "")))] : []),
+  ]);
+}
+
+export function compileFailure(failures: string[]): out.FailureInput {
+  return { title: `${countOf(failures.length, "verb", "verbs")} did not compile`, details: failures.join("\n") };
+}
+
+export function misplacedFailure(names: string[]): out.FailureInput {
+  return {
+    title: names.length === 1 ? `${names[0]} is in the wrong folder` : `${names.length} skills are in the wrong folder`,
+    why: "A skill's folder has to match whether it is public or internal.",
+    next: out.cmd("rt skills surface apply"),
+    ...(names.length > 1 ? { details: names.join("\n") } : {}),
+  };
+}
+
 export async function skillsCompile(args: string[]): Promise<void> {
   await withCleanErrors(async () => {
     const flags = parseFlags(args);
@@ -912,6 +941,8 @@ export async function skillsCompile(args: string[]): Promise<void> {
         next: out.cmd("rt skills compile --preview --verb <name>"),
       });
     }
+
+    if (flags.preview) out.payloadOnStdout();
 
     const resolved = await resolve(flags);
     const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
@@ -930,7 +961,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
         if (!outcome.ok) {
           // A lint-erroring verb has no previewable body -- say so on stderr
           // and leave stdout empty rather than silently producing nothing.
-          console.error(`rt skills: ${outcome.message}`);
+          out.fail({ title: `${verb.name} did not compile, so there is nothing to preview`, details: outcome.message });
           process.exitCode = 1;
           return;
         }
@@ -938,7 +969,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
         // interleaved, so the output pipes straight into a file or a preview pane.
         const main = outcome.result.files.find((f) => "content" in f && f.path.endsWith("SKILL.md"));
         if (!main || !("content" in main)) throw new SkillsUsageError(`verb "${verb.name}": produced no SKILL.md`);
-        console.log(main.content);
+        out.payload(`${main.content}\n`);
       }
       // The post-loop misplaced scan below walks the whole pack rather than the
       // requested verb, so letting --preview reach it would put a misplaced
@@ -948,29 +979,11 @@ export async function skillsCompile(args: string[]): Promise<void> {
 
     const { outcomes, failures, misplaced } = performCompile(resolved, flags.verbs, !flags.dryRun);
     if (failures.length > 0 && !flags.json) {
-      for (const message of failures) console.error(`rt skills: ${message}`);
+      out.fail(compileFailure(failures));
       process.exit(1);
     }
 
     const writing = failures.length === 0 && !flags.dryRun;
-    for (const { target, outcome } of outcomes) {
-      if (!outcome.ok) continue;
-      const { verb, isPublic } = target;
-      const side: Side = isPublic ? "skills" : "attachments";
-
-      if (!writing) {
-        if (!flags.json) {
-          console.log(`would write ${outcome.result.files.length} files for ${verb.name}`);
-          for (const warning of outcome.result.warnings) console.log(`  ${warning}`);
-        }
-        continue;
-      }
-
-      if (!flags.json) {
-        console.log(`compiled ${verb.name} -> ${side} (${outcome.result.files.length} files, ${outcome.result.warnings.length} warnings)`);
-        for (const warning of outcome.result.warnings) console.log(`  ${warning}`);
-      }
-    }
 
     if (flags.json) {
       const rows: CompileVerbRow[] = outcomes.map(({ target, outcome }) => {
@@ -984,12 +997,17 @@ export async function skillsCompile(args: string[]): Promise<void> {
       // non-JSON path's exits. `written` stays honest on an empty target set.
       if (failures.length > 0 || misplaced.length > 0) process.exitCode = 1;
       const written = writing && outcomes.length > 0;
-      console.log(JSON.stringify({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced }));
+      out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced });
       return;
     }
 
-    for (const name of misplaced) {
-      console.log(`misplaced: ${name} (run rt skills surface apply, or move it)`);
+    const compiled: CompiledRow[] = outcomes.flatMap(({ target, outcome }) =>
+      outcome.ok ? [{ name: target.verb.name, side: target.isPublic ? ("skills" as const) : ("attachments" as const), files: outcome.result.files.length, warnings: outcome.result.warnings }] : [],
+    );
+    out.print(...compileBlocks(compiled, writing));
+
+    if (misplaced.length > 0) {
+      out.fail(misplacedFailure(misplaced));
       process.exitCode = 1;
     }
   });

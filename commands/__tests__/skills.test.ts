@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -12,6 +12,7 @@ import type { PackInfo } from "../../lib/skills/packs.ts";
 import type { VerbDef } from "../../lib/skills/types.ts";
 import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
+import * as ui from "../../lib/ui/out.ts";
 
 const realInitFsForTests: MaterializeFs = {
   exists: existsSync,
@@ -284,7 +285,7 @@ describe("skillsCompile", () => {
 
     const out = io.lines().join("\n");
     expect(out).toContain("<!-- part: step source=");
-    expect(out).not.toContain("compiled watch-ci (");
+    expect(out).not.toContain("Compiled watch-ci");
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
   });
 
@@ -347,7 +348,7 @@ describe("skillsCompile", () => {
 
     const out = io.lines().join("\n");
     expect(out).toContain("<!-- part: step source=");
-    expect(out).not.toContain("misplaced:");
+    expect(out).not.toContain("wrong folder");
   });
 
   test("real run emits SKILL.md + vendored files matching a golden compile, byte for byte", async () => {
@@ -363,7 +364,7 @@ describe("skillsCompile", () => {
       "--verb", "watch-ci",
     ]);
 
-    expect(io.lines().some((l) => l.includes("compiled watch-ci") && l.includes("3 files"))).toBe(true);
+    expect(io.lines().some((l) => l.includes("Compiled watch-ci") && l.includes("3 files"))).toBe(true);
 
     const golden = computeGolden(mattstackDir);
     const outDir = join(packDir, "skills", "watch-ci");
@@ -395,11 +396,11 @@ describe("skillsCompile", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toStartWith("rt skills: ");
-    expect(errors[0]).not.toContain("\n    at "); // no stack trace
-    expect(errors[0]).toContain("watch-ci");
-    expect(errors[0]).toContain("forge");
+    expect(errors).toHaveLength(2);
+    expect(errors[0]).toBe("1 verb did not compile");
+    expect(errors.join("\n")).not.toContain("\n    at "); // no stack trace
+    expect(errors.join("\n")).toContain("watch-ci");
+    expect(errors.join("\n")).toContain("forge");
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
   });
 
@@ -422,7 +423,8 @@ describe("skillsCompile", () => {
     );
 
     expect(exitCode).toBe(1);
-    const diagnostics = errors.filter((e) => /^(rt skills: )?verb "/.test(e));
+    expect(errors[0]).toBe("2 verbs did not compile");
+    const diagnostics = errors.filter((e) => /^ *verb "/.test(e));
     expect(diagnostics).toHaveLength(2);
     expect(diagnostics[0]).toContain('verb "broken-a": loadStepSource: engine "no-such-engine-a" not found under');
     expect(diagnostics[1]).toContain('verb "broken-b": loadStepSource: engine "no-such-engine-b" not found under');
@@ -1104,27 +1106,50 @@ function makePipelineFixtures(): { mattstackDir: string; packDir: string; manife
 describe("skillsCompile/skillsCheck --verb scoping across roster verbs and pipeline stages", () => {
   test("--verb work --preview emits exactly the orchestrator's body, not every stage's too", async () => {
     const { mattstackDir, packDir, manifestPath } = makePipelineFixtures();
+    const payload = spyOn(ui, "payload");
+    try {
+      await skillsCompile([
+        "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
+        "--verb", "work", "--preview",
+      ]);
 
-    await skillsCompile([
-      "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
-      "--verb", "work", "--preview",
-    ]);
-
-    // Strict, not toContain: a stray second console.log (the stage's body
-    // concatenated after the orchestrator's) is exactly the N+1-bodies bug --
-    // toContain would have passed with two bodies on stdout.
-    expect(io.stdout()).toContain("The work type is `feature`. Continue.");
+      // Strict, not toContain: a second body on stdout (the stage's after the
+      // orchestrator's) is the N+1-bodies bug, and one payload call is the check.
+      expect(payload).toHaveBeenCalledTimes(1);
+      expect(io.stdout()).toContain("The work type is `feature`. Continue.");
+      expect(io.stdout().endsWith("\n")).toBe(true);
+    } finally {
+      payload.mockRestore();
+    }
   });
 
   test("--verb stage-plan --preview emits exactly that stage's body, not the orchestrator's", async () => {
     const { mattstackDir, packDir, manifestPath } = makePipelineFixtures();
+    const payload = spyOn(ui, "payload");
+    try {
+      await skillsCompile([
+        "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
+        "--verb", "stage-plan", "--preview",
+      ]);
 
-    await skillsCompile([
-      "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
-      "--verb", "stage-plan", "--preview",
-    ]);
+      expect(payload).toHaveBeenCalledTimes(1);
+      expect(io.stdout()).not.toContain("The work type is");
+    } finally {
+      payload.mockRestore();
+    }
+  });
 
-    expect(io.stdout()).not.toContain("The work type is");
+  test("--preview writes the body once through out.payload and nothing else on stdout", async () => {
+    const { mattstackDir, packDir, manifestPath } = makePipelineFixtures();
+    const payload = spyOn(ui, "payload");
+    try {
+      await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "stage-plan", "--preview"]);
+      expect(payload).toHaveBeenCalledTimes(1);
+      expect(io.stdout()).toBe(String(payload.mock.calls[0]![0]));
+      expect(io.stderr()).toBe("");
+    } finally {
+      payload.mockRestore();
+    }
   });
 
   test("--verb work (real compile) writes only the orchestrator, leaving the stage uncompiled", async () => {
