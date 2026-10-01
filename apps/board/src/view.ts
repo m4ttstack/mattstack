@@ -3,6 +3,7 @@ import type { ReviewStatus } from './client/types.ts';
 import type { TabConfig } from './config.ts';
 import type { BoardMR, BoardSyncError } from './data.ts';
 import { hasChangesRequested } from './data.ts';
+import { canonicalUsername } from './peer/envelope.ts';
 import { projectKeyOf } from './triage/stack.ts';
 
 export type GroupKey = 'age' | 'author' | 'status' | 'review' | 'needs';
@@ -343,7 +344,10 @@ export function isOwnMr(
   mr: { author: { username: string } },
   self: string | null
 ): boolean {
-  return self !== null && mr.author.username === self;
+  return (
+    self !== null &&
+    canonicalUsername(mr.author.username) === canonicalUsername(self)
+  );
 }
 
 export type StandDownTarget<M extends BoardMR> =

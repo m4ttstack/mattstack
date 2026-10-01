@@ -54,6 +54,10 @@ describe('isOwnMr', () => {
     expect(isOwnMr(mr({}), seatOf('bob'))).toBe(false);
   });
 
+  test('usernames compare the way GitLab does, ignoring case', () => {
+    expect(isOwnMr(mr({}), seatOf('Alice'))).toBe(true);
+  });
+
   test('an "all" board has no seat, so it owns nothing', () => {
     const named = mr({
       author: { id: 'y', username: 'all', name: 'All', avatarUrl: null },

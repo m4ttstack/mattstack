@@ -144,7 +144,7 @@ import {
   type GateResumeEventIo,
   type KindResumeIo,
 } from './gates/resume.ts';
-import { RunMrResolver } from './gates/run-mr.ts';
+import { normalizeMrUrl, RunMrResolver } from './gates/run-mr.ts';
 import { type GateAnswers } from './gates/store.ts';
 import { domainForKind, planSweep, pruneOffBoardGates } from './gates/sweep.ts';
 import { gateOrigin } from './gates/wait-meta.ts';
@@ -741,9 +741,16 @@ function iidMismatch(
     the seat's; null when it is. An "all" board owns nothing, so it refuses
     everything. */
 function requireOwnMr(mr: BoardMR): Response | null {
-  return isOwnMr(mr, seatOf(config.defaultMember))
-    ? null
-    : new Response('not your MR', { status: 403 });
+  return ownedHere(mr) ? null : new Response('not your MR', { status: 403 });
+}
+
+/** The seat authored it and, once the GitLab token's user is known (the
+    identity /doctor and triage cache), so did that user: a seat set to
+    someone else's name never borrows their MRs. */
+function ownedHere(mr: BoardMR): boolean {
+  if (!isOwnMr(mr, seatOf(config.defaultMember))) return false;
+  const tokenUser = readMemory().identity?.username;
+  return !tokenUser || isOwnMr(mr, tokenUser);
 }
 
 /** A respond or doctor gate is the MR author's to answer; a review gate
@@ -756,9 +763,13 @@ async function requireGateOwner(
   if (!row) return null;
   const domain = domainForKind(row.kind);
   if (domain !== 'respond' && domain !== 'doctor') return null;
-  const url = row.subject.startsWith('mr:') ? row.subject.slice(3) : null;
+  const url = row.subject.startsWith('mr:')
+    ? normalizeMrUrl(row.subject.slice(3))
+    : null;
   const mr = url
-    ? (await cache.get()).mrs.find(m => m.webUrl === url)
+    ? (await cache.get()).mrs.find(
+        m => !!m.webUrl && normalizeMrUrl(m.webUrl) === url
+      )
     : undefined;
   return mr ? requireOwnMr(mr) : new Response('not your MR', { status: 403 });
 }
@@ -1591,8 +1602,11 @@ const httpServer = Bun.serve({
           const mr = (await cache.get()).mrs.find(
             m => m.iid === change.iid && repoIdentityField(m.rtRepo) === repoId
           );
-          const mine = !!mr && isOwnMr(mr, seat);
-          if (seat === null || (!mine && starter !== seat))
+          const mine = !!mr && ownedHere(mr);
+          const started =
+            starter !== null &&
+            canonicalUsername(starter) === canonicalUsername(seat ?? '');
+          if (seat === null || (!mine && !started))
             return new Response('not your thread', { status: 403 });
         }
         return threadWriteResponse(
@@ -2615,6 +2629,10 @@ const httpServer = Bun.serve({
         if (!resolved.ok)
           return new Response(resolved.error, { status: resolved.status });
         const { mr, descendants } = resolved;
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
+        }
 
         const dayStamp = new Date().toISOString().slice(0, 10);
         // Serialized behind the same claim bin/triage.ts's own pass holds
@@ -2825,7 +2843,7 @@ const httpServer = Bun.serve({
         // ask is the reverse, reviewer -> author about theirs, and only ever
         // to the author.
         if (kind === 'respond') {
-          if (isOwnMr(mr, seatOf(config.defaultMember)))
+          if (ownedHere(mr))
             return new Response('cannot ask yourself to respond', {
               status: 403,
             });

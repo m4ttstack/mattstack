@@ -15,6 +15,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 
 import { readDrafts, writeDraft } from '../draft-state.ts';
 import { openStateDb } from '../state/db.ts';
+import { readMemory, writeMemory } from '../triage/memory-store.ts';
 
 type Seen = Array<{ cmd: string; body: unknown }>;
 
@@ -141,7 +142,12 @@ function gateRow(host: string, id: string, kind: string, iid: number) {
   };
 }
 
-function boot(name: string, port: number, seat: string | null): Board {
+function boot(
+  name: string,
+  port: number,
+  seat: string | null,
+  tokenUser: string = seat ?? 'alice'
+): Board {
   const home = mkdtempSync(join(tmpdir(), `board-own-mr-${name}-`));
   const gitlabSeen: string[] = [];
   const gitlab = Bun.serve({
@@ -152,7 +158,7 @@ function boot(name: string, port: number, seat: string | null): Board {
       if (pathname === '/api/v4/user')
         return Response.json({
           id: 1,
-          username: seat ?? 'alice',
+          username: tokenUser,
           name: 'Seat',
           avatar_url: null,
         });
@@ -190,6 +196,13 @@ function boot(name: string, port: number, seat: string | null): Board {
 
   const dbPath = join(home, 'state.db');
   const db = openStateDb(dbPath);
+  writeMemory(
+    {
+      ...readMemory(db),
+      identity: { username: tokenUser, fetchedAt: Date.now() },
+    },
+    db
+  );
   const prs = [fakePr(host, 7, ALICE), fakePr(host, 20, BOB)];
   const gates = GATES.map(([id, kind, iid]) => gateRow(host, id, kind, iid));
   const daemonSeen: Seen = [];
@@ -289,10 +302,13 @@ function boot(name: string, port: number, seat: string | null): Board {
 
 const seated = boot('seat', 47966, 'alice');
 const everyone = boot('all', 47967, null);
+// The seat says alice, but the board's GitLab token belongs to carol.
+const borrowed = boot('borrowed', 47968, 'alice', 'carol');
 
 afterAll(() => {
   seated.stop();
   everyone.stop();
+  borrowed.stop();
 });
 
 async function ready(b: Board): Promise<void> {
@@ -680,4 +696,34 @@ describe('/gate/answer', () => {
     expect(res.status).toBe(200);
     expect(answered(seated, 'review-20')).toBe(true);
   }, 15_000);
+});
+
+describe("a seat that is not the token's user owns nothing", () => {
+  for (const r of ROUTES)
+    test(
+      r.name,
+      async () => {
+        r.setup?.(borrowed, 7);
+        const res = await post(borrowed, r.path, r.body(borrowed, 7));
+        expect(res.status).toBe(403);
+        expect(await res.text()).toBe('not your MR');
+      },
+      15_000
+    );
+
+  test("/discussions/resolve on a reviewer's thread on the seat's MR", async () => {
+    const res = await post(borrowed, '/discussions/resolve', {
+      repo: borrowed.repo,
+      iid: 7,
+      discussionId: 't7-bob',
+      author: 'alice',
+      resolved: true,
+    });
+    expect(res.status).toBe(403);
+  }, 15_000);
+
+  test('nothing reached GitLab or launched a pane', () => {
+    expect(wroteTo(borrowed, 7)).toBe(false);
+    expect(launchedOn(borrowed, 7)).toBe(false);
+  });
 });
