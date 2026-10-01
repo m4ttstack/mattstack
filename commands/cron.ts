@@ -10,7 +10,7 @@ import { resolveTool } from "../lib/deps/resolve.ts";
 import { getKnownRepos } from "../lib/repo-index.ts";
 import { installCronTrigger, removeCronTrigger, resolveBoardTriage, triageTrigger } from "../lib/setup/cron-install.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
+import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 
 const KNOWN_TRIGGERS = ["board-triage"] as const;

@@ -7,7 +7,7 @@
  */
 
 import type { Probes } from "../setup/probes.ts";
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 
 export const DEFAULT_INVITE_RELAY_URL = "https://switchboard.mattstack.dev";
 

@@ -6,7 +6,7 @@
 
 import { dirname, join } from "path";
 import type { Probes } from "../setup/probes.ts";
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 
 export interface InviteRecord {
   id: string;

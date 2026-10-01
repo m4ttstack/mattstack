@@ -30,7 +30,7 @@ import {
 import { homedir, tmpdir } from "os";
 import { dirname, join } from "path";
 import { createRealUpdateMachineSeams } from "../commands/release.ts";
-import { UserActionableError } from "../lib/setup/errors.ts";
+import { UserActionableError } from "../lib/errors.ts";
 import { runCapture } from "../lib/subprocess.ts";
 import { devAppStagePaths, stageLocalDevApp } from "../lib/release/dev-app-stage.ts";
 import { assertDevAppRef, runDevAppRebuild } from "../lib/release/update-machine.ts";

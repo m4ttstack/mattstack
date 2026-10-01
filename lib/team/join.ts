@@ -24,7 +24,7 @@ import { type AgeKeySeam, createRealAgeKeySeam, ensureAgeKey } from "../home/age
 import { createRealSecretsExecSeam, personalStoreReady, validateSlug, writeSecret } from "../secrets/store.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 import { readTeamSecret } from "../secrets/team-store.ts";
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 import { isValidHttpsUrl } from "../setup/host-validate.ts";
 import { clearIntent, readIntent, writeIntent, type InvitePointer } from "../setup/intent.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";

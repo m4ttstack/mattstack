@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { UserActionableError } from "../../setup/errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { CLEAN_DIFF_HASH } from "../dev-app-cache.ts";
 import { devAppStagePaths, stageLocalDevApp, type StageSeams } from "../dev-app-stage.ts";
 
