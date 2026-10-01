@@ -1,0 +1,14 @@
+declare module '@mattstack/app-kit/icons' {
+  interface AppIcons {
+    workflow: true;
+    layoutDashboard: true;
+    fileText: true;
+    fileCode: true;
+    cpu: true;
+    circleDot: true;
+    replace: true;
+    arrowUpRight: true;
+    squareTerminal: true;
+  }
+}
+export {};
