@@ -50,8 +50,9 @@ against a large close button, so it reads off-centre and busy.
 ## The panel (`KeyPanel`, new)
 
 Tabs are a kit `SegmentedControl` at the panel's top-left. Default tab:
-**Value** for composite keys, **Where it's set** for every other row (their
-value is already editable in the header). A Fix or an `?explain=` link opens
+**Value** for a row with an editor body (composite keys, except a short
+string list edited inline in the header), **Where it's set** for every
+other row (its value is already editable in the header). A Fix or an `?explain=` link opens
 **Where it's set**.
 
 ### Value tab
@@ -76,7 +77,8 @@ value is already editable in the header). A Fix or an `?explain=` link opens
   `ignored, teamLocked` and `refused` states stay as small amber / red text
   in the status slot, only when true.
 - Layers whose store is not in `def.scopes` are not drawn, unless they hold
-  a stray value (then they draw with Remove and a muted "not allowed here").
+  a stray value (then they draw with a muted "not allowed here" and, as
+  today, no edit, move or remove).
 - Hover actions (kit `ActionIcon` + `Tooltip`, shown on `:hover` /
   `:focus-within` of the line): open file (tooltip `Open <path>`, href from
   `useEditorHref`; hidden for the registry default), edit at this layer,
