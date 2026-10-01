@@ -8,6 +8,27 @@ import { rowSummary } from './CompositeControls';
 import { SettingRow } from './SettingRow';
 import { schemaFields } from './testSchemas';
 
+vi.mock('@mattstack/app-kit/lazy', () => ({
+  CodeMirror: ({
+    value,
+    onChange,
+  }: {
+    value?: string;
+    onChange?: (v: string) => void;
+  }) => (
+    <textarea
+      aria-label="JSON"
+      value={value}
+      onChange={e => onChange?.(e.currentTarget.value)}
+    />
+  ),
+}));
+
+async function openRow(key: string) {
+  await userEvent.click(screen.getByRole('button', { name: `open ${key}` }));
+  await screen.findByRole('radiogroup', { name: `${key} panel` });
+}
+
 function def(key: string, over: Partial<SettingDefWire>): SettingDefWire {
   return {
     key,
@@ -31,6 +52,7 @@ const store = () => ({
   set: vi.fn(async () => null),
   unset: vi.fn(async () => null),
   move: vi.fn(async () => null),
+  prune: vi.fn(async () => null as string | null),
 });
 
 const SNAPSHOT_DEFAULTS = {
@@ -273,7 +295,7 @@ describe('composite rows', () => {
     await waitFor(() => expect(s.set).toHaveBeenCalledTimes(1));
     await userEvent.tab();
     expect(
-      screen.getByRole('button', { name: 'board.ticketPrefixes actions' })
+      screen.getByRole('button', { name: 'open board.ticketPrefixes' })
     ).toHaveFocus();
   });
 
@@ -332,9 +354,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await userEvent.click(
-      screen.getByRole('button', { name: /4 /, expanded: false })
-    );
+    await openRow('rt.repoRoots');
     await userEvent.click(screen.getByRole('button', { name: 'remove ~/a' }));
     await waitFor(() => expect(s.set).toHaveBeenCalledTimes(1));
     expect(screen.getByRole('button', { name: 'remove ~/b' })).toBeDisabled();
@@ -354,7 +374,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
+    await openRow('rt.repoRoots');
     await userEvent.click(screen.getByRole('button', { name: 'remove ~/b' }));
     await waitFor(() =>
       expect(s.set).toHaveBeenCalledWith('rt.repoRoots', 'machine', [
@@ -407,7 +427,7 @@ describe('composite rows', () => {
     renderWithProviders(
       <SettingRow def={rootsDef('machine')} store={s} subhead={null} query="" />
     );
-    await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
+    await openRow('rt.repoRoots');
     await userEvent.click(
       await screen.findByRole('button', { name: 'Reset to default' })
     );
@@ -430,7 +450,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
+    await openRow('rt.repoRoots');
     await screen.findByRole('radio', { name: 'JSON' });
     await new Promise(r => setTimeout(r, 50));
     expect(
@@ -448,7 +468,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
+    await openRow('rt.repoRoots');
     await screen.findByRole('radio', { name: 'JSON' });
     await new Promise(r => setTimeout(r, 50));
     expect(
@@ -473,7 +493,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /1 entry/ }));
+    await openRow('rt.repoIdentityOverrides');
     const identity = screen.getByLabelText(
       'identity for https://example.dev/a.git'
     );
@@ -509,7 +529,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /1 of 5 set/ }));
+    await openRow('rt.homeSnapshot');
     expect(await screen.findByText('debounceSec')).toBeInTheDocument();
     const debounce = screen.getByLabelText('rt.homeSnapshot.debounceSec');
     await waitFor(() => expect(debounce).toBeEnabled());
@@ -564,7 +584,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /2 of 5 set/ }));
+    await openRow('rt.homeSnapshot');
     const debounce = screen.getByLabelText('rt.homeSnapshot.debounceSec');
     await waitFor(() => expect(debounce).toBeEnabled());
     await userEvent.clear(debounce);
@@ -596,7 +616,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /1 of 5 set/ }));
+    await openRow('rt.homeSnapshot');
     const debounce = screen.getByLabelText('rt.homeSnapshot.debounceSec');
     await waitFor(() => expect(debounce).toBeEnabled());
     await userEvent.clear(debounce);
@@ -650,7 +670,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /1 of 5 set/ }));
+    await openRow('rt.homeSnapshot');
     const debounce = screen.getByLabelText('rt.homeSnapshot.debounceSec');
     await waitFor(() => expect(debounce).toBeEnabled());
     await userEvent.clear(debounce);
@@ -678,7 +698,7 @@ describe('composite rows', () => {
     const { rerender } = renderWithProviders(
       <SettingRow def={at(20)} store={s} subhead={null} query="" />
     );
-    await userEvent.click(screen.getByRole('button', { name: /2 of 5 set/ }));
+    await openRow('rt.homeSnapshot');
     await waitFor(() =>
       expect(screen.getByLabelText('rt.homeSnapshot.debounceSec')).toBeEnabled()
     );
@@ -730,7 +750,7 @@ describe('composite rows', () => {
     const { rerender } = renderWithProviders(
       <SettingRow def={at('machine')} store={s} subhead={null} query="" />
     );
-    await userEvent.click(screen.getByRole('button', { name: /1 of 5 set/ }));
+    await openRow('rt.homeSnapshot');
     await waitFor(() =>
       expect(screen.getByLabelText('rt.homeSnapshot.debounceSec')).toBeEnabled()
     );
@@ -771,7 +791,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /1 of 5 set/ }));
+    await openRow('rt.homeSnapshot');
     const debounce = screen.getByLabelText('rt.homeSnapshot.debounceSec');
     await waitFor(() => expect(debounce).toBeEnabled());
     await userEvent.click(screen.getByLabelText('rt.homeSnapshot.enabled'));
@@ -798,7 +818,7 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /1 of 5 set/ }));
+    await openRow('rt.homeSnapshot');
     expect(
       await screen.findByLabelText('rt.homeSnapshot.debounceSec')
     ).toBeDisabled();
@@ -941,13 +961,13 @@ describe('composite rows', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /1 field/ }));
+    await openRow('rt.cron');
     expect(screen.getByText('/stores/local.jsonc')).toBeInTheDocument();
     expect(screen.getByText(/"triggers"/)).toBeInTheDocument();
     expect(screen.getByTestId('json-block')).toBeInTheDocument();
   });
 
-  it('an unset read-only composite summarises as unset, with no toggle', () => {
+  it('an unset read-only composite summarises as unset, as text', () => {
     renderWithProviders(
       <SettingRow
         def={def('rt.runaway', {
@@ -960,7 +980,9 @@ describe('composite rows', () => {
         query=""
       />
     );
-    expect(screen.queryByRole('button', { expanded: false })).toBeNull();
+    expect(screen.getAllByRole('button', { expanded: false })).toEqual([
+      screen.getByRole('button', { name: 'open rt.runaway' }),
+    ]);
     expect(screen.getAllByText('unset')).toHaveLength(2);
   });
 
@@ -979,13 +1001,17 @@ describe('composite rows', () => {
     );
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: /2 prefixes/ }));
+    await openRow('board.ticketPrefixes');
     expect(screen.getByText(/"RT"/)).toBeInTheDocument();
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 
-  it('an invalid row offers no Edit as JSON in its row menu', async () => {
-    const s = store();
+  it('an invalid row offers no JSON editor on its Value tab', async () => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ def: null, rows: [] }),
+    }));
     renderWithProviders(
       <SettingRow
         def={def('rt.repoRoots', {
@@ -995,33 +1021,40 @@ describe('composite rows', () => {
             invalid: 'expected array',
           },
         })}
-        store={s}
+        store={store()}
         subhead={null}
         query=""
       />
     );
-    await userEvent.click(
-      screen.getByRole('button', { name: 'rt.repoRoots actions' })
-    );
-    expect(
-      await screen.findByRole('menuitem', { name: 'Remove from machine' })
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: 'Edit as JSON' })).toBeNull();
+    await openRow('rt.repoRoots');
+    await userEvent.click(screen.getByRole('radio', { name: 'Value' }));
+    expect(screen.getAllByRole('button', { name: 'Clear' })).toHaveLength(2);
+    expect(screen.queryByRole('radio', { name: 'JSON' })).toBeNull();
   });
 
-  it("a stored row's menu offers Edit as JSON plus Remove together", async () => {
+  it('a short string list switches to JSON on its Value tab, and Form comes back', async () => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ def: null, rows: [] }),
+    }));
     renderWithProviders(
       <SettingRow def={PREFIXES} store={store()} subhead={null} query="" />
     );
-    await userEvent.click(
-      screen.getByRole('button', { name: 'board.ticketPrefixes actions' })
+    await openRow('board.ticketPrefixes');
+    await userEvent.click(screen.getByRole('radio', { name: 'Value' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
+    expect(
+      JSON.parse(
+        (screen.getByRole('textbox', { name: 'JSON' }) as HTMLTextAreaElement)
+          .value
+      )
+    ).toEqual(['RT', 'MAT']);
+    await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
+    expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'remove RT' })).toHaveLength(
+      2
     );
-    expect(
-      await screen.findByRole('menuitem', { name: 'Edit as JSON' })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('menuitem', { name: 'Remove from team' })
-    ).toBeInTheDocument();
   });
 });
 
@@ -1083,7 +1116,7 @@ describe('a deep composite editor whose explain read fails', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /1 entry/ }));
+    await openRow('gitq.forges');
     expect(await screen.findByText('explain failed: 500')).toBeInTheDocument();
     expect(screen.queryByLabelText('new host')).toBeNull();
   });

@@ -10,7 +10,6 @@ import {
   Tooltip,
 } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
-import { Icons } from '@mattstack/app-kit/icons';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 
 import classes from './ExplainModal.module.css';
@@ -20,7 +19,7 @@ import {
   type PanelStore,
   type PanelTab,
 } from './KeyPanel';
-import { useRowParts, ValueContent } from './rowParts';
+import { useRowParts, ValueContent, WriteState } from './rowParts';
 import { ScopeBadge } from './ScopeBadge';
 import {
   SettingsTeamContext,
@@ -92,33 +91,6 @@ function Header({
   );
 }
 
-function WriteState({ row }: { row: ReturnType<typeof useRowSave> }) {
-  const { text } = useSchemeColors();
-  if (row.status === 'idle' && !row.error) return null;
-  return (
-    <Stack gap={4} px={8}>
-      {row.status === 'saving' && (
-        <Text fz={12} c={text.muted}>
-          saving…
-        </Text>
-      )}
-      {row.status === 'saved' && (
-        <Group gap={4} wrap="nowrap">
-          <Text fz={12} c="var(--tk-text-ok-small)">
-            saved
-          </Text>
-          <Icons.check size={12} color="var(--tk-text-ok-vivid)" />
-        </Group>
-      )}
-      {row.error && (
-        <Text fz={12} ff="monospace" c="var(--tk-text-bad-small)">
-          {row.error}
-        </Text>
-      )}
-    </Stack>
-  );
-}
-
 function Detail({
   def,
   store,
@@ -138,13 +110,7 @@ function Detail({
   const row = useRowSave(writes, def);
   const [asJson, setAsJson] = useState(false);
   const [tab, setTab] = useState<PanelTab>('where');
-  const parts = useRowParts(def, row, {
-    suggestions,
-    open: true,
-    onToggle: () => {},
-    asJson,
-    setAsJson,
-  });
+  const parts = useRowParts(def, row, { suggestions, asJson, setAsJson });
   return (
     <KeyPanel
       def={def}

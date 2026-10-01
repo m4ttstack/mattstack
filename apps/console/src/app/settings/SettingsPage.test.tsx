@@ -141,7 +141,7 @@ function marked() {
 }
 
 describe('SettingsPage', () => {
-  it('opens a row in the explain modal and keeps the key in the URL', async () => {
+  it('opens a row in place on Where it’s set', async () => {
     const rows = [
       { scope: 'default', file: null, present: false },
       { scope: 'user', file: '/u', present: true, value: 'sonnet' },
@@ -161,30 +161,31 @@ describe('SettingsPage', () => {
     );
     renderPage();
     await userEvent.click(
-      await screen.findByRole('button', { name: 'explain board.agent.model' })
+      await screen.findByRole('button', { name: 'open board.agent.model' })
     );
 
-    const dialog = await screen.findByRole('dialog');
+    const row = document.querySelector<HTMLElement>(
+      '[data-key="board.agent.model"]'
+    )!;
     expect(
-      await within(dialog).findByText('Weakest first. The last layer set wins.')
+      await within(row).findByRole('radio', { name: "Where it's set" })
+    ).toBeChecked();
+    expect(
+      within(row).getByText('Weakest first. The last layer set wins.')
     ).toBeInTheDocument();
     expect(
-      within(await within(dialog).findByTestId('layer-machine')).getByText(
+      within(await within(row).findByTestId('layer-machine')).getByText(
         'in effect'
       )
     ).toBeInTheDocument();
-    expect(new URLSearchParams(window.location.search).get('explain')).toBe(
-      'board.agent.model'
-    );
+    expect(screen.queryByRole('dialog')).toBeNull();
 
     await userEvent.click(
-      within(dialog).getByRole('button', { name: 'Close modal' })
+      within(row).getByRole('button', { name: 'close board.agent.model' })
     );
-    await waitFor(() =>
-      expect(new URLSearchParams(window.location.search).has('explain')).toBe(
-        false
-      )
-    );
+    expect(
+      within(row).queryByText('Weakest first. The last layer set wins.')
+    ).toBeNull();
   });
 
   it('lists groups in the index with their counts and renders sections', async () => {
@@ -359,7 +360,7 @@ describe('SettingsPage', () => {
     defsResponse = serve([...DEFS, bare]);
     renderPage();
     expect(
-      await screen.findByRole('button', { name: 'explain board.bareKey' })
+      await screen.findByRole('button', { name: 'open board.bareKey' })
     ).toBeInTheDocument();
     await userEvent.type(
       screen.getByRole('textbox', { name: 'filter settings' }),
@@ -372,7 +373,7 @@ describe('SettingsPage', () => {
       screen.getByRole('textbox', { name: 'filter settings' })
     );
     expect(
-      await screen.findByRole('button', { name: 'explain board.bareKey' })
+      await screen.findByRole('button', { name: 'open board.bareKey' })
     ).toBeInTheDocument();
   });
 
@@ -403,7 +404,7 @@ describe('SettingsPage', () => {
     ).toHaveLength(0);
     expect(
       within(board).getByRole('button', {
-        name: 'board.agent.model actions',
+        name: 'open board.agent.model',
       })
     ).toBeInTheDocument();
   });

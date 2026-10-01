@@ -11,9 +11,9 @@ import { useSchemeColors } from '@mattstack/app-kit/hooks';
 
 import { useAgentModels } from '../config/useSettings';
 import type { WireIssue } from './issues';
+import type { PanelStore } from './KeyPanel';
 import { SettingRow } from './SettingRow';
 import { useSettingsTeam } from './useConsoleSettings';
-import type { RowStore } from './useRowSave';
 import type { Section, StoreScope } from './view';
 
 const SUBHEAD: Record<
@@ -87,15 +87,13 @@ function AgentsSection({
   query,
   filtering,
   initialProvider,
-  onExplain,
   onFix,
 }: {
   section: Section;
-  store: RowStore;
+  store: PanelStore;
   query: string;
   filtering: boolean;
   initialProvider: Provider;
-  onExplain: (key: string) => void;
   onFix?: (key: string, issue: WireIssue | null) => void;
 }) {
   const all = section.subsections.flatMap(s => s.defs);
@@ -117,9 +115,8 @@ function AgentsSection({
         count={countText(filtering, defs.length, section.total)}
         right={
           <SegmentedControl
-            size="xs"
+            size="sm"
             withItemsBorders={false}
-            styles={{ label: { fontSize: 12, fontWeight: 500 } }}
             value={provider}
             onChange={v => setChosen(v as Provider)}
             data={[
@@ -137,7 +134,6 @@ function AgentsSection({
           subhead={null}
           query={query}
           suggestions={def.key.endsWith('.model') ? suggestions : undefined}
-          onExplain={onExplain}
           onFix={onFix}
         />
       ))}
@@ -151,15 +147,13 @@ export function SettingsSection({
   query,
   filtering,
   agentProvider,
-  onExplain,
   onFix,
 }: {
   section: Section;
-  store: RowStore;
+  store: PanelStore;
   query: string;
   filtering: boolean;
   agentProvider: Provider;
-  onExplain: (key: string) => void;
   onFix?: (key: string, issue: WireIssue | null) => void;
 }) {
   const { text } = useSchemeColors();
@@ -172,7 +166,6 @@ export function SettingsSection({
         query={query}
         filtering={filtering}
         initialProvider={agentProvider}
-        onExplain={onExplain}
         onFix={onFix}
       />
     );
@@ -216,7 +209,6 @@ export function SettingsSection({
               store={store}
               subhead={sub.scope}
               query={query}
-              onExplain={onExplain}
               onFix={onFix}
             />
           ))}

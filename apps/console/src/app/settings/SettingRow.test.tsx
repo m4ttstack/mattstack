@@ -1,13 +1,53 @@
 import type { ReactElement } from 'react';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
-import type { SettingDefWire } from '@mattstack/settings-kit/react';
-import { screen, waitFor } from '@testing-library/react';
+import type {
+  ExplainRowWire,
+  SettingDefWire,
+} from '@mattstack/settings-kit/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SettingRow } from './SettingRow';
 import { schemaFields } from './testSchemas';
 import { SettingsRepoContext, SettingsTeamContext } from './useConsoleSettings';
+
+const explainGet = vi.fn();
+vi.stubGlobal('fetch', (url: string) =>
+  url.startsWith('/api/settings/explain/')
+    ? explainGet(url)
+    : Promise.resolve({
+        ok: false,
+        status: 404,
+        json: async () => ({ error: 'not found' }),
+      })
+);
+const ok = (data: unknown) => ({
+  ok: true,
+  status: 200,
+  json: async () => data,
+});
+function explains(rows: ExplainRowWire[]) {
+  explainGet.mockResolvedValue(ok({ def: null, rows }));
+}
+beforeEach(() => explains([]));
+afterEach(() => explainGet.mockReset());
+
+/** A layer line's file link reads the editor preference through a query. */
+function renderRow(ui: ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return renderWithProviders(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>
+  );
+}
+
+async function openRow(key: string) {
+  await userEvent.click(screen.getByRole('button', { name: `open ${key}` }));
+  await screen.findByRole('radiogroup', { name: `${key} panel` });
+}
 
 function def(key: string, over: Partial<SettingDefWire> = {}): SettingDefWire {
   return {
@@ -34,11 +74,164 @@ function store() {
     set: vi.fn(async () => null as string | null),
     unset: vi.fn(async () => null as string | null),
     move: vi.fn(async () => null as string | null),
+    prune: vi.fn(async () => null as string | null),
   };
 }
 
+describe('SettingRow disclosure', () => {
+  const scalar = () =>
+    def('board.agent.model', {
+      effective: { scope: 'user', file: '/u', value: 'm-1' },
+    });
+
+  it('a click anywhere on the row opens it; a second click closes it', async () => {
+    renderWithProviders(
+      <SettingRow def={scalar()} store={store()} subhead={null} query="" />
+    );
+    await userEvent.click(screen.getByText('What it does.'));
+    expect(
+      await screen.findByRole('radio', { name: "Where it's set" })
+    ).toBeChecked();
+    await userEvent.click(screen.getByText('What it does.'));
+    expect(screen.queryByRole('radio', { name: "Where it's set" })).toBeNull();
+  });
+
+  it('a click inside the control never toggles the row', async () => {
+    renderWithProviders(
+      <SettingRow def={scalar()} store={store()} subhead={null} query="" />
+    );
+    await userEvent.click(
+      screen.getByRole('textbox', { name: 'board.agent.model' })
+    );
+    expect(screen.queryByRole('radio', { name: 'Value' })).toBeNull();
+  });
+
+  it('picking an enum option from its dropdown does not toggle the row', async () => {
+    renderWithProviders(
+      <SettingRow
+        def={def('agent.provider', { effective: { scope: null, file: null } })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    await userEvent.click(
+      screen.getByRole('combobox', { name: 'agent.provider' })
+    );
+    await userEvent.click(await screen.findByRole('option', { name: 'Codex' }));
+    expect(screen.queryByRole('radio', { name: 'Value' })).toBeNull();
+  });
+
+  it('the chevron is the keyboard door', async () => {
+    renderWithProviders(
+      <SettingRow def={scalar()} store={store()} subhead={null} query="" />
+    );
+    const chevron = screen.getByRole('button', {
+      name: 'open board.agent.model',
+    });
+    expect(chevron).toHaveAttribute('aria-expanded', 'false');
+    chevron.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(
+      screen.getByRole('button', { name: 'close board.agent.model' })
+    ).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('a composite row opens on Value and shows its summary as text, not a toggle', async () => {
+    renderWithProviders(
+      <SettingRow
+        def={def('rt.homeSnapshot', {
+          type: 'object',
+          merge: 'deep',
+          effective: {
+            scope: 'machine',
+            file: '/m',
+            value: {
+              enabled: true,
+              debounceSec: 5,
+              pushDelaySec: 1,
+              janitorThresholdHours: 2,
+              janitorIntervalMin: 3,
+            },
+          },
+        })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    expect(screen.getAllByRole('button', { expanded: false })).toHaveLength(1);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'open rt.homeSnapshot' })
+    );
+    expect(await screen.findByRole('radio', { name: 'Value' })).toBeChecked();
+  });
+
+  it('Escape in a field keeps the row open; Escape elsewhere in the panel closes it', async () => {
+    renderWithProviders(
+      <SettingRow def={scalar()} store={store()} subhead={null} query="" />
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'open board.agent.model' })
+    );
+    await userEvent.click(await screen.findByRole('radio', { name: 'Value' }));
+    const inputs = screen.getAllByRole('textbox', {
+      name: 'board.agent.model',
+    });
+    inputs[1]!.focus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.getByRole('radio', { name: 'Value' })).toBeInTheDocument();
+    screen.getByRole('button', { name: 'close board.agent.model' }).focus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('radio', { name: 'Value' })).toBeNull();
+  });
+
+  it('a refused write keeps the row open and shows the refusal', async () => {
+    const s = { ...store(), set: vi.fn(async () => 'store is read-only') };
+    renderWithProviders(
+      <SettingRow def={scalar()} store={s} subhead={null} query="" />
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'open board.agent.model' })
+    );
+    const input = screen.getByRole('textbox', { name: 'board.agent.model' });
+    await userEvent.clear(input);
+    await userEvent.type(input, 'm-2{Enter}');
+    expect(await screen.findByText('store is read-only')).toBeInTheDocument();
+    expect(
+      screen.getByRole('radio', { name: "Where it's set" })
+    ).toBeInTheDocument();
+  });
+
+  it('has no actions menu', () => {
+    renderWithProviders(
+      <SettingRow def={scalar()} store={store()} subhead={null} query="" />
+    );
+    expect(screen.queryByRole('button', { name: /actions$/ })).toBeNull();
+  });
+
+  it('a controlled row follows its prop and reports the next state', async () => {
+    const onOpenChange = vi.fn();
+    renderWithProviders(
+      <SettingRow
+        def={scalar()}
+        store={store()}
+        subhead={null}
+        query=""
+        open={null}
+        onOpenChange={onOpenChange}
+      />
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'open board.agent.model' })
+    );
+    expect(onOpenChange).toHaveBeenCalledWith({ tab: 'where', fix: null });
+    expect(screen.queryByRole('radio', { name: 'Value' })).toBeNull();
+  });
+});
+
 describe('SettingRow', () => {
-  it('a repo-only key with no repo picked offers no editor or menu, only "set per repo"', () => {
+  it('a repo-only key with no repo picked offers no editor, only "set per repo"', () => {
     const d = def('rt.logDir', {
       repoScoped: true,
       repoOnly: true,
@@ -50,9 +243,6 @@ describe('SettingRow', () => {
     expect(screen.getByText('set per repo')).toBeInTheDocument();
     expect(screen.queryByText('unset')).toBeNull();
     expect(screen.queryByRole('textbox')).toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'rt.logDir actions' })
-    ).toBeNull();
   });
 
   it('a repo-only key with a repo picked is edited as usual', () => {
@@ -72,8 +262,7 @@ describe('SettingRow', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows the key, the first sentence, the source, and an explain button', async () => {
-    const onExplain = vi.fn();
+  it('shows the key, the first sentence and the source', () => {
     renderWithProviders(
       <SettingRow
         def={def('agent.claude.effort', {
@@ -82,31 +271,12 @@ describe('SettingRow', () => {
         store={store()}
         subhead={null}
         query=""
-        onExplain={onExplain}
       />
     );
     expect(screen.getByText('agent.claude.')).toBeInTheDocument();
     expect(screen.getByText('effort')).toBeInTheDocument();
     expect(screen.getByText('What it does.')).toBeInTheDocument();
     expect(screen.getByText('default')).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole('button', { name: 'explain agent.claude.effort' })
-    );
-    expect(onExplain).toHaveBeenCalledWith('agent.claude.effort');
-  });
-
-  it('has no explain button without onExplain', () => {
-    renderWithProviders(
-      <SettingRow
-        def={def('agent.claude.effort')}
-        store={store()}
-        subhead={null}
-        query=""
-      />
-    );
-    expect(
-      screen.queryByRole('button', { name: 'explain agent.claude.effort' })
-    ).not.toBeInTheDocument();
   });
 
   it('clamps the description to one line', () => {
@@ -416,9 +586,14 @@ describe('SettingRow', () => {
     );
   });
 
-  it('hides the badge under a matching subhead and still moves from the row menu', async () => {
+  it('hides the badge under a matching subhead and still moves from the open row', async () => {
     const s = store();
-    renderWithProviders(
+    explains([
+      { scope: 'default', file: null, present: false },
+      { scope: 'user', file: '/u', present: false },
+      { scope: 'machine', file: '/m', present: true, value: 'x' },
+    ]);
+    renderRow(
       <SettingRow
         def={def('board.agent.model', {
           effective: { scope: 'machine', file: '/m', value: 'x' },
@@ -429,8 +604,11 @@ describe('SettingRow', () => {
       />
     );
     expect(screen.queryByText('machine')).toBeNull();
+    await openRow('board.agent.model');
     await userEvent.click(
-      screen.getByRole('button', { name: 'board.agent.model actions' })
+      within(await screen.findByTestId('layer-machine')).getByRole('button', {
+        name: 'move board.agent.model from machine',
+      })
     );
     await userEvent.click(
       await screen.findByRole('menuitem', { name: 'Move to user' })
@@ -444,9 +622,14 @@ describe('SettingRow', () => {
     );
   });
 
-  it('removes a stored value from its layer through the row menu', async () => {
+  it('removes a stored value from its layer in the open row', async () => {
     const s = store();
-    renderWithProviders(
+    explains([
+      { scope: 'default', file: null, present: false },
+      { scope: 'user', file: '/u', present: true, value: false },
+      { scope: 'machine', file: '/m', present: false },
+    ]);
+    renderRow(
       <SettingRow
         def={def('agent.claude.yolo', {
           type: 'boolean',
@@ -457,19 +640,20 @@ describe('SettingRow', () => {
         query=""
       />
     );
+    await openRow('agent.claude.yolo');
     await userEvent.click(
-      screen.getByRole('button', { name: 'agent.claude.yolo actions' })
-    );
-    await userEvent.click(
-      await screen.findByRole('menuitem', { name: 'Remove from user' })
+      await screen.findByRole('button', {
+        name: 'remove agent.claude.yolo from user',
+      })
     );
     await waitFor(() =>
       expect(s.unset).toHaveBeenCalledWith('agent.claude.yolo', 'user')
     );
   });
 
-  it('a stored secret or an unwritable stored row has no row menu', () => {
-    renderWithProviders(
+  it('a stored secret or an unwritable stored row offers no remove', async () => {
+    explains([{ scope: 'user', file: '/u', present: true, value: 'x' }]);
+    renderRow(
       <>
         <SettingRow
           def={def('chat.apiToken', {
@@ -492,79 +676,12 @@ describe('SettingRow', () => {
         />
       </>
     );
-    expect(screen.queryByRole('button', { name: /actions$/ })).toBeNull();
-  });
-
-  it('offers moves only to the other scopes the key allows', async () => {
-    renderWithProviders(
-      <SettingRow
-        def={def('board.agent.model', {
-          scopes: ['user', 'machine'],
-          effective: { scope: 'machine', file: '/m', value: 'x' },
-        })}
-        store={store()}
-        subhead={null}
-        query=""
-      />
+    await openRow('chat.apiToken');
+    await openRow('rt.roles');
+    await waitFor(() =>
+      expect(screen.getAllByTestId('layer-user')).toHaveLength(2)
     );
-    await userEvent.click(
-      screen.getByRole('button', { name: 'board.agent.model actions' })
-    );
-    await screen.findByRole('menuitem', { name: 'Remove from machine' });
-    expect(
-      screen
-        .getAllByRole('menuitem')
-        .map(i => i.textContent)
-        .filter(t => t?.startsWith('Move'))
-    ).toEqual(['Move to user']);
-  });
-
-  it("shows rt's refusal of a move under the row", async () => {
-    const s = store();
-    s.move.mockResolvedValueOnce('rt: the user store is read-only');
-    renderWithProviders(
-      <SettingRow
-        def={def('board.agent.model', {
-          effective: { scope: 'machine', file: '/m', value: 'x' },
-        })}
-        store={s}
-        subhead={null}
-        query=""
-      />
-    );
-    await userEvent.click(
-      screen.getByRole('button', { name: 'board.agent.model actions' })
-    );
-    await userEvent.click(
-      await screen.findByRole('menuitem', { name: 'Move to user' })
-    );
-    expect(
-      await screen.findByText('rt: the user store is read-only')
-    ).toBeInTheDocument();
-  });
-
-  it("shows rt's refusal of a remove under the row", async () => {
-    const s = store();
-    s.unset.mockResolvedValueOnce('rt: the machine store is locked');
-    renderWithProviders(
-      <SettingRow
-        def={def('board.agent.model', {
-          effective: { scope: 'machine', file: '/m', value: 'x' },
-        })}
-        store={s}
-        subhead={null}
-        query=""
-      />
-    );
-    await userEvent.click(
-      screen.getByRole('button', { name: 'board.agent.model actions' })
-    );
-    await userEvent.click(
-      await screen.findByRole('menuitem', { name: 'Remove from machine' })
-    );
-    expect(
-      await screen.findByText('rt: the machine store is locked')
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^remove / })).toBeNull();
   });
 
   it('the team badge names the machine team when the page knows it', () => {
@@ -584,81 +701,25 @@ describe('SettingRow', () => {
     expect(screen.getByText('team (acme)')).toBeInTheDocument();
   });
 
-  it('the row menu names the team a value is removed from or moved to', async () => {
-    renderWithProviders(
-      <SettingsTeamContext.Provider value="acme">
-        <SettingRow
-          def={def('board.agent.model', {
-            scopes: ['team', 'user'],
-            effective: { scope: 'user', file: '/u', value: 'x' },
-          })}
-          store={store()}
-          subhead={null}
-          query=""
-        />
-      </SettingsTeamContext.Provider>
-    );
-    await userEvent.click(
-      screen.getByRole('button', { name: 'board.agent.model actions' })
-    );
-    expect(
-      await screen.findByRole('menuitem', { name: 'Move to team (acme)' })
-    ).toBeInTheDocument();
-  });
-
-  it('a value stored in a scope the key no longer allows has no row menu', () => {
-    renderWithProviders(
+  it('a value from the registry default offers no remove', async () => {
+    explains([
+      { scope: 'default', file: null, present: true, value: 'info' },
+      { scope: 'user', file: '/u', present: false },
+      { scope: 'machine', file: '/m', present: false },
+    ]);
+    renderRow(
       <SettingRow
-        def={def('board.agent.model', {
-          scopes: ['user', 'machine'],
-          effective: { scope: 'team', file: '/t', value: 'x' },
+        def={def('rt.logLevel', {
+          effective: { scope: 'default', file: null, value: 'info' },
         })}
         store={store()}
         subhead={null}
         query=""
       />
     );
-    expect(screen.queryByRole('button', { name: /actions$/ })).toBeNull();
-  });
-
-  it('a rejected stored value can be removed but not moved', async () => {
-    renderWithProviders(
-      <SettingRow
-        def={def('board.agent.model', {
-          effective: { scope: 'machine', file: '/m', invalid: 'not a model' },
-        })}
-        store={store()}
-        subhead={null}
-        query=""
-      />
-    );
-    await userEvent.click(
-      screen.getByRole('button', { name: 'board.agent.model actions' })
-    );
-    await screen.findByRole('menuitem', { name: 'Remove from machine' });
-    expect(screen.queryByRole('menuitem', { name: /^Move/ })).toBeNull();
-  });
-
-  it('a default or unset row has no row menu', () => {
-    renderWithProviders(
-      <>
-        <SettingRow
-          def={def('rt.logLevel', {
-            effective: { scope: 'default', file: null, value: 'info' },
-          })}
-          store={store()}
-          subhead={null}
-          query=""
-        />
-        <SettingRow
-          def={def('rt.daemonPath')}
-          store={store()}
-          subhead={null}
-          query=""
-        />
-      </>
-    );
-    expect(screen.queryByRole('button', { name: /actions$/ })).toBeNull();
+    await openRow('rt.logLevel');
+    await screen.findByTestId('layer-default');
+    expect(screen.queryByRole('button', { name: /^remove / })).toBeNull();
   });
 
   it('an unset secret says unset once and shows no mask', () => {
@@ -695,7 +756,7 @@ describe('SettingRow', () => {
 describe('with a repo picked', () => {
   const REPO = 'gitlab.example.com/acme/app';
   const inRepo = (ui: ReactElement) =>
-    renderWithProviders(
+    renderRow(
       <SettingsRepoContext.Provider value={REPO}>
         {ui}
       </SettingsRepoContext.Provider>
@@ -748,30 +809,6 @@ describe('with a repo picked', () => {
     expect(s.set).not.toHaveBeenCalled();
   });
 
-  it('labels Remove from the global layer "(all repos)" when a repo is picked', async () => {
-    const s = store();
-    inRepo(
-      <SettingRow
-        def={def('rt.worktreeCwd', {
-          scopes: ['user', 'team', 'machine'],
-          repoScoped: true,
-          effective: { scope: 'team', file: '/t', value: 'a' },
-        })}
-        store={s}
-        subhead={null}
-        query=""
-      />
-    );
-    await userEvent.click(
-      screen.getByRole('button', { name: 'rt.worktreeCwd actions' })
-    );
-    expect(
-      await screen.findByRole('menuitem', {
-        name: 'Remove from team (all repos)',
-      })
-    ).toBeInTheDocument();
-  });
-
   it('a key that is not repo-scoped writes as before, with no repo argument', async () => {
     const s = store();
     inRepo(
@@ -795,6 +832,11 @@ describe('with a repo picked', () => {
 
   it('a value from a repo rung can be removed but not moved', async () => {
     const s = store();
+    explains([
+      { scope: 'default', file: null, present: false },
+      { scope: 'team', file: '/t', present: false },
+      { scope: 'team.repo', file: '/t', present: true, value: 'a' },
+    ]);
     inRepo(
       <SettingRow
         def={def('rt.worktreeCwd', {
@@ -808,12 +850,13 @@ describe('with a repo picked', () => {
       />
     );
     expect(screen.getByText('team · repo')).toBeInTheDocument();
+    await openRow('rt.worktreeCwd');
+    const rung = await screen.findByTestId('layer-team.repo');
+    expect(within(rung).queryByRole('button', { name: /^move / })).toBeNull();
     await userEvent.click(
-      screen.getByRole('button', { name: 'rt.worktreeCwd actions' })
-    );
-    expect(screen.queryByRole('menuitem', { name: /^Move to/ })).toBeNull();
-    await userEvent.click(
-      await screen.findByRole('menuitem', { name: 'Remove from team · repo' })
+      within(rung).getByRole('button', {
+        name: 'remove rt.worktreeCwd from team · repo',
+      })
     );
     await waitFor(() =>
       expect(s.unset).toHaveBeenCalledWith('rt.worktreeCwd', 'team', REPO)

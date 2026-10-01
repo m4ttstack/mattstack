@@ -1,0 +1,45 @@
+.item {
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+.item[data-open] {
+  margin-block: 8px;
+  border: 1px solid var(--tk-border);
+  border-radius: var(--mantine-radius-lg);
+}
+
+.header {
+  cursor: pointer;
+  border-radius: var(--mantine-radius-md);
+}
+
+:where([data-mantine-color-scheme='light']) .header {
+  --row-hover: var(--mantine-color-gray-1);
+}
+
+:where([data-mantine-color-scheme='dark']) .header {
+  --row-hover: var(--mantine-color-dark-5);
+}
+
+@media (hover: hover) {
+  .item:not([data-open]) .header:hover {
+    background-color: var(--row-hover);
+  }
+}
+
+.item:not([data-open]) .header:focus-within {
+  background-color: var(--row-hover);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+}
+
+.control {
+  flex: none;
+}
+
+.panel {
+  padding: 0 12px 12px;
+}

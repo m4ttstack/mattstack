@@ -31,6 +31,7 @@ const store = () => ({
   set: vi.fn(async () => null as string | null),
   unset: vi.fn(async () => null as string | null),
   move: vi.fn(async () => null as string | null),
+  prune: vi.fn(async () => null as string | null),
 });
 
 describe('rt.worktreeReadyApproval', () => {
@@ -44,7 +45,6 @@ describe('rt.worktreeReadyApproval', () => {
     expect(screen.getByTestId('approval-note')).toHaveTextContent(
       "approves the team's worktree ready commands by their hash; approve with rt worktree ready-approve"
     );
-    expect(screen.queryByRole('button', { name: /actions$/ })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     await waitFor(() =>
       expect(s.unset).toHaveBeenCalledWith('rt.worktreeReadyApproval', 'user')

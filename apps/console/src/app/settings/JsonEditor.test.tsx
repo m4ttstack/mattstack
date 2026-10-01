@@ -105,6 +105,10 @@ function stubRows(rows: ExplainRowWire[], d: SettingDefWire | null = null) {
 afterEach(() => vi.unstubAllGlobals());
 
 const editor = () => screen.getByRole('textbox', { name: 'JSON' });
+async function openRow(key: string) {
+  await userEvent.click(screen.getByRole('button', { name: `open ${key}` }));
+  await screen.findByRole('radiogroup', { name: `${key} panel` });
+}
 const setText = (t: string) =>
   fireEvent.change(editor(), { target: { value: t } });
 
@@ -120,9 +124,7 @@ describe('JSON editor', () => {
         query=""
       />
     );
-    await userEvent.click(
-      screen.getByRole('button', { name: /^1 intercept$/ })
-    );
+    await openRow('rt.intercepts');
     expect(editor()).toHaveValue(JSON.stringify([INTERCEPT], null, 2));
     expect(screen.queryByRole('radio', { name: 'Form' })).toBeNull();
 
@@ -154,7 +156,7 @@ describe('JSON editor', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /^1 bridge$/ }));
+    await openRow('rt.notify.eventBridges');
     const title = within(screen.getByTestId('item-0')).getByLabelText('title');
     await userEvent.clear(title);
     await userEvent.type(title, 'Gate');
@@ -179,7 +181,7 @@ describe('JSON editor', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /^1 bridge$/ }));
+    await openRow('rt.notify.eventBridges');
     await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
     setText('[');
     expect(screen.getByRole('radio', { name: 'Form' })).toBeDisabled();
@@ -188,7 +190,7 @@ describe('JSON editor', () => {
     ).toBeInTheDocument();
   });
 
-  it('a short string list edits as JSON from its row menu', async () => {
+  it('a short string list edits as JSON from its Value tab', async () => {
     stubRows([]);
     const s = store();
     renderWithProviders(
@@ -202,13 +204,9 @@ describe('JSON editor', () => {
         query=""
       />
     );
-    await userEvent.click(
-      screen.getByRole('button', { name: 'board.ticketPrefixes actions' })
-    );
-    await userEvent.click(
-      await screen.findByRole('menuitem', { name: 'Edit as JSON' })
-    );
-    expect(screen.queryByRole('radiogroup', { name: 'Edit mode' })).toBeNull();
+    await openRow('board.ticketPrefixes');
+    await userEvent.click(screen.getByRole('radio', { name: 'Value' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
     setText('["RT", "MAT"]');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() =>
@@ -233,7 +231,7 @@ describe('JSON editor', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /1 entry/ }));
+    await openRow('rt.repoIdentityOverrides');
     expect(
       screen.getByRole('radiogroup', { name: 'Edit mode' })
     ).toBeInTheDocument();
@@ -261,7 +259,7 @@ describe('JSON editor', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /1 entry/ }));
+    await openRow('rt.repoIdentityOverrides');
     await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
     setText('{"https://example.dev/b.git": "b"}');
     await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
@@ -315,7 +313,7 @@ describe('JSON editor', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /1 of 5 set/ }));
+    await openRow('rt.homeSnapshot');
     expect(await screen.findByText('debounceSec')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
     expect(JSON.parse((editor() as HTMLTextAreaElement).value)).toEqual({
@@ -341,7 +339,7 @@ describe('JSON editor', () => {
         query=""
       />
     );
-    await userEvent.click(screen.getByRole('button', { name: /^2 entries$/ }));
+    await openRow('gitq.forges');
     await userEvent.click(await screen.findByRole('radio', { name: 'JSON' }));
     expect(JSON.parse((editor() as HTMLTextAreaElement).value)).toEqual(
       USER_FORGE

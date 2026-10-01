@@ -461,7 +461,6 @@ export function SettingsPage() {
                         query={query}
                         filtering={filtering}
                         agentProvider={agentProvider}
-                        onExplain={explain.open}
                         onFix={(key, issue) =>
                           explain.open(key, {
                             fix: issue?.scope,
