@@ -440,7 +440,7 @@ describe('rowStatus: interrupted executor', () => {
 
   test('a gone orphan on a running response names the response lane', () => {
     const s = rowStatus(
-      mr({ respond: { status: 'implementing', sessionId: 'sess-1' }, orphan }),
+      own({ respond: { status: 'implementing', sessionId: 'sess-1' }, orphan }),
       NOW,
       NONE,
       ME
@@ -767,7 +767,7 @@ describe('rowStatus: respond lane', () => {
 
   test('posted but the reviewer came back: warn with respond again leading', () => {
     const [line] = candidateLines(
-      mr({
+      own({
         respond: { status: 'done', posted: 3, threads: 3, reportReady: true },
         threadSummary: { awaiting: 2, replied: 1, resolved: 0 },
       } as never),
@@ -812,7 +812,7 @@ describe('rowStatus: respond lane', () => {
 
   test('partially posted is warn with the resume verb', () => {
     const [line] = candidateLines(
-      mr({
+      own({
         respond: { status: 'done', posted: 2, threads: 3, sessionId: 's' },
       }),
       NOW,
@@ -936,7 +936,7 @@ describe('rowStatus: respond lane', () => {
 
   test('error is bad with restart', () => {
     const [line] = candidateLines(
-      mr({ respond: { status: 'error' } }),
+      own({ respond: { status: 'error' } }),
       NOW,
       NONE,
       ME
@@ -977,7 +977,7 @@ describe('rowStatus: doctor lane', () => {
 
   test('stuck is bad with call again', () => {
     const [line] = candidateLines(
-      mr({ doctor: { status: 'error' } }),
+      own({ doctor: { status: 'error' } }),
       NOW,
       NONE,
       ME
@@ -1040,7 +1040,7 @@ describe('rowStatus: doctor lane', () => {
       domain: 'review',
     });
     const [respond] = candidateLines(
-      mr({ respond: { status: 'error' } }),
+      own({ respond: { status: 'error' } }),
       NOW,
       NONE,
       ME
@@ -1203,7 +1203,7 @@ describe('rowStatus: social lanes', () => {
 
   test('an inbound respond ask words a response and verbs a respond launch', () => {
     const [line] = candidateLines(
-      mr({
+      own({
         nudges: [
           { from: 'jo', receivedAt: NOW - 10 * 60_000, kind: 'respond' },
         ],
@@ -1788,4 +1788,75 @@ describe('rowStatus: a launch that ran with no pack', () => {
     expect(line!.word).toBe('auto-doctor off');
     expect(line!.noPack).toBeUndefined();
   });
+});
+
+describe("author-only verbs stay off someone else's row", () => {
+  const AUTHOR_ONLY = new Set([
+    'merge',
+    'call-doctor',
+    'launch-respond',
+    'restart-respond',
+    'resume-respond',
+  ]);
+  const orphan = {
+    agentId: 'ag-1',
+    repo: 'acme/webapp',
+    subject: 'agent:ag-1',
+    surface: 'herdr',
+    sessionId: 'sess-1',
+    paneRef: null,
+    state: 'gone' as const,
+    since: NOW - 60_000,
+    openGateIds: [],
+  };
+  const rows: Array<[string, Over]> = [
+    [
+      'a response the reviewer came back to',
+      {
+        respond: { status: 'done', posted: 3, threads: 3 },
+        threadSummary: { awaiting: 2, replied: 1, resolved: 0 },
+      },
+    ],
+    ['a failed response', { respond: { status: 'error' } }],
+    [
+      'a half-posted response',
+      { respond: { status: 'done', posted: 1, threads: 3 } },
+    ],
+    ['a stuck doctor', { doctor: { status: 'error' } }],
+    [
+      'an inbound respond ask',
+      {
+        nudges: [{ from: 'jo', receivedAt: NOW - 60_000, kind: 'respond' }],
+      },
+    ],
+    [
+      'an interrupted response',
+      { respond: { status: 'implementing', sessionId: 'sess-1' }, orphan },
+    ],
+    [
+      'a merge-ready MR with posted replies',
+      {
+        ...MERGEABLE,
+        reviews: { isApproved: true, required: 1, given: 1, reviewers: [] },
+        respond: { status: 'done', posted: 2, threads: 2 },
+      },
+    ],
+  ];
+  const verbsOf = (row: BoardMRWithReview, self: string | null) =>
+    candidateLines(row, NOW, NONE, self).flatMap(l => l.verbs);
+  const authorOnly = (v: { kind: string; domain?: string }) =>
+    AUTHOR_ONLY.has(v.kind) ||
+    (v.kind === 'relaunch' && v.domain === 'respond');
+
+  for (const [name, over] of rows) {
+    test(`${name}: none on someone else's MR`, () => {
+      expect(verbsOf(mr(over as never), ME).filter(authorOnly)).toEqual([]);
+    });
+    test(`${name}: offered on your own`, () => {
+      expect(verbsOf(own(over), ME).some(authorOnly)).toBe(true);
+    });
+    test(`${name}: none on an "all" board`, () => {
+      expect(verbsOf(own(over), null).filter(authorOnly)).toEqual([]);
+    });
+  }
 });

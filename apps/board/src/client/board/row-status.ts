@@ -10,7 +10,7 @@ import { unwrapGateAnswer } from '@mattstack/gate-kit';
 import type { BoardMR } from '../../data.ts';
 import { hasChangesRequested } from '../../data.ts';
 import { respondOutcome } from '../../respond-outcome.ts';
-import { approvalSlots, statusBucket } from '../../view.ts';
+import { approvalSlots, isOwnMr, statusBucket } from '../../view.ts';
 import type {
   BoardMRWithReview,
   DoctorStatus,
@@ -821,6 +821,29 @@ function packless(
 
 // ── the line ────────────────────────────────────────────────────────────────
 
+const AUTHOR_ONLY_VERBS = new Set<VerbKind>([
+  'merge',
+  'call-doctor',
+  'launch-respond',
+  'restart-respond',
+  'resume-respond',
+]);
+
+function authorOnly(v: Verb): boolean {
+  return (
+    AUTHOR_ONLY_VERBS.has(v.kind) ||
+    (v.kind === 'relaunch' && v.domain === 'respond')
+  );
+}
+
+/** Someone else's row keeps every line but loses the verbs only an author
+    may take, whichever source offered them (a lane, a peer's ask, an
+    interrupted pane). */
+function withoutAuthorVerbs(line: Candidate): Candidate {
+  const verbs = line.verbs.filter(v => !authorOnly(v));
+  return verbs.length === line.verbs.length ? line : { ...line, verbs };
+}
+
 /** Every source's offer, in source order; exported for the tests. */
 export function candidateLines(
   mr: BoardMRWithReview,
@@ -842,9 +865,11 @@ export function candidateLines(
     ...draftLines(mr, draftResolved),
     ...peerLines(mr, now),
   ].filter((l): l is Candidate => l !== null);
-  if (lines.length > 0) return lines;
-  const mine = self !== null && mr.author.username === self;
-  return [mine ? authorLine(mr, self) : reviewerLine(mr, self)];
+  const mine = isOwnMr(mr, self);
+  if (lines.length > 0) return mine ? lines : lines.map(withoutAuthorVerbs);
+  return [
+    mine && self !== null ? authorLine(mr, self) : reviewerLine(mr, self),
+  ];
 }
 
 const TONE_RANK: Record<Tone, number> = {
