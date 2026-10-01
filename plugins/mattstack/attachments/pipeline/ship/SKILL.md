@@ -110,13 +110,25 @@ earlier; a run another live pane owns is not yours) / **Start fresh**, and
 `runDb` = `<absolute home>/.mattstack/runs/<repo>/<the candidate row's id>/state.db`.
 The run tools refuse `~` and relative paths. The `run_stage` start is a new
 attempt that re-records this session. The flow then re-enters at the
-decisions `run_snapshot` shows; the target rule for a resumed run is the
-`targetBranch` bullet under "What the graph cannot show".
+decisions `run_snapshot` shows, as "Resumed ship run: re-enter at
+run_snapshot's decisions" says.
 
 ### Use the runs root the error names (ship)
 
 Rebuild `runDb` under the runs root the refusal names; everything after the
 root stays the same.
+
+### Resumed ship run: re-enter at run_snapshot's decisions
+
+Before the flow passes the ship gate again, call `branch_stack {tree:
+<root>}`, then `run_field_get {key: shipTarget}`. An unset key
+(`run_field_get` errors) or the value `-` is no recorded consent: the gate
+opens. A readable fresh target equal to the recorded one continues with it,
+the earlier Proceed standing and its answers read from the ship gate
+decision `run_snapshot` shows. A fresh target that differs, or a store
+unreadable now, reopens the ship gate with a sentence naming the recorded
+target and the fresh one; Proceed records the fresh target with
+`run_field_set` and continues.
 
 {{include:run-identity}}
 
@@ -670,13 +682,9 @@ draft and the note quoted in the final report.
   takes the same target as `--base`. The domain rebase goes onto
   `origin/<that target>`, so a stack member never replays its parent's
   unmerged commits; the gate names the target, the unreadable-store
-  fallback included, before any rebase runs. A run resumed past the gate calls
-  `branch_stack` again, then `run_field_get {key: shipTarget}`. A readable
-  fresh target equal to the recorded one continues with it and the earlier
-  Proceed stands. A fresh target that differs, or a store unreadable now,
-  reopens the ship gate with a sentence naming the recorded target and the
-  fresh one; Proceed records the fresh target with `run_field_set` and
-  continues. A run holding no `shipTarget` has not passed the gate.
+  fallback included, before any rebase runs. A resumed run
+  re-checks the target as "Resumed ship run: re-enter at run_snapshot's
+  decisions" says.
 - Keep the `url` `mr_create` returns as `mrUrl` for every later write, and
   print it. `mr_create` takes `draft: false` only when the gate said ready;
   write its title from the branch's commits.

@@ -35,9 +35,10 @@ digraph ship {
     "branch_stack {tree: <root>}" [shape=plaintext];
     "Stack store readable?" [shape=diamond];
     "Stack member?" [shape=diamond];
-    "run_field_get {key: shipTarget, stage: ship}" [shape=plaintext];
+    "run_field_get {key: shipTarget}" [shape=plaintext];
     "Recorded shipTarget matches a readable fresh target?" [shape=diamond];
     "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" [shape=plaintext];
+    "run_field_set {key: shipTarget, value: -, stage: ship}" [shape=plaintext];
     "Gate ship (table below)" [shape=box];
     "ship answer?" [shape=diamond];
     "Ship gate rounds = 2?" [shape=diamond];
@@ -120,16 +121,17 @@ digraph ship {
     "git status --porcelain; git log --oneline @{upstream}.. or -5" -> "branch_stack {tree: <root>}";
     "branch_stack {tree: <root>}" -> "Stack store readable?";
     "Stack store readable?" -> "Stack member?" [label="yes"];
-    "Stack store readable?" -> "run_field_get {key: shipTarget, stage: ship}" [label="no: stackStore unavailable, or a tool error: the target is the default branch, the stack could not be read"];
-    "Stack member?" -> "run_field_get {key: shipTarget, stage: ship}" [label="yes: the target is the stack parent"];
-    "Stack member?" -> "run_field_get {key: shipTarget, stage: ship}" [label="no: the target is the default branch"];
-    "run_field_get {key: shipTarget, stage: ship}" -> "Recorded shipTarget matches a readable fresh target?";
-    "Recorded shipTarget matches a readable fresh target?" -> "dirty answer?" [label="yes: the earlier Proceed stands"];
-    "Recorded shipTarget matches a readable fresh target?" -> "Gate ship (table below)" [label="no: none recorded, it differs, or the store is unreadable now"];
+    "Stack store readable?" -> "run_field_get {key: shipTarget}" [label="no: stackStore unavailable, or a tool error: the target is the default branch, the stack could not be read"];
+    "Stack member?" -> "run_field_get {key: shipTarget}" [label="yes: the target is the stack parent"];
+    "Stack member?" -> "run_field_get {key: shipTarget}" [label="no: the target is the default branch"];
+    "run_field_get {key: shipTarget}" -> "Recorded shipTarget matches a readable fresh target?";
+    "Recorded shipTarget matches a readable fresh target?" -> "dirty answer?" [label="yes: the earlier Proceed stands, its answers read from the ship gate decision run_snapshot shows"];
+    "Recorded shipTarget matches a readable fresh target?" -> "Gate ship (table below)" [label="no: the key is not set (run_field_get errors) or holds -, it differs, or the store is unreadable now"];
     "Gate ship (table below)" -> "ship answer?";
     "ship answer?" -> "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" [label="proceed: record the consented target"];
     "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" -> "dirty answer?";
-    "ship answer?" -> "Ship gate rounds = 2?" [label="iterate: redo with their note"];
+    "ship answer?" -> "run_field_set {key: shipTarget, value: -, stage: ship}" [label="iterate: clear the recorded consent first"];
+    "run_field_set {key: shipTarget, value: -, stage: ship}" -> "Ship gate rounds = 2?";
     "Ship gate rounds = 2?" -> "Run the domain steps before the gate (none when unbound)" [label="no: redo with their note"];
     "Ship gate rounds = 2?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, their last note quoted"];
     "ship answer?" -> "Rebase in progress (go back)?" [label="go back"];
@@ -356,19 +358,27 @@ stage knows.
   `origin/<that target>`, so a stack member never replays its parent's
   unmerged commits; the gate names the target, the unreadable-store
   fallback included, before any rebase runs.
-  Proceed records the target it consented to with `run_field_set {key:
-  shipTarget, value: <resolved target>, stage: "ship"}`; when the stack
-  store was unreadable the value is `<default branch> (stack store
-  unreadable)`, so a later reader can tell consent to the fallback from a
-  real read. The rebase and `mr_create` use the plain branch name.
-- **Re-entry.** A stage entered again reads `shipTarget` after
-  `branch_stack`. A readable fresh target equal to the recorded one
-  continues past the gate, the earlier Proceed standing. A fresh target
-  that differs, or a store unreadable now, reopens the gate with a sentence
-  naming the recorded target and the fresh one, even though the gate was
-  answered before; Proceed records the fresh target. A run holding no
-  `shipTarget` has not passed the gate.
   Keep the `url` `mr_create` returns as `mrUrl` for every later write.
+- **Recorded consent.** Proceed records the target it consented to with
+  `run_field_set {key: shipTarget, value: <resolved target>, stage:
+  "ship"}`; when the stack store was unreadable the value is `<default
+  branch> (stack store unreadable)`, so a later reader can tell consent to
+  the fallback from a real read. The rebase and `mr_create` use the plain
+  branch name. Iterate clears the field with value `-` before the loop
+  returns through `branch_stack`, so the skip below never fires inside one
+  pass. The work orchestrator clears it on a redirect that reaches ship and
+  on a failure gate Retry of ship.
+- **Re-entry.** A stage entered again reads `shipTarget` after
+  `branch_stack`. An unset key (`run_field_get` errors) or the value `-`
+  is no recorded consent: the gate opens. A readable fresh target equal to
+  the recorded one continues past the gate, the earlier Proceed standing;
+  the `dirty`, `open_as` and domain answers come from the ship gate
+  decision `run_snapshot` shows, and a tree dirty now with no recorded
+  commit or stash answer goes to "dirty answer?" with the fresh state, which
+  asks the dirty question before going on. A fresh target that differs, or a
+  store unreadable now, reopens the gate with a sentence naming the
+  recorded target and the fresh one, even though the gate was answered
+  before; Proceed records the fresh target.
 
 ## Gate `ship` (before the push)
 

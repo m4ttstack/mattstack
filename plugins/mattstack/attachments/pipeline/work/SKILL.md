@@ -74,6 +74,8 @@ digraph work {
 
     "Last stage done?" [shape=diamond];
     "Gate <stage>-failed:<attempt>" [shape=box];
+    "Retrying the ship stage?" [shape=diamond];
+    "run_field_set {key: shipTarget, value: -, stage: ship}" [shape=plaintext];
     "failure answer?" [shape=diamond];
     "Gate close" [shape=box];
     "close answer?" [shape=diamond];
@@ -86,6 +88,7 @@ digraph work {
         "Is the <from> row still running?" [shape=diamond];
         "run_stage {action: redirect, stage: <from>, to, reason}" [shape=plaintext];
         "run_field_set {key: <each produce from <to> on>, value: -}" [shape=plaintext];
+        "Ship at or after <to>?" [shape=diamond];
     }
 
     "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy}" [shape=plaintext];
@@ -133,7 +136,9 @@ digraph work {
     "Last stage done?" -> "Take the next stage in the table" [label="no"];
     "Last stage done?" -> "Gate close" [label="yes"];
     "Gate <stage>-failed:<attempt>" -> "failure answer?";
-    "failure answer?" -> "run_stage {action: start, stage}" [label="proceed + retry: a new attempt"];
+    "failure answer?" -> "Retrying the ship stage?" [label="proceed + retry: a new attempt"];
+    "Retrying the ship stage?" -> "run_field_set {key: shipTarget, value: -, stage: ship}" [label="yes: clear the recorded consent"];
+    "Retrying the ship stage?" -> "run_stage {action: start, stage}" [label="no"];
     "failure answer?" -> "run_decision {contract: gate@1, scope: redirect:<from>:<attempt>, selection: {from, to, reason}}" [label="go back, or iterate here (to = this stage)"];
     "failure answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy}" [label="hold"];
     "failure answer?" -> "run_status {status: abandoned}" [label="proceed + abandon"];
@@ -147,7 +152,10 @@ digraph work {
     "Is the <from> row still running?" -> "run_stage {action: redirect, stage: <from>, to, reason}" [label="yes: a Go back or Fix handed back mid-stage"];
     "Is the <from> row still running?" -> "run_field_set {key: <each produce from <to> on>, value: -}" [label="no: done (Close) or failed (failure gate): no redirect call"];
     "run_stage {action: redirect, stage: <from>, to, reason}" -> "run_field_set {key: <each produce from <to> on>, value: -}";
-    "run_field_set {key: <each produce from <to> on>, value: -}" -> "run_stage {action: start, stage}" [label="stage = <to>, walk forward"];
+    "run_field_set {key: <each produce from <to> on>, value: -}" -> "Ship at or after <to>?";
+    "Ship at or after <to>?" -> "run_field_set {key: shipTarget, value: -, stage: ship}" [label="yes: clear the recorded consent"];
+    "Ship at or after <to>?" -> "run_stage {action: start, stage}" [label="no: stage = <to>, walk forward"];
+    "run_field_set {key: shipTarget, value: -, stage: ship}" -> "run_stage {action: start, stage}" [label="stage = <to> walk forward, or the retried stage"];
     "run_status {status: done}" -> "Run done";
     "run_status {status: abandoned}" -> "Run abandoned";
 }
@@ -173,7 +181,11 @@ digraph work {
   not.
 - **The cleared sentinel.** `-` marks a produce a Redirect cleared, so the
   completeness check re-runs honestly. Later stages re-run as new attempts;
-  a ship re-run pushes new commits to the same MR.
+  a ship re-run pushes new commits to the same MR. `shipTarget`, the
+  target the ship gate's Proceed consented to, is not a produce: a
+  redirect to `<to>` clears it whenever ship is at or after `<to>`, and a
+  Retry of ship clears it, so the next ship gate opens instead of reusing
+  the old consent.
 - **Redirect reasons** are the human's words, never a category. A redirect
   typed in the pane with no open gate records `decidedBy: "pane"`. The
   `redirect` call closes a row that is still running; after Close (the
