@@ -182,6 +182,49 @@ exception (a Partial selection downgrades to None, not All, once a
 commit or discard shifts its file's diff shape) are in
 `docs/design/mission/README.md`'s "Staging model" section.
 
+## Output layer
+
+Everything rt prints for a person goes through `lib/ui/out.ts`. Builders
+(`out.line`, `out.callout`, `out.kv`, `out.table`, `out.tree`, `out.section`
+and the rest) return data; `out.print` draws them through the one-shot
+`rt-ui render` verb at a terminal and prints the same words plainly
+(`lib/ui/out-plain.ts`) off a TTY, under `--json` or `RT_BATCH`, or when the
+helper is missing or fails. Before adding or changing output, read
+`docs/superpowers/specs/2026-09-30-rt-output-layer-design.md`: the block
+vocabulary, the ten statuses, the color roles and the rules.
+
+Five rules cost the most when broken:
+
+- **Coral is for failures.** A state that is not yet done, turned off,
+  stopped or refused by policy has its own status (`pending`, `off`,
+  `refused`, `needs-you`). Never reach for `failed` to draw attention.
+- **Never style a payload.** Text another program reads (the `rt cd` path,
+  `git credential`, a key, a bare path) goes through `out.payload`, and a
+  verb whose stdout is a payload calls `out.payloadOnStdout()` so its human
+  text moves to stderr.
+- **`--json` goes through `out.json` and is frozen.** Plain text off a TTY is
+  not frozen: it carries the same wording as the styled output, so a skill
+  must read `--json`, never scrape text.
+- **No colors on the TS side.** `out.ts` holds no ANSI and no glyph styling;
+  the theme lives in `ui/internal/theme` and nowhere else.
+- **Body text takes the terminal's own foreground.** Only accents (glyphs,
+  callout labels, keys, hints, rails) use theme colors, so output reads on a
+  light terminal as well as a dark one. Never give body text a fixed color.
+
+Plain output collapses newlines and tabs in single-line fields (titles,
+hints, cells, labels) to a space and indents paragraph lines two spaces, so
+untrusted text cannot forge a status row. A `copy` block prints at column 0
+so it pastes clean, which means it must never carry untrusted multi-line
+text. Step sub-lines sit under their running step: they clear when the step
+ends with `done` and stay beneath it when it fails.
+
+`lib/__tests__/no-raw-output.test.ts` fails a PR that adds `console.*`, any
+use of `process.stdout` or `process.stderr` beyond reading `isTTY`,
+`columns`, `rows` or `fd` and attaching listeners, a raw escape or a color
+import under `commands/` or `lib/`. Its allowlist
+(`raw-output-allowlist.json`) names the files not yet converted and only
+shrinks: converting a file means deleting its line.
+
 ## The TypeScript CLI is UI-free
 
 The rt TS CLI (`commands/`, `lib/`, `cli.ts`, `scripts/`) is pure Bun/TypeScript
@@ -208,6 +251,11 @@ lists of subcommands, and internal names (registry, index, on-deck pool). A
 verb that is only for the apps, skills or daemon goes in the
 `rt.picker.hidden` default rather than getting a description that warns
 people off it. After editing descriptions, run `bun run docs:gen`.
+
+The same style governs every message a command prints: say what happened for
+the person in a short plain sentence, speak to "you" and "this", leave out
+flags, store names, file paths and step ids, and put the command to run in a
+`next` callout rather than mid-sentence. Name only verbs that exist.
 
 ## Release & distribution
 
