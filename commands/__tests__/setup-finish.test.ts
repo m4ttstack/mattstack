@@ -1,8 +1,11 @@
-import { describe, expect, test } from "bun:test";
-import { setupFinish, type AfterFinish, type FinishDeps } from "../setup.ts";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "fs";
+import { setupFinish, REAL_AFTER_FINISH, type AfterFinish, type FinishDeps } from "../setup.ts";
+import { logsDir } from "../../lib/rt-paths.ts";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import { isSetupFinished, readSetupState } from "../../lib/setup/state.ts";
-import { capturePlain } from "./helpers/json-line.ts";
+import { capturePlain, realJson } from "./helpers/json-line.ts";
 
 function deps(): FinishDeps & { probes: ReturnType<typeof fakeProbes>; lines: string[] } {
   const lines: string[] = [];
@@ -24,11 +27,17 @@ function after(run: AfterFinish["update"] = async () => {}): AfterFinish & { cal
       calls.push(opts.json);
       await run(opts);
     },
-    warn: (title, detail) => warnings.push(`${title}: ${detail}`),
+    warn: (_json, title, detail) => warnings.push(`${title}: ${detail}`),
     calls,
     warnings,
   };
 }
+
+let quiet: CapturedOut;
+beforeEach(() => {
+  quiet = capturePlain();
+});
+afterEach(() => quiet.restore());
 
 describe("setupFinish", () => {
   test("records setup as finished on this Mac", async () => {
@@ -70,5 +79,34 @@ describe("setupFinish", () => {
     await setupFinish([], {}, d, a);
     expect(isSetupFinished(readSetupState(d.probes))).toBe(true);
     expect(a.warnings).toEqual(["The update after Finish did not finish: boom"]);
+  });
+
+  test("--json: a throwing update run leaves stdout as the one envelope and the warning in the log", async () => {
+    const d = { ...deps(), json: realJson };
+    const a = { ...after(async () => { throw new Error("update boom"); }), warn: REAL_AFTER_FINISH.warn };
+    const cap = capturePlain();
+    try {
+      await setupFinish(["--json"], {}, d, a);
+      const lines = cap.stdout().trimEnd().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toMatchObject({ contract: 1, ok: true });
+      expect(cap.stderr()).toBe("");
+    } finally {
+      cap.restore();
+    }
+    const log = readdirSync(logsDir()).filter((f) => f.startsWith("cli.")).map((f) => readFileSync(`${logsDir()}/${f}`, "utf8")).join("");
+    expect(log).toContain("The update after Finish did not finish: update boom");
+  });
+
+  test("human mode: the real warn path is a warning line on stdout", async () => {
+    const d = deps();
+    const a = { ...after(async () => { throw new Error("update boom"); }), warn: REAL_AFTER_FINISH.warn };
+    const cap = capturePlain();
+    try {
+      await setupFinish([], {}, d, a);
+      expect(cap.stdout()).toEndWith("[warning] The update after Finish did not finish  update boom\n");
+    } finally {
+      cap.restore();
+    }
   });
 });

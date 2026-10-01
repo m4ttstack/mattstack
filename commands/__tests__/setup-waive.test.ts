@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { setupUnwaive, setupWaive, type WaiveDeps } from "../setup.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import { capturePlain, realJson } from "./helpers/json-line.ts";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 class ExitSentinel extends Error {
   constructor(public readonly code: number) {
@@ -51,9 +52,12 @@ async function exitCode(fn: () => Promise<void>): Promise<number | undefined> {
   }
 }
 
+let quiet: CapturedOut;
 beforeEach(() => {
   delete process.env.RT_BATCH;
+  quiet = capturePlain();
 });
+afterEach(() => quiet.restore());
 
 describe("rt setup waive", () => {
   test("--json writes the id at machine scope and prints an ok envelope", async () => {

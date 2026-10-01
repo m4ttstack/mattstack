@@ -411,8 +411,8 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
     needsAttention = notification !== null;
   } finally {
     lock?.release();
+    await human?.flush();
   }
-  await human?.flush();
   if (needsAttention) deps.exit(2);
 }
 
@@ -552,7 +552,7 @@ export type FinishDeps = IntentDeps;
 
 export interface AfterFinish {
   update(opts: { json: boolean }): Promise<void>;
-  warn(title: string, detail: string): void;
+  warn(json: boolean, title: string, detail: string): void;
 }
 
 /** The update run Finish starts. In `--json` it prints nothing, so `rt setup finish --json` stays one envelope, and a needs-you item never turns the Finish into an exit 2: the run notifies on its own. */
@@ -561,9 +561,9 @@ export async function updateAfterFinish(opts: { json: boolean }, deps: ApplyDeps
   await setupUpdate(opts.json ? ["--json"] : [], {}, quiet);
 }
 
-const REAL_AFTER_FINISH: AfterFinish = {
+export const REAL_AFTER_FINISH: AfterFinish = {
   update: (opts) => updateAfterFinish(opts),
-  warn: (title, detail) => out.print(out.line("warn", title, detail)),
+  warn: warnLine,
 };
 
 /** mattstack.app runs this at the wizard's Finish; until it has, every launch reopens setup. */
@@ -578,7 +578,7 @@ export async function setupFinish(args: string[], _ctx: CommandContext = {}, dep
   try {
     await after.update({ json });
   } catch (err) {
-    after.warn("The update after Finish did not finish", err instanceof Error ? err.message : String(err));
+    after.warn(json, "The update after Finish did not finish", err instanceof Error ? err.message : String(err));
   }
 }
 

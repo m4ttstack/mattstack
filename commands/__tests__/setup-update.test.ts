@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { setupUpdate, updateAfterFinish, type ApplyDeps } from "../setup.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../../lib/setup/apply.ts";
 import type { ApplyEvent, StepId } from "../../lib/setup/contract.ts";
@@ -12,7 +12,14 @@ import { createUpdateLock } from "../../lib/setup/update-lock.ts";
 import { existsSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { capturePlain, realJson } from "./helpers/json-line.ts";
+
+let quiet: CapturedOut;
+beforeEach(() => {
+  quiet = capturePlain();
+});
+afterEach(() => quiet.restore());
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },

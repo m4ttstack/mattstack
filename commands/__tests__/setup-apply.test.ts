@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { readdirSync, readFileSync } from "fs";
 import { logsDir } from "../../lib/rt-paths.ts";
 import {
@@ -19,7 +19,14 @@ import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import { fakeProbes, ok } from "../../lib/setup/__tests__/fakes.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
 import { UserActionableError } from "../../lib/errors.ts";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
+
+let quiet: CapturedOut;
+beforeEach(() => {
+  quiet = capturePlain();
+});
+afterEach(() => quiet.restore());
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
