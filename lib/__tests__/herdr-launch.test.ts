@@ -1,44 +1,43 @@
 /**
- * launchFallback (lib/herdr-launch.ts): the real banner text, not a mock of
- * it. Every launchQueue/launchPreset test elsewhere mocks this function
- * away, so nothing pins what it actually writes to stderr.
+ * launchFallback (lib/herdr-launch.ts): the real text, not a mock of it.
+ * Every launchQueue and launchPreset test elsewhere mocks this function
+ * away, so nothing else pins what it writes.
  */
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { launchFallback, type LaunchItem } from "../herdr-launch.ts";
+import * as ui from "../ui/out.ts";
+import { captureOut } from "../ui/__tests__/capture-out.ts";
 
-/** Strips ANSI so assertions read as plain text (matches run-report-save.test.ts's convention). */
-// eslint-disable-next-line no-control-regex
-const plain = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+let io: ReturnType<typeof captureOut>;
 
-const REAL_WRITE = process.stderr.write;
-
-afterEach(() => {
-  process.stderr.write = REAL_WRITE;
+beforeEach(() => {
+  io = captureOut();
+  ui.__test__.reset();
+  ui.__test__.setHuman(() => false);
 });
+afterEach(() => io.restore());
 
-test("launchFallback's banner names the caller's reason verbatim, then one line per item", () => {
-  const writes: string[] = [];
-  process.stderr.write = ((c: string | Uint8Array) => { writes.push(String(c)); return true; }) as typeof process.stderr.write;
-
+test("names the caller's reason, then one heading per item, all on stderr", () => {
   const items: LaunchItem[] = [
     { label: "web → dev", command: "true", cwd: process.cwd() },
     { label: "api → start", command: "true", cwd: process.cwd() },
   ];
   launchFallback(items, "tmux is not on PATH");
 
-  const plainWrites = writes.map(plain);
-  expect(plainWrites[0]).toBe("\n  tmux is not on PATH, running sequentially\n\n");
-  expect(plainWrites[1]).toBe("  web → dev\n");
-  expect(plainWrites[2]).toBe("  api → start\n");
+  expect(io.stdout()).toBe("");
+  expect(io.stderr()).toBe("[warning] Running these one at a time  tmux is not on PATH\nweb → dev\napi → start\n");
 });
 
-test("launchFallback names a non-zero exit against the item's own label", () => {
-  const writes: string[] = [];
-  process.stderr.write = ((c: string | Uint8Array) => { writes.push(String(c)); return true; }) as typeof process.stderr.write;
-
+test("names a non-zero exit against the item's own label", () => {
   const items: LaunchItem[] = [{ label: "web → dev", command: "exit 7", cwd: process.cwd() }];
   launchFallback(items, "not running in an interactive terminal");
 
-  const joined = plain(writes.join(""));
-  expect(joined).toContain("web → dev exited 7");
+  expect(io.errLines().at(-1)).toBe("[failed] web → dev stopped with an error  exit 7");
+});
+
+test("stays on stderr when the verb's stdout is a payload", () => {
+  ui.payloadOnStdout();
+  launchFallback([{ label: "web → dev", command: "true", cwd: process.cwd() }], "tmux is not on PATH");
+  expect(io.stdout()).toBe("");
+  expect(io.stderr()).toContain("Running these one at a time");
 });

@@ -21,6 +21,7 @@ import { homedir } from "os";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { dim, green, red, reset } from "../lib/tui.ts";
+import * as out from "../lib/ui/out.ts";
 import { getRepoIdentity, getKnownRepos, findKnownRepo } from "../lib/repo.ts";
 import { currentRepoIdentityFor } from "../lib/repo-arg.ts";
 import { repoLabel } from "../lib/repo-label.ts";
@@ -221,7 +222,23 @@ export function resolveWorkspaceSync(dirPath: string, prefs: Prefs): string | nu
 
 // ─── Async resolvers (with pickers) ─────────────────────────────────────────
 
-async function ensureEditor(prefs: Prefs, repoKey: string, legacyKeys: string[] = []): Promise<string> {
+/** rt nav's path: its bytes must not change. */
+function noEditorAsToday(): never {
+  console.log(`\n  ${red}No supported editor CLI found.${reset}`);
+  console.log(`  ${dim}Install one of: code, cursor, zed, codium, subl${reset}\n`);
+  process.exit(1);
+}
+
+function noEditorFailure(): never {
+  out.fail({
+    title: "rt could not find an editor it can open",
+    why: "It looks for the shell command of VS Code, Cursor, Zed, VSCodium, Windsurf, Sublime Text or a JetBrains editor.",
+    next: "Install one of them, or turn on its shell command, then run this again",
+  });
+  process.exit(1);
+}
+
+async function ensureEditor(prefs: Prefs, repoKey: string, legacyKeys: string[], onNoEditor: () => never): Promise<string> {
   // Fast path: sync resolver covers the common case
   const fast = resolveEditorSync(prefs, repoKey, legacyKeys);
   if (fast) {
@@ -236,11 +253,7 @@ async function ensureEditor(prefs: Prefs, repoKey: string, legacyKeys: string[] 
   }
 
   const installed = detectInstalledEditors();
-  if (installed.length === 0) {
-    console.log(`\n  ${red}No supported editor CLI found.${reset}`);
-    console.log(`  ${dim}Install one of: code, cursor, zed, codium, subl${reset}\n`);
-    process.exit(1);
-  }
+  if (installed.length === 0) onNoEditor();
 
   const { select } = await import("../lib/rt-render.ts");
   const selected = await select({
@@ -394,7 +407,7 @@ export async function openDirectoryInEditor(dirPath: string): Promise<void> {
   const prefs = loadPrefs();
   const basename = dirPath.split("/").pop() || "unknown";
   const repoKey = editorPrefKey(dirPath);
-  const editor = await ensureEditor(prefs, repoKey, [basename]);
+  const editor = await ensureEditor(prefs, repoKey, [basename], noEditorAsToday);
   const editorLabel = editorLabelFor(editor);
   const target = await resolveWorkspaceTarget(dirPath, prefs);
 
@@ -443,7 +456,7 @@ export async function openInEditor(args: string[]): Promise<void> {
   const prefs = loadPrefs();
   // The index row's own key is a legacy candidate: an unregistered scanned row
   // is keyed by basename, and pre-cutover rows by display name.
-  const editor = await ensureEditor(prefs, repoKey, [selectedRepo?.repoName, basename].filter((k): k is string => !!k));
+  const editor = await ensureEditor(prefs, repoKey, [selectedRepo?.repoName, basename].filter((k): k is string => !!k), noEditorFailure);
   const editorLabel = editorLabelFor(editor);
   const target = await resolveWorkspaceTarget(selectedPath, prefs);
 
@@ -453,10 +466,13 @@ export async function openInEditor(args: string[]): Promise<void> {
     const label = target.endsWith(".code-workspace")
       ? target.split("/").pop()
       : selectedPath.split("/").pop();
-    console.log(`\n  ${green}✓${reset} Opened ${label} in ${editorLabel}`);
+    out.print(out.line("done", `Opened ${label} in ${editorLabel}`));
   } else {
-    console.log(`\n  ${red}Failed to open ${editorLabel}. Is '${editor}' CLI installed?${reset}`);
-    console.log(`  ${dim}Reset your editor preference with: rt settings set rt.workspacePrefs '{}' --scope machine${reset}\n`);
+    out.fail({
+      title: `${editorLabel} did not open`,
+      why: `rt ran ${editor} and it failed, or it is not installed. Clearing your saved editor makes rt ask again.`,
+      next: out.cmd("rt settings set rt.workspacePrefs '{}' --scope machine"),
+    });
     process.exit(1);
   }
 }

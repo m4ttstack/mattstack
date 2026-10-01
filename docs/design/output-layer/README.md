@@ -43,3 +43,10 @@ and setup pages predate the hint wrap, the words-only wrap and the
 To regenerate: write the hello line and the fixture blocks as NDJSON, pipe them
 through `ui/dist/rt-ui render --width 80` with `COLORTERM=truecolor`, and view
 the ANSI output on each background.
+
+## Phase 5c: worktree and navigation
+
+- `worktree-dark.png`, `worktree-light.png`: `rt worktree` provision, list, triage, dispose with its refusals, a busy lock, ready-approve, adopt, the restore list, each, two failures and a not-ready warning.
+- `code-dark.png`, `code-light.png`: `rt code`, `rt settings extension`, the worktree config warning and the one-at-a-time fallback.
+
+`rt cd` and `rt nav` have no render: 5c does not change them.
