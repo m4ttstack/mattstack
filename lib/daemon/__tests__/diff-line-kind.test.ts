@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { classifyNewLine } from "../diff-line-kind.ts";
+import { checkAnchor, classifyNewLine } from "../diff-line-kind.ts";
 
 const TWO_HUNKS = [
   "@@ -1,4 +1,4 @@",
@@ -59,5 +59,32 @@ describe("classifyNewLine", () => {
 
   test("an empty diff has nothing near", () => {
     expect(classifyNewLine("", 5)).toEqual({ kind: "outside", nearest: [] });
+  });
+});
+
+describe("checkAnchor", () => {
+  const page = (over: object = {}, truncated = false) =>
+    ({ diffs: [{ newPath: "src/a.ts", oldPath: "src/old-a.ts", diff: TWO_HUNKS, ...over }], truncated });
+
+  test("a context line is anchorable with its old line and old path", () => {
+    expect(checkAnchor(page(), "src/a.ts", 3)).toEqual({ kind: "anchorable", oldPath: "src/old-a.ts", oldLine: 3 });
+  });
+
+  test("an added line is anchorable on its new line alone", () => {
+    expect(checkAnchor(page(), "src/a.ts", 2)).toEqual({ kind: "anchorable", oldPath: "src/old-a.ts" });
+  });
+
+  test("a line the diff does not show is outside", () => {
+    expect(checkAnchor(page(), "src/a.ts", 10).kind).toBe("outside");
+  });
+
+  test("a file missing from a whole page has no diff", () => {
+    expect(checkAnchor(page(), "src/b.ts", 1)).toEqual({ kind: "no-file" });
+  });
+
+  test("a file missing from a full page, or one GitLab did not render, cannot be checked", () => {
+    expect(checkAnchor(page({}, true), "src/b.ts", 1)).toEqual({ kind: "anchorable" });
+    expect(checkAnchor(page({ collapsed: true }), "src/a.ts", 10)).toEqual({ kind: "anchorable", oldPath: "src/old-a.ts" });
+    expect(checkAnchor(page({ diff: "" }), "src/a.ts", 10)).toEqual({ kind: "anchorable", oldPath: "src/old-a.ts" });
   });
 });

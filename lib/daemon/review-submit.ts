@@ -6,6 +6,7 @@
  */
 import type { DiffRefs, NoteMutator, TextPosition } from "@mattstack/glance";
 import type { ReviewSubmitComment, ReviewSubmitData, ReviewSubmitReply } from "../../packages/rt-client/src/commands.ts";
+import { checkAnchor, type DiffFileRow } from "./diff-line-kind.ts";
 
 export type ReviewMutator = Pick<
   NoteMutator,
@@ -81,6 +82,35 @@ export function parseReviewSubmit(
   return { ok: true, input: { outcome: p.outcome, summary: p.summary, comments, replies } };
 }
 
+export type BadAnchor = { index: number; path: string; line: number };
+
+/**
+ * Anchors each comment against the MR's diffs before anything is created:
+ * GitLab needs the old line too for an unchanged context line, and refuses
+ * a line the diff does not show. A comment that already names its oldLine
+ * is the caller's own anchor and passes through untouched.
+ */
+export function anchorComments(
+  page: { diffs: DiffFileRow[]; truncated: boolean },
+  comments: ReviewSubmitComment[],
+): { comments: ReviewSubmitComment[]; badAnchors: BadAnchor[] } {
+  const badAnchors: BadAnchor[] = [];
+  const anchored = comments.map((c, index) => {
+    if (c.oldLine !== undefined) return c;
+    const anchor = checkAnchor(page, c.path, c.line);
+    if (anchor.kind !== "anchorable") {
+      badAnchors.push({ index, path: c.path, line: c.line });
+      return c;
+    }
+    return {
+      ...c,
+      ...(anchor.oldPath && c.oldPath === undefined ? { oldPath: anchor.oldPath } : {}),
+      ...(anchor.oldLine !== undefined ? { oldLine: anchor.oldLine } : {}),
+    };
+  });
+  return { comments: anchored, badAnchors };
+}
+
 function firstLine(text: string): string {
   return (text.split("\n").find(l => l.trim()) ?? "").trim().slice(0, 120);
 }
@@ -138,7 +168,7 @@ export async function submitReview(deps: ReviewSubmitDeps, input: ReviewSubmitIn
     return deleteAll(ids);
   };
 
-  const badAnchors: Array<{ index: number; path: string; line: number }> = [];
+  const badAnchors: BadAnchor[] = [];
   try {
     if (input.comments.length > 0) {
       const refs = await mutator.fetchDiffRefs(projectId, iid);
