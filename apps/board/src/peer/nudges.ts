@@ -321,6 +321,7 @@ export interface SentNudgeView {
   sentAt: number;
   reason?: string;
   outcome?: string;
+  resolvedAt?: number;
   finishedAt?: number;
 }
 
@@ -338,6 +339,7 @@ export function sentNudgeView(
     sentAt: n.sentAt,
     ...(r?.reason ? { reason: r.reason } : {}),
     ...(r?.outcome ? { outcome: r.outcome } : {}),
+    ...(r ? { resolvedAt: r.at } : {}),
     ...(finished && r ? { finishedAt: r.at } : {}),
   };
 }

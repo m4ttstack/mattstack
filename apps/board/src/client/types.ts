@@ -127,10 +127,18 @@ export interface SentNudgeInfo {
     | 'launched'
     | 'rejected'
     | 'expired'
-    | 'no-response';
+    | 'no-response'
+    | 'done'
+    | 'failed';
   reviewer: string;
+  /** The peer's own words: why a rejection, or what a failed run hit. */
   reason?: string;
   sentAt?: number;
+  /** When the latest answer (started, finished) landed here. */
+  resolvedAt?: number;
+  /** The finished run's verdict word ('approve', 'comment'), on 'done'. */
+  outcome?: string;
+  finishedAt?: number;
   /** Absent means re-review (older boards never send the other kinds). */
   kind?: 'review' | 're-review' | 'respond';
 }
@@ -292,6 +300,11 @@ export interface RowContext {
   onMerge: (mr: BoardMR) => void;
   /** Stop showing a failed lane's line on the row; nothing is deleted. */
   onDismissLane: (mr: BoardMR, lane: 'review' | 'respond' | 'doctor') => void;
+  /** The sent-ask band's retry: scraps the recorded ask and sends the same
+      kind of ask to the same teammate again. */
+  onAskRetry: (mr: BoardMRWithReview) => void;
+  /** The sent-ask band's dismiss: drops the board's record of the ask. */
+  onAskDismiss: (mr: BoardMR) => void;
   /** Row menu's "never diagnose this stack" toggle: mutes auto-doctor for
       this MR and every descendant (server-enforced), and on -> true clears
       whatever's currently on this row -- see POST /triage/stand-down. */

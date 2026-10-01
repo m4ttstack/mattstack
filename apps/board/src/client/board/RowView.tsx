@@ -25,6 +25,7 @@ import { rowStatus, statusPhrase, statusReasons } from './row-status.ts';
 import { RowNote } from './RowNote.tsx';
 import { slackLadder } from './slack-ladder.ts';
 import { StatusDot } from './StatusDot.tsx';
+import { AskBand } from './AskBand.tsx';
 import { StatusLine } from './StatusLine.tsx';
 import {
   commentCount,
@@ -335,6 +336,7 @@ function RowView({
           {(mr.note || noteOpen) && (
             <RowNote mr={mr} ctx={ctx} editing={noteOpen} />
           )}
+          <AskBand mr={mr} now={now} ctx={ctx} />
         </div>
       </div>
     );

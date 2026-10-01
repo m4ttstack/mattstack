@@ -1151,62 +1151,6 @@ describe('rowStatus: social lanes', () => {
     });
   });
 
-  test('a sent first-look ask words review in every phase', () => {
-    const [asked] = candidateLines(
-      mr({
-        sentNudge: {
-          display: 'requested',
-          reviewer: 'jo',
-          sentAt: NOW - 30 * 60_000,
-          kind: 'review',
-        } as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(asked).toMatchObject({
-      tone: 'quiet',
-      word: 'asked jo for a review',
-      detail: 'no answer yet, 30m ago',
-    });
-    const [retry] = candidateLines(
-      mr({
-        sentNudge: {
-          display: 'expired',
-          reviewer: 'jo',
-          sentAt: NOW,
-          kind: 'review',
-        } as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(retry).toMatchObject({
-      tone: 'quiet',
-      word: 'review ask to jo went unanswered',
-      detail: 'right-click to ask again',
-    });
-    const [working] = candidateLines(
-      mr({
-        sentNudge: {
-          display: 'confirmed',
-          reviewer: 'jo',
-          kind: 'review',
-        } as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(working).toMatchObject({
-      tone: 'work',
-      word: 'jo reviewing…',
-      spin: true,
-    });
-  });
-
   test('an inbound respond ask words a response and verbs a respond launch', () => {
     const [line] = candidateLines(
       own({
@@ -1226,59 +1170,6 @@ describe('rowStatus: social lanes', () => {
     expect(line!.verbs[0]).toEqual({
       kind: 'launch-respond',
       label: 'respond',
-    });
-  });
-
-  test('a sent respond ask words respond in every phase', () => {
-    const [asked] = candidateLines(
-      mr({
-        sentNudge: {
-          display: 'requested',
-          reviewer: 'pat',
-          sentAt: NOW - 30 * 60_000,
-          kind: 'respond',
-        } as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(asked).toMatchObject({
-      tone: 'quiet',
-      word: 'asked pat to respond',
-    });
-    const [retry] = candidateLines(
-      mr({
-        sentNudge: {
-          display: 'no-response',
-          reviewer: 'pat',
-          sentAt: NOW,
-          kind: 'respond',
-        } as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(retry).toMatchObject({
-      word: 'respond ask to pat went unanswered',
-    });
-    const [working] = candidateLines(
-      mr({
-        sentNudge: {
-          display: 'launched',
-          reviewer: 'pat',
-          kind: 'respond',
-        } as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(working).toMatchObject({
-      tone: 'work',
-      word: 'pat responding…',
-      spin: true,
     });
   });
 
@@ -1318,6 +1209,29 @@ describe('rowStatus: social lanes', () => {
     expect(
       candidateLines(settled({ drafts: [draft] }), NOW, resolved, ME)
     ).toEqual([expect.objectContaining({ tone: 'clear' })]);
+  });
+
+  test('a sent ask is not a status candidate: it has its own band', () => {
+    const base = candidateLines(mr({}), NOW, NONE, ME);
+    for (const display of [
+      'requested',
+      'confirmed',
+      'launched',
+      'rejected',
+      'no-response',
+      'done',
+      'failed',
+    ] as const)
+      expect(
+        candidateLines(
+          mr({
+            sentNudge: { display, reviewer: 'jo', sentAt: NOW } as never,
+          }),
+          NOW,
+          NONE,
+          ME
+        )
+      ).toEqual(base);
   });
 
   test('a live peer review is a working line with the view verb', () => {
@@ -1366,83 +1280,6 @@ describe('rowStatus: social lanes', () => {
     expect(line).toMatchObject({ tone: 'go', word: 'pat approved' });
   });
 
-  test('a sent nudge with no answer is quiet; a retryable one is quiet too, pointing at the menu', () => {
-    const [quiet] = candidateLines(
-      mr({
-        sentNudge: {
-          display: 'requested',
-          reviewer: 'jo',
-          sentAt: NOW - 30 * 60_000,
-        } as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(quiet).toMatchObject({
-      tone: 'quiet',
-      word: 'nudged jo',
-      detail: 'no answer yet, 30m ago',
-    });
-    const [retry] = candidateLines(
-      mr({
-        sentNudge: {
-          display: 'rejected',
-          reviewer: 'jo',
-          reason: 'busy',
-          sentAt: NOW,
-        } as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(retry).toMatchObject({
-      tone: 'quiet',
-      word: 'jo declined the nudge',
-      detail: 'busy',
-      verbs: [],
-    });
-  });
-
-  test('a declined ask names the reviewer and shows their reason; without one it points at the menu', () => {
-    const [reasoned] = candidateLines(
-      mr({
-        sentNudge: {
-          display: 'rejected',
-          reviewer: 'jo',
-          reason: 'review-in-flight',
-          sentAt: NOW,
-          kind: 'review',
-        } as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(reasoned).toMatchObject({
-      tone: 'quiet',
-      word: 'jo declined the review ask',
-      detail: 'review-in-flight',
-    });
-    const [bare] = candidateLines(
-      mr({
-        sentNudge: {
-          display: 'rejected',
-          reviewer: 'jo',
-          sentAt: NOW,
-        } as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(bare).toMatchObject({
-      word: 'jo declined the nudge',
-      detail: 'right-click to ask again',
-    });
-  });
-
   test('a human reviewing right now is a quiet line', () => {
     const [line] = candidateLines(
       mr({
@@ -1465,19 +1302,6 @@ describe('rowStatus: social lanes', () => {
     });
   });
 
-  test('a sent nudge confirmed and re-launching is a working line', () => {
-    const [line] = candidateLines(
-      mr({ sentNudge: { display: 'confirmed', reviewer: 'jo' } as never }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(line).toMatchObject({
-      tone: 'work',
-      word: 'jo re-reviewing…',
-      spin: true,
-    });
-  });
 });
 
 describe('rowStatus: the stress row', () => {

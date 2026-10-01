@@ -114,6 +114,8 @@ const NUDGE_RETRYABLE = new Set<SentNudgeInfo['display']>([
   'rejected',
   'expired',
   'no-response',
+  'done',
+  'failed',
 ]);
 
 /** Peers we can ask to look again: their review finished with comments (so

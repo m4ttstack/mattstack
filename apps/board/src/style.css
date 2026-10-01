@@ -4714,3 +4714,98 @@ a.tui-id-card-ref:focus-visible {
     grid-area: trail;
   }
 }
+
+/* The sent-ask band: this board's own ask of a teammate's agent, on its own
+   line at the foot of the row, tinted by where the ask stands. */
+.tui-ask {
+  --ask-fill: var(--muted);
+  --ask-text: var(--text-3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 5px 10px;
+  min-width: 0;
+  font-size: 0.76rem;
+  line-height: 20px;
+  color: var(--ask-text);
+  background: var(--ask-fill);
+  border: 1px solid color-mix(in srgb, var(--ask-text) 22%, transparent);
+  border-radius: 6px;
+}
+.tui-ask[data-tone='work'] {
+  --ask-fill: var(--fill-purple);
+  --ask-text: var(--text-purple-small);
+}
+.tui-ask[data-tone='ok'] {
+  --ask-fill: var(--fill-ok);
+  --ask-text: var(--text-ok-small);
+}
+.tui-ask[data-tone='bad'] {
+  --ask-fill: var(--fill-bad);
+  --ask-text: var(--text-bad-small);
+}
+.tui-ask[data-tone='warn'] {
+  --ask-fill: var(--fill-warn);
+  --ask-text: var(--text-warn-small);
+}
+.tui-ask-where,
+.tui-ask-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.tui-ask-where {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.tui-ask-state {
+  flex: 1;
+}
+.tui-ask-sep {
+  opacity: 0.6;
+}
+.tui-ask-label {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tui-ask-age {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+.tui-ask-ring {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-top-color: currentColor;
+  animation: tui-status-rot 1s linear infinite;
+}
+.tui-ask-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 2px 9px;
+  font: inherit;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--ask-text);
+  background: var(--card);
+  border: 1px solid color-mix(in srgb, var(--ask-text) 55%, transparent);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.tui-ask-btn:hover {
+  background: color-mix(in srgb, var(--ask-text) 12%, var(--card));
+}
+.tui-ask-btn:focus-visible {
+  outline: 2px solid var(--ask-text);
+  outline-offset: 1px;
+}
