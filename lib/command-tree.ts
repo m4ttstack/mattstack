@@ -531,8 +531,11 @@ function readHiddenVerbs({ getSetting }: SettingsResolver): string[] {
     const value = getSetting<string[]>("rt.picker.hidden").value;
     return Array.isArray(value) ? value : [];
   } catch (err) {
-    const remedy = err instanceof UserActionableError ? err.next : undefined;
-    if (err instanceof UserActionableError) logFailureDetail(err);
+    let remedy: string | undefined;
+    if (err instanceof UserActionableError) {
+      logFailureDetail(err);
+      remedy = err.next;
+    }
     warn("command-tree", `rt.picker.hidden could not be read, listing every verb: ${err instanceof Error ? err.message : String(err)}`, {
       show: { title: "Your list of hidden commands could not be read", hint: "every command is listed", next: out.cmd(remedy ?? "rt settings check") },
     });

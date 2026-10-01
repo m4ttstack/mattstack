@@ -264,8 +264,7 @@ use of `process.stdout` or `process.stderr` beyond reading `isTTY`,
 `columns`, `rows` or `fd` and attaching listeners, a raw escape or a color
 import in `cli.ts` or under `commands/` or `lib/`. Its allowlist
 (`raw-output-allowlist.json`) names the files not yet converted and only
-shrinks: converting a file means deleting its line. `cli.ts` stays on it
-until its pre-dispatch notices move onto the layer.
+shrinks: converting a file means deleting its line.
 
 `out.note(...blocks)` prints for a person on stderr whatever the verb: use it
 for a notice that fires before the verb is known or under any verb, since

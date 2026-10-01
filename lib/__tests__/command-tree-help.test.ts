@@ -209,6 +209,16 @@ const fruit = (): Record<string, CommandNode> => ({
 const FRUIT_HELP = "usage: rt fruit <command>\n  Work with fruit\n\nCommands\npeel   Peel one\nslice  Slice one\n";
 
 describe("the dispatcher's plain output", () => {
+  let stdinDescriptor: PropertyDescriptor | undefined;
+  beforeEach(() => {
+    stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+  });
+  afterEach(() => {
+    if (stdinDescriptor) Object.defineProperty(process.stdin, "isTTY", stdinDescriptor);
+    else delete (process.stdin as { isTTY?: boolean }).isTTY;
+  });
+
   test("branch help is a usage line, the description and the commands, on stdout", async () => {
     await expect(dispatch(fruit(), ["fruit", "--help"])).rejects.toThrow("exit sentinel");
     expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(0);

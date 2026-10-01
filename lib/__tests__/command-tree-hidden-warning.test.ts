@@ -1,5 +1,6 @@
 import { test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { dispatch, type CommandNode } from "../command-tree.ts";
+import { UserActionableError } from "../errors.ts";
 import * as ui from "../ui/out.ts";
 import { captureOut } from "../ui/__tests__/capture-out.ts";
 import { setWarningLog, __test__ as warnings } from "../ui/warn.ts";
@@ -54,4 +55,17 @@ test("in the CLI the person reads one warn line and the command that checks sett
   await expect(dispatch(tree, ["--help"])).rejects.toThrow("exit sentinel");
   expect(logged).toEqual(["command-tree: rt.picker.hidden could not be read, listing every verb: store unreadable"]);
   expect(io.stderr()).toBe("[warning] Your list of hidden commands could not be read  every command is listed\n  next: rt settings check\n");
+});
+
+test("a settings error that names its own next step shows that command instead of the generic one", async () => {
+  mock.module("../settings/resolve.ts", () => ({
+    ...realResolve,
+    getSetting: () => {
+      throw new UserActionableError("settings-unreadable", "The settings store cannot be read", {}, { next: "rt settings repair demo" });
+    },
+  }));
+  setWarningLog(() => {});
+  await expect(dispatch(tree, ["--help"])).rejects.toThrow("exit sentinel");
+  expect(io.stderr()).toContain("next: rt settings repair demo\n");
+  expect(io.stderr()).not.toContain("rt settings check");
 });
