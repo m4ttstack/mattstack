@@ -25,21 +25,12 @@ class TrayState: ObservableObject {
     @Published var canCheckForUpdates: Bool = false
 
     // ── Boot/crash diagnostics (S026/S028/S029) ─────────────────────────────
-    /// `supervision.bootAttempts` from the daemon's `ping` reply, nil until
-    /// the first successful supervision query.
-    @Published var restartCount: Int? = nil
     /// Human-readable reason for the most recent recorded boot failure or
     /// crash-loop, nil when there is none on record.
     @Published var lastCrashReason: String? = nil
     /// One of "crash-looping" / "boot-failed" / "alive but not serving",
     /// nil when the daemon isn't in any of those states.
     @Published var bootVerdict: String? = nil
-
-    // ── Degraded-health cause (phase 2) ─────────────────────────────────────
-    /// The daemon's own `health.reasons` (or `.level` as a fallback), set
-    /// whenever `health == .degraded` — the red-flicker class becomes a
-    /// named cause instead of an unexplained color change.
-    @Published var failingSubsystem: String? = nil
 
     // ── Held ready ladders (RT-98) ──────────────────────────────────────────
     /// Repos whose team-authored `ready` steps the daemon is holding pending

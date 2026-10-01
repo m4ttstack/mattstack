@@ -152,7 +152,14 @@ enum AXID {
     static let settingsUninstallKeepData = "settings.uninstall.keepData"
 
     // App menu
+    static let menuAppAbout = "menu.app.about"
+    static let menuAppCheckForUpdates = "menu.app.checkForUpdates"
     static let menuAppSettings = "menu.app.settings"
+    static let menuAppSetupStatus = "menu.app.setupStatus"
+    static let menuAppQuit = "menu.app.quit"
+    static let menuHelpDocs = "menu.help.docs"
+    static let menuHelpViewLogs = "menu.help.viewLogs"
+    static let menuHelpOpenCrashLog = "menu.help.openCrashLog"
     static let menuEditFind = "menu.edit.find"
     static let menuEditFindNext = "menu.edit.findNext"
     static let menuEditFindPrevious = "menu.edit.findPrevious"
