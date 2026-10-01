@@ -288,16 +288,26 @@ public enum DevBuild {
     /// The tray's own environment is whatever launched it, and a tray opened
     /// from a shell carries that shell's NODE and npm_* vars: bun then skips
     /// its node fallback and node-pty's install script dies with exit 127.
-    /// So the rebuild passes only these keys, and puts the bundle's own node
-    /// first on PATH.
+    /// So the rebuild passes only these keys, on a PATH of fixed dirs.
+    ///
+    /// The bundle's own node joins that PATH only when none of those dirs has
+    /// a node, and then last: it is signed under the hardened runtime with the
+    /// app's Team ID, so library validation refuses every third-party native
+    /// addon it loads (rolldown's, in each vite build).
     public static func rebuildEnvironment(inherited: [String: String], home: String, appPath: String,
                                           isExecutable: (String) -> Bool) -> [String: String] {
         let passed: Set<String> = ["USER", "LOGNAME", "TMPDIR", "LANG", "SHELL"]
         var env = inherited.filter { passed.contains($0.key) || $0.key.hasPrefix("LC_") }
         env["HOME"] = home
+        var path = [
+            "\(home)/.bun/bin", "\(home)/.local/share/mise/shims", "\(home)/.volta/bin", "\(home)/.asdf/shims",
+            "\(home)/.nodenv/shims", "\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin",
+            "/usr/bin", "/bin", "/usr/sbin", "/sbin",
+        ]
         let nodeBin = "\(appPath)/Contents/Helpers/node/bin"
-        var path = ["\(home)/.bun/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
-        if isExecutable("\(nodeBin)/node") { path.insert(nodeBin, at: 0) }
+        if !path.contains(where: { isExecutable("\($0)/node") }), isExecutable("\(nodeBin)/node") {
+            path.append(nodeBin)
+        }
         env["PATH"] = path.joined(separator: ":")
         return env
     }

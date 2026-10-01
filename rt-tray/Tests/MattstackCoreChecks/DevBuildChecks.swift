@@ -545,19 +545,34 @@ let devBuildChecks: [Check] = [
             c.expectEqual(env[key], inherited[key], key)
         }
     },
-    Check("the rebuild PATH leads with the running bundle's own node, then bun and the system dirs") { c in
-        var probed: [String] = []
-        let env = DevBuild.rebuildEnvironment(inherited: ["PATH": "/mise/shims"], home: "/Users/someone",
+    Check("with a user node on the rebuild PATH, the bundle's own node is left off it") { c in
+        let bundledNode = "/Applications/mattstack-dev.app/Contents/Helpers/node/bin/node"
+        let env = DevBuild.rebuildEnvironment(inherited: ["PATH": "/elsewhere"], home: "/Users/someone",
                                               appPath: "/Applications/mattstack-dev.app",
-                                              isExecutable: { probed.append($0); return true })
-        c.expectEqual(probed, ["/Applications/mattstack-dev.app/Contents/Helpers/node/bin/node"])
-        c.expectEqual(env["PATH"], "/Applications/mattstack-dev.app/Contents/Helpers/node/bin:/Users/someone/.bun/bin:"
-            + "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+                                              isExecutable: { [bundledNode, "/Users/someone/.local/share/mise/shims/node"].contains($0) })
+        c.expectEqual(env["PATH"], userRebuildPath)
+        c.expect(!(env["PATH"] ?? "").contains("/Contents/Helpers/"), "no Helpers dir on PATH")
         c.expectEqual(env["HOME"], "/Users/someone", "HOME is set even when the launcher gave none")
     },
-    Check("a bundle without its own node falls back to the plain rebuild PATH") { c in
+    Check("a Homebrew node alone is enough to keep the bundle's node off the rebuild PATH") { c in
+        let env = DevBuild.rebuildEnvironment(inherited: [:], home: "/Users/someone",
+                                              appPath: "/Applications/mattstack-dev.app",
+                                              isExecutable: { $0 == "/opt/homebrew/bin/node" || $0.hasSuffix("/Helpers/node/bin/node") })
+        c.expectEqual(env["PATH"], userRebuildPath)
+    },
+    Check("with no user node, the bundle's own node is on the rebuild PATH, after every other dir") { c in
+        let env = DevBuild.rebuildEnvironment(inherited: [:], home: "/Users/someone",
+                                              appPath: "/Applications/mattstack-dev.app",
+                                              isExecutable: { $0.hasPrefix("/Applications/") })
+        c.expectEqual(env["PATH"], userRebuildPath + ":/Applications/mattstack-dev.app/Contents/Helpers/node/bin")
+    },
+    Check("with no node anywhere, the rebuild PATH is the plain fixed dirs") { c in
         let env = DevBuild.rebuildEnvironment(inherited: [:], home: "/Users/someone",
                                               appPath: "/tmp/x.app", isExecutable: { _ in false })
-        c.expectEqual(env["PATH"], "/Users/someone/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+        c.expectEqual(env["PATH"], userRebuildPath)
     },
 ]
+
+private let userRebuildPath = "/Users/someone/.bun/bin:/Users/someone/.local/share/mise/shims:/Users/someone/.volta/bin:"
+    + "/Users/someone/.asdf/shims:/Users/someone/.nodenv/shims:/Users/someone/.local/bin:"
+    + "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
