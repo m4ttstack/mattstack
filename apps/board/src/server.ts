@@ -3487,7 +3487,7 @@ function reviewResumeIo(): KindResumeIo {
       ),
     filePath: reviewFilePath,
     resolveSkill: (mrUrl, tabId) =>
-      reviewSkillForTab(config, tabId, mrUrl, resolveLaunchSkillFor),
+      reviewLaunchForTab(config, mrUrl, tabId).skill,
     resolvePack: launchPack,
     prompt: (
       mrUrl,
