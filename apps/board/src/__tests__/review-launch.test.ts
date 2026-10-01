@@ -4,6 +4,7 @@ import { join } from 'path';
 import type { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
+import { parseConfig } from '../config.ts';
 import {
   readRespondStates,
   respondFilePath,
@@ -12,8 +13,10 @@ import {
 import {
   launchReReview,
   launchRespondAsk,
+  reviewLaunchForTab,
   type ReReviewCtx,
   type ReReviewIo,
+  type RespondAskCtx,
   type RespondAskIo,
 } from '../review-launch.ts';
 import {
@@ -26,11 +29,26 @@ import { openStateDb } from '../state/db.ts';
 const URL_A = 'https://gitlab.com/acme/webapp/-/merge_requests/4821';
 const IID = 4821;
 
+const SKILL = 'acme:review';
+
 const CTX: ReReviewCtx = {
   cwd: '/repo/acme',
   repo: 'acme/webapp',
   workspaceLabel: 'reviews',
-  skill: 'acme:review',
+  forTab: () => ({ skill: SKILL }),
+  author: 'Grace Hopper',
+};
+
+/** CTX whose every board tab (or none) resolves `pack`. */
+function withPack(pack: string | undefined): ReReviewCtx {
+  return { ...CTX, forTab: () => ({ skill: SKILL, pack }) };
+}
+
+const ASK_CTX: RespondAskCtx = {
+  cwd: '/repo/acme',
+  repo: 'acme/webapp',
+  workspaceLabel: 'reviews',
+  skill: SKILL,
   author: 'Grace Hopper',
 };
 
@@ -318,7 +336,7 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
       repo: CTX.repo,
       workspaceLabel: CTX.workspaceLabel,
       statePath: reviewFilePath(URL_A),
-      skill: CTX.skill,
+      skill: SKILL,
       reReview: true,
       author: CTX.author,
     });
@@ -366,7 +384,7 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
     await launchReReview(
       URL_A,
       IID,
-      { ...CTX, pack: 'widgets' },
+      withPack('widgets'),
       makeIo(),
       noSkillPath
     );
@@ -388,7 +406,7 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
     await launchReReview(
       URL_A,
       IID,
-      { ...CTX, pack: 'widgets' },
+      withPack('widgets'),
       makeIo(),
       noSkillPath
     );
@@ -494,7 +512,7 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
     const res = await launchRespondAsk(
       URL_A,
       IID,
-      CTX,
+      ASK_CTX,
       makeRespondIo(),
       noSkillPath
     );
@@ -503,8 +521,8 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
     expect(respondCalls[0]).toMatchObject({
       mrUrl: URL_A,
       iid: IID,
-      cwd: CTX.cwd,
-      skill: CTX.skill,
+      cwd: ASK_CTX.cwd,
+      skill: ASK_CTX.skill,
     });
   });
 
@@ -515,7 +533,7 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
       1000,
       db
     );
-    await launchRespondAsk(URL_A, IID, CTX, makeRespondIo(), noSkillPath);
+    await launchRespondAsk(URL_A, IID, ASK_CTX, makeRespondIo(), noSkillPath);
     expect(readRespondStates(db).get(URL_A)?.boardTabId).toBe('');
   });
 
@@ -523,7 +541,7 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
     await launchRespondAsk(
       URL_A,
       IID,
-      { ...CTX, pack: 'widgets' },
+      { ...ASK_CTX, pack: 'widgets' },
       makeRespondIo(),
       noSkillPath
     );
@@ -532,7 +550,7 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
   });
 
   test('a respond launch with no pack marks the row noPack', async () => {
-    await launchRespondAsk(URL_A, IID, CTX, makeRespondIo(), noSkillPath);
+    await launchRespondAsk(URL_A, IID, ASK_CTX, makeRespondIo(), noSkillPath);
     expect(readRespondStates(db).get(URL_A)?.noPack).toBe(true);
   });
 
@@ -540,7 +558,7 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
     const res = await launchRespondAsk(
       URL_A,
       IID,
-      CTX,
+      ASK_CTX,
       makeRespondIo({
         launchRespond: async () => {
           throw new Error('no herdr');
@@ -570,7 +588,7 @@ describe('launchReReview: a resume re-resolves the pack', () => {
       await launchReReview(
         URL_A,
         IID,
-        { ...CTX, pack: 'widgets' },
+        withPack('widgets'),
         makeIo(),
         noSkillPath
       );
@@ -601,7 +619,7 @@ describe('launchReReview: a resume re-resolves the pack', () => {
         1,
         db
       );
-      await launchReReview(URL_A, IID, { ...CTX, pack }, makeIo(), noSkillPath);
+      await launchReReview(URL_A, IID, withPack(pack), makeIo(), noSkillPath);
       expect(resumeCalls[0]?.env).toEqual(env);
     }
   });
@@ -616,10 +634,134 @@ describe('launchReReview: a resume re-resolves the pack', () => {
     await launchReReview(
       URL_A,
       IID,
-      { ...CTX, pack: 'widgets' },
+      withPack('widgets'),
       makeIo(),
       noSkillPath
     );
     expect(legacyResumeCalls[0]).toMatchObject({ pack: 'widgets' });
+  });
+});
+
+describe('launchReReview: the lane keeps the pack of the board tab it launched from', () => {
+  const home = mkdtempSync(join(tmpdir(), 'rl-home-'));
+  const cfgWith = (pack?: string) =>
+    parseConfig(
+      JSON.stringify({
+        gitlabHost: 'https://gitlab.com',
+        projects: ['acme/webapp'],
+        members: [{ username: 'alice' }],
+        tabs: [
+          {
+            id: 'gadgets-tab',
+            label: 'Gadgets',
+            source: { kind: 'authors' },
+            ...(pack ? { pack } : {}),
+          },
+        ],
+      })
+    );
+  const fromConfig = (pack?: string): ReReviewCtx => ({
+    ...CTX,
+    forTab: tab => reviewLaunchForTab(cfgWith(pack), URL_A, tab, home),
+  });
+  const sent = () =>
+    resumeCalls[0]
+      ? (resumeCalls[0].env as Record<string, string>).MATTSTACK_PACK
+      : ((legacyResumeCalls[0]?.pack ?? reviewCalls[0]?.pack) as
+          string | undefined);
+
+  for (const [arm, prior] of [
+    ['agentId', { agentId: 'agent-a' }],
+    ['sessionId', { sessionId: 'sess-a' }],
+    ['fresh', {}],
+  ] as const) {
+    test(`the ${arm} arm resolves the gadgets tab's pack with no tab of its own, and clears it once the tab drops the pack`, async () => {
+      for (const [pack, expected, noPack] of [
+        ['gadgets', 'gadgets', false],
+        [undefined, arm === 'agentId' ? '' : undefined, true],
+      ] as const) {
+        resumeCalls = [];
+        legacyResumeCalls = [];
+        reviewCalls = [];
+        writeReviewState(
+          reviewFilePath(URL_A),
+          {
+            mrUrl: URL_A,
+            iid: IID,
+            status: 'done',
+            boardTabId: 'gadgets-tab',
+            agentId: '',
+            sessionId: '',
+            ...prior,
+          },
+          1,
+          db
+        );
+        await launchReReview(
+          URL_A,
+          IID,
+          fromConfig(pack),
+          makeIo(),
+          noSkillPath
+        );
+        expect(sent()).toBe(expected);
+        const state = readReviewStates(db).get(URL_A);
+        expect(state?.noPack).toBe(noPack);
+        expect(state?.boardTabId).toBe('gadgets-tab');
+      }
+    });
+  }
+
+  test('a lane with no tab takes the asking tab and keeps it', async () => {
+    await launchReReview(
+      URL_A,
+      IID,
+      { ...fromConfig('gadgets'), boardTabId: 'gadgets-tab' },
+      makeIo(),
+      noSkillPath
+    );
+    expect(reviewCalls[0]).toMatchObject({ pack: 'gadgets' });
+    expect(readReviewStates(db).get(URL_A)?.boardTabId).toBe('gadgets-tab');
+  });
+
+  test('a launch with no tab anywhere records none', async () => {
+    writeReviewState(
+      reviewFilePath(URL_A),
+      { mrUrl: URL_A, iid: IID, status: 'done', boardTabId: '' },
+      1,
+      db
+    );
+    await launchReReview(
+      URL_A,
+      IID,
+      fromConfig('gadgets'),
+      makeIo(),
+      noSkillPath
+    );
+    expect(reviewCalls[0]?.pack).toBeUndefined();
+    expect(readReviewStates(db).get(URL_A)?.boardTabId).toBe('');
+  });
+
+  test("a tab's reviewSkill wins for the skill while the pack still comes from the tab", () => {
+    const cfg = parseConfig(
+      JSON.stringify({
+        gitlabHost: 'https://gitlab.com',
+        projects: ['acme/webapp'],
+        members: [{ username: 'alice' }],
+        tabs: [
+          {
+            id: 'gadgets-tab',
+            label: 'Gadgets',
+            source: { kind: 'authors' },
+            pack: 'gadgets',
+            reviewSkill: 'acme:deep-review',
+          },
+        ],
+      })
+    );
+    expect(reviewLaunchForTab(cfg, URL_A, 'gadgets-tab', home)).toEqual({
+      skill: 'acme:deep-review',
+      pack: 'gadgets',
+    });
   });
 });

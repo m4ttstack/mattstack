@@ -591,7 +591,7 @@ export function Board() {
         case 'resume-review':
           return resumeReviewAction(
             mr,
-            { resume: true },
+            { resume: true, tabId: state.tab },
             note,
             undefined,
             quiet

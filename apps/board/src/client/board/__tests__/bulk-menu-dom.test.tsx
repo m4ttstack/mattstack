@@ -246,6 +246,29 @@ test('respond, resume response and call doctor send the board tab they launch fr
   ]);
 });
 
+test('re-review and resume review send the board tab they launch from', async () => {
+  const reviewed = boardMr(107, {
+    review: { status: 'done', sessionId: 'sess-1' },
+  });
+  servedData = { ...BOARD_DATA, mrs: [...BOARD_DATA.mrs, reviewed] };
+  await renderBoard();
+  for (const label of ['re-review', 'resume review']) {
+    await rightClick(107);
+    await click(label);
+  }
+  const sent = posts
+    .filter(p => p.url === '/review')
+    .map(p => ({
+      reReview: p.body.reReview,
+      resume: p.body.resume,
+      tabId: p.body.tabId,
+    }));
+  expect(sent).toEqual([
+    { reReview: true, resume: undefined, tabId: 'team' },
+    { reReview: undefined, resume: true, tabId: 'team' },
+  ]);
+});
+
 test('a selection no bulk action fits says so', async () => {
   const busy = (iid: number) =>
     boardMr(iid, {

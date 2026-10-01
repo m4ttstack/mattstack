@@ -244,7 +244,7 @@ import {
   type RespondState,
   type RespondStatus,
 } from './respond-state.ts';
-import { launchReReview } from './review-launch.ts';
+import { launchReReview, reviewLaunchForTab } from './review-launch.ts';
 import {
   attachReviews,
   parseReviewRequestBody,
@@ -1558,8 +1558,7 @@ const httpServer = Bun.serve({
         const resume = (body as { resume?: unknown })?.resume === true;
         const focusOnly = (body as { focus?: unknown })?.focus === true;
         const reReview = (body as { reReview?: unknown })?.reReview === true;
-        const rawTabId = (body as { tabId?: unknown })?.tabId;
-        const tabId = typeof rawTabId === 'string' ? rawTabId : undefined;
+        const tabId = requestBoardTab(body);
         const noteParse = parseLaunchNote(body);
         if (!noteParse.ok)
           return new Response(noteParse.error, { status: 400 });
@@ -1600,13 +1599,8 @@ const httpServer = Bun.serve({
             cwd: config.reviewCwd,
             repo,
             workspaceLabel: config.reviewsWorkspace,
-            skill: reviewSkillForTab(
-              config,
-              tabId,
-              parsed.mrUrl,
-              resolveLaunchSkillFor
-            ),
-            pack: launchPack(tabId),
+            boardTabId: tabId,
+            forTab: tab => reviewLaunchForTab(config, parsed.mrUrl, tab),
             author,
             ...loadAgentSettings(),
             claudeCommand: config.claudeCommand,
@@ -1639,7 +1633,7 @@ const httpServer = Bun.serve({
               author,
               tabLabel: mrTabLabel(parsed.iid, author, '↺'),
               claudeCommand: config.claudeCommand,
-              pack: launchPack(tabId),
+              pack: launchPack(laneBoardTab(existing.boardTabId, tabId)),
             },
             reviewReopenIo()
           );
@@ -1665,6 +1659,7 @@ const httpServer = Bun.serve({
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
           status: 'queued',
+          boardTabId: tabId ?? '',
           noPack: !launchPack(tabId),
         });
         // Spawn asynchronously; the badge reflects progress via the state file.

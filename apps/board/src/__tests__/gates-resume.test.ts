@@ -64,6 +64,7 @@ function makeKindIo(opts: {
   filePath: (mrUrl: string) => string;
   states: Map<string, ResumableState>;
   pack?: string;
+  packFor?: (tabId: string | undefined) => string | undefined;
 }): { io: KindResumeIo; calls: DomainCalls } {
   const calls: DomainCalls = {
     writeState: [],
@@ -89,7 +90,7 @@ function makeKindIo(opts: {
     },
     resolvePack: tabId => {
       calls.resolvePack.push(tabId);
-      return opts.pack;
+      return opts.packFor ? opts.packFor(tabId) : opts.pack;
     },
     prompt: async (mrUrl, statePath, skill, resumedGate, resumedGateKind) =>
       `/board:${opts.wrapper} ${mrUrl}\n  --state ${statePath}\n  --skill ${skill}\n  --resumed-gate ${resumedGate}\n  --resumed-gate-kind ${resumedGateKind}`,
@@ -445,6 +446,7 @@ function fakeEventIo(
     doctor?: Record<string, ResumableState>;
     pages?: FacilityGateRow[][];
     resumeResult?: Partial<AgentLaunchResult>;
+    packFor?: (tabId: string | undefined) => string | undefined;
   } = {}
 ): {
   io: GateResumeEventIo;
@@ -473,6 +475,7 @@ function fakeEventIo(
     resumedStatus: 'reviewing',
     filePath: reviewFilePath,
     states: review,
+    packFor: opts.packFor,
   });
   const { io: respondIo, calls: respondCalls } = makeKindIo({
     wrapper: 'respond',
@@ -603,8 +606,9 @@ describe('handleAnsweredEvent', () => {
     expect(review.get(MR_URL)).toBeUndefined();
   });
 
-  test('a respond or doctor resume resolves its pack from the board tab the lane launched from, not its herdr tab', async () => {
+  test('a review, respond or doctor resume resolves its pack from the board tab the lane launched from, not its herdr tab', async () => {
     for (const [kind, domain, status] of [
+      ['review-post', 'review', 'reviewing'],
       ['respond-plan', 'respond', 'implementing'],
       ['doctor-escalation', 'doctor', 'fixing'],
     ] as const) {
@@ -630,6 +634,30 @@ describe('handleAnsweredEvent', () => {
       expect(kindCalls[domain].resolveSkill).toEqual([
         { mrUrl: MR_URL, tabId: 'gadgets-tab' },
       ]);
+    }
+  });
+
+  test("a review gate resume carries the launch tab's pack, and clears it once the tab drops the pack", async () => {
+    for (const [tabPack, env, noPack] of [
+      ['gadgets', { MATTSTACK_PACK: 'gadgets' }, false],
+      [undefined, { MATTSTACK_PACK: '' }, true],
+    ] as const) {
+      const { io, calls, review } = fakeEventIo({
+        rows: [facilityRow()],
+        review: {
+          [MR_URL]: baseReview({ tabId: 'w1:t1', boardTabId: 'gadgets-tab' }),
+        },
+        packFor: tab => (tab === 'gadgets-tab' ? tabPack : undefined),
+      });
+      const frame: GateEventFrame = {
+        topic: `gate/answered/${GATE_ID}`,
+        payload: { id: GATE_ID, subject: SUBJECT },
+      };
+
+      await handleAnsweredEvent(frame, io, noSkillLookup);
+
+      expect(calls.resumeAgentPane[0]!.env).toEqual(env);
+      expect(review.get(MR_URL)?.noPack).toBe(noPack);
     }
   });
 

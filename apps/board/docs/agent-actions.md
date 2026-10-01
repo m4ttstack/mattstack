@@ -87,12 +87,14 @@ The wrapper skills are parameterized skills. Each declares slots for the domain
 skills that own the actual work, and resolves them with a vendored
 `scripts/resolve-args.sh`.
 
-Every launch runs under a team pack: the launching tab's `pack`, else the
-`board.defaultPack` user setting. That holds for review, respond and doctor
-alike; triage's auto doctor and a peer's respond ask have no tab and use
-`board.defaultPack`. A respond or doctor run remembers the tab it launched
-from, so its gate resume and its reopen resolve that tab's pack again. The
-launched pane gets that name as
+Every launch runs under a team pack: the board tab's `pack`, else the
+`board.defaultPack` user setting. One rule covers review, respond and doctor.
+A fresh launch records the board tab it came from on its lane. A re-review,
+a gate resume and a reopen use the lane's recorded tab, else the tab asking.
+Triage has no tab of its own: its re-reviews use the lane's recorded tab,
+and its auto doctor and a peer's respond ask record none and use
+`board.defaultPack`. A tab's `reviewSkill` still picks the review skill; the
+pack still comes from the tab. The launched pane gets that name as
 `MATTSTACK_PACK`, and the rt agent record keeps it. A board resume sends the
 pack it resolves now, or clears the stored one when it resolves none, so that
 pane runs with no `MATTSTACK_PACK`. A relaunch the daemon starts on its own (a
