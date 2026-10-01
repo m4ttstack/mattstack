@@ -42,6 +42,28 @@ func TestCopyBlockIsNeverWrapped(t *testing.T) {
 	}
 }
 
+func TestCopyBlockKeepsEachOfItsLines(t *testing.T) {
+	got := plain(protocol.Block{T: "copy", Text: "line one\nline two"})
+	want := "    │  line one\n    │  line two\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestVerbatimSplitsALineThatHoldsANewline(t *testing.T) {
+	got := plain(protocol.Block{T: "verbatim", Lines: []string{"a\nb", "c"}})
+	want := "    │ a\n    │ b\n    │ c\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestParagraphTreatsACarriageReturnAsALineBreak(t *testing.T) {
+	if got, want := plain(protocol.Block{T: "paragraph", Text: "one\r\ntwo\rthree"}), "  one\n  two\n  three\n"; got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
 func TestVerbatimKeepsIndentationAndExpandsTabs(t *testing.T) {
 	got := plain(protocol.Block{T: "verbatim", Caption: "value", Lines: []string{"{", "  \"a\": 1,", "\t\"b\": 2", "}"}})
 	want := "    value\n    │ {\n    │   \"a\": 1,\n    │     \"b\": 2\n    │ }\n"

@@ -145,6 +145,20 @@ func TestTextIsCleanedOfEscapesAndControls(t *testing.T) {
 	}
 }
 
+func TestNewlinesInASingleLineFieldBecomeSpaces(t *testing.T) {
+	if got := plain(protocol.Block{T: "line", Status: "done", Title: "a\nb\rc", Hint: "d\ne"}); got != "  ✓ a b c  d e\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestFailureDetailsKeepTheirLines(t *testing.T) {
+	got := plain(protocol.Block{T: "failure", Title: "x", Details: "one\ntwo\r\nthree"})
+	want := "  ✗ x\n\n  one\n  two\n  three\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
 func TestLinkSegmentEmitsAHyperlinkAndCleansItsURL(t *testing.T) {
 	out := styled(protocol.Block{T: "callout", Label: "note", Body: []protocol.Cell{{{Text: "docs", Role: "link", URL: "https://example.com/\x1b[2Jdocs"}}}})
 	if !strings.Contains(out, "\x1b]8;;https://example.com/docs") {

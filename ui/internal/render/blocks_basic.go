@@ -108,6 +108,8 @@ func (r *renderer) failure(b protocol.Block) {
 	}
 	if b.Details != "" {
 		r.gap()
-		r.emit(indent + faintStyle.Render(Clean(b.Details)))
+		for _, l := range splitLines(b.Details) {
+			r.emit(indent + faintStyle.Render(Clean(l)))
+		}
 	}
 }

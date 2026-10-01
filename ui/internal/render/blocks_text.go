@@ -25,7 +25,7 @@ func (r *renderer) caption(s string) {
 
 func (r *renderer) paragraph(b protocol.Block) {
 	w := min(r.width-2*len(indent), paragraphMax)
-	for _, para := range strings.Split(b.Text, "\n") {
+	for _, para := range splitLines(b.Text) {
 		for _, l := range strings.Split(lipgloss.Wrap(Clean(para), w, ""), "\n") {
 			r.emit(indent + textStyle.Render(strings.TrimRight(l, " ")))
 		}
@@ -35,13 +35,17 @@ func (r *renderer) paragraph(b protocol.Block) {
 // copy never wraps and never styles inside the text: the person selects it.
 func (r *renderer) copy(b protocol.Block) {
 	r.caption(b.Caption)
-	r.emit(calloutIndent + railStyle.Render("│") + "  " + textStyle.Render(Clean(b.Text)))
+	for _, l := range splitLines(b.Text) {
+		r.emit(calloutIndent + railStyle.Render("│") + "  " + textStyle.Render(Clean(l)))
+	}
 }
 
 func (r *renderer) verbatim(b protocol.Block) {
 	r.caption(b.Caption)
-	for _, l := range b.Lines {
-		r.emit(calloutIndent + railStyle.Render("│") + " " + dimStyle.Render(cleanCode(l)))
+	for _, line := range b.Lines {
+		for _, l := range splitLines(line) {
+			r.emit(calloutIndent + railStyle.Render("│") + " " + dimStyle.Render(cleanCode(l)))
+		}
 	}
 }
 

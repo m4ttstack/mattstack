@@ -63,17 +63,26 @@ func Glyph(status string) string {
 func glyph(status string) string { return Glyph(status) }
 
 // Clean strips escape sequences and control characters, so text that came
-// from a branch name or a child process cannot repaint the terminal.
+// from a branch name or a child process cannot repaint the terminal. A line
+// break becomes a space, as the plain renderer does, so a multi-line field
+// must be split with splitLines first.
 func Clean(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
-		case r == '\t':
+		case r == '\t' || r == '\n' || r == '\r':
 			return ' '
 		case r < 0x20 || (r >= 0x7f && r <= 0x9f):
 			return -1
 		}
 		return r
 	}, ansi.Strip(s))
+}
+
+var lineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+
+// splitLines breaks text where the plain renderer does: at \r\n, \r or \n.
+func splitLines(s string) []string {
+	return strings.Split(lineBreaks.Replace(s), "\n")
 }
 
 func segment(s protocol.Segment) string {
