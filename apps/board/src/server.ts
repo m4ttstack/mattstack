@@ -308,7 +308,7 @@ import {
   writeStandDown,
 } from './triage/memory-store.ts';
 import { manualDoctorFields, resolveDispatchIdentity } from './triage/run.ts';
-import { resolveStandDownTarget } from './view.ts';
+import { isOwnMr, resolveStandDownTarget, seatOf } from './view.ts';
 
 /** Capture-harness mode: boot from a committed fixture dir instead of live
     config, serve canned endpoint responses, hold no tokens, start no relay.
@@ -720,6 +720,15 @@ async function readLatchDetail(mr: BoardMR): Promise<MRDetail | null> {
   const res = await readDiscussions(repoId, mr.iid);
   if (!res.ok || !res.data) return null;
   return { discussions: res.data.discussions } as MRDetail;
+}
+
+/** The one refusal every author-only route answers with when the MR is not
+    the seat's; null when it is. An "all" board owns nothing, so it refuses
+    everything. */
+function requireOwnMr(mr: BoardMR): Response | null {
+  return isOwnMr(mr, seatOf(config.defaultMember))
+    ? null
+    : new Response('not your MR', { status: 403 });
 }
 
 const sendThreadWrite: ThreadWriteSend = (verb, payload) =>
@@ -1753,6 +1762,10 @@ const httpServer = Bun.serve({
         if (!mr) {
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
         }
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
+        }
         const author = mrAuthorLabel(mr);
         const existing = readRespondStates().get(parsed.mrUrl);
         const repo = resolveLaunchRepo(
@@ -1885,6 +1898,10 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr) {
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+        }
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
         }
         const author = mrAuthorLabel(mr);
         const existing = readDoctorStates().get(parsed.mrUrl);
@@ -2073,6 +2090,10 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === mrUrl);
         if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
+        }
         try {
           const projectId = parseRepoId(mr.repositoryId);
           const mutator = new NoteMutator(config.gitlabHost, gitlabToken);
@@ -2127,8 +2148,9 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
-        if (mr.author.username !== config.defaultMember) {
-          return new Response('not your MR', { status: 403 });
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
         }
         if (mr.isDraft === draft) {
           return new Response(JSON.stringify({ ok: true, unchanged: true }), {
@@ -2213,8 +2235,9 @@ const httpServer = Bun.serve({
       }
       case '/mr/action': {
         // Fire one GitLab-side MR action (merge / rebase / auto-merge arm or
-        // cancel) from the row menu. Visibility is the client's job (the
-        // view-model's button state); GitLab itself is the permission check.
+        // cancel) from the row menu, on the seat's own MR only. Which of them
+        // shows is the client's job (the view-model's button state); GitLab
+        // still has the last word on permission.
         if (req.method !== 'POST')
           return new Response('method not allowed', { status: 405 });
         if (!isLocalRequest(req, server))
@@ -2242,6 +2265,10 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
+        }
         const path = projectPathFromWebUrl(parsed.mrUrl, config.gitlabHost);
         if (!path)
           return new Response(
@@ -2714,7 +2741,7 @@ const httpServer = Bun.serve({
         // ask is the reverse, reviewer -> author about theirs, and only ever
         // to the author.
         if (kind === 'respond') {
-          if (mr.author.username === config.defaultMember)
+          if (isOwnMr(mr, seatOf(config.defaultMember)))
             return new Response('cannot ask yourself to respond', {
               status: 403,
             });
@@ -2725,8 +2752,10 @@ const httpServer = Bun.serve({
             return new Response('a respond ask goes to the MR author', {
               status: 400,
             });
-        } else if (mr.author.username !== config.defaultMember)
-          return new Response('not your MR', { status: 403 });
+        } else {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
+        }
         const draft = buildAskDraft(reviewer, kind, {
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
@@ -3128,6 +3157,12 @@ const httpServer = Bun.serve({
           return new Response('one or more mrUrls are not on the board', {
             status: 400,
           });
+        }
+        // A summary that lists someone else's MR is refused whole rather than
+        // trimmed: the header was written for the list as sent.
+        for (const m of picked) {
+          const refused = requireOwnMr(m);
+          if (refused) return refused;
         }
         // An explicit body channel (already validated above) always wins.
         // Otherwise derive per-MR: resolve/sweeper look in the tab's channel

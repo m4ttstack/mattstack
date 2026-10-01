@@ -16,6 +16,7 @@ import {
   freshnessBanner,
   groupMRs,
   hasStackDescendants,
+  isOwnMr,
   joinRowState,
   memberPeerState,
   NEEDS_ME_TAB,
@@ -24,6 +25,7 @@ import {
   parseViewState,
   resolveStandDownTarget,
   rosterUsernamesFor,
+  seatOf,
   serializeViewState,
   sortMRs,
   statusFlags,
@@ -45,6 +47,23 @@ function mr(overrides: Partial<BoardMR>): BoardMR {
     ...overrides,
   } as unknown as BoardMR;
 }
+
+describe('isOwnMr', () => {
+  test("the seat owns what it authored and nothing it didn't", () => {
+    expect(isOwnMr(mr({}), seatOf('alice'))).toBe(true);
+    expect(isOwnMr(mr({}), seatOf('bob'))).toBe(false);
+  });
+
+  test('an "all" board has no seat, so it owns nothing', () => {
+    const named = mr({
+      author: { id: 'y', username: 'all', name: 'All', avatarUrl: null },
+    } as never);
+    expect(seatOf('all')).toBeNull();
+    expect(seatOf('')).toBeNull();
+    expect(seatOf(undefined)).toBeNull();
+    expect(isOwnMr(named, seatOf('all'))).toBe(false);
+  });
+});
 
 describe('filterBySlack', () => {
   const posted = mr({
