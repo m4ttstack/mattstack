@@ -61,6 +61,7 @@ describe('the layout constants', () => {
       inputX: 40,
       inputW: 330,
       cardH: 40,
+      cardGap: 6,
       templateX: 470,
       templateW: 420,
       headerH: 40,
@@ -116,7 +117,7 @@ describe('the work layout', () => {
 
   it('centres the run flags input on the row of its placeholder', () => {
     const flags = view.inputs.find(card => card.title === 'run flags')!;
-    const node = nodeOf(nodes, `input:${flags.id}`);
+    const node = nodeOf(nodes, flags.id);
     const rowCentre = rowCentres(view).get(flags.rowId)!;
     expect(node.position.x).toBe(LAYOUT.inputX);
     expect(node.position.y + LAYOUT.cardH / 2).toBe(rowCentre);
@@ -181,7 +182,7 @@ describe('the work layout', () => {
 
   it('joins each card to the row its model names', () => {
     for (const card of view.inputs) {
-      const edge = edges.find(e => e.source === `input:${card.id}`)!;
+      const edge = edges.find(e => e.source === card.id)!;
       expect(edge.targetHandle).toBe(`row:${card.rowId}`);
     }
     for (const card of view.links) {
@@ -282,16 +283,146 @@ describe('every layout', () => {
     }
   );
 
-  it('keeps a repeated link target as its own node', () => {
-    const view = workView();
-    const twice: TemplateView = {
-      ...view,
-      links: [
-        ...view.links,
-        { ...view.links[0]!, rowId: view.links[1]!.rowId },
-      ],
-    };
-    const { nodes } = layoutTemplate(twice);
+  it.each(layouts)('names each card node by its card id (%s)', (_, view) => {
+    const { nodes } = layoutTemplate(view);
+    const cards = [...view.inputs, ...view.links];
+    const cardNodes = [...ofType(nodes, 'input'), ...ofType(nodes, 'link')];
+    expect(cardNodes.map(node => node.id).sort()).toEqual(
+      cards.map(card => card.id).sort()
+    );
+    for (const node of cardNodes) {
+      expect((node.data as { card: { id: string } }).card.id).toBe(node.id);
+    }
+  });
+});
+
+describe('a template that links one skill twice', () => {
+  const view = buildTemplateView({
+    anatomy: (() => {
+      const anatomy = designFixture('anatomy.work');
+      const plan = anatomy.parts.find(
+        part => part.kind === 'verb.path' && part.name === 'stage-plan'
+      )!;
+      return {
+        ...anatomy,
+        parts: [...anatomy.parts, { ...plan, templateLines: [300, 300] }],
+      };
+    })(),
+    composition,
+    check,
+    changes,
+    step: null,
+  });
+  const { nodes, edges } = layoutTemplate(view);
+
+  it('keeps two nodes and two edges, each with its own id', () => {
+    const plans = view.links.filter(card => card.skill === 'stage-plan');
+    expect(plans).toHaveLength(2);
+    expect(plans.map(card => nodeOf(nodes, card.id).id)).toEqual(
+      plans.map(card => card.id)
+    );
     expect(new Set(nodes.map(node => node.id)).size).toBe(nodes.length);
+    expect(new Set(edges.map(edge => edge.id)).size).toBe(edges.length);
+  });
+
+  it('leaves the template by the row of each repeat', () => {
+    const plans = view.links.filter(card => card.skill === 'stage-plan');
+    for (const card of plans) {
+      const edge = edges.find(e => e.target === card.id)!;
+      expect(edge.sourceHandle).toBe(`row:${card.rowId}`);
+    }
+    expect(plans[0]!.rowId).not.toBe(plans[1]!.rowId);
+  });
+});
+
+describe('cards on rows closer together than a card', () => {
+  const plan = designFixture('anatomy.stage-plan');
+  const part = (name: string) => plan.parts.find(p => p.name === name)!;
+  type Part = (typeof plan.parts)[number];
+  const viewOf = (parts: Part[]) =>
+    buildTemplateView({
+      anatomy: { ...plan, parts },
+      composition,
+      check,
+      changes,
+      step: 2,
+    });
+  const onLines = (p: Part, from: number, to = from): Part => ({
+    ...p,
+    templateLines: [from, to],
+  });
+  const rendered = (p: Part, from: number, to: number): Part => ({
+    ...p,
+    templateLines: null,
+    renderedLines: [from, to],
+  });
+  const stackOf = (view: TemplateView) =>
+    ofType(layoutTemplate(view).nodes, 'input').map(node => node.position.y);
+  const expectClear = (ys: number[]) => {
+    for (let i = 1; i < ys.length; i++) {
+      expect(ys[i]! - ys[i - 1]!).toBeGreaterThanOrEqual(
+        LAYOUT.cardH + LAYOUT.cardGap
+      );
+    }
+  };
+
+  it('keeps consecutive placeholder lines a card and a gap apart', () => {
+    const view = viewOf([
+      plan.parts[0]!,
+      onLines(part('execution-strategy'), 10),
+      onLines(part('gate-protocol'), 11),
+      onLines(part('wrap-up-form'), 12),
+    ]);
+    const ys = stackOf(view);
+    expect(ys).toHaveLength(3);
+    expect(ys[0]).toBe(60);
+    expectClear(ys);
+  });
+
+  it('keeps two placeholders on one line apart', () => {
+    const view = viewOf([
+      plan.parts[0]!,
+      onLines(part('execution-strategy'), 10),
+      onLines(part('gate-protocol'), 10),
+    ]);
+    expect(view.rows.map(row => row.id)).toEqual(['1', '10', '10.2']);
+    const ys = stackOf(view);
+    expect(ys[0]).toBe(60);
+    expectClear(ys);
+  });
+
+  it('does not overlap a legacy engine whose parts come back to back', () => {
+    const view = viewOf([
+      rendered(plan.parts[0]!, 1, 3),
+      rendered(part('execution-strategy'), 4, 10),
+      rendered(part('gate-protocol'), 11, 20),
+      rendered(part('stage.fields'), 21, 21),
+      rendered(part('wrap-up-form'), 22, 30),
+    ]);
+    const { nodes, height } = layoutTemplate(view);
+    const ys = ofType(nodes, 'input').map(node => node.position.y);
+    expect(ys).toHaveLength(4);
+    expectClear(ys);
+    expect(height).toBeGreaterThanOrEqual(ys[3]! + LAYOUT.cardH);
+  });
+
+  it('leaves a card centred when there is room', () => {
+    const spread = viewOf(plan.parts);
+    const ys = stackOf(spread);
+    expect(ys).toEqual([184, 240, 296, 352, 408].map(fromBoard));
+  });
+});
+
+describe('a card that names no row', () => {
+  it('is a model bug and throws, naming the card and the row', () => {
+    const view = workView();
+    const orphan = { ...view.inputs[0]!, rowId: 'nope' };
+    expect(() => layoutTemplate({ ...view, inputs: [orphan] })).toThrow(
+      'input card "variable:run-start.flags:work" names row "nope"'
+    );
+    const stray = { ...view.links[0]!, rowId: 'nope' };
+    expect(() => layoutTemplate({ ...view, links: [stray] })).toThrow(
+      'link card "link:stage-provision" names row "nope"'
+    );
   });
 });

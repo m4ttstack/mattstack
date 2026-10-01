@@ -792,3 +792,60 @@ describe('who picked a default fill', () => {
     expect(tieringSubtitle(layer)).toBe(subtitle);
   });
 });
+
+describe('card ids', () => {
+  const repeated = () => {
+    const part = (kind: Part['kind'], name: string) =>
+      anatomyWork.parts.find(p => p.kind === kind && p.name === name)!;
+    const onLine300 = (p: Part): Part => ({ ...p, templateLines: [300, 300] });
+    return buildTemplateView({
+      anatomy: {
+        ...anatomyWork,
+        parts: [
+          ...anatomyWork.parts,
+          onLine300(part('verb.path', 'stage-plan')),
+          onLine300(part('include', 'gate-protocol')),
+          onLine300(part('include', 'gate-protocol')),
+          onLine300(part('include', 'gate-protocol')),
+        ],
+      },
+      composition,
+      check,
+      changes: changesClean,
+      step: null,
+    });
+  };
+
+  it('leave the board ids bare and give a repeat its own row', () => {
+    const view = repeated();
+    expect(view.inputs.map(card => card.id)).toEqual([
+      'variable:run-start.flags:work',
+      'slot:tiering',
+      'include:gate-protocol',
+      'include:wrap-up-form',
+      'include:gate-protocol@300.2',
+      'include:gate-protocol@300.3',
+      'include:gate-protocol@300.4',
+    ]);
+    expect(view.links.map(link => link.id)).toEqual([
+      'link:stage-provision',
+      'link:stage-plan',
+      'link:stage-gates',
+      'link:stage-evidence',
+      'link:stage-implement',
+      'link:stage-self-review',
+      'link:stage-ship',
+      'link:stage-watch-ci',
+      'link:stage-plan@300',
+    ]);
+  });
+
+  it('never repeat across inputs and links, and each names its own row', () => {
+    const view = repeated();
+    const cards = [...view.inputs, ...view.links];
+    expect(new Set(cards.map(card => card.id)).size).toBe(cards.length);
+    const rowIds = new Set(view.rows.map(row => row.id));
+    expect(cards.every(card => rowIds.has(card.rowId))).toBe(true);
+    expect(new Set(cards.map(card => card.rowId)).size).toBe(cards.length);
+  });
+});

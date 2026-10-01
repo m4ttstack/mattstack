@@ -17,6 +17,7 @@ export const LAYOUT = {
   inputX: 40,
   inputW: 330,
   cardH: 40,
+  cardGap: 6,
   templateX: 470,
   templateW: 420,
   headerH: 40,
@@ -68,16 +69,23 @@ export function layoutTemplate(view: TemplateView): LayoutResult {
     top += height;
   }
 
-  const taken = new Set<string>();
-  const idFor = (base: string, rowId: string) => {
-    const id = taken.has(base) ? `${base}@${rowId}` : base;
-    taken.add(id);
-    return id;
+  const columnPlacer = (kind: 'input' | 'link') => {
+    let prevY = -Infinity;
+    return (card: { id: string; rowId: string }) => {
+      const centre = centres.get(card.rowId);
+      if (centre === undefined)
+        throw new Error(
+          `${kind} card "${card.id}" names row "${card.rowId}", which the template does not have`
+        );
+      prevY = Math.max(
+        centre - LAYOUT.cardH / 2,
+        prevY + LAYOUT.cardH + LAYOUT.cardGap
+      );
+      return prevY;
+    };
   };
-  const cardY = (rowId: string) => {
-    const centre = centres.get(rowId);
-    return centre === undefined ? null : centre - LAYOUT.cardH / 2;
-  };
+  const placeInput = columnPlacer('input');
+  const placeLink = columnPlacer('link');
 
   const nodes: Node[] = [
     {
@@ -91,33 +99,29 @@ export function layoutTemplate(view: TemplateView): LayoutResult {
   let height = top;
 
   for (const card of view.inputs) {
-    const y = cardY(card.rowId);
-    if (y === null) continue;
-    const id = idFor(`input:${card.id}`, card.rowId);
+    const y = placeInput(card);
     nodes.push({
-      id,
+      id: card.id,
       type: 'input',
       position: { x: LAYOUT.inputX, y },
       data: { card } satisfies InputNodeData,
     });
     edges.push(
-      edgeBetween(id, 'template', { targetHandle: rowHandle(card.rowId) })
+      edgeBetween(card.id, 'template', { targetHandle: rowHandle(card.rowId) })
     );
     height = Math.max(height, y + LAYOUT.cardH);
   }
 
   for (const card of view.links) {
-    const y = cardY(card.rowId);
-    if (y === null) continue;
-    const id = idFor(card.id, card.rowId);
+    const y = placeLink(card);
     nodes.push({
-      id,
+      id: card.id,
       type: 'link',
       position: { x: LAYOUT.rightX, y },
       data: { card } satisfies LinkNodeData,
     });
     edges.push(
-      edgeBetween('template', id, { sourceHandle: rowHandle(card.rowId) })
+      edgeBetween('template', card.id, { sourceHandle: rowHandle(card.rowId) })
     );
     height = Math.max(height, y + LAYOUT.cardH);
   }

@@ -322,6 +322,13 @@ export function buildTemplateView(input: {
   const links: LinkCard[] = [];
   const rowsAtLine = new Map<number, number>();
   const cardIds = new Set<string>();
+  /** A repeat of a card id takes its row's id too: row ids are unique, and a
+      node and a select both key on the card id. */
+  const cardIdFor = (base: string, rowId: string) => {
+    const cardId = cardIds.has(base) ? `${base}@${rowId}` : base;
+    cardIds.add(cardId);
+    return cardId;
+  };
 
   for (const part of anatomy.parts) {
     const anchor = part.templateLines ?? part.renderedLines;
@@ -370,17 +377,21 @@ export function buildTemplateView(input: {
     if (part.kind === 'verb.path') {
       const skill = part.target?.skill ?? part.name ?? '';
       links.push(
-        linkCard(part, skill, id, stepOf(skill), checkRows.get(skill))
+        linkCard(
+          part,
+          cardIdFor(`link:${skill}`, id),
+          skill,
+          id,
+          stepOf(skill),
+          checkRows.get(skill)
+        )
       );
       continue;
     }
     if (state === 'optional-unbound') continue;
 
-    const key = partKey(part);
-    const cardId = cardIds.has(key) ? `${key}@${line}` : key;
-    cardIds.add(cardId);
     inputs.push({
-      id: cardId,
+      id: cardIdFor(partKey(part), id),
       rowId: id,
       ...cardFace(part, state, facts, pack),
       state,
@@ -517,6 +528,7 @@ const LINK_STATUS_WORDS: Record<SkillStatus, string | null> = {
 
 function linkCard(
   part: AnatomyPart,
+  cardId: string,
   skill: string,
   rowId: string,
   step: number | null,
@@ -534,7 +546,7 @@ function linkCard(
     .filter(phrase => phrase !== null)
     .join(' · ');
   return {
-    id: `link:${skill}`,
+    id: cardId,
     rowId,
     skill,
     title: part.target ? fileLabelOf(part.target.path) : `${skill}/SKILL.md`,
