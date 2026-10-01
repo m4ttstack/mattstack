@@ -174,9 +174,23 @@ dot in the focus list and on their cards; History lists why
 
 ## URL state
 
-`/wiring?focus=<ref>&range=<L>&tab=<text|used-by|history>`; every view is a
-link. `?attention=1` (the rail badge's link) turns on the Needs attention
-toggle. Pack and pipeline selection join the URL too.
+Every Graph view is a link: `/wiring?tab=graph&focus=<ref>&select=<ref>`.
+Keys, in the order the formatter writes them, with defaults left out:
+
+| Key | Values | Meaning |
+|---|---|---|
+| `tab` | `graph` (default), `surface`, `health` | The Wiring page tab |
+| `pack` | pack name | The pack on screen; absent means the first pack |
+| `focus` | `pipeline:<work type>` or a skill ref such as `stage-plan` | What the canvas shows: a whole pipeline, or one skill's template |
+| `select` | `row:<line>`, `input:<kind>:<name>`, `output` | The drawer's subject: the template row starting at that line, an input card, or the output |
+| `drawerTab` | `text` (default), `used-by`, `history` | The drawer's tab |
+| `view` | `template`, `rendered` | Which body the drawer's text tab reads |
+| `rebind` | `1` | The drawer's slot row is in rebind mode |
+| `attention` | `1` | The Needs attention toggle (the rail badge's link) |
+
+Changing `focus` clears `select`, `rebind` and `view`. A change to `tab`,
+`pack` or `focus` pushes a history entry; `select`, `drawerTab`, `view` and
+`rebind` replace the current one. An unknown value reads as the default.
 
 ## Data
 
