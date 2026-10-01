@@ -88,6 +88,5 @@
   "lib/state/legacy-import.ts",
   "lib/team/invite.ts",
   "lib/team/join.ts",
-  "lib/team/members.ts",
-  "lib/worktree/config.ts"
+  "lib/team/members.ts"
 ]

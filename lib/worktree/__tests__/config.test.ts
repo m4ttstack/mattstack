@@ -12,6 +12,7 @@ import {
 import { settingsGet } from "../../../commands/settings-keys.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
 import * as out from "../../ui/out.ts";
+import { setWarningLog, __test__ as warnTest } from "../../ui/warn.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../../settings/identity.ts";
 import {
   DEFAULT_JUNK_GLOBS,
@@ -686,6 +687,76 @@ describe("worktree config", () => {
       } finally {
         console.warn = orig;
       }
+    });
+
+    describe("a value the resolver cannot expand", () => {
+      const BAD = { note: "${team:../elsewhere}" };
+      const IDENTITY = "gitlab.com/acme/acme-dev";
+      const REMOTE = "git@gitlab.com:acme/acme-dev.git";
+
+      function capture(): ReturnType<typeof captureOut> {
+        warnTest.reset();
+        const io = captureOut();
+        out.__test__.reset();
+        out.__test__.setHuman(() => false);
+        return io;
+      }
+
+      test("with no log set it is one plain stderr line, and the defaults stand", () => {
+        writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": BAD });
+        const io = capture();
+        try {
+          expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
+          expect(io.stderr().match(/rt: ignoring/g)).toHaveLength(1);
+          expect(io.stderr()).toStartWith('rt: ignoring "rt.worktreeApp": ');
+        } finally {
+          io.restore();
+          warnTest.reset();
+        }
+      });
+
+      test("in the CLI the person reads a plain warning with the command to run, and the log keeps the detail", () => {
+        writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": BAD });
+        const logged: Array<[string, string]> = [];
+        const io = capture();
+        setWarningLog((module, message) => {
+          logged.push([module, message]);
+        });
+        try {
+          loadWorktreeAppConfig();
+          expect(logged).toHaveLength(1);
+          expect(logged[0]![0]).toBe("worktree-config");
+          expect(logged[0]![1]).toStartWith('ignoring "rt.worktreeApp": ');
+          expect(io.stderr()).toStartWith("[warning] A worktree app setting is being ignored  ");
+          expect(io.stderr()).toEndWith("  next: rt settings check\n");
+          expect(io.stdout()).toBe("");
+        } finally {
+          io.restore();
+          warnTest.reset();
+        }
+      });
+
+      test("a per-repo setting names the repo, in the log and on the screen", async () => {
+        const repoPath = tmpRepoWithRemote("rtcfg-bad-", REMOTE);
+        writeStore(machineSettingsPath(), {
+          repos: { [IDENTITY]: { "rt.worktrees": { root: "${team:../elsewhere}" } } },
+        });
+        const logged: string[] = [];
+        const io = capture();
+        setWarningLog((_module, message) => {
+          logged.push(message);
+        });
+        try {
+          await loadWorktreeRepoConfig("acme-dev", repoPath);
+          expect(logged).toHaveLength(1);
+          expect(logged[0]).toStartWith('ignoring "rt.worktrees" for repo "acme-dev" -- ');
+          expect(io.stderr()).toStartWith("[warning] A worktree setting for acme-dev is being ignored  ");
+          expect(io.stderr()).toEndWith("  next: rt settings check\n");
+        } finally {
+          io.restore();
+          warnTest.reset();
+        }
+      });
     });
 
     test.each([

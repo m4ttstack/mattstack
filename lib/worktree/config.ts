@@ -55,9 +55,12 @@
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import { repoLabel } from "../repo-label.ts";
 import { worktreePoolRoot } from "../rt-paths.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../settings/identity.ts";
 import { explainSetting, getSetting, SCOPE_ORDER, type ResolveOpts, type Scope } from "../settings/resolve.ts";
+import * as out from "../ui/out.ts";
+import { warn } from "../ui/warn.ts";
 import { readReadyApproval, readyLadderHash } from "./ready-approval.ts";
 
 /**
@@ -119,6 +122,25 @@ function resolveOpts(repoIdentity: string | null, repoPath: string): ResolveOpts
 }
 
 /**
+ * The log gets the resolver's own words; the person gets one line and the
+ * command that names the fault.
+ */
+function warnIgnored(key: string, repoName: string | null, err: unknown): void {
+  const detail = (err as Error).message;
+  const first = detail.split("\n")[0] ?? detail;
+  const next = out.cmd("rt settings check");
+  if (repoName === null) {
+    warn("worktree-config", `ignoring "${key}": ${detail}`, {
+      show: { title: "A worktree app setting is being ignored", hint: first, next },
+    });
+    return;
+  }
+  warn("worktree-config", `ignoring "${key}" for repo "${repoName}" -- ${detail}`, {
+    show: { title: `A worktree setting for ${repoLabel(repoName)} is being ignored`, hint: first, next },
+  });
+}
+
+/**
  * The resolved `rt.worktrees` object, or `{}` when nothing resolves. Never
  * throws (module header): an unexpandable closed-set variable warns and
  * degrades this key rather than propagating into a reconcile pass.
@@ -132,7 +154,7 @@ function resolveDeclared(
     const { value } = getSetting<unknown>(SETTING_KEY, resolveOpts(repoIdentity, repoPath));
     return isPlainObject(value) ? value : {};
   } catch (err) {
-    console.warn(`rt: ignoring "${SETTING_KEY}" for repo "${repoName}" — ${(err as Error).message}`);
+    warnIgnored(SETTING_KEY, repoName, err);
     return {};
   }
 }
@@ -249,7 +271,7 @@ export async function worktreeSettingsDeclared(repoName: string, repoPath: strin
       (row) => row.present && row.scope !== "default",
     );
   } catch (err) {
-    console.warn(`rt: ignoring "${SETTING_KEY}" for repo "${repoName}" — ${(err as Error).message}`);
+    warnIgnored(SETTING_KEY, repoName, err);
     return false;
   }
 }
@@ -470,7 +492,7 @@ export function loadWorktreeAppConfig(): WorktreeAppConfig {
     const resolved = getSetting<unknown>(APP_SETTING_KEY).value;
     if (isPlainObject(resolved)) value = resolved;
   } catch (err) {
-    console.warn(`rt: ignoring "${APP_SETTING_KEY}": ${(err as Error).message}`);
+    warnIgnored(APP_SETTING_KEY, null, err);
   }
   return { enabled: value?.enabled === true, killProcesses: value?.killProcesses !== false };
 }
