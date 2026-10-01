@@ -12,7 +12,6 @@
   "commands/events.ts",
   "commands/flavor.ts",
   "commands/gate.ts",
-  "commands/git/reset.ts",
   "commands/glitter.ts",
   "commands/herd.ts",
   "commands/home.ts",
