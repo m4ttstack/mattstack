@@ -768,6 +768,7 @@ describe("applyBind", () => {
   describe("regeneratePackFile scope", () => {
     let savedHome: string | undefined;
     let savedEnginePackDir: string | undefined;
+    let root: string | undefined;
     beforeEach(() => {
       savedHome = process.env.HOME;
       savedEnginePackDir = process.env.RT_ENGINE_PACK_DIR;
@@ -777,10 +778,12 @@ describe("applyBind", () => {
       else process.env.HOME = savedHome;
       if (savedEnginePackDir === undefined) delete process.env.RT_ENGINE_PACK_DIR;
       else process.env.RT_ENGINE_PACK_DIR = savedEnginePackDir;
+      if (root) rmSync(root, { recursive: true, force: true });
+      root = undefined;
     });
 
-    function seedTwoRepoWorld(): { home: string; manifest: (slug: string) => string } {
-      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-scope-")));
+    function seedTwoRepoWorld(registered: string[] = ["widgets", "gadgets"]): { home: string; manifest: (slug: string) => string } {
+      root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-scope-")));
       const home = join(root, "home");
       mkdirSync(home, { recursive: true });
       process.env.HOME = home;
@@ -790,7 +793,7 @@ describe("applyBind", () => {
       writeFile(join(zone, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "acme" }));
       writeFile(join(zone, "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets", "acme/gadgets"] }));
       writeFile(join(zone, "packs", "widgets", "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { domain: "widgets:ci" } } }));
-      for (const name of ["widgets", "gadgets"]) {
+      for (const name of registered) {
         const dir = join(root, "src", name);
         execFileSync("git", ["init", "-q", dir]);
         execFileSync("git", ["-C", dir, "remote", "add", "origin", `https://gitlab.example.com/acme/${name}.git`]);
@@ -817,8 +820,8 @@ describe("applyBind", () => {
     });
 
     test("a bindings file no registered checkout produces reports no registered repo wrote it", async () => {
-      const { manifest } = seedTwoRepoWorld();
-      const orphan = manifest("gitlab.example.com-acme-sprockets");
+      const { manifest } = seedTwoRepoWorld(["gadgets"]);
+      const orphan = manifest("gitlab.example.com-acme-widgets");
       expect(await regeneratePackFile(orphan)).toEqual({ ok: false, detail: `no registered repo wrote ${orphan}` });
     });
   });

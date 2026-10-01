@@ -454,6 +454,21 @@ test("agent:resume passes env into the pane command; a resume without env carrie
   expect(calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "").not.toContain("HERD_ID");
 });
 
+test("a caller's env never overrides the gate env, on start or resume", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", env: { RT_AGENT_ID: "spoof" } });
+  if (!started.ok) throw new Error("unreachable");
+  const startCmd = calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "";
+  expect(startCmd).toContain(`RT_AGENT_ID='${started.data.id}'`);
+  expect(startCmd).not.toContain("'spoof'");
+  calls.length = 0;
+  expect((await h["agent:resume"]({ id: started.data.id, env: { RT_AGENT_ID: "spoof" } })).ok).toBe(true);
+  const resumeCmd = calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "";
+  expect(resumeCmd).toContain(`RT_AGENT_ID='${started.data.id}'`);
+  expect(resumeCmd).not.toContain("'spoof'");
+});
+
 describe("the agent record remembers the pack", () => {
   const paneRun = (calls: string[][]) => calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "";
 
