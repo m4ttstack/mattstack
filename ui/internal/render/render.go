@@ -69,5 +69,13 @@ func (r *renderer) block(b protocol.Block) {
 		r.banner(b)
 	case "failure":
 		r.failure(b)
+	case "table":
+		r.table(b)
+	case "tree":
+		r.tree(b)
+	case "section":
+		r.section(b)
+	case "changes":
+		r.changes(b)
 	}
 }
