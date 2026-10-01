@@ -123,6 +123,26 @@ why.
 Edit tabs on the team scope with `rt settings set board.tabs --scope team`.
 `config.json` carries them until then, and a store edit needs a restart.
 
+## Posting to code owners
+
+Some teams put the owning team's Slack channel in each CODEOWNERS section
+name, like `[Acme - #pod-acme]`. Tell the board a repo does this and your own
+MRs there get a "post to code owners" action:
+
+```sh
+rt settings set board.codeowners '{"slack":{"fromSectionName":true}}' \
+  --scope team --repo gitlab.example.com/acme/webapp
+```
+
+The action opens a dialog before it sends anything. It lists one channel per
+group of sections still waiting on approval, each with a switch, and the
+sections it leaves out with the reason: already approved, no channel in the
+name, already posted, or a channel the board's Slack user cannot see.
+Confirming sends the review request once to each channel left on.
+
+`board.codeowners` is set per repo and holds one property per code owner
+feature, so a repo without it gets none of them.
+
 ## Tokens and secrets
 
 `bun run setup` handles all of these. Every one is resolved env-first, then
