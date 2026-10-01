@@ -459,14 +459,20 @@ export function rowActions(
       );
       if (own)
         slack.push(
-          item('slack', 'post-slack', 'post to slack', SLACK, {
-            kind: 'post-slack',
-          })
+          item(
+            'slack',
+            'post-slack',
+            mrx.slackChannel ? `post to #${mrx.slackChannel}` : 'post to slack',
+            SLACK,
+            {
+              kind: 'post-slack',
+            }
+          )
         );
     }
     if (own && !!mrx.rtRepo && env.ownerSlackRepos?.includes(mrx.rtRepo))
       slack.push(
-        item('slack', 'post-owners', 'post to code owners', SLACK, {
+        item('slack', 'post-owners', 'post to code owners…', SLACK, {
           kind: 'post-owners',
         })
       );

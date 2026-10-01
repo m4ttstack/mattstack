@@ -152,6 +152,8 @@ export type BoardMRWithReview = BoardMR & {
       attachStandDown. */
   standDown?: true;
   slack?: SlackInfo;
+  /** The channel "post to slack" sends this MR to. */
+  slackChannel?: string;
   drafts?: DraftInfo[];
   /** The seat's own note on this MR (B10), kept in the board's state db and
       shown as the row's last line. */

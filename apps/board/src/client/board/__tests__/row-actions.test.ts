@@ -448,7 +448,7 @@ test('the code owners post is wording a person reads, and never joins the bulk m
   const action = rowActions(mr, actionEnvOf(ownersEnv, mr)).find(
     a => a.key === 'post-owners'
   )!;
-  expect(action.label).toBe('post to code owners');
+  expect(action.label).toBe('post to code owners…');
   expect(action.request).toEqual({ kind: 'post-owners' });
   expect(action.bulk).toBeUndefined();
 });
@@ -469,4 +469,24 @@ test('no code owners post outside an opted-in repo, without slack, or off the lo
 test("someone else's MR in an opted-in repo offers no code owners post", () => {
   const theirs = inOptedRepo({ author: { username: 'kim', name: 'Kim' } });
   expect(keys(theirs, ownersEnv)).not.toContain('post-owners');
+});
+
+const slackPostLabel = (over: Record<string, unknown>) => {
+  const mr = mrx(250, {
+    slack: { status: 'notfound', reactions: [], posted: false },
+    ...over,
+  });
+  return rowActions(mr, actionEnvOf(ownEnv, mr)).find(
+    a => a.key === 'post-slack'
+  )!.label;
+};
+
+test('the slack post names the channel it goes to', () => {
+  expect(slackPostLabel({ slackChannel: 'code-review' })).toBe(
+    'post to #code-review'
+  );
+});
+
+test('the slack post keeps its plain wording when the channel is unknown', () => {
+  expect(slackPostLabel({})).toBe('post to slack');
 });
