@@ -1,30 +1,20 @@
-import { useState } from 'react';
 import {
   ActionIcon,
   Box,
   Button,
   Group,
   Menu,
-  Popover,
-  ScrollArea,
-  Stack,
   Text,
   Tooltip,
 } from '@mattstack/app-kit/core';
-import { AnimatedChevron, Icon } from '@mattstack/app-kit/icons';
-import type { BuddyStatus, RoomSummary } from '@mattstack/rt-client';
+import { Icon } from '@mattstack/app-kit/icons';
+import type { RoomSummary } from '@mattstack/rt-client';
 
-import { AgentName } from './AgentName';
 import { dmPairLabel } from './display-name';
 import { DmPairTitle } from './DmPairTitle';
-import { doing, type DoingInput } from './doing';
 import { postMarkRead } from './mark-read';
-import { STATUS_WORD } from './statusDetail';
+import { RoomMembers, type MemberBuddy } from './RoomMembers';
 import { useExpandAll } from './use-expand-all';
-
-function signedInCount(buddies: { status: BuddyStatus }[]): number {
-  return buddies.filter(b => b.status !== 'offline').length;
-}
 
 /** Rendered inside `PageShell.Header`, which owns the 64px surface, its
     padding and its border; this is the row's content. */
@@ -56,9 +46,7 @@ const UNREAD_BADGE = {
   whiteSpace: 'nowrap',
 } as const;
 
-/** Wide enough for `doing()`: a DM's bar carries each end's task line, and
-    that is resolved from the same presence row the chips count. */
-export type PageBarBuddy = DoingInput;
+export type PageBarBuddy = MemberBuddy;
 
 export interface PageBarProps {
   room: RoomSummary;
@@ -79,32 +67,6 @@ export interface PageBarProps {
   /** Set when another listed DM reads the same pair (`repeatedPairLabels`):
       the title then carries each end's id-seeded avatar. */
   withAvatars?: boolean;
-}
-
-function Dot({
-  color,
-  testId,
-  hollow,
-}: {
-  color?: string;
-  testId: string;
-  hollow?: boolean;
-}) {
-  return (
-    <Box
-      component="span"
-      data-testid={testId}
-      style={{
-        display: 'inline-block',
-        width: 8,
-        height: 8,
-        borderRadius: '50%',
-        flex: 'none',
-        background: hollow ? 'transparent' : color,
-        border: hollow ? '1px solid var(--tk-border)' : undefined,
-      }}
-    />
-  );
 }
 
 /** The hash is an icon beside the title, as the artboard draws it, not a
@@ -194,185 +156,6 @@ export function RoomMenu({
   );
 }
 
-const MUTED = { color: 'var(--tk-text-4)' } as const;
-
-const GROUP_LABEL = {
-  fontSize: 'var(--mantine-font-size-xs)',
-  fontWeight: 700,
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase',
-  color: 'var(--tk-text-4)',
-} as const;
-
-/** One membership chip in place of the fanned-out live/idle/offline chips:
-    a status-dot summary that opens the room's full roster on click. The
-    roster groups by status so each row's status reads from its section, and
-    the wake mode moves into the popover header so the bar sheds a chip. */
-function RoomMembers({
-  room,
-  buddies,
-  reachable,
-  now,
-  wakeMode,
-}: {
-  room: RoomSummary;
-  buddies: PageBarBuddy[];
-  reachable: boolean;
-  now: number;
-  wakeMode: string;
-}) {
-  const [opened, setOpened] = useState(false);
-  const signedIn = signedInCount(buddies);
-  const live = buddies.filter(b => b.status === 'live');
-  const idle = buddies.filter(b => b.status === 'idle');
-  const offline = buddies.filter(b => b.status === 'offline');
-  const groups = [
-    { key: 'live', word: STATUS_WORD.live, members: live },
-    { key: 'idle', word: STATUS_WORD.idle, members: idle },
-    { key: 'offline', word: STATUS_WORD.offline, members: offline },
-  ].filter(g => g.members.length > 0);
-
-  const roomLabel = room.kind === 'dm' ? 'conversation' : `#${room.room}`;
-
-  return (
-    <Popover
-      opened={opened}
-      onChange={setOpened}
-      position="bottom-start"
-      withinPortal
-      shadow="md"
-      radius="md"
-      width={276}
-      trapFocus
-      styles={{ dropdown: { padding: 0, background: 'var(--tk-panel)' } }}
-    >
-      <Popover.Target>
-        <Button
-          variant="default"
-          size="xs"
-          radius="md"
-          data-testid="members-chip"
-          aria-label={`Members of ${roomLabel}`}
-          onClick={() => setOpened(o => !o)}
-          leftSection={
-            <Group gap={3} wrap="nowrap">
-              {live.length > 0 && (
-                <Dot color="var(--tk-fill-ok)" testId="members-dot-live" />
-              )}
-              {idle.length > 0 && (
-                <Dot color="var(--tk-fill-warn)" testId="members-dot-idle" />
-              )}
-              {live.length === 0 && idle.length === 0 && (
-                <Dot hollow testId="members-dot-off" />
-              )}
-            </Group>
-          }
-          rightSection={<AnimatedChevron opened={opened} size={14} />}
-          // The same default/xs control surface as the add-agents and
-          // mark-read buttons beside it, so the bar's controls all match.
-          styles={{
-            root: {
-              ...CONTROL_SURFACE,
-              fontWeight: 500,
-              ...(opened ? { background: 'var(--ui-bg-4)' } : {}),
-            },
-          }}
-        >
-          {signedIn} in {roomLabel}
-          {reachable ? '' : ' · last known'}
-        </Button>
-      </Popover.Target>
-      <Popover.Dropdown data-testid="members-dropdown">
-        <Group
-          justify="space-between"
-          wrap="nowrap"
-          gap="sm"
-          style={{
-            padding: 'var(--mantine-spacing-sm) var(--mantine-spacing-md)',
-            borderBottom: '1px solid var(--tk-border-soft)',
-          }}
-        >
-          <Text fw={700} size="sm">
-            {signedIn} in {roomLabel}
-          </Text>
-          <Text
-            component="span"
-            data-testid="members-wakes"
-            style={{ ...MUTED, fontSize: 'var(--mantine-font-size-xs)' }}
-          >
-            wakes: {wakeMode}
-          </Text>
-        </Group>
-        {reachable ? (
-          <ScrollArea.Autosize
-            mah={320}
-            type="auto"
-            scrollbars="y"
-            styles={{ content: { minWidth: 0 } }}
-          >
-            <Stack
-              gap="sm"
-              style={{
-                padding: 'var(--mantine-spacing-sm) var(--mantine-spacing-xs)',
-              }}
-            >
-              {groups.map(g => (
-                <Box key={g.key}>
-                  <Group
-                    gap={6}
-                    wrap="nowrap"
-                    style={{
-                      padding: '0 var(--mantine-spacing-sm)',
-                      marginBottom: 3,
-                    }}
-                  >
-                    <Text component="span" style={GROUP_LABEL}>
-                      {g.word}
-                    </Text>
-                    <Text
-                      component="span"
-                      style={{
-                        ...MUTED,
-                        fontSize: 'var(--mantine-font-size-xs)',
-                      }}
-                    >
-                      {g.members.length}
-                    </Text>
-                  </Group>
-                  <Stack gap={1}>
-                    {g.members.map(b => (
-                      <Box
-                        key={b.handle}
-                        data-testid={`members-row-${b.handle}`}
-                        style={{ padding: '2px var(--mantine-spacing-sm)' }}
-                      >
-                        <AgentName
-                          handle={b.handle}
-                          name={b.name}
-                          variant="row"
-                          reachable={reachable}
-                          now={now}
-                          task={doing(b, now)}
-                        />
-                      </Box>
-                    ))}
-                  </Stack>
-                </Box>
-              ))}
-            </Stack>
-          </ScrollArea.Autosize>
-        ) : (
-          <Box style={{ padding: 'var(--mantine-spacing-md)' }}>
-            <Text style={{ ...MUTED, fontSize: 'var(--mantine-font-size-sm)' }}>
-              presence withheld while the daemon is down
-            </Text>
-          </Box>
-        )}
-      </Popover.Dropdown>
-    </Popover>
-  );
-}
-
 export function PageBar({
   room,
   buddies,
@@ -427,7 +210,7 @@ export function PageBar({
       {onAddAgents && (
         <Button
           variant="default"
-          size="xs"
+          size="sm"
           radius="md"
           mr="sm"
           data-testid="add-agents-button"
@@ -435,7 +218,6 @@ export function PageBar({
           onClick={onAddAgents}
           disabled={!reachable}
           leftSection={<Icon name="userPlus" size={14} />}
-          styles={{ root: { ...CONTROL_SURFACE, fontWeight: 500 } }}
         >
           add agents
         </Button>
@@ -443,7 +225,7 @@ export function PageBar({
       {room.unread > 0 && (
         <Button
           variant="default"
-          size="xs"
+          size="sm"
           radius="md"
           data-testid="mark-read-button"
           aria-label={markReadLabel(room)}
@@ -454,7 +236,6 @@ export function PageBar({
               {room.unread}
             </Box>
           }
-          styles={{ root: CONTROL_SURFACE }}
         >
           mark read
         </Button>
@@ -467,14 +248,13 @@ export function PageBar({
         <ActionIcon
           variant={expandAll ? 'filled' : 'default'}
           color={expandAll ? 'accent' : undefined}
-          size={30}
+          size="input-sm"
           radius="md"
           ml="sm"
           aria-label="Expand all messages"
           aria-pressed={expandAll}
           data-testid="expand-all-toggle"
           onClick={() => setExpandAll(!expandAll)}
-          styles={{ root: expandAll ? undefined : CONTROL_SURFACE }}
         >
           <Icon
             name={expandAll ? 'foldVertical' : 'unfoldVertical'}

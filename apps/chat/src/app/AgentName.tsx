@@ -63,7 +63,7 @@ export const MESSAGE_HANDLE: AgentNameSize = {
 
 /** Every handle gets one, deterministically, from the same theme-token
     palette the name chip's hue rotation draws from -- see `HANDLE_PALETTE`. */
-function HandleAvatar({
+export function HandleAvatar({
   handle,
   variant,
   size,
