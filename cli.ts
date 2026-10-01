@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * rt ... Zero-footprint repo CLI.
+ * rt: the repo tools CLI.
  *
  * All command navigation is handled by the command tree dispatcher.
  * Commands register declaratively; the dispatcher handles screen clearing,
@@ -44,9 +44,10 @@ const pluginsMigration = migrateLegacyPluginsDir();
 // Called from __main: the output layer loads on demand, and a top-level
 // await here would block bytecode compilation. The intercept path stays
 // silent, since its stderr belongs to the wrapped command and a split-state
-// warning would land there on every invocation.
+// warning would land there on every invocation. The daemon stays silent too:
+// its stderr is a log, and drawing here could spawn rt-ui from it.
 async function reportMigrations(): Promise<void> {
-  if (isInterceptRun) return;
+  if (isInterceptRun || args[0] === "--daemon") return;
   const acted = (result: string) => result === "migrated" || result === "conflict";
   if (!acted(stateMigration) && !acted(pluginsMigration)) return;
   const out = await import("./lib/ui/out.ts");
