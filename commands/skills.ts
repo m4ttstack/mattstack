@@ -905,7 +905,7 @@ export function compileBlocks(rows: CompiledRow[], writing: boolean): Block[] {
   if (rows.length === 0) return [out.line("skipped", "Nothing to compile", "this pack has no verbs")];
   return rows.flatMap((row) => [
     writing
-      ? out.line(row.warnings.length > 0 ? "warn" : "done", `Compiled ${row.name}`, `${countOf(row.files, "file", "files")} in ${row.side}/`)
+      ? out.line(row.warnings.some((w) => !w.startsWith("note: ")) ? "warn" : "done", `Compiled ${row.name}`, `${countOf(row.files, "file", "files")} in ${row.side}/`)
       : out.line("pending", row.name, `would write ${countOf(row.files, "file", "files")}`),
     // compile.ts writes its surface-internal notes with their own "note: " label.
     ...(row.warnings.length > 0 ? [out.callout("note", ...row.warnings.map((w) => w.replace(/^note: /, "")))] : []),
@@ -2408,8 +2408,11 @@ export function bindBlocks(b: { verb: string; slot: string; from: string; to: st
   ];
 }
 
-export function shadowWarning(verb: string, slot: string, layer: string): Block {
-  return out.line("warn", `${verb}.${slot} is still decided by the ${layer} layer`, "your change is saved, but that layer wins");
+export function shadowWarning(verb: string, slot: string, layer: string, manifestPath: string): Block[] {
+  return [
+    out.line("warn", `${verb}.${slot} is still decided by the ${layer} layer`, "your change is saved, but that layer wins"),
+    out.callout("note", ["The winning value is in ", out.dim(manifestPath)]),
+  ];
 }
 
 export async function skillsBind(args: string[]): Promise<void> {
@@ -2544,7 +2547,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       out.fail({ title: "The bindings file was not rebuilt, so nothing was recompiled", ...(regenerateDetail ? { why: regenerateDetail } : {}), next: out.cmd("rt skills materialize") });
       return;
     }
-    if (shadowedBy) out.note(shadowWarning(verbName, slotName, shadowedBy));
+    if (shadowedBy) out.note(...shadowWarning(verbName, slotName, shadowedBy, manifestPath));
 
     // A stage's bound fills feed every orchestrator's compiled allowed-tools union
     // (stageAllowedToolsFor) -- scoping to `--verb <stage>` would leave every

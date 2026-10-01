@@ -1048,8 +1048,11 @@ describe("bindBlocks", () => {
 
   test("the shadow warning is a note on stderr, never stdout", () => {
     io.clear();
-    ui.note(shadowWarning("watch-ci", "domain", "override"));
+    ui.note(...shadowWarning("watch-ci", "domain", "override", "/h/packs/acme/skills.jsonc"));
     expect(io.stdout()).toBe("");
-    expect(io.errLines()).toEqual(["[warning] watch-ci.domain is still decided by the override layer  your change is saved, but that layer wins"]);
+    expect(io.errLines()).toEqual([
+      "[warning] watch-ci.domain is still decided by the override layer  your change is saved, but that layer wins",
+      "  note: The winning value is in /h/packs/acme/skills.jsonc",
+    ]);
   });
 });

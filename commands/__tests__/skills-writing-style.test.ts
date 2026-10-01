@@ -308,6 +308,21 @@ describe("new", () => {
   });
 });
 
+describe("unreadable preset", () => {
+  test("the shown failure carries the read error", async () => {
+    mkdirSync(join(home, ".mattstack", "user", ".git"), { recursive: true });
+    const installPath = join(home, "cache", "mattstack");
+    const dir = join(installPath, "skills", "writing-style-sparse");
+    mkdirSync(join(dir, "SKILL.md"), { recursive: true });
+    const list = JSON.stringify([{ id: "mattstack@mattstack", enabled: true, installPath }]);
+    out.length = 0;
+    await expect(writingStyleNew(["team-voice", "--from", "sparse"], {}, fakeDeps({ pluginListStdout: async () => list }))).rejects.toThrow("exit 2");
+    expect(out[0]).toBe("The installed preset could not be read");
+    expect(out.join("\n")).toContain("EISDIR");
+    expect(out.at(-1)).toBe("  next: rt setup");
+  });
+});
+
 describe("plain refusals", () => {
   test("use with no id off a terminal asks which, on the failure seam", async () => {
     mkdirSync(join(home, ".mattstack", "user", ".git"), { recursive: true });

@@ -17,10 +17,10 @@ test("a compile lists each verb, with its warnings under it", () => {
   ).toBe("[warning] Compiled watch-ci  3 files in skills/\n  note: slot forge is bound but unused\n[ok] Compiled ship  1 file in attachments/\n");
 });
 
-test("a warning that already starts with note: is not labelled twice", () => {
+test("a row with only informational notes is done, and the note is not labelled twice", () => {
   expect(
     renderPlain(compileBlocks([{ name: "watch-ci", side: "skills", files: 1, warnings: ["note: acme:qa-gates is surface-internal; inlined"] }], true)),
-  ).toBe("[warning] Compiled watch-ci  1 file in skills/\n  note: acme:qa-gates is surface-internal; inlined\n");
+  ).toBe("[ok] Compiled watch-ci  1 file in skills/\n  note: acme:qa-gates is surface-internal; inlined\n");
 });
 
 test("two warnings are one note, one line each", () => {

@@ -242,7 +242,7 @@ export async function writingStyleNew(args: string[], _ctx: CommandContext = {},
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return refuse(new UserActionableError("no-plugin", `the installed preset ${presetId} is unreadable; reinstall the mattstack plugin (${msg})`), json, deps, { title: "The installed preset could not be read", next: out.cmd("rt setup") });
+    return refuse(new UserActionableError("no-plugin", `the installed preset ${presetId} is unreadable; reinstall the mattstack plugin (${msg})`), json, deps, { title: "The installed preset could not be read", why: msg, next: out.cmd("rt setup") });
   }
   if (skillContent === null) {
     return refuse(new UserActionableError("no-plugin", `the installed preset ${presetId} is unreadable; reinstall the mattstack plugin`), json, deps, { title: "The installed preset could not be read", next: out.cmd("rt setup") });

@@ -227,7 +227,7 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
   }
   if (parsed.json) {
     if (out.ok) ui.json(envelope(out));
-    else if (out.refused) ui.json(userErrorPayload(new UserActionableError(out.code, out.detail, { refused: true })));
+    else if (out.refused) ui.json(userErrorPayload(new UserActionableError(out.code, out.next ? `${out.detail}. Run ${out.next}` : out.detail, { refused: true })));
     else ui.json(userErrorPayload(new UserActionableError(out.code, out.detail, { refused: false, wrote: out.wrote })));
   } else if (out.ok) {
     ui.print(...initOutcomeBlocks(out));

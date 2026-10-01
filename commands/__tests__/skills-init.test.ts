@@ -182,6 +182,19 @@ describe("skillsInit", () => {
     expect(process.exitCode).toBe(2);
   });
 
+  test("--json: a refusal with a remedy carries the command in the message", async () => {
+    const deps = stubDeps({
+      gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }),
+      engineDescription: () => null,
+    });
+    await skillsInit(["--json"], {}, deps);
+    const printed = JSON.parse(io.lines()[0]!);
+    expect(printed.error.code).toBe("mattstack-missing");
+    expect(printed.error.refused).toBe(true);
+    expect(printed.error.message).toBe("The mattstack plugin is not installed, so rt cannot read the work engine. Run rt setup pack");
+    expect(Object.keys(printed.error).sort()).toEqual(["code", "message", "refused"]);
+  });
+
   test("--json: a thrown UserActionableError from the zone-creation prompt path refuses cleanly", async () => {
     const deps = stubDeps({
       gitRemote: async () => ({ kind: "ok", url: "https://gitlab.com/acme/api.git" }),
