@@ -170,7 +170,11 @@ import {
 } from './launch-dedup.ts';
 import { launchErrorMessage } from './launch-error.ts';
 import { hasLocalOrigin, isLocalRequest, requireJsonBody } from './local.ts';
-import { resolveBoardSkill, type BoardSkillKind } from './manifest-bindings.ts';
+import {
+  packForLaunch,
+  resolveLaunchSkill,
+  type BoardSkillKind,
+} from './manifest-bindings.ts';
 import { memoizeAsync } from './memoize-async.ts';
 import {
   mergeRefusalReason,
@@ -643,21 +647,18 @@ function mrAuthorLabel(mr: BoardMR): string {
   return mr.author.name ?? mr.author.username;
 }
 
-/** Resolve the skill a launch (review/respond/doctor) should delegate to for
-    the MR at `mrUrl` -- the per-repo mattstack manifest binding when present,
-    else config -- and log the choice once at launch time. review/respond
-    have no config fallback (reviewSkill/respondSkill retired -- dead, always
-    shadowed by the manifest); only doctor's config.doctorSkill is real. */
-function resolveLaunchSkill(kind: BoardSkillKind, mrUrl: string): string {
-  const project = projectPathFromWebUrl(mrUrl, config.gitlabHost);
-  const resolved = project
-    ? resolveBoardSkill(kind, project, config)
-    : {
-        skill: kind === 'doctor' ? config.doctorSkill : '',
-        source: 'config' as const,
-      };
-  console.log(`${kind} skill: ${resolved.skill} (${resolved.source})`);
-  return resolved.skill;
+/** Reads `config` at call time: it is reassigned after boot (a switchboard-url save). */
+function resolveLaunchSkillFor(
+  kind: BoardSkillKind,
+  mrUrl: string,
+  tabId: string | undefined
+): string {
+  return resolveLaunchSkill(kind, mrUrl, config, packForLaunch(config, tabId));
+}
+
+/** `pack` for a LaunchPaneOpts/ReReviewCtx: absent rather than null when none applies. */
+function launchPack(tabId: string | undefined): string | undefined {
+  return packForLaunch(config, tabId) ?? undefined;
 }
 
 /**
@@ -1555,7 +1556,8 @@ const httpServer = Bun.serve({
         const resume = (body as { resume?: unknown })?.resume === true;
         const focusOnly = (body as { focus?: unknown })?.focus === true;
         const reReview = (body as { reReview?: unknown })?.reReview === true;
-        const tabId = (body as { tabId?: unknown })?.tabId;
+        const rawTabId = (body as { tabId?: unknown })?.tabId;
+        const tabId = typeof rawTabId === 'string' ? rawTabId : undefined;
         const noteParse = parseLaunchNote(body);
         if (!noteParse.ok)
           return new Response(noteParse.error, { status: 400 });
@@ -1598,10 +1600,11 @@ const httpServer = Bun.serve({
             workspaceLabel: config.reviewsWorkspace,
             skill: reviewSkillForTab(
               config,
-              typeof tabId === 'string' ? tabId : undefined,
+              tabId,
               parsed.mrUrl,
-              resolveLaunchSkill
+              resolveLaunchSkillFor
             ),
+            pack: launchPack(tabId),
             author,
             ...loadAgentSettings(),
             claudeCommand: config.claudeCommand,
@@ -1659,6 +1662,7 @@ const httpServer = Bun.serve({
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
           status: 'queued',
+          noPack: !launchPack(tabId),
         });
         // Spawn asynchronously; the badge reflects progress via the state file.
         void launchReview({
@@ -1670,10 +1674,11 @@ const httpServer = Bun.serve({
           statePath,
           skill: reviewSkillForTab(
             config,
-            typeof tabId === 'string' ? tabId : undefined,
+            tabId,
             parsed.mrUrl,
-            resolveLaunchSkill
+            resolveLaunchSkillFor
           ),
+          pack: launchPack(tabId),
           author,
           ...loadAgentSettings(),
           note,
@@ -1795,6 +1800,7 @@ const httpServer = Bun.serve({
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
           status: 'queued',
+          noPack: !launchPack(undefined),
         });
         void launchRespond({
           mrUrl: parsed.mrUrl,
@@ -1803,7 +1809,8 @@ const httpServer = Bun.serve({
           repo,
           workspaceLabel: config.respondsWorkspace,
           statePath,
-          skill: resolveLaunchSkill('respond', parsed.mrUrl),
+          skill: resolveLaunchSkillFor('respond', parsed.mrUrl, undefined),
+          pack: launchPack(undefined),
           author,
           ...loadAgentSettings(),
           ...respondFreshDispatchFields(existing),
@@ -1944,6 +1951,7 @@ const httpServer = Bun.serve({
           origin: 'manual',
           tier,
           fixClasses,
+          noPack: !launchPack(undefined),
         });
         void launchDoctor({
           mrUrl: parsed.mrUrl,
@@ -1952,7 +1960,8 @@ const httpServer = Bun.serve({
           repo,
           workspaceLabel: config.doctorsWorkspace,
           statePath,
-          skill: resolveLaunchSkill('doctor', parsed.mrUrl),
+          skill: resolveLaunchSkillFor('doctor', parsed.mrUrl, undefined),
+          pack: launchPack(undefined),
           author,
           ...loadAgentSettings(),
           note: launchNote,
@@ -3467,7 +3476,8 @@ function reviewResumeIo(): KindResumeIo {
       ),
     filePath: reviewFilePath,
     resolveSkill: (mrUrl, tabId) =>
-      reviewSkillForTab(config, tabId, mrUrl, resolveLaunchSkill),
+      reviewSkillForTab(config, tabId, mrUrl, resolveLaunchSkillFor),
+    resolvePack: launchPack,
     prompt: (
       mrUrl,
       statePath,
@@ -3503,7 +3513,8 @@ function respondResumeIo(): KindResumeIo {
         patch as Partial<RespondState> & { status: RespondStatus }
       ),
     filePath: respondFilePath,
-    resolveSkill: mrUrl => resolveLaunchSkill('respond', mrUrl),
+    resolveSkill: mrUrl => resolveLaunchSkillFor('respond', mrUrl, undefined),
+    resolvePack: () => launchPack(undefined),
     prompt: (
       mrUrl,
       statePath,
@@ -3540,7 +3551,8 @@ function doctorResumeIo(): KindResumeIo {
         patch as Partial<DoctorState> & { status: DoctorStatus }
       ),
     filePath: doctorFilePath,
-    resolveSkill: mrUrl => resolveLaunchSkill('doctor', mrUrl),
+    resolveSkill: mrUrl => resolveLaunchSkillFor('doctor', mrUrl, undefined),
+    resolvePack: () => launchPack(undefined),
     prompt: (
       mrUrl,
       statePath,

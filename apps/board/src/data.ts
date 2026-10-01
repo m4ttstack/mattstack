@@ -614,12 +614,12 @@ export function reviewSkillForTab(
   config: BoardConfig,
   tabId: string | undefined,
   mrUrl: string,
-  fallback: (kind: 'review', mrUrl: string) => string
+  fallback: (kind: 'review', mrUrl: string, tabId: string | undefined) => string
 ): string {
   const tab = tabId ? config.tabs.find(t => t.id === tabId) : undefined;
   if (tab?.reviewSkill) {
     console.log(`review skill: ${tab.reviewSkill} (tab ${tab.id})`);
     return tab.reviewSkill;
   }
-  return fallback('review', mrUrl);
+  return fallback('review', mrUrl, tabId);
 }

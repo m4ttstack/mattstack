@@ -29,6 +29,7 @@ export async function startAgentPane(
     account?: string;
     model?: string;
     effort?: string;
+    env?: Record<string, string>;
   },
   io?: AgentIo
 ): Promise<AgentLaunchResult> {
@@ -48,6 +49,7 @@ export async function startAgentPane(
     ...(opts.account !== undefined ? { account: opts.account } : {}),
     ...(opts.model !== undefined ? { model: opts.model } : {}),
     ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
+    ...(opts.env !== undefined ? { env: opts.env } : {}),
   };
 
   const response = await ioInstance.agentStart(payload);

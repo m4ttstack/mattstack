@@ -408,6 +408,26 @@ describe('launchReview / launchRespond / launchDoctor (rt agent)', () => {
     });
   });
 
+  test('a pack rides the rt agent start payload as MATTSTACK_PACK; no pack sends no env', async () => {
+    const { io, startCalls } = fakeAgentIo();
+    const opts = {
+      mrUrl: 'https://x/mr/1',
+      iid: 4821,
+      cwd: '/repo',
+      repo: 'acme/widgets',
+      workspaceLabel: 'reviews',
+      statePath: '/s/1.json',
+    };
+    await launchReview({ ...opts, pack: 'widgets' }, io);
+    await launchReview(opts, io);
+    await launchRespond({ ...opts, pack: 'widgets' }, io);
+    await launchDoctor({ ...opts, pack: 'gadgets' }, io);
+    expect(startCalls[0]!.env).toEqual({ MATTSTACK_PACK: 'widgets' });
+    expect('env' in startCalls[1]!).toBe(false);
+    expect(startCalls[2]!.env).toEqual({ MATTSTACK_PACK: 'widgets' });
+    expect(startCalls[3]!.env).toEqual({ MATTSTACK_PACK: 'gadgets' });
+  });
+
   test('launchRespond starts an rt agent with the respond prompt under the responses workspace', async () => {
     const { io, startCalls } = fakeAgentIo();
     await launchRespond(

@@ -336,6 +336,26 @@ describe('buildSpine: slots', () => {
     expect(spine.stages[0].slots[0].inlined).toBeNull();
   });
 
+  it('carries the layer that set a verb slot, and null where rt states none', () => {
+    const composition: SpineComposition = {
+      ...PACK,
+      verbs: PACK.verbs.map(v =>
+        v.name === 'work'
+          ? { ...v, slots: [{ ...v.slots[0], layer: 'base:acme-base' }] }
+          : v
+      ),
+    };
+    const spine = buildSpine(composition, EMPTY_CHECK);
+
+    expect(spine.orchestrator?.slots[0].layer).toBe('base:acme-base');
+    expect(
+      buildSpine(PACK, EMPTY_CHECK).orchestrator?.slots[0].layer
+    ).toBeNull();
+    expect(spine.stages[0].slots[0].layer).toBeNull();
+    const external = spine.outside.find(e => e.key === 'external:board');
+    expect(external?.slots.map(s => s.layer)).toEqual([null]);
+  });
+
   it('reports a referenced fill as referenced rather than as unflagged', () => {
     const composition: SpineComposition = {
       ...PACK,

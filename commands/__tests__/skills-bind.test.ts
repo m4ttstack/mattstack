@@ -4,8 +4,9 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { __test__ as pickImplTest, type PickImpl } from "../../lib/ui/pick.ts";
 import type { PickRequest, PickResult } from "../../lib/ui/protocol.ts";
+import * as sources from "../../lib/skills/sources.ts";
 import { readManifestBindings, stripJsonc } from "../../lib/skills/sources.ts";
-import { skillsBind, skillsCompile } from "../skills.ts";
+import { applyBind, regenerateOutcomeFor, regeneratePackFile, skillsBind, skillsCompile } from "../skills.ts";
 
 /**
  * pickBindArgs opens a separate runPick session per omitted positional
@@ -270,6 +271,7 @@ describe("skillsBind", () => {
       from: "acme:watch-ci-domain-v1",
       to: "acme:watch-ci-domain-v2",
       fragmentUpdated: null,
+      shadowedBy: null,
       compileErrors: [],
     });
 
@@ -639,5 +641,147 @@ describe("bind writes the team pack fragment", () => {
     ).rejects.toThrow();
 
     expect(readFileSync(manifest, "utf8")).toBe(manifestBefore);
+  });
+});
+
+describe("applyBind", () => {
+  test("team pack: writes the fragment, regenerates, and reports a shadowing override", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+    const packDir = join(root, "teams", "acme", "mattstack", "packs", "widgets");
+    writeFile(join(packDir, "pack", "skills.jsonc"), `{\n  "bindings": {}\n}\n`);
+    const manifestPath = join(root, "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
+    writeFile(manifestPath, "{}");
+    let regenerated = 0;
+    const result = await applyBind({
+      manifestPath, packDir, engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", fixtureMode: false,
+      materialize: async () => {
+        regenerated++;
+        writeFile(manifestPath, `//   mattstack:watch-ci domain <- override\n{ "bindings": { "mattstack:watch-ci": { "domain": "me:ci" } } }`);
+        return { ok: true };
+      },
+    });
+    expect(regenerated).toBe(1);
+    expect(result.fragmentUpdated).toBe(join(packDir, "pack", "skills.jsonc"));
+    expect(JSON.parse(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).bindings["mattstack:watch-ci"].domain).toBe("widgets:ci");
+    expect(result.shadowedBy).toBe("override");
+    expect(result.regenerated).toBe(true);
+    expect("regenerateDetail" in result).toBe(false);
+  });
+
+  describe("when materialize skips", () => {
+    let savedHome: string | undefined;
+    let savedEnginePackDir: string | undefined;
+    beforeEach(() => {
+      savedHome = process.env.HOME;
+      savedEnginePackDir = process.env.RT_ENGINE_PACK_DIR;
+    });
+    afterEach(() => {
+      if (savedHome === undefined) delete process.env.HOME;
+      else process.env.HOME = savedHome;
+      if (savedEnginePackDir === undefined) delete process.env.RT_ENGINE_PACK_DIR;
+      else process.env.RT_ENGINE_PACK_DIR = savedEnginePackDir;
+    });
+
+    test("no engine pack: the fragment is written, nothing is read for shadowing, and the skip reason is reported", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+      process.env.HOME = join(root, "home");
+      mkdirSync(process.env.HOME, { recursive: true });
+      process.env.RT_ENGINE_PACK_DIR = join(root, "missing-engine-pack");
+      const packDir = join(root, "teams", "acme", "mattstack", "packs", "widgets");
+      const fragmentPath = join(packDir, "pack", "skills.jsonc");
+      writeFile(fragmentPath, `{\n  "bindings": {}\n}\n`);
+      const manifestPath = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
+      writeFile(manifestPath, `//   mattstack:watch-ci domain <- default\n{ "bindings": { "mattstack:watch-ci": { "domain": "mattstack:ci" } } }`);
+
+      const result = await applyBind({
+        manifestPath, packDir, engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", fixtureMode: false,
+        materialize: () => regeneratePackFile(manifestPath),
+      });
+
+      expect(JSON.parse(readFileSync(fragmentPath, "utf8")).bindings["mattstack:watch-ci"].domain).toBe("widgets:ci");
+      expect(result.fragmentUpdated).toBe(fragmentPath);
+      expect(result.shadowedBy).toBeNull();
+      expect(result.regenerated).toBe(false);
+      expect(result.regenerateDetail).toContain("engine-pack-missing");
+      expect(result.regenerateDetail).toContain("mattstack plugin");
+    });
+
+    test.each([["--json"], ["text"]])("no engine pack through skillsBind (%s): exit 1, not ok, and no recompile", async (mode) => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+      cpSync(FIX, root, { recursive: true });
+      process.env.HOME = join(root, "home");
+      mkdirSync(process.env.HOME, { recursive: true });
+      process.env.RT_ENGINE_PACK_DIR = join(root, "missing-engine-pack");
+      const pack = join(root, "pack");
+      const fragmentPath = join(pack, "pack", "skills.jsonc");
+      writeFile(fragmentPath, `{\n  "bindings": {}\n}\n`);
+      const manifest = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
+      writeFile(manifest, `{\n  "pipelines": { "feature": ["mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship"] },\n  "bindings": {}\n}\n`);
+      const rootsSpy = spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(join(root, "mattstack-home")));
+      const errors: string[] = [];
+      const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+        errors.push(args.map(String).join(" "));
+      });
+      try {
+        await skillsBind(["stage-plan", "domain", "acme:plan-policy", "--pack-dir", pack, "--manifest", manifest, ...(mode === "--json" ? ["--json"] : [])]);
+      } finally {
+        errorSpy.mockRestore();
+        rootsSpy.mockRestore();
+      }
+
+      expect(existsSync(join(pack, "skills"))).toBe(false);
+      expect(process.exitCode).toBe(1);
+      expect(JSON.parse(readFileSync(fragmentPath, "utf8")).bindings["mattstack:stage-plan"].domain).toBe("acme:plan-policy");
+      if (mode === "--json") {
+        expect(logs).toHaveLength(1);
+        const payload = JSON.parse(logs[0]!);
+        expect(payload).toMatchObject({ ok: false, regenerated: false, fragmentUpdated: fragmentPath });
+        expect(payload.regenerateDetail).toContain("engine-pack-missing");
+      } else {
+        expect(errors.some((l) => l.includes("bindings file not regenerated") && l.includes("engine-pack-missing"))).toBe(true);
+        expect(errors.some((l) => l.includes("rt skills materialize"))).toBe(true);
+      }
+    });
+  });
+
+  test("regenerateOutcomeFor judges by this pack file's own outcome", () => {
+    const manifestPath = join(tmpdir(), "rt-bind-none", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
+    const row = { name: "widgets", path: "/src/widgets", detail: "", ok: false };
+    expect(regenerateOutcomeFor({ skipped: false, repos: [{ ...row, packs: [
+      { pack: "widgets", zone: "acme", ok: true, path: manifestPath, layers: [] },
+      { pack: "gadgets", zone: "acme", ok: false, detail: "gadgets fragment is missing" },
+    ] }] }, manifestPath)).toEqual({ ok: true });
+    expect(regenerateOutcomeFor({ skipped: false, repos: [{ ...row, packs: [
+      { pack: "widgets", zone: "acme", ok: false, detail: "fragment is missing" },
+    ] }] }, manifestPath)).toEqual({ ok: false, detail: "widgets: fragment is missing" });
+  });
+
+  test("fixture mode: writes the fragment and the manifest, never regenerates", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+    const packDir = join(root, "pack");
+    writeFile(join(packDir, "pack", "skills.jsonc"), `// acme fragment\n{ "bindings": {} }`);
+    const manifestPath = join(root, "skills.jsonc");
+    writeFile(manifestPath, `{ "bindings": {} }`);
+    const result = await applyBind({ manifestPath, packDir, engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", fixtureMode: true, materialize: async () => { throw new Error("must not run"); } });
+    expect(result).toEqual({ fragmentUpdated: join(packDir, "pack", "skills.jsonc"), shadowedBy: null });
+    expect(JSON.parse(readFileSync(manifestPath, "utf8")).bindings["mattstack:watch-ci"].domain).toBe("widgets:ci");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toContain("// acme fragment");
+  });
+
+  test("fixture mode with no fragment: the manifest alone is written", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+    const manifestPath = join(root, "skills.jsonc");
+    writeFile(manifestPath, `{ "bindings": {} }`);
+    const result = await applyBind({ manifestPath, packDir: join(root, "pack"), engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", fixtureMode: true, materialize: async () => { throw new Error("must not run"); } });
+    expect(result).toEqual({ fragmentUpdated: null, shadowedBy: null });
+  });
+
+  test("standalone pack (fragment is the manifest): one write, no regenerate", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+    const packDir = join(root, "mattstack");
+    const manifestPath = join(packDir, "pack", "skills.jsonc");
+    writeFile(manifestPath, `{ "bindings": {} }`);
+    const result = await applyBind({ manifestPath, packDir, engineRef: "mattstack:shepherdr", slotName: "tiering", fill: "mattstack:model-tiering", fixtureMode: false, materialize: async () => { throw new Error("must not run"); } });
+    expect(result).toEqual({ fragmentUpdated: null, shadowedBy: null });
   });
 });

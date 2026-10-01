@@ -1,5 +1,6 @@
 import { join, relative, resolve } from "path";
 import { applyEdits, modify } from "jsonc-parser";
+import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 
 /** Strips only the userinfo (scheme://user:pass@) so the rest of a rejected remote URL stays in the message; withoutUrls's full-URL redaction would leave nothing readable here. */
@@ -9,7 +10,7 @@ function withoutCredentials(message: string): string {
 
 export type RepoRef = { host: string; path: string; slug: string };
 
-/** Mirrors norm_url in merge-manifests.sh so the slug here is the one the per-repo manifest lands under. */
+/** The slug here is the directory every per-pack bindings file for this repo lands under. */
 export function parseRemote(url: string): RepoRef | null {
   let u = url.trim();
   if (u.endsWith(".git")) u = u.slice(0, -4);
@@ -23,7 +24,7 @@ export function parseRemote(url: string): RepoRef | null {
   if (slash === -1 || slash === u.length - 1) return null;
   const host = u.slice(0, slash).toLowerCase();
   const path = u.slice(slash + 1);
-  return { host, path, slug: `${host}-${path.replaceAll("/", "-")}` };
+  return { host, path, slug: repoSlug(host, path) };
 }
 
 export type InitFs = {
@@ -68,13 +69,21 @@ function hostOnly(value: unknown): string | null {
   return value.replace(/^https?:\/\//, "").split("/")[0]!.toLowerCase() || null;
 }
 
+/** A pack is a directory holding the fragment materialize layers, so every "which packs are here" question agrees with materialize. */
+export function isPackDir(fs: Pick<InitFs, "exists">, dir: string): boolean {
+  return fs.exists(join(dir, "pack", "skills.jsonc"));
+}
+
 function zoneHasPack(fs: InitFs, dir: string): boolean {
   const packs = join(dir, "mattstack", "packs");
-  return fs.readDir(packs).some((name) => fs.exists(join(packs, name, ".claude-plugin", "plugin.json")));
+  return fs.readDir(packs).some((name) => isPackDir(fs, join(packs, name)));
 }
 
 export function readZones(fs: InitFs, home: string): ZoneInfo[] {
-  const teams = join(home, ".mattstack", "teams");
+  return readZonesFrom(fs, join(home, ".mattstack", "teams"));
+}
+
+export function readZonesFrom(fs: InitFs, teams: string): ZoneInfo[] {
   const zones: ZoneInfo[] = [];
   for (const slug of fs.readDir(teams)) {
     const dir = join(teams, slug);
@@ -162,8 +171,9 @@ export function renderPackFiles(opts: { pack: string; workDescription: string })
       "// engine; rewrite it in your team's words.\n" +
       JSON.stringify(stubs, null, 2) + "\n",
     "pack/skills.jsonc":
-      `// ${pack} bindings fragment. merge-manifests.sh folds it into the per-repo\n` +
-      "// manifest at ~/.mattstack/repos/<slug>/skills.jsonc. Every domain slot is\n" +
+      `// ${pack} bindings fragment. rt skills materialize layers it under mattstack's\n` +
+      "// defaults and over any base pack into the per-pack file at\n" +
+      `// ~/.mattstack/repos/<repo>/packs/${pack}/skills.jsonc. Every domain slot is\n` +
       "// optional; bind one with rt skills bind (see mattstack:extending-a-pack).\n" +
       JSON.stringify(manifest, null, 2) + "\n",
   };
@@ -193,8 +203,8 @@ function renderPackMd(pack: string): string {
 export function declareRepo(teamJsonc: string | null, repo: RepoRef): string {
   if (teamJsonc === null) {
     return (
-      "// Team declaration read by merge-manifests.sh: which forge host and which\n" +
-      "// projects this zone's packs bind into.\n" +
+      "// Team declaration read by rt skills materialize: which forge host and which\n" +
+      "// projects this zone's pack binds.\n" +
       JSON.stringify({ gitlabHost: `https://${repo.host}`, projects: [repo.path] }, null, 2) + "\n"
     );
   }
@@ -228,7 +238,7 @@ export type InitDeps = {
   engineDescription(engine: string): string | null;
   claude: ((args: string[]) => Promise<RunResult>) | null;
   registerRepo(repoDir: string): Promise<string>;
-  materialize(repoName: string): Promise<{ ok: boolean; detail: string }>;
+  materialize(repoName: string, pack: string): Promise<{ ok: boolean; detail: string }>;
   compile(packDir: string, manifestPath: string): Promise<{ ok: boolean; errors: string[] }>;
   check(packDir: string, manifestPath: string): Promise<{ drift: boolean }>;
 };
@@ -326,7 +336,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
 
   const remedyFor = (code: FailureCode): string => {
     if (code === "write-failed") return `then: remove ${packDir} and re-run rt skills init`;
-    if (code === "materialize-failed") return `then: rt skills materialize --repo ${opts.repoDir}`;
+    if (code === "materialize-failed") return `then: rt skills materialize --dir ${opts.repoDir}`;
     if (code === "compile-failed" || code === "check-drift") {
       return `then: rt skills compile --pack-dir ${packDir} and rt skills check --pack-dir ${packDir}`;
     }
@@ -371,10 +381,10 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
 
   const registered = await attempt("materialize-failed", () => deps.registerRepo(opts.repoDir));
   if ("outcome" in registered) return registered.outcome;
-  const materializedAttempt = await attempt("materialize-failed", () => deps.materialize(registered.value));
+  const materializedAttempt = await attempt("materialize-failed", () => deps.materialize(registered.value, pack));
   if ("outcome" in materializedAttempt) return materializedAttempt.outcome;
   const materialized = materializedAttempt.value;
-  const manifestPath = join(deps.home, ".mattstack", "repos", repo.slug, "skills.jsonc");
+  const manifestPath = packManifestPath(join(deps.home, ".mattstack"), repo.slug, pack);
   if (!materialized.ok || !deps.fs.exists(manifestPath)) {
     return failed("materialize-failed", `${materialized.detail}; expected ${manifestPath}`);
   }

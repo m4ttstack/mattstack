@@ -7,7 +7,7 @@ sidebar_label: bind
 
 `rt › skills › bind`
 
-Write bindings.&lt;engineRef&gt;.&lt;slot&gt; = &lt;fill&gt; into the manifest (jsonc-parser, comments preserved) and, for a team pack, into the pack's pack/skills.jsonc fragment too, validate the fill against the slot's contract, and recompile (a stage bind recompiles the whole pack)
+Bind a fill to a slot: check it fits, save it in the pack's bindings, regenerate the pack's bindings file and recompile
 
 ## Usage
 
@@ -23,7 +23,8 @@ rt skills bind <verb> <slot> <fill> [flags]
 | `<slot>` | text |  | Slot declared on the verb's step |
 | `<fill>` | text |  | &lt;plugin&gt;:&lt;skill&gt; binding string; must provide the slot's declared contract |
 | `--pack` | text |  | Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to act on that tree |
-| `--manifest` | text |  | Manifest path; omit to auto-find the newest ~/.mattstack/repos/*/skills.jsonc naming this pack |
+| `--manifest` | text |  | Manifest path; omit to read ~/.mattstack/repos/&lt;repo&gt;/packs/&lt;pack&gt;/skills.jsonc |
+| [`--repo`](/guides/common-flags) | text |  | Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares |
 | [`--dry-run`](/guides/common-flags) | boolean | `false` | Print what would change without writing |
 | [`--json`](/guides/common-flags) | boolean | `false` | Print the result as JSON instead of a plain summary line |
 

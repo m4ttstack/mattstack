@@ -1,188 +1,288 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 
 import { parseConfig } from '../config.ts';
-import { resolveBoardSkill, resolveLaunchSkill } from '../manifest-bindings.ts';
+import {
+  packForLaunch,
+  resolveBoardSkill,
+  resolveLaunchSkill,
+} from '../manifest-bindings.ts';
 
 const base = {
   gitlabHost: 'https://gitlab.com',
   projects: ['org/repo'],
   members: [{ username: 'alice' }],
-  // reviewSkill/respondSkill retired (dead -- always shadowed by the
-  // manifest); their config fallback is unconditionally "". Only doctorSkill
-  // still has a real config fallback.
   doctorSkill: 'config:doctor',
 };
 
 const cfg = parseConfig(JSON.stringify(base));
 
-/** A fresh mkdtemp mattstackHome with `repos/<slug>/skills.jsonc` written
-    from `contents`, or no `repos` dir at all when `contents` is omitted. */
-function makeHome(slug: string | null, contents?: string): string {
+/** A fresh mkdtemp mattstackHome with `repos/<slug>/packs/<pack>/skills.jsonc`
+    written from `contents`, or no `repos` dir at all when `slug` is null. */
+function makeHome(
+  slug: string | null,
+  pack: string,
+  contents?: string
+): string {
   const home = mkdtempSync(join(tmpdir(), 'manifest-bindings-home-'));
   if (slug !== null) {
-    const repoDir = join(home, 'repos', slug);
-    mkdirSync(repoDir, { recursive: true });
-    writeFileSync(join(repoDir, 'skills.jsonc'), contents ?? '');
+    const packDir = join(home, 'repos', slug, 'packs', pack);
+    mkdirSync(packDir, { recursive: true });
+    writeFileSync(join(packDir, 'skills.jsonc'), contents ?? '');
   }
   return home;
 }
 
+const widgetsReview = JSON.stringify({
+  bindings: { 'board:review': { review: 'widgets:review' } },
+});
+
 describe('resolveBoardSkill', () => {
-  test('manifest binding present -> manifest value + source manifest', () => {
+  test('tab pack -> that pack file', () => {
+    const home = makeHome('gitlab.com-org-repo', 'widgets', widgetsReview);
+    expect(
+      resolveBoardSkill('review', 'org/repo', cfg, 'widgets', home)
+    ).toEqual({ skill: 'widgets:review', source: 'manifest', pack: 'widgets' });
+  });
+
+  test('no pack -> config fallback, pack null', () => {
+    const home = makeHome('gitlab.com-org-repo', 'widgets', widgetsReview);
+    expect(resolveBoardSkill('review', 'org/repo', cfg, null, home)).toEqual({
+      skill: '',
+      source: 'config',
+      pack: null,
+    });
+  });
+
+  test('a pack with no board:review binding -> config fallback, pack kept', () => {
     const home = makeHome(
       'gitlab.com-org-repo',
-      JSON.stringify({
-        bindings: { 'board:review': { review: 'myteam:review' } },
-      })
+      'widgets',
+      JSON.stringify({ bindings: {} })
     );
-    const result = resolveBoardSkill('review', 'org/repo', cfg, home);
-    expect(result).toEqual({ skill: 'myteam:review', source: 'manifest' });
+    expect(
+      resolveBoardSkill('review', 'org/repo', cfg, 'widgets', home)
+    ).toEqual({ skill: '', source: 'config', pack: 'widgets' });
   });
 
-  test('no repos dir -> config fallback ("" for review -- reviewSkill retired)', () => {
-    const home = makeHome(null);
-    const result = resolveBoardSkill('review', 'org/repo', cfg, home);
-    expect(result).toEqual({ skill: '', source: 'config' });
+  test('a pack other than the one on disk -> config fallback', () => {
+    const home = makeHome('gitlab.com-org-repo', 'widgets', widgetsReview);
+    expect(
+      resolveBoardSkill('review', 'org/repo', cfg, 'gadgets', home)
+    ).toEqual({ skill: '', source: 'config', pack: 'gadgets' });
   });
 
-  test('manifest without board keys -> config fallback ("" for respond -- respondSkill retired)', () => {
-    const home = makeHome(
-      'gitlab.com-org-repo',
-      JSON.stringify({
-        bindings: { 'mattstack:work': { tiering: 'mattstack:model-tiering' } },
-      })
+  test('the old repos/<slug>/skills.jsonc is never read', () => {
+    const home = mkdtempSync(join(tmpdir(), 'mb-'));
+    mkdirSync(join(home, 'repos', 'gitlab.com-org-repo'), { recursive: true });
+    writeFileSync(
+      join(home, 'repos', 'gitlab.com-org-repo', 'skills.jsonc'),
+      JSON.stringify({ bindings: { 'board:review': { review: 'old:review' } } })
     );
-    const result = resolveBoardSkill('respond', 'org/repo', cfg, home);
-    expect(result).toEqual({ skill: '', source: 'config' });
+    expect(
+      resolveBoardSkill('review', 'org/repo', cfg, 'widgets', home).skill
+    ).toBe('');
   });
 
-  test('malformed manifest -> config fallback (no throw)', () => {
-    const home = makeHome('gitlab.com-org-repo', '{ not valid json');
-    expect(() =>
-      resolveBoardSkill('doctor', 'org/repo', cfg, home)
-    ).not.toThrow();
-    const result = resolveBoardSkill('doctor', 'org/repo', cfg, home);
-    expect(result).toEqual({ skill: 'config:doctor', source: 'config' });
+  test('no repos dir -> doctor config fallback', () => {
+    const home = makeHome(null, 'widgets');
+    expect(
+      resolveBoardSkill('doctor', 'org/repo', cfg, 'widgets', home)
+    ).toEqual({ skill: 'config:doctor', source: 'config', pack: 'widgets' });
   });
 
-  test('slug derivation: gitlabHost + project path locate repos/<host>-<project>/skills.jsonc', () => {
-    const home = makeHome(
-      'gitlab.example.com-acme-widgets',
-      JSON.stringify({
-        bindings: { 'board:review': { review: 'acme:review' } },
-      })
-    );
-    const exampleCfg = parseConfig(
-      JSON.stringify({ ...base, gitlabHost: 'https://gitlab.example.com' })
-    );
-    const result = resolveBoardSkill(
-      'review',
-      'acme/widgets',
-      exampleCfg,
-      home
-    );
-    expect(result).toEqual({ skill: 'acme:review', source: 'manifest' });
+  test('malformed pack file -> config fallback (no throw)', () => {
+    const home = makeHome('gitlab.com-org-repo', 'widgets', '{ not valid json');
+    expect(
+      resolveBoardSkill('doctor', 'org/repo', cfg, 'widgets', home)
+    ).toEqual({ skill: 'config:doctor', source: 'config', pack: 'widgets' });
   });
 
-  test('comment-bearing manifest parses', () => {
-    const home = makeHome(
-      'gitlab.com-org-repo',
-      [
-        '// GENERATED by merge-manifests.sh -- do not hand-edit',
-        '{',
-        '  "bindings": {',
-        '    "board:doctor": { "doctor": "myteam:doctor" }',
-        '  }',
-        '}',
-        '',
-      ].join('\n')
-    );
-    const result = resolveBoardSkill('doctor', 'org/repo', cfg, home);
-    expect(result).toEqual({ skill: 'myteam:doctor', source: 'manifest' });
-  });
-
-  test('absent key in an otherwise valid manifest -> config fallback', () => {
-    const home = makeHome(
-      'gitlab.com-org-repo',
-      JSON.stringify({
-        bindings: { 'board:review': { review: 'myteam:review' } },
-      })
-    );
-    const result = resolveBoardSkill('doctor', 'org/repo', cfg, home);
-    expect(result).toEqual({ skill: 'config:doctor', source: 'config' });
+  test('absent key in an otherwise valid pack file -> config fallback', () => {
+    const home = makeHome('gitlab.com-org-repo', 'widgets', widgetsReview);
+    expect(
+      resolveBoardSkill('doctor', 'org/repo', cfg, 'widgets', home)
+    ).toEqual({ skill: 'config:doctor', source: 'config', pack: 'widgets' });
   });
 
   test('empty skill string in binding -> config fallback', () => {
     const home = makeHome(
       'gitlab.com-org-repo',
+      'widgets',
       JSON.stringify({ bindings: { 'board:review': { review: '' } } })
     );
-    const result = resolveBoardSkill('review', 'org/repo', cfg, home);
-    expect(result).toEqual({ skill: '', source: 'config' });
+    expect(
+      resolveBoardSkill('review', 'org/repo', cfg, 'widgets', home).source
+    ).toBe('config');
   });
 
-  test('trailing-slash host resolves the same manifest as the plain host', () => {
+  test('a provenance header parses', () => {
     const home = makeHome(
       'gitlab.com-org-repo',
-      JSON.stringify({
-        bindings: { 'board:review': { review: 'myteam:review' } },
-      })
+      'widgets',
+      [
+        '// GENERATED by rt skills materialize -- do not hand-edit for keeps;',
+        '// repo: gitlab.com/org/repo',
+        '// pack: widgets',
+        '// provenance (binding <- layer):',
+        '//   board:doctor <- pack',
+        '{',
+        '  "bindings": {',
+        '    "board:doctor": { "doctor": "widgets:doctor" }',
+        '  }',
+        '}',
+        '',
+      ].join('\n')
     );
-    const trailingSlashCfg = parseConfig(
-      JSON.stringify({ ...base, gitlabHost: 'https://gitlab.com/' })
-    );
-    const result = resolveBoardSkill(
-      'review',
-      'org/repo',
-      trailingSlashCfg,
-      home
-    );
-    expect(result).toEqual({ skill: 'myteam:review', source: 'manifest' });
+    expect(
+      resolveBoardSkill('doctor', 'org/repo', cfg, 'widgets', home)
+    ).toEqual({ skill: 'widgets:doctor', source: 'manifest', pack: 'widgets' });
   });
 
-  test('credentialed host resolves the same manifest as the plain host', () => {
+  test('slug derivation: host + project path locate repos/<host>-<project>/packs/<pack>', () => {
     const home = makeHome(
-      'gitlab.com-org-repo',
+      'gitlab.example.com-acme-widgets',
+      'widgets',
+      widgetsReview
+    );
+    const exampleCfg = parseConfig(
+      JSON.stringify({ ...base, gitlabHost: 'https://gitlab.example.com' })
+    );
+    expect(
+      resolveBoardSkill('review', 'acme/widgets', exampleCfg, 'widgets', home)
+        .skill
+    ).toBe('widgets:review');
+  });
+
+  test('trailing-slash and credentialed hosts resolve the same pack file', () => {
+    const home = makeHome('gitlab.com-org-repo', 'widgets', widgetsReview);
+    for (const gitlabHost of [
+      'https://gitlab.com/',
+      'https://user:pass@gitlab.com',
+    ]) {
+      const hostCfg = parseConfig(JSON.stringify({ ...base, gitlabHost }));
+      expect(
+        resolveBoardSkill('review', 'org/repo', hostCfg, 'widgets', home).skill
+      ).toBe('widgets:review');
+    }
+  });
+});
+
+describe('packForLaunch', () => {
+  test('tab pack, then defaultPack, then null', () => {
+    const withTabs = parseConfig(
       JSON.stringify({
-        bindings: { 'board:review': { review: 'myteam:review' } },
+        ...base,
+        defaultPack: 'gadgets',
+        tabs: [
+          { id: 'w', label: 'W', source: { kind: 'authors' }, pack: 'widgets' },
+          { id: 'g', label: 'G', source: { kind: 'authors' } },
+        ],
       })
     );
-    const credentialedCfg = parseConfig(
-      JSON.stringify({ ...base, gitlabHost: 'https://user:pass@gitlab.com' })
-    );
-    const result = resolveBoardSkill(
-      'review',
-      'org/repo',
-      credentialedCfg,
-      home
-    );
-    expect(result).toEqual({ skill: 'myteam:review', source: 'manifest' });
+    expect(packForLaunch(withTabs, 'w')).toBe('widgets');
+    expect(packForLaunch(withTabs, 'g')).toBe('gadgets');
+    expect(packForLaunch(withTabs, undefined)).toBe('gadgets');
+    expect(
+      packForLaunch(parseConfig(JSON.stringify(base)), undefined)
+    ).toBeNull();
+  });
+
+  test('a pack that could leave packs/ counts as no pack', () => {
+    for (const pack of ['../x', 'a/b', 'a\\b', '..']) {
+      const cfg = parseConfig(
+        JSON.stringify({
+          ...base,
+          defaultPack: 'gadgets',
+          tabs: [{ id: 'w', label: 'W', source: { kind: 'authors' }, pack }],
+        })
+      );
+      expect(packForLaunch(cfg, 'w')).toBeNull();
+    }
+    expect(
+      packForLaunch(
+        parseConfig(JSON.stringify({ ...base, defaultPack: '../x' })),
+        undefined
+      )
+    ).toBeNull();
+  });
+
+  test('a pack outside the pack-name grammar counts as no pack', () => {
+    for (const pack of ['Widgets', 'widgets.v2', '-widgets', 'wid gets']) {
+      const cfg = parseConfig(
+        JSON.stringify({
+          ...base,
+          defaultPack: 'gadgets',
+          tabs: [{ id: 'w', label: 'W', source: { kind: 'authors' }, pack }],
+        })
+      );
+      expect(packForLaunch(cfg, 'w')).toBeNull();
+    }
+    expect(
+      packForLaunch(
+        parseConfig(JSON.stringify({ ...base, defaultPack: 'Gadgets' })),
+        undefined
+      )
+    ).toBeNull();
+    expect(
+      packForLaunch(
+        parseConfig(JSON.stringify({ ...base, defaultPack: 'gadgets-2' })),
+        undefined
+      )
+    ).toBe('gadgets-2');
   });
 });
 
 describe('resolveLaunchSkill', () => {
-  // BOARD-14: nudge-driven re-review launches (bin/triage.ts) derive the
-  // project from the MR's webUrl and resolve through the same manifest
-  // binding as the board's own HTTP launch sites (server.ts).
   const mrUrl = 'https://gitlab.com/org/repo/-/merge_requests/7';
+  let logs: string[];
+  let logSpy: ReturnType<typeof spyOn>;
 
-  test("manifest binding present -> resolves via manifest from the MR's webUrl", () => {
-    const home = makeHome(
-      'gitlab.com-org-repo',
-      JSON.stringify({
-        bindings: { 'board:review': { review: 'myteam:review' } },
-      })
-    );
-    expect(resolveLaunchSkill('review', mrUrl, cfg, home)).toBe(
-      'myteam:review'
-    );
+  beforeEach(() => {
+    logs = [];
+    logSpy = spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.join(' '));
+    });
+  });
+  afterEach(() => {
+    logSpy.mockRestore();
   });
 
-  test('no manifest -> config fallback ("" -- reviewSkill retired)', () => {
-    const home = makeHome(null);
-    expect(resolveLaunchSkill('review', mrUrl, cfg, home)).toBe('');
+  test('a pack binding resolves from the MR webUrl and logs the pack', () => {
+    const home = makeHome('gitlab.com-org-repo', 'widgets', widgetsReview);
+    expect(resolveLaunchSkill('review', mrUrl, cfg, 'widgets', home)).toBe(
+      'widgets:review'
+    );
+    expect(logs).toEqual([
+      'review skill: widgets:review (manifest, pack widgets)',
+    ]);
+  });
+
+  test('no pack -> generic skill, and the log says so', () => {
+    const home = makeHome('gitlab.com-org-repo', 'widgets', widgetsReview);
+    expect(resolveLaunchSkill('review', mrUrl, cfg, null, home)).toBe('');
+    expect(logs).toEqual(['review skill:  (config, no pack)']);
+  });
+
+  test('a pack with no board:review binding -> generic skill, never a throw', () => {
+    const home = makeHome(
+      'gitlab.com-org-repo',
+      'widgets',
+      JSON.stringify({ bindings: {} })
+    );
+    expect(resolveLaunchSkill('review', mrUrl, cfg, 'widgets', home)).toBe('');
+    expect(logs).toEqual(['review skill:  (config, pack widgets)']);
+  });
+
+  test('an unparseable MR url -> config fallback with the pack kept', () => {
+    const home = makeHome('gitlab.com-org-repo', 'widgets', widgetsReview);
+    expect(
+      resolveLaunchSkill('doctor', 'not a url', cfg, 'widgets', home)
+    ).toBe('config:doctor');
+    expect(logs).toEqual([
+      'doctor skill: config:doctor (config, pack widgets)',
+    ]);
   });
 });

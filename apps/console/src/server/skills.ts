@@ -26,6 +26,8 @@ interface SkillsCompositionSlot {
   registered: boolean | null;
   inlined: boolean | null;
   resolveError?: string;
+  /** Which layer of the pack's bindings file set this slot: "default", "base:<pack>", "pack" or "override". Optional because an rt older than the field answers without it. */
+  layer?: string | null;
 }
 interface SkillsCompositionVerb {
   name: string;

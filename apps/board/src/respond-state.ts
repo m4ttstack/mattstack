@@ -67,6 +67,10 @@ export interface RespondState {
       any later write (a relaunch, the pane's own status CLI) outranks it and
       the lane speaks again. Never clears a thing: the run stays readable. */
   dismissedAt?: number;
+  /** True when the launch resolved no pack and ran mattstack's generic
+      skill. Every launch and resume that resolves a skill rewrites it, so
+      choosing a pack clears it; only a promptless reopen leaves it as it was. */
+  noPack?: boolean;
   startedAt: number;
   updatedAt: number;
   /** Whether the fill has written its adjudication (verdict table + drafted
@@ -129,6 +133,7 @@ export function writeRespondState(
     resumedGateId: patch.resumedGateId,
     reopenedAt: patch.reopenedAt,
     dismissedAt: patch.dismissedAt,
+    noPack: patch.noPack,
     startedAt: now,
     updatedAt: now,
   };

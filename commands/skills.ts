@@ -5,7 +5,7 @@
  *
  *   rt skills compile [--team <name>] [--verb <name> ...] [--manifest <path>] [--dry-run]
  *   rt skills check [--team <name>] [--verb <name> ...] [--manifest <path>]
- *   rt skills materialize [--repo <name>] [--json]
+ *   rt skills materialize [--repo <name> | --dir <path>] [--json]
  *
  * --pack-dir names the pack directory to act on directly, bypassing registry
  * discovery -- the way to target a worktree's sources from outside its tree
@@ -34,10 +34,13 @@ import { mattstackHome } from "../lib/rt-paths.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
-import { materializeSkills } from "../lib/setup/skills-materialize.ts";
+import { materializeSkills, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
+import { readZonesFrom, type InitFs } from "../lib/skills/init.ts";
+import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
+import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { discoverPacks, findEnclosingPack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
@@ -98,6 +101,7 @@ type Flags = {
   team: string | null;
   verbs: string[] | null;
   manifest: string | null;
+  repo: string | null;
   dryRun: boolean;
   preview: boolean;
   packDir: string | null;
@@ -110,6 +114,7 @@ function parseFlags(args: string[]): Flags {
   const verbs: string[] = [];
   let team: string | null = null;
   let manifest: string | null = null;
+  let repo: string | null = null;
   let dryRun = false;
   let preview = false;
   let packDir: string | null = null;
@@ -124,6 +129,7 @@ function parseFlags(args: string[]): Flags {
       case "--team": team = args[++i] ?? team; break;
       case "--verb": { const v = args[++i]; if (v) verbs.push(v); break; }
       case "--manifest": manifest = args[++i] ?? null; break;
+      case "--repo": repo = requireFlagValue("--repo", args[++i]); break;
       case "--dry-run": dryRun = true; break;
       case "--preview": preview = true; break;
       case "--pack-dir": packDir = requireFlagValue("--pack-dir", args[++i]); break;
@@ -135,7 +141,7 @@ function parseFlags(args: string[]): Flags {
     }
   }
 
-  return { team, verbs: verbs.length ? verbs : null, manifest, dryRun, preview, packDir, mattstackDir, json, strict };
+  return { team, verbs: verbs.length ? verbs : null, manifest, repo, dryRun, preview, packDir, mattstackDir, json, strict };
 }
 
 function packRootDir(mattstackRoot: string, team: string): string {
@@ -252,6 +258,14 @@ function listSubdirs(dir: string): string[] {
     .sort();
 }
 
+const realInitFs: InitFs = {
+  exists: existsSync,
+  readFile: (p) => (existsSync(p) ? readFileSync(p, "utf8") : null),
+  readDir: (p) => (existsSync(p) ? readdirSync(p) : []),
+  writeFile: (p, text) => writeFileSync(p, text),
+  mkdirp: (p) => mkdirSync(p, { recursive: true }),
+};
+
 type SkillEntry = { name: string; group: string | null; dir: string };
 
 /**
@@ -366,55 +380,64 @@ function isUnder(parent: string, child: string): boolean {
   return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolutePath(rel);
 }
 
+function repoSlugArg(repo: string): string {
+  const slash = repo.indexOf("/");
+  return slash === -1 ? repo : repoSlug(repo.slice(0, slash), repo.slice(slash + 1));
+}
+
 /**
- * A team-zone pack is compiled against its repo's merged manifest, never its
- * own pack/skills.jsonc: that file is one fragment merge-manifests.sh folds in
- * with the other packs' and the user's overrides, so compiling from it alone
- * would commit an artifact that check flags as drift on every registered
- * machine. A standalone pack (the mattstack plugin) has no repo and no merge;
- * its pack/skills.jsonc IS its manifest.
+ * A team pack is compiled against its own per-pack file for one repo: the
+ * only one, `--repo`, or the first project its zone declares. A standalone
+ * pack (the mattstack plugin) has no repo; its pack/skills.jsonc IS its
+ * manifest.
  */
-function findDefaultManifest(mattstackRoot: string, team: string, packDir: string): string {
+function findDefaultManifest(mattstackRoot: string, team: string, packDir: string, repo: string | null): string {
   const reposRoot = join(mattstackRoot, "repos");
-  const candidates: { path: string; mtimeMs: number }[] = [];
+  const candidates = listSubdirs(reposRoot)
+    .map((slug) => ({ slug, path: packManifestPath(mattstackRoot, slug, team) }))
+    .filter((c) => existsSync(c.path));
 
-  for (const repoName of listSubdirs(reposRoot)) {
-    const manifestPath = join(reposRoot, repoName, "skills.jsonc");
-    if (!existsSync(manifestPath)) continue;
-    const header = leadingCommentBlock(readFileSync(manifestPath, "utf8"));
-    // Each provenance line reads `<engine-plugin>:<engine> <slot> <- <pack>@<marketplace>`.
-    // Only the source half names the pack; the key half names the engine's plugin,
-    // which is "mattstack" in every team's manifest.
-    if (!header.includes(`<- ${team}@`)) continue;
-    candidates.push({ path: manifestPath, mtimeMs: statSync(manifestPath).mtimeMs });
-  }
-
-  if (candidates.length === 0) {
-    const ownManifest = join(packDir, "pack", "skills.jsonc");
-    // Team packs sit at <repo>/mattstack/packs/<team>; that path shape
-    // survives worktrees, unlike the teams-zone location -- and a team
-    // pack's pack/skills.jsonc is a merge fragment, never its manifest.
-    const parts = resolvePath(packDir).split(sep);
-    const teamShaped = parts.at(-2) === "packs" && parts.at(-3) === "mattstack";
-    const standalone = !isUnder(join(mattstackRoot, "teams"), packDir) && !teamShaped;
-    if (standalone && existsSync(ownManifest)) return ownManifest;
+  if (repo) {
+    const wanted = repoSlugArg(repo);
+    const hit = candidates.find((c) => c.slug === wanted);
+    if (hit) return hit.path;
     throw new SkillsUsageError(
-      `no skills.jsonc under ${reposRoot}/*/ names team "${team}" in its provenance header (<- ${team}@...)` +
-        (standalone ? ` and ${ownManifest} is absent` : "") +
-        `; pass --manifest explicitly`,
+      `no ${team} bindings file for repo "${repo}" under ${reposRoot} (have: ${candidates.map((c) => c.slug).join(", ") || "none"}); run rt skills materialize`,
+    );
+  }
+  if (candidates.length === 1) return candidates[0]!.path;
+
+  if (candidates.length > 1) {
+    const zones = readZonesFrom(realInitFs, join(mattstackRoot, "teams"))
+      .filter((z) => existsSync(join(z.dir, "mattstack", "packs", team)));
+    for (const { host, projects } of zones) {
+      if (!host) continue;
+      for (const project of projects) {
+        const hit = candidates.find((c) => c.slug === repoSlug(host, project));
+        if (hit) return hit.path;
+      }
+    }
+    const hostless = zones.length > 0 && zones.every((z) => !z.host);
+    throw new SkillsUsageError(
+      `pack "${team}" binds ${candidates.length} repos (${candidates.map((c) => c.slug).join(", ")})` +
+        (hostless ? `; its team zone declares no forge host, so its projects cannot pick one` : "") +
+        `; pass --repo <slug or host/path>`,
     );
   }
 
-  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
-  const newest = candidates[0]!;
-  const tied = candidates.filter((c) => c.mtimeMs === newest.mtimeMs);
-  if (tied.length > 1) {
-    throw new SkillsUsageError(
-      `ambiguous manifest for team "${team}" -- candidates tie for newest:\n${tied.map((c) => c.path).join("\n")}\npass --manifest explicitly`,
-    );
-  }
-
-  return newest.path;
+  const ownManifest = join(packDir, "pack", "skills.jsonc");
+  // Team packs sit at <repo>/mattstack/packs/<team>; that path shape
+  // survives worktrees, unlike the teams-zone location, and a team pack's
+  // pack/skills.jsonc is a merge fragment, never its manifest.
+  const parts = resolvePath(packDir).split(sep);
+  const teamShaped = parts.at(-2) === "packs" && parts.at(-3) === "mattstack";
+  const standalone = !isUnder(join(mattstackRoot, "teams"), packDir) && !teamShaped;
+  if (standalone && existsSync(ownManifest)) return ownManifest;
+  throw new SkillsUsageError(
+    `no repos/*/packs/${team}/skills.jsonc under ${reposRoot}` +
+      (standalone ? ` and ${ownManifest} is absent` : "") +
+      `; run rt skills materialize, or pass --manifest explicitly`,
+  );
 }
 
 type Resolved = {
@@ -431,6 +454,7 @@ type Resolved = {
   surface: SurfaceConfig | null;
   internalRoster: Set<string>;
   manifestPath: string | null;
+  provenance: Record<string, string>;
   pipelines: Record<string, string[]>;
   stages: VerbDef[];
   stageEntries: Record<string, StageEntry[]>;
@@ -480,8 +504,9 @@ async function resolve(flags: Flags): Promise<Resolved> {
 
   const fullRoster = readVerbRoster(packDir);
   // A pack with no verb roster needs no manifest: bindings only feed compile targets.
-  const manifestPath = fullRoster.length === 0 ? null : (flags.manifest ?? findDefaultManifest(mattstackRoot, team, packDir));
+  const manifestPath = fullRoster.length === 0 ? null : (flags.manifest ?? findDefaultManifest(mattstackRoot, team, packDir, flags.repo));
   const bindings = manifestPath ? readManifestBindings(manifestPath) : {};
+  const provenance = manifestPath ? readManifestProvenance(readFileSync(manifestPath, "utf8")) : {};
   // No compile targets means nothing needs plugin roots or the invocable roster;
   // skipping the `claude plugin list` subprocess keeps rosterless packs usable
   // even where the Claude CLI is absent.
@@ -507,9 +532,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
   } catch (err) {
     throw new SkillsUsageError((err as Error).message);
   }
-  // The manifest's parent directory name is the registry repo key `run-start
-  // --repo` expects -- the same key `~/.mattstack/runs/<repo>/` is named by.
-  const repoKey = manifestPath ? basename(dirname(manifestPath)) : "";
+  const repoKey = manifestPath ? manifestRepoKey(manifestPath) : "";
   const { sha: mattstackSha, dirty: mattstackDirty } = mattstackProvenance(pipelines, pluginRoots.byName.mattstack);
   const packSha = computePackSha(pipelines, self, packDir);
   let stageEntries: Record<string, StageEntry[]>;
@@ -520,7 +543,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
   }
 
   return {
-    packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath,
+    packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath, provenance,
     pipelines, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha,
   };
 }
@@ -901,7 +924,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
       // non-JSON path's exits. `written` stays honest on an empty target set.
       if (failures.length > 0 || misplaced.length > 0) process.exitCode = 1;
       const written = writing && outcomes.length > 0;
-      console.log(JSON.stringify({ pack: resolved.team, packDir: resolved.packDir, written, verbs: rows, misplaced }));
+      console.log(JSON.stringify({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced }));
       return;
     }
 
@@ -922,11 +945,12 @@ export async function skillsCompile(args: string[]): Promise<void> {
  * verbs -- each named in `errors` -- with no partial write on failure,
  * exactly as the handler behaves today.
  */
-export async function compilePackAll(opts: { pack?: string; packDir?: string; manifest?: string; mattstackDir?: string; verbs?: string[] | null; write?: boolean }): Promise<{ ok: boolean; errors: string[] }> {
+export async function compilePackAll(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string; verbs?: string[] | null; write?: boolean }): Promise<{ ok: boolean; errors: string[] }> {
   const args: string[] = [];
   if (opts.pack) args.push("--pack", opts.pack);
   if (opts.packDir) args.push("--pack-dir", opts.packDir);
   if (opts.manifest) args.push("--manifest", opts.manifest);
+  if (opts.repo) args.push("--repo", opts.repo);
   if (opts.mattstackDir) args.push("--mattstack-dir", opts.mattstackDir);
   const resolved = await resolve(parseFlags(args));
   const chainErrors = pipelineChainErrors(resolved);
@@ -1077,11 +1101,12 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint };
 }
 
-export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; mattstackDir?: string }): Promise<CheckPayload> {
+export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
   const args: string[] = [];
   if (opts.pack) args.push("--pack", opts.pack);
   if (opts.packDir) args.push("--pack-dir", opts.packDir);
   if (opts.manifest) args.push("--manifest", opts.manifest);
+  if (opts.repo) args.push("--repo", opts.repo);
   if (opts.mattstackDir) args.push("--mattstack-dir", opts.mattstackDir);
   return computeCheck(parseFlags(args));
 }
@@ -1172,6 +1197,7 @@ type CompositionSlot = {
   contract: string;
   required: boolean;
   boundTo: string | null;
+  layer: string | null;
   // Fill fields (registered/inlined/fillVersion/fillSourcePath) are the
   // PLUGIN's version, not the fill's own -- AttachmentSource.version is
   // assigned pluginRoot.version, so every fill from one plugin reports an
@@ -1275,7 +1301,13 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
     const boundTo = slotBindings[slotName] ?? null;
     // required is optional on SlotSpec; default it explicitly so JSON carries
     // "not required" rather than silently dropping the key.
-    const base = { name: slotName, contract: spec.contract, required: spec.required ?? false, boundTo };
+    const base = {
+      name: slotName,
+      contract: spec.contract,
+      required: spec.required ?? false,
+      boundTo,
+      layer: boundTo ? resolved.provenance[`${engineRef} ${slotName}`] ?? null : null,
+    };
 
     if (!boundTo) {
       return { ...base, fillSourcePath: null, fillVersion: null, registered: null, inlined: null };
@@ -1446,32 +1478,49 @@ export async function skillsComposition(args: string[]): Promise<void> {
         const status = slot.resolveError
           ? `ERROR -- ${slot.resolveError}`
           : slot.boundTo ?? "(unbound)";
-        console.log(`    ${slot.name}: ${status}`);
+        console.log(`    ${slot.name}: ${status}${slot.layer ? ` [${slot.layer}]` : ""}`);
       }
     }
     console.log(`  ${payload.fills.length} fills, ${payload.binders.length} binders`);
   });
 }
 
+/**
+ * A registered-repo sweep treats a skip (mattstack plugin not installed yet)
+ * as the normal fresh-machine outcome and exits 0. A single --dir checkout
+ * keeps merge-manifests.sh's contract, which its wrapper relays: 0 written,
+ * 2 nothing declared for it, 1 failed or nothing could be written.
+ */
+function materializeExitCode(result: MaterializeSkillsResult, single: boolean): number {
+  if (result.skipped) return single ? 1 : 0;
+  if (single && result.repos[0]?.noManifest) return 2;
+  return result.repos.some((r) => !r.ok && !r.noManifest) ? 1 : 0;
+}
+
 export async function skillsMaterialize(args: string[]): Promise<void> {
   const json = args.includes("--json");
-  const repo = skillsFlagValue(args, "--repo");
+  const flag = (name: string) => (args.includes(name) ? requireFlagValue(name, skillsFlagValue(args, name)) : undefined);
+  let repo: string | undefined;
+  let dir: string | undefined;
+  await withCleanErrors(async () => {
+    repo = flag("--repo");
+    dir = flag("--dir");
+  });
 
   try {
-    const result = await materializeSkills(createRealProbes(), { repo });
+    const result = await materializeSkills(createRealProbes(), { repo, dir });
     if (json) {
       console.log(JSON.stringify(envelope(result)));
-      return;
-    }
-    // A top-level skip (merge-manifests.sh not installed yet) is the normal
-    // fresh-machine outcome, not a failure -- exit 0, never exit 2.
-    if (result.skipped) {
+    } else if (result.skipped) {
       console.log(`skipped: ${result.reason}`);
-      return;
+    } else {
+      for (const r of result.repos) {
+        console.log(`${r.ok ? "materialized" : r.noManifest ? "no skills declared for" : "failed"} ${r.name}: ${r.detail}`);
+        if (r.migrated) console.log(`  renamed the old merged file to ${r.migrated}`);
+      }
     }
-    for (const r of result.repos) {
-      console.log(`${r.ok ? "materialized" : r.noManifest ? "no skills declared for" : "failed"} ${r.name}: ${r.detail}`);
-    }
+    const code = materializeExitCode(result, dir !== undefined);
+    if (code !== 0) process.exitCode = code;
   } catch (err) {
     if (err instanceof UserActionableError) exitUserError(err, json, "skills materialize", console.log);
     throw err;
@@ -1486,6 +1535,7 @@ type SurfaceFlags = {
   packDir: string | null;
   mattstackDir: string | null;
   manifest: string | null;
+  repo: string | null;
   json: boolean;
 };
 
@@ -1501,6 +1551,7 @@ function parseSurfaceFlags(args: string[]): { flags: SurfaceFlags; rest: string[
   let packDir: string | null = null;
   let mattstackDir: string | null = null;
   let manifest: string | null = null;
+  let repo: string | null = null;
   let json = false;
   const rest: string[] = [];
 
@@ -1513,12 +1564,13 @@ function parseSurfaceFlags(args: string[]): { flags: SurfaceFlags; rest: string[
       case "--pack-dir": packDir = requireFlagValue("--pack-dir", args[++i]); break;
       case "--mattstack-dir": mattstackDir = args[++i] ?? null; break;
       case "--manifest": manifest = args[++i] ?? null; break;
+      case "--repo": repo = requireFlagValue("--repo", args[++i]); break;
       case "--json": json = true; break;
       default: rest.push(a);
     }
   }
 
-  return { flags: { team, dryRun, packDir, mattstackDir, manifest, json }, rest };
+  return { flags: { team, dryRun, packDir, mattstackDir, manifest, repo, json }, rest };
 }
 
 /** Pins the pack on the flags so the compile delegation and the printed header name the same pack the user picked. */
@@ -1576,7 +1628,7 @@ function stageNamesFor(flags: SurfaceFlags, packDir: string): Set<string> {
     manifest = flags.manifest;
   } else {
     try {
-      manifest = findDefaultManifest(mattstackRoot, team, packDir);
+      manifest = findDefaultManifest(mattstackRoot, team, packDir, flags.repo);
     } catch (err) {
       if (err instanceof SkillsUsageError) return new Set();
       throw err;
@@ -1633,6 +1685,7 @@ function compileArgs(flags: SurfaceFlags, packDir: string): string[] {
   const args = ["--pack", flags.team ?? packNameFor(packDir), "--pack-dir", packDir];
   if (flags.mattstackDir) args.push("--mattstack-dir", flags.mattstackDir);
   if (flags.manifest) args.push("--manifest", flags.manifest);
+  if (flags.repo) args.push("--repo", flags.repo);
   if (flags.dryRun) args.push("--dry-run");
   return args;
 }
@@ -1781,6 +1834,7 @@ async function runApply(flags: SurfaceFlags): Promise<ApplyResult> {
       pack: flags.team ?? undefined,
       packDir,
       manifest: flags.manifest ?? undefined,
+      repo: flags.repo ?? undefined,
       mattstackDir: flags.mattstackDir ?? undefined,
       write: !flags.dryRun,
     });
@@ -2033,6 +2087,7 @@ export async function skillsSurface(args: string[]): Promise<void> {
 type BindFlags = {
   team: string | null;
   manifest: string | null;
+  repo: string | null;
   dryRun: boolean;
   packDir: string | null;
   mattstackDir: string | null;
@@ -2042,6 +2097,7 @@ type BindFlags = {
 function parseBindFlags(args: string[]): BindFlags {
   let team: string | null = null;
   let manifest: string | null = null;
+  let repo: string | null = null;
   let dryRun = false;
   let packDir: string | null = null;
   let mattstackDir: string | null = null;
@@ -2053,6 +2109,7 @@ function parseBindFlags(args: string[]): BindFlags {
       case "--pack":
       case "--team": team = args[++i] ?? team; break;
       case "--manifest": manifest = args[++i] ?? null; break;
+      case "--repo": repo = requireFlagValue("--repo", args[++i]); break;
       case "--dry-run": dryRun = true; break;
       case "--pack-dir": packDir = requireFlagValue("--pack-dir", args[++i]); break;
       case "--mattstack-dir": mattstackDir = args[++i] ?? null; break;
@@ -2062,7 +2119,7 @@ function parseBindFlags(args: string[]): BindFlags {
     }
   }
 
-  return { team, manifest, dryRun, packDir, mattstackDir, json };
+  return { team, manifest, repo, dryRun, packDir, mattstackDir, json };
 }
 
 type PickedBind = { verbName: string; slotName: string; fill: string; flagArgs: string[] };
@@ -2074,9 +2131,9 @@ type PickedBind = { verbName: string; slotName: string; fill: string; flagArgs: 
  * skillsBind falls through to its existing error -- the non-TTY / --json paths
  * never call this and stay byte-for-byte unchanged.
  */
-/** Split `skills bind` args into positionals and flag args (bind's flags: --dry-run/--json boolean, plus the value-taking --pack/--team/--manifest/--pack-dir/--mattstack-dir). Keeps the &lt;verb&gt; &lt;slot&gt; &lt;fill&gt; count right even when flags are interleaved. */
+/** Split `skills bind` args into positionals and flag args (bind's flags: --dry-run/--json boolean, plus the value-taking --pack/--team/--manifest/--repo/--pack-dir/--mattstack-dir). Keeps the &lt;verb&gt; &lt;slot&gt; &lt;fill&gt; count right even when flags are interleaved. */
 function separateBindArgs(args: string[]): { positionals: string[]; flagArgs: string[] } {
-  const valued = new Set(["--pack", "--team", "--manifest", "--pack-dir", "--mattstack-dir"]);
+  const valued = new Set(["--pack", "--team", "--manifest", "--repo", "--pack-dir", "--mattstack-dir"]);
   const positionals: string[] = [];
   const flagArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -2102,6 +2159,7 @@ async function pickBindArgs(args: string[]): Promise<PickedBind | null> {
     team: bindFlags.team,
     verbs: null,
     manifest: bindFlags.manifest,
+    repo: bindFlags.repo,
     dryRun: bindFlags.dryRun,
     preview: false,
     packDir: bindFlags.packDir,
@@ -2170,6 +2228,93 @@ async function pickBindArgs(args: string[]): Promise<PickedBind | null> {
   return { verbName, slotName, fill, flagArgs };
 }
 
+export type RegenerateOutcome = { ok: true } | { ok: false; detail: string };
+
+/** `regenerated` is absent when no regenerate was attempted (fixture mode, or a single manifest write). */
+export type BindOutcome = {
+  fragmentUpdated: string | null;
+  shadowedBy: string | null;
+  regenerated?: boolean;
+  regenerateDetail?: string;
+};
+
+/**
+ * A team pack's pack/skills.jsonc is the fragment materialize layers into the
+ * per-pack manifest, so a manifest-only write is undone by the next materialize
+ * and never reaches a teammate. A standalone pack's fragment IS its manifest.
+ * Every edit is computed before any write lands, so a fragment read or edit
+ * failure leaves the manifest untouched.
+ */
+export async function applyBind(opts: {
+  manifestPath: string;
+  packDir: string;
+  engineRef: string;
+  slotName: string;
+  fill: string;
+  fixtureMode: boolean;
+  materialize: () => Promise<RegenerateOutcome>;
+}): Promise<BindOutcome> {
+  const edit = (text: string) =>
+    applyEdits(text, modify(text, ["bindings", opts.engineRef, opts.slotName], opts.fill, {
+      formattingOptions: { insertSpaces: true, tabSize: 2 },
+    }));
+  const writeManifestOnly = (): { fragmentUpdated: null; shadowedBy: null } => {
+    writeFileSync(opts.manifestPath, edit(readFileSync(opts.manifestPath, "utf8")));
+    return { fragmentUpdated: null, shadowedBy: null };
+  };
+
+  const fragmentPath = join(opts.packDir, "pack", "skills.jsonc");
+  if (!existsSync(fragmentPath)) return writeManifestOnly();
+  const fragmentReal = realpathSync(fragmentPath);
+  const packDirReal = realpathSync(opts.packDir);
+  if (fragmentReal !== packDirReal && !fragmentReal.startsWith(packDirReal + sep)) {
+    console.error(`rt skills bind: ${fragmentPath} resolves outside the pack; skipping fragment write`);
+    return writeManifestOnly();
+  }
+  if (fragmentReal === realpathSync(opts.manifestPath)) return writeManifestOnly();
+
+  const fragmentAfter = edit(readFileSync(fragmentPath, "utf8"));
+  if (opts.fixtureMode) {
+    const manifestAfter = edit(readFileSync(opts.manifestPath, "utf8"));
+    writeFileSync(fragmentPath, fragmentAfter);
+    writeFileSync(opts.manifestPath, manifestAfter);
+    return { fragmentUpdated: fragmentPath, shadowedBy: null };
+  }
+  writeFileSync(fragmentPath, fragmentAfter);
+  const regen = await opts.materialize();
+  if (!regen.ok) {
+    return { fragmentUpdated: fragmentPath, shadowedBy: null, regenerated: false, regenerateDetail: regen.detail };
+  }
+
+  if (readManifestBindings(opts.manifestPath)[opts.engineRef]?.[opts.slotName] === opts.fill) {
+    return { fragmentUpdated: fragmentPath, shadowedBy: null, regenerated: true };
+  }
+  const provenance = readManifestProvenance(readFileSync(opts.manifestPath, "utf8"));
+  return { fragmentUpdated: fragmentPath, shadowedBy: provenance[`${opts.engineRef} ${opts.slotName}`] ?? "another layer", regenerated: true };
+}
+
+function samePath(a: string, b: string): boolean {
+  const real = (p: string) => (existsSync(p) ? realpathSync(p) : resolvePath(p));
+  return real(a) === real(b);
+}
+
+/** Judged by this pack file's own PackOutcome: a sibling pack failing in the same repo leaves this file regenerated. */
+export function regenerateOutcomeFor(result: MaterializeSkillsResult, manifestPath: string): RegenerateOutcome {
+  if (result.skipped) return { ok: false, detail: result.reason };
+  const outcomes = result.repos.flatMap((row) => row.packs ?? []);
+  if (outcomes.some((o) => o.ok && samePath(o.path, manifestPath))) return { ok: true };
+  const pack = manifestPack(manifestPath);
+  const failed = outcomes.find((o) => !o.ok && o.pack === pack);
+  if (failed && !failed.ok) return { ok: false, detail: `${failed.pack}: ${failed.detail}` };
+  const rowErrors = result.repos.filter((row) => !row.ok && !row.noManifest && !row.packs);
+  if (rowErrors.length > 0) return { ok: false, detail: rowErrors.map((row) => `${row.name}: ${row.detail}`).join("; ") };
+  return { ok: false, detail: `no registered repo wrote ${manifestPath}` };
+}
+
+export async function regeneratePackFile(manifestPath: string): Promise<RegenerateOutcome> {
+  return regenerateOutcomeFor(await materializeSkills(createRealProbes(), {}), manifestPath);
+}
+
 export async function skillsBind(args: string[]): Promise<void> {
   await withCleanErrors(async () => {
     // Positionals, not raw args, so an interleaved flag (bind verb --pack x slot
@@ -2195,6 +2340,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       team: bindFlags.team,
       verbs: null,
       manifest: bindFlags.manifest,
+      repo: bindFlags.repo,
       dryRun: bindFlags.dryRun,
       preview: false,
       packDir: bindFlags.packDir,
@@ -2260,36 +2406,31 @@ export async function skillsBind(args: string[]): Promise<void> {
       return;
     }
 
-    // Both edits are computed before either write lands: a fragment read or edit
-    // failure must not leave the manifest changed with the fragment untouched.
-    const text = readFileSync(resolved.manifestPath, "utf8");
-    const manifestEdits = modify(text, ["bindings", engineRef, slotName], fill, {
-      formattingOptions: { insertSpaces: true, tabSize: 2 },
+    const manifestPath = resolved.manifestPath;
+    const { fragmentUpdated, shadowedBy, regenerated, regenerateDetail } = await applyBind({
+      manifestPath,
+      packDir: resolved.packDir,
+      engineRef,
+      slotName,
+      fill,
+      fixtureMode: bindFlags.mattstackDir !== null,
+      materialize: () => regeneratePackFile(manifestPath),
     });
-    const manifestAfter = applyEdits(text, manifestEdits);
-
-    // A team pack's pack/skills.jsonc is the fragment merge-manifests folds into the
-    // per-repo manifest; the manifest write alone is undone by the next materialize and
-    // never reaches a teammate. A standalone pack's fragment IS its manifest (written above).
-    const fragmentPath = join(resolved.packDir, "pack", "skills.jsonc");
-    let fragmentWrite: { path: string; text: string } | null = null;
-    if (existsSync(fragmentPath)) {
-      const fragmentReal = realpathSync(fragmentPath);
-      const packDirReal = realpathSync(resolved.packDir);
-      const inPack = fragmentReal === packDirReal || fragmentReal.startsWith(packDirReal + sep);
-      if (!inPack) {
-        console.error(`rt skills bind: ${fragmentPath} resolves outside the pack; skipping fragment write`);
-      } else if (fragmentReal !== realpathSync(resolved.manifestPath)) {
-        const fragmentText = readFileSync(fragmentPath, "utf8");
-        const fragmentEdits = modify(fragmentText, ["bindings", engineRef, slotName], fill, {
-          formattingOptions: { insertSpaces: true, tabSize: 2 },
-        });
-        fragmentWrite = { path: fragmentPath, text: applyEdits(fragmentText, fragmentEdits) };
+    // A recompile here would read the stale bindings file and bake the old fill in.
+    if (regenerated === false) {
+      process.exitCode = 1;
+      if (bindFlags.json) {
+        console.log(JSON.stringify({ ok: false, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, regenerated, regenerateDetail }));
+        return;
       }
+      console.log(`${summary} (fragment updated: ${fragmentUpdated})`);
+      console.error(`rt skills bind: bindings file not regenerated: ${regenerateDetail}`);
+      console.error(`rt skills bind: the fragment ${fragmentUpdated} is written and the next rt skills materialize picks it up; nothing was recompiled`);
+      return;
     }
-
-    if (fragmentWrite) writeFileSync(fragmentWrite.path, fragmentWrite.text);
-    writeFileSync(resolved.manifestPath, manifestAfter);
+    if (shadowedBy) {
+      console.error(`rt skills bind: ${engineRef}.${slotName} is bound to ${fill} in the fragment, but the ${shadowedBy} layer still wins in ${resolved.manifestPath}`);
+    }
 
     // A stage's bound fills feed every orchestrator's compiled allowed-tools union
     // (stageAllowedToolsFor) -- scoping to `--verb <stage>` would leave every
@@ -2314,19 +2455,23 @@ export async function skillsBind(args: string[]): Promise<void> {
         slot: slotName,
         from: oldValue,
         to: fill,
-        fragmentUpdated: fragmentWrite?.path ?? null,
+        fragmentUpdated,
+        shadowedBy,
+        ...(regenerated === undefined ? {} : { regenerated }),
+        ...(regenerateDetail === undefined ? {} : { regenerateDetail }),
         compileErrors: compileResult.errors,
       }));
       return;
     }
 
-    console.log(fragmentWrite ? `${summary} (fragment updated: ${fragmentWrite.path})` : summary);
+    console.log(fragmentUpdated ? `${summary} (fragment updated: ${fragmentUpdated})` : summary);
     const surfaceFlags: SurfaceFlags = {
       team: resolved.team,
       dryRun: false,
       packDir: resolved.packDir,
       mattstackDir: bindFlags.mattstackDir,
       manifest: resolved.manifestPath,
+      repo: null,
       json: false,
     };
     const recompileArgs = verbFilter ? [...compileArgs(surfaceFlags, resolved.packDir), "--verb", verbName] : compileArgs(surfaceFlags, resolved.packDir);

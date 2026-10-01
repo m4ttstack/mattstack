@@ -336,6 +336,7 @@ and never adds a move the engine's graph marks STOP.
 - Creating directories or `plugin.json` by hand: init writes them.
 - Copying another team's pack: its fills carry that team's rules.
 - A `.mattstack/skills.jsonc` inside the repo: the compiler reads the
-  per-repo manifest under `~/.mattstack/repos/`, not the repo.
+  pack's bindings file at `~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`,
+  not the repo.
 - Writing a fill "to have something there": fills are optional and each one
   is written through `superpowers:writing-skills` when the rule exists.

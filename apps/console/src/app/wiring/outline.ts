@@ -75,6 +75,8 @@ export interface SlotOutlineNode {
    * reference the compiler never emitted.
    */
   inlined: boolean | null;
+  /** Null for a binder-only slot or an rt that predates the field. */
+  layer: string | null;
 }
 
 /**
@@ -422,6 +424,7 @@ export function buildSpine(
       fill: slot.boundTo ? (fillsByBinding.get(slot.boundTo) ?? null) : null,
       siteCount: siteCount(slot.boundTo),
       inlined: slot.inlined,
+      layer: slot.layer ?? null,
     }));
     const declared = new Set(slots.map(s => s.name));
 
@@ -437,6 +440,7 @@ export function buildSpine(
         fill,
         siteCount: siteCount(slot.boundTo),
         inlined: null,
+        layer: null,
       });
     }
     return slots;
@@ -543,6 +547,7 @@ export function buildSpine(
           fill,
           siteCount: siteCount(slot.boundTo),
           inlined: null,
+          layer: null,
         });
       }
       continue;

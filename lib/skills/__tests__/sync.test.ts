@@ -184,6 +184,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       return { drift: next, lintHits: lintHitsAnswers.shift() ?? 0, strict: lintStrictAnswers.shift() ?? false };
     },
     compilePack: async () => ({ ok: world.compileOk ?? true, errors: world.compileErrors ?? [] }),
+    materialize: async () => ({ ok: true, detail: "materialized 1" }),
     configDir: world.configDir ?? tmp("rt-sync-config-"),
     cswapSessionsDir: world.cswapSessionsDir ?? join(tmpdir(), "rt-sync-no-such-cswap-dir"),
     inTreeRoot: null,
@@ -207,7 +208,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "check"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check"]);
     expect(report.ok).toBe(true);
     expect(report.restartNeeded).toBe(false);
     expect(calls.some((c) => c.args.includes("update"))).toBe(false);
@@ -271,7 +272,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "check", "bump", "compile", "recheck"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check", "bump", "compile", "recheck"]);
     const recheck = report.steps.find((s) => s.name === "recheck")!;
     expect(recheck.status).toBe("refused");
     expect(recheck.detail).toContain("mattstack:editing-skills");
@@ -572,6 +573,59 @@ describe("syncPack", () => {
     expect(raw).toContain('  "version": "0.5.10"');
   });
 
+  test("materialize runs between update-engine and check and reports its detail", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const deps = makeDeps(pack, engine, {
+      calls: [],
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      drift: [false],
+    });
+
+    const report = await syncPack(pack, engine, deps);
+
+    const names = stepNames(report.steps);
+    expect(names.indexOf("materialize")).toBe(names.indexOf("update-engine") + 1);
+    expect(names.indexOf("check")).toBe(names.indexOf("materialize") + 1);
+    expect(report.steps.find((s) => s.name === "materialize")).toEqual({ name: "materialize", status: "ran", detail: "materialized 1" });
+  });
+
+  test("materialize is asked about the pack being synced", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const deps = makeDeps(pack, engine, {
+      calls: [],
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      drift: [false],
+    });
+    const asked: string[] = [];
+    deps.materialize = async (name) => {
+      asked.push(name);
+      return { ok: true, detail: "materialized 1" };
+    };
+
+    await syncPack(pack, engine, deps);
+
+    expect(asked).toEqual(["acme"]);
+  });
+
+  test("a failed materialize stops the chain before check", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const deps = makeDeps(pack, engine, {
+      calls: [],
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      drift: [false],
+    });
+    deps.materialize = async () => ({ ok: false, detail: "widgets: widgets extends acme-base@acme, which is not installed" });
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize"]);
+    expect(report.steps.at(-1)).toEqual({ name: "materialize", status: "failed", detail: "widgets: widgets extends acme-base@acme, which is not installed" });
+    expect(report.ok).toBe(false);
+  });
+
   test("14: a throwing checkPack fails the check step without escaping syncPack", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");
@@ -584,7 +638,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "check"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check"]);
     const check = report.steps.find((s) => s.name === "check")!;
     expect(check.status).toBe("failed");
     expect(check.detail).toContain("manifest discovery found nothing");

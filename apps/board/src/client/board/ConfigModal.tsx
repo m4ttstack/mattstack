@@ -927,6 +927,18 @@ function TabsControl({
                   }
                 />
               </label>
+              <label className="tui-tabs-field">
+                <span>pack</span>
+                <TextField
+                  value={tab.pack ?? ''}
+                  placeholder="inherits board.defaultPack"
+                  ariaLabel={`pack for tab ${tab.id}`}
+                  disabled={busy}
+                  onCommit={text =>
+                    patch(tab.id, t => ({ ...t, pack: optional(text) }))
+                  }
+                />
+              </label>
             </div>
           </li>
         ))}

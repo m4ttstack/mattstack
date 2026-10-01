@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chooseZone, parseRemote, readZones, type InitFs, type ZoneInfo, addMarketplacePlugin, declareRepo, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, type InitDeps, type RunResult } from "../init.ts";
+import { chooseZone, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, declareRepo, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, type InitDeps, type RunResult } from "../init.ts";
 import { stripJsonc } from "../sources.ts";
 
 /** mkdirp'd dirs and dirs that already hold a file are writable; anything else throws ENOENT, mirroring a real fs. */
@@ -56,6 +56,12 @@ const zoneFiles = (slug: string, extra: Record<string, string>, namespace = slug
 });
 
 describe("readZones", () => {
+  test("readZonesFrom reads zones under an explicit teams dir", () => {
+    const fs = memFs(zoneFiles("acme", {}));
+    const zones = readZonesFrom(fs, `${HOME}/.mattstack/teams`);
+    expect(zones.map((z) => z.slug)).toEqual(["acme"]);
+    expect(readZones(fs, HOME)).toEqual(zones);
+  });
   test("host from team.jsonc gitlabHost, projects listed, namespace from the marker, no pack", () => {
     const fs = memFs(zoneFiles("acme", {
       [`${HOME}/.mattstack/teams/acme/mattstack/team.jsonc`]: `// shim\n{ "gitlabHost": "https://GitLab.com", "projects": ["acme/api"] }`,
@@ -70,11 +76,18 @@ describe("readZones", () => {
     }));
     expect(readZones(fs, HOME)[0]).toMatchObject({ slug: "beta", namespace: "beta", host: "gitlab.com", projects: [] });
   });
-  test("a zone with a plugin.json under mattstack/packs/* has a pack", () => {
+  test("a zone with a pack/skills.jsonc under mattstack/packs/* has a pack", () => {
+    const fs = memFs(zoneFiles("acme", {
+      [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/.claude-plugin/plugin.json`]: `{ "name": "acme", "version": "0.5.0" }`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/pack/skills.jsonc`]: `{}`,
+    }));
+    expect(readZones(fs, HOME)[0]!.hasPack).toBe(true);
+  });
+  test("a plugin.json alone under mattstack/packs/* is not a pack", () => {
     const fs = memFs(zoneFiles("acme", {
       [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/.claude-plugin/plugin.json`]: `{ "name": "acme", "version": "0.5.0" }`,
     }));
-    expect(readZones(fs, HOME)[0]!.hasPack).toBe(true);
+    expect(readZones(fs, HOME)[0]!.hasPack).toBe(false);
   });
   test("a user-role zone is skipped", () => {
     const fs = memFs({
@@ -240,8 +253,8 @@ function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; 
     registerRepo: async (dir) => { calls.registered.push(dir); return "gitlab.com/acme/api"; },
     materialize: async (name) => {
       calls.materialized.push(name);
-      fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.com-acme-api`);
-      fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/skills.jsonc`, "// mattstack:work tiering <- acme@acme\n{}");
+      fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme`);
+      fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc`, "// mattstack:work tiering <- acme@acme\n{}");
       return { ok: true, detail: "merged" };
     },
     compile: async (dir) => { calls.compiled.push(dir); return { ok: true, errors: [] }; },
@@ -268,18 +281,24 @@ describe("initPack", () => {
     expect(calls.checked).toEqual([packDir]);
     expect(calls.claude).toContainEqual(["plugin", "marketplace", "add", `${HOME}/.mattstack/teams/acme`]);
     expect(calls.claude).toContainEqual(["plugin", "install", "acme@acme-market"]);
-    expect(out.repo).toEqual({ slug: "gitlab.com-acme-api", manifest: `${HOME}/.mattstack/repos/gitlab.com-acme-api/skills.jsonc` });
+    expect(out.repo).toEqual({ slug: "gitlab.com-acme-api", manifest: `${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc` });
     expect(out.tryNext).toBe("/acme:work <ticket>");
     expect(out.restartNeeded).toBe(true);
   });
 
   test("the pack takes the zone namespace when it differs from the slug", async () => {
-    const { deps } = world({
+    const { deps, fs } = world({
       files: { [`${HOME}/.mattstack/teams/acme/mattstack/mattstack.jsonc`]: `{ "role": "team", "namespace": "acmens", "org": "x" }` },
     });
+    deps.materialize = async () => {
+      fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acmens`);
+      fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acmens/skills.jsonc`, "{}");
+      return { ok: true, detail: "merged" };
+    };
     const out = await initPack({ repoDir: REPO, zone: null }, deps);
     expect(out.ok).toBe(true);
     if (out.ok) expect(out.pack.name).toBe("acmens");
+    if (out.ok) expect(out.repo.manifest).toBe(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acmens/skills.jsonc`);
   });
 
   test("marketplace.json absent from disk: init mkdirps .claude-plugin before writing it", async () => {
@@ -299,8 +318,8 @@ describe("initPack", () => {
       claude: async (args) => (args[1] === "marketplace" && args[2] === "list" ? ok("[]") : ok("")),
       registerRepo: async () => "gitlab.com/acme/api",
       materialize: async () => {
-        fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.com-acme-api`);
-        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/skills.jsonc`, "{}");
+        fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme`);
+        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc`, "{}");
         return { ok: true, detail: "merged" };
       },
       compile: async () => ({ ok: true, errors: [] }),
@@ -365,6 +384,7 @@ describe("initPack", () => {
       files: {
         [`${HOME}/.mattstack/teams/acme/mattstack/team.jsonc`]: `{ "gitlabHost": "https://gitlab.com", "projects": ["acme/other"] }\n`,
         [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/.claude-plugin/plugin.json`]: `{ "name": "acme", "version": "0.3.0" }`,
+        [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/pack/skills.jsonc`]: `{}`,
       },
     });
     const out = await initPack({ repoDir: REPO, zone: null }, deps);
@@ -377,6 +397,7 @@ describe("initPack", () => {
       files: {
         [`${HOME}/.mattstack/teams/acme/mattstack/team.jsonc`]: `{ "gitlabHost": "https://gitlab.com", "projects": ["acme/other"] }\n`,
         [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/.claude-plugin/plugin.json`]: `{ "name": "acme", "version": "0.3.0" }`,
+        [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/pack/skills.jsonc`]: `{}`,
       },
     });
     const out = await initPack({ repoDir: REPO, zone: "acme" }, deps);
@@ -440,8 +461,8 @@ describe("initPack", () => {
         return { slug: "beta", dir };
       },
       materialize: async () => {
-        fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.example.com-acme-api`);
-        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.example.com-acme-api/skills.jsonc`, "// beta@beta\n{}");
+        fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.example.com-acme-api/packs/beta`);
+        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.example.com-acme-api/packs/beta/skills.jsonc`, "// beta@beta\n{}");
         return { ok: true, detail: "merged" };
       },
     });
@@ -495,7 +516,7 @@ describe("initPack", () => {
   test("materialize that leaves no manifest is materialize-failed", async () => {
     const { deps } = world({ materialize: async () => ({ ok: false, detail: "no team declares" }) });
     const out = await initPack({ repoDir: REPO, zone: null }, deps);
-    expect(out).toMatchObject({ ok: false, refused: false, code: "materialize-failed" });
+    expect(out).toMatchObject({ ok: false, refused: false, code: "materialize-failed", remedy: `then: rt skills materialize --dir ${REPO}` });
   });
 
   test("a throw from registerRepo after writing is materialize-failed, keeping wrote", async () => {

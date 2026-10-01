@@ -481,7 +481,7 @@ export const REGISTRY: readonly SettingDef[] = [
     type: "array",
     scopes: ["team"],
     merge: "replace",
-    description: "Board tabs ({id, label, source, slackChannel?, reviewSkill?}), editable from the board's settings modal. source.kind 'authors' is the classic roster board; 'codeowners' lists any author's open MRs carrying a CODE_OWNER rule for the section, until merge/close. Absent = one implicit authors tab (fallback lives in the board reader, never here).",
+    description: "Board tabs ({id, label, source, slackChannel?, reviewSkill?, pack?}), editable from the board's settings modal; pack picks which team pack's bindings a launch from that tab uses. source.kind 'authors' is the classic roster board; 'codeowners' lists any author's open MRs carrying a CODE_OWNER rule for the section, until merge/close. Absent = one implicit authors tab (fallback lives in the board reader, never here).",
   },
 
   // --- board (user) ----------------------------------------------------------
@@ -512,6 +512,13 @@ export const REGISTRY: readonly SettingDef[] = [
     scopes: ["user"],
     merge: "replace",
     description: "Which board member identity this developer's local board runs as by default.",
+  },
+  {
+    key: "board.defaultPack",
+    type: "string",
+    scopes: ["user"],
+    merge: "replace",
+    description: "The team pack this developer's board launches review, respond and doctor with when a tab names none; setup seeds it with the first pack of the team you joined.",
   },
   {
     key: "board.hiddenMembers",

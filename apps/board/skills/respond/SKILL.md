@@ -6,19 +6,20 @@ description: >-
   board's status CLI, then delegates the actual work to the skill named by --skill.
   Invoked as "/board:respond <mrUrl> --state <path> --status-bin
   <path> [--report <path>] [--skill <name>]". When no --skill is given, the domain skill is
-  resolved from the respond slot binding in .mattstack/skills.jsonc. Not for
+  resolved from the respond slot binding in the pack's bindings file
+  (repos/<slug>/packs/<pack>/skills.jsonc, chosen by MATTSTACK_PACK). Not for
   manual use.
 disable-model-invocation: true
 allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUDE_SKILL_DIR}/scripts/open-gate.sh:*)
 metadata:
   slots: "respond"
   slot-respond: "required mr-respond@2 -- owns processing review feedback on one MR: fetching threads, adjudicating, drafting, implementing decided fixes, and executing posting once handed the decisions. Never presents decision gates or decides what posts. When gate 2 offers nothing, posts the reply-only threads on {plan}."
-  compiled: "mattstack:gate-protocol@0.28.4"
+  compiled: "mattstack:gate-protocol@0.30.0"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=18-536 -->
+<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=19-537 -->
 # mr-board respond runner
 
 The mr-board spawned this pane to process the review feedback on ONE of your own
@@ -537,7 +538,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.28.4 path=attachments/gate-protocol/SKILL.md lines=7-452 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.0 path=attachments/gate-protocol/SKILL.md lines=7-452 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act

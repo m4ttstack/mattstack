@@ -1,214 +1,212 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, relative } from "node:path";
+import { execFileSync } from "node:child_process";
 import { updateRepoIndex } from "../../repo-index.ts";
 import { setSetting } from "../../settings/write.ts";
-import { fakeProbes } from "./fakes.ts";
-import { findMergeManifests, materializeSkills, MERGE_MANIFESTS_MISSING_CODE } from "../skills-materialize.ts";
 import { UserActionableError } from "../errors.ts";
+import { createRealProbes } from "../probes.ts";
+import { ENGINE_PACK_MISSING_CODE, findEnginePackDir, materializeSkills } from "../skills-materialize.ts";
+import { fakeProbes } from "./fakes.ts";
 
-const VERSIONS_DIR = "/fake-home/.claude/plugins/cache/mattstack/mattstack";
-const SCRIPT_TAIL = ["attachments", "parameterized-skills", "scripts", "merge-manifests.sh"];
+const CACHE = "/fake-home/.claude/plugins/cache/mattstack/mattstack";
 
-function scriptPath(version: string): string {
-  return join(VERSIONS_DIR, version, ...SCRIPT_TAIL);
-}
-
-describe("findMergeManifests", () => {
-  test("picks the highest semver version dir carrying the script", () => {
-    const p = fakeProbes({
-      home: "/fake-home",
-      dirs: { [VERSIONS_DIR]: ["0.3.1", "0.4.1"] },
-      files: { [scriptPath("0.3.1")]: "#!/bin/sh\n", [scriptPath("0.4.1")]: "#!/bin/sh\n" },
-    });
-
-    expect(findMergeManifests(p)).toBe(scriptPath("0.4.1"));
+describe("findEnginePackDir", () => {
+  test("RT_ENGINE_PACK_DIR wins when it exists", () => {
+    const p = fakeProbes({ home: "/fake-home", env: { RT_ENGINE_PACK_DIR: "/src/plugins/mattstack" }, dirs: { "/src/plugins/mattstack": [], [CACHE]: ["0.29.0"], [`${CACHE}/0.29.0`]: [] } });
+    expect(findEnginePackDir(p)).toBe("/src/plugins/mattstack");
   });
-
-  test("RT_MERGE_MANIFESTS env override wins outright", () => {
-    const p = fakeProbes({ env: { RT_MERGE_MANIFESTS: "/custom/merge-manifests.sh" } });
-    expect(findMergeManifests(p)).toBe("/custom/merge-manifests.sh");
+  test("a missing RT_ENGINE_PACK_DIR falls through to the installed plugin", () => {
+    const p = fakeProbes({ home: "/fake-home", env: { RT_ENGINE_PACK_DIR: "/gone" }, dirs: { [CACHE]: ["0.29.0"], [`${CACHE}/0.29.0`]: [] } });
+    expect(findEnginePackDir(p)).toBe(`${CACHE}/0.29.0`);
   });
-
-  test("null when no version dir carries the script", () => {
-    const p = fakeProbes({ home: "/fake-home", dirs: { [VERSIONS_DIR]: ["0.1.0"] } });
-    expect(findMergeManifests(p)).toBeNull();
+  test("a missing RT_ENGINE_PACK_DIR with nothing installed is null", () => {
+    expect(findEnginePackDir(fakeProbes({ home: "/fake-home", env: { RT_ENGINE_PACK_DIR: "/gone" } }))).toBeNull();
   });
-
-  test("null when the cache dir doesn't exist at all", () => {
-    const p = fakeProbes({ home: "/fake-home" });
-    expect(findMergeManifests(p)).toBeNull();
+  test("else the highest installed mattstack version", () => {
+    const p = fakeProbes({ home: "/fake-home", dirs: { [CACHE]: ["0.28.0", "0.29.0"], [`${CACHE}/0.28.0`]: [], [`${CACHE}/0.29.0`]: [] } });
+    expect(findEnginePackDir(p)).toBe(`${CACHE}/0.29.0`);
+  });
+  test("null when nothing is installed", () => {
+    expect(findEnginePackDir(fakeProbes({ home: "/fake-home" }))).toBeNull();
   });
 });
 
 describe("materializeSkills", () => {
-  // getKnownRepos() (unlike the Probes fake above) reads real repos.json off
-  // process.env.HOME — a per-test HOME keeps this from writing into the
-  // ambient test-setup.ts one that other test files share assumptions about.
   const origHome = process.env.HOME;
   let home: string;
-  let repoDir: string;
-  let repoName: string;
 
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-materialize-home-")));
     process.env.HOME = home;
   });
-
   afterEach(() => {
     process.env.HOME = origHome;
     rmSync(home, { recursive: true, force: true });
   });
 
-  function seedRepo(): void {
-    repoDir = mkdtempSync(join(home, "repo-"));
-    repoName = basename(repoDir);
-    updateRepoIndex(repoName, repoDir);
+  function write(p: string, t: string): void { mkdirSync(join(p, ".."), { recursive: true }); writeFileSync(p, t); }
+
+  function seedRepo(remote: string | null): { dir: string; name: string } {
+    const dir = mkdtempSync(join(home, "repo-"));
+    execFileSync("git", ["init", "-q", dir]);
+    if (remote) execFileSync("git", ["-C", dir, "remote", "add", "origin", remote]);
+    updateRepoIndex(basename(dir), dir);
+    return { dir, name: basename(dir) };
   }
 
-  test("runs `bash <script> --repo <path>` with MATTSTACK_HOME set", async () => {
-    seedRepo();
-    const calls: { argv: string[]; env?: Record<string, string> }[] = [];
-    const p = fakeProbes({
-      home: "/fake-home",
-      env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-      exec: async (argv, opts) => {
-        calls.push({ argv, env: opts?.env });
-        return { code: 0, stdout: "wrote skills.jsonc", stderr: "" };
-      },
-    });
+  function seedZone(): void {
+    const zone = join(home, ".mattstack", "teams", "acme", "mattstack");
+    write(join(zone, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "acme" }));
+    write(join(zone, "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }));
+    write(join(zone, "packs", "widgets", "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:stage-gates": { domain: "widgets:gates" } } }));
+  }
 
-    const result = await materializeSkills(p, { repo: repoName });
+  function engine(): string {
+    const dir = join(home, "engine");
+    write(join(dir, "pack", "skills.jsonc"), "{}");
+    return dir;
+  }
 
-    expect(calls).toEqual([{ argv: ["bash", "/fake-home/merge-manifests.sh", "--repo", repoDir], env: { MATTSTACK_HOME: "/fake-home/.mattstack" } }]);
-    expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: true, detail: "wrote skills.jsonc" }] });
-  });
-
-  test("the exec call is bounded with a timeoutMs — a wedged git must not hang the whole apply run", async () => {
-    seedRepo();
-    let capturedTimeout: number | undefined;
-    const p = fakeProbes({
-      home: "/fake-home",
-      env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-      exec: async (_argv, opts) => {
-        capturedTimeout = opts?.timeoutMs;
-        return { code: 0, stdout: "wrote skills.jsonc", stderr: "" };
-      },
-    });
-
-    await materializeSkills(p, { repo: repoName });
-    expect(capturedTimeout).toBeGreaterThan(0);
-  });
-
-  test("a 124 (timeout) is reported per-repo like any other exit code, never thrown or mistaken for success", async () => {
-    seedRepo();
-    const p = fakeProbes({
-      home: "/fake-home",
-      env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-      exec: async () => ({ code: 124, stdout: "", stderr: "" }),
-    });
-
-    const result = await materializeSkills(p, { repo: repoName });
-    expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: false, detail: "merge-manifests.sh exited 124" }] });
-  });
-
-  test("exit 2 (no git remote) is reported per-repo, not thrown, and marked as no manifest", async () => {
-    seedRepo();
-    const p = fakeProbes({
-      home: "/fake-home",
-      env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-      exec: async () => ({ code: 2, stdout: "", stderr: "merge-manifests: no git remote in /x -- no per-repo manifest" }),
-    });
-
-    const result = await materializeSkills(p, { repo: repoName });
-
-    expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: false, noManifest: true, noRemote: true, detail: "merge-manifests: no git remote in /x -- no per-repo manifest" }] });
-  });
-
-  test("exit 2 in the current script's wording (no team pack declares the repo) is marked as no manifest", async () => {
-    seedRepo();
-    const stderr = "merge-manifests: no team pack declares gitlab.com/acme/tools; nothing to materialize";
-    const p = fakeProbes({
-      home: "/fake-home",
-      env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-      exec: async () => ({ code: 2, stdout: "", stderr }),
-    });
-
-    const result = await materializeSkills(p, { repo: repoName });
-
-    expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: false, noManifest: true, detail: stderr }] });
-  });
-
-  test("skips honestly (never throws) when the script can't be found — the ordinary fresh-machine case", async () => {
-    const p = fakeProbes({ home: "/fake-home" });
-
-    const result = await materializeSkills(p, {});
-
+  test("skips with the engine-pack code when the mattstack plugin is not installed", async () => {
+    const result = await materializeSkills(createRealProbes(), {});
     expect(result.skipped).toBe(true);
-    if (!result.skipped) throw new Error("expected skipped:true");
-    expect(result.reason).toContain(MERGE_MANIFESTS_MISSING_CODE);
-    expect(result.repos).toEqual([]);
+    if (result.skipped) expect(result.reason).toStartWith(`${ENGINE_PACK_MISSING_CODE}:`);
   });
 
-  test("throws UserActionableError('repo-not-registered') for an unknown --repo", async () => {
-    const p = fakeProbes({ home: "/fake-home", env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" } });
-
-    try {
-      await materializeSkills(p, { repo: "no-such-repo-xyz" });
-      throw new Error("should have thrown");
-    } catch (err) {
-      expect((err as UserActionableError).code).toBe("repo-not-registered");
-    }
-  });
-
-  test("targets only registered repos, not scanned (unregistered) candidates", async () => {
-    seedRepo(); // registered
-
-    const scannedDir = mkdtempSync(join(home, "scanned-"));
-    mkdirSync(join(scannedDir, ".git")); // a real .git marker, never indexed via updateRepoIndex
-    setSetting("rt.repoRoots", [home], "machine"); // makes `home` a configured root scanRoot() walks
-
-    const p = fakeProbes({
-      home: "/fake-home",
-      env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-      exec: async () => ({ code: 0, stdout: "ok", stderr: "" }),
-    });
-
+  test("writes the pack file for a registered repo a zone declares", async () => {
+    const { name } = seedRepo("https://gitlab.example.com/acme/widgets.git");
+    seedZone();
+    const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
     const result = await materializeSkills(p, {});
-
     expect(result.skipped).toBe(false);
-    if (result.skipped) throw new Error("expected skipped:false");
-    expect(result.repos.map((r) => r.name)).toEqual([repoName]);
+    if (result.skipped) return;
+    const row = result.repos.find((r) => r.name === name)!;
+    expect(row.ok).toBe(true);
+    expect(row.packs?.[0]).toMatchObject({ pack: "widgets", ok: true, path: join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc") });
+    expect(row.detail).toBe("wrote 1 pack file: widgets");
   });
 
-  test("idempotent: two calls against the same present script produce the same outcome", async () => {
-    seedRepo();
-    const p = fakeProbes({
-      home: "/fake-home",
-      env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-      exec: async () => ({ code: 0, stdout: "wrote skills.jsonc", stderr: "" }),
-    });
-
-    const first = await materializeSkills(p, { repo: repoName });
-    const second = await materializeSkills(p, { repo: repoName });
-
-    expect(second).toEqual(first);
+  test("a repo with no remote is noManifest, not a failure", async () => {
+    seedRepo(null);
+    const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
+    const result = await materializeSkills(p, {});
+    if (result.skipped) throw new Error("skipped");
+    expect(result.repos[0]).toMatchObject({ ok: false, noManifest: true, noRemote: true });
   });
 
-  test("re-callable: a skipped call followed by a call after the plugin appears succeeds (plugins.install's re-call contract)", async () => {
-    seedRepo();
-    const beforePlugin = fakeProbes({ home: "/fake-home" });
-    const first = await materializeSkills(beforePlugin, { repo: repoName });
-    expect(first.skipped).toBe(true);
+  test("a repo no zone declares is noManifest with the repo named", async () => {
+    seedRepo("https://gitlab.example.com/acme/other.git");
+    seedZone();
+    const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
+    const result = await materializeSkills(p, {});
+    if (result.skipped) throw new Error("skipped");
+    expect(result.repos[0]).toMatchObject({ ok: false, noManifest: true, detail: "no team declares gitlab.example.com/acme/other" });
+  });
 
-    const afterPlugin = fakeProbes({
-      home: "/fake-home",
-      env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-      exec: async () => ({ code: 0, stdout: "wrote skills.jsonc", stderr: "" }),
-    });
-    const second = await materializeSkills(afterPlugin, { repo: repoName });
+  test("a declaring zone that holds no pack is noManifest, not a success", async () => {
+    seedRepo("https://gitlab.example.com/acme/widgets.git");
+    seedZone();
+    rmSync(join(home, ".mattstack", "teams", "acme", "mattstack", "packs"), { recursive: true });
+    const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
+    const result = await materializeSkills(p, {});
+    if (result.skipped) throw new Error("skipped");
+    expect(result.repos[0]).toMatchObject({ ok: false, noManifest: true, detail: "no team declares a pack for gitlab.example.com/acme/widgets" });
+  });
 
-    expect(second).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: true, detail: "wrote skills.jsonc" }] });
+  test("a failed pack marks the repo not ok and names the pack and fix", async () => {
+    seedRepo("https://gitlab.example.com/acme/widgets.git");
+    seedZone();
+    write(join(home, ".mattstack", "teams", "acme", "mattstack", "packs", "widgets", "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base@acme" }));
+    const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
+    const result = await materializeSkills(p, {});
+    if (result.skipped) throw new Error("skipped");
+    expect(result.repos[0]!.ok).toBe(false);
+    expect(result.repos[0]!.detail).toBe("widgets: widgets extends acme-base@acme, which is not installed; add it to the team's claude.plugins");
+  });
+
+  test("--repo naming no registered repo throws repo-not-registered", async () => {
+    const eng = engine();
+    const p = fakeProbes({ home, env: { RT_ENGINE_PACK_DIR: eng }, dirs: { [eng]: [] } });
+    const err = await materializeSkills(p, { repo: "no-such-widgets" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect((err as UserActionableError).code).toBe("repo-not-registered");
+  });
+
+  test("--repo naming two registered repos throws repo-ambiguous listing both", async () => {
+    const first = join(home, "a", "widgets");
+    const second = join(home, "b", "widgets");
+    mkdirSync(first, { recursive: true });
+    mkdirSync(second, { recursive: true });
+    updateRepoIndex("remote:gitlab.example.com%2Facme%2Fwidgets", first);
+    updateRepoIndex("remote:gitlab.example.com%2Facme%2Fgadgets%2Fwidgets", second);
+    const eng = engine();
+    const p = fakeProbes({ home, env: { RT_ENGINE_PACK_DIR: eng }, dirs: { [eng]: [] } });
+    const err = await materializeSkills(p, { repo: "widgets" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect((err as UserActionableError).code).toBe("repo-ambiguous");
+    expect((err as Error).message).toContain("remote:gitlab.example.com%2Facme%2Fwidgets");
+    expect((err as Error).message).toContain("remote:gitlab.example.com%2Facme%2Fgadgets%2Fwidgets");
+    expect(p.calls.exec).toEqual([]);
+  });
+
+  test("targets only registered repos, never checkouts a repo-root scan discovered", async () => {
+    const { name } = seedRepo("https://gitlab.example.com/acme/widgets.git");
+    const scanned = mkdtempSync(join(home, "scanned-"));
+    execFileSync("git", ["init", "-q", scanned]);
+    setSetting("rt.repoRoots", [home], "machine");
+    seedZone();
+    const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
+    const result = await materializeSkills(p, {});
+    if (result.skipped) throw new Error("skipped");
+    expect(result.repos.map((r) => r.name)).toEqual([name]);
+  });
+
+  test("--repo and --dir together are refused", async () => {
+    const p = fakeProbes({ home, env: { RT_ENGINE_PACK_DIR: engine() } });
+    const err = await materializeSkills(p, { repo: "widgets", dir: home }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect((err as UserActionableError).code).toBe("flags-conflict");
+    expect((err as Error).message).toBe("pass --repo or --dir, not both");
+  });
+
+  test("a relative --dir resolves to an absolute row path and name", async () => {
+    const dir = mkdtempSync(join(home, "loose-"));
+    execFileSync("git", ["init", "-q", dir]);
+    execFileSync("git", ["-C", dir, "remote", "add", "origin", "https://gitlab.example.com/acme/widgets.git"]);
+    seedZone();
+    const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
+    const result = await materializeSkills(p, { dir: relative(process.cwd(), dir) });
+    if (result.skipped) throw new Error("skipped");
+    expect(result.repos[0]).toMatchObject({ name: basename(dir), path: dir, ok: true });
+  });
+
+  test("a write that throws fails only its own repo; the others still run", async () => {
+    const declared = seedRepo("https://gitlab.example.com/acme/widgets.git");
+    const other = seedRepo("https://gitlab.example.com/acme/other.git");
+    seedZone();
+    const real = createRealProbes();
+    const p = {
+      ...real,
+      env: { ...process.env, RT_ENGINE_PACK_DIR: engine() },
+      writeFile: () => { throw new Error("EACCES: permission denied"); },
+    };
+    const result = await materializeSkills(p, {});
+    if (result.skipped) throw new Error("skipped");
+    expect(result.repos.find((r) => r.name === declared.name)).toMatchObject({ ok: false, detail: "EACCES: permission denied" });
+    expect(result.repos.find((r) => r.name === other.name)).toMatchObject({ ok: false, noManifest: true });
+  });
+
+  test("--dir materializes an unregistered checkout by path", async () => {
+    const dir = mkdtempSync(join(home, "loose-"));
+    execFileSync("git", ["init", "-q", dir]);
+    execFileSync("git", ["-C", dir, "remote", "add", "origin", "https://gitlab.example.com/acme/widgets.git"]);
+    seedZone();
+    const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
+    const result = await materializeSkills(p, { dir });
+    if (result.skipped) throw new Error("skipped");
+    expect(result.repos).toHaveLength(1);
+    expect(result.repos[0]!.ok).toBe(true);
   });
 });
