@@ -215,6 +215,33 @@ New in console's server:
   `SkillDetailPanel` and its tab shell. Dropped: the "same wiring as stage N"
   badge, which the template view makes redundant.
 
+## Build rules
+
+- **Kit first** (`docs/apps/ui-authoring.md`): every control is the Mantine
+  component as it ships (rung 1), then a CSS module through `classNames` for
+  layout only (rung 2), else a kit question to Matt (rung 3). Colour only
+  through `color`/`variant` and role tokens. Nothing is hand-drawn that a kit
+  or Mantine component already does: the drawer is `Drawer`, the toggle is
+  `SegmentedControl`, the tabs are `Tabs`, the picker is `Select`, the
+  banner is `Alert`, buttons are `Button`, chips are `Badge`, the code view
+  is the kit's lazy code highlighter where it fits.
+- **Page frame**: the Graph tab renders in `PageShell`; the focus list is
+  `PageShell.Sidebar` (its `NavLink` rows); the canvas is
+  `PageShell.Content`, which takes its own surface (`bg`, so
+  `data-own-surface` opts it out of the theme's line grid) and paints the
+  dotted paper with React Flow's `<Background variant="dots" />` in role
+  tokens. The line grid stays everywhere else.
+- **Dialogs**: every write confirms through the kit: `modals.confirm` for
+  Apply rebind, the public/internal switch, Sync changes and Discard
+  (`destructive: true` for Discard); results report through the kit's
+  `notifications` shorthands. No bespoke dialogs.
+- **Visual parity gate**: every milestone that changes UI ends with the page
+  rendered in Fast Browser and screenshotted in both schemes beside its
+  board. Any difference from the board (spacing, type, colour role, layout,
+  copy) is a failure fixed in that milestone. Where a kit piece and the board
+  disagree on kit chrome, the kit wins and the difference goes on the board
+  fix list for Matt, per `ui-authoring.md`.
+
 ## Coverage of today's view
 
 | Today | New home |
