@@ -370,6 +370,15 @@ describe('moveTargets', () => {
       })
     ).toEqual(['team', 'machine']);
   });
+  it('offers only the layers the key allows', () => {
+    expect(
+      moveTargets({
+        ...base,
+        scopes: ['user', 'machine'],
+        effective: { scope: 'machine', file: '/m', value: 'x' },
+      })
+    ).toEqual(['user']);
+  });
   it('offers nothing for a rejected value, a repo rung, or nothing stored', () => {
     const at = (effective: SettingDefWire['effective']) =>
       moveTargets({ ...base, scopes: [...base.scopes], effective });
