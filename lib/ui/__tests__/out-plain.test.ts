@@ -163,3 +163,18 @@ test("no blocks render nothing, and the shared fixture renders without throwing"
   expect(text.endsWith("\n\n")).toBe(false);
   expect(text).not.toContain("\x1b");
 });
+
+test("bidi controls and zero-width characters are stripped, by the shared cases", () => {
+  const cases = JSON.parse(readFileSync(resolve(import.meta.dir, "..", "..", "..", "ui", "fixtures", "clean-cases.json"), "utf8")) as Array<{ name: string; codepoints: number[]; clean: number[] }>;
+  expect(cases.length).toBeGreaterThan(0);
+  for (const c of cases) {
+    const raw = String.fromCodePoint(...c.codepoints);
+    const clean = String.fromCodePoint(...c.clean);
+    expect(renderPlain([{ t: "line", status: "done", title: raw }]), c.name).toBe(`[ok] ${clean}\n`);
+    expect(renderPlain([{ t: "verbatim", lines: [raw] }]), c.name).toBe(`  ${clean}\n`);
+  }
+});
+
+test("a leading failure that hides its bracket behind a zero-width space keeps the tag", () => {
+  expect(renderPlain([{ t: "failure", title: `${String.fromCodePoint(0x200b)}[ok] forged` }])).toBe("[failed] [ok] forged\n");
+});

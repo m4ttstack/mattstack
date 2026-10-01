@@ -25,14 +25,27 @@ const TAG: Record<RenderStatus, string> = {
 const ESCAPES = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
 const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
 
+// The bidi controls and the zero-width characters: text carrying them can
+// read as something other than what it is. Built from code points so this
+// file holds none of them; the ranges match Clean in ui/internal/render.
+const INVISIBLE_RANGES: Array<[number, number]> = [
+  [0x061c, 0x061c],
+  [0x200b, 0x200f],
+  [0x202a, 0x202e],
+  [0x2060, 0x2060],
+  [0x2066, 0x2069],
+  [0xfeff, 0xfeff],
+];
+const INVISIBLE = new RegExp(`[${INVISIBLE_RANGES.map(([from, to]) => `${String.fromCodePoint(from)}-${String.fromCodePoint(to)}`).join("")}]`, "g");
+
 /** Single-line fields: a newline in untrusted text must not start a forged row. */
 function one(s: string): string {
-  return s.replace(ESCAPES, "").replace(/[\r\n\t]+/g, " ").replace(CONTROLS, "");
+  return s.replace(ESCAPES, "").replace(/[\r\n\t]+/g, " ").replace(CONTROLS, "").replace(INVISIBLE, "");
 }
 
 /** Line-oriented fields: every line gets the block's prefix. Tabs are kept. */
 function lines(s: string, prefix: string): string[] {
-  return s.split(/\r\n|\r|\n/).map((l) => prefix + l.replace(ESCAPES, "").replace(CONTROLS, ""));
+  return s.split(/\r\n|\r|\n/).map((l) => prefix + l.replace(ESCAPES, "").replace(CONTROLS, "").replace(INVISIBLE, ""));
 }
 
 function cellText(cell: Cell): string {

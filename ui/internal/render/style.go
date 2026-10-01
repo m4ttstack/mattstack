@@ -72,11 +72,23 @@ func Clean(s string) string {
 		switch {
 		case r == '\t' || r == '\n' || r == '\r':
 			return ' '
-		case r < 0x20 || (r >= 0x7f && r <= 0x9f):
+		case r < 0x20 || (r >= 0x7f && r <= 0x9f) || invisible(r):
 			return -1
 		}
 		return r
 	}, ansi.Strip(s))
+}
+
+// invisible reports the bidi controls and the zero-width characters: text
+// carrying them can read as something other than what it is.
+func invisible(r rune) bool {
+	switch {
+	case r == 0x061C, r == 0x200E, r == 0x200F, r == 0x2060, r == 0xFEFF:
+		return true
+	case r >= 0x200B && r <= 0x200D, r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069:
+		return true
+	}
+	return false
 }
 
 var lineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n")

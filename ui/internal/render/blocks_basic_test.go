@@ -1,6 +1,9 @@
 package render_test
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -392,6 +395,37 @@ func TestAVeryNarrowPaneLosesNoText(t *testing.T) {
 		// and the terminal wraps them.
 		if w >= 24 {
 			checkWidth(t, got, w)
+		}
+	}
+}
+
+func runes(codepoints []int) string {
+	var b strings.Builder
+	for _, c := range codepoints {
+		b.WriteRune(rune(c))
+	}
+	return b.String()
+}
+
+func TestCleanStripsBidiControlsAndZeroWidthCharacters(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "fixtures", "clean-cases.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Name       string `json:"name"`
+		Codepoints []int  `json:"codepoints"`
+		Clean      []int  `json:"clean"`
+	}
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) == 0 {
+		t.Fatal("no cases")
+	}
+	for _, c := range cases {
+		if got := render.Clean(runes(c.Codepoints)); got != runes(c.Clean) {
+			t.Errorf("%s: got %q want %q", c.Name, got, runes(c.Clean))
 		}
 	}
 }

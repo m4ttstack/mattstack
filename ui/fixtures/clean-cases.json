@@ -1,0 +1,10 @@
+[
+  { "name": "plain text is untouched", "codepoints": [109, 97, 105, 110], "clean": [109, 97, 105, 110] },
+  { "name": "a right-to-left override inside a branch name", "codepoints": [109, 97, 105, 110, 8238, 116, 120, 116], "clean": [109, 97, 105, 110, 116, 120, 116] },
+  { "name": "the embedding and override controls, 202A to 202E", "codepoints": [97, 8234, 8235, 8236, 8237, 8238, 98], "clean": [97, 98] },
+  { "name": "the isolate controls, 2066 to 2069", "codepoints": [97, 8294, 8295, 8296, 8297, 98], "clean": [97, 98] },
+  { "name": "the marks 200E, 200F and 061C", "codepoints": [97, 8206, 8207, 1564, 98], "clean": [97, 98] },
+  { "name": "zero-width space, non-joiner and joiner", "codepoints": [97, 8203, 8204, 8205, 98], "clean": [97, 98] },
+  { "name": "word joiner and the byte order mark", "codepoints": [97, 8288, 65279, 98], "clean": [97, 98] },
+  { "name": "the characters next to each range stay", "codepoints": [8202, 8208, 8239, 8304], "clean": [8202, 8208, 8239, 8304] }
+]
