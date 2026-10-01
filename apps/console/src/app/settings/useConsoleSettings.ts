@@ -35,6 +35,7 @@ type Write = Promise<string | null>;
 export interface ConsoleStore {
   defs: SettingDefWire[];
   unregistered: Unregistered[];
+  team: string | null;
   loading: boolean;
   error: string | null;
   refresh: () => void;
@@ -62,6 +63,13 @@ export const SettingsRepoContext = createContext<string | null>(null);
 
 export function useSettingsRepo(): string | null {
   return useContext(SettingsRepoContext);
+}
+
+/** The machine's one team, as the defs response names it, or null. */
+export const SettingsTeamContext = createContext<string | null>(null);
+
+export function useSettingsTeam(): string | null {
+  return useContext(SettingsTeamContext);
 }
 
 async function getJson<T>(url: string): Promise<T> {
@@ -108,6 +116,7 @@ export function useConsoleSettings(
 ): ConsoleStore {
   const [defs, setDefs] = useState<SettingDefWire[]>([]);
   const [unregistered, setUnregistered] = useState<Unregistered[]>([]);
+  const [team, setTeam] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
@@ -122,14 +131,17 @@ export function useConsoleSettings(
     let alive = true;
     if (!quiet.current) setLoading(true);
     quiet.current = false;
-    getJson<{ defs: SettingDefWire[]; unregistered?: Unregistered[] }>(
-      `${BASE}/defs${query({ prefix, repo })}`
-    )
+    getJson<{
+      defs: SettingDefWire[];
+      unregistered?: Unregistered[];
+      team?: string | null;
+    }>(`${BASE}/defs${query({ prefix, repo })}`)
       .then(body => {
         if (!alive) return;
         setDefs(body.defs.map(withDescription));
         loadedFor.current = repo;
         setUnregistered(body.unregistered ?? []);
+        setTeam(typeof body.team === 'string' ? body.team : null);
         setError(null);
       })
       .catch((err: Error) => {
@@ -221,6 +233,7 @@ export function useConsoleSettings(
     () => ({
       defs,
       unregistered,
+      team,
       loading,
       error,
       refresh,
@@ -229,7 +242,7 @@ export function useConsoleSettings(
       move,
       prune,
     }),
-    [defs, unregistered, loading, error, refresh, set, unset, move, prune]
+    [defs, unregistered, team, loading, error, refresh, set, unset, move, prune]
   );
 }
 

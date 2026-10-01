@@ -93,6 +93,23 @@ describe("teamCreate", () => {
     expect(body.error.code).toBe("remote-required");
   });
 
+  test("a second team exits 2 with team-already-set-up in the envelope", async () => {
+    const teams = "/home/x/.mattstack/teams";
+    const deps = baseDeps({
+      probes: fakeProbes({
+        home: "/home/x",
+        dirs: { [teams]: ["globex"] },
+        files: { [join(teams, "globex", "mattstack", "settings.team.jsonc")]: "{}" },
+      }),
+    });
+    const code = await runExpectingProcessExit(() => teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git", "--json"], {}, deps));
+
+    expect(code).toBe(2);
+    const body = JSON.parse(deps.lines[0]!);
+    expect(body.error.code).toBe("team-already-set-up");
+    expect(body.error.message).toBe("this machine is set up for team globex; mattstack supports one team per machine today");
+  });
+
   test("missing name, --json: exits 2 with the usage envelope, not a plain-text line", async () => {
     const deps = baseDeps();
     const code = await runExpectingProcessExit(() => teamCreate(["--remote", "https://github.com/acme/repo.git", "--json"], {}, deps));

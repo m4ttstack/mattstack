@@ -1787,6 +1787,13 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "to connect: Slack" });
       });
 
+      test("a machine with more than one team zone reads as needs-you, so an update run reports it", () => {
+        const detail = "this machine has 2 team zones (acme, globex); mattstack supports one team per machine today. Remove the extra zone, or wait for multi-team support.";
+        const rows = [{ ...rowOf("team.one-per-machine", "tool", "One team per machine", "needs-you"), required: false, detail }];
+        const checks = [{ name: "team.one-per-machine", status: "warn" as const, detail, severity: "warning" as const }];
+        expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "more than one team on this Mac: open Setup status" });
+      });
+
       test("a genuine failure stays failed and still names what is left to connect", () => {
         const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.app", "tool", "mattstack.app", "error"), rowOf("tool.team.doppler", "tool", "doppler", "missing")];
         expect(outcomeFromChecks([fail("account.slack"), fail("tool.app"), fail("tool.team.doppler")], rows)).toEqual({

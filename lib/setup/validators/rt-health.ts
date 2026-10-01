@@ -10,6 +10,7 @@
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { RT_BUNDLE_PATH } from "../../bundle-layout.ts";
+import type { DaemonResponse } from "../../daemon-client.ts";
 import { activeLaunchdLabel, isDaemonInstalled } from "../../daemon-config.ts";
 import type { HomeSnapshotSettings } from "../../daemon/home-snapshot.ts";
 import type { TeamSnapshotEntry, TeamSnapshotSettings } from "../../daemon/team-snapshots.ts";
@@ -27,6 +28,7 @@ import { hasCommits, hasRemote, isGitRepo, originPushState } from "../home-git.t
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { execWithTimeout, type Probes } from "../probes.ts";
 import { discoverTeams } from "../team-settings.ts";
+import { ONE_TEAM_RULE } from "../../team/one-team.ts";
 
 // ─── rt-context extension check (moved from commands/verify.ts) ──────────────
 
@@ -56,7 +58,7 @@ export function checkRtContextExtension(home: string): ExtensionCheckResult {
   for (const editor of editors) {
     if (!existsSync(editor.dir)) continue;
     dirsFound.push(editor.name);
-    let entries: string[] = [];
+    let entries: string[];
     try {
       entries = readdirSync(editor.dir);
     } catch {
@@ -381,7 +383,8 @@ async function flavorRow(p: Probes): Promise<Row> {
   };
   const cli = processFlavor();
   const ping = await p.daemon("ping");
-  const daemonFlavor = ping && ping.ok && (ping as any).flavor ? String((ping as any).flavor) : null;
+  const flavor = ping && ping.ok ? (ping as DaemonResponse & { flavor?: unknown }).flavor : undefined;
+  const daemonFlavor = flavor ? String(flavor) : null;
 
   if (daemonFlavor === null) {
     return row({ ...base, status: "ready", detail: `${cli} CLI · daemon n/a` });
@@ -617,6 +620,33 @@ export async function teamSyncRow(
   return row({ ...base, status: "ready", detail });
 }
 
+/** A machine with more than one team zone: `rt team join` and `rt team create` refuse to make one, so this is a zone that predates the refusal or was cloned by hand. */
+export const ONE_TEAM_ROW_ID = "team.one-per-machine";
+
+export function oneTeamRow(slugs: string[]): Row | null {
+  if (slugs.length < 2) return null;
+  const zones = [...slugs].sort();
+  return row({
+    id: ONE_TEAM_ROW_ID,
+    kind: "tool",
+    title: "One team per machine",
+    why: "Team settings from every zone are folded together, so a second team silently overrides the first in every app.",
+    required: false,
+    status: "needs-you",
+    detail: `this machine has ${zones.length} team zones (${zones.join(", ")}); ${ONE_TEAM_RULE}. Remove the extra zone, or wait for multi-team support.`,
+    action: {
+      type: "steps",
+      label: "Show steps…",
+      steps: [
+        `Pick the one team this machine is for: ${zones.join(", ")}`,
+        "Move every other team's folder out of ~/.mattstack/teams",
+        "Run: rt setup status",
+      ],
+    },
+    recheck: "on-activate",
+  });
+}
+
 // ─── entry point ────────────────────────────────────────────────────────────
 
 function readTeamSnapshotSettings(): TeamSnapshotSettings | undefined {
@@ -632,6 +662,7 @@ export async function rtHealthRows(
   // throw here into one group-error row that replaces every row below, so it
   // stays behind the only condition that needs it.
   const slugs = discoverTeams(p);
+  const oneTeam = oneTeamRow(slugs);
   let teamSync: Row | null = null;
   if (slugs.length > 0) {
     const settings = readSnapshotSettings();
@@ -661,5 +692,6 @@ export async function rtHealthRows(
     await flavorRow(p),
     await homeBackupRow(join(p.home, ".mattstack", "user"), p.exec),
     ...(teamSync ? [teamSync] : []),
+    ...(oneTeam ? [oneTeam] : []),
   ];
 }

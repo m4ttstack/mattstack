@@ -1617,3 +1617,67 @@ describe("joinRedeem's relay failure reports what it actually persisted", () => 
     expect(readIntent(p)).toBeNull();
   });
 });
+
+describe("one team per machine", () => {
+  const TEAMS_DIR = pathJoin(HOME, ".mattstack", "teams");
+  const REFUSAL = "this machine is set up for team globex; mattstack supports one team per machine today";
+
+  function zone(slug: string): { dirs: Record<string, string[]>; files: Record<string, string> } {
+    return {
+      dirs: { [TEAMS_DIR]: [slug] },
+      files: { [pathJoin(TEAMS_DIR, slug, "mattstack", "settings.team.jsonc")]: "{}" },
+    };
+  }
+
+  function probes(overrides: Parameters<typeof fakeProbes>[0]): ReturnType<typeof fakeProbes> {
+    return fakeProbes({ home: HOME, now: NOW, exec: () => ({ code: 0, stdout: "", stderr: "" }), ...overrides });
+  }
+
+  beforeEach(() => resetCltCacheForTests());
+
+  test("a dry run for a second team is refused, and saves no intent", async () => {
+    const p = probes(zone("globex"));
+
+    await expect(joinDryRun(p, fakeRelay().client, CODE)).rejects.toMatchObject({ code: "team-already-set-up", message: REFUSAL });
+
+    expect(readIntent(p)).toBeNull();
+  });
+
+  test("a redeem for a second team is refused before the clone, the intent and the redeem", async () => {
+    const p = probes(zone("globex"));
+    const relay = fakeRelay();
+    const { seams } = baseJoinRedeemSeams();
+
+    await expect(joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams)).rejects.toMatchObject({
+      code: "team-already-set-up",
+      message: REFUSAL,
+    });
+
+    expect(p.calls.exec).toEqual([]);
+    expect(relay.redeemCalls).toEqual([]);
+    expect(readIntent(p)).toBeNull();
+    expect(readTeamLocal(p, POINTER.team).joinedByRt).toBe(false);
+  });
+
+  test("a dry run for the team this machine already has stays allowed", async () => {
+    const p = probes(zone(POINTER.team));
+
+    const result = await joinDryRun(p, fakeRelay().client, CODE);
+
+    expect(result.team.slug).toBe(POINTER.team);
+    expect(result.intent).toBe("written");
+  });
+
+  test("joining the team this machine already has stays allowed", async () => {
+    const own = zone(POINTER.team);
+    const p = probes({
+      dirs: { ...own.dirs, [TEAM_DIR]: [".git", "mattstack"] },
+      files: { ...own.files, [pathJoin(TEAM_DIR, ".git", "config")]: gitConfigWithRemote(REMOTE) },
+    });
+    const { seams } = baseJoinRedeemSeams();
+
+    const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+    expect(result.access).toBe("ok");
+  });
+});
