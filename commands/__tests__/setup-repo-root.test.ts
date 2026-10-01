@@ -234,7 +234,7 @@ describe("setupRepoRootSet human output", () => {
     const deps = baseDeps({ isTTY: () => true, stdin: neverCalled("stdin") });
     await expectExit(() => setupRepoRootSet([], {}, deps));
     expect(deps.exitCodes).toEqual([2]);
-    expect(cap.stderr()).toBe("[failed] Which folder?\n  next: rt setup repo-root set <folder>\n");
+    expect(cap.stderr()).toBe("Which folder?\n  next: rt setup repo-root set <folder>\n");
   });
 
   test("a saved folder prints one done line", async () => {

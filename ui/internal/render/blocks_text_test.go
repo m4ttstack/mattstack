@@ -114,3 +114,33 @@ func TestTextBlocksTolerateEmptyFields(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestLightBackgroundReadsColorfgbg(t *testing.T) {
+	for value, want := range map[string]bool{
+		"": false, "15;0": false, "7;8": false, "12;default": false, "0;99": false,
+		"0;15": true, "0;default;15": true, "0;7": true,
+	} {
+		if got := render.LightBackground(value); got != want {
+			t.Errorf("COLORFGBG=%q: got %v want %v", value, got, want)
+		}
+	}
+}
+
+func TestDiffTintsFollowTheBackground(t *testing.T) {
+	blocks := []protocol.Block{{T: "diff", Hunks: []protocol.DiffHunk{{Header: "@@ -1 +1 @@", Lines: []protocol.DiffLine{{Kind: "del", Text: "old();"}, {Kind: "add", Text: "next();"}}}}}}
+	dark := render.Render(blocks, render.Options{Width: 80})
+	light := render.Render(blocks, render.Options{Width: 80, Light: true})
+	for _, want := range []string{"48;2;59;34;49", "48;2;34;51;57"} {
+		if !strings.Contains(dark, want) {
+			t.Fatalf("dark render lost its tint %s: %q", want, dark)
+		}
+	}
+	for _, want := range []string{"38;2;22;18;36;48;2;255;233;233", "38;2;22;18;36;48;2;229;251;241"} {
+		if !strings.Contains(light, want) {
+			t.Fatalf("light render has no dark ink on a pale tint %s: %q", want, light)
+		}
+	}
+	if strings.Contains(light, coral) {
+		t.Fatalf("light render kept coral text, which washes out on the pale tint: %q", light)
+	}
+}

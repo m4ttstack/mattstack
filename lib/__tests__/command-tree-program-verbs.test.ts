@@ -5,8 +5,10 @@ import { join } from "path";
 import { dispatch, isNodeVisible, showPicker, type CommandNode, type VerbFilter } from "../command-tree.ts";
 import { TREE } from "../command-tree-def.ts";
 import { getDef } from "../settings/registry.ts";
-import { setSetting } from "../settings/write.ts";
+import { setSetting, setSettingsNoticeSink, type SettingsNoticeSink } from "../settings/write.ts";
 import { installFakePick } from "../ui/pick-fake.ts";
+import * as ui from "../ui/out.ts";
+import { captureOut } from "../ui/__tests__/capture-out.ts";
 
 const noop = async () => {};
 
@@ -43,24 +45,25 @@ describe("isNodeVisible (rt.picker.hidden)", () => {
 describe("rt.picker.hidden in listings", () => {
   const origHome = process.env.HOME;
   let home: string;
-  let logSpy: ReturnType<typeof spyOn>;
-  let errSpy: ReturnType<typeof spyOn>;
+  let io: ReturnType<typeof captureOut>;
   let exitSpy: ReturnType<typeof spyOn>;
-  const stdout = () => logSpy.mock.calls.flat().join("\n");
+  let sink: SettingsNoticeSink;
+  const stdout = () => io.stdout();
 
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-program-verbs-")));
     process.env.HOME = home;
-    logSpy = spyOn(console, "log").mockImplementation(() => {});
-    errSpy = spyOn(console, "error").mockImplementation(() => {});
+    io = captureOut();
+    ui.__test__.setHuman(() => false);
+    sink = setSettingsNoticeSink(() => {});
     exitSpy = spyOn(process, "exit").mockImplementation(() => {
       throw new Error("exit sentinel");
     });
   });
 
   afterEach(() => {
-    logSpy.mockRestore();
-    errSpy.mockRestore();
+    io.restore();
+    setSettingsNoticeSink(sink);
     exitSpy.mockRestore();
     process.env.HOME = origHome;
     rmSync(home, { recursive: true, force: true });
@@ -75,7 +78,9 @@ describe("rt.picker.hidden in listings", () => {
   test("--all --help lists hidden verbs, and the next listing hides them again", async () => {
     await expect(dispatch(tree, ["--all", "--help"])).rejects.toThrow("exit sentinel");
     expect(stdout()).toContain("herd");
-    logSpy.mockClear();
+    io.restore();
+    io = captureOut();
+    ui.__test__.setHuman(() => false);
     await expect(dispatch(tree, ["--help"])).rejects.toThrow("exit sentinel");
     expect(stdout()).not.toContain("herd");
   });

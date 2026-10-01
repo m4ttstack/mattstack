@@ -54,7 +54,7 @@ describe("rt settings set / unset output", () => {
 
   test("a bare word is refused with the quoting tip and nothing is written", async () => {
     await expect(settingsSet(["rt.logLevel", "debug", "--scope", "user"])).rejects.toThrow("__exit_1");
-    expect(cap.stderr()).toBe("[failed] The value is not valid JSON  debug\n  why: A string needs its own quotes, so the shell does not eat them: '\"debug\"'.\n");
+    expect(cap.stderr()).toBe("The value is not valid JSON  debug\n  why: A string needs its own quotes, so the shell does not eat them: '\"debug\"'.\n");
     expect(cap.stdout()).toBe("");
     expect(existsSync(userSettingsPath())).toBe(false);
   });
@@ -62,13 +62,13 @@ describe("rt settings set / unset output", () => {
   test("a missing scope names the three scopes and the command to type", async () => {
     await expect(settingsSet(["rt.logLevel", '"debug"'])).rejects.toThrow("__exit_1");
     expect(cap.stderr()).toBe(
-      "[failed] Say which settings to write\n  why: A value lives in exactly one of your user, team or machine settings.\n  next: rt settings set <key> <value> --scope user|team|machine\n",
+      "Say which settings to write\n  why: A value lives in exactly one of your user, team or machine settings.\n  next: rt settings set <key> <value> --scope user|team|machine\n",
     );
   });
 
   test("a team name with the user scope is refused", async () => {
     await expect(settingsSet(["rt.logLevel", '"debug"', "--scope", "user", "--team", "acme"])).rejects.toThrow("__exit_1");
-    expect(cap.stderr()).toContain("[failed] A team name only goes with the team scope");
+    expect(cap.stderr()).toStartWith("A team name only goes with the team scope");
     expect(cap.stderr()).toContain("why: You asked for the user scope.");
   });
 

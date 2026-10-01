@@ -94,3 +94,27 @@ test("openStep resolves false, never throws or exits, when the child died mid-st
   expect(await step.done("pushed")).toBe(false);
   expect(exits).toEqual([]);
 });
+
+test("clear ends the step with a done event that carries the label and clear", async () => {
+  process.env.RT_UI_FAKE = JSON.stringify({ record });
+  const step = openStep("scanning ports…");
+  expect(await step.clear()).toBe(true);
+  const sent = readFileSync(record, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  expect(sent).toEqual([{ t: "hello", protocol: 1 }, { t: "start", title: "scanning ports…" }, { t: "done", title: "scanning ports…", clear: true }]);
+});
+
+test("done never carries clear", async () => {
+  process.env.RT_UI_FAKE = JSON.stringify({ record });
+  const step = openStep("pushing…");
+  await step.done("pushed");
+  const sent = readFileSync(record, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  expect(sent.at(-1)).toEqual({ t: "done", title: "pushed" });
+});
+
+test("clear resolves false, never throws, when the child died mid-step", async () => {
+  process.env.RT_UI_FAKE = JSON.stringify({ dieOn: "start" });
+  const step = openStep("scanning ports…");
+  await Bun.sleep(150);
+  expect(await step.clear()).toBe(false);
+  expect(exits).toEqual([]);
+});

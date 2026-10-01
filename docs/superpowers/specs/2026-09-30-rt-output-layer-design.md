@@ -123,7 +123,7 @@ The glyphs avoid Nerd Font code points and heavy filled shapes, which rendered b
 
 1. **Never style a payload.** Text another program reads goes through `out.payload` or straight to the child and is never touched: the `rt cd` and `rt nav` path, `git credential`, the `home key export` key, `pane peek`, `skills compile --preview`, bare-path outputs (`settings source-path`, `settings schema lock`), and any child process given the terminal (`git push`, `git pull`, `rt run`, `daemon logs`, the login flows).
 2. **Human text goes to stdout.** The exception is a verb whose stdout is a payload (`cd`, `nav`): its human text goes to stderr on purpose and the gate tests stderr.
-3. **Failures go to stderr,** drawn as a `failure` block. Nothing else does in human mode, apart from rule 2's payload verbs.
+3. **Failures go to stderr,** drawn as a `failure` block. Nothing else does in human mode, apart from rule 2's payload verbs. Ruled 2026-10-01: one more exception, `out.note`. A notice that fires before the verb is known, or under any verb (the first-run hint, a stopped daemon, a setting rt had to ignore), goes to stderr, because stdout may be a payload or a `--json` envelope by then.
 4. **One spinner.** The Go step is the spinner. `lib/tui/inline-spinner.ts` and the `\r` line in `lib/enrich.ts` move onto it in phase 5, with the verbs that use them.
 5. **Sub-lines clear on success.** Lines streamed under a running step vanish when it resolves and stay when it fails. At most the last five show at once, so a long stream never scrolls out of reach of the erase. They are always in the log.
 6. **Hints align.** Consecutive `line` blocks in one call pad their titles to a common width.
@@ -133,10 +133,11 @@ The glyphs avoid Nerd Font code points and heavy filled shapes, which rendered b
 
 ## Steps
 
-`rt-ui steps` gains two things in phase 1:
+`rt-ui steps` gains two things in phase 1 and a third in phase 5:
 
 - **A `sub` event,** `{ t: "sub", text }`: a transient dim line under the running step, drawn with the thin rail. Only the last five show. On `done` they are erased; on `fail` they stay. The existing `log` event keeps its meaning (a permanent line), and makes any sub-lines above it permanent too.
 - **A `status` on `done`,** `{ t: "done", title, hint?, status? }`: the step resolves to that status's glyph and color in place of the mint check. This is how a step ends as `needs-you`, `skipped`, `pending` or `warn` without being painted as a failure. `fail` stays the only coral ending.
+- **A `clear` on `done`,** `{ t: "done", title, clear: true }` (phase 5): the step ends and its row and sub-lines are erased, leaving nothing. This is the spinner that vanishes (`withTransientStep`). It is a flag on `done`, not an event of its own, so a helper that predates it still ends the step with a done row.
 
 The step verb's own glyphs come from the status set (its warning line uses `!`), and its text uses the terminal's default foreground like every other block.
 

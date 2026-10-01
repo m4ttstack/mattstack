@@ -146,7 +146,7 @@ describe("cli.ts intercept run fast path", () => {
     // on EVERY invocation, which would land on the wrapped command's stderr
     // forever. The intercept fast path must stay silent about it.
     mkdirSync(join(tmpHome, ".mattstack", "rt"), { recursive: true });
-    mkdirSync(join(tmpHome, ".rt"), { recursive: true });
+    mkdirSync(join(tmpHome, ".rt", "logs"), { recursive: true });
 
     const proc = Bun.spawn([process.execPath, "run", CLI_PATH, "intercept", "run", "echo", "--", "hello"], {
       cwd: REPO_ROOT,
@@ -166,7 +166,8 @@ describe("cli.ts intercept run fast path", () => {
     expect(stdout).toBe("hello\n"); // exactly the wrapped `echo hello`'s output — nothing prepended/appended
     expect(stderr).not.toContain("\x1b"); // no ANSI escape (screen clear / breadcrumb) bytes
     expect(stderr.toLowerCase()).not.toContain("first run");
-    expect(stderr).not.toContain("WARNING"); // no legacy-state migration warning
-    expect(stderr).not.toContain("migrated legacy");
+    expect(stderr).not.toContain("two folders"); // no legacy-state warning
+    expect(stderr).not.toContain("Moved your");
+    expect(stderr).toBe("");
   }, 20_000);
 });

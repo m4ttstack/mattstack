@@ -84,7 +84,8 @@ describe("setupPlan", () => {
       expect(exitCode).toBe(2);
       expect(deps.lines).toEqual([]);
       expect(cap.stdout()).toBe("");
-      expect(cap.stderr()).toStartWith("[failed] ");
+      expect(cap.stderr()).not.toContain("[failed]");
+      expect(cap.stderr().split("\n")[0]!.length).toBeGreaterThan(0);
       expect(cap.stderr()).toContain("ghost");
     } finally {
       cap.restore();

@@ -89,3 +89,111 @@ func slice[T any](runs []T, from, to int, text func(T) string, with func(T, stri
 	}
 	return out
 }
+
+// Options changes where a line may break. The zero value is Spans.
+type Options struct {
+	// WordsOnly breaks at whitespace and nowhere else: a hyphen is not a
+	// break point, so a flag or a branch name stays whole, and a word wider
+	// than the row is cut between grapheme clusters, so a combining mark
+	// never starts a row without its base.
+	WordsOnly bool
+}
+
+// SpansWith is Spans with Options applied.
+func SpansWith[T any](runs []T, width int, opts Options, text func(T) string, with func(T, string) T) [][]T {
+	if !opts.WordsOnly {
+		return Spans(runs, width, text, with)
+	}
+	runs = normalizeSpaces(runs, text, with)
+	plain := join(runs, text)
+	if width < 1 || ansi.StringWidth(plain) <= width {
+		return [][]T{runs}
+	}
+	bounds := wordRows(plain, width)
+	if len(bounds) == 0 {
+		return [][]T{nil}
+	}
+	out := make([][]T, len(bounds))
+	for i, b := range bounds {
+		out[i] = slice(runs, b[0], b[1], text, with)
+	}
+	return out
+}
+
+type piece struct {
+	from, to, width int
+	space           bool
+}
+
+// pieces splits s into alternating runs of whitespace and of everything
+// else, measured in cells. A no-break space belongs to its word.
+func pieces(s string) []piece {
+	var out []piece
+	for i := 0; i < len(s); {
+		cluster, w := ansi.FirstGraphemeCluster(s[i:], ansi.GraphemeWidth)
+		if cluster == "" {
+			break
+		}
+		r, _ := utf8.DecodeRuneInString(cluster)
+		space := unicode.IsSpace(r) && r != 0xA0
+		if n := len(out); n > 0 && out[n-1].space == space {
+			out[n-1].to += len(cluster)
+			out[n-1].width += w
+		} else {
+			out = append(out, piece{from: i, to: i + len(cluster), width: w, space: space})
+		}
+		i += len(cluster)
+	}
+	return out
+}
+
+// wordRows returns the byte range of every row. The whitespace a row breaks
+// at belongs to no row; indentation before the first word stays on its row.
+func wordRows(s string, width int) [][2]int {
+	var rows [][2]int
+	start, end, used := -1, 0, 0
+	flush := func() {
+		if start >= 0 {
+			rows = append(rows, [2]int{start, end})
+		}
+		start, used = -1, 0
+	}
+	gap := piece{}
+	for _, p := range pieces(s) {
+		if p.space {
+			gap = p
+			continue
+		}
+		lead := gap
+		gap = piece{}
+		switch {
+		case start >= 0 && used+lead.width+p.width <= width:
+			end, used = p.to, used+lead.width+p.width
+			continue
+		case start < 0 && len(rows) == 0 && lead.width > 0 && lead.width+p.width <= width:
+			start, end, used = lead.from, p.to, lead.width+p.width
+			continue
+		}
+		flush()
+		if p.width <= width {
+			start, end, used = p.from, p.to, p.width
+			continue
+		}
+		for i := p.from; i < p.to; {
+			cluster, w := ansi.FirstGraphemeCluster(s[i:p.to], ansi.GraphemeWidth)
+			if cluster == "" {
+				break
+			}
+			if start >= 0 && used+w > width {
+				flush()
+			}
+			if start < 0 {
+				start = i
+			}
+			i += len(cluster)
+			end, used = i, used+w
+		}
+	}
+	flush()
+	return rows
+}

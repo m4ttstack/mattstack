@@ -96,7 +96,7 @@ test("exitUserError without --json draws the failure on stderr with no verb pref
   expect(() => exitUserError(teamError(), false, "team pull", () => { throw new Error("print must not be used for a human failure"); })).toThrow("exit 2");
   expect(captured.stdout()).toBe("");
   expect(captured.stderr()).toBe(
-    "[failed] This Mac cannot read the acme team's secrets yet\n" +
+    "This Mac cannot read the acme team's secrets yet\n" +
       "  why: No age key on this Mac matches the team's recipients.\n" +
       "  next: rt team pull\n" +
       "  the full output is in the rt log\n",
@@ -116,16 +116,16 @@ test("a log detail lands in the cli log, never on screen", () => {
 
 test("an error with no why or next is one line", () => {
   expect(() => exitUserError(new UserActionableError("usage", "usage: rt tools install <tool> [--json]"), false, "tools install")).toThrow("exit 2");
-  expect(captured.stderr()).toBe("[failed] usage: rt tools install <tool> [--json]\n");
+  expect(captured.stderr()).toBe("usage: rt tools install <tool> [--json]\n");
 });
 
 test("a multi-line message collapses to one title line in plain output", () => {
   const err = new UserActionableError("members-error", "first line\nsecond line");
   expect(() => exitUserError(err, false, "team members sync")).toThrow("exit 2");
-  expect(captured.stderr()).toBe("[failed] first line second line\n");
+  expect(captured.stderr()).toBe("first line second line\n");
 });
 
-const UNEXPECTED_HEAD = "[failed] rt hit an unexpected error  kaboom\n  next: rt daemon logs\n";
+const UNEXPECTED_HEAD = "rt hit an unexpected error  kaboom\n  next: rt daemon logs\n";
 
 /** Runs fn with --json on argv, the way the real gate and the seam see it. */
 function withJsonArgv(fn: () => void): void {
@@ -142,7 +142,7 @@ test("exitFromDispatch: an expected failure is the same block as exitUserError, 
   expect(() => exitFromDispatch(teamError())).toThrow("exit 2");
   expect(captured.stdout()).toBe("");
   expect(captured.stderr()).toBe(
-    "[failed] This Mac cannot read the acme team's secrets yet\n" +
+    "This Mac cannot read the acme team's secrets yet\n" +
       "  why: No age key on this Mac matches the team's recipients.\n" +
       "  next: rt team pull\n" +
       "  the full output is in the rt log\n",
@@ -187,12 +187,12 @@ test("exitUnexpected writes the message and stack to the cli log", () => {
 
 test("a thrown non-Error has no stack: the hint is its text and the excerpt repeats it", () => {
   expect(() => exitUnexpected("boom")).toThrow("exit 1");
-  expect(captured.stderr()).toBe("[failed] rt hit an unexpected error  boom\n  next: rt daemon logs\nstack:\n  boom\n");
+  expect(captured.stderr()).toBe("rt hit an unexpected error  boom\n  next: rt daemon logs\nstack:\n  boom\n");
 });
 
 test("a multi-line message gives a one-line hint", () => {
   expect(() => exitUnexpected(new Error("sops -d /x/rt.json: Failed to get the data key required to decrypt the SOPS file.\n\nGroup 0: FAILED"))).toThrow("exit 1");
-  expect(captured.stderr().split("\n")[0]).toBe("[failed] rt hit an unexpected error  sops -d /x/rt.json: Failed to get the data key required to decrypt the SOPS file.");
+  expect(captured.stderr().split("\n")[0]).toBe("rt hit an unexpected error  sops -d /x/rt.json: Failed to get the data key required to decrypt the SOPS file.");
 });
 
 test("escape sequences in a message or stack never reach the terminal", () => {
@@ -200,7 +200,7 @@ test("escape sequences in a message or stack never reach the terminal", () => {
   err.stack = "Error: evil\x1b[2Jname\n    at run (\x1b[31mboom.ts\x1b[0m:1:7)";
   expect(() => exitUnexpected(err)).toThrow("exit 1");
   expect(captured.stderr()).not.toContain("\x1b[");
-  expect(captured.stderr()).toContain("[failed] rt hit an unexpected error  evilname");
+  expect(captured.stderr()).toContain("rt hit an unexpected error  evilname");
   expect(captured.stderr()).toContain("      at run (boom.ts:1:7)");
 });
 

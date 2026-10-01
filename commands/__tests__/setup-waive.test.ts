@@ -88,7 +88,7 @@ describe("rt setup waive", () => {
   test("no id off a TTY exits 2 with usage, never a picker", async () => {
     const t = deps();
     expect(await exitCode(() => setupWaive([], {}, t.d))).toBe(2);
-    expect(quiet.stderr()).toBe("[failed] Which row?\n  next: rt setup waive <row-id>\n");
+    expect(quiet.stderr()).toBe("Which row?\n  next: rt setup waive <row-id>\n");
     expect(t.picked()).toBeNull();
   });
 
@@ -129,7 +129,7 @@ describe("rt setup waive", () => {
     });
     expect(await exitCode(() => setupWaive(["tool.fast-browser-extension", "--json"], {}, t.d))).toBe(1);
     expect(t.lines).toEqual([]);
-    expect(quiet.stderr()).toBe("[failed] Could not save the change\n  why: settings.local.jsonc: duplicate key\n");
+    expect(quiet.stderr()).toBe("Could not save the change\n  why: settings.local.jsonc: duplicate key\n");
   });
 });
 
@@ -150,7 +150,8 @@ describe("rt setup unwaive", () => {
   test("an id that is not finish-gated exits 2", async () => {
     const t = deps();
     expect(await exitCode(() => setupUnwaive(["tool.chrome"], {}, t.d))).toBe(2);
-    expect(quiet.stderr()).toStartWith("[failed] ");
+    expect(quiet.stderr()).not.toContain("[failed]");
+    expect(quiet.stderr().split("\n")[0]!.length).toBeGreaterThan(0);
     expect(t.lines).toEqual([]);
   });
 
@@ -179,7 +180,7 @@ describe("rt setup unwaive", () => {
   test("no id on a TTY with nothing skipped falls through to the usage error, never an empty picker", async () => {
     const t = deps({ isTTY: () => true });
     expect(await exitCode(() => setupUnwaive([], {}, t.d))).toBe(2);
-    expect(quiet.stderr()).toBe("[failed] Which row?\n  next: rt setup unwaive <row-id>\n");
+    expect(quiet.stderr()).toBe("Which row?\n  next: rt setup unwaive <row-id>\n");
     expect(t.picked()).toBeNull();
   });
 });

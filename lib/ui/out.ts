@@ -161,10 +161,16 @@ function renderStyled(blocks: Block[], stream: Stream): string | null {
   }
 }
 
+// Only stderr: the plain failure that opens it drops its tag, and one
+// printed under a note must not read as part of that note.
+let stderrWritten = false;
+
 function emit(blocks: Block[], stream: Stream): void {
   if (blocks.length === 0) return;
   const styled = human(stream) ? renderStyled(blocks, stream) : null;
-  write(stream, styled ?? renderPlain(blocks));
+  const text = styled ?? renderPlain(blocks, { continuing: stream === "stderr" && stderrWritten });
+  write(stream, text);
+  if (stream === "stderr" && text !== "") stderrWritten = true;
 }
 
 /** Human-facing blocks. Blocks that must align with each other go in one call. */
@@ -175,6 +181,15 @@ export function print(...blocks: Block[]): void {
 /** A failure, on stderr, with any blocks that belong under it (a stack, an excerpt) in the same write. */
 export function fail(f: FailureInput, ...after: Block[]): void {
   emit([failure(f), ...after], "stderr");
+}
+
+/**
+ * Blocks for a person on stderr, whatever the verb. A notice that fires
+ * before the verb is known, or under any verb, cannot use stdout: another
+ * program may be reading it. It does not follow payloadOnStdout.
+ */
+export function note(...blocks: Block[]): void {
+  emit(blocks, "stderr");
 }
 
 /** Whether a person is reading `stream` right now: the gate print and fail apply. */
@@ -198,6 +213,7 @@ export const __test__ = {
   },
   reset(): void {
     helperWarned = false;
+    stderrWritten = false;
     human = realHuman;
     humanStream = "stdout";
   },

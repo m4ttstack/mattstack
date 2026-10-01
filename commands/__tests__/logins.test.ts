@@ -160,7 +160,7 @@ describe("rt logins", () => {
     try {
       await expect(loginsRemove([], {}, deps().d)).rejects.toThrow("exit 2");
       expect(cap.stdout()).toBe("");
-      expect(cap.stderr()).toBe("[failed] Which site?\n  next: rt logins remove <origin>\n");
+      expect(cap.stderr()).toBe("Which site?\n  next: rt logins remove <origin>\n");
     } finally {
       cap.restore();
     }

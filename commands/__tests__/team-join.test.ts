@@ -157,7 +157,7 @@ describe("teamJoin", () => {
       const code = await runExpectingProcessExit(() => teamJoin(["ABC"], {}, deps));
       expect(code).toBe(2);
       expect(deps.lines).toEqual([]);
-      expect(io.stderr()).toContain("[failed] pass the invite code on stdin, never as an argument");
+      expect(io.stderr()).toContain("pass the invite code on stdin, never as an argument");
     } finally {
       io.restore();
     }
@@ -390,7 +390,8 @@ describe("teamJoin", () => {
       const code = await runExpectingProcessExit(() => teamJoin([], {}, deps));
       expect(code).toBe(2);
       expect(deps.lines).toEqual([]);
-      expect(io.stderr()).toStartWith("[failed] ");
+      expect(io.stderr()).not.toContain("[failed]");
+      expect(io.stderr().split("\n")[0]!.length).toBeGreaterThan(0);
       expect(io.stderr()).toContain("keychain");
       expect(io.stderr()).not.toContain("\n    at ");
     } finally {

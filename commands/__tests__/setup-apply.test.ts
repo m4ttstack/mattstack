@@ -381,7 +381,7 @@ describe("setupInteractive — TTY-vs-json branch", () => {
     const cap = capturePlain();
     try {
       await runExpectingExit(() => setupInteractive([], {}, deps));
-      expect(cap.stderr()).toContain("[failed] This Mac is not ready to install yet");
+      expect(cap.stderr()).toStartWith("This Mac is not ready to install yet");
       expect(cap.stderr()).toContain("  why: Waiting on ");
     } finally {
       cap.restore();
@@ -659,7 +659,7 @@ describe("setupApply — hard-precondition gate", () => {
       await runExpectingExit(() => setupApply([], {}, deps));
       expect(deps.exitCodes).toEqual([2]);
       expect(cap.stdout()).toBe("");
-      expect(cap.stderr()).toBe("[failed] This Mac is not ready to install yet\n  why: Apple's Command Line Tools are not installed\n  next: rt tools install apple-clt\n");
+      expect(cap.stderr()).toBe("This Mac is not ready to install yet\n  why: Apple's Command Line Tools are not installed\n  next: rt tools install apple-clt\n");
     } finally {
       cap.restore();
     }

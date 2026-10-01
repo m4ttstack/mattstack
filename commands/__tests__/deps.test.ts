@@ -124,7 +124,8 @@ describe("rt deps commands", () => {
     const { exitCode, logs, stderr } = await runCapturingExit(() => depsLink(["gh"], {}, p));
     expect(exitCode).toBe(2);
     expect(logs).toEqual([]);
-    expect(stderr).toContain("[failed] ");
+    expect(stderr).not.toContain("[failed]");
+    expect(stderr.split("\n")[0]!.length).toBeGreaterThan(0);
     expect(stderr).toContain("exists and is not a mattstack-managed link");
   });
 

@@ -314,7 +314,7 @@ func runRender(args []string) int {
 		profile = colorprofile.NoTTY
 	}
 	w := &colorprofile.Writer{Forward: os.Stdout, Profile: profile}
-	if _, err := w.WriteString(render.Render(blocks, render.Options{Width: width})); err != nil {
+	if _, err := w.WriteString(render.Render(blocks, render.Options{Width: width, Light: render.LightBackground(os.Getenv("COLORFGBG"))})); err != nil {
 		return ExitInternal
 	}
 	return ExitOK

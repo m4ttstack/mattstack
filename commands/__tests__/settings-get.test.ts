@@ -73,14 +73,14 @@ describe("rt settings get / list / explain", () => {
   test("an unknown key fails plainly", async () => {
     await expect(settingsGet(["rt.nope"])).rejects.toThrow("__exit_1");
     expect(cap.stdout()).toBe("");
-    expect(cap.stderr()).toBe("[failed] No setting is called rt.nope\n  next: rt settings list\n");
+    expect(cap.stderr()).toBe("No setting is called rt.nope\n  next: rt settings list\n");
     await expect(settingsExplain(["rt.nope"])).rejects.toThrow("__exit_1");
     expect(exits).toEqual([1, 1]);
   });
 
   test("get without a key says what to type", async () => {
     await expect(settingsGet([])).rejects.toThrow("__exit_1");
-    expect(cap.stderr()).toBe("[failed] Name the setting to read\n  next: rt settings get <key>\n");
+    expect(cap.stderr()).toBe("Name the setting to read\n  next: rt settings get <key>\n");
   });
 
   test("list --json keeps stdout to one JSON value when the repo has no identity", async () => {

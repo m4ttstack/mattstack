@@ -159,6 +159,9 @@ type StepEvent struct {
 	Level    string `json:"level,omitempty"`
 	Text     string `json:"text,omitempty"`
 	Status   string `json:"status,omitempty"`
+	// Clear, on done, erases the step and paints no final row. It rides done
+	// so a helper that predates it still ends the step with a done row.
+	Clear bool `json:"clear,omitempty"`
 }
 
 func DecodeStep(line []byte) (StepEvent, error) {

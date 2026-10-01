@@ -17,6 +17,7 @@ import {
   API_PORT,
 } from "./daemon-config.ts";
 import { rtDir } from "./rt-paths.ts";
+import * as out from "./ui/out.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -243,9 +244,7 @@ async function waitForSocket(
 function warnDaemonDown(): void {
   if (hasWarnedThisSession || _warningSuppressed) return;
   hasWarnedThisSession = true;
-  console.error(
-    "  \x1b[33m⚠\x1b[0m rt daemon is installed but not running. Run: \x1b[1mrt daemon start\x1b[0m",
-  );
+  out.note(out.line("warn", "The rt daemon is not running"), out.callout("next", out.cmd("rt daemon start")));
 }
 
 /**
@@ -596,3 +595,11 @@ export function subscribeToDaemon(
     },
   };
 }
+
+export const __test__ = {
+  warnDaemonDown,
+  resetDownWarning(): void {
+    hasWarnedThisSession = false;
+    _warningSuppressed = false;
+  },
+};

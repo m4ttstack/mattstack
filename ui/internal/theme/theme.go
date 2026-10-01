@@ -171,6 +171,17 @@ var (
 	DiffDelGutterBg = blendToward(Coral, Bg, diffGutterBlend)
 )
 
+// Static output lands on the terminal's own background, which rt-ui never
+// paints and cannot ask about. The light tints are the diff tints for a
+// terminal that says its background is light, and StaticRule is one tone
+// that reads as a quiet line on a dark background and on a light one.
+var (
+	paper          = lipgloss.Color("#FFFFFF")
+	DiffAddBgLight = blendToward(Mint, paper, diffTintBlend)
+	DiffDelBgLight = blendToward(Coral, paper, diffTintBlend)
+	StaticRule     = lipgloss.Color("#655E88")
+)
+
 func Hex(c color.Color) string {
 	r, g, b, _ := c.RGBA()
 	return fmt.Sprintf("#%02X%02X%02X", r>>8, g>>8, b>>8)

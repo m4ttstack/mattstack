@@ -69,7 +69,8 @@ describe("rt settings set rt.hooks --repo -> hooks.json regeneration seam", () =
     try {
       await expect(settingsSet(["rt.hooks", '{"enabled":false,"hooks":{}}', "--scope", "user"])).rejects.toThrow("process.exit sentinel");
       expect(cap.stderr()).toMatch(/repo-only/);
-      expect(cap.stderr()).toMatch(/^\[failed\] /);
+      expect(cap.stderr()).toStartWith("refusing to set");
+      expect(cap.stderr()).not.toContain("[failed]");
     } finally {
       exitSpy.mockRestore();
       cap.restore();

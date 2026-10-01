@@ -122,3 +122,15 @@ func TestUnknownOpsAndAbsentFieldsDoNotPanic(t *testing.T) {
 		protocol.Block{T: "table", Rows: []protocol.TableRow{{}, {Group: "G"}}},
 	)
 }
+
+func TestTableRuleAndTreeBranchesUseTheStaticRuleTone(t *testing.T) {
+	const staticRule = "38;2;101;94;136"
+	table := styled(protocol.Block{T: "table", Headers: []string{"KEY"}, Rows: []protocol.TableRow{cells("a")}})
+	if !strings.Contains(table, "\x1b["+staticRule+"m───") {
+		t.Fatalf("table rule tone: %q", table)
+	}
+	tree := styled(protocol.Block{T: "tree", Root: text("root"), Children: [][]protocol.Cell{{text("child")}}})
+	if !strings.Contains(tree, "\x1b["+staticRule+"m╰── ") {
+		t.Fatalf("tree branch tone: %q", tree)
+	}
+}

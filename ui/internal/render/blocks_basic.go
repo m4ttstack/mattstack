@@ -13,12 +13,19 @@ import (
 const calloutIndent = "    "
 
 // lineRun renders consecutive lines, with any callouts between them, and
-// pads hinted titles to one width so the hints line up.
+// pads hinted titles to one width so the hints line up. A hint wraps inside
+// its own column; a title too wide to leave the hint a column worth wrapping
+// into takes the hint on the rows below it and stays out of the alignment.
 func (r *renderer) lineRun(run []protocol.Block) {
+	textW := r.width - len(calloutIndent)
+	titleCap := textW - 2 - minWrap
 	w := 0
 	for _, b := range run {
-		if b.T == "line" && b.Hint != "" {
-			w = max(w, lipgloss.Width(Clean(b.Title)))
+		if b.T != "line" || b.Hint == "" {
+			continue
+		}
+		if tw := lipgloss.Width(Clean(b.Title)); tw <= titleCap {
+			w = max(w, tw)
 		}
 	}
 	for _, b := range run {
@@ -27,12 +34,35 @@ func (r *renderer) lineRun(run []protocol.Block) {
 			continue
 		}
 		head := indent + glyph(b.Status) + " "
-		title := Clean(b.Title)
-		if b.Hint == "" {
-			r.emit(head + textStyle.Render(title))
+		titleW := lipgloss.Width(Clean(b.Title))
+		hint := protocol.Cell{{Text: b.Hint, Role: "faint"}}
+		if b.Hint != "" && titleW <= titleCap {
+			for i, row := range wrapCell(hint, textW-w-2) {
+				if i == 0 {
+					r.emit(head + textStyle.Render(pad(Clean(b.Title), w)) + "  " + cell(row))
+					continue
+				}
+				r.emit(calloutIndent + strings.Repeat(" ", w+2) + cell(row))
+			}
 			continue
 		}
-		r.emit(head + textStyle.Render(pad(title, w)) + "  " + faintStyle.Render(Clean(b.Hint)))
+		title := wrapCell(protocol.Cell{{Text: b.Title}}, textW)
+		inline := b.Hint != "" && len(title) == 1 && titleW+2+lipgloss.Width(Clean(b.Hint)) <= textW
+		for i, row := range title {
+			s := calloutIndent + cell(row)
+			if i == 0 {
+				s = head + cell(row)
+			}
+			if inline {
+				s += "  " + cell(hint)
+			}
+			r.emit(s)
+		}
+		if b.Hint != "" && !inline {
+			for _, row := range wrapCell(hint, textW) {
+				r.emit(calloutIndent + cell(row))
+			}
+		}
 	}
 }
 

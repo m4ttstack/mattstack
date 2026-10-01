@@ -57,7 +57,7 @@ test("exitWithUserError for a person writes a failure block on stderr, nothing o
   const sink = { json: () => { throw new Error("json must not be called"); }, exit: ((code: number) => { exits.push(code); throw new Error("exit"); }) as (code: number) => never, now: () => NOW };
   expect(() => exitWithUserError(new UserActionableError("usage", "usage: rt x"), false, sink, { title: "Which row?", next: out.cmd("rt setup waive <row-id>") })).toThrow("exit");
   expect(cap.stdout()).toBe("");
-  expect(cap.stderr()).toBe("[failed] Which row?\n  next: rt setup waive <row-id>\n");
+  expect(cap.stderr()).toBe("Which row?\n  next: rt setup waive <row-id>\n");
   expect(exits).toEqual([2]);
 });
 
