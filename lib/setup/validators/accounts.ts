@@ -25,6 +25,7 @@ import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts
 import { forgeRole, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
 import { boardPeering } from "../../team/board-token.ts";
+import { slackSecretWait, slackWaitRowDetail, type SlackSecretWait } from "../team-slack-secret.ts";
 
 /** Reads user-scope secrets: the real implementation goes through lib/secrets/store.readSecret (null on NoAgeKeyError) plus staged values (staging.ts) — that wiring is a later task's job; validators only depend on this narrow shape. */
 export interface SecretPresence {
@@ -179,6 +180,31 @@ async function githubRow(p: Probes, base: Omit<Row, "status" | "detail" | "actio
   return row({ ...base, status: short ? "needs-you" : result.status, detail: short ?? result.detail, action: connectAction(def, ghStatus.code === 0, forge) });
 }
 
+/**
+ * Only the team owner (or a re-clone, for an unreadable file) can clear a
+ * wait, so the row stops being required for it: Install must not hinge on
+ * a button the member cannot press. A note must not start "Works without":
+ * the app's Done screen drops rows whose note does, and the member should
+ * still see this one. The app re-reads the row after its action runs, so a
+ * pull is the whole of Re-check.
+ */
+const SLACK_WAIT_NOTE: Record<SlackSecretWait["kind"], string> = {
+  "awaiting-acceptance": "Slack stays unconnected until your team owner accepts you.",
+  "not-shared": "Slack stays unconnected until your team owner shares the Slack app's secret.",
+  unreadable: "Slack stays unconnected until the team's secrets file can be read.",
+};
+
+function slackWaitRow(base: Omit<Row, "status" | "detail" | "action" | "recheck">, wait: SlackSecretWait, slug: string): Row {
+  return row({
+    ...base,
+    required: false,
+    optionalNote: SLACK_WAIT_NOTE[wait.kind],
+    status: wait.kind === "unreadable" ? "error" : "needs-you",
+    detail: slackWaitRowDetail(wait, slug),
+    action: { type: "run", label: "Re-check", verb: ["team", "pull", "--team", slug] },
+  });
+}
+
 /** The oauth Connect action only makes sense once the team's own Slack app exists (`clientId` set) — before that, this row explains the dependency on account.slack-app instead of offering a flow that would run against an app that doesn't exist yet. */
 async function slackRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, secrets: SecretPresence, ctx: ValidateCtx, team: TeamSnapshot): Promise<Row> {
   if (!team.integrations.slack?.clientId) {
@@ -187,6 +213,8 @@ async function slackRow(p: Probes, base: Omit<Row, "status" | "detail" | "action
   const spec = secretSpec(def);
   const stored = await secrets.has(spec.domain, spec.key);
   if (stored === null) {
+    const wait = slackSecretWait(p, team.slug);
+    if (wait) return slackWaitRow(base, wait, team.slug);
     const hint = slackRedirectHint(team.integrations.slack.callbackPort ?? DEFAULT_CALLBACK_PORT);
     return row({ ...base, status: "missing", detail: `no Slack account connected. ${hint}`, action: SLACK_OAUTH_ACTION });
   }

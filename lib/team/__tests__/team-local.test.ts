@@ -56,6 +56,20 @@ describe("team-local record", () => {
     expect(JSON.parse(p.readFile(teamLocalPath(HOME, SLUG))!)).toEqual({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false });
   });
 
+  test("agePublicKey round-trips and survives a later merge of another field", () => {
+    const p = fakeProbes({ home: HOME });
+    updateTeamLocal(p, SLUG, { joinedByRt: true, agePublicKey: "age1abc" });
+    updateTeamLocal(p, SLUG, { rtMayManageMembership: false });
+    expect(readTeamLocal(p, SLUG).agePublicKey).toBe("age1abc");
+  });
+
+  test("an agePublicKey that is not an age recipient is read as absent", () => {
+    const p = fakeProbes({ home: HOME, files: { [teamLocalPath(HOME, SLUG)]: JSON.stringify({ joinedByRt: true, agePublicKey: 42 }) } });
+    expect(readTeamLocal(p, SLUG)).toEqual({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false });
+    const p2 = fakeProbes({ home: HOME, files: { [teamLocalPath(HOME, SLUG)]: JSON.stringify({ agePublicKey: "ssh-ed25519 AAAA" }) } });
+    expect(readTeamLocal(p2, SLUG).agePublicKey).toBeUndefined();
+  });
+
   test("a non-boolean joinedByRt is not truthy-coerced", () => {
     const p = fakeProbes({ home: HOME, files: { [teamLocalPath(HOME, SLUG)]: JSON.stringify({ joinedByRt: "yes" }) } });
     expect(readTeamLocal(p, SLUG).joinedByRt).toBe(false);

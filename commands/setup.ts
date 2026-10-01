@@ -45,6 +45,7 @@ import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/set
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
 import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, buildSlackManifest, missingSlackUserScopes, slackRedirectFix, slackRedirectUri, slackUserScopeFix } from "../lib/setup/slack-app.ts";
+import { slackSecretWait, slackWaitCliMessage, type SlackSecretWait } from "../lib/setup/team-slack-secret.ts";
 import { STEPS } from "../lib/setup/steps/index.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
@@ -1429,11 +1430,19 @@ async function connectCliSession(id: "doppler" | "ldcli", args: string[], deps: 
   printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "ready", detail: result.detail, scopesSeen: result.scopesSeen });
 }
 
+const SLACK_WAIT_CODE: Record<SlackSecretWait["kind"], string> = {
+  "awaiting-acceptance": "slack-awaiting-owner",
+  "not-shared": "slack-secret-not-shared",
+  unreadable: "slack-secret-unreadable",
+};
+
 async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   const json = args.includes("--json");
   const snapshot = snapshotFor(deps);
   const clientId = snapshot.integrations.slack?.clientId;
   if (!clientId) throw new UserActionableError("slack-app-missing", "your team has no Slack app yet — its owner needs to create one first");
+  const wait = slackSecretWait(deps.probes, snapshot.slug);
+  if (wait) throw new UserActionableError(SLACK_WAIT_CODE[wait.kind], slackWaitCliMessage(wait, snapshot.slug));
 
   const callbackPort = snapshot.integrations.slack?.callbackPort ?? DEFAULT_CALLBACK_PORT;
   const redirectUri = slackRedirectUri(callbackPort);
