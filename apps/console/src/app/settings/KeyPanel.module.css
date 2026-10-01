@@ -5,11 +5,17 @@
 }
 
 .caption {
-  padding: 0 8px 6px;
+  padding: 0 8px;
+  margin-bottom: 8px;
 }
 
 .line {
+  --scope-w: 88px;
   border-radius: var(--mantine-radius-md);
+}
+
+.line + .line {
+  margin-top: 2px;
 }
 
 :where([data-mantine-color-scheme='light']) .line {
@@ -59,7 +65,9 @@
 
 .scope {
   flex: none;
-  width: 132px;
+  display: flex;
+  align-items: center;
+  width: var(--scope-w);
 }
 
 .value {
@@ -67,8 +75,9 @@
   min-width: 0;
 }
 
+/* Lines up under the value: the line's 8px padding, the column, the 12px gap. */
 .sub {
-  padding: 0 8px 8px 152px;
+  padding: 0 8px 8px calc(8px + var(--scope-w) + 12px);
 }
 
 .reposHead {

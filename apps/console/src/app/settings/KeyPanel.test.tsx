@@ -141,6 +141,19 @@ describe('KeyPanel', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows a string value bare and keeps JSON for anything else', async () => {
+    renderPanel(def('board.agent.model'), [
+      { scope: 'default', file: null, present: true, value: 'm-default' },
+      { scope: 'team', file: '/stores/team.jsonc', present: true, value: '' },
+      { scope: 'user', file: '/stores/user.jsonc', present: true, value: 30 },
+    ]);
+    expect(await screen.findByTestId('layer-value-default')).toHaveTextContent(
+      /^m-default$/
+    );
+    expect(screen.getByTestId('layer-value-team')).toHaveTextContent(/^""$/);
+    expect(screen.getByTestId('layer-value-user')).toHaveTextContent(/^30$/);
+  });
+
   it('marks the winner in effect and mutes what it overrides', async () => {
     renderPanel(def('board.agent.model'), LAYERS);
     expect(

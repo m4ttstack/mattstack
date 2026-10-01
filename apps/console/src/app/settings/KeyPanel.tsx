@@ -106,6 +106,12 @@ function layerDef(def: SettingDefWire, row: ExplainRowWire): SettingDefWire {
   };
 }
 
+/** A string reads bare; anything else, and an empty string, keeps its JSON
+    text. */
+function valueText(v: unknown): string {
+  return typeof v === 'string' && v !== '' ? v : shortValue(v);
+}
+
 const STATUS: Partial<Record<Role, string>> = {
   winner: 'in effect',
   contributor: 'merged',
@@ -228,13 +234,13 @@ function LayerLine({
     );
   else if (!row.present)
     value = (
-      <Text fz={13} c={text.muted}>
+      <Text fz={13} lh="17px" c={text.muted}>
         not set
       </Text>
     );
   else if (def.secret)
     value = (
-      <Text fz={13} c={text.muted}>
+      <Text fz={13} lh="17px" c={text.muted}>
         present, never shown here
       </Text>
     );
@@ -242,6 +248,7 @@ function LayerLine({
     value = (
       <Text
         fz={13}
+        lh="17px"
         ff="monospace"
         truncate
         fw={role === 'winner' ? 500 : undefined}
@@ -249,7 +256,7 @@ function LayerLine({
         data-role={role}
         data-testid={`layer-value-${scope}`}
       >
-        {composite ? rowSummary(layerDef(def, row)) : shortValue(row.value)}
+        {composite ? rowSummary(layerDef(def, row)) : valueText(row.value)}
       </Text>
     );
 
@@ -624,7 +631,7 @@ function WhereTab({
 
   return (
     <Stack gap={0}>
-      <Text fz={12} c={text.muted} className={classes.caption}>
+      <Text fz={12} lh="15px" c={text.muted} className={classes.caption}>
         {def.merge === 'deep' && def.type === 'object'
           ? 'Merged key by key. Lists replace whole.'
           : 'Weakest first. The last layer set wins.'}
