@@ -33,6 +33,22 @@ export type SkillsDiff = InferResponseType<
   typeof client.api.skills.diff.$get,
   200
 >;
+export type SkillsAnatomy = InferResponseType<
+  typeof client.api.skills.anatomy.$get,
+  200
+>;
+export type SkillsSource = InferResponseType<
+  typeof client.api.skills.source.$get,
+  200
+>;
+export type SkillsChanges = InferResponseType<
+  typeof client.api.skills.changes.$get,
+  200
+>;
+export type SkillsDiscardReport = InferResponseType<
+  typeof client.api.skills.discard.$post,
+  200
+>;
 
 /** Every skills route answers a usage error and the surface's own "nothing
     to show" case with the same JSON shape -- pull the real message out of
@@ -212,6 +228,57 @@ export function useSkillsDiff(
   });
 }
 
+/** One skill's parts and the line ranges each occupies in its compiled
+    output. Per selection inside the page, so a plain query rather than the
+    route-level suspense. */
+export function useAnatomy(pack: string | null, skill: string | null) {
+  return useQuery({
+    queryKey: ['skills', 'anatomy', pack, skill],
+    queryFn: async () => {
+      const res = await client.api.skills.anatomy.$get({
+        query: { pack: pack ?? '', skill: skill ?? '' },
+      });
+      return readOrThrow<SkillsAnatomy>(res, 'skills anatomy');
+    },
+    enabled: pack !== null && skill !== null,
+  });
+}
+
+/** Not swept by `invalidateSkillsQueries`: the key carries the path, and a
+    file edited in place re-reads on the next mount or window focus. */
+export function useSkillSource(pack: string | null, path: string | null) {
+  return useQuery({
+    queryKey: ['skills', 'source', pack, path],
+    queryFn: async () => {
+      const res = await client.api.skills.source.$get({
+        query: { pack: pack ?? '', path: path ?? '' },
+      });
+      return readOrThrow<SkillsSource>(res, 'skills source');
+    },
+    enabled: pack !== null && path !== null,
+  });
+}
+
+/** Feeds the unsynced-changes banner. A failed poll means "unknown", so the
+    hook never suspends, never retries (the next poll is 15s away) and never
+    toasts: callers read `data` and treat `isError` as "show nothing". The
+    answer is what is on disk right now, hence the focus refetch. */
+export function usePendingChanges(pack: string | null) {
+  return useQuery({
+    queryKey: ['skills', 'changes', pack],
+    queryFn: async () => {
+      const res = await client.api.skills.changes.$get({
+        query: { pack: pack ?? '' },
+      });
+      return readOrThrow<SkillsChanges>(res, 'skills changes');
+    },
+    enabled: pack !== null,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+    retry: false,
+  });
+}
+
 export interface SkillsSurfaceApplyStep {
   direction: 'public' | 'internal';
   names: string[];
@@ -268,8 +335,9 @@ async function postSkillsWrite<TResponse>(
 
 /** Every cached read a write to this pack can go stale -- the client mirror
     of the server's own per-pack cache sweep (`e8f4163`, mirrored again for
-    `/api/skills/bind`): composition, surface, check, compile, and history all
-    read the pack, and a surface-apply or a bind recompiles it. */
+    `/api/skills/bind`): composition, surface, check, compile, history,
+    anatomy and the pending-changes poll all read the pack, and a
+    surface-apply or a bind recompiles it. */
 function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
   for (const scope of [
     'composition',
@@ -277,6 +345,8 @@ function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
     'check',
     'compile',
     'history',
+    'anatomy',
+    'changes',
   ]) {
     void queryClient.invalidateQueries({ queryKey: ['skills', scope, pack] });
   }
@@ -332,10 +402,26 @@ export type SkillsSyncReport = InferResponseType<
 export function useSkillsSync(pack: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (options: { commitPending?: boolean } | void) =>
       postSkillsWrite<SkillsSyncReport>(client.api.skills.sync.$post, {
         pack,
+        ...(options?.commitPending ? { commitPending: true } : {}),
       }),
+    onSettled: () => invalidateSkillsQueries(queryClient, pack),
+  });
+}
+
+/** Unlike sync, a non-2xx answer here is an error, not a report. Swept on
+    settle for the same reason as sync: rt restores tracked paths and cleans
+    untracked ones as separate steps, so a refusal may still have changed
+    what the cached reads describe. */
+export function useDiscardChanges(pack: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<SkillsDiscardReport> => {
+      const res = await client.api.skills.discard.$post({ json: { pack } });
+      return readOrThrow<SkillsDiscardReport>(res, 'skills discard');
+    },
     onSettled: () => invalidateSkillsQueries(queryClient, pack),
   });
 }
