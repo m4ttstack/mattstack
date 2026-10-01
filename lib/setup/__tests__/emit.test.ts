@@ -7,7 +7,7 @@ import type { ApplyEvent, EventId } from "../contract.ts";
 import * as out from "../../ui/out.ts";
 
 const FAKE = resolve(import.meta.dir, "..", "..", "ui", "__tests__", "fake-rt-ui.ts");
-const LABELS = { done: "Setup is done", needsYou: "Setup needs you", failed: "Setup stopped" };
+const LABELS = { done: "Setup is done", needsYou: "Setup needs you", caveat: "Setup is done, with a caveat", failed: "Setup stopped" };
 
 let dir: string;
 let record: string;
@@ -82,6 +82,30 @@ test("off a TTY every final state is one plain line with the step's title, a rem
   );
   expect(stderr.join("")).toBe("");
   expect(logged).toEqual([["path.link", "ln -s rt"]]);
+});
+
+test("a run whose only shortfall is a caveat is done with a caveat, not waiting on anyone", async () => {
+  await drive(emitter(false), [
+    plan,
+    { event: "step", id: "path.link", state: "running" },
+    { event: "step", id: "path.link", state: "done" },
+    { event: "step", id: "plugins.install", state: "running" },
+    { event: "step", id: "plugins.install", state: "partial", detail: "2 of 3 installed" },
+    { event: "done", ok: true },
+  ]);
+  expect(stdout.join("")).toBe("[ok] Link rt onto your PATH\n[warning] Install plugins  2 of 3 installed\n[warning] Setup is done, with a caveat  1 done, 1 with a caveat\n");
+});
+
+test("a step that needs you outranks a caveat in the summary", async () => {
+  await drive(emitter(false), [
+    plan,
+    { event: "step", id: "secrets.write", state: "running" },
+    { event: "step", id: "secrets.write", state: "needs-you", detail: "Connect Slack" },
+    { event: "step", id: "plugins.install", state: "running" },
+    { event: "step", id: "plugins.install", state: "partial", detail: "2 of 3 installed" },
+    { event: "done", ok: true },
+  ]);
+  expect(stdout.join("").trimEnd().split("\n").at(-1)).toBe("[needs you] Setup needs you  1 needs you, 1 with a caveat");
 });
 
 test("off a TTY a failed step keeps its streamed lines under it and the summary says the run stopped", async () => {

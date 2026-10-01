@@ -15,6 +15,8 @@ export type Emit = (ev: ApplyEvent) => void;
 export interface StepEmitterLabels {
   done: string;
   needsYou: string;
+  /** A run that finished but left at least one step partial, with no step waiting on the person. */
+  caveat: string;
   failed: string;
 }
 
@@ -164,7 +166,7 @@ export function createStepEmitter(opts: StepEmitterOptions): StepEmitter {
       return;
     }
     const status: RenderStatus = !ev.ok ? "failed" : tally.needsYou > 0 ? "needs-you" : tally.partial > 0 ? "warn" : "done";
-    const title = status === "failed" ? opts.labels.failed : status === "done" ? opts.labels.done : opts.labels.needsYou;
+    const title = status === "failed" ? opts.labels.failed : status === "done" ? opts.labels.done : status === "warn" ? opts.labels.caveat : opts.labels.needsYou;
     out.print(out.summary(status, title, countsOf(tally)));
   }
 

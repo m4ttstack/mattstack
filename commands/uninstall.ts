@@ -52,7 +52,7 @@ export function realUninstallDeps(): UninstallDeps {
   };
 }
 
-const UNINSTALL_LABELS: StepEmitterLabels = { done: "mattstack is uninstalled", needsYou: "Uninstall needs you", failed: "Uninstall stopped" };
+const UNINSTALL_LABELS: StepEmitterLabels = { done: "mattstack is uninstalled", needsYou: "Uninstall needs you", caveat: "mattstack is uninstalled, with a caveat", failed: "Uninstall stopped" };
 
 function removalList(title: string, actions: { title: string }[]): ReturnType<typeof out.section> {
   return out.section(title, undefined, out.changes(actions.map((a) => ({ op: "-" as const, name: a.title }))));

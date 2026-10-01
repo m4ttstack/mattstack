@@ -92,8 +92,8 @@ function sinkOf(deps: { json: (value: unknown) => void; exit?: (code: number) =>
   return { json: deps.json, exit: deps.exit ?? process.exit, now: () => deps.probes.now() };
 }
 
-const APPLY_LABELS: StepEmitterLabels = { done: "Setup is done", needsYou: "Setup needs you", failed: "Setup stopped" };
-const UPDATE_LABELS: StepEmitterLabels = { done: "Everything is up to date", needsYou: "The update needs you", failed: "Part of the update failed" };
+const APPLY_LABELS: StepEmitterLabels = { done: "Setup is done", needsYou: "Setup needs you", caveat: "Setup is done, with a caveat", failed: "Setup stopped" };
+const UPDATE_LABELS: StepEmitterLabels = { done: "Everything is up to date", needsYou: "The update needs you", caveat: "Everything is up to date, with a caveat", failed: "Part of the update failed" };
 
 /** Streamed step lines go to the log at debug: the screen erases them, the log keeps every level. */
 function stepLog(module: string): (id: string, line: string) => void {
