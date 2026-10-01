@@ -1,4 +1,6 @@
 import { describe, test, expect } from "bun:test";
+import { readdirSync, readFileSync } from "fs";
+import { logsDir } from "../../lib/rt-paths.ts";
 import {
   realIntentDeps,
   setupApply,
@@ -81,7 +83,6 @@ function baseApplyDeps(
     secrets: fakeSecrets,
     relay: fakeRelay,
     secretPresence: fakeSecretPresence(),
-    print: (s) => lines.push(s),
     json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
@@ -139,13 +140,34 @@ describe("setupApply — NDJSON discipline", () => {
     expect(logEvent && "line" in logEvent ? logEvent.line : null).toBe(hostile);
   });
 
-  test("human mode never emits JSON — one rendered line per step transition", async () => {
-    const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done", detail: "ok" })] });
+  test("human mode prints the step's title and a summary, never JSON or the id", async () => {
+    const cap = capturePlain();
+    try {
+      const deps = baseApplyDeps({ steps: [{ ...fakeStep("path.link", { state: "done", detail: "ok" }), title: "Link rt onto your PATH" }] });
+      await setupApply([], {}, deps);
+      expect(cap.stdout()).toBe("[ok] Link rt onto your PATH  ok\n[ok] Setup is done  1 done\n");
+      expect(cap.stderr()).toBe("");
+    } finally {
+      cap.restore();
+    }
+  });
 
-    await setupApply([], {}, deps);
-
-    for (const line of deps.lines) expect(() => JSON.parse(line)).toThrow();
-    expect(deps.lines.some((l) => l.includes("path.link"))).toBe(true);
+  test("the summary is printed before exit 2", async () => {
+    const cap = capturePlain();
+    try {
+      let atExit = "";
+      const deps = baseApplyDeps({ steps: [{ ...fakeStep("path.link", { state: "failed", detail: "boom" }), title: "Link rt onto your PATH" }] });
+      deps.exit = ((code: number) => {
+        atExit = cap.stdout();
+        deps.exitCodes.push(code);
+        throw new Error("exit sentinel");
+      }) as ApplyDeps["exit"];
+      await runExpectingExit(() => setupApply([], {}, deps));
+      expect(deps.exitCodes).toEqual([2]);
+      expect(atExit).toBe("[failed] Link rt onto your PATH  boom\n[failed] Setup stopped  1 failed\n");
+    } finally {
+      cap.restore();
+    }
   });
 });
 
@@ -417,7 +439,6 @@ describe("setupIntent", () => {
     const exitCodes: number[] = [];
     return {
       probes: fakeProbes(),
-      print: (s) => lines.push(s),
       json: (v) => lines.push(JSON.stringify(v)),
       exit: (code: number) => {
         exitCodes.push(code);
@@ -530,8 +551,7 @@ describe("setupApply: a full run with nothing left to finish records Finish", ()
     expect(readSetupState(deps.probes).lastUpdate).toBeUndefined();
   });
 
-  test("a stamp that cannot be written is reported and does not fail the run", async () => {
-    const errors: string[] = [];
+  test("a stamp that cannot be written is logged and does not fail the run", async () => {
     const probes = fakeProbes();
     const realWrite = probes.writeFile.bind(probes);
     let writes = 0;
@@ -539,10 +559,12 @@ describe("setupApply: a full run with nothing left to finish records Finish", ()
       if (path.includes("setup-state.json") && ++writes > 1) throw new Error("disk full");
       return realWrite(path, content, mode);
     };
-    const deps = baseApplyDeps({ probes, steps: [fakeStep("path.link", { state: "done" })], version: "2.15.0", migrations: [], printError: (s) => errors.push(s) });
+    const deps = baseApplyDeps({ probes, steps: [fakeStep("path.link", { state: "done" })], version: "2.15.0", migrations: [] });
     await setupApply(["--json"], {}, deps);
     expect(deps.exitCodes).toEqual([]);
-    expect(errors.some((e) => e.startsWith("rt setup apply: update version not stamped: disk full"))).toBe(true);
+    for (const line of deps.lines) expect(JSON.parse(line).event).toBeDefined();
+    const log = readdirSync(logsDir()).filter((f) => f.startsWith("cli.")).map((f) => readFileSync(`${logsDir()}/${f}`, "utf8")).join("");
+    expect(log).toContain("disk full");
   });
 
   test("a failed run and a partial run stamp no version", async () => {
@@ -583,19 +605,30 @@ describe("setupApply: a full run with nothing left to finish records Finish", ()
     }
   });
 
-  test("a gate that cannot be read leaves setup unfinished and says so on stderr, never on the stream", async () => {
-    const errors: string[] = [];
-    const deps = baseApplyDeps({
-      steps: [fakeStep("path.link", { state: "done" })],
-      planForFinish: async () => {
-        throw new Error("keychain locked");
-      },
-      printError: (s) => errors.push(s),
-    });
-    await setupApply(["--json"], {}, deps);
-    expect(finished(deps.probes)).toBe(false);
-    expect(errors.join("\n")).toContain("keychain locked");
-    expect(deps.lines.every((l) => JSON.parse(l).event !== undefined)).toBe(true);
+  test("a finish check that throws under --json reaches the log, never stdout", async () => {
+    const cap = capturePlain();
+    try {
+      const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })], planForFinish: async () => { throw new Error("keychain locked"); }, json: realJson });
+      await setupApply(["--json"], {}, deps);
+      expect(finished(deps.probes)).toBe(false);
+      for (const line of cap.stdout().trim().split("\n")) expect(JSON.parse(line).event).toBeDefined();
+      expect(cap.stderr()).toBe("");
+      const log = readdirSync(logsDir()).filter((f) => f.startsWith("cli.")).map((f) => readFileSync(`${logsDir()}/${f}`, "utf8")).join("");
+      expect(log).toContain("keychain locked");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("a finish check that throws for a person is a warning line on stdout", async () => {
+    const cap = capturePlain();
+    try {
+      const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })], planForFinish: async () => { throw new Error("keychain locked"); } });
+      await setupApply([], {}, deps);
+      expect(cap.stdout()).toContain("[warning] Setup was left unfinished because the finish check failed  keychain locked\n");
+    } finally {
+      cap.restore();
+    }
   });
 });
 
@@ -607,8 +640,20 @@ describe("setupApply — hard-precondition gate", () => {
 
     expect(deps.exitCodes).toEqual([2]);
     const payload = JSON.parse(deps.lines[0]!) as { error: { message: string } };
-    expect(payload.error.message).toContain("blocked by: tool.clt");
-    expect(payload.error.message).toContain("xcode-select --install");
+    expect(payload.error.message).toBe("This Mac is not ready to install yet: Apple's Command Line Tools are not installed");
+  });
+
+  test("for a person the hard gate is a failure block with plain words and the install verb to run", async () => {
+    const cap = capturePlain();
+    try {
+      const deps = baseApplyDeps({ steps: [neverRunsStep("home.init")], planForGate: async () => ({ requiredMissing: ["tool.clt"] }) });
+      await runExpectingExit(() => setupApply([], {}, deps));
+      expect(deps.exitCodes).toEqual([2]);
+      expect(cap.stdout()).toBe("");
+      expect(cap.stderr()).toBe("[failed] This Mac is not ready to install yet\n  why: Apple's Command Line Tools are not installed\n  next: rt tools install apple-clt\n");
+    } finally {
+      cap.restore();
+    }
   });
 
   test("non-hard requiredMissing rows (herdr) do not block a headless apply", async () => {

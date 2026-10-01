@@ -77,14 +77,19 @@ describe("setupPlan", () => {
     expect(payload.error.message).toContain("ghost");
   });
 
-  test("--team naming an unknown team, human mode: exit 2 with a one-line rt-prefixed message", async () => {
-    const deps = captureDeps();
-    const exitCode = await runExpectingExit(() => setupPlan(["--team", "ghost"], {}, deps));
-
-    expect(exitCode).toBe(2);
-    expect(deps.lines).toHaveLength(1);
-    expect(deps.lines[0]).toStartWith("rt setup: ");
-    expect(deps.lines[0]).toContain("ghost");
+  test("--team naming an unknown team, human mode: exit 2 with a failure block on stderr", async () => {
+    const cap = capturePlain();
+    try {
+      const deps = captureDeps();
+      const exitCode = await runExpectingExit(() => setupPlan(["--team", "ghost"], {}, deps));
+      expect(exitCode).toBe(2);
+      expect(deps.lines).toEqual([]);
+      expect(cap.stdout()).toBe("");
+      expect(cap.stderr()).toStartWith("[failed] ");
+      expect(cap.stderr()).toContain("ghost");
+    } finally {
+      cap.restore();
+    }
   });
 });
 

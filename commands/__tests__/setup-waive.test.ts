@@ -85,8 +85,13 @@ describe("rt setup waive", () => {
 
   test("no id off a TTY exits 2 with usage, never a picker", async () => {
     const t = deps();
-    expect(await exitCode(() => setupWaive([], {}, t.d))).toBe(2);
-    expect(t.lines[0]).toBe("rt setup waive: usage: rt setup waive <row-id> [--json]");
+    const cap = capturePlain();
+    try {
+      expect(await exitCode(() => setupWaive([], {}, t.d))).toBe(2);
+      expect(cap.stderr()).toStartWith("[failed] usage: rt setup waive <row-id> [--json]\n");
+    } finally {
+      cap.restore();
+    }
     expect(t.picked()).toBeNull();
   });
 
@@ -147,8 +152,14 @@ describe("rt setup unwaive", () => {
 
   test("an id that is not finish-gated exits 2", async () => {
     const t = deps();
-    expect(await exitCode(() => setupUnwaive(["tool.chrome"], {}, t.d))).toBe(2);
-    expect(t.lines[0]).toStartWith("rt setup unwaive: ");
+    const cap = capturePlain();
+    try {
+      expect(await exitCode(() => setupUnwaive(["tool.chrome"], {}, t.d))).toBe(2);
+      expect(cap.stderr()).toStartWith("[failed] ");
+    } finally {
+      cap.restore();
+    }
+    expect(t.lines).toEqual([]);
   });
 
   test("a row that was never skipped says so instead of claiming to re-arm it, and the envelope carries changed:false", async () => {
@@ -175,9 +186,14 @@ describe("rt setup unwaive", () => {
 
   test("no id on a TTY with nothing skipped falls through to the usage error, never an empty picker", async () => {
     const t = deps({ isTTY: () => true });
-    expect(await exitCode(() => setupUnwaive([], {}, t.d))).toBe(2);
+    const cap = capturePlain();
+    try {
+      expect(await exitCode(() => setupUnwaive([], {}, t.d))).toBe(2);
+      expect(cap.stderr()).toStartWith("[failed] usage: rt setup unwaive <row-id> [--json]\n");
+    } finally {
+      cap.restore();
+    }
     expect(t.picked()).toBeNull();
-    expect(t.lines[0]).toBe("rt setup unwaive: usage: rt setup unwaive <row-id> [--json]");
   });
 });
 

@@ -27,13 +27,15 @@ import { setSetting } from "../lib/settings/write.ts";
 import * as out from "../lib/ui/out.ts";
 import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
 import { MIGRATIONS, type MigrationDef } from "../lib/setup/migrations/index.ts";
-import { decideUpdate, rtVersion, summarizeUpdate, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
+import { decideUpdate, rtVersion, updateNotification, SETUP_UPDATE_CATEGORY } from "../lib/setup/update.ts";
 import { createUpdateLock, updateLockPath, type UpdateLock } from "../lib/setup/update-lock.ts";
 import { readSetupState, updateSetupState } from "../lib/setup/state.ts";
 import { notifyEnabled } from "../lib/notifier.ts";
-import { envelope, STEP_IDS, WAIVABLE_ROW_IDS, type ApplyEvent, type ConnectField, type Integration, type StepId } from "../lib/setup/contract.ts";
-import { createHumanEmitter } from "../lib/setup/emit.ts";
-import { UserActionableError, userErrorPayload } from "../lib/errors.ts";
+import { envelope, STEP_IDS, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type StepId } from "../lib/setup/contract.ts";
+import { createStepEmitter, type Emit, type StepEmitterLabels } from "../lib/setup/emit.ts";
+import { exitWithUserError, type UserErrorSink } from "../lib/setup/user-failure.ts";
+import { logCliEvent } from "../lib/cli-logger.ts";
+import { UserActionableError } from "../lib/errors.ts";
 import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverStore } from "../lib/setup/finish-gate.ts";
 import { isValidHostname, isValidHttpsUrl } from "../lib/setup/host-validate.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
@@ -86,7 +88,25 @@ function flagValue(args: string[], flag: string): string | undefined {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
-async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status", verb: string): Promise<void> {
+function sinkOf(deps: { json: (value: unknown) => void; exit?: (code: number) => never; probes: Pick<Probes, "now"> }): UserErrorSink {
+  return { json: deps.json, exit: deps.exit ?? process.exit, now: () => deps.probes.now() };
+}
+
+const APPLY_LABELS: StepEmitterLabels = { done: "Setup is done", needsYou: "Setup needs you", failed: "Setup stopped" };
+const UPDATE_LABELS: StepEmitterLabels = { done: "Everything is up to date", needsYou: "The update needs you", failed: "Part of the update failed" };
+
+/** Streamed step lines go to the log at debug: the screen erases them, the log keeps every level. */
+function stepLog(module: string): (id: string, line: string) => void {
+  return (id, line) => logCliEvent("debug", module, line, { step: id });
+}
+
+/** A caveat worth a line for a person; under --json only the log keeps it, since stdout is the stream. */
+function warnLine(json: boolean, title: string, detail: string): void {
+  logCliEvent("warn", "setup", `${title}: ${detail}`);
+  if (!json) out.print(out.line("warn", title, detail));
+}
+
+async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status"): Promise<void> {
   const json = args.includes("--json");
   let plan: Plan;
   try {
@@ -99,7 +119,7 @@ async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status",
       teamOverride: flagValue(args, "--team"),
     });
   } catch (err) {
-    if (err instanceof UserActionableError) exitWithUserError(err, json, verb, deps);
+    if (err instanceof UserActionableError) exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 
@@ -111,11 +131,11 @@ async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status",
 }
 
 export async function setupPlan(args: string[], _ctx: CommandContext = {}, deps: SetupDeps = realSetupDeps()): Promise<void> {
-  await runPlan(args, deps, "plan", "setup");
+  await runPlan(args, deps, "plan");
 }
 
 export async function setupStatus(args: string[], _ctx: CommandContext = {}, deps: SetupDeps = realSetupDeps()): Promise<void> {
-  await runPlan(args, deps, "status", "setup");
+  await runPlan(args, deps, "status");
 }
 
 // ─── apply (`rt setup apply`) ──────────────────────────────────────────────
@@ -132,10 +152,7 @@ export interface ApplyDeps {
   planForGate?: () => Promise<{ requiredMissing: string[] }>;
   /** Overrides the plan a finished full run reads its finish blockers from. */
   planForFinish?: () => Promise<{ finishBlockedBy: string[] }>;
-  /** Diagnostics kept off stdout, where `--json` streams NDJSON. */
-  printError?: (s: string) => void;
   needOpts?: CreateApplyContextDeps["needOpts"];
-  print: (s: string) => void;
   /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
   json: (value: unknown) => void;
   exit: (code: number) => never;
@@ -157,7 +174,6 @@ export function realApplyDeps(): ApplyDeps {
     probes,
     secrets: { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
     relay: createRelayClient(probes.fetch, inviteRelayUrl(probes.env)),
-    print: (s) => console.log(s),
     json: (v) => out.json(v),
     exit: process.exit,
     isTTY: () => process.stdin.isTTY === true,
@@ -181,9 +197,7 @@ function applyFlags(args: string[]): { nonInteractive: boolean; teamOfOne: boole
 /**
  * `rt setup apply [--from <stepId>] --json` — the verb the app spawns for
  * Install. `--json` mode emits ONLY NDJSON on stdout, one object per line
- * (the app's spawn-and-parse contract); every other flag/branch below prints
- * through `deps.print`/`emit`, never a bare `console.*` call, so that
- * invariant holds regardless of which flags are passed. `--no-launch` (and
+ * (the app's spawn-and-parse contract). `--no-launch` (and
  * `--ci`/`CI=true`, which implies it) is accepted for compatibility with
  * scripts/e2e-cleanroom.sh and release.yml's headless job — nothing in this
  * flow (nor any of the 22 step bodies) ever spawns `open` on a GUI app, so
@@ -222,9 +236,11 @@ function resolveStepSelection(args: string[]): { from?: StepId; only?: StepId } 
  */
 const HARD_PRECONDITION_IDS = new Set(["tool.macos", "tool.clt"]);
 
-const HARD_PRECONDITION_REMEDY: Record<string, string> = {
-  "tool.clt": "install Apple's Command Line Tools (rt tools install apple-clt, or xcode-select --install), then rerun",
-  "tool.macos": "rt requires macOS 14 or newer",
+const NOT_READY_TITLE = "This Mac is not ready to install yet";
+
+const HARD_PRECONDITION_COPY: Record<string, { why: string; next?: string }> = {
+  "tool.clt": { why: "Apple's Command Line Tools are not installed", next: "rt tools install apple-clt" },
+  "tool.macos": { why: "rt needs macOS 14 or newer" },
 };
 
 async function gateHardPreconditions(args: string[], deps: ApplyDeps): Promise<void> {
@@ -233,13 +249,17 @@ async function gateHardPreconditions(args: string[], deps: ApplyDeps): Promise<v
     composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() }));
   const hard = plan.requiredMissing.filter((id) => HARD_PRECONDITION_IDS.has(id));
   if (hard.length === 0) return;
-  const remedies = hard.map((id) => HARD_PRECONDITION_REMEDY[id] ?? id).join("; ");
-  throw new UserActionableError("not-ready", `blocked by: ${hard.join(", ")} — ${remedies}`);
+  // A hard id with no copy entry still names itself, so the person is never told nothing.
+  const copy = hard.map((id): { why: string; next?: string } => HARD_PRECONDITION_COPY[id] ?? { why: `${id} is not ready` });
+  const why = copy.map((c) => c.why).join(". ");
+  const next = copy.length === 1 ? copy[0]!.next : undefined;
+  throw new UserActionableError("not-ready", `${NOT_READY_TITLE}: ${why}`, {}, { why, ...(next ? { next } : {}) });
 }
 
 export async function setupApply(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
   const json = args.includes("--json");
-  const emit = json ? (ev: ApplyEvent) => deps.json(ev) : createHumanEmitter(deps.print);
+  const human = json ? null : createStepEmitter({ labels: APPLY_LABELS, log: stepLog("setup.apply") });
+  const emit: Emit = human ? human.emit : (ev) => deps.json(ev);
 
   let result: { ok: boolean; failedStep?: StepId };
   let selection: { from?: StepId; only?: StepId } = {};
@@ -254,17 +274,17 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
       secretPresence: deps.secretPresence,
       flags: applyFlags(args),
       needOpts: deps.needOpts,
+      ...(human ? { tip: human.tip } : {}),
     });
     result = await runApplyWith(deps.steps ?? STEPS, ctx, selection);
   } catch (err) {
+    await human?.flush();
     if (err instanceof UserActionableError) {
       // Thrown before `plan` ever reaches the stream — a malformed/unknown
       // --from or --only, or the two given together, so nothing else has
       // gone out yet; print the same exit-2 envelope every other setup verb
       // uses.
-      if (json) deps.json(userErrorPayload(err, deps.probes.now()));
-      else deps.print(`rt setup apply: ${err.message}`);
-      return deps.exit(2);
+      return exitWithUserError(err, json, sinkOf(deps), err.code === "not-ready" ? { title: NOT_READY_TITLE } : undefined);
     }
     // A real bug — whether it happened building the context (nothing ever
     // reached the stream) or inside runApplyWith (apply.ts's `finally`
@@ -274,10 +294,11 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
     throw err;
   }
 
-  if (!result.ok) deps.exit(2);
+  await human?.flush();
+  if (!result.ok) return deps.exit(2);
   if (selection.from === undefined && selection.only === undefined) {
-    stampUpdateWhenNothingPends(deps);
-    await finishIfClear(deps);
+    stampUpdateWhenNothingPends(deps, json);
+    await finishIfClear(deps, json);
   }
 }
 
@@ -286,13 +307,13 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
  * migration still needs one. Unstamped, the update run a fresh Mac's Finish
  * starts would redo the whole Install.
  */
-function stampUpdateWhenNothingPends(deps: ApplyDeps): void {
+function stampUpdateWhenNothingPends(deps: ApplyDeps, json: boolean): void {
   try {
     const applied = readSetupState(deps.probes).migrations;
     if ((deps.migrations ?? MIGRATIONS).some((m) => !applied.includes(m.id))) return;
     updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version: deps.version ?? rtVersion(), at: deps.probes.now().toISOString() } }));
   } catch (err) {
-    (deps.printError ?? console.error)(`rt setup apply: update version not stamped: ${err instanceof Error ? err.message : String(err)}`);
+    warnLine(json, "The update version was not saved", err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -301,13 +322,13 @@ function stampUpdateWhenNothingPends(deps: ApplyDeps): void {
  * leaves none has done everything Finish would, and a terminal or
  * `--post-install` setup has no wizard to press it in.
  */
-async function finishIfClear(deps: ApplyDeps): Promise<void> {
+async function finishIfClear(deps: ApplyDeps, json: boolean): Promise<void> {
   try {
     const plan = await (deps.planForFinish?.() ??
       composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() }));
     if (plan.finishBlockedBy.length === 0) markSetupFinished(deps.probes);
   } catch (err) {
-    (deps.printError ?? console.error)(`rt setup apply: setup left unfinished, the finish check failed: ${err instanceof Error ? err.message : String(err)}`);
+    warnLine(json, "Setup was left unfinished because the finish check failed", err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -321,27 +342,26 @@ async function finishIfClear(deps: ApplyDeps): Promise<void> {
  */
 export async function setupUpdate(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
   const json = args.includes("--json");
-  const emit = json ? (ev: ApplyEvent) => deps.json(ev) : createHumanEmitter(deps.print);
+  const human = json ? null : createStepEmitter({ labels: UPDATE_LABELS, log: stepLog("setup.update") });
+  const emit: Emit = human ? human.emit : (ev) => deps.json(ev);
   const version = deps.version ?? rtVersion();
 
   for (const flag of ["--from", "--only"]) {
     if (args.includes(flag)) {
-      const err = new UserActionableError("unknown-flag", `${flag} is not a setup update flag: an update run always runs every update-safe step`);
-      if (json) deps.json(userErrorPayload(err, deps.probes.now()));
-      else deps.print(`rt setup update: ${err.message}`);
-      return deps.exit(2);
+      const err = new UserActionableError("unknown-flag", `${flag} does not apply to an update, which always runs every safe step`);
+      return exitWithUserError(err, json, sinkOf(deps));
     }
   }
 
   const decision = decideUpdate(deps.probes, version, args.includes("--force"));
   if (decision.kind === "not-set-up") {
     if (json) emit({ event: "done", ok: true, skipped: "not-set-up" });
-    else deps.print("setup update: setup has not finished on this Mac");
+    else out.print(out.line("pending", "Setup has not finished on this Mac yet"), out.callout("next", out.cmd("rt setup install")));
     return;
   }
   if (decision.kind === "current") {
     if (json) emit({ event: "done", ok: true, skipped: "current" });
-    else deps.print(`setup update: already applied for ${decision.version}`);
+    else out.print(out.line("skipped", "Nothing to update", `already applied for ${decision.version}`));
     return;
   }
 
@@ -357,7 +377,7 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
   }
   if (busy) {
     if (json) emit({ event: "done", ok: true, skipped: "running" });
-    else deps.print("setup update: another update run is in progress");
+    else out.print(out.line("skipped", "Another update is already running"));
     return;
   }
 
@@ -372,6 +392,7 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
       secretPresence: deps.secretPresence,
       flags: { nonInteractive: true, teamOfOne: false, ci: process.env.CI === "true", update: true },
       needOpts: deps.needOpts,
+      ...(human ? { tip: human.tip } : {}),
     });
     const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx);
     const lastId = result.outcomes.at(-1)?.id;
@@ -387,11 +408,11 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
     const notification = updateNotification(version, result.outcomes);
     if (notification) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notification.title, notification.message, notification.id);
 
-    if (!json) deps.print(`setup update: ${summarizeUpdate(result.outcomes)}`);
     needsAttention = notification !== null;
   } finally {
     lock?.release();
   }
+  await human?.flush();
   if (needsAttention) deps.exit(2);
 }
 
@@ -406,7 +427,6 @@ function packErrorCode(result: { stage?: string; detail: string }): string {
 
 export async function setupPack(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
   const json = args.includes("--json");
-  const verb = "setup pack";
   try {
     const ctx: ApplyContext = await createApplyContext({
       probes: deps.probes,
@@ -422,13 +442,9 @@ export async function setupPack(args: string[], _ctx: CommandContext = {}, deps:
       throw new UserActionableError(packErrorCode(result), result.detail, result.stage ? { stage: result.stage } : {});
     }
     if (json) deps.json(envelope({ ok: true, detail: result.detail }, deps.probes.now()));
-    else deps.print(`setup pack: ${result.detail}`);
+    else out.print(out.line("done", "Pack is set up", result.detail));
   } catch (err) {
-    if (err instanceof UserActionableError) {
-      if (json) deps.json(userErrorPayload(err, deps.probes.now()));
-      else deps.print(`rt ${verb}: ${err.message}`);
-      return deps.exit(2);
-    }
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 }
@@ -443,7 +459,7 @@ export async function setupPack(args: string[], _ctx: CommandContext = {}, deps:
  */
 export async function setupInteractive(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
   const json = args.includes("--json");
-  const setupDeps: SetupDeps = { probes: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), print: deps.print, json: deps.json, exit: deps.exit };
+  const setupDeps: SetupDeps = { probes: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), print: () => {}, json: deps.json, exit: deps.exit };
 
   if (!deps.isTTY() || json) return setupStatus(args, _ctx, setupDeps);
 
@@ -465,14 +481,13 @@ export async function setupInteractive(args: string[], _ctx: CommandContext = {}
 
 export interface IntentDeps {
   probes: Probes;
-  print: (s: string) => void;
   /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
   json: (value: unknown) => void;
   exit: (code: number) => never;
 }
 
 export function realIntentDeps(): IntentDeps {
-  return { probes: createRealProbes(), print: (s) => console.log(s), json: (v) => out.json(v), exit: process.exit };
+  return { probes: createRealProbes(), json: (v) => out.json(v), exit: process.exit };
 }
 
 // Safe as a directory-name-free identifier and readable in a log line — not a
@@ -485,7 +500,7 @@ function printIntentResult(deps: IntentDeps, json: boolean, body: Record<string,
     deps.json(envelope(body, deps.probes.now()));
     return;
   }
-  deps.print(`setup intent: ${body.mode}${body.homeRepo ? ` ${body.homeRepo}` : ""}`);
+  out.print(out.line("done", "Setup intent recorded", `${body.mode}${body.homeRepo ? ` ${body.homeRepo}` : ""}`));
 }
 
 /**
@@ -526,11 +541,7 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
     }
     throw new UserActionableError("bad-args", "usage: rt setup intent restore <org>/<repo> | rt setup intent solo | rt setup intent clear");
   } catch (err) {
-    if (err instanceof UserActionableError) {
-      if (json) deps.json(userErrorPayload(err, deps.probes.now()));
-      else deps.print(`rt setup intent: ${err.message}`);
-      return deps.exit(2);
-    }
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 }
@@ -540,19 +551,19 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
 export type FinishDeps = IntentDeps;
 
 export interface AfterFinish {
-  update(opts: { json: boolean; print: (s: string) => void }): Promise<void>;
-  printError(s: string): void;
+  update(opts: { json: boolean }): Promise<void>;
+  warn(title: string, detail: string): void;
 }
 
 /** The update run Finish starts. In `--json` it prints nothing, so `rt setup finish --json` stays one envelope, and a needs-you item never turns the Finish into an exit 2: the run notifies on its own. */
-export async function updateAfterFinish(opts: { json: boolean; print: (s: string) => void }, deps: ApplyDeps = realApplyDeps()): Promise<void> {
-  const quiet: ApplyDeps = { ...deps, print: opts.json ? () => {} : opts.print, json: opts.json ? () => {} : deps.json, exit: (() => undefined) as unknown as ApplyDeps["exit"] };
+export async function updateAfterFinish(opts: { json: boolean }, deps: ApplyDeps = realApplyDeps()): Promise<void> {
+  const quiet: ApplyDeps = { ...deps, json: opts.json ? () => {} : deps.json, exit: (() => undefined) as unknown as ApplyDeps["exit"] };
   await setupUpdate(opts.json ? ["--json"] : [], {}, quiet);
 }
 
 const REAL_AFTER_FINISH: AfterFinish = {
   update: (opts) => updateAfterFinish(opts),
-  printError: (s) => console.error(s),
+  warn: (title, detail) => out.print(out.line("warn", title, detail)),
 };
 
 /** mattstack.app runs this at the wizard's Finish; until it has, every launch reopens setup. */
@@ -560,14 +571,14 @@ export async function setupFinish(args: string[], _ctx: CommandContext = {}, dep
   const json = args.includes("--json");
   const { finishedAt } = markSetupFinished(deps.probes);
   if (json) deps.json(envelope({ ok: true, finishedAt }, deps.probes.now()));
-  else deps.print("setup finish: setup is finished on this Mac");
+  else out.print(out.line("done", "Setup is finished on this Mac"));
 
   // The launch-time update run skipped this Mac while setup was open, so
   // without one here a pending migration would wait for the next launch.
   try {
-    await after.update({ json, print: deps.print });
+    await after.update({ json });
   } catch (err) {
-    after.printError(`rt setup finish: the update run after Finish did not complete: ${err instanceof Error ? err.message : String(err)}`);
+    after.warn("The update after Finish did not finish", err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -616,7 +627,6 @@ function extractRepoRootArg(input: unknown): string | null {
  */
 export async function setupRepoRootSet(args: string[], _ctx: CommandContext = {}, deps: RepoRootDeps = realRepoRootDeps()): Promise<void> {
   const json = args.includes("--json");
-  const verb = "setup repo-root set";
   try {
     let raw = args.find((a) => !a.startsWith("--"));
     if (!raw) {
@@ -654,7 +664,7 @@ export async function setupRepoRootSet(args: string[], _ctx: CommandContext = {}
     if (json) deps.json(envelope({ path: check.path, tccWarning: check.tccWarning }, deps.probes.now()));
     else deps.print(`setup repo-root set: ${check.path}${check.tccWarning ? ` (${check.tccWarning})` : ""}`);
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, verb, deps);
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 }
@@ -720,7 +730,6 @@ function assertRemoteUrl(url: string): void {
  */
 export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, deps: HomeRemoteDeps = realHomeRemoteDeps()): Promise<void> {
   const json = args.includes("--json");
-  const verb = "home remote set";
   try {
     const nameFlagAt = args.indexOf("--name");
     const nameValueAt = nameFlagAt >= 0 ? nameFlagAt + 1 : -1;
@@ -788,19 +797,12 @@ export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, d
     if (json) deps.json(envelope({ url, remote, pushed: true, created }, deps.probes.now()));
     else deps.print(`home remote set: origin -> ${url}, pushed${created ? " (repo created)" : ""}`);
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, verb, deps);
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 }
 
 // ─── Per-integration verbs ─────────────────────────────────────────────────
-
-/** Prints the exit-2 envelope (JSON or a one-line human message) then exits 2, through `deps.exit` so tests never kill the process. Timestamps via `deps.probes.now()`, the same clock every success envelope uses. */
-function exitWithUserError(err: UserActionableError, json: boolean, verb: string, deps: Pick<SetupDeps, "probes" | "print" | "json" | "exit">): never {
-  if (json) deps.json(userErrorPayload(err, deps.probes.now()));
-  else deps.print(`rt ${verb}: ${err.message}`);
-  return (deps.exit ?? process.exit)(2);
-}
 
 /** Reads and writes user-scope credentials: store ready (age key + user/.sops.yaml) → the real sops store; otherwise the connect-verb caller stages instead. */
 export interface SecretWriter {
@@ -1119,7 +1121,6 @@ async function evalGeneric(id: Integration, p: Probes, secrets: SecretPresence, 
 
 export async function integrationStatus(id: Integration, args: string[], deps: SetupDeps): Promise<void> {
   const json = args.includes("--json");
-  const verb = `setup ${id} status`;
   try {
     const snapshot = snapshotFor(deps);
     const ctx = ctxFor(id, snapshot, overridesFor(deps));
@@ -1133,7 +1134,7 @@ export async function integrationStatus(id: Integration, args: string[], deps: S
     if (r.owners) body.owners = r.owners;
     printIntegrationResult(deps, json, body);
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, verb, deps);
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 }
@@ -1184,7 +1185,7 @@ async function runWaiver(args: string[], deps: WaiveDeps, verb: "waive" | "unwai
       id = (await deps.pick(verb === "waive" ? "Skip which row on this Mac?" : "Re-arm which row on this Mac?", candidates)) ?? undefined;
       if (!id) return deps.exit(0);
     } else {
-      return exitWithUserError(new UserActionableError("usage", `usage: rt setup ${verb} <row-id> [--json]`), json, `setup ${verb}`, deps);
+      return exitWithUserError(new UserActionableError("usage", `usage: rt setup ${verb} <row-id> [--json]`), json, sinkOf(deps));
     }
   }
 
@@ -1192,7 +1193,7 @@ async function runWaiver(args: string[], deps: WaiveDeps, verb: "waive" | "unwai
   try {
     change = verb === "waive" ? waiveRow(id, deps.store) : unwaiveRow(id, deps.store);
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, `setup ${verb}`, deps);
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     // A store the resolver refused to edit is reported as it was raised; the
     // app shows it in its sheet and keeps the gate closed.
     deps.printError(`rt setup ${verb}: ${err instanceof Error ? err.message : String(err)}`);
@@ -1470,13 +1471,12 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
 
 export async function integrationConnect(id: Integration, args: string[], deps: ConnectDeps): Promise<void> {
   const json = args.includes("--json");
-  const verb = `setup ${id} connect`;
   try {
     if (id === "slack") return await connectSlack(args, deps);
     if (id === "doppler" || id === "ldcli") return await connectCliSession(id, args, deps);
     return await connectCredential(id, args, deps);
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, verb, deps);
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 }
@@ -1527,7 +1527,6 @@ async function readConfigToken(deps: ConnectDeps): Promise<string> {
 
 export async function setupSlackCreateApp(args: string[], _ctx: CommandContext = {}, deps: ConnectDeps = realConnectDeps()): Promise<void> {
   const json = args.includes("--json");
-  const verb = "setup slack create-app";
   try {
     const configToken = await readConfigToken(deps);
     const snapshot = snapshotFor(deps);
@@ -1586,7 +1585,7 @@ export async function setupSlackCreateApp(args: string[], _ctx: CommandContext =
       scopesSeen: [],
     });
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, verb, deps);
+    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     throw err;
   }
 }

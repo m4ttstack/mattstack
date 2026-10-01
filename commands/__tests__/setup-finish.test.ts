@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { setupFinish, type AfterFinish, type FinishDeps } from "../setup.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import { isSetupFinished, readSetupState } from "../../lib/setup/state.ts";
+import { capturePlain } from "./helpers/json-line.ts";
 
 function deps(): FinishDeps & { probes: ReturnType<typeof fakeProbes>; lines: string[] } {
   const lines: string[] = [];
   return {
     probes: fakeProbes({ now: new Date("2026-09-30T12:00:00.000Z") }),
-    print: (s) => lines.push(s),
     json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       throw new Error(`exit ${code}`);
@@ -16,26 +16,32 @@ function deps(): FinishDeps & { probes: ReturnType<typeof fakeProbes>; lines: st
   };
 }
 
-function after(run: AfterFinish["update"] = async () => {}): AfterFinish & { calls: boolean[]; errors: string[] } {
+function after(run: AfterFinish["update"] = async () => {}): AfterFinish & { calls: boolean[]; warnings: string[] } {
   const calls: boolean[] = [];
-  const errors: string[] = [];
+  const warnings: string[] = [];
   return {
     update: async (opts) => {
       calls.push(opts.json);
       await run(opts);
     },
-    printError: (s) => errors.push(s),
+    warn: (title, detail) => warnings.push(`${title}: ${detail}`),
     calls,
-    errors,
+    warnings,
   };
 }
 
 describe("setupFinish", () => {
   test("records setup as finished on this Mac", async () => {
     const d = deps();
-    await setupFinish([], {}, d, after());
-    expect(isSetupFinished(readSetupState(d.probes))).toBe(true);
-    expect(d.lines).toEqual(["setup finish: setup is finished on this Mac"]);
+    const cap = capturePlain();
+    try {
+      await setupFinish([], {}, d, after());
+      expect(isSetupFinished(readSetupState(d.probes))).toBe(true);
+      expect(cap.stdout()).toBe("[ok] Setup is finished on this Mac\n");
+    } finally {
+      cap.restore();
+    }
+    expect(d.lines).toEqual([]);
   });
 
   test("--json answers with the recorded moment", async () => {
@@ -63,6 +69,6 @@ describe("setupFinish", () => {
     });
     await setupFinish([], {}, d, a);
     expect(isSetupFinished(readSetupState(d.probes))).toBe(true);
-    expect(a.errors).toEqual(["rt setup finish: the update run after Finish did not complete: boom"]);
+    expect(a.warnings).toEqual(["The update after Finish did not finish: boom"]);
   });
 });

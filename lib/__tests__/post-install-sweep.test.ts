@@ -135,7 +135,6 @@ function fakeApplyDeps(overrides: { steps?: StepDef[] } = {}): ApplyDeps & { exi
     secrets: fakeSecrets,
     relay: fakeRelay,
     secretPresence: { async has() { return null; } },
-    print: (s) => lines.push(s),
     json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
