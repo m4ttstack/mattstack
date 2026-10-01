@@ -14,7 +14,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # Which of this PR's files can affect the glitter board. Cheap ubuntu job so
+  # Which of this PR's files can affect what the pty gate paints. Cheap ubuntu job so
   # the expensive macos one below can be skipped outright.
   changes:
     runs-on: ubuntu-latest

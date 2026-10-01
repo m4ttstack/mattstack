@@ -66,21 +66,24 @@ describe("the error seam through a pty", () => {
     const session = await start(home.path, ["repos", "reidentify", "github.com/acme/only-one"]);
     open = { session, cleanupHome: home.cleanup };
 
-    await session.waitForText("takes two identities", PAINT_TIMEOUT);
+    await session.waitForText("__rt_exit=2", PAINT_TIMEOUT);
     const screen = await session.screen();
     expect(screen).toContain("✗");
+    expect(screen).toContain("takes two identities");
     expect(screen).not.toContain("rt repos reidentify:");
     expect(screen).not.toContain("    at ");
   });
 
-  test("an unexpected error paints one line, points at the log, and keeps the stack there", async () => {
+  test("an unexpected error paints one line, points at the log, keeps the stack there and exits 1", async () => {
     const home = createTestHome();
     installThrowingPlugin(home.path);
     const session = await start(home.path, ["pty-seam-boom"]);
     open = { session, cleanupHome: home.cleanup };
 
-    await session.waitForText("rt hit an unexpected error", PAINT_TIMEOUT);
+    await session.waitForText("__rt_exit=1", PAINT_TIMEOUT);
     const screen = await session.screen();
+    expect(screen).toContain("✗");
+    expect(screen).toContain("rt hit an unexpected error");
     expect(screen).toContain("kaboom from the pty gate");
     expect(screen).toContain("rt daemon logs");
     expect(screen).not.toContain("    at ");
