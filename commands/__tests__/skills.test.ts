@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { compilePackAll, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsMaterialize, skillsPacks } from "../skills.ts";
@@ -2664,6 +2664,30 @@ describe("skillsChanges --json", () => {
     const { exitCode, stderr } = await runSkillsCapturing(["changes", "--pack", "acme", "--pack-dir", packDir, "--json"]);
     expect(exitCode).toBe(1);
     expect(stderr).toContain("not inside a git checkout");
+  });
+
+  test("a git failure other than a missing repository carries git's own message", async () => {
+    const packDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-badgit-")));
+    writeFile(join(packDir, ".git", "HEAD"), "ref: refs/heads/main\n");
+    mkdirSync(join(packDir, ".git", "objects"));
+    mkdirSync(join(packDir, ".git", "refs"));
+    writeFile(join(packDir, ".git", "config"), "[[[\n");
+    const { exitCode, stderr } = await runSkillsCapturing(["changes", "--pack", "acme", "--pack-dir", packDir, "--json"]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("config");
+    expect(stderr).not.toContain("not inside a git checkout");
+  });
+
+  test("reading changes never rewrites the index, so a concurrent git add is not locked out", async () => {
+    const { packDir } = makeCommittedPack();
+    const readme = join(packDir, "README.md");
+    utimesSync(readme, new Date(Date.now() + 120_000), new Date(Date.now() + 120_000));
+    const indexPath = join(packDir, ".git", "index");
+    const before = readFileSync(indexPath);
+
+    await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(readFileSync(indexPath).equals(before)).toBe(true);
   });
 
   test("prints ONLY json -- no human lines on stdout", async () => {

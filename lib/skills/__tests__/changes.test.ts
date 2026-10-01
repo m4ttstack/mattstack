@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bindingChanges, inScope, parsePorcelain, relativeToPrefix, surfaceChanges } from "../changes.ts";
+import { bindingChanges, describeGitFailure, inScope, isNotARepo, parsePorcelain, relativeToPrefix, surfaceChanges } from "../changes.ts";
 
 describe("parsePorcelain", () => {
   test("reads status and path, including renames and untracked", () => {
@@ -15,6 +15,35 @@ describe("parsePorcelain", () => {
       { path: "attachments/my skill/SKILL.md", status: "??" },
       { path: "c d.md", status: "R" },
     ]);
+  });
+});
+
+describe("parsePorcelain quoting", () => {
+  test("decodes octal byte escapes as UTF-8", () => {
+    expect(parsePorcelain('?? "caf\\303\\251.md"\n')).toEqual([{ path: "café.md", status: "??" }]);
+  });
+
+  test("decodes git's named escapes", () => {
+    expect(parsePorcelain('?? "a\\tb\\nc\\rd\\ae\\bf\\fg\\vh\\"i\\\\j.md"\n')).toEqual([
+      { path: 'a\tb\nc\rd\x07e\x08f\x0cg\x0bh"i\\j.md', status: "??" },
+    ]);
+  });
+
+  test("keeps a name outside the basic plane whole", () => {
+    expect(parsePorcelain('?? "attachments/\u{1F600} notes.md"\n')).toEqual([{ path: "attachments/\u{1F600} notes.md", status: "??" }]);
+  });
+});
+
+describe("parsePorcelain arrows", () => {
+  test("an untracked name containing an arrow is one path", () => {
+    expect(parsePorcelain('?? "a -> b.md"\n?? c -> d.md\n')).toEqual([
+      { path: "a -> b.md", status: "??" },
+      { path: "c -> d.md", status: "??" },
+    ]);
+  });
+
+  test("a copy splits on the arrow like a rename", () => {
+    expect(parsePorcelain("C  a.md -> b.md\n")).toEqual([{ path: "b.md", status: "C" }]);
   });
 });
 
@@ -57,6 +86,32 @@ describe("bindingChanges", () => {
 
   test("a missing or malformed file reads as no bindings", () => {
     expect(bindingChanges(null, { bindings: {} })).toEqual([]);
+  });
+});
+
+describe("bindingChanges malformed shapes", () => {
+  test("keeps only string slot values under object engine entries", () => {
+    const before = { bindings: { "mattstack:a": ["acme:x"], "mattstack:b": { domain: 3, forge: "acme:forge" }, "mattstack:c": "acme:y" } };
+    expect(bindingChanges(before, { bindings: {} })).toEqual([
+      { engineRef: "mattstack:b", slot: "forge", from: "acme:forge", to: null },
+    ]);
+  });
+
+  test("a bindings value that is an array reads as no bindings", () => {
+    expect(bindingChanges({ bindings: ["acme:x"] }, { bindings: {} })).toEqual([]);
+  });
+});
+
+describe("git failures", () => {
+  test("only git's own wording marks a missing repository", () => {
+    expect(isNotARepo({ exitCode: 128, stderr: "fatal: not a git repository (or any of the parent directories): .git\n" })).toBe(true);
+    expect(isNotARepo({ exitCode: 128, stderr: "fatal: bad config line 1 in file .git/config\n" })).toBe(false);
+  });
+
+  test("a child that never started or never answered is named as such", () => {
+    expect(describeGitFailure({ exitCode: -1, stderr: "" })).toBe("git could not run");
+    expect(describeGitFailure({ exitCode: -1, stderr: "", timedOut: true })).toBe("git did not answer in time");
+    expect(describeGitFailure({ exitCode: 128, stderr: "fatal: bad config line 1\n" })).toBe("fatal: bad config line 1");
   });
 });
 

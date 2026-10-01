@@ -41,7 +41,7 @@ import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsi
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
-import { bindingChanges, inScope, parsePorcelain, relativeToPrefix, surfaceChanges, type ChangesPayload } from "../lib/skills/changes.ts";
+import { bindingChanges, describeGitFailure, inScope, isNotARepo, parsePorcelain, relativeToPrefix, surfaceChanges, type ChangesPayload } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
@@ -1744,9 +1744,16 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
 
 const BINDINGS_FRAGMENT = "pack/skills.jsonc";
 
-/** `core.quotePath=false` keeps non-ASCII names literal; paths with spaces or quotes still arrive quoted, which parsePorcelain undoes. */
+const GIT_TIMEOUT_MS = 5000;
+
+/**
+ * The console polls this verb, so git must never take index.lock: a plain
+ * `git status` refreshes the index and would lock out a concurrent add or
+ * commit. `core.quotePath=false` keeps non-ASCII names literal; paths with
+ * spaces or quotes still arrive quoted, which parsePorcelain undoes.
+ */
 function runGit(packDir: string, args: string[]) {
-  return runCapture(["git", "-c", "core.quotePath=false", ...args], { cwd: packDir, stderr: "pipe" });
+  return runCapture(["git", "--no-optional-locks", "-c", "core.quotePath=false", ...args], { cwd: packDir, stderr: "pipe", timeoutMs: GIT_TIMEOUT_MS });
 }
 
 function parseJsoncFile(text: string): unknown {
@@ -1754,8 +1761,9 @@ function parseJsoncFile(text: string): unknown {
 }
 
 /** HEAD's copy of a pack-relative file, or null when HEAD has none (a new file, or a repo with no commits yet). */
-async function committedCopy(packDir: string, rel: string): Promise<unknown> {
+async function committedCopy(packDir: string, team: string, rel: string): Promise<unknown> {
   const res = await runGit(packDir, ["show", `HEAD:./${rel}`]);
+  if (res.exitCode === -1) throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(res)}`);
   return res.exitCode === 0 ? parseJsoncFile(res.stdout) : null;
 }
 
@@ -1770,9 +1778,13 @@ export async function skillsChanges(args: string[]): Promise<void> {
     const { team, packDir } = await resolvePack(flags);
 
     const prefixRes = await runGit(packDir, ["rev-parse", "--show-prefix"]);
-    if (prefixRes.exitCode !== 0) throw new SkillsUsageError(`pack ${team} is not inside a git checkout, so there is no way to tell what changed`);
+    if (prefixRes.exitCode !== 0) {
+      throw new SkillsUsageError(isNotARepo(prefixRes)
+        ? `pack ${team} is not inside a git checkout, so there is no way to tell what changed`
+        : `pack ${team}: ${describeGitFailure(prefixRes)}`);
+    }
     const statusRes = await runGit(packDir, ["status", "--porcelain=v1", "--untracked-files=all", "--", "."]);
-    if (statusRes.exitCode !== 0) throw new SkillsUsageError(`git could not read the status of pack ${team}: ${statusRes.stderr.trim() || "no output"}`);
+    if (statusRes.exitCode !== 0) throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(statusRes)}`);
 
     const all = relativeToPrefix(parsePorcelain(statusRes.stdout), prefixRes.stdout.trim());
     const files = all.filter((f) => inScope(f.path));
@@ -1786,8 +1798,8 @@ export async function skillsChanges(args: string[]): Promise<void> {
       dirty: all.length > 0,
       files,
       outsideScope,
-      bindings: bindingChanges(await committedCopy(packDir, BINDINGS_FRAGMENT), workingCopy(packDir, BINDINGS_FRAGMENT)),
-      surface: surfaceRel ? surfaceChanges(await committedCopy(packDir, surfaceRel), workingCopy(packDir, surfaceRel)) : [],
+      bindings: bindingChanges(await committedCopy(packDir, team, BINDINGS_FRAGMENT), workingCopy(packDir, BINDINGS_FRAGMENT)),
+      surface: surfaceRel ? surfaceChanges(await committedCopy(packDir, team, surfaceRel), workingCopy(packDir, surfaceRel)) : [],
     };
 
     if (flags.json) {

@@ -13,26 +13,28 @@ export type ChangesPayload = {
   surface: SurfaceChange[];
 };
 
-const C_ESCAPES: Record<string, string> = { t: "\t", n: "\n", '"': '"', "\\": "\\" };
+const C_ESCAPES: Record<string, string> = { a: "\x07", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", '"': '"', "\\": "\\" };
 
 /** git wraps a path holding a space, quote or control character in C-style quotes; every other byte arrives as written. */
 function unquotePath(raw: string): string {
   if (raw.length < 2 || !raw.startsWith('"') || !raw.endsWith('"')) return raw;
+  const encoder = new TextEncoder();
+  const chars = Array.from(raw.slice(1, -1));
   const bytes: number[] = [];
-  const body = raw.slice(1, -1);
-  for (let i = 0; i < body.length; i++) {
-    const ch = body[i]!;
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i]!;
     if (ch !== "\\") {
-      bytes.push(...new TextEncoder().encode(ch));
+      bytes.push(...encoder.encode(ch));
       continue;
     }
-    const octal = /^[0-7]{3}/.exec(body.slice(i + 1));
-    if (octal) {
-      bytes.push(parseInt(octal[0], 8));
+    const octal = chars.slice(i + 1, i + 4).join("");
+    if (/^[0-7]{3}$/.test(octal)) {
+      bytes.push(parseInt(octal, 8));
       i += 3;
       continue;
     }
-    bytes.push(...new TextEncoder().encode(C_ESCAPES[body[i + 1] ?? ""] ?? body[i + 1] ?? ""));
+    const next = chars[i + 1] ?? "";
+    bytes.push(...encoder.encode(C_ESCAPES[next] ?? next));
     i += 1;
   }
   return new TextDecoder().decode(new Uint8Array(bytes));
@@ -40,10 +42,10 @@ function unquotePath(raw: string): string {
 
 export function parsePorcelain(stdout: string): PendingFile[] {
   return stdout.split("\n").filter((l) => l.length > 3).map((l) => {
-    const status = l.slice(0, 2).trim();
+    const xy = l.slice(0, 2);
     const rest = l.slice(3);
-    const arrow = rest.indexOf(" -> ");
-    return { path: unquotePath(arrow >= 0 ? rest.slice(arrow + 4) : rest), status };
+    const arrow = /[RC]/.test(xy) ? rest.indexOf(" -> ") : -1;
+    return { path: unquotePath(arrow >= 0 ? rest.slice(arrow + 4) : rest), status: xy.trim() };
   });
 }
 
@@ -57,9 +59,19 @@ export function inScope(path: string): boolean {
   return PACK_SCOPE.some((root) => path === root || path.startsWith(`${root}/`));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function bindingsOf(doc: unknown): Record<string, Record<string, string>> {
-  const b = (doc as { bindings?: unknown } | null)?.bindings;
-  return b && typeof b === "object" ? (b as Record<string, Record<string, string>>) : {};
+  const raw = isRecord(doc) ? doc.bindings : undefined;
+  const out: Record<string, Record<string, string>> = {};
+  if (!isRecord(raw)) return out;
+  for (const [engineRef, slots] of Object.entries(raw)) {
+    if (!isRecord(slots)) continue;
+    out[engineRef] = Object.fromEntries(Object.entries(slots).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  }
+  return out;
 }
 
 export function bindingChanges(before: unknown, after: unknown): BindingChange[] {
@@ -91,4 +103,18 @@ export function surfaceChanges(before: unknown, after: unknown): SurfaceChange[]
     if (!a.has(skill) && b.has(skill)) out.push({ skill, from: "internal", to: "public" });
   }
   return out;
+}
+
+export type GitRun = { exitCode: number; stderr: string; timedOut?: boolean };
+
+/** Only git's own wording says the directory is not a repository; any other failure (a bad config, a lock, git missing) is not that. */
+export function isNotARepo(res: GitRun): boolean {
+  return res.stderr.includes("not a git repository");
+}
+
+/** runCapture reports a child that never started or never answered as exit code -1 with no stderr. */
+export function describeGitFailure(res: GitRun): string {
+  if (res.timedOut) return "git did not answer in time";
+  if (res.exitCode === -1) return "git could not run";
+  return res.stderr.trim() || `git exited with status ${res.exitCode}`;
 }
