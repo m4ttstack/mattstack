@@ -246,7 +246,8 @@ Three reads, in this order:
 2. The range against origin, `git log <newest-tag>..origin/main --stat`, then the diff of every
    commit that touches `lib/setup/`, `commands/setup.ts` or `commands/post-install.ts`, or that
    changes where rt reads or writes a file, key or link on the user's machine.
-3. Each such change against the first row that fits:
+3. Each such change against every row. One commit can fit several of the first three (a new
+   step that also needs a token scope), and each fit is settled on its own:
 
 | The change | A set-up Mac gets it when | Otherwise it is a gap, and the cut is |
 | --- | --- | --- |
@@ -256,8 +257,8 @@ Three reads, in this order:
 | A settings-store key changes | preflight's schema lock and settings stores rows pass | never this step's: those rows own it |
 | Served-app, daemon or CLI behavior, or state a reader derives each time | the update itself | never a gap |
 
-A change whose middle column holds, by read 1, is covered and gets no line. The result is one
-line per gap, in four parts: the commit, what a set-up Mac lacks after updating, the cut, and
+A row whose middle column holds, by read 1, is covered and gets no line. The result is one
+line per uncovered row, in four parts: the commit, what a set-up Mac lacks after updating, the cut, and
 the read that proved it (`foo.seed is not in the pinned list`, `no migration names the old
 path`, `no verify row reads the scope`). A line with no proof is an unfinished audit, never a
 gate question. A gap Matt already held in this release is not a gap again. No lines takes the
