@@ -208,18 +208,20 @@ verifies the clone and the Keychain key.
 `secrets-store-not-ready` (refused before the redeem) and
 `peering-store-failed` (after it; rerun `rt team join` with no code).
 `peeringFix` is present exactly when `peering` is `unavailable`, and the
-`team.join` step then ends `partial` with it as the remedy. Such a join
-stamps `peeringPending` on the team's local record
-(`~/.mattstack/rt/teams/<slug>.json`); while any team carries the stamp,
-later runs keep the step (titled "Team membership" with no invite in
-progress) and end it `partial` until a token turns up in either source the
-board reads (its own `.env` `SWITCHBOARD_TOKEN`, or rt's `switchboardToken`),
-which clears the stamp. A team that no longer declares an https switchboard
-has its stamp cleared, and a join against a non-https declaration never
-stamps (only the owner can fix the URL). An unreadable secrets store is
-`partial` with a keychain remedy, never read as absent. A secrets store that keeps failing blocks the
-join outright, with no bypass, by design: finishing without the token
-would lose it.
+`team.join` step then ends `partial` with it as the remedy. Later runs do
+not keep the step: the `account.switchboard` row reads the gap at check
+time instead. Once the switchboard is reachable, that row is `needs-you`
+with the re-invite remedy while any cloned team this machine joined by
+invite (`joinedByRt` in `~/.mattstack/rt/teams/<slug>.json`) declares an
+https switchboard in its own settings store and neither source the board
+reads holds a token (its own `.env` `SWITCHBOARD_TOKEN`, or rt's
+`switchboardToken`, asked through the plan's secret presence check). A
+secrets store that cannot answer makes the row `error` with "could not read
+your secrets store", never read as absent. Because the row is required and
+`verify` runs it, a joined machine with no token, including one that joined
+before the check existed, ends `rt setup update` needing the member. A
+secrets store that keeps failing blocks the join outright, with no bypass,
+by design: finishing without the token would lose it.
 
 ## `rt team invite --handle <h> [--require-peering] --json`
 

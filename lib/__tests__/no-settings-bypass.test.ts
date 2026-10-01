@@ -64,7 +64,6 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/team/join.ts": { count: 1, reason: "assertNotRealStoreInTest guard before join seeds the team store" },
     "lib/setup/team-settings.ts": { count: 1, reason: "existence probe discovering cloned teams through the Probes seam" },
     "lib/team/board-token.ts": { count: 1, reason: "judges each joined team by its own switchboard declaration; getSetting merges every team store and has no per-team read" },
-    "lib/setup/steps/team.ts": { count: 1, reason: "judges each peering-pending team by its own switchboard declaration; getSetting merges every team store and has no per-team read" },
     "lib/skills/init.ts": { count: 1, reason: "reads each team zone's own forge host; getSetting merges every team store and has no per-team read" },
   },
   "raw store reader": {
