@@ -111,6 +111,11 @@ async function openQueue(
   return page;
 }
 
+/** A stage sheet the seat can answer; the fixture also queues a read-only
+    one (a doctor gate on someone else's MR) with no focus pane or submit. */
+const ANSWERABLE_STAGE =
+  '.tui-stage-sheet:not(:has(.tui-gate-question[data-locked]))';
+
 /** Steps forward with the head's next-gate control until `selector`
     matches, so no test assumes which queue position a gate holds. */
 async function nextUntil(page: Page, selector: string): Promise<void> {
@@ -131,6 +136,9 @@ type Layout = {
       forward. */
   forwardBottom: number;
   mainScrolls: boolean;
+  /** A gate the seat may not answer: read-only, so it has no forward
+      control to keep on screen. */
+  locked: boolean;
 };
 
 function measure(page: Page): Promise<Layout> {
@@ -157,6 +165,7 @@ function measure(page: Page): Promise<Layout> {
       forwardBottom: forward ? forward.getBoundingClientRect().bottom : 0,
       // +1: Blink's 1/64px layout units round apart by a fraction.
       mainScrolls: main ? main.scrollHeight > main.clientHeight + 1 : false,
+      locked: !!document.querySelector('.tui-gate-question[data-locked]'),
     };
   });
 }
@@ -165,6 +174,7 @@ function expectSheetLaw(m: Layout, viewport: { height: number }): void {
   expect(m.sheetTop).toBe(0);
   expect(Math.abs(m.sheetBottom - viewport.height)).toBeLessThanOrEqual(0.5);
   expect(m.sheetScrolls).toBe(false);
+  if (m.locked) return;
   expect(m.forwardBottom).toBeGreaterThan(0);
   expect(m.forwardBottom).toBeLessThanOrEqual(viewport.height);
 }
@@ -207,7 +217,7 @@ test('laptop: a respond gate lists every thread at full height beside a docked s
 
 test('very short: a stage gate scrolls its questions and keeps the docked submit on screen', async () => {
   const page = await openQueue(VERY_SHORT);
-  await nextUntil(page, '.tui-stage-sheet');
+  await nextUntil(page, ANSWERABLE_STAGE);
   const m = await measure(page);
   expect(m.kind).toBe('stage');
   expectSheetLaw(m, VERY_SHORT);
@@ -235,7 +245,7 @@ test('the head is one row: title, focus pane, queue nav and close share a line -
         .count()
     ).toBe(0);
     // Once on the review sheet (gate 1), once on a stage gate.
-    await nextUntil(page, '.tui-stage-sheet');
+    await nextUntil(page, ANSWERABLE_STAGE);
   }
   await page.context().close();
 }, 30_000);
