@@ -32,6 +32,7 @@ digraph checkout {
     "Search returned a row naming the ticket?" [shape=diamond];
     "mr_list {repoName, state: all, limit: 200}" [shape=plaintext];
     "STOP: GitLab reads go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "STOP: GitLab ticket searches go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Pick the branch from the result" [shape=box];
     "Exactly one branch, from a complete read?" [shape=diamond];
     "Gate clarify: which branch" [shape=box];
@@ -67,6 +68,8 @@ digraph checkout {
     "STOP: GitLab reads go through the read tools or gitlab_get" -> "mr_view {repoName, mrUrl or iid}";
     "Ticket forge host?" -> "mr_list {repoName, search: <ticket id>, state: all, limit: 200}" [label="GitLab"];
     "Ticket forge host?" -> "gh pr list --search <id>" [label="GitHub"];
+    "Ticket forge host?" -> "STOP: GitLab ticket searches go through the read tools or gitlab_get" [label="tempted to use the GitLab CLI"];
+    "STOP: GitLab ticket searches go through the read tools or gitlab_get" -> "mr_list {repoName, search: <ticket id>, state: all, limit: 200}";
     "mr_view {repoName, mrUrl or iid}" -> "Pick the branch from the result";
     "gh pr view <ref>" -> "Pick the branch from the result";
     "mr_list {repoName, search: <ticket id>, state: all, limit: 200}" -> "Search returned a row naming the ticket?";
