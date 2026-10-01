@@ -329,6 +329,23 @@ export function hasStackDescendants<M extends BoardMR>(
   return descendantsOf(mr, mrs).length > 0;
 }
 
+/** The board's seat: null on an "all" board, which has no single owner. */
+export function seatOf(
+  defaultMember: string | null | undefined
+): string | null {
+  return defaultMember && defaultMember !== 'all' ? defaultMember : null;
+}
+
+/** Whether the seat authored this MR; on an "all" board nothing is. Every
+    author-only action (merge, doctor, respond, slack post...) gates on this,
+    in the menu and in the server route alike. */
+export function isOwnMr(
+  mr: { author: { username: string } },
+  self: string | null
+): boolean {
+  return self !== null && mr.author.username === self;
+}
+
 export type StandDownTarget<M extends BoardMR> =
   | { ok: true; mr: M; descendants: M[] }
   | { ok: false; status: 400 | 403; error: string };
@@ -351,7 +368,7 @@ export function resolveStandDownTarget<M extends BoardMR>(
 ): StandDownTarget<M> {
   const mr = mrs.find(m => m.webUrl === mrUrl);
   if (!mr) return { ok: false, status: 400, error: `unknown MR "${mrUrl}"` };
-  if (mr.author.username !== defaultMember)
+  if (!isOwnMr(mr, seatOf(defaultMember)))
     return { ok: false, status: 403, error: 'not your MR' };
   return { ok: true, mr, descendants: descendantsOf(mr, mrs) };
 }
