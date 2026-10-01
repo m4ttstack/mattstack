@@ -50,7 +50,8 @@ export function failureFor(err: UserActionableError): out.FailureInput {
   };
 }
 
-function noteDetail(err: UserActionableError): void {
+/** A caller that prints a failure without exitUserError calls this, or the log its block points at never gets the detail. */
+export function logFailureDetail(err: UserActionableError): void {
   if (err.log) logCliEvent("warn", "errors", err.message, { code: err.code, detail: err.log });
 }
 
@@ -60,7 +61,7 @@ function noteDetail(err: UserActionableError): void {
  * `verb` is kept for the callers; the block carries no prefix.
  */
 export function exitUserError(err: UserActionableError, json: boolean, _verb: string, print?: (s: string) => void): never {
-  noteDetail(err);
+  logFailureDetail(err);
   if (json) {
     const payload = userErrorPayload(err);
     if (print) print(JSON.stringify(payload));
