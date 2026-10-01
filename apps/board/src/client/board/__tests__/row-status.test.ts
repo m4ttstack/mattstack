@@ -738,7 +738,12 @@ describe('rowStatus: respond lane', () => {
       ['implementing', 'implementing…'],
       ['drafting', 'drafting replies…'],
     ] as const) {
-      const [line] = candidateLines(mr({ respond: { status } }), NOW, NONE, ME);
+      const [line] = candidateLines(
+        own({ respond: { status } }),
+        NOW,
+        NONE,
+        ME
+      );
       expect(line).toMatchObject({ tone: 'work', word, spin: true });
       expect(line!.verbs[0]).toEqual({
         kind: 'focus',
@@ -1823,6 +1828,8 @@ describe("author-only verbs stay off someone else's row", () => {
       { respond: { status: 'done', posted: 1, threads: 3 } },
     ],
     ['a stuck doctor', { doctor: { status: 'error' } }],
+    ['a running doctor', { doctor: { status: 'fixing' } }],
+    ['a running response', { respond: { status: 'drafting' } }],
     [
       'an inbound respond ask',
       {
@@ -1846,7 +1853,8 @@ describe("author-only verbs stay off someone else's row", () => {
     candidateLines(row, NOW, NONE, self).flatMap(l => l.verbs);
   const authorOnly = (v: { kind: string; domain?: string }) =>
     AUTHOR_ONLY.has(v.kind) ||
-    (v.kind === 'relaunch' && v.domain === 'respond');
+    ((v.kind === 'relaunch' || v.kind === 'focus') &&
+      (v.domain === 'respond' || v.domain === 'doctor'));
 
   for (const [name, over] of rows) {
     test(`${name}: none on someone else's MR`, () => {

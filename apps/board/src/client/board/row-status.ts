@@ -829,10 +829,13 @@ const AUTHOR_ONLY_VERBS = new Set<VerbKind>([
   'resume-respond',
 ]);
 
+/** Focusing or relaunching a respond or doctor pane goes back through that
+    lane's route, which refuses someone else's MR. */
 function authorOnly(v: Verb): boolean {
   return (
     AUTHOR_ONLY_VERBS.has(v.kind) ||
-    (v.kind === 'relaunch' && v.domain === 'respond')
+    ((v.kind === 'relaunch' || v.kind === 'focus') &&
+      (v.domain === 'respond' || v.domain === 'doctor'))
   );
 }
 
