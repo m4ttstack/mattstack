@@ -33,6 +33,8 @@ function fake(over: Partial<ReviewMutator> = {}) {
   return { deps, log, seed: (d: DraftNote[]) => { pending = d; }, pending: () => pending };
 }
 
+const httpErr = (status: number) => Object.assign(new Error(`publishDraftNotes failed: ${status}`), { status });
+
 const INPUT = {
   outcome: "comment" as const, summary: "sum",
   comments: [{ body: "c1", path: "src/a.ts", line: 3 }, { body: "c2", path: "src/b.ts", line: 9 }],
@@ -143,11 +145,11 @@ describe("submitReview", () => {
     expect(f.pending()).toEqual([]);
   });
 
-  test("a publish that only partly landed says so, deletes what remains and never claims nothing was posted", async () => {
+  test("a failed publish that leaves only some of this call's pending comments says it partly landed and deletes the rest", async () => {
     const f = fake();
     f.deps.mutator.publishDraftNotes = async () => {
       f.seed(f.pending().slice(1));
-      throw new Error("502");
+      throw new Error("socket hang up");
     };
     const err = await submitReview(f.deps, { ...INPUT, replies: [] }).then(() => null, (e: unknown) => String(e));
     expect(err).not.toBeNull();
@@ -167,10 +169,41 @@ describe("submitReview", () => {
     expect(out.published).toBe(true);
   });
 
-  test("a publish that throws and left pending comments deletes them and fails", async () => {
-    const f = fake({ publishDraftNotes: async () => { throw new Error("502"); } });
-    await expect(submitReview(f.deps, INPUT)).rejects.toThrow(/publish failed, nothing was posted/);
+  test("a 5xx publish with every pending comment still there is an unknown outcome, never nothing posted", async () => {
+    const f = fake({ publishDraftNotes: async () => { throw httpErr(502); } });
+    const err = await submitReview(f.deps, INPUT).then(() => null, (e: unknown) => String(e));
+    expect(err).toContain("publish failed and its outcome is unknown: Error: publishDraftNotes failed: 502; GitLab may have posted some or all of this review; look at the MR before retrying");
+    expect(err).not.toContain("nothing was posted");
     expect(f.pending()).toEqual([]);
+  });
+
+  test("a publish GitLab refuses before acting reports nothing posted and deletes the pending comments", async () => {
+    const f = fake({ publishDraftNotes: async () => { throw httpErr(422); } });
+    await expect(submitReview(f.deps, INPUT)).rejects.toThrow(/^publish failed, nothing was posted: Error: publishDraftNotes failed: 422$/);
+    expect(f.pending()).toEqual([]);
+  });
+
+  test("a summary-only publish GitLab refuses reports nothing posted", async () => {
+    const f = fake({ publishDraftNotes: async () => { throw httpErr(403); } });
+    await expect(submitReview(f.deps, { outcome: "comment", summary: "sum", comments: [], replies: [] }))
+      .rejects.toThrow(/^publish failed, nothing was posted/);
+  });
+
+  test("a publish that times out or is aborted is an unknown outcome and deletes the pending comments", async () => {
+    for (const name of ["TimeoutError", "AbortError"]) {
+      const f = fake({ publishDraftNotes: async () => { throw new DOMException("gave up", name); } });
+      const err = await submitReview(f.deps, INPUT).then(() => null, (e: unknown) => String(e));
+      expect(err).toContain("publish failed and its outcome is unknown");
+      expect(err).toContain("GitLab may have posted some or all of this review");
+      expect(err).not.toContain("nothing was posted");
+      expect(f.pending()).toEqual([]);
+    }
+  });
+
+  test("an unknown outcome names the comments it could not delete", async () => {
+    const f = fake({ publishDraftNotes: async () => { throw httpErr(500); }, deleteDraftNote: async () => { throw new Error("nope"); } });
+    await expect(submitReview(f.deps, INPUT))
+      .rejects.toThrow(/look at the MR before retrying; 4 pending comments could not be deleted and are still on the MR \(first error: Error: nope\)$/);
   });
 
   test("a publish that throws with nothing pending to check reports an unknown outcome", async () => {

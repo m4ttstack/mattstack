@@ -154,4 +154,4 @@ export type {
 // ── GitLab detail + mutations ─────────────────────────────────────────────────
 export { MRDetailFetcher } from './MRDetailFetcher.ts';
 export { NoteMutator } from './NoteMutator.ts';
-export type { CreatedNote, CreatedDiscussion, UploadedFile, DiffRefs, TextPosition, DraftNote, ReviewerState } from './NoteMutator.ts';
+export type { CreatedNote, CreatedDiscussion, UploadedFile, DiffRefs, TextPosition, DraftNote, ReviewerState, HttpStatusError } from './NoteMutator.ts';

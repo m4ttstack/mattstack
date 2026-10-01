@@ -37,6 +37,14 @@ export type ReviewSubmitOutcome = Strip<ReviewSubmitData>;
 const MAX_ITEMS = 100;
 const PENDING_PREVIEW = 5;
 
+/** Statuses GitLab answers before it acts on a request. */
+const REFUSED_BEFORE_ACTING = new Set([400, 401, 403, 404, 422]);
+
+function refusedBeforeActing(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === "number" && REFUSED_BEFORE_ACTING.has(status);
+}
+
 const isPosInt = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v > 0;
 const isText = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
 
@@ -197,9 +205,18 @@ export async function submitReview(deps: ReviewSubmitDeps, input: ReviewSubmitIn
     return { published: false, reason: "bad-anchors", badAnchors };
   }
 
+  /**
+   * GitLab's bulk publish creates every note first and deletes the drafts in
+   * one step at the end, so drafts still pending after a failure do not prove
+   * nothing posted. Only a refusal GitLab gives before acting proves that.
+   */
   try {
     await mutator.publishDraftNotes(projectId, iid, { note: input.summary, reviewerState: "reviewed" });
   } catch (err) {
+    if (refusedBeforeActing(err)) {
+      const rb = created.length > 0 ? await rollback() : { left: 0 };
+      throw new Error(`publish failed, nothing was posted: ${String(err)}${leftover(rb)}`);
+    }
     if (created.length === 0) {
       throw new Error(`publish failed and its outcome is unknown: ${String(err)}; look for the summary on the MR before retrying`);
     }
@@ -209,14 +226,14 @@ export async function submitReview(deps: ReviewSubmitDeps, input: ReviewSubmitIn
     } catch (listErr) {
       throw new Error(`publish failed and its outcome is unknown: ${String(err)}; listing pending comments failed too: ${String(listErr)}; look for the summary on the MR before retrying`);
     }
-    if (remaining.length > 0) {
-      const pendingIds = new Set(remaining.map(d => d.id));
-      const stillPending = created.filter(id => pendingIds.has(id)).length;
-      const rb = await deleteAll([...pendingIds]);
-      if (stillPending === created.length) {
-        throw new Error(`publish failed, nothing was posted: ${String(err)}${leftover(rb)}`);
+    const pendingIds = new Set(remaining.map(d => d.id));
+    const stillPending = created.filter(id => pendingIds.has(id));
+    if (stillPending.length > 0) {
+      const rb = await deleteAll(stillPending);
+      if (stillPending.length === created.length) {
+        throw new Error(`publish failed and its outcome is unknown: ${String(err)}; GitLab may have posted some or all of this review; look at the MR before retrying${leftover(rb)}`);
       }
-      throw new Error(`publish failed and only partly landed: ${created.length - stillPending} of ${created.length} pending comments were posted: ${String(err)}${leftover(rb)}; look at the MR before retrying`);
+      throw new Error(`publish failed and only partly landed: ${created.length - stillPending.length} of ${created.length} pending comments were posted: ${String(err)}${leftover(rb)}; look at the MR before retrying`);
     }
   }
 

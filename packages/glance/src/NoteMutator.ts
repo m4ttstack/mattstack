@@ -83,7 +83,11 @@ export interface ReviewerState {
   state: string;
 }
 
-const PUBLISH_TIMEOUT_MS = 30_000;
+/** Above GitLab's own request limit, so a publish GitLab is still running is never abandoned. */
+const PUBLISH_TIMEOUT_MS = 90_000;
+
+/** A GitLab refusal: the message names the op and status, `status` carries it for callers. */
+export type HttpStatusError = Error & { status: number };
 
 export class NoteMutator {
   private readonly baseURL: string;
@@ -357,7 +361,9 @@ export class NoteMutator {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`${op} failed: ${res.status} ${res.statusText}${text ? `: ${text}` : ''}`);
+      const err = new Error(`${op} failed: ${res.status} ${res.statusText}${text ? `: ${text}` : ''}`) as HttpStatusError;
+      err.status = res.status;
+      throw err;
     }
     return res;
   }

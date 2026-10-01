@@ -333,4 +333,15 @@ describe('draft notes', () => {
     await expect(m.publishDraftNotes(42, 9, { note: 's', reviewerState: 'reviewed' })).rejects.toThrow(/publishDraftNotes failed: 403/);
     await expect(m.fetchReviewerStates(42, 9)).rejects.toThrow(/fetchReviewerStates failed: 403/);
   });
+
+  test('a draft call failure carries the HTTP status, so a refusal is told from a server error', async () => {
+    const m = new NoteMutator('https://gitlab.example.com', 'tok');
+    stub(422, { message: 'nope' });
+    const refused = await m.publishDraftNotes(42, 9, { note: 's', reviewerState: 'reviewed' }).catch((e: unknown) => e);
+    expect((refused as { status?: number }).status).toBe(422);
+    expect(String(refused)).toContain('publishDraftNotes failed: 422');
+    stub(502, { message: 'bad gateway' });
+    const server = await m.publishDraftNotes(42, 9, { note: 's', reviewerState: 'reviewed' }).catch((e: unknown) => e);
+    expect((server as { status?: number }).status).toBe(502);
+  });
 });

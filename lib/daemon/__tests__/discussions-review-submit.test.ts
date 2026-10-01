@@ -98,12 +98,12 @@ describe("mr:review-submit", () => {
   test("a sequence failure is ok:false with its message", async () => {
     const s = seams();
     const m = s.reviewMutator!("", "");
-    m.publishDraftNotes = async () => { throw new Error("502"); };
+    m.publishDraftNotes = async () => { throw Object.assign(new Error("publishDraftNotes failed: 502"), { status: 502 }); };
     m.listDraftNotes = (() => { let n = 0; return async () => (n++ === 0 ? [] : [{ id: 1, note: "c", discussion_id: null, line_code: "lc", resolve_discussion: false }]); })();
     const h = createDiscussionHandlers(fakeCtx, () => {}, { ...s, reviewMutator: () => m });
     const res = await h["mr:review-submit"](PAYLOAD);
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toContain("publish failed, nothing was posted");
+    if (!res.ok) expect(res.error).toContain("publish failed and its outcome is unknown");
   });
 
   describe("anchors", () => {
