@@ -86,7 +86,7 @@ Ruled 2026-09-30: only `--json` is frozen; plain text off a TTY takes the new wo
 
 A cell is a list of segments, each `{ text, role }`. Roles: `text`, `strong`, `dim`, `faint`, `key`, `command`, `link` (with a `url`, drawn as an OSC 8 hyperlink), and the status roles. This is the shape picker rows already use (`PickSegment`), so `worktree list` rows with a name, a label, a branch and an MR tag need no fixed columns.
 
-Steps stay on the existing `steps` verb, with one addition (see Steps).
+Steps stay on the existing `steps` verb, with two additions (see Steps).
 
 ## Status set
 
@@ -140,7 +140,7 @@ The step verb's own glyphs come from the status set (its warning line uses `!`),
 
 `sdm connect`, `sdm login` and `setup apply` use sub-lines for the child output and step logs they stream today.
 
-`lib/ui/steps.ts` still prints its fallback and `log()` lines with truecolor escapes from `lib/tui/palette.ts`, even off a TTY. Phase 5 moves those lines onto `out.print` when it converts `sync`, `git rebase` and `git reset`, the only callers; the guard exempts `lib/ui/`, so that phase's checklist carries it.
+`lib/ui/steps.ts` still prints its fallback and `log()` lines with truecolor escapes from `lib/tui/palette.ts`, even off a TTY. Phase 5 moves those lines onto `out.print` when it converts `sync`, `git rebase` and `git reset`, today's only callers; the guard exempts `lib/ui/`, so that phase's checklist carries it. Phase 3's setup emitter must not go through that fallback: off a TTY it prints its step lines with `out.print`, and at a terminal it drives `openStep` directly.
 
 ## Error seam
 

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship the output layer itself (a Go `rt-ui render` verb, a TS `lib/ui/out.ts` module, a plain fallback, a `sub` step event and a ratchet guard) without converting any command.
+**Goal:** Ship the output layer itself (a Go `rt-ui render` verb, a TS `lib/ui/out.ts` module, a plain fallback, the step verb's `sub` event and `status` on `done`, and a ratchet guard) without converting any command.
 
 **Architecture:** TypeScript builds semantic blocks (data only, no colors) and pipes them as NDJSON to a one-shot `rt-ui render`, which prints them in the rt-ui theme. `out.ts` owns the human gate, the stream choice and a plain-text fallback used off a TTY or when the helper is missing or fails. A guard test with a shrinking allowlist stops new raw printing.
 
@@ -52,8 +52,8 @@
 | `ui/internal/render/blocks_text.go` (create) | paragraph, copy, verbatim, diff |
 | `ui/internal/render/*_test.go` (create) | One test file per source file, plus `verb_test.go` |
 | `ui/cmd/rt-ui/main.go`, `verbs.go` (modify) | The `render` verb |
-| `ui/internal/steps/steps.go` (modify) | The `sub` event |
-| `lib/ui/spawn.ts`, `lib/ui/steps.ts` (modify) | `StepHandle.sub`, the task's `sub` callback |
+| `ui/internal/steps/steps.go` (modify) | The `sub` event, a `status` on `done` |
+| `lib/ui/spawn.ts`, `lib/ui/steps.ts` (modify) | `StepHandle.sub`, a status on `StepHandle.done`, the task's `sub` callback |
 | `lib/ui/out-plain.ts` (create) | Plain-text renderer for the same blocks |
 | `lib/ui/out.ts` (create) | Block builders, gate, spawn, fallback, `print`, `fail`, `json`, `payload` |
 | `lib/ui/__tests__/fake-rt-ui.ts` (modify) | A `render` verb for the fake helper |
@@ -3081,3 +3081,6 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - Open the PR against `m4ttstack/mattstack` with screenshots of the Task 5 and Task 8 smoke output in a real terminal, in the terminal's dark and light schemes.
 - Phase 2 (errors) is planned next, against the `out.fail` and `failure` API this phase ships.
+- For the phase 3 planner: `StepRunner.run` cannot end a step in a status other than done or failed. The setup emitter uses `openStep` and `StepHandle.done(title, hint, status)` directly, and prints with `out.print` off a TTY.
+- In the light-scheme screenshot, look at the hints and the pending, off and refused glyphs specifically: they are fixed theme tones and are where low contrast would show.
+- If Task 8's real-gate test fails because bun refuses to redefine `process.stdout.isTTY` or reassign `process.argv`, give `realHuman` injectable inputs. Do not drop the test.
