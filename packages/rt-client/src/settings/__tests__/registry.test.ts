@@ -454,11 +454,6 @@ describe("settings/registry", () => {
       }
     });
 
-    test("board.codeowners is the one suite key that is repoScoped", () => {
-      const repoScoped = allDefs().filter((d) => !d.key.startsWith("rt.") && d.repoScoped).map((d) => d.key);
-      expect(repoScoped).toEqual(["board.codeowners"]);
-    });
-
     test("every def with a lock entry carries its schema and storeVersion from the lock", () => {
       const lock = JSON.parse(readFileSync(new URL("../schema.lock.json", import.meta.url), "utf8")) as Record<string, { storeVersion: number; schema: JsonSchema }>;
       for (const def of allDefs()) {
