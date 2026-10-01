@@ -399,6 +399,20 @@ describe("watch budget", () => {
     expect(r).toMatchObject({ state: "waiting", budget: null });
     expect(sleeps).toBeLessThanOrEqual(5);
   });
+  test("extendMinutes opens a fresh window from the first match in the call", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "running", createdAt: createdMinutesAgo(200) }))]);
+    const r = await watchPipeline({ ...base, extendMinutes: 30 }, deps);
+    expect(r).toMatchObject({ state: "running", waitedSeconds: 300, budget: { minutes: 230, elapsedMinutes: 205, spent: false } });
+  });
+  test("extendMinutes never shortens a larger budget", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "success", createdAt: createdMinutesAgo(10) }))]);
+    expect(await watchPipeline({ ...base, extendMinutes: 30 }, deps)).toMatchObject({ budget: { minutes: 75, spent: false } });
+  });
+  test("an extended window is fixed for the call, so it still runs out", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "running", createdAt: createdMinutesAgo(200) }))]);
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 1800, extendMinutes: 2 }, deps);
+    expect(r).toMatchObject({ state: "running", waitedSeconds: 120, budget: { minutes: 202, elapsedMinutes: 202, spent: true } });
+  });
   test("a createdAt ahead of the clock reads as zero elapsed", async () => {
     const { deps } = fake([mr(SHA, pipe({ status: "success", createdAt: createdMinutesAgo(-3) }))]);
     expect(await watchPipeline(base, deps)).toMatchObject({ budget: { elapsedMinutes: 0, spent: false } });

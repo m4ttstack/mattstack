@@ -73,15 +73,16 @@ export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> 
 }
 
 const BUDGET_DEFAULT = 75;
-const BUDGET_MAX = 1440;
+const BUDGET_MAX = 10_080;
+const EXTEND_MAX = 1440;
 
-function isBudget(v: unknown): v is number {
-  return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= BUDGET_MAX;
+function isMinutes(v: unknown, max: number): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= max;
 }
 
 function settingBudget(): number {
   const v = getSetting<number>("ci.watch.budgetMinutes").value;
-  return isBudget(v) ? v : BUDGET_DEFAULT;
+  return isMinutes(v, BUDGET_MAX) ? v : BUDGET_DEFAULT;
 }
 
 const realWatchDeps: CiWatchToolDeps = { projectMrs: readProjectMRs, command: rtCommand, resolve: resolveMrTarget, now: Date.now, sleep: abortableSleep, budgetMinutes: settingBudget };
@@ -191,7 +192,8 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           sha: { type: "string", description: "The pushed commit, 7 to 40 hex characters." },
           maxWaitSeconds: { type: "number" },
           intervalSeconds: { type: "number" },
-          budgetMinutes: { type: "number", description: `Overrides the ci.watch.budgetMinutes setting for this call, 1 to ${BUDGET_MAX}; pass it only for a granted extension.` },
+          budgetMinutes: { type: "number", description: `Overrides the ci.watch.budgetMinutes setting for this call, 1 to ${BUDGET_MAX}: pass the budget.minutes an extendMinutes call returned.` },
+          extendMinutes: { type: "number", description: `1 to ${EXTEND_MAX}: opens a fresh window this many minutes past the pipeline's current age (never shorter than the budget), fixed at the call's first match. Pass it on the first call after a job retry or a granted extension, until a result carries a non-null budget; later calls pass that budget.minutes as budgetMinutes.` },
           priorPipelineId: { type: "number", description: "The MR's head pipeline id read before the push: the numeric part of a gitlab:pipeline:N id, as mr_pipeline returns it." },
           underBoardLease: { type: "boolean" },
         },
@@ -201,7 +203,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
       shellForms: ["rt ci watch"],
       async handler(input, env, signal) {
         const bad = checkRequired(input, [{ name: "sha", type: "string" }])
-          ?? checkOptional(input, [{ name: "maxWaitSeconds", type: "number" }, { name: "intervalSeconds", type: "number" }, { name: "budgetMinutes", type: "number" }, { name: "priorPipelineId", type: "number" }, { name: "underBoardLease", type: "boolean" }])
+          ?? checkOptional(input, [{ name: "maxWaitSeconds", type: "number" }, { name: "intervalSeconds", type: "number" }, { name: "budgetMinutes", type: "number" }, { name: "extendMinutes", type: "number" }, { name: "priorPipelineId", type: "number" }, { name: "underBoardLease", type: "boolean" }])
           ?? checkPositiveInts(input, ["priorPipelineId"]);
         if (bad) return err(bad);
         const sha = (input.sha as string).trim();
@@ -210,7 +212,8 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         if (!(Number.isInteger(maxWait) && maxWait >= 0 && maxWait <= 1800)) return err('"maxWaitSeconds" must be an integer from 0 to 1800');
         const interval = (input.intervalSeconds as number | undefined) ?? 30;
         if (!(Number.isInteger(interval) && interval >= INTERVAL_MIN && interval <= INTERVAL_MAX)) return err(`"intervalSeconds" must be an integer from ${INTERVAL_MIN} to ${INTERVAL_MAX}`);
-        if (input.budgetMinutes !== undefined && !isBudget(input.budgetMinutes)) return err(`"budgetMinutes" must be an integer from 1 to ${BUDGET_MAX}`);
+        if (input.budgetMinutes !== undefined && !isMinutes(input.budgetMinutes, BUDGET_MAX)) return err(`"budgetMinutes" must be an integer from 1 to ${BUDGET_MAX}`);
+        if (input.extendMinutes !== undefined && !isMinutes(input.extendMinutes, EXTEND_MAX)) return err(`"extendMinutes" must be an integer from 1 to ${EXTEND_MAX}`);
         const budgetMinutes = (input.budgetMinutes as number | undefined) ?? w.budgetMinutes();
         const owner = deps.owner(env);
         if (!owner) return err(NO_SESSION);
@@ -264,7 +267,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         }
 
         try {
-          const r = await watchPipeline({ sha, maxWaitSeconds: maxWait, intervalSeconds: interval, budgetMinutes, ...(typeof input.priorPipelineId === "number" && { priorPipelineId: input.priorPipelineId }), ...(signal && { signal }) }, watchDeps);
+          const r = await watchPipeline({ sha, maxWaitSeconds: maxWait, intervalSeconds: interval, budgetMinutes, ...(typeof input.extendMinutes === "number" && { extendMinutes: input.extendMinutes }), ...(typeof input.priorPipelineId === "number" && { priorPipelineId: input.priorPipelineId }), ...(signal && { signal }) }, watchDeps);
           return "error" in r ? err(r.error) : ok(r);
         } catch (e) {
           return err(e instanceof Error ? e.message : String(e));

@@ -181,9 +181,9 @@ pane` writes `error` naming the situation the gate described; both
   its exit. `What does the resumed answer name (doctor)?` routes every
   other value on its prefix and reads its data from the value itself:
   `retry job <id> once more on <sha>` is the retry budget (the job id and
-  the sha come from the value), `extend the watch to <m> minutes on <sha>`
-  is the watch budget (the total minutes and the sha come from the
-  value), a value
+  the sha come from the value), `extend the watch by <n> minutes on <sha>`
+  is the watch budget (the minutes and the sha come from the value), a
+  value
   starting `take:` or `iterate:` is an off-script answer, and any other
   option value is a domain action.
 - **Resumed pane on its own old lease.** "Resumed" at

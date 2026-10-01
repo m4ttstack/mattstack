@@ -207,8 +207,9 @@ never polls less often than every half of the lease's `ttlSeconds`, so its
 own heartbeat cannot let the lease go stale), `priorPipelineId` (the numeric
 part of the `gitlab:pipeline:N` head pipeline id read before the push, so a
 fast-forward merge train's new pipeline can be told apart from an old one),
-`budgetMinutes` (1 to 1440, overriding the `ci.watch.budgetMinutes` setting
-for one call; the doctor passes it for a granted extension) and
+`budgetMinutes` (1 to 10080, overriding the `ci.watch.budgetMinutes`
+setting for one call), `extendMinutes` (1 to 1440, see "The watch budget")
+and
 `underBoardLease` (default false, see below).
 
 A merged-results pipeline counts only when its merge commit's parents
@@ -272,6 +273,14 @@ still reported as usual, whatever the budget says. `budget` is null while
 no pipeline for the sha exists (or the pipeline has no `createdAt`), so a
 caller bounds a `waiting` watch on its own: the attendant skills verify the
 push after two `waiting` calls in a row.
+
+A job retry keeps its pipeline's `createdAt`, and a granted extension can be
+answered long after it was asked, so both open a fresh window with
+`extendMinutes`: at the call's first match the budget becomes the larger of
+the budget and the pipeline's current age plus `extendMinutes`, fixed for
+that call and returned as `budget.minutes`. The caller passes
+`extendMinutes` until a result carries a non-null `budget`, then that
+`budget.minutes` as `budgetMinutes` on later calls for the same sha.
 
 CLI: `rt ci watch <mr-url> --sha <sha> [--max-wait <s>] [--interval <s>] [--prior-pipeline <id>] [--json]`.
 Ctrl-C aborts the watch and exits 130; any other non-terminal-success state

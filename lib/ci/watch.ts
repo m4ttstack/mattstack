@@ -15,7 +15,7 @@ export interface WatchDeps {
   traceTail(jobId: number): Promise<string | null>;
 }
 
-export interface WatchInput { sha: string; maxWaitSeconds: number; intervalSeconds: number; budgetMinutes: number; priorPipelineId?: number; signal?: AbortSignal }
+export interface WatchInput { sha: string; maxWaitSeconds: number; intervalSeconds: number; budgetMinutes: number; extendMinutes?: number; priorPipelineId?: number; signal?: AbortSignal }
 
 export type WatchState =
   | "success" | "success_with_warnings" | "failed" | "canceled" | "skipped" | "manual"
@@ -95,6 +95,10 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
   // a restarted agent never reset it; null until a pipeline for the sha is matched.
   let budget: WatchBudget | null = null;
   let budgetEndsAt: number | null = null;
+  // An extension is fixed at the call's first match, so it opens one fresh
+  // window instead of sliding forward on every poll.
+  let budgetMinutes = input.budgetMinutes;
+  let extendPending = input.extendMinutes !== undefined;
   let last: { state: WatchState; mr: WatchMr | null; hint: string } = { state: "waiting", mr: null, hint: "call again" };
 
   const result = (state: WatchState, mr: WatchMr | null, next: string, extra: Partial<WatchResult> = {}): WatchResult => ({
@@ -212,9 +216,13 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
       if (p && m === true) {
         const created = p.createdAt ? Date.parse(p.createdAt) : NaN;
         if (!Number.isNaN(created)) {
-          budgetEndsAt = created + input.budgetMinutes * MINUTE_MS;
           const elapsed = Math.max(0, deps.now() - created);
-          budget = { minutes: input.budgetMinutes, elapsedMinutes: Math.floor(elapsed / MINUTE_MS), spent: deps.now() >= budgetEndsAt };
+          if (extendPending) {
+            extendPending = false;
+            budgetMinutes = Math.max(budgetMinutes, Math.ceil(elapsed / MINUTE_MS) + (input.extendMinutes ?? 0));
+          }
+          budgetEndsAt = created + budgetMinutes * MINUTE_MS;
+          budget = { minutes: budgetMinutes, elapsedMinutes: Math.floor(elapsed / MINUTE_MS), spent: deps.now() >= budgetEndsAt };
         }
         if (TERMINAL.has(p.status)) {
           const f = await failures(p, p.status === "failed");
