@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { execSync } from "child_process";
 import { mkdtempSync, realpathSync, writeFileSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
@@ -10,6 +10,8 @@ import {
   worktreePoolRoot,
 } from "../../rt-paths.ts";
 import { settingsGet } from "../../../commands/settings-keys.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
+import * as out from "../../ui/out.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../../settings/identity.ts";
 import {
   DEFAULT_JUNK_GLOBS,
@@ -585,12 +587,13 @@ describe("worktree config", () => {
 
   describe("loadWorktreeAppConfig", () => {
     async function settingsGetValue(): Promise<unknown> {
-      const logSpy = spyOn(console, "log").mockImplementation(() => {});
+      const cap = captureOut();
+      out.__test__.setHuman(() => false);
       try {
         await settingsGet(["rt.worktreeApp", "--json"]);
-        return JSON.parse(String(logSpy.mock.calls[0]![0])).value;
+        return JSON.parse(cap.lines()[0]!).value;
       } finally {
-        logSpy.mockRestore();
+        cap.restore();
       }
     }
 
