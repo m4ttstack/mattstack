@@ -1640,6 +1640,42 @@
               ]
             }
           ]
+        },
+        {
+          "gateId": "gate-doctor-1271",
+          "subject": "mr:https://gitlab.example.com/acme/webapp/-/merge_requests/1271",
+          "kind": "doctor-escalation",
+          "label": "doctor-escalation",
+          "status": "open",
+          "openedAt": 1755603900000,
+          "domain": "doctor",
+          "context": "The rebase onto main conflicts in `src/contacts/tabs.tsx`; both sides moved the separator.",
+          "origin": {
+            "paneId": "pane-1271",
+            "tabId": "w16:t1",
+            "worktree": "webapp"
+          },
+          "questions": [
+            {
+              "id": "resolve",
+              "label": "Keep main's separator and force-push the rebase?",
+              "multi": false,
+              "options": [
+                {
+                  "value": "keep-main",
+                  "label": "Keep main's separator (Recommended)"
+                },
+                {
+                  "value": "keep-branch",
+                  "label": "Keep the branch's separator"
+                },
+                {
+                  "value": "stop",
+                  "label": "Stop and leave it to the author"
+                }
+              ]
+            }
+          ]
         }
       ]
     },
