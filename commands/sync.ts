@@ -20,6 +20,7 @@
 
 import { exec, execSync, spawnSync } from "child_process";
 import { bold, cyan, dim, green, yellow, red, reset } from "../lib/tui.ts";
+import * as out from "../lib/ui/out.ts";
 import { getCurrentBranch, getRemoteDefaultBranch, hasUncommittedChanges } from "../lib/git-ops.ts";
 import { loadSyncConfig } from "../lib/sync-config.ts";
 import { deriveRepoIdentity } from "../lib/settings/identity.ts";
@@ -199,7 +200,7 @@ export async function syncBranch(
     return { branch, worktree: cwd, resetResult: null, rebaseResult: null, pushed: false, error: line, refusal: stack.refusal };
   }
   if (stack.verdict === "unverified" && !opts.quiet) {
-    steps.log(`${stack.refusal.hint} — proceeding; rerun with --json to fail closed`, "warn");
+    out.print(out.line("warn", "rt could not check whether this branch is part of a stack", "syncing anyway"), out.callout("why", stack.refusal.hint));
   }
 
   // 1. Fetch once (rebase/reset will skip their own fetch)
@@ -228,10 +229,10 @@ export async function syncBranch(
 
   // 2. Check if diverged from origin/your-branch (GitLab rebase scenario)
   if (hasDivergedFromRemote(branch, cwd)) {
-    if (!opts.quiet) steps.log(`diverged from origin/${branch} — syncing with remote first`, "warn");
+    if (!opts.quiet) out.print(out.line("warn", `${branch} and origin/${branch} have diverged`, "matching origin first"));
 
     if (opts.dryRun) {
-      steps.log(`would reset to origin/${branch}`);
+      out.print(out.line("skipped", `Would reset ${branch} to origin/${branch}`));
     } else {
       resetResult = await resetToOrigin({
         cwd,

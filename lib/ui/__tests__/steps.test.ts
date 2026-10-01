@@ -3,14 +3,14 @@ import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { createStepRunner, withSpinner, __test__ } from "../steps.ts";
-import { T, toAnsiFg } from "../../tui/palette.ts";
+import * as layer from "../out.ts";
+import { captureOut, type CapturedOut } from "./capture-out.ts";
 import { openStep, type StepHandle } from "../spawn.ts";
 
 const FAKE = resolve(import.meta.dir, "fake-rt-ui.ts");
 let dir: string;
 let record: string;
-let out: string[];
-const realWrite = process.stdout.write;
+let io: CapturedOut;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "rt-ui-steps-"));
@@ -20,11 +20,12 @@ beforeEach(() => {
   // bun test's stdin is not a TTY, so the real gate would never spawn; force
   // it open here and closed only in the test that is about the gate.
   __test__.setInteractive(() => true);
-  out = [];
-  process.stdout.write = ((chunk: string | Uint8Array) => { out.push(String(chunk)); return true; }) as typeof process.stdout.write;
+  io = captureOut();
+  layer.__test__.reset();
+  layer.__test__.setHuman(() => false);
 });
 afterEach(() => {
-  process.stdout.write = realWrite;
+  io.restore();
   __test__.setInteractive(undefined);
   delete process.env.RT_UI_BIN;
   delete process.env.RT_UI_FAKE;
@@ -56,14 +57,6 @@ test("done title defaults to the pending title without its ellipsis", async () =
   expect(sent().at(-1)).toEqual({ t: "done", title: "rebasing" });
 });
 
-test("log between steps prints a palette-colored line to stdout and spawns nothing", async () => {
-  const steps = createStepRunner();
-  steps.log("diverged from origin/main", "warn");
-  expect(out.join("")).toContain("diverged from origin/main");
-  expect(out.join("")).toContain(toAnsiFg(T.peach));
-  expect(() => readFileSync(record)).toThrow();
-});
-
 test("withSpinner maps doneLabel/failLabel", async () => {
   await withSpinner("fetching origin…", async () => 1, { doneLabel: "origin fetched" });
   expect(sent().at(-1)).toEqual({ t: "done", title: "origin fetched" });
@@ -72,20 +65,39 @@ test("withSpinner maps doneLabel/failLabel", async () => {
   expect(sent().at(-1)).toEqual({ t: "fail", title: "push rejected", hint: "rejected" });
 });
 
-test("with the gate closed nothing is spawned and the plain final line is printed", async () => {
+test("with the gate closed nothing is spawned and the final line prints through the layer", async () => {
   __test__.setInteractive(undefined);
   process.env.RT_BATCH = "1";
   try {
     const steps = createStepRunner();
-    await steps.run("fetching origin…", async () => 1, { done: "origin fetched", doneHint: "3 new commits" });
+    await steps.run("Fetching from origin…", async () => 1, { done: "Fetched from origin", doneHint: "3 new commits" });
   } finally {
     delete process.env.RT_BATCH;
   }
   expect(() => readFileSync(record)).toThrow();
-  const text = out.join("");
-  expect(text).toContain("✓");
-  expect(text).toContain("origin fetched");
-  expect(text).toContain("3 new commits");
+  expect(io.stdout()).toBe("[ok] Fetched from origin  3 new commits\n");
+  expect(io.stderr()).toBe("");
+});
+
+test("off a terminal a step that throws prints a failed line and rethrows", async () => {
+  __test__.setInteractive(() => false);
+  const steps = createStepRunner();
+  await expect(steps.run("Pushing…", async () => { throw new Error("rejected\nby the remote"); }, { error: "Could not push" })).rejects.toThrow("rejected");
+  expect(io.stdout()).toBe("[failed] Could not push  rejected by the remote\n");
+});
+
+test("under a payload verb the step's plain line goes to stderr", async () => {
+  __test__.setInteractive(() => false);
+  layer.payloadOnStdout();
+  await createStepRunner().run("Fetching from origin…", async () => 1, { done: "Fetched from origin" });
+  expect(io.stdout()).toBe("");
+  expect(io.stderr()).toBe("[ok] Fetched from origin\n");
+});
+
+test("the step lines carry no escape of their own", async () => {
+  __test__.setInteractive(() => false);
+  await createStepRunner().run("Fetching from origin…", async () => 1, { done: "Fetched from origin" });
+  expect(io.stdout()).not.toContain("\x1b[");
 });
 
 test("the real gate is closed off a TTY and under RT_BATCH", () => {
@@ -100,41 +112,23 @@ test("the real gate is closed off a TTY and under RT_BATCH", () => {
 });
 
 test("an unspawnable helper costs the spinner, not the work", async () => {
-  // The helper only narrates the step. Resolving or spawning it is the one
-  // failure that used to escape before the task ever ran.
   process.env.RT_UI_BIN = join(dir, "does-not-exist", "rt-ui");
-  const errOut: string[] = [];
-  const realErr = process.stderr.write;
-  process.stderr.write = ((chunk: string | Uint8Array) => { errOut.push(String(chunk)); return true; }) as typeof process.stderr.write;
   let ran = false;
-  try {
-    const steps = createStepRunner();
-    const r = await steps.run("fetching origin…", async () => { ran = true; return 42; }, { done: "origin fetched" });
-    expect(r).toBe(42);
-  } finally {
-    process.stderr.write = realErr;
-  }
+  const steps = createStepRunner();
+  const r = await steps.run("Fetching from origin…", async () => { ran = true; return 42; }, { done: "Fetched from origin" });
+  expect(r).toBe(42);
   expect(ran).toBe(true);
-  const text = out.join("");
-  expect(text).toContain("✓");
-  expect(text).toContain("origin fetched");
-  expect(errOut.join("")).toContain("rt-ui");
+  expect(io.stdout()).toBe("[ok] Fetched from origin\n");
+  expect(io.stderr()).toBe("[warning] rt could not draw a progress line  results still print\n");
 });
 
-test("when the child dies mid-step the plain final line is printed and a warning is shown", async () => {
+test("when the child dies mid-step the final line still prints, with one warning", async () => {
   process.env.RT_UI_FAKE = JSON.stringify({ dieOn: "start" });
-  const errOut: string[] = [];
-  const realErr = process.stderr.write;
-  process.stderr.write = ((chunk: string | Uint8Array) => { errOut.push(String(chunk)); return true; }) as typeof process.stderr.write;
-  try {
-    const steps = createStepRunner();
-    const r = await steps.run("pushing…", async () => { await Bun.sleep(150); return "ok"; }, { done: "pushed" });
-    expect(r).toBe("ok");
-  } finally {
-    process.stderr.write = realErr;
-  }
-  expect(out.join("")).toContain("pushed");
-  expect(errOut.join("")).toContain("rt-ui");
+  const steps = createStepRunner();
+  const r = await steps.run("Pushing…", async () => { await Bun.sleep(150); return "ok"; }, { done: "Pushed" });
+  expect(r).toBe("ok");
+  expect(io.stdout()).toBe("[ok] Pushed\n");
+  expect(io.stderr()).toBe("[warning] rt could not draw a progress line  results still print\n");
 });
 
 test("run hands the task a sub callback that streams sub events before done", async () => {
@@ -160,8 +154,7 @@ test("off a terminal the sub callback is a no-op and the final line still prints
   __test__.setInteractive(() => false);
   const steps = createStepRunner();
   await steps.run("connecting…", async (step) => step.sub("checking"), { done: "connected" });
-  expect(out.join("")).toContain("connected");
-  expect(out.join("")).not.toContain("checking");
+  expect(io.stdout()).toBe("[ok] connected\n");
 });
 
 test("a step can end in a status other than done", async () => {
@@ -179,4 +172,8 @@ test("done takes every status but failed, which only fail may end with", () => {
   // @ts-expect-error
   void done("x", undefined, "failed");
   void done("x", undefined, "warn");
+});
+
+test("the runner has no log of its own: a line between steps is out.print", () => {
+  expect(Object.keys(createStepRunner())).toEqual(["run"]);
 });
