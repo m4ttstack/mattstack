@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { dirname, join } from "path";
+import { basename, dirname, join } from "path";
+import { execFileSync } from "child_process";
+import { updateRepoIndex } from "../../lib/repo-index.ts";
 import { __test__ as pickImplTest, type PickImpl } from "../../lib/ui/pick.ts";
 import type { PickRequest, PickResult } from "../../lib/ui/protocol.ts";
 import * as sources from "../../lib/skills/sources.ts";
@@ -741,6 +743,64 @@ describe("applyBind", () => {
         expect(errors.some((l) => l.includes("bindings file not regenerated") && l.includes("engine-pack-missing"))).toBe(true);
         expect(errors.some((l) => l.includes("rt skills materialize"))).toBe(true);
       }
+    });
+  });
+
+  describe("regeneratePackFile scope", () => {
+    let savedHome: string | undefined;
+    let savedEnginePackDir: string | undefined;
+    beforeEach(() => {
+      savedHome = process.env.HOME;
+      savedEnginePackDir = process.env.RT_ENGINE_PACK_DIR;
+    });
+    afterEach(() => {
+      if (savedHome === undefined) delete process.env.HOME;
+      else process.env.HOME = savedHome;
+      if (savedEnginePackDir === undefined) delete process.env.RT_ENGINE_PACK_DIR;
+      else process.env.RT_ENGINE_PACK_DIR = savedEnginePackDir;
+    });
+
+    function seedTwoRepoWorld(): { home: string; manifest: (slug: string) => string } {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-scope-")));
+      const home = join(root, "home");
+      mkdirSync(home, { recursive: true });
+      process.env.HOME = home;
+      process.env.RT_ENGINE_PACK_DIR = join(root, "engine");
+      writeFile(join(root, "engine", "pack", "skills.jsonc"), "{}");
+      const zone = join(home, ".mattstack", "teams", "acme", "mattstack");
+      writeFile(join(zone, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "acme" }));
+      writeFile(join(zone, "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets", "acme/gadgets"] }));
+      writeFile(join(zone, "packs", "widgets", "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { domain: "widgets:ci" } } }));
+      for (const name of ["widgets", "gadgets"]) {
+        const dir = join(root, "src", name);
+        execFileSync("git", ["init", "-q", dir]);
+        execFileSync("git", ["-C", dir, "remote", "add", "origin", `https://gitlab.example.com/acme/${name}.git`]);
+        updateRepoIndex(basename(dir), dir);
+      }
+      return { home, manifest: (slug) => join(home, ".mattstack", "repos", slug, "packs", "widgets", "skills.jsonc") };
+    }
+
+    test("regenerates only the repo the bindings file belongs to", async () => {
+      const { home, manifest } = seedTwoRepoWorld();
+      const widgets = manifest("gitlab.example.com-acme-widgets");
+      const gadgets = manifest("gitlab.example.com-acme-gadgets");
+      const untouched = `{ "marker": "gadgets before bind" }`;
+      writeFile(gadgets, untouched);
+      const gadgetsLegacy = join(home, ".mattstack", "repos", "gitlab.example.com-acme-gadgets", "skills.jsonc");
+      writeFile(gadgetsLegacy, "{}");
+
+      expect(await regeneratePackFile(widgets)).toEqual({ ok: true });
+
+      expect(readManifestBindings(widgets)["mattstack:watch-ci"]?.domain).toBe("widgets:ci");
+      expect(readFileSync(gadgets, "utf8")).toBe(untouched);
+      expect(existsSync(gadgetsLegacy)).toBe(true);
+      expect(existsSync(`${gadgetsLegacy}.migrated`)).toBe(false);
+    });
+
+    test("a bindings file no registered checkout produces reports no registered repo wrote it", async () => {
+      const { manifest } = seedTwoRepoWorld();
+      const orphan = manifest("gitlab.example.com-acme-sprockets");
+      expect(await regeneratePackFile(orphan)).toEqual({ ok: false, detail: `no registered repo wrote ${orphan}` });
     });
   });
 

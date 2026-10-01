@@ -11,6 +11,7 @@ import { basename, join, resolve } from "path";
 import { getKnownRepos, type KnownRepo } from "../repo-index.ts";
 import { repoLabel } from "../repo-label.ts";
 import { tryResolveRepoArg } from "../repo-arg.ts";
+import { parseRemote } from "../skills/init.ts";
 import { ENGINE_PACK_REF, findInstalledPluginDir } from "../skills/installed-plugins.ts";
 import { materializeRepo, type MaterializeRepoOutcome, type PackOutcome } from "../skills/materialize.ts";
 import { UserActionableError } from "./errors.ts";
@@ -77,6 +78,16 @@ async function originRemote(p: Probes, dir: string): Promise<string | null> {
   if (!first) return null;
   const url = await p.exec(["git", "-C", dir, "remote", "get-url", first], { timeoutMs: GIT_TIMEOUT_MS });
   return url.code === 0 && url.stdout.trim() ? url.stdout.trim() : null;
+}
+
+/** The first registered checkout whose remote is the forge repo `slug` names (the `repos/<slug>` directory), or null. */
+export async function registeredCheckoutForSlug(p: Probes, slug: string): Promise<string | null> {
+  for (const repo of registeredKnownRepos()) {
+    const path = repo.worktrees[0]!.path;
+    const remote = await originRemote(p, path);
+    if (remote && parseRemote(remote)?.slug === slug) return path;
+  }
+  return null;
 }
 
 async function resolveTargets(opts: { repo?: string; dir?: string }): Promise<{ name: string; path: string }[]> {

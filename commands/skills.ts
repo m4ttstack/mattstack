@@ -34,7 +34,7 @@ import { mattstackHome } from "../lib/rt-paths.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
-import { materializeSkills, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
+import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
@@ -2319,7 +2319,12 @@ export function regenerateOutcomeFor(result: MaterializeSkillsResult, manifestPa
 }
 
 export async function regeneratePackFile(manifestPath: string): Promise<RegenerateOutcome> {
-  return regenerateOutcomeFor(await materializeSkills(createRealProbes(), {}), manifestPath);
+  const p = createRealProbes();
+  // The missing-engine skip is the actionable reason, so it outranks an unmatched checkout.
+  if (!findEnginePackDir(p)) return regenerateOutcomeFor(await materializeSkills(p, {}), manifestPath);
+  const dir = await registeredCheckoutForSlug(p, manifestRepoKey(manifestPath));
+  if (!dir) return { ok: false, detail: `no registered repo wrote ${manifestPath}` };
+  return regenerateOutcomeFor(await materializeSkills(p, { dir }), manifestPath);
 }
 
 export async function skillsBind(args: string[]): Promise<void> {
