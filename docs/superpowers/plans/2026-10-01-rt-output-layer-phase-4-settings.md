@@ -10,7 +10,9 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-30-rt-output-layer-design.md` (ticket RT-369), phase 4 of its "Phases" list. Phase 1 (`docs/superpowers/plans/2026-09-30-rt-output-layer-phase-1-foundation.md`, PR #630) built the API this plan consumes.
 
-**Order:** Phase 2 (errors) lands before this plan starts. This plan edits neither `cli.ts` nor `lib/errors.ts`; it consumes `out.fail` for every failure and keeps every exit code at today's value. It does not throw `UserActionableError` from the settings verbs, because the dispatch seam renders an expected failure at exit 2 and these verbs exit 1 today (the Global Constraints freeze that). Landing after phase 2 means the one `cli.ts` line this phase depends on (`await routeSettingsNotices(args)`, which stays by name and signature) is already settled there, and anything a settings verb throws by accident is rendered by the seam instead of as a stack.
+**Rulings:** `.superpowers/sdd/cross-phase-rulings.md` binds this plan; the ones it leans on are 2 (the capture helper is phase 2's, extended in place here), 5 (the structured notice, with the sink's second argument optional), 6 (`out.payloadOnStdout()` under `--json`) and 8 (settings verbs keep exit 1).
+
+**Order:** Phase 2 (errors) lands before this plan starts, and this plan's tests import `lib/ui/__tests__/capture-out.ts` from it. This plan edits neither `cli.ts` nor `lib/errors.ts`; it consumes `out.fail` for every failure and keeps every exit code at today's value. It does not throw `UserActionableError` from the settings verbs, because the dispatch seam renders an expected failure at exit 2 and these verbs exit 1 today (the Global Constraints freeze that). Moving the settings refusals onto that seam, and so onto exit 2, is deferred on purpose and is a decision for the phase 6 allowlist sweep, not an oversight here. Landing after phase 2 means the one `cli.ts` line this phase depends on (`await routeSettingsNotices(args)`, which stays by name and signature) is already settled there, and anything a settings verb throws by accident is rendered by the seam instead of as a stack.
 
 ## Global Constraints
 
@@ -44,12 +46,13 @@
 
 | File | Responsibility |
 |---|---|
-| `lib/ui/__tests__/capture-out.ts` (create) | Test helper: captures what a command writes through `out` (and through `console.*` on unconverted code), forcing the plain renderer |
+| `lib/ui/__tests__/capture-out.ts` (modify; phase 2 creates it) | Test helper: `captureOut()` returns `{ stdout(): string; stderr(): string; lines(): string[]; errLines(): string[]; reset(): void; restore(): void }` capturing what a command writes through `out`; the caller forces the plain renderer with `out.__test__.setHuman(() => false)`. Task 1 adds an optional `{ console: true }` argument (spies `console.log`/`console.error` into the same buffers) and `clear()` |
+| `lib/settings/notice-blocks.ts` (create) | `noticeBlocks`: the share tip as `tip` and `next` callouts, shared by the TTY route and the `set`/`unset` verbs |
 | `commands/__tests__/settings-json-frozen.test.ts` (create), `commands/__tests__/fixtures/settings-json/*.txt` (create) | The `--json` byte-identity characterization, fixtures captured before conversion |
-| `packages/rt-client/src/settings/write.ts` (modify) | `SettingsNotice`, the two-argument sink, the plain-language share tips |
+| `packages/rt-client/src/settings/write.ts` (modify) | `SettingsNotice`, the sink's optional second argument, the plain-language share tips |
 | `packages/rt-client/src/index.ts` (modify) | Export the `SettingsNotice` type |
 | `packages/rt-client/src/settings/__tests__/write.test.ts` (modify) | The new tip wording and the structured notice |
-| `lib/settings/notice-channel.ts` (modify) | `noticeBlocks`, the TTY routing through `out.print` |
+| `lib/settings/notice-channel.ts` (modify) | The TTY routing through `out.print`, with `out` loaded only on that branch |
 | `lib/settings/__tests__/notice-channel.test.ts` (modify) | Routing and block tests |
 | `commands/settings-keys.ts` (modify) | `get` (payload), `set`, `unset`, `list`, `explain`, `check`, `migrate` |
 | `commands/settings.ts` (modify) | `source-path` (payload), `test-push`, `sdm set-email` |
@@ -62,16 +65,16 @@
 
 ---
 
-### Task 1: Audit, the capture helper, and the frozen `--json` fixtures
+### Task 1: Audit, the capture helper's two additions, and the frozen `--json` fixtures
 
 **Files:**
-- Create: `lib/ui/__tests__/capture-out.ts`
+- Modify: `lib/ui/__tests__/capture-out.ts` (phase 2's; add the `console` option and `clear()`)
 - Create: `commands/__tests__/settings-json-frozen.test.ts`
 - Create: `commands/__tests__/fixtures/settings-json/` (nine `.txt` files, written by the test in update mode)
 
 **Interfaces:**
-- Consumes: `out.__test__.setHuman`, `out.__test__.reset` (phase 1, `lib/ui/out.ts`); the unconverted verbs `settingsGet`, `settingsList`, `settingsExplain`, `settingsCheck`, `settingsMigrate` (`commands/settings-keys.ts`), `sourcePathCommand` (`commands/settings.ts`), `settingsSchemaDiff` (`commands/settings-schema.ts`); `machineSettingsPath`, `userSettingsPath` (`lib/rt-paths.ts`); `buildLock` (`lib/settings/schema-lock.ts`); `closeStateDb` (`lib/state/index.ts`).
-- Produces: `captureOut(): Captured` with `Captured = { stdout: string[]; stderr: string[]; text(): string; err(): string; restore(): void }`, used by every later task's tests. Nine fixture files that Tasks 3 to 7 must keep passing.
+- Consumes: `captureOut()` from `lib/ui/__tests__/capture-out.ts` (phase 2 creates it; cross-phase ruling 2 states its contract as `{ stdout(): string; stderr(): string; lines(): string[]; errLines(): string[]; reset(): void; restore(): void }`, where `reset()` calls `out.__test__.reset()` and `restore()` undoes the stream patch and resets; the plain renderer is left to the caller, so every test in this plan follows `captureOut()` with `out.__test__.setHuman(() => false)`); `out.__test__.setHuman` (phase 1, `lib/ui/out.ts`); the unconverted verbs `settingsGet`, `settingsList`, `settingsExplain`, `settingsCheck`, `settingsMigrate` (`commands/settings-keys.ts`), `sourcePathCommand` (`commands/settings.ts`), `settingsSchemaDiff` (`commands/settings-schema.ts`); `machineSettingsPath`, `userSettingsPath` (`lib/rt-paths.ts`); `buildLock` (`lib/settings/schema-lock.ts`); `closeStateDb` (`lib/state/index.ts`).
+- Produces: in the helper, `captureOut(opts?: { console?: boolean })` and `clear(): void` on its return value; nine fixture files that Tasks 3 to 7 must keep passing.
 
 #### The audit
 
@@ -99,13 +102,13 @@ Every print site in the files this phase owns, the block it becomes and the new 
 | `✓ key set (where)` | `line done` | `Saved <key>`, hint `your user settings` / `this Mac's settings` / `the <team> team's settings` / `the team's settings`, with ` for <repo>` when `--repo` |
 | share tip (from the sink) | `callout tip` + `callout next` under the confirmation, same print call | Task 2's wording |
 | `intercepts.json regenerated (N rules)` | `line done` | `Intercepts updated`, hint `N rule(s)` |
-| `could not regenerate intercepts.json (...) — run rt intercept install` | `line warn` + `callout next` | `Intercepts not updated`, hint the error; next `rt intercept install` |
+| `could not regenerate intercepts.json (...)`, a dash, `run rt intercept install` | `line warn` + `callout next` | `Intercepts not updated`, hint the error; next `rt intercept install` |
 | `hooks.json regenerated (repo)` | `line done` | `Hooks updated`, hint the repo name |
-| `could not regenerate hooks.json for repo — run rt hooks status` | `line warn` + `callout next` | `Hooks not updated for <repo>`; next `rt hooks status` ` in that repo` |
+| `could not regenerate hooks.json for repo`, a dash, `run rt hooks status` | `line warn` + `callout next` | `Hooks not updated for <repo>`; next `rt hooks status` ` in that repo` |
 | `✓ key removed (where)` | `line done` | `Removed <key>`, hint `from <where>` |
-| `key was not set in where — nothing to remove` | `line skipped` | `<key> was not set`, hint `nothing to remove from <where>` |
+| `key was not set in where`, a dash, `nothing to remove` | `line skipped` | `<key> was not set`, hint `nothing to remove from <where>` |
 | `list`: blank, `key = value (labels)` per row, blank | one `table`, rows `[key, value + warn labels]` | labels keep their words; `reads legacy: <file>` becomes `still reads its legacy file` |
-| `explain`: blank, bold key, a row per rung, blank | one `tree(key, rows)` | `—` for an absent rung becomes `not set`; `(registry default)` becomes `built-in default`; `(no file)` becomes `no file`; marks keep their bracketed words |
+| `explain`: blank, bold key, a row per rung, blank | one `tree(key, rows)` | the lone dash for an absent rung becomes `not set`; `(registry default)` becomes `built-in default`; `(no file)` becomes `no file`; marks keep their bracketed words |
 | `check`: a line per finding with issue lines, then `N failing, M unregistered, K stale or leftover` | `table` + `summary` | summary `Your stored settings check out` (done) or `Some stored settings need fixing` (failed), counts `N failing`, `M unregistered`, `K stale or leftover` |
 | `migrate`: `--write` with `--prune` | failure, exitCode 1 | title `Write and prune are separate runs`, why `Prune only once every reader of the store knows the new names.`, next `rt settings migrate --write` |
 | `--force` without a key | failure, exitCode 1 | title `--force needs a key`, hint `for example --force rt.notify.eventBridges` |
@@ -147,60 +150,18 @@ Every print site in the files this phase owns, the block it becomes and the new 
 | `problem: <p>` | `line failed` | the problem |
 | `drafted <key> ...`, `note: ...`, final `next: ...` | `line done` + `callout note`; `callout next` | `Drafted <key>`, hint `migrateFrom version N` or `renamedFrom <old>`; next `review the drafts, add real examples, set storeVersion, then run ` + `bun run cli.ts settings schema lock` |
 
-**`lib/settings/notice-channel.ts`**: `console.log(line)` becomes `out.print(...noticeBlocks(notice))` (Task 2).
+**`lib/settings/notice-channel.ts`**: `console.log(line)` becomes `out.print(...noticeBlocks(notice ?? line))`, with `out` and `noticeBlocks` (`lib/settings/notice-blocks.ts`) loaded only on the TTY branch (Task 2).
 
 **`packages/rt-client/src/settings/write.ts`** (the write path, this phase's): the four share tips, each in a saved and a removed form, get the wording in Task 2. The library default sink stays a `console.error` line (rt-client is outside the guard's scan roots).
 
-- [ ] **Step 1: Write the capture helper**
+- [ ] **Step 1: Extend the capture helper in place**
 
-Create `lib/ui/__tests__/capture-out.ts`:
+In `lib/ui/__tests__/capture-out.ts` (phase 2's file; read it first and keep its shape), make two additions and nothing else:
 
-```ts
-import { spyOn } from "bun:test";
-import * as out from "../out.ts";
+- `captureOut` takes an optional `opts?: { console?: boolean }`. With `console: true`, `console.log` and `console.error` are spied (`spyOn` from `bun:test`) for the capture's lifetime; each call's arguments, joined by a space with a trailing newline, land in the stdout and stderr buffers respectively, so a fixture can be taken from a command that still prints through `console.*`. `restore()` removes the spies. Without the option nothing about `console` changes.
+- The returned object gains `clear(): void`, which empties both buffers and nothing else (`reset()` keeps its meaning: put `humanStream` back).
 
-export interface Captured {
-  stdout: string[];
-  stderr: string[];
-  text(): string;
-  err(): string;
-  restore(): void;
-}
-
-/**
- * Captures what a command writes through lib/ui/out.ts, with the plain
- * renderer forced so a test never spawns rt-ui. console.log and
- * console.error are captured too, so a fixture can be taken from a command
- * that has not been converted yet.
- */
-export function captureOut(): Captured {
-  const realOut = process.stdout.write;
-  const realErr = process.stderr.write;
-  const logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-    c.stdout.push(args.map(String).join(" ") + "\n");
-  });
-  const errSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-    c.stderr.push(args.map(String).join(" ") + "\n");
-  });
-  const c: Captured = {
-    stdout: [],
-    stderr: [],
-    text: () => c.stdout.join(""),
-    err: () => c.stderr.join(""),
-    restore() {
-      process.stdout.write = realOut;
-      process.stderr.write = realErr;
-      logSpy.mockRestore();
-      errSpy.mockRestore();
-      out.__test__.reset();
-    },
-  };
-  out.__test__.setHuman(() => false);
-  process.stdout.write = ((chunk: string | Uint8Array) => (c.stdout.push(String(chunk)), true)) as typeof process.stdout.write;
-  process.stderr.write = ((chunk: string | Uint8Array) => (c.stderr.push(String(chunk)), true)) as typeof process.stderr.write;
-  return c;
-}
-```
+Add two tests to the helper's own test file (phase 2 names it; if it has none, create `lib/ui/__tests__/capture-out.test.ts`): `console: true routes console.log and console.error into the buffers` and `clear() empties the buffers without touching the stream`. The second one calls `out.payloadOnStdout()`, prints a line, calls `clear()`, prints again and sees only the second line on stderr.
 
 - [ ] **Step 2: Write the frozen test**
 
@@ -223,7 +184,8 @@ import { settingsSchemaDiff } from "../settings-schema.ts";
 import { machineSettingsPath, userSettingsPath } from "../../lib/rt-paths.ts";
 import { buildLock } from "../../lib/settings/schema-lock.ts";
 import { closeStateDb } from "../../lib/state/index.ts";
-import { captureOut, type Captured } from "../../lib/ui/__tests__/capture-out.ts";
+import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "settings-json");
 const UPDATE = process.env.RT_UPDATE_SETTINGS_JSON_FIXTURES === "1";
@@ -232,7 +194,7 @@ const noPrompt = { interactive: false, confirm: async () => { throw new Error("m
 describe("settings --json is frozen", () => {
   const origHome = process.env.HOME;
   let home: string;
-  let cap: Captured;
+  let cap: ReturnType<typeof captureOut>;
 
   function write(file: string, obj: unknown): void {
     mkdirSync(dirname(file), { recursive: true });
@@ -244,9 +206,13 @@ describe("settings --json is frozen", () => {
     process.env.HOME = home;
     closeStateDb();
     process.exitCode = 0;
-    write(userSettingsPath(), { "rt.worktrees": { onDeck: 3 }, "rt.logLevel": "debug" });
+    // rt.worktrees is repoOnly, so a global value would read as an invalid rung; the seeds stay on
+    // plain keys. The machine value is a deliberate type error, so `check` has a failing finding.
+    write(userSettingsPath(), { "rt.logLevel": "debug" });
     write(machineSettingsPath(), { "rt.repoRoots": "nope" });
-    cap = captureOut();
+    // The fixtures are captured before conversion, when these verbs still print through console.*.
+    cap = captureOut({ console: true });
+    out.__test__.setHuman(() => false);
   });
 
   afterEach(() => {
@@ -267,18 +233,18 @@ describe("settings --json is frozen", () => {
 
   function frozen(name: string): void {
     const file = join(FIXTURES, `${name}.txt`);
-    const got = normalize(cap.text());
+    const got = normalize(cap.stdout());
     if (UPDATE) {
       mkdirSync(FIXTURES, { recursive: true });
       writeFileSync(file, got);
     }
     expect(existsSync(file)).toBe(true);
     expect(got).toBe(readFileSync(file, "utf8"));
-    expect(cap.err()).toBe("");
+    expect(cap.stderr()).toBe("");
   }
 
   test("get", async () => {
-    await settingsGet(["rt.worktrees", "--json"]);
+    await settingsGet(["rt.logLevel", "--json"]);
     frozen("get");
   });
 
@@ -288,7 +254,7 @@ describe("settings --json is frozen", () => {
   });
 
   test("explain", async () => {
-    await settingsExplain(["rt.worktrees", "--json"]);
+    await settingsExplain(["rt.logLevel", "--json"]);
     frozen("explain");
   });
 
@@ -339,7 +305,7 @@ This is the one step that must run before any conversion in Tasks 3 to 7.
 Run: `RT_UPDATE_SETTINGS_JSON_FIXTURES=1 bun test commands/__tests__/settings-json-frozen.test.ts`
 Expected: PASS, and `ls commands/__tests__/fixtures/settings-json/` lists `get.txt`, `list.txt`, `explain.txt`, `check.txt`, `migrate.txt`, `migrate-write.txt`, `migrate-prune.txt`, `source-path.txt`, `schema-diff.txt`.
 
-Open each file. Every one but `schema-diff.txt` is a single line ending in a newline; `schema-diff.txt` is indented JSON. `get.txt` starts with `{"ok":true,"key":"rt.worktrees"`. `source-path.txt` contains `"at":"<AT>"` and `"sourcePath":null`. If any fixture contains a path that is not `<HOME>` or `<MACHINE_STORE>`, add that path's replacement to `normalize` and recapture; do not commit a fixture with a machine-specific path.
+Open each file. Every one but `schema-diff.txt` is a single line ending in a newline; `schema-diff.txt` is indented JSON. `get.txt` starts with `{"ok":true,"key":"rt.logLevel","value":"debug"`. `source-path.txt` contains `"at":"<AT>"` and `"sourcePath":null`. If any fixture contains a path that is not `<HOME>` or `<MACHINE_STORE>`, add that path's replacement to `normalize` and recapture; do not commit a fixture with a machine-specific path.
 
 - [ ] **Step 5: Run it again without the flag**
 
@@ -349,7 +315,7 @@ Expected: PASS (9 tests).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/ui/__tests__/capture-out.ts commands/__tests__/settings-json-frozen.test.ts commands/__tests__/fixtures/settings-json/
+git add lib/ui/__tests__/capture-out.ts lib/ui/__tests__/capture-out.test.ts commands/__tests__/settings-json-frozen.test.ts commands/__tests__/fixtures/settings-json/
 git commit -m "settings: freeze every --json envelope before the output conversion
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -363,14 +329,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `packages/rt-client/src/settings/write.ts` (the block from `export type SettingsNoticeSink` through the end of `shareTip`, lines 199 to 245 today)
 - Modify: `packages/rt-client/src/index.ts:181`
 - Modify: `packages/rt-client/src/settings/__tests__/write.test.ts` (the share-tip cases, lines 300 to 410 today)
+- Create: `lib/settings/notice-blocks.ts`
 - Modify: `lib/settings/notice-channel.ts` (whole file)
 - Modify: `lib/settings/__tests__/notice-channel.test.ts` (append)
 - Modify: `lib/__tests__/raw-output-allowlist.json` (delete the `lib/settings/notice-channel.ts` line)
 
 **Interfaces:**
 - Consumes: `out.print`, `out.callout`, `out.cmd` (phase 1); `setSettingsNoticeSink` (existing, `packages/rt-client/src/settings/write.ts`); `captureOut` (Task 1).
-- Produces (rt-client): `interface SettingsNotice { text: string; next?: string }`; `type SettingsNoticeSink = (line: string, notice: SettingsNotice) => void`; `noticeLine(notice: SettingsNotice): string`. A one-argument sink such as phase 3's `(line) => ctx.log(step.id, line)` in `lib/setup/apply.ts` still type-checks and still receives the full sentence.
-- Produces (lib): `noticeBlocks(notice: SettingsNotice): Block[]` and the existing `settingsNoticeChannel(args, stdoutIsTTY)`, `routeSettingsNotices(args)` by name, from `lib/settings/notice-channel.ts`.
+- Produces (rt-client): `interface SettingsNotice { text: string; next?: string }`; `type SettingsNoticeSink = (line: string, notice?: SettingsNotice) => void` (cross-phase ruling 5: the second argument is optional, so phase 3's one-argument implementation `(line) => (ctx.tip ?? ctx.log)(step.id, line)` and its one-argument call `engine("Saved on this Mac only.")` both type-check); `noticeLine(notice: SettingsNotice): string`. rt-client's own `notify` always passes both arguments.
+- Produces (lib): `noticeBlocks(notice: SettingsNotice | string): Block[]` from `lib/settings/notice-blocks.ts` (a bare string is a tip with no command, which is how an absent second argument is drawn); the existing `settingsNoticeChannel(args, stdoutIsTTY)` and `routeSettingsNotices(args)` by name from `lib/settings/notice-channel.ts`, which loads `out` and `noticeBlocks` only on the TTY branch so the dispatch path (`cli.ts` imports this module on every run) stays as light as today.
 
 - [ ] **Step 1: Write the failing rt-client tests**
 
@@ -426,8 +393,13 @@ export interface SettingsNotice {
   next?: string;
 }
 
-/** `line` is the sentence and the command joined for a plain log; `notice` carries them apart for a renderer. */
-export type SettingsNoticeSink = (line: string, notice: SettingsNotice) => void;
+/**
+ * `line` is the sentence and the command joined for a plain log; `notice`
+ * carries them apart for a renderer. The write path always passes both; the
+ * second is optional so a one-argument sink, and a caller that only has a
+ * line, both type-check.
+ */
+export type SettingsNoticeSink = (line: string, notice?: SettingsNotice) => void;
 
 export function noticeLine(notice: SettingsNotice): string {
   return notice.next ? `${notice.text} Run: ${notice.next}` : notice.text;
@@ -499,7 +471,7 @@ Expected: PASS, including `packages/rt-client/test/dist-freshness.test.ts`.
 
 - [ ] **Step 5: Write the failing notice-channel tests**
 
-Append to `lib/settings/__tests__/notice-channel.test.ts`, and extend its import to `import { noticeBlocks, routeSettingsNotices, settingsNoticeChannel } from "../notice-channel.ts";` plus `import { setSettingsNoticeSink } from "../write.ts";`, `import { renderPlain } from "../../ui/out-plain.ts";` and `import { captureOut } from "../../ui/__tests__/capture-out.ts";`:
+Append to `lib/settings/__tests__/notice-channel.test.ts`, and extend its import to `import { routeSettingsNotices, settingsNoticeChannel } from "../notice-channel.ts";` plus `import { noticeBlocks } from "../notice-blocks.ts";`, `import { setSettingsNoticeSink } from "../write.ts";`, `import * as out from "../../ui/out.ts";`, `import { renderPlain } from "../../ui/out-plain.ts";` and `import { captureOut } from "../../ui/__tests__/capture-out.ts";`:
 
 ```ts
 describe("noticeBlocks", () => {
@@ -514,19 +486,27 @@ describe("noticeBlocks", () => {
       "  tip: Saved rt.logLevel in your user settings, but automatic home sync is off.\n",
     );
   });
+
+  test("a bare line is a tip with no command", () => {
+    expect(renderPlain(noticeBlocks("Saved on this Mac only."))).toBe("  tip: Saved on this Mac only.\n");
+  });
 });
 
 describe("routeSettingsNotices", () => {
-  test("at a terminal the installed sink prints the tip on stdout through out", async () => {
+  test("at a terminal the installed sink prints the tip on stdout through out, with or without the notice", async () => {
     const isTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
     Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
     const cap = captureOut();
+    out.__test__.setHuman(() => false);
     try {
       await routeSettingsNotices(["settings", "set", "rt.logLevel", '"debug"', "--scope", "user"]);
       const installed = setSettingsNoticeSink(null);
       installed("ignored", { text: "Saved rt.logLevel on this Mac only.", next: "rt home remote set" });
-      expect(cap.text()).toBe("  tip: Saved rt.logLevel on this Mac only.\n  next: rt home remote set\n");
-      expect(cap.err()).toBe("");
+      expect(cap.stdout()).toBe("  tip: Saved rt.logLevel on this Mac only.\n  next: rt home remote set\n");
+      cap.clear();
+      installed("Saved on this Mac only.");
+      expect(cap.stdout()).toBe("  tip: Saved on this Mac only.\n");
+      expect(cap.stderr()).toBe("");
     } finally {
       cap.restore();
       setSettingsNoticeSink(null);
@@ -554,11 +534,29 @@ describe("routeSettingsNotices", () => {
 - [ ] **Step 6: Run them to verify they fail**
 
 Run: `bun test lib/settings/__tests__/notice-channel.test.ts`
-Expected: FAIL, `noticeBlocks` is not exported.
+Expected: FAIL, `../notice-blocks.ts` does not exist.
 
-- [ ] **Step 7: Rewrite `notice-channel.ts`**
+- [ ] **Step 7: Create `notice-blocks.ts` and rewrite `notice-channel.ts`**
 
-Replace the whole file:
+Create `lib/settings/notice-blocks.ts`:
+
+```ts
+import * as out from "../ui/out.ts";
+import type { Block } from "../ui/protocol.ts";
+import type { SettingsNotice } from "./write.ts";
+
+/**
+ * The sentence as a tip, the command as a next; both attach under whatever
+ * printed before them in the same call. A bare line (a sink called with one
+ * argument) is a tip with no command.
+ */
+export function noticeBlocks(notice: SettingsNotice | string): Block[] {
+  const n = typeof notice === "string" ? { text: notice } : notice;
+  return [out.callout("tip", n.text), ...(n.next ? [out.callout("next", out.cmd(n.next))] : [])];
+}
+```
+
+Replace the whole of `lib/settings/notice-channel.ts`:
 
 ```ts
 /**
@@ -567,24 +565,16 @@ Replace the whole file:
  * pipe, the app) owns that channel, so the tip stays on the library's stderr
  * default there.
  */
-import * as out from "../ui/out.ts";
-import type { Block } from "../ui/protocol.ts";
-import type { SettingsNotice } from "./write.ts";
-
 export function settingsNoticeChannel(args: string[], stdoutIsTTY: boolean): "stdout" | "stderr" {
   return stdoutIsTTY && !args.includes("--json") ? "stdout" : "stderr";
 }
 
-/** The sentence as a tip, the command as a next; both attach under whatever printed before them in the same call. */
-export function noticeBlocks(notice: SettingsNotice): Block[] {
-  return [out.callout("tip", notice.text), ...(notice.next ? [out.callout("next", out.cmd(notice.next))] : [])];
-}
-
-// Runs on every rt dispatch, so the write path stays a dynamic import.
+// cli.ts loads this module on every dispatch, so the write path and the
+// output layer are imported only on the branch that uses them.
 export async function routeSettingsNotices(args: string[]): Promise<void> {
   if (settingsNoticeChannel(args, process.stdout.isTTY === true) !== "stdout") return;
-  const { setSettingsNoticeSink } = await import("./write.ts");
-  setSettingsNoticeSink((_line, notice) => out.print(...noticeBlocks(notice)));
+  const [{ setSettingsNoticeSink }, out, { noticeBlocks }] = await Promise.all([import("./write.ts"), import("../ui/out.ts"), import("./notice-blocks.ts")]);
+  setSettingsNoticeSink((line, notice) => out.print(...noticeBlocks(notice ?? line)));
 }
 ```
 
@@ -593,12 +583,12 @@ Delete the line `"lib/settings/notice-channel.ts",` from `lib/__tests__/raw-outp
 - [ ] **Step 8: Run the tests**
 
 Run: `bun test lib/settings/__tests__/notice-channel.test.ts lib/__tests__/no-raw-output.test.ts && bun run typecheck`
-Expected: PASS. The typecheck covers `lib/setup/apply.ts`'s one-argument sink against the new two-argument type.
+Expected: PASS. The typecheck covers `lib/setup/apply.ts`'s one-argument sink against the new type, whose second argument is optional.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add packages/rt-client/src/settings/write.ts packages/rt-client/src/index.ts packages/rt-client/src/settings/__tests__/write.test.ts lib/settings/notice-channel.ts lib/settings/__tests__/notice-channel.test.ts lib/__tests__/raw-output-allowlist.json
+git add packages/rt-client/src/settings/write.ts packages/rt-client/src/index.ts packages/rt-client/src/settings/__tests__/write.test.ts lib/settings/notice-blocks.ts lib/settings/notice-channel.ts lib/settings/__tests__/notice-channel.test.ts lib/__tests__/raw-output-allowlist.json
 git commit -m "settings: the share tip is a sentence plus a command, drawn as tip and next callouts
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -619,6 +609,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing tests**
 
+The keys these tests use are chosen for what the registry says about them: `rt.logLevel` (string, `merge: "replace"`, scopes machine and user) and `rt.repoRoots` (array, `merge: "replace"`, machine only). Neither is `repoOnly`, so a global write is accepted and a global rung is valid; `rt.worktrees` is `repoOnly: true` and would be refused by `validateWrite` and read as an invalid rung. Both are `replace` keys, and the resolver's `replace` provenance is the one winning layer (`packages/rt-client/src/settings/resolve.ts`, the `winner` return at the end of the merge function), so the source line names only that layer, never the default rung.
+
 Create `commands/__tests__/settings-get.test.ts`:
 
 ```ts
@@ -635,12 +627,13 @@ import { join } from "path";
 import { settingsExplain, settingsGet, settingsList } from "../settings-keys.ts";
 import { setSetting } from "../../lib/settings/write.ts";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
-import { captureOut, type Captured } from "../../lib/ui/__tests__/capture-out.ts";
+import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 describe("rt settings get / list / explain", () => {
   const origHome = process.env.HOME;
   let home: string;
-  let cap: Captured;
+  let cap: ReturnType<typeof captureOut>;
   let exits: number[];
   const origExit = process.exit;
 
@@ -651,6 +644,7 @@ describe("rt settings get / list / explain", () => {
     exits = [];
     (process as any).exit = (code?: number) => { exits.push(code ?? 0); throw new Error(`__exit_${code}`); };
     cap = captureOut();
+    out.__test__.setHuman(() => false);
   });
 
   afterEach(() => {
@@ -664,38 +658,41 @@ describe("rt settings get / list / explain", () => {
   test("the value is the payload on stdout and the notes go to stderr", async () => {
     setSetting("rt.logLevel", "debug", "user");
     await settingsGet(["rt.logLevel"]);
-    expect(cap.text()).toBe("debug\n");
-    expect(cap.err()).toBe("rt.logLevel:\n  from your user settings\n");
+    expect(cap.stdout()).toBe("debug\n");
+    expect(cap.stderr()).toBe("rt.logLevel:\n  from your user settings\n");
   });
 
-  test("an object value is pretty JSON, and provenance names every layer weakest first", async () => {
-    setSetting("rt.worktrees", { onDeck: 3 }, "user");
-    await settingsGet(["rt.worktrees"]);
-    expect(cap.text()).toBe('{\n  "onDeck": 3\n}\n');
-    expect(cap.err()).toBe("rt.worktrees:\n  from the built-in default, then your user settings\n");
+  test("a structured value is pretty JSON, and the source names the layer it came from", async () => {
+    setSetting("rt.repoRoots", ["~/code"], "machine");
+    await settingsGet(["rt.repoRoots"]);
+    expect(cap.stdout()).toBe('[\n  "~/code"\n]\n');
+    expect(cap.stderr()).toBe("rt.repoRoots:\n  from this Mac's settings\n");
   });
 
   test("the value is written raw on stdout and cleaned in the list", async () => {
     setSetting("rt.logLevel", "a\u001b[2Jb\nc", "user");
     await settingsGet(["rt.logLevel"]);
-    expect(cap.text()).toBe("a\u001b[2Jb\nc\n");
-    cap.stdout.length = 0;
+    expect(cap.stdout()).toBe("a\u001b[2Jb\nc\n");
+    // `get` moved human text to stderr for the rest of the process; put it back before the human verb.
+    cap.reset();
+    cap.clear();
     await settingsList([]);
-    expect(cap.text()).toContain("rt.logLevel  ab c");
-    expect(cap.text()).not.toContain("\u001b");
+    // The key column is padded to the widest registered key.
+    expect(cap.stdout()).toMatch(/^rt\.logLevel\s+ab c$/m);
+    expect(cap.stdout()).not.toContain("\u001b");
   });
 
   test("an unknown key fails plainly", async () => {
     await expect(settingsGet(["rt.nope"])).rejects.toThrow("__exit_1");
-    expect(cap.text()).toBe("");
-    expect(cap.err()).toBe("[failed] No setting is called rt.nope\n  next: rt settings list\n");
+    expect(cap.stdout()).toBe("");
+    expect(cap.stderr()).toBe("[failed] No setting is called rt.nope\n  next: rt settings list\n");
     await expect(settingsExplain(["rt.nope"])).rejects.toThrow("__exit_1");
     expect(exits).toEqual([1, 1]);
   });
 
   test("get without a key says what to type", async () => {
     await expect(settingsGet([])).rejects.toThrow("__exit_1");
-    expect(cap.err()).toBe("[failed] Name the setting to read\n  next: rt settings get <key>\n");
+    expect(cap.stderr()).toBe("[failed] Name the setting to read\n  next: rt settings get <key>\n");
   });
 
   test("list --json keeps stdout to one JSON value when the repo has no identity", async () => {
@@ -704,23 +701,24 @@ describe("rt settings get / list / explain", () => {
       execSync("git init -q", { cwd: repoPath });
       setKvValue("repo-index", "local-only", repoPath);
       await settingsList(["--repo", "local-only", "--json"]);
-      expect(cap.stdout).toHaveLength(1);
-      expect(JSON.parse(cap.text()).ok).toBe(true);
-      expect(cap.err()).toBe("[warning] Repo settings for local-only are out of reach  its remote is not one rt can key on\n");
+      expect(cap.lines()).toHaveLength(1);
+      expect(JSON.parse(cap.stdout()).ok).toBe(true);
+      expect(cap.stderr()).toBe("[warning] Repo settings for local-only are out of reach  its remote is not one rt can key on\n");
     } finally {
       rmSync(repoPath, { recursive: true, force: true });
     }
   });
 
   test("explain draws the key as a tree with one child per rung, weakest first", async () => {
-    setSetting("rt.worktrees", { onDeck: 3 }, "user");
-    await settingsExplain(["rt.worktrees"]);
-    const lines = cap.text().split("\n");
-    expect(lines[0]).toBe("rt.worktrees");
-    expect(lines[1]).toMatch(/^  - default\s+built-in default\s+\{"onDeck":0\}$/);
-    expect(lines[2]).toMatch(/^  - team\s+no file\s+not set$/);
-    expect(lines[3]).toMatch(/^  - user\s+.*settings\.user\.jsonc\s+\{"onDeck":3\}$/);
-    expect(cap.err()).toBe("");
+    setSetting("rt.logLevel", "debug", "user");
+    await settingsExplain(["rt.logLevel"]);
+    const lines = cap.stdout().split("\n");
+    expect(lines[0]).toBe("rt.logLevel");
+    expect(lines[1]).toMatch(/^  - default\s+built-in default\s+info$/);
+    expect(lines.some((l) => /^  - user\s+\S*settings\.user\.jsonc\s+debug$/.test(l))).toBe(true);
+    expect(lines.some((l) => /^  - machine\s+.*not set$/.test(l))).toBe(true);
+    expect(lines.findIndex((l) => l.startsWith("  - user"))).toBeLessThan(lines.findIndex((l) => l.startsWith("  - machine")));
+    expect(cap.stderr()).toBe("");
   });
 });
 ```
@@ -739,17 +737,19 @@ import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { settingsExplain } from "../settings-keys.ts";
-import { captureOut, type Captured } from "../../lib/ui/__tests__/capture-out.ts";
+import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 describe("rt settings explain", () => {
   const origHome = process.env.HOME;
   let home: string;
-  let cap: Captured;
+  let cap: ReturnType<typeof captureOut>;
 
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-settings-explain-cli-")));
     process.env.HOME = home;
     cap = captureOut();
+    out.__test__.setHuman(() => false);
   });
 
   afterEach(() => {
@@ -761,8 +761,8 @@ describe("rt settings explain", () => {
   test("--json prints exactly one parseable envelope with every scope rung", async () => {
     await settingsExplain(["rt.worktrees", "--json"]);
 
-    expect(cap.stdout).toHaveLength(1);
-    const payload = JSON.parse(cap.text());
+    expect(cap.lines()).toHaveLength(1);
+    const payload = JSON.parse(cap.stdout());
     expect(payload.ok).toBe(true);
     expect(payload.key).toBe("rt.worktrees");
     expect(payload.rows.map((r: { scope: string }) => r.scope)).toEqual(["default", "team", "user", "machine"]);
@@ -772,7 +772,7 @@ describe("rt settings explain", () => {
   test("without --json prints the human tree instead", async () => {
     await settingsExplain(["rt.worktrees"]);
 
-    const lines = cap.text().split("\n");
+    const lines = cap.stdout().split("\n");
     expect(lines.some((l) => l.includes("rt.worktrees"))).toBe(true);
     expect(lines.some((l) => l.startsWith("{"))).toBe(false);
   });
@@ -818,7 +818,7 @@ import {
   type Scope,
 } from "../lib/settings/resolve.ts";
 import { pruneStoreName, setSetting, setSettingsNoticeSink, unsetSetting, type SettingsNotice } from "../lib/settings/write.ts";
-import { noticeBlocks } from "../lib/settings/notice-channel.ts";
+import { noticeBlocks } from "../lib/settings/notice-blocks.ts";
 import { currentStoreName } from "../lib/settings/migrate.ts";
 import { getDef, isMigrated, type SettingDef, type SettingScope } from "../lib/settings/registry.ts";
 import { firstIssueText, formatIssuePath } from "../lib/settings/schema.ts";
@@ -1047,7 +1047,7 @@ export function renderExplainRow(row: ExplainRow, currentName?: string): CellInp
 Run: `bun test commands/__tests__/settings-get.test.ts commands/__tests__/settings-explain.test.ts commands/__tests__/settings-keys-render.test.ts commands/__tests__/settings-json-frozen.test.ts && bun run typecheck`
 Expected: PASS. The frozen fixtures `get.txt`, `list.txt` and `explain.txt` are byte-identical.
 
-If the "out of reach" test fails because `deriveRepoIdentity` on a remote-less repo answers `kind: "remote"`, read `packages/rt-client/src/settings/identity.ts` and give the repo a local-path remote instead (`git remote add origin /tmp/elsewhere`), which that module cannot normalize. Do not drop the test.
+`deriveRepoIdentity` answers `kind: "path"` for a repo with no remote (`packages/rt-client/src/settings/identity.ts`), which is what makes the "out of reach" line print.
 
 - [ ] **Step 5: Commit**
 
@@ -1068,7 +1068,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `commands/__tests__/settings-keys-unset.test.ts`, `commands/__tests__/settings-keys-hooks-regen.test.ts`
 
 **Interfaces:**
-- Consumes: `fail`, `failWithError` (Task 3); `noticeBlocks` (Task 2); `setSettingsNoticeSink`, `type SettingsNotice` (Task 2, two-argument sink); `regenerateInterceptsCache` (existing, unchanged); `regenerateHooksCache(repoRoot, dataDir, repoIdentity)` (`commands/hooks.ts`, existing).
+- Consumes: `fail`, `failWithError` (Task 3); `noticeBlocks` (Task 2); `setSettingsNoticeSink`, `type SettingsNotice` (Task 2, the second argument optional); `regenerateInterceptsCache` (existing, unchanged); `regenerateHooksCache(repoRoot, dataDir, repoIdentity)` (`commands/hooks.ts`, existing).
 - Produces: `collectSettingsNotices<T>(fn: () => T): { result: T; notices: SettingsNotice[] }` (module-private), `whereText(scope, team, repoName): string`, `regenBlocks(key, target): Promise<Block[]>`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1088,14 +1088,15 @@ import { join } from "path";
 import { settingsSet, settingsUnset } from "../settings-keys.ts";
 import { userSettingsPath } from "../../lib/rt-paths.ts";
 import { closeStateDb } from "../../lib/state/index.ts";
-import { captureOut, type Captured } from "../../lib/ui/__tests__/capture-out.ts";
+import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 const TIP = "  tip: Saved rt.logLevel on this Mac only. Your home repo has no remote yet, so it will not reach your other Macs.\n  next: rt home remote set\n";
 
 describe("rt settings set / unset output", () => {
   const origHome = process.env.HOME;
   let home: string;
-  let cap: Captured;
+  let cap: ReturnType<typeof captureOut>;
   let exits: number[];
   const origExit = process.exit;
 
@@ -1106,6 +1107,7 @@ describe("rt settings set / unset output", () => {
     exits = [];
     (process as any).exit = (code?: number) => { exits.push(code ?? 0); throw new Error(`__exit_${code}`); };
     cap = captureOut();
+    out.__test__.setHuman(() => false);
   });
 
   afterEach(() => {
@@ -1118,48 +1120,48 @@ describe("rt settings set / unset output", () => {
 
   test("a user write with no home remote prints the confirmation and the tip under it, nothing on stderr", async () => {
     await settingsSet(["rt.logLevel", '"debug"', "--scope", "user"]);
-    expect(cap.text()).toBe(`[ok] Saved rt.logLevel  your user settings\n${TIP}`);
-    expect(cap.err()).toBe("");
+    expect(cap.stdout()).toBe(`[ok] Saved rt.logLevel  your user settings\n${TIP}`);
+    expect(cap.stderr()).toBe("");
     expect(readFileSync(userSettingsPath(), "utf8")).toContain('"rt.logLevel"');
   });
 
   test("a machine write prints only the confirmation", async () => {
     await settingsSet(["rt.logLevel", '"debug"', "--scope", "machine"]);
-    expect(cap.text()).toBe("[ok] Saved rt.logLevel  this Mac's settings\n");
+    expect(cap.stdout()).toBe("[ok] Saved rt.logLevel  this Mac's settings\n");
   });
 
   test("a bare word is refused with the quoting tip and nothing is written", async () => {
     await expect(settingsSet(["rt.logLevel", "debug", "--scope", "user"])).rejects.toThrow("__exit_1");
-    expect(cap.err()).toBe("[failed] The value is not valid JSON  debug\n  why: A string needs its own quotes, so the shell does not eat them: '\"debug\"'.\n");
-    expect(cap.text()).toBe("");
+    expect(cap.stderr()).toBe("[failed] The value is not valid JSON  debug\n  why: A string needs its own quotes, so the shell does not eat them: '\"debug\"'.\n");
+    expect(cap.stdout()).toBe("");
     expect(existsSync(userSettingsPath())).toBe(false);
   });
 
   test("a missing scope names the three scopes and the command to type", async () => {
     await expect(settingsSet(["rt.logLevel", '"debug"'])).rejects.toThrow("__exit_1");
-    expect(cap.err()).toBe(
+    expect(cap.stderr()).toBe(
       "[failed] Say which settings to write\n  why: A value lives in exactly one of your user, team or machine settings.\n  next: rt settings set <key> <value> --scope user|team|machine\n",
     );
   });
 
   test("a team name with the user scope is refused", async () => {
     await expect(settingsSet(["rt.logLevel", '"debug"', "--scope", "user", "--team", "acme"])).rejects.toThrow("__exit_1");
-    expect(cap.err()).toContain("[failed] A team name only goes with the team scope");
-    expect(cap.err()).toContain("why: You asked for the user scope.");
+    expect(cap.stderr()).toContain("[failed] A team name only goes with the team scope");
+    expect(cap.stderr()).toContain("why: You asked for the user scope.");
   });
 
   test("unset of an absent key is skipped, not failed, and prints no tip", async () => {
     await settingsUnset(["rt.logLevel", "--scope", "user"]);
-    expect(cap.text()).toBe("[skipped] rt.logLevel was not set  nothing to remove from your user settings\n");
-    expect(cap.err()).toBe("");
+    expect(cap.stdout()).toBe("[skipped] rt.logLevel was not set  nothing to remove from your user settings\n");
+    expect(cap.stderr()).toBe("");
     expect(exits).toEqual([]);
   });
 
   test("unset of a present key prints Removed and the removal tip", async () => {
     await settingsSet(["rt.logLevel", '"debug"', "--scope", "user"]);
-    cap.stdout.length = 0;
+    cap.clear();
     await settingsUnset(["rt.logLevel", "--scope", "user"]);
-    expect(cap.text()).toBe(
+    expect(cap.stdout()).toBe(
       "[ok] Removed rt.logLevel  from your user settings\n" +
         "  tip: Removed rt.logLevel on this Mac only. Your home repo has no remote yet, so the change will not reach your other Macs.\n" +
         "  next: rt home remote set\n",
@@ -1176,10 +1178,11 @@ In `commands/__tests__/settings-keys-hooks-regen.test.ts`, the refusal test spie
       throw new Error("process.exit sentinel");
     });
     const cap = captureOut();
+    out.__test__.setHuman(() => false);
     try {
       await expect(settingsSet(["rt.hooks", '{"enabled":false,"hooks":{}}', "--scope", "user"])).rejects.toThrow("process.exit sentinel");
-      expect(cap.err()).toMatch(/repo-only/);
-      expect(cap.err()).toMatch(/^\[failed\] /);
+      expect(cap.stderr()).toMatch(/repo-only/);
+      expect(cap.stderr()).toMatch(/^\[failed\] /);
     } finally {
       exitSpy.mockRestore();
       cap.restore();
@@ -1187,7 +1190,7 @@ In `commands/__tests__/settings-keys-hooks-regen.test.ts`, the refusal test spie
     expect(() => readFileSync(hooksConfigPath(repoDataDir("hooks-regen-repo")), "utf8")).toThrow();
 ```
 
-and add `import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";`. In `commands/__tests__/settings-keys-unset.test.ts`, add the same import, call `cap = captureOut()` at the end of `beforeEach` and `cap.restore()` at the start of `afterEach` (declare `let cap: ReturnType<typeof captureOut>;`), so the suite stops printing to the runner's terminal; its assertions do not change.
+and add `import * as out from "../../lib/ui/out.ts";` and `import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";`. In `commands/__tests__/settings-keys-unset.test.ts`, add the same two imports, call `cap = captureOut(); out.__test__.setHuman(() => false);` at the end of `beforeEach` and `cap.restore();` at the start of `afterEach` (declare `let cap: ReturnType<typeof captureOut>;`), so the suite stops printing to the runner's terminal; its assertions do not change.
 
 - [ ] **Step 2: Run them to verify they fail**
 
@@ -1202,7 +1205,7 @@ Add after `failWithError`:
 /** Holds the share tips a write emits so the verb can print them under its own confirmation line. */
 function collectSettingsNotices<T>(fn: () => T): { result: T; notices: SettingsNotice[] } {
   const notices: SettingsNotice[] = [];
-  const previous = setSettingsNoticeSink((_line, notice) => notices.push(notice));
+  const previous = setSettingsNoticeSink((line, notice) => notices.push(notice ?? { text: line }));
   try {
     return { result: fn(), notices };
   } finally {
@@ -1398,13 +1401,13 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Rewrite the two test files' capture and the assertions that read exact lines**
 
-In `commands/__tests__/settings-check.test.ts`: replace the `logSpy` field and its `beforeEach`/`afterEach` lines with `let cap: Captured;`, `cap = captureOut();` (after `process.exitCode = 0;`) and `cap.restore();` (first line of `afterEach`); add `import { captureOut, type Captured } from "../../lib/ui/__tests__/capture-out.ts";`; delete `stripAnsi`. Then:
+In `commands/__tests__/settings-check.test.ts`: replace the `logSpy` field and its `beforeEach`/`afterEach` lines with `let cap: ReturnType<typeof captureOut>;`, `cap = captureOut(); out.__test__.setHuman(() => false);` (after `process.exitCode = 0;`) and `cap.restore();` (first lines of `afterEach`); add `import * as out from "../../lib/ui/out.ts";` and `import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";`; delete `stripAnsi`. Then:
 
-- In every `--json` test, `const printed = logSpy.mock.calls.map(...).find(...)` becomes `const printed = cap.text();`.
+- In every `--json` test, `const printed = logSpy.mock.calls.map(...).find(...)` becomes `const printed = cap.stdout();`.
 - Replace the human test's body after `await settingsCheck([]);` with:
 
 ```ts
-    const lines = cap.text().split("\n");
+    const lines = cap.stdout().split("\n");
     const layer = lines.findIndex((l) => l.includes("rt.homeSnapshot") && l.includes("nonconforming"));
     expect(lines[layer]).toContain("machine");
     expect(lines[layer]).toContain(machineSettingsPath());
@@ -1415,30 +1418,31 @@ In `commands/__tests__/settings-check.test.ts`: replace the `logSpy` field and i
     expect(lines[merged]).toMatch(/^rt\.homeSnapshot\s+merged$/);
     expect(lines[merged + 1]).toMatch(/^\s+enabled: expected boolean, got string$/);
     expect(lines[merged + 2]).toMatch(/^\s+debounceSec: expected number, got string$/);
-    expect(cap.text()).toMatch(/\n\[failed\] Some stored settings need fixing  \d+ failing, 0 unregistered, 0 stale or leftover\n$/);
+    expect(cap.stdout()).toMatch(/\n\[failed\] Some stored settings need fixing  \d+ failing, 0 unregistered, 0 stale or leftover\n$/);
     expect(process.exitCode).toBe(1);
 ```
 
-- In "a diverged older name exits 1 and prints both values", `const out = stripAnsi(...)` becomes `const text = cap.text();` and the three `expect(out)` become `expect(text)`.
+- In "a diverged older name exits 1 and prints both values", `const out = stripAnsi(...)` becomes `const text = cap.stdout();` and the three `expect(out)` become `expect(text)`.
 - Add one test:
 
 ```ts
   test("clean stores print one done summary and nothing else", async () => {
     write(machineSettingsPath(), { "rt.repoRoots": ["~/Documents/GitHub"] });
     await settingsCheck([]);
-    expect(cap.text()).toBe("[ok] Your stored settings check out  0 failing, 0 unregistered, 0 stale or leftover\n");
+    expect(cap.stdout()).toBe("[ok] Your stored settings check out  0 failing, 0 unregistered, 0 stale or leftover\n");
     expect(process.exitCode).toBe(0);
   });
 ```
 
 In `commands/__tests__/settings-migrate.test.ts`: replace `logSpy` and `errSpy` with `cap` the same way (keep `warnSpy`, rt-client still warns through `console.warn` for an unregistered key). Then:
 
-- `printed()` becomes `() => cap.text()`; `allJsonBodies()` becomes `() => cap.stdout.filter((l) => l.startsWith("{")).map((l) => JSON.parse(l))`.
-- `const body = JSON.parse(logSpy.mock.calls...find((l) => l.startsWith("{"))!)` becomes `const body = JSON.parse(cap.stdout.find((l) => l.startsWith("{"))!)`.
-- The two `--force needs a key` assertions read `cap.err()` instead of `errSpy...`.
-- The `--force rt.roles matches no older store name in this plan` assertion reads `cap.text()` (the line is a warning on stdout now, not an error).
+- `printed()` becomes `() => cap.stdout()`; `allJsonBodies()` becomes `() => cap.lines().filter((l) => l.startsWith("{")).map((l) => JSON.parse(l))`.
+- `settingsMigrate` with `--json` calls `out.payloadOnStdout()`, which moves human text to stderr for the rest of the process, so in "never shows a secret def's value, in text or --json" add `cap.reset();` right after `await settingsMigrate(["--json"], noPrompt);` and its four `dryBody` assertions (before the `--write` call), or the later `--prune --yes --force` human lines land on stderr and `printed()` never sees `Deleting diverged`. The same rule applies to any other test here that runs a `--json` call before a human call.
+- `const body = JSON.parse(logSpy.mock.calls...find((l) => l.startsWith("{"))!)` becomes `const body = JSON.parse(cap.lines().find((l) => l.startsWith("{"))!)`.
+- The two `--force needs a key` assertions read `cap.stderr()` instead of `errSpy...`.
+- The `--force rt.roles matches no older store name in this plan` assertion reads `cap.stdout()` (the line is a warning on stdout now, not an error).
 - The two `deleting diverged` assertions become `expect(printed()).toContain(`Deleting diverged ${EB}`)` plus `expect(printed()).toContain(`its value was: ${JSON.stringify(EB_V1)}`)`, and in the secret test `expect(printed()).toContain("its value was: (secret)")`.
-- Add to the "a dry run" test: `expect(printed()).toMatch(/^rt\.notify\.eventBridges\s+user\s+.*settings\.user\.jsonc\s+would write/);`.
+- Add to the "a dry run" test: `expect(printed()).toMatch(/^rt\.notify\.eventBridges\s+user\s+\S*settings\.user\.jsonc\s+would write/m);`.
 - Add one test:
 
 ```ts
@@ -1751,16 +1755,18 @@ import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { sendTestPushNotification } from "../settings.ts";
-import { captureOut, type Captured } from "../../lib/ui/__tests__/capture-out.ts";
+import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 const origHome = process.env.HOME;
 let home: string;
-let cap: Captured;
+let cap: ReturnType<typeof captureOut>;
 
 beforeEach(() => {
   home = realpathSync(mkdtempSync(join(tmpdir(), "rt-settings-misc-")));
   process.env.HOME = home;
   cap = captureOut();
+  out.__test__.setHuman(() => false);
 });
 
 afterEach(() => {
@@ -1771,8 +1777,8 @@ afterEach(() => {
 
 test("test-push with no app running is an off line, not a failure", async () => {
   await sendTestPushNotification();
-  expect(cap.text()).toBe("[off] The mattstack app is not running  open it, then try again\n");
-  expect(cap.err()).toBe("");
+  expect(cap.stdout()).toBe("[off] The mattstack app is not running  open it, then try again\n");
+  expect(cap.stderr()).toBe("");
   expect(process.exitCode ?? 0).toBe(0);
 });
 ```
@@ -1962,16 +1968,16 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Rewrite the test file's capture and the exact-line assertions**
 
-In `commands/__tests__/settings-schema.test.ts`, both `describe`s override `console.log`/`console.error` by hand. Replace that with the helper in each: `let cap: Captured;`, `cap = captureOut();` as the last line of `beforeEach`, `cap.restore();` as the first line of `afterEach`; delete `logs`, `errors`, `origLog`, `origError` and `captureErrors` (every `await captureErrors(() => X)` becomes `await X` followed by reading `cap.err()`). Add `import { captureOut, type Captured } from "../../lib/ui/__tests__/capture-out.ts";`. Then:
+In `commands/__tests__/settings-schema.test.ts`, both `describe`s override `console.log`/`console.error` by hand. Replace that with the helper in each: `let cap: ReturnType<typeof captureOut>;`, `cap = captureOut(); out.__test__.setHuman(() => false);` as the last lines of `beforeEach`, `cap.restore();` as the first lines of `afterEach`; delete `logs`, `errors`, `origLog`, `origError` and `captureErrors` (every `await captureErrors(() => X)` becomes `await X` followed by reading `cap.stderr()`). Add `import * as out from "../../lib/ui/out.ts";` and `import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";`. Then:
 
-- `expect(logs).toEqual([out]);` becomes `expect(cap.text()).toBe(`${out}\n`);`
-- `expect(errors.some((e) => e.includes("run from source"))).toBe(true);` becomes `expect(cap.err()).toContain("run from source");` (both places)
-- `JSON.parse(logs.join("\n"))` becomes `JSON.parse(cap.text())` everywhere
-- `expect(logs).toEqual([]);` becomes `expect(cap.text()).toBe("");`
-- `expect(errors.some((e) => e.includes(X))).toBe(true);` becomes `expect(cap.err()).toContain(X);` (the `--against` and `--against-ref` case checks both substrings)
-- `expect(logs).toEqual(["no schema changes"]);` becomes `expect(cap.text()).toBe("[ok] No schema changes\n");`
-- In "a ref whose tree has no lock reads as an empty lock", `logs = [];` becomes `cap.stdout.length = 0;`
-- In "a malformed lock...", `process.exitCode = 0;` between the two halves gains `cap.stdout.length = 0; cap.stderr.length = 0;`
+- `expect(logs).toEqual([out]);` becomes `expect(cap.stdout()).toBe(`${out}\n`);`
+- `expect(errors.some((e) => e.includes("run from source"))).toBe(true);` becomes `expect(cap.stderr()).toContain("run from source");` (both places)
+- `JSON.parse(logs.join("\n"))` becomes `JSON.parse(cap.stdout())` everywhere
+- `expect(logs).toEqual([]);` becomes `expect(cap.stdout()).toBe("");`
+- `expect(errors.some((e) => e.includes(X))).toBe(true);` becomes `expect(cap.stderr()).toContain(X);` (the `--against` and `--against-ref` case checks both substrings)
+- `expect(logs).toEqual(["no schema changes"]);` becomes `expect(cap.stdout()).toBe("[ok] No schema changes\n");`
+- In "a ref whose tree has no lock reads as an empty lock", `logs = [];` becomes `cap.clear();`
+- In "a malformed lock...", `process.exitCode = 0;` between the two halves gains `cap.clear();`
 
 Add one test to the `settingsSchemaDiff` describe:
 
@@ -1983,8 +1989,8 @@ Add one test to the `settingsSchemaDiff` describe:
 
     await settingsSchemaDiff(["--against", writeLock(prev)], { shippedLock: null });
 
-    expect(cap.text()).toMatch(new RegExp(`^breaking  ${key.replace(/\./g, "\\.")}  `));
-    expect(cap.text()).toContain(`\n[failed] `);
+    expect(cap.stdout()).toMatch(new RegExp(`^breaking  ${key.replace(/\./g, "\\.")}  `));
+    expect(cap.stdout()).toContain(`\n[failed] `);
     expect(process.exitCode).toBe(1);
   });
 ```
@@ -2099,7 +2105,7 @@ In `e2e/tests/settings.test.ts`:
 - line 470: `expect(stripAnsi(res.stdout)).toContain("rt.worktrees set (user, settings-repo)");` becomes `expect(stripAnsi(res.stdout)).toContain("[ok] Saved rt.worktrees  your user settings for settings-repo");`
 - line 493: `expect(stripAnsi(res.stdout)).toContain("deck.access set (user)");` becomes `expect(stripAnsi(res.stdout)).toContain("[ok] Saved deck.access  your user settings");`
 
-The regexes on lines 453 to 455 (`team\.repo\s+<file>\s+{"onDeck":3` and the two like it) already match the tree's `scope  file  value` cells and stay. Also update the test name on line 446 from `explain (human output — the verb has no --json)` to `explain (human output) shows every reachable rung`, since the dash is banned and `explain` does take `--json`.
+The regexes on lines 453 to 455 (`team\.repo\s+<file>\s+{"onDeck":3` and the two like it) already match the tree's `scope  file  value` cells and stay. Also rename the test on line 446 (today `explain (human output`, a dash, `the verb has no --json)`) to `explain (human output) shows every reachable rung`, since the dash is banned and `explain` does take `--json`.
 
 - [ ] **Step 2: Write the pty test**
 
@@ -2176,14 +2182,14 @@ In `.github/workflows/e2e.yml` line 38, the `grep -qE` pattern gains the setting
 '^(ui/|lib/mission/|lib/ui/|commands/glitter\.ts|commands/settings[^/]*\.ts|lib/settings/|packages/rt-client/src/settings/write\.ts|packages/git-core/|e2e/(pty/|glitter-repo\.ts|interactive\.ts|harness\.ts|setup\.ts|socket-path\.ts)|test-setup\.ts|\.github/workflows/e2e\.yml|package\.json)'
 ```
 
-Rename the job output's meaning in the comment above the filter from "the glitter board" to "the glitter board or the settings pty gate" (two comment lines, no other change).
+The two comment lines at `.github/workflows/e2e.yml:17-18` (above the `changes` job, not next to the grep) say "Which of this PR's files can affect the glitter board"; change "the glitter board" there to "the glitter board or the settings pty gate", no other change.
 
 - [ ] **Step 4: Run both e2e suites**
 
 Run (repo root): `bun run test:e2e` then `bun run test:pty`
 Expected: both PASS. The preload builds `dist/rt` if it is older than the sources, which it will be after Tasks 2 to 7; expect `e2e: building rt binary...` once. `test:e2e` needs `termwright` only for the pty half; if `cargo install termwright` has never run on this machine, run it first (CI caches it).
 
-If `session.screen()` comes back empty because the process exited before the read, move the three screen assertions above `waitForText` into a `screen` read taken immediately after `waitForText` resolves and before `session.exitCode` is awaited (the order above already does this); if it is still empty, pass `holdMs`-style padding by appending `"&&", "sleep", "2"` is not possible through the harness, so instead assert the same three strings through `session.waitForText` one at a time, which reads the terminal's scrollback. Do not drop the glyph assertions: they are the only proof the styled path ran.
+If `session.screen()` comes back empty because the process exited before the read, assert each of the three strings through `session.waitForText` instead, one at a time, which reads the terminal's scrollback. Do not drop the glyph assertions: they are the only proof the styled path ran.
 
 - [ ] **Step 5: Commit**
 
@@ -2284,6 +2290,6 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ## After this plan
 
 - Open the PR against `m4ttstack/mattstack` with the Task 9 screenshots in both schemes. In the light-scheme screenshot, look at the faint `not set` cells in `explain` and the `skipped` line specifically: they are fixed theme tones and are where low contrast would show.
-- Phase 3's `lib/setup/apply.ts` sink (`(line) => ctx.log(step.id, line)`) keeps compiling against the two-argument `SettingsNoticeSink`; when phase 3 attaches the tip as a callout under the step, it reads the second argument (`notice.text`, `notice.next`) and `noticeBlocks` from `lib/settings/notice-channel.ts` already builds the two callouts.
+- Phase 3's `lib/setup/apply.ts` sink (`(line) => (ctx.tip ?? ctx.log)(step.id, line)`, cross-phase ruling 5) and its test's one-argument call (`engine("Saved on this Mac only.")`) both keep type-checking against `SettingsNoticeSink`, whose second argument is optional; whichever of phases 3 and 4 lands second rebases over the other and re-runs the `lib/setup` and `lib/settings` tests. When phase 3 attaches the tip as a callout under the step, it reads the second argument (`notice.text`, `notice.next`) and `noticeBlocks` from `lib/settings/notice-blocks.ts` already builds the two callouts (and takes the bare line when the notice is absent).
 - Phase 5 owns the `sdm` family; `rt sdm set-email` was converted here because it lives in `commands/settings.ts`. Its wording is in this plan's audit table if phase 5 wants to align it with the other sdm verbs.
-- `lib/ui/__tests__/capture-out.ts` is the capture helper for any later conversion phase's tests; it also captures `console.*` so a fixture can be taken from unconverted code.
+- `lib/ui/__tests__/capture-out.ts` (phase 2's, extended in Task 1) is the one capture helper: `captureOut({ console: true })` is how a fixture is taken from code that still prints through `console.*`, as `settings-json-frozen.test.ts` does, and `clear()` empties the buffers between two calls in one test. A later phase that needs more extends that file; it never creates a second one.
