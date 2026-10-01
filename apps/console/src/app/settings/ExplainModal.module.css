@@ -1,4 +1,13 @@
+/* The Divider below is the last pixel of the 14px under the description. */
+.header {
+  padding: 16px 16px 13px 20px;
+}
+
 .head {
   flex: 1;
   min-width: 0;
+}
+
+.body {
+  padding: 12px 20px 24px;
 }

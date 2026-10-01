@@ -63,11 +63,11 @@ function Header({
   const [ns, name] = splitKey(settingKey);
   const scope = def ? badgeScope(def, null) : null;
   return (
-    <Modal.Header>
+    <Modal.Header className={classes.header}>
       <Stack gap={4} className={classes.head}>
         <Group gap={8} wrap="nowrap">
           <Modal.Title>
-            <Text span fz={15} ff="monospace">
+            <Text span fz={15} lh="20px" ff="monospace">
               <Text span inherit c={text.muted}>
                 {ns}
               </Text>
@@ -82,7 +82,7 @@ function Header({
           </Tooltip>
         </Group>
         {def && (
-          <Text fz={12} c={text.muted}>
+          <Text fz={12} lh="15px" c={text.muted}>
             {def.description}
           </Text>
         )}
@@ -149,7 +149,7 @@ function Resolved({
     <>
       <Header settingKey={settingKey} def={def} />
       <Divider />
-      <Modal.Body pt="md">
+      <Modal.Body className={classes.body}>
         {def ? (
           <Suggested settingKey={def.key}>
             {suggestions => (
