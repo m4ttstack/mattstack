@@ -630,6 +630,7 @@ export async function joinRedeem(
       `joined ${pointer.name} and redeemed the invite, but could not read your local age key (${err instanceof Error ? err.message : String(err)}) — fix keychain access and run \`rt team join\` again to finish (no new code needed)`,
     );
   }
+  updateTeamLocal(p, pointer.team, { agePublicKey: publicKey });
 
   const blob = await sealReply({ v: 1, agePublicKey: publicKey, handle }, key, idHex);
   try {
