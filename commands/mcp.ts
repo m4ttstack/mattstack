@@ -9,7 +9,13 @@ export function mcpToolsPayload(tools: McpToolDef[] = mcpTools()): { tools: Arra
 
 export async function mcpToolsList(args: string[]): Promise<void> {
   const payload = mcpToolsPayload();
-  if (args.includes("--json")) { console.log(JSON.stringify(payload)); return; }
+  // The roster is larger than a pipe buffer, and the CLI exits right after
+  // dispatch, so the write is awaited or a pipe reader gets a cut-off JSON.
+  if (args.includes("--json")) {
+    const text = JSON.stringify(payload) + "\n";
+    await new Promise<void>((resolve, reject) => process.stdout.write(text, (err) => (err ? reject(err) : resolve())));
+    return;
+  }
   for (const t of payload.tools) console.log(t.name);
 }
 
