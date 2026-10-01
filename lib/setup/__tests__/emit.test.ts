@@ -41,7 +41,7 @@ describe("createHumanEmitter", () => {
     expect(printed).toEqual([
       "  ✗ failed: path.link, verify",
       "  - skipped: already applied for this version",
-      "  - skipped: this Mac has not been set up yet",
+      "  - skipped: setup has not finished on this Mac",
       "  - skipped: another update run is in progress",
     ]);
   });

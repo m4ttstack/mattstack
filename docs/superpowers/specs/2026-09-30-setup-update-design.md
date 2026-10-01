@@ -36,9 +36,10 @@ The handler (`setupUpdate` in `commands/setup.ts`) skips
 `gateHardPreconditions` (the macOS and CLT rows gate a first Install, and
 an updated Mac already passed them) and decides, in order:
 
-1. **Never set up.** `~/.mattstack/rt/daemon.json` absent (the same file
-   the tray's `FirstRunDetector` keys on): print
-   `setup update: this Mac has not been set up yet` and exit 0. In `--json`
+1. **Setup not finished.** `isSetupFinished` in `lib/setup/state.ts` says
+   no (the same answer mattstack.app reopens setup on, so a Mac still
+   mid-setup is covered as well as one never set up): print
+   `setup update: setup has not finished on this Mac` and exit 0. In `--json`
    the stream is a single `done` with `ok: true` and
    `skipped: "not-set-up"`. The tray can therefore call the verb blindly.
 2. **Already applied.** `setup-state.json`'s `lastUpdate.version` equals

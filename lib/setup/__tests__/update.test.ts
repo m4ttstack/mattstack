@@ -4,6 +4,7 @@ import { decideUpdate, summarizeUpdate, updateNotification, SETUP_UPDATE_CATEGOR
 
 const DAEMON = "/fake-home/.mattstack/rt/daemon.json";
 const STATE = "/fake-home/.mattstack/rt/setup-state.json";
+const INTENT = "/fake-home/.mattstack/rt/setup-intent.json";
 
 describe("decideUpdate", () => {
   test("a Mac with no daemon.json was never set up", () => {
@@ -37,6 +38,28 @@ describe("decideUpdate", () => {
 
   test("never set up wins over --force", () => {
     expect(decideUpdate(fakeProbes(), "2.15.0", true)).toEqual({ kind: "not-set-up" });
+  });
+
+  test("a Mac mid-setup, with the daemon installed and a team choice still pending, is not set up", () => {
+    const p = fakeProbes({ files: { [DAEMON]: "{}", [INTENT]: "{}" } });
+    expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "not-set-up" });
+    expect(decideUpdate(p, "2.15.0", true)).toEqual({ kind: "not-set-up" });
+  });
+
+  test("a current-format state file with no Finish on record is not set up, daemon or not, forced or not", () => {
+    const p = fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 2, lastApplyAt: "x" }) } });
+    expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "not-set-up" });
+    expect(decideUpdate(p, "2.15.0", true)).toEqual({ kind: "not-set-up" });
+  });
+
+  test("an older state file whose Install ran is still not set up while a team choice is pending", () => {
+    const p = fakeProbes({ files: { [DAEMON]: "{}", [INTENT]: "{}", [STATE]: JSON.stringify({ v: 1, lastApplyAt: "x" }) } });
+    expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "not-set-up" });
+  });
+
+  test("a Finish on record runs even when daemon.json is gone", () => {
+    const p = fakeProbes({ files: { [STATE]: JSON.stringify({ v: 2, finishedAt: "2026-09-30T00:00:00.000Z" }) } });
+    expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "run" });
   });
 });
 

@@ -646,8 +646,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
     }
 
-    /// rt decides whether anything happens (never set up, already applied
-    /// for this version, or a run); the tray only spawns the verb once the
+    /// rt decides whether anything happens (setup not finished, already
+    /// applied for this version, or a run); the tray only spawns the verb once the
     /// agents have settled and logs the done line.
     @MainActor
     private func runSetupUpdateAfterLaunch() async {
