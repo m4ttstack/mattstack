@@ -355,8 +355,8 @@ async function finishIfClear(deps: ApplyDeps): Promise<void> {
 
 /**
  * `rt setup update [--force] [--json]`: the app runs this at every launch;
- * by hand it re-applies after an update. Every decision is rt's: a Mac that
- * never finished Install skips, a version already stamped skips, and a run
+ * by hand it re-applies after an update. Every decision is rt's: a Mac whose
+ * setup has not finished skips, a version already stamped skips, and a run
  * stamps its version whatever happened so a broken item nags once per
  * release. `need` events cannot occur (update-safe steps are `kind: "rt"`),
  * so the context is non-interactive.

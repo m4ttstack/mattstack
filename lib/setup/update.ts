@@ -20,7 +20,7 @@ export function rtVersion(): string {
 
 export type UpdateDecision = { kind: "not-set-up" } | { kind: "current"; version: string } | { kind: "run" };
 
-/** "Finished" is the answer mattstack.app reopens setup on, so a Mac still mid-setup never gets an update run: the run would stamp `lastApplyAt` on a setup nobody finished. A `dev` version never counts as current, so a source build re-applies every launch. */
+/** "Finished" is the answer mattstack.app reopens setup on: until then the wizard owns the Mac, and an update run would re-apply steps to a half-configured machine and could overlap the wizard's own Install, which the update lock does not guard. A `dev` version never counts as current, so a source build re-applies every launch. */
 export function decideUpdate(p: Pick<Probes, "exists" | "home" | "readFile" | "now">, version: string, force: boolean): UpdateDecision {
   const state = readSetupState(p);
   if (!isSetupFinished(state)) return { kind: "not-set-up" };

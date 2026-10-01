@@ -46,8 +46,14 @@ describe("decideUpdate", () => {
     expect(decideUpdate(p, "2.15.0", true)).toEqual({ kind: "not-set-up" });
   });
 
-  test("a current-format state file with no Finish on record is not set up, daemon or not", () => {
+  test("a current-format state file with no Finish on record is not set up, daemon or not, forced or not", () => {
     const p = fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 2, lastApplyAt: "x" }) } });
+    expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "not-set-up" });
+    expect(decideUpdate(p, "2.15.0", true)).toEqual({ kind: "not-set-up" });
+  });
+
+  test("an older state file whose Install ran is still not set up while a team choice is pending", () => {
+    const p = fakeProbes({ files: { [DAEMON]: "{}", [INTENT]: "{}", [STATE]: JSON.stringify({ v: 1, lastApplyAt: "x" }) } });
     expect(decideUpdate(p, "2.15.0", false)).toEqual({ kind: "not-set-up" });
   });
 
