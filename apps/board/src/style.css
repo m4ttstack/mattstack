@@ -759,6 +759,10 @@ body {
     transform: rotate(360deg);
   }
 }
+.tui-status-nopack {
+  margin-left: 8px;
+  flex-shrink: 0;
+}
 .tui-status-more {
   margin-left: 8px;
   flex-shrink: 0;

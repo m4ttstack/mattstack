@@ -373,6 +373,28 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
     expect(reviewCalls[0]).toMatchObject({ pack: 'widgets' });
   });
 
+  test('a launch with no pack marks the row noPack', async () => {
+    await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
+    expect(readReviewStates(db).get(URL_A)?.noPack).toBe(true);
+  });
+
+  test('a launch with a pack clears a noPack an earlier launch left', async () => {
+    writeReviewState(
+      reviewFilePath(URL_A),
+      { mrUrl: URL_A, iid: IID, status: 'done', noPack: true },
+      1,
+      db
+    );
+    await launchReReview(
+      URL_A,
+      IID,
+      { ...CTX, pack: 'widgets' },
+      makeIo(),
+      noSkillPath
+    );
+    expect(readReviewStates(db).get(URL_A)?.noPack).toBe(false);
+  });
+
   test('writes a queued state carrying the MR identity, then stamps the tab and agent', async () => {
     await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
 
@@ -495,6 +517,12 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
       noSkillPath
     );
     expect(respondCalls[0]).toMatchObject({ pack: 'widgets' });
+    expect(readRespondStates(db).get(URL_A)?.noPack).toBe(false);
+  });
+
+  test('a respond launch with no pack marks the row noPack', async () => {
+    await launchRespondAsk(URL_A, IID, CTX, makeRespondIo(), noSkillPath);
+    expect(readRespondStates(db).get(URL_A)?.noPack).toBe(true);
   });
 
   test('a throwing launcher settles an error state and reports it', async () => {

@@ -69,6 +69,10 @@ export interface DoctorState {
       any later write (a relaunch, the pane's own status CLI) outranks it and
       the lane speaks again. Never clears a thing: the run stays readable. */
   dismissedAt?: number;
+  /** True when the launch resolved no pack and ran mattstack's generic
+      skill. Every fresh launch writes it, so a later launch with a pack
+      clears it; a resume leaves it as the launch set it. */
+  noPack?: boolean;
   startedAt: number;
   updatedAt: number;
 }
@@ -107,6 +111,7 @@ export function writeDoctorState(
     resumedGateId: patch.resumedGateId,
     reopenedAt: patch.reopenedAt,
     dismissedAt: patch.dismissedAt,
+    noPack: patch.noPack,
     startedAt: now,
     updatedAt: now,
   };

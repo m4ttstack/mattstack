@@ -178,7 +178,12 @@ export async function launchReReview(
     }
   }
 
-  io.writeReviewState(statePath, { mrUrl, iid, status: 'queued' });
+  io.writeReviewState(statePath, {
+    mrUrl,
+    iid,
+    status: 'queued',
+    noPack: !ctx.pack,
+  });
   try {
     const result = await io.launchReview({
       mrUrl,
@@ -242,7 +247,12 @@ export async function launchRespondAsk(
   resolvePath: SkillPathResolver = resolveSkillPath
 ): Promise<ReReviewLaunch> {
   const statePath = io.respondFilePath(mrUrl);
-  io.writeRespondState(statePath, { mrUrl, iid, status: 'queued' });
+  io.writeRespondState(statePath, {
+    mrUrl,
+    iid,
+    status: 'queued',
+    noPack: !ctx.pack,
+  });
   try {
     const result = await io.launchRespond(
       {

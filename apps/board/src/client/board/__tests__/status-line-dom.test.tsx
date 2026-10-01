@@ -396,3 +396,24 @@ test('the dismiss secondary sits left of the relaunch and carries the lane it dr
   });
   expect(calls).toEqual(['dismiss:doctor']);
 });
+
+test('a line from a launch with no pack shows the quiet no-pack badge with its tip; a line with a pack does not', async () => {
+  const status = (noPack?: boolean): RowStatus => ({
+    line: {
+      tone: 'work',
+      word: 'review running…',
+      spin: true,
+      ...(noPack ? { noPack } : {}),
+      verbs: [],
+    },
+    more: [],
+    bar: null,
+  });
+  await render(status(true), ctx());
+  const badge = container.querySelector('[data-part="badge"]')!;
+  expect(badge.textContent).toBe('no pack');
+  expect(badge.getAttribute('data-intent')).toBe('muted');
+  expect(badge.getAttribute('aria-label')).toContain('No pack selected.');
+  await render(status(), ctx());
+  expect(container.querySelector('[data-part="badge"]')).toBeNull();
+});

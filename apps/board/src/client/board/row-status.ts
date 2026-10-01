@@ -64,6 +64,8 @@ export interface Candidate {
   word: string;
   detail?: string;
   spin?: boolean;
+  /** The lane's launch ran the generic skill because no pack was chosen. */
+  noPack?: true;
   verbs: Verb[];
 }
 
@@ -810,6 +812,13 @@ function reviewerLine(mr: BoardMRWithReview, self: string | null): Candidate {
   return { tone: 'clear', word: 'all clear', verbs: [OPEN] };
 }
 
+function packless(
+  line: Candidate | null,
+  lane: { noPack?: boolean } | undefined
+): Candidate | null {
+  return line && lane?.noPack ? { ...line, noPack: true } : line;
+}
+
 // ── the line ────────────────────────────────────────────────────────────────
 
 /** Every source's offer, in source order; exported for the tests. */
@@ -824,9 +833,12 @@ export function candidateLines(
   const lines: Candidate[] = [
     ...gateLines(mr),
     orphanLine(mr, now, interrupted),
-    reviewLine(mr, now, interrupted, self),
-    respondLine(mr, interrupted, self),
-    doctorLine(mr, now),
+    packless(reviewLine(mr, now, interrupted, self), mr.review),
+    packless(respondLine(mr, interrupted, self), mr.respond),
+    // A stand-down outranks the doctor's row and is no launch of its own.
+    mr.standDown
+      ? doctorLine(mr, now)
+      : packless(doctorLine(mr, now), mr.doctor),
     ...draftLines(mr, draftResolved),
     ...peerLines(mr, now),
   ].filter((l): l is Candidate => l !== null);

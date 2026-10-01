@@ -191,8 +191,8 @@ try {
     identity: username,
     fetchOwnMrs,
     readDoctorStates,
-    launchDoctor: opts =>
-      launchDoctor({ ...opts, pack: launchPack ?? undefined }),
+    launchDoctor,
+    pack: launchPack ?? undefined,
     writeDoctorState,
     doctorFilePath: mrUrl => doctorFilePath(mrUrl),
     appendAudit,

@@ -1662,6 +1662,7 @@ const httpServer = Bun.serve({
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
           status: 'queued',
+          noPack: !launchPack(tabId),
         });
         // Spawn asynchronously; the badge reflects progress via the state file.
         void launchReview({
@@ -1799,6 +1800,7 @@ const httpServer = Bun.serve({
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
           status: 'queued',
+          noPack: !launchPack(undefined),
         });
         void launchRespond({
           mrUrl: parsed.mrUrl,
@@ -1949,6 +1951,7 @@ const httpServer = Bun.serve({
           origin: 'manual',
           tier,
           fixClasses,
+          noPack: !launchPack(undefined),
         });
         void launchDoctor({
           mrUrl: parsed.mrUrl,
