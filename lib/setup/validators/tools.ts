@@ -27,7 +27,7 @@ import { parsePluginList, readServedPacks, type ServedPack } from "../pack-cache
 import type { ExecResult, Probes } from "../probes.ts";
 import type { PackRequirements, ToolRequirement } from "../requirements.ts";
 import { atLeast } from "../semver.ts";
-import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyPredatesMattstack } from "../steps/services.ts";
+import { deployedProxyVersion, pinnedPortlessVersion, PORTLESS_LAUNCHD_PLIST, PROXY_INSTALLER_MISSING, PROXY_VERSION_PATH, proxyCaIsTrusted, proxyInstallerMissing, proxyPredatesMattstack } from "../steps/services.ts";
 import { isValidBrewFormula } from "../tools-install.ts";
 import type { SecretPresence } from "./accounts.ts";
 import { writingStyleRowFor } from "./writing-style.ts";
@@ -625,6 +625,11 @@ async function proxyRow(p: Probes): Promise<Row> {
     optionalNote: "Works without this; apps serve on their ports meanwhile.",
     recheck: "on-activate" as const,
   };
+  // Every remedy below runs the installer; offering one the build cannot run only fails on click.
+  if (proxyInstallerMissing(p)) {
+    const ready = p.exists(PORTLESS_LAUNCHD_PLIST) && !proxyPredatesMattstack(p);
+    return row({ ...base, status: ready ? "ready" : "skipped", detail: ready ? `portless ${deployedProxyVersion(p) ?? "installed"}` : PROXY_INSTALLER_MISSING });
+  }
   if (!p.exists(PORTLESS_LAUNCHD_PLIST)) return row({ ...base, status: "missing", detail: "not installed", action: reRunProxyInstallAction("Install proxy") });
 
   // A plist with no VERSION beside it is the machine deck's own README

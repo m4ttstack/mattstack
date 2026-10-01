@@ -1430,8 +1430,28 @@ describe("toolRows: tool.proxy", () => {
   /** Points `mattstack.appPath` at the real fixture bundle and mirrors it into fakeProbes' `dirs` so appBundlePath's own `p.exists(appRoot)` check agrees. */
   function bundledProxyProbes(overrides: Partial<Parameters<typeof fakeProbes>[0]> = {}): ReturnType<typeof fakeProbes> {
     setSetting("mattstack.appPath", appRoot, "machine");
-    return fakeProbes({ home, env: { PATH: "" }, ...overrides, dirs: { [appRoot]: [], ...overrides.dirs } });
+    const installer = join(appRoot, "Contents", "Helpers", "mattstack-proxy-install");
+    return fakeProbes({ home, env: { PATH: "" }, ...overrides, files: { [installer]: "bin", ...overrides.files }, dirs: { [appRoot]: [], ...overrides.dirs } });
   }
+
+  test("a build without the proxy installer offers no action and reads skipped when not installed", async () => {
+    writePinnedPortless("0.15.6");
+    setSetting("mattstack.appPath", appRoot, "machine");
+    const p = fakeProbes({ home, env: { PATH: "" }, dirs: { [appRoot]: [] } });
+    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
+    expect(r.status).toBe("skipped");
+    expect(r.action ?? null).toBeNull();
+    expect(r.detail).toBe("this build does not include the local proxy installer; apps serve on their ports");
+  });
+
+  test("a build without the proxy installer leaves a predating portless install skipped, with no Update proxy", async () => {
+    writePinnedPortless("0.15.6");
+    setSetting("mattstack.appPath", appRoot, "machine");
+    const p = fakeProbes({ home, env: { PATH: "" }, files: { [PORTLESS_LAUNCHD_PLIST]: "plist" }, dirs: { [appRoot]: [] } });
+    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.proxy");
+    expect(r.status).toBe("skipped");
+    expect(r.action ?? null).toBeNull();
+  });
 
   test("plist absent -> missing, with the install action", async () => {
     writePinnedPortless("0.15.6");
