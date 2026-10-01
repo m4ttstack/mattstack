@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { setSetting } from "../../settings/write.ts";
+import { setSetting, setSettingsNoticeSink } from "../../settings/write.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import { createApplyContext, outcomeFromNeed, runApplyWith, runUpdateWith } from "../apply.ts";
 import type { MigrationDef } from "../migrations/index.ts";
-import { createNdjsonEmitter, type Emit } from "../emit.ts";
+import type { Emit } from "../emit.ts";
 import type { ApplyEvent, StepId } from "../contract.ts";
 import { STEP_IDS } from "../contract.ts";
 import { UserActionableError } from "../../errors.ts";
@@ -1063,11 +1063,11 @@ describe("STEPS registry", () => {
   });
 });
 
-describe("wire bytes — createNdjsonEmitter", () => {
+describe("wire bytes", () => {
   test("every line is single-object NDJSON; hostile detail/log content round-trips byte-identical", async () => {
     const lines: string[] = [];
     const hostile = "line1\nline2\r\nx\0y\uD800z\tw";
-    const { ctx } = testCtx({ emit: createNdjsonEmitter((line) => lines.push(line)) });
+    const { ctx } = testCtx({ emit: (ev) => lines.push(JSON.stringify(ev) + "\n") });
     const step: StepDef = {
       id: "home.init",
       title: "x",
@@ -1602,4 +1602,24 @@ describe("runUpdateWith", () => {
     await runUpdateWith([updateStep("path.link", { state: "done" })], [], ctx2);
     expect(events2.at(-1)).toEqual({ event: "done", ok: true });
   });
+});
+
+test("a settings tip raised inside a step reaches ctx.tip, not the log event", async () => {
+  const tips: Array<[string, string]> = [];
+  const { ctx, events } = testCtx({ tip: (id, line) => tips.push([id, line]) });
+  const step: StepDef = {
+    id: "path.link",
+    title: "x",
+    kind: "rt",
+    applies: () => true,
+    async run() {
+      const engine = setSettingsNoticeSink(null);
+      (engine as unknown as (line: string) => void)("Saved on this Mac only.");
+      setSettingsNoticeSink(engine);
+      return { state: "done" };
+    },
+  };
+  await runApplyWith([step], ctx, {});
+  expect(tips).toEqual([["path.link", "Saved on this Mac only."]]);
+  expect(events.some((e) => e.event === "log")).toBe(false);
 });

@@ -90,7 +90,6 @@
   "lib/sdm/enrichment.ts",
   "lib/sdm/picker.ts",
   "lib/secrets/store.ts",
-  "lib/setup/emit.ts",
   "lib/skills/sources.ts",
   "lib/state/backup-orchestrator.ts",
   "lib/state/backup-restore.ts",

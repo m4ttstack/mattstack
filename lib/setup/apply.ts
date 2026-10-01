@@ -42,6 +42,8 @@ export interface ApplyContext {
    * are scrubbed; this is not a pattern scanner.
    */
   log(id: EventId, line: string): void;
+  /** A settings tip raised while a step ran. Absent, the tip is a `log` line. A tip bypasses the redactor that wraps `emit`: it is rt's own copy, never a child's output. */
+  tip?: (id: EventId, line: string) => void;
   intent: SetupIntent | null;
   team: TeamRef;
   snapshot: TeamSnapshot | null;
@@ -271,7 +273,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
       ctx.emit({ event: "step", id: step.id, state: "running" });
 
       let outcome: StepOutcome;
-      const outerSink = setSettingsNoticeSink((line) => ctx.log(step.id, line));
+      const outerSink = setSettingsNoticeSink((line) => (ctx.tip ?? ctx.log)(step.id, line));
       try {
         outcome = await step.run(ctx);
       } catch (err) {
@@ -428,6 +430,7 @@ export async function runUpdate(ctx: ApplyContext): Promise<UpdateRunResult> {
 export interface CreateApplyContextDeps {
   probes: Probes;
   emit: Emit;
+  tip?: (id: EventId, line: string) => void;
   secrets: SecretsSeams;
   /** Defaults to `createRealTeamSecretsSeams` — override for a fully-faked run/test so a team-secret read/write can never fall through to a real keychain/sops. */
   teamSecrets?: SecretsSeamsFactory;
@@ -498,6 +501,7 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
     log(id, line) {
       emit({ event: "log", id, line });
     },
+    ...(deps.tip ? { tip: deps.tip } : {}),
     intent,
     team,
     snapshot,
