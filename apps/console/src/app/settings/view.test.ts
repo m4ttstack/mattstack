@@ -21,6 +21,7 @@ import {
   sourceText,
   splitKey,
   targetAt,
+  targetLabel,
   writeTarget,
 } from './view';
 
@@ -255,6 +256,20 @@ describe('layer rungs and write targets', () => {
       scope: 'user',
       repo: REPO,
     });
+  });
+
+  it('labels name the team on a team layer when one is known, and stay bare otherwise', () => {
+    expect(targetLabel({ scope: 'team' }, 'acme')).toBe('team (acme)');
+    expect(targetLabel({ scope: 'team', repo: REPO }, 'acme')).toBe(
+      'team (acme) · acme/app'
+    );
+    expect(targetLabel({ scope: 'user' }, 'acme')).toBe('user');
+    expect(targetLabel({ scope: 'team' }, null)).toBe('team');
+    expect(targetLabel({ scope: 'team' })).toBe('team');
+    expect(layerLabel('team', 'acme')).toBe('team (acme)');
+    expect(layerLabel('team.repo', 'acme')).toBe('team (acme) · repo');
+    expect(layerLabel('user.repo', 'acme')).toBe('user · repo');
+    expect(layerLabel('team')).toBe('team');
   });
 
   it('without a repo, or for a key that is not repo-scoped, the target has no repo', () => {

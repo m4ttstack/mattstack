@@ -4,7 +4,7 @@ import { Icons } from '@mattstack/app-kit/icons';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 
 import { ScopeDot } from './ScopeBadge';
-import { useSettingsRepo } from './useConsoleSettings';
+import { useSettingsRepo, useSettingsTeam } from './useConsoleSettings';
 import type { useRowSave } from './useRowSave';
 import {
   APPROVAL_KEY,
@@ -12,6 +12,7 @@ import {
   isStoreScope,
   layerLabel,
   rungBase,
+  scopeLabel,
   type LayerScope,
   type StoreScope,
 } from './view';
@@ -33,6 +34,7 @@ export function RowMenu({
 }) {
   const { text } = useSchemeColors();
   const repo = useSettingsRepo();
+  const team = useSettingsTeam();
   const from = def.effective.scope;
   const base = rungBase(from);
   const stored =
@@ -76,7 +78,7 @@ export function RowMenu({
                 leftSection={<ScopeDot scope={to} />}
                 onClick={() => void row.move(from!, to)}
               >
-                {`Move to ${to}`}
+                {`Move to ${scopeLabel(to, team)}`}
               </Menu.Item>
             ))}
             {moveTo.length > 0 && <Menu.Divider />}
@@ -85,7 +87,7 @@ export function RowMenu({
               leftSection={<Icons.trash size={14} />}
               onClick={() => void row.clear(from!)}
             >
-              {`Remove from ${layerLabel(from as LayerScope)}${
+              {`Remove from ${layerLabel(from as LayerScope, team)}${
                 repo && def.repoScoped && isStoreScope(from)
                   ? ' (all repos)'
                   : ''

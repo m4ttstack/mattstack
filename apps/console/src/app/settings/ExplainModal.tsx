@@ -33,9 +33,11 @@ import { ScalarControl } from './ScalarControl';
 import { ScopeBadge } from './ScopeBadge';
 import { SettingRow } from './SettingRow';
 import {
+  SettingsTeamContext,
   useConsoleSettings,
   useKeyExplain,
   useSettingsRepo,
+  useSettingsTeam,
   type ConsoleStore,
 } from './useConsoleSettings';
 import { useRowSave, type RowStore } from './useRowSave';
@@ -135,6 +137,7 @@ function LayerLine({
   const editorHref = useEditorHref();
   const scope = row.scope;
   const store = rungBase(scope);
+  const team = useSettingsTeam();
   const label = store ? layerLabel(scope as LayerScope) : null;
   const allowed = store !== null && def.scopes.includes(store);
   const writable = allowed && def.writable && !def.secret;
@@ -234,7 +237,7 @@ function LayerLine({
       <Group gap={12} wrap="nowrap" mih={28}>
         <Box w={SCOPE_COL} style={{ flex: 'none' }}>
           {store ? (
-            <ScopeBadge scope={scope as LayerScope} />
+            <ScopeBadge scope={scope as LayerScope} bare />
           ) : (
             <Text fz={12} fw={500} c={text.muted}>
               {scope}
@@ -367,7 +370,7 @@ function LayerLine({
             def={def}
             form={formOf(def)}
             initial={row.present ? row.value : undefined}
-            targetLabel={isRung(scope) ? `${store} · repo` : store}
+            targetLabel={layerLabel(scope as LayerScope, team)}
             saving={busy}
             replaceWith={replaceWith}
             reported={reported}
@@ -763,7 +766,11 @@ function OwnStore(props: {
   onChanged?: () => void;
 }) {
   const store = useConsoleSettings(null, props.settingKey);
-  return <Resolved {...props} store={store} />;
+  return (
+    <SettingsTeamContext.Provider value={store.team}>
+      <Resolved {...props} store={store} />
+    </SettingsTeamContext.Provider>
+  );
 }
 
 /** Keeps the last open key through the close transition, so the modal

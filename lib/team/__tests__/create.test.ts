@@ -244,6 +244,23 @@ describe("createTeam", () => {
     ).rejects.toMatchObject({ code: "team-exists" });
   });
 
+  test("a second team on a machine that already has one is refused before any zone or git work", async () => {
+    const p = gitAwareFakeProbes("/home/x");
+    p.mkdirp(join("/home/x", ".mattstack", "teams", "globex"));
+    p.writeFile(join("/home/x", ".mattstack", "teams", "globex", "mattstack", "settings.team.jsonc"), "{}");
+
+    await expect(
+      createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false }, new FakeAgeKeySeam()),
+    ).rejects.toMatchObject({
+      code: "team-already-set-up",
+      message: "this machine is set up for team globex; mattstack supports one team per machine today",
+    });
+
+    expect(p.exists(join("/home/x", ".mattstack", "teams", "acme"))).toBe(false);
+    expect(p.calls.exec).toEqual([]);
+    expect(readIntent(p)).toBeNull();
+  });
+
   describe("partial-zone resume (R-T16-b)", () => {
     test("--remote path: git init fails, then a re-run with the same args finishes the zone", async () => {
       let initCalls = 0;
