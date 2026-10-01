@@ -50,6 +50,25 @@ func Screen(tty string) string {
 	return strings.TrimRight(strings.Join(lines, "\n"), "\n")
 }
 
+// Transcript replays raw tty bytes through a rows x cols emulator and returns
+// every row that scrolled off the top followed by the visible rows, so a
+// stale row pushed into scrollback still shows.
+func Transcript(tty string, rows, cols int) string {
+	var lines []string
+	withEmulator(tty, cols, rows, func(em *vt.Emulator) {
+		if sb := em.Scrollback(); sb != nil {
+			for _, l := range sb.Lines() {
+				lines = append(lines, l.String())
+			}
+		}
+		lines = append(lines, strings.Split(em.String(), "\n")...)
+	})
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " ")
+	}
+	return strings.TrimRight(strings.Join(lines, "\n"), "\n")
+}
+
 // cellBackgroundIn replays tty into a width x height emulator and resolves
 // cell (x, y)'s effective background the way a real terminal paints it:
 // Emulator.Draw fills gaps -- a cell the renderer never explicitly styled,

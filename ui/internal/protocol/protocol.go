@@ -158,6 +158,7 @@ type StepEvent struct {
 	Hint     string `json:"hint,omitempty"`
 	Level    string `json:"level,omitempty"`
 	Text     string `json:"text,omitempty"`
+	Status   string `json:"status,omitempty"`
 }
 
 func DecodeStep(line []byte) (StepEvent, error) {
@@ -166,7 +167,7 @@ func DecodeStep(line []byte) (StepEvent, error) {
 		return e, fmt.Errorf("%w: %v", ErrBadSpec, err)
 	}
 	switch e.T {
-	case "hello", "start", "log", "done", "fail":
+	case "hello", "start", "log", "sub", "done", "fail":
 		return e, nil
 	}
 	return e, fmt.Errorf("%w: step t=%q", ErrBadSpec, e.T)

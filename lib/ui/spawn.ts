@@ -3,7 +3,7 @@
  * is the child's only signal that we died, so it must never come early.
  */
 import { BackNavigation } from "../back-navigation.ts";
-import { encodeLine, parsePromptResult, parseSessionLine, PROTOCOL_VERSION, type PromptResult, type PromptSpec, type SessionClosed, type SessionIntent, type StepLevel } from "./protocol.ts";
+import { encodeLine, parsePromptResult, parseSessionLine, PROTOCOL_VERSION, type PromptResult, type PromptSpec, type RenderStatus, type SessionClosed, type SessionIntent, type StepLevel } from "./protocol.ts";
 import { interactive } from "./gate.ts";
 import { resolveRtUi } from "./resolve.ts";
 
@@ -72,8 +72,10 @@ export async function runPrompt(spec: PromptSpec): Promise<PromptResult> {
 
 export interface StepHandle {
   log(level: StepLevel, text: string): void;
-  /** Resolves true when rt-ui painted the final line; false when it was dead (caller prints the line itself). */
-  done(title?: string, hint?: string): Promise<boolean>;
+  /** A transient line under the running step: erased when it ends done, kept when it fails. */
+  sub(text: string): void;
+  /** Resolves true when rt-ui painted the final line; false when it was dead (caller prints the line itself). A status ends the step in that state in place of done; a failing ending is `fail`. */
+  done(title?: string, hint?: string, status?: Exclude<RenderStatus, "failed">): Promise<boolean>;
   fail(title?: string, hint?: string): Promise<boolean>;
 }
 
@@ -96,8 +98,8 @@ export function openStep(title: string): StepHandle {
   send({ t: "hello", protocol: PROTOCOL_VERSION });
   send({ t: "start", title });
 
-  const finish = async (t: "done" | "fail", finalTitle?: string, hint?: string): Promise<boolean> => {
-    const sent = send({ t, title: finalTitle ?? title, ...(hint ? { hint } : {}) });
+  const finish = async (t: "done" | "fail", finalTitle?: string, hint?: string, status?: RenderStatus): Promise<boolean> => {
+    const sent = send({ t, title: finalTitle ?? title, ...(hint ? { hint } : {}), ...(status ? { status } : {}) });
     try { proc.stdin.end(); } catch { /* already closed */ }
     const code = await proc.exited;
     // 130 means Ctrl-C reached the child, which finalized its own line; the
@@ -107,7 +109,10 @@ export function openStep(title: string): StepHandle {
 
   return {
     log: (level, text) => send({ t: "log", level, text }),
-    done: (t, h) => finish("done", t, h),
+    sub: (text) => {
+      send({ t: "sub", text });
+    },
+    done: (t, h, s) => finish("done", t, h, s),
     fail: (t, h) => finish("fail", t, h),
   };
 }

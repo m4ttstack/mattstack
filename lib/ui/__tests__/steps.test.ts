@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { createStepRunner, withSpinner, __test__ } from "../steps.ts";
 import { T, toAnsiFg } from "../../tui/palette.ts";
+import { openStep, type StepHandle } from "../spawn.ts";
 
 const FAKE = resolve(import.meta.dir, "fake-rt-ui.ts");
 let dir: string;
@@ -134,4 +135,48 @@ test("when the child dies mid-step the plain final line is printed and a warning
   }
   expect(out.join("")).toContain("pushed");
   expect(errOut.join("")).toContain("rt-ui");
+});
+
+test("run hands the task a sub callback that streams sub events before done", async () => {
+  const steps = createStepRunner();
+  await steps.run(
+    "connecting…",
+    async (step) => {
+      step.sub("checking the session");
+      step.sub("opening the tunnel");
+    },
+    { done: "connected" },
+  );
+  expect(sent()).toEqual([
+    { t: "hello", protocol: 1 },
+    { t: "start", title: "connecting…" },
+    { t: "sub", text: "checking the session" },
+    { t: "sub", text: "opening the tunnel" },
+    { t: "done", title: "connected" },
+  ]);
+});
+
+test("off a terminal the sub callback is a no-op and the final line still prints", async () => {
+  __test__.setInteractive(() => false);
+  const steps = createStepRunner();
+  await steps.run("connecting…", async (step) => step.sub("checking"), { done: "connected" });
+  expect(out.join("")).toContain("connected");
+  expect(out.join("")).not.toContain("checking");
+});
+
+test("a step can end in a status other than done", async () => {
+  const step = openStep("connecting Slack…");
+  await step.done("Slack", "not connected", "needs-you");
+  expect(sent()).toEqual([
+    { t: "hello", protocol: 1 },
+    { t: "start", title: "connecting Slack…" },
+    { t: "done", title: "Slack", hint: "not connected", status: "needs-you" },
+  ]);
+});
+
+test("done takes every status but failed, which only fail may end with", () => {
+  const done: StepHandle["done"] = async () => true;
+  // @ts-expect-error
+  void done("x", undefined, "failed");
+  void done("x", undefined, "warn");
 });

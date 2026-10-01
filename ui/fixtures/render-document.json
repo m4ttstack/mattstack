@@ -1,0 +1,51 @@
+[
+  { "t": "line", "status": "done", "title": "Skills linked", "hint": "16 skills" },
+  { "t": "callout", "label": "next", "body": [[{ "text": "rt setup slack connect", "role": "command" }]] },
+  { "t": "kv", "key": "rt.worktreeApp", "value": "true", "source": "from team example" },
+  {
+    "t": "table",
+    "headers": ["KEY", "VALUE"],
+    "rows": [
+      { "group": "USER" },
+      { "cells": [[{ "text": "chat.humanHandle", "role": "key" }], [{ "text": "sam" }]] }
+    ]
+  },
+  {
+    "t": "tree",
+    "root": [{ "text": "rt.worktreeApp", "role": "key" }],
+    "children": [[[{ "text": "user" }], [{ "text": "not set", "role": "faint" }]]]
+  },
+  {
+    "t": "section",
+    "title": "Accounts",
+    "subtitle": "1 of 2 connected",
+    "blocks": [{ "t": "line", "status": "needs-you", "title": "Slack", "hint": "not connected" }]
+  },
+  { "t": "summary", "status": "needs-you", "title": "Setup needs you", "counts": ["5 ready", "1 needs you"] },
+  { "t": "paragraph", "text": "Two skills disagree about when to push." },
+  { "t": "copy", "text": "example://join?invite=abc123", "caption": "send this link" },
+  { "t": "verbatim", "lines": ["{", "  \"sound\": \"glass\"", "}"], "caption": "value" },
+  { "t": "changes", "changes": [{ "op": "+", "name": "review", "hint": "now public" }, { "op": "-", "name": "triage" }] },
+  {
+    "t": "diff",
+    "hunks": [
+      {
+        "header": "@@ -1,2 +1,2 @@",
+        "lines": [
+          { "kind": "context", "text": "const a = 1;" },
+          { "kind": "del", "text": "old();" },
+          { "kind": "add", "text": "next();" }
+        ]
+      }
+    ]
+  },
+  { "t": "banner", "label": "PRODUCTION", "subject": "db-replica", "hint": "type the name to confirm" },
+  {
+    "t": "failure",
+    "title": "This Mac cannot read the team's secrets yet",
+    "hint": "example team",
+    "why": "No key on this machine matches.",
+    "next": [{ "text": "rt setup status", "role": "command" }],
+    "details": "details are in the log"
+  }
+]
