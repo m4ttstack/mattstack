@@ -413,7 +413,9 @@ test('a line from a launch with no pack shows the quiet no-pack badge with its t
   const badge = container.querySelector('[data-part="badge"]')!;
   expect(badge.textContent).toBe('no pack');
   expect(badge.getAttribute('data-intent')).toBe('muted');
-  expect(badge.getAttribute('aria-label')).toBe('no pack');
+  expect(badge.getAttribute('aria-label')).toBe(
+    'No pack selected. Launched the generic skill. Set a pack on the tab or board.defaultPack.'
+  );
   await render(status(), ctx());
   expect(container.querySelector('[data-part="badge"]')).toBeNull();
 });

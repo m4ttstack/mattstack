@@ -147,7 +147,7 @@ export function StatusLine({
       )}
       {line.noPack && (
         <Tooltip tip={NO_PACK_TIP} className="tui-status-nopack">
-          <Badge intent="muted" aria-label="no pack">
+          <Badge intent="muted" aria-label={NO_PACK_TIP}>
             no pack
           </Badge>
         </Tooltip>
