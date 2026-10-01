@@ -494,6 +494,44 @@ describe("setupApply: a full run with nothing left to finish records Finish", ()
     expect(finished(deps.probes)).toBe(true);
   });
 
+  test("a full ok run stamps the update version: every update-safe step just ran", async () => {
+    const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })], version: "2.15.0", migrations: [] });
+    await setupApply(["--json"], {}, deps);
+    expect(readSetupState(deps.probes).lastUpdate?.version).toBe("2.15.0");
+  });
+
+  test("a pending migration keeps the version unstamped, so the update run still carries it", async () => {
+    const pending = { id: "2026-09-30-a", title: "a", run: async () => ({ state: "done" as const }) };
+    const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })], version: "2.15.0", migrations: [pending] });
+    await setupApply(["--json"], {}, deps);
+    expect(readSetupState(deps.probes).lastUpdate).toBeUndefined();
+  });
+
+  test("a stamp that cannot be written is reported and does not fail the run", async () => {
+    const errors: string[] = [];
+    const probes = fakeProbes();
+    const realWrite = probes.writeFile.bind(probes);
+    let writes = 0;
+    probes.writeFile = (path, content, mode) => {
+      if (path.includes("setup-state.json") && ++writes > 1) throw new Error("disk full");
+      return realWrite(path, content, mode);
+    };
+    const deps = baseApplyDeps({ probes, steps: [fakeStep("path.link", { state: "done" })], version: "2.15.0", migrations: [], printError: (s) => errors.push(s) });
+    await setupApply(["--json"], {}, deps);
+    expect(deps.exitCodes).toEqual([]);
+    expect(errors.some((e) => e.startsWith("rt setup apply: update version not stamped: disk full"))).toBe(true);
+  });
+
+  test("a failed run and a partial run stamp no version", async () => {
+    const failed = baseApplyDeps({ steps: [fakeStep("path.link", { state: "failed", detail: "boom" })], version: "2.15.0", migrations: [] });
+    await runExpectingExit(() => setupApply(["--json"], {}, failed));
+    expect(readSetupState(failed.probes).lastUpdate).toBeUndefined();
+
+    const partial = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })], version: "2.15.0", migrations: [] });
+    await setupApply(["--json", "--only", "path.link"], {}, partial);
+    expect(readSetupState(partial.probes).lastUpdate).toBeUndefined();
+  });
+
   test("a finish blocker left standing keeps setup unfinished", async () => {
     const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })], planForFinish: async () => ({ finishBlockedBy: ["tool.fast-browser-extension"] }) });
     await setupApply(["--json"], {}, deps);
