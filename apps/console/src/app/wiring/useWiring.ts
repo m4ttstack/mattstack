@@ -244,8 +244,9 @@ export function useAnatomy(pack: string | null, skill: string | null) {
   });
 }
 
-/** Not swept by `invalidateSkillsQueries`: the key carries the path, and a
-    file edited in place re-reads on the next mount or window focus. */
+/** `retry: false` because the confined source route's 404 is final. Swept by
+    `invalidateSkillsQueries`: discard and sync rewrite files in place under
+    the same path. */
 export function useSkillSource(pack: string | null, path: string | null) {
   return useQuery({
     queryKey: ['skills', 'source', pack, path],
@@ -256,6 +257,7 @@ export function useSkillSource(pack: string | null, path: string | null) {
       return readOrThrow<SkillsSource>(res, 'skills source');
     },
     enabled: pack !== null && path !== null,
+    retry: false,
   });
 }
 
@@ -336,7 +338,7 @@ async function postSkillsWrite<TResponse>(
 /** Every cached read a write to this pack can go stale -- the client mirror
     of the server's own per-pack cache sweep (`e8f4163`, mirrored again for
     `/api/skills/bind`): composition, surface, check, compile, history,
-    anatomy and the pending-changes poll all read the pack, and a
+    anatomy, source and the pending-changes poll all read the pack, and a
     surface-apply or a bind recompiles it. */
 function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
   for (const scope of [
@@ -346,6 +348,7 @@ function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
     'compile',
     'history',
     'anatomy',
+    'source',
     'changes',
   ]) {
     void queryClient.invalidateQueries({ queryKey: ['skills', scope, pack] });

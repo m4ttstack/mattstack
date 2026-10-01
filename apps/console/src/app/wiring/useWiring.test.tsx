@@ -165,6 +165,23 @@ describe('useSkillSource', () => {
     });
   });
 
+  it('does not retry a refused path', async () => {
+    sourceGet.mockResolvedValue(
+      reply({ error: 'not a skill file of this pack' }, 404)
+    );
+    const { Wrap } = harness({
+      defaultOptions: { queries: { retry: 3, retryDelay: 1 } },
+    });
+
+    const { result } = renderHook(() => useSkillSource('acme', '/p/a.md'), {
+      wrapper: Wrap,
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    await new Promise(resolve => setTimeout(resolve, 30));
+    expect(sourceGet).toHaveBeenCalledTimes(1);
+  });
+
   it('makes no request without a pack or a path', async () => {
     const { Wrap } = harness();
 
@@ -240,6 +257,7 @@ describe('invalidation after a write', () => {
     const keys = invalidatedKeys(invalidate);
     expect(keys).toContainEqual(['skills', 'anatomy', 'acme']);
     expect(keys).toContainEqual(['skills', 'changes', 'acme']);
+    expect(keys).toContainEqual(['skills', 'source', 'acme']);
   });
 });
 
@@ -294,6 +312,7 @@ describe('useDiscardChanges', () => {
     const keys = invalidatedKeys(invalidate);
     expect(keys).toContainEqual(['skills', 'anatomy', 'acme']);
     expect(keys).toContainEqual(['skills', 'changes', 'acme']);
+    expect(keys).toContainEqual(['skills', 'source', 'acme']);
   });
 
   it('throws the server error on a refusal and still sweeps', async () => {
