@@ -3,6 +3,8 @@
 // calls resolve locally instead of over the network. Each mocked channel name
 // maps to its own distinguishable channel id, so a test can tell which channel
 // name the caller resolved purely from the id embedded in the response.
+import { appendFileSync } from 'fs';
+
 const realFetch = globalThis.fetch;
 
 const CHANNEL_IDS: Record<string, string> = {
@@ -44,6 +46,12 @@ function slackApi(method: string, params: Record<string, string>): Response {
     case 'reactions.get':
       return ok({ message: { reactions: [] } });
     case 'chat.postMessage':
+      // SLACK_MOCK_POST_LOG: a file the test reads to see what was sent.
+      if (process.env.SLACK_MOCK_POST_LOG)
+        appendFileSync(
+          process.env.SLACK_MOCK_POST_LOG,
+          `${JSON.stringify(params)}\n`
+        );
       return ok({ ts: '200.000001' });
     default:
       return ok({});

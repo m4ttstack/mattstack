@@ -407,6 +407,77 @@ export async function postToSlack(
   return refs;
 }
 
+// ── code owner posts ─────────────────────────────────────────────────────────
+
+/** Every channel the token's user can see, name to id, from one listing. */
+export async function listChannels(
+  token: string
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  let cursor = '';
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const data = await call('conversations.list', token, {
+      types: 'public_channel,private_channel',
+      exclude_archived: 'true',
+      limit: '1000',
+      ...(cursor ? { cursor } : {}),
+    });
+    for (const c of data.channels as Array<{ id: string; name: string }>)
+      out.set(c.name, c.id);
+    cursor =
+      (data.response_metadata as { next_cursor?: string })?.next_cursor ?? '';
+    if (!cursor) break;
+  }
+  return out;
+}
+
+export interface OwnerPost {
+  channelId: string;
+  ts: string;
+  permalink: string;
+  postedAt: number;
+}
+
+/** An MR's posts to its Code Owners' channels, by channel name. Kept apart
+    from slack_refs, which holds one review-request message per MR and is
+    what reactions target. */
+export function readOwnerPosts(
+  mrUrl: string,
+  db: Database = getStateDb()
+): Record<string, OwnerPost> {
+  return getKvValue<Record<string, OwnerPost>>('owner-posts', mrUrl, {}, db);
+}
+
+/** Post an MR's review request to one Code Owner channel and remember it.
+    The write retries then throws: a lost record would let the next confirm
+    post the same channel twice. */
+export async function postToOwnerChannel(
+  token: string,
+  channel: { name: string; id: string },
+  text: string,
+  mrUrl: string,
+  now: number = Date.now(),
+  db: Database = getStateDb()
+): Promise<OwnerPost> {
+  const domain = await teamDomain(token);
+  const ts = await postMessage(token, channel.id, text);
+  const post: OwnerPost = {
+    channelId: channel.id,
+    ts,
+    permalink: buildPermalink(domain, channel.id, ts),
+    postedAt: now,
+  };
+  runCriticalWrite('owner post write', () =>
+    setKvValue(
+      'owner-posts',
+      mrUrl,
+      { ...readOwnerPosts(mrUrl, db), [channel.name]: post },
+      db
+    )
+  );
+  return post;
+}
+
 // ── per-MR ref state ─────────────────────────────────────────────────────────
 
 /** `critical` selects the retry-then-throw write path: a caller that has

@@ -11,7 +11,11 @@ describe('ownerRulesFromApprovalState', () => {
       rules: [
         { rule_type: 'any_approver', section: null, approved: true },
         { rule_type: 'regular', name: 'Leads', approved: false },
-        { rule_type: 'code_owner', section: 'Acme - #pod-acme', approved: false },
+        {
+          rule_type: 'code_owner',
+          section: 'Acme - #pod-acme',
+          approved: false,
+        },
         { rule_type: 'code_owner', section: 'Docs', approved: true },
       ],
     };
@@ -58,7 +62,10 @@ describe('planOwnersPost', () => {
       none
     );
     expect(plan.channels).toEqual([
-      { channel: 'pod-acme', sections: ['Acme - #pod-acme', 'Acme Jobs - #pod-acme'] },
+      {
+        channel: 'pod-acme',
+        sections: ['Acme - #pod-acme', 'Acme Jobs - #pod-acme'],
+      },
       { channel: 'pod-docs', sections: ['Docs - #pod-docs'] },
     ]);
   });
@@ -94,7 +101,9 @@ describe('planOwnersPost', () => {
   });
 
   test('a section with no channel in its name is skipped', () => {
-    expect(planOwnersPost([{ section: 'Docs', approved: false }], none)).toEqual({
+    expect(
+      planOwnersPost([{ section: 'Docs', approved: false }], none)
+    ).toEqual({
       channels: [],
       skipped: [{ section: 'Docs', reason: 'no-channel' }],
     });

@@ -6,10 +6,7 @@ export interface OwnerRule {
 }
 
 export type OwnerSkipReason =
-  | 'approved'
-  | 'no-channel'
-  | 'already-posted'
-  | 'channel-unavailable';
+  'approved' | 'no-channel' | 'already-posted' | 'channel-unavailable';
 
 export interface OwnerSkip {
   section: string;
