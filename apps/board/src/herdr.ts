@@ -320,9 +320,11 @@ export function buildResumePaneCommand(
   cwd: string,
   sessionId: string,
   prompt?: string,
-  claudeCommand?: string
+  claudeCommand?: string,
+  pack?: string
 ): string {
-  const base = `cd ${shellSingleQuote(cwd)} && ${claudeInvocation(claudeCommand)} --resume ${shellSingleQuote(sessionId)}`;
+  const env = pack ? `MATTSTACK_PACK=${shellSingleQuote(pack)} ` : '';
+  const base = `cd ${shellSingleQuote(cwd)} && ${env}${claudeInvocation(claudeCommand)} --resume ${shellSingleQuote(sessionId)}`;
   return prompt ? `${base} ${shellSingleQuote(prompt)}` : base;
 }
 
@@ -591,7 +593,8 @@ export async function launchLegacyResume(
       opts.cwd,
       opts.sessionId,
       opts.prompt,
-      opts.claudeCommand
+      opts.claudeCommand,
+      opts.pack
     ),
     opts.workspaceKind,
     mrTabLabel(opts.iid, opts.author, opts.tabPrefix ?? '↺'),

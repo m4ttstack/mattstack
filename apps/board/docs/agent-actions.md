@@ -88,7 +88,7 @@ skills that own the actual work, and resolves them with a vendored
 `scripts/resolve-args.sh`.
 
 Every launch runs under a team pack: the launching tab's `pack`, else the
-`board.defaultPack` user setting. The launched pane gets that name as
+`board.defaultPack` user setting. The launched pane, and every pane that resumes it, gets that name as
 `MATTSTACK_PACK`. Bindings come from the file `rt skills materialize` writes
 for the MR's repo and that pack,
 `~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`, where `<slug>` is the

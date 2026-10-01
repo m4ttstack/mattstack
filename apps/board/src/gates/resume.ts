@@ -72,6 +72,7 @@ export interface ResumeParkedGateIo {
     prompt: string;
     workspaceLabel: string;
     tabLabel: string;
+    env?: Record<string, string>;
   }): Promise<AgentLaunchResult>;
   notify(message: string): void;
 }
@@ -140,7 +141,8 @@ export async function resumeParkedGate(
 
   const statePath = kindIo.filePath(gate.mrUrl);
   const skill = kindIo.resolveSkill(gate.mrUrl, gate.tabId);
-  const noPack = !kindIo.resolvePack(gate.tabId);
+  const pack = kindIo.resolvePack(gate.tabId);
+  const noPack = !pack;
   const prompt = await kindIo.prompt(
     gate.mrUrl,
     statePath,
@@ -157,6 +159,7 @@ export async function resumeParkedGate(
       prompt,
       workspaceLabel: kindIo.workspaceLabel,
       tabLabel: mrTabLabel(gate.iid, undefined, '↺'),
+      ...(pack ? { env: { MATTSTACK_PACK: pack } } : {}),
     });
   } catch (err) {
     console.error(

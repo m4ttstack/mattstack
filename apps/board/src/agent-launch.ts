@@ -89,6 +89,7 @@ export async function resumeAgentPane(
     prompt?: string;
     workspaceLabel: string;
     tabLabel: string;
+    env?: Record<string, string>;
   },
   io?: AgentIo
 ): Promise<AgentLaunchResult> {
@@ -103,6 +104,7 @@ export async function resumeAgentPane(
     workspace: opts.workspaceLabel,
     tab: opts.tabLabel,
     ...(opts.prompt !== undefined ? { prompt: opts.prompt } : {}),
+    ...(opts.env !== undefined ? { env: opts.env } : {}),
   };
 
   const response = await ioInstance.agentResume(payload);

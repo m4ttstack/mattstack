@@ -125,6 +125,7 @@ export async function launchReReview(
         prompt,
         workspaceLabel: ctx.workspaceLabel,
         tabLabel: mrTabLabel(iid, ctx.author, 'RE'),
+        ...(ctx.pack ? { env: { MATTSTACK_PACK: ctx.pack } } : {}),
       });
       if (!result.focusedExisting) {
         io.writeReviewState(statePath, {
@@ -166,6 +167,7 @@ export async function launchReReview(
         tabPrefix: 'RE',
         author: ctx.author,
         claudeCommand: ctx.claudeCommand,
+        pack: ctx.pack,
       });
       io.writeReviewState(statePath, {
         status: 'reviewing',

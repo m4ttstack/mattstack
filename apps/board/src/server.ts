@@ -1637,6 +1637,7 @@ const httpServer = Bun.serve({
               author,
               tabLabel: mrTabLabel(parsed.iid, author, '↺'),
               claudeCommand: config.claudeCommand,
+              pack: launchPack(tabId),
             },
             reviewReopenIo()
           );
@@ -1775,6 +1776,7 @@ const httpServer = Bun.serve({
               author,
               tabLabel: mrTabLabel(parsed.iid, author, '↺'),
               claudeCommand: config.claudeCommand,
+              pack: launchPack(undefined),
             },
             respondReopenIo()
           );

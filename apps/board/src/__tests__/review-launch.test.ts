@@ -577,4 +577,38 @@ describe('launchReReview: a resume re-resolves the pack', () => {
       expect(readReviewStates(db).get(URL_A)?.noPack).toBe(true);
     });
   }
+
+  test('the agentId arm resumes with MATTSTACK_PACK when a pack is known, and no env otherwise', async () => {
+    for (const [pack, env] of [
+      ['widgets', { MATTSTACK_PACK: 'widgets' }],
+      [undefined, undefined],
+    ] as const) {
+      resumeCalls = [];
+      writeReviewState(
+        reviewFilePath(URL_A),
+        { mrUrl: URL_A, iid: IID, status: 'done', agentId: 'agent-a' },
+        1,
+        db
+      );
+      await launchReReview(URL_A, IID, { ...CTX, pack }, makeIo(), noSkillPath);
+      expect(resumeCalls[0]?.env).toEqual(env);
+    }
+  });
+
+  test('the sessionId arm hands the pack to the legacy resume', async () => {
+    writeReviewState(
+      reviewFilePath(URL_A),
+      { mrUrl: URL_A, iid: IID, status: 'done', sessionId: 'sess-a' },
+      1,
+      db
+    );
+    await launchReReview(
+      URL_A,
+      IID,
+      { ...CTX, pack: 'widgets' },
+      makeIo(),
+      noSkillPath
+    );
+    expect(legacyResumeCalls[0]).toMatchObject({ pack: 'widgets' });
+  });
 });

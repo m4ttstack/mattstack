@@ -46,6 +46,8 @@ export interface ReopenCtx {
       iid/author inside launchLegacyResume. */
   tabLabel: string;
   claudeCommand?: string;
+  /** Team pack the resumed wrapper resolves bindings with; rides the pane as MATTSTACK_PACK. */
+  pack?: string;
 }
 
 /** Seams for the two resume arms and the domain's state store, so tests can
@@ -91,6 +93,7 @@ export async function launchReopen(
         prompt: ctx.prompt,
         workspaceLabel: ctx.workspaceLabel,
         tabLabel: ctx.tabLabel,
+        ...(ctx.pack ? { env: { MATTSTACK_PACK: ctx.pack } } : {}),
       });
       if (!result.focusedExisting) {
         writeReopened({
@@ -122,6 +125,7 @@ export async function launchReopen(
       author: ctx.author,
       prompt: ctx.prompt,
       claudeCommand: ctx.claudeCommand,
+      pack: ctx.pack,
     });
     writeReopened({ tabId, workspaceId });
     return { kind: 'resumed' };

@@ -119,6 +119,7 @@ interface ResumeIoCalls {
     prompt: string;
     workspaceLabel: string;
     tabLabel: string;
+    env?: Record<string, string>;
   }>;
   notify: string[];
 }
@@ -285,6 +286,31 @@ describe('resumeParkedGate', () => {
         status: 'reviewing',
         noPack,
       });
+    }
+  });
+
+  test('the resumed pane carries MATTSTACK_PACK for the pack resolved for the same tab, and no env without one', async () => {
+    for (const [pack, env] of [
+      ['widgets', { MATTSTACK_PACK: 'widgets' }],
+      [undefined, undefined],
+    ] as const) {
+      const states = new Map([[MR_URL, baseReview()]]);
+      const { io: reviewIo } = makeKindIo({
+        wrapper: 'review',
+        workspaceLabel: 'reviews',
+        resumedStatus: 'reviewing',
+        filePath: reviewFilePath,
+        states,
+        pack,
+      });
+      const gate = baseGate({ agentId: 'agent-1', tabId: 'tab-9' });
+      const { io: resumeIo, calls: resumeCalls } = fakeResumeIo({
+        'review-post': reviewIo,
+      });
+
+      await resumeParkedGate(gate, resumeIo, async () => null);
+
+      expect(resumeCalls.resumeAgentPane[0]!.env).toEqual(env);
     }
   });
 

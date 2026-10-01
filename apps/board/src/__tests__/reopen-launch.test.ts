@@ -127,6 +127,30 @@ describe('launchReopen', () => {
     expect(write.now).toBe(write.patch.reopenedAt!);
   });
 
+  test('a known pack rides both resume arms; no pack sends no env', async () => {
+    const agentCalls: Array<Record<string, unknown>> = [];
+    const { io, legacyCalls } = makeIo({
+      resumeAgentPane: async opts => {
+        agentCalls.push(opts as unknown as Record<string, unknown>);
+        return paneResult();
+      },
+    });
+    await launchReopen(
+      { status: 'done', agentId: 'agent-1' },
+      baseCtx({ pack: 'widgets' }),
+      io
+    );
+    await launchReopen({ status: 'done', agentId: 'agent-1' }, baseCtx(), io);
+    await launchReopen(
+      { status: 'done', sessionId: 'sess-1' },
+      baseCtx({ pack: 'widgets' }),
+      io
+    );
+    expect(agentCalls[0]?.env).toEqual({ MATTSTACK_PACK: 'widgets' });
+    expect('env' in agentCalls[1]!).toBe(false);
+    expect(legacyCalls[0]).toMatchObject({ pack: 'widgets' });
+  });
+
   test('neither agentId nor sessionId is no-session, with no launch and no write', async () => {
     const { io, writes, legacyCalls } = makeIo();
     const result = await launchReopen({ status: 'done' }, baseCtx(), io);

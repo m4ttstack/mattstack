@@ -285,6 +285,17 @@ function isStringRecord(v: unknown): v is Record<string, string> {
 // the value is quoted), so anything but a shell-inert identifier is injection.
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+function envError(env: unknown, surface: AgentSurface): string | null {
+  if (env === undefined) return null;
+  if (!isStringRecord(env)) return "env must be an object of strings";
+  if (!Object.keys(env).every((k) => ENV_KEY_RE.test(k))) return "invalid env key";
+  // Headless spawns argv directly (no pane shell line for buildPaneCommand
+  // to interpolate env into), so a silently dropped env would run without
+  // the variables the caller thinks it passed.
+  if (surface === "headless") return "env is only supported for the herdr surface";
+  return null;
+}
+
 const agentOwner = (id: string): string => `agent:${id}`;
 
 /** Names the real flag the caller will be looking for; codex.ts's own
@@ -545,18 +556,8 @@ export function createAgentHandlers(opts: {
       if (surface === "headless" && !prompt) {
         return { ok: false, error: `headless launch requires a prompt (${headlessStdinBlurb(provider)})` };
       }
-      if (payload.env !== undefined && !isStringRecord(payload.env)) {
-        return { ok: false, error: "env must be an object of strings" };
-      }
-      if (payload.env !== undefined && !Object.keys(payload.env).every((k) => ENV_KEY_RE.test(k))) {
-        return { ok: false, error: "invalid env key" };
-      }
-      // Headless spawns argv directly (no pane shell line for buildPaneCommand
-      // to interpolate env into), so a silently dropped env would run without
-      // the variables the caller thinks it passed.
-      if (payload.env !== undefined && surface === "headless") {
-        return { ok: false, error: "env is only supported for the herdr surface" };
-      }
+      const startEnvError = envError(payload.env, surface);
+      if (startEnvError) return { ok: false, error: startEnvError };
       if (payload.handle !== undefined && !isValidChatName(payload.handle)) {
         return { ok: false, error: "invalid handle" };
       }
@@ -699,6 +700,8 @@ export function createAgentHandlers(opts: {
       if (surface === "headless" && !payload.prompt) {
         return { ok: false, error: `headless resume requires a prompt (${headlessStdinBlurb(rec.provider as AgentProvider)})` };
       }
+      const resumeEnvError = envError(payload.env, surface);
+      if (resumeEnvError) return { ok: false, error: resumeEnvError };
       // ↺ prefix: resume tabs must never dedup against the still-open launch
       // tab; repeated resumes share the label and dedup against each other.
       const tabLabel = payload.tab ?? `↺ ${rec.label ?? rec.id}`;
@@ -722,6 +725,7 @@ export function createAgentHandlers(opts: {
           opts.lifecycle!.watch(ensured.socket);
         }
         const res = await launch(attempt, { kind: "resume", sessionId: rec.sessionId }, payload.prompt, tabLabel, workspaceLabel, {
+          ...(payload.env !== undefined && { env: payload.env }),
           ...(bgSocket !== undefined && { herdrSocket: bgSocket }),
         });
         if (!res.ok) return res;
