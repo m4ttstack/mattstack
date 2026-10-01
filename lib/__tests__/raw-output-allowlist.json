@@ -43,7 +43,6 @@
   "commands/runs-write.ts",
   "commands/runs.ts",
   "commands/sdm.ts",
-  "commands/secrets.ts",
   "commands/services.ts",
   "commands/skills-audit.ts",
   "commands/skills-expand.ts",
