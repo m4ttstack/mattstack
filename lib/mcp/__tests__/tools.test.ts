@@ -8,7 +8,7 @@ import type { GateQuestion } from "../../../packages/rt-client/src/commands.ts";
 import { REPO_INDEX_NS } from "../../repo-index.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
 
-const NAMES = ["gate_answer","gate_ask","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_comment_inline","mr_comment","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_follow_up","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone","chat_read","chat_mark","chat_rooms","chat_who","chat_buddies","chat_join","chat_leave","chat_away","chat_back","chat_sign_in","chat_sign_out","chat_archive","chat_invite","whoami","ci_lease_claim","ci_lease_heartbeat","ci_lease_release","ci_lease_read","ci_watch","project_labels","pipeline_list","gitlab_get","branch_stack"];
+const NAMES = ["gate_answer","gate_ask","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_comment_inline","mr_comment","mr_review_submit","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_follow_up","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone","chat_read","chat_mark","chat_rooms","chat_who","chat_buddies","chat_join","chat_leave","chat_away","chat_back","chat_sign_in","chat_sign_out","chat_archive","chat_invite","whoami","ci_lease_claim","ci_lease_heartbeat","ci_lease_release","ci_lease_read","ci_watch","project_labels","pipeline_list","gitlab_get","branch_stack"];
 
 // Captured before any mock.module call, per the repo's convention (see
 // lib/__tests__/repo-locate-dispatch.test.ts): mock.module mutates the live
@@ -471,6 +471,58 @@ describe("mcpTools", () => {
       expect((await tool.handler({ ...base, labels: ["a", 5] }, {} as NodeJS.ProcessEnv)).error).toBe('"labels" must be an array of strings');
       expect((await tool.handler({ ...base, squash: "true" }, {} as NodeJS.ProcessEnv)).error).toBe('"squash" must be a boolean');
       expect(calls).toEqual([]);
+    });
+  });
+
+  describe("mr_review_submit", () => {
+    let calls: Array<{ cmd: string; payload: Record<string, unknown>; timeoutMs?: number }>;
+    let reply: () => unknown;
+    afterEach(() => {
+      mock.module("../../../packages/rt-client/src/transport.ts", () => ({ ...realTransport, rtCommand: realRtCommand }));
+    });
+    beforeEach(() => {
+      calls = [];
+      reply = () => ({ ok: true, data: { published: true, comments: 1, replies: 0, repliedTo: [], resolved: [], approved: false, resolveErrors: [], reviewerState: "reviewed", summaryNoteId: 5, mrUrl: "https://gitlab.example.com/acme/webapp/-/merge_requests/7" } });
+      mock.module("../../../packages/rt-client/src/transport.ts", () => ({
+        ...realTransport,
+        rtCommand: async (cmd: string, payload: Record<string, unknown>, opts?: { timeoutMs?: number }) => {
+          calls.push({ cmd, payload, timeoutMs: opts?.timeoutMs });
+          return reply();
+        },
+      }));
+    });
+    const tool = () => mcpTools().find((t) => t.name === "mr_review_submit")!;
+    const TARGET = { repoName: "remote:gitlab.example.com%2Facme%2Fwebapp", iid: 7 };
+
+    test("schema requires outcome and summary and limits outcome to comment or approve", () => {
+      const schema = tool().inputSchema as { required?: string[]; properties: Record<string, { enum?: string[] }> };
+      expect(schema.required).toEqual(["outcome", "summary"]);
+      expect(schema.properties.outcome!.enum).toEqual(["comment", "approve"]);
+    });
+
+    test("sends mr:review-submit with a long timeout and empty arrays by default", async () => {
+      const out = await tool().handler({ ...TARGET, outcome: "comment", summary: "s" }, {} as NodeJS.ProcessEnv);
+      expect(out.ok).toBe(true);
+      expect(calls).toEqual([{ cmd: "mr:review-submit", payload: { ...TARGET, outcome: "comment", summary: "s", comments: [], replies: [] }, timeoutMs: 180_000 }]);
+    });
+
+    test("refuses a bad outcome and non-array comments before calling the daemon", async () => {
+      expect((await tool().handler({ ...TARGET, outcome: "request_changes", summary: "s" }, {} as NodeJS.ProcessEnv)).ok).toBe(false);
+      expect((await tool().handler({ ...TARGET, outcome: "comment", summary: "s", comments: "x" }, {} as NodeJS.ProcessEnv)).ok).toBe(false);
+      expect(calls).toEqual([]);
+    });
+
+    test("a published:false refusal is returned as data, not as an error", async () => {
+      reply = () => ({ ok: true, data: { published: false, reason: "bad-anchors", badAnchors: [{ index: 0, path: "a.ts", line: 3 }], mrUrl: "u" } });
+      const out = await tool().handler({ ...TARGET, outcome: "comment", summary: "s", comments: [{ body: "b", path: "a.ts", line: 3 }] }, {} as NodeJS.ProcessEnv);
+      expect(out.ok).toBe(true);
+    });
+
+    test("a timeout says the review may have landed and where to look", async () => {
+      reply = () => ({ ok: false, error: "request timed out" });
+      const out = await tool().handler({ ...TARGET, outcome: "comment", summary: "s" }, {} as NodeJS.ProcessEnv);
+      expect(out.ok).toBe(false);
+      expect(out.error).toContain("the MR's discussions");
     });
   });
 

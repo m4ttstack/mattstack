@@ -44,6 +44,9 @@ export type { McpToolDef } from "./shared.ts";
 /** A 50 MB multipart POST over a slow link outlives the 30s write timeout. */
 const MR_UPLOAD_TIMEOUT_MS = 120_000;
 
+/** A review is one GitLab request per comment and reply, in sequence. */
+const MR_REVIEW_SUBMIT_TIMEOUT_MS = 180_000;
+
 type MrActionName = Commands["mr:action"]["payload"]["action"];
 
 /** mr:action replies a bare {ok:true}, so each tool names its own result body. */
@@ -429,6 +432,58 @@ export function mcpTools(): McpToolDef[] {
         const payload: Commands["mr:comment"]["payload"] = { repoName: target.identity, iid: target.iid, body: input.body as string };
         if (input.resolvable !== undefined) payload.resolvable = input.resolvable as boolean;
         const res = await rtCommand<Commands["mr:comment"]["data"]>("mr:comment", payload, { timeoutMs: MR_WRITE_TIMEOUT_MS });
+        return withLandingHint(fromResponse(res), "the MR's discussions");
+      },
+    },
+    {
+      name: "mr_review_submit",
+      description: `GitLab only. Post one whole review in one call, exactly as GitLab's "Submit your review" does: every entry in comments becomes an inline thread, every entry in replies lands in its existing thread (resolve: true resolves it; a reply with no body only resolves), summary posts as the review's summary note, and the caller is marked as having reviewed. outcome "approve" also approves. Nothing reaches the MR unless all of it can: published: false with reason "bad-anchors" lists the comments whose line is outside the diff (move those findings into summary and call again), and reason "pending-drafts" means the caller already has pending comments on the MR that a submit would publish (they submit or discard them in GitLab first). A review carries at most 100 comments and replies in total. published: true with approved: false means the review is up and only the approval was refused: never call this again for that review, use mr_approve. Returns counts, repliedTo, resolved, approved, reviewerState, summaryNoteId and mrUrl. ${REPO_NAME_RULE}`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          ...MR_TARGET_PROPS,
+          outcome: { type: "string", enum: ["comment", "approve"] },
+          summary: { type: "string" },
+          comments: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { body: { type: "string" }, path: { type: "string" }, line: { type: "number" }, oldPath: { type: "string" }, oldLine: { type: "number" } },
+              required: ["body", "path", "line"],
+              additionalProperties: false,
+            },
+          },
+          replies: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { discussionId: { type: "string" }, body: { type: "string" }, resolve: { type: "boolean" } },
+              required: ["discussionId", "resolve"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["outcome", "summary"],
+        additionalProperties: false,
+      },
+      shellForms: { none: "a submitted review has no glab verb; a glab api call hits the glab catch-all on mr_view" },
+      async handler(input) {
+        const bad = checkRequired(input, [{ name: "outcome", type: "string" }, { name: "summary", type: "string" }]);
+        if (bad) return err(bad);
+        if (input.outcome !== "comment" && input.outcome !== "approve") return err("outcome must be comment or approve");
+        if (input.comments !== undefined && !Array.isArray(input.comments)) return err("comments must be an array");
+        if (input.replies !== undefined && !Array.isArray(input.replies)) return err("replies must be an array");
+        const target = await resolveMrTarget(input);
+        if (!target.ok) return err(target.error);
+        const payload: Commands["mr:review-submit"]["payload"] = {
+          repoName: target.identity,
+          iid: target.iid,
+          outcome: input.outcome,
+          summary: input.summary as string,
+          comments: (input.comments ?? []) as Commands["mr:review-submit"]["payload"]["comments"],
+          replies: (input.replies ?? []) as Commands["mr:review-submit"]["payload"]["replies"],
+        };
+        const res = await rtCommand<Commands["mr:review-submit"]["data"]>("mr:review-submit", payload, { timeoutMs: MR_REVIEW_SUBMIT_TIMEOUT_MS });
         return withLandingHint(fromResponse(res), "the MR's discussions");
       },
     },

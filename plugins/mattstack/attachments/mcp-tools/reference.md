@@ -428,6 +428,97 @@ GitLab only. Post a NEW top-level note on an MR: a review's summary, or anything
 }
 ```
 
+### mr_review_submit
+
+<!-- mcp-lint: allow -->
+GitLab only. Post one whole review in one call, exactly as GitLab's "Submit your review" does: every entry in comments becomes an inline thread, every entry in replies lands in its existing thread (resolve: true resolves it; a reply with no body only resolves), summary posts as the review's summary note, and the caller is marked as having reviewed. outcome "approve" also approves. Nothing reaches the MR unless all of it can: published: false with reason "bad-anchors" lists the comments whose line is outside the diff (move those findings into summary and call again), and reason "pending-drafts" means the caller already has pending comments on the MR that a submit would publish (they submit or discard them in GitLab first). A review carries at most 100 comments and replies in total. published: true with approved: false means the review is up and only the approval was refused: never call this again for that review, use mr_approve. Returns counts, repliedTo, resolved, approved, reviewerState, summaryNoteId and mrUrl. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "repoName": {
+      "type": "string",
+      "description": "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo."
+    },
+    "iid": {
+      "type": "number",
+      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+    },
+    "mrUrl": {
+      "type": "string",
+      "description": "The MR's https URL; supplies both the repo and iid."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "comment",
+        "approve"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "comments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "line": {
+            "type": "number"
+          },
+          "oldPath": {
+            "type": "string"
+          },
+          "oldLine": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "body",
+          "path",
+          "line"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "replies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "discussionId": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "resolve": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "discussionId",
+          "resolve"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "outcome",
+    "summary"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### mr_create
 
 <!-- mcp-lint: allow -->
