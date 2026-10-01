@@ -51,9 +51,9 @@ digraph rebase_worktree {
     "STOP: a safety refusal ends the run; report it" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "git -C <tree> remote get-url origin" [shape=plaintext];
     "Forge host?" [shape=diamond];
-    "mr_list {repoName: <tree>, sourceBranch: <branch>}" [shape=plaintext];
-    "mr_list {repoName: <tree>, targetBranch: <branch>}" [shape=plaintext];
-    "Both reads succeeded?" [shape=diamond];
+    "mr_list {repoName: <tree>, sourceBranch: <branch>, limit: 200}" [shape=plaintext];
+    "mr_list {repoName: <tree>, targetBranch: <branch>, limit: 200}" [shape=plaintext];
+    "Both reads complete?" [shape=diamond];
     "gh pr view <branch>" [shape=plaintext];
     "gh pr list --base <branch>" [shape=plaintext];
     "gh reads succeeded?" [shape=diamond];
@@ -150,12 +150,12 @@ digraph rebase_worktree {
     "git_pull result?" -> "git -C <tree> log -1 --oneline" [label="fast-forwarded"];
     "git_pull result?" -> "Refused: reported" [label="error"];
     "git -C <tree> remote get-url origin" -> "Forge host?";
-    "Forge host?" -> "mr_list {repoName: <tree>, sourceBranch: <branch>}" [label="GitLab"];
+    "Forge host?" -> "mr_list {repoName: <tree>, sourceBranch: <branch>, limit: 200}" [label="GitLab"];
     "Forge host?" -> "gh pr view <branch>" [label="GitHub"];
-    "mr_list {repoName: <tree>, sourceBranch: <branch>}" -> "mr_list {repoName: <tree>, targetBranch: <branch>}";
-    "mr_list {repoName: <tree>, targetBranch: <branch>}" -> "Both reads succeeded?";
-    "Both reads succeeded?" -> "Apply the child and parent checks" [label="both reads returned"];
-    "Both reads succeeded?" -> "Stack check could not run: reported" [label="no: an error"];
+    "mr_list {repoName: <tree>, sourceBranch: <branch>, limit: 200}" -> "mr_list {repoName: <tree>, targetBranch: <branch>, limit: 200}";
+    "mr_list {repoName: <tree>, targetBranch: <branch>, limit: 200}" -> "Both reads complete?";
+    "Both reads complete?" -> "Apply the child and parent checks" [label="yes: both returned, neither truncated"];
+    "Both reads complete?" -> "Stack check could not run: reported" [label="no: an error, or a truncated result"];
     "gh pr view <branch>" -> "gh pr list --base <branch>";
     "gh pr list --base <branch>" -> "gh reads succeeded?";
     "gh reads succeeded?" -> "Apply the child and parent checks" [label="yes"];
@@ -280,9 +280,15 @@ every author; on GitHub they read the two `gh` results.
   `origin/<target>` if it rebases at all; moving it onto the default
   branch destroys the stack.
 - **Parent check:** open MRs or PRs targeting this branch (GitLab: every
-  row of the `targetBranch` result, truncated or not; GitHub: `gh pr
+  row of the `targetBranch` result; GitHub: `gh pr
   list --base <branch>`). Any hit: REFUSE, naming the dependents. Rewriting a
   parent's history strands every child on commits that no longer exist.
+
+Both GitLab reads ask for `limit: 200`. A result with `truncated: true` means
+GitLab held more rows than the read returned, so it cannot prove the branch
+stack-free: go to **Stack check could not run: reported** with the reason
+"GitLab returned more MRs than one read holds (truncated); the stack check
+cannot be exhaustive". Never rebase on a truncated check.
 
 Either refusal is a restack signal: the chain moves together or not at
 all. Say so and point at the stack tool (`gitq:sync` where available);

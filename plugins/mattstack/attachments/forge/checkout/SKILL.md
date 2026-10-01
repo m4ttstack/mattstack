@@ -27,13 +27,13 @@ digraph checkout {
     "mr_view {repoName, mrUrl or iid}" [shape=plaintext];
     "gh pr view <ref>" [shape=plaintext];
     "Ticket forge host?" [shape=diamond];
-    "mr_list {repoName, search: <ticket id>, state: all}" [shape=plaintext];
+    "mr_list {repoName, search: <ticket id>, state: all, limit: 200}" [shape=plaintext];
     "gh pr list --search <id>" [shape=plaintext];
     "Search returned a row naming the ticket?" [shape=diamond];
     "mr_list {repoName, state: all, limit: 200}" [shape=plaintext];
     "STOP: GitLab reads go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Pick the branch from the result" [shape=box];
-    "Exactly one branch?" [shape=diamond];
+    "Exactly one branch, from a complete read?" [shape=diamond];
     "Gate clarify: which branch" [shape=box];
     "branch answer?" [shape=diamond];
     "Clarify rounds = 2?" [shape=diamond];
@@ -65,19 +65,19 @@ digraph checkout {
     "MR forge host?" -> "gh pr view <ref>" [label="GitHub"];
     "MR forge host?" -> "STOP: GitLab reads go through the read tools or gitlab_get" [label="tempted to use the GitLab CLI"];
     "STOP: GitLab reads go through the read tools or gitlab_get" -> "mr_view {repoName, mrUrl or iid}";
-    "Ticket forge host?" -> "mr_list {repoName, search: <ticket id>, state: all}" [label="GitLab"];
+    "Ticket forge host?" -> "mr_list {repoName, search: <ticket id>, state: all, limit: 200}" [label="GitLab"];
     "Ticket forge host?" -> "gh pr list --search <id>" [label="GitHub"];
     "mr_view {repoName, mrUrl or iid}" -> "Pick the branch from the result";
     "gh pr view <ref>" -> "Pick the branch from the result";
-    "mr_list {repoName, search: <ticket id>, state: all}" -> "Search returned a row naming the ticket?";
+    "mr_list {repoName, search: <ticket id>, state: all, limit: 200}" -> "Search returned a row naming the ticket?";
     "Search returned a row naming the ticket?" -> "Pick the branch from the result" [label="yes"];
     "Search returned a row naming the ticket?" -> "mr_list {repoName, state: all, limit: 200}" [label="no"];
     "Search returned a row naming the ticket?" -> "Gate clarify: which branch" [label="a GitLab error: quoted in the gate's sentence"];
     "mr_list {repoName, state: all, limit: 200}" -> "Pick the branch from the result";
     "gh pr list --search <id>" -> "Pick the branch from the result";
-    "Pick the branch from the result" -> "Exactly one branch?";
-    "Exactly one branch?" -> "git worktree list" [label="yes"];
-    "Exactly one branch?" -> "Gate clarify: which branch" [label="no: several, none, or a GitLab error"];
+    "Pick the branch from the result" -> "Exactly one branch, from a complete read?";
+    "Exactly one branch, from a complete read?" -> "git worktree list" [label="yes"];
+    "Exactly one branch, from a complete read?" -> "Gate clarify: which branch" [label="no: several, none, a GitLab error, or a truncated read"];
     "Gate clarify: which branch" -> "branch answer?";
     "branch answer?" -> "git worktree list" [label="a candidate"];
     "branch answer?" -> "Clarify rounds = 2?" [label="their text"];
@@ -119,13 +119,18 @@ result. The GitLab tools and `worktree_provision` take `repoName` = the
 current checkout's absolute path; `worktree_provision` takes `branch` = the picked branch (a given
 branch name verbatim); `mr_view` takes `mrUrl` = the link, or `iid` = the
 number. For a ticket id, `mr_list` takes `search` = the id and `state`
-`all`, which asks GitLab for every MR whose title or description carries
+`all` and `limit` 200, which asks GitLab for every MR whose title or description carries
 it, by any author; keep the rows whose `sourceBranch` (GitHub: head
 branch) or `title` carries the id. GitLab's `search` never looks at the
 source branch, so when no row names the ticket, make one more read:
 `mr_list` with `state` `all`, `limit` 200 and no filter, keeping the rows whose
 `sourceBranch` carries the id by filtering the result yourself (the tool's
-`sourceBranch` filter needs an exact name). Note `truncated` when the list says so. An `mr_view` or
+`sourceBranch` filter needs an exact name). Either `mr_list` result can carry `truncated: true`, meaning GitLab held
+more rows than the 200 returned. When either result is truncated and no
+row has been chosen, the pick is not safe: go to the clarify gate with one
+sentence saying the search was cut at 200 rows and naming what was found.
+When exactly one row matched before the cut, the sentence says more rows
+exist, and the branch is not picked silently. An `mr_view` or
 `mr_list` error is the error text, usually GitLab's: it goes to the clarify gate's
 sentence, quoted. No row after both reads means none of the rows GitLab
 returned carries the ticket, not that no MR exists.
@@ -147,7 +152,7 @@ quoted as GitLab wrote it. Its refusal of a credential path is final.
 
 Scope `clarify`. One sentence naming the candidates with each one's state
 (opened, merged, closed), or quoting the GitLab error when a read failed,
-then the questions, each its own question:
+or saying the search was cut at 200 rows when a read was truncated, then the questions, each its own question:
 
 - `branch`: one option per candidate, or their text
 - `next`: **Proceed** (recommended) / **Hold**

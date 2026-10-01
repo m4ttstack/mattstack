@@ -72,7 +72,7 @@ digraph review {
     "mr_for_branch entry for the branch?" [shape=diamond];
     "gh pr view <ref>" [shape=plaintext];
     "gh pr view found the PR?" [shape=diamond];
-    "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all}" [shape=plaintext];
+    "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}" [shape=plaintext];
     "mr_list matches for the branch?" [shape=diamond];
     "STOP: GitLab reads go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "STOP: GitLab branch lookups go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -193,14 +193,14 @@ digraph review {
     "Review target form?" -> "Gate review clarify: which target?" [label="ticket id only, or several candidates"];
     "mr_for_branch {repoName: <checkout>, branches: [<branch>]}" -> "mr_for_branch entry for the branch?";
     "mr_for_branch entry for the branch?" -> "mr_view {mrUrl, or repoName + iid}" [label="an iid"];
-    "mr_for_branch entry for the branch?" -> "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all}" [label="null: no open MR, look for a merged or closed one"];
+    "mr_for_branch entry for the branch?" -> "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}" [label="null: no open MR, look for a merged or closed one"];
     "mr_for_branch entry for the branch?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="an error: hold, quoting its text"];
     "mr_for_branch entry for the branch?" -> "STOP: GitLab branch lookups go through the read tools or gitlab_get" [label="tempted to look it up with the GitLab CLI"];
-    "STOP: GitLab branch lookups go through the read tools or gitlab_get" -> "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all}";
-    "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all}" -> "mr_list matches for the branch?";
+    "STOP: GitLab branch lookups go through the read tools or gitlab_get" -> "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}";
+    "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}" -> "mr_list matches for the branch?";
     "mr_list matches for the branch?" -> "mr_view {mrUrl, or repoName + iid}" [label="exactly one: its iid"];
     "mr_list matches for the branch?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="none: hold, GitLab has no MR for the branch"];
-    "mr_list matches for the branch?" -> "Gate review clarify: which target?" [label="several"];
+    "mr_list matches for the branch?" -> "Gate review clarify: which target?" [label="several, or a truncated list"];
     "mr_list matches for the branch?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="an error: hold, quoting its text (never read as none)"];
     "mr_view {mrUrl, or repoName + iid}" -> "mr_view returned the MR?";
     "mr_view returned the MR?" -> "Own review run: record the target?" [label="yes"];
@@ -371,7 +371,7 @@ that it has none: look at merged and closed ones too. On a resume in a new sessi
 target is not in the conversation: the resumed snapshot's `mr` field is
 the target.
 
-### mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all}
+### mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}
 
 `mr_for_branch` sees open MRs only, so a null entry says nothing about a
 merged or closed one. List every MR whose source branch is the given
@@ -379,10 +379,13 @@ branch, whatever its state.
 
 ### mr_list matches for the branch?
 
-Count the returned MRs. Exactly one: take its `iid` to `mr_view`. None:
-hold, reason "GitLab has no MR for the branch" (`decidedBy: "pane"`).
-Several: the clarify gate, one option per MR (iid, title, state). Never a
-guess.
+Check `truncated` first. A `truncated: true` list (GitLab held more than
+the 200 returned) is ambiguous whatever it holds: take the clarify gate
+like several, with a sentence saying the list was cut at 200 rows and one
+option per MR returned. Otherwise count the returned MRs. Exactly one:
+take its `iid` to `mr_view`. None: hold, reason "GitLab has no MR for the
+branch" (`decidedBy: "pane"`). Several: the clarify gate, one option per MR
+(iid, title, state). Never a guess.
 
 ### Reading a GitLab fact no read tool returns
 
