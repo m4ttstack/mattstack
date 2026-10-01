@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { skillMdDriftCauses } from "../drift.ts";
+import { changedPartKeys, partExtents, skillMdDriftCauses } from "../drift.ts";
 
 const compiled = [
   "---\nname: x\n---",
@@ -29,5 +29,20 @@ describe("skillMdDriftCauses", () => {
   test("a different part list is structure, whatever else differs", () => {
     const dropped = compiled.replace(/\n\n<!-- part: include:note[\s\S]*$/, "");
     expect(skillMdDriftCauses(compiled, dropped)).toEqual(["structure"]);
+  });
+});
+
+describe("partExtents", () => {
+  test("bounds each include and slot part by its marker's line count", () => {
+    const md = ["<!-- part: step source=m:s version=1 path=p lines=1-3 -->", "step", "<!-- part: include:g source=m:g version=0.28.10 path=a lines=7-8 -->", "g1", "g2", "step after"].join("\n");
+    expect(partExtents(md)).toEqual([{ key: "include:g", version: "0.28.10", start: 2, end: 4, text: "g1\ng2" }]);
+  });
+});
+
+describe("changedPartKeys", () => {
+  test("ignores version bumps and reports only parts whose text changed", () => {
+    const before = "<!-- part: include:g source=m:g version=1 path=a lines=1-1 -->\nsame\n<!-- part: slot:d binding=x version=1 path=b lines=1-1 -->\nold";
+    const after = "<!-- part: include:g source=m:g version=2 path=a lines=1-1 -->\nsame\n<!-- part: slot:d binding=x version=1 path=b lines=1-1 -->\nnew";
+    expect([...changedPartKeys(before, after)]).toEqual(["slot:d"]);
   });
 });

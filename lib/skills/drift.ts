@@ -40,3 +40,26 @@ export function skillMdDriftCauses(onDisk: string, expected: string): DriftCause
   });
   return causes;
 }
+
+export type PartExtent = { key: string; version: string | null; start: number; end: number; text: string };
+
+const EXTENT_RE = /^<!-- part: (slot:\S+|include:\S+) .*?\bversion=(\S+) .*?\blines=(\d+)-(\d+) -->$/;
+
+export function partExtents(md: string): PartExtent[] {
+  const lines = md.split("\n");
+  const out: PartExtent[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = EXTENT_RE.exec(lines[i]!);
+    if (!m) continue;
+    const end = Math.min(lines.length - 1, i + Number(m[4]) - Number(m[3]) + 1);
+    out.push({ key: m[1]!, version: m[2]!, start: i, end, text: lines.slice(i + 1, end + 1).join("\n") });
+  }
+  return out;
+}
+
+export function changedPartKeys(onDisk: string, fresh: string): Set<string> {
+  const before = new Map(partExtents(onDisk).map((p) => [p.key, p.text]));
+  const changed = new Set<string>();
+  for (const p of partExtents(fresh)) if (before.get(p.key) !== p.text) changed.add(p.key);
+  return changed;
+}
