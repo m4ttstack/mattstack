@@ -1,16 +1,24 @@
 .item {
+  --inset: 12px;
   border-bottom: 1px solid var(--tk-border-soft);
 }
 
+/* The open card's 1px border takes 1px of inset, so opening moves nothing. */
 .item[data-open] {
+  --inset: 11px;
   margin-block: 8px;
   border: 1px solid var(--tk-border);
   border-radius: var(--mantine-radius-lg);
 }
 
 .header {
+  padding: 12px var(--inset) 11px;
   cursor: pointer;
   border-radius: var(--mantine-radius-md);
+}
+
+.item[data-open] .header {
+  padding-block: 11px 12px;
 }
 
 :where([data-mantine-color-scheme='light']) .header {
@@ -40,6 +48,10 @@
   flex: none;
 }
 
+.inset {
+  padding-inline: var(--inset);
+}
+
 .panel {
-  padding: 0 12px 12px;
+  padding: 0 var(--inset) var(--inset);
 }

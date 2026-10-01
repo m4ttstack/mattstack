@@ -152,8 +152,6 @@ export function SettingRow({
       <Group
         gap={24}
         wrap="nowrap"
-        py={12}
-        px={12}
         className={classes.header}
         onClick={onHeader}
       >
@@ -168,7 +166,7 @@ export function SettingRow({
             {badge ? (
               <ScopeBadge scope={badge} />
             ) : plain ? (
-              <Text fz={12} c={text.muted}>
+              <Text fz={12} lh="15px" c={text.muted}>
                 {plain}
               </Text>
             ) : null}
@@ -218,7 +216,7 @@ export function SettingRow({
         </Tooltip>
       </Group>
       {(row.error || rejected) && (
-        <Stack gap={4} px={12} pb={12}>
+        <Stack gap={4} pb={12} className={classes.inset}>
           <WriteError row={row} />
           {rejected && (
             <Text fz={12} ff="monospace" c="var(--tk-text-bad-small)">
@@ -227,7 +225,7 @@ export function SettingRow({
           )}
         </Stack>
       )}
-      <Box px={12}>
+      <Box className={classes.inset}>
         <IssueLines
           def={def}
           onFix={onFix && (issue => onFix(def.key, issue))}
