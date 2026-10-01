@@ -84,8 +84,17 @@ function firstLine(text: string): string {
   return (text.split("\n").find(l => l.trim()) ?? "").trim().slice(0, 120);
 }
 
-function leftover(n: number): string {
-  return n === 0 ? "" : `; ${n} pending comment${n === 1 ? "" : "s"} could not be deleted and ${n === 1 ? "is" : "are"} still on the MR`;
+interface Rollback {
+  left: number;
+  firstError?: string;
+}
+
+function leftover({ left, firstError }: Rollback): string {
+  const cause = firstError === undefined ? "" : ` (first error: ${firstError})`;
+  if (left > 0) {
+    return `; ${left} pending comment${left === 1 ? "" : "s"} could not be deleted and ${left === 1 ? "is" : "are"} still on the MR${cause}`;
+  }
+  return firstError === undefined ? "" : `; pending comments could not be listed, so one may still be on the MR${cause}`;
 }
 
 export async function submitReview(deps: ReviewSubmitDeps, input: ReviewSubmitInput): Promise<ReviewSubmitOutcome> {
@@ -101,17 +110,31 @@ export async function submitReview(deps: ReviewSubmitDeps, input: ReviewSubmitIn
   }
 
   const created: number[] = [];
-  /** How many of this call's pending comments could NOT be deleted. */
-  const rollback = async (): Promise<number> => {
+  const deleteAll = async (ids: number[], firstError?: string): Promise<Rollback> => {
     let left = 0;
-    for (const id of created) {
+    for (const id of ids) {
       try {
         await mutator.deleteDraftNote(projectId, iid, id);
-      } catch {
+      } catch (err) {
         left++;
+        firstError ??= String(err);
       }
     }
-    return left;
+    return { left, firstError };
+  };
+  /**
+   * The check above proved the caller had no pending comments, so every one
+   * listed now is this call's, including a create that landed and then threw
+   * before its id reached `created`.
+   */
+  const rollback = async (): Promise<Rollback> => {
+    let ids: number[];
+    try {
+      ids = (await mutator.listDraftNotes(projectId, iid)).map(d => d.id);
+    } catch (err) {
+      return deleteAll(created, String(err));
+    }
+    return deleteAll(ids);
   };
 
   const badAnchors: Array<{ index: number; path: string; line: number }> = [];
@@ -138,8 +161,8 @@ export async function submitReview(deps: ReviewSubmitDeps, input: ReviewSubmitIn
     throw new Error(`review not posted: ${String(err)}${leftover(await rollback())}`);
   }
   if (badAnchors.length > 0) {
-    const left = await rollback();
-    if (left > 0) throw new Error(`review not posted: ${badAnchors.length} comment anchors are outside the diff${leftover(left)}`);
+    const rb = await rollback();
+    if (rb.left > 0) throw new Error(`review not posted: ${badAnchors.length} comment anchors are outside the diff${leftover(rb)}`);
     return { published: false, reason: "bad-anchors", badAnchors };
   }
 
@@ -156,7 +179,13 @@ export async function submitReview(deps: ReviewSubmitDeps, input: ReviewSubmitIn
       throw new Error(`publish failed and its outcome is unknown: ${String(err)}; listing pending comments failed too: ${String(listErr)}; look for the summary on the MR before retrying`);
     }
     if (remaining.length > 0) {
-      throw new Error(`publish failed, nothing was posted: ${String(err)}${leftover(await rollback())}`);
+      const pendingIds = new Set(remaining.map(d => d.id));
+      const stillPending = created.filter(id => pendingIds.has(id)).length;
+      const rb = await deleteAll([...pendingIds]);
+      if (stillPending === created.length) {
+        throw new Error(`publish failed, nothing was posted: ${String(err)}${leftover(rb)}`);
+      }
+      throw new Error(`publish failed and only partly landed: ${created.length - stillPending} of ${created.length} pending comments were posted: ${String(err)}${leftover(rb)}; look at the MR before retrying`);
     }
   }
 

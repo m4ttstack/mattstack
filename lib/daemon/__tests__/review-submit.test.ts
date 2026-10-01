@@ -102,6 +102,63 @@ describe("submitReview", () => {
     await expect(submitReview(f.deps, INPUT)).rejects.toThrow(/1 pending comment could not be deleted/);
   });
 
+  test("a create that lands on GitLab and then throws is still rolled back", async () => {
+    const f = fake();
+    const create = f.deps.mutator.createDraftNote;
+    f.deps.mutator.createDraftNote = async (p, i, body, opts) => {
+      const d = await create(p, i, body, opts);
+      if (body === "c2") throw new Error("socket hang up");
+      return d;
+    };
+    await expect(submitReview(f.deps, INPUT)).rejects.toThrow(/review not posted: Error: socket hang up$/);
+    expect(f.pending()).toEqual([]);
+  });
+
+  test("a rollback whose delete fails includes the first error text", async () => {
+    const f = fake({ deleteDraftNote: async () => { throw new Error("nope"); } });
+    const create = f.deps.mutator.createDraftNote;
+    f.deps.mutator.createDraftNote = async (p, i, body, opts) => {
+      if (body === "c2") throw new Error("boom");
+      return create(p, i, body, opts);
+    };
+    await expect(submitReview(f.deps, INPUT))
+      .rejects.toThrow("review not posted: Error: boom; 1 pending comment could not be deleted and is still on the MR (first error: Error: nope)");
+  });
+
+  test("the list call failing during rollback still deletes the created ids", async () => {
+    const f = fake();
+    const list = f.deps.mutator.listDraftNotes;
+    let lists = 0;
+    f.deps.mutator.listDraftNotes = async (p, i) => {
+      if (lists++ > 0) throw new Error("list down");
+      return list(p, i);
+    };
+    const create = f.deps.mutator.createDraftNote;
+    f.deps.mutator.createDraftNote = async (p, i, body, opts) => {
+      if (body === "c2") throw new Error("boom");
+      return create(p, i, body, opts);
+    };
+    await expect(submitReview(f.deps, INPUT)).rejects.toThrow(/review not posted: Error: boom.*\(first error: Error: list down\)/);
+    expect(f.log).toContain("delete:1");
+    expect(f.pending()).toEqual([]);
+  });
+
+  test("a publish that only partly landed says so, deletes what remains and never claims nothing was posted", async () => {
+    const f = fake();
+    f.deps.mutator.publishDraftNotes = async () => {
+      f.seed(f.pending().slice(1));
+      throw new Error("502");
+    };
+    const err = await submitReview(f.deps, { ...INPUT, replies: [] }).then(() => null, (e: unknown) => String(e));
+    expect(err).not.toBeNull();
+    expect(err).not.toContain("nothing was posted");
+    expect(err).toContain("1 of 2");
+    expect(err).toContain("look at the MR before retrying");
+    expect(f.log).toContain("delete:2");
+    expect(f.log).not.toContain("delete:1");
+    expect(f.pending()).toEqual([]);
+  });
+
   test("a publish that throws but left no pending comments counts as landed", async () => {
     const f = fake();
     const publish = f.deps.mutator.publishDraftNotes;
