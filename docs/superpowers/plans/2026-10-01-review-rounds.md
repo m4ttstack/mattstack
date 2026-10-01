@@ -1326,6 +1326,16 @@ describe.skipIf(!LIVE)('live: submitted review', () => {
     ]);
     const mr = await owner.MergeRequests.create(repo, branch, proj.default_branch as string, `Live review submit ${branch}`);
     iid = mr.iid as number;
+    // GitLab computes diff_refs a moment after the MR opens; fetchDiffRefs throws until then.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await reviewer.fetchDiffRefs(projectId, iid);
+        break;
+      } catch (err) {
+        if (attempt >= 10) throw err;
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
   });
 
   afterAll(async () => {
@@ -3361,7 +3371,7 @@ Storybook `Gates/Board/ReviewGateSheet` (RoundThree, RoundThreeBringingOneBack, 
 
 - [ ] **Step 3: Purity and the public repo**
 
-Search the diff for employer names, real MR numbers and ticket ids: `git diff origin/main...HEAD | grep -niE "assured|claimview|RT-[0-9]|SKILLS-[0-9]|![0-9]{4,}"`. Expected: no hits anywhere except the claimview pack named as a consumer in the spec and this plan, and the invented `!87` in fixtures.
+Search the diff for employer names, real MR numbers and ticket ids: `git diff origin/main...HEAD | grep -niE 'assured|claimview|RT-[0-9]|SKILLS-[0-9]|![0-9]{4,}'`. Expected: no hits anywhere except the claimview pack named as a consumer in the spec and this plan, and the invented `!87` in fixtures.
 
 - [ ] **Step 4: Confirm the v4 claim still stands**
 
