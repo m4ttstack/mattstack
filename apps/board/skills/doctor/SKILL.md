@@ -16,7 +16,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-560 -->
+<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-565 -->
 # mr-board doctor runner
 
 The board launched this pane because an MR has mechanical breakage (CI red
@@ -87,7 +87,7 @@ digraph doctor_flow {
     "Doctor error written: stay in the pane" [shape=doublecircle];
     "Held at an escalation: the pane stays, no terminal status" [shape=doublecircle];
     "Escalation gate gone: ended cleanly, no status write" [shape=doublecircle];
-    "Doctor done: stay in the pane" [shape=doublecircle style=filled fillcolor=lightgreen];
+    "Doctor done: the board closes this tab" [shape=doublecircle style=filled fillcolor=lightgreen];
 
     "Trigger: the board launched /board:doctor" -> "Launch and resume entry (entry.md)";
     "Launch and resume entry (entry.md)" -> "Entry outcome (doctor)?";
@@ -122,7 +122,7 @@ digraph doctor_flow {
     "Which exit (doctor)?" -> "<status-bin> doctor-status <state> error <specific, actionable message>" [label="error, a stand-down, or leave it to me"];
     "Which exit (doctor)?" -> "Held at an escalation: the pane stays, no terminal status" [label="hold"];
     "Which exit (doctor)?" -> "Escalation gate gone: ended cleanly, no status write" [label="gate gone"];
-    "<status-bin> doctor-status <state> done <message>" -> "Doctor done: stay in the pane";
+    "<status-bin> doctor-status <state> done <message>" -> "Doctor done: the board closes this tab";
     "<status-bin> doctor-status <state> error <specific, actionable message>" -> "Doctor error written: stay in the pane";
 }
 ```
@@ -134,6 +134,11 @@ answer, failed jobs from a watch) starts at its trigger for that entry.
 
 What the graph cannot show:
 
+- **The done write is the last call.** The board closes this pane's tab
+  the moment `doctor-status <state> done` lands, which ends this session
+  mid-batch. So the done write is a call of its own, sent only after every
+  other write of the run has returned: `ci_lease_release`, and any push or retry the run made. A write sent in the same
+  batch as the done write is lost.
 - **Lease mode.** `Who holds the fresh lease (doctor)?` fixes the mode for
   the run: board mode (the board's `board:doctor:` owner holds it) or own
   mode (this session holds it). Every `Lease mode (...)?` diamond reads
