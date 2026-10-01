@@ -58,12 +58,12 @@ describe('buildFocusGroups on the design pack', () => {
     expect(
       groups.onDemand.map(item => [item.label, item.key, item.icon])
     ).toEqual([
-      ['shepherdr', 'shepherdr', 'terminal'],
-      ['review', 'review', 'terminal'],
+      ['shepherdr', 'shepherdr', 'squareTerminal'],
+      ['review', 'review', 'squareTerminal'],
       ['self-review', 'self-review', 'lock'],
       ['receive-review', 'receive-review', 'lock'],
-      ['ship', 'ship', 'terminal'],
-      ['watch-ci', 'watch-ci', 'terminal'],
+      ['ship', 'ship', 'squareTerminal'],
+      ['watch-ci', 'watch-ci', 'squareTerminal'],
     ]);
     expect(flagged(groups.onDemand)).toEqual(['review']);
   });
@@ -134,6 +134,35 @@ describe('buildFocusGroups on other packs', () => {
     expect(labels(groups.onDemand)[0]).toBe('work');
   });
 
+  it('tells an rt too old to report pipelines apart from a pack that declares none', () => {
+    const groups = buildFocusGroups(
+      { ...composition, pipelines: undefined },
+      check
+    );
+    expect(groups.empty).toBe('rt-without-pipelines');
+    expect(groups.pipelines).toEqual([]);
+    expect(labels(groups.onDemand)[0]).toBe('work');
+  });
+
+  it('lists a board binder that binds no slot', () => {
+    const groups = buildFocusGroups(
+      {
+        ...composition,
+        binders: [
+          ...composition.binders,
+          { ref: 'board:triage', verb: null, kind: 'external', slots: [] },
+        ],
+      },
+      check
+    );
+    expect(labels(groups.board)).toEqual([
+      'board:review',
+      'board:respond',
+      'board:doctor',
+      'board:triage',
+    ]);
+  });
+
   it('flags nothing from drift when check has not answered', () => {
     const groups = buildFocusGroups(composition, undefined);
     expect(groups.pipelines[0]!.attention).toBe(false);
@@ -177,7 +206,7 @@ describe('findFocus', () => {
   it('finds a pipeline, a step, a verb, a board skill and an unwired verb by key', () => {
     expect(findFocus(groups, 'pipeline:feature')?.label).toBe('work · feature');
     expect(findFocus(groups, 'stage-plan')?.step).toBe(2);
-    expect(findFocus(groups, 'review')?.icon).toBe('terminal');
+    expect(findFocus(groups, 'review')?.icon).toBe('squareTerminal');
     expect(findFocus(groups, 'board:doctor')?.label).toBe('board:doctor');
     expect(findFocus(groups, 'checkout')?.label).toBe('checkout');
   });

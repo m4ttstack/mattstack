@@ -556,6 +556,7 @@ describe('a step never compiled', () => {
   const neverCompiled: SkillsAnatomy = {
     ...anatomyPlan,
     status: 'never-compiled',
+    template: { ...anatomyPlan.template, builtVersion: null },
     rendered: { ...anatomyPlan.rendered, exists: false, lines: 0 },
     parts: anatomyPlan.parts.map(part => ({ ...part, renderedLines: null })),
     links: [],
@@ -564,6 +565,17 @@ describe('a step never compiled', () => {
     ...check,
     verbs: check.verbs.filter(row => row.name !== 'stage-plan'),
   };
+
+  it('names no build version in its header', () => {
+    const view = buildTemplateView({
+      anatomy: neverCompiled,
+      composition,
+      check: checkWithout,
+      changes: undefined,
+      step: 2,
+    });
+    expect(view.templateMeta).toBe('144 lines · never compiled');
+  });
 
   it('falls back to the anatomy when check has no row for it', () => {
     const view = buildTemplateView({
@@ -595,5 +607,188 @@ describe('a step never compiled', () => {
       step: 2,
     });
     expect(view.output!.status).toBe('never-compiled');
+  });
+});
+
+describe('link cards follow the focused pipeline', () => {
+  const bugfix: SkillsComposition = {
+    ...composition,
+    pipelines: {
+      ...composition.pipelines,
+      bugfix: [
+        'mattstack:stage-provision',
+        'mattstack:stage-implement',
+        'mattstack:stage-ship',
+      ],
+    },
+  };
+
+  it('numbers each step by its place in that pipeline and leaves the rest unnumbered', () => {
+    const view = buildTemplateView({
+      anatomy: anatomyWork,
+      composition: bugfix,
+      check,
+      changes: undefined,
+      step: null,
+      workType: 'bugfix',
+    });
+    expect(view.links.map(link => link.subtitle)).toEqual([
+      'step 1 · rendered · 777 lines',
+      'rendered · 780 lines',
+      'rendered · 212 lines',
+      'stale: its template changed · 1152 lines',
+      'step 2 · rendered · 91 lines',
+      'rendered · 105 lines',
+      'step 3 · stale: its template changed · 1091 lines',
+      'stale: its template changed · 1116 lines',
+    ]);
+  });
+
+  it('reads the first pipeline when none is named', () => {
+    const view = buildTemplateView({
+      anatomy: anatomyWork,
+      composition: bugfix,
+      check,
+      changes: undefined,
+      step: null,
+    });
+    expect(view.links[7]!.subtitle).toBe(
+      'step 8 · stale: its template changed · 1116 lines'
+    );
+  });
+
+  it('gives a link to a verb that is not a stage no step number', () => {
+    const view = buildTemplateView({
+      anatomy: withPart(anatomyWork, 'stage-gates', {
+        name: 'review',
+        target: {
+          skill: 'review',
+          path: '/fixture/packs/acme/skills/review/SKILL.md',
+          lines: 900,
+        },
+      }),
+      composition,
+      check,
+      changes: undefined,
+      step: null,
+    });
+    expect(view.links[2]).toMatchObject({
+      title: 'review/SKILL.md',
+      subtitle: 'stale: its template changed · 900 lines',
+    });
+  });
+});
+
+describe('when check has not measured a skill', () => {
+  it('claims no status on its link card', () => {
+    const view = buildTemplateView({
+      anatomy: anatomyWork,
+      composition,
+      check: undefined,
+      changes: undefined,
+      step: null,
+    });
+    expect(view.links[0]).toMatchObject({
+      status: 'unknown',
+      subtitle: 'step 1 · 777 lines',
+    });
+  });
+
+  it('claims no status on its output card', () => {
+    const view = buildTemplateView({
+      anatomy: anatomyPlan,
+      composition,
+      check: {
+        ...check,
+        verbs: check.verbs.filter(row => row.name !== 'stage-plan'),
+      },
+      changes: undefined,
+      step: 2,
+    });
+    expect(view.output!.status).toBe('unknown');
+  });
+});
+
+describe('placeholders sharing a template line', () => {
+  const source = (name: string, lines: number) => ({
+    ref: `mattstack:${name}`,
+    path: `/fixture/mattstack/attachments/${name}/SKILL.md`,
+    version: '0.30.4',
+    builtVersion: '0.28.10',
+    lines,
+  });
+  const twoOnOneLine: SkillsAnatomy = {
+    ...anatomyPlan,
+    rendered: { ...anatomyPlan.rendered, lines: 12 },
+    parts: [
+      {
+        kind: 'text',
+        name: null,
+        templateLines: [1, 2],
+        renderedLines: [1, 2],
+        mode: null,
+        source: null,
+        target: null,
+        changed: false,
+      },
+      ...(['alpha', 'beta'] as const).map(name => ({
+        kind: 'include' as const,
+        name,
+        templateLines: [3, 3] as [number, number],
+        renderedLines: [3, 12] as [number, number],
+        mode: null,
+        source: source(name, name === 'alpha' ? 4 : 6),
+        target: null,
+        changed: false,
+      })),
+    ],
+    links: [],
+  };
+
+  it('splits the shared rendered range by each source size', () => {
+    const view = buildTemplateView({
+      anatomy: twoOnOneLine,
+      composition,
+      check,
+      changes: undefined,
+      step: 2,
+    });
+    expect(
+      view.output!.parts.map(p => [p.label, `${p.lines} · ${p.share}%`])
+    ).toEqual([
+      ['step text', '2 · 17%'],
+      ['alpha', '4 · 33%'],
+      ['beta', '6 · 50%'],
+    ]);
+    expect(view.rows.map(row => row.id)).toEqual(['1', '3', '3.2']);
+  });
+});
+
+describe('who picked a default fill', () => {
+  const tieringLayer = (layer: string | null): SkillsComposition => ({
+    ...composition,
+    verbs: composition.verbs.map(verb =>
+      verb.name === 'work'
+        ? { ...verb, slots: verb.slots.map(slot => ({ ...slot, layer })) }
+        : verb
+    ),
+  });
+  const tieringSubtitle = (layer: string | null) =>
+    buildTemplateView({
+      anatomy: anatomyWork,
+      composition: tieringLayer(layer),
+      check,
+      changes: undefined,
+      step: null,
+    }).inputs.find(card => card.id === 'slot:tiering')?.subtitle;
+
+  it.each([
+    ['pack', 'mattstack default · picked by this pack'],
+    ['override', 'mattstack default · picked by your override'],
+    ['base:globex', 'mattstack default · picked by base: globex'],
+    ['default', 'mattstack default'],
+    [null, 'mattstack default'],
+  ])('layer %s', (layer, subtitle) => {
+    expect(tieringSubtitle(layer)).toBe(subtitle);
   });
 });

@@ -65,7 +65,9 @@ export type InputCard = {
   usedBy: number;
 };
 
-export type SkillStatus = 'in-sync' | 'stale' | 'never-compiled';
+/** `unknown` is check having no row for the skill: rt said nothing, which is
+    not the same as in sync. */
+export type SkillStatus = 'in-sync' | 'stale' | 'never-compiled' | 'unknown';
 
 export type LinkCard = {
   id: string;
@@ -173,11 +175,25 @@ export function partKey(part: AnatomyPart): string {
   return `${part.kind}:${part.name ?? ''}`;
 }
 
-/** Lines a pasted part occupies in the rendered file: its placed range when
-    rt located it, else the size of its source. */
-export function pastedLines(part: AnatomyPart): number {
-  if (part.renderedLines) return spanOf(part.renderedLines);
-  return part.source?.lines ?? 0;
+/**
+ * Lines a pasted part occupies in the rendered file: its placed range when rt
+ * located it, else the size of its source. rt gives every placeholder on one
+ * template line that line's whole rendered range, so a range shared with
+ * another part says nothing about this part's size and its source decides.
+ */
+export function pastedLines(
+  part: AnatomyPart,
+  parts: readonly AnatomyPart[]
+): number {
+  const range = part.renderedLines;
+  if (!range) return part.source?.lines ?? 0;
+  const sharing = parts.filter(
+    other =>
+      other.kind !== 'text' &&
+      other.renderedLines?.[0] === range[0] &&
+      other.renderedLines[1] === range[1]
+  ).length;
+  return sharing > 1 ? (part.source?.lines ?? 0) : spanOf(range);
 }
 
 /** What an output part is called: an include by its name, a slot by the fill
@@ -283,8 +299,11 @@ export function buildTemplateView(input: {
   check: SkillsCheck | undefined;
   changes: SkillsChanges | undefined;
   step: number | null;
+  /** The focused pipeline; absent or unknown reads the pack's first. */
+  workType?: string | null;
 }): TemplateView {
   const { anatomy, composition, check, changes, step } = input;
+  const stepOf = stepNumbers(composition, input.workType ?? null);
   const pack = anatomy.pack;
   const textNoun = textNounOf(anatomy);
   const slotFacts = slotFactsFor(anatomy, composition);
@@ -351,7 +370,7 @@ export function buildTemplateView(input: {
     if (part.kind === 'verb.path') {
       const skill = part.target?.skill ?? part.name ?? '';
       links.push(
-        linkCard(part, skill, id, links.length + 1, checkRows.get(skill))
+        linkCard(part, skill, id, stepOf(skill), checkRows.get(skill))
       );
       continue;
     }
@@ -465,28 +484,55 @@ function cardFace(
     : {
         ...file,
         title: sourceTitle,
-        subtitle: `${plugin} default · picked by ${layerLabel(facts?.layer ?? 'pack')}`,
+        subtitle: `${plugin} default${pickedBy(facts?.layer ?? null)}`,
       };
 }
+
+/** Who chose a default fill, for the layers rt names a chooser for. */
+function pickedBy(layer: string | null): string {
+  if (layer === 'pack' || layer === 'override' || layer?.startsWith('base:'))
+    return ` · picked by ${layerLabel(layer)}`;
+  return '';
+}
+
+/** A stage's 1-based place in the pipeline, null for a skill it does not run. */
+function stepNumbers(composition: SkillsComposition, workType: string | null) {
+  const pipelines = composition.pipelines ?? {};
+  const order =
+    (workType !== null ? pipelines[workType] : undefined) ??
+    Object.values(pipelines)[0] ??
+    [];
+  return (skill: string): number | null => {
+    const at = order.findIndex(ref => suffixOf(ref) === skill);
+    return at === -1 ? null : at + 1;
+  };
+}
+
+const LINK_STATUS_WORDS: Record<SkillStatus, string | null> = {
+  'in-sync': 'rendered',
+  stale: 'stale',
+  'never-compiled': 'never compiled',
+  unknown: null,
+};
 
 function linkCard(
   part: AnatomyPart,
   skill: string,
   rowId: string,
-  step: number,
+  step: number | null,
   row: CheckRow | undefined
 ): LinkCard {
   const lines = part.target?.lines ?? null;
   const status: SkillStatus =
-    row?.status ?? (lines === null ? 'never-compiled' : 'in-sync');
-  const size = lines === null ? '' : ` · ${lines} lines`;
-  const reason = staleReason(row?.staleBecause);
-  const subtitle =
-    status === 'stale'
-      ? `step ${step} · ${reason ? `stale: ${reason}` : 'stale'}${size}`
-      : status === 'never-compiled'
-        ? `step ${step} · never compiled`
-        : `step ${step} · rendered${size}`;
+    row?.status ?? (lines === null ? 'never-compiled' : 'unknown');
+  const reason = status === 'stale' ? staleReason(row?.staleBecause) : null;
+  const subtitle = [
+    step === null ? null : `step ${step}`,
+    reason ? `stale: ${reason}` : LINK_STATUS_WORDS[status],
+    lines === null || status === 'never-compiled' ? null : `${lines} lines`,
+  ]
+    .filter(phrase => phrase !== null)
+    .join(' · ');
   return {
     id: `link:${skill}`,
     rowId,
@@ -499,13 +545,11 @@ function linkCard(
 
 function templateMeta(anatomy: SkillsAnatomy, links: boolean): string {
   const { template, rendered } = anatomy;
-  if (links) {
-    return rendered.exists
-      ? `${template.lines} lines → renders ${rendered.lines}`
-      : `${template.lines} lines · never compiled`;
-  }
-  const built = template.builtVersion ?? template.version;
-  return `${template.lines} lines · ${pluginOf(template.ref)} ${built}`;
+  if (links && rendered.exists)
+    return `${template.lines} lines → renders ${rendered.lines}`;
+  if (!rendered.exists || template.builtVersion === null)
+    return `${template.lines} lines · never compiled`;
+  return `${template.lines} lines · ${pluginOf(template.ref)} ${template.builtVersion}`;
 }
 
 function outputCard(
@@ -522,7 +566,7 @@ function outputCard(
     : (row?.status ??
       (anatomy.status === 'never-compiled' || !rendered.exists
         ? 'never-compiled'
-        : 'in-sync'));
+        : 'unknown'));
   const built = rendered.exists && rendered.lines > 0;
 
   return {
@@ -543,10 +587,10 @@ function outputParts(anatomy: SkillsAnatomy, textNoun: TextNoun): OutputPart[] {
       part =>
         (part.kind === 'include' || part.kind === 'slot') &&
         part.mode !== 'reference' &&
-        pastedLines(part) > 0
+        pastedLines(part, anatomy.parts) > 0
     )
     .map(part => {
-      const lines = pastedLines(part);
+      const lines = pastedLines(part, anatomy.parts);
       return {
         id: partKey(part),
         label: partLabel(part),

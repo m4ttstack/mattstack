@@ -138,13 +138,14 @@ function ownerMeta(source: AnatomySource, pack: string): string {
     : `${plugin} ${source.version} · installed copy, read only`;
 }
 
+/** A skill with no rendered file only ever shows its template. */
 function pickView(
   fallback: WiringView,
   requested: WiringView | null,
   anatomy: SkillsAnatomy
 ): WiringView {
-  if (requested === 'rendered' && !anatomy.rendered.exists) return 'template';
-  return requested ?? fallback;
+  const shown = requested ?? fallback;
+  return shown === 'rendered' && !anatomy.rendered.exists ? 'template' : shown;
 }
 
 function fileFace(
@@ -162,7 +163,7 @@ function fileFace(
         badge: null,
         meta: ownerMeta(anatomy.template, anatomy.pack),
         tabs: ['text'],
-        canToggle: true,
+        canToggle: anatomy.rendered.exists,
         view: shown,
       }
     : {
@@ -171,7 +172,7 @@ function fileFace(
         badge: 'rendered',
         meta: null,
         tabs: ['text', 'history'],
-        canToggle: true,
+        canToggle: anatomy.rendered.exists,
         view: shown,
       };
 }
@@ -215,15 +216,11 @@ function rowContent(
   const traced = part.templateLines !== null;
   // A stale skill's text and link parts are not placed in the file on disk,
   // so its rows open where their line numbers are certain.
-  const fallback: WiringView = !anatomy.rendered.exists
-    ? 'template'
-    : !traced
-      ? 'rendered'
-      : anatomy.status === 'stale' ||
-          part.kind === 'text' ||
-          !part.renderedLines
-        ? 'template'
-        : 'rendered';
+  const fallback: WiringView = !traced
+    ? 'rendered'
+    : anatomy.status === 'stale' || part.kind === 'text' || !part.renderedLines
+      ? 'template'
+      : 'rendered';
   const shown = pickView(fallback, requested, anatomy);
   return {
     ...fileFace(shown, view, anatomy),
@@ -253,7 +250,7 @@ function rowSentence(
     case 'include':
       return includeSentence(part, view, anatomy);
     case 'slot':
-      return slotSentence(row, part);
+      return slotSentence(row, part, anatomy);
     case 'variable':
       return part.renderedLines
         ? `A variable rt fills in for each run: ${countOf(spanOf(part.renderedLines), 'line', 'lines')} here.`
@@ -270,14 +267,18 @@ function includeSentence(
   view: TemplateView,
   anatomy: SkillsAnatomy
 ): string {
-  const lines = pastedLines(part);
+  const lines = pastedLines(part, anatomy.parts);
   if (!anatomy.rendered.exists)
     return `${part.name} is pasted here: ${countOf(lines, 'line', 'lines')}.`;
   const share = shareOf(lines, anatomy.rendered.lines);
   return `${part.name} is pasted here: ${countOf(lines, 'line', 'lines')}, ${share}% of what the agent reads in ${scopeOf(view)}.`;
 }
 
-function slotSentence(row: PlaceholderRow, part: AnatomyPart): string {
+function slotSentence(
+  row: PlaceholderRow,
+  part: AnatomyPart,
+  anatomy: SkillsAnatomy
+): string {
   const slot = `The ${part.name} slot.`;
   const fill = partLabel(part);
   switch (row.state) {
@@ -292,7 +293,7 @@ function slotSentence(row: PlaceholderRow, part: AnatomyPart): string {
     case 'referenced':
       return `${slot} This pack links it to ${fill} rather than pasting it in.`;
     default:
-      return `${slot} This pack fills it with ${fill}: ${countOf(pastedLines(part), 'line', 'lines')}.`;
+      return `${slot} This pack fills it with ${fill}: ${countOf(pastedLines(part, anatomy.parts), 'line', 'lines')}.`;
   }
 }
 
@@ -340,6 +341,8 @@ function outputSentence(output: OutputCard, anatomy: SkillsAnatomy): string {
       return output.reason ? `Stale: ${output.reason}.` : 'Stale.';
     case 'never-compiled':
       return 'Never compiled.';
+    case 'unknown':
+      return 'Status unmeasured.';
     case 'in-sync': {
       const sources = new Set(
         anatomy.parts.flatMap(part =>

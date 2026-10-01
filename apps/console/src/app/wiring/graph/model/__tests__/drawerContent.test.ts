@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { designFixture } from '../../__tests__/designFixtures';
+import type { SkillsAnatomy } from '../../../useWiring';
 import { drawerContent, parseTarget } from '../drawerContent';
 import { buildTemplateView } from '../templateModel';
 
@@ -377,5 +378,122 @@ describe('targets the view does not hold', () => {
 
   it('answers null for an output on a view without one', () => {
     expect(work('output')).toBeNull();
+  });
+});
+
+describe('a step never compiled', () => {
+  const neverCompiled: SkillsAnatomy = {
+    ...anatomyPlan,
+    status: 'never-compiled',
+    template: { ...anatomyPlan.template, builtVersion: null },
+    rendered: { ...anatomyPlan.rendered, exists: false, lines: 0 },
+    parts: anatomyPlan.parts.map(part => ({ ...part, renderedLines: null })),
+    links: [],
+  };
+  const view = buildTemplateView({
+    anatomy: neverCompiled,
+    composition,
+    check: {
+      ...check,
+      verbs: check.verbs.filter(row => row.name !== 'stage-plan'),
+    },
+    changes: undefined,
+    step: 2,
+  });
+  const open = (select: string, requested: 'template' | 'rendered' | null) =>
+    drawerContent(parseTarget(select)!, view, neverCompiled, requested);
+
+  it('opens its output on the template, with nothing to toggle to', () => {
+    expect(open('output', null)).toMatchObject({
+      filePath: anatomyPlan.template.path,
+      view: 'template',
+      badge: null,
+      canToggle: false,
+      sentence: 'Never compiled.',
+    });
+  });
+
+  it('opens its rows on the template even when asked for the rendered file', () => {
+    for (const requested of [null, 'rendered'] as const) {
+      expect(open('row:140', requested)).toMatchObject({
+        filePath: anatomyPlan.template.path,
+        view: 'template',
+        canToggle: false,
+        bands: [],
+      });
+    }
+  });
+});
+
+describe('a step check has not measured', () => {
+  it('says its status is unmeasured', () => {
+    const view = buildTemplateView({
+      anatomy: anatomyPlan,
+      composition,
+      check: undefined,
+      changes: undefined,
+      step: 2,
+    });
+    expect(
+      drawerContent({ kind: 'output', part: null }, view, anatomyPlan, null)
+        ?.sentence
+    ).toBe('Status unmeasured.');
+  });
+});
+
+describe('two includes on one template line', () => {
+  const shared: SkillsAnatomy = {
+    ...anatomyPlan,
+    rendered: { ...anatomyPlan.rendered, lines: 12 },
+    parts: [
+      {
+        kind: 'text',
+        name: null,
+        templateLines: [1, 2],
+        renderedLines: [1, 2],
+        mode: null,
+        source: null,
+        target: null,
+        changed: false,
+      },
+      ...(['alpha', 'beta'] as const).map(name => ({
+        kind: 'include' as const,
+        name,
+        templateLines: [3, 3] as [number, number],
+        renderedLines: [3, 12] as [number, number],
+        mode: null,
+        source: {
+          ref: `mattstack:${name}`,
+          path: `/fixture/mattstack/attachments/${name}/SKILL.md`,
+          version: '0.30.4',
+          builtVersion: '0.28.10',
+          lines: name === 'alpha' ? 4 : 6,
+        },
+        target: null,
+        changed: false,
+      })),
+    ],
+    links: [],
+  };
+  const view = buildTemplateView({
+    anatomy: shared,
+    composition,
+    check,
+    changes: undefined,
+    step: 2,
+  });
+
+  it('sizes each by its own source, not the shared range', () => {
+    expect(
+      drawerContent(parseTarget('row:3')!, view, shared, null)?.sentence
+    ).toBe(
+      'alpha is pasted here: 4 lines, 33% of what the agent reads in this step.'
+    );
+    expect(
+      drawerContent(parseTarget('output:include:beta')!, view, shared, null)
+        ?.sentence
+    ).toBe(
+      'beta is pasted here: 6 lines, 50% of what the agent reads in this step.'
+    );
   });
 });

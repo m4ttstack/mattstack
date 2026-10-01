@@ -4,12 +4,14 @@ import {
   ORCHESTRATOR_VERB,
   suffixOf,
   type OutlineCheck,
+  type PipelineState,
   type SkillsCheck,
   type SkillsComposition,
   type SpineEntry,
 } from '../../outline';
 
-export type FocusIcon = 'workflow' | 'terminal' | 'lock' | 'layoutDashboard';
+export type FocusIcon =
+  'workflow' | 'squareTerminal' | 'lock' | 'layoutDashboard';
 
 export type FocusItem = {
   key: string;
@@ -28,12 +30,19 @@ export type FocusGroups = {
   /** `count` is the unwired verbs plus the fills nothing binds; `items` holds
       only the verbs, since a fill has no template to focus. */
   unwired: { count: number; attention: boolean; items: FocusItem[] };
-  empty: 'no-pipeline' | null;
+  /** `rt-without-pipelines` is an rt whose composition predates the field;
+      `no-pipeline` is a pack whose manifest declares none. */
+  empty: 'no-pipeline' | 'rt-without-pipelines' | null;
 };
 
 const STAGE_PREFIX = 'stage-';
 const PIPELINE_PREFIX = 'pipeline:';
 const NO_CHECK: OutlineCheck = { verbs: [] };
+const EMPTY_BY_STATE: Record<PipelineState, FocusGroups['empty']> = {
+  ok: null,
+  empty: 'no-pipeline',
+  absent: 'rt-without-pipelines',
+};
 
 /** A step's name without the `stage-` every stage file carries. */
 export function stepLabel(skill: string): string {
@@ -66,7 +75,7 @@ export function buildFocusGroups(
       key: skill,
       label: skill,
       skill,
-      icon: entry.invocable ? 'terminal' : 'lock',
+      icon: entry.invocable ? 'squareTerminal' : 'lock',
       step: null,
       attention: attentionOf(entry, skill),
       children: [],
@@ -114,24 +123,21 @@ export function buildFocusGroups(
   if (pipelines.length === 0 && first.orchestrator)
     onDemand.unshift(itemFor(first.orchestrator));
 
-  const board: FocusItem[] = [];
-  const seenBoard = new Set<string>();
-  for (const group of first.outside.filter(entry => entry.external)) {
-    for (const slot of group.slots) {
-      const ref = `${group.label}:${slot.name}`;
-      if (seenBoard.has(ref)) continue;
-      seenBoard.add(ref);
-      board.push({
-        key: ref,
-        label: ref,
-        skill: ref,
-        icon: 'layoutDashboard',
-        step: null,
-        attention: false,
-        children: [],
-      });
-    }
-  }
+  const board = [
+    ...new Set(
+      composition.binders
+        .filter(binder => binder.kind === 'external')
+        .map(binder => binder.ref)
+    ),
+  ].map((ref): FocusItem => ({
+    key: ref,
+    label: ref,
+    skill: ref,
+    icon: 'layoutDashboard',
+    step: null,
+    attention: false,
+    children: [],
+  }));
 
   const unwiredItems = first.outside
     .filter(entry => entry.unwired)
@@ -146,7 +152,7 @@ export function buildFocusGroups(
       attention: unwiredItems.some(item => item.attention),
       items: unwiredItems,
     },
-    empty: first.workTypes.length === 0 ? 'no-pipeline' : null,
+    empty: EMPTY_BY_STATE[first.pipelineState],
   };
 }
 
