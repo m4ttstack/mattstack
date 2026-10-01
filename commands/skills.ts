@@ -28,7 +28,6 @@
 import { execFileSync, spawnSync } from "child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { applyEdits, modify } from "jsonc-parser";
-import { createInterface } from "node:readline";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { mattstackHome } from "../lib/rt-paths.ts";
 import * as out from "../lib/ui/out.ts";
@@ -1633,7 +1632,7 @@ type SurfaceFlags = {
   json: boolean;
 };
 
-type SurfaceRow = { name: string; kind: "compiled" | "hand-authored" | "missing"; status: "public" | "internal" };
+export type SurfaceRow = { name: string; kind: "compiled" | "hand-authored" | "missing"; status: "public" | "internal" };
 
 function kindLabel(kind: SurfaceRow["kind"]): string {
   return kind === "missing" ? "(no files on disk)" : kind;
@@ -1746,7 +1745,7 @@ export function computeRows(
   const surfacePath = surfaceFileFor(packDir);
   const source = surface && surfacePath
     ? surfacePath.slice(packDir.length + 1)
-    : "(no surface.jsonc yet -- inferred from current skills/ + stubs.jsonc placement)";
+    : "no surface file yet, worked out from where each skill sits";
 
   const names = new Set<string>([...allNames, ...publicSet, ...stageNames]);
   const rows = [...names].sort().map((name) => {
@@ -1837,15 +1836,12 @@ function moveHandAuthoredDir(packDir: string, move: PlannedMove): string | null 
   }
 
   renameSync(join(packDir, fromRel), join(packDir, toRel));
-  return "plain rename -- pack dir is not a git repo";
+  return "this pack is not a git repo, so no git history follows it";
 }
 
-function printSurfaceRows(flags: SurfaceFlags, source: string, rows: SurfaceRow[]): void {
-  console.log(`rt skills surface -- pack ${flags.team}`);
-  console.log(`source: ${source}`);
-  for (const row of rows) {
-    console.log(`  ${row.status.padEnd(9)}${kindLabel(row.kind).padEnd(15)}${row.name}`);
-  }
+export function surfaceBlocks(team: string | null, source: string, rows: SurfaceRow[]): Block[] {
+  if (rows.length === 0) return [out.line("pending", "No skills are registered in this pack")];
+  return [out.section(`Pack ${team ?? ""}`.trim(), source, out.table(rows.map((row) => [out.strong(row.name), row.status, out.dim(kindLabel(row.kind))]), ["Skill", "Surface", "Kind"]))];
 }
 
 async function runList(flags: SurfaceFlags): Promise<void> {
@@ -1856,12 +1852,11 @@ async function runList(flags: SurfaceFlags): Promise<void> {
   const { source, rows } = computeRows(packDir, verbNames, surface, stageNames);
 
   if (flags.json) {
-    console.log(JSON.stringify({ pack: flags.team, packDir, rows }));
+    out.json({ pack: flags.team, packDir, rows });
     return;
   }
 
-  printSurfaceRows(flags, source, rows);
-  if (rows.length === 0) console.log("(no skills registered in this pack)");
+  out.print(...surfaceBlocks(flags.team, source, rows));
 }
 
 type ApplyResult = { moved: string[]; recorded: string[]; compileErrors: string[] };
@@ -1893,12 +1888,12 @@ async function runApply(flags: SurfaceFlags): Promise<ApplyResult> {
     moved.push(name);
 
     if (flags.dryRun) {
-      if (!flags.json) console.log(`would move ${name}: ${route}`);
+      if (!flags.json) out.print(out.line("pending", name, `would move ${route}`));
       continue;
     }
 
     const note = moveHandAuthoredDir(packDir, move);
-    if (!flags.json) console.log(`moved ${name}: ${route}${note ? ` (${note})` : ""}`);
+    if (!flags.json) out.print(out.line("done", name, `moved ${route}${note ? ` (${note})` : ""}`));
   }
 
   // surface.jsonc only ever names the public side -- internal is the absence
@@ -1912,13 +1907,11 @@ async function runApply(flags: SurfaceFlags): Promise<ApplyResult> {
     if (existsSync(outDirFor(packDir, name, true)) || existsSync(otherSideDir(packDir, name, true))) continue;
     recorded.push(name);
     if (!flags.json) {
-      console.log(flags.dryRun
-        ? `${name}: would record; emitted to skills/ on the next compile`
-        : `${name}: recorded; emitted to skills/ on the next compile`);
+      out.print(out.line("pending", name, flags.dryRun ? "would be recorded; written to skills/ on the next compile" : "recorded; written to skills/ on the next compile"));
     }
   }
 
-  if (!flags.json && moved.length === 0 && recorded.length === 0) console.log("no moves needed");
+  if (!flags.json && moved.length === 0 && recorded.length === 0) out.print(out.line("skipped", "Nothing needs to move"));
 
   if (flags.json) {
     // The recompile runs through compilePackAll, not skillsCompile, so its
@@ -1972,18 +1965,18 @@ async function runSet(names: string[], want: "public" | "internal", flags: Surfa
   }
 
   writeSurfaceConfig(packDir, [...publicSet].sort());
-  if (!flags.json) for (const name of names) console.log(`${name}: ${want}`);
+  if (!flags.json) out.print(...names.map((name) => out.line("done", name, want)));
 
   const result = await runApply(flags);
   if (flags.json) {
-    console.log(JSON.stringify({
+    out.json({
       ok: result.compileErrors.length === 0,
       dryRun: flags.dryRun,
       set: names.map((name) => ({ name, want })),
       moved: result.moved,
       recorded: result.recorded,
       compileErrors: result.compileErrors,
-    }));
+    });
   }
 }
 
@@ -2024,20 +2017,11 @@ export function decidePaletteAction(
   return confirmed ? { kind: "write", delta } : { kind: "declined", delta };
 }
 
-function printDelta(delta: SurfaceDelta): void {
-  console.log("changes:");
-  for (const name of delta.toPublic) console.log(`  + public   ${name}`);
-  for (const name of delta.toInternal) console.log(`  - public   ${name}`);
-}
-
-function confirmYesNo(promptText: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const rl = createInterface({ input: process.stdin, output: process.stderr });
-    rl.question(promptText, (answer) => {
-      rl.close();
-      resolve(answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes");
-    });
-  });
+function deltaBlock(delta: SurfaceDelta): Block {
+  return out.changes([
+    ...delta.toPublic.map((name) => ({ op: "+" as const, name, hint: "becomes public" })),
+    ...delta.toInternal.map((name) => ({ op: "-" as const, name, hint: "becomes internal" })),
+  ]);
 }
 
 async function runPalette(flags: SurfaceFlags): Promise<void> {
@@ -2050,14 +2034,12 @@ async function runPalette(flags: SurfaceFlags): Promise<void> {
   const { source, rows } = computeRows(packDir, verbNames, surface, stageNames);
 
   if (rows.length === 0) {
-    console.log("(no skills registered in this pack)");
+    out.print(...surfaceBlocks(flags.team, source, rows));
     return;
   }
 
   if (!process.stdin.isTTY) {
-    printSurfaceRows(flags, source, rows);
-    console.log("");
-    console.log("no tty -- edit one at a time: rt skills surface set <name> --public|--internal");
+    out.print(...surfaceBlocks(flags.team, source, rows), out.callout("next", [out.cmd("rt skills surface set <name> --public"), " (or ", out.cmd("--internal"), ")"]));
     return;
   }
 
@@ -2087,21 +2069,22 @@ async function runPalette(flags: SurfaceFlags): Promise<void> {
 
   const preview = decidePaletteAction(previousPublic, resultRows, false);
   if (preview.kind === "no-changes") {
-    console.log("no changes -- surface.jsonc left as is");
+    out.print(out.line("skipped", "No changes"));
     return;
   }
 
-  printDelta(preview.delta);
-  const confirmed = await confirmYesNo("  apply these changes? [y/N] ");
+  out.print(deltaBlock(preview.delta));
+  const { confirm } = await import("../lib/ui/prompts.ts");
+  const confirmed = await confirm({ message: "Apply these changes?", initialValue: false });
   const decision = decidePaletteAction(previousPublic, resultRows, confirmed);
 
   if (decision.kind !== "write") {
-    console.log("declined -- no changes made");
+    out.print(out.line("skipped", "No changes made"));
     return;
   }
 
   writeSurfaceConfig(packDir, [...selectedSet].sort());
-  console.log(`surface.jsonc updated: ${selectedSet.size} public`);
+  out.print(out.line("done", "Saved which skills are public", `${selectedSet.size} public`));
 
   await runApply(flags);
 }
@@ -2122,13 +2105,7 @@ export async function skillsSurface(args: string[]): Promise<void> {
       if (rest.length) throw new SkillsUsageError(`unrecognized argument "${rest[0]}"`);
       const result = await runApply(flags);
       if (flags.json) {
-        console.log(JSON.stringify({
-          ok: result.compileErrors.length === 0,
-          dryRun: flags.dryRun,
-          moved: result.moved,
-          recorded: result.recorded,
-          compileErrors: result.compileErrors,
-        }));
+        out.json({ ok: result.compileErrors.length === 0, dryRun: flags.dryRun, moved: result.moved, recorded: result.recorded, compileErrors: result.compileErrors });
       }
       return;
     }
@@ -2173,7 +2150,7 @@ export async function skillsSurface(args: string[]): Promise<void> {
     // a --json caller gets a clean usage error instead of the picker's
     // no-tty prose or a silent hang.
     if (flags.json) {
-      console.log(JSON.stringify({ ok: false, error: "rt skills surface --json needs a mode: list, set <name...> --public|--internal, or apply" }));
+      out.json({ ok: false, error: "rt skills surface --json needs a mode: list, set <name...> --public|--internal, or apply" });
       process.exitCode = 1;
       return;
     }

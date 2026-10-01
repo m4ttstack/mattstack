@@ -8,7 +8,26 @@ import { Readable } from "node:stream";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { installFakePick, type PickFakeStep } from "../../lib/ui/pick-fake.ts";
-import { computeRows, decidePaletteAction, skillsSurface } from "../skills.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import * as prompts from "../../lib/ui/prompts.ts";
+import { computeRows, decidePaletteAction, skillsSurface, surfaceBlocks } from "../skills.ts";
+
+describe("surfaceBlocks", () => {
+  test("rows are a table under the pack's name and where the list came from", () => {
+    expect(
+      renderPlain(
+        surfaceBlocks("acme", "pack/surface.jsonc", [
+          { name: "watch-ci", kind: "compiled", status: "public" },
+          { name: "helper", kind: "missing", status: "internal" },
+        ]),
+      ),
+    ).toBe(["Pack acme (pack/surface.jsonc)", "Skill     Surface   Kind", "watch-ci  public    compiled", "helper    internal  (no files on disk)", ""].join("\n"));
+  });
+
+  test("an empty pack says so", () => {
+    expect(renderPlain(surfaceBlocks("acme", "pack/surface.jsonc", []))).toBe("[not yet] No skills are registered in this pack\n");
+  });
+});
 
 function resultStep(result: Partial<{ action: string; value: string | null; values: string[]; query: string }>): PickFakeStep {
   return { kind: "result", result: { action: "select", value: null, query: "", ...result } };
@@ -16,17 +35,17 @@ function resultStep(result: Partial<{ action: string; value: string | null; valu
 
 /**
  * The palette needs process.stdin.isTTY to reach the picker branch at all,
- * and confirmYesNo reads a real answer off process.stdin via readline once a
- * delta exists -- swap in a Readable primed with the answer so that prompt
- * resolves instead of hanging on the test runner's own (non-interactive) stdin.
+ * and it asks one yes or no question once a delta exists; the answer is
+ * given through the prompt module so no helper is spawned.
  */
 function withPaletteTTY<T>(answer: string, fn: () => Promise<T>): Promise<T> {
   const previousStdin = process.stdin;
   const fakeStdin = new Readable({ read() {} }) as unknown as NodeJS.ReadStream;
   Object.defineProperty(fakeStdin, "isTTY", { value: true, configurable: true });
-  fakeStdin.push(`${answer}\n`);
   Object.defineProperty(process, "stdin", { value: fakeStdin, configurable: true });
+  const confirm = spyOn(prompts, "confirm").mockResolvedValue(answer === "y");
   return fn().finally(() => {
+    confirm.mockRestore();
     Object.defineProperty(process, "stdin", { value: previousStdin, configurable: true });
   });
 }
@@ -152,10 +171,10 @@ describe("skillsSurface list", () => {
     await skillsSurface(["list", "--team", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]);
 
     const out = io.lines().join("\n");
-    expect(out).toContain("no surface.jsonc");
-    expect(out).toMatch(/public.*hand-authored-public/);
-    expect(out).toMatch(/internal.*hand-authored-internal/);
-    expect(out).toMatch(/public.*compiled.*my-verb/);
+    expect(out).toContain("no surface file yet");
+    expect(out).toMatch(/hand-authored-public +public +hand-authored/);
+    expect(out).toMatch(/hand-authored-internal +internal +hand-authored/);
+    expect(out).toMatch(/my-verb +public +compiled/);
   });
 
   test("with surface.jsonc: statuses reflect the config, not disk placement", async () => {
@@ -168,7 +187,7 @@ describe("skillsSurface list", () => {
 
     const out = io.lines().join("\n");
     expect(out).toContain("pack/surface.jsonc");
-    expect(out).toMatch(/internal.*still-under-skills/);
+    expect(out).toMatch(/still-under-skills +internal/);
   });
 
   test("unrecognized argument: clean one-line error, exit 1", async () => {
@@ -470,7 +489,7 @@ describe("skillsSurface apply", () => {
       "--team", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
-    expect(io.lines().some((l) => l.includes("no moves needed"))).toBe(true);
+    expect(io.lines().some((l) => l.includes("Nothing needs to move"))).toBe(true);
     expect(existsSync(join(packDir, "skills", "my-verb", "SKILL.md"))).toBe(true);
   });
 
@@ -515,7 +534,7 @@ describe("skillsSurface set/apply on a never-compiled pipeline stage", () => {
     expect(exitCode).toBeUndefined();
     const surface = JSON.parse(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8").replace(/^\/\/.*\n/, ""));
     expect(surface.public).toContain("stage-plan");
-    expect(io.lines().join("\n")).toContain("stage-plan: recorded; emitted to skills/ on the next compile");
+    expect(io.lines().join("\n")).toContain("[not yet] stage-plan  recorded; written to skills/ on the next compile");
   });
 
   test("set --internal on a never-compiled stage is a no-op for reconciliation: surface.jsonc can't record internal, so nothing is announced", async () => {
@@ -533,7 +552,7 @@ describe("skillsSurface set/apply on a never-compiled pipeline stage", () => {
     expect(exitCode).toBeUndefined();
     const surface = JSON.parse(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8").replace(/^\/\/.*\n/, ""));
     expect(surface.public).not.toContain("stage-plan");
-    expect(io.lines().join("\n")).not.toContain("stage-plan: recorded");
+    expect(io.lines().join("\n")).not.toContain("stage-plan  recorded");
   });
 
   test("apply announces only the stage surface.jsonc's public list names, not every declared stage", async () => {
@@ -550,8 +569,8 @@ describe("skillsSurface set/apply on a never-compiled pipeline stage", () => {
     );
 
     expect(exitCode).toBeUndefined();
-    const recordedLines = io.lines().filter((l) => l.includes(": recorded; emitted to"));
-    expect(recordedLines).toEqual(["stage-plan: recorded; emitted to skills/ on the next compile"]);
+    const recordedLines = io.lines().filter((l) => l.includes("recorded; written to"));
+    expect(recordedLines).toEqual(["[not yet] stage-plan  recorded; written to skills/ on the next compile"]);
   });
 
   test("apply alone reports the same pending-emit line for a stage recorded public but never compiled", async () => {
@@ -568,7 +587,7 @@ describe("skillsSurface set/apply on a never-compiled pipeline stage", () => {
     );
 
     expect(exitCode).toBeUndefined();
-    expect(io.lines().join("\n")).toContain("stage-plan: recorded; emitted to skills/ on the next compile");
+    expect(io.lines().join("\n")).toContain("[not yet] stage-plan  recorded; written to skills/ on the next compile");
   });
 
   test("apply --dry-run says would record, mirroring would move, and writes nothing", async () => {
@@ -582,7 +601,7 @@ describe("skillsSurface set/apply on a never-compiled pipeline stage", () => {
       "--team", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
-    expect(io.lines().join("\n")).toContain("stage-plan: would record; emitted to skills/ on the next compile");
+    expect(io.lines().join("\n")).toContain("[not yet] stage-plan  would be recorded; written to skills/ on the next compile");
     expect(existsSync(join(packDir, "skills", "stage-plan"))).toBe(false);
     expect(existsSync(join(packDir, "attachments", "stage-plan"))).toBe(false);
   });
@@ -630,7 +649,7 @@ describe("skillsSurface bare invocation (interactive palette)", () => {
     expect(existsSync(join(packDir, "pack", "surface.jsonc"))).toBe(false);
     const out = io.lines().join("\n");
     expect(out).toContain("my-skill");
-    expect(out).toContain("no tty -- edit one at a time: rt skills surface set");
+    expect(out).toContain("next: rt skills surface set <name> --public (or --internal)");
     expect(out).not.toContain("fzf");
   });
 
@@ -655,7 +674,7 @@ describe("skillsSurface bare invocation (interactive palette)", () => {
 
     await skillsSurface(["--pack-dir", packDir]);
 
-    expect(io.lines().some((l) => l.includes("no skills registered"))).toBe(true);
+    expect(io.lines().some((l) => l.includes("No skills are registered"))).toBe(true);
   });
 
   test("unrecognized subcommand: clean one-line error, exit 1", async () => {
@@ -696,7 +715,7 @@ describe("skillsSurface bare invocation (interactive palette)", () => {
 
     await withPaletteTTY("n", () => skillsSurface(["--team", "t", "--pack-dir", packDir]));
 
-    expect(io.lines().join("\n")).toContain("no changes -- surface.jsonc left as is");
+    expect(io.lines().join("\n")).toContain("[skipped] No changes");
     expect(existsSync(join(packDir, "pack", "surface.jsonc"))).toBe(false);
   });
 
@@ -714,8 +733,8 @@ describe("skillsSurface bare invocation (interactive palette)", () => {
     const surface = JSON.parse(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8").replace(/^\/\/.*\n/, ""));
     expect(surface.public).toEqual(["b"]);
     const out = io.lines().join("\n");
-    expect(out).toContain("+ public   b");
-    expect(out).toContain("- public   a");
+    expect(out).toContain("+ b  becomes public");
+    expect(out).toContain("- a  becomes internal");
   });
 
   test("unchecking everything is honored as an empty selection: every public name goes internal", async () => {
@@ -731,8 +750,8 @@ describe("skillsSurface bare invocation (interactive palette)", () => {
     const surface = JSON.parse(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8").replace(/^\/\/.*\n/, ""));
     expect(surface.public).toEqual([]);
     const out = io.lines().join("\n");
-    expect(out).toContain("- public   a");
-    expect(out).toContain("- public   b");
+    expect(out).toContain("- a  becomes internal");
+    expect(out).toContain("- b  becomes internal");
   });
 
   test("cancel makes no changes", async () => {
@@ -894,10 +913,9 @@ describe("grouped packs and pack selection", () => {
     await skillsSurface(["list", "--pack", "mattstack", "--pack-dir", packDir]);
 
     const joined = io.lines().join("\n");
-    expect(joined).toContain("rt skills surface -- pack mattstack");
-    expect(joined).toContain("source: surface.jsonc");
-    expect(joined).toMatch(/public {3}hand-authored {2}subagent-review-loop/);
-    expect(joined).toMatch(/internal hand-authored {2}checkout/);
+    expect(joined).toContain("Pack mattstack (surface.jsonc)");
+    expect(joined).toMatch(/subagent-review-loop +public +hand-authored/);
+    expect(joined).toMatch(/checkout +internal +hand-authored/);
   });
 
   test("set --public on a grouped internal skill moves it keeping its group, and writes the root surface.jsonc", async () => {
@@ -915,7 +933,7 @@ describe("grouped packs and pack selection", () => {
     expect(existsSync(join(packDir, "attachments", "forge", "checkout"))).toBe(false);
     expect(existsSync(join(packDir, "pack", "surface.jsonc"))).toBe(false);
     expect(readFileSync(join(packDir, "surface.jsonc"), "utf8")).toContain('"checkout"');
-    expect(io.lines().join("\n")).toContain("moved checkout: attachments/forge/ -> skills/forge/");
+    expect(io.lines().join("\n")).toContain("[ok] checkout  moved attachments/forge/ -> skills/forge/");
   });
 
   test("no pack named and no tty: clean error that names the flag instead of guessing", async () => {
@@ -937,7 +955,7 @@ describe("registered roots and name uniqueness", () => {
     await skillsSurface(["list", "--pack", "mattstack", "--pack-dir", packDir]);
 
     const joined = io.lines().join("\n");
-    expect(joined).toMatch(/public {3}hand-authored {2}editing-skills/);
+    expect(joined).toMatch(/editing-skills +public +hand-authored/);
     expect(joined).not.toContain("(no files on disk)editing-skills");
   });
 
@@ -970,7 +988,7 @@ describe("registered roots stay inside the pack", () => {
     await skillsSurface(["list", "--pack", "p", "--pack-dir", packDir]);
 
     const joined = io.lines().join("\n");
-    expect(joined).toMatch(/public {3}hand-authored {2}inside/);
+    expect(joined).toMatch(/inside +public +hand-authored/);
     expect(joined).not.toContain("stray");
   });
 });
@@ -989,7 +1007,7 @@ describe("registered roots are canonicalized", () => {
     await skillsSurface(["list", "--pack", "p", "--pack-dir", packDir]);
 
     const joined = io.lines().join("\n");
-    expect(joined).toMatch(/public {3}hand-authored {2}inside/);
+    expect(joined).toMatch(/inside +public +hand-authored/);
     expect(joined).not.toContain("stray");
   });
 });
@@ -1008,7 +1026,7 @@ describe("registered roots may start with dots without escaping", () => {
     await skillsSurface(["list", "--pack", "p", "--pack-dir", packDir]);
 
     const joined = io.lines().join("\n");
-    expect(joined).toMatch(/public {3}hand-authored {2}inside/);
+    expect(joined).toMatch(/inside +public +hand-authored/);
     expect(joined).toContain("dotty");
   });
 });
@@ -1027,7 +1045,7 @@ describe("registered roots must be directories", () => {
     await skillsSurface(["list", "--pack", "p", "--pack-dir", packDir]);
 
     const joined = io.lines().join("\n");
-    expect(joined).toMatch(/public {3}hand-authored {2}inside/);
+    expect(joined).toMatch(/inside +public +hand-authored/);
   });
 });
 
@@ -1042,7 +1060,7 @@ describe("apply on packs with plugin.json skills roots", () => {
 
     expect(existsSync(join(packDir, "attachments", "helper", "SKILL.md"))).toBe(true);
     expect(existsSync(join(packDir, "plugin", "skills", "helper"))).toBe(false);
-    expect(io.lines().join("\n")).toContain("moved helper: plugin/skills/ -> attachments/");
+    expect(io.lines().join("\n")).toContain("[ok] helper  moved plugin/skills/ -> attachments/");
   });
 
   test("--dry-run names the same real source root the move would use", async () => {
@@ -1053,7 +1071,7 @@ describe("apply on packs with plugin.json skills roots", () => {
 
     await skillsSurface(["set", "helper", "--internal", "--dry-run", "--pack", "p", "--pack-dir", packDir]);
 
-    expect(io.lines().join("\n")).toContain("would move helper: plugin/skills/ -> attachments/");
+    expect(io.lines().join("\n")).toContain("[not yet] helper  would move plugin/skills/ -> attachments/");
     expect(existsSync(join(packDir, "plugin", "skills", "helper", "SKILL.md"))).toBe(true);
   });
 
