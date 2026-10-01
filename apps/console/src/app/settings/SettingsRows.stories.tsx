@@ -89,6 +89,7 @@ const DEFS: SettingDefWire[] = [
       scope: 'machine',
       file: LOCAL,
       value: { enabled: true, killProcesses: true, claudeHook: true },
+      authored: { enabled: true, killProcesses: true, claudeHook: true },
     },
   },
   {
