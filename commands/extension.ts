@@ -67,19 +67,71 @@ function failureHint(result: { output: string; timedOut?: true }): string {
   return result.output.split("\n").map((l) => l.trim()).filter(Boolean).at(-1) ?? "it gave no reason";
 }
 
+const KILL_GRACE_MS = 2_000;
+
+type Drain = { text: () => string; done: Promise<void>; cancel: () => void };
+
+function drain(stream: ReadableStream<Uint8Array>): Drain {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  const done = (async () => {
+    try {
+      for (;;) {
+        const { done: ended, value } = await reader.read();
+        if (ended) return;
+        text += decoder.decode(value, { stream: true });
+      }
+    } catch {
+      /* cancelled after a timeout */
+    }
+  })();
+  return { text: () => text, done, cancel: () => void reader.cancel().catch(() => {}) };
+}
+
 // Async rather than execSync: a blocked loop can starve the step's spinner
 // process of the message that starts it.
-async function installWithCli(cliPath: string, vsixPath: string): Promise<InstallOutcome> {
-  const proc = Bun.spawn([cliPath, "--install-extension", vsixPath, "--force"], { stdout: "pipe", stderr: "pipe", env: childEnv() });
+// The macOS `code` launcher starts Electron as a child that inherits its pipes,
+// so a timeout signals the whole process group and stops waiting on the pipes
+// after the grace period even if something outside the group still holds them.
+async function installWithCli(cliPath: string, vsixPath: string, timeoutMs = INSTALL_TIMEOUT_MS): Promise<InstallOutcome> {
+  const proc = Bun.spawn([cliPath, "--install-extension", vsixPath, "--force"], {
+    detached: true,
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+    env: childEnv(),
+  });
+  const signalGroup = (signal: NodeJS.Signals) => {
+    try {
+      process.kill(-proc.pid, signal);
+    } catch {
+      /* group already gone */
+    }
+  };
+  const stdout = drain(proc.stdout);
+  const stderr = drain(proc.stderr);
   let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    proc.kill();
-  }, INSTALL_TIMEOUT_MS);
-  const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
+  const abandoned = new Promise<null>((giveUp) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      signalGroup("SIGTERM");
+      killTimer = setTimeout(() => giveUp(null), KILL_GRACE_MS);
+    }, timeoutMs);
+  });
+  const finished = Promise.all([stdout.done, stderr.done, proc.exited]).then(([, , exit]) => exit);
+  const code = await Promise.race([finished, abandoned]);
   clearTimeout(timer);
+  clearTimeout(killTimer);
+  if (timedOut) {
+    signalGroup("SIGKILL");
+    stdout.cancel();
+    stderr.cancel();
+  }
   if (code === 0 && !timedOut) return { ok: true };
-  const output = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
+  const output = [stdout.text().trim(), stderr.text().trim()].filter(Boolean).join("\n");
   return timedOut ? { ok: false, output, timedOut: true } : { ok: false, output };
 }
 
@@ -122,7 +174,7 @@ async function installInto(
   return installed;
 }
 
-export const __test__ = { installInto };
+export const __test__ = { installInto, installWithCli };
 
 export async function installExtension(): Promise<void> {
   const vsixPath = findVsix();
