@@ -194,7 +194,8 @@ export class SopsDecryptError extends Error {
 
 /** sops could not unwrap the file's data key with the identity it was handed: none of the file's recipients is this Mac's key. */
 export function sopsKeyMismatch(stderr: string): boolean {
-  return /Failed to get the data key|did not match any of the recipients/i.test(stderr);
+  return /did not match any of the recipients|no identity matched any of the recipients/i
+    .test(stderr.replace(/\s*\n\s*\|?\s*/g, " "));
 }
 
 async function sopsDecrypt(filePath: string, env: Record<string, string>, execSeam: SecretsExecSeam): Promise<Record<string, string>> {

@@ -758,5 +758,11 @@ describe("a sops decrypt failure is typed", () => {
     expect(sopsKeyMismatch("age: identity did not match any of the recipients")).toBe(true);
     expect(sopsKeyMismatch("sops: no matching creation rule")).toBe(false);
     expect(sopsKeyMismatch("")).toBe(false);
+    expect(sopsKeyMismatch("Failed to get the data key required to decrypt the SOPS file.")).toBe(false);
+    expect(sopsKeyMismatch([
+      "    - | failed to create reader for decrypting sops data key with",
+      "      | age: identity did not match any of the",
+      "      | recipients: incorrect identity for recipient block.",
+    ].join("\n"))).toBe(true);
   });
 });
