@@ -1796,6 +1796,90 @@ describe('statusPhrase: the pill says what the status group says', () => {
       text: 'approved',
       hue: 'green',
     });
+    expect(
+      statusPhrase(
+        settled({
+          reviews: {
+            isApproved: true,
+            required: 1,
+            given: 1,
+            remaining: 0,
+            reviewers: [{ username: 'sam', reviewState: 'REVIEWED' }],
+          },
+        })
+      )
+    ).toEqual({ text: 'approved', hue: 'green' });
+  });
+
+  test("an approver's own summary note does not hide a partial approval count", () => {
+    expect(
+      statusPhrase(
+        settled({
+          reviews: {
+            isApproved: false,
+            required: 2,
+            given: 1,
+            remaining: 1,
+            reviewers: [
+              { username: 'sam', reviewState: 'APPROVED' },
+              { username: 'kit', reviewState: 'UNREVIEWED' },
+            ],
+          },
+          quietReview: true,
+          threadSummary: { awaiting: 0, replied: 0, resolved: 0 },
+        })
+      )
+    ).toEqual({ text: '1/2 approved', hue: 'cyan' });
+  });
+
+  test('a quiet review with no listed reviewers but a filled approval slot reads the count', () => {
+    expect(
+      statusPhrase(
+        settled({
+          ...unapproved(1, 2),
+          quietReview: true,
+          threadSummary: { awaiting: 0, replied: 0, resolved: 0 },
+        })
+      )
+    ).toEqual({ text: '1/2 approved', hue: 'cyan' });
+  });
+
+  test('a quiet review never outranks changes requested', () => {
+    expect(
+      statusPhrase(
+        settled({
+          reviews: {
+            isApproved: false,
+            required: 2,
+            given: 0,
+            remaining: 2,
+            reviewers: [{ username: 'sam', reviewState: 'REQUESTED_CHANGES' }],
+          },
+          quietReview: true,
+          threadSummary: { awaiting: 0, replied: 0, resolved: 0 },
+        })
+      )
+    ).toEqual({ text: 'changes requested', hue: 'red' });
+  });
+
+  test('a submitted review outranks a partial approval count', () => {
+    expect(
+      statusPhrase(
+        settled({
+          reviews: {
+            isApproved: false,
+            required: 2,
+            given: 1,
+            remaining: 1,
+            reviewers: [
+              { username: 'sam', reviewState: 'REVIEWED' },
+              { username: 'kit', reviewState: 'APPROVED' },
+            ],
+          },
+          threadSummary: { awaiting: 0, replied: 0, resolved: 0 },
+        })
+      )
+    ).toEqual({ text: 'commented', hue: 'accent' });
   });
 });
 

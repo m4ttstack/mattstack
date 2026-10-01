@@ -184,10 +184,8 @@ export function threadsOpenedBy(
   return threads.filter(t => t.notes[0]?.username === username);
 }
 
-/** A review GitLab's reviewer state never recorded: a roster member other
-    than the author left a plain note, or the board's own latch is armed and
-    waiting on the author. Reviews posted before the board submitted them as
-    reviews look like this. */
+/** A roster member other than the author left a plain note, or the board's
+    own latch is armed and not resolved. */
 export function hasQuietReview(
   detail: MRDetail,
   comments: GeneralComment[],
