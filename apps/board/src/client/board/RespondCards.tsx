@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
-import { Markdown } from '@mattstack/tui-kit';
+import { Button, Markdown } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import type {
   ReplyEntry,
@@ -191,17 +191,23 @@ function EditableReply({
         <div className="tui-thread-reply-actions">
           {open ? (
             <>
-              <button
+              <Button
                 type="button"
+                variant="light"
+                intent="accent"
+                size="sm"
                 className="tui-thread-reply-action"
                 aria-label={`${label}: done editing`}
                 onClick={close}
               >
                 done
-              </button>
+              </Button>
               {edited && (
-                <button
+                <Button
                   type="button"
+                  variant="light"
+                  intent="muted"
+                  size="sm"
                   className="tui-thread-reply-action"
                   aria-label={`${label}: reset to draft`}
                   onClick={() => {
@@ -210,19 +216,22 @@ function EditableReply({
                   }}
                 >
                   reset to draft
-                </button>
+                </Button>
               )}
             </>
           ) : (
-            <button
+            <Button
               ref={editRef}
               type="button"
+              variant="light"
+              intent="muted"
+              size="sm"
               className="tui-thread-reply-action"
               aria-label={`${label}: edit reply`}
               onClick={() => setEditing(true)}
             >
               edit
-            </button>
+            </Button>
           )}
         </div>
       )}

@@ -2422,19 +2422,7 @@ body {
 }
 .tui-thread-reply-actions {
   display: flex;
-  gap: 12px;
-}
-.tui-thread-reply-action {
-  border: none;
-  background: none;
-  padding: 0;
-  font-size: 12px;
-  color: var(--text-4);
-  cursor: pointer;
-}
-.tui-thread-reply-action:hover {
-  color: var(--text-accent-small);
-  text-decoration: underline;
+  gap: 8px;
 }
 /* A respond-post reply option carries the full reply text, so the box
    tops its checkbox against the first line instead of centring it. */
