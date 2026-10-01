@@ -154,6 +154,9 @@ export const baseTheme = /* @__PURE__ */ createTheme({
     },
     MenuDropdown: { defaultProps: { p: 'xs', miw: 200 } },
     MenuItem: { defaultProps: { p: 'sm' } },
+    // `Menu.Sub.Item` reads its own props key, so a submenu row only lines up
+    // with the plain items around it when it carries the same padding.
+    MenuSubItem: { defaultProps: { p: 'sm' } },
     MenuDivider: { defaultProps: { my: 'xs' } },
     Popover: { defaultProps: { shadow: 'md' } },
     HoverCard: { defaultProps: { shadow: 'md' } },
