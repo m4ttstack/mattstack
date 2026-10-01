@@ -188,9 +188,13 @@ Keys, in the order the formatter writes them, with defaults left out:
 | `rebind` | `1` | The drawer's slot row is in rebind mode |
 | `attention` | `1` | The Needs attention toggle (the rail badge's link) |
 
-Changing `focus` clears `select`, `rebind` and `view`. A change to `tab`,
-`pack` or `focus` pushes a history entry; `select`, `drawerTab`, `view` and
-`rebind` replace the current one. An unknown value reads as the default.
+Changes cascade down one chain: a new `pack` clears `focus`, a new `focus`
+clears `select`, and a new `select` (including none) clears `rebind` and
+`view`. A value set in the same change always wins, so a link can set the
+whole chain at once, such as `pack`, `focus`, `select` and `rebind` together.
+A change to `tab`, `pack` or `focus` pushes a history entry; `select`,
+`drawerTab`, `view` and `rebind` replace the current one. An unknown value
+reads as the default, and an empty value counts as absent.
 
 ## Data
 

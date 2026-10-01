@@ -99,16 +99,20 @@ export function formatWiringUrl(state: WiringUrl): string {
     ['attention', state.attention ? '1' : null],
   ];
   return pairs
-    .flatMap(([key, value]) =>
-      value === null ? [] : [`${key}=${encodeValue(value)}`]
-    )
+    .flatMap(([key, value]) => (value ? [`${key}=${encodeValue(value)}`] : []))
     .join('&');
 }
 
-function withoutUndefined(change: Partial<WiringUrl>): Partial<WiringUrl> {
-  return Object.fromEntries(
+const TEXT_KEYS = ['pack', 'focus', 'select'] as const;
+
+/** An omitted key keeps its value; an empty string is no value, the same as
+    `null`, so `focus: ''` is neither written to the URL nor a refocus. */
+function normalise(change: Partial<WiringUrl>): Partial<WiringUrl> {
+  const defined = Object.fromEntries(
     Object.entries(change).filter(([, value]) => value !== undefined)
   ) as Partial<WiringUrl>;
+  for (const key of TEXT_KEYS) if (defined[key] === '') defined[key] = null;
+  return defined;
 }
 
 function otherParams(search: string): string {
@@ -130,9 +134,12 @@ function pushes(current: WiringUrl, next: WiringUrl): boolean {
 }
 
 /**
- * The Graph tab's state, read from and written to the query string. A new
- * focus drops what hung off the old one (`select`, `rebind`, `view`) unless
- * the same patch sets them. Query keys this hook does not own are kept.
+ * The Graph tab's state, read from and written to the query string.
+ *
+ * Changes cascade down one chain: a new `pack` drops `focus`, a new `focus`
+ * drops `select`, a new `select` drops `rebind` and `view`. A value set in
+ * the same patch always wins over the drop, so a deep link patches the whole
+ * chain in one call. Query keys this hook does not own are kept.
  */
 export function useWiringUrl(): [
   WiringUrl,
@@ -144,16 +151,19 @@ export function useWiringUrl(): [
   // Reads the live location, not the last render's state, so two patches in
   // one tick compose instead of the second overwriting the first.
   const patch = useCallback((requested: Partial<WiringUrl>) => {
-    const change = withoutUndefined(requested);
+    const change = normalise(requested);
     const liveSearch = window.location.search;
     const current = parseWiringUrl(liveSearch);
-    const refocused =
-      change.focus !== undefined && change.focus !== current.focus;
-    const next: WiringUrl = {
-      ...current,
-      ...(refocused ? { select: null, rebind: false, view: null } : {}),
-      ...change,
-    };
+    const next: WiringUrl = { ...current, ...change };
+
+    const packChanged = next.pack !== current.pack;
+    if (packChanged && change.focus === undefined) next.focus = null;
+    const focusChanged = packChanged || next.focus !== current.focus;
+    if (focusChanged && change.select === undefined) next.select = null;
+    if (focusChanged || next.select !== current.select) {
+      if (change.rebind === undefined) next.rebind = false;
+      if (change.view === undefined) next.view = null;
+    }
 
     const query = formatWiringUrl(next);
     if (query === formatWiringUrl(current)) return;

@@ -139,6 +139,12 @@ describe('formatWiringUrl', () => {
     }
   );
 
+  it('omits empty-string values', () => {
+    expect(
+      formatWiringUrl({ ...DEFAULTS, pack: '', focus: '', select: '' })
+    ).toBe('');
+  });
+
   it('is idempotent on its own output', () => {
     const once = formatWiringUrl(parseWiringUrl('rebind=1&focus=a&tab=health'));
     expect(formatWiringUrl(parseWiringUrl(once))).toBe(once);
@@ -319,6 +325,162 @@ describe('useWiringUrl', () => {
       ...DEFAULTS,
       focus: 'stage-plan',
       select: 'row:9',
+    });
+  });
+
+  describe('cascade', () => {
+    const DEEP =
+      '/wiring?pack=acme&focus=stage-plan&select=row:136&view=rendered&rebind=1';
+
+    const patchFrom = (url: string, change: Partial<WiringUrl>) => {
+      at(url);
+      const { result } = renderHook(() => useWiringUrl());
+      pushState.mockClear();
+      replaceState.mockClear();
+      act(() => result.current[1](change));
+      return window.location.search;
+    };
+
+    it('a changed select clears rebind and view', () => {
+      expect(patchFrom(DEEP, { select: 'row:2' })).toBe(
+        '?pack=acme&focus=stage-plan&select=row:2'
+      );
+      expect(replaceState).toHaveBeenCalledTimes(1);
+      expect(pushState).not.toHaveBeenCalled();
+    });
+
+    it('closing the drawer (select to null) clears rebind and view', () => {
+      expect(patchFrom(DEEP, { select: null })).toBe(
+        '?pack=acme&focus=stage-plan'
+      );
+    });
+
+    it('the same select clears nothing', () => {
+      expect(patchFrom(DEEP, { select: 'row:136' })).toBe(
+        '?pack=acme&focus=stage-plan&select=row:136&view=rendered&rebind=1'
+      );
+      expect(pushState).not.toHaveBeenCalled();
+      expect(replaceState).not.toHaveBeenCalled();
+    });
+
+    it('rebind and view set with a changed select win', () => {
+      expect(patchFrom(DEEP, { select: 'row:140', rebind: true })).toBe(
+        '?pack=acme&focus=stage-plan&select=row:140&rebind=1'
+      );
+      expect(
+        patchFrom(DEEP, { select: 'row:140', view: 'template', rebind: true })
+      ).toBe(
+        '?pack=acme&focus=stage-plan&select=row:140&view=template&rebind=1'
+      );
+    });
+
+    it('opening a row straight into rebind works from a bare focus', () => {
+      expect(
+        patchFrom('/wiring?focus=stage-plan', {
+          select: 'row:136',
+          rebind: true,
+        })
+      ).toBe('?focus=stage-plan&select=row:136&rebind=1');
+    });
+
+    it('a rebind patch on its own leaves the selection alone', () => {
+      expect(
+        patchFrom('/wiring?focus=a&select=row:136', { rebind: true })
+      ).toBe('?focus=a&select=row:136&rebind=1');
+    });
+
+    it('a changed focus clears select, rebind and view but keeps the pack', () => {
+      expect(patchFrom(DEEP, { focus: 'pipeline:feature' })).toBe(
+        '?pack=acme&focus=pipeline:feature'
+      );
+      expect(pushState).toHaveBeenCalledTimes(1);
+    });
+
+    it('a select set with a changed focus wins, and rebind and view still drop', () => {
+      expect(
+        patchFrom(DEEP, { focus: 'pipeline:feature', select: 'row:1' })
+      ).toBe('?pack=acme&focus=pipeline:feature&select=row:1');
+    });
+
+    it('rebind and view set with a changed focus win', () => {
+      expect(
+        patchFrom(DEEP, {
+          focus: 'pipeline:feature',
+          select: 'row:1',
+          view: 'template',
+          rebind: true,
+        })
+      ).toBe(
+        '?pack=acme&focus=pipeline:feature&select=row:1&view=template&rebind=1'
+      );
+    });
+
+    it('a changed pack clears focus and everything below it', () => {
+      expect(patchFrom(DEEP, { pack: 'globex' })).toBe('?pack=globex');
+      expect(pushState).toHaveBeenCalledTimes(1);
+      expect(replaceState).not.toHaveBeenCalled();
+    });
+
+    it('a changed pack from the default pack clears focus too', () => {
+      expect(
+        patchFrom('/wiring?focus=stage-plan&select=row:1', { pack: 'globex' })
+      ).toBe('?pack=globex');
+    });
+
+    it('the same pack clears nothing', () => {
+      expect(patchFrom(DEEP, { pack: 'acme' })).toBe(
+        '?pack=acme&focus=stage-plan&select=row:136&view=rendered&rebind=1'
+      );
+      expect(pushState).not.toHaveBeenCalled();
+      expect(replaceState).not.toHaveBeenCalled();
+    });
+
+    it('a focus set with a changed pack wins over the drop', () => {
+      expect(
+        patchFrom(DEEP, { pack: 'globex', focus: 'pipeline:feature' })
+      ).toBe('?pack=globex&focus=pipeline:feature');
+    });
+
+    it('a focus equal to the current one still drops select under a new pack', () => {
+      expect(patchFrom(DEEP, { pack: 'globex', focus: 'stage-plan' })).toBe(
+        '?pack=globex&focus=stage-plan'
+      );
+    });
+
+    it('a whole deep link patches in one call', () => {
+      expect(
+        patchFrom('/wiring?pack=acme&focus=old&select=row:1', {
+          pack: 'globex',
+          focus: 'stage-plan',
+          select: 'row:136',
+          rebind: true,
+        })
+      ).toBe('?pack=globex&focus=stage-plan&select=row:136&rebind=1');
+    });
+
+    it('clearing the pack clears focus and everything below it', () => {
+      expect(patchFrom(DEEP, { pack: null })).toBe('');
+    });
+
+    it('an empty-string focus is not a refocus', () => {
+      expect(patchFrom('/wiring?select=row:1', { focus: '' })).toBe(
+        '?select=row:1'
+      );
+      expect(pushState).not.toHaveBeenCalled();
+      expect(replaceState).not.toHaveBeenCalled();
+    });
+
+    it('an empty-string value is never written to the URL', () => {
+      expect(
+        patchFrom('/wiring?focus=a', { select: '', pack: '', view: null })
+      ).toBe('?focus=a');
+      expect(replaceState).not.toHaveBeenCalled();
+    });
+
+    it('an empty string clears a value that was set', () => {
+      expect(patchFrom('/wiring?focus=a&select=row:1', { select: '' })).toBe(
+        '?focus=a'
+      );
     });
   });
 
