@@ -194,6 +194,7 @@ function deps(over: Partial<NudgePassDeps> = {}) {
       handled.push({ id, result, reason }),
     readReviewStates: () => new Map([[nudge.mrUrl, commentedReview]]),
     readRespondStates: () => new Map(),
+    isOwnMr: () => true,
     launchAsk: async (): Promise<ReReviewLaunch> => ({ kind: 'launched' }),
     publishOutcome: (to, payload) => published.push({ to, payload }),
     memory,
@@ -219,35 +220,56 @@ describe('decideNudge kind: respond', () => {
   const respondAsk: NudgeState = { ...nudge, kind: 'respond' };
 
   test('dispatches with no respond lane on file, whatever the review lane says', () => {
-    expect(decideNudge(respondAsk, undefined, m, cfg, NOW, undefined)).toEqual({
+    expect(
+      decideNudge(respondAsk, undefined, m, cfg, NOW, undefined, true)
+    ).toEqual({
       action: 'dispatch',
       reason: 'nudge',
     });
     expect(
-      decideNudge(respondAsk, commentedReview, m, cfg, NOW, undefined)
+      decideNudge(respondAsk, commentedReview, m, cfg, NOW, undefined, true)
     ).toEqual({ action: 'dispatch', reason: 'nudge' });
   });
 
   test('an in-flight respond lane rejects respond-in-flight', () => {
     expect(
-      decideNudge(respondAsk, undefined, m, cfg, NOW, { status: 'drafting' })
+      decideNudge(
+        respondAsk,
+        undefined,
+        m,
+        cfg,
+        NOW,
+        { status: 'drafting' },
+        true
+      )
     ).toEqual({ action: 'reject', reason: 'respond-in-flight' });
   });
 
   test('a done or errored respond lane does not block a fresh ask', () => {
     expect(
-      decideNudge(respondAsk, undefined, m, cfg, NOW, { status: 'done' }).action
-    ).toBe('dispatch');
-    expect(
-      decideNudge(respondAsk, undefined, m, cfg, NOW, { status: 'error' })
+      decideNudge(respondAsk, undefined, m, cfg, NOW, { status: 'done' }, true)
         .action
     ).toBe('dispatch');
+    expect(
+      decideNudge(respondAsk, undefined, m, cfg, NOW, { status: 'error' }, true)
+        .action
+    ).toBe('dispatch');
+  });
+
+  test("a respond ask about someone else's MR rejects not-your-mr", () => {
+    expect(
+      decideNudge(respondAsk, undefined, m, cfg, NOW, undefined, false)
+    ).toEqual({ action: 'reject', reason: 'not-your-mr' });
+    expect(decideNudge(respondAsk, undefined, m, cfg, NOW)).toEqual({
+      action: 'reject',
+      reason: 'not-your-mr',
+    });
   });
 
   test('budget and cooldown still gate respond asks', () => {
     const exhausted: MrMemory = { ...m, attemptsToday: cfg.dailyAttemptBudget };
     expect(
-      decideNudge(respondAsk, undefined, exhausted, cfg, NOW, undefined)
+      decideNudge(respondAsk, undefined, exhausted, cfg, NOW, undefined, true)
     ).toEqual({ action: 'reject', reason: 'budget-exhausted' });
   });
 });
@@ -317,6 +339,27 @@ describe('runNudgePass', () => {
     expect(result.dispatched).toBe(1);
     expect(launches).toEqual([{ kind: 'respond' }]);
     expect(d.audit.some(e => e.action === 'respond-launched')).toBe(true);
+  });
+
+  test("a kind:respond nudge about someone else's MR rejects without launching", async () => {
+    const launches: string[] = [];
+    const d = deps({
+      readNudges: () => [{ ...nudge, kind: 'respond' }],
+      isOwnMr: () => false,
+      launchAsk: async (mrUrl): Promise<ReReviewLaunch> => {
+        launches.push(mrUrl);
+        return { kind: 'launched' };
+      },
+    });
+    const result = await runNudgePass(d);
+    expect(result.rejected).toBe(1);
+    expect(launches).toEqual([]);
+    expect(d.published[0]?.payload.reason).toBe('not-your-mr');
+  });
+
+  test('a re-review ask never needs the MR to be yours', async () => {
+    const d = deps({ isOwnMr: () => false });
+    expect((await runNudgePass(d)).dispatched).toBe(1);
   });
 
   test('a kind:respond nudge rejects while its respond lane is in flight', async () => {
@@ -546,6 +589,7 @@ describe('plainReason', () => {
     );
     expect(plainReason('disabled', cfg)).toBe('Auto re-review is off');
     expect(plainReason('already-handled', cfg)).toBe('Already handled');
+    expect(plainReason('not-your-mr', cfg)).toBe("It isn't your MR");
   });
 
   test('the budget phrase names the configured limit, singular at one', () => {

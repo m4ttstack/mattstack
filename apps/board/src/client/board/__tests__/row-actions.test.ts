@@ -162,8 +162,6 @@ test('bulk shows only what fits every checked MR, in the mock order, with no cou
   const entries = bulkActions([a, b, c], env3([a, b, c]));
   expect(entries.map(e => `${e.key} | ${e.label}`)).toEqual([
     'review | review',
-    'doctor | call doctor',
-    'rebase | rebase on target',
     'find-thread | find slack threads',
   ]);
   expect(entries.every(e => e.hint === undefined)).toBe(true);
@@ -175,9 +173,11 @@ test('an action acts on the MRs that need it and skips the ones already there', 
     entries.map(e => [e.key, e.targets.map(t => t.iid)])
   );
   expect(byKey.review).toEqual([201, 202, 203]);
-  expect(byKey.doctor).toEqual([203]);
-  expect(byKey.rebase).toEqual([201]);
   expect(entries.every(e => e.selected === 3)).toBe(true);
+  const mine = bulkActions([a, b], env3([a, b]));
+  expect(mine.find(e => e.key === 'rebase')?.targets.map(t => t.iid)).toEqual([
+    201,
+  ]);
 });
 
 test('one checked MR that cannot take an action hides it', () => {
@@ -318,4 +318,96 @@ test('one-row-only actions never reach the bulk menu', () => {
     'note',
   ])
     expect(keys).not.toContain(k);
+});
+
+const AUTHOR_ONLY = [
+  'merge',
+  'rebase',
+  'setAutoMerge',
+  'cancelAutoMerge',
+  'doctor',
+  'focus-doctor',
+  'rebase-local',
+  'respond',
+  'focus-respond',
+  'resume-respond',
+  'post-slack',
+];
+
+const brokenAndMergeable = (over: Record<string, unknown> = {}) =>
+  mrx(230, {
+    mergeButton: visible,
+    rebaseButton: { visible: true, loading: false },
+    behindTarget: 4,
+    autoMergeButton: { visible: true, isActive: false },
+    blockers: { any: true, pipelineFailing: true, hasConflicts: true },
+    respond: { status: 'done', sessionId: 'resp-9' },
+    slack: { status: 'notfound', reactions: [], posted: false },
+    ...over,
+  });
+
+test("someone else's MR offers no author-only action", () => {
+  const theirs = brokenAndMergeable({
+    author: { username: 'kim', name: 'Kim' },
+  });
+  const offered = keys(theirs, ownEnv);
+  for (const k of AUTHOR_ONLY) expect(offered).not.toContain(k);
+  expect(offered).toContain('find-thread');
+  expect(offered).toContain('open-gitlab');
+});
+
+test("someone else's armed auto-merge cannot be cancelled from the menu", () => {
+  const theirs = brokenAndMergeable({
+    author: { username: 'kim', name: 'Kim' },
+    autoMergeButton: { visible: true, isActive: true },
+  });
+  expect(keys(theirs, ownEnv)).not.toContain('cancelAutoMerge');
+});
+
+test('the same broken, mergeable MR offers every author-only action to its author', () => {
+  const offered = keys(brokenAndMergeable(), ownEnv);
+  for (const k of [
+    'merge',
+    'rebase',
+    'setAutoMerge',
+    'doctor',
+    'rebase-local',
+    'respond',
+    'resume-respond',
+    'post-slack',
+  ])
+    expect(offered).toContain(k);
+});
+
+test('an "all" board treats nothing as own', () => {
+  const offered = keys(brokenAndMergeable(), { ...ownEnv, self: null });
+  for (const k of AUTHOR_ONLY) expect(offered).not.toContain(k);
+});
+
+test("bulk never offers an author-only action once someone else's MR is checked", () => {
+  const mine = brokenAndMergeable();
+  const theirs = brokenAndMergeable({
+    iid: 231,
+    webUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/231',
+    author: { username: 'kim', name: 'Kim' },
+  });
+  const entries = bulkActions([mine, theirs], env3([mine, theirs]));
+  for (const k of AUTHOR_ONLY) expect(entries.map(e => e.key)).not.toContain(k);
+  expect(entries.map(e => e.key)).toContain('find-thread');
+});
+
+test('a seatless board says where author actions went, and nothing more', () => {
+  const actions = rowActions(
+    brokenAndMergeable(),
+    actionEnvOf({ ...ownEnv, self: null }, brokenAndMergeable())
+  );
+  const hint = actions.find(a => a.key === 'seat-hint');
+  expect(hint?.blocked).toBe(
+    'set your seat in board settings to act on your own MRs'
+  );
+  expect(hint?.bulk).toBeUndefined();
+  expect(keys(brokenAndMergeable(), ownEnv)).not.toContain('seat-hint');
+  expect(
+    keys(brokenAndMergeable(), { ...ownEnv, self: null, local: false })
+  ).not.toContain('seat-hint');
 });

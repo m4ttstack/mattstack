@@ -43,23 +43,37 @@ describe('selectionOf', () => {
 });
 
 describe('postableOf', () => {
+  const me = { username: 'me' };
+  const mine = (iid: number, over: Record<string, unknown> = {}) => ({
+    webUrl: `https://gl/${iid}`,
+    iid,
+    author: me,
+    ...over,
+  });
+
   test('drops MRs already posted to slack', () => {
-    const posted = { webUrl: 'https://gl/p', iid: 5, slack: { posted: true } };
-    const unposted = {
-      webUrl: 'https://gl/u',
-      iid: 6,
-      slack: { posted: false },
-    };
-    expect(postableOf([posted, unposted])).toEqual([unposted]);
+    const posted = mine(5, { slack: { posted: true } });
+    const unposted = mine(6, { slack: { posted: false } });
+    expect(postableOf([posted, unposted], 'me')).toEqual([unposted]);
   });
 
   test('keeps MRs with no slack info at all', () => {
-    expect(postableOf([a, b])).toEqual([a, b]);
+    expect(postableOf([mine(1), mine(2)], 'me')).toEqual([mine(1), mine(2)]);
   });
 
   test('drops MRs without a webUrl', () => {
-    const orphan = { webUrl: null, iid: 7 };
-    expect(postableOf([orphan, a])).toEqual([a]);
+    expect(postableOf([mine(7, { webUrl: null }), mine(1)], 'me')).toEqual([
+      mine(1),
+    ]);
+  });
+
+  test("drops someone else's MR: only an author posts about an MR", () => {
+    const theirs = mine(8, { author: { username: 'kim' } });
+    expect(postableOf([theirs, mine(1)], 'me')).toEqual([mine(1)]);
+  });
+
+  test('an "all" board has nothing to post', () => {
+    expect(postableOf([mine(1)], null)).toEqual([]);
   });
 });
 

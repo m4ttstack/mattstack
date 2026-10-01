@@ -399,6 +399,52 @@ test('resolving a thread keeps its place in the drawer and offers unresolve', as
   buttonIn(thread('dA'), 'unresolve');
 });
 
+const buttonsIn = (id: string) =>
+  [...thread(id).querySelectorAll('button')].map(b => b.textContent?.trim());
+
+test('on your own MR every thread offers resolve, whoever started it', async () => {
+  await renderBoardWithDrawerOpen();
+  expect(buttonsIn('dA')).toContain('resolve');
+  expect(buttonsIn('dB')).toContain('resolve');
+});
+
+test("on someone else's MR only a thread the seat started offers resolve", async () => {
+  servedData = {
+    ...BOARD_DATA,
+    members: [
+      { username: 'matt', name: 'matt', count: 0 },
+      { username: 'kim', name: 'kim', count: 1 },
+    ],
+    mrs: [{ ...BOARD_DATA.mrs[0], author: { username: 'kim', name: 'Kim' } }],
+  };
+  servedDiscussions = {
+    threads: [
+      { ...threadA, notes: [note(9001, 'matt', 'rename this')] },
+      threadB,
+    ],
+    comments: [],
+  };
+  history.replaceState(null, '', '/?member=all');
+  await renderBoardWithDrawerOpen();
+  expect(buttonsIn('dA')).toContain('resolve');
+  expect(buttonsIn('dB')).toContain('reply');
+  expect(buttonsIn('dB')).not.toContain('resolve');
+  await press(thread('dB'), 'reply');
+  await type(replyBox('dB')!, 'added one');
+  expect(buttonsIn('dB')).toContain('send');
+  expect(buttonsIn('dB')).not.toContain('send & resolve');
+});
+
+test('an "all" board resolves nothing, not even a thread the seat would own', async () => {
+  servedData = { ...BOARD_DATA, defaultMember: 'all' };
+  await renderBoardWithDrawerOpen();
+  const labels = [...thread('dA').querySelectorAll('button')].map(b =>
+    b.textContent?.trim()
+  );
+  expect(labels).toContain('reply');
+  expect(labels).not.toContain('resolve');
+});
+
 test('Escape closes the reply box, not the drawer, and the draft is there on reopen', async () => {
   await renderBoardWithDrawerOpen();
   await press(thread('dA'), 'reply');
@@ -554,6 +600,7 @@ describe('drawer reads', () => {
         React.createElement(Drawer, {
           mr: mr as never,
           local: true,
+          self: 'matt',
           onClose: () => {},
         })
       );

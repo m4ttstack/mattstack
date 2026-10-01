@@ -44,7 +44,8 @@ const VERDICT_QUESTIONS = [
 
 const BOARD_DATA = {
   title: 'MRs ready for review',
-  defaultMember: 'all',
+  // The seat authors both MRs: their respond gates are its to answer.
+  defaultMember: 'matt',
   members: [{ username: 'matt', name: 'Matthew Goodwin', count: 2 }],
   allMembers: [
     { username: 'matt', name: 'Matthew Goodwin', hidden: false, count: 2 },

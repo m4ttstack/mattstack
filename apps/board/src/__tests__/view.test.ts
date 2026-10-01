@@ -9,6 +9,7 @@ import {
   DEFAULT_VIEW,
   descendantsOf,
   dropPeer,
+  effectiveSeat,
   filterByDraft,
   filterByMember,
   filterBySlack,
@@ -16,6 +17,7 @@ import {
   freshnessBanner,
   groupMRs,
   hasStackDescendants,
+  isOwnMr,
   joinRowState,
   memberPeerState,
   NEEDS_ME_TAB,
@@ -24,6 +26,7 @@ import {
   parseViewState,
   resolveStandDownTarget,
   rosterUsernamesFor,
+  seatOf,
   serializeViewState,
   sortMRs,
   statusFlags,
@@ -45,6 +48,39 @@ function mr(overrides: Partial<BoardMR>): BoardMR {
     ...overrides,
   } as unknown as BoardMR;
 }
+
+describe('isOwnMr', () => {
+  test("the seat owns what it authored and nothing it didn't", () => {
+    expect(isOwnMr(mr({}), seatOf('alice'))).toBe(true);
+    expect(isOwnMr(mr({}), seatOf('bob'))).toBe(false);
+  });
+
+  test('usernames compare the way GitLab does, ignoring case', () => {
+    expect(isOwnMr(mr({}), seatOf('Alice'))).toBe(true);
+  });
+
+  test('an "all" board has no seat, so it owns nothing', () => {
+    const named = mr({
+      author: { id: 'y', username: 'all', name: 'All', avatarUrl: null },
+    } as never);
+    expect(seatOf('all')).toBeNull();
+    expect(seatOf('')).toBeNull();
+    expect(seatOf(undefined)).toBeNull();
+    expect(isOwnMr(named, seatOf('all'))).toBe(false);
+  });
+});
+
+describe('effectiveSeat', () => {
+  test('the seat stands while the token user is unknown or the same person', () => {
+    expect(effectiveSeat('alice', null)).toBe('alice');
+    expect(effectiveSeat('alice', 'Alice')).toBe('alice');
+  });
+
+  test("a seat that is not the token's user is no seat at all", () => {
+    expect(effectiveSeat('alice', 'carol')).toBeNull();
+    expect(effectiveSeat('all', 'alice')).toBeNull();
+  });
+});
 
 describe('filterBySlack', () => {
   const posted = mr({

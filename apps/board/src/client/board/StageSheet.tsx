@@ -107,6 +107,7 @@ function QuestionCard({
   qctx,
   picks,
   readOnly = false,
+  locked = false,
   replyText,
   children,
 }: {
@@ -114,6 +115,9 @@ function QuestionCard({
   qctx: GateCtx | null;
   picks: ChoiceState;
   readOnly?: boolean;
+  /** Read-only because this seat may not answer, not because it already
+      did: the choices render out of reach. */
+  locked?: boolean;
   /** The reply as posted, when it differs from a reply context's draft. */
   replyText?: string;
   children?: ReactNode;
@@ -125,7 +129,8 @@ function QuestionCard({
     <section
       className="tui-gate-question"
       data-gate-ctx={thread ? 'thread' : replies ? 'replies' : undefined}
-      data-readonly={readOnly || undefined}
+      data-readonly={readOnly || locked || undefined}
+      data-locked={locked || undefined}
       aria-label={q.prompt}
     >
       <div className="tui-gate-question-head">
@@ -146,7 +151,7 @@ function QuestionCard({
       <Choices
         q={q}
         form={picks}
-        disabled={readOnly}
+        disabled={readOnly || locked}
         renderLabel={
           replies
             ? (value, chip) => {
@@ -200,6 +205,7 @@ function StageSheetBody({
   mr,
   form,
   context,
+  readOnly,
   onContinue,
 }: {
   gate: GateRow;
@@ -207,6 +213,9 @@ function StageSheetBody({
   form: GateFormState;
   /** The gate's own context as prose, when it has any. */
   context?: string;
+  /** Shows this notice over the questions, which render out of reach,
+      and drops everything that would answer the gate. */
+  readOnly?: string;
   /** Retires a gate answered elsewhere from the queue. */
   onContinue: () => void;
 }) {
@@ -233,6 +242,11 @@ function StageSheetBody({
   return (
     <div className="tui-sheet-body">
       <section className="tui-sheet-main">
+        {readOnly && (
+          <div className="tui-banner" role="note">
+            {readOnly}
+          </div>
+        )}
         <div className="tui-sheet-list-head">
           <span className="tui-sheet-list-title">
             {humanizeLabel(gate.label)}: {count}{' '}
@@ -249,8 +263,9 @@ function StageSheetBody({
               q={q}
               qctx={questionCtx.get(q.name) ?? null}
               picks={form}
+              locked={!!readOnly}
             >
-              <Note q={q} form={form} />
+              {!readOnly && <Note q={q} form={form} />}
             </QuestionCard>
           ))}
         </div>
@@ -269,13 +284,15 @@ function StageSheetBody({
                 <h3 className="tui-sheet-dock-heading">
                   Answers on {dockRef(gate, mr)}
                 </h3>
-                <button
-                  type="button"
-                  className="tui-sheet-reset"
-                  onClick={() => form.resetAll()}
-                >
-                  reset
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="tui-sheet-reset"
+                    onClick={() => form.resetAll()}
+                  >
+                    reset
+                  </button>
+                )}
               </div>
               <SheetRows
                 card="answers"
@@ -286,30 +303,34 @@ function StageSheetBody({
                   chips: [pickChip(q, form.selections[q.name])],
                 }))}
               />
-              {!answerable && (
-                <p className="tui-sheet-dock-next">
-                  This gate needs an answer the board can't give; answer it in
-                  its pane.
-                </p>
-              )}
-              <Button
-                type="button"
-                variant="filled"
-                intent="accent"
-                size="lg"
-                className="tui-sheet-submit"
-                disabled={form.busy || payload === null}
-                onClick={() => void form.submit(payload)}
-              >
-                {form.busy ? 'submitting…' : 'submit'}
-              </Button>
-              {form.failed && (
-                <span className="tui-gate-error">
-                  submit failed... nothing was sent, try again
-                </span>
-              )}
-              {form.focusError && (
-                <span className="tui-gate-error">{form.focusError}</span>
+              {readOnly ? null : (
+                <>
+                  {!answerable && (
+                    <p className="tui-sheet-dock-next">
+                      This gate needs an answer the board can't give; answer it
+                      in its pane.
+                    </p>
+                  )}
+                  <Button
+                    type="button"
+                    variant="filled"
+                    intent="accent"
+                    size="lg"
+                    className="tui-sheet-submit"
+                    disabled={form.busy || payload === null}
+                    onClick={() => void form.submit(payload)}
+                  >
+                    {form.busy ? 'submitting…' : 'submit'}
+                  </Button>
+                  {form.failed && (
+                    <span className="tui-gate-error">
+                      submit failed... nothing was sent, try again
+                    </span>
+                  )}
+                  {form.focusError && (
+                    <span className="tui-gate-error">{form.focusError}</span>
+                  )}
+                </>
               )}
             </div>
           </>

@@ -3,6 +3,7 @@ import type { ReviewStatus } from './client/types.ts';
 import type { TabConfig } from './config.ts';
 import type { BoardMR, BoardSyncError } from './data.ts';
 import { hasChangesRequested } from './data.ts';
+import { canonicalUsername } from './peer/envelope.ts';
 import { projectKeyOf } from './triage/stack.ts';
 
 export type GroupKey = 'age' | 'author' | 'status' | 'review' | 'needs';
@@ -329,6 +330,39 @@ export function hasStackDescendants<M extends BoardMR>(
   return descendantsOf(mr, mrs).length > 0;
 }
 
+/** The board's seat: null on an "all" board, which has no single owner. */
+export function seatOf(
+  defaultMember: string | null | undefined
+): string | null {
+  return defaultMember && defaultMember !== 'all' ? defaultMember : null;
+}
+
+/** The seat that may act as an author: the board's seat, unless the GitLab
+    token's user is known and is someone else, in which case nobody. Client
+    and server both read ownership through this, so neither offers what the
+    other refuses. */
+export function effectiveSeat(
+  defaultMember: string | null | undefined,
+  tokenUser: string | null | undefined
+): string | null {
+  const seat = seatOf(defaultMember);
+  if (seat === null || !tokenUser) return seat;
+  return canonicalUsername(seat) === canonicalUsername(tokenUser) ? seat : null;
+}
+
+/** Whether the seat authored this MR; on an "all" board nothing is. Every
+    author-only action (merge, doctor, respond, slack post...) gates on this,
+    in the menu and in the server route alike. */
+export function isOwnMr(
+  mr: { author: { username: string } },
+  self: string | null
+): boolean {
+  return (
+    self !== null &&
+    canonicalUsername(mr.author.username) === canonicalUsername(self)
+  );
+}
+
 export type StandDownTarget<M extends BoardMR> =
   | { ok: true; mr: M; descendants: M[] }
   | { ok: false; status: 400 | 403; error: string };
@@ -351,7 +385,7 @@ export function resolveStandDownTarget<M extends BoardMR>(
 ): StandDownTarget<M> {
   const mr = mrs.find(m => m.webUrl === mrUrl);
   if (!mr) return { ok: false, status: 400, error: `unknown MR "${mrUrl}"` };
-  if (mr.author.username !== defaultMember)
+  if (!isOwnMr(mr, seatOf(defaultMember)))
     return { ok: false, status: 403, error: 'not your MR' };
   return { ok: true, mr, descendants: descendantsOf(mr, mrs) };
 }

@@ -387,7 +387,12 @@ function gitlabMenuItems(mr: BoardMR): {
   return items;
 }
 
+/** Where an author action would be on a seatless ("all") board, which owns
+    no MR and so offers none. */
+const SEAT_HINT = 'set your seat in board settings to act on your own MRs';
+
 export {
+  SEAT_HINT,
   GROUP_LABEL,
   SORT_LABEL,
   ago,
