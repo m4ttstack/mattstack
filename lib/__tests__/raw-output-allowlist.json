@@ -93,7 +93,6 @@
   "lib/sdm/enrichment.ts",
   "lib/sdm/picker.ts",
   "lib/secrets/store.ts",
-  "lib/settings/notice-channel.ts",
   "lib/setup/emit.ts",
   "lib/setup/finish-gate.ts",
   "lib/setup/steps/home.ts",
