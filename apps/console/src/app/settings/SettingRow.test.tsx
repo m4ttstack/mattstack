@@ -7,7 +7,13 @@ import type {
   SettingDefWire,
 } from '@mattstack/settings-kit/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -96,6 +102,33 @@ describe('SettingRow disclosure', () => {
     ).toBeChecked();
     await userEvent.click(screen.getByText('What it does.'));
     expect(screen.queryByRole('radio', { name: "Where it's set" })).toBeNull();
+  });
+
+  it('a double-click on the key name toggles the row once', async () => {
+    renderWithProviders(
+      <SettingRow def={scalar()} store={store()} subhead={null} query="" />
+    );
+    await userEvent.dblClick(screen.getByText('model'));
+    expect(
+      screen.getByRole('button', { name: 'close board.agent.model' })
+    ).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('a click that ends a text selection in the header never toggles the row', () => {
+    renderWithProviders(
+      <SettingRow def={scalar()} store={store()} subhead={null} query="" />
+    );
+    const words = screen.getByText('What it does.');
+    const range = document.createRange();
+    range.setStart(words.firstChild!, 0);
+    range.setEnd(words.firstChild!, 4);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    fireEvent.click(words);
+    window.getSelection()!.removeAllRanges();
+    expect(
+      screen.getByRole('button', { name: 'open board.agent.model' })
+    ).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('a click inside the control never toggles the row', async () => {

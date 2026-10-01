@@ -71,6 +71,17 @@ function Marked({
   );
 }
 
+/** Whether a text selection reaches into `el`: the click that ends a drag
+    select fires on the header like any other. */
+function selectingIn(el: HTMLElement): boolean {
+  const sel = window.getSelection();
+  return Boolean(
+    sel &&
+    !sel.isCollapsed &&
+    (el.contains(sel.anchorNode) || el.contains(sel.focusNode))
+  );
+}
+
 export function SettingRow({
   def,
   store,
@@ -132,6 +143,8 @@ export function SettingRow({
     // A portalled dropdown's clicks reach here through the React tree.
     if (!e.currentTarget.contains(target)) return;
     if (target.closest(ROW_CONTROLS)) return;
+    // A double-click selects a word; its first click already toggled.
+    if (e.detail > 1 || selectingIn(e.currentTarget)) return;
     toggle();
   };
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
