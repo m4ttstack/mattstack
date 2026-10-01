@@ -5,10 +5,10 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, relative } from "path";
-import { UPLOAD_MAX_BYTES, checkUploadPath, claudeTempRoots, isInsideRoot, runEvidenceRoot, workRoot } from "../upload-guard.ts";
+import { UPLOAD_MAX_BYTES, builtInEvidenceRoot, checkUploadPath, claudeTempRoots, isInsideRoot, runEvidenceRoot, workRoot } from "../upload-guard.ts";
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52]);
 const JPG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1]);
@@ -91,7 +91,7 @@ describe("checkUploadPath", () => {
     const p = file(outside, "shot.png", PNG);
     expect(checkUploadPath(p, [root])).toEqual({
       ok: false,
-      error: "path is outside the allowed upload roots (a worktree of the target repo, the Claude Code temp root, a run's evidence folder, or an rt.mcp.uploadRoots entry)",
+      error: "path is outside the allowed upload roots (a worktree of the target repo, the Claude Code temp root, rt's evidence folder ~/.mattstack/evidence, a run's evidence folder, or an rt.mcp.uploadRoots entry)",
     });
   });
 
@@ -291,6 +291,122 @@ describe("a run's evidence folder", () => {
       else process.env.HOME = saved.HOME;
       if (saved.RT_RUNS_ROOT === undefined) delete process.env.RT_RUNS_ROOT;
       else process.env.RT_RUNS_ROOT = saved.RT_RUNS_ROOT;
+    }
+  });
+});
+
+describe("rt's built-in evidence root", () => {
+  let base: string;
+  let evidence: string;
+  let evidenceReal: string;
+  let outside: string;
+
+  beforeEach(() => {
+    base = mkdtempSync(join(tmpdir(), "rt-upload-builtin-"));
+    evidence = join(base, "evidence");
+    outside = join(base, "outside");
+    mkdirSync(evidence);
+    mkdirSync(outside);
+    evidenceReal = realpathSync(evidence);
+  });
+  afterEach(() => {
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  function put(p: string, bytes: Buffer = PNG): string {
+    mkdirSync(join(p, ".."), { recursive: true });
+    writeFileSync(p, bytes);
+    return p;
+  }
+
+  const opts = () => ({ evidenceRoot: evidence });
+
+  test("a png nested under the evidence root passes with no caller roots", () => {
+    const p = put(join(evidence, "acme-widgets-tree", "case-42", "before.png"));
+    const res = checkUploadPath(p, [], opts());
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.realpath).toBe(join(evidenceReal, "acme-widgets-tree", "case-42", "before.png"));
+  });
+
+  test("a file symlink inside the evidence root that points outside it is refused", () => {
+    const target = put(join(outside, "secret.png"));
+    symlinkSync(target, join(evidence, "link.png"));
+    const res = checkUploadPath(join(evidence, "link.png"), [], opts());
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain("outside the allowed upload roots");
+  });
+
+  test("a directory symlink inside the evidence root that points outside it is refused", () => {
+    put(join(outside, "shot.png"));
+    symlinkSync(outside, join(evidence, "case-dir"));
+    expect(checkUploadPath(join(evidence, "case-dir", "shot.png"), [], opts()).ok).toBe(false);
+  });
+
+  test("a .. path out of the evidence root is refused", () => {
+    put(join(outside, "secret.png"));
+    expect(checkUploadPath(`${evidence}/../outside/secret.png`, [], opts()).ok).toBe(false);
+    expect(checkUploadPath(`${evidence}/case-42/../../outside/secret.png`, [], opts()).ok).toBe(false);
+  });
+
+  test("a sibling whose name starts with the root's name is refused", () => {
+    expect(checkUploadPath(put(join(base, "evidence-other", "shot.png")), [], opts()).ok).toBe(false);
+  });
+
+  test("an evidence root that is itself a symlink is refused, even to a real evidence dir", () => {
+    const alias = join(base, "evidence-alias");
+    symlinkSync(evidence, alias);
+    expect(checkUploadPath(put(join(evidence, "shot.png")), [], { evidenceRoot: alias }).ok).toBe(false);
+    expect(builtInEvidenceRoot(alias, process.getuid!())).toBeNull();
+  });
+
+  test("an evidence root symlinked to a broader folder does not admit that folder", () => {
+    const home = join(base, "home");
+    mkdirSync(join(home, ".mattstack"), { recursive: true });
+    symlinkSync(home, join(home, ".mattstack", "evidence"));
+    const p = put(join(home, "Pictures", "private.png"));
+    expect(checkUploadPath(p, [], { evidenceRoot: join(home, ".mattstack", "evidence") }).ok).toBe(false);
+  });
+
+  test("an evidence root reached through a symlinked parent still admits", () => {
+    const parentAlias = join(base, "base-alias");
+    symlinkSync(base, parentAlias);
+    expect(checkUploadPath(put(join(evidence, "shot.png")), [], { evidenceRoot: join(parentAlias, "evidence") }).ok).toBe(true);
+    expect(builtInEvidenceRoot(join(parentAlias, "evidence"), process.getuid!())).toBe(evidenceReal);
+  });
+
+  test("an evidence root owned by another uid is refused", () => {
+    const p = put(join(evidence, "shot.png"));
+    expect(checkUploadPath(p, [], { evidenceRoot: evidence, uid: process.getuid!() + 1 }).ok).toBe(false);
+    expect(checkUploadPath(p, [], { evidenceRoot: evidence, uid: null }).ok).toBe(false);
+  });
+
+  test("a hard link inside the evidence root to a file outside it is refused", () => {
+    const target = put(join(outside, "secret.png"));
+    linkSync(target, join(evidence, "hard.png"));
+    expect(checkUploadPath(join(evidence, "hard.png"), [], opts())).toEqual({ ok: false, error: "file has other hard links" });
+  });
+
+  test("a non-png inside the evidence root still fails the byte check", () => {
+    const p = put(join(evidence, "fake.png"), Buffer.from("hello world, not a png"));
+    expect(checkUploadPath(p, [], opts())).toEqual({ ok: false, error: "file bytes do not match a .png signature" });
+  });
+
+  test("a missing or relative evidence root refuses without throwing", () => {
+    const p = put(join(evidence, "shot.png"));
+    expect(checkUploadPath(p, [], { evidenceRoot: join(base, "nope") }).ok).toBe(false);
+    expect(checkUploadPath(p, [], { evidenceRoot: "evidence" }).ok).toBe(false);
+  });
+
+  test("the default evidence root is ~/.mattstack/evidence read from HOME at call time", () => {
+    const saved = process.env.HOME;
+    try {
+      process.env.HOME = base;
+      const p = put(join(base, ".mattstack", "evidence", "case-42", "shot.png"));
+      expect(checkUploadPath(p, []).ok).toBe(true);
+      expect(checkUploadPath(put(join(base, ".mattstack", "other", "shot.png")), []).ok).toBe(false);
+    } finally {
+      if (saved === undefined) delete process.env.HOME;
+      else process.env.HOME = saved;
     }
   });
 });
