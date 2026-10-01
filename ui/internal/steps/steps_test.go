@@ -240,6 +240,22 @@ func TestFiveSubLinesInASixRowPaneLeaveOnlyTheFinalLine(t *testing.T) {
 	}
 }
 
+func TestALongTitlePaintedBeforeTheFirstSubLeavesNoFragmentBehind(t *testing.T) {
+	s := testutil.StartSession(t, []string{testutil.Binary(t), "steps"}, nil)
+	s.Send(hello)
+	s.Send(`{"t":"start","title":"syncing ` + strings.Repeat("y", 150) + `"}`)
+	s.WaitForPaint("syncing yyyy")
+	s.Send(`{"t":"sub","text":"checking the session"}`)
+	s.Send(`{"t":"done","title":"synced"}`)
+	if exit := s.Wait(); exit != 0 {
+		t.Fatalf("exit %d", exit)
+	}
+	rows := nonBlankRows(s.Screen())
+	if len(rows) != 1 || !strings.Contains(rows[0], "synced") {
+		t.Fatalf("want the final line alone: %q", rows)
+	}
+}
+
 func TestSubLinesInATwoRowPaneCompleteCleanly(t *testing.T) {
 	lines := []string{hello, `{"t":"start","title":"connecting…"}`, `{"t":"sub","text":"checking the session"}`, `{"t":"sub","text":"opening the tunnel"}`, `{"t":"sub","text":"waiting for the port"}`, `{"t":"done","title":"connected"}`}
 	_, tty, exit := testutil.RunPTYSized(t, 2, 100, []string{testutil.Binary(t), "steps"}, lines, nil)

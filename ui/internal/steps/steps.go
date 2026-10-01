@@ -90,11 +90,7 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 
 	spinner := func() string {
 		f := theme.SpinnerFrames[frame%len(theme.SpinnerFrames)]
-		t := title
-		if len(subs) > 0 {
-			t = ansi.Truncate(t, titleWidth, "…")
-		}
-		return "  " + spinStyle.Render(f) + " " + textStyle.Render(t)
+		return "  " + spinStyle.Render(f) + " " + textStyle.Render(ansi.Truncate(title, titleWidth, "…"))
 	}
 	toTop := func() {
 		if len(subs) > 0 {
