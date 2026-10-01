@@ -36,7 +36,7 @@ func (r *renderer) paragraph(b protocol.Block) {
 func (r *renderer) copy(b protocol.Block) {
 	r.caption(b.Caption)
 	for _, l := range splitLines(b.Text) {
-		r.emit(calloutIndent + railStyle.Render("│") + "  " + textStyle.Render(Clean(l)))
+		r.emit(calloutIndent + railStyle.Render("│") + " " + textStyle.Render(Clean(l)))
 	}
 }
 
