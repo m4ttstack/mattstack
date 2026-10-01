@@ -109,7 +109,9 @@ earlier; a run another live pane owns is not yours) / **Start fresh**, and
 
 `runDb` = `<absolute home>/.mattstack/runs/<repo>/<the candidate row's id>/state.db`.
 The run tools refuse `~` and relative paths. The `run_stage` start is a new
-attempt that re-records this session.
+attempt that re-records this session. The flow then re-enters at the
+decisions `run_snapshot` shows; the target rule for a resumed run is the
+`targetBranch` bullet under "What the graph cannot show".
 
 ### Use the runs root the error names (ship)
 
@@ -146,6 +148,7 @@ digraph ship {
     "Stack member (ship)?" [shape=diamond];
     "ship gate ship" [shape=box];
     "ship answer (ship)?" [shape=diamond];
+    "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" [shape=plaintext];
     "Ship gate rounds = 2 (ship)?" [shape=diamond];
     "Ship gate reopenings = 2 (ship)?" [shape=diamond];
     "Rebase in progress (ship gate budget spent)?" [shape=diamond];
@@ -273,7 +276,8 @@ digraph ship {
     "Stack member (ship)?" -> "ship gate ship" [label="yes: the target is the stack parent"];
     "Stack member (ship)?" -> "ship gate ship" [label="no: the target is the default branch"];
     "ship gate ship" -> "ship answer (ship)?";
-    "ship answer (ship)?" -> "dirty answer (ship)?" [label="proceed"];
+    "ship answer (ship)?" -> "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" [label="proceed: record the consented target"];
+    "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" -> "dirty answer (ship)?";
     "ship answer (ship)?" -> "Ship gate rounds = 2 (ship)?" [label="iterate: redo with their note"];
     "Ship gate rounds = 2 (ship)?" -> "Run the domain steps before the gate (none when unbound)" [label="no: redo with their note"];
     "Ship gate rounds = 2 (ship)?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, their last note quoted"];
@@ -479,7 +483,9 @@ a credential path is final.
 Before anything is pushed. One sentence above the form: the branch, the
 commits about to go, whether the tree is dirty, and the resolved target
 (the stack parent, the default branch, or "the stack could not be read, so
-the default branch"), so Proceed is consent to that target. When the gate
+the default branch"), so Proceed is consent to that target. When a resumed
+run reopens the gate because the target moved, the sentence names the
+recorded target and the fresh one. When the gate
 reopens with a rebase in progress (the conflict rounds are spent), the
 context says so, and Abort aborts that rebase first.
 
@@ -491,7 +497,12 @@ context says so, and Abort aborts that rebase first.
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
 
 Scope `ship`. Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|hold","note":"<their words or null>"}`.
-Abort and Hold push nothing.
+Abort and Hold push nothing. Proceed records the target it consented to
+with `run_field_set {key: shipTarget, value: <resolved target>}`, `stage:
+"ship"` in an own run and `stage: run.current_stage` in an inherited one;
+when the stack store was unreadable the value is `<default branch> (stack
+store unreadable)`, so a later reader can tell consent to the fallback from
+a real read. The rebase and `mr_create` use the plain branch name.
 `Ship gate rounds = 2 (ship)?` counts Iterate answers at this gate within
 this pass through the verb, this one included: the first Iterate redoes
 the steps before the gate with the note, and the second fails the verb
@@ -660,8 +671,12 @@ draft and the note quoted in the final report.
   `origin/<that target>`, so a stack member never replays its parent's
   unmerged commits; the gate names the target, the unreadable-store
   fallback included, before any rebase runs. A run resumed past the gate calls
-  `branch_stack` again: a readable result is the target; when the stack
-  store is unreadable, the ship gate reopens.
+  `branch_stack` again, then `run_field_get {key: shipTarget}`. A readable
+  fresh target equal to the recorded one continues with it and the earlier
+  Proceed stands. A fresh target that differs, or a store unreadable now,
+  reopens the ship gate with a sentence naming the recorded target and the
+  fresh one; Proceed records the fresh target with `run_field_set` and
+  continues. A run holding no `shipTarget` has not passed the gate.
 - Keep the `url` `mr_create` returns as `mrUrl` for every later write, and
   print it. `mr_create` takes `draft: false` only when the gate said ready;
   write its title from the branch's commits.
