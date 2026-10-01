@@ -164,6 +164,18 @@ export function threadStatusCounts(threads: CommentThread[]): {
   return counts;
 }
 
+/** Who started a discussion: the author of its first non-system note, the
+    same note the drawer's thread card leads with. Undefined when the MR has
+    no such discussion. */
+export function threadStarter(
+  detail: MRDetail,
+  discussionId: string
+): string | null | undefined {
+  const d = detail.discussions.find(x => x.id === discussionId);
+  if (!d) return undefined;
+  return d.notes.find(n => !n.system)?.author?.username ?? null;
+}
+
 /** The threads one reviewer opened (their note starts the thread). */
 export function threadsOpenedBy(
   threads: CommentThread[],

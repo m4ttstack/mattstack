@@ -17,8 +17,16 @@ writeFileSync(
   JSON.stringify({
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['g/p'],
-    'board.members': [{ username: 'alice' }],
+    'board.members': [{ username: 'alice' }, { username: 'reviewer' }],
   })
+);
+
+// The seat resolves only threads it started; "reviewer" opens abc123 below.
+const userDir = join(fakeHome, '.mattstack', 'user');
+mkdirSync(userDir, { recursive: true });
+writeFileSync(
+  join(userDir, 'settings.user.jsonc'),
+  JSON.stringify({ 'board.defaultMember': 'reviewer' })
 );
 
 const rtDir = join(fakeHome, '.mattstack', 'rt');
@@ -55,9 +63,14 @@ const rtDaemon = Bun.serve({
       new Response(JSON.stringify(v), {
         headers: { 'content-type': 'application/json' },
       });
-    if (cmd !== 'discussions:reply' && cmd !== 'discussions:resolve')
+    if (
+      cmd !== 'discussions:read' &&
+      cmd !== 'discussions:reply' &&
+      cmd !== 'discussions:resolve'
+    )
       return json({ ok: false, error: 'not implemented' });
-    if (outcome === 'fail') return json({ ok: false, error: '403 Forbidden' });
+    if (outcome === 'fail' && cmd !== 'discussions:read')
+      return json({ ok: false, error: '403 Forbidden' });
     const resolved = cmd === 'discussions:resolve';
     return json({
       ok: true,
@@ -71,6 +84,15 @@ const rtDaemon = Bun.serve({
             notes: [
               glanceNote(1, 'reviewer', resolved),
               glanceNote(2, 'alice', resolved),
+            ],
+          },
+          {
+            id: 'def456',
+            resolvable: true,
+            resolved: false,
+            notes: [
+              glanceNote(3, 'alice', false),
+              glanceNote(4, 'reviewer', false),
             ],
           },
         ],
@@ -140,6 +162,7 @@ test('a reply reaches the daemon under the repo identity and answers with the re
     comments: unknown[];
   };
   expect(out.threads.map(t => [t.discussionId, t.status])).toEqual([
+    ['def456', 'awaiting'],
     ['abc123', 'replied'],
   ]);
   expect(out.comments).toEqual([]);
@@ -193,4 +216,37 @@ test('both routes are POST-only and refuse a malformed body or an unknown repo',
       })
     ).status
   ).toBe(400);
+}, 15_000);
+
+test('resolving a thread someone else started is refused before the daemon hears of it', async () => {
+  await ready();
+  seen.length = 0;
+  const res = await post('/discussions/resolve', {
+    ...target,
+    discussionId: 'def456',
+    resolved: true,
+  });
+  expect(res.status).toBe(403);
+  expect(await res.text()).toBe('not your thread');
+  expect(seen.some(s => s.cmd === 'discussions:resolve')).toBe(false);
+}, 15_000);
+
+test('a reply to a thread someone else started still goes through', async () => {
+  await ready();
+  const res = await post('/discussions/reply', {
+    ...target,
+    discussionId: 'def456',
+    body: 'fair point',
+  });
+  expect(res.status).toBe(200);
+}, 15_000);
+
+test('resolving a thread the MR does not have is a 404', async () => {
+  await ready();
+  const res = await post('/discussions/resolve', {
+    ...target,
+    discussionId: 'nope',
+    resolved: true,
+  });
+  expect(res.status).toBe(404);
 }, 15_000);

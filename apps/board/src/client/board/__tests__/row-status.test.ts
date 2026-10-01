@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import { domainForKind } from '@mattstack/gate-kit';
 import type { BoardMRWithReview } from '../../types.ts';
 import {
   candidateLines,
@@ -440,7 +441,7 @@ describe('rowStatus: interrupted executor', () => {
 
   test('a gone orphan on a running response names the response lane', () => {
     const s = rowStatus(
-      mr({ respond: { status: 'implementing', sessionId: 'sess-1' }, orphan }),
+      own({ respond: { status: 'implementing', sessionId: 'sess-1' }, orphan }),
       NOW,
       NONE,
       ME
@@ -569,7 +570,7 @@ describe('rowStatus: gates', () => {
       word: 'post which findings?',
     });
     expect(s.line.verbs).toEqual([
-      { kind: 'answer', label: 'answer', gateId: 'g1' },
+      { kind: 'answer', label: 'answer', gateId: 'g1', domain: 'review' },
     ]);
   });
 
@@ -655,7 +656,7 @@ describe('rowStatus: gates', () => {
     );
     expect(s.line).toMatchObject({ tone: 'bad', word: DELIVERY_STUCK_MESSAGE });
     expect(s.line.verbs).toEqual([
-      { kind: 'answer', label: 'retry', gateId: 'g1' },
+      { kind: 'answer', label: 'retry', gateId: 'g1', domain: 'review' },
     ]);
   });
 
@@ -679,7 +680,7 @@ describe('rowStatus: gates', () => {
       word: EXECUTION_UNASSIGNED_MESSAGE,
     });
     expect(s.line.verbs).toEqual([
-      { kind: 'answer', label: 'relaunch', gateId: 'g1' },
+      { kind: 'answer', label: 'relaunch', gateId: 'g1', domain: 'review' },
     ]);
   });
 
@@ -738,7 +739,12 @@ describe('rowStatus: respond lane', () => {
       ['implementing', 'implementing…'],
       ['drafting', 'drafting replies…'],
     ] as const) {
-      const [line] = candidateLines(mr({ respond: { status } }), NOW, NONE, ME);
+      const [line] = candidateLines(
+        own({ respond: { status } }),
+        NOW,
+        NONE,
+        ME
+      );
       expect(line).toMatchObject({ tone: 'work', word, spin: true });
       expect(line!.verbs[0]).toEqual({
         kind: 'focus',
@@ -767,7 +773,7 @@ describe('rowStatus: respond lane', () => {
 
   test('posted but the reviewer came back: warn with respond again leading', () => {
     const [line] = candidateLines(
-      mr({
+      own({
         respond: { status: 'done', posted: 3, threads: 3, reportReady: true },
         threadSummary: { awaiting: 2, replied: 1, resolved: 0 },
       } as never),
@@ -812,7 +818,7 @@ describe('rowStatus: respond lane', () => {
 
   test('partially posted is warn with the resume verb', () => {
     const [line] = candidateLines(
-      mr({
+      own({
         respond: { status: 'done', posted: 2, threads: 3, sessionId: 's' },
       }),
       NOW,
@@ -936,7 +942,7 @@ describe('rowStatus: respond lane', () => {
 
   test('error is bad with restart', () => {
     const [line] = candidateLines(
-      mr({ respond: { status: 'error' } }),
+      own({ respond: { status: 'error' } }),
       NOW,
       NONE,
       ME
@@ -977,7 +983,7 @@ describe('rowStatus: doctor lane', () => {
 
   test('stuck is bad with call again', () => {
     const [line] = candidateLines(
-      mr({ doctor: { status: 'error' } }),
+      own({ doctor: { status: 'error' } }),
       NOW,
       NONE,
       ME
@@ -1040,7 +1046,7 @@ describe('rowStatus: doctor lane', () => {
       domain: 'review',
     });
     const [respond] = candidateLines(
-      mr({ respond: { status: 'error' } }),
+      own({ respond: { status: 'error' } }),
       NOW,
       NONE,
       ME
@@ -1203,7 +1209,7 @@ describe('rowStatus: social lanes', () => {
 
   test('an inbound respond ask words a response and verbs a respond launch', () => {
     const [line] = candidateLines(
-      mr({
+      own({
         nudges: [
           { from: 'jo', receivedAt: NOW - 10 * 60_000, kind: 'respond' },
         ],
@@ -1787,5 +1793,137 @@ describe('rowStatus: a launch that ran with no pack', () => {
     );
     expect(line!.word).toBe('auto-doctor off');
     expect(line!.noPack).toBeUndefined();
+  });
+});
+
+describe("author-only verbs stay off someone else's row", () => {
+  // Independent of row-status.ts's own list: anything not named here as a
+  // reviewer's verb counts as the author's, so a new author verb that the
+  // filter misses fails these tests rather than slipping through.
+  const REVIEWER_VERBS = new Set([
+    'read-review',
+    'read-respond',
+    'open-mr',
+    'view-peer',
+    'dismiss',
+    'clear',
+    'launch-review',
+    're-review',
+    'read-note',
+  ]);
+  const reviewerSafe = (
+    v: { kind: string; domain?: string; gateId?: string },
+    row: BoardMRWithReview
+  ) => {
+    if (REVIEWER_VERBS.has(v.kind)) return true;
+    if (v.kind === 'focus' || v.kind === 'relaunch')
+      return v.domain === 'review';
+    if (v.kind === 'answer') {
+      const kind = row.gates.find(g => g.gateId === v.gateId)?.kind ?? '';
+      const lane = domainForKind(kind);
+      return lane !== 'respond' && lane !== 'doctor';
+    }
+    return false;
+  };
+  const orphan = {
+    agentId: 'ag-1',
+    repo: 'acme/webapp',
+    subject: 'agent:ag-1',
+    surface: 'herdr',
+    sessionId: 'sess-1',
+    paneRef: null,
+    state: 'gone' as const,
+    since: NOW - 60_000,
+    openGateIds: [],
+  };
+  const rows: Array<[string, Over]> = [
+    [
+      'a response the reviewer came back to',
+      {
+        respond: { status: 'done', posted: 3, threads: 3 },
+        threadSummary: { awaiting: 2, replied: 1, resolved: 0 },
+      },
+    ],
+    ['a failed response', { respond: { status: 'error' } }],
+    [
+      'a half-posted response',
+      { respond: { status: 'done', posted: 1, threads: 3 } },
+    ],
+    ['a stuck doctor', { doctor: { status: 'error' } }],
+    ['a running doctor', { doctor: { status: 'fixing' } }],
+    ['a running response', { respond: { status: 'drafting' } }],
+    [
+      'an inbound respond ask',
+      {
+        nudges: [{ from: 'jo', receivedAt: NOW - 60_000, kind: 'respond' }],
+      },
+    ],
+    [
+      'an interrupted response',
+      { respond: { status: 'implementing', sessionId: 'sess-1' }, orphan },
+    ],
+    [
+      'a merge-ready MR with posted replies',
+      {
+        ...MERGEABLE,
+        reviews: { isApproved: true, required: 1, given: 1, reviewers: [] },
+        respond: { status: 'done', posted: 2, threads: 2 },
+      },
+    ],
+    [
+      'an open respond gate',
+      { gates: [gate({ kind: 'respond-plan', domain: 'respond' })] },
+    ],
+    [
+      'an open doctor gate',
+      { gates: [gate({ kind: 'doctor-escalation', domain: 'doctor' })] },
+    ],
+    [
+      'a respond answer that never reached its pane',
+      {
+        gates: [
+          gate({
+            kind: 'respond-post',
+            domain: 'respond',
+            status: 'answered',
+            delivery: { outcome: 'stuck', at: NOW },
+          }),
+        ],
+      },
+    ],
+    [
+      'a doctor answer with no pane to run it',
+      {
+        gates: [
+          gate({
+            kind: 'doctor-escalation',
+            domain: 'doctor',
+            status: 'answered',
+            execution: 'unassigned',
+          }),
+        ],
+      },
+    ],
+  ];
+  const verbsOf = (row: BoardMRWithReview, self: string | null) =>
+    candidateLines(row, NOW, NONE, self).flatMap(l => l.verbs);
+  const unsafe = (row: BoardMRWithReview, self: string | null) =>
+    verbsOf(row, self).filter(v => !reviewerSafe(v, row));
+
+  for (const [name, over] of rows) {
+    test(`${name}: none on someone else's MR`, () => {
+      expect(unsafe(mr(over as never), ME)).toEqual([]);
+    });
+    test(`${name}: offered on your own`, () => {
+      expect(unsafe(own(over), ME).length).toBeGreaterThan(0);
+    });
+    test(`${name}: none on an "all" board`, () => {
+      expect(unsafe(own(over), null)).toEqual([]);
+    });
+  }
+
+  test("a review gate on someone else's MR keeps its answer verb", () => {
+    const row = mr({ gates: [gate()] } as never);
+    expect(verbsOf(row, ME).map(v => v.kind)).toContain('answer');
   });
 });

@@ -4,7 +4,7 @@
     DOM-free, so both menus and their tests share it. */
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
-import { hasStackDescendants, stackParents } from '../../view.ts';
+import { hasStackDescendants, isOwnMr, stackParents } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import {
   doctorItemLabel,
@@ -17,6 +17,7 @@ import {
   respondItemLabel,
   reviewLogged,
   reviewMenuItems,
+  SEAT_HINT,
 } from './format.ts';
 import { laneDismissed } from './row-status.ts';
 
@@ -143,12 +144,14 @@ function item(
 }
 
 /** Every action this MR offers right now, in menu order. Only what is
-    possible renders: a blocked GitLab action is absent, not greyed. */
+    possible renders: a blocked GitLab action is absent, not greyed. The one
+    greyed entry is the seatless board's hint, which stands in for every
+    author action at once. */
 export function rowActions(
   mrx: BoardMRWithReview,
   env: ActionEnv
 ): RowAction[] {
-  const own = env.self !== null && mrx.author.username === env.self;
+  const own = isOwnMr(mrx, env.self);
   const agent: RowAction[] = [];
 
   if (env.local) {
@@ -233,8 +236,7 @@ export function rowActions(
           )
         );
     }
-    // Doctor is mechanical repair, offered on anyone's MR that is broken.
-    if (mrx.blockers?.pipelineFailing || mrx.blockers?.hasConflicts) {
+    if (own && (mrx.blockers?.pipelineFailing || mrx.blockers?.hasConflicts)) {
       const label = doctorItemLabel(mrx.doctor?.status);
       agent.push(
         label === 'focus doctor'
@@ -253,9 +255,10 @@ export function rowActions(
       );
     }
     if (
-      mrx.blockers?.hasConflicts ||
-      mrx.rebaseButton.visible ||
-      (mrx.behindTarget ?? 0) > 0
+      own &&
+      (mrx.blockers?.hasConflicts ||
+        mrx.rebaseButton.visible ||
+        (mrx.behindTarget ?? 0) > 0)
     )
       agent.push(
         agentItem(
@@ -354,7 +357,18 @@ export function rowActions(
     );
 
   const gitlab: RowAction[] = [];
-  if (env.local) {
+  if (env.local && env.self === null)
+    gitlab.push(
+      item(
+        'gitlab',
+        'seat-hint',
+        'author actions',
+        PEOPLE,
+        { kind: 'open', url: '' },
+        { blocked: SEAT_HINT }
+      )
+    );
+  if (env.local && own) {
     for (const g of gitlabMenuItems(mrx)) {
       if (g.disabled) continue;
       gitlab.push(
@@ -370,26 +384,25 @@ export function rowActions(
         )
       );
     }
-    if (own)
-      gitlab.push(
-        mrx.isDraft
-          ? item(
-              'gitlab',
-              'mark-ready',
-              'mark ready',
-              DRAFT,
-              { kind: 'draft', draft: false },
-              { bulk: 'mark ready' }
-            )
-          : item(
-              'gitlab',
-              'mark-draft',
-              'mark as draft',
-              DRAFT,
-              { kind: 'draft', draft: true },
-              { bulk: 'mark as draft' }
-            )
-      );
+    gitlab.push(
+      mrx.isDraft
+        ? item(
+            'gitlab',
+            'mark-ready',
+            'mark ready',
+            DRAFT,
+            { kind: 'draft', draft: false },
+            { bulk: 'mark ready' }
+          )
+        : item(
+            'gitlab',
+            'mark-draft',
+            'mark as draft',
+            DRAFT,
+            { kind: 'draft', draft: true },
+            { bulk: 'mark as draft' }
+          )
+    );
   }
   gitlab.push(
     item(
@@ -440,11 +453,12 @@ export function rowActions(
           { bulk: 'find slack threads' }
         )
       );
-      slack.push(
-        item('slack', 'post-slack', 'post to slack', SLACK, {
-          kind: 'post-slack',
-        })
-      );
+      if (own)
+        slack.push(
+          item('slack', 'post-slack', 'post to slack', SLACK, {
+            kind: 'post-slack',
+          })
+        );
     }
   }
   slack.push(item('slack', 'copy', 'copy for slack', COPY, { kind: 'copy' }));
@@ -470,10 +484,28 @@ export interface BulkEntry extends MenuEntry {
   pickTargets?: Map<string, BoardMRWithReview[]>;
 }
 
+/** Bulk keys someone else's MR can never reach, so it never counts as
+    already there for them: checking it hides the action. */
+const AUTHOR_ONLY_BULK = new Set([
+  'merge',
+  'rebase',
+  'setAutoMerge',
+  'cancelAutoMerge',
+  'doctor',
+  'mark-ready',
+  'mark-draft',
+  'request-review',
+]);
+
 /** A checked MR that does not offer a bulk action is either already where
     the action would take it (skipped) or cannot get there (the action
     hides). Read off the MR's own rowActions keys, so the rules stay there. */
-function alreadyThere(key: string, offered: ReadonlySet<string>): boolean {
+function alreadyThere(
+  key: string,
+  offered: ReadonlySet<string>,
+  own: boolean
+): boolean {
+  if (!own && AUTHOR_ONLY_BULK.has(key)) return false;
   const mark = /^(un)?react-(.+)$/.exec(key);
   if (mark) return offered.has(`${mark[1] ? '' : 'un'}react-${mark[2]}`);
   switch (key) {
@@ -571,7 +603,12 @@ export function bulkActions(
   if (!env.local) return [];
   const rows = mrs.map(mr => {
     const actions = rowActions(mr, env);
-    return { mr, actions, offered: new Set(actions.map(a => a.key)) };
+    return {
+      mr,
+      actions,
+      offered: new Set(actions.map(a => a.key)),
+      own: isOwnMr(mr, env.self),
+    };
   });
   const firstOf = new Map<string, RowAction>();
   for (const { actions } of rows)
@@ -591,13 +628,13 @@ export function bulkActions(
     const targets: BoardMRWithReview[] = [];
     const picks = new Map<string, BoardMRWithReview[]>();
     let fits = true;
-    for (const { mr, actions, offered } of rows) {
-      const own = actions.find(a => a.key === key);
-      if (own) {
+    for (const { mr, actions, offered, own: isOwn } of rows) {
+      const offeredAction = actions.find(a => a.key === key);
+      if (offeredAction) {
         targets.push(mr);
-        for (const o of own.pick?.options ?? [])
+        for (const o of offeredAction.pick?.options ?? [])
           picks.set(o.value, [...(picks.get(o.value) ?? []), mr]);
-      } else if (!alreadyThere(key, offered)) fits = false;
+      } else if (!alreadyThere(key, offered, isOwn)) fits = false;
     }
     if (fits) groups.set(key, { first, targets, picks });
   }

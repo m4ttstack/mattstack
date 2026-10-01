@@ -1,9 +1,9 @@
 /** Deterministic screenshot capture against the BOARD_FIXTURE server.
     Boots the server itself, freezes the page clock to fixture meta.now,
     kills CSS animations, waits for fonts, shoots the named states. */
-import { mkdirSync, readFileSync } from 'fs';
-import { join } from 'path';
-import { chromium, type Page } from 'playwright';
+import { mkdirSync, readdirSync, readFileSync, rmSync } from 'fs';
+import { basename, join } from 'path';
+import { chromium, type Locator, type Page } from 'playwright';
 
 const ROOT = join(import.meta.dir, '..');
 const outIdx = process.argv.indexOf('--out');
@@ -12,6 +12,11 @@ const OUT = join(
   outIdx > -1 ? process.argv[outIdx + 1]! : 'tests/.captures'
 );
 mkdirSync(OUT, { recursive: true });
+// A shot left over from an earlier run would let compare pass for a state
+// this run never reached; the baselines are only ever rewritten whole.
+if (basename(OUT) !== 'baselines')
+  for (const f of readdirSync(OUT))
+    if (f.endsWith('.png')) rmSync(join(OUT, f));
 const META = JSON.parse(
   readFileSync(join(ROOT, 'tests/fixture/meta.json'), 'utf8')
 ) as { now: number };
@@ -52,7 +57,30 @@ const browser = await chromium.launch({
   ],
 });
 
-async function newPage(width: number, theme: 'light' | 'dark'): Promise<Page> {
+/** Opens one row's menu. The row is scrolled into view first: the menu
+    closes on scroll and on resize, so letting the click scroll would shut it
+    again, and a full-page shot (which resizes) can catch it closing. The
+    point is the row's own top padding, clear of the select box on its left
+    and the links in its middle, which keep the native menu. */
+async function openRowMenuOf(row: Locator): Promise<void> {
+  await row.scrollIntoViewIfNeeded();
+  await row.click({ button: 'right', position: { x: 300, y: 8 } });
+  await row.page().waitForSelector('[data-part="contextmenu"]');
+}
+
+/** A shot's target must exist: a fixture edit that removes it fails the
+    run here instead of silently dropping the capture. */
+async function required(target: Locator, what: string): Promise<Locator> {
+  if (!(await target.count()))
+    throw new Error(`capture target missing from the fixture: ${what}`);
+  return target;
+}
+
+async function newPage(
+  width: number,
+  theme: 'light' | 'dark',
+  opts: { seatless?: boolean } = {}
+): Promise<Page> {
   const ctx = await browser.newContext({
     viewport: { width, height: 950 },
     deviceScaleFactor: 1,
@@ -67,6 +95,13 @@ async function newPage(width: number, theme: 'light' | 'dark'): Promise<Page> {
     route.abort()
   );
   const page = await ctx.newPage();
+  // The same fixture with no seat: the board an "all" config serves.
+  if (opts.seatless)
+    await page.route(/\/data\.json/, async route => {
+      const response = await route.fetch();
+      const json = { ...(await response.json()), defaultMember: 'all' };
+      await route.fulfill({ response, json });
+    });
   await page.clock.setFixedTime(META.now);
   await page.addInitScript(
     (mode: string) => localStorage.setItem('mrs-theme', mode),
@@ -97,7 +132,11 @@ async function newPage(width: number, theme: 'light' | 'dark'): Promise<Page> {
     drawer's inline code) lays out in the fallback and swaps a frame later,
     so a shot taken straight after a selector wait can catch either side of
     that swap. Waiting on the font set before every shot settles it. */
-async function shoot(page: Page, name: string): Promise<void> {
+async function shoot(
+  page: Page,
+  name: string,
+  opts: { viewportOnly?: boolean } = {}
+): Promise<void> {
   await page.evaluate(async () => {
     const { document, requestAnimationFrame } = globalThis as unknown as {
       document: {
@@ -117,7 +156,10 @@ async function shoot(page: Page, name: string): Promise<void> {
       if (document.fonts.status === 'loaded') return;
     }
   });
-  await page.screenshot({ path: join(OUT, `${name}.png`), fullPage: true });
+  await page.screenshot({
+    path: join(OUT, `${name}.png`),
+    fullPage: !opts.viewportOnly,
+  });
   console.log(`  ✓ ${name}`);
 }
 
@@ -134,8 +176,11 @@ try {
     await page.mouse.move(0, 0);
     // the row's note (B10): the band at rest, then the same row with its
     // editor open -- the note tool is the first of the row's hover tools.
-    const noted = page.locator('.tui-row[data-note]').first();
-    if (await noted.count()) {
+    const noted = await required(
+      page.locator('.tui-row[data-note]').first(),
+      'a row with a note'
+    );
+    {
       // The band's own hover, not the row's: the dismiss verb belongs to the
       // note and only appears (dim) when the pointer is on it.
       await noted.locator('.tui-row-note').hover();
@@ -174,8 +219,11 @@ try {
     // src/__tests__/escape-stack.test.ts. This still checks that Escape closes
     // the drawer without taking the board down with it. `.tui-threads` is the
     // facts line's thread count, the row's one entry into the drawer.
-    const t2 = page.locator('.tui-threads').first();
-    if (await t2.count()) {
+    const t2 = await required(
+      page.locator('.tui-threads').first(),
+      'a thread link'
+    );
+    {
       await t2.click();
       await page.waitForSelector('[data-part="sidedrawer"][data-side="right"]');
       await page.keyboard.press('Escape');
@@ -189,31 +237,54 @@ try {
         throw new Error('escape assertion: board vanished');
     }
     await page.keyboard.press('Escape');
-    // comments drawer (first thread link, if the fixture has one)
+    // comments drawer (first thread link)
     const trigger = page.locator('.tui-threads').first();
-    if (await trigger.count()) {
+    {
       await trigger.click();
       await page.waitForSelector('[data-part="sidedrawer"][data-side="right"]');
       await shoot(page, `comments-${theme}`);
       await page.keyboard.press('Escape');
     }
-    // review modal: the status line's `read` verb on a row whose finished
-    // review is its hottest fact (a hotter line would hide the verb in
-    // "+N active", so the fixture keeps one such row).
-    const reviewBtn = page.locator('button[data-verb="read-review"]').first();
-    if (await reviewBtn.count()) {
-      // On an author's row with threads still awaiting them, respond leads and
-      // the report is the secondary verb, which only unhides under the pointer.
-      await reviewBtn
-        .locator('xpath=ancestor::*[contains(@class,"tui-row")][1]')
-        .hover();
-      await reviewBtn.click();
+    // review modal: !1236's finished review, opened from its row menu (its
+    // gates outrank the review on the status line).
+    {
+      await openRowMenuOf(
+        await required(
+          page.locator('[data-mr-iid="1236"]'),
+          '!1236, the row with a saved review report'
+        )
+      );
+      await (
+        await required(
+          page.getByRole('menuitem', { name: 'view agent review' }),
+          "!1236's view agent review menu item"
+        )
+      ).click();
       await page.waitForSelector(
         '.tui-review-modal [data-part="markdown"] h1, .tui-review-modal [data-part="markdown"] p'
       );
       await shoot(page, `reviewmodal-${theme}`);
       await page.keyboard.press('Escape');
+      // Opening !1236's menu scrolled the board; the shots after this one
+      // start from the top, as they always have.
+      await page.evaluate(() =>
+        (
+          globalThis as unknown as { scrollTo: (x: number, y: number) => void }
+        ).scrollTo(0, 0)
+      );
     }
+    // A doctor gate on someone else's MR (!1271): the queue shows it
+    // read-only, under the notice, with its choices out of reach.
+    await page.click('.tui-dq-open');
+    await page.waitForSelector('.tui-gate-sheet');
+    const locked = page.locator('.tui-gate-question[data-locked]');
+    for (let i = 0; i < 10 && !(await locked.count()); i++) {
+      await page.getByRole('button', { name: 'next gate' }).click();
+      await page.waitForTimeout(120);
+    }
+    await locked.first().waitFor();
+    await shoot(page, `queuelocked-${theme}`);
+    await page.keyboard.press('Escape');
     // A legacy review-post gate (prose context, tier options) in the stage
     // sheet: its context renders as plain markdown in the rail, wherever it
     // sits in the queue. The first gate may be the review sheet, so either
@@ -283,6 +354,16 @@ try {
     await page.click('.tui-burger');
     await page.waitForSelector('[data-part="sidedrawer"][data-side="left"]');
     await shoot(page, `drawer-${theme}`);
+    await page.close();
+
+    // a seatless board: the row menu's one greyed entry says how to get the
+    // author actions back. A viewport shot: the full-page resize closes the
+    // menu.
+    page = await newPage(1280, theme, { seatless: true });
+    await openRowMenuOf(
+      await required(page.locator('.tui-row').first(), 'a first row')
+    );
+    await shoot(page, `seathint-${theme}`, { viewportOnly: true });
     await page.close();
 
     // phone width (the 480px rules: branch and behind hidden, pill tightened)

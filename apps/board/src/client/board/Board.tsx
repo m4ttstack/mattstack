@@ -22,6 +22,7 @@ import {
 } from '../../selection.ts';
 import {
   dataAgeLabel,
+  effectiveSeat,
   filterByDraft,
   filterByMember,
   filterBySlack,
@@ -29,6 +30,7 @@ import {
   freshnessBanner,
   GROUP_KEYS,
   groupMRs,
+  isOwnMr,
   NEEDS_ME_TAB,
   nestStacks,
   parseViewState,
@@ -65,7 +67,11 @@ import { CommentsDrawer } from './CommentsDrawer.tsx';
 import { ConfigModal } from './ConfigModal.tsx';
 import { Controls, ThemeControl } from './Controls.tsx';
 import type { QueueEntry } from './decision-queue.ts';
-import { decidedEntries, useDecisionQueue } from './decision-queue.ts';
+import {
+  decidedEntries,
+  gateReadOnlyReason,
+  useDecisionQueue,
+} from './decision-queue.ts';
 import {
   DecisionQueueComplete,
   DecisionQueueModal,
@@ -1164,11 +1170,12 @@ export function Board() {
   // member filters.
   const selectedMrs = selectionOf(mrs, selected);
   const summaryText = boardSummary(flatMrs, data.slackTemplates);
-  const postableMrs = postableOf(flatMrs);
-  const postableSelected = postableOf(selectedMrs);
+  const seat = effectiveSeat(data.defaultMember, data.tokenUser);
+  const postableMrs = postableOf(flatMrs, seat);
+  const postableSelected = postableOf(selectedMrs, seat);
   const rowCtx: RowContext = {
     local: data.local,
-    self: data.defaultMember === 'all' ? null : data.defaultMember,
+    self: seat,
     slackTemplates: data.slackTemplates,
     slackEnabled: data.slackEnabled,
     onContext: openRowMenu,
@@ -1197,10 +1204,7 @@ export function Board() {
   const actionEnv: ActionEnv = {
     local: data.local,
     slackEnabled: data.slackEnabled,
-    self:
-      data.defaultMember && data.defaultMember !== 'all'
-        ? data.defaultMember
-        : null,
+    self: seat,
     roster: data.members.map(m => m.username),
     peers: data.peers,
     allMrs: data.mrs,
@@ -1591,6 +1595,11 @@ export function Board() {
           onAnswered={retireActiveGate}
           onContinue={retireActiveGate}
           onLostChange={lost => queue.hold(lost ? activeGateId : null)}
+          readOnly={gateReadOnlyReason(
+            queue.active.gate,
+            queue.active.mr,
+            effectiveSeat(data.defaultMember, data.tokenUser)
+          )}
           people={
             new Map(
               data.members.flatMap(m =>
@@ -1612,6 +1621,10 @@ export function Board() {
           mr={draftModal.mr}
           draft={draftModal.draft}
           local={data.local}
+          canPost={isOwnMr(
+            draftModal.mr,
+            effectiveSeat(data.defaultMember, data.tokenUser)
+          )}
           onResolved={handleDraftResolved}
           onClose={() => setDraftModal(null)}
         />
@@ -1624,6 +1637,7 @@ export function Board() {
             commentsFor
           }
           local={data.local}
+          self={effectiveSeat(data.defaultMember, data.tokenUser)}
           onClose={() => setCommentsFor(null)}
         />
       )}

@@ -30,6 +30,7 @@ import {
   rtCommand,
   setSetting,
   subscribe,
+  type GateRow,
 } from '@mattstack/rt-client';
 import { settingsHandler } from '@mattstack/settings-kit/server';
 import pkg from '../package.json';
@@ -89,6 +90,7 @@ import {
 import {
   summarizeDiscussions,
   threadsOpenedBy,
+  threadStarter,
   threadStatusCounts,
   unresolvedReviewerCount,
 } from './discussions.ts';
@@ -142,9 +144,9 @@ import {
   type GateResumeEventIo,
   type KindResumeIo,
 } from './gates/resume.ts';
-import { RunMrResolver } from './gates/run-mr.ts';
+import { normalizeMrUrl, RunMrResolver } from './gates/run-mr.ts';
 import { type GateAnswers } from './gates/store.ts';
-import { planSweep, pruneOffBoardGates } from './gates/sweep.ts';
+import { domainForKind, planSweep, pruneOffBoardGates } from './gates/sweep.ts';
 import { gateOrigin } from './gates/wait-meta.ts';
 import {
   closeTab,
@@ -308,7 +310,7 @@ import {
   writeStandDown,
 } from './triage/memory-store.ts';
 import { manualDoctorFields, resolveDispatchIdentity } from './triage/run.ts';
-import { resolveStandDownTarget } from './view.ts';
+import { effectiveSeat, isOwnMr, resolveStandDownTarget } from './view.ts';
 
 /** Capture-harness mode: boot from a committed fixture dir instead of live
     config, serve canned endpoint responses, hold no tokens, start no relay.
@@ -720,6 +722,61 @@ async function readLatchDetail(mr: BoardMR): Promise<MRDetail | null> {
   const res = await readDiscussions(repoId, mr.iid);
   if (!res.ok || !res.data) return null;
   return { discussions: res.data.discussions } as MRDetail;
+}
+
+/** A body names its MR twice, by url and by iid; the url found it, so an iid
+    that disagrees is refused rather than acted on. */
+function iidMismatch(
+  parsed: { mrUrl: string; iid: number },
+  mr: BoardMR
+): Response | null {
+  return parsed.iid === mr.iid
+    ? null
+    : new Response(`iid ${parsed.iid} does not match ${parsed.mrUrl}`, {
+        status: 400,
+      });
+}
+
+/** The one refusal every author-only route answers with when the MR is not
+    the seat's; null when it is. An "all" board owns nothing, so it refuses
+    everything. */
+function requireOwnMr(mr: BoardMR): Response | null {
+  return ownedHere(mr) ? null : new Response('not your MR', { status: 403 });
+}
+
+/** The seat authored it and, once the GitLab token's user is known (the
+    identity /doctor and triage cache), so did that user: a seat set to
+    someone else's name never borrows their MRs. */
+function ownedHere(mr: BoardMR): boolean {
+  return isOwnMr(mr, actingSeat());
+}
+
+function actingSeat(): string | null {
+  return effectiveSeat(
+    config.defaultMember,
+    readMemory().identity?.username ?? null
+  );
+}
+
+/** A respond or doctor gate is the MR author's to answer; a review gate
+    stays with the reviewer who ran it. The kind and MR come from the cached
+    gate row and the board snapshot, never the request. A respond or doctor
+    gate whose MR is not on the board is refused. */
+async function requireGateOwner(
+  row: GateRow | undefined
+): Promise<Response | null> {
+  if (!row) return null;
+  const domain = domainForKind(row.kind);
+  if (domain !== 'respond' && domain !== 'doctor') return null;
+  const url = row.subject.startsWith('mr:')
+    ? normalizeMrUrl(row.subject.slice(3))
+    : null;
+  const mr = url
+    ? (await cache.get()).mrs.find(
+        m => !!m.webUrl && normalizeMrUrl(m.webUrl) === url
+      )
+    : undefined;
+  return mr ? requireOwnMr(mr) : new Response('not your MR', { status: 403 });
 }
 
 const sendThreadWrite: ThreadWriteSend = (verb, payload) =>
@@ -1239,6 +1296,7 @@ const httpServer = Bun.serve({
           JSON.stringify({
             title: config.title,
             defaultMember: config.defaultMember,
+            tokenUser: readMemory().identity?.username ?? null,
             members: buildRoster(visible, visibleMrs, memberNames),
             allMembers: config.members.map(m => ({
               username: m.username,
@@ -1532,6 +1590,31 @@ const httpServer = Bun.serve({
             `"${change.repo}" is not a recognized repo identity`,
             { status: 400 }
           );
+        {
+          const read = await readDiscussions(repoId, change.iid);
+          if (!read.ok || !read.data)
+            return new Response(
+              `discussions read failed: ${read.error ?? 'empty daemon response'}`,
+              { status: 502 }
+            );
+          const starter = threadStarter(
+            { discussions: read.data.discussions } as MRDetail,
+            change.discussionId
+          );
+          if (starter === undefined)
+            return new Response('unknown thread', { status: 404 });
+          // Ownership comes from the snapshot, never the body's `author`.
+          const seat = actingSeat();
+          const mr = (await cache.get()).mrs.find(
+            m => m.iid === change.iid && repoIdentityField(m.rtRepo) === repoId
+          );
+          const mine = !!mr && ownedHere(mr);
+          const started =
+            starter !== null &&
+            canonicalUsername(starter) === canonicalUsername(seat ?? '');
+          if (seat === null || (!mine && !started))
+            return new Response('not your thread', { status: 403 });
+        }
         return threadWriteResponse(
           await resolveThread(
             sendThreadWrite,
@@ -1576,6 +1659,10 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr) {
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+        }
+        {
+          const mismatch = iidMismatch(parsed, mr);
+          if (mismatch) return mismatch;
         }
         const author = mrAuthorLabel(mr);
         const existing = readReviewStates().get(parsed.mrUrl);
@@ -1753,6 +1840,14 @@ const httpServer = Bun.serve({
         if (!mr) {
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
         }
+        {
+          const mismatch = iidMismatch(parsed, mr);
+          if (mismatch) return mismatch;
+        }
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
+        }
         const author = mrAuthorLabel(mr);
         const existing = readRespondStates().get(parsed.mrUrl);
         const repo = resolveLaunchRepo(
@@ -1885,6 +1980,14 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr) {
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+        }
+        {
+          const mismatch = iidMismatch(parsed, mr);
+          if (mismatch) return mismatch;
+        }
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
         }
         const author = mrAuthorLabel(mr);
         const existing = readDoctorStates().get(parsed.mrUrl);
@@ -2073,6 +2176,10 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === mrUrl);
         if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
+        }
         try {
           const projectId = parseRepoId(mr.repositoryId);
           const mutator = new NoteMutator(config.gitlabHost, gitlabToken);
@@ -2127,8 +2234,13 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
-        if (mr.author.username !== config.defaultMember) {
-          return new Response('not your MR', { status: 403 });
+        {
+          const mismatch = iidMismatch(parsed, mr);
+          if (mismatch) return mismatch;
+        }
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
         }
         if (mr.isDraft === draft) {
           return new Response(JSON.stringify({ ok: true, unchanged: true }), {
@@ -2213,8 +2325,9 @@ const httpServer = Bun.serve({
       }
       case '/mr/action': {
         // Fire one GitLab-side MR action (merge / rebase / auto-merge arm or
-        // cancel) from the row menu. Visibility is the client's job (the
-        // view-model's button state); GitLab itself is the permission check.
+        // cancel) from the row menu, on the seat's own MR only. Which of them
+        // shows is the client's job (the view-model's button state); GitLab
+        // still has the last word on permission.
         if (req.method !== 'POST')
           return new Response('method not allowed', { status: 405 });
         if (!isLocalRequest(req, server))
@@ -2242,6 +2355,14 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+        {
+          const mismatch = iidMismatch(parsed, mr);
+          if (mismatch) return mismatch;
+        }
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
+        }
         const path = projectPathFromWebUrl(parsed.mrUrl, config.gitlabHost);
         if (!path)
           return new Response(
@@ -2308,6 +2429,12 @@ const httpServer = Bun.serve({
           return new Response('expected { gateId: string, answers: object }', {
             status: 400,
           });
+        }
+        {
+          const refused = await requireGateOwner(
+            gateCache.rows().find(r => r.id === gateId)
+          );
+          if (refused) return refused;
         }
         const result = await answerGate(gateId, answers as GateAnswers, {
           isAnswerable: id =>
@@ -2508,6 +2635,10 @@ const httpServer = Bun.serve({
         if (!resolved.ok)
           return new Response(resolved.error, { status: resolved.status });
         const { mr, descendants } = resolved;
+        {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
+        }
 
         const dayStamp = new Date().toISOString().slice(0, 10);
         // Serialized behind the same claim bin/triage.ts's own pass holds
@@ -2710,11 +2841,15 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+        {
+          const mismatch = iidMismatch(parsed, mr);
+          if (mismatch) return mismatch;
+        }
         // Review asks travel author -> reviewer about your own MR; a respond
         // ask is the reverse, reviewer -> author about theirs, and only ever
         // to the author.
         if (kind === 'respond') {
-          if (mr.author.username === config.defaultMember)
+          if (ownedHere(mr))
             return new Response('cannot ask yourself to respond', {
               status: 403,
             });
@@ -2725,8 +2860,10 @@ const httpServer = Bun.serve({
             return new Response('a respond ask goes to the MR author', {
               status: 400,
             });
-        } else if (mr.author.username !== config.defaultMember)
-          return new Response('not your MR', { status: 403 });
+        } else {
+          const refused = requireOwnMr(mr);
+          if (refused) return refused;
+        }
         const draft = buildAskDraft(reviewer, kind, {
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
@@ -3128,6 +3265,12 @@ const httpServer = Bun.serve({
           return new Response('one or more mrUrls are not on the board', {
             status: 400,
           });
+        }
+        // A summary that lists someone else's MR is refused whole rather than
+        // trimmed: the header was written for the list as sent.
+        for (const m of picked) {
+          const refused = requireOwnMr(m);
+          if (refused) return refused;
         }
         // An explicit body channel (already validated above) always wins.
         // Otherwise derive per-MR: resolve/sweeper look in the tab's channel

@@ -36,6 +36,9 @@ export interface ReReviewRequest {
   /** Absent means re-review; 'review' is a first-look ask (peer nudges only,
       a latch is re-review by construction). */
   kind?: AskKind;
+  /** Whether this board's identity authored the MR. A respond ask acts only
+      on your own MR, so anything but true refuses it. */
+  ownMr?: boolean;
 }
 
 /** The whole re-review guardrail, one pure function, shared by both sources.
@@ -57,6 +60,7 @@ export function decideRequest(
     return { action: 'expire', reason: 'stale' };
   }
   if (req.kind === 'respond') {
+    if (req.ownMr !== true) return { action: 'reject', reason: 'not-your-mr' };
     // A respond ask runs on the author's own MR, so the review lane says
     // nothing here; the only lane that can collide is respond itself.
     if (
@@ -124,6 +128,8 @@ export function plainReason(reason: string, cfg: TriageConfig): string {
       return 'Auto re-review is off';
     case 'already-handled':
       return 'Already handled';
+    case 'not-your-mr':
+      return "It isn't your MR";
     default:
       return 'Held back by a board limit';
   }
@@ -161,7 +167,8 @@ export function decideNudge(
   m: MrMemory,
   cfg: TriageConfig,
   now: number,
-  ownRespond?: { status: string }
+  ownRespond?: { status: string },
+  ownMr?: boolean
 ): NudgeDecision {
   return decideRequest(
     {
@@ -171,6 +178,7 @@ export function decideNudge(
       receivedAt: nudge.receivedAt,
       handled: !!nudge.handled,
       kind: nudge.kind,
+      ownMr,
     },
     ownReview,
     m,
@@ -186,6 +194,8 @@ export interface NudgePassDeps {
   readReviewStates(): Map<string, ReviewState>;
   /** The respond lane per MR, the one lane a respond ask can collide with. */
   readRespondStates(): Map<string, { status: string }>;
+  /** Whether this board's identity authored the MR; respond asks need it. */
+  isOwnMr(mrUrl: string): boolean;
   launchAsk(mrUrl: string, iid: number, kind: AskKind): Promise<ReReviewLaunch>;
   publishOutcome(to: string, payload: NudgeOutcomePayload): void;
   memory: DispatchMemory;
@@ -219,7 +229,8 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       m,
       deps.cfg,
       now,
-      responds.get(nudge.mrUrl)
+      responds.get(nudge.mrUrl),
+      deps.isOwnMr(nudge.mrUrl)
     );
     // Skips come first and audit nothing: a handled nudge is re-read on every
     // cron run, and auditing it would grow the log forever with a line that
