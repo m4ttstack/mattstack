@@ -1871,9 +1871,9 @@ describe('skills anatomy route', () => {
 });
 
 describe('skills source route', () => {
-  const composition = {
+  const compositionOf = (packDir: string) => ({
     pack: 'acme',
-    packDir: '/packs/acme',
+    packDir,
     verbs: [
       {
         sourcePath:
@@ -1883,11 +1883,15 @@ describe('skills source route', () => {
     fills: [],
     binders: [],
     targets: [],
-  };
-  const compositionRt = () =>
+  });
+  const compositionRt = (packDir = '/packs/acme') =>
     fakeRtHandler(argv =>
       argv[1] === 'composition'
-        ? { code: 0, stdout: JSON.stringify(composition), stderr: '' }
+        ? {
+            code: 0,
+            stdout: JSON.stringify(compositionOf(packDir)),
+            stderr: '',
+          }
         : { code: 1, stdout: '', stderr: '' }
     );
   const files: Record<string, string> = {
@@ -1899,7 +1903,14 @@ describe('skills source route', () => {
     '/packs/acme/../other/SKILL.md': 'climbs out lexically',
     '/etc/passwd': 'root:x:0:0',
     '/packs/acme/notes.txt': 'not markdown',
+    '/packs/acme/attachments/alias/SKILL.md':
+      'the alias path, not the real one',
+    '/packs/acme/attachments/empty/SKILL.md': '',
+    '/packs/acme/attachments/trailing/SKILL.md': 'a\nb\n',
+    '/real/packs/acme/attachments/stage-plan/SKILL.md': 'under a linked root',
   };
+  const linking = (links: Record<string, string>) => async (p: string) =>
+    links[p] ?? p;
   const read: ReadPackFile = async p => {
     if (p in files) return files[p]!;
     throw new Error('ENOENT');
@@ -1973,7 +1984,9 @@ describe('skills source route', () => {
       compositionRt().run,
       noGit(),
       read,
-      async () => '/elsewhere/SKILL.md'
+      linking({
+        '/packs/acme/attachments/stage-plan/SKILL.md': '/elsewhere/SKILL.md',
+      })
     );
 
     const res = await getSource(
@@ -2049,6 +2062,154 @@ describe('skills source route', () => {
     );
 
     expect(res.status).toBe(413);
+  });
+
+  it('serves a file under a root that itself resolves through a symlink', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt('/link/packs/acme').run,
+      noGit(),
+      read,
+      linking({
+        '/link/packs/acme': '/real/packs/acme',
+        '/link/packs/acme/attachments/stage-plan/SKILL.md':
+          '/real/packs/acme/attachments/stage-plan/SKILL.md',
+      })
+    );
+
+    const res = await getSource(
+      app,
+      '/link/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      path: '/link/packs/acme/attachments/stage-plan/SKILL.md',
+      content: 'under a linked root',
+    });
+  });
+
+  it('still refuses an escape when the root is linked', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt('/link/packs/acme').run,
+      noGit(),
+      read,
+      linking({
+        '/link/packs/acme': '/real/packs/acme',
+        '/link/packs/acme/attachments/stage-plan/SKILL.md':
+          '/elsewhere/SKILL.md',
+      })
+    );
+
+    const res = await getSource(
+      app,
+      '/link/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  it('falls back to the raw root when a root does not resolve', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      async p => {
+        if (p === '/packs/acme') throw new Error('ENOENT');
+        return p;
+      }
+    );
+
+    const res = await getSource(
+      app,
+      '/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it('reads the resolved real path, not the requested one', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      linking({
+        '/packs/acme/attachments/alias/SKILL.md':
+          '/packs/acme/attachments/stage-plan/SKILL.md',
+      })
+    );
+
+    const res = await getSource(app, '/packs/acme/attachments/alias/SKILL.md');
+
+    await expect(res.json()).resolves.toEqual({
+      path: '/packs/acme/attachments/alias/SKILL.md',
+      content: 'a\nb',
+      lines: 2,
+    });
+  });
+
+  it('counts lines the way an editor does', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      identity
+    );
+
+    const trailing = await getSource(
+      app,
+      '/packs/acme/attachments/trailing/SKILL.md'
+    );
+    const empty = await getSource(
+      app,
+      '/packs/acme/attachments/empty/SKILL.md'
+    );
+
+    await expect(trailing.json()).resolves.toMatchObject({
+      content: 'a\nb\n',
+      lines: 2,
+    });
+    await expect(empty.json()).resolves.toMatchObject({
+      content: '',
+      lines: 0,
+    });
+  });
+
+  it('404s a relative path even when it would resolve inside a root', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      linking({
+        'attachments/stage-plan/SKILL.md':
+          '/packs/acme/attachments/stage-plan/SKILL.md',
+      })
+    );
+
+    const res = await getSource(app, 'attachments/stage-plan/SKILL.md');
+
+    expect(res.status).toBe(404);
+  });
+
+  it('is 503 when rt is not installed, 404 for every other failure', async () => {
+    const missing = vi.fn(async () => {
+      throw new RtNotFoundError(['/nowhere/rt']);
+    });
+    const broken = vi.fn(async () => {
+      throw new Error('spawn exploded');
+    });
+
+    const notInstalled = mountSkills(new Hono(), missing, noGit(), read);
+    const failed = mountSkills(new Hono(), broken, noGit(), read);
+    const path = '/packs/acme/attachments/stage-plan/SKILL.md';
+
+    expect((await getSource(notInstalled, path)).status).toBe(503);
+    expect((await getSource(failed, path)).status).toBe(404);
   });
 
   it('400s without a pack or a path', async () => {

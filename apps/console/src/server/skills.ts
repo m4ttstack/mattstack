@@ -580,6 +580,15 @@ const sourceQuery = validator(
 
 const MAX_SOURCE_BYTES = 1_048_576;
 
+/** Parity with rt's own file line count (`fileLineCount` in
+    `commands/skills.ts`), which anatomy's line ranges are measured against:
+    a trailing newline ends the last line rather than starting another. */
+function fileLineCount(text: string): number {
+  if (text === '') return 0;
+  const count = text.split('\n').length;
+  return text.endsWith('\n') ? count - 1 : count;
+}
+
 const compileQuery = validator(
   'query',
   (value): { pack?: string; verb?: string } => {
@@ -1268,7 +1277,11 @@ export function mountSkills(
       }
       const notFound = () =>
         c.json({ error: 'not a skill file of this pack' }, 404);
-      if (!path.endsWith('.md') || path.split('/').includes('..')) {
+      if (
+        !path.startsWith('/') ||
+        !path.endsWith('.md') ||
+        path.split('/').includes('..')
+      ) {
         return notFound();
       }
       try {
@@ -1290,10 +1303,14 @@ export function mountSkills(
           const root = verb.sourcePath ? pluginRootOf(verb.sourcePath) : null;
           if (root) roots.add(root);
         }
-        // Confinement is judged on the resolved path, so a symlink inside a
-        // root cannot lead out of it.
+        // Confinement compares resolved against resolved, so a symlink inside
+        // a root cannot lead out of it and a root reached through a symlink
+        // still admits its own files.
+        const realRoots = await Promise.all(
+          [...roots].map(root => realpath(root).catch(() => root))
+        );
         const real = await realpath(path);
-        if (![...roots].some(r => real === r || real.startsWith(`${r}/`))) {
+        if (!realRoots.some(r => real === r || real.startsWith(`${r}/`))) {
           return notFound();
         }
         const content = await readPackFile(real);
@@ -1304,11 +1321,14 @@ export function mountSkills(
           {
             path,
             content,
-            lines: content.split('\n').length,
+            lines: fileLineCount(content),
           } as SkillsSourceResponse,
           200
         );
-      } catch {
+      } catch (err) {
+        if (err instanceof RtNotFoundError) {
+          return c.json({ error: err.message }, 503);
+        }
         return notFound();
       }
     })
