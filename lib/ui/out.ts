@@ -177,6 +177,15 @@ export function fail(f: FailureInput, ...after: Block[]): void {
   emit([failure(f), ...after], "stderr");
 }
 
+/**
+ * Blocks for a person on stderr, whatever the verb. A notice that fires
+ * before the verb is known, or under any verb, cannot use stdout: another
+ * program may be reading it. It does not follow payloadOnStdout.
+ */
+export function note(...blocks: Block[]): void {
+  emit(blocks, "stderr");
+}
+
 /** Whether a person is reading `stream` right now: the gate print and fail apply. */
 export function isHuman(stream: Stream = "stdout"): boolean {
   return human(stream);

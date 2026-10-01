@@ -258,3 +258,26 @@ test("off a terminal no helper runs and nothing is logged about it", () => {
   out.print(out.line("done", "x"));
   expect(cliLogLines().length).toBe(before);
 });
+
+test("note writes to stderr and never follows payloadOnStdout", () => {
+  out.__test__.setHuman(() => false);
+  out.note(out.line("warn", "The rt daemon is not running"), out.callout("next", out.cmd("rt daemon start")));
+  out.print(out.line("done", "Listed"));
+  expect(stderr.join("")).toBe("[warning] The rt daemon is not running\n  next: rt daemon start\n");
+  expect(stdout.join("")).toBe("[ok] Listed\n");
+});
+
+test("note is styled when stderr is a terminal, whatever stdout is", () => {
+  out.__test__.setHuman((stream) => stream === "stderr");
+  out.note(out.line("warn", "x"));
+  expect(stderr.join("")).toBe("STYLED\n");
+  expect(stdout.join("")).toBe("");
+  const [, ...lines] = sent();
+  expect(lines.map((l) => l.t)).toEqual(["hello", "line"]);
+});
+
+test("note with no blocks writes nothing", () => {
+  out.note();
+  expect(stderr.join("")).toBe("");
+  expect(existsSync(record)).toBe(false);
+});
