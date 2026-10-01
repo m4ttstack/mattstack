@@ -84,7 +84,7 @@ const note = (id: number, username: string, body: string) => ({
 const threadA = {
   discussionId: 'dA',
   status: 'awaiting',
-  notes: [note(9001, 'matt', 'rename this')],
+  notes: [note(9001, 'kim', 'rename this')],
 };
 const threadB = {
   discussionId: 'dB',
@@ -399,18 +399,40 @@ test('resolving a thread keeps its place in the drawer and offers unresolve', as
   buttonIn(thread('dA'), 'unresolve');
 });
 
-test('a thread someone else started takes a reply but offers no resolve', async () => {
+const buttonsIn = (id: string) =>
+  [...thread(id).querySelectorAll('button')].map(b => b.textContent?.trim());
+
+test('on your own MR every thread offers resolve, whoever started it', async () => {
   await renderBoardWithDrawerOpen();
-  const labels = () =>
-    [...thread('dB').querySelectorAll('button')].map(b =>
-      b.textContent?.trim()
-    );
-  expect(labels()).toContain('reply');
-  expect(labels()).not.toContain('resolve');
+  expect(buttonsIn('dA')).toContain('resolve');
+  expect(buttonsIn('dB')).toContain('resolve');
+});
+
+test("on someone else's MR only a thread the seat started offers resolve", async () => {
+  servedData = {
+    ...BOARD_DATA,
+    members: [
+      { username: 'matt', name: 'matt', count: 0 },
+      { username: 'kim', name: 'kim', count: 1 },
+    ],
+    mrs: [{ ...BOARD_DATA.mrs[0], author: { username: 'kim', name: 'Kim' } }],
+  };
+  servedDiscussions = {
+    threads: [
+      { ...threadA, notes: [note(9001, 'matt', 'rename this')] },
+      threadB,
+    ],
+    comments: [],
+  };
+  history.replaceState(null, '', '/?member=all');
+  await renderBoardWithDrawerOpen();
+  expect(buttonsIn('dA')).toContain('resolve');
+  expect(buttonsIn('dB')).toContain('reply');
+  expect(buttonsIn('dB')).not.toContain('resolve');
   await press(thread('dB'), 'reply');
   await type(replyBox('dB')!, 'added one');
-  expect(labels()).toContain('send');
-  expect(labels()).not.toContain('send & resolve');
+  expect(buttonsIn('dB')).toContain('send');
+  expect(buttonsIn('dB')).not.toContain('send & resolve');
 });
 
 test('an "all" board resolves nothing, not even a thread the seat would own', async () => {

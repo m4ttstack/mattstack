@@ -1555,8 +1555,13 @@ const httpServer = Bun.serve({
           );
           if (starter === undefined)
             return new Response('unknown thread', { status: 404 });
+          // Ownership comes from the snapshot, never the body's `author`.
           const seat = seatOf(config.defaultMember);
-          if (seat === null || starter !== seat)
+          const mr = (await cache.get()).mrs.find(
+            m => m.iid === change.iid && repoIdentityField(m.rtRepo) === repoId
+          );
+          const mine = !!mr && isOwnMr(mr, seat);
+          if (seat === null || (!mine && starter !== seat))
             return new Response('not your thread', { status: 403 });
         }
         return threadWriteResponse(

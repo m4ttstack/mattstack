@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, ICONS, Markdown, SideDrawer } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import type { BoardMR } from '../../data.ts';
+import { isOwnMr } from '../../view.ts';
 import { getDiscussions, postThreadWrite } from '../api.ts';
 import type { CommentNote, CommentThread, GeneralComment } from '../types.ts';
 import { ago, cleanTitle, THREAD_ICON, THREAD_LABEL } from './format.ts';
@@ -364,7 +365,8 @@ function ThreadCard({
   self: string | null;
 }) {
   const id = thread.discussionId;
-  const canResolve = self !== null && thread.notes[0]?.username === self;
+  const canResolve =
+    isOwnMr(mr, self) || (self !== null && thread.notes[0]?.username === self);
   const resolved = thread.status === 'resolved';
   const resolving =
     writes?.pending?.id === id && writes.pending.what === 'resolve';
@@ -438,8 +440,8 @@ function ThreadCard({
 /** Right-side drawer showing an MR's review threads (each with its status and
     notes) plus a section for general MR comments: the Overview-tab notes that
     aren't threads, so a later author comment isn't invisible. Lazily fetched.
-    A local board can also reply to any thread here, and resolve the ones
-    its seat started. */
+    A local board can also reply to any thread here, and resolve every
+    thread on its seat's own MR plus the ones its seat started elsewhere. */
 function CommentsDrawer({
   mr,
   local,
@@ -448,7 +450,8 @@ function CommentsDrawer({
 }: {
   mr: BoardMR;
   local: boolean;
-  /** The board's seat; it resolves only the threads it started. */
+  /** The board's seat: it resolves any thread on its own MR, and elsewhere
+      only the threads it started. */
   self: string | null;
   onClose: () => void;
 }) {
