@@ -10,7 +10,10 @@ import { __test__ as pickImplTest, type PickImpl } from "../../lib/ui/pick.ts";
 import type { PickRequest, PickResult } from "../../lib/ui/protocol.ts";
 import * as sources from "../../lib/skills/sources.ts";
 import { readManifestBindings, stripJsonc } from "../../lib/skills/sources.ts";
-import { applyBind, regenerateOutcomeFor, regeneratePackFile, skillsBind, skillsCompile } from "../skills.ts";
+import * as skillsMaterialize from "../../lib/setup/skills-materialize.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import { applyBind, bindBlocks, regenerateOutcomeFor, regeneratePackFile, shadowWarning, skillsBind, skillsCompile } from "../skills.ts";
 
 /**
  * pickBindArgs opens a separate runPick session per omitted positional
@@ -356,7 +359,7 @@ describe("skillsBind", () => {
           expect("regenerated" in payload).toBe(false);
         } else {
           expect(io.lines()).toContain(
-            "acme-base is a base pack: packs that extend it pick this up once it is published and their bindings files are regenerated",
+            "  note: acme-base is a base pack. Packs that extend it pick this up once it is published and their bindings are rebuilt.",
           );
         }
       },
@@ -558,7 +561,7 @@ describe("skillsBind: pipeline stages", () => {
     ]);
 
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
-    expect(io.lines()).toContain("stage-plan.domain: (unbound) -> acme:plan-policy");
+    expect(io.lines()).toContain("[not yet] stage-plan.domain  (unbound) -> acme:plan-policy");
   });
 
   test("a slot the stage does not declare still errors with the known-slots list", async () => {
@@ -614,7 +617,7 @@ describe("skillsBind: pipeline stages", () => {
 
     // watch-ci's engine (not stage-plan's) is the one loaded when a name collides:
     // its slot is "domain" with contract "watch-ci-domain@1", satisfied by this fill.
-    expect(io.lines()).toContain("stage-plan.domain: (unbound) -> acme:watch-ci-domain-v1");
+    expect(io.lines()).toContain("[not yet] stage-plan.domain  (unbound) -> acme:watch-ci-domain-v1");
   });
 
   test("binding a stage's slot recompiles the whole pack, updating the orchestrator's baked-in allowed-tools", async () => {
@@ -667,7 +670,7 @@ describe("skillsBind: pipeline stages", () => {
       "--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
     ]);
 
-    expect(io.lines()).toContain("stage-plan.domain: acme:plan-policy -> acme:plan-policy-v2");
+    expect(io.lines()).toContain("[ok] stage-plan.domain  acme:plan-policy -> acme:plan-policy-v2");
     const bindings = readManifestBindings(manifestPath);
     expect(bindings["mattstack:stage-plan"]?.domain).toBe("acme:plan-policy-v2");
   });
@@ -696,7 +699,7 @@ describe("bind writes the team pack fragment", () => {
     expect(JSON.parse(stripJsonc(fragment)).bindings).toEqual({ "mattstack:stage-plan": { domain: "acme:plan-policy" } });
     expect(readManifestBindings(manifest)["mattstack:stage-plan"]).toEqual({ domain: "acme:plan-policy" });
     // The summary suffix is the only observable proof the fragment write ran.
-    expect(io.lines().some((l) => l.includes(`fragment updated: ${fragmentPath}`))).toBe(true);
+    expect(io.lines().some((l) => l.includes(`bindings file: ${fragmentPath}`))).toBe(true);
   });
 
   test("a standalone pack whose fragment is the manifest is written once", async () => {
@@ -707,7 +710,7 @@ describe("bind writes the team pack fragment", () => {
     expect(text.match(/acme:plan-policy/g)?.length).toBe(1);
     // A second write onto the same text is idempotent, so the count above alone
     // cannot prove the realpath guard skipped it; the missing summary suffix can.
-    expect(io.lines().some((l) => l.includes("fragment updated"))).toBe(false);
+    expect(io.lines().some((l) => l.includes("pack's own bindings file"))).toBe(false);
   });
 
   test("a fragment with no top-level bindings key gains one", async () => {
@@ -736,6 +739,73 @@ describe("bind writes the team pack fragment", () => {
     expect(warning).toBeDefined();
     expect(warning).toContain("outside the pack");
     expect(readManifestBindings(manifest)["mattstack:stage-plan"]).toEqual({ domain: "acme:plan-policy" });
+  });
+
+  test("a bind note under --json keeps stdout to one envelope", async () => {
+    const { pack, ms, manifest, root } = fixtureWithFragment(`// acme fragment\n{\n  "version": 1,\n  "bindings": {}\n}\n`);
+    const fragmentPath = join(pack, "pack", "skills.jsonc");
+    const outsidePath = join(root, "outside-fragment.jsonc");
+    writeFile(outsidePath, `// outside fragment\n{\n  "version": 1,\n  "bindings": {}\n}\n`);
+    rmSync(fragmentPath);
+    symlinkSync(outsidePath, fragmentPath);
+    io.clear();
+
+    await skillsBind(["stage-plan", "domain", "acme:plan-policy", "--json", "--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest]);
+
+    expect(io.lines()).toHaveLength(1);
+    expect(typeof JSON.parse(io.lines()[0]!).ok).toBe("boolean");
+    expect(io.errLines()).toEqual([`[warning] The pack's bindings file points outside the pack, so it was left alone  ${fragmentPath}`]);
+  });
+
+  describe("a bind another layer shadows", () => {
+    let savedHome: string | undefined;
+    let savedEnginePackDir: string | undefined;
+    beforeEach(() => {
+      savedHome = process.env.HOME;
+      savedEnginePackDir = process.env.RT_ENGINE_PACK_DIR;
+    });
+    afterEach(() => {
+      if (savedHome === undefined) delete process.env.HOME;
+      else process.env.HOME = savedHome;
+      if (savedEnginePackDir === undefined) delete process.env.RT_ENGINE_PACK_DIR;
+      else process.env.RT_ENGINE_PACK_DIR = savedEnginePackDir;
+    });
+
+    test.each([["--json"], ["text"]])("%s: the warning goes to stderr and stdout carries only the result", async (mode) => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-shadow-")));
+      cpSync(FIX, root, { recursive: true });
+      process.env.HOME = join(root, "home");
+      mkdirSync(process.env.HOME, { recursive: true });
+      process.env.RT_ENGINE_PACK_DIR = join(root, "engine");
+      const pack = join(root, "pack");
+      writeFile(join(pack, "pack", "skills.jsonc"), `{\n  "bindings": {}\n}\n`);
+      const manifest = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
+      const shadowed = `//   mattstack:stage-plan domain <- override\n{\n  "pipelines": { "feature": ["mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship"] },\n  "bindings": { "mattstack:stage-plan": { "domain": "me:plan-policy" } }\n}\n`;
+      writeFile(manifest, `{\n  "pipelines": { "feature": ["mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship"] },\n  "bindings": {}\n}\n`);
+      const spies = [
+        spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(join(root, "mattstack-home"))),
+        spyOn(skillsMaterialize, "findEnginePackDir").mockImplementation(() => join(root, "engine")),
+        spyOn(skillsMaterialize, "registeredCheckoutForSlug").mockImplementation(async () => join(root, "checkout")),
+        spyOn(skillsMaterialize, "materializeSkills").mockImplementation((async () => {
+          writeFile(manifest, shadowed);
+          return { skipped: false, repos: [{ name: "widgets", path: join(root, "checkout"), ok: true, detail: "", packs: [{ pack: "widgets", path: manifest, ok: true, detail: "" }] }] };
+        }) as never),
+      ];
+      io.clear();
+      try {
+        await runExpectingCleanExit(() => skillsBind(["stage-plan", "domain", "acme:plan-policy", "--pack-dir", pack, "--manifest", manifest, ...(mode === "--json" ? ["--json"] : [])]));
+      } finally {
+        for (const spy of spies) spy.mockRestore();
+      }
+
+      const warning = `[warning] stage-plan.domain is still decided by the override layer  your change is saved, but that layer wins`;
+      expect(io.errLines()).toContain(warning);
+      expect(io.lines().some((l) => l.includes("still decided by"))).toBe(false);
+      if (mode === "--json") {
+        expect(io.lines()).toHaveLength(1);
+        expect(JSON.parse(io.lines()[0]!)).toMatchObject({ verb: "stage-plan", slot: "domain", shadowedBy: "override" });
+      }
+    });
   });
 
   test("an unreadable fragment (a directory at the fragment path) leaves the manifest bindings unchanged", async () => {
@@ -844,8 +914,9 @@ describe("applyBind", () => {
         expect(payload).toMatchObject({ ok: false, regenerated: false, fragmentUpdated: fragmentPath });
         expect(payload.regenerateDetail).toContain("engine-pack-missing");
       } else {
-        expect(errors.some((l) => l.includes("bindings file not regenerated") && l.includes("engine-pack-missing"))).toBe(true);
-        expect(errors.some((l) => l.includes("rt skills materialize"))).toBe(true);
+        expect(errors[0]).toBe("The bindings file was not rebuilt, so nothing was recompiled");
+        expect(errors.join("\n")).toContain("engine-pack-missing");
+        expect(errors.join("\n")).toContain("rt skills materialize");
       }
     });
   });
@@ -950,5 +1021,35 @@ describe("applyBind", () => {
     writeFile(manifestPath, `{ "bindings": {} }`);
     const result = await applyBind({ manifestPath, packDir, engineRef: "mattstack:shepherdr", slotName: "tiering", fill: "mattstack:model-tiering", fixtureMode: false, materialize: async () => { throw new Error("must not run"); } });
     expect(result).toEqual({ fragmentUpdated: null, shadowedBy: null });
+  });
+});
+
+describe("bindBlocks", () => {
+  const bind = { verb: "stage-plan", slot: "domain", from: "(unbound)", to: "acme:plan-policy", dryRun: false, fragmentUpdated: null, basePack: null };
+
+  test("a bind is one line: the slot, then what it was and what it is", () => {
+    expect(renderPlain(bindBlocks(bind))).toBe("[ok] stage-plan.domain  (unbound) -> acme:plan-policy\n");
+  });
+
+  test("a dry run is pending", () => {
+    expect(renderPlain(bindBlocks({ ...bind, dryRun: true }))).toBe("[not yet] stage-plan.domain  (unbound) -> acme:plan-policy\n");
+  });
+
+  test("the pack's own bindings file and a base pack each add a note", () => {
+    expect(renderPlain(bindBlocks({ ...bind, fragmentUpdated: "/z/packs/acme/pack/skills.jsonc", basePack: "acme-base" }))).toBe(
+      [
+        "[ok] stage-plan.domain  (unbound) -> acme:plan-policy",
+        "  note: Also saved in the pack's own bindings file: /z/packs/acme/pack/skills.jsonc",
+        "  note: acme-base is a base pack. Packs that extend it pick this up once it is published and their bindings are rebuilt.",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  test("the shadow warning is a note on stderr, never stdout", () => {
+    io.clear();
+    ui.note(shadowWarning("watch-ci", "domain", "override"));
+    expect(io.stdout()).toBe("");
+    expect(io.errLines()).toEqual(["[warning] watch-ci.domain is still decided by the override layer  your change is saved, but that layer wins"]);
   });
 });

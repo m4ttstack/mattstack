@@ -2348,7 +2348,7 @@ export async function applyBind(opts: {
     if (fragmentIsManifest) {
       throw new SkillsUsageError(`the bindings file ${fragmentPath} resolves outside the pack (${fragmentReal}); nothing written`);
     }
-    console.error(`rt skills bind: ${fragmentPath} resolves outside the pack; skipping fragment write`);
+    out.note(out.line("warn", "The pack's bindings file points outside the pack, so it was left alone", fragmentPath));
     return writeManifestOnly();
   }
   if (fragmentIsManifest) return writeManifestOnly();
@@ -2398,6 +2398,18 @@ export async function regeneratePackFile(manifestPath: string): Promise<Regenera
   const dir = await registeredCheckoutForSlug(p, manifestRepoKey(manifestPath));
   if (!dir) return { ok: false, detail: `no registered repo wrote ${manifestPath}` };
   return regenerateOutcomeFor(await materializeSkills(p, { dir }), manifestPath);
+}
+
+export function bindBlocks(b: { verb: string; slot: string; from: string; to: string; dryRun: boolean; fragmentUpdated: string | null; basePack: string | null }): Block[] {
+  return [
+    out.line(b.dryRun ? "pending" : "done", `${b.verb}.${b.slot}`, `${b.from} -> ${b.to}`),
+    ...(b.fragmentUpdated ? [out.callout("note", ["Also saved in the pack's own bindings file: ", out.dim(b.fragmentUpdated)])] : []),
+    ...(b.basePack ? [out.callout("note", `${b.basePack} is a base pack. Packs that extend it pick this up once it is published and their bindings are rebuilt.`)] : []),
+  ];
+}
+
+export function shadowWarning(verb: string, slot: string, layer: string): Block {
+  return out.line("warn", `${verb}.${slot} is still decided by the ${layer} layer`, "your change is saved, but that layer wins");
 }
 
 export async function skillsBind(args: string[]): Promise<void> {
@@ -2495,11 +2507,11 @@ export async function skillsBind(args: string[]): Promise<void> {
 
     const engineRef = `${step.plugin}:${verb.engine}`;
     const oldValue = resolved.bindings[engineRef]?.[slotName] ?? "(unbound)";
-    const summary = `${verbName}.${slotName}: ${oldValue} -> ${fill}`;
+    const bound = { verb: verbName, slot: slotName, from: oldValue, to: fill, dryRun: bindFlags.dryRun, fragmentUpdated: null as string | null, basePack: null as string | null };
 
     if (bindFlags.dryRun) {
-      if (bindFlags.json) console.log(JSON.stringify({ ok: true, dryRun: true, verb: verbName, slot: slotName, from: oldValue, to: fill }));
-      else console.log(summary);
+      if (bindFlags.json) out.json({ ok: true, dryRun: true, verb: verbName, slot: slotName, from: oldValue, to: fill });
+      else out.print(...bindBlocks(bound));
       return;
     }
 
@@ -2515,28 +2527,24 @@ export async function skillsBind(args: string[]): Promise<void> {
     });
     if (resolved.base) {
       if (bindFlags.json) {
-        console.log(JSON.stringify({ ok: true, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, base: true }));
+        out.json({ ok: true, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, base: true });
         return;
       }
-      console.log(summary);
-      console.log(`${resolved.team} is a base pack: packs that extend it pick this up once it is published and their bindings files are regenerated`);
+      out.print(...bindBlocks({ ...bound, basePack: resolved.team }));
       return;
     }
     // A recompile here would read the stale bindings file and bake the old fill in.
     if (regenerated === false) {
       process.exitCode = 1;
       if (bindFlags.json) {
-        console.log(JSON.stringify({ ok: false, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, regenerated, regenerateDetail }));
+        out.json({ ok: false, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, regenerated, regenerateDetail });
         return;
       }
-      console.log(`${summary} (fragment updated: ${fragmentUpdated})`);
-      console.error(`rt skills bind: bindings file not regenerated: ${regenerateDetail}`);
-      console.error(`rt skills bind: the fragment ${fragmentUpdated} is written and the next rt skills materialize picks it up; nothing was recompiled`);
+      out.print(...bindBlocks({ ...bound, fragmentUpdated }));
+      out.fail({ title: "The bindings file was not rebuilt, so nothing was recompiled", ...(regenerateDetail ? { why: regenerateDetail } : {}), next: out.cmd("rt skills materialize") });
       return;
     }
-    if (shadowedBy) {
-      console.error(`rt skills bind: ${engineRef}.${slotName} is bound to ${fill} in the fragment, but the ${shadowedBy} layer still wins in ${resolved.manifestPath}`);
-    }
+    if (shadowedBy) out.note(shadowWarning(verbName, slotName, shadowedBy));
 
     // A stage's bound fills feed every orchestrator's compiled allowed-tools union
     // (stageAllowedToolsFor) -- scoping to `--verb <stage>` would leave every
@@ -2555,7 +2563,7 @@ export async function skillsBind(args: string[]): Promise<void> {
         verbs: verbFilter,
       });
       if (!compileResult.ok) process.exitCode = 1;
-      console.log(JSON.stringify({
+      out.json({
         ok: compileResult.ok,
         verb: verbName,
         slot: slotName,
@@ -2566,11 +2574,11 @@ export async function skillsBind(args: string[]): Promise<void> {
         ...(regenerated === undefined ? {} : { regenerated }),
         ...(regenerateDetail === undefined ? {} : { regenerateDetail }),
         compileErrors: compileResult.errors,
-      }));
+      });
       return;
     }
 
-    console.log(fragmentUpdated ? `${summary} (fragment updated: ${fragmentUpdated})` : summary);
+    out.print(...bindBlocks({ ...bound, fragmentUpdated }));
     const surfaceFlags: SurfaceFlags = {
       team: resolved.team,
       dryRun: false,

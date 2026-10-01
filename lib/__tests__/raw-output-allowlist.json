@@ -49,7 +49,6 @@
   "commands/skills-link.ts",
   "commands/skills-sync.ts",
   "commands/skills-writing-style.ts",
-  "commands/skills.ts",
   "commands/state-backup-init.ts",
   "commands/state-backup-status.ts",
   "commands/state.ts",
