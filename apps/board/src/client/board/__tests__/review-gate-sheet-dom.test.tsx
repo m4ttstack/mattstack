@@ -1193,11 +1193,11 @@ describe('a later round', () => {
       ).toBe('1 coming back this round');
       await submit(container);
       const answers = submitted().answers;
+      expect(answers['skipped-1']).toEqual([`restore:${SKIPPED[0]!.id}`]);
+      expect(Object.hasOwn(answers, 'skipped')).toBe(false);
       const restored = Object.entries(answers)
         .filter(([k]) => k.startsWith('skipped'))
         .flatMap(([, v]) => v as string[]);
-      expect(restored).toHaveLength(1);
-      expect(restored[0]).toMatch(/^restore:/);
       expect(restored).toEqual([`restore:${SKIPPED[0]!.id}`]);
     });
 

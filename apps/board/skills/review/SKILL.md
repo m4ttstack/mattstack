@@ -355,7 +355,7 @@ digraph review_flow {
     "mr_review_submit result (review)?" -> "review off-script gate: pending comments on the MR" [label="published: false, pending-drafts"];
     "mr_review_submit result (review)?" -> "review off-script gate: mr_review_submit refused" [label="tool error saying it timed out, the outcome is unknown, or it only partly landed"];
     "mr_review_submit result (review)?" -> "Fixed the mr_review_submit call once already?" [label="any other tool error"];
-    "mr_review_submit result (review)?" -> "STOP: a review posts whole through mr_review_submit" [label="tempted to post the pieces with mr_comment_inline or mr_comment, or with the GitLab CLI or the API"];
+    "mr_review_submit result (review)?" -> "STOP: a review posts whole through mr_review_submit" [label="tempted to post the pieces with mr_comment_inline, mr_comment, mr_reply_thread or mr_resolve_thread, or with the GitLab CLI or the API"];
     "STOP: a review posts whole through mr_review_submit" -> "Fixed the mr_review_submit call once already?";
     "Fixed the mr_review_submit call once already?" -> "Fix what the mr_review_submit error names" [label="no"];
     "Fixed the mr_review_submit call once already?" -> "review off-script gate: mr_review_submit refused" [label="yes"];
@@ -1045,7 +1045,7 @@ each, with this round's own bare `id` (the record round-qualifies it):
     schema** (no fitted open came back): each entry of that array whose
     `tier` was left unticked, built exactly as on the per-finding path,
     with its own `id`, `body` and anchor.
-  - **Generic path, or a domain json absent or unparseable:** each
+  - **Generic path, or a domain json absent or malformed:** each
     finding listed in `--report` under such a tier, as `{id, title,
     severity, file, line, excerpt}`. `id` numbers the findings under
     `--report`'s tier headings in the order they appear there (`f1`,

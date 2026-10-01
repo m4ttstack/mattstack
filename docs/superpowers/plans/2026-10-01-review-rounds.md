@@ -3371,7 +3371,7 @@ Storybook `Gates/Board/ReviewGateSheet` (RoundThree, RoundThreeBringingOneBack, 
 
 - [ ] **Step 3: Purity and the public repo**
 
-Search the diff for employer names, real MR numbers and ticket ids: `git diff origin/main...HEAD | grep -niE 'assured|claimview|RT-[0-9]|SKILLS-[0-9]|![0-9]{4,}'`. Expected: no hits anywhere except the claimview pack named as a consumer in the spec and this plan, and the invented `!87` in fixtures.
+Search the diff for employer names, real MR numbers and ticket ids: run `bash scripts/repo-purity.sh`. Expected: it passes, and the only MR number in the diff is the invented `!87` in fixtures.
 
 - [ ] **Step 4: Confirm the v4 claim still stands**
 
@@ -3383,7 +3383,7 @@ Re-read the rt chat thread from Task 8 Step 1. If another lane took v4 meanwhile
 
 - [ ] **Step 6: Rollout, after merge (Matt confirms each)**
 
-Sync the shared checkout (check `git branch --show-current` is `main` first), restart the daemon, `/reload-plugins`, `rt skills sync` (recompiles and bumps the claimview pack), `deck restart board` with the frontend deploy. Then one real review from the board on a test MR, checked on GitLab: the summary note, a "left review comments" system note, and the reviewer in the reviewed state.
+Sync the shared checkout (check `git branch --show-current` is `main` first), restart the daemon, `/reload-plugins`, `rt skills sync` (recompiles and bumps the team pack), `deck restart board` with the frontend deploy. Then one real review from the board on a test MR, checked on GitLab: the summary note, a "left review comments" system note, and the reviewer in the reviewed state.
 
 ---
 

@@ -178,9 +178,9 @@ Skill sources:
   thread and skipped gate questions, the posting fallback, the resume
   check, and the round record writes (section 3)
 
-claimview needs no source edit: its review verb is compiled from the
-mattstack engine plus the posting include, so it takes a recompile and a
-version bump through `rt skills sync`. That compiled output is visible to
+A team pack compiled from the engine needs no source edit: its review
+verb is compiled from the mattstack engine plus the posting include, so it
+takes a recompile and a version bump through `rt skills sync`. That compiled output is visible to
 the employer, so the engine text carries no mattstack ticket ids.
 
 ### 3. The round record
@@ -307,7 +307,7 @@ Each phase ships on its own.
 ## Rollout
 
 Merge, then on the machine: sync the shared checkout, restart the daemon,
-`/reload-plugins`, `rt skills sync` (bumps and recompiles claimview),
+`/reload-plugins`, `rt skills sync` (bumps and recompiles the team pack),
 `deck restart board`.
 
 ## Out of scope

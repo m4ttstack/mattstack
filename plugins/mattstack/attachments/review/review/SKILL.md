@@ -315,6 +315,7 @@ digraph review {
     "This review already on the MR?" -> "Open the review off-script gate: mr_approve refused" [label="yes, approval outstanding"];
     "This review already on the MR?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="yes, nothing outstanding"];
     "This review already on the MR?" -> "Open the review off-script gate: mr_review_submit refused" [label="partly: some of its comments are up without its summary"];
+    "This review already on the MR?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="the resumed MR read errored: hold, quoting its text"];
     "Compose the submitted review: comments, summary, outcome" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies}";
     "mr_review_submit {mrUrl, outcome, summary, comments, replies}" -> "mr_review_submit result?";
     "mr_review_submit result?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="published, approved as asked: keep mrUrl"];
@@ -322,7 +323,7 @@ digraph review {
     "mr_review_submit result?" -> "Bad anchors moved into the summary once already?" [label="published: false, bad-anchors"];
     "mr_review_submit result?" -> "Open the review off-script gate: pending comments on the MR" [label="published: false, pending-drafts"];
     "mr_review_submit result?" -> "Open the review off-script gate: mr_review_submit refused" [label="error"];
-    "mr_review_submit result?" -> "STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate" [label="tempted to post the pieces with mr_comment_inline, mr_comment or the GitLab CLI"];
+    "mr_review_submit result?" -> "STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate" [label="tempted to post the pieces with mr_comment_inline, mr_comment, mr_reply_thread, mr_resolve_thread or the GitLab CLI"];
     "STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate" -> "Open the review off-script gate: mr_review_submit refused";
     "Bad anchors moved into the summary once already?" -> "Move the bad-anchor findings into the summary" [label="no"];
     "Bad anchors moved into the summary once already?" -> "Open the review off-script gate: mr_review_submit refused" [label="yes"];
@@ -713,18 +714,18 @@ re-present, and the next gate is a NEW gate, never the old one reopened.
 
 ### This review already on the MR?
 
-Asked before anything posts on GitLab. A run that never held at the
-submit or the approval gate answers no: nothing from this review is up.
-On a resume, the latest hold's reason is the record (see Review
-off-script gates): the review is already posted when that reason names
-it as posted, by the submit or by the human in the forge UI, and the same
-reason says whether the approval is outstanding. A reason that leaves it
-open (an unknown or partly landed publish, or "gate closed") is settled
-from the MR with `mr_threads {mrUrl, refresh: true}`: a top-level note carrying this
+Asked before anything posts on GitLab. A run on its first pass answers
+no: nothing from this review is up. A resumed run with no post decision
+recorded reads the MR before any submit, whatever its holds say, since a
+submit can land after the last thing the run recorded:
+`mr_threads {mrUrl, refresh: true}`. A top-level note carrying this
 review's summary, written by this account, means it is posted; some of
 this review's comments without that note means partly; neither means no.
-On an approve, an approval the reason does not name as landed is
-outstanding.
+A read that errors is a hold whose reason quotes the error, so nothing is
+submitted unchecked. The latest hold's reason (see Review off-script gates) adds what the MR
+read cannot show: a review it names as posted by the human in the forge
+UI is posted, and it says whether the approval landed. On an approve, an
+approval the reason does not name as landed is outstanding.
 
 - **Yes, approval outstanding:** the approval gate, whose iterate runs
   `mr_approve` alone. The review is never submitted again.
@@ -912,10 +913,11 @@ the turn.
   hold:<stage>:<attempt>, selection: {"reason": "<their words>"},
   decidedBy: <the answer's by>}` and `run_field_set {key: hold, value:
   "<their words>", stage: <stage>}`, then ends the turn.
-- On a resume, `This review already on the MR?` reads the latest hold's
-  reason before anything posts: a review it names as posted is never
-  submitted again, and its outstanding approval goes to the approval
-  gate.
+- On a resume with no post decision recorded, `This review already on
+  the MR?` reads the MR with `mr_threads` for this review's summary note,
+  and the latest hold's reason, before anything posts: a review either
+  shows as posted is never submitted again, and its outstanding approval
+  goes to the approval gate.
 - A gate that comes back `closed` is a hold whose reason is "gate
   closed"; record it as any hold and end the turn.
 - A fetch, diff or `gh pr diff` that errors is a hold whose reason quotes
