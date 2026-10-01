@@ -38,7 +38,6 @@ function captureDeps(): SetupDeps & { lines: string[] } {
   return {
     probes: fakeProbes({ exec: readyExec }),
     secrets: fakeSecrets(),
-    print: (s) => lines.push(s),
     json: (v) => lines.push(JSON.stringify(v)),
     lines,
   };
@@ -116,7 +115,7 @@ describe("setupStatus", () => {
         mode: "create",
         team: { slug: "acme", name: "Acme", remote: "https://github.com/o/r.git", others: false },
       });
-      const deps: SetupDeps = { probes: p, secrets: fakeSecrets(), print: (s) => lines.push(s), json: (v) => lines.push(JSON.stringify(v)) };
+      const deps: SetupDeps = { probes: p, secrets: fakeSecrets(), json: (v) => lines.push(JSON.stringify(v)) };
 
       await setupStatus([], {}, deps);
 
@@ -141,7 +140,7 @@ describe("setupStatus", () => {
         mode: "create",
         team: { slug: "acme", name: "Acme", remote: "https://github.com/o/r.git", others: false },
       });
-      const deps: SetupDeps = { probes: p, secrets: fakeSecrets(), print: () => {}, json: () => {} };
+      const deps: SetupDeps = { probes: p, secrets: fakeSecrets(), json: () => {} };
 
       await setupPlan([], {}, deps);
 
@@ -196,7 +195,7 @@ describe("setup plan --json bytes", () => {
     const cap = capturePlain();
     try {
       const probes = fakeProbes({ exec: readyExec });
-      const deps: SetupDeps = { probes, secrets: fakeSecrets(), print: () => {}, json: realJson };
+      const deps: SetupDeps = { probes, secrets: fakeSecrets(), json: realJson };
       await setupPlan(["--json"], {}, deps);
       const plan = await composePlan({ p: probes, secrets: fakeSecrets(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() });
       expect(cap.stdout()).toBe(JSON.stringify(plan) + "\n");

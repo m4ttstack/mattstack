@@ -34,6 +34,7 @@ import { notifyEnabled } from "../lib/notifier.ts";
 import { envelope, STEP_IDS, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type StepId } from "../lib/setup/contract.ts";
 import { createStepEmitter, type Emit, type StepEmitterLabels } from "../lib/setup/emit.ts";
 import { exitWithUserError, type UserErrorSink } from "../lib/setup/user-failure.ts";
+import type { RenderStatus } from "../lib/ui/protocol.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverStore } from "../lib/setup/finish-gate.ts";
@@ -61,7 +62,6 @@ import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
 export interface SetupDeps {
   probes: Probes;
   secrets: SecretPresence;
-  print: (s: string) => void;
   /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
   json: (value: unknown) => void;
   /** Optional: only the integration verbs below use it. Falls back to `process.exit` at the one call site that needs it. */
@@ -80,7 +80,7 @@ export interface SetupDeps {
 }
 
 export function realSetupDeps(): SetupDeps {
-  return { probes: createRealProbes(), secrets: realSecretPresence(), print: (s) => console.log(s), json: (v) => out.json(v), exit: process.exit };
+  return { probes: createRealProbes(), secrets: realSecretPresence(), json: (v) => out.json(v), exit: process.exit };
 }
 
 function flagValue(args: string[], flag: string): string | undefined {
@@ -459,7 +459,7 @@ export async function setupPack(args: string[], _ctx: CommandContext = {}, deps:
  */
 export async function setupInteractive(args: string[], _ctx: CommandContext = {}, deps: ApplyDeps = realApplyDeps()): Promise<void> {
   const json = args.includes("--json");
-  const setupDeps: SetupDeps = { probes: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), print: () => {}, json: deps.json, exit: deps.exit };
+  const setupDeps: SetupDeps = { probes: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), json: deps.json, exit: deps.exit };
 
   if (!deps.isTTY() || json) return setupStatus(args, _ctx, setupDeps);
 
@@ -586,7 +586,6 @@ export async function setupFinish(args: string[], _ctx: CommandContext = {}, dep
 
 export interface RepoRootDeps {
   probes: Probes;
-  print: (s: string) => void;
   /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
   json: (value: unknown) => void;
   exit: (code: number) => never;
@@ -599,7 +598,6 @@ export interface RepoRootDeps {
 export function realRepoRootDeps(): RepoRootDeps {
   return {
     probes: createRealProbes(),
-    print: (s) => console.log(s),
     json: (v) => out.json(v),
     exit: process.exit,
     isTTY: () => process.stdin.isTTY === true,
@@ -662,9 +660,11 @@ export async function setupRepoRootSet(args: string[], _ctx: CommandContext = {}
     }
 
     if (json) deps.json(envelope({ path: check.path, tccWarning: check.tccWarning }, deps.probes.now()));
-    else deps.print(`setup repo-root set: ${check.path}${check.tccWarning ? ` (${check.tccWarning})` : ""}`);
+    else out.print(out.line("done", "Repo folder saved", check.path), ...(check.tccWarning ? [out.callout("note", check.tccWarning)] : []));
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
+    if (err instanceof UserActionableError) {
+      return exitWithUserError(err, json, sinkOf(deps), err.code === "usage" ? { title: "Which folder?", next: out.cmd("rt setup repo-root set <folder>") } : undefined);
+    }
     throw err;
   }
 }
@@ -673,7 +673,6 @@ export async function setupRepoRootSet(args: string[], _ctx: CommandContext = {}
 
 export interface HomeRemoteDeps {
   probes: Probes;
-  print: (s: string) => void;
   /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
   json: (value: unknown) => void;
   exit: (code: number) => never;
@@ -685,7 +684,6 @@ export interface HomeRemoteDeps {
 export function realHomeRemoteDeps(): HomeRemoteDeps {
   return {
     probes: createRealProbes(),
-    print: (s) => console.log(s),
     json: (v) => out.json(v),
     exit: process.exit,
     isTTY: () => process.stdin.isTTY === true,
@@ -795,9 +793,11 @@ export async function homeRemoteSet(args: string[], _ctx: CommandContext = {}, d
     }
 
     if (json) deps.json(envelope({ url, remote, pushed: true, created }, deps.probes.now()));
-    else deps.print(`home remote set: origin -> ${url}, pushed${created ? " (repo created)" : ""}`);
+    else out.print(out.line("done", created ? "Created a private repo and pushed your home repo to it" : "Pushed your home repo", url));
   } catch (err) {
-    if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
+    if (err instanceof UserActionableError) {
+      return exitWithUserError(err, json, sinkOf(deps), err.code === "usage" ? { title: "Which remote?", next: out.cmd("rt home remote set <url>") } : undefined);
+    }
     throw err;
   }
 }
@@ -969,7 +969,6 @@ export function realConnectDeps(): ConnectDeps {
   return {
     probes,
     secrets: realSecretPresence(),
-    print: (s) => console.log(s),
     json: (v) => out.json(v),
     exit: process.exit,
     stdin: readSmartStdin,
@@ -1030,17 +1029,28 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function printIntegrationResult(deps: SetupDeps, json: boolean, body: Record<string, unknown>): void {
+type IntegrationRowStatus = "ready" | "missing" | "invalid";
+
+interface IntegrationResult {
+  integration: Integration;
+  status: IntegrationRowStatus;
+  detail: string;
+  scopesSeen: string[];
+  handle?: string;
+  owners?: string[];
+}
+
+const INTEGRATION_STATUS: Record<IntegrationRowStatus, RenderStatus> = { ready: "done", missing: "needs-you", invalid: "failed" };
+
+function printIntegrationResult(deps: SetupDeps, json: boolean, body: IntegrationResult): void {
   if (json) {
     deps.json(envelope(body, deps.probes.now()));
     return;
   }
-  deps.print(`${body.integration}: ${body.status} — ${body.detail}`);
+  out.print(out.line(INTEGRATION_STATUS[body.status], integrationDef(body.integration).title, body.detail));
 }
 
 // ─── status ─────────────────────────────────────────────────────────────
-
-type IntegrationRowStatus = "ready" | "missing" | "invalid";
 
 interface IntegrationEval {
   status: IntegrationRowStatus;
@@ -1129,7 +1139,7 @@ export async function integrationStatus(id: Integration, args: string[], deps: S
       : id === "slack" ? await evalSlack(deps.probes, deps.secrets, snapshot)
       : await evalGeneric(id, deps.probes, deps.secrets, ctx);
 
-    const body: Record<string, unknown> = { integration: id, status: r.status, detail: r.detail, scopesSeen: r.scopesSeen };
+    const body: IntegrationResult = { integration: id, status: r.status, detail: r.detail, scopesSeen: r.scopesSeen };
     if (r.handle) body.handle = r.handle;
     if (r.owners) body.owners = r.owners;
     printIntegrationResult(deps, json, body);
@@ -1144,10 +1154,8 @@ export async function integrationStatus(id: Integration, args: string[], deps: S
 export interface WaiveDeps {
   probes: Probes;
   store: WaiverStore;
-  print: (s: string) => void;
   /** One machine line on stdout: a --json envelope or an NDJSON event. Never human text. */
   json: (value: unknown) => void;
-  printError: (s: string) => void;
   exit: (code: number) => never;
   isTTY: () => boolean;
   pick: (message: string, options: string[]) => Promise<string | null>;
@@ -1157,9 +1165,7 @@ export function realWaiveDeps(): WaiveDeps {
   return {
     probes: createRealProbes(),
     store: realWaiverStore(),
-    print: (s) => console.log(s),
     json: (v) => out.json(v),
-    printError: (s) => console.error(s),
     exit: process.exit,
     isTTY: () => process.stdin.isTTY === true,
     pick: async (message, options) => {
@@ -1169,9 +1175,9 @@ export function realWaiveDeps(): WaiveDeps {
   };
 }
 
-const WAIVER_COPY: Record<"waive" | "unwaive", Record<"changed" | "unchanged", string>> = {
-  waive: { changed: "skipped on this Mac", unchanged: "was already skipped on this Mac" },
-  unwaive: { changed: "re-armed on this Mac", unchanged: "was not skipped on this Mac" },
+const WAIVER_LINES: Record<"waive" | "unwaive", Record<"changed" | "unchanged", [RenderStatus, string]>> = {
+  waive: { changed: ["done", "Skipped on this Mac"], unchanged: ["skipped", "Already skipped on this Mac"] },
+  unwaive: { changed: ["done", "Re-armed on this Mac"], unchanged: ["skipped", "Was not skipped on this Mac"] },
 };
 
 async function runWaiver(args: string[], deps: WaiveDeps, verb: "waive" | "unwaive"): Promise<void> {
@@ -1185,7 +1191,10 @@ async function runWaiver(args: string[], deps: WaiveDeps, verb: "waive" | "unwai
       id = (await deps.pick(verb === "waive" ? "Skip which row on this Mac?" : "Re-arm which row on this Mac?", candidates)) ?? undefined;
       if (!id) return deps.exit(0);
     } else {
-      return exitWithUserError(new UserActionableError("usage", `usage: rt setup ${verb} <row-id> [--json]`), json, sinkOf(deps));
+      return exitWithUserError(new UserActionableError("usage", `usage: rt setup ${verb} <row-id> [--json]`), json, sinkOf(deps), {
+        title: "Which row?",
+        next: out.cmd(`rt setup ${verb} <row-id>`),
+      });
     }
   }
 
@@ -1196,7 +1205,7 @@ async function runWaiver(args: string[], deps: WaiveDeps, verb: "waive" | "unwai
     if (err instanceof UserActionableError) return exitWithUserError(err, json, sinkOf(deps));
     // A store the resolver refused to edit is reported as it was raised; the
     // app shows it in its sheet and keeps the gate closed.
-    deps.printError(`rt setup ${verb}: ${err instanceof Error ? err.message : String(err)}`);
+    out.fail({ title: "Could not save the change", why: err instanceof Error ? err.message : String(err) });
     return deps.exit(1);
   }
 
@@ -1204,7 +1213,8 @@ async function runWaiver(args: string[], deps: WaiveDeps, verb: "waive" | "unwai
     deps.json(envelope({ ok: true, id, changed: change.changed, waived: change.waived }, deps.probes.now()));
     return;
   }
-  deps.print(`setup ${verb}: ${id} ${WAIVER_COPY[verb][change.changed ? "changed" : "unchanged"]}`);
+  const [status, title] = WAIVER_LINES[verb][change.changed ? "changed" : "unchanged"];
+  out.print(out.line(status, title, id));
 }
 
 export async function setupWaive(args: string[], _ctx: CommandContext = {}, deps: WaiveDeps = realWaiveDeps()): Promise<void> {

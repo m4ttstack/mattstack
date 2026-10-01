@@ -123,7 +123,6 @@ function createAppDeps(opts: CreateAppDepsOpts = {}): ConnectDeps & { lines: str
   return {
     probes: fakeProbes({ fetch: opts.fetch }),
     secrets: fakeSecrets(),
-    print: (s) => lines.push(s),
     json: (v) => lines.push(JSON.stringify(v)),
     exit: (code) => {
       throw new Error(`unexpected exit(${code})`);

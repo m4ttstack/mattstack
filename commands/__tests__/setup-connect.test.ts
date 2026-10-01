@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { integrationConnect, integrationStatus, realOAuthListen, setupGithubStatus, type ConnectDeps, type SecretWriter, type TeamSecrets } from "../setup.ts";
 import { fakeProbes, ok } from "../../lib/setup/__tests__/fakes.ts";
 import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
@@ -8,6 +8,13 @@ import { DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError } from "../../lib/setup/
 import { slackWaitCliMessage } from "../../lib/setup/team-slack-secret.ts";
 import { teamLocalPath } from "../../lib/team/team-local.ts";
 import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
+
+let cap: CapturedOut;
+beforeEach(() => {
+  cap = capturePlain();
+});
+afterEach(() => cap.restore());
 
 function neverCalled<T extends unknown[], R>(name: string) {
   return async (..._args: T): Promise<R> => {
@@ -29,7 +36,6 @@ function baseDeps(overrides: Partial<ConnectDeps> & { probes?: Probes } = {}): C
   return {
     probes: fakeProbes(),
     secrets: fakeSecrets(),
-    print: (s: string) => lines.push(s),
     json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
@@ -115,9 +121,10 @@ describe("integrationConnect — gitlab (generic token flow)", () => {
       writer: { storeReady: async () => false, write: neverCalled("writer.write") },
       teamSnapshot: () => ({ ...slackTeamSnapshot(), integrations: { forge: { host: "gitlab.example.com", provider: "gitlab" } } }),
     });
-    await expectExit(() => integrationConnect("gitlab", ["--json"], deps));
+    await expectExit(() => integrationConnect("gitlab", [], deps));
     expect(deps.exitCodes).toEqual([2]);
-    expect(deps.lines.join("\n")).toContain("unverified");
+    expect(cap.stderr()).toContain("[failed] ");
+    expect(cap.stderr()).toContain("unverified");
   });
 
   test("age key present -> writer.write called instead of staging", async () => {
@@ -981,19 +988,27 @@ describe.skipIf(skipRealOAuth)("realOAuthListen (real Bun.serve, no fakes — th
 
 describe("integrationConnect --json bytes", () => {
   test("the envelope is one compact line with the keys in contract order", async () => {
-    const cap = capturePlain();
-    try {
-      const deps = baseDeps({
-        probes: fakeProbes({ fetch: gitlabUserOk }),
-        stdin: async () => ({ token: "glpat-x" }),
-        writer: { storeReady: async () => false, write: neverCalled("writer.write") },
-        json: realJson,
-      });
-      await integrationConnect("gitlab", ["--json"], deps);
-      const payload = expectOneJsonLine(cap.stdout()) as Record<string, unknown>;
-      expect(Object.keys(payload)).toEqual(["contract", "at", "integration", "status", "detail", "scopesSeen"]);
-    } finally {
-      cap.restore();
-    }
+    const deps = baseDeps({
+      probes: fakeProbes({ fetch: gitlabUserOk }),
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      json: realJson,
+    });
+    await integrationConnect("gitlab", ["--json"], deps);
+    const payload = expectOneJsonLine(cap.stdout()) as Record<string, unknown>;
+    expect(Object.keys(payload)).toEqual(["contract", "at", "integration", "status", "detail", "scopesSeen"]);
+  });
+});
+
+describe("integration human output", () => {
+  test("human mode prints one line with the integration's title, never its id", async () => {
+    const deps = baseDeps({
+      probes: fakeProbes({ fetch: gitlabUserOk }),
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+    });
+    await integrationConnect("gitlab", [], deps);
+    expect(cap.stdout()).toMatch(/^\[ok\] GitLab  /);
+    expect(cap.stdout()).not.toContain("gitlab:");
   });
 });
