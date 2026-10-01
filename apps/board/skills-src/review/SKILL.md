@@ -174,7 +174,7 @@ digraph review_flow {
     "Review error written: stay in the pane and report" [shape=doublecircle];
     "Review gate gone: ended cleanly, no status write" [shape=doublecircle];
     "Held at a review off-script gate: the pane stays" [shape=doublecircle];
-    "Review done: stay in the pane" [shape=doublecircle style=filled fillcolor=lightgreen];
+    "Review done: the board closes this tab" [shape=doublecircle style=filled fillcolor=lightgreen];
 
     "Trigger: the board launched /board:review" -> "--resumed-gate given (review)?";
     "--resumed-gate given (review)?" -> "<status-bin> review-status <state> reviewing" [label="yes"];
@@ -392,13 +392,21 @@ digraph review_flow {
     "Off-script rounds = 2 (mr_approve)?" -> "mr_approve {mrUrl}" [label="no: approve again"];
     "Off-script rounds = 2 (mr_approve)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
 
-    "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" -> "Review done: stay in the pane";
+    "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" -> "Review done: the board closes this tab";
     "<status-bin> review-status <state> error <what went wrong>" -> "Review error written: stay in the pane and report";
 }
 ```
 
 What the graph cannot show:
 
+- **The done write is the last call.** The board closes this pane's tab
+  the moment `review-status <state> done` lands, which ends this session
+  mid-batch. So the done write is a call of its own, sent only after every
+  other write of the run has returned: the posting (the domain skill's, or
+  this skill's own `mr_comment_inline` and `mr_comment`), `mr_approve`,
+  the `--report` write, and under a run the domain skill's `run_stage` done
+  and `run_status` done. A write sent in the same batch as the done write
+  is lost.
 - **Resumed entry.** `--resumed-gate <gateId>` means a human answered a
   gate an earlier pane on this MR opened and the board parked, and the
   board is replaying that answer into this pane. `--resumed-gate-kind`
