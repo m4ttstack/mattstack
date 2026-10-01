@@ -540,6 +540,7 @@ describe("syncPack", () => {
     expect(report.warnings.length).toBe(1);
     expect(report.warnings[0]).toContain("stale");
     expect(report.steps.find((s) => s.name === "cswap-sweep")!.status).toBe("ran");
+    expect(report.steps.find((s) => s.name === "cswap-sweep")!.detail).toBe("1 cswap account links another plugins folder");
   });
 
   test("12: a failed update-pack fails the step with stderr in the detail", async () => {
@@ -1099,7 +1100,7 @@ describe("in-tree plugins install from main", () => {
     expect(pullEngine.status).toBe("skipped");
     expect(pullEngine.detail).toContain(`the shared checkout at ${root} is on feature-x, not main`);
     expect(pullEngine.detail).toContain("installs from main");
-    expect(report.warnings.some((w) => w.includes("feature-x"))).toBe(true);
+    expect(report.warnings.some((w) => w.startsWith(`The shared checkout at ${root} is on feature-x`))).toBe(true);
   });
 
   test("names a detached shared checkout as detached", async () => {

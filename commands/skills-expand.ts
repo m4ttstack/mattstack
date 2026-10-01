@@ -114,7 +114,7 @@ export async function skillsExpand(args: string[]): Promise<void> {
     if (!ok) {
       fail({
         title: drift.length > 0 ? "The expanded skills are out of date" : `The expanded skills have ${hits(lint.length)}`,
-        ...(drift.length > 0 ? { next: out.cmd(`rt skills expand --src ${flags.src} --out ${flags.out}`) } : {}),
+        ...(drift.length > 0 ? { next: out.cmd(`rt skills expand --src ${flags.src} --out ${flags.out}${flags.mattstackDir ? ` --mattstack-dir ${flags.mattstackDir}` : ""}`) } : {}),
         details: [...drift.map((d) => `${d.skill}: ${d.causes.join(", ")}`), ...lint].join("\n"),
       });
     }

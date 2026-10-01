@@ -78,6 +78,7 @@ function stops(o: Outcome): boolean {
 }
 
 const hitCount = (n: number): string => `${n} ${n === 1 ? "hit" : "hits"}`;
+const sentenceCase = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
 function pluginId(info: PackInfo): string {
   return `${info.name}@${info.marketplace}`;
@@ -279,7 +280,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
 
     if (inTreeRoot !== null && (engineInTree || packInTree)) {
       branchNote = await inTreeBranchNote(deps, inTreeRoot);
-      if (branchNote !== "") warnings.push(branchNote.slice(2));
+      if (branchNote !== "") warnings.push(sentenceCase(branchNote.slice(2)));
     }
 
     const list = await listInstalled(deps);
@@ -483,7 +484,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
         warnings.push(`The ${entry.name} cswap account's plugins folder (${pluginsPath}) does not point at ${target}`);
       }
     }
-    return ran(flagged === 0 ? "every cswap account links the current plugins" : `${flagged} cswap account(s) link another plugins folder`);
+    return ran(flagged === 0 ? "every cswap account links the current plugins" : `${flagged} cswap ${flagged === 1 ? "account links" : "accounts link"} another plugins folder`);
   });
   steps.push({ name: "cswap-sweep", ...cswapSweep });
 

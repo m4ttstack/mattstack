@@ -87,7 +87,7 @@ describe("rt skills expand", () => {
     const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--check"]));
     expect(r.exitCode).toBe(1);
     expect(r.errors[0]).toBe("The expanded skills are out of date");
-    expect(r.errors[1]).toBe(`  next: rt skills expand --src ${join(root, "src")} --out ${join(root, "out")}`);
+    expect(r.errors[1]).toBe(`  next: rt skills expand --src ${join(root, "src")} --out ${join(root, "out")} --mattstack-dir ${root}`);
     expect(io.stdout()).toBe("");
   });
 
