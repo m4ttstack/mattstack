@@ -3795,7 +3795,7 @@ a.tui-id-card-ref:focus-visible {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
   background: color-mix(in srgb, var(--card) 72%, transparent);
   backdrop-filter: blur(20px) saturate(1.4);
-  box-shadow: 0 3px 8px -4px color-mix(in srgb, black 10%, transparent);
+  box-shadow: 0 4px 10px -4px color-mix(in srgb, black 14%, transparent);
 }
 .tui-sheet-round-n {
   margin: 0;
