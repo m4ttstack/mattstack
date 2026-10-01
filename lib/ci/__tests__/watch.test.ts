@@ -390,6 +390,15 @@ describe("watch budget", () => {
     const { deps } = fake([mr(SHA, pipe({ status: "running", createdAt: null }))]);
     expect(await watchPipeline({ ...base, maxWaitSeconds: 60 }, deps)).toMatchObject({ state: "running", waitedSeconds: 60, budget: null });
   });
+  test("a head that moves off the sha after a match drops the budget and keeps the normal poll interval", async () => {
+    let sleeps = 0;
+    const { deps } = fake([mr(SHA, pipe({ status: "running", createdAt: createdMinutesAgo(74.5) })), mr(null, null)], {});
+    const sleep = deps.sleep;
+    deps.sleep = async (ms, signal) => { sleeps++; expect(ms).toBeGreaterThan(0); await sleep(ms, signal); };
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 120 }, deps);
+    expect(r).toMatchObject({ state: "waiting", budget: null });
+    expect(sleeps).toBeLessThanOrEqual(5);
+  });
   test("a createdAt ahead of the clock reads as zero elapsed", async () => {
     const { deps } = fake([mr(SHA, pipe({ status: "success", createdAt: createdMinutesAgo(-3) }))]);
     expect(await watchPipeline(base, deps)).toMatchObject({ budget: { elapsedMinutes: 0, spent: false } });

@@ -193,6 +193,8 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     const read = await deps.readMr();
     if (!read.ok) return { error: read.error };
     const mr = read.mr;
+    budget = null;
+    budgetEndsAt = null;
 
     if (!shaMatches(mr.sha, input.sha)) {
       // A null head is an unsynced cache entry, not a moved head, so it never starts or reports the grace clock:
@@ -207,8 +209,6 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
       if (firstSeenPipelineId === undefined) firstSeenPipelineId = idNumber(mr.pipeline?.id);
       const p = mr.pipeline;
       const m = p ? await matches(mr, p) : false;
-      budget = null;
-      budgetEndsAt = null;
       if (p && m === true) {
         const created = p.createdAt ? Date.parse(p.createdAt) : NaN;
         if (!Number.isNaN(created)) {

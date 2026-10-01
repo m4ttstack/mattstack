@@ -802,7 +802,7 @@ export const REGISTRY: readonly SettingDef[] = [
     scopes: ALL_SCOPES,
     default: 75,
     merge: "replace",
-    description: "Minutes a CI attendant watches one pipeline before it stops and asks (default 75), measured from the pipeline's own creation time; ci_watch reports budget.spent once it passes. A team sets the convention; a user or machine may override it. A fresh key, not an ownership-latch port, so a default is fine here.",
+    description: "Minutes a CI attendant watches one GitLab pipeline through ci_watch before it stops and asks (default 75), measured from the pipeline's own creation time; ci_watch reports budget.spent once it passes. The GitHub poll keeps its own fixed limit. A team sets the convention; a user or machine may override it. A fresh key, not an ownership-latch port, so a default is fine here.",
   },
 
   // --- herd (watchdog) ---------------------------------------------------
