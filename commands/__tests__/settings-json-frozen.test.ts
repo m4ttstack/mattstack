@@ -4,7 +4,7 @@
  * with RT_UPDATE_SETTINGS_JSON_FIXTURES=1 only to add a case, never to make
  * a diff go away.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -25,6 +25,7 @@ describe("settings --json is frozen", () => {
   const origHome = process.env.HOME;
   let home: string;
   let cap: ReturnType<typeof captureOut>;
+  let warn: ReturnType<typeof spyOn<typeof console, "warn">>;
 
   function write(file: string, obj: unknown): void {
     mkdirSync(dirname(file), { recursive: true });
@@ -42,10 +43,12 @@ describe("settings --json is frozen", () => {
     write(machineSettingsPath(), { "rt.repoRoots": "nope" });
     // The fixtures are captured before conversion, when these verbs still print through console.*.
     cap = captureOut({ console: true });
+    warn = spyOn(console, "warn").mockImplementation(() => {});
     out.__test__.setHuman(() => false);
   });
 
   afterEach(() => {
+    warn.mockRestore();
     cap.restore();
     process.env.HOME = origHome;
     process.exitCode = 0;
@@ -61,9 +64,9 @@ describe("settings --json is frozen", () => {
       .replace(/"at":"[^"]+"/g, '"at":"<AT>"');
   }
 
-  function frozen(name: string): void {
+  function frozen(name: string, text: string = cap.stdout()): void {
     const file = join(FIXTURES, `${name}.txt`);
-    const got = normalize(cap.stdout());
+    const got = normalize(text);
     if (UPDATE) {
       mkdirSync(FIXTURES, { recursive: true });
       writeFileSync(file, got);
@@ -71,6 +74,7 @@ describe("settings --json is frozen", () => {
     expect(existsSync(file)).toBe(true);
     expect(got).toBe(readFileSync(file, "utf8"));
     expect(cap.stderr()).toBe("");
+    for (const call of warn.mock.calls) expect(String(call[0])).toMatch(/^rt: ignoring "rt\.repoRoots"/);
   }
 
   test("get", async () => {
@@ -80,7 +84,11 @@ describe("settings --json is frozen", () => {
 
   test("list", async () => {
     await settingsList(["--json"]);
-    frozen("list");
+    const raw = cap.stdout();
+    const parsed = JSON.parse(raw) as { settings: { key: string }[] };
+    expect(raw).toBe(`${JSON.stringify(parsed)}\n`);
+    const seeded = { ...parsed, settings: parsed.settings.filter((s) => ["rt.logLevel", "rt.repoRoots"].includes(s.key)) };
+    frozen("list", `${JSON.stringify(seeded)}\n`);
   });
 
   test("explain", async () => {
