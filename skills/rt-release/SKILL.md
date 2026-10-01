@@ -42,6 +42,11 @@ digraph rt_release {
     "Gate: cut or hold each stale row" [shape=box];
     "Land the fix each cut row needs" [shape=box];
     "Record each held row for the notes" [shape=box];
+    "Audit the range for what set-up Macs miss" [shape=box];
+    "Does a set-up Mac miss anything?" [shape=diamond];
+    "Gate: cut or hold each setup gap" [shape=box];
+    "Land the fix each setup gap needs" [shape=box];
+    "Record each held setup gap for the notes" [shape=box];
     "Which gate does the diff imply?" [shape=diamond];
     "Fast path: rt release apps (fast-path.md)" [shape=box];
     "Fast path outcome?" [shape=diamond];
@@ -65,8 +70,8 @@ digraph rt_release {
     "Where does the release stand?" -> "rt release preflight --json" [label="notes commit on origin/main, a fix for this release merged after it, no tag"];
     "Where does the release stand?" -> "Publish and finish (publish-and-finish.md)" [label="tag pushed"];
     "rt release preflight --json" -> "Preflight verdict?";
-    "Preflight verdict?" -> "Which gate does the diff imply?" [label="every row current"];
-    "Off-script gate: preflight git state" -> "Which gate does the diff imply?" [label="take: Matt rules the tree releasable as it is"];
+    "Preflight verdict?" -> "Audit the range for what set-up Macs miss" [label="every row current"];
+    "Off-script gate: preflight git state" -> "Audit the range for what set-up Macs miss" [label="take: Matt rules the tree releasable as it is"];
     "Off-script gate: preflight git state" -> "Preflight git state: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: preflight git state" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: preflight git state" -> "Handed back to Matt" [label="hand back"];
@@ -76,7 +81,7 @@ digraph rt_release {
     "Preflight verdict?" -> "Preflight runs = 3?" [label="a row unverifiable"];
     "Preflight verdict?" -> "Gate: cut or hold each stale row" [label="a stale layer, schema-lock or store row"];
     "Preflight runs = 3?" -> "rt release preflight --json" [label="no: rerun"];
-    "Off-script gate: preflight rows still not current" -> "Which gate does the diff imply?" [label="take: Matt accepts the rows as they stand"];
+    "Off-script gate: preflight rows still not current" -> "Audit the range for what set-up Macs miss" [label="take: Matt accepts the rows as they stand"];
     "Off-script gate: preflight rows still not current" -> "Preflight rows still not current: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: preflight rows still not current" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: preflight rows still not current" -> "Handed back to Matt" [label="hand back"];
@@ -97,7 +102,16 @@ digraph rt_release {
     "Local main diverged after the cuts: gate rounds = 2?" -> "git_pull {tree: <release checkout>}, after the cut merges" [label="no: retry"];
     "Local main diverged after the cuts: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Pull after the cuts result?" -> "Off-script gate: local main diverged after the cuts" [label="refused"];
-    "Record each held row for the notes" -> "Which gate does the diff imply?";
+    "Record each held row for the notes" -> "Audit the range for what set-up Macs miss";
+    "Audit the range for what set-up Macs miss" -> "Does a set-up Mac miss anything?";
+    "Does a set-up Mac miss anything?" -> "Which gate does the diff imply?" [label="no: every change reaches it"];
+    "Does a set-up Mac miss anything?" -> "Gate: cut or hold each setup gap" [label="yes: a gap not yet held"];
+    "Gate: cut or hold each setup gap" -> "Land the fix each setup gap needs" [label="cut: land the fix, rerun preflight"];
+    "Gate: cut or hold each setup gap" -> "Record each held setup gap for the notes" [label="hold: noted in the release notes"];
+    "Gate: cut or hold each setup gap" -> "Held: release paused, resume point named" [label="hold the release"];
+    "Gate: cut or hold each setup gap" -> "Handed back to Matt" [label="hand back"];
+    "Land the fix each setup gap needs" -> "git_pull {tree: <release checkout>}, after the cut merges";
+    "Record each held setup gap for the notes" -> "Which gate does the diff imply?";
     "Which gate does the diff imply?" -> "Fast path: rt release apps (fast-path.md)" [label="served-app fast path"];
     "Which gate does the diff imply?" -> "Prepare the release (prepare.md)" [label="anything else"];
     "Fast path: rt release apps (fast-path.md)" -> "Fast path outcome?";
@@ -121,7 +135,7 @@ kits only those apps build from (`packages/ui`, `packages/tokyo`, `packages/sett
 the full path.
 
 Counters say what one count is. `Preflight runs = 3?` counts every preflight run in this release,
-the first one and the reruns after cuts included. Every `<origin>: gate rounds = 2?` counts the
+the first one and the reruns after cuts included, a setup gap's cut among them. Every `<origin>: gate rounds = 2?` counts the
 iterate answers received at that gate: it is yes once Matt has answered iterate twice.
 
 ### Find where this release stands
@@ -216,6 +230,57 @@ runs again.
 Keep a list: the row, pinned vs current, and Matt's words. `Write the release notes` turns each
 into a held-pins line.
 
+### Audit the range for what set-up Macs miss
+
+An app update never re-runs Install. A Mac that is already set up gets only what
+`rt setup update` runs at its first launch on the new version: pending migrations, then the
+steps flagged `updateSafe`, then `verify` (AGENTS.md, "Setup after an update"). Anything else
+this release changes about setup reaches new installs and nobody else, with no error anywhere.
+Preflight does not see this: it reads pins and settings schemas.
+
+Three reads, in this order:
+
+1. What an update run already carries: the step ids `lib/setup/__tests__/update-safe.test.ts`
+   pins, the `MIGRATIONS` list in `lib/setup/migrations/index.ts`, and the rows `verify` checks
+   (`lib/setup/validators/`).
+2. The range against origin, `git log <newest-tag>..origin/main --stat`, then the diff of every
+   commit that touches `lib/setup/`, `commands/setup.ts` or `commands/post-install.ts`, or that
+   changes where rt reads or writes a file, key or link on the user's machine.
+3. Each such change against every row. One commit can fit several of the first three (a new
+   step that also needs a token scope), and each fit is settled on its own:
+
+| The change | A set-up Mac gets it when | Otherwise it is a gap, and the cut is |
+| --- | --- | --- |
+| A setup step is new, or an existing one now does more | the step is in the list `lib/setup/__tests__/update-safe.test.ts` pins | flag it `updateSafe: true` when it is idempotent, never calls `ctx.need` and never overwrites a value the user chose; when it cannot be, a migration |
+| A file, key or link outside the settings stores is renamed, moved, reshaped or retired | a reader still accepts the old shape, or a `MigrationDef` in `lib/setup/migrations/index.ts` carries it over | add the migration: a dated id appended to the list, returning `done`, `skipped` or `failed`, with its test |
+| rt now needs something only a person can grant (a token scope, a permission, an account) | a `verify` row turns needs-you on a Mac that lacks it, which is what makes the update run notify | add or fix that row |
+| A settings-store key changes | preflight's schema lock and settings stores rows pass | never this step's: those rows own it |
+| Served-app, daemon or CLI behavior, or state a reader derives each time | the update itself | never a gap |
+
+A row whose middle column holds, by read 1, is covered and gets no line. The result is one
+line per uncovered row, in four parts: the commit, what a set-up Mac lacks after updating, the cut, and
+the read that proved it (`foo.seed is not in the pinned list`, `no migration names the old
+path`, `no verify row reads the scope`). A line with no proof is an unfinished audit, never a
+gate question. A gap Matt already held in this release is not a gap again. No lines takes the
+`no` edge.
+
+### Gate: cut or hold each setup gap
+
+Quote each gap line. Recommend the cut. A hold is Matt's recorded decision only, and the
+question names what a member then has to do by hand (run `rt setup apply`, paste a new token).
+
+### Land the fix each setup gap needs
+
+Each cut is a PR on main, pushed with `git_push`, carrying the test its row names (the pinned
+list's diff, the migration's test, the validator's twin), and it merges before the notes commit.
+The pull and the preflight rerun are the same as for a stale row; the audit then reads the grown
+range.
+
+### Record each held setup gap for the notes
+
+Keep a list: the gap, the manual step, and Matt's words. `Write the release notes` turns each
+into an existing-installs line.
+
 ### Off-script gate: preflight git state
 
 Quote the `git state` row (off main, or a dirty tree). Take: Matt rules
@@ -282,3 +347,5 @@ answer.
 | "Rebasing a notes-only commit onto an unrelated merge is mechanical, not a new judgment call; 'get it out today, I trust you' covers it." | The notes commit is the tag target: a rebase changes what the tag covers and what the approved notes describe. Open the gate. |
 | "Matt is away, so I post the status in #rt and wait." | Status goes in the gate question. The only #rt post in a release is update-machine's own. |
 | "The checkout is on another branch, so I switch it." | Never switch it. Open the gate. |
+| "Preflight was all current, so the skill's check is satisfied." | Preflight reads pins and settings schemas. What this release changes about setup is the audit's, on every release. |
+| "I noticed an upgrade hazard, so I'll mention it at the notes approval." | A noticed gap is a line for the setup-gap gate. Cut or hold is Matt's answer, never a remark. |
