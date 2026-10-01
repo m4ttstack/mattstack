@@ -49,7 +49,7 @@ The board tracks five in-flight statuses; emit each as you cross the milestone:
 | `triaging` | Immediately, before fetching threads. |
 | `implementing` | Only after Gate 1's `code-changes` question comes back `approve`, before touching code. Skip when no threads need code changes. |
 | `drafting` | When presenting the verdict table + drafted replies (before Gate 1), and again right before Gate 2 opens, on every path: after implementing, and after drafting a reply override with nothing implemented. |
-| `done` | After the run finishes, zero threads included. REQUIRED: `--posted <n> --threads <n>`, plus `--held <n>` whenever a gate decision kept any reply from posting (see "Counts and the badge"). |
+| `done` | After the run finishes, zero threads included, as this pane's last tool call (see "The done write is the last call"). REQUIRED: `--posted <n> --threads <n>`, plus `--held <n>` whenever a gate decision kept any reply from posting (see "Counts and the badge"). |
 | `error` | Anything unrecoverable (bad MR, delegated skill failed). |
 
 ## Flow
@@ -76,7 +76,7 @@ digraph respond_map {
     "Respond error written: stay in the pane and report" [shape=doublecircle];
     "Respond gate gone: ended cleanly, no status write" [shape=doublecircle];
     "Held at a respond off-script gate: the pane stays" [shape=doublecircle];
-    "Respond done: stay in the pane" [shape=doublecircle style=filled fillcolor=lightgreen];
+    "Respond done: the board closes this tab" [shape=doublecircle style=filled fillcolor=lightgreen];
 
     "Trigger: the board launched /board:respond" -> "Launch and resume (launch.md)";
     "Launch and resume (launch.md)" -> "Launch and resume exit?";
@@ -103,7 +103,7 @@ digraph respond_map {
     "Gate 2 and posting exit?" -> "<status-bin> respond-status <state> error <what went wrong>" [label="error"];
     "Gate 2 and posting exit?" -> "Respond gate gone: ended cleanly, no status write" [label="gate gone"];
     "Gate 2 and posting exit?" -> "Held at a respond off-script gate: the pane stays" [label="hold"];
-    "<status-bin> respond-status <state> done <summary> --posted <n> --threads <n> [--held <n>]" -> "Respond done: stay in the pane";
+    "<status-bin> respond-status <state> done <summary> --posted <n> --threads <n> [--held <n>]" -> "Respond done: the board closes this tab";
     "<status-bin> respond-status <state> error <what went wrong>" -> "Respond error written: stay in the pane and report";
 }
 ```
@@ -145,6 +145,14 @@ What the graph cannot show:
   lacks the answer it needs (naming the file). Gate gone writes no
   status: say so in the pane and stop, since whatever superseded the gate
   already owns this MR's board state.
+
+- **The done write is the last call.** The board closes this pane's tab
+  the moment `respond-status <state> done` lands, which ends this session
+  mid-batch. So the done write is a call of its own, sent only after every
+  other write of the run has returned: the domain skill's own close (under
+  a run, its `run_stage` done and `run_status` done), the `--report`
+  append, and any MR update. A write sent in the same batch as the done
+  write is lost, and its run reads stale in the console.
 
 ### Launch and resume (launch.md)
 
