@@ -24,6 +24,7 @@ import type { PackRequirements } from "../requirements.ts";
 import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
+import { boardPeering, type BoardPeering } from "../../team/board-token.ts";
 
 /** Reads user-scope secrets: the real implementation goes through lib/secrets/store.readSecret (null on NoAgeKeyError) plus staged values (staging.ts) — that wiring is a later task's job; validators only depend on this narrow shape. */
 export interface SecretPresence {
@@ -200,13 +201,16 @@ async function slackRow(p: Probes, base: Omit<Row, "status" | "detail" | "action
 /**
  * No credential to hold (RT-141): the deployed switchboard service gates
  * /health behind a per-board token no user-supplied value can ever satisfy,
- * so rt holds nothing here. This is a plain reachability probe against the
- * public /healthz, same shape as access.ts's switchboardRow but required
- * when the team declares switchboard (that row is always optional).
+ * so the user connects nothing here. This is a reachability probe against
+ * the public /healthz, same shape as access.ts's switchboardRow but required
+ * when the team declares switchboard (that row is always optional). Once
+ * reachable, a machine that joined a switchboard team still needs its board
+ * token, which only an invite or the board's own re-invite delivers.
  */
-async function switchboardRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, ctx: ValidateCtx): Promise<Row> {
+async function switchboardRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, ctx: ValidateCtx, secrets: SecretPresence): Promise<Row> {
   const result = await def.validate(p, "", ctx);
-  if (result.status === "ready" || !ctx.declaredHost) return row({ ...base, status: result.status, detail: result.detail });
+  if (result.status === "ready") return peeringRow(base, result.detail, await boardPeering(p, secrets));
+  if (!ctx.declaredHost) return row({ ...base, status: result.status, detail: result.detail });
   // Confirmed to this very URL and only unreachable: a Confirm here would
   // re-latch the same value, so the row offers the re-check instead.
   const trimSlash = (u: string) => u.replace(/\/+$/, "");
@@ -226,6 +230,25 @@ async function switchboardRow(p: Probes, base: Omit<Row, "status" | "detail" | "
       fields: [{ name: "host", label: "Switchboard URL", secret: false, hint: "Your team declares this URL. Confirming it lets rt reach the switchboard from this Mac.", value: ctx.declaredHost }],
     },
   });
+}
+
+const REINVITE = "ask the team's owner to re-invite your board: rt team invite --handle <your forge username>";
+
+const REINVITE_STEPS: Action = {
+  type: "steps",
+  label: "Show steps…",
+  steps: ["Ask the team's owner to re-invite your board: rt team invite --handle <your forge username>", "Run rt team join with the new invite, or have them re-invite your board from the board's members panel", "Re-check this row"],
+};
+
+/** Read at check time from what the machine holds now, so a join from before rt reported peering is judged the same as a fresh one. */
+function peeringRow(base: Omit<Row, "status" | "detail" | "action" | "recheck">, reachableDetail: string, peering: BoardPeering): Row {
+  if (peering.kind === "unpeered") {
+    return row({ ...base, status: "needs-you", detail: `you joined ${peering.teams.join(", ")} by invite, but this machine's board has no switchboard token, so it does not peer: ${REINVITE}`, action: REINVITE_STEPS });
+  }
+  if (peering.kind === "unreadable") {
+    return row({ ...base, status: "error", detail: `could not read your secrets store (${peering.error}) to check your board's switchboard token`, action: ACCOUNT_RECHECK_ACTION });
+  }
+  return row({ ...base, status: "ready", detail: reachableDetail });
 }
 
 async function genericRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, secrets: SecretPresence, ctx: ValidateCtx, forge?: ForgeConnect): Promise<Row> {
@@ -283,7 +306,7 @@ async function accountRowFor(p: Probes, entry: DeclaredEntry, team: TeamSnapshot
 
   if (id === "github") return githubRow(p, base, def, secrets, ctx, forge!);
   if (id === "slack") return slackRow(p, base, def, secrets, ctx, team);
-  if (id === "switchboard") return switchboardRow(p, base, def, ctx);
+  if (id === "switchboard") return switchboardRow(p, base, def, ctx, secrets);
   return genericRow(p, base, def, secrets, ctx, forge);
 }
 

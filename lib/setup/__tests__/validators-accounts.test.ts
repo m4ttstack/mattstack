@@ -485,6 +485,83 @@ describe("accountRows — account.switchboard", () => {
   });
 });
 
+describe("accountRows — account.switchboard board peering", () => {
+  const HOME = "/fake-home";
+  const TEAMS = `${HOME}/.mattstack/teams`;
+  const SB = "https://sw.example.com";
+  const reachable = async (url: string) => (url.endsWith("/healthz") ? { status: 200, body: "", headers: {} } : { status: 0, body: "", headers: {} });
+
+  interface TeamFixture {
+    switchboard?: string;
+    joinedByRt?: boolean;
+  }
+
+  /** A machine as a pre-stamp join left it: the team clone and a local record with joinedByRt, and nothing else. */
+  function machine(teams: Record<string, TeamFixture>, extra: Record<string, string> = {}) {
+    const files: Record<string, string> = { ...extra };
+    for (const [slug, t] of Object.entries(teams)) {
+      const settings = t.switchboard === undefined ? {} : { "mattstack.integrations": { switchboard: { url: t.switchboard } } };
+      files[`${TEAMS}/${slug}/mattstack/settings.team.jsonc`] = `// team settings\n${JSON.stringify(settings)}\n`;
+      files[`${HOME}/.mattstack/rt/teams/${slug}.json`] = JSON.stringify({ createdByRt: !t.joinedByRt, joinedByRt: t.joinedByRt === true, rtMayManageMembership: false });
+    }
+    return fakeProbes({ home: HOME, files, dirs: { [TEAMS]: Object.keys(teams) }, fetch: reachable });
+  }
+
+  const team = baseTeam({ integrations: { switchboard: { url: SB } } });
+  const confirmed = { switchboardUrl: SB };
+  const row = (p: ReturnType<typeof fakeProbes>, secrets: SecretPresence = fakeSecrets()) => pickRow(accountRows(p, team, [], secrets, null, confirmed), "account.switchboard");
+
+  test("a machine that joined a switchboard team by invite and holds no board token anywhere -> needs-you with the re-invite remedy", async () => {
+    const r = await row(machine({ acme: { switchboard: SB, joinedByRt: true } }));
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toContain("acme");
+    expect(r.detail).toContain("ask the team's owner to re-invite your board: rt team invite --handle <your forge username>");
+    expect(r.action?.type).toBe("steps");
+  });
+
+  test("a token in rt's secrets -> ready", async () => {
+    const r = await row(machine({ acme: { switchboard: SB, joinedByRt: true } }), fakeSecrets({ "rt.switchboardToken": "tok-1" }));
+    expect(r.status).toBe("ready");
+    expect(r.detail).toBe("switchboard reachable");
+  });
+
+  test("a token only in the board's own .env -> ready, without asking the secrets store", async () => {
+    let asked = 0;
+    const secrets: SecretPresence = { async has() { asked++; return null; } };
+    const r = await row(machine({ acme: { switchboard: SB, joinedByRt: true } }, { [`${HOME}/.mattstack/board/.env`]: "SWITCHBOARD_TOKEN=tok-board\n" }), secrets);
+    expect(r.status).toBe("ready");
+    expect(asked).toBe(0);
+  });
+
+  test("a joined team with no switchboard, or a non-https one, is not applicable", async () => {
+    for (const switchboard of [undefined, "http://sw.lan"]) {
+      const r = await row(machine({ acme: { switchboard, joinedByRt: true } }));
+      expect(r.status).toBe("ready");
+    }
+  });
+
+  test("a creator machine (not joined by invite) is not applicable", async () => {
+    const r = await row(machine({ acme: { switchboard: SB, joinedByRt: false } }));
+    expect(r.status).toBe("ready");
+  });
+
+  test("every cloned team is checked, not just the active one", async () => {
+    const r = await row(machine({ acme: { joinedByRt: false }, beta: { switchboard: SB, joinedByRt: true } }));
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toContain("beta");
+    expect(r.detail).not.toContain("acme");
+  });
+
+  test("a secrets store that throws -> its own could-not-read status, never read as no token", async () => {
+    const secrets: SecretPresence = { async has() { throw new Error("keychain locked"); } };
+    const r = await row(machine({ acme: { switchboard: SB, joinedByRt: true } }), secrets);
+    expect(r.status).toBe("error");
+    expect(r.detail).toContain("could not read your secrets store");
+    expect(r.detail).toContain("keychain locked");
+    expect(r.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
+  });
+});
+
 describe("accountRows — required-ness derives from the declaring source (R-T9-b)", () => {
   test("an integration named only by an optional:true tool connect -> required:false, optionalNote mirrors the tool's own why", async () => {
     const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "sdm-cli", why: "db tunnels", optional: true, connect: { integration: "sdm" } }] }];
