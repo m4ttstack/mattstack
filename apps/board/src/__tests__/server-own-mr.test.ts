@@ -407,6 +407,24 @@ const ROUTES: Array<{
     carriesIid: true,
     body: (b, u, iid = u) => ({ mrUrl: b.url(u), iid, focus: true }),
   },
+  // A board tab picks the launch's pack; it must never decide ownership.
+  ...(
+    [
+      ['/doctor from a board tab', '/doctor', {}],
+      ['/respond from a board tab', '/respond', {}],
+      ['/respond resume from a board tab', '/respond', { resume: true }],
+    ] as const
+  ).map(([name, path, extra]) => ({
+    name,
+    path,
+    carriesIid: true,
+    body: (b: Board, u: number, iid = u) => ({
+      mrUrl: b.url(u),
+      iid,
+      tabId: 'team',
+      ...extra,
+    }),
+  })),
   {
     name: '/slack/post',
     path: '/slack/post',
@@ -546,6 +564,18 @@ describe('your own MR gets past the gate', () => {
         focus: true,
       });
       expect(res.status).not.toBe(403);
+    }
+  }, 15_000);
+
+  test('a board tab on your own MR still launches doctor and respond', async () => {
+    for (const path of ['/doctor', '/respond']) {
+      const res = await post(seated, path, {
+        mrUrl: seated.url(7),
+        iid: 7,
+        tabId: 'team',
+      });
+      expect(res.status).not.toBe(403);
+      expect(res.status).not.toBe(400);
     }
   }, 15_000);
 
