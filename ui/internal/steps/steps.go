@@ -68,34 +68,62 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 	ticker := time.NewTicker(frameEvery)
 	defer ticker.Stop()
 
-	// A sub-line that wraps takes two rows and breaks the erase count, so
-	// each one is cut to fit the terminal.
-	subWidth := 72
+	// A row that wraps takes two lines and breaks the cursor arithmetic, so
+	// the title row and every sub-line are cut to fit the terminal while the
+	// block is live.
+	subWidth, titleWidth := 72, 67
 	if w, _, err := xterm.GetSize(term.Fd()); err == nil && w > 16 {
-		subWidth = w - 8
+		subWidth, titleWidth = w-8, w-5
 	}
+	// subs are rendered rows without a newline. While any exist the live
+	// block is the title row then the subs, and the cursor rests at column 0
+	// of the row under the last one; with none, it rests at the end of the
+	// title row, as a plain spinner leaves it.
 	var subs []string
 
+	spinner := func() string {
+		f := theme.SpinnerFrames[frame%len(theme.SpinnerFrames)]
+		t := title
+		if len(subs) > 0 {
+			t = ansi.Truncate(t, titleWidth, "…")
+		}
+		return "  " + spinStyle.Render(f) + " " + textStyle.Render(t)
+	}
+	toTop := func() {
+		if len(subs) > 0 {
+			fmt.Fprintf(term, "\x1b[%dA", len(subs)+1)
+		}
+		fmt.Fprint(term, "\r")
+	}
 	clearActive := func() {
-		if painted {
+		if len(subs) > 0 {
+			toTop()
+			fmt.Fprint(term, "\x1b[J")
+		} else if painted {
 			fmt.Fprint(term, "\r\x1b[2K")
 		}
 		painted = false
 	}
-	// eraseSubs leaves the cursor where the first sub-line was. It is only
-	// valid with the cursor at column 0 of the row under the last one.
-	eraseSubs := func() {
-		if len(subs) > 0 {
-			fmt.Fprintf(term, "\x1b[%dA\x1b[J", len(subs))
+	line := func(glyph, t, hint string) string {
+		l := "  " + glyph + " " + textStyle.Render(t)
+		if hint != "" {
+			l += "  " + hintStyle.Render(hint)
 		}
+		return l + "\n"
 	}
 	final := func(glyph, t, hint string) {
 		clearActive()
-		line := "  " + glyph + " " + textStyle.Render(t)
-		if hint != "" {
-			line += "  " + hintStyle.Render(hint)
+		subs = nil
+		fmt.Fprint(term, line(glyph, t, hint))
+	}
+	// finalKeep ends the step on its own row and leaves its sub-lines
+	// beneath it as evidence.
+	finalKeep := func(glyph, t, hint string) {
+		kept := subs
+		final(glyph, t, hint)
+		for _, l := range kept {
+			fmt.Fprint(term, l+"\n")
 		}
-		fmt.Fprint(term, line+"\n")
 	}
 
 	for {
@@ -108,18 +136,21 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 				tty.FirstPaint()
 			}
 			painted = true
-			f := theme.SpinnerFrames[frame%len(theme.SpinnerFrames)]
+			if len(subs) > 0 {
+				fmt.Fprintf(term, "\x1b[%dA\r\x1b[2K%s\x1b[%dB\r", len(subs)+1, spinner(), len(subs)+1)
+			} else {
+				fmt.Fprint(term, "\r\x1b[2K"+spinner())
+			}
 			frame++
-			fmt.Fprint(term, "\r\x1b[2K  "+spinStyle.Render(f)+" "+textStyle.Render(title))
 		case <-signals:
 			if title != "" {
-				final(badGlyph, title, "interrupted")
+				finalKeep(badGlyph, title, "interrupted")
 			}
 			return Signalled
 		case ev, ok := <-events:
 			if !ok {
 				if title != "" {
-					final(badGlyph, title, "interrupted")
+					finalKeep(badGlyph, title, "interrupted")
 				}
 				return Interrupted
 			}
@@ -127,26 +158,40 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 			case "start":
 				title = ev.Title
 			case "log":
+				kept := subs
 				clearActive()
 				subs = nil
+				for _, l := range kept {
+					fmt.Fprint(term, l+"\n")
+				}
 				fmt.Fprint(term, "  "+logGlyph(ev.Level)+" "+textStyle.Render(ev.Text)+"\n")
 			case "sub":
-				clearActive()
-				eraseSubs()
-				subs = append(subs, "    "+railGlyph+" "+subStyle.Render(ansi.Truncate(render.Clean(ev.Text), subWidth, "…"))+"\n")
+				if title == "" {
+					continue
+				}
+				if len(subs) == 0 {
+					fmt.Fprint(term, "\r\x1b[2K")
+				} else {
+					toTop()
+					fmt.Fprint(term, "\x1b[J")
+				}
+				subs = append(subs, "    "+railGlyph+" "+subStyle.Render(ansi.Truncate(render.Clean(ev.Text), subWidth, "…")))
 				if len(subs) > maxSubs {
 					subs = subs[len(subs)-maxSubs:]
 				}
+				if !painted {
+					tty.FirstPaint()
+					painted = true
+				}
+				fmt.Fprint(term, spinner()+"\n")
 				for _, l := range subs {
-					fmt.Fprint(term, l)
+					fmt.Fprint(term, l+"\n")
 				}
 			case "done":
 				t := ev.Title
 				if t == "" {
 					t = title
 				}
-				clearActive()
-				eraseSubs()
 				g := okGlyph
 				if ev.Status != "" {
 					g = render.Glyph(ev.Status)
@@ -158,7 +203,7 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 				if t == "" {
 					t = title
 				}
-				final(badGlyph, t, ev.Hint)
+				finalKeep(badGlyph, t, ev.Hint)
 				return Failed
 			}
 		}

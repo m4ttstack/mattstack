@@ -165,3 +165,32 @@ func TestDoneWithAStatusEndsInThatStatusNotAFailure(t *testing.T) {
 		t.Fatalf("a needs-you ending was painted as done or as a failure: %q", tty)
 	}
 }
+
+func rowOf(screen, needle string) int {
+	for i, l := range strings.Split(screen, "\n") {
+		if strings.Contains(l, needle) {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestSubLinesSitUnderTheirStepAfterAFailure(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"connecting…"}`, `{"t":"sub","text":"checking the session"}`, `{"t":"sub","text":"opening the tunnel"}`, `{"t":"fail","title":"could not connect"}`}
+	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	screen := testutil.Screen(tty)
+	step, first, second := rowOf(screen, "could not connect"), rowOf(screen, "checking the session"), rowOf(screen, "opening the tunnel")
+	if step < 0 || step >= first || first >= second {
+		t.Fatalf("want step row < sub rows in order, got %d %d %d: %q", step, first, second, screen)
+	}
+}
+
+func TestSubLinesSitUnderTheirStepWhenTheParentVanishes(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"connecting…"}`, `{"t":"sub","text":"checking the session"}`}
+	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	screen := testutil.Screen(tty)
+	step, sub := rowOf(screen, "connecting…"), rowOf(screen, "checking the session")
+	if step < 0 || step >= sub {
+		t.Fatalf("step row %d sub row %d: %q", step, sub, screen)
+	}
+}
