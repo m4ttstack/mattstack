@@ -8,7 +8,6 @@ import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import { createApplyContext, outcomeFromNeed, runApplyWith, runUpdateWith } from "../apply.ts";
 import type { MigrationDef } from "../migrations/index.ts";
-import { readSetupState } from "../state.ts";
 import { createNdjsonEmitter, type Emit } from "../emit.ts";
 import type { ApplyEvent, StepId } from "../contract.ts";
 import { STEP_IDS } from "../contract.ts";
@@ -17,6 +16,7 @@ import type { Probes } from "../probes.ts";
 import { STEPS } from "../steps/index.ts";
 import { fakeProbes, fakeTray } from "./fakes.ts";
 import { needOutcome } from "../steps/step-utils.ts";
+import { isSetupFinished, readSetupState, updateSetupState } from "../state.ts";
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -137,6 +137,69 @@ describe("runApplyWith — team reload", () => {
     ctx.reloadTeam = () => { reloads++; };
     await runApplyWith([{ ...fakeStep("team.join", { state: "partial", detail: "joined, board not peered" }), reloadsTeam: true }], ctx, {});
     expect(reloads).toBe(1);
+  });
+});
+
+// A Mac with a daemon and no setup files reads as a pre-app install that
+// finished. The run's own services.register must not make it look like one.
+describe("runApplyWith: the legacy finish is judged before the run installs anything", () => {
+  const DAEMON = "/fake-home/.mattstack/rt/daemon.json";
+  function steps(probes: ReturnType<typeof fakeProbes>): StepDef[] {
+    return [
+      fakeStep("services.register", async () => {
+        probes.writeFile(DAEMON, "{}");
+        return { state: "done" };
+      }),
+      fakeStep("plugins.install", async () => {
+        updateSetupState(probes, (s) => ({ ...s, plugins: ["x"] }));
+        return { state: "done" };
+      }),
+    ];
+  }
+
+  test("a fresh Mac stays unfinished after a run installs the daemon", async () => {
+    const { ctx } = testCtx();
+    const probes = ctx.p as ReturnType<typeof fakeProbes>;
+    await runApplyWith(steps(probes), ctx);
+    expect(isSetupFinished(readSetupState(probes))).toBe(false);
+  });
+
+  test("a Mac whose daemon predates the run keeps its legacy finish", async () => {
+    const { ctx } = testCtx();
+    const probes = ctx.p as ReturnType<typeof fakeProbes>;
+    probes.writeFile(DAEMON, "{}");
+    await runApplyWith(steps(probes), ctx);
+    expect(isSetupFinished(readSetupState(probes))).toBe(true);
+  });
+});
+
+// The app reopens an unfinished setup at Done only after a run that got
+// through; a failed one (a join clears its intent mid-run) goes back to the
+// checklist, where its broken rows are.
+describe("runApplyWith: lastApplyOk records whether the last whole run got through", () => {
+  const lastApplyOk = (ctx: ApplyContext) => readSetupState(ctx.p as ReturnType<typeof fakeProbes>).lastApplyOk;
+
+  test("a run that ends ok records true, a failed one false", async () => {
+    const good = testCtx().ctx;
+    await runApplyWith([fakeStep("path.link", { state: "done" })], good);
+    expect(lastApplyOk(good)).toBe(true);
+
+    const bad = testCtx().ctx;
+    await runApplyWith([fakeStep("path.link", { state: "failed", detail: "boom" })], bad);
+    expect(lastApplyOk(bad)).toBe(false);
+  });
+
+  test("--from counts, since it runs everything left", async () => {
+    const { ctx } = testCtx();
+    await runApplyWith([fakeStep("home.init", { state: "done" }), fakeStep("path.link", { state: "failed", detail: "boom" })], ctx, { from: "path.link" });
+    expect(lastApplyOk(ctx)).toBe(false);
+  });
+
+  test("an --only retry leaves the last whole run's answer alone", async () => {
+    const { ctx } = testCtx();
+    await runApplyWith([fakeStep("path.link", { state: "failed", detail: "boom" })], ctx);
+    await runApplyWith([fakeStep("path.link", { state: "done" })], ctx, { only: "path.link" });
+    expect(lastApplyOk(ctx)).toBe(false);
   });
 });
 
@@ -1367,6 +1430,53 @@ function fakeMigration(id: string, outcome: StepOutcome | (() => Promise<StepOut
 function updateStep(id: StepId, outcome: StepOutcome, updateSafe: true | undefined = true): StepDef {
   return { ...fakeStep(id, outcome), ...(updateSafe ? { updateSafe: true } : {}) };
 }
+
+// An update stamps lastApplyAt like any run, but it is not a full apply.
+describe("runUpdateWith and the finished state", () => {
+  const STATE = "/fake-home/.mattstack/rt/setup-state.json";
+
+  test("an update run never sets lastApplyOk, so it cannot reopen a failed setup at Done", async () => {
+    const { ctx } = testCtx();
+    await runApplyWith([fakeStep("path.link", { state: "failed", detail: "boom" })], ctx);
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], ctx);
+    expect(readSetupState(ctx.p as ReturnType<typeof fakeProbes>).lastApplyOk).toBe(false);
+
+    const fresh = testCtx().ctx;
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], fresh);
+    expect(readSetupState(fresh.p as ReturnType<typeof fakeProbes>).lastApplyOk).toBeUndefined();
+  });
+
+  test("on a v1 Mac the legacy finish is settled before the update's first migration runs", async () => {
+    const { ctx } = testCtx();
+    const p = ctx.p as ReturnType<typeof fakeProbes>;
+    p.writeFile("/fake-home/.mattstack/rt/daemon.json", "{}");
+    p.writeFile(STATE, JSON.stringify({ v: 1, marketplaces: [], plugins: [], links: ["gh"], extensionEditors: [], forcedLinks: [] }));
+    let seen: { v?: number; finishedAt?: string } = {};
+    const migration = fakeMigration("2026-10-01-setup-intent", async () => {
+      seen = JSON.parse(p.readFile(STATE)!);
+      p.writeFile("/fake-home/.mattstack/rt/setup-intent.json", "{}");
+      return { state: "done" };
+    });
+
+    await runUpdateWith([], [migration], ctx);
+
+    expect(seen.v).toBe(2);
+    expect(typeof seen.finishedAt).toBe("string");
+    expect(isSetupFinished(readSetupState(p))).toBe(true);
+  });
+
+  test("a run stamping lastApplyAt over a v1 file with a team choice pending does not prove finished", async () => {
+    const { ctx } = testCtx();
+    const p = ctx.p as ReturnType<typeof fakeProbes>;
+    p.writeFile("/fake-home/.mattstack/rt/setup-intent.json", "{}");
+    p.writeFile(STATE, JSON.stringify({ v: 1, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [] }));
+
+    await runUpdateWith([updateStep("path.link", { state: "done" })], [], ctx);
+    expect(isSetupFinished(readSetupState(p))).toBe(false);
+    await runApplyWith([fakeStep("path.link", { state: "done" })], ctx, { only: "path.link" });
+    expect(isSetupFinished(readSetupState(p))).toBe(false);
+  });
+});
 
 describe("runUpdateWith", () => {
   test("runs pending migrations, then update-safe steps in order, then verify; non-safe steps never run", async () => {

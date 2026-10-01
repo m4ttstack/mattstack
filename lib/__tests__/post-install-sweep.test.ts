@@ -142,6 +142,7 @@ function fakeApplyDeps(overrides: { steps?: StepDef[] } = {}): ApplyDeps & { exi
     },
     isTTY: () => false,
     planForGate: async () => ({ requiredMissing: [] }),
+    planForFinish: async () => ({ finishBlockedBy: [] }),
     confirm: async () => true,
     steps: overrides.steps ?? [],
     exitCodes,

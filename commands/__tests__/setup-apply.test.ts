@@ -10,6 +10,7 @@ import {
 import type { ApplyContext, StepDef, StepOutcome } from "../../lib/setup/apply.ts";
 import type { ApplyEvent, StepId } from "../../lib/setup/contract.ts";
 import { intentPath, readIntent } from "../../lib/setup/intent.ts";
+import { isSetupFinished, readSetupState } from "../../lib/setup/state.ts";
 import type { RelayClient } from "../../lib/team/relay-client.ts";
 import type { SecretsSeams } from "../../lib/secrets/store.ts";
 import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
@@ -86,6 +87,7 @@ function baseApplyDeps(
     },
     isTTY: () => false,
     planForGate: async () => ({ requiredMissing: [] }),
+    planForFinish: async () => ({ finishBlockedBy: [] }),
     confirm: async (message) => {
       confirmCalls.push(message);
       return true;
@@ -478,6 +480,61 @@ describe("setupIntent", () => {
     expect(payload.error.message).toContain("acme");
     expect(readIntent(deps.probes)).toBeNull();
     expect(deps.probes.calls.writes[intentPath(deps.probes.home)]).toBeUndefined();
+  });
+});
+
+// A terminal or --post-install setup has no wizard to press Finish in, so a
+// full run that clears the same gate Finish waits on records it itself.
+describe("setupApply: a full run with nothing left to finish records Finish", () => {
+  const finished = (probes: ReturnType<typeof fakeProbes>) => isSetupFinished(readSetupState(probes));
+
+  test("a full run that ends ok with no finish blockers records Finish", async () => {
+    const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })] });
+    await setupApply(["--json"], {}, deps);
+    expect(finished(deps.probes)).toBe(true);
+  });
+
+  test("a finish blocker left standing keeps setup unfinished", async () => {
+    const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done" })], planForFinish: async () => ({ finishBlockedBy: ["tool.fast-browser-extension"] }) });
+    await setupApply(["--json"], {}, deps);
+    expect(finished(deps.probes)).toBe(false);
+  });
+
+  test("a failed run records nothing", async () => {
+    const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "failed", detail: "boom" })] });
+    await runExpectingExit(() => setupApply(["--json"], {}, deps));
+    expect(finished(deps.probes)).toBe(false);
+  });
+
+  test("--only and --from are partial runs and never finish setup", async () => {
+    for (const flag of ["--only", "--from"]) {
+      let asked = false;
+      const deps = baseApplyDeps({
+        steps: [fakeStep("path.link", { state: "done" })],
+        planForFinish: async () => {
+          asked = true;
+          return { finishBlockedBy: [] };
+        },
+      });
+      await setupApply([flag, "path.link", "--json"], {}, deps);
+      expect(finished(deps.probes)).toBe(false);
+      expect(asked).toBe(false);
+    }
+  });
+
+  test("a gate that cannot be read leaves setup unfinished and says so on stderr, never on the stream", async () => {
+    const errors: string[] = [];
+    const deps = baseApplyDeps({
+      steps: [fakeStep("path.link", { state: "done" })],
+      planForFinish: async () => {
+        throw new Error("keychain locked");
+      },
+      printError: (s) => errors.push(s),
+    });
+    await setupApply(["--json"], {}, deps);
+    expect(finished(deps.probes)).toBe(false);
+    expect(errors.join("\n")).toContain("keychain locked");
+    expect(deps.lines.every((l) => JSON.parse(l).event !== undefined)).toBe(true);
   });
 });
 

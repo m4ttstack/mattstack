@@ -68,8 +68,19 @@ final class SetupCoordinator {
         settingsRefresher = SettingsRefresher(team: teamSettings, apps: appsSettings)
     }
 
-    var setupIsComplete: Bool {
-        !FirstRunDetector.needsSetup(home: AppHome.current) { FileManager.default.fileExists(atPath: $0) }
+    var setupIsComplete: Bool { SetupSession.isFinished }
+
+    func showSetupOnLaunch(resumeFlag: SetupStep?) {
+        if case .show(let step) = SetupCompletion.onLaunch(resumeFlag: resumeFlag, finished: setupIsComplete, resume: SetupSession.resumeStep) {
+            showSetup(step: step)
+        }
+    }
+
+    /// "Resume setup…". A wizard already on screen is only brought forward:
+    /// jumping it to another step would abandon a live Install.
+    func resumeSetup() {
+        if setupWindow?.window?.isVisible == true { showSetup(); return }
+        showSetup(step: SetupSession.resumeStep)
     }
 
     func showSetup(step: SetupStep? = nil, joinCode: String? = nil, entry: SetupEntry = .firstRun, choice: TeamChoice? = nil) {
@@ -80,6 +91,10 @@ final class SetupCoordinator {
             let wc = SetupWindowController(environment: env)
             wc.onClose = { [weak self, weak wc] entry in
                 guard let self, let wc else { return }
+                if SetupCompletion.closeRecordsFinish(step: wc.flow.step, finishEnabled: wc.done.finishEnabled, readOnly: wc.flow.readOnly) {
+                    SetupSession.markFinished()
+                    self.recordFinish()
+                }
                 let applied = wc.flow.step == .done && self.install.phase == .succeeded
                 Task { @MainActor in await self.settingsRefresher.setupWindowClosed(entry: entry, applied: applied) }
             }
@@ -89,6 +104,24 @@ final class SetupCoordinator {
         // behind a titlebar with no close button.
         setupWindow?.allowsCloseAlways = setupIsComplete
         setupWindow?.show(step: step, joinCode: joinCode, entry: entry, choice: choice)
+    }
+
+    /// Until this lands on disk the next launch reopens setup, so a failure
+    /// is logged with rt's own message.
+    private func recordFinish() {
+        let rt = self.rt
+        Task { @MainActor in
+            do {
+                let r = try await rt.run(SetupCompletion.finishArguments, stdin: nil)
+                if let e = r.userError {
+                    TrayLog.warn("setup finish refused", ["err": e.message])
+                } else if r.exitCode != 0 {
+                    TrayLog.warn("setup finish failed", ["exit": String(r.exitCode), "detail": r.failureCopy(verb: "setup finish")])
+                }
+            } catch {
+                TrayLog.warn("setup finish did not run", ["err": String(describing: error)])
+            }
+        }
     }
 
     /// "Setup status…": screen 3 as a read-only health view over

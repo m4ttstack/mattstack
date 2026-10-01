@@ -58,7 +58,7 @@ let daemonLifecycleChecks: [Check] = [
         c.expectEqual(DaemonOrigin.http(clientHeader: "  rt-client/20469 "), "socket rt-client/20469")
         c.expectEqual(DaemonOrigin.http(clientHeader: nil), "socket (unidentified client)")
         c.expectEqual(DaemonOrigin.http(clientHeader: "   "), "socket (unidentified client)")
-        c.expectEqual(DaemonOrigin.menu, "gear menu")
+        c.expectEqual(DaemonOrigin.menu, "tray menu")
     },
 
     Check("DaemonOrigin.header reads X-RT-Client out of a raw request, case-insensitively") { c in
