@@ -84,7 +84,7 @@ const note = (id: number, username: string, body: string) => ({
 const threadA = {
   discussionId: 'dA',
   status: 'awaiting',
-  notes: [note(9001, 'kim', 'rename this')],
+  notes: [note(9001, 'matt', 'rename this')],
 };
 const threadB = {
   discussionId: 'dB',
@@ -399,6 +399,30 @@ test('resolving a thread keeps its place in the drawer and offers unresolve', as
   buttonIn(thread('dA'), 'unresolve');
 });
 
+test('a thread someone else started takes a reply but offers no resolve', async () => {
+  await renderBoardWithDrawerOpen();
+  const labels = () =>
+    [...thread('dB').querySelectorAll('button')].map(b =>
+      b.textContent?.trim()
+    );
+  expect(labels()).toContain('reply');
+  expect(labels()).not.toContain('resolve');
+  await press(thread('dB'), 'reply');
+  await type(replyBox('dB')!, 'added one');
+  expect(labels()).toContain('send');
+  expect(labels()).not.toContain('send & resolve');
+});
+
+test('an "all" board resolves nothing, not even a thread the seat would own', async () => {
+  servedData = { ...BOARD_DATA, defaultMember: 'all' };
+  await renderBoardWithDrawerOpen();
+  const labels = [...thread('dA').querySelectorAll('button')].map(b =>
+    b.textContent?.trim()
+  );
+  expect(labels).toContain('reply');
+  expect(labels).not.toContain('resolve');
+});
+
 test('Escape closes the reply box, not the drawer, and the draft is there on reopen', async () => {
   await renderBoardWithDrawerOpen();
   await press(thread('dA'), 'reply');
@@ -554,6 +578,7 @@ describe('drawer reads', () => {
         React.createElement(Drawer, {
           mr: mr as never,
           local: true,
+          self: 'matt',
           onClose: () => {},
         })
       );

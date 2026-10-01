@@ -270,9 +270,11 @@ function useThreadWrites(
 function ReplyBox({
   thread,
   writes,
+  canResolve,
 }: {
   thread: CommentThread;
   writes: ThreadWrites;
+  canResolve: boolean;
 }) {
   const id = thread.discussionId;
   const draft = writes.drafts[id] ?? '';
@@ -317,7 +319,7 @@ function ReplyBox({
         >
           cancel
         </Button>
-        {thread.status !== 'resolved' && (
+        {canResolve && thread.status !== 'resolved' && (
           <Button
             type="button"
             size="sm"
@@ -353,13 +355,16 @@ function ThreadCard({
   thread,
   now,
   writes,
+  self,
 }: {
   mr: BoardMR;
   thread: CommentThread;
   now: number;
   writes: ThreadWrites | null;
+  self: string | null;
 }) {
   const id = thread.discussionId;
+  const canResolve = self !== null && thread.notes[0]?.username === self;
   const resolved = thread.status === 'resolved';
   const resolving =
     writes?.pending?.id === id && writes.pending.what === 'resolve';
@@ -384,21 +389,23 @@ function ThreadCard({
               >
                 reply
               </button>
-              <button
-                type="button"
-                className="tui-cd-verb"
-                disabled={writes.pending !== null}
-                aria-busy={resolving || undefined}
-                onClick={() => writes.toggleResolved(thread)}
-              >
-                {resolving
-                  ? resolved
-                    ? 'unresolving…'
-                    : 'resolving…'
-                  : resolved
-                    ? 'unresolve'
-                    : 'resolve'}
-              </button>
+              {canResolve && (
+                <button
+                  type="button"
+                  className="tui-cd-verb"
+                  disabled={writes.pending !== null}
+                  aria-busy={resolving || undefined}
+                  onClick={() => writes.toggleResolved(thread)}
+                >
+                  {resolving
+                    ? resolved
+                      ? 'unresolving…'
+                      : 'resolving…'
+                    : resolved
+                      ? 'unresolve'
+                      : 'resolve'}
+                </button>
+              )}
             </>
           )}
           {mr.webUrl && thread.notes[0] && (
@@ -416,7 +423,9 @@ function ThreadCard({
       {thread.notes.map(n => (
         <CommentNoteView key={n.id} mr={mr} note={n} now={now} />
       ))}
-      {writes?.composing === id && <ReplyBox thread={thread} writes={writes} />}
+      {writes?.composing === id && (
+        <ReplyBox thread={thread} writes={writes} canResolve={canResolve} />
+      )}
       {error && (
         <p className="tui-cd-error" role="alert">
           {error}
@@ -429,14 +438,18 @@ function ThreadCard({
 /** Right-side drawer showing an MR's review threads (each with its status and
     notes) plus a section for general MR comments: the Overview-tab notes that
     aren't threads, so a later author comment isn't invisible. Lazily fetched.
-    A local board can also reply to and resolve threads from here. */
+    A local board can also reply to any thread here, and resolve the ones
+    its seat started. */
 function CommentsDrawer({
   mr,
   local,
+  self,
   onClose,
 }: {
   mr: BoardMR;
   local: boolean;
+  /** The board's seat; it resolves only the threads it started. */
+  self: string | null;
   onClose: () => void;
 }) {
   const [data, setData] = useState<Discussions | null>(null);
@@ -514,6 +527,7 @@ function CommentsDrawer({
                 thread={t}
                 now={now}
                 writes={canWrite ? writes : null}
+                self={self}
               />
             ))}
             {data.comments.length > 0 && (

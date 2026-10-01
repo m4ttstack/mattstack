@@ -29,10 +29,12 @@ import {
   freshnessBanner,
   GROUP_KEYS,
   groupMRs,
+  isOwnMr,
   NEEDS_ME_TAB,
   nestStacks,
   parseViewState,
   rosterUsernamesFor,
+  seatOf,
   serializeViewState,
   sortMRs,
 } from '../../view.ts';
@@ -1164,11 +1166,12 @@ export function Board() {
   // member filters.
   const selectedMrs = selectionOf(mrs, selected);
   const summaryText = boardSummary(flatMrs, data.slackTemplates);
-  const postableMrs = postableOf(flatMrs);
-  const postableSelected = postableOf(selectedMrs);
+  const seat = seatOf(data.defaultMember);
+  const postableMrs = postableOf(flatMrs, seat);
+  const postableSelected = postableOf(selectedMrs, seat);
   const rowCtx: RowContext = {
     local: data.local,
-    self: data.defaultMember === 'all' ? null : data.defaultMember,
+    self: seat,
     slackTemplates: data.slackTemplates,
     slackEnabled: data.slackEnabled,
     onContext: openRowMenu,
@@ -1197,10 +1200,7 @@ export function Board() {
   const actionEnv: ActionEnv = {
     local: data.local,
     slackEnabled: data.slackEnabled,
-    self:
-      data.defaultMember && data.defaultMember !== 'all'
-        ? data.defaultMember
-        : null,
+    self: seat,
     roster: data.members.map(m => m.username),
     peers: data.peers,
     allMrs: data.mrs,
@@ -1612,6 +1612,7 @@ export function Board() {
           mr={draftModal.mr}
           draft={draftModal.draft}
           local={data.local}
+          canPost={isOwnMr(draftModal.mr, seatOf(data.defaultMember))}
           onResolved={handleDraftResolved}
           onClose={() => setDraftModal(null)}
         />
@@ -1624,6 +1625,7 @@ export function Board() {
             commentsFor
           }
           local={data.local}
+          self={seatOf(data.defaultMember)}
           onClose={() => setCommentsFor(null)}
         />
       )}

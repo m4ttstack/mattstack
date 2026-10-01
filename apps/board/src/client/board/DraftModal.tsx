@@ -13,12 +13,15 @@ function DraftModal({
   mr,
   draft,
   local,
+  canPost,
   onResolved,
   onClose,
 }: {
   mr: BoardMRWithReview;
   draft: DraftInfo;
   local: boolean;
+  /** Only the MR's author posts a note on it; anyone may drop the copy. */
+  canPost: boolean;
   onResolved: (outcome: 'posted' | 'dismissed') => void;
   onClose: () => void;
 }) {
@@ -90,13 +93,17 @@ function DraftModal({
               >
                 {busy === 'dismiss' ? 'dismissing…' : 'dismiss'}
               </button>
-              <button
-                className="tui-draft-act tui-draft-act-post"
-                disabled={busy !== null}
-                onClick={() => setArmed(true)}
-              >
-                post
-              </button>
+              {canPost ? (
+                <button
+                  className="tui-draft-act tui-draft-act-post"
+                  disabled={busy !== null}
+                  onClick={() => setArmed(true)}
+                >
+                  post
+                </button>
+              ) : (
+                <span className="tui-draft-note">only the author posts</span>
+              )}
             </>
           )
         ) : (
