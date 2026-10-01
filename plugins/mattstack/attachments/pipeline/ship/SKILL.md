@@ -516,8 +516,8 @@ Scope `ship`. Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|re
 Abort and Hold push nothing. Iterate and Hold clear the recorded target
 with `run_field_set {key: shipTarget, value: -, stage: ship}` before they leave the gate, so a
 resume after either one re-asks the gate. Proceed records the target it consented to
-with `run_field_set {key: shipTarget, value: <resolved target>}`; `stage` is
-`"ship"` in an own run and `run.current_stage` in an inherited one, on the
+with `run_field_set {key: shipTarget, value: <resolved target>, stage: ship}`; `stage` is
+`"ship"` in an own run and `run.current_stage` in an inherited one, on both
 clears as well as on Proceed;
 when the stack store was unreadable the value is `<default branch> (stack
 store unreadable)`, so a later reader can tell consent to the fallback from

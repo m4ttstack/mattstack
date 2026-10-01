@@ -76,6 +76,8 @@ digraph review {
     "mr_list matches for the branch?" [shape=diamond];
     "mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}" [shape=plaintext];
     "mr_list matches for the ticket?" [shape=diamond];
+    "Review clarify rounds = 2?" [shape=diamond];
+    "STOP: GitLab ticket searches go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "STOP: GitLab reads go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "STOP: GitLab branch lookups go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Gate review clarify: which target?" [shape=box];
@@ -206,6 +208,8 @@ digraph review {
     "mr_list matches for the branch?" -> "Gate review clarify: which target?" [label="several, or a truncated list"];
     "mr_list matches for the branch?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="an error: hold, quoting its text (never read as none)"];
     "mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}" -> "mr_list matches for the ticket?";
+    "Review target form?" -> "STOP: GitLab ticket searches go through the read tools or gitlab_get" [label="tempted to search with the GitLab CLI"];
+    "STOP: GitLab ticket searches go through the read tools or gitlab_get" -> "mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}";
     "mr_list matches for the ticket?" -> "mr_view {mrUrl, or repoName + iid}" [label="exactly one, from a complete read: its iid"];
     "mr_list matches for the ticket?" -> "Gate review clarify: which target?" [label="none, several, or a truncated list"];
     "mr_list matches for the ticket?" -> "Gate review clarify: which target?" [label="an error: quoted in the gate's sentence"];
@@ -219,6 +223,9 @@ digraph review {
     "gh pr view found the PR?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="no: hold, quoting the error"];
     "Gate review clarify: which target?" -> "Review target answer?";
     "Review target answer?" -> "Review target form?" [label="a target picked: resolve it"];
+    "Review target answer?" -> "Review clarify rounds = 2?" [label="their text"];
+    "Review clarify rounds = 2?" -> "Review target form?" [label="no: resolve it"];
+    "Review clarify rounds = 2?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="yes: hold, naming what was tried"];
     "Review target answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
     "Own review run: record the target?" -> "Record the review target: mr, branch and any ticket" [label="yes"];
     "Own review run: record the target?" -> "Print the review depth block" [label="no: inherited"];
@@ -406,8 +413,10 @@ Check `truncated` first. A `truncated: true` list (GitLab held more than
 the 200 returned) is ambiguous whatever it holds: take the clarify gate,
 with a sentence saying the search was cut at 200 rows and naming what was
 found. Otherwise count the kept rows. Exactly one: take its `iid` to
-`mr_view`. None or several: the clarify gate, a sentence naming what was
-found with one option per row (iid, title, state). An error is the error
+`mr_view`. None: the clarify gate with no options, a sentence saying nothing
+carried the ticket, and their typed text as the answer. Several: the
+clarify gate, a sentence naming what was found with one option per row
+(iid, title, state). An error is the error
 text, usually GitLab's: it goes to the clarify gate's sentence, quoted,
 never read as none. No row means none of the rows GitLab returned carries
 the ticket, not that no MR exists. Never a guess.
@@ -426,11 +435,16 @@ is quoted as GitLab wrote it. Its refusal of a credential path is final.
 ### Gate review clarify: which target?
 
 Bracket with `run_field_set {key: gate, value: clarify, stage: <stage>}`,
-one sentence naming the candidates, then run gate-protocol's Runs
+one sentence naming the candidates, quoting the GitLab error when a read
+failed, or saying the search was cut at 200 rows when a list was
+truncated, or saying none was found, then run gate-protocol's Runs
 integration with kind `clarify` and two questions: `target`, one option
-per candidate, and `next`: **Proceed** (recommended) / **Hold**. Record
+per candidate (none when nothing was found or a read failed: their typed
+text is the answer), and `next`: **Proceed** (recommended) / **Hold**. Record
 `run_decision {contract: gate@1, scope: clarify, selection: {"target":
-"<picked>"}, decidedBy: <the answer's by>}`.
+"<picked>"}, decidedBy: <the answer's by>}`. Their text goes back to the
+target form and resolves again; `Review clarify rounds = 2?` counts the
+typed answers this gate has taken in this run, and the second one ends in a hold naming what was tried.
 
 ### Record the review target: mr, branch and any ticket
 
