@@ -502,6 +502,19 @@ describe("mr:comment-inline", () => {
       expect(positions).toEqual([]);
     });
 
+    test("a caller who aborts after a successful read gets a failure and no POST", async () => {
+      const { positions, mutator } = recorder();
+      const controller = new AbortController();
+      const slow: DiscussionHandlerSeams["diffs"] = async () => {
+        controller.abort();
+        return { diffs: [{ newPath: "src/foo.ts", diff: DIFF }], truncated: false };
+      };
+      const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(mutator, undefined, slow));
+      const res = await h["mr:comment-inline"]!(basePayload({ line: 11 }), controller.signal);
+      expect(res.ok).toBe(false);
+      expect(positions).toEqual([]);
+    });
+
     test("a collapsed or too-large file posts as before", async () => {
       for (const flags of [{ collapsed: true }, { tooLarge: true }, {}]) {
         const { positions, mutator } = recorder();

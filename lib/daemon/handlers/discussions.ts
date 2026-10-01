@@ -406,6 +406,7 @@ export function createDiscussionHandlers(
           return { ok: true, data: { discussionId, noteId, verified: true } };
         };
 
+        if (signal?.aborted) return { ok: false, error: "request aborted before the comment was posted" };
         const first = await postOnce();
         const firstNote = first.notes[0];
         if (!firstNote) return { ok: false, error: "GitLab created a discussion with no notes" };
