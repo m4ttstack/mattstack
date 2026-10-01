@@ -60,7 +60,7 @@ describe("materializeRepo", () => {
   test("no zone declares the repo -> undeclared", () => {
     const { root, engine, home } = makeWorld();
     zone(root, "acme", { projects: ["acme/other"], packs: { widgets: {} } });
-    expect(materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE)).toEqual({ kind: "undeclared", repo: "gitlab.example.com/acme/widgets", pruned: [] });
+    expect(materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE)).toEqual({ kind: "undeclared", repo: "gitlab.example.com/acme/widgets" });
   });
 
   test("two zones on one repo each get their own pack file with their own stage-gates fill", () => {
@@ -336,18 +336,16 @@ describe("materializeRepo stale bindings files", () => {
     expect(readdirSync(join(root, "repos", SLUG, "packs", "widgets"))).toEqual(["skills.jsonc"]);
   });
 
-  test("a repo no zone declares any more has every pack file set aside", () => {
+  test("a repo no zone declares any more has its pack files left alone", () => {
     const { root, deps } = twoZones();
+    const before = readFileSync(packFile(root, "widgets"), "utf8");
     for (const slug of ["acme-w", "acme-g"]) {
       write(join(root, "teams", slug, "mattstack", "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: [] }));
     }
     const out = materializeRepo(deps, REMOTE);
-    expect(out).toEqual({
-      kind: "undeclared",
-      repo: "gitlab.example.com/acme/widgets",
-      pruned: [`${packFile(root, "gadgets")}.stale`, `${packFile(root, "widgets")}.stale`],
-    });
-    expect(existsSync(packFile(root, "gadgets"))).toBe(false);
-    expect(existsSync(packFile(root, "widgets"))).toBe(false);
+    expect(out).toEqual({ kind: "undeclared", repo: "gitlab.example.com/acme/widgets" });
+    expect(readFileSync(packFile(root, "widgets"), "utf8")).toBe(before);
+    expect(existsSync(packFile(root, "gadgets"))).toBe(true);
+    expect(existsSync(`${packFile(root, "widgets")}.stale`)).toBe(false);
   });
 });

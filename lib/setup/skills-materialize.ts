@@ -126,7 +126,7 @@ export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: 
     if (outcome.kind === "no-remote") {
       repos.push({ ...target, ok: false, noManifest: true, noRemote: true, detail: `no git remote in ${target.path}` });
     } else if (outcome.kind === "undeclared") {
-      repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares ${outcome.repo}`, pruned: outcome.pruned });
+      repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares ${outcome.repo}` });
     } else if (outcome.packs.length === 0) {
       repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares a pack for ${outcome.repo}`, pruned: outcome.pruned });
     } else {

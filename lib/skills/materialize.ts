@@ -12,7 +12,7 @@ export type PackOutcome =
 
 export type MaterializeRepoOutcome =
   | { kind: "no-remote" }
-  | { kind: "undeclared"; repo: string; pruned: string[] }
+  | { kind: "undeclared"; repo: string }
   | { kind: "written"; repo: string; slug: string; packs: PackOutcome[]; migrated: string | null; pruned: string[] };
 
 export type MaterializeDeps = {
@@ -75,7 +75,11 @@ function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, re
   }
 }
 
-/** Renamed, never deleted: a file is set aside only when no pack this run claimed (ok or failed) owns it, so a broken pack keeps its last good bindings. */
+/**
+ * Renamed, never deleted, and only from a run some zone still declares: an absent zone (not cloned yet, mid-sync, an
+ * unreadable mount) reads as undeclared, and setting files aside then would strand the board. A pack this run claimed,
+ * ok or failed, keeps its file, so a broken pack keeps its last good bindings.
+ */
 function setAsideStale(deps: MaterializeDeps, slug: string, owned: Set<string>): string[] {
   const pruned: string[] = [];
   for (const pack of deps.fs.readDir(join(deps.mattstackRoot, "repos", slug, "packs")).sort()) {
@@ -95,7 +99,7 @@ export function materializeRepo(deps: MaterializeDeps, remote: string | null): M
 
   const zones = readZonesFrom(deps.fs, join(deps.mattstackRoot, "teams"))
     .filter((z) => z.host === ref.host && z.projects.includes(ref.path));
-  if (zones.length === 0) return { kind: "undeclared", repo, pruned: setAsideStale(deps, ref.slug, new Set()) };
+  if (zones.length === 0) return { kind: "undeclared", repo };
 
   let defaults: Layer | null = null;
   let override: Layer | null = null;
