@@ -71,9 +71,16 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 	// A row that wraps takes two lines and breaks the cursor arithmetic, so
 	// the title row and every sub-line are cut to fit the terminal while the
 	// block is live.
-	subWidth, titleWidth := 72, 67
-	if w, _, err := xterm.GetSize(term.Fd()); err == nil && w > 16 {
-		subWidth, titleWidth = w-8, w-5
+	// The block also needs the title row and the row the cursor rests on to
+	// fit the pane, so a short pane keeps fewer sub-lines, or none.
+	subWidth, titleWidth, subCap := 72, 67, maxSubs
+	if w, h, err := xterm.GetSize(term.Fd()); err == nil {
+		if w > 16 {
+			subWidth, titleWidth = w-8, w-5
+		}
+		if h > 0 {
+			subCap = max(0, min(maxSubs, h-2))
+		}
 	}
 	// subs are rendered rows without a newline. While any exist the live
 	// block is the title row then the subs, and the cursor rests at column 0
@@ -166,7 +173,7 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 				}
 				fmt.Fprint(term, "  "+logGlyph(ev.Level)+" "+textStyle.Render(ev.Text)+"\n")
 			case "sub":
-				if title == "" {
+				if title == "" || subCap == 0 {
 					continue
 				}
 				if len(subs) == 0 {
@@ -176,8 +183,8 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 					fmt.Fprint(term, "\x1b[J")
 				}
 				subs = append(subs, "    "+railGlyph+" "+subStyle.Render(ansi.Truncate(render.Clean(ev.Text), subWidth, "…")))
-				if len(subs) > maxSubs {
-					subs = subs[len(subs)-maxSubs:]
+				if len(subs) > subCap {
+					subs = subs[len(subs)-subCap:]
 				}
 				if !painted {
 					tty.FirstPaint()

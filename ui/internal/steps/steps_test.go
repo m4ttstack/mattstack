@@ -216,3 +216,35 @@ func TestSubLinesSitUnderTheirStepWhenTheParentVanishes(t *testing.T) {
 		t.Fatalf("step row %d sub row %d: %q", step, sub, screen)
 	}
 }
+
+func nonBlankRows(transcript string) []string {
+	var rows []string
+	for _, l := range strings.Split(transcript, "\n") {
+		if strings.TrimSpace(l) != "" {
+			rows = append(rows, l)
+		}
+	}
+	return rows
+}
+
+func TestFiveSubLinesInASixRowPaneLeaveOnlyTheFinalLine(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"installing…"}`}
+	for _, n := range []string{"1", "2", "3", "4", "5"} {
+		lines = append(lines, `{"t":"sub","text":"line-`+n+`"}`)
+	}
+	lines = append(lines, `{"t":"done","title":"installed"}`)
+	_, tty, exit := testutil.RunPTYSized(t, 6, 100, []string{testutil.Binary(t), "steps"}, lines, nil)
+	rows := nonBlankRows(testutil.Transcript(tty, 6, 100))
+	if exit != 0 || len(rows) != 1 || !strings.Contains(rows[0], "installed") {
+		t.Fatalf("exit %d, want the final line alone with nothing above it: %q", exit, rows)
+	}
+}
+
+func TestSubLinesInATwoRowPaneCompleteCleanly(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"connecting…"}`, `{"t":"sub","text":"checking the session"}`, `{"t":"sub","text":"opening the tunnel"}`, `{"t":"sub","text":"waiting for the port"}`, `{"t":"done","title":"connected"}`}
+	_, tty, exit := testutil.RunPTYSized(t, 2, 100, []string{testutil.Binary(t), "steps"}, lines, nil)
+	rows := nonBlankRows(testutil.Transcript(tty, 2, 100))
+	if exit != 0 || len(rows) != 1 || !strings.Contains(rows[0], "connected") {
+		t.Fatalf("exit %d, want the final line alone: %q", exit, rows)
+	}
+}
