@@ -71,8 +71,8 @@ export function extractVersion(stdout: string): string {
   return bare ? bare[0] : trimmed;
 }
 
-/** A tool's name with its version, or the bare name when `--version` printed nothing usable. */
-function named(name: string, version: string): string {
+/** A tool's name with its version, or the bare name when the version is empty because the tool printed nothing. */
+export function named(name: string, version: string): string {
   return version ? `${name} ${version}` : name;
 }
 

@@ -29,6 +29,7 @@ import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { execWithTimeout, type Probes } from "../probes.ts";
 import { discoverTeams } from "../team-settings.ts";
 import { ONE_TEAM_RULE } from "../../team/one-team.ts";
+import { named } from "./tools.ts";
 
 // ─── rt-context extension check (moved from commands/verify.ts) ──────────────
 
@@ -104,21 +105,22 @@ const MERGE_LEGACY_STATE_ACTION: Action = {
   ],
 };
 
-function firstLine(stdout: string): string {
-  return stdout.trim().split("\n")[0]!;
+/** `rt --version` leads with "rt <version>", so the name comes off before `named` puts it back. */
+function rtNamed(stdout: string): string {
+  return named("rt", stdout.trim().split("\n")[0]!.replace(/^rt(\s+|$)/, ""));
 }
 
 async function rtRow(p: Probes): Promise<Row> {
   const base = { id: "tool.rt", kind: "tool" as const, title: "rt binary", why: "rt itself must be on PATH before anything else can run.", required: true };
   const res = await p.exec(["rt", "--version"]);
-  if (res.code === 0) return row({ ...base, status: "ready", detail: firstLine(res.stdout) });
+  if (res.code === 0) return row({ ...base, status: "ready", detail: rtNamed(res.stdout) });
   if (res.code === 127) {
     // ~/.local/bin joins PATH only in Install's own path step, so before
     // Install the link there is the only rt a fresh machine can have.
     const linked = linkPath(p.home, "rt");
     if (p.exists(linked)) {
       const viaLink = await p.exec([linked, "--version"]);
-      if (viaLink.code === 0) return row({ ...base, status: "ready", detail: `${firstLine(viaLink.stdout)} at ~/.local/bin, which Install added to your PATH` });
+      if (viaLink.code === 0) return row({ ...base, status: "ready", detail: `${rtNamed(viaLink.stdout)} at ~/.local/bin, which Install added to your PATH` });
     }
     return row({ ...base, status: "missing", detail: "rt is not on your PATH yet", action: LINK_BUNDLED_RT });
   }

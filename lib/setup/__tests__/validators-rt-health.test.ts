@@ -81,6 +81,28 @@ describe("rtHealthRows — tool.rt", () => {
     expect(r.detail).toContain("PATH");
   });
 
+  test("rt on PATH reads as its version line, or as rt alone when it printed nothing", async () => {
+    const versioned: ExecScript = (argv) => (argv[0] === "rt" ? ok("rt v2.8.1\nprod  mattstack.app · /x/rt\n") : ok());
+    expect((await pickRow(rtHealthRows(fakeProbes({ exec: versioned }), { ci: false }), "tool.rt")).detail).toBe("rt v2.8.1");
+    const silent: ExecScript = (argv) => (argv[0] === "rt" ? ok("") : ok());
+    expect((await pickRow(rtHealthRows(fakeProbes({ exec: silent }), { ci: false }), "tool.rt")).detail).toBe("rt");
+  });
+
+  test("rt reached through the link reads with its version, or as rt alone when it printed nothing, never with a leading space", async () => {
+    const viaLink = (stdout: string): ExecScript => (argv) => {
+      if (argv[0] === "rt") return missing("rt");
+      if (argv[0] === "/home/x/.local/bin/rt" && argv[1] === "--version") return ok(stdout);
+      return ok();
+    };
+    const linked = (stdout: string) => {
+      const p = fakeProbes({ home: "/home/x", exec: viaLink(stdout) });
+      p.writeFile("/home/x/.local/bin/rt", "");
+      return p;
+    };
+    expect((await pickRow(rtHealthRows(linked("rt v2.8.1\n"), { ci: false }), "tool.rt")).detail).toBe("rt v2.8.1 at ~/.local/bin, which Install added to your PATH");
+    expect((await pickRow(rtHealthRows(linked(""), { ci: false }), "tool.rt")).detail).toBe("rt at ~/.local/bin, which Install added to your PATH");
+  });
+
   test("rt exists but crashes (exit 1) -> error, not missing", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "rt" ? { code: 1, stdout: "", stderr: "boom" } : ok());
     const r = await pickRow(rtHealthRows(fakeProbes({ exec }), { ci: false }), "tool.rt");
