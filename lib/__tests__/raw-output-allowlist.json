@@ -56,7 +56,6 @@
   "commands/team.ts",
   "commands/tools.ts",
   "commands/worktree-hook.ts",
-  "commands/worktree.ts",
   "lib/chat-viewer-url.ts",
   "lib/cli-logger.ts",
   "lib/daemon-logger.ts",

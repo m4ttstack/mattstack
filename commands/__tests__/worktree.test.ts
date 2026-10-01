@@ -16,6 +16,7 @@ import {
   worktreeAwaitReady,
   worktreeCreate,
   worktreeDispose,
+  worktreeEach,
   worktreeFreshen,
   worktreeList,
   worktreeProvision,
@@ -764,6 +765,61 @@ describe("worktree CLI identity plumbing", () => {
     } finally {
       exitSpy.mockRestore();
     }
+  });
+
+  test("each outside a git repo is a failure on stderr, exit 1", async () => {
+    const exitSpy = spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit sentinel");
+    }) as never);
+    try {
+      await expect(worktreeEach(["--all", "true"], {})).rejects.toThrow("process.exit sentinel");
+      expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe("You are not in a git repo\n  next: Run this from inside the repo whose worktrees you mean\n");
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
+  test("each with no command asks for one", async () => {
+    const exitSpy = spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit sentinel");
+    }) as never);
+    try {
+      await expect(worktreeEach(["--all"], {})).rejects.toThrow("process.exit sentinel");
+      expect(io.stderr()).toBe("Which command?\n  next: rt worktree each '<command>'\n");
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
+  test("each runs the command in every worktree, under a heading, and sums up", async () => {
+    const repoPath = makeGitRepo("each-human");
+    process.chdir(repoPath);
+    getRepoIdentity();
+    installFakeDaemon({
+      ok: true,
+      data: { trees: [{ name: "one", path: repoPath, kind: "main", branch: "main", repoName: "r" }, { name: "gone", path: join(reposRoot, "no-such-tree"), kind: "ephemeral", state: "claimed", branch: "feature/x", repoName: "r" }] },
+    });
+    const exitSpy = spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit sentinel");
+    }) as never);
+    try {
+      await expect(worktreeEach(["--all", "true"], {})).rejects.toThrow("process.exit sentinel");
+      expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
+    } finally {
+      exitSpy.mockRestore();
+    }
+
+    const lines = io.lines();
+    expect(lines[0]).toEndWith(" (main)");
+    expect(lines[1]).toBe("[ok] Finished");
+    expect(lines[2]).toBe("");
+    expect(lines[3]).toEndWith(" (feature/x)");
+    expect(lines[4]).toBe("[failed] Stopped with an error  this worktree's folder is gone");
+    expect(lines[5]).toBe("");
+    expect(lines[6]).toStartWith("[failed] 1 of 2 failed  1 ok, ");
+    expect(lines[6]).toEndWith(": path gone");
   });
 });
 

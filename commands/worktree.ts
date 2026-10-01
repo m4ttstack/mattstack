@@ -15,7 +15,6 @@
 import { spawnSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { bold, dim, green, red, reset } from "../lib/tui.ts";
 import { RT_DIR } from "../lib/daemon-config.ts";
 import { getRepoIdentity } from "../lib/repo.ts";
 import { loadRepoIndex } from "../lib/repo-index.ts";
@@ -34,7 +33,7 @@ import {
   parseEachArgs,
   filterTargets,
   relWorktreeName,
-  formatSummary,
+  summarizeEach,
   hasFailures,
   type EachResult,
   type WorktreeBinding,
@@ -1045,8 +1044,8 @@ export async function worktreeAdopt(args: string[], _ctx: unknown): Promise<void
 
 // ─── each ────────────────────────────────────────────────────────────────────
 
-function fail(msg: string): never {
-  console.log(`  ${red}✗${reset} ${msg}\n`);
+function failEach(f: out.FailureInput): never {
+  out.fail(f);
   process.exit(1);
 }
 
@@ -1069,29 +1068,30 @@ function bindingsFromGit(repoPath: string): WorktreeBinding[] {
 
 export async function worktreeEach(args: string[], _ctx: unknown): Promise<void> {
   const parsed = parseEachArgs(args);
-  if (parsed.error) fail(parsed.error);
+  if (parsed.errorKind === "no-command") failEach(usageFailure("Which command?", "rt worktree each '<command>'"));
+  if (parsed.errorKind === "both-flags") failEach({ title: "Choose every worktree or only the spare ones, not both" });
 
   const identity = getRepoIdentity();
-  if (!identity) fail("not in a git repo");
+  if (!identity) failEach({ title: "You are not in a git repo", next: "Run this from inside the repo whose worktrees you mean" });
 
   const repos    = loadRepos();
   const repoPath = repos[identity.identity];
-  if (!repoPath) fail(`repo "${identity.repoName}" not registered in ~/.mattstack/rt/repos.json`);
+  if (!repoPath) failEach({ title: `rt does not know the ${identity.repoName} repo yet`, next: out.cmd("rt repos register <path>") });
 
   const bindings = (await bindingsFromDaemon(identity.identity)) ?? bindingsFromGit(repoPath);
   if (bindings.length === 0) {
-    console.log(`\n  ${dim}no worktrees in ${identity.repoName}${reset}\n`);
+    out.print(out.line("skipped", `No worktrees in ${identity.repoName}`));
     return;
   }
 
   let targets: WorktreeBinding[];
   if (parsed.mode === "pick") {
     if (!process.stdin.isTTY) {
-      fail("no --all/--on-deck flag and no TTY for the picker — pass --all or --on-deck");
+      failEach(usageFailure("Which worktrees?", "rt worktree each --all '<command>'", "Without a terminal rt cannot ask, so say all of them or only the spare ones."));
     }
     const pickable = filterTargets(bindings, "pick");
     if (pickable.length === 0) {
-      console.log(`\n  ${dim}no worktrees to run in${reset}\n`);
+      out.print(out.line("skipped", "No worktrees to run in"));
       return;
     }
     const widest  = Math.max(...pickable.map(b => relWorktreeName(repoPath, b.path).length));
@@ -1106,7 +1106,7 @@ export async function worktreeEach(args: string[], _ctx: unknown): Promise<void>
       options,
     });
     if (!selected || selected.length === 0) {
-      console.log(`\n  ${dim}nothing selected${reset}\n`);
+      nothingSelected();
       return;
     }
     const set = new Set(selected);
@@ -1114,35 +1114,32 @@ export async function worktreeEach(args: string[], _ctx: unknown): Promise<void>
   } else {
     targets = filterTargets(bindings, parsed.mode);
     if (targets.length === 0) {
-      const what = parsed.mode === "on-deck" ? "on-deck worktrees" : "worktrees";
-      console.log(`\n  ${dim}no ${what} to run in${reset}\n`);
+      out.print(out.line("skipped", parsed.mode === "on-deck" ? "No spare worktrees to run in" : "No worktrees to run in"));
       return;
     }
   }
 
-  console.log("");
+  // One worktree's result prints with the next one's heading so the heading gets its blank line above; the child writes between calls.
+  let pending: Block[] = [];
   const results: EachResult[] = [];
   for (const b of targets) {
-    const name   = relWorktreeName(repoPath, b.path);
-    const branch = b.branch ?? "(detached)";
-    console.log(`${bold}── ${name}${reset} ${dim}[${branch}]${reset} ${bold}──${reset}`);
+    const name = relWorktreeName(repoPath, b.path);
+    out.print(...pending, out.section(name, b.branch ?? "(detached)"));
 
     if (!existsSync(b.path)) {
-      console.log(`  ${red}✗${reset} ${dim}path no longer exists${reset}\n`);
+      pending = [out.line("failed", "Stopped with an error", "this worktree's folder is gone")];
       results.push({ name, code: 1, reason: "path gone" });
       continue;
     }
 
     const res = spawnSync("sh", ["-c", parsed.command], { cwd: b.path, stdio: "inherit" });
     const code = res.status ?? 1;
-    console.log(code === 0
-      ? `  ${green}✓${reset} ${dim}exit 0${reset}\n`
-      : `  ${red}✗${reset} ${dim}exit ${code}${reset}\n`);
+    pending = [code === 0 ? out.line("done", "Finished") : out.line("failed", "Stopped with an error", `exit ${code}`)];
     results.push({ name, code });
   }
 
-  const summary = formatSummary(results);
-  console.log(`  ${hasFailures(results) ? red : green}${summary}${reset}\n`);
+  const summary = summarizeEach(results);
+  out.print(...pending, out.summary(summary.status, summary.title, summary.counts.length > 0 ? summary.counts : undefined));
   if (hasFailures(results)) process.exit(1);
 }
 
