@@ -12,7 +12,7 @@ const SCAN_ROOTS = ["commands", "lib"];
 // The output layer itself, and the color modules it retires last.
 const EXEMPT = [/^lib\/ui\//, /^lib\/tui\//, /^lib\/ansi\.ts$/, /^lib\/tui\.ts$/];
 
-const RAW = [/\bconsole\.(log|error|warn|info)\s*\(/, /\bprocess\.std(out|err)\.write\b/, /from\s+["'][^"']*\/(ansi|tui|tui\/palette)\.ts["']/, /\\x1b\[|\\u001b\[/];
+const RAW = [/\bconsole\.(log|error|warn|info)\s*\(/, /\bprocess\.std(out|err)\b(?!\.(isTTY|columns|rows|fd|on|once|off|removeListener)\b)/, /from\s+["'][^"']*\/(ansi|tui|tui\/palette)\.ts["']/, /\\x1b\[|\\u001b\[/];
 
 function collect(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
