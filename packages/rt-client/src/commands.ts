@@ -332,6 +332,8 @@ export type AgentStatus = "idle" | "working" | "blocked" | "done" | "unknown";
 export interface ChatPane {
   paneId: string;
   workspace: string;
+  /** herdr's tab label; unset when the snapshot has no row for the pane's tab */
+  tab?: string;
   title?: string;
   cwd?: string;
   repo?: string;

@@ -12,7 +12,8 @@ import { useHover } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { RoomSummary } from '@mattstack/rt-client';
 
-import { AgentName } from './AgentName';
+import { AGENT_STATE_WORD, agentState, seenAgo } from './agent-state';
+import { AgentHoverCard, AgentName } from './AgentName';
 import {
   displayName,
   dmPairLabel,
@@ -21,9 +22,10 @@ import {
 } from './display-name';
 import { doing } from './doing';
 import classes from './fleet-tree.module.css';
-import { DOT_COLOR, MUTED_XS } from './presence-bits';
+import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
-import { STATUS_WORD, statusDetail } from './statusDetail';
+import { StateDot } from './StateDot';
+import { statusDetail } from './statusDetail';
 
 /**
  * `.accent-deep` has no direct `--tk-*` token: the artboard's own palette
@@ -191,33 +193,6 @@ function overflowLabel(hidden: FleetRoom[]): ReactNode {
         </Fragment>
       ))}
     </>
-  );
-}
-
-/** `.dot`: 8px, hollow whenever it has no live status to claim. */
-function Dot({
-  status,
-  reachable,
-  testId,
-}: {
-  status: RosterBuddy['status'];
-  reachable: boolean;
-  testId: string;
-}) {
-  const hollow = !reachable || status === 'offline';
-  return (
-    <Box
-      component="span"
-      data-testid={testId}
-      style={{
-        width: 8,
-        height: 8,
-        flex: 'none',
-        borderRadius: '50%',
-        background: hollow ? 'transparent' : DOT_COLOR[status],
-        border: hollow ? '1px solid var(--tk-border)' : undefined,
-      }}
-    />
   );
 }
 
@@ -556,11 +531,8 @@ function WorkstreamRow({
       ? () => onFocusPane(pane)
       : undefined;
   const clickable = onClick !== undefined;
-  // The row's click focuses a herder pane only on the desktop path; the phone
-  // path (`onSelectBuddy`) opens a DM instead and has no hover to hint on.
-  const focusesPane =
-    !onSelectBuddy && pane !== undefined && onFocusPane !== undefined;
-  return (
+  const state = reachable ? agentState(buddy) : 'offline';
+  const row = (
     <UnstyledButton
       className={classes.wsRow}
       component={clickable ? 'button' : 'div'}
@@ -591,19 +563,15 @@ function WorkstreamRow({
       <Tooltip
         label={
           reachable
-            ? `${STATUS_WORD[buddy.status]} · ${statusDetail(buddy, now)}`
+            ? `${AGENT_STATE_WORD[state]} · ${seenAgo(buddy, now)}`
             : 'presence withheld while the daemon is down'
         }
         position="left"
         openDelay={300}
         withArrow
       >
-        <Box component="span" style={{ display: 'inline-flex', flex: 'none' }}>
-          <Dot
-            status={buddy.status}
-            reachable={reachable}
-            testId={`dot-${handle}`}
-          />
+        <Box component="span" className={classes.dotSlot}>
+          <StateDot state={state} testId={`dot-${handle}`} />
         </Box>
       </Tooltip>
       <Text
@@ -616,6 +584,7 @@ function WorkstreamRow({
           handle={handle}
           variant="name"
           withAvatar={ordinal !== undefined}
+          withCard={false}
           buddy={buddy}
           reachable={reachable}
           now={now}
@@ -633,18 +602,22 @@ function WorkstreamRow({
       >
         {reachable ? (task?.text ?? '') : 'presence withheld'}
       </Text>
-      {focusesPane && (
-        <Box
-          component="span"
-          aria-hidden
-          className={classes.focusHint}
-          data-testid={`ws-focus-hint-${handle}`}
-        >
-          <Icon name="maximize" size={11} />
-          focus pane
-        </Box>
-      )}
     </UnstyledButton>
+  );
+  // The phone path opens a DM on tap and has no hover, so only the desktop
+  // tree docks the card, to the sidebar's right, level with the row.
+  if (onSelectBuddy) return row;
+  return (
+    <AgentHoverCard
+      buddy={buddy}
+      position="right-start"
+      offset={16}
+      reachable={reachable}
+      now={now}
+      task={task}
+    >
+      {row}
+    </AgentHoverCard>
   );
 }
 
@@ -677,7 +650,7 @@ function OfflineRow({
         ...MUTED_XS,
       }}
     >
-      <Dot status="offline" reachable testId={`dot-offline-${repo}`} />
+      <StateDot state="offline" testId={`dot-offline-${repo}`} />
       <Text component="span" inherit truncate style={{ minWidth: 0 }}>
         {only
           ? `${displayName(only)} · ${statusDetail(only, now)}`

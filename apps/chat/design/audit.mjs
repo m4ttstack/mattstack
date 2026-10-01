@@ -150,74 +150,9 @@ export const TARGETS = [
       flex: "ActionIcon doesn't set flex:none itself; the artboard's parent context does",
     },
   },
-  // The hover card (design/artboards/Fleet.dc.html): the one place a handle
-  // still spells itself out. `find` names a fixture handle (CHAT_FIXTURES=1),
-  // the same convention the tree and page bar entries use. These match only
-  // while a card is open, like `.pop` and the menu items.
-  {
-    spec: '.status',
-    find: '[data-testid="status-max"]',
-    at: DESKTOP,
-    props: ['font-size', 'font-weight'],
-  },
-  {
-    spec: '.status.live',
-    find: '[data-testid="status-max"]',
-    at: DESKTOP,
-    props: ['color'],
-  },
-  {
-    spec: '.status.idle',
-    find: '[data-testid="status-remy"]',
-    at: DESKTOP,
-    props: ['color'],
-  },
-  {
-    spec: '.tag',
-    find: '[data-testid="tag-max-rt"]',
-    at: DESKTOP,
-    props: [
-      'align-items',
-      'display',
-      'height',
-      'border-radius',
-      'font-size',
-      'font-weight',
-      'white-space',
-      'color',
-    ],
-    why: {
-      padding: 'shorthand not enumerated by getComputedStyle; longhands verified by eye',
-      border: 'full shorthand (width/style/colour combined); not separately enumerated, verified by eye',
-      'white-space': WHITE_SPACE_NOT_ENUMERATED,
-      display: DISPLAY_BLOCKIFIES_TO_FLEX,
-    },
-  },
-  {
-    spec: '.tag.dm',
-    find: '[data-testid="tag-max-dm"]',
-    at: DESKTOP,
-    props: ['border-color', 'color'],
-  },
-  // The card's `repo / where / path / seen / rooms` grid.
-  {
-    spec: '.kv',
-    find: '[data-testid^="detail-"] dl',
-    at: DESKTOP,
-    props: ['align-items', 'display', 'grid-template-columns', 'column-gap', 'row-gap'],
-    why: {
-      'grid-template-columns':
-        'the used value resolves the `minmax(0, 1fr)` track to the px it got; the 52px label track is the assertion, verified by eye',
-    },
-  },
-  {
-    spec: '.kv .k',
-    find: '[data-testid^="detail-"] dt',
-    at: DESKTOP,
-    props: ['color', 'font-size', 'font-weight', 'letter-spacing', 'text-transform'],
-    why: { 'letter-spacing': LETTER_SPACING_RESOLVES_TO_PX },
-  },
-
+  // The agent card, the members pill and its dropdown have no entries: they
+  // follow docs/apps/design/chat/chat.pen (boards 06 to 08), which spec.json
+  // does not extract, and are checked against those renders by eye.
   // Fleet tree (design/artboards/Main.dc.html's sidebar). At 390 the same
   // rows are what the phone drawer holds, so these are asserted in both
   // shells and the phone capture takes them with the drawer open.
@@ -391,65 +326,6 @@ export const TARGETS = [
       'white-space': WHITE_SPACE_NOT_ENUMERATED,
       display: DISPLAY_BLOCKIFIES_TO_FLEX,
       'line-height': LINE_HEIGHT_RESOLVES_TO_PX,
-    },
-  },
-
-  // PageBar (design/artboards/Main.dc.html's fleet chips).
-  {
-    spec: '.chip',
-    find: '[data-testid="chip-signed-in"]',
-    props: [
-      'align-items',
-      'display',
-      'gap',
-      'height',
-      'border-radius',
-      'font-size',
-      'font-weight',
-      'white-space',
-      'color',
-      'padding',
-    ],
-    why: {
-      padding: 'shorthand not enumerated by getComputedStyle; longhands verified by eye',
-      border: 'full shorthand (width/style/colour combined); not separately enumerated, verified by eye',
-      'white-space': WHITE_SPACE_NOT_ENUMERATED,
-      display: DISPLAY_BLOCKIFIES_TO_FLEX,
-    },
-  },
-  {
-    spec: '.chip.live',
-    find: '[data-testid="chip-live"]',
-    props: ['border-color', 'color'],
-  },
-  {
-    spec: '.chip.idle',
-    find: '[data-testid="chip-idle"]',
-    props: ['border-color', 'color'],
-  },
-  {
-    spec: '.chip.offline',
-    find: '[data-testid="chip-offline"]',
-    props: ['border-color', 'color'],
-  },
-  // `.dot`'s own geometry is registered once above, on the tree's dot; only
-  // the colour VARIANTS are new here.
-  {
-    spec: '.dot.live',
-    find: '[data-testid="dot-live"]',
-    props: ['background'],
-  },
-  {
-    spec: '.dot.idle',
-    find: '[data-testid="dot-idle"]',
-    props: ['background'],
-  },
-  {
-    spec: '.dot.offline',
-    find: '[data-testid="dot-offline"]',
-    props: ['background'],
-    why: {
-      border: 'full shorthand (width/style/colour combined); not separately enumerated, verified by eye',
     },
   },
 
@@ -718,7 +594,7 @@ export const TARGETS = [
   { spec: '.pane', find: '[data-testid^="pane-row-"]', at: DESKTOP, props: ['display', 'align-items', 'gap', 'border-radius', 'min-width', 'padding'], why: { padding: 'shorthand not enumerated by getComputedStyle; longhands verified by eye' } },
   { spec: '.cb', find: '[data-testid^="pane-check-"]', at: DESKTOP, props: ['width', 'height', 'border-radius', 'align-items', 'justify-content'], why: { display: 'authored inline-flex blockifies to flex as a flex item in the row; verified in source' } },
   { spec: '.peek', find: '[data-testid^="pane-peek-"]:not([data-testid^="pane-peek-button-"])', at: DESKTOP, props: ['padding', 'background', 'border-radius', 'font-size', 'line-height', 'white-space', 'overflow-x', 'color'], why: { padding: 'shorthand not enumerated by getComputedStyle; longhands verified by eye', 'white-space': WHITE_SPACE_NOT_ENUMERATED, 'line-height': LINE_HEIGHT_RESOLVES_TO_PX } },
-  { spec: '.btn.sm', find: '[data-testid="add-agents-button"]', at: DESKTOP, props: ['height', 'font-size', 'font-weight', 'border-radius'] },
+  { spec: '.btn.sm', find: '[data-testid="add-agents-button"]', at: DESKTOP, props: ['height', 'font-size', 'font-weight', 'border-radius'], why: { height: "the kit's sm Button (docs/apps/ui-authoring.md, styling ladder rung 1); a board's control height is not a target" } },
   { spec: '.notice', find: '[data-testid="transcript-notice"]', at: DESKTOP, props: ['padding', 'text-align', 'font-size', 'color'], why: { padding: 'shorthand not enumerated by getComputedStyle; longhands verified by eye' } },
 
   // The inbox, the landing view (design/artboards/Main.dc.html and

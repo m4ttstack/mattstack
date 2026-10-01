@@ -1,12 +1,5 @@
 import type { BuddyStatus } from '@mattstack/rt-client';
 
-/** The short status word shown beside a buddy's dot. */
-export const STATUS_WORD: Record<BuddyStatus, string> = {
-  live: 'working',
-  idle: 'idle',
-  offline: 'offline',
-};
-
 /**
  * A millisecond delta as the shortest unit that still reads at a glance.
  * Shared by `statusDetail`'s phrases and `DaemonBanner`'s "down Nm" readout,
@@ -39,8 +32,8 @@ export interface StatusDetailRow {
 
 /**
  * Explains the daemon's own status verdict for a row; never re-derives or
- * contradicts it. `status` always comes from the daemon (see `STATUS_WORD`);
- * this only phrases the timestamp that backs it up.
+ * contradicts it. `status` always comes from the daemon; this only phrases
+ * the timestamp that backs it up.
  */
 export function statusDetail(row: StatusDetailRow, now: number): string {
   switch (row.status) {

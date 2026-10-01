@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 import './icons';
 
+import { BuddiesProvider } from './buddies-context';
 import { PageBar, RoomMenu } from './PageBar';
 import { fetchMock, installFetchMock } from './test-utils';
 
@@ -16,7 +17,7 @@ afterEach(() => {
   window.localStorage.removeItem('chat-expand-all');
 });
 
-test('the members chip opens a roster grouped by status, wake mode in its header', async () => {
+test('the members pill counts each herdr state and opens a roster grouped by it, wake mode in its header', async () => {
   renderWithProviders(
     <PageBar
       room={{
@@ -27,7 +28,7 @@ test('the members chip opens a roster grouped by status, wake mode in its header
         defaultWake: 'mention',
       }}
       buddies={[
-        { handle: 'a', status: 'live' },
+        { handle: 'a', status: 'live', agentStatus: 'blocked' },
         { handle: 'b', status: 'live' },
         { handle: 'c', status: 'idle' },
         { handle: 'gitq-main', status: 'offline' },
@@ -35,20 +36,114 @@ test('the members chip opens a roster grouped by status, wake mode in its header
     />
   );
   const chip = screen.getByTestId('members-chip');
-  expect(chip).toHaveTextContent('3 in #build');
+  expect(chip).toHaveAccessibleName(
+    'Members of #build: 1 waiting on you, 1 working, 1 done'
+  );
+  expect(screen.getByTestId('members-count-blocked')).toHaveTextContent('1');
+  expect(screen.getByTestId('members-count-working')).toHaveTextContent('1');
+  expect(screen.getByTestId('members-count-done')).toHaveTextContent('1');
   await userEvent.click(chip);
-  expect(await screen.findByTestId('members-dropdown')).toBeInTheDocument();
+  expect(await screen.findByTestId('members-dropdown')).toHaveTextContent(
+    '3 in #build'
+  );
   expect(screen.getByTestId('members-wakes')).toHaveTextContent(
     'wakes: mention'
   );
-  // Status reads from the group each member sits under, not a per-chip label.
-  expect(screen.getByText('working')).toBeInTheDocument();
-  expect(screen.getByText('idle')).toBeInTheDocument();
-  expect(screen.getByText('offline')).toBeInTheDocument();
+  // An agent waiting on the human leads, under its own group.
+  expect(screen.getByTestId('members-group-blocked')).toHaveTextContent(
+    'Needs you'
+  );
+  expect(screen.getByTestId('members-group-working')).toBeInTheDocument();
+  expect(screen.getByTestId('members-group-done')).toBeInTheDocument();
   expect(screen.getByTestId('members-row-a')).toBeInTheDocument();
   expect(screen.getByTestId('members-row-b')).toBeInTheDocument();
   expect(screen.getByTestId('members-row-c')).toBeInTheDocument();
+  // Signed-out members fold into one row until it is opened.
+  expect(screen.queryByTestId('members-row-gitq-main')).toBeNull();
+  await userEvent.click(screen.getByTestId('members-signed-out'));
   expect(screen.getByTestId('members-row-gitq-main')).toBeInTheDocument();
+});
+
+test("a card docked beside the members dropdown takes its own button's click", async () => {
+  const mention = vi.fn();
+  const max = {
+    sessionId: 's-max',
+    handle: 'max',
+    baseHandle: 'max',
+    name: 'max',
+    signedInAt: 1,
+    lastSeenAt: 1,
+    status: 'live' as const,
+    rooms: ['rt'],
+  };
+  renderWithProviders(
+    <BuddiesProvider
+      buddies={[max]}
+      roomMembers={['max']}
+      now={2}
+      reachable
+      actions={{ mention, dm: vi.fn() }}
+    >
+      <PageBar
+        room={{ room: 'rt', memberCount: 1, unread: 0, mentions: 0 }}
+        buddies={[max]}
+      />
+    </BuddiesProvider>
+  );
+  await userEvent.click(screen.getByTestId('members-chip'));
+  await userEvent.hover(await screen.findByTestId('members-row-max'));
+  await userEvent.click(
+    await screen.findByTestId('card-mention-max', {}, { timeout: 2000 })
+  );
+  expect(mention).toHaveBeenCalledWith('max');
+});
+
+test('an empty room reads a hollow zero on the pill', () => {
+  renderWithProviders(
+    <PageBar
+      room={{ room: 'rt', memberCount: 0, unread: 0, mentions: 0 }}
+      buddies={[]}
+    />
+  );
+  expect(screen.getByTestId('members-chip')).toHaveTextContent('0');
+  expect(screen.getByTestId('members-count-none')).toHaveAttribute(
+    'data-state',
+    'offline'
+  );
+});
+
+test("the pill's label spells out each count, so colour is never the only cue", () => {
+  renderWithProviders(
+    <PageBar
+      room={{ room: 'build', memberCount: 2, unread: 0, mentions: 0 }}
+      buddies={[
+        { handle: 'a', status: 'live', agentStatus: 'blocked' },
+        { handle: 'b', status: 'live' },
+      ]}
+    />
+  );
+  expect(screen.getByTestId('members-chip')).toHaveAccessibleName(
+    'Members of #build: 1 waiting on you, 1 working'
+  );
+});
+
+test("a member's repo shows only when it differs from the room's", async () => {
+  renderWithProviders(
+    <PageBar
+      room={{ room: 'rt', memberCount: 2, unread: 0, mentions: 0 }}
+      buddies={[
+        { handle: 'home', status: 'live', repo: 'rt' },
+        { handle: 'away', status: 'live', repo: 'acme-api' },
+      ]}
+    />
+  );
+  await userEvent.click(screen.getByTestId('members-chip'));
+  expect(await screen.findByTestId('members-row-away')).toHaveTextContent(
+    'acme-api'
+  );
+  expect(screen.getByTestId('members-row-home')).not.toHaveTextContent(
+    /\brt\b/
+  );
 });
 
 test('mark read is explicit: rendering never calls it, the control does', async () => {
@@ -79,7 +174,7 @@ test('the roster lists a member under its status group', async () => {
     />
   );
   await userEvent.click(screen.getByTestId('members-chip'));
-  expect(await screen.findByText('idle')).toBeInTheDocument();
+  expect(await screen.findByTestId('members-group-done')).toBeInTheDocument();
   expect(screen.getByTestId('members-row-board-fix-auth')).toBeInTheDocument();
 });
 
@@ -95,13 +190,13 @@ test('daemon down: the chip reads last known and the roster withholds presence',
     />
   );
   const chip = screen.getByTestId('members-chip');
-  expect(chip).toHaveTextContent('2 in #build · last known');
+  expect(chip).toHaveTextContent('last known');
   await userEvent.click(chip);
   expect(
     await screen.findByText('presence withheld while the daemon is down')
   ).toBeInTheDocument();
   // No status groups while presence is withheld.
-  expect(screen.queryByText('working')).toBeNull();
+  expect(screen.queryByTestId('members-group-working')).toBeNull();
 });
 
 test('a DM shows the pair as its title, wakes: all in its member popover', async () => {
@@ -180,6 +275,7 @@ test('a DM lists each end and its task in the member roster, join-order gone', a
   expect(screen.getByTestId('members-row-max')).toHaveTextContent(
     'repo-tools · main'
   );
+  await userEvent.click(screen.getByTestId('members-signed-out'));
   expect(screen.getByTestId('members-row-kai')).toBeInTheDocument();
   // No fanned-out task chips on the bar any more, and no join-order select.
   expect(screen.queryByTestId('chip-task-jay')).toBeNull();

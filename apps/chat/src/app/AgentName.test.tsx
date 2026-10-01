@@ -69,6 +69,51 @@ test('the avatar seeds from the id, so two remys differ', () => {
   );
 });
 
+test("the card's status line reads herdr's state and its location reads workspace › tab", () => {
+  renderWithProviders(
+    <AgentCard
+      buddy={{
+        ...row('jay', 'jay'),
+        status: 'idle',
+        agentStatus: 'blocked',
+        paneWorkspace: 'boxscore',
+        paneTab: 'metrics hardening',
+      }}
+      now={NOW}
+    />
+  );
+  expect(screen.getByTestId('status-jay')).toHaveTextContent(
+    'Waiting on you · seen 1s ago'
+  );
+  expect(screen.getByTestId('where-jay')).toHaveTextContent(
+    'boxscore › metrics hardening'
+  );
+});
+
+test("an away message reads as a quote, so it can't pass for a pane title", () => {
+  renderWithProviders(
+    <AgentCard
+      buddy={{ ...row('ava', 'ava'), statusText: 'release coordinator' }}
+      now={NOW}
+    />
+  );
+  expect(screen.getByTestId('away-ava')).toHaveTextContent(
+    '“release coordinator”'
+  );
+});
+
+test('a buddy with no herdr pane falls back to repo and branch for its location', () => {
+  renderWithProviders(
+    <AgentCard
+      buddy={{ ...row('kai', 'kai'), repo: 'rt', branch: 'chat-identity' }}
+      now={NOW}
+    />
+  );
+  expect(screen.getByTestId('where-kai')).toHaveTextContent(
+    'rt · chat-identity'
+  );
+});
+
 test('the hover card header shows the name, never the id', () => {
   renderWithProviders(<AgentCard buddy={row('remy.m2p4', 'remy')} now={NOW} />);
   const card = screen.getByTestId('detail-remy.m2p4');

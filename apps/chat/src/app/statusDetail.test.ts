@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import { STATUS_WORD, statusDetail } from './statusDetail';
+import { statusDetail } from './statusDetail';
 
 const now = 1_700_000_000_000;
 
@@ -14,7 +14,6 @@ test("statusDetail explains the daemon's status; it never contradicts it", () =>
   expect(
     statusDetail({ status: 'offline', signedOutAt: now - 2 * 60 * 60_000 }, now)
   ).toBe('signed out 2h ago');
-  expect(STATUS_WORD.live).toBe('working');
 });
 
 test('a live row with no lastSeenAt reads mid-turn rather than inventing a heartbeat', () => {

@@ -22,6 +22,7 @@
  */
 
 import type {
+  AgentStatus,
   BuddyStatus,
   ChatMessage,
   ChatPane,
@@ -49,6 +50,9 @@ type Buddy = PresenceRow & {
   status: BuddyStatus;
   rooms: string[];
   paneTitle?: string;
+  paneWorkspace?: string;
+  paneTab?: string;
+  agentStatus?: AgentStatus;
 };
 
 interface FleetEntry {
@@ -60,6 +64,8 @@ interface FleetEntry {
   st: BuddyStatus;
   title?: string;
   pane?: string;
+  /** The herdr workspace and tab the pane sits in, and herdr's agent state. */
+  pw?: [workspace: string, tab: string, agent: AgentStatus];
   /** How long ago this row was last seen (live/idle) or signed out (offline). */
   seenAgo: number;
   cwd: string;
@@ -74,6 +80,7 @@ const FLEET: FleetEntry[] = [
     st: 'live',
     title: 'max',
     pane: 'wAR:p3',
+    pw: ['rt', 'chat presence pass', 'working'],
     seenAgo: 12 * S,
     cwd: '/Users/matt/Documents/GitHub/repo-tools',
   },
@@ -84,6 +91,7 @@ const FLEET: FleetEntry[] = [
     st: 'live',
     title: 'Pipeline iteration loop',
     pane: 'wBP:p1',
+    pw: ['skills', 'pipeline loop', 'working'],
     seenAgo: 2 * M,
     cwd: '/Users/matt/Documents/GitHub/mattstack-skills',
   },
@@ -94,6 +102,7 @@ const FLEET: FleetEntry[] = [
     st: 'live',
     title: 'Boxscore mattstack integration',
     pane: 'wBT:p1',
+    pw: ['boxscore', 'metrics hardening', 'blocked'],
     seenAgo: 40 * S,
     cwd: '/Users/matt/Documents/GitHub/boxscore/.claude/worktrees/metrics-hardening',
   },
@@ -103,6 +112,7 @@ const FLEET: FleetEntry[] = [
     branch: 'main',
     st: 'idle',
     pane: 'wAM:pF',
+    pw: ['rt', '4', 'blocked'],
     seenAgo: 9 * M,
     cwd: '/Users/matt/Documents/GitHub/repo-tools',
   },
@@ -187,6 +197,7 @@ const FLEET: FleetEntry[] = [
     st: 'live',
     title: 'remy',
     pane: 'wC4:p2',
+    pw: ['rt', 'chat identity', 'done'],
     seenAgo: 30 * S,
     cwd: '/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-rt/gandalf',
   },
@@ -288,6 +299,9 @@ export function fixtureBuddies(now = Date.now()): Buddy[] {
       rooms,
       ...(f.st === 'offline' ? { signedOutAt: now - f.seenAgo } : {}),
       ...(f.title ? { paneTitle: f.title } : {}),
+      ...(f.pw
+        ? { paneWorkspace: f.pw[0], paneTab: f.pw[1], agentStatus: f.pw[2] }
+        : {}),
     };
   });
 }

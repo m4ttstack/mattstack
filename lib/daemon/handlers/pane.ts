@@ -47,8 +47,14 @@ export interface HerdrWorkspace {
   label: string;
 }
 
+export interface HerdrTab {
+  tab_id: string;
+  label: string;
+}
+
 export interface HerdrSnapshot {
   workspaces: HerdrWorkspace[];
+  tabs?: HerdrTab[];
   panes: HerdrPane[];
 }
 
@@ -62,6 +68,7 @@ export interface PaneRowContext {
   exec: typeof runCapture;
   now: () => number;
   workspaces: Map<string, string>;
+  tabs?: Map<string, string>;
   bySession: Map<string, PresenceRow & { status: BuddyStatus }>;
   byPane: Map<string, PresenceRow & { status: BuddyStatus }>;
 }
@@ -112,9 +119,11 @@ export async function paneRow(pane: HerdrPane, ctx: PaneRowContext, presenceRef:
     repo = repoForCwd(cwd, ctx.repoIndex()) ?? undefined;
     branch = await branchForCwd(cwd, ctx.exec);
   }
+  const tab = ctx.tabs?.get(pane.tab_id);
   return {
     paneId: pane.pane_id,
     workspace: ctx.workspaces.get(pane.workspace_id) ?? pane.workspace_id,
+    ...(tab !== undefined ? { tab } : {}),
     title: pane.terminal_title_stripped ?? pane.terminal_title,
     cwd,
     repo,
@@ -126,6 +135,10 @@ export async function paneRow(pane: HerdrPane, ctx: PaneRowContext, presenceRef:
       : undefined,
     focused: pane.focused ?? false,
   };
+}
+
+function tabLabels(snapshot: HerdrSnapshot): Map<string, string> {
+  return new Map((snapshot.tabs ?? []).map((t) => [t.tab_id, t.label]));
 }
 
 export function sortPanes(panes: ChatPane[]): ChatPane[] {
@@ -194,6 +207,7 @@ export function createPaneHandlers(opts: {
       const ctx: PaneRowContext = {
         db, repoIndex, exec, now,
         workspaces: new Map(snap.result.snapshot.workspaces.map((w) => [w.workspace_id, w.label])),
+        tabs: tabLabels(snap.result.snapshot),
         ...presence,
       };
       const claude = snap.result.snapshot.panes.filter((p) => p.agent === "claude");
@@ -209,6 +223,7 @@ export function createPaneHandlers(opts: {
           const bgCtx: PaneRowContext = {
             db, repoIndex, exec, now,
             workspaces: new Map(bgSnap.result.snapshot.workspaces.map((w) => [w.workspace_id, w.label])),
+            tabs: tabLabels(bgSnap.result.snapshot),
             ...presence,
           };
           const bgClaude = bgSnap.result.snapshot.panes.filter((p) => p.agent === "claude");
