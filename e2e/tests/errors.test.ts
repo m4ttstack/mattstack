@@ -75,4 +75,18 @@ describe("the error seam off a terminal", () => {
     expect(body.contract).toBe(1);
     expect(body.error.code).toBe("usage");
   }, 30_000);
+
+  test("a repo verb run outside any repo, with none known, fails on stderr and leaves stdout empty", async () => {
+    const fresh = createTestHome();
+    try {
+      const result = await rt(["hooks"], { home: fresh.path });
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "You are not in a git repo, and rt does not know any repos yet\n  next: Run rt once from inside a git repo, so it learns where that repo is\n",
+      );
+    } finally {
+      fresh.cleanup();
+    }
+  }, 30_000);
 });
