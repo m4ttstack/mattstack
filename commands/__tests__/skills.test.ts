@@ -3,7 +3,7 @@ import { execFileSync } from "child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { compilePackAll, installedInfoFor, skillsAnatomy, skillsCheck, skillsCompile, skillsComposition, skillsMaterialize, skillsPacks } from "../skills.ts";
+import { compilePackAll, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsMaterialize, skillsPacks } from "../skills.ts";
 import { compileSkill } from "../../lib/skills/compile.ts";
 import { materializeRepo, type MaterializeFs } from "../../lib/skills/materialize.ts";
 import { invocableRoster, loadAttachment, loadStepSource } from "../../lib/skills/sources.ts";
@@ -1958,6 +1958,7 @@ const SKILLS_VERBS: Record<string, (args: string[]) => Promise<void>> = {
   compile: skillsCompile,
   composition: skillsComposition,
   anatomy: skillsAnatomy,
+  changes: skillsChanges,
 };
 
 /** What this one run wrote to stdout, read from the suite's open capture. */
@@ -2561,5 +2562,124 @@ describe("skillsMaterialize --dir exit codes", () => {
     expect(process.exitCode).toBe(0);
     expect(io.lines()).toContain(`  note: Set aside 1 stale bindings file: ${stale}.stale`);
     expect(existsSync(stale)).toBe(false);
+  });
+});
+
+const GIT_IDENTITY = ["-c", "user.email=ci@example.com", "-c", "user.name=ci"];
+
+function git(cwd: string, ...args: string[]): void {
+  execFileSync("git", [...GIT_IDENTITY, ...args], { cwd, stdio: "pipe" });
+}
+
+function commitAll(cwd: string): void {
+  git(cwd, "add", "-A");
+  git(cwd, "commit", "-q", "-m", "base");
+}
+
+const BINDINGS_BEFORE = JSON.stringify({ bindings: { "mattstack:stage-plan": { domain: "acme:plan-policy" } } });
+const BINDINGS_AFTER = JSON.stringify({ bindings: { "mattstack:stage-plan": { domain: "acme:plan-policy-strict" } } });
+
+/** A committed pack whose bindings and surface are known, in a repo rooted at `repoRoot` with the pack at `packRel`. */
+function makeCommittedPack(packRel = ""): { repoRoot: string; packDir: string } {
+  const repoRoot = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-changes-")));
+  const packDir = packRel ? join(repoRoot, packRel) : repoRoot;
+  execFileSync("git", ["init", "-q"], { cwd: repoRoot });
+  writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_BEFORE);
+  writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["work", "review"] }));
+  writeFile(join(packDir, "attachments", "stage-plan", "SKILL.md"), "stage plan\n");
+  writeFile(join(packDir, "README.md"), "readme\n");
+  commitAll(repoRoot);
+  return { repoRoot, packDir };
+}
+
+const changesJson = async (flags: string[]) => JSON.parse(await runSkills(["changes", ...flags, "--json"]));
+
+describe("skillsChanges --json", () => {
+  test("lists a rebind, a surface flip and an out-of-scope file", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["work", "ship"] }));
+    writeFile(join(packDir, "README.md"), "edited\n");
+
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(c).toEqual({
+      pack: "acme",
+      packDir,
+      dirty: true,
+      files: [
+        { path: "pack/skills.jsonc", status: "M" },
+        { path: "pack/surface.jsonc", status: "M" },
+      ],
+      outsideScope: [{ path: "README.md", status: "M" }],
+      bindings: [{ engineRef: "mattstack:stage-plan", slot: "domain", from: "acme:plan-policy", to: "acme:plan-policy-strict" }],
+      surface: [
+        { skill: "review", from: "public", to: "internal" },
+        { skill: "ship", from: "internal", to: "public" },
+      ],
+    });
+  });
+
+  test("a clean pack is not dirty", async () => {
+    const { packDir } = makeCommittedPack();
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+    expect(c).toMatchObject({ dirty: false, files: [], outsideScope: [], bindings: [], surface: [] });
+  });
+
+  test("an untracked file inside a new directory is listed by its own path", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "attachments", "stage-plan", "new notes.md"), "notes\n");
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+    expect(c.files).toEqual([{ path: "attachments/stage-plan/new notes.md", status: "??" }]);
+  });
+
+  test("a pack that is a subdirectory of its repo reports pack-relative paths and ignores the rest of the repo", async () => {
+    const { repoRoot, packDir } = makeCommittedPack("packs/acme");
+    writeFile(join(repoRoot, "unrelated.txt"), "elsewhere\n");
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    writeFile(join(packDir, "README.md"), "edited\n");
+
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(c.files).toEqual([{ path: "pack/skills.jsonc", status: "M" }]);
+    expect(c.outsideScope).toEqual([{ path: "README.md", status: "M" }]);
+    expect(c.bindings).toEqual([{ engineRef: "mattstack:stage-plan", slot: "domain", from: "acme:plan-policy", to: "acme:plan-policy-strict" }]);
+  });
+
+  test("a bindings file that is new since HEAD lists every binding as added", async () => {
+    const { packDir } = makeCommittedPack();
+    rmSync(join(packDir, "pack", "skills.jsonc"));
+    commitAll(packDir);
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_BEFORE);
+
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(c.files).toEqual([{ path: "pack/skills.jsonc", status: "??" }]);
+    expect(c.bindings).toEqual([{ engineRef: "mattstack:stage-plan", slot: "domain", from: null, to: "acme:plan-policy" }]);
+  });
+
+  test("a pack outside any git checkout is a usage error", async () => {
+    const packDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-nogit-")));
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_BEFORE);
+    const { exitCode, stderr } = await runSkillsCapturing(["changes", "--pack", "acme", "--pack-dir", packDir, "--json"]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("not inside a git checkout");
+  });
+
+  test("prints ONLY json -- no human lines on stdout", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const text = await runSkills(["changes", "--pack", "acme", "--pack-dir", packDir, "--json"]);
+    expect(() => JSON.parse(text)).not.toThrow();
+  });
+});
+
+describe("skillsChanges human output", () => {
+  test("names the pack and the changed files", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const text = await runSkills(["changes", "--pack", "acme", "--pack-dir", packDir]);
+    expect(text).toContain("acme");
+    expect(text).toContain("pack/skills.jsonc");
   });
 });

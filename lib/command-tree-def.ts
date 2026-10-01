@@ -2440,6 +2440,15 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      changes: {
+        description: "List this pack's changes that are not synced yet",
+        module: "./commands/skills.ts",
+        fn: "skillsChanges",
+        args: [
+          { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to act on that tree" },
+          SETUP_JSON_ARG,
+        ],
+      },
       bind: {
         description: "Bind a fill to a slot: check it fits, save it in the pack's bindings, regenerate the pack's bindings file and recompile",
         module: "./commands/skills.ts",

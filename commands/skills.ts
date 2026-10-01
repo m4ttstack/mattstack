@@ -27,9 +27,10 @@
 
 import { execFileSync, spawnSync } from "child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
-import { applyEdits, modify } from "jsonc-parser";
+import { applyEdits, modify, parse as parseJsonc } from "jsonc-parser";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { mattstackHome } from "../lib/rt-paths.ts";
+import { runCapture } from "../lib/subprocess.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
@@ -40,6 +41,7 @@ import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsi
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
+import { bindingChanges, inScope, parsePorcelain, relativeToPrefix, surfaceChanges, type ChangesPayload } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
@@ -1735,6 +1737,79 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
       payload.parts.map((p) => [p.kind, p.name ?? "", spanText(p.templateLines), spanText(p.renderedLines)]),
       ["Part", "Name", "Template lines", "Rendered lines"],
     ));
+  });
+}
+
+// ─── rt skills changes ─────────────────────────────────────────────────────
+
+const BINDINGS_FRAGMENT = "pack/skills.jsonc";
+
+/** `core.quotePath=false` keeps non-ASCII names literal; paths with spaces or quotes still arrive quoted, which parsePorcelain undoes. */
+function runGit(packDir: string, args: string[]) {
+  return runCapture(["git", "-c", "core.quotePath=false", ...args], { cwd: packDir, stderr: "pipe" });
+}
+
+function parseJsoncFile(text: string): unknown {
+  return parseJsonc(text, [], { allowTrailingComma: true });
+}
+
+/** HEAD's copy of a pack-relative file, or null when HEAD has none (a new file, or a repo with no commits yet). */
+async function committedCopy(packDir: string, rel: string): Promise<unknown> {
+  const res = await runGit(packDir, ["show", `HEAD:./${rel}`]);
+  return res.exitCode === 0 ? parseJsoncFile(res.stdout) : null;
+}
+
+function workingCopy(packDir: string, rel: string): unknown {
+  const path = join(packDir, rel);
+  return existsSync(path) ? parseJsoncFile(readFileSync(path, "utf8")) : null;
+}
+
+export async function skillsChanges(args: string[]): Promise<void> {
+  await withCleanErrors(async () => {
+    const flags = parseFlags(args);
+    const { team, packDir } = await resolvePack(flags);
+
+    const prefixRes = await runGit(packDir, ["rev-parse", "--show-prefix"]);
+    if (prefixRes.exitCode !== 0) throw new SkillsUsageError(`pack ${team} is not inside a git checkout, so there is no way to tell what changed`);
+    const statusRes = await runGit(packDir, ["status", "--porcelain=v1", "--untracked-files=all", "--", "."]);
+    if (statusRes.exitCode !== 0) throw new SkillsUsageError(`git could not read the status of pack ${team}: ${statusRes.stderr.trim() || "no output"}`);
+
+    const all = relativeToPrefix(parsePorcelain(statusRes.stdout), prefixRes.stdout.trim());
+    const files = all.filter((f) => inScope(f.path));
+    const outsideScope = all.filter((f) => !inScope(f.path));
+
+    const surfacePath = surfaceFileFor(packDir);
+    const surfaceRel = surfacePath ? relativePath(packDir, surfacePath) : null;
+    const payload: ChangesPayload = {
+      pack: team,
+      packDir,
+      dirty: all.length > 0,
+      files,
+      outsideScope,
+      bindings: bindingChanges(await committedCopy(packDir, BINDINGS_FRAGMENT), workingCopy(packDir, BINDINGS_FRAGMENT)),
+      surface: surfaceRel ? surfaceChanges(await committedCopy(packDir, surfaceRel), workingCopy(packDir, surfaceRel)) : [],
+    };
+
+    if (flags.json) {
+      out.json(payload);
+      return;
+    }
+    if (!payload.dirty) {
+      out.print(out.line("done", `Pack ${team} has nothing waiting to sync`));
+      return;
+    }
+    const fileRows = (group: string, rows: ChangesPayload["files"]) => (rows.length > 0 ? [{ group }, ...rows.map((f) => [f.status, f.path])] : []);
+    const blocks = [
+      out.line("pending", `Pack ${team} has changes that are not synced yet`),
+      out.table([...fileRows("Pack files", files), ...fileRows("Other files", outsideScope)], ["Status", "Path"]),
+    ];
+    if (payload.bindings.length > 0) {
+      blocks.push(out.table(payload.bindings.map((b) => [`${b.engineRef} ${b.slot}`, b.from ?? "(none)", b.to ?? "(none)"]), ["Binding", "Was", "Now"]));
+    }
+    if (payload.surface.length > 0) {
+      blocks.push(out.table(payload.surface.map((c) => [c.skill, c.from, c.to]), ["Skill", "Was", "Now"]));
+    }
+    out.print(...blocks);
   });
 }
 
