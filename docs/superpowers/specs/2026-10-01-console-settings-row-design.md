@@ -112,6 +112,47 @@ semibold), its scope badge and the close button on one centre line, the
 description under it, then `KeyPanel` (opening on **Where it's set**) with
 its own store, as `OwnStore` loads it today. Board `R`.
 
+## UI authoring (strict)
+
+Every piece follows `docs/apps/ui-authoring.md` to the letter:
+
+- Kit components first: `SegmentedControl` (tabs), `ActionIcon` +
+  `Tooltip` (layer actions, chevron, close), `Menu` (move targets),
+  `Badge` via `ScopeBadge` (scope badges, `default` included), `Collapse`
+  (the open panel), `Modal` (run detail). Nothing hand-drawn that one of
+  these does.
+- The styling ladder: rung 1 props (`size` `sm` or larger, `compact-sm`
+  only for the hover action row), then a CSS module through `classNames`
+  for layout only, then stop and ask. No new inline `style` or `styles`
+  objects, no `.mantine-*` selectors, no colour set as a value on a kit
+  component (colour through `color` / `variant` only).
+- Row and layer-line hover is the guide's `.row` pattern: `--row-hover`
+  per scheme, `:hover` inside `@media (hover: hover)`, `:focus-within`
+  outside it, hover actions revealed from the same selectors. No React
+  hover state.
+- Tokens by role only: muted text `--tk-text-3` / `--tk-text-4`, "in
+  effect" `--tk-text-ok-small` with a `-vivid` glyph, borders
+  `--tk-border` / `--tk-border-soft`. No `c="dimmed"`, no stock gray, no
+  raw values.
+- Weights 400 / 500 / 700 only; every `Text` states its size.
+
+## Visual parity (strict)
+
+- Stories render the boards' exact content: `SettingRow.stories.tsx` and
+  `KeyPanel.stories.tsx` with fixtures copied from B, B4 and R (same keys,
+  values, layers, invented paths), at the boards' widths.
+- Fast Browser screenshots each story in light and dark and compares it
+  with the board export at the same scale, side by side, plus a numeric
+  check of layout (element boxes, gaps, paddings, font sizes and weights
+  from the DOM against the board's node bounds). Any difference in page
+  content is a failure to fix in code.
+- Where a kit control's shipped geometry differs from the board (the
+  guide says board numbers for a control's height, padding and font size
+  are not targets), the board is corrected to the kit's geometry and the
+  change is listed for Matt, so board and build end identical.
+- Then the live `/settings` page and a run detail's modal, both schemes,
+  for the real-data pass.
+
 ## Verification
 
 - Unit (vitest, `bun run console:test`): `SettingRow` disclosure (row click
@@ -124,8 +165,7 @@ its own store, as `OwnStore` loads it today. Board `R`.
   dropped.
 - `bun run console:typecheck`, `console:lint`, `bun run check` for the
   repo gates.
-- Fast Browser, both schemes, against B (rest, hover), B4 (both tabs) and
-  R: any difference from the board is a failure.
+- The parity pass above, before any milestone is called done.
 
 ## Out of scope
 
