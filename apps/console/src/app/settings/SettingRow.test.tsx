@@ -1,11 +1,13 @@
 import type { ReactElement } from 'react';
+import { MantineProvider } from '@mattstack/app-kit/core';
+import { theme } from '@mattstack/app-kit/design-system';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type {
   ExplainRowWire,
   SettingDefWire,
 } from '@mattstack/settings-kit/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -103,7 +105,9 @@ describe('SettingRow disclosure', () => {
     await userEvent.click(
       screen.getByRole('textbox', { name: 'board.agent.model' })
     );
-    expect(screen.queryByRole('radio', { name: 'Value' })).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'open board.agent.model' })
+    ).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('picking an enum option from its dropdown does not toggle the row', async () => {
@@ -115,11 +119,41 @@ describe('SettingRow disclosure', () => {
         query=""
       />
     );
+    const chevron = screen.getByRole('button', { name: 'open agent.provider' });
     await userEvent.click(
       screen.getByRole('combobox', { name: 'agent.provider' })
     );
+    expect(chevron).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(await screen.findByRole('option', { name: 'Codex' }));
-    expect(screen.queryByRole('radio', { name: 'Value' })).toBeNull();
+    expect(chevron).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('a click on a portalled dropdown, off its options, does not toggle the row', async () => {
+    // The shared harness sets env="test", which renders every portal in
+    // place; the page's dropdowns portal out of the row.
+    render(
+      <MantineProvider theme={theme}>
+        <SettingRow
+          def={def('agent.provider', {
+            effective: { scope: null, file: null },
+          })}
+          store={store()}
+          subhead={null}
+          query=""
+        />
+      </MantineProvider>
+    );
+    const chevron = screen.getByRole('button', { name: 'open agent.provider' });
+    await userEvent.click(
+      screen.getByRole('combobox', { name: 'agent.provider' })
+    );
+    const dropdown = (await screen.findByRole('listbox', { hidden: true }))
+      .parentElement!;
+    expect(
+      document.querySelector('[data-key="agent.provider"]')!.contains(dropdown)
+    ).toBe(false);
+    await userEvent.click(dropdown);
+    expect(chevron).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('the chevron is the keyboard door', async () => {
@@ -226,7 +260,9 @@ describe('SettingRow disclosure', () => {
       screen.getByRole('button', { name: 'open board.agent.model' })
     );
     expect(onOpenChange).toHaveBeenCalledWith({ tab: 'where', fix: null });
-    expect(screen.queryByRole('radio', { name: 'Value' })).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'open board.agent.model' })
+    ).toHaveAttribute('aria-expanded', 'false');
   });
 });
 
