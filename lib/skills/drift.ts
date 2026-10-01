@@ -44,22 +44,49 @@ export function skillMdDriftCauses(onDisk: string, expected: string): DriftCause
 export type PartExtent = { key: string; version: string | null; start: number; end: number; text: string };
 
 const EXTENT_RE = /^<!-- part: (slot:\S+|include:\S+) .*?\bversion=(\S+) .*?\blines=(\d+)-(\d+) -->$/;
+const MARKER_VERSION_RE = /^(<!-- part: .*?\bversion=)\S+/gm;
 
+/**
+ * An include part is its marker plus exactly its `lines=` count: include bodies
+ * are verbatim. A slot's count is in SOURCE lines, and a nested include marker
+ * stands for the one `{{include}}` line it replaced while carrying its own body
+ * lines on top, so the walk counts the marker once and steps over that body.
+ * The legacy engine also puts one blank separator between a slot marker and its
+ * fill; fill bodies are trimmed on load, so a blank there is never fill text.
+ */
 export function partExtents(md: string): PartExtent[] {
   const lines = md.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  const markerAt = (i: number) => {
+    const m = EXTENT_RE.exec(lines[i]!);
+    return m ? { key: m[1]!, version: m[2]!, count: Number(m[4]) - Number(m[3]) + 1 } : null;
+  };
   const out: PartExtent[] = [];
   for (let i = 0; i < lines.length; i++) {
-    const m = EXTENT_RE.exec(lines[i]!);
-    if (!m) continue;
-    const end = Math.min(lines.length - 1, i + Number(m[4]) - Number(m[3]) + 1);
-    out.push({ key: m[1]!, version: m[2]!, start: i, end, text: lines.slice(i + 1, end + 1).join("\n") });
+    const marker = markerAt(i);
+    if (!marker) continue;
+    let first = i + 1;
+    let last: number;
+    if (marker.key.startsWith("include:")) {
+      last = i + marker.count;
+    } else {
+      if (lines[first]?.trim() === "") first++;
+      last = first - 1;
+      for (let consumed = 0; consumed < marker.count && last + 1 < lines.length; consumed++) {
+        const nested = markerAt(last + 1);
+        last += nested?.key.startsWith("include:") ? 1 + nested.count : 1;
+      }
+    }
+    last = Math.min(lines.length - 1, last);
+    out.push({ key: marker.key, version: marker.version, start: i, end: last, text: lines.slice(first, last + 1).join("\n") });
   }
   return out;
 }
 
 export function changedPartKeys(onDisk: string, fresh: string): Set<string> {
-  const before = new Map(partExtents(onDisk).map((p) => [p.key, p.text]));
+  const bare = (text: string) => text.replace(MARKER_VERSION_RE, "$1");
+  const before = new Map(partExtents(onDisk).map((p) => [p.key, bare(p.text)]));
   const changed = new Set<string>();
-  for (const p of partExtents(fresh)) if (before.get(p.key) !== p.text) changed.add(p.key);
+  for (const p of partExtents(fresh)) if (before.get(p.key) !== bare(p.text)) changed.add(p.key);
   return changed;
 }

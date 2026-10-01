@@ -38,18 +38,88 @@ describe("buildParts", () => {
   });
 });
 
+describe("buildParts edge shapes", () => {
+  test("a text run that renders nothing has no rendered lines", () => {
+    const parts = buildParts({ bodyStartLine: 5, bodyOffset: 0, trace: [entry(0, 0, 0), entry(1, 0, 0), entry(2, 0, 1)], sources: {}, targets: {}, slotModes: {}, changedKeys: new Set() });
+    expect(parts).toEqual([
+      { kind: "text", name: null, templateLines: [5, 7], renderedLines: [1, 1], mode: null, source: null, target: null, changed: false },
+    ]);
+    const [dropped] = buildParts({ bodyStartLine: 5, bodyOffset: 0, trace: [entry(0, 0, 0), entry(1, 0, 0)], sources: {}, targets: {}, slotModes: {}, changedKeys: new Set() });
+    expect(dropped).toMatchObject({ kind: "text", templateLines: [5, 6], renderedLines: null });
+  });
+
+  test("a line carrying two placeholders yields two parts on the same lines", () => {
+    const parts = buildParts({
+      bodyStartLine: 3, bodyOffset: 0,
+      trace: [entry(0, 0, 2, [["stage.fields", null], ["verb.path", "stage-plan"]])],
+      sources: {}, targets: { "stage-plan": { skill: "stage-plan", path: "/p/SKILL.md", lines: 10 } }, slotModes: {}, changedKeys: new Set(),
+    });
+    expect(parts.map((p) => [p.kind, p.name, p.templateLines, p.renderedLines])).toEqual([
+      ["variable", "stage.fields", [3, 3], [1, 2]],
+      ["verb.path", "stage-plan", [3, 3], [1, 2]],
+    ]);
+  });
+});
+
 describe("partsFromMarkers", () => {
   test("a legacy engine yields one text part plus a part per marker", () => {
     const md = ["---", "name: x", "---", "<!-- part: step source=mattstack:x version=1 path=a lines=5-6 -->", "", "body", "<!-- part: slot:domain binding=acme:p version=2 path=b lines=1-1 -->", "fill"].join("\n");
     const parts = partsFromMarkers(md, {}, new Set());
     expect(parts.map((p) => [p.kind, p.name, p.templateLines, p.renderedLines])).toEqual([
-      ["text", null, null, [5, 6]],
+      ["text", null, null, [6, 6]],
       ["slot", "domain", null, [7, 8]],
+    ]);
+  });
+
+  test("compiled shape: blank separators and a trailing newline add no phantom line", () => {
+    const md = [
+      "<!-- header -->", "",
+      "<!-- part: step source=m:x version=1 path=a lines=1-2 -->", "",
+      "body 1", "body 2", "",
+      "<!-- part: slot:d binding=acme:p version=1 path=b lines=1-3 -->", "",
+      "f1", "f2", "f3", "",
+      "<!-- part: include:n source=m:n version=1 path=c lines=1-2 -->", "n1", "n2", "",
+    ].join("\n");
+    const parts = partsFromMarkers(md, {}, new Set());
+    expect(parts.map((p) => [p.kind, p.name, p.renderedLines])).toEqual([
+      ["text", null, [5, 7]],
+      ["slot", "d", [8, 12]],
+      ["include", "n", [14, 16]],
+    ]);
+  });
+
+  test("a step with no parts after it ends at the last real line", () => {
+    const md = ["<!-- part: step source=m:x version=1 path=a lines=1-2 -->", "", "body 1", "body 2", ""].join("\n");
+    expect(partsFromMarkers(md, {}, new Set()).map((p) => p.renderedLines)).toEqual([[3, 4]]);
+  });
+
+  test("a slot name may contain a colon", () => {
+    const md = ["<!-- part: step source=m:x version=1 path=a lines=1-1 -->", "", "b", "<!-- part: slot:a:b binding=acme:p version=1 path=b lines=1-1 -->", "fill"].join("\n");
+    expect(partsFromMarkers(md, {}, new Set(["slot:a:b"])).at(-1)).toMatchObject({ kind: "slot", name: "a:b", changed: true });
+  });
+
+  test("a nested include keeps its own part and the slot still covers the trailing prose", () => {
+    const md = [
+      "<!-- part: step source=m:x version=1 path=a lines=1-1 -->", "", "b", "",
+      "<!-- part: slot:d binding=acme:p version=1 path=b lines=1-3 -->", "",
+      "intro",
+      "<!-- part: include:x source=m:x version=1 path=c lines=1-2 -->", "x1", "x2",
+      "trailing",
+    ].join("\n");
+    expect(partsFromMarkers(md, {}, new Set()).map((p) => [p.kind, p.name, p.renderedLines])).toEqual([
+      ["text", null, [3, 4]],
+      ["slot", "d", [5, 11]],
+      ["include", "x", [8, 10]],
     ]);
   });
 });
 
 describe("linksIn", () => {
+  test("a word ending in parts is not a vendored part path, but a skill-dir prefix is", () => {
+    const md = "see counterparts/x.md\nand ${CLAUDE_SKILL_DIR}/parts/include-x/references/r.md";
+    expect(linksIn(md)).toEqual([{ path: "parts/include-x/references/r.md", line: 2 }]);
+  });
+
   test("finds relative skill paths and vendored parts once each, with their first line", () => {
     const md = "a\nsee ../../attachments/gates/SKILL.md\nand ../../attachments/gates/SKILL.md\nparts/include-x/references/strategies.md";
     expect(linksIn(md)).toEqual([

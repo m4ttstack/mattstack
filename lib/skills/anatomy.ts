@@ -1,5 +1,4 @@
-import type { DriftCause } from "./drift.ts";
-import { partExtents } from "./drift.ts";
+import { partExtents, type DriftCause } from "./drift.ts";
 import type { TraceEntry } from "./placeholders.ts";
 
 export type AnatomyPartKind = "text" | "include" | "slot" | "verb.path" | "variable";
@@ -85,19 +84,28 @@ const STEP_MARKER_RE = /^<!-- part: step /;
 
 export function partsFromMarkers(rendered: string, sources: Record<string, AnatomySource>, changedKeys: Set<string>): AnatomyPart[] {
   const lines = rendered.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
   const stepAt = lines.findIndex((l) => STEP_MARKER_RE.test(l));
   const extents = partExtents(rendered);
   const firstPart = extents[0]?.start ?? lines.length;
   const parts: AnatomyPart[] = [];
-  if (stepAt >= 0) parts.push({ kind: "text", name: null, templateLines: null, renderedLines: [stepAt + 2, firstPart], mode: null, source: null, target: null, changed: false });
+  if (stepAt >= 0) {
+    const bodyStart = stepAt + (lines[stepAt + 1]?.trim() === "" ? 3 : 2);
+    parts.push({
+      kind: "text", name: null, templateLines: null,
+      renderedLines: bodyStart <= firstPart ? [bodyStart, firstPart] : null,
+      mode: null, source: null, target: null, changed: false,
+    });
+  }
   for (const x of extents) {
-    const [kind, name] = x.key.split(":") as ["slot" | "include", string];
-    parts.push({ kind, name, templateLines: null, renderedLines: [x.start + 1, x.end + 1], mode: kind === "slot" ? "inline" : null, source: sources[x.key] ?? null, target: null, changed: changedKeys.has(x.key) });
+    const colon = x.key.indexOf(":");
+    const kind = x.key.slice(0, colon) as "slot" | "include";
+    parts.push({ kind, name: x.key.slice(colon + 1), templateLines: null, renderedLines: [x.start + 1, x.end + 1], mode: kind === "slot" ? "inline" : null, source: sources[x.key] ?? null, target: null, changed: changedKeys.has(x.key) });
   }
   return parts;
 }
 
-const LINK_RE = /(?:\.\.\/)+(?:attachments|skills)\/[a-z0-9][a-z0-9-]*\/[A-Za-z0-9_./-]+\.md|parts\/[A-Za-z0-9_./-]+\.md/g;
+const LINK_RE = /(?:\.\.\/)+(?:attachments|skills)\/[a-z0-9][a-z0-9-]*\/[A-Za-z0-9_./-]+\.md|(?<![A-Za-z0-9_.-])parts\/[A-Za-z0-9_./-]+\.md/g;
 
 export function linksIn(rendered: string): AnatomyLink[] {
   const seen = new Map<string, number>();
