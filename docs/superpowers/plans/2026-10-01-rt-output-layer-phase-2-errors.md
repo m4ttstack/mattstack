@@ -4,7 +4,7 @@
 
 **Goal:** Every failure that reaches the top of the rt CLI is drawn as one `failure` block on stderr: an expected failure (`UserActionableError`) with its `why` and `next`, exit 2; anything else as one line with the stack in the CLI log, exit 1. `exitUserError` stops printing `rt <verb>:` on stdout, and the first known expected failure (a sops decrypt a Mac's age key cannot open) is converted.
 
-**Architecture:** `UserActionableError` moves from `lib/setup/errors.ts` to `lib/errors.ts` and gains optional `why`, `next` and `log`. `lib/errors.ts` also owns the two exits the seam uses (`exitFromDispatch`, `exitUnexpected`) and the stream change in `exitUserError`; `cli.ts`'s dispatch catch and `__main().catch` route every error through it. `lib/ui/out.ts` grows two small things the seam needs: `fail(f, ...after)` so a stack can ride under the failure in one stderr write, and a warn line in the CLI log when `rt-ui render` cannot be spawned. `lib/secrets/store.ts` types the sops decrypt failure and `lib/secrets/team-store.ts` turns it into the expected failure.
+**Architecture:** `UserActionableError` moves from `lib/setup/errors.ts` to `lib/errors.ts` and gains optional `why`, `next` and `log`. `lib/errors.ts` also owns the two exits the seam uses (`exitFromDispatch`, `exitUnexpected`) and the stream change in `exitUserError`; `cli.ts`'s dispatch catch and `__main().catch` route every error through it. `lib/ui/out.ts` grows two small things the seam needs: `fail(f, ...after)` so a stack can ride under the failure in one stderr write, and one warn line per process in the CLI log when `rt-ui render` cannot be spawned or dies. `lib/secrets/store.ts` types the sops decrypt failure and `lib/secrets/team-store.ts` turns it into the expected failure. The test helper every later phase captures `out` with, `lib/ui/__tests__/capture-out.ts`, is created here.
 
 **Tech Stack:** Bun + TypeScript (`lib/`, `commands/`, `cli.ts`), `bun:test`, termwright (`e2e/pty/`). No Go change in this phase.
 
@@ -24,8 +24,10 @@
 - Sample data in tests is invented. No real team, person or host names.
 - Every leaf picker and every human branch gates on TTY, `--json` and `RT_BATCH` exactly as today; the non-TTY and `--json` paths keep their exit codes.
 - Phase 2 only: exit codes are unchanged. An `ExecFailure` exits with the plugin's code, an expected failure exits 2, anything else exits 1.
-- Phase 2 only: `exitUserError`'s `--json` line is the same `JSON.stringify(userErrorPayload(err))` on stdout as today; when a caller passes `print`, that `print` still receives it.
-- Phase 2 only: the dispatch catch in `lib/command-tree.ts` keeps writing every command's outcome record (AGENTS.md "Logging architecture"). The seam adds no second `CommandLog` record; it adds one structured line only where a stack would otherwise be lost.
+- Phase 2 only: `exitUserError`'s `--json` line is the same `JSON.stringify(userErrorPayload(err))` on stdout as today; when a caller passes `print`, that `print` still receives it. An expected failure that escapes to the seam with `--json` on argv gets that same envelope through `out.json`; an unexpected error under `--json` writes nothing to stdout.
+- Phase 2 only: the spec's "frozen" (ruled 2026-10-01) means the shape, and lets a human string inside the JSON change wording. This plan is stricter than it needs to be and stays so: the only `--json` this phase touches is the exit-2 envelope, whose `message` is the error's own text and does not change.
+- Phase 2 only: the dispatch catch in `lib/command-tree.ts` keeps writing every command's outcome record (AGENTS.md "Logging architecture"). The seam adds no second `CommandLog` record and never edits dispatch's; for an unexpected error it writes one event line carrying the stack, so an error thrown before dispatch starts still leaves one.
+- Phase 2 only: the `rt-ui render` failure warn line is written once per process; a run that prints many block sets on a broken machine leaves one line, not one per set.
 - Phase 2 only: `lib/errors.ts`, `lib/secrets/*.ts` and `lib/ui/out.ts` never import `lib/ansi.ts`, `lib/tui.ts` or `lib/tui/palette.ts`, and `lib/errors.ts` never calls `console.*` or writes to `process.stdout`/`process.stderr` directly; the guard scans it.
 - Phase 2 only: every call site of `UserActionableError`, `userErrorPayload` and `exitUserError` compiles unchanged. The signatures stay `new UserActionableError(code, message, extra?)` plus an optional fourth `options` argument, and `exitUserError(err, json, verb, print?)`.
 - Phase 2 only: files owned by phase 3 (`commands/setup.ts`, `commands/verify.ts`, `commands/uninstall.ts`, `commands/accounts.ts`, `commands/logins.ts`, `commands/secrets.ts`, everything under `lib/setup/`) and phase 4 (`commands/settings*.ts`, `lib/settings/`, the settings write path in `packages/rt-client`) are not edited, apart from `lib/setup/errors.ts` becoming a re-export of `lib/errors.ts`.
@@ -33,10 +35,10 @@
 ## Review Focus
 
 1. **An error thrown before dispatch starts** (plugin tree load, settings notice routing, the first-run hint's `existsSync`). Today it surfaces as a bare Bun stack; after this plan the same `__main().catch` route must give one line and keep the stack in the CLI log, with no command record to lean on. Pinned in Task 4 (`exitUnexpected writes the message and stack to the cli log`), which runs with no `logCommand` call having happened.
-2. **`--json` on argv when an error escapes to the seam.** stdout must stay empty (no half envelope for an agent to parse) and the failure must print plainly on stderr. Pinned in Task 4 (`e2e/tests/errors.test.ts`, `--json: an unexpected error leaves stdout empty and exits 1`).
+2. **`--json` on argv when an error escapes to the seam.** An expected failure must give the one envelope line `exitUserError` gives, so an agent parses the same shape whichever route the error took; an unexpected error must leave stdout empty (no half envelope) and print plainly on stderr. Pinned in Task 4 (`exitFromDispatch: an expected failure under --json is the envelope on stdout, nothing on stderr, exit 2`, `exitFromDispatch: an unexpected error under --json still writes nothing to stdout`, and in `e2e/tests/errors.test.ts`, `--json: an unexpected error leaves stdout empty and exits 1`).
 3. **An error message carrying escape sequences** (git or sops stderr with `\x1b[2J`). The failure block and the stack excerpt must print as plain characters. Pinned in Task 4 (`escape sequences in a message or stack never reach the terminal`).
 4. **A multi-line error message** (sops stderr is fifteen lines). The title and hint are single-line fields; the person must see the first line, not a mashed paragraph. Pinned in Task 3 (`a multi-line message collapses to one title line in plain output`) and Task 4 (`a multi-line message gives a one-line hint`).
-5. **A machine whose rt-ui helper is missing or broken.** The person must still get the words, and the install fault must be findable afterwards. Pinned in Task 2 (`a missing helper leaves a warn line naming what was tried`, `a helper that exits non-zero leaves a warn line in the cli log`).
+5. **A machine whose rt-ui helper is missing or broken.** The person must still get the words, the install fault must be findable afterwards, and a long run must not fill the log with the same line. Pinned in Task 2 (`a missing helper leaves a warn line naming what was tried`, `a helper that exits non-zero leaves a warn line in the cli log`, `the helper-failure warn line is written once per process`).
 
 ## File Structure
 
@@ -45,9 +47,9 @@
 | `lib/errors.ts` (create) | `UserActionableError` with `why`, `next`, `log`; `userErrorPayload`; `failureFor`; `exitUserError`; `exitFromDispatch`; `exitUnexpected` |
 | `lib/setup/errors.ts` (modify) | A one-line re-export of `lib/errors.ts`, kept for phase 3's importers |
 | `lib/__tests__/errors.test.ts` (create) | Fields, payload parity, shim identity, both exits, stream choice, log lines |
-| `lib/__tests__/capture-out.ts` (create) | Test helper: captures stdout and stderr writes with the human gate closed |
-| `lib/ui/out.ts` (modify) | `fail(f, ...after)`, `isHuman(stream)`, exported `Stream`, a warn line when the helper fails |
-| `lib/ui/__tests__/out.test.ts` (modify) | Trailing blocks under a failure, `isHuman`, the helper-failure log lines |
+| `lib/ui/__tests__/capture-out.ts` (create) | Test helper every phase imports: captures stdout and stderr writes; the human gate stays the caller's |
+| `lib/ui/out.ts` (modify) | `fail(f, ...after)`, `isHuman(stream)`, exported `Stream`, one warn line per process when the helper fails |
+| `lib/ui/__tests__/out.test.ts` (modify) | Trailing blocks under a failure, `isHuman`, the helper-failure log lines and their latch |
 | `lib/cli-logger.ts` (modify) | `logCliEvent(level, module, message, context)` on the cli surface |
 | `cli.ts` (modify) | The dispatch catch and `__main().catch` call `exitFromDispatch`; `--version` through `out.payload`; `--grant-fda` through `out` |
 | `lib/secrets/store.ts` (modify) | `SopsDecryptError`, `sopsKeyMismatch` |
@@ -57,8 +59,8 @@
 | `e2e/pty/errors.test.ts` (create) | The seam through the real binary and the real rt-ui in a pty |
 | `.github/workflows/e2e.yml` (modify) | The pty gate's path filter learns this phase's files |
 | `lib/__tests__/no-raw-output.test.ts`, `raw-output-allowlist.json` (modify) | The guard scans `cli.ts`; `cli.ts` joins the allowlist for its two pre-dispatch notices |
-| `commands/__tests__/*.test.ts`, `lib/release/__tests__/*.test.ts` (modify) | Tests that read `exitUserError`'s human line through `print` or a `console.log` spy now read stderr |
-| Importers of `lib/setup/errors.ts` outside phase 3's files (modify) | Import path becomes `lib/errors.ts` |
+| The seven `commands/__tests__/*.test.ts` files Task 1 names (modify) | Tests that read `exitUserError`'s human line through `print` or a `console.log` spy now read stderr |
+| Importers of `lib/setup/errors.ts` outside phase 3's files, `lib/release/__tests__/*.test.ts` and `lib/team/__tests__/*.test.ts` included (modify) | Import path becomes `lib/errors.ts`; nothing else changes in them |
 | `AGENTS.md` (modify) | The error seam paragraph in "Output layer"; the guard now names `cli.ts` |
 
 ---
@@ -71,7 +73,7 @@ No code. This is the inventory every later task implements; it stays in the plan
 
 | Site | Today | Becomes | Task |
 |---|---|---|---|
-| `cli.ts:171-177` dispatch catch | `ExecFailure` exits with its code; everything else rethrows to `__main().catch`, which rethrows: Bun prints the bundled stack, exit 1 | `ExecFailure` unchanged; `UserActionableError` becomes a `failure` block (title = message, `why`, `next`, details pointer when `log` is set) on stderr, exit 2; anything else becomes `failure` with title `rt hit an unexpected error`, hint = the message's first line, `next` = `rt daemon logs`, details `the full error is in the rt log`, exit 1, the stack in the CLI log, and a `verbatim` stack under the block off a TTY or with `RT_LOG_LEVEL=debug` | 4 |
+| `cli.ts:171-177` dispatch catch | `ExecFailure` exits with its code; everything else rethrows to `__main().catch`, which rethrows: Bun prints the bundled stack, exit 1 | `ExecFailure` unchanged; `UserActionableError` becomes a `failure` block (title = message, `why`, `next`, details pointer when `log` is set) on stderr, exit 2, or with `--json` on argv the same envelope `exitUserError` writes, through `out.json` on stdout; anything else becomes `failure` with title `rt hit an unexpected error`, hint = the message's first line, `next` = `rt daemon logs`, exit 1, the stack in the CLI log, and a `verbatim` stack under the block off a TTY or with `RT_LOG_LEVEL=debug`; under `--json` an unexpected error writes nothing to stdout | 4 |
 | `cli.ts:184-186` `__main().catch` | rethrows | calls the same `exitFromDispatch`, so an error thrown before dispatch (plugin tree load, notice routing) gets the same treatment | 4 |
 | `cli.ts:95` `--version` | `console.log(versionBanner(...))` | `out.payload(banner + "\n")`: scripts read it (`e2e/tests/smoke.test.ts` matches `^rt `) | 7 |
 | `cli.ts:123-131` `--grant-fda` | four `console.log` lines with raw `\x1b[1m`, a `console.error` on failure | `out.print(line("needs-you", ...), callout("note", ...), callout("next", cmd("rt daemon restart")))`; failure through `out.fail` | 7 |
@@ -79,16 +81,16 @@ No code. This is the inventory every later task implements; it stays in the plan
 | `lib/setup/errors.ts:18-21` `exitUserError` | `print(json ? envelope : "rt <verb>: " + message)` with `print` defaulting to `console.log`, exit 2 | JSON: the same line, through `print` when given, else `out.json`. Human: `out.fail(failureFor(err))` on stderr, no prefix. `log` detail goes to the CLI log. Exit 2 | 3 |
 | `lib/secrets/store.ts:184-194` `sopsDecrypt` | throws `new Error("sops -d <path>: <stderr>")` (fifteen lines of sops output in the message) | throws `SopsDecryptError` with the same message plus `filePath` and `stderr` fields; `sopsKeyMismatch(stderr)` recognises the no-matching-recipient case | 5 |
 | `lib/secrets/team-store.ts:201-211,213-231` `readTeamSecret`, `listTeamSecretNames`, `writeTeamSecret` | let the `Error` through | convert `SopsDecryptError` to `UserActionableError("team-secrets-unreadable", "This Mac cannot read the <slug> team's secrets yet", { team }, { why, next: "rt team pull", log })` | 5 |
-| `lib/ui/out.ts:122-134` `renderStyled` | a missing or dying helper returns `null` silently | same, plus one `warn` line on the cli surface (module `rt-ui`) naming the binary, exit code and stderr tail, or the resolver's message | 2 |
+| `lib/ui/out.ts:122-136` `renderStyled` | a missing, dying or hanging helper returns `null` silently (the 2 s render timeout stays) | same, plus one `warn` line on the cli surface (module `rt-ui`) naming the binary, exit code, signal and stderr tail, or the resolver's message; written once per process | 2 |
 | `lib/cli-logger.ts:294-310` crash handlers | `console.error(err)` then exit 1 | Unchanged: it covers an uncaught exception outside `__main`, and `cli-logger` is a logging seam the spec sends to a permanent exemption in phase 6 | none |
 | `lib/command-tree.ts:423-436` dispatch's own catch | logs the outcome with stack, rethrows | Unchanged: this is the logging seam AGENTS.md names | none |
 
 Copy fixed by this audit (every later task uses these strings verbatim):
 
-- Unexpected error title: `rt hit an unexpected error`. Hint: the first line of the error's message. Next: `rt daemon logs`. Details: `the full error is in the rt log`.
+- Unexpected error title: `rt hit an unexpected error`. Hint: the first line of the error's message. Next: `rt daemon logs`. No details pointer: the `next` callout already says where the rest is.
 - Expected failure with a `log` detail: details `the full output is in the rt log`.
 - Team secrets: title `This Mac cannot read the <slug> team's secrets yet`; why (key mismatch) `No age key on this Mac matches the team's recipients. The team owner adds your key, then you pull the team again.`; why (other sops failure) `The team's secrets file could not be decrypted on this Mac.`; next `rt team pull`. Both `rt team pull` and `rt daemon logs` exist in `lib/command-tree-def.ts` (`team.pull`, `daemon.logs`).
-- Helper failure log lines (module `rt-ui`, level `warn`): `rt-ui was not found; printed plain text instead`, `rt-ui render exited non-zero; printed plain text instead`, `rt-ui render did not spawn; printed plain text instead`.
+- Helper failure log lines (module `rt-ui`, level `warn`, the first one per process only): `rt-ui was not found; printed plain text instead`, `rt-ui render exited non-zero; printed plain text instead` (a helper killed by the render timeout lands here too, with `exitCode: null` and `signalCode: "SIGTERM"`), `rt-ui render did not spawn; printed plain text instead`.
 
 Tests that read `exitUserError`'s human line today through `deps.print` or a `console.log` spy, and which Task 3 retargets to stderr: `commands/__tests__/repos-reidentify.test.ts` (2 tests), `commands/__tests__/repos-locate.test.ts` (3), `commands/__tests__/release-apps.test.ts` (harness + 2), `commands/__tests__/team-join.test.ts` (2), `commands/__tests__/team.test.ts` (2), `commands/__tests__/deps.test.ts` (harness + 1), `commands/__tests__/release-update-machine.test.ts` (harness + 3). Every other test of an `exitUserError` caller either runs `--json` with an explicit `print` or asserts only the exit code.
 
@@ -105,7 +107,7 @@ Tests that read `exitUserError`'s human line today through `deps.print` or a `co
 - Consumes: `renderPlain` (`lib/ui/out-plain.ts`), `resolveRtUi` (`lib/ui/resolve.ts`), `logsDir` (`lib/rt-paths.ts`), the fake helper's `render` verb (`lib/ui/__tests__/fake-rt-ui.ts`, honours `cfg.exit`).
 - Produces:
   - `lib/cli-logger.ts`: `export type CliLogLevel = "debug" | "warn" | "error"`; `export function logCliEvent(level: CliLogLevel, module: string, message: string, context?: Record<string, unknown>): void` (one JSON line `{ time, level, module, msg, ...context }` appended to `~/.mattstack/rt/logs/cli.YYYY-MM-DD.log`; never throws).
-  - `lib/ui/out.ts`: `export type Stream = "stdout" | "stderr"`; `export function isHuman(stream?: Stream): boolean` (the gate `print` and `fail` apply, test-swappable through `__test__.setHuman`); `export function fail(f: FailureInput, ...after: Block[]): void` (the failure block and `after` in one stderr write).
+  - `lib/ui/out.ts`: `export type Stream = "stdout" | "stderr"`; `export function isHuman(stream?: Stream): boolean` (the gate `print` and `fail` apply, test-swappable through `__test__.setHuman`); `export function fail(f: FailureInput, ...after: Block[]): void` (the failure block and `after` in one stderr write); the helper-failure warn line latched once per process, with `__test__.reset()` clearing the latch.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -118,17 +120,33 @@ import { logsDir } from "../../rt-paths.ts";
 
 (`existsSync`, `mkdtempSync`, `readFileSync`, `rmSync` are already imported from `fs`; merge `readdirSync` into that line.)
 
-Add this helper after `const sent = ...`:
+Add these helpers after `const sent = ...`:
 
 ```ts
-/** The newest line on the cli log surface of the test HOME the preload set. */
-function lastCliLogLine(): Record<string, unknown> {
+/** Every line on the newest cli log file of the test HOME the preload set; empty when none was written. */
+function cliLogLines(): Record<string, unknown>[] {
   const dir = logsDir();
+  if (!existsSync(dir)) return [];
   const file = readdirSync(dir).filter((f) => f.startsWith("cli.") && f.endsWith(".log")).sort().at(-1);
-  if (!file) throw new Error("no cli log was written");
-  const lines = readFileSync(join(dir, file), "utf8").trim().split("\n");
-  return JSON.parse(lines.at(-1)!) as Record<string, unknown>;
+  if (!file) return [];
+  return readFileSync(join(dir, file), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
 }
+
+function lastCliLogLine(): Record<string, unknown> {
+  const entry = cliLogLines().at(-1);
+  if (!entry) throw new Error("no cli log was written");
+  return entry;
+}
+```
+
+Extend the existing test `falls back to plain when the helper hangs past the render timeout` (keep its `15000` timeout) so its body ends with:
+
+```ts
+  expect(stdout.join("")).toBe("[ok] Skills linked\n");
+  const entry = lastCliLogLine();
+  expect(entry.msg).toBe("rt-ui render exited non-zero; printed plain text instead");
+  expect(entry.exitCode).toBeNull();
+  expect(entry.signalCode).toBe("SIGTERM");
 ```
 
 Append these tests at the end of the file:
@@ -178,31 +196,29 @@ test("a missing helper leaves a warn line naming what was tried", () => {
   expect(String(entry.error)).toContain(missing);
 });
 
+test("the helper-failure warn line is written once per process", () => {
+  process.env.RT_UI_FAKE = JSON.stringify({ record, exit: 2 });
+  const before = cliLogLines().filter((e) => e.module === "rt-ui").length;
+  out.print(out.line("done", "one"));
+  out.print(out.line("done", "two"));
+  expect(stdout.join("")).toBe("[ok] one\n[ok] two\n");
+  expect(cliLogLines().filter((e) => e.module === "rt-ui").length).toBe(before + 1);
+});
+
 test("off a terminal no helper runs and nothing is logged about it", () => {
   out.__test__.setHuman(() => false);
-  const before = (() => {
-    try {
-      return lastCliLogLine();
-    } catch {
-      return null;
-    }
-  })();
+  const before = cliLogLines().length;
   out.print(out.line("done", "x"));
-  const after = (() => {
-    try {
-      return lastCliLogLine();
-    } catch {
-      return null;
-    }
-  })();
-  expect(after).toEqual(before);
+  expect(cliLogLines().length).toBe(before);
 });
 ```
+
+The latch is module state in `out.ts`, so `__test__.reset()` (already in this file's `afterEach`) must clear it, or the second log test in a run finds no line; Step 4 does that.
 
 - [ ] **Step 2: Run them to verify they fail**
 
 Run (repo root): `bun test lib/ui/__tests__/out.test.ts`
-Expected: FAIL. `out.isHuman` is not a function; the trailing-blocks test gets only the failure line; the log tests throw `no cli log was written` or read an unrelated line.
+Expected: FAIL. `out.isHuman` is not a function; the trailing-blocks test gets only the failure line; the log tests throw `no cli log was written` or read an unrelated line; the once-per-process test finds no new line at all.
 
 - [ ] **Step 3: Export the event writer from `lib/cli-logger.ts`**
 
@@ -247,16 +263,21 @@ import { logCliEvent } from "../cli-logger.ts";
 
 Change `type Stream = "stdout" | "stderr";` to `export type Stream = "stdout" | "stderr";`.
 
-Replace `renderStyled` (the whole function) with:
+Replace `renderStyled` (the whole function, keeping the `const RENDER_TIMEOUT_MS = 2000;` line above it) with:
 
 ```ts
+let helperWarned = false;
+
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
 // The plain fallback keeps the person's words; the log keeps the reason they
-// were plain, which is otherwise invisible on an installed machine.
+// were plain, which is otherwise invisible on an installed machine. One line
+// per process: every later block set on that machine fails the same way.
 function helperFailed(what: string, context: Record<string, unknown>): void {
+  if (helperWarned) return;
+  helperWarned = true;
   logCliEvent("warn", "rt-ui", `${what}; printed plain text instead`, context);
 }
 
@@ -273,15 +294,26 @@ function renderStyled(blocks: Block[], stream: Stream): string | null {
     const args = [bin, "render", "--width", String(columns)];
     if (process.env.NO_COLOR) args.push("--no-color");
     const input = encodeLine({ t: "hello", protocol: PROTOCOL_VERSION }) + blocks.map(encodeLine).join("");
-    const r = Bun.spawnSync(args, { stdin: Buffer.from(input), stdout: "pipe", stderr: "pipe", env: { ...process.env } });
-    if (r.exitCode === 0) return r.stdout.toString();
-    helperFailed("rt-ui render exited non-zero", { bin, exitCode: r.exitCode, stderr: r.stderr.toString().trim().slice(-500) });
+    const r = Bun.spawnSync(args, { stdin: Buffer.from(input), stdout: "pipe", stderr: "pipe", env: { ...process.env }, timeout: RENDER_TIMEOUT_MS });
+    if (r.exitCode === 0 && r.success) return r.stdout.toString();
+    // A helper killed by the timeout has exitCode null and signalCode SIGTERM.
+    helperFailed("rt-ui render exited non-zero", { bin, exitCode: r.exitCode, signalCode: r.signalCode, stderr: r.stderr.toString().trim().slice(-500) });
     return null;
   } catch (err) {
     helperFailed("rt-ui render did not spawn", { bin, error: errorText(err) });
     return null;
   }
 }
+```
+
+In `__test__.reset()`, add `helperWarned = false;` as its first line, so it reads:
+
+```ts
+  reset(): void {
+    helperWarned = false;
+    human = realHuman;
+    humanStream = "stdout";
+  },
 ```
 
 Replace `fail` with:
@@ -305,7 +337,7 @@ export function isHuman(stream: Stream = "stdout"): boolean {
 - [ ] **Step 5: Run the tests and the guards**
 
 Run (repo root): `bun test lib/ui/__tests__/ lib/__tests__/no-eager-tui.test.ts lib/__tests__/no-raw-output.test.ts lib/__tests__/no-spawn-without-env.test.ts && bun run typecheck`
-Expected: all pass. `no-eager-tui` matters because `lib/errors.ts` (Task 3) puts `out.ts`, and through it `cli-logger.ts`, on the daemon's import graph; `cli-logger.ts` imports only `rt-paths.ts`, `state/busy.ts` (a type import) and `team/redact.ts`, none of which that test bans.
+Expected: all pass, the hang test included: it still ends inside 5 s because the `timeout: RENDER_TIMEOUT_MS` stays on the spawn. `no-eager-tui` matters because `lib/errors.ts` (Task 3) puts `out.ts`, and through it `cli-logger.ts`, on the daemon's import graph; `cli-logger.ts` imports `rt-paths.ts`, `state/busy.ts` (a value import of `setBusyLogSink`; `busy.ts` itself imports only a type from `daemon-logger.ts` and loads it dynamically) and `team/redact.ts`, none of which that test bans, and it runs nothing at import time (`pruneOldLogs` runs from `logCommand`).
 
 - [ ] **Step 6: Commit**
 
@@ -324,7 +356,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Create: `lib/errors.ts`
 - Modify: `lib/setup/errors.ts` (becomes a re-export)
 - Create: `lib/__tests__/errors.test.ts`
-- Create: `lib/__tests__/capture-out.ts`
+- Create: `lib/ui/__tests__/capture-out.ts`
 - Modify (import path only): the 40 files listed in Step 6
 - Modify: `commands/__tests__/repos-reidentify.test.ts`, `commands/__tests__/repos-locate.test.ts`, `commands/__tests__/release-apps.test.ts`, `commands/__tests__/team-join.test.ts`, `commands/__tests__/team.test.ts`, `commands/__tests__/deps.test.ts`, `commands/__tests__/release-update-machine.test.ts`
 
@@ -336,37 +368,53 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   - `userErrorPayload(err, now?)` unchanged.
   - `failureFor(err: UserActionableError): FailureInput`
   - `exitUserError(err, json: boolean, verb: string, print?: (s: string) => void): never`
-  - Test helper `lib/__tests__/capture-out.ts`: `captureOut(): { stdout(): string; stderr(): string; restore(): void }`.
+  - Test helper `lib/ui/__tests__/capture-out.ts`, the one capture helper for phases 2, 3 and 4 (they import it from here and create no copy): `captureOut()` returns `{ stdout(): string; stderr(): string; lines(): string[]; errLines(): string[]; reset(): void; restore(): void }`, where `reset()` calls `out.__test__.reset()` (so a test that runs a payload verb then a human verb can put `humanStream` back) and `restore()` undoes the stream patch and resets. `out.__test__.setHuman` is left to the caller: every test in this plan calls `out.__test__.setHuman(() => false)` right after `captureOut()`.
 
 - [ ] **Step 1: Write the test helper**
 
-Create `lib/__tests__/capture-out.ts`:
+Create `lib/ui/__tests__/capture-out.ts`:
 
 ```ts
-import * as out from "../ui/out.ts";
+import * as out from "../out.ts";
+
+export interface CapturedOut {
+  stdout(): string;
+  stderr(): string;
+  /** stdout split on newlines, without the trailing empty line. */
+  lines(): string[];
+  errLines(): string[];
+  /** out.__test__.reset(): the gate and humanStream go back to their defaults; set the gate again after it. */
+  reset(): void;
+  /** Puts the real stream writers back, then reset(). Call it in a finally or afterEach. */
+  restore(): void;
+}
 
 /**
- * Captures what lib/ui/out.ts writes while the human gate is closed, so a
- * test reads the plain text of a failure or a payload. Call restore() in a
- * finally or afterEach; the gate stays closed until then.
+ * Captures every write to process.stdout and process.stderr until restore().
+ * The human gate is the caller's: call out.__test__.setHuman(() => false)
+ * after this to read plain text, or set a fake helper to read what it sends.
  */
-export function captureOut(): { stdout: () => string; stderr: () => string; restore: () => void } {
+export function captureOut(): CapturedOut {
   const outChunks: string[] = [];
   const errChunks: string[] = [];
   const realOut = process.stdout.write;
   const realErr = process.stderr.write;
-  out.__test__.setHuman(() => false);
+  const text = (chunk: string | Uint8Array) => (typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk));
+  const split = (joined: string) => (joined === "" ? [] : joined.replace(/\n$/, "").split("\n"));
   process.stdout.write = ((chunk: string | Uint8Array) => {
-    outChunks.push(String(chunk));
+    outChunks.push(text(chunk));
     return true;
   }) as typeof process.stdout.write;
   process.stderr.write = ((chunk: string | Uint8Array) => {
-    errChunks.push(String(chunk));
+    errChunks.push(text(chunk));
     return true;
   }) as typeof process.stderr.write;
   return {
     stdout: () => outChunks.join(""),
     stderr: () => errChunks.join(""),
+    lines: () => split(outChunks.join("")),
+    errLines: () => split(errChunks.join("")),
+    reset: () => out.__test__.reset(),
     restore: () => {
       process.stdout.write = realOut;
       process.stderr.write = realErr;
@@ -387,13 +435,15 @@ import { join } from "path";
 import { UserActionableError, exitUserError, failureFor, userErrorPayload } from "../errors.ts";
 import { UserActionableError as ViaShim, exitUserError as exitViaShim, userErrorPayload as payloadViaShim } from "../setup/errors.ts";
 import { logsDir } from "../rt-paths.ts";
-import { captureOut } from "./capture-out.ts";
+import * as out from "../ui/out.ts";
+import { captureOut } from "../ui/__tests__/capture-out.ts";
 
 let captured: ReturnType<typeof captureOut>;
 let exitSpy: ReturnType<typeof spyOn>;
 
 beforeEach(() => {
   captured = captureOut();
+  out.__test__.setHuman(() => false);
   exitSpy = spyOn(process, "exit").mockImplementation(((code?: number) => {
     throw new Error(`exit ${code}`);
   }) as never);
@@ -627,7 +677,7 @@ sed -i '' 's#setup/errors\.ts#errors.ts#' \
 rg -n "setup/errors" commands lib scripts cli.ts
 ```
 
-The substitution keeps each file's relative prefix (`../setup/errors.ts` becomes `../errors.ts`, `../../lib/setup/errors.ts` becomes `../../lib/errors.ts`). The `rg` must list only phase 3's importers, which stay on the shim: `commands/setup.ts`, `commands/logins.ts`, `commands/uninstall.ts`, `commands/__tests__/setup-apply.test.ts`, and files under `lib/setup/`. `commands/team.ts:14` is a comment that now names `lib/errors.ts`, which is correct.
+The substitution keeps each file's relative prefix (`../setup/errors.ts` becomes `../errors.ts`, `../../lib/setup/errors.ts` becomes `../../lib/errors.ts`). The `rg` must print exactly four files, phase 3's importers, which stay on the shim: `commands/setup.ts:36`, `commands/logins.ts:16`, `commands/uninstall.ts:14` and `commands/__tests__/setup-apply.test.ts:19`. The files under `lib/setup/` import the shim as `./errors.ts` or `../errors.ts`, so they never match this pattern and stay as they are. `commands/team.ts:14` is a doc comment the `sed` rewrote from `lib/setup/errors.ts` to `lib/errors.ts`, which is now the true path; it no longer matches either.
 
 Run: `bun run typecheck`
 Expected: no errors.
@@ -635,7 +685,7 @@ Expected: no errors.
 - [ ] **Step 7: Commit the move**
 
 ```bash
-git add lib/errors.ts lib/setup/errors.ts lib/__tests__/errors.test.ts lib/__tests__/capture-out.ts commands lib/daemon lib/release lib/team scripts/build-dev-app.ts
+git add lib/errors.ts lib/setup/errors.ts lib/__tests__/errors.test.ts lib/ui/__tests__/capture-out.ts commands lib/daemon lib/release lib/team scripts/build-dev-app.ts
 git commit -m "lib/errors: UserActionableError moves up with why, next and log; exitUserError fails on stderr
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -645,17 +695,21 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 8: Retarget `commands/__tests__/repos-reidentify.test.ts`**
 
-Add the import:
+Add the imports (`ui`, not `out`: this file already has a `let out: string[]`):
 
 ```ts
-import { captureOut } from "../../lib/__tests__/capture-out.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 ```
+
+Every retargeted test in Steps 8 to 14 follows `captureOut()` with `ui.__test__.setHuman(() => false)`: the helper leaves the gate to the caller, and a `bun test` run from a terminal has a TTY on stdout. `io.restore()` resets the gate again.
 
 Replace the test `usage error on a missing positional` with:
 
 ```ts
   test("usage error on a missing positional", async () => {
     const io = captureOut();
+    ui.__test__.setHuman(() => false);
     try {
       const code = await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old"], {}, { print: (s) => out.push(s) }));
       expect(code).toBe(2);
@@ -673,6 +727,7 @@ Replace the test `an identity that is not a remote is a refusal with no table` w
 ```ts
   test("an identity that is not a remote is a refusal with no table", async () => {
     const io = captureOut();
+    ui.__test__.setHuman(() => false);
     try {
       const code = await runExpectingProcessExit(() => reposReidentify(["/tmp/x", "github.com/acme/new"], {}, { print: (s) => out.push(s) }));
       expect(code).toBe(2);
@@ -686,7 +741,7 @@ Replace the test `an identity that is not a remote is a refusal with no table` w
 
 - [ ] **Step 9: Retarget `commands/__tests__/repos-locate.test.ts`**
 
-Add the import `import { captureOut } from "../../lib/__tests__/capture-out.ts";`. Replace the three tests `a refusal exits 2 with the typed message`, `an unknown flag is a usage error` and `--repo without a value is a usage error` with:
+Add the imports `import * as ui from "../../lib/ui/out.ts";` and `import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";`. Replace the three tests `a refusal exits 2 with the typed message`, `an unknown flag is a usage error` and `--repo without a value is a usage error` with:
 
 ```ts
   test("a refusal exits 2 with the typed message", async () => {
@@ -694,6 +749,7 @@ Add the import `import { captureOut } from "../../lib/__tests__/capture-out.ts";
     mkdirSync(plain);
     const deps = testDeps();
     const io = captureOut();
+    ui.__test__.setHuman(() => false);
     try {
       const code = await runExpectingProcessExit(() => reposLocate([plain], {}, deps));
       expect(code).toBe(2);
@@ -707,6 +763,7 @@ Add the import `import { captureOut } from "../../lib/__tests__/capture-out.ts";
   test("an unknown flag is a usage error", async () => {
     const deps = testDeps();
     const io = captureOut();
+    ui.__test__.setHuman(() => false);
     try {
       const code = await runExpectingProcessExit(() => reposLocate(["--nope"], {}, deps));
       expect(code).toBe(2);
@@ -719,6 +776,7 @@ Add the import `import { captureOut } from "../../lib/__tests__/capture-out.ts";
   test("--repo without a value is a usage error", async () => {
     const deps = testDeps();
     const io = captureOut();
+    ui.__test__.setHuman(() => false);
     try {
       const code = await runExpectingProcessExit(() => reposLocate(["--repo"], {}, deps));
       expect(code).toBe(2);
@@ -731,7 +789,7 @@ Add the import `import { captureOut } from "../../lib/__tests__/capture-out.ts";
 
 - [ ] **Step 10: Retarget `commands/__tests__/release-apps.test.ts`**
 
-Add the import `import { captureOut } from "../../lib/__tests__/capture-out.ts";`. Change the `Harness` interface and `invoke` to:
+Add the imports `import * as ui from "../../lib/ui/out.ts";` and `import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";`. Change the `Harness` interface and `invoke` to:
 
 ```ts
 interface Harness {
@@ -746,6 +804,7 @@ interface Harness {
 async function invoke(args: string[], o: { result?: ReleaseAppReport } = {}): Promise<Harness> {
   const h: Harness = { runs: [], logs: [], stdout: "", stderr: "", exitCode: 0, exitCalled: undefined };
   const io = captureOut();
+  ui.__test__.setHuman(() => false);
   const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => { h.logs.push(a.map(String).join(" ")); });
   const exitSpy = spyOn(process, "exit").mockImplementation((code?: number) => {
     h.exitCalled = code;
@@ -789,12 +848,13 @@ Change the test `--json usage errors come back as a JSON envelope` so the body l
 
 - [ ] **Step 11: Retarget `commands/__tests__/team-join.test.ts`**
 
-Add the import `import { captureOut } from "../../lib/__tests__/capture-out.ts";`. Replace the test `human mode: code-on-argv prints the message and exits 2` with:
+Add the imports `import * as ui from "../../lib/ui/out.ts";` and `import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";`. Replace the test `human mode: code-on-argv prints the message and exits 2` with:
 
 ```ts
   test("human mode: code-on-argv prints the message and exits 2", async () => {
     const deps = baseDeps();
     const io = captureOut();
+    ui.__test__.setHuman(() => false);
     try {
       const code = await runExpectingProcessExit(() => teamJoin(["ABC"], {}, deps));
       expect(code).toBe(2);
@@ -813,6 +873,7 @@ Replace the test `a keychain failure in human mode prints a clean one-liner, not
     const probes = fakeProbes({ home: HOME, fetch: relayFetch(), exec: () => ({ code: 0, stdout: "", stderr: "" }) });
     const deps = baseDeps({ probes, ageKeySeam: new FakeAgeKeySeamLocked() });
     const io = captureOut();
+    ui.__test__.setHuman(() => false);
     try {
       const code = await runExpectingProcessExit(() => teamJoin([], {}, deps));
       expect(code).toBe(2);
@@ -828,12 +889,13 @@ Replace the test `a keychain failure in human mode prints a clean one-liner, not
 
 - [ ] **Step 12: Retarget `commands/__tests__/team.test.ts`**
 
-Add the import `import { captureOut } from "../../lib/__tests__/capture-out.ts";`. Replace the test `missing name, human mode: prints usage and exits 2` with:
+Add the imports `import * as ui from "../../lib/ui/out.ts";` and `import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";`. Replace the test `missing name, human mode: prints usage and exits 2` with:
 
 ```ts
   test("missing name, human mode: prints usage and exits 2", async () => {
     const deps = baseDeps();
     const io = captureOut();
+    ui.__test__.setHuman(() => false);
     try {
       const code = await runExpectingProcessExit(() => teamCreate(["--remote", "https://github.com/acme/repo.git"], {}, deps));
       expect(code).toBe(2);
@@ -851,6 +913,7 @@ Replace the test `missing --handle, human mode: prints usage and exits 2` with:
   test("missing --handle, human mode: prints usage and exits 2", async () => {
     const deps = baseDeps();
     const io = captureOut();
+    ui.__test__.setHuman(() => false);
     try {
       const code = await runExpectingProcessExit(() => teamInvite([], {}, deps));
       expect(code).toBe(2);
@@ -864,13 +927,14 @@ Replace the test `missing --handle, human mode: prints usage and exits 2` with:
 
 - [ ] **Step 13: Retarget `commands/__tests__/deps.test.ts`**
 
-Add the import `import { captureOut } from "../../lib/__tests__/capture-out.ts";`. Replace `runCapturingExit` with:
+Add the imports `import * as ui from "../../lib/ui/out.ts";` and `import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";`. Replace `runCapturingExit` with:
 
 ```ts
 async function runCapturingExit(fn: () => Promise<void>): Promise<{ exitCode: number | undefined; logs: string[]; errors: string[]; stderr: string }> {
   const logs: string[] = [];
   const errors: string[] = [];
   const io = captureOut();
+  ui.__test__.setHuman(() => false);
   const exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit sentinel");
   });
@@ -913,13 +977,14 @@ The `--json` sibling test is unchanged: `depsLink` passes `console.log` as `prin
 
 - [ ] **Step 14: Retarget `commands/__tests__/release-update-machine.test.ts`**
 
-Add the import `import { captureOut } from "../../lib/__tests__/capture-out.ts";`. Replace `runExpectingProcessExit` with:
+Add the imports `import * as ui from "../../lib/ui/out.ts";` and `import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";`. Replace `runExpectingProcessExit` with:
 
 ```ts
 /** exitUserError always calls the real process.exit, never a seam... spy on it to catch the code without killing the test process. */
 async function runExpectingProcessExit(fn: () => Promise<void>): Promise<{ code: number | undefined; logs: string[]; stdout: string; stderr: string }> {
   const logs: string[] = [];
   const io = captureOut();
+  ui.__test__.setHuman(() => false);
   const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
     logs.push(a.map(String).join(" "));
   });
@@ -1005,25 +1070,35 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `out.fail(f, ...after)`, `out.isHuman("stderr")`, `out.verbatim`, `out.cmd` (Task 2, phase 1); `logCliEvent` (Task 2); `ExecFailure` (`lib/plugins.ts`); the e2e harness `rt`, `createTestHome` (`e2e/harness.ts`).
 - Produces, exported from `lib/errors.ts`:
-  - `exitFromDispatch(err: unknown): never`: a `UserActionableError` is drawn with `failureFor` on stderr, its `log` noted, exit 2; anything else goes to `exitUnexpected`.
-  - `exitUnexpected(err: unknown): never`: writes `{ level: "error", module: "cli", msg: <message>, stack }` to the cli log; draws `failure` with title `rt hit an unexpected error`, hint = first line of the message, `next` = `rt daemon logs`, details `the full error is in the rt log`; appends a `verbatim` block captioned `stack` when `!out.isHuman("stderr") || process.env.RT_LOG_LEVEL === "debug"`; exit 1.
+  - `exitFromDispatch(err: unknown): never`: a `UserActionableError` goes through `exitUserError(err, process.argv.includes("--json"), "")`, so it is drawn with `failureFor` on stderr, or under `--json` written as the one envelope line through `out.json`, its `log` noted either way, exit 2; anything else goes to `exitUnexpected`.
+  - `exitUnexpected(err: unknown): never`: writes `{ level: "error", module: "cli", msg: <message>, stack }` to the cli log; draws `failure` with title `rt hit an unexpected error`, hint = first line of the message, `next` = `rt daemon logs`, no details pointer; appends a `verbatim` block captioned `stack` when `!out.isHuman("stderr") || process.env.RT_LOG_LEVEL === "debug"`; never writes to stdout; exit 1.
 
 - [ ] **Step 1: Write the failing unit tests**
 
-Append to `lib/__tests__/errors.test.ts`. First change three existing import lines and add two:
+Append to `lib/__tests__/errors.test.ts`. First change three existing import lines and add one:
 
 ```ts
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { UserActionableError, exitFromDispatch, exitUnexpected, exitUserError, failureFor, userErrorPayload } from "../errors.ts";
-import * as out from "../ui/out.ts";
 ```
 
-(the `fs`, `path` and `../errors.ts` lines replace the ones Task 3 wrote; `os` and `../ui/out.ts` are new). Then append:
+(the `fs`, `path` and `../errors.ts` lines replace the ones Task 3 wrote; `os` is new; `../ui/out.ts` is already imported as `out`). Then append:
 
 ```ts
-const UNEXPECTED_HEAD = "[failed] rt hit an unexpected error  kaboom\n  next: rt daemon logs\n  the full error is in the rt log\n";
+const UNEXPECTED_HEAD = "[failed] rt hit an unexpected error  kaboom\n  next: rt daemon logs\n";
+
+/** Runs fn with --json on argv, the way the real gate and the seam see it. */
+function withJsonArgv(fn: () => void): void {
+  const argv = process.argv;
+  process.argv = [...argv, "--json"];
+  try {
+    fn();
+  } finally {
+    process.argv = argv;
+  }
+}
 
 test("exitFromDispatch: an expected failure is the same block as exitUserError, exit 2", () => {
   expect(() => exitFromDispatch(teamError())).toThrow("exit 2");
@@ -1035,6 +1110,22 @@ test("exitFromDispatch: an expected failure is the same block as exitUserError, 
       "  the full output is in the rt log\n",
   );
   expect(lastCliLogLine().module).toBe("errors");
+});
+
+test("exitFromDispatch: an expected failure under --json is the envelope on stdout, nothing on stderr, exit 2", () => {
+  withJsonArgv(() => expect(() => exitFromDispatch(teamError())).toThrow("exit 2"));
+  expect(captured.stderr()).toBe("");
+  expect(captured.lines()).toHaveLength(1);
+  const { at, ...body } = JSON.parse(captured.stdout());
+  expect(typeof at).toBe("string");
+  expect(body).toEqual({ contract: 1, error: { code: "team-secrets-unreadable", message: "This Mac cannot read the acme team's secrets yet", team: "acme" } });
+  expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(2);
+});
+
+test("exitFromDispatch: an unexpected error under --json still writes nothing to stdout", () => {
+  withJsonArgv(() => expect(() => exitFromDispatch(new Error("kaboom"))).toThrow("exit 1"));
+  expect(captured.stdout()).toBe("");
+  expect(captured.stderr().startsWith(UNEXPECTED_HEAD)).toBe(true);
 });
 
 test("exitFromDispatch: anything else is one line with the message as hint and the stack shown off a terminal, exit 1", () => {
@@ -1058,7 +1149,7 @@ test("exitUnexpected writes the message and stack to the cli log", () => {
 
 test("a thrown non-Error has no stack: the hint is its text and the excerpt repeats it", () => {
   expect(() => exitUnexpected("boom")).toThrow("exit 1");
-  expect(captured.stderr()).toBe("[failed] rt hit an unexpected error  boom\n  next: rt daemon logs\n  the full error is in the rt log\nstack:\n  boom\n");
+  expect(captured.stderr()).toBe("[failed] rt hit an unexpected error  boom\n  next: rt daemon logs\nstack:\n  boom\n");
 });
 
 test("a multi-line message gives a one-line hint", () => {
@@ -1117,20 +1208,17 @@ Expected: FAIL, `exitFromDispatch` and `exitUnexpected` are not exported.
 
 ```ts
 const UNEXPECTED_TITLE = "rt hit an unexpected error";
-const UNEXPECTED_DETAILS = "the full error is in the rt log";
 const LOG_VIEWER = "rt daemon logs";
 
 /**
- * The top of the CLI: an expected failure is drawn and exits 2; anything
- * else is one line for the person and a stack for the log. ExecFailure is
- * sorted out by the caller first, since its exit code is the plugin's own.
+ * The top of the CLI: an expected failure takes exitUserError's route, so
+ * the seam and a verb that handles its own --json write the same envelope;
+ * anything else is one line for the person and a stack for the log.
+ * ExecFailure is sorted out by the caller first, since its exit code is the
+ * plugin's own.
  */
 export function exitFromDispatch(err: unknown): never {
-  if (err instanceof UserActionableError) {
-    noteDetail(err);
-    out.fail(failureFor(err));
-    process.exit(2);
-  }
+  if (err instanceof UserActionableError) return exitUserError(err, process.argv.includes("--json"), "");
   return exitUnexpected(err);
 }
 
@@ -1139,10 +1227,11 @@ export function exitUnexpected(err: unknown): never {
   const stack = err instanceof Error && err.stack ? err.stack : String(err);
   logCliEvent("error", "cli", message, { stack });
   // The screen gets the stack only where a person is not reading it live, or
-  // asked for it; the log always has it.
+  // asked for it; the log always has it. Nothing here touches stdout, so an
+  // agent that passed --json reads an empty stdout, never a half envelope.
   const showStack = !out.isHuman("stderr") || process.env.RT_LOG_LEVEL === "debug";
   out.fail(
-    { title: UNEXPECTED_TITLE, hint: message.split("\n")[0] ?? message, next: out.cmd(LOG_VIEWER), details: UNEXPECTED_DETAILS },
+    { title: UNEXPECTED_TITLE, hint: message.split("\n")[0] ?? message, next: out.cmd(LOG_VIEWER) },
     ...(showStack ? [out.verbatim(stack.split("\n"), "stack")] : []),
   );
   process.exit(1);
@@ -1237,7 +1326,7 @@ describe("the error seam off a terminal", () => {
     const result = await rt(["e2e-seam-boom"], { home });
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("[failed] rt hit an unexpected error  kaboom from the seam test\n  next: rt daemon logs\n  the full error is in the rt log\nstack:\n  Error: kaboom from the seam test\n");
+    expect(result.stderr).toContain("[failed] rt hit an unexpected error  kaboom from the seam test\n  next: rt daemon logs\nstack:\n  Error: kaboom from the seam test\n");
     expect(result.stderr).toContain("      at ");
     expect(cliLog(home)).toContain("kaboom from the seam test");
   }, 30_000);
@@ -1618,9 +1707,10 @@ Create `e2e/pty/errors.test.ts`:
 ```ts
 /**
  * The error seam with a real terminal in front of it: the compiled rt
- * spawning the real rt-ui over a pty. Every assertion reads the screen,
- * because the screen is the only thing this gate adds over
- * e2e/tests/errors.test.ts.
+ * spawning the real rt-ui over a pty. Every assertion reads the screen or
+ * the log, because the screen is the only thing this gate adds over
+ * e2e/tests/errors.test.ts, which already pins the exit codes; the session's
+ * exitCode is the termwright daemon's, not rt's.
  */
 import { describe, test, expect, beforeAll, afterEach } from "bun:test";
 import { execFileSync } from "child_process";
@@ -1672,8 +1762,10 @@ function cliLog(home: string): string {
     .join("");
 }
 
+// startInteractive spreads the developer's environment; an RT_LOG_LEVEL=debug
+// shell would paint the stack and fail the unexpected-error test.
 async function start(home: string, args: string[]): Promise<TermwrightSession> {
-  return startInteractive({ args, home, cols: 100, rows: 24, env: { RT_UI_BIN } });
+  return startInteractive({ args, home, cols: 100, rows: 24, env: { RT_UI_BIN, RT_LOG_LEVEL: "" } });
 }
 
 describe("the error seam through a pty", () => {
@@ -1687,7 +1779,6 @@ describe("the error seam through a pty", () => {
     expect(screen).toContain("✗");
     expect(screen).not.toContain("rt repos reidentify:");
     expect(screen).not.toContain("    at ");
-    expect(await session.exitCode).toBe(2);
   });
 
   test("an unexpected error paints one line, points at the log, and keeps the stack there", async () => {
@@ -1701,7 +1792,6 @@ describe("the error seam through a pty", () => {
     expect(screen).toContain("kaboom from the pty gate");
     expect(screen).toContain("rt daemon logs");
     expect(screen).not.toContain("    at ");
-    expect(await session.exitCode).toBe(1);
 
     const log = cliLog(home.path);
     expect(log).toContain("kaboom from the pty gate");
@@ -1710,7 +1800,7 @@ describe("the error seam through a pty", () => {
 });
 ```
 
-If termwright drops the screen the moment the child exits (`screen()` rejects after `waitForText` resolved), read the screen through `waitForText`'s match only: keep the `waitForText` lines, drop the `screen()` assertions that follow, and say so in your report. Do not add a sleep.
+The tests do not await `session.exitCode`: `TermwrightSession.exitCode` (`e2e/interactive.ts`) is the termwright daemon's `proc.exited`, not rt's, and nothing in the harness says the daemon exits when the wrapped `bash -c` ends, so an await there can hang to the 120 s timeout. The exit codes are pinned by `e2e/tests/errors.test.ts`. If termwright drops the screen the moment the child exits (`screen()` rejects after `waitForText` resolved), read the screen through `waitForText`'s match only: keep the `waitForText` lines, drop the `screen()` assertions that follow, and say so in your report. Do not add a sleep. The second test's log read happens after `waitForText`, by which time `exitUnexpected` has written the line (it logs before it prints).
 
 - [ ] **Step 2: Run the pty gate**
 
@@ -1841,7 +1931,7 @@ converted failure is the team secrets file a Mac's age key cannot open
 goes to the log, never the screen.
 ```
 
-In the guard paragraph of the same section, change `import under \`commands/\` or \`lib/\`.` to `import in \`cli.ts\` or under \`commands/\` or \`lib/\`.`
+In the guard paragraph of the same section, change `import under \`commands/\` or \`lib/\`.` to `import in \`cli.ts\` or under \`commands/\` or \`lib/\`.`, and change the last sentence, `names the files not yet converted and only shrinks: converting a file means deleting its line.` (in AGENTS.md it wraps across two lines after `only`; match it as the file has it), to `names the files not yet converted and only shrinks: converting a file means deleting its line. (\`cli.ts\` joined the scan with the error seam, the one time the list grew; its own line goes when its pre-dispatch notices move onto the layer.)`
 
 - [ ] **Step 4: Check the readers of the old text**
 
@@ -1863,12 +1953,13 @@ bun run ui:test
 bun run typecheck
 bun run test
 bun run test:e2e
+bun scripts/bench-startup.ts
 bun run test:pty
 bun run picker:check
 bun run format:check
 ```
 
-Expected: all pass. `bun run test:pty` runs `e2e/pty/glitter.test.ts` and `e2e/pty/errors.test.ts`; `test:e2e` includes `e2e/tests/errors.test.ts` and the plugin and smoke tests this phase touched. A failure in a file this branch did not touch: re-run it alone and on `origin/main` before calling it pre-existing, and name it.
+Expected: all pass. `bun run test:pty` runs `e2e/pty/glitter.test.ts` and `e2e/pty/errors.test.ts`; `test:e2e` includes `e2e/tests/errors.test.ts` and the plugin and smoke tests this phase touched. `bench-startup.ts` times `dist/rt --version` (the e2e preload has just built that binary) under a 60 ms threshold: `--version` now dynamically imports `lib/ui/out.ts`, and this run is what says the import cost nothing a person feels; record the median in your report, and if it fails, say so rather than raising the threshold. A failure in a file this branch did not touch: re-run it alone and on `origin/main` before calling it pre-existing, and name it.
 
 - [ ] **Step 6: Check the text rules**
 
@@ -1915,7 +2006,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - Open the PR against `m4ttstack/mattstack` after phase 1's PR #630 merges (this branch builds on it), with the Task 7 screenshots.
 - For the phase 3 planner: `lib/setup/errors.ts` is a one-line re-export kept only for the files phase 3 owns (`commands/setup.ts`, `commands/logins.ts`, `commands/uninstall.ts`, `lib/setup/**`, `commands/__tests__/setup-apply.test.ts`). Phase 3 points those at `lib/errors.ts` and deletes the shim. `commands/setup.ts`'s `exitWithUserError` and the four inline `rt setup <verb>: ${err.message}` prints are phase 3's to replace with `exitUserError` or `failureFor`. `realTeamSecrets.read` in `commands/setup.ts` now sees a `UserActionableError` from `readTeamSecret` and already exits 2 with its message through `exitWithUserError`; converting that print finishes the sops story.
-- For the phase 3 planner: `commands/secrets.ts`'s `reportSecretsError` rethrows anything it does not know, so `rt secrets list --team` on an unreadable team now reaches the seam and exits 2 with the failure block; nothing in that file needs to catch the new error.
+- For the phase 3 planner: `commands/secrets.ts`'s `reportSecretsError` rethrows anything it does not know, so `rt secrets list --team` on an unreadable team now reaches the seam and exits 2 with the failure block (or the envelope, under `--json`); nothing in that file needs to catch the new error.
+- For the phase 3 and 4 planners: `lib/ui/__tests__/capture-out.ts` is the one capture helper; import it, do not copy it. Its gate is the caller's (`out.__test__.setHuman(() => false)` after `captureOut()`), and `logCliEvent(level, module, message, context?)` in `lib/cli-logger.ts` is the one way a sub-line or a warning reaches the CLI log outside the command record.
 - `exitUserError`'s third argument (`verb`) is unused; a later phase that touches every caller may drop it.
 - `lib/cli-logger.ts`'s crash handler still prints with `console.error` for an uncaught exception outside `__main`; phase 6 decides between routing it through `exitUnexpected` (a cycle today: `cli-logger` is imported by `out.ts`) and a permanent exemption.
 - The migration notices and the first-run hint in `cli.ts` need a stderr note in the layer before they can move; phase 5 settles `cd` and `nav`'s notes and is the natural place for that primitive, after which `cli.ts` leaves the allowlist.
