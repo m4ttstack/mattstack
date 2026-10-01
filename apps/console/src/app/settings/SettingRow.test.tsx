@@ -204,6 +204,26 @@ describe('SettingRow disclosure', () => {
     ).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('the chevron controls the panel, a region named for its key', async () => {
+    renderWithProviders(
+      <SettingRow def={scalar()} store={store()} subhead={null} query="" />
+    );
+    const chevron = screen.getByRole('button', {
+      name: 'open board.agent.model',
+    });
+    const controls = chevron.getAttribute('aria-controls');
+    expect(controls).toBeTruthy();
+    expect(document.getElementById(controls!)).not.toBeNull();
+    await userEvent.click(chevron);
+    const panel = await screen.findByRole('region', {
+      name: 'board.agent.model settings',
+    });
+    expect(panel.id).toBe(controls);
+    expect(panel).toContainElement(
+      screen.getByRole('radiogroup', { name: 'board.agent.model panel' })
+    );
+  });
+
   it('a composite row opens on Value and shows its summary as text, not a toggle', async () => {
     renderWithProviders(
       <SettingRow

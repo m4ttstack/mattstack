@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type KeyboardEvent,
@@ -123,6 +124,7 @@ export function SettingRow({
   }, [isOpen]);
   const parts = useRowParts(def, row, { suggestions, asJson, setAsJson });
   const chevron = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
   const [ns, name] = splitKey(def.key);
   const badge = badgeScope(def, subhead);
   // A global source label ("unset", "default") says nothing about a key
@@ -217,6 +219,7 @@ export function SettingRow({
             variant="subtle"
             color="gray"
             aria-expanded={isOpen}
+            aria-controls={panelId}
             aria-label={`${isOpen ? 'close' : 'open'} ${def.key}`}
             onClick={toggle}
           >
@@ -245,7 +248,12 @@ export function SettingRow({
           hide={drawnBelow}
         />
       </Box>
-      <Collapse expanded={isOpen}>
+      <Collapse
+        expanded={isOpen}
+        id={panelId}
+        role="region"
+        aria-label={`${def.key} settings`}
+      >
         {open && (
           <Box className={classes.panel}>
             <KeyPanel
