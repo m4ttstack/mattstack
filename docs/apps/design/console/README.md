@@ -12,6 +12,7 @@ the scope names"). Spec:
 | --- | --- |
 | `settings.pen` | the design source, a pen.dev document. Open it in Pen; the MCP reads and edits it. Never edit the renders by hand. |
 | `renders/*.light.png` | 2x exports of the approved boards |
+| `parity/` | the build compared with the boards, by eye and by number, and the board corrections that followed |
 
 Approved boards:
 
