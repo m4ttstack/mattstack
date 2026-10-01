@@ -8,6 +8,7 @@ const fakeCtx = () => ({ cache: fakeStore({}), repoIndex: () => ({ [REPO]: "/tmp
 function handlers(provider: Record<string, unknown>) {
   return createMRHandlers(fakeCtx(), () => {}, {
     getContext: async () => ({ provider, projectPath: "grp/proj" }),
+    writeback: () => { throw new Error("a live read must not write the project-MRs store"); },
   });
 }
 
@@ -192,5 +193,109 @@ describe("mr:by-target", () => {
     }
     expect(await h["mr:by-target"]!({ repoName: "proj", targetBranch: "feat" })).toEqual({ ok: false, error: "repo-unknown" });
     expect(paths).toEqual([]);
+  });
+});
+
+describe("mr:get", () => {
+  const mr = { iid: 7, state: "merged", author: { username: "someone-else" } };
+
+  test("returns the provider's MR for any author and state, with no cache grant", async () => {
+    const h = handlers({ fetchSingleMR: async (_p: string, iid: number) => (iid === 7 ? mr : null) });
+    const r = await h["mr:get"]!({ repoName: REPO, iid: 7 });
+    expect(r).toMatchObject({ ok: true, data: { mr } });
+    expect(typeof (r as { data: { fetchedAt: number } }).data.fetchedAt).toBe("number");
+    const closed = { ...mr, iid: 8, state: "closed" };
+    expect(await handlers({ fetchSingleMR: async () => closed })["mr:get"]!({ repoName: REPO, iid: 8 })).toMatchObject({ ok: true, data: { mr: closed } });
+  });
+
+  test("a null fetch asks GitLab why and returns its text", async () => {
+    const h = handlers({
+      fetchSingleMR: async () => null,
+      restRequest: async () => new Response("no access", { status: 403, statusText: "Forbidden" }),
+    });
+    expect(await h["mr:get"]!({ repoName: REPO, iid: 7 })).toEqual({ ok: false, error: "GitLab returned 403 Forbidden: no access" });
+  });
+
+  test("validates iid and the repo identity", async () => {
+    const h = handlers({ fetchSingleMR: async () => mr });
+    expect(await h["mr:get"]!({ repoName: REPO })).toEqual({ ok: false, error: "missing repoName/iid" });
+    expect(await h["mr:get"]!({ repoName: REPO, iid: 0 })).toEqual({ ok: false, error: '"iid" must be a positive integer' });
+    expect(await h["mr:get"]!({ repoName: "proj", iid: 7 })).toEqual({ ok: false, error: "repo-unknown" });
+  });
+
+  test("refuses a provider without fetchSingleMR", async () => {
+    const r = await handlers({})["mr:get"]!({ repoName: REPO, iid: 7 });
+    expect(String((r as { error: string }).error)).toContain("unsupported");
+  });
+});
+
+describe("mr:list-live", () => {
+  test("passes filters through and validates them", async () => {
+    const seen: string[] = [];
+    const provider = { restRequest: async (_m: string, path: string) => { seen.push(path); return new Response("[]", { status: 200, headers: { "x-next-page": "" } }); } };
+    const h = handlers(provider);
+    expect(await h["mr:list-live"]!({ repoName: REPO, search: "refund" })).toEqual({ ok: true, data: { mrs: [], truncated: false } });
+    expect(seen[0]).toContain("search=refund");
+    expect(await h["mr:list-live"]!({ repoName: REPO, state: "weird" })).toMatchObject({ ok: false });
+    expect(await h["mr:list-live"]!({ repoName: REPO, limit: 201 })).toEqual({ ok: false, error: '"limit" must be an integer from 1 to 200' });
+    expect(await h["mr:list-live"]!({ repoName: REPO, author: 5 })).toEqual({ ok: false, error: '"author" must be a string' });
+  });
+});
+
+describe("mr:live-by-branch", () => {
+  const listing = (rows: unknown[]) => new Response(JSON.stringify(rows), { status: 200, headers: { "x-next-page": "" } });
+
+  test("finds the open MR for a branch by any author and fetches it in full", async () => {
+    const paths: string[] = [];
+    const provider = {
+      restRequest: async (_m: string, path: string) => {
+        paths.push(path);
+        return listing(path.includes("source_branch=feat") ? [{ iid: 9, title: "t", state: "opened", source_branch: "feat", target_branch: "main" }] : []);
+      },
+      fetchSingleMR: async (_p: string, iid: number) => ({ iid, sourceBranch: "feat" }),
+    };
+    const r = await handlers(provider)["mr:live-by-branch"]!({ repoName: REPO, branches: ["feat", "none"] });
+    expect(r).toMatchObject({ ok: true, data: { byBranch: { feat: { iid: 9, sourceBranch: "feat" } } } });
+    expect((r as { data: { byBranch: Record<string, unknown> } }).data.byBranch.none).toBeNull();
+    expect(paths[0]).toContain("state=opened");
+    expect(paths[0]).toContain("source_branch=feat");
+  });
+
+  test("a GitLab refusal fails the whole call, never a null", async () => {
+    const provider = { restRequest: async () => new Response("no", { status: 403, statusText: "Forbidden" }), fetchSingleMR: async () => null };
+    expect(await handlers(provider)["mr:live-by-branch"]!({ repoName: REPO, branches: ["feat"] })).toEqual({ ok: false, error: "GitLab returned 403 Forbidden: no" });
+  });
+
+  test("validates branches", async () => {
+    const h = handlers({ restRequest: async () => listing([]), fetchSingleMR: async () => null });
+    expect(await h["mr:live-by-branch"]!({ repoName: REPO, branches: [] })).toEqual({ ok: false, error: '"branches" must name at least one branch' });
+    expect(await h["mr:live-by-branch"]!({ repoName: REPO, branches: ["a", 3] })).toEqual({ ok: false, error: '"branches" must name at least one branch' });
+  });
+});
+
+describe("project:labels and pipeline:list", () => {
+  const empty = () => new Response("[]", { status: 200, headers: { "x-next-page": "" } });
+  test("project:labels returns the listing and validates search", async () => {
+    const h = handlers({ restRequest: async () => empty() });
+    expect(await h["project:labels"]!({ repoName: REPO, search: "preview" })).toEqual({ ok: true, data: { labels: [] } });
+    expect(await h["project:labels"]!({ repoName: REPO, search: 3 })).toEqual({ ok: false, error: '"search" must be a string' });
+    expect(await h["project:labels"]!({ repoName: "proj" })).toEqual({ ok: false, error: "repo-unknown" });
+  });
+  test("pipeline:list returns the listing and validates iid and limit", async () => {
+    const h = handlers({ restRequest: async () => empty() });
+    expect(await h["pipeline:list"]!({ repoName: REPO, ref: "feat" })).toEqual({ ok: true, data: { pipelines: [] } });
+    expect(await h["pipeline:list"]!({ repoName: REPO, iid: 0 })).toEqual({ ok: false, error: '"iid" must be a positive integer' });
+    expect(await h["pipeline:list"]!({ repoName: REPO, limit: 101 })).toEqual({ ok: false, error: '"limit" must be an integer from 1 to 100' });
+  });
+});
+
+describe("forge:get", () => {
+  test("returns the read and validates query, page and perPage", async () => {
+    const h = handlers({ restRequest: async () => new Response("[]", { status: 200 }) });
+    expect(await h["forge:get"]!({ repoName: REPO, path: "projects/:id/issues" })).toEqual({ ok: true, data: { status: 200, body: [], truncated: false, nextPage: null, totalPages: null } });
+    expect(await h["forge:get"]!({ repoName: REPO, path: "projects/:id/variables" })).toMatchObject({ ok: false });
+    expect(await h["forge:get"]!({ repoName: REPO, path: "x", query: [] })).toEqual({ ok: false, error: '"query" must be an object' });
+    expect(await h["forge:get"]!({ repoName: REPO, path: "x", query: { a: {} } })).toEqual({ ok: false, error: '"query.a" must be a string, number or boolean' });
+    expect(await h["forge:get"]!({ repoName: REPO, path: "x", perPage: 101 })).toEqual({ ok: false, error: '"perPage" must be an integer from 1 to 100' });
   });
 });

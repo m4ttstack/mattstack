@@ -27,7 +27,8 @@ than re-teaching them. It exists for the two things agents get wrong on their
 (author bias), and performative agreement leaking into the replies.
 
 The graph below is the run: follow its edges. A move it does not show is a
-question for a gate, never a judgment call.
+question for a gate, never a judgment call. Reads through the read tools
+and `gitlab_get` are part of the step that needs them, not moves.
 
 ```dot
 digraph receive_review {
@@ -57,7 +58,7 @@ digraph receive_review {
     "mr_for_branch {repoName: <root>, branches: [<branch>]}" [shape=plaintext];
     "Open MR with this source branch?" [shape=diamond];
     "Report that no open MR has this branch as its source" [shape=box];
-    "mr_threads {mrUrl, refresh: true}" [shape=plaintext];
+    "mr_threads {mrUrl}" [shape=plaintext];
     "Read the PR's review threads with gh" [shape=box];
     "Keep only unresolved human threads" [shape=box];
     "Executing a caller-handed {plan}?" [shape=diamond];
@@ -96,7 +97,7 @@ digraph receive_review {
     "Resumed, or re-asking after respond-post Hold or Iterate?" [shape=diamond];
     "Posted already: read each thread on the forge" [shape=box];
     "Forge for the posted-already read?" [shape=diamond];
-    "mr_threads {mrUrl, refresh: true} for the posted-already read" [shape=plaintext];
+    "mr_threads {mrUrl} for the posted-already read" [shape=plaintext];
     "Read the PR's threads with gh for the posted-already test" [shape=box];
     "Which threads does the posted-already read show carrying this run's reply?" [shape=diamond];
     "Resuming a respond-post record that carries held?" [shape=diamond];
@@ -201,13 +202,15 @@ digraph receive_review {
     "Resolve the change and record its identity" -> "Forge of the change?";
     "Forge of the change?" -> "MR url or iid in hand?" [label="GitLab"];
     "Forge of the change?" -> "Read the PR's review threads with gh" [label="GitHub"];
-    "MR url or iid in hand?" -> "mr_threads {mrUrl, refresh: true}" [label="yes"];
+    "MR url or iid in hand?" -> "mr_threads {mrUrl}" [label="yes"];
     "MR url or iid in hand?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}" [label="no"];
     "mr_for_branch {repoName: <root>, branches: [<branch>]}" -> "Open MR with this source branch?";
-    "Open MR with this source branch?" -> "mr_threads {mrUrl, refresh: true}" [label="yes: its iid"];
+    "Open MR with this source branch?" -> "mr_threads {mrUrl}" [label="yes: its iid"];
     "Open MR with this source branch?" -> "Report that no open MR has this branch as its source" [label="null entry"];
+    "Open MR with this source branch?" -> "run_stage {action: fail, stage: <stage>, reason}" [label="an error: a failure, quoting its text (never read as none)"];
     "Report that no open MR has this branch as its source" -> "No open MR: nothing to answer";
-    "mr_threads {mrUrl, refresh: true}" -> "Keep only unresolved human threads";
+    "mr_threads {mrUrl}" -> "Keep only unresolved human threads" [label="threads returned"];
+    "mr_threads {mrUrl}" -> "run_stage {action: fail, stage: <stage>, reason}" [label="an error: a failure, quoting its text (never read as none)"];
     "Read the PR's review threads with gh" -> "Keep only unresolved human threads";
     "Keep only unresolved human threads" -> "Executing a caller-handed {plan}?";
     "Executing a caller-handed {plan}?" -> "run_decision {contract: gate@1, scope: respond-plan, selection, decidedBy}" [label="yes, not yet spent: record it, never re-adjudicate"];
@@ -267,9 +270,9 @@ digraph receive_review {
     "Resumed, or re-asking after respond-post Hold or Iterate?" -> "Posted already: read each thread on the forge" [label="yes"];
     "Resumed, or re-asking after respond-post Hold or Iterate?" -> "Any thread offered (a finalized fix or an override)?" [label="no"];
     "Posted already: read each thread on the forge" -> "Forge for the posted-already read?";
-    "Forge for the posted-already read?" -> "mr_threads {mrUrl, refresh: true} for the posted-already read" [label="GitLab"];
+    "Forge for the posted-already read?" -> "mr_threads {mrUrl} for the posted-already read" [label="GitLab"];
     "Forge for the posted-already read?" -> "Read the PR's threads with gh for the posted-already test" [label="GitHub"];
-    "mr_threads {mrUrl, refresh: true} for the posted-already read" -> "Which threads does the posted-already read show carrying this run's reply?";
+    "mr_threads {mrUrl} for the posted-already read" -> "Which threads does the posted-already read show carrying this run's reply?";
     "Read the PR's threads with gh for the posted-already test" -> "Which threads does the posted-already read show carrying this run's reply?";
     "Which threads does the posted-already read show carrying this run's reply?" -> "Resuming a respond-post record that carries held?" [label="none: every thread due still posts or is offered"];
     "Which threads does the posted-already read show carrying this run's reply?" -> "Resuming a respond-post record that carries held?" [label="some or all: count those posted, never post or offer them again"];
@@ -505,14 +508,19 @@ When the run is yours, record the resolved change per Run identity above:
 names, when one exists).
 
 On GitLab the threads come from `mr_threads` with the MR (`mrUrl`, or
-`repoName` plus `iid`) and `refresh: true`; with neither in hand,
+`repoName` plus `iid`), read from GitLab on every call; with neither in hand,
 `mr_for_branch` with `repoName` = this checkout and `branches: [<the
 checked-out branch>]` gives the iid.
 
 ### Report that no open MR has this branch as its source
 
-A null entry from `mr_for_branch` means no open MR in rt's cache has that
+A null entry from `mr_for_branch` means GitLab has no open MR with that
 branch as its source: report that and stop.
+
+An `mr_for_branch` or `mr_threads` error is never read as "no open MR" or
+as "no threads". Quote it, not paraphrased: GitLab's 404 or 403 is the usual
+case, though an error can also be rt's (target not resolved, daemon
+unreachable, timeout). The stage fails with that text as the reason.
 
 ### Read the PR's review threads with gh
 
@@ -540,6 +548,19 @@ In a fresh pane, a handed plan is spent when `run_snapshot`'s latest
 respond-plan record is that plan. Not a revise: go to the rows from that
 record (the snapshot-only reading), never record it again. A revise:
 adjudicate afresh.
+
+A GitLab fact the thread read does not return is read as in "Reading a
+GitLab fact no read tool returns".
+
+### Reading a GitLab fact no read tool returns
+
+At any step of this verb, a GitLab fact the read tools do not return is
+read with `gitlab_get {repoName, path}`: `repoName` = the checkout or
+tree this verb already targets, `path` relative to the API root with `:id`
+for this project, for example `projects/:id/merge_requests/<iid>/versions`.
+The read is part of the step that needs it, not an off-script move, so it
+opens no gate. A GitLab error is quoted as GitLab wrote it. Its refusal of
+a credential path is final.
 
 ### Dispatch one fresh-context adjudicator over all the review threads
 
@@ -902,7 +923,7 @@ whatever the snapshot or the report says of it. Only a thread with no
 such note posts or is offered.
 
 This read is made here, after the report rows, every time the graph
-reaches this box: `mr_threads {mrUrl, refresh: true} for the posted-already read` on GitLab, Read the PR's threads with gh for the posted-already test on GitHub. A read made earlier
+reaches this box: `mr_threads {mrUrl} for the posted-already read` on GitLab, Read the PR's threads with gh for the posted-already test on GitHub. A read made earlier
 in the run, for a redraft or at the start, never stands in for it; its
 result, and only its result, is what the post-site test uses. Write the
 verdict down here, one line per thread, from the notes this read

@@ -18,12 +18,9 @@ only -- this skill never creates, rebases, or removes anything.
 ## 1. List the open items
 
 GitLab: the `mr_list` tool with `repoName` = the current checkout's
-absolute path and `state` `opened`. It reads the daemon's open-MR cache,
-which may be limited to certain authors and a recent time window: the
-list is what the cache holds, not a promise of every open MR. The tool
-has no author filter. When the conversation already names the user's
-forge username, keep only the rows whose author is that username and say
-so; otherwise keep every row. Never guess a username.
+absolute path, `author` `me` and `state` `opened`. It asks GitLab for the
+signed-in user's open MRs. When the result says `truncated: true`, call
+again with a larger `limit` (up to 200) and say so if it is still cut.
 
 GitHub: `gh pr list --author @me`.
 
@@ -45,12 +42,11 @@ equality only -- a prefix or substring match wrongly pairs `foo-1` with
 `foo-10`. An MR with no matching worktree is not an error; it's a `NONE`
 row, expected for MRs never checked out locally or already cleaned up.
 
-Emit one table, one row per open MR kept in step 1, five columns:
+Emit one table, one row per open MR from step 1, five columns:
 
 | MR ref | title | author | source branch | worktree path or NONE |
 |--------|-------|--------|----------------|------------------------|
 
 This shape is the contract a caller downstream (such as a sweep over all
-open MRs) reads to decide what to act on: the `author` column is how it
-tells the user's MRs from anyone else's when step 1 kept every row.
+open MRs) reads to decide what to act on.
 Report both paired and `NONE` rows plainly and stop.

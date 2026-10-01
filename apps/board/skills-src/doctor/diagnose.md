@@ -146,8 +146,8 @@ pipeline for <sha>`), so a human reruns or starts it.
 
 `mr_view` refused its input. Correct what the error names (`mrUrl` the
 MR's https URL, `maxAgeMs` a number) and read again, once. An error that
-names no input (the MR is not in the daemon's cache, the repo is not
-registered with rt) has nothing to correct: read again unchanged, once,
+names no input (GitLab's own refusal, such as a 404 or 403, or the repo
+is not registered with rt) is quoted as written and has nothing to correct: read again unchanged, once,
 and the off-script escalation follows. An error is never a reason to read
 the MR with the GitLab CLI.
 

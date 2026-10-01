@@ -12,6 +12,12 @@
  *   mr:commit-parents        - a commit's parent shas (GitLab providers only)
  *   mr:pipeline-failed-jobs  - a pipeline's failed jobs (GitLab providers only)
  *   mr:by-target             - every MR targeting a branch, live and unscoped (GitLab providers only)
+ *   mr:get                   - one MR by iid, read from GitLab (GitLab providers only)
+ *   mr:list-live             - a project's MRs filtered by author, branch, state or text (GitLab providers only)
+ *   mr:live-by-branch        - the open MR for each named source branch (GitLab providers only)
+ *   project:labels           - a project's labels, optionally searched (GitLab providers only)
+ *   pipeline:list            - pipelines for a branch, a commit or an MR (GitLab providers only)
+ *   forge:get                - one guarded GET against GitLab's REST API (GitLab providers only)
  *
  * Every handler routes by `{ repoName, iid }`. If no provider can be built
  * for the repo (missing token, unparseable remote), the handler returns
@@ -36,6 +42,7 @@ import { ReadBackFailedError } from "@mattstack/glance";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
 import { decodeRepo } from "../identity-decoder.ts";
+import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeGet, listLabels, listMrsLive, listPipelines, missingMrReason, targetSummary, type RestMrRow } from "../forge-reads.ts";
 
 type ActionName =
   | "merge" | "rebase" | "approve" | "unapprove"
@@ -80,32 +87,6 @@ async function putMergeRequest(
 const MR_LIST_STATES: readonly MrListState[] = ["opened", "merged", "closed", "all"];
 const BY_TARGET_PER_PAGE = 100;
 const BY_TARGET_MAX_PAGES = 20;
-
-interface RestMrRow {
-  iid: number;
-  title: string;
-  state: string;
-  draft?: boolean;
-  source_branch: string;
-  target_branch: string;
-  author?: { username?: string } | null;
-  web_url?: string | null;
-  detailed_merge_status?: string | null;
-}
-
-function targetSummary(row: RestMrRow): MrTargetSummary {
-  return {
-    iid: row.iid,
-    title: row.title,
-    state: row.state,
-    draft: row.draft === true,
-    sourceBranch: row.source_branch,
-    targetBranch: row.target_branch,
-    author: row.author?.username ?? null,
-    webUrl: row.web_url ?? null,
-    detailedMergeStatus: row.detailed_merge_status ?? null,
-  };
-}
 
 /** A partial walk must never pass for the whole answer, so every failure, and running past the page cap, is an error. */
 async function listMrsByTarget(
@@ -159,6 +140,12 @@ export function createMRHandlers(
   & { "mr:commit-parents": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:commit-parents">> }
   & { "mr:pipeline-failed-jobs": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:pipeline-failed-jobs">> }
   & { "mr:by-target": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:by-target">> }
+  & { "mr:get": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:get">> }
+  & { "mr:list-live": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:list-live">> }
+  & { "mr:live-by-branch": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:live-by-branch">> }
+  & { "project:labels": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"project:labels">> }
+  & { "pipeline:list": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"pipeline:list">> }
+  & { "forge:get": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"forge:get">> }
   & HandlerMap {
   const getContext = overrides.getContext
     ?? ((repoName: string) => getRepoContext(repoName, ctx.repoIndex()[repoName]));
@@ -479,6 +466,145 @@ export function createMRHandlers(
         if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: mr:by-target needs a GitLab repo" };
         const listed = await listMrsByTarget(provider, projectPath, p.targetBranch.trim(), state as MrListState);
         return listed.ok ? { ok: true, data: { mrs: listed.mrs } } : { ok: false, error: listed.error };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "mr:get": async (payload) => {
+      const p = payload as { iid?: unknown } | undefined;
+      if (typeof p?.iid !== "number") return { ok: false, error: "missing repoName/iid" };
+      if (!(Number.isInteger(p.iid) && p.iid > 0)) return { ok: false, error: '"iid" must be a positive integer' };
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      try {
+        const { provider, projectPath } = await contextFor(decoded.repo);
+        if (typeof provider.fetchSingleMR !== "function") return { ok: false, error: "unsupported: mr:get needs a GitLab repo" };
+        const mr = await fetchSingle(provider, projectPath, p.iid);
+        if (mr) return { ok: true, data: { mr, fetchedAt: Date.now() } };
+        if (typeof provider.restRequest !== "function") return { ok: false, error: `GitLab returned no MR !${p.iid} in ${projectPath}` };
+        return { ok: false, error: await missingMrReason(provider, projectPath, p.iid) };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "mr:list-live": async (payload) => {
+      const p = (payload ?? {}) as Record<string, unknown>;
+      for (const name of ["author", "sourceBranch", "targetBranch", "search"] as const) {
+        if (p[name] !== undefined && typeof p[name] !== "string") return { ok: false, error: `"${name}" must be a string` };
+      }
+      const state = p.state ?? "opened";
+      if (!MR_LIST_STATES.includes(state as MrListState)) return { ok: false, error: `"state" must be one of ${MR_LIST_STATES.join(", ")}` };
+      if (p.limit !== undefined && !(typeof p.limit === "number" && Number.isInteger(p.limit) && p.limit >= 1 && p.limit <= LIST_MAX_LIMIT)) {
+        return { ok: false, error: `"limit" must be an integer from 1 to ${LIST_MAX_LIMIT}` };
+      }
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      try {
+        const { provider, projectPath } = await contextFor(decoded.repo);
+        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: mr:list-live needs a GitLab repo" };
+        const text = (name: string) => (typeof p[name] === "string" && (p[name] as string).trim() ? (p[name] as string).trim() : undefined);
+        const listed = await listMrsLive(provider, projectPath, {
+          author: text("author"), sourceBranch: text("sourceBranch"), targetBranch: text("targetBranch"), search: text("search"),
+          state: state as MrListState, limit: p.limit as number | undefined,
+        });
+        return listed.ok ? { ok: true, data: { mrs: listed.mrs, truncated: listed.truncated } } : { ok: false, error: listed.error };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "mr:live-by-branch": async (payload) => {
+      const p = payload as { branches?: unknown } | undefined;
+      const branches = p?.branches;
+      if (!Array.isArray(branches) || branches.length === 0 || branches.some((b) => typeof b !== "string" || !b.trim())) {
+        return { ok: false, error: '"branches" must name at least one branch' };
+      }
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      try {
+        const { provider, projectPath } = await contextFor(decoded.repo);
+        if (typeof provider.restRequest !== "function" || typeof provider.fetchSingleMR !== "function") {
+          return { ok: false, error: "unsupported: mr:live-by-branch needs a GitLab repo" };
+        }
+        const byBranch: Record<string, PullRequest | null> = {};
+        for (const branch of branches as string[]) {
+          const listed = await listMrsLive(provider, projectPath, { sourceBranch: branch.trim(), state: "opened", limit: 1 });
+          if (!listed.ok) return { ok: false, error: listed.error };
+          const hit = listed.mrs[0];
+          if (!hit) {
+            byBranch[branch] = null;
+            continue;
+          }
+          const mr = await fetchSingle(provider, projectPath, hit.iid);
+          if (!mr) return { ok: false, error: await missingMrReason(provider, projectPath, hit.iid) };
+          byBranch[branch] = mr;
+        }
+        return { ok: true, data: { byBranch } };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "project:labels": async (payload) => {
+      const p = payload as { search?: unknown } | undefined;
+      if (p?.search !== undefined && typeof p.search !== "string") return { ok: false, error: '"search" must be a string' };
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      try {
+        const { provider, projectPath } = await contextFor(decoded.repo);
+        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: project:labels needs a GitLab repo" };
+        const listed = await listLabels(provider, projectPath, p?.search?.trim() || undefined);
+        return listed.ok ? { ok: true, data: { labels: listed.labels } } : { ok: false, error: listed.error };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "pipeline:list": async (payload) => {
+      const p = (payload ?? {}) as Record<string, unknown>;
+      for (const name of ["ref", "sha"] as const) {
+        if (p[name] !== undefined && typeof p[name] !== "string") return { ok: false, error: `"${name}" must be a string` };
+      }
+      if (p.iid !== undefined && !(typeof p.iid === "number" && Number.isInteger(p.iid) && p.iid > 0)) return { ok: false, error: '"iid" must be a positive integer' };
+      if (p.limit !== undefined && !(typeof p.limit === "number" && Number.isInteger(p.limit) && p.limit >= 1 && p.limit <= PIPELINE_MAX_LIMIT)) {
+        return { ok: false, error: `"limit" must be an integer from 1 to ${PIPELINE_MAX_LIMIT}` };
+      }
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      try {
+        const { provider, projectPath } = await contextFor(decoded.repo);
+        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: pipeline:list needs a GitLab repo" };
+        const listed = await listPipelines(provider, projectPath, {
+          ref: p.ref as string | undefined, sha: p.sha as string | undefined, iid: p.iid as number | undefined, limit: p.limit as number | undefined,
+        });
+        return listed.ok ? { ok: true, data: { pipelines: listed.pipelines } } : { ok: false, error: listed.error };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "forge:get": async (payload) => {
+      const p = (payload ?? {}) as Record<string, unknown>;
+      if (p.query !== undefined && (typeof p.query !== "object" || p.query === null || Array.isArray(p.query))) return { ok: false, error: '"query" must be an object' };
+      for (const [k, v] of Object.entries((p.query ?? {}) as Record<string, unknown>)) {
+        if (!["string", "number", "boolean"].includes(typeof v)) return { ok: false, error: `"query.${k}" must be a string, number or boolean` };
+      }
+      for (const name of ["page", "perPage"] as const) {
+        const v = p[name];
+        if (v !== undefined && !(typeof v === "number" && Number.isInteger(v) && v >= 1 && (name === "page" || v <= 100))) {
+          return { ok: false, error: name === "page" ? '"page" must be a positive integer' : '"perPage" must be an integer from 1 to 100' };
+        }
+      }
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      try {
+        const { provider, projectPath } = await contextFor(decoded.repo);
+        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: forge:get needs a GitLab repo" };
+        return await forgeGet(provider, projectPath, {
+          path: p.path, query: p.query as Record<string, string | number | boolean> | undefined, page: p.page as number | undefined, perPage: p.perPage as number | undefined,
+        });
       } catch (err) {
         return { ok: false, error: String(err) };
       }

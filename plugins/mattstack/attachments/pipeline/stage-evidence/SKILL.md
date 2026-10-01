@@ -65,7 +65,7 @@ digraph evidence {
     "Upload off-script rounds = 2?" [shape=diamond];
     "Timed-out upload retried once?" [shape=diamond];
     "mr_upload {mrUrl, path: <the timed-out file>}" [shape=plaintext];
-    "mr_view {mrUrl, maxAgeMs: 5000}" [shape=plaintext];
+    "mr_view {mrUrl}" [shape=plaintext];
     "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}" [shape=plaintext];
     "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [shape=plaintext];
     "run_stage {action: fail, stage: evidence, reason, detailPath}" [shape=plaintext];
@@ -126,7 +126,7 @@ digraph evidence {
     "run_field_set {key: hold, value: <their words, or held>, stage: evidence}" -> "Held: end the turn naming run and stage";
     "attach answer?" -> "Gate evidence-attach (table below)" [label="iterate: re-ask with their note"];
     "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_upload result?";
-    "mr_upload result?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="ok: every file uploaded"];
+    "mr_upload result?" -> "mr_view {mrUrl}" [label="ok: every file uploaded"];
     "mr_upload result?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="ok: files still to upload"];
     "mr_upload result?" -> "Upload retried with a corrected path?" [label="path must be absolute, or file not found"];
     "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="any other refusal: outside the roots, bytes, size"];
@@ -146,7 +146,7 @@ digraph evidence {
     "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:evidence:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing linked"];
     "Upload off-script rounds = 2?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="no: retry the refused files"];
     "Upload off-script rounds = 2?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="yes: hand back, the refusal quoted"];
-    "mr_view {mrUrl, maxAgeMs: 5000}" -> "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}";
+    "mr_view {mrUrl}" -> "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}";
     "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}";
     "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" -> "Evidence done: return to the orchestrator";
     "run_stage {action: fail, stage: evidence, reason, detailPath}" -> "Stage failed";
@@ -158,7 +158,19 @@ digraph evidence {
 The domain's gathering steps: resolving the running app's ports and its
 data source, and any other fact the gate's own sentence or the `source`
 question needs. Their result decides whether `source` fires below. Any rt
-read among them goes through `rt_verb`, never Bash.
+read among them goes through `rt_verb`, never Bash. A GitLab fact these
+steps need that no read tool returns is read as in "Reading a GitLab fact
+no read tool returns".
+
+### Reading a GitLab fact no read tool returns
+
+At any step of this stage, a GitLab fact the read tools do not return is
+read with `gitlab_get {repoName, path}`: `repoName` = the checkout or
+tree this stage already targets, `path` relative to the API root with `:id`
+for this project, for example `projects/:id/merge_requests/<iid>/notes`.
+The read is part of the step that needs it, not an off-script move, so it
+opens no gate. A GitLab error is quoted as GitLab wrote it. Its refusal of
+a credential path is final.
 
 ### Record the ticket's location as the BEFORE
 

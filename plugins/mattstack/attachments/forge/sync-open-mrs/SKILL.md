@@ -210,16 +210,10 @@ author, source branch, worktree path or NONE.
 ### Plan the sweep
 
 One sentence: how many branches rebase, how many are skipped up front (NONE
-rows with nothing local to rebase, trees whose `git status --porcelain`
-is not empty, which `rebase-worktree` would refuse, and, when the user's
-forge username is known, MRs whose author is someone else) and why. When
-the username is not known, the sentence also says the author could not be
-confirmed, and each `branches` option's label carries its MR's author
-(`<branch> (by <author>)`). Every branch starts pre-selected only when the
-username is known; otherwise every option starts deselected and the
-human picks their own, because the per-branch `branch_sync` fast path
-pushes without a gate, so a pre-checked teammate branch would be
-force-pushed on one click.
+rows with nothing local to rebase, and trees whose `git status --porcelain`
+is not empty, which `rebase-worktree` would refuse) and why. Every row of
+the map is the signed-in user's own MR, so every branch starts
+pre-selected; deselecting skips it.
 
 **These thoughts mean you are skipping the gate -- STOP:**
 
@@ -269,8 +263,7 @@ What `rebase-worktree` hands back decides the bucket. Apart from a
 - "pushed by branch_sync": pushed.
 - "already current; nothing pushed": current.
 - An old head -> new head line with the push still to decide (the manual
-  path): rebased, still unpushed. Keep any "stack check covered <scope>
-  only" caveat for **Summarize the rebase pass**.
+  path): rebased, still unpushed.
 - Any refusal or error (dirty tree, no upstream, a stack refusal, a
   `git_rebase` error, a `branch_sync` refusal): skipped, with its text as
   the reason. `rebase-worktree` already pulls once on "run git_pull
@@ -284,8 +277,7 @@ What `rebase-worktree` hands back decides the bucket. Apart from a
 ### Summarize the rebase pass
 
 One sentence: which branches rebased clean (old head -> new head each,
-"pushed by branch_sync" where that happened, with any "stack check covered
-<scope> only" caveat a branch handed back) and which were already current.
+"pushed by branch_sync" where that happened) and which were already current.
 
 ### Gate push
 
@@ -368,9 +360,7 @@ pack-qualified skill name) per pushed branch. It inherits this run and its
 One table, every branch from the map-open-mrs table landing in exactly one
 bucket: rebased (old head -> new head), pushed, current (nothing to push),
 conflicted (needs-hands), push failed (with reason), or skipped (with
-reason -- dirty tree, no upstream, NONE row, another author's MR). The
-report carries any scope limit `map-open-mrs` named (its cache-bounded
-discovery).
+reason -- dirty tree, no upstream, NONE row).
 
 ### Starting the run
 

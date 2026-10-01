@@ -115,8 +115,9 @@ describe("ci_watch", () => {
       label: () => undefined,
       watch: {
         resolve: async () => ({ ok: true, identity: "remote:x", iid: 42 }),
-        projectMrs: (async () => ({ ok: true, data: { mrs: { a: { pr: { iid: 42, sha: SHA, webUrl: MR, pipeline }, fetchedAt: 0 } }, syncedAt: 1 } })) as any,
-        command: (async () => ({ ok: true, data: [] })) as any,
+        command: (async (name: string) => (name === "mr:get"
+          ? { ok: true, data: { mr: { iid: 42, sha: SHA, webUrl: MR, pipeline }, fetchedAt: 0 } }
+          : { ok: true, data: [] })) as any,
         now: () => 0,
         sleep: async () => {},
         budgetMinutes: () => 75,
@@ -174,13 +175,9 @@ describe("ci_watch", () => {
   });
   test("refuses a GitHub-shaped MR", async () => {
     const t = watchTool({
-      projectMrs: (async () => ({
-        ok: true,
-        data: {
-          mrs: { a: { pr: { iid: 42, sha: SHA, webUrl: "https://github.com/acme/proj/pull/42", pipeline: { id: "gitlab:pipeline:10", status: "success", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] } }, fetchedAt: 0 } },
-          syncedAt: 1,
-        },
-      })) as any,
+      command: (async (name: string) => (name === "mr:get"
+        ? { ok: true, data: { mr: { iid: 42, sha: SHA, webUrl: "https://github.com/acme/proj/pull/42", pipeline: { id: "gitlab:pipeline:10", status: "success", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] } }, fetchedAt: 0 } }
+        : { ok: true, data: [] })) as any,
     });
     const r = await t.handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
     expect(r.ok).toBe(false);
@@ -196,8 +193,9 @@ describe("ci_watch", () => {
       label: () => undefined,
       watch: {
         resolve: async () => ({ ok: true, identity: "remote:x", iid: 42 }),
-        projectMrs: (async () => ({ ok: true, data: { mrs: { a: { pr: { iid: 42, sha: SHA, webUrl: MR, pipeline: { id: "gitlab:pipeline:10", status: "success", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] } }, fetchedAt: 0 } }, syncedAt: 1 } })) as any,
-        command: (async () => ({ ok: true, data: [] })) as any,
+        command: (async (name: string) => (name === "mr:get"
+          ? { ok: true, data: { mr: { iid: 42, sha: SHA, webUrl: MR, pipeline: { id: "gitlab:pipeline:10", status: "success", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] } }, fetchedAt: 0 } }
+          : { ok: true, data: [] })) as any,
         now: () => 0,
         sleep: async () => {},
       },
@@ -206,7 +204,7 @@ describe("ci_watch", () => {
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/lease lock busy/);
   });
-  test("a cached pipeline missing sha, ref and mergeRequestEventType reads as a branch pipeline with no match, and never throws", async () => {
+  test("a pipeline missing sha, ref and mergeRequestEventType reads as a branch pipeline with no match, and never throws", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
     const bare = { id: "gitlab:pipeline:10", status: "running", webUrl: null, createdAt: null, jobs: [] };
     const r = await watchTool({}, bare).handler({ repoName: "remote:x", iid: 42, sha: SHA, maxWaitSeconds: 0 }, A);
@@ -215,8 +213,29 @@ describe("ci_watch", () => {
   });
   test("daemon error surfaces", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
-    const r = await watchTool({ projectMrs: (async () => ({ ok: false, error: "daemon down" })) as any }).handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
+    const r = await watchTool({ command: (async () => ({ ok: false, error: "daemon down" })) as any }).handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
     expect(r.ok).toBe(false);
+  });
+  test("reads the MR with mr:get", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    const calls: Array<{ name: string; payload: unknown }> = [];
+    const pipeline = { id: "gitlab:pipeline:10", status: "success", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] };
+    const r = await watchTool({
+      command: (async (name: string, payload: unknown) => {
+        calls.push({ name, payload });
+        return name === "mr:get" ? { ok: true, data: { mr: { iid: 42, sha: SHA, webUrl: MR, pipeline }, fetchedAt: 0 } } : { ok: true, data: [] };
+      }) as any,
+    }).handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "success" } });
+    const gets = calls.filter((c) => c.name === "mr:get");
+    expect(gets).toHaveLength(1);
+    expect(gets[0]!.payload).toEqual({ repoName: "remote:x", iid: 42 });
+  });
+  test("an MR GitLab refuses returns GitLab's text", async () => {
+    const r = await watchTool({ command: (async () => ({ ok: false, error: "GitLab returned 403 Forbidden: no access" })) as any })
+      .handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
+    expect(r.error).toContain("GitLab returned 403 Forbidden");
+    expect(r.error).not.toContain("cache");
   });
   test("input bounds", async () => {
     const t = watchTool();

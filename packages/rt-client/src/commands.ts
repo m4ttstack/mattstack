@@ -90,6 +90,39 @@ export interface MrByTargetData {
   mrs: MrTargetSummary[];
 }
 
+/** One MR fetched from GitLab on demand: any author, any state. Never from the open-MR cache. */
+export interface MrGetData {
+  mr: PullRequest;
+  fetchedAt: number;
+}
+
+export interface MrListLiveFilters {
+  /** A username, or "me" for the token's own user. */
+  author?: string;
+  sourceBranch?: string;
+  targetBranch?: string;
+  state?: MrListState;
+  /** Matched by GitLab against title and description. */
+  search?: string;
+  limit?: number;
+}
+
+export interface ProjectLabel { name: string; description: string | null; color: string | null }
+/** `body` is parsed JSON, or raw text when GitLab did not answer JSON or the body was cut at the size cap. */
+export interface ForgeGetData { status: number; body: unknown; truncated: boolean; nextPage: number | null; totalPages: number | null }
+export interface PipelineListRow { id: number; status: string; ref: string | null; sha: string | null; source: string | null; webUrl: string | null; createdAt: string | null }
+
+/** A null entry means GitLab has no open MR with that source branch. */
+export interface MrLiveByBranchData {
+  byBranch: Record<string, PullRequest | null>;
+}
+
+/** `truncated` is true when GitLab held more rows than the limit returned. */
+export interface MrListLiveData {
+  mrs: MrTargetSummary[];
+  truncated: boolean;
+}
+
 /**
  * Trimmed, structural view of the daemon's `CacheEntry` (lib/state/branch-cache.ts) --
  * rt-client cannot import daemon/lib internals, so this names only the fields
@@ -874,6 +907,12 @@ export interface Commands {
   "mr:pipeline-failed-jobs": { payload: { repoName: string; iid: number; pipelineId: number }; data: PipelineJob[] };
   /** GitLab providers only. Every MR whose target branch is targetBranch, fetched live and unscoped; state defaults to opened. */
   "mr:by-target": { payload: { repoName: string; targetBranch: string; state?: MrListState }; data: MrByTargetData };
+  "mr:get": { payload: { repoName: string; iid: number }; data: MrGetData };
+  "mr:list-live": { payload: { repoName: string } & MrListLiveFilters; data: MrListLiveData };
+  "mr:live-by-branch": { payload: { repoName: string; branches: string[] }; data: MrLiveByBranchData };
+  "project:labels": { payload: { repoName: string; search?: string }; data: { labels: ProjectLabel[] } };
+  "pipeline:list": { payload: { repoName: string; ref?: string; sha?: string; iid?: number; limit?: number }; data: { pipelines: PipelineListRow[] } };
+  "forge:get": { payload: { repoName: string; path: string; query?: Record<string, string | number | boolean>; page?: number; perPage?: number }; data: ForgeGetData };
 
   "endpoint:claim": { payload: { repo: string; worktree: string; role: string; pid?: number }; data: EndpointClaimData };
   "endpoint:lookup": { payload: { repo: string; worktree: string; role: string }; data: EndpointLookupData };
@@ -1118,6 +1157,12 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "mr:commit-parents",
   "mr:pipeline-failed-jobs",
   "mr:by-target",
+  "mr:get",
+  "mr:list-live",
+  "mr:live-by-branch",
+  "project:labels",
+  "pipeline:list",
+  "forge:get",
   "endpoint:claim",
   "endpoint:lookup",
   "endpoint:release",

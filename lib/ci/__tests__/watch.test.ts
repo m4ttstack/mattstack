@@ -351,6 +351,32 @@ describe("watchPipeline", () => {
     const { deps } = fake([], { readMr: async () => ({ ok: false, error: "daemon down" }) });
     expect(await watchPipeline(base, deps)).toEqual({ error: "daemon down" });
   });
+  test("a failed first read is an error", async () => {
+    const { deps } = fake([], { readMr: async () => ({ ok: false, error: "GitLab returned 502 Bad Gateway: x" }) });
+    expect(await watchPipeline(base, deps)).toEqual({ error: "GitLab returned 502 Bad Gateway: x" });
+  });
+  test("a failed read after a good one returns the last state with the error in the hint and the proof kept", async () => {
+    let n = 0;
+    const { deps } = fake([], {
+      readMr: async () => (++n === 1
+        ? { ok: true as const, mr: mr(SHA, pipe({ status: "running", id: "gitlab:pipeline:10" })) }
+        : { ok: false as const, error: "GitLab returned 502 Bad Gateway: x" }),
+    });
+    const r = await watchPipeline({ ...base, priorPipelineId: 9 }, deps);
+    if ("error" in r) throw new Error(r.error);
+    expect(r).toMatchObject({ state: "running", pipeline: { id: "gitlab:pipeline:10" }, polls: 2 });
+    expect(r.next).toContain("GitLab returned 502 Bad Gateway");
+    expect(r.next).toContain("call again");
+  });
+  test("every failed job is listed; only the first five blocking ones carry a trace tail", async () => {
+    const jobs = Array.from({ length: 8 }, (_, i) => ({ id: `gitlab:job:${i + 1}`, name: `j${i + 1}`, stage: "test", status: "failed", allowFailure: false, webUrl: null }));
+    const { deps } = fake([mr(SHA, pipe({ status: "failed" }))], { failedJobs: async () => jobs, traceTail: async (id) => `tail ${id}` });
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 0 }, deps);
+    if ("error" in r) throw new Error(r.error);
+    expect(r.failedJobs.map((j) => j.jobId)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(r.failedJobs.filter((j) => j.traceTail !== undefined).length).toBe(5);
+    expect(r.blockingFailures).toBe(8);
+  });
 });
 
 describe("watch budget", () => {

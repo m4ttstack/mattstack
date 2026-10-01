@@ -154,8 +154,8 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     let jobs = p.jobs;
     const pid = idNumber(p.id);
     let fetchFailed = false;
-    // The cached job list never holds a downstream pipeline's jobs, so the fetch runs even when it is non-empty.
-    // Fetched rows lead so a child job's log gets a trace slot before a cached bridge row, which has none.
+    // The MR's own job list never holds a downstream pipeline's jobs, so the fetch runs even when it is non-empty.
+    // Fetched rows lead so a child job's log gets a trace slot before a bridge row from the MR, which has none.
     if (pid !== null && p.status !== "success") {
       const fetched = await deps.failedJobs(pid);
       fetchFailed = fetched === null;
@@ -195,13 +195,16 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     lease = lc.lease;
 
     const read = await deps.readMr();
-    if (!read.ok) return { error: read.error };
+    if (!read.ok) {
+      if (last.mr === null) return { error: read.error };
+      return result(last.state, last.mr, again(`reading the MR failed (${read.error})`));
+    }
     const mr = read.mr;
     budget = null;
     budgetEndsAt = null;
 
     if (!shaMatches(mr.sha, input.sha)) {
-      // A null head is an unsynced cache entry, not a moved head, so it never starts or reports the grace clock:
+      // A null head is an MR whose head GitLab has not reported, not a moved head, so it never starts or reports the grace clock:
       // a stale mismatch clock from an earlier non-null head must not fire superseded against a null head.
       if (mr.sha !== null) mismatchSince ??= deps.now();
       if (mr.sha !== null && mismatchSince !== null && deps.now() - mismatchSince >= HEAD_LAG_GRACE_MS) {

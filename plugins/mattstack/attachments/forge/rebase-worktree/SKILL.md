@@ -51,8 +51,9 @@ digraph rebase_worktree {
     "STOP: a safety refusal ends the run; report it" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "git -C <tree> remote get-url origin" [shape=plaintext];
     "Forge host?" [shape=diamond];
-    "mr_list {repoName: <tree>, maxAgeMs: 5000}" [shape=plaintext];
-    "Read synced?" [shape=diamond];
+    "mr_list {repoName: <tree>, sourceBranch: <branch>, limit: 200}" [shape=plaintext];
+    "mr_list {repoName: <tree>, targetBranch: <branch>, limit: 200}" [shape=plaintext];
+    "Both reads complete?" [shape=diamond];
     "gh pr view <branch>" [shape=plaintext];
     "gh pr list --base <branch>" [shape=plaintext];
     "gh reads succeeded?" [shape=diamond];
@@ -149,11 +150,12 @@ digraph rebase_worktree {
     "git_pull result?" -> "git -C <tree> log -1 --oneline" [label="fast-forwarded"];
     "git_pull result?" -> "Refused: reported" [label="error"];
     "git -C <tree> remote get-url origin" -> "Forge host?";
-    "Forge host?" -> "mr_list {repoName: <tree>, maxAgeMs: 5000}" [label="GitLab"];
+    "Forge host?" -> "mr_list {repoName: <tree>, sourceBranch: <branch>, limit: 200}" [label="GitLab"];
     "Forge host?" -> "gh pr view <branch>" [label="GitHub"];
-    "mr_list {repoName: <tree>, maxAgeMs: 5000}" -> "Read synced?";
-    "Read synced?" -> "Apply the child and parent checks" [label="yes"];
-    "Read synced?" -> "Stack check could not run: reported" [label="no: error, syncError, or syncedAt 0"];
+    "mr_list {repoName: <tree>, sourceBranch: <branch>, limit: 200}" -> "mr_list {repoName: <tree>, targetBranch: <branch>, limit: 200}";
+    "mr_list {repoName: <tree>, targetBranch: <branch>, limit: 200}" -> "Both reads complete?";
+    "Both reads complete?" -> "Apply the child and parent checks" [label="yes: both returned, neither truncated"];
+    "Both reads complete?" -> "Stack check could not run: reported" [label="no: an error, or a truncated result"];
     "gh pr view <branch>" -> "gh pr list --base <branch>";
     "gh pr list --base <branch>" -> "gh reads succeeded?";
     "gh reads succeeded?" -> "Apply the child and parent checks" [label="yes"];
@@ -267,35 +269,52 @@ else does:
 ### Apply the child and parent checks
 
 A single-branch rebase is legal only when the branch is stack-free in both
-directions. On GitLab both checks read the one `mr_list` result
-(`mr_for_branch` takes no `maxAgeMs`, so it is not used here); on GitHub
-they read the two `gh` results.
+directions. On GitLab the child check reads the `sourceBranch` result and
+the parent check the `targetBranch` result, both asked of GitLab across
+every author; on GitHub they read the two `gh` results.
 
-- **Child check:** the branch's open MR or PR (GitLab: the row whose
-  `sourceBranch` is this branch, then its `targetBranch`; GitHub: `gh pr
-  view <branch>`). Targets anything other than the default branch:
+- **Child check:** the branch's open MR or PR (GitLab: each row of the
+  `sourceBranch` result, then its `targetBranch`; GitHub: `gh pr view
+  <branch>`). Any target other than the default branch:
   REFUSE, naming the target. A stacked branch rebases onto
   `origin/<target>` if it rebases at all; moving it onto the default
   branch destroys the stack.
-- **Parent check:** open MRs or PRs targeting this branch (GitLab: the
-  rows whose `targetBranch` is this branch; GitHub: `gh pr list --base
-  <branch>`). Any hit: REFUSE, naming the dependents. Rewriting a parent's
-  history strands every child on commits that no longer exist.
+- **Parent check:** open MRs or PRs targeting this branch (GitLab: every
+  row of the `targetBranch` result; GitHub: `gh pr
+  list --base <branch>`). Any hit: REFUSE, naming the dependents. Rewriting a
+  parent's history strands every child on commits that no longer exist.
 
-When the result's `scope` limits the cache to certain authors or a time
-window, the verdict covers only that scope: say so, and carry "stack check
-covered <scope> only" on the old head -> new head line (**Report the
-move**) so it reaches whoever gates the push.
+Both GitLab reads ask for `limit: 200`. A result with `truncated: true` means
+GitLab held more rows than the read returned, so it cannot prove the branch
+stack-free: go to **Stack check could not run: reported** with the reason
+"GitLab returned more MRs than one read holds (truncated); the stack check
+cannot be exhaustive". Never rebase on a truncated check.
 
 Either refusal is a restack signal: the chain moves together or not at
 all. Say so and point at the stack tool (`gitq:sync` where available);
 never improvise a multi-branch rebase here.
 
+A GitLab fact the read tools do not return is read as in "Reading a
+GitLab fact no read tool returns".
+
+### Reading a GitLab fact no read tool returns
+
+At any step of this verb, a GitLab fact the read tools do not return is
+read with `gitlab_get {repoName, path}`: `repoName` = the checkout or tree
+this verb already targets, `path` relative to the API root with `:id` for
+this project, for example `projects/:id/repository/branches/<branch,
+URL-encoded>` (a slash in the name is sent as `%2F`). The read is part of
+the step that needs it, not an off-script move, so it opens no gate. A
+GitLab error is quoted as GitLab wrote it. Its refusal of a credential path
+is final; a branch whose name has a refused word as a path part (for
+example `chore/hooks`) is refused the same way, so that branch is read
+with git instead.
+
 | Thought | Reality |
 |---|---|
 | "The pipeline needs the default branch's fix" | A stacked MR reaches the default branch through its stack root. Rebasing it there directly destroys the stack. |
 | "Just this parent; the children catch up later" | The moment the parent rewrites, every child points at history that no longer exists. |
-| "No open MR in either direction" | On a synced read (no `syncError`, `syncedAt` not 0), the branch is stack-free within the read's `scope`: proceed, naming any scope limit. |
+| "No open MR in either direction" | On two complete reads (neither errored nor truncated), the `sourceBranch` result has no non-default target and the `targetBranch` result has no rows: the branch is stack-free, proceed. |
 
 ### Gate conflict:rebase-worktree:<attempt>
 
@@ -329,9 +348,8 @@ new head is the `git -C <tree> log -1 --oneline --no-decorate` read on the
 synced and clean paths, and the `git -C <tree> log -1 --oneline HEAD` read
 after an iterate. The line ends
 "already current; nothing pushed" when the heads match, or "pushed by
-branch_sync" when `branch_sync` moved it. Carry any "stack check covered
-<scope> only" caveat on the line. When a caller composes this per branch,
-this line is what goes back.
+branch_sync" when `branch_sync` moved it. When a caller composes this per
+branch, this line is what goes back.
 
 ### Gate push
 

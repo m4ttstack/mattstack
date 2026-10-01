@@ -189,6 +189,7 @@ const EXPECTED_TOOL_NAMES = [
   "chat_sign_in", "chat_sign_out", "chat_archive", "chat_invite",
   "whoami",
   "ci_lease_claim", "ci_lease_heartbeat", "ci_lease_release", "ci_lease_read", "ci_watch",
+  "project_labels", "pipeline_list", "gitlab_get", "branch_stack",
 ];
 
 describe("rt mcp serve e2e", () => {
@@ -247,6 +248,19 @@ describe("rt mcp serve e2e", () => {
       expect(Array.isArray(body.gates)).toBe(true);
       expect(body.gates).toEqual([]);
       expect(typeof body.cursor).toBe("number");
+
+      for (const [name, args] of [
+        ["project_labels", { repoName: "/nonexistent/checkout" }],
+        ["pipeline_list", { repoName: "/nonexistent/checkout", ref: "main" }],
+        ["gitlab_get", { repoName: "/nonexistent/checkout", path: "projects/:id/labels" }],
+        ["branch_stack", { tree: "/nonexistent/checkout" }],
+      ] as const) {
+        const res = await client.request("tools/call", { name, arguments: args });
+        expect(res.error, name).toBeUndefined();
+        const out = res.result as { isError?: boolean; content: Array<{ type: string; text: string }> };
+        expect(out.isError, name).toBe(true);
+        expect(out.content[0]!.text.length, name).toBeGreaterThan(0);
+      }
 
       // The epic's centerpiece tool (wave-2 contract): round-trip gate_ask
       // against the test daemon, not just gate_list, so the ceremony

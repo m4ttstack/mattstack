@@ -60,13 +60,14 @@ interface GitqStackJson {
   nodes: { branch: string; parent: string }[];
 }
 
-function parseGitqStacks(stdout: string): GitqStackJson[] {
+/** Null when the output is not a gitq stacks document, so a caller cannot mistake it for "no stacks". */
+function parseGitqStacks(stdout: string): GitqStackJson[] | null {
   try {
     const parsed = JSON.parse(stdout) as { stacks?: Partial<GitqStackJson>[] } | null;
-    if (!Array.isArray(parsed?.stacks)) return [];
+    if (!Array.isArray(parsed?.stacks)) return null;
     return parsed.stacks.filter((stack): stack is GitqStackJson => Array.isArray(stack?.nodes));
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -82,6 +83,19 @@ function gitqMembership(stacks: GitqStackJson[], branch: string): StackMembershi
     };
   }
   return null;
+}
+
+/** `known: false` means gitq could not answer here, which is not the same as "not in a stack". */
+export async function stackMembershipOf(
+  cwd: string,
+  branch: string,
+  runners: Pick<StackGuardRunners, "gitqStacks">,
+): Promise<{ known: boolean; membership: StackMembership | null }> {
+  const out = await runners.gitqStacks(cwd);
+  if (out === null) return { known: false, membership: null };
+  const stacks = parseGitqStacks(out);
+  if (stacks === null) return { known: false, membership: null };
+  return { known: true, membership: gitqMembership(stacks, branch) };
 }
 
 function unavailable(branch: string, hint: string): StackVerdict {
@@ -101,7 +115,8 @@ export async function checkStackMembership(opts: {
   // The default branch is every stack's root, never a member: MRs targeting it are ordinary, not dependents.
   if (opts.branch === opts.defaultBranch) return { verdict: "clear" };
   const gitqOut = await opts.runners.gitqStacks(opts.cwd);
-  const membership = gitqOut === null ? null : gitqMembership(parseGitqStacks(gitqOut), opts.branch);
+  const stacks = gitqOut === null ? null : parseGitqStacks(gitqOut);
+  const membership = stacks === null ? null : gitqMembership(stacks, opts.branch);
   if (membership) {
     const tool = `gitq sync --stack ${membership.name}`;
     return {

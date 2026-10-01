@@ -15,7 +15,9 @@ slots:
 
 You run one unit of work through eight stages. The graph below is the run:
 follow its edges, and treat a move it does not show as a question for a
-gate, never as a judgment call. Every `run_*` call passes `runDb`.
+gate, never as a judgment call. Reads through the read tools and
+`gitlab_get` are part of the step that needs them, not moves. Every `run_*`
+call passes `runDb`.
 
 ## Stages
 

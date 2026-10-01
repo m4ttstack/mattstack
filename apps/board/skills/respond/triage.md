@@ -159,8 +159,8 @@ reports is `error` with its message.
 `mr_view` refused its input. Correct what the error names (`mrUrl` the
 MR's https URL, `.../-/merge_requests/<iid>`, whose project is registered
 with rt; `maxAgeMs` a number when you pass it) and read again, once. An
-error that names no input (the MR is not in the daemon's cache, the repo
-is not registered with rt) has nothing to correct: read again unchanged,
+error that names no input (GitLab's own refusal, such as a 404 or 403,
+or the repo is not registered with rt) is quoted as written and has nothing to correct: read again unchanged,
 once, and the off-script gate follows. An error is never a reason to read
 the MR with the GitLab CLI.
 

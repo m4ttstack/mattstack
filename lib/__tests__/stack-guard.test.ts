@@ -5,6 +5,7 @@ import {
   checkStackMembership,
   createStackGuardRunners,
   renderStackRefusal,
+  stackMembershipOf,
   type StackGuardRunners,
   type StackRefusal,
 } from "../stack-guard.ts";
@@ -216,6 +217,47 @@ describe("checkStackMembership", () => {
       runners: runners({}),
     });
 
+    expect(verdict).toEqual({ verdict: "clear" });
+  });
+});
+
+describe("stackMembershipOf", () => {
+  const ask = (out: string | null) => stackMembershipOf("/wt", "feat", { gitqStacks: async () => out });
+
+  test.each([
+    ["garbage stdout", "not json at all"],
+    ["a banner line before the JSON", `gitq 1.2.3\n${gitqStore([])}`],
+    ["valid JSON without a stacks array", JSON.stringify({ worktrees: [] })],
+    ["a stacks value that is not an array", JSON.stringify({ stacks: "none" })],
+    ["JSON null", "null"],
+  ])("%s is unknown, never 'not in a stack'", async (_label, out) => {
+    expect(await ask(out)).toEqual({ known: false, membership: null });
+  });
+
+  test("a valid document with no stacks is known and not a member", async () => {
+    expect(await ask(gitqStore([]))).toEqual({ known: true, membership: null });
+  });
+
+  test("gitq unable to answer stays unknown", async () => {
+    expect(await ask(null)).toEqual({ known: false, membership: null });
+  });
+
+  test("a member is found", async () => {
+    const out = gitqStore([{ stackName: "s", root: "main", nodes: [{ branch: "feat", parent: "main" }] }]);
+    expect(await ask(out)).toEqual({ known: true, membership: { name: "s", root: "main", parent: "main", children: [] } });
+  });
+});
+
+describe("checkStackMembership with unparseable gitq output", () => {
+  test("falls through to the forge check, as when gitq cannot answer", async () => {
+    let asked = false;
+    const verdict = await checkStackMembership({
+      cwd: "/wt",
+      branch: "feat",
+      defaultBranch: "main",
+      runners: runners({ gitqStacks: async () => "garbage", forgeOpenMrs: async () => { asked = true; return { ok: true, mrs: [] }; } }),
+    });
+    expect(asked).toBe(true);
     expect(verdict).toEqual({ verdict: "clear" });
   });
 });

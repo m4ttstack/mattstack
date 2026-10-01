@@ -32,6 +32,9 @@ digraph ship {
     "Ship stage entered" [shape=ellipse];
     "Run the domain steps before the gate (none when unbound)" [shape=box];
     "git status --porcelain; git log --oneline @{upstream}.. or -5" [shape=plaintext];
+    "branch_stack {tree: <root>}" [shape=plaintext];
+    "Stack store readable?" [shape=diamond];
+    "Stack member?" [shape=diamond];
     "Gate ship (table below)" [shape=box];
     "ship answer?" [shape=diamond];
     "Ship gate rounds = 2?" [shape=diamond];
@@ -48,7 +51,7 @@ digraph ship {
     "Fix rounds = 3?" [shape=diamond];
     "Fix test-first, commit, rerun" [shape=box];
     "Domain rebases, and no rebase finished this pass?" [shape=diamond];
-    "git_rebase {tree: <root>, onto: origin/<default>}" [shape=plaintext];
+    "git_rebase {tree: <root>, onto: origin/<resolved target>}" [shape=plaintext];
     "Rebase status?" [shape=diamond];
     "Conflict rounds = 3?" [shape=diamond];
     "Resolve the files, then git rebase --continue on Bash" [shape=box];
@@ -72,11 +75,11 @@ digraph ship {
     "mr_for_branch {repoName: <root>, branches: [<branch>]}" [shape=plaintext];
     "Open MR on the branch?" [shape=diamond];
     "Created once already?" [shape=diamond];
-    "mr_create {repoName: <root>, sourceBranch, targetBranch, title, description, draft, squash?, labels?}" [shape=plaintext];
+    "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?}" [shape=plaintext];
     "mr_create result?" [shape=diamond];
     "mr_update {mrUrl, squash: true}" [shape=plaintext];
-    "STOP: GitLab reads and writes go through mr_* tools, never the GitLab CLI" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "gh pr create, draft unless the gate said ready" [shape=plaintext];
+    "STOP: GitLab reads go through the read tools or gitlab_get, writes through the mr_* tools" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "gh pr create --base <resolved target>, draft unless the gate said ready" [shape=plaintext];
     "gh pr create result?" [shape=diamond];
     "Gate clarify: which forge?" [shape=box];
     "run_field_set {key: mr, value: <url>, stage: ship}" [shape=plaintext];
@@ -95,7 +98,7 @@ digraph ship {
     "Timed-out upload retried once?" [shape=diamond];
     "mr_upload {mrUrl, path: <the timed-out file>}" [shape=plaintext];
     "Forge host (read back the description)?" [shape=diamond];
-    "mr_view {mrUrl, maxAgeMs: 5000}" [shape=plaintext];
+    "mr_view {mrUrl}" [shape=plaintext];
     "gh pr view <mr> --json title,body" [shape=plaintext];
     "Write the title and description" [shape=box];
     "Forge host (write the description)?" [shape=diamond];
@@ -111,7 +114,12 @@ digraph ship {
 
     "Ship stage entered" -> "Run the domain steps before the gate (none when unbound)";
     "Run the domain steps before the gate (none when unbound)" -> "git status --porcelain; git log --oneline @{upstream}.. or -5";
-    "git status --porcelain; git log --oneline @{upstream}.. or -5" -> "Gate ship (table below)";
+    "git status --porcelain; git log --oneline @{upstream}.. or -5" -> "branch_stack {tree: <root>}";
+    "branch_stack {tree: <root>}" -> "Stack store readable?";
+    "Stack store readable?" -> "Stack member?" [label="yes"];
+    "Stack store readable?" -> "Gate ship (table below)" [label="no: stackStore unavailable, or a tool error: the target is the default branch, the stack could not be read"];
+    "Stack member?" -> "Gate ship (table below)" [label="yes: the target is the stack parent"];
+    "Stack member?" -> "Gate ship (table below)" [label="no: the target is the default branch"];
     "Gate ship (table below)" -> "ship answer?";
     "ship answer?" -> "dirty answer?" [label="proceed"];
     "ship answer?" -> "Ship gate rounds = 2?" [label="iterate: redo with their note"];
@@ -139,9 +147,9 @@ digraph ship {
     "Fix rounds = 3?" -> "Fix test-first, commit, rerun" [label="no"];
     "Fix rounds = 3?" -> "Ship gate reopenings = 2?" [label="yes: reopen, failing output quoted"];
     "Fix test-first, commit, rerun" -> "Run the domain's fast checks (none when unbound)";
-    "Domain rebases, and no rebase finished this pass?" -> "git_rebase {tree: <root>, onto: origin/<default>}" [label="yes"];
+    "Domain rebases, and no rebase finished this pass?" -> "git_rebase {tree: <root>, onto: origin/<resolved target>}" [label="yes"];
     "Domain rebases, and no rebase finished this pass?" -> "git_push {tree: <root>, setUpstream: true}" [label="no"];
-    "git_rebase {tree: <root>, onto: origin/<default>}" -> "Rebase status?";
+    "git_rebase {tree: <root>, onto: origin/<resolved target>}" -> "Rebase status?";
     "Rebase status?" -> "Run the domain's fast checks (none when unbound)" [label="clean: the tree changed"];
     "Rebase status?" -> "Conflict rounds = 3?" [label="conflict"];
     "Rebase status?" -> "run_stage {action: fail, stage: ship, reason}" [label="any other error: quote it as the reason"];
@@ -175,7 +183,7 @@ digraph ship {
     "Make the recorded move once" -> "git remote get-url origin";
     "git remote get-url origin" -> "Forge host?";
     "Forge host?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}" [label="GitLab"];
-    "Forge host?" -> "gh pr create, draft unless the gate said ready" [label="GitHub"];
+    "Forge host?" -> "gh pr create --base <resolved target>, draft unless the gate said ready" [label="GitHub"];
     "Forge host?" -> "Forge clarify rounds = 2?" [label="anything else"];
     "Forge clarify rounds = 2?" -> "Gate clarify: which forge?" [label="no: ask which forge"];
     "Forge clarify rounds = 2?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: a failure, the origin URL and their answer quoted"];
@@ -186,16 +194,16 @@ digraph ship {
     "mr_for_branch {repoName: <root>, branches: [<branch>]}" -> "Open MR on the branch?";
     "Open MR on the branch?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="yes: keep its url"];
     "Open MR on the branch?" -> "Created once already?" [label="no"];
-    "Created once already?" -> "mr_create {repoName: <root>, sourceBranch, targetBranch, title, description, draft, squash?, labels?}" [label="no"];
+    "Created once already?" -> "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?}" [label="no"];
     "Created once already?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: the mr_create error is the reason"];
-    "mr_create {repoName: <root>, sourceBranch, targetBranch, title, description, draft, squash?, labels?}" -> "mr_create result?";
+    "mr_create {repoName: <root>, sourceBranch, targetBranch: <resolved target>, title, description, draft, squash?, labels?}" -> "mr_create result?";
     "mr_create result?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="url, squash applied or not asked"];
     "mr_create result?" -> "mr_update {mrUrl, squash: true}" [label="squashApplied: false"];
     "mr_create result?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}" [label="error, or url null: read it back; never create twice"];
-    "mr_create result?" -> "STOP: GitLab reads and writes go through mr_* tools, never the GitLab CLI" [label="tempted by the CLI"];
-    "STOP: GitLab reads and writes go through mr_* tools, never the GitLab CLI" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}";
+    "mr_create result?" -> "STOP: GitLab reads go through the read tools or gitlab_get, writes through the mr_* tools" [label="tempted by the CLI"];
+    "STOP: GitLab reads go through the read tools or gitlab_get, writes through the mr_* tools" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}";
     "mr_update {mrUrl, squash: true}" -> "run_field_set {key: mr, value: <url>, stage: ship}";
-    "gh pr create, draft unless the gate said ready" -> "gh pr create result?";
+    "gh pr create --base <resolved target>, draft unless the gate said ready" -> "gh pr create result?";
     "gh pr create result?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="url printed"];
     "gh pr create result?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="already exists: keep the url it prints"];
     "gh pr create result?" -> "run_stage {action: fail, stage: ship, reason}" [label="any other error: quote it as the reason"];
@@ -208,7 +216,7 @@ digraph ship {
     "Files to attach?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="yes, GitLab"];
     "Files to attach?" -> "Forge host (read back the description)?" [label="no, or GitHub: link the paths"];
     "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_upload result?";
-    "mr_upload result?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="ok: every file uploaded"];
+    "mr_upload result?" -> "mr_view {mrUrl}" [label="ok: every file uploaded"];
     "mr_upload result?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="ok: files still to upload"];
     "mr_upload result?" -> "Upload retried with a corrected path?" [label="path must be absolute, or file not found"];
     "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="any other refusal: outside the roots, bytes, size"];
@@ -228,9 +236,9 @@ digraph ship {
     "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing linked"];
     "Upload off-script rounds = 2?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="no: retry the refused files"];
     "Upload off-script rounds = 2?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: hand back, the refusal quoted"];
-    "Forge host (read back the description)?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="GitLab"];
+    "Forge host (read back the description)?" -> "mr_view {mrUrl}" [label="GitLab"];
     "Forge host (read back the description)?" -> "gh pr view <mr> --json title,body" [label="GitHub"];
-    "mr_view {mrUrl, maxAgeMs: 5000}" -> "Write the title and description";
+    "mr_view {mrUrl}" -> "Write the title and description";
     "gh pr view <mr> --json title,body" -> "Write the title and description";
     "Write the title and description" -> "Forge host (write the description)?";
     "Forge host (write the description)?" -> "mr_update {mrUrl, title, description}" [label="GitLab"];
@@ -246,7 +254,18 @@ digraph ship {
 The domain's gathering steps: sanity of the diff against the ticket, the
 branch and ticket checks, an existing-MR lookup, any mandatory pre-ship
 review. Each one that raises a question adds it to the `ship` gate rather
-than asking on its own.
+than asking on its own. A GitLab fact these steps need that no read tool
+returns is read as in "Reading a GitLab fact no read tool returns".
+
+### Reading a GitLab fact no read tool returns
+
+At any step of this stage, a GitLab fact the read tools do not return is
+read with `gitlab_get {repoName, path}`: `repoName` = the checkout or
+tree this stage already targets, `path` relative to the API root with `:id`
+for this project, for example `projects/:id/merge_requests/<iid>/approvals`.
+The read is part of the step that needs it, not an off-script move, so it
+opens no gate. A GitLab error is quoted as GitLab wrote it. Its refusal of
+a credential path is final.
 
 ### Run the domain's fast checks (none when unbound)
 
@@ -321,15 +340,25 @@ stage knows.
   `git_push {tree: <root>, forceWithLease: true}` instead. Never force
   otherwise, and never push a branch whose tests you have not seen pass in
   this session.
-- `targetBranch` is the default branch read from git, never guessed. Keep
-  the `url` `mr_create` returns as `mrUrl` for every later write.
+- `targetBranch` is the target `branch_stack` resolved before the gate:
+  the stack parent when the branch is a stack member, else the default
+  branch read from git, never guessed. When `branch_stack` reports
+  `stackStore: "unavailable"` or errors, the target is the default branch
+  and the gate's context says the stack could not be read. A GitHub PR
+  takes the same target as `--base`. The domain rebase goes onto
+  `origin/<that target>`, so a stack member never replays its parent's
+  unmerged commits; the gate names the target, the unreadable-store
+  fallback included, before any rebase runs.
+  Keep the `url` `mr_create` returns as `mrUrl` for every later write.
 
 ## Gate `ship` (before the push)
 
-One sentence above the form: the branch, the commits about to go, and
-whether the tree is dirty. When the gate reopens with a rebase in progress
-(the conflict rounds are spent), the context says so, since Abort or Go
-back then aborts that rebase.
+One sentence above the form: the branch, the commits about to go, whether
+the tree is dirty, and the resolved target (the stack parent, the default
+branch, or "the stack could not be read, so the default branch"), so
+Proceed is consent to that target. When the gate reopens with a rebase in
+progress (the conflict rounds are spent), the context says so, since Abort
+or Go back then aborts that rebase.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
@@ -360,7 +389,8 @@ failure aborts a rebase in progress first.
 The domain rules below supply content, checks and extra gate questions.
 Where a domain step names a move the graph above marks STOP, the STOP
 node's edge wins: a shell push fallback opens the push's off-script gate;
-a GitLab CLI read or write goes through the `mr_*` tools.
+a GitLab CLI read goes through the read tools or `gitlab_get`, and a
+write through the `mr_*` tools.
 
 {{slot:domain}}
 
