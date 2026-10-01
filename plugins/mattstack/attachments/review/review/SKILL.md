@@ -74,6 +74,8 @@ digraph review {
     "gh pr view found the PR?" [shape=diamond];
     "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}" [shape=plaintext];
     "mr_list matches for the branch?" [shape=diamond];
+    "mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}" [shape=plaintext];
+    "mr_list matches for the ticket?" [shape=diamond];
     "STOP: GitLab reads go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "STOP: GitLab branch lookups go through the read tools or gitlab_get" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Gate review clarify: which target?" [shape=box];
@@ -190,7 +192,8 @@ digraph review {
     "Review target form?" -> "mr_view {mrUrl, or repoName + iid}" [label="GitLab URL or iid"];
     "Review target form?" -> "mr_for_branch {repoName: <checkout>, branches: [<branch>]}" [label="GitLab branch name"];
     "Review target form?" -> "gh pr view <ref>" [label="GitHub"];
-    "Review target form?" -> "Gate review clarify: which target?" [label="ticket id only, or several candidates"];
+    "Review target form?" -> "Gate review clarify: which target?" [label="several candidates"];
+    "Review target form?" -> "mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}" [label="ticket id only"];
     "mr_for_branch {repoName: <checkout>, branches: [<branch>]}" -> "mr_for_branch entry for the branch?";
     "mr_for_branch entry for the branch?" -> "mr_view {mrUrl, or repoName + iid}" [label="an iid"];
     "mr_for_branch entry for the branch?" -> "mr_list {repoName: <checkout>, sourceBranch: <branch>, state: all, limit: 200}" [label="null: no open MR, look for a merged or closed one"];
@@ -202,6 +205,10 @@ digraph review {
     "mr_list matches for the branch?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="none: hold, GitLab has no MR for the branch"];
     "mr_list matches for the branch?" -> "Gate review clarify: which target?" [label="several, or a truncated list"];
     "mr_list matches for the branch?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="an error: hold, quoting its text (never read as none)"];
+    "mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}" -> "mr_list matches for the ticket?";
+    "mr_list matches for the ticket?" -> "mr_view {mrUrl, or repoName + iid}" [label="exactly one, from a complete read: its iid"];
+    "mr_list matches for the ticket?" -> "Gate review clarify: which target?" [label="none, several, or a truncated list"];
+    "mr_list matches for the ticket?" -> "Gate review clarify: which target?" [label="an error: quoted in the gate's sentence"];
     "mr_view {mrUrl, or repoName + iid}" -> "mr_view returned the MR?";
     "mr_view returned the MR?" -> "Own review run: record the target?" [label="yes"];
     "mr_view returned the MR?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="an error: hold, quoting its text (usually GitLab's 404 or 403)"];
@@ -362,7 +369,7 @@ id, or a branch name. On GitLab `mr_view` takes `mrUrl` when you were
 given a URL, else `repoName` = the checkout path plus `iid`. The read
 asks GitLab, so any MR your token can see resolves, whoever wrote it and
 whether it is open, merged or closed. A ticket id with no URL, iid or
-branch, or more than one candidate, is the clarify gate. An `mr_view`
+branch is searched with `mr_list`; more than one candidate is the clarify gate. An `mr_view`
 error is quoted, not paraphrased: GitLab's 404 or 403 is the usual case,
 though an error can also be rt's (target not resolved, daemon unreachable,
 timeout). Hold with that text as the reason (`decidedBy: "pane"`). A null
@@ -386,6 +393,24 @@ option per MR returned. Otherwise count the returned MRs. Exactly one:
 take its `iid` to `mr_view`. None: hold, reason "GitLab has no MR for the
 branch" (`decidedBy: "pane"`). Several: the clarify gate, one option per MR
 (iid, title, state). Never a guess.
+
+### mr_list {repoName: <checkout>, search: <ticket id>, state: all, limit: 200}
+
+A bare ticket id names no MR, so ask GitLab for the MRs whose title or
+description carries it, whatever their state or author. Keep the rows
+whose `sourceBranch` or `title` carries the id.
+
+### mr_list matches for the ticket?
+
+Check `truncated` first. A `truncated: true` list (GitLab held more than
+the 200 returned) is ambiguous whatever it holds: take the clarify gate,
+with a sentence saying the search was cut at 200 rows and naming what was
+found. Otherwise count the kept rows. Exactly one: take its `iid` to
+`mr_view`. None or several: the clarify gate, a sentence naming what was
+found with one option per row (iid, title, state). An error is the error
+text, usually GitLab's: it goes to the clarify gate's sentence, quoted,
+never read as none. No row means none of the rows GitLab returned carries
+the ticket, not that no MR exists. Never a guess.
 
 ### Reading a GitLab fact no read tool returns
 

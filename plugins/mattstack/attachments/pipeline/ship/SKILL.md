@@ -514,10 +514,11 @@ context says so, and Abort aborts that rebase first.
 
 Scope `ship`. Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|hold","note":"<their words or null>"}`.
 Abort and Hold push nothing. Iterate and Hold clear the recorded target
-with `run_field_set {key: shipTarget, value: -}` before they leave the gate, so a
+with `run_field_set {key: shipTarget, value: -, stage: ship}` before they leave the gate, so a
 resume after either one re-asks the gate. Proceed records the target it consented to
-with `run_field_set {key: shipTarget, value: <resolved target>}`, `stage:
-"ship"` in an own run and `stage: run.current_stage` in an inherited one;
+with `run_field_set {key: shipTarget, value: <resolved target>}`; `stage` is
+`"ship"` in an own run and `run.current_stage` in an inherited one, on the
+clears as well as on Proceed;
 when the stack store was unreadable the value is `<default branch> (stack
 store unreadable)`, so a later reader can tell consent to the fallback from
 a real read. The rebase and `mr_create` use the plain branch name.
