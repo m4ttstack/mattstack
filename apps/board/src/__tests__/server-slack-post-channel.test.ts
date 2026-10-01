@@ -4,10 +4,11 @@ import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
 // Proves /slack/post's channel derivation (server.ts's targetChannel logic,
-// right after `picked` resolves): with no explicit body channel, a single
-// tagged-stranger MR posts into its codeowners tab's slackChannel rather than
-// the board's default channel, and a multi-MR post whose picked MRs resolve to
-// different channels 400s instead of guessing one. Real (non-fixture) boot --
+// right after `picked` resolves) under the author-only rule: with no explicit
+// body channel, your own MR posts into the board's default channel even when a
+// codeowners tab tags it (tab channels route strangers' MRs, which only their
+// authors may post), and a post that lists a tagged stranger's MR is refused
+// before any channel is picked. Real (non-fixture) boot --
 // fixture mode answers /data.json from a canned file and refuses every POST
 // outright, so it can't exercise this path at all. A fake rt daemon (unix
 // socket, mirrors server-healthz-fast.test.ts's pattern) serves the picked
@@ -49,6 +50,13 @@ writeFileSync(
 // team-store value for it is silently ignored, which would leave
 // fetchTeamMRs with no daemon mapping for "g/p" and every MR dropped before
 // buildBoard ever saw them.
+const userDir = join(fakeHome, '.mattstack', 'user');
+mkdirSync(userDir, { recursive: true });
+writeFileSync(
+  join(userDir, 'settings.user.jsonc'),
+  JSON.stringify({ 'board.defaultMember': 'alice' })
+);
+
 writeFileSync(join(fakeHome, '.mattstack', 'machine-key'), 'testmachine');
 const machineDir = join(fakeHome, '.mattstack', 'user', 'local', 'testmachine');
 mkdirSync(machineDir, { recursive: true });
@@ -114,9 +122,9 @@ const acmePr = fakePr({
   iid: 501,
   webUrl: acmeMrUrl,
   author: {
-    id: 'gitlab:901',
-    username: 'outsider1',
-    name: 'Outsider One',
+    id: 'gitlab:900',
+    username: 'alice',
+    name: 'Alice',
     avatarUrl: null,
   },
 });
@@ -222,7 +230,7 @@ async function ready(): Promise<void> {
   throw new Error('server never came up');
 }
 
-test("/slack/post with no explicit channel derives a tagged stranger's MR to its tab's slackChannel", async () => {
+test('/slack/post with no explicit channel posts your own tagged MR to the board channel', async () => {
   await ready();
   const res = await fetch(`http://127.0.0.1:${PORT}/slack/post`, {
     method: 'POST',
@@ -236,19 +244,18 @@ test("/slack/post with no explicit channel derives a tagged stranger's MR to its
     permalink?: string;
   };
   expect(body.ok).toBe(true);
-  // C_ACME is "acme-channel"'s id in the mock (see CHANNEL_IDS in
-  // slack-api-mock-preload.ts) -- proves the post targeted the tab's channel,
-  // not C_DEFAULT ("code-review", config.slack.channel).
-  expect(body.permalink).toContain('C_ACME');
+  // C_DEFAULT is "code-review"'s id in the mock (see CHANNEL_IDS in
+  // slack-api-mock-preload.ts): a member's MR keeps the board's channel.
+  expect(body.permalink).toContain('C_DEFAULT');
 }, 15_000);
 
-test('/slack/post with no explicit channel 400s when picked MRs span different channels', async () => {
+test("/slack/post refuses a list that includes a tagged stranger's MR", async () => {
   await ready();
   const res = await fetch(`http://127.0.0.1:${PORT}/slack/post`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ mrUrls: [acmeMrUrl, otherSectionMrUrl] }),
   });
-  expect(res.status).toBe(400);
-  expect(await res.text()).toBe('MRs span Slack channels; post them per tab');
+  expect(res.status).toBe(403);
+  expect(await res.text()).toBe('not your MR');
 }, 15_000);
