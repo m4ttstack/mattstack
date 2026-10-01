@@ -327,6 +327,24 @@ describe("materializeRepo stale bindings files", () => {
     expect(existsSync(packFile(root, "gadgets"))).toBe(true);
   });
 
+  test("a file whose zone has its marker but no team.jsonc (a partial clone) is left alone", () => {
+    const { root, deps } = twoZones();
+    rmSync(join(root, "teams", "acme-g", "mattstack", "team.jsonc"));
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.pruned).toEqual([]);
+    expect(existsSync(packFile(root, "gadgets"))).toBe(true);
+  });
+
+  test("a file whose zone's team.jsonc does not parse is left alone", () => {
+    const { root, deps } = twoZones();
+    write(join(root, "teams", "acme-g", "mattstack", "team.jsonc"), "{ nope");
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.pruned).toEqual([]);
+    expect(existsSync(packFile(root, "gadgets"))).toBe(true);
+  });
+
   test("a file with no zone line (written before zones were recorded) is left alone", () => {
     const { root, deps } = twoZones();
     const legacy = packFile(root, "gizmos");

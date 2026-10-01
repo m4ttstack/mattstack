@@ -1,6 +1,6 @@
 import { dirname, join } from "path";
 import { findInstalledPluginDir, PLUGIN_REF_RE } from "./installed-plugins.ts";
-import { isPackDir, parseRemote, readZonesFrom, type InitFs, type RepoRef, type ZoneInfo } from "./init.ts";
+import { isPackDir, parseRemote, readZonesFrom, zoneTeamConfigReads, type InitFs, type RepoRef, type ZoneInfo } from "./init.ts";
 import { FragmentError, mergeLayers, parseFragment, readManifestZone, renderManifest, type Fragment, type Layer } from "./manifest-merge.ts";
 import { legacyManifestPath, packManifestPath } from "./manifest-paths.ts";
 
@@ -88,9 +88,10 @@ function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, ow
 
 /**
  * Sets aside (renames to `.stale`, never deletes) a bindings file this run did not write, but only when the zone its
- * header records is present here and no longer holds a claiming pack of that name for this repo. A file whose zone is
- * absent (not cloned yet, mid-sync, an unreadable mount) or that records no zone is left alone, as is every pack this
- * run claimed, ok or failed, so a broken pack keeps its last good bindings.
+ * header records is present here (its marker reads as a team zone and its team.jsonc parses) and no longer holds a
+ * claiming pack of that name for this repo. A file whose zone is absent or partial (not cloned yet, mid-sync, an
+ * unreadable mount) or that records no zone is left alone, as is every pack this run claimed, ok or failed, so a
+ * broken pack keeps its last good bindings.
  */
 function setAsideStale(deps: MaterializeDeps, ref: RepoRef, owned: Set<string>, allZones: ZoneInfo[]): { pruned: string[]; warnings: string[] } {
   const pruned: string[] = [];
@@ -101,7 +102,7 @@ function setAsideStale(deps: MaterializeDeps, ref: RepoRef, owned: Set<string>, 
     const text = deps.fs.readFile(path);
     const recorded = text === null ? null : readManifestZone(text);
     const zone = recorded === null ? undefined : allZones.find((z) => z.slug === recorded);
-    if (!zone) continue;
+    if (!zone || !zoneTeamConfigReads(deps.fs, zone.dir)) continue;
     const stillClaims = zone.host === ref.host && zone.projects.includes(ref.path) &&
       claimingPacksIn(deps.fs, zone).some((c) => c.name === pack);
     if (stillClaims) continue;

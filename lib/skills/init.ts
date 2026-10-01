@@ -97,6 +97,11 @@ export function readZones(fs: InitFs, home: string): ZoneInfo[] {
   return readZonesFrom(fs, join(home, ".mattstack", "teams"));
 }
 
+/** A zone's marker can land before its team.jsonc (a partial clone); only a parsed team.jsonc says what the zone declares. */
+export function zoneTeamConfigReads(fs: InitFs, zoneDir: string): boolean {
+  return readJsonc(fs, join(zoneDir, "mattstack", "team.jsonc")) !== null;
+}
+
 export function readZonesFrom(fs: InitFs, teams: string): ZoneInfo[] {
   const zones: ZoneInfo[] = [];
   for (const slug of fs.readDir(teams)) {
