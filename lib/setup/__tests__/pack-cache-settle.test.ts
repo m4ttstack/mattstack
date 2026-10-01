@@ -59,7 +59,7 @@ describe("settlePack", () => {
   test("a clean install failure is terminal, and carries the stage and code plugins.install reports", async () => {
     const r = runner({ install: fail("network refused", 3) });
     const outcome = await settlePack(r, "p@m", { teamAuthored: true });
-    expect(outcome).toEqual({ kind: "failed", id: "p@m", detail: "network refused", stage: "install", code: 3 });
+    expect(outcome).toEqual({ kind: "failed", id: "p@m", detail: "network refused", stage: "install", code: 3, output: "network refused" });
     expect(r.verbs).toEqual(["install"]);
   });
 

@@ -29,6 +29,7 @@ import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { execWithTimeout, type Probes } from "../probes.ts";
 import { discoverTeams } from "../team-settings.ts";
 import { ONE_TEAM_RULE } from "../../team/one-team.ts";
+import { named } from "./tools.ts";
 
 // ─── rt-context extension check (moved from commands/verify.ts) ──────────────
 
@@ -68,9 +69,9 @@ export function checkRtContextExtension(home: string): ExtensionCheckResult {
   }
 
   const name = "rt-context extension";
-  if (editorsWithExtension.length > 0) return { name, status: "pass", detail: `installed in ${editorsWithExtension.join(", ")}`, severity: "warning" };
-  if (dirsFound.length > 0) return { name, status: "warn", detail: `not installed in ${dirsFound.join(", ")} — run: rt settings extension`, severity: "warning" };
-  return { name, status: "skip", detail: "no editor extensions directories found", severity: "info" };
+  if (editorsWithExtension.length > 0) return { name, status: "pass", detail: `Installed in ${editorsWithExtension.join(", ")}`, severity: "warning" };
+  if (dirsFound.length > 0) return { name, status: "warn", detail: `Not installed in ${dirsFound.join(", ")}. Run rt settings extension`, severity: "warning" };
+  return { name, status: "skip", detail: "No editor extension folders found", severity: "info" };
 }
 
 // ─── injectable seams ─────────────────────────────────────────────────────────
@@ -85,7 +86,7 @@ const LINK_BUNDLED_RT: Action = { type: "link-bundled", label: "Use mattstack's"
 const RECHECK_ACTION: Action = { type: "run", label: "Re-check", verb: ["setup", "status"] };
 const REINSTALL_SHIMS_ACTION: Action = { type: "run", label: "Re-install shims", verb: ["intercept", "install"] };
 const INSTALL_EXTENSION_ACTION: Action = { type: "run", label: "Install extension", verb: ["tools", "setup", "extension"] };
-const HOME_BACKUP_PUSH_STEP = "git -C ~/.mattstack/user push origin HEAD (or wait — the daemon pushes on its next cycle, up to 30 minutes)";
+const HOME_BACKUP_PUSH_STEP = "git -C ~/.mattstack/user push origin HEAD, or wait for the daemon to push on its next cycle (up to 30 minutes)";
 const HOME_BACKUP_ADD_REMOTE_ACTION: Action = {
   type: "form",
   label: "Add remote…",
@@ -104,25 +105,26 @@ const MERGE_LEGACY_STATE_ACTION: Action = {
   ],
 };
 
-function firstLine(stdout: string): string {
-  return stdout.trim().split("\n")[0]!;
+/** `rt --version` leads with "rt <version>", so the name comes off before `named` puts it back. */
+function rtNamed(stdout: string): string {
+  return named("rt", stdout.trim().split("\n")[0]!.replace(/^rt(\s+|$)/, ""));
 }
 
 async function rtRow(p: Probes): Promise<Row> {
   const base = { id: "tool.rt", kind: "tool" as const, title: "rt binary", why: "rt itself must be on PATH before anything else can run.", required: true };
   const res = await p.exec(["rt", "--version"]);
-  if (res.code === 0) return row({ ...base, status: "ready", detail: firstLine(res.stdout) });
+  if (res.code === 0) return row({ ...base, status: "ready", detail: rtNamed(res.stdout) });
   if (res.code === 127) {
     // ~/.local/bin joins PATH only in Install's own path step, so before
     // Install the link there is the only rt a fresh machine can have.
     const linked = linkPath(p.home, "rt");
     if (p.exists(linked)) {
       const viaLink = await p.exec([linked, "--version"]);
-      if (viaLink.code === 0) return row({ ...base, status: "ready", detail: `${firstLine(viaLink.stdout)} at ~/.local/bin (PATH entry added by Install)` });
+      if (viaLink.code === 0) return row({ ...base, status: "ready", detail: `${rtNamed(viaLink.stdout)} at ~/.local/bin, which Install added to your PATH` });
     }
-    return row({ ...base, status: "missing", detail: "rt not found on PATH", action: LINK_BUNDLED_RT });
+    return row({ ...base, status: "missing", detail: "rt is not on your PATH yet", action: LINK_BUNDLED_RT });
   }
-  return row({ ...base, status: "error", detail: `could not run rt (exit ${res.code})` });
+  return row({ ...base, status: "error", detail: `Could not run rt (exit ${res.code})` });
 }
 
 function rtLinkRow(p: Probes): Row {
@@ -137,40 +139,40 @@ function rtLinkRow(p: Probes): Row {
 
   const prefix = p.readPrefix(linkPath(p.home, "rt"));
   if (prefix !== null && isDevModeWrapperContent(prefix)) {
-    return row({ ...base, status: "skipped", detail: "mattstack-dev.app's source wrapper owns ~/.local/bin/rt" });
+    return row({ ...base, status: "skipped", detail: "The dev app's source wrapper owns ~/.local/bin/rt" });
   }
 
   const root = appBundlePath(p);
-  if (!root) return row({ ...base, status: "skipped", detail: "mattstack.app not found — nothing to link into" });
+  if (!root) return row({ ...base, status: "skipped", detail: "mattstack.app not found, so there is nothing to link into" });
 
   const expected = join(root, RT_BUNDLE_PATH);
   const actual = p.readlink(linkPath(p.home, "rt"));
-  if (actual === expected) return row({ ...base, status: "ready", detail: "linked into the bundle" });
+  if (actual === expected) return row({ ...base, status: "ready", detail: "Linked into mattstack.app" });
   // A "run" action pointing at `setup apply --from path.link` would replay
   // the full 16-step chain from that point — buffered, one-shot, no
   // NeedBroker — and any `need` a later step raises (services.register,
   // proxy.install) would hang this cosmetic row for the full 10-minute
   // await timeout. `link-bundled` dispatches the single one-shot verb this
   // row actually needs (`rt deps link rt --json`).
-  return row({ ...base, status: "needs-you", detail: "not a link into mattstack.app — run: rt deps link rt", action: LINK_BUNDLED_RT });
+  return row({ ...base, status: "needs-you", detail: "Not a link into mattstack.app. Run rt deps link rt", action: LINK_BUNDLED_RT });
 }
 
 function legacyDirsRow(): Row {
-  const base = { id: "tool.legacy-dirs", kind: "tool" as const, title: "Legacy state dirs", why: `rt reads only ${RT_DIR_LABEL} — a leftover legacy dir means state is split and silently ignored.`, required: true };
+  const base = { id: "tool.legacy-dirs", kind: "tool" as const, title: "Legacy state dirs", why: `rt reads only ${RT_DIR_LABEL}, so a leftover legacy dir means state is split and silently ignored.`, required: true };
   const legacy = legacyDirsPresent();
   if (legacy.real.length > 0) {
     const plural = legacy.real.length !== 1 ? "s" : "";
     return row({
       ...base,
       status: "invalid",
-      detail: `real legacy dir${plural} present: ${legacy.real.join(", ")} — rt reads only ${RT_DIR_LABEL}`,
+      detail: `Old folder${plural} still present: ${legacy.real.join(", ")}. rt reads only ${RT_DIR_LABEL}`,
       action: MERGE_LEGACY_STATE_ACTION,
     });
   }
   if (legacy.symlinks.length > 0) {
-    return row({ ...base, status: "ready", detail: `compat symlink still present: ${legacy.symlinks.join(", ")}` });
+    return row({ ...base, status: "ready", detail: `Old-location links still present: ${legacy.symlinks.join(", ")}` });
   }
-  return row({ ...base, status: "ready", detail: `state lives only in ${RT_DIR_LABEL}` });
+  return row({ ...base, status: "ready", detail: `State lives only in ${RT_DIR_LABEL}` });
 }
 
 function interceptsRow(p: Probes): Row {
@@ -189,31 +191,31 @@ function interceptsRow(p: Probes): Row {
     report = shimReport();
     staleRules = staleIntercepts();
   } catch (err) {
-    return row({ ...base, status: "error", detail: `check failed: ${(err as Error).message}` });
+    return row({ ...base, status: "error", detail: `The check failed: ${(err as Error).message}` });
   }
 
-  if (report.length === 0) return row({ ...base, status: "ready", detail: "Not needed: your team declares no intercepts" });
+  if (report.length === 0) return row({ ...base, status: "ready", detail: "Not needed: your team has no intercepts" });
 
   const missing = report.filter((r) => !r.installed);
   const stale = report.filter((r) => r.installed && !r.current);
   const binDir = localBinDir();
   const onPath = (p.env.PATH ?? "").split(":").some((entry) => entry === binDir || entry.replace(/\/+$/, "") === binDir);
   const pathBroken = report.some((r) => r.installed) && !onPath;
-  const pathNote = pathBroken ? ` — and ${binDir} is not on PATH, so intercepts will not fire` : "";
+  const pathNote = pathBroken ? `. Also, ${binDir} is not on your PATH, so intercepts will not fire` : "";
 
   if (missing.length > 0) {
-    return row({ ...base, status: "needs-you", detail: `declared but not installed: ${missing.map((r) => r.command).join(", ")} — run rt intercept install${pathNote}`, action: REINSTALL_SHIMS_ACTION });
+    return row({ ...base, status: "needs-you", detail: `Not installed yet: ${missing.map((r) => r.command).join(", ")}. Run rt intercept install${pathNote}`, action: REINSTALL_SHIMS_ACTION });
   }
   if (stale.length > 0) {
-    return row({ ...base, status: "needs-you", detail: `stale shim content: ${stale.map((r) => r.command).join(", ")} — run rt intercept install${pathNote}`, action: REINSTALL_SHIMS_ACTION });
+    return row({ ...base, status: "needs-you", detail: `Out of date: ${stale.map((r) => r.command).join(", ")}. Run rt intercept install${pathNote}`, action: REINSTALL_SHIMS_ACTION });
   }
   if (pathBroken) {
-    return row({ ...base, status: "needs-you", detail: `shims installed but ${binDir} is not on PATH — intercepts will not fire`, action: REINSTALL_SHIMS_ACTION });
+    return row({ ...base, status: "needs-you", detail: `Installed, but ${binDir} is not on your PATH, so intercepts will not fire`, action: REINSTALL_SHIMS_ACTION });
   }
   if (staleRules.stale) {
-    return row({ ...base, status: "needs-you", detail: `shims are current but the rules cache is stale (${staleRules.reason}) — run rt intercept install`, action: REINSTALL_SHIMS_ACTION });
+    return row({ ...base, status: "needs-you", detail: `Installed, but the rules are out of date (${staleRules.reason}). Run rt intercept install`, action: REINSTALL_SHIMS_ACTION });
   }
-  return row({ ...base, status: "ready", detail: `${report.length} installed and current` });
+  return row({ ...base, status: "ready", detail: `${report.length} installed and up to date` });
 }
 
 async function appRow(p: Probes): Promise<Row> {
@@ -226,7 +228,7 @@ async function appRow(p: Probes): Promise<Row> {
     recheck: "on-activate" as const,
   };
   const root = appBundlePath(p);
-  if (!root) return row({ ...base, status: "missing", detail: "mattstack.app not found in /Applications or ~/Applications" });
+  if (!root) return row({ ...base, status: "missing", detail: "mattstack.app is not in /Applications or ~/Applications" });
 
   const plist = join(root, "Contents", "Info.plist");
   const res = await p.exec(["/usr/libexec/PlistBuddy", "-c", "Print CFBundleShortVersionString", plist]);
@@ -234,7 +236,7 @@ async function appRow(p: Probes): Promise<Row> {
   let detail = version ? `${root} (v${version})` : root;
 
   const legacyHits = legacyTrayAppPaths().filter((path) => p.exists(path));
-  if (legacyHits.length > 0) detail += ` — old bundle still present: ${legacyHits.join(", ")}`;
+  if (legacyHits.length > 0) detail += `. An old copy is still present: ${legacyHits.join(", ")}`;
 
   return row({ ...base, status: "ready", detail });
 }
@@ -252,8 +254,8 @@ function vsixRow(p: Probes): Row {
   if (!root) return row({ ...base, status: "skipped", detail: "mattstack.app not found" });
 
   const vsix = join(root, "Contents", "Resources", "rt-context.vsix");
-  if (p.exists(vsix)) return row({ ...base, status: "ready", detail: "bundled extension present" });
-  return row({ ...base, status: "skipped", detail: "extension not bundled (pre-bundle build)" });
+  if (p.exists(vsix)) return row({ ...base, status: "ready", detail: "The extension ships in the app" });
+  return row({ ...base, status: "skipped", detail: "This build does not ship the extension" });
 }
 
 function extensionRow(p: Probes): Row {
@@ -287,15 +289,15 @@ function shellRow(p: Probes): Row {
   const rc = shellRcPathFor(shell, p.home);
   if (rc) {
     const content = p.readFile(rc) ?? "";
-    if (content.includes("rtcd")) return row({ ...base, status: "ready", detail: `rtcd alias in ${rc}` });
+    if (content.includes("rtcd")) return row({ ...base, status: "ready", detail: `The rtcd alias is in ${rc}` });
     // path.link cannot bound an old block with no end marker, so its button would succeed and change nothing.
     const markerAt = content.indexOf(MARKER);
     if (markerAt !== -1 && content.indexOf(END_MARKER, markerAt) === -1) {
-      return row({ ...base, status: "needs-you", detail: `remove the old rt block from ${rc} by hand, then re-check`, action: RECHECK_ACTION });
+      return row({ ...base, status: "needs-you", detail: `Remove the old rt block from ${rc} by hand, then Re-check`, action: RECHECK_ACTION });
     }
-    return row({ ...base, status: "needs-you", detail: "shell integration not added yet", action: ADD_TO_SHELL_ACTION });
+    return row({ ...base, status: "needs-you", detail: "Shell integration not added yet", action: ADD_TO_SHELL_ACTION });
   }
-  return row({ ...base, status: "needs-you", detail: "unrecognized shell, so rt can't write shell integration automatically; add the rtcd alias yourself" });
+  return row({ ...base, status: "needs-you", detail: "rt does not know this shell, so add the rtcd alias yourself" });
 }
 
 async function daemonRow(p: Probes, opts: { ci: boolean }): Promise<Row> {
@@ -312,10 +314,10 @@ async function daemonRow(p: Probes, opts: { ci: boolean }): Promise<Row> {
   // registers the daemon at launch; one that answers is installed either way.
   const ping = await p.daemon("ping");
   const answers = ping?.ok === true;
-  if (!answers && !isDaemonInstalled()) return row({ ...base, status: "missing", detail: "not registered yet", action: applyStepAction("Register services", "services.register") });
+  if (!answers && !isDaemonInstalled()) return row({ ...base, status: "missing", detail: "Not registered yet", action: applyStepAction("Register services", "services.register") });
   if (!answers) {
-    if (opts.ci) return row({ ...base, status: "needs-you", detail: "not booted (expected in CI)" });
-    return row({ ...base, status: "needs-you", detail: "installed but not responding; approve in Login Items", action: LOGIN_ITEMS_SETTINGS_ACTION });
+    if (opts.ci) return row({ ...base, status: "needs-you", detail: "Not running (expected in CI)" });
+    return row({ ...base, status: "needs-you", detail: "Installed but not responding. Approve it in Login Items", action: LOGIN_ITEMS_SETTINGS_ACTION });
   }
 
   const [statusRes, launchd, worktrees] = await Promise.all([
@@ -387,7 +389,7 @@ async function flavorRow(p: Probes): Promise<Row> {
   const daemonFlavor = flavor ? String(flavor) : null;
 
   if (daemonFlavor === null) {
-    return row({ ...base, status: "ready", detail: `${cli} CLI · daemon n/a` });
+    return row({ ...base, status: "ready", detail: `${cli} CLI, no daemon` });
   }
   if (daemonFlavor === cli) {
     return row({ ...base, status: "ready", detail: `${cli} CLI and daemon` });
@@ -396,7 +398,7 @@ async function flavorRow(p: Probes): Promise<Row> {
   return row({
     ...base,
     status: "invalid",
-    detail: `a ${daemonFlavor} daemon answers this ${cli} CLI; open ${app} (quit it first if it is running)`,
+    detail: `A ${daemonFlavor} daemon is answering this ${cli} CLI. Open ${app}, quitting it first if it is running`,
   });
 }
 
@@ -453,29 +455,29 @@ export async function homeBackupRow(
     id: "home.backup",
     kind: "tool" as const,
     title: "Home repo backup",
-    why: "Local-only is fully supported — this only confirms whether your settings are actually backed up anywhere, not just committed on this machine.",
+    why: "Local-only is fully supported; this only confirms whether your settings are actually backed up anywhere, not just committed on this machine.",
     required: false,
     optionalNote: "Works without this; local-only just means this machine is the only copy of your settings.",
     recheck: "on-activate" as const,
   };
 
   if (!(await isGitRepo(exec, repoDir))) {
-    return row({ ...base, status: "needs-you", detail: "no home repo found yet... nothing to back up", action: CREATE_HOME_REPO_ACTION });
+    return row({ ...base, status: "needs-you", detail: "No home repo yet, so nothing is backed up", action: CREATE_HOME_REPO_ACTION });
   }
 
   // Ahead of the remote check: an unborn repo is not "versioned on this
   // machine" either way, so a local-only one must not claim it is.
   if (!(await hasCommits(exec, repoDir))) {
-    return row({ ...base, status: "needs-you", detail: "no commits yet — nothing is versioned or backed up" });
+    return row({ ...base, status: "needs-you", detail: "No commits yet, so nothing is versioned or backed up" });
   }
 
   if (!(await hasRemote(exec, repoDir))) {
-    return row({ ...base, status: "needs-you", detail: "local only — your settings are versioned on this machine but are not backed up anywhere (rt home remote set <url>, or --create)", action: HOME_BACKUP_ADD_REMOTE_ACTION });
+    return row({ ...base, status: "needs-you", detail: "Local only: your settings are versioned on this Mac but backed up nowhere. Run rt home remote set <url>, or rt home remote set --create", action: HOME_BACKUP_ADD_REMOTE_ACTION });
   }
 
   const state = await originPushState(exec, repoDir);
-  if (state.kind === "no-ref") return row({ ...base, status: "needs-you", detail: "remote configured, nothing pushed yet", action: HOME_BACKUP_PUSH_ACTION });
-  if (state.kind === "unknown") return row({ ...base, status: "needs-you", detail: "could not determine push status — the rev-list check failed" });
+  if (state.kind === "no-ref") return row({ ...base, status: "needs-you", detail: "Remote set, nothing pushed yet", action: HOME_BACKUP_PUSH_ACTION });
+  if (state.kind === "unknown") return row({ ...base, status: "needs-you", detail: "Could not tell whether the remote is up to date" });
 
   const lastPush = readLastPush();
   if (state.kind === "ahead") {
@@ -483,7 +485,7 @@ export async function homeBackupRow(
     // already told us the push didn't happen.
     if (lastPush && !lastPush.ok) {
       const why = pushFailureSummary(lastPush);
-      const detail = `${state.count} commit(s) not pushed${why ? ` — the last push failed: ${why}` : ""}`;
+      const detail = `${state.count} commit${state.count === 1 ? "" : "s"} not pushed${why ? `. The last push failed: ${why}` : ""}`;
       return row({ ...base, status: "needs-you", detail });
     }
 
@@ -494,19 +496,19 @@ export async function homeBackupRow(
     const ageMs = state.committedAt === null ? null : Date.now() - state.committedAt.getTime();
     const withinPushWindow = ageMs !== null && ageMs >= 0 && ageMs <= pushDelaySec * 1000 + HOME_PUSH_GRACE_MS;
     if (withinPushWindow) {
-      return row({ ...base, status: "ready", detail: `${state.count} commit(s) queued for backup, pushes automatically within about ${pushDelaySec}s` });
+      return row({ ...base, status: "ready", detail: `${state.count} commit${state.count === 1 ? "" : "s"} waiting to back up; pushes within about ${pushDelaySec} seconds` });
     }
     // Outside the push window with no recorded failure: the daemon isn't
     // doing what it said it would, which is a real alarm again.
-    return row({ ...base, status: "needs-you", detail: `${state.count} commit(s) not pushed; the backup daemon should have pushed by now` });
+    return row({ ...base, status: "needs-you", detail: `${state.count} commit${state.count === 1 ? "" : "s"} not pushed, and the backup should have run by now` });
   }
 
   // `state.committedAt` is the tracking ref tip's COMMITTER date, not a push
   // time — a week-old commit pushed five minutes ago would read "last pushed
   // 7d ago". Only the daemon's record carries a real push timestamp, so the
   // wording changes with the evidence rather than overstating it.
-  if (lastPush?.ok) return row({ ...base, status: "ready", detail: `in sync — last pushed ${relativeWhen(new Date(lastPush.at))}` });
-  return row({ ...base, status: "ready", detail: `in sync — last commit ${relativeWhen(state.committedAt)}` });
+  if (lastPush?.ok) return row({ ...base, status: "ready", detail: `Backed up, last pushed ${relativeWhen(new Date(lastPush.at))}` });
+  return row({ ...base, status: "ready", detail: `Backed up, last commit ${relativeWhen(state.committedAt)}` });
 }
 
 /**
@@ -515,7 +517,7 @@ export async function homeBackupRow(
  * detail, which no interpolated slug or git stderr can precede, so the two
  * other things that reach a detail cannot forge or trip it.
  */
-const FIRST_PULL_PENDING = "waiting for a first pull";
+const FIRST_PULL_PENDING = "Waiting for a first pull";
 
 export function isTeamSyncFirstPullPending(detail: string): boolean {
   return detail.startsWith(`${FIRST_PULL_PENDING}: `);
@@ -543,11 +545,11 @@ export async function teamSyncRow(
   // setting is off, so the status list would be empty for the same reason a
   // clone with no origin is, and every clone would read as unwatched forever.
   if (!enabled) {
-    return row({ ...base, status: "ready", detail: "off: rt.teamSnapshot.enabled is false, so clones move only when you run rt team pull or rt team publish" });
+    return row({ ...base, status: "ready", detail: "Off: team sync is disabled in settings, so clones move only when you run rt team pull or rt team publish" });
   }
 
   const entries = await readStatus();
-  if (entries === null) return row({ ...base, status: "missing", detail: "rt daemon not reachable; team clones sync once it is running" });
+  if (entries === null) return row({ ...base, status: "missing", detail: "The rt daemon is not running. Team clones sync once it is" });
 
   const staleMs = clampPullIntervalSec(pullIntervalSec) * 2 * 1000;
   const problems: string[] = [];
@@ -555,15 +557,15 @@ export async function teamSyncRow(
   for (const slug of slugs) {
     const e = entries.find((x) => x.slug === slug);
     if (!e) {
-      problems.push(`${slug}: not watched (no origin?)`);
+      problems.push(`${slug}: not watched (it has no origin remote)`);
       continue;
     }
     if (e.conflicted) {
       // A pull-only clone cannot publish, so telling one to "rt team publish by hand" is an
       // instruction it will refuse (team-pull-only) the moment it tries. `=== true` rather than
       // truthy: a fixture or a pre-Task-6 entry missing the field must read as a pushing clone.
-      const remedy = e.pullOnly === true ? "reset it to origin or ask the team's owner" : "rebase and rt team publish by hand";
-      problems.push(`${slug}: rebase conflict: ${e.conflicted.detail}; ${remedy}`);
+      const remedy = e.pullOnly === true ? "reset it to origin or ask the team's owner" : "rebase it and run rt team publish";
+      problems.push(`${slug}: a rebase conflict (${e.conflicted.detail}); ${remedy}`);
       continue;
     }
     // A pull-only clone's own failure mode: a fast-forward it refused. rt never resets that for
@@ -576,7 +578,7 @@ export async function teamSyncRow(
     // into lastPullSkipped. Without this, a revoked token reads as "cannot fast-forward, reset
     // it to origin", which is both the wrong diagnosis and advice that cannot help.
     if (e.pullOnly === true && e.lastPullError == null && e.lastPullSkipped) {
-      problems.push(`${slug}: pull-only clone cannot fast-forward (${e.lastPullSkipped}); reset it to origin or ask the team's owner`);
+      problems.push(`${slug}: cannot fast-forward (${e.lastPullSkipped}); reset it to origin or ask the team's owner`);
       continue;
     }
     // Both fields come off the same redactCredentials(stderr) shape in the
@@ -589,20 +591,20 @@ export async function teamSyncRow(
     // broken fetch (expired token, revoked access) must not read as "ready" just because the
     // clone never pushes.
     if (e.pullOnly !== true && e.lastPushError != null) {
-      problems.push(`${slug}: push failing: ${e.lastPushError || "push failed"}`);
+      problems.push(`${slug}: pushes are failing: ${e.lastPushError || "push failed"}`);
       continue;
     }
     if (e.lastPullError != null) {
-      problems.push(`${slug}: fetch failing: ${e.lastPullError || "fetch failed"}`);
+      problems.push(`${slug}: fetches are failing: ${e.lastPullError || "fetch failed"}`);
       continue;
     }
     if (e.lastPullAt === 0) {
       neverPulled.push(slug);
-      problems.push(`${slug}: no pull yet`);
+      problems.push(`${slug}: not pulled yet`);
       continue;
     }
     if (now() - e.lastPullAt > staleMs) {
-      problems.push(`${slug}: last pull ${Math.round((now() - e.lastPullAt) / 60_000)} min ago`);
+      problems.push(`${slug}: last pulled ${Math.round((now() - e.lastPullAt) / 60_000)} minutes ago`);
     }
   }
   if (problems.length > 0) {
@@ -615,8 +617,8 @@ export async function teamSyncRow(
   // without changing the status.
   const skips = slugs.map((slug) => entries.find((x) => x.slug === slug)?.lastPullSkipped).filter((d): d is string => !!d);
   const pullOnlySlugs = slugs.filter((slug) => entries.find((x) => x.slug === slug)?.pullOnly === true);
-  const pullOnlyNote = pullOnlySlugs.length ? `; pull-only, never pushes: ${pullOnlySlugs.join(", ")}` : "";
-  const detail = `${slugs.length} clone${slugs.length === 1 ? "" : "s"} in sync${pullOnlyNote}${skips.length ? `; last pull skipped: ${skips.join("; ")}` : ""}`;
+  const pullOnlyNote = pullOnlySlugs.length ? `. Pull-only, never pushes: ${pullOnlySlugs.join(", ")}` : "";
+  const detail = `${slugs.length} clone${slugs.length === 1 ? "" : "s"} in sync${pullOnlyNote}${skips.length ? `. Last pull skipped: ${skips.join("; ")}` : ""}`;
   return row({ ...base, status: "ready", detail });
 }
 

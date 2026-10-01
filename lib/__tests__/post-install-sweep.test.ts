@@ -23,7 +23,7 @@
  * real 22-step apply engine, touching a real keychain/sops, or calling the
  * real `process.exit`.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
 } from "node:fs";
@@ -33,6 +33,8 @@ import { runPostInstall } from "../../commands/post-install.ts";
 import type { ApplyDeps } from "../../commands/setup.ts";
 import type { StepDef } from "../setup/apply.ts";
 import { fakeProbes } from "../setup/__tests__/fakes.ts";
+import { capturePlain } from "../../commands/__tests__/helpers/json-line.ts";
+import type { CapturedOut } from "../ui/__tests__/capture-out.ts";
 import type { RelayClient } from "../team/relay-client.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 
@@ -96,7 +98,13 @@ function tearDownFakes(): void {
   try { rmSync(fakeBinDir, { recursive: true, force: true }); } catch { /* absent */ }
 }
 
+let quiet: CapturedOut;
+beforeEach(() => {
+  quiet = capturePlain();
+});
+
 afterEach(() => {
+  quiet.restore();
   tearDownFakes();
   try { rmSync(LEGACY_RT_TRAY, { recursive: true, force: true }); } catch { /* absent */ }
   try { rmSync(STALE_MATTSTACK, { recursive: true, force: true }); } catch { /* absent */ }
@@ -135,7 +143,7 @@ function fakeApplyDeps(overrides: { steps?: StepDef[] } = {}): ApplyDeps & { exi
     secrets: fakeSecrets,
     relay: fakeRelay,
     secretPresence: { async has() { return null; } },
-    print: (s) => lines.push(s),
+    json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
       exitCodes.push(code);
       throw new Error("exit sentinel");

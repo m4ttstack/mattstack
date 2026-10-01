@@ -39,7 +39,7 @@ function chooseAction(options: WritingStyleOption[], inventory: SkillInventory, 
 export function writingStyleRow(input: { homeReady: boolean; resolved: ResolvedWritingStyle; inventory: SkillInventory; options: WritingStyleOption[] }): Row {
   const { homeReady, resolved, inventory, options } = input;
   // use writes the user store inside the home repo, which does not exist until Install clones it.
-  if (!homeReady) return row({ ...BASE, status: "needs-you", detail: "You'll choose this after Install" });
+  if (!homeReady) return row({ ...BASE, status: "needs-you", detail: "You choose this after Install" });
 
   const action = chooseAction(options, inventory, resolved.source === "fallback" ? undefined : resolved.skill);
   if (resolved.source === "fallback") {
@@ -47,7 +47,7 @@ export function writingStyleRow(input: { homeReady: boolean; resolved: ResolvedW
   }
   if (!isStyleUsable(resolved.skill, inventory)) {
     const plugin = inventory.disabledPluginFor.get(resolved.skill);
-    return row({ ...BASE, status: "invalid", detail: plugin ? `${resolved.skill} is in a disabled plugin: enable ${plugin}` : `${resolved.skill} is not installed here`, action });
+    return row({ ...BASE, status: "invalid", detail: plugin ? `${resolved.skill} is in the disabled plugin ${plugin}. Enable it` : `${resolved.skill} is not installed on this Mac`, action });
   }
   const label = presetById(resolved.skill)?.label ?? resolved.skill;
   return row({ ...BASE, status: "ready", detail: `${label} (${WRITING_STYLE_SOURCE_LABEL[resolved.source]})`, action });
@@ -64,6 +64,6 @@ export function writingStyleRowFor(p: Pick<Probes, "home" | "exists">, pluginLis
     const resolved = resolveWritingStyle({ home: p.home });
     return writingStyleRow({ homeReady: p.exists(homeGitDir(p.home)), resolved, inventory, options: listWritingStyles(inventory, resolved).options });
   } catch (err) {
-    return row({ ...BASE, finishGated: false, status: "error", detail: `could not read the writing style: ${err instanceof Error ? err.message : String(err)}` });
+    return row({ ...BASE, finishGated: false, status: "error", detail: `Could not read the writing style: ${err instanceof Error ? err.message : String(err)}` });
   }
 }

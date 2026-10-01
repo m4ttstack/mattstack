@@ -6,7 +6,7 @@ import type { PackRequirements } from "../requirements.ts";
 import type { ToolResolution } from "../../deps/resolve.ts";
 import type { LinkOutcome } from "../../deps/links.ts";
 import type { DetectedEditor } from "../../editors.ts";
-import { UserActionableError } from "../errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { readSetupState } from "../state.ts";
 
 function noopResolution(tool: string): ToolResolution {
@@ -103,7 +103,7 @@ describe("installTool — tool.herdr / tool.claude (brew, vendor)", () => {
     const p = fakeProbes({ exec });
     const result = await installTool(p, "herdr", [], NOOP_SEAMS);
     expect(result.ok).toBe(false);
-    expect(result.detail).toContain("timed out");
+    expect(result.detail).toContain("did not finish in time");
   });
 
   test("brew install exits 0 but the tool still isn't runnable -> not claimed installed (re-probe, never trust exit code alone)", async () => {
@@ -116,7 +116,7 @@ describe("installTool — tool.herdr / tool.claude (brew, vendor)", () => {
     const p = fakeProbes({ exec });
     const result = await installTool(p, "herdr", [], NOOP_SEAMS);
     expect(result.ok).toBe(false);
-    expect(result.detail).toContain("not claiming success");
+    expect(result.detail).toContain("still does not run");
   });
 });
 
@@ -156,7 +156,7 @@ describe("installTool — vendor security (R-T21): team-authored URLs are never 
     const exec: ExecScript = (argv) => (argv[0] === "brew" && argv[1] === "--version" ? missing("brew") : ok());
     const p = fakeProbes({ exec });
     await expect(installTool(p, "widget", reqs, NOOP_SEAMS)).rejects.toThrow(UserActionableError);
-    await expect(installTool(p, "widget", reqs, NOOP_SEAMS)).rejects.toThrow(/manual-install-required|install it yourself/);
+    await expect(installTool(p, "widget", reqs, NOOP_SEAMS)).rejects.toThrow(/manual-install-required|Install it yourself/);
     expect(p.calls.exec.some((argv) => argv[0] === "curl" || argv[0] === "sh")).toBe(false);
   });
 
@@ -199,7 +199,7 @@ describe("installTool — vendor security (R-T21): team-authored URLs are never 
     };
     const p = fakeProbes({ exec });
     const result = await installTool(p, "herdr", [], NOOP_SEAMS);
-    expect(result).toEqual({ via: "vendor", ok: false, detail: expect.stringContaining("download failed") });
+    expect(result).toEqual({ via: "vendor", ok: false, detail: expect.stringContaining("Downloading the install script failed") });
     expect(p.calls.exec.some((argv) => argv[0] === "sh")).toBe(false);
   });
 
@@ -212,7 +212,7 @@ describe("installTool — vendor security (R-T21): team-authored URLs are never 
     const p = fakeProbes({ exec });
     const result = await installTool(p, "herdr", [], NOOP_SEAMS);
     expect(result.ok).toBe(false);
-    expect(result.detail).toContain("timed out");
+    expect(result.detail).toContain("did not finish in time");
     expect(p.calls.exec.some((argv) => argv[0] === "sh")).toBe(false);
   });
 });
@@ -268,7 +268,7 @@ describe("installTool — apple-clt", () => {
     expect(p.calls.exec).not.toContainEqual(["xcode-select", "--install"]);
     expect(p.calls.exec.some((argv) => argv[0] === "rm" && argv.includes("/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress"))).toBe(true);
     expect(result.ok).toBe(true);
-    expect(result.detail).toContain("headlessly");
+    expect(result.detail).toContain("Installed Command Line Tools");
   });
 
   test("apple-clt headless: no catalog label -> falls back to the dialog trigger, marker still cleaned", async () => {
@@ -285,7 +285,7 @@ describe("installTool — apple-clt", () => {
     // A triggered dialog is progress, not completion — ok stays false until a
     // later probe verifies git.
     expect(result.ok).toBe(false);
-    expect(result.detail).toContain("dialog");
+    expect(result.detail).toContain("Opened Apple's Command Line Tools installer");
   });
 
   test("apple-clt code 1 'already installed' -> ok (honest, not re-triggered)", async () => {
@@ -312,7 +312,7 @@ describe("installTool — apple-clt", () => {
     };
     const p = fakeProbes({ exec });
     const result = await installTool(p, "apple-clt", [], NOOP_SEAMS);
-    expect(result.detail).toContain("complete it");
+    expect(result.detail).toContain("Finish it");
     expect(result.detail.toLowerCase()).not.toContain("installed \"");
   });
 });

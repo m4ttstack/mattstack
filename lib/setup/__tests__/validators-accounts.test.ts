@@ -53,7 +53,7 @@ describe("accountRows — account.gitlab", () => {
       required: true,
       optionalNote: null,
       status: "missing",
-      detail: "no GitLab account connected",
+      detail: "No GitLab account connected yet",
       action: {
         type: "connect",
         label: "Connect",
@@ -127,7 +127,7 @@ describe("accountRows — account.gitlab", () => {
       "account.gitlab",
     );
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("token is missing: api (needs api for the home-repo push and members sync)");
+    expect(r.detail).toBe("This token is missing api (needs api for the home-repo push and members sync)");
     expect((r.action as { create?: { url: string } }).create?.url).toStartWith("https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api");
   });
 
@@ -140,7 +140,7 @@ describe("accountRows — account.gitlab", () => {
     const joined = fakeProbes({ fetch, files: { "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true }) } });
     const r = await pickRow(accountRows(joined, team, [], fakeSecrets({ "rt.gitlabToken": "tok123" }), null, { forgeHost: "gitlab.example.com" }), "account.gitlab");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("token is missing: api (needs api to post board review comments)");
+    expect(r.detail).toBe("This token is missing api (needs api to post board review comments)");
     expect(r.action?.type).toBe("connect");
     expect((r.action as { create?: { url: string } }).create?.url).toBe("https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api");
   });
@@ -155,7 +155,7 @@ describe("accountRows — account.gitlab", () => {
     const joined = fakeProbes({ fetch, files: { "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true }) } });
     const r = await pickRow(accountRows(joined, team, [], fakeSecrets({ "rt.gitlabToken": "tok123" }), null, { forgeHost: "gitlab.example.com" }), "account.gitlab");
     expect(r.status).toBe("ready");
-    expect(r.detail).toBe("gitlab token valid");
+    expect(r.detail).toBe("GitLab token works");
   });
 
   test("secret present, host user-confirmed, validate rejects (401) -> invalid, WITH a connect action so a revoked token is replaceable (H2)", async () => {
@@ -217,7 +217,7 @@ describe("accountRows — account.github", () => {
       argv[0] === "gh" && argv[1] === "auth" && argv[2] === "status" ? ok("✓ Logged in to github.com account octocat (keyring)\n") : ok();
     const r = await pickRow(accountRows(fakeProbes({ exec }), githubTeam(), [], fakeSecrets(), null), "account.github");
     expect(r.status).toBe("ready");
-    expect(r.detail).toBe("via gh (octocat)");
+    expect(r.detail).toBe("Signed in through the gh CLI as octocat");
     expect(r.why).toBe("Lets rt open PRs, check CI, and read repo metadata on github.com.");
   });
 
@@ -225,7 +225,7 @@ describe("accountRows — account.github", () => {
     const exec: ExecScript = (argv) => (argv[0] === "gh" ? ok("gh: you are authenticated\n") : ok());
     const r = await pickRow(accountRows(fakeProbes({ exec }), githubTeam(), [], fakeSecrets(), null), "account.github");
     expect(r.status).toBe("ready");
-    expect(r.detail).toBe("via gh");
+    expect(r.detail).toBe("Signed in through the gh CLI");
   });
 
   test("no token, gh not authenticated -> missing, connect action WITHOUT alternatives (H1 fix: no session to fall back to)", async () => {
@@ -263,7 +263,7 @@ describe("accountRows — account.github", () => {
     const exec: ExecScript = (argv) => (argv[0] === "gh" ? { code: 1, stdout: "", stderr: "" } : ok());
     const r = await pickRow(accountRows(fakeProbes({ exec, fetch }), githubTeam(), [], fakeSecrets({ "rt.githubToken": "gh_tok" }), null), "account.github");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("token is missing: read:org");
+    expect(r.detail).toBe("This token is missing read:org");
     expect(r.action).toMatchObject({ type: "connect", create: { url: "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg" } });
   });
 
@@ -344,7 +344,7 @@ describe("accountRows — account.slack + account.slack-app", () => {
   test("account.slack: no app yet -> missing, explains the dependency, no oauth action (finding 15/L6)", async () => {
     const r = await pickRow(accountRows(fakeProbes(), baseTeam(), SLACK_REQS, fakeSecrets(), CREATE_INTENT), "account.slack");
     expect(r.status).toBe("missing");
-    expect(r.detail).toContain("account.slack-app");
+    expect(r.detail).toContain("Waiting for the team's Slack app to be set up");
     expect(r.action).toBeNull();
   });
 
@@ -358,7 +358,7 @@ describe("accountRows — account.slack + account.slack-app", () => {
   test("account.slack: no token yet -> a short line names the redirect URL to add", async () => {
     const team = baseTeam({ integrations: { slack: { appId: "A0TEAM", clientId: "abc" } } });
     const r = await pickRow(accountRows(fakeProbes(), team, SLACK_REQS, fakeSecrets(), null), "account.slack");
-    expect(r.detail).toBe("no Slack account connected. If Slack rejects the redirect, add http://localhost:11234/callback in the app's OAuth settings");
+    expect(r.detail).toBe("No Slack account connected yet. If Slack rejects the redirect, add http://localhost:11234/callback in the app's OAuth settings");
   });
 
   test("account.slack: token accepted but missing user scopes the board reads with -> needs-you naming them, oauth action", async () => {
@@ -366,7 +366,7 @@ describe("accountRows — account.slack + account.slack-app", () => {
     const fetch = async () => ({ status: 200, body: JSON.stringify({ ok: true, team: "Acme" }), headers: { "x-oauth-scopes": "reactions:write,chat:write" } });
     const r = await pickRow(accountRows(fakeProbes({ fetch }), team, SLACK_REQS, fakeSecrets({ "board.slackToken": "tok" }), null), "account.slack");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("reconnect Slack to grant: channels:read, groups:read, channels:history, groups:history, reactions:read");
+    expect(r.detail).toBe("Reconnect Slack to grant these permissions: channels:read, groups:read, channels:history, groups:history, reactions:read");
     expect(r.action).toEqual({ type: "oauth", label: "Connect", integration: "slack", verb: ["setup", "slack", "connect"] });
   });
 
@@ -481,7 +481,7 @@ describe("accountRows — account.switchboard", () => {
     const p = fakeProbes();
     const r = await pickRow(accountRows(p, team, [], fakeSecrets(), JOIN_INTENT), "account.switchboard");
     expect(r.status).toBe("error");
-    expect(r.detail).toContain("unverified");
+    expect(r.detail).toContain("to confirm that address");
     expect(p.calls.fetch).toEqual([]);
     expect(r.action).toEqual({
       type: "connect",
@@ -499,7 +499,7 @@ describe("accountRows — account.switchboard", () => {
       "account.switchboard",
     );
     expect(r.status).toBe("ready");
-    expect(r.detail).toBe("switchboard reachable");
+    expect(r.detail).toBe("Switchboard reachable");
   });
 
   test("host user-confirmed to the declared URL, /healthz unhealthy -> error with a re-check, never a Confirm that would re-latch the same value", async () => {
@@ -521,7 +521,7 @@ describe("accountRows — account.switchboard", () => {
       "account.switchboard",
     );
     expect(r.status).toBe("error");
-    expect(r.detail).toContain('you confirmed "https://sw-a.example.com", this team declares "https://sw-b.example.com"');
+    expect(r.detail).toContain("You confirmed https://sw-a.example.com, but this team uses https://sw-b.example.com");
     expect(r.action?.type).toBe("connect");
     expect(r.action?.type === "connect" ? r.action.fields[0]?.value : null).toBe("https://sw-b.example.com");
   });
@@ -594,7 +594,7 @@ describe("accountRows: account.board-peering", () => {
     expect(r.required).toBe(false);
     expect(r.finishGated).toBeUndefined();
     expect(r.detail).toContain("acme");
-    expect(r.detail).toContain("ask the team's owner to re-invite your board: rt team invite --handle <your forge username>");
+    expect(r.detail).toContain("Ask the team's owner to invite you again (rt team invite --handle <your forge username>)");
     expect(r.action?.type).toBe("steps");
     expect(rows.find((row) => row.id === "account.switchboard")?.status).toBe("ready");
   });
@@ -658,7 +658,7 @@ describe("accountRows: account.board-peering", () => {
     const r = await peeringRow(machine({ acme: { switchboard: SB, joinedByRt: true } }), secrets);
     expect(r.status).toBe("error");
     expect(r.required).toBe(false);
-    expect(r.detail).toContain("could not read your secrets store");
+    expect(r.detail).toContain("Could not read your secrets store");
     expect(r.detail).toContain("keychain locked");
     expect(r.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
   });
@@ -864,7 +864,7 @@ describe("accountRows, credential_health integration (rt-132)", () => {
         "account.github",
       );
       expect(r.status).toBe("ready");
-      expect(r.detail).toContain("expires in 3 day");
+      expect(r.detail).toContain("Expires in 3 days");
       expect(r.detail).toContain(expiresAt);
     } finally {
       neutralize("github");
@@ -892,7 +892,7 @@ describe("accountRows, credential_health integration (rt-132)", () => {
         "account.github",
       );
       expect(r.status).toBe("ready");
-      expect(r.detail).toBe("github token valid");
+      expect(r.detail).toBe("GitHub token works");
     } finally {
       neutralize("github");
     }
@@ -920,7 +920,7 @@ describe("accountRows, credential_health integration (rt-132)", () => {
       // The live probe was unreachable ("error"), but a health row cached
       // "ready" recently enough takes over the row's status and detail.
       expect(r.status).toBe("ready");
-      expect(r.detail).toContain("last checked");
+      expect(r.detail).toContain("Last checked");
       expect(r.detail).toContain("4h");
     } finally {
       neutralize("gitlab");

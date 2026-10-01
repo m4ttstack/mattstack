@@ -1,4 +1,4 @@
-import { describe, test, expect, spyOn } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import {
   teamSecretsFile,
   teamSopsYamlPath,
@@ -22,6 +22,8 @@ import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { teamsDir } from "../../rt-paths.ts";
 import { join } from "path";
 import { secretsList } from "../../../commands/secrets.ts";
+import * as out from "../../ui/out.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { teamLocalPath } from "../../team/team-local.ts";
 
@@ -558,23 +560,16 @@ describe("team secrets never leak a value", () => {
     await writeTeamSecret("acme", "board", "apiKey", CANARY, seams);
     await writeTeamSecret("acme", "board", "other", "value2", seams);
 
-    const logs: string[] = [];
-    const errors: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation((...parts: unknown[]) => {
-      logs.push(parts.map(String).join(" "));
-    });
-    const errorSpy = spyOn(console, "error").mockImplementation((...parts: unknown[]) => {
-      errors.push(parts.map(String).join(" "));
-    });
-
+    const cap = captureOut();
+    out.__test__.setHuman(() => false);
+    let output: string;
     try {
       await secretsList(["board", "--team", "acme"], {}, seams);
     } finally {
-      logSpy.mockRestore();
-      errorSpy.mockRestore();
+      output = cap.stdout() + cap.stderr();
+      cap.restore();
     }
 
-    const output = [...logs, ...errors].join("\n");
     expect(output).toContain("apiKey");
     expect(output).toContain("other");
     expect(output).not.toContain(CANARY);

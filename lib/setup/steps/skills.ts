@@ -73,19 +73,19 @@ async function skillsLinkRun(ctx: ApplyContext): Promise<StepOutcome> {
   const personalNote = personal ? `, ${personalCount} personal` : "";
 
   const root = appBundlePath(ctx.p);
-  if (!root) return personal ? { state: "done", detail: `linked personal skills only (not running from an app bundle)${personalNote}` } : { state: "skipped", detail: "not running from an app bundle" };
+  if (!root) return personal ? { state: "done", detail: `Linked your personal skills only; rt is not running from the app${personalNote}` } : { state: "skipped", detail: "rt is not running from the app" };
 
   const results = linkBundledSkills({
     skillsRoot: join(root, HELPERS_DIR, "skills"),
     claudeSkillsDir: join(ctx.p.home, ".claude", "skills"),
     isBundled: (app) => bundledToolPath(ctx.p, app) !== null,
   });
-  if (results.length === 0) return personal ? { state: "done", detail: `bundle ships no skills${personalNote}` } : { state: "skipped", detail: "bundle ships no skills" };
+  if (results.length === 0) return personal ? { state: "done", detail: `The app ships no skills${personalNote}` } : { state: "skipped", detail: "The app ships no skills" };
 
   for (const r of results.filter((x) => x.skipped)) ctx.log("skills.link", `${r.app}: ${r.skipped}`);
   const linked = results.filter((r) => !r.skipped);
   const total = linked.reduce((n, r) => n + r.linked, 0);
-  return { state: "done", detail: `linked ${total} skill(s) from ${linked.length} app(s)${personalNote}` };
+  return { state: "done", detail: `Linked ${total} skill${total === 1 ? "" : "s"} from ${linked.length} app${linked.length === 1 ? "" : "s"}${personalNote}` };
 }
 
 async function skillsLinkRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
@@ -232,7 +232,7 @@ async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
       setSetting("gitq.workSlots", { workSlotLocation: join(root, ".gitq-slots"), maxWorkSlots: 3 }, "machine");
       written.push("gitq.workSlots");
     } else {
-      ctx.log("board.keys", "gitq.workSlots: no repo root yet — left unset");
+      ctx.log("board.keys", "gitq.workSlots: no repo root yet, so it is left unset");
     }
   }
 
@@ -240,7 +240,7 @@ async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   await seedOwnHandle(ctx, written);
 
-  return { state: "done", detail: written.length > 0 ? `wrote: ${written.join(", ")}` : "nothing to write" };
+  return { state: "done", detail: written.length > 0 ? `Wrote ${written.join(", ")}` : "Nothing to write" };
 }
 
 async function boardKeysRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
@@ -264,20 +264,20 @@ export const boardKeysStep: StepDef = {
 
 async function cronTriageRun(ctx: ApplyContext): Promise<StepOutcome> {
   const def = getDef("board.reReview");
-  if (!def) return { state: "skipped", detail: "board.reReview not registered" };
+  if (!def) return { state: "skipped", detail: "The board's re-review hook is not registered" };
 
   const enabled = getSetting<{ enabled?: boolean }>("board.reReview").value?.enabled === true;
-  if (!enabled) return { state: "skipped", detail: "board.reReview disabled" };
+  if (!enabled) return { state: "skipped", detail: "The board's re-review hook is off" };
 
   const board = resolveTool(ctx.p, "board").exec;
   const resolution = resolveBoardTriage(ctx.p, getKnownRepos(), board);
 
   if (resolution.kind === "missing") {
-    return { state: "skipped", detail: "board binary not found — resolve it first (`rt deps resolve board`)" };
+    return { state: "skipped", detail: "The board binary was not found. Run rt deps resolve board first" };
   }
 
   installCronTrigger(triageTrigger(resolution.run));
-  return { state: "done", detail: "installed board-triage" };
+  return { state: "done", detail: "Installed the board triage skill" };
 }
 
 async function cronTriageRunSafe(ctx: ApplyContext): Promise<StepOutcome> {

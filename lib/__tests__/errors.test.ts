@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { UserActionableError, exitFromDispatch, exitUnexpected, exitUserError, failureFor, userErrorPayload } from "../errors.ts";
-import { UserActionableError as ViaShim, exitUserError as exitViaShim, userErrorPayload as payloadViaShim } from "../setup/errors.ts";
 import { logsDir } from "../rt-paths.ts";
 import * as out from "../ui/out.ts";
 import { captureOut } from "../ui/__tests__/capture-out.ts";
@@ -61,12 +60,6 @@ test("the --json payload is unchanged: contract, at, and error with code, messag
     at: "2026-10-01T12:00:00.000Z",
     error: { code: "team-secrets-unreadable", message: "This Mac cannot read the acme team's secrets yet", team: "acme" },
   });
-});
-
-test("lib/setup/errors.ts re-exports the same bindings", () => {
-  expect(ViaShim).toBe(UserActionableError);
-  expect(exitViaShim).toBe(exitUserError);
-  expect(payloadViaShim).toBe(userErrorPayload);
 });
 
 test("failureFor maps the error onto a failure block", () => {

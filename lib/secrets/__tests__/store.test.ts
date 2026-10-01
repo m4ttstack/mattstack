@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import {
   readSecret,
   writeSecret,
@@ -24,6 +24,8 @@ import { rtDir, mattstackHome } from "../../rt-paths.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { dirname, join } from "path";
 import { secretsList } from "../../../commands/secrets.ts";
+import * as out from "../../ui/out.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
 
 const NOT_FOUND_STDERR = "The specified item could not be found in the keychain.";
 const DEFAULT_CIPHERTEXT = JSON.stringify({ data: "opaque", sops: { age: [] } });
@@ -643,23 +645,16 @@ describe("rt secrets list (command layer)", () => {
     execSeam.writeFile(path, "ciphertext");
     const seams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey("AGE-X"), execSeam };
 
-    const logs: string[] = [];
-    const errors: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation((...parts: unknown[]) => {
-      logs.push(parts.map(String).join(" "));
-    });
-    const errorSpy = spyOn(console, "error").mockImplementation((...parts: unknown[]) => {
-      errors.push(parts.map(String).join(" "));
-    });
-
+    const cap = captureOut();
+    out.__test__.setHuman(() => false);
+    let output: string;
     try {
       await secretsList([domain], {}, seams);
     } finally {
-      logSpy.mockRestore();
-      errorSpy.mockRestore();
+      output = cap.stdout() + cap.stderr();
+      cap.restore();
     }
 
-    const output = [...logs, ...errors].join("\n");
     expect(output).toContain("apiKey");
     expect(output).toContain("other");
     expect(output).not.toContain(CANARY);
