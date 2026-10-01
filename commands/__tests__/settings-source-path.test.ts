@@ -56,7 +56,7 @@ describe("rt settings source-path", () => {
     const notRt = mkdtempSync(join(tmpdir(), "rt-source-path-bad-"));
     dirs.push(notRt);
     const r = await run([notRt]);
-    expect(r.err).toEqual([`[failed] That folder is not an rt checkout  ${notRt}\n  why: It has no cli.ts.\n`]);
+    expect(r.err).toEqual([`That folder is not an rt checkout  ${notRt}\n  why: It has no cli.ts.\n`]);
     expect(r.exitCode).toBe(2);
   });
 
