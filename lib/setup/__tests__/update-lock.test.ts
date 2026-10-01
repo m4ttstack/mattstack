@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { createUpdateLock, UPDATE_LOCK_MAX_AGE_MS, updateLockPath } from "../update-lock.ts";
 
 let dir: string;
@@ -90,5 +90,45 @@ describe("createUpdateLock", () => {
     const next = createUpdateLock(path, { pid: 222, alive: everyoneAlive, now: () => Date.now() });
 
     expect(next.acquire()).toBe(false);
+  });
+
+  test("the lock appears with its pid already in it and leaves no scratch file behind", () => {
+    createUpdateLock(path, { pid: 111, alive: everyoneAlive }).acquire();
+
+    expect(readdirSync(dirname(path))).toEqual(["setup-update.lock"]);
+    expect(readFileSync(path, "utf8")).toBe("111");
+  });
+
+  test("a run evicted by the age cap does not remove its successor's lock when it releases", () => {
+    const evicted = createUpdateLock(path, { pid: 111, alive: everyoneAlive });
+    evicted.acquire();
+    const now = Date.now();
+    const old = new Date(now - UPDATE_LOCK_MAX_AGE_MS - 1000);
+    utimesSync(path, old, old);
+    const successor = createUpdateLock(path, { pid: 222, alive: everyoneAlive, now: () => now });
+    expect(successor.acquire()).toBe(true);
+
+    evicted.release();
+
+    expect(readFileSync(path, "utf8")).toBe("222");
+    expect(createUpdateLock(path, { pid: 333, alive: everyoneAlive, now: () => now }).acquire()).toBe(false);
+  });
+
+  test("the default liveness check tells this process from one that has exited", async () => {
+    const child = Bun.spawn(["true"], { stdout: "ignore", stderr: "ignore" });
+    await child.exited;
+
+    createUpdateLock(path, { pid: process.pid }).acquire();
+    expect(createUpdateLock(path, { pid: process.pid + 1 }).acquire()).toBe(false);
+
+    writeFileSync(path, String(child.pid));
+    expect(createUpdateLock(path, { pid: process.pid + 1 }).acquire()).toBe(true);
+  });
+
+  test("a lock path that cannot be read as a file throws instead of being taken over", () => {
+    createUpdateLock(join(path, "inner"), { pid: 111, alive: everyoneAlive }).acquire();
+
+    expect(() => createUpdateLock(path, { pid: 222, alive: everyoneAlive }).acquire()).toThrow();
+    expect(existsSync(join(path, "inner"))).toBe(true);
   });
 });

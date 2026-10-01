@@ -364,11 +364,18 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
     return;
   }
 
-  const lock = deps.updateLock;
-  if (lock && !lock.acquire()) {
-    if (json) emit({ event: "done", ok: true, skipped: "running" });
-    else deps.print("setup update: another update run is in progress");
-    return;
+  // A lock that cannot be taken must not stop a Mac from being updated.
+  let lock = deps.updateLock;
+  let lockError: string | null = null;
+  try {
+    if (lock && !lock.acquire()) {
+      if (json) emit({ event: "done", ok: true, skipped: "running" });
+      else deps.print("setup update: another update run is in progress");
+      return;
+    }
+  } catch (err) {
+    lockError = err instanceof Error ? err.message : String(err);
+    lock = undefined;
   }
 
   let needsAttention = false;
@@ -384,12 +391,13 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
       needOpts: deps.needOpts,
     });
     const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx);
+    const lastId = result.outcomes.at(-1)?.id;
+    if (lockError && lastId) emit({ event: "log", id: lastId, line: `warn: setup update lock not taken, running unguarded: ${lockError}` });
 
     try {
       updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version, at: deps.probes.now().toISOString() } }));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const lastId = result.outcomes.at(-1)?.id;
       if (lastId) emit({ event: "log", id: lastId, line: `warn: setup update stamp not persisted: ${message}` });
     }
 
