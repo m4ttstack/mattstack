@@ -86,10 +86,10 @@ afterEach(async () => {
 test('respond and doctor gates are read-only on someone else\'s MR and on an "all" board', () => {
   for (const kind of ['respond-plan', 'respond-post', 'doctor-escalation']) {
     expect(gateReadOnlyReason(gate(kind), theirs, 'rmarlow')).toBe(
-      "only !1271's author answers this gate"
+      "Only !1271's author can answer this. You're viewing it read-only."
     );
     expect(gateReadOnlyReason(gate(kind), mine, null)).toBe(
-      'set your seat in board settings to act on your own MRs'
+      'Set your seat in board settings to answer gates on your own MRs.'
     );
     expect(gateReadOnlyReason(gate(kind), mine, 'rmarlow')).toBeNull();
   }
@@ -108,7 +108,7 @@ test('the read-only face shows the questions but nothing to pick, submit or focu
         mr={theirs}
         position={1}
         states={['active']}
-        readOnly="only !1271's author answers this gate"
+        readOnly="Only !1271's author can answer this. You're viewing it read-only."
         onClose={() => {}}
         onNext={() => {}}
         onBack={() => {}}
@@ -120,7 +120,11 @@ test('the read-only face shows the questions but nothing to pick, submit or focu
   });
   const sheet = document.body;
   expect(sheet.textContent).toContain('Rebase onto main and push?');
-  expect(sheet.textContent).toContain("only !1271's author answers this gate");
+  const notice = sheet.querySelector('.tui-sheet-main [role="note"]');
+  expect(notice?.textContent).toBe(
+    "Only !1271's author can answer this. You're viewing it read-only."
+  );
+  expect(sheet.querySelector('.tui-gate-question[data-locked]')).not.toBeNull();
   const labels = [...sheet.querySelectorAll('button')].map(b =>
     b.textContent?.trim()
   );

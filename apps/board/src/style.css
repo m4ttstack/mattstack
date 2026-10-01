@@ -2134,6 +2134,14 @@ body {
 .tui-gate-question[data-readonly] .tui-gate-choice:not([data-checked]):hover {
   background: transparent;
 }
+/* A gate this seat may not answer: the choices read as out of reach. */
+.tui-gate-question[data-locked] :is(.tui-gate-choice, .tui-gate-choice-input) {
+  cursor: not-allowed;
+}
+.tui-gate-question[data-locked] .tui-gate-choice {
+  color: var(--text-2);
+  border-style: dashed;
+}
 .tui-gate-choice:has(> input:focus-visible) {
   outline: 2px solid var(--fill-accent);
   outline-offset: 1px;

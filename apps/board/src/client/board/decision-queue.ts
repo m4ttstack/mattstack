@@ -5,7 +5,7 @@ import type { GateRow } from '../../gates/store.ts';
 import { isOwnMr } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import type { TriageGateState } from './DecisionQueueModal.tsx';
-import { cleanTitle, SEAT_HINT } from './format.ts';
+import { cleanTitle } from './format.ts';
 
 /** Why the queue shows this gate read-only, or null when the seat can
     answer it: a respond or doctor gate is its MR author's decision, and the
@@ -17,11 +17,10 @@ export function gateReadOnlyReason(
 ): string | null {
   const lane = domainForKind(gate.kind);
   if (lane !== 'respond' && lane !== 'doctor') return null;
-  if (self === null) return SEAT_HINT;
+  if (self === null)
+    return 'Set your seat in board settings to answer gates on your own MRs.';
   if (mr && isOwnMr(mr, self)) return null;
-  return mr
-    ? `only !${mr.iid}'s author answers this gate`
-    : "only the MR's author answers this gate";
+  return `Only ${mr ? `!${mr.iid}'s` : "the MR's"} author can answer this. You're viewing it read-only.`;
 }
 
 export interface QueueEntry {
