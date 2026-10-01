@@ -215,3 +215,42 @@ test("an id the plan never named falls back to the id", async () => {
   ]);
   expect(stdout.join("")).toBe("[ok] path.link\n[ok] Setup is done  1 done\n");
 });
+
+test("at a terminal a hostile detail reaches the helper as one clean line, on a done step and on a failed one", async () => {
+  process.env.RT_UI_BIN = FAKE;
+  process.env.RT_UI_FAKE = JSON.stringify({ record });
+  const hostile = "first\x1b[2Jsecond\nforged row\x1b]0;title\x07\u0000end";
+  await drive(emitter(true), [
+    plan,
+    { event: "step", id: "path.link", state: "running" },
+    { event: "step", id: "path.link", state: "done", detail: hostile },
+  ]);
+  await drive(emitter(true), [
+    plan,
+    { event: "step", id: "repos.clone", state: "running" },
+    { event: "step", id: "repos.clone", state: "failed", detail: hostile },
+  ]);
+  const ends = sent().filter((m) => m.t === "done" || m.t === "fail");
+  expect(ends.map((m) => m.t)).toEqual(["done", "fail"]);
+  for (const m of ends) {
+    expect(m.hint).toBe("firstsecond forged rowend");
+    expect(m.hint).not.toMatch(/[\x00-\x1f]/);
+  }
+});
+
+test("at a terminal a log line with a newline is one sub per row and the log receives it unchanged", async () => {
+  process.env.RT_UI_BIN = FAKE;
+  process.env.RT_UI_FAKE = JSON.stringify({ record });
+  const hostile = "line one\nline two";
+  await drive(emitter(true), [
+    plan,
+    { event: "step", id: "repos.clone", state: "running" },
+    { event: "log", id: "repos.clone", line: hostile },
+    { event: "step", id: "repos.clone", state: "done" },
+  ]);
+  expect(sent().filter((m) => m.t === "sub")).toEqual([
+    { t: "sub", text: "line one" },
+    { t: "sub", text: "line two" },
+  ]);
+  expect(logged).toEqual([["repos.clone", hostile]]);
+});

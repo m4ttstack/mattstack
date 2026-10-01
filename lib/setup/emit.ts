@@ -62,6 +62,14 @@ const SKIPPED_RUN: Record<NonNullable<DoneEvent["skipped"]>, string> = {
 const WAITING_FOR_APP = "Waiting for mattstack.app to finish this step";
 const SUB_LINES_KEPT = 5;
 
+// The helper paints a step's title and hint as given, so a child's escape or newline must be gone before it gets there.
+const ESCAPES = /[\x1b]\[[0-9;?]*[ -/]*[@-~]|[\x1b]\][^\x07\x1b\n]*(?:\x07|[\x1b]\\)|[\x1b][@-Z\\-_]/g;
+const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
+
+function oneLine(s: string): string {
+  return s.replace(ESCAPES, "").replace(/[\r\n\t]+/g, " ").replace(CONTROLS, "");
+}
+
 // The helper only narrates a step; one that cannot start leaves the run on the plain path.
 function tryOpenStep(title: string): StepHandle | null {
   try {
@@ -111,9 +119,11 @@ export function createStepEmitter(opts: StepEmitterOptions): StepEmitter {
       out.print(out.line("warn", line.replace(/^warn: /, "")));
       return;
     }
-    current.subs.push(line);
-    if (current.subs.length > SUB_LINES_KEPT) current.subs.shift();
-    current.handle?.sub(line);
+    for (const row of line.split(/\r\n|\r|\n/)) {
+      current.subs.push(row);
+      if (current.subs.length > SUB_LINES_KEPT) current.subs.shift();
+      if (row !== "") current.handle?.sub(row);
+    }
   }
 
   function count(state: FinalState): void {
@@ -127,14 +137,16 @@ export function createStepEmitter(opts: StepEmitterOptions): StepEmitter {
   async function finish(ev: StepEvent & { state: FinalState }, running: Running): Promise<void> {
     let status: RenderStatus;
     let painted = false;
+    const title = oneLine(running.title);
+    const hint = ev.detail === undefined ? undefined : oneLine(ev.detail);
     if (ev.state === "failed") {
       status = "failed";
-      if (running.handle) painted = await running.handle.fail(running.title, ev.detail);
+      if (running.handle) painted = await running.handle.fail(title, hint);
     } else {
       const ending = FINAL_STATUS[ev.state];
       status = ending;
       // A plain done passes no status: the helper's default ending is the check mark, and the wire carries no status key.
-      if (running.handle) painted = await running.handle.done(running.title, ev.detail, ev.state === "done" ? undefined : ending);
+      if (running.handle) painted = await running.handle.done(title, hint, ev.state === "done" ? undefined : ending);
     }
     const blocks: Block[] = [];
     if (!painted) {
