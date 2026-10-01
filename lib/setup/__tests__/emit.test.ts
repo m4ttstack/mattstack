@@ -35,7 +35,14 @@ describe("createHumanEmitter", () => {
     const emit = createHumanEmitter((s) => printed.push(s));
     emit({ event: "done", ok: false, failedStep: "path.link", failedSteps: ["path.link", "verify"] });
     emit({ event: "done", ok: true, skipped: "current" });
+    emit({ event: "done", ok: true, skipped: "not-set-up" });
+    emit({ event: "done", ok: true, skipped: "running" });
 
-    expect(printed).toEqual(["  ✗ failed: path.link, verify", "  - skipped: already applied for this version"]);
+    expect(printed).toEqual([
+      "  ✗ failed: path.link, verify",
+      "  - skipped: already applied for this version",
+      "  - skipped: this Mac has not been set up yet",
+      "  - skipped: another update run is in progress",
+    ]);
   });
 });

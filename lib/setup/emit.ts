@@ -16,6 +16,7 @@ export function createHumanEmitter(print: (s: string) => void = console.log): Em
     else if (ev.event === "need") print(`  ? ${ev.id} — waiting for mattstack.app (${ev.request.type})`);
     else if (ev.skipped === "not-set-up") print("  - skipped: this Mac has not been set up yet");
     else if (ev.skipped === "current") print("  - skipped: already applied for this version");
+    else if (ev.skipped === "running") print("  - skipped: another update run is in progress");
     else if (ev.failedSteps && ev.failedSteps.length > 0) print(`  ✗ failed: ${ev.failedSteps.join(", ")}`);
     else print(ev.ok ? "  ✓ done" : `  ✗ stopped at ${ev.failedStep}`);
   };

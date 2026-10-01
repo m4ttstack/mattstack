@@ -8,6 +8,10 @@ import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import { readSetupState } from "../../lib/setup/state.ts";
 import type { MigrationDef } from "../../lib/setup/migrations/index.ts";
+import { createUpdateLock } from "../../lib/setup/update-lock.ts";
+import { existsSync, mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -240,5 +244,127 @@ describe("rt setup update", () => {
     await run(deps, []);
     expect(deps.exitCodes).toEqual([2]);
     expect(deps.notifications.map((n) => n.id)).toEqual(["setup_update:2.15.0"]);
+  });
+
+  describe("single flight", () => {
+    function fakeLock(free: boolean, order: string[] = []) {
+      return {
+        order,
+        lock: {
+          acquire: () => { order.push("acquire"); return free; },
+          release: () => { order.push("release"); },
+        },
+      };
+    }
+
+    test("a held lock: a single done skipped:running, exit 0, nothing runs, no stamp", async () => {
+      const { lock, order } = fakeLock(false);
+      const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }), steps: [neverRunsStep("path.link")], updateLock: lock });
+      await run(deps, ["--json"]);
+      expect(jsonEvents(deps.lines)).toEqual([{ event: "done", ok: true, skipped: "running" }]);
+      expect(deps.exitCodes).toEqual([]);
+      expect(readSetupState(deps.probes).lastUpdate).toBeUndefined();
+      expect(order).toEqual(["acquire"]);
+    });
+
+    test("human mode prints the already-running line", async () => {
+      const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }), steps: [neverRunsStep("path.link")], updateLock: fakeLock(false).lock });
+      await run(deps, []);
+      expect(deps.lines).toEqual(["setup update: another update run is in progress"]);
+    });
+
+    test("a run takes the lock and releases it", async () => {
+      const { lock, order } = fakeLock(true);
+      const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }), updateLock: lock });
+      await run(deps, []);
+      expect(order).toEqual(["acquire", "release"]);
+      expect(deps.exitCodes).toEqual([]);
+    });
+
+    test("the lock is released before the exit, which a real process.exit would otherwise skip", async () => {
+      const order: string[] = [];
+      const { lock } = fakeLock(true, order);
+      const deps = updateDeps({
+        probes: fakeProbes({ files: { [DAEMON]: "{}" } }),
+        steps: [updateStep("verify", { state: "needs-you", detail: "to connect: Slack" })],
+        updateLock: lock,
+        exit: ((code?: number) => {
+          order.push(`exit ${code}`);
+          throw new Error("exit sentinel");
+        }) as ApplyDeps["exit"],
+      });
+      await run(deps, []);
+      expect(order).toEqual(["acquire", "release", "exit 2"]);
+    });
+
+    test("a step that throws still releases the lock", async () => {
+      const { lock, order } = fakeLock(true);
+      const boom: StepDef = { ...updateStep("path.link", { state: "done" }), run: async () => { throw new Error("boom"); } };
+      const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }), steps: [boom], updateLock: lock });
+      await expect(run(deps, ["--json"])).rejects.toThrow("boom");
+      expect(order).toEqual(["acquire", "release"]);
+    });
+
+    test("a lock that cannot be taken does not block the run: it runs unguarded and says so", async () => {
+      const order: string[] = [];
+      const lock = {
+        acquire: (): boolean => { throw new Error("EACCES: permission denied"); },
+        release: () => { order.push("release"); },
+      };
+      const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }), updateLock: lock });
+      await run(deps, ["--json"]);
+      const events = jsonEvents(deps.lines);
+      expect(events.filter((e) => e.event === "done")).toEqual([{ event: "done", ok: true }]);
+      expect(events.at(-1)).toEqual({ event: "log", id: "verify", line: "warn: setup update lock not taken, running unguarded: EACCES: permission denied" });
+      expect(readSetupState(deps.probes).lastUpdate?.version).toBe("2.15.0");
+      expect(order).toEqual([]);
+    });
+
+    test("two overlapping runs on one real lock: the plan runs once and the second reports running", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "rt-setup-update-"));
+      try {
+        const lockPath = join(dir, "setup-update.lock");
+        let ran = 0;
+        let unpark!: () => void;
+        const parked = new Promise<void>((resolve) => { unpark = resolve; });
+        let entered!: () => void;
+        const inStep = new Promise<void>((resolve) => { entered = resolve; });
+        const slow: StepDef = {
+          ...updateStep("path.link", { state: "done" }),
+          run: async () => {
+            ran += 1;
+            entered();
+            await parked;
+            return { state: "done" };
+          },
+        };
+        const first = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }), steps: [slow], updateLock: createUpdateLock(lockPath, { pid: 111, alive: () => true }) });
+        const second = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }), steps: [slow], updateLock: createUpdateLock(lockPath, { pid: 222, alive: () => true }) });
+
+        const firstRun = run(first, ["--json"]);
+        await inStep;
+        await run(second, ["--json"]);
+        unpark();
+        await firstRun;
+
+        expect(ran).toBe(1);
+        expect(jsonEvents(second.lines)).toEqual([{ event: "done", ok: true, skipped: "running" }]);
+        expect(jsonEvents(first.lines).at(-1)).toEqual({ event: "done", ok: true });
+        expect(existsSync(lockPath)).toBe(false);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    test("a skipped run never takes the lock", async () => {
+      const notSetUp = fakeLock(true);
+      await run(updateDeps({ updateLock: notSetUp.lock }), ["--json"]);
+      expect(notSetUp.order).toEqual([]);
+
+      const current = fakeLock(true);
+      const probes = fakeProbes({ files: { [DAEMON]: "{}", [STATE]: JSON.stringify({ v: 1, lastUpdate: { version: "2.15.0", at: "x" } }) } });
+      await run(updateDeps({ probes, steps: [neverRunsStep("path.link")], updateLock: current.lock }), ["--json"]);
+      expect(current.order).toEqual([]);
+    });
   });
 });
