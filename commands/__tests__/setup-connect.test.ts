@@ -5,7 +5,7 @@ import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
 import type { TeamSnapshot } from "../../lib/setup/team-settings.ts";
 import { DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError } from "../../lib/setup/slack-app.ts";
-import { SLACK_AWAITING_OWNER } from "../../lib/setup/team-slack-secret.ts";
+import { slackWaitCliMessage } from "../../lib/setup/team-slack-secret.ts";
 import { teamLocalPath } from "../../lib/team/team-local.ts";
 
 function neverCalled<T extends unknown[], R>(name: string) {
@@ -615,7 +615,7 @@ describe("integrationConnect — slack (OAuth flow)", () => {
       });
     }
 
-    test("refuses with the waiting wording before opening a browser or listening", async () => {
+    test("refuses naming both sides before opening a browser or listening", async () => {
       const probes = memberProbes([OWNER]);
       const deps = baseDeps({ probes, teamSnapshot: () => slackTeamSnapshot() });
 
@@ -624,7 +624,27 @@ describe("integrationConnect — slack (OAuth flow)", () => {
       expect(deps.exitCodes).toEqual([2]);
       const payload = JSON.parse(deps.lines[0]!) as { error: { code: string; message: string } };
       expect(payload.error.code).toBe("slack-awaiting-owner");
-      expect(payload.error.message).toBe(SLACK_AWAITING_OWNER);
+      expect(payload.error.message).toBe(slackWaitCliMessage({ kind: "awaiting-acceptance" }, "acme"));
+      expect(payload.error.message).toContain("rt team members sync");
+      expect(payload.error.message).toContain("rt team pull");
+      expect(probes.calls.exec).toEqual([]);
+    });
+
+    test("accepted but the secret is not shared yet -> refuses with the owner's missing step, never 'accept'", async () => {
+      const probes = fakeProbes({
+        exec: async () => ok(),
+        files: {
+          [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, agePublicKey: MINE }),
+          [BOARD]: JSON.stringify({ slackSigningSecret: "ENC[x]", sops: { age: [{ recipient: MINE, enc: "x" }] } }),
+        },
+      });
+      const deps = baseDeps({ probes, teamSnapshot: () => slackTeamSnapshot() });
+
+      await expectExit(() => integrationConnect("slack", ["--json"], deps));
+
+      const payload = JSON.parse(deps.lines[0]!) as { error: { code: string; message: string } };
+      expect(payload.error.code).toBe("slack-secret-not-shared");
+      expect(payload.error.message).not.toContain("accept");
       expect(probes.calls.exec).toEqual([]);
     });
 
@@ -637,6 +657,7 @@ describe("integrationConnect — slack (OAuth flow)", () => {
       const payload = JSON.parse(deps.lines[0]!) as { error: { code: string; message: string } };
       expect(payload.error.code).toBe("slack-secret-unreadable");
       expect(payload.error.message).toContain(BOARD);
+      expect(payload.error.message).toContain("rt team pull");
       expect(probes.calls.exec).toEqual([]);
     });
 

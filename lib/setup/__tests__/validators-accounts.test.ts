@@ -9,7 +9,7 @@ import type { Action, Integration } from "../contract.ts";
 import { writeCredentialHealth } from "../../credential-health/db.ts";
 import { getStateDb } from "../../state/index.ts";
 import { finalizePlan } from "../contract.ts";
-import { SLACK_AWAITING_OWNER } from "../team-slack-secret.ts";
+import { slackWaitRowDetail } from "../team-slack-secret.ts";
 import { teamLocalPath } from "../../team/team-local.ts";
 
 function baseTeam(overrides: Partial<TeamSnapshot> = {}): TeamSnapshot {
@@ -389,35 +389,39 @@ describe("accountRows — account.slack + account.slack-app", () => {
     const MINE = "age1mine0000000000000000000000000000000000000000000000000000000";
     const OWNER = "age1owner000000000000000000000000000000000000000000000000000000";
     const BOARD = "/fake-home/.mattstack/teams/acme/mattstack/secrets/board.json";
-    const RECHECK: Action = { type: "run", label: "Re-check", verb: ["setup", "status"] };
+    const PULL: Action = { type: "run", label: "Re-check", verb: ["team", "pull", "--team", "acme"] };
     const team = baseTeam({ integrations: { slack: { clientId: "abc" } } });
 
-    function memberProbes(recipients: string[], extra: Omit<NonNullable<Parameters<typeof fakeProbes>[0]>, "files"> = {}) {
+    function memberProbes(board: string | null, extra: Omit<NonNullable<Parameters<typeof fakeProbes>[0]>, "files"> = {}) {
       return fakeProbes({
         files: {
           [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, agePublicKey: MINE }),
-          [BOARD]: JSON.stringify({ slackClientSecret: "ENC[x]", sops: { age: recipients.map((recipient) => ({ recipient, enc: "x" })) } }),
+          ...(board === null ? {} : { [BOARD]: board }),
         },
         ...extra,
       });
     }
 
+    function board(recipients: string[], keys: string[] = ["slackClientSecret"]): string {
+      return JSON.stringify({ ...Object.fromEntries(keys.map((k) => [k, "ENC[x]"])), sops: { age: recipients.map((recipient) => ({ recipient, enc: "x" })) } });
+    }
+
     test("client secret readable on this machine -> Connect as today", async () => {
-      const r = await pickRow(accountRows(memberProbes([OWNER, MINE]), team, SLACK_REQS, fakeSecrets(), JOIN_INTENT), "account.slack");
+      const r = await pickRow(accountRows(memberProbes(board([OWNER, MINE])), team, SLACK_REQS, fakeSecrets(), JOIN_INTENT), "account.slack");
       expect(r.status).toBe("missing");
       expect(r.required).toBe(true);
       expect(r.action).toEqual({ type: "oauth", label: "Connect", integration: "slack", verb: ["setup", "slack", "connect"] });
     });
 
-    test("not readable yet -> needs-you with the waiting wording, a Re-check and no Connect", async () => {
-      const r = await pickRow(accountRows(memberProbes([OWNER]), team, SLACK_REQS, fakeSecrets(), JOIN_INTENT), "account.slack");
+    test("not accepted yet -> needs-you with the waiting wording, and Re-check pulls the team before the row re-reads", async () => {
+      const r = await pickRow(accountRows(memberProbes(board([OWNER])), team, SLACK_REQS, fakeSecrets(), JOIN_INTENT), "account.slack");
       expect(r.status).toBe("needs-you");
-      expect(r.detail).toBe(SLACK_AWAITING_OWNER);
-      expect(r.action).toEqual(RECHECK);
+      expect(r.detail).toBe(slackWaitRowDetail({ kind: "awaiting-acceptance" }, "acme"));
+      expect(r.action).toEqual(PULL);
     });
 
-    test("not readable yet -> the row does not block Install, since only the owner can clear it", async () => {
-      const rows = await accountRows(memberProbes([OWNER]), team, SLACK_REQS, fakeSecrets(), JOIN_INTENT);
+    test("not accepted yet -> the row does not block Install, since only the owner can clear it", async () => {
+      const rows = await accountRows(memberProbes(board([OWNER])), team, SLACK_REQS, fakeSecrets(), JOIN_INTENT);
       const r = rows.find((row) => row.id === "account.slack")!;
       expect(r.required).toBe(false);
       expect(r.finishGated).toBeUndefined();
@@ -426,18 +430,28 @@ describe("accountRows — account.slack + account.slack-app", () => {
       expect(plan.requiredMissing).not.toContain("account.slack");
     });
 
-    test("the team's secrets file cannot be read -> error with a Re-check, not waiting", async () => {
-      const r = await pickRow(accountRows(memberProbes([OWNER, MINE], { unreadable: [BOARD] }), team, SLACK_REQS, fakeSecrets(), JOIN_INTENT), "account.slack");
+    test("accepted but the owner has not shared the secret -> says so, not 'accept you', and does not block Install", async () => {
+      const r = await pickRow(accountRows(memberProbes(null), team, SLACK_REQS, fakeSecrets(), JOIN_INTENT), "account.slack");
+      expect(r.status).toBe("needs-you");
+      expect(r.detail).toBe(slackWaitRowDetail({ kind: "not-shared" }, "acme"));
+      expect(r.detail).not.toContain("accept");
+      expect(r.required).toBe(false);
+      expect(r.action).toEqual(PULL);
+    });
+
+    test("the team's secrets file cannot be read -> error naming rt team pull, not waiting, and not required", async () => {
+      const r = await pickRow(accountRows(memberProbes(board([OWNER, MINE]), { unreadable: [BOARD] }), team, SLACK_REQS, fakeSecrets(), JOIN_INTENT), "account.slack");
       expect(r.status).toBe("error");
-      expect(r.detail).not.toBe(SLACK_AWAITING_OWNER);
       expect(r.detail).toContain(BOARD);
-      expect(r.action).toEqual(RECHECK);
+      expect(r.detail).toContain("rt team pull");
+      expect(r.required).toBe(false);
+      expect(r.action).toEqual(PULL);
     });
 
     test("a token already connected is validated as before, whatever the client secret's state", async () => {
       const fetch = async () => ({ status: 200, body: JSON.stringify({ ok: true, user: "u", team: "t" }), headers: {} });
-      const r = await pickRow(accountRows(memberProbes([OWNER], { fetch }), team, SLACK_REQS, fakeSecrets({ "board.slackToken": "tok" }), JOIN_INTENT), "account.slack");
-      expect(r.detail).not.toBe(SLACK_AWAITING_OWNER);
+      const r = await pickRow(accountRows(memberProbes(board([OWNER]), { fetch }), team, SLACK_REQS, fakeSecrets({ "board.slackToken": "tok" }), JOIN_INTENT), "account.slack");
+      expect(r.action).not.toEqual(PULL);
     });
   });
 });
