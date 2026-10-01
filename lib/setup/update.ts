@@ -4,10 +4,9 @@
  * to tell the person when something needs them.
  */
 
-import { join } from "path";
 import type { UpdateOutcome } from "./apply.ts";
 import type { Probes } from "./probes.ts";
-import { readSetupState } from "./state.ts";
+import { isSetupFinished, readSetupState } from "./state.ts";
 
 declare const RT_VERSION: string | undefined;
 
@@ -21,11 +20,12 @@ export function rtVersion(): string {
 
 export type UpdateDecision = { kind: "not-set-up" } | { kind: "current"; version: string } | { kind: "run" };
 
-/** daemon.json is the same file the tray's first-run detector keys on: without it, Install never finished, and an update run has nothing to re-apply. A `dev` version never counts as current, so a source build re-applies every launch. */
+/** "Finished" is the answer mattstack.app reopens setup on: until then the wizard owns the Mac, and an update run would re-apply steps to a half-configured machine and could overlap the wizard's own Install, which the update lock does not guard. A `dev` version never counts as current, so a source build re-applies every launch. */
 export function decideUpdate(p: Pick<Probes, "exists" | "home" | "readFile" | "now">, version: string, force: boolean): UpdateDecision {
-  if (!p.exists(join(p.home, ".mattstack", "rt", "daemon.json"))) return { kind: "not-set-up" };
+  const state = readSetupState(p);
+  if (!isSetupFinished(state)) return { kind: "not-set-up" };
   if (force || version === DEV_VERSION) return { kind: "run" };
-  const last = readSetupState(p).lastUpdate;
+  const last = state.lastUpdate;
   if (last && last.version === version) return { kind: "current", version };
   return { kind: "run" };
 }
