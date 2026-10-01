@@ -29,7 +29,7 @@ function stub(status: number, payload: unknown): Captured[] {
       headers: init.headers as Record<string, string>,
       body: init.body,
     });
-    return new Response(JSON.stringify(payload), {
+    return new Response(status === 204 ? null : JSON.stringify(payload), {
       status,
       headers: { 'content-type': 'application/json' },
     });
@@ -255,5 +255,82 @@ describe('uploadFile', () => {
     await expect(
       m.uploadFile(42, 'latch.png', new Uint8Array([1]), 'image/png'),
     ).rejects.toThrow(/413/);
+  });
+});
+
+describe('draft notes', () => {
+  const BASE = 'https://gitlab.example.com/api/v4/projects/42/merge_requests/9';
+  const POS = {
+    base_sha: 'b', start_sha: 's', head_sha: 'h',
+    position_type: 'text' as const, new_path: 'src/a.ts', old_path: 'src/a.ts', new_line: 12,
+  };
+
+  test('createDraftNote posts note and a nested position', async () => {
+    const calls = stub(201, { id: 7, note: 'hi', discussion_id: null, line_code: 'abc_1_12', resolve_discussion: false });
+    const m = new NoteMutator('https://gitlab.example.com', 'tok');
+    const draft = await m.createDraftNote(42, 9, 'hi', { position: POS });
+    expect(draft.line_code).toBe('abc_1_12');
+    expect(calls[0]!.url).toBe(`${BASE}/draft_notes`);
+    expect(calls[0]!.method).toBe('POST');
+    expect(calls[0]!.headers['PRIVATE-TOKEN']).toBe('tok');
+    expect(JSON.parse(String(calls[0]!.body))).toEqual({ note: 'hi', position: POS });
+  });
+
+  test('createDraftNote normalizes an absent line_code to null', async () => {
+    stub(201, { id: 7, note: 'hi', discussion_id: null, resolve_discussion: false });
+    const m = new NoteMutator('https://gitlab.example.com', 'tok');
+    expect((await m.createDraftNote(42, 9, 'hi', { position: POS })).line_code).toBeNull();
+  });
+
+  test('createDraftNote sends a reply with its resolve flag and no position', async () => {
+    const calls = stub(201, { id: 8, note: 'done', discussion_id: 'd1', line_code: null, resolve_discussion: true });
+    const m = new NoteMutator('https://gitlab.example.com', 'tok');
+    await m.createDraftNote(42, 9, 'done', { inReplyToDiscussionId: 'd1', resolveDiscussion: true });
+    expect(JSON.parse(String(calls[0]!.body))).toEqual({
+      note: 'done', in_reply_to_discussion_id: 'd1', resolve_discussion: true,
+    });
+  });
+
+  test('listDraftNotes gets the first hundred', async () => {
+    const calls = stub(200, [{ id: 7, note: 'hi', discussion_id: null, line_code: null, resolve_discussion: false }]);
+    const m = new NoteMutator('https://gitlab.example.com', 'tok');
+    const drafts = await m.listDraftNotes(42, 9);
+    expect(drafts.map(d => d.id)).toEqual([7]);
+    expect(calls[0]!.url).toBe(`${BASE}/draft_notes?per_page=100`);
+    expect(calls[0]!.method).toBe('GET');
+  });
+
+  test('deleteDraftNote deletes by id', async () => {
+    const calls = stub(204, null);
+    const m = new NoteMutator('https://gitlab.example.com', 'tok');
+    await m.deleteDraftNote(42, 9, 7);
+    expect(calls[0]!.url).toBe(`${BASE}/draft_notes/7`);
+    expect(calls[0]!.method).toBe('DELETE');
+  });
+
+  test('publishDraftNotes sends the summary and the reviewer state', async () => {
+    const calls = stub(204, null);
+    const m = new NoteMutator('https://gitlab.example.com', 'tok');
+    await m.publishDraftNotes(42, 9, { note: 'summary', reviewerState: 'reviewed' });
+    expect(calls[0]!.url).toBe(`${BASE}/draft_notes/bulk_publish`);
+    expect(calls[0]!.method).toBe('POST');
+    expect(JSON.parse(String(calls[0]!.body))).toEqual({ note: 'summary', reviewer_state: 'reviewed' });
+  });
+
+  test('fetchReviewerStates flattens user and state', async () => {
+    const calls = stub(200, [{ user: { id: 3, username: 'pat' }, state: 'reviewed', created_at: 'x' }]);
+    const m = new NoteMutator('https://gitlab.example.com', 'tok');
+    expect(await m.fetchReviewerStates(42, 9)).toEqual([{ username: 'pat', state: 'reviewed' }]);
+    expect(calls[0]!.url).toBe(`${BASE}/reviewers`);
+  });
+
+  test('every draft call throws with the status on failure', async () => {
+    const m = new NoteMutator('https://gitlab.example.com', 'tok');
+    stub(403, { message: 'forbidden' });
+    await expect(m.createDraftNote(42, 9, 'hi')).rejects.toThrow(/createDraftNote failed: 403/);
+    await expect(m.listDraftNotes(42, 9)).rejects.toThrow(/listDraftNotes failed: 403/);
+    await expect(m.deleteDraftNote(42, 9, 7)).rejects.toThrow(/deleteDraftNote failed: 403/);
+    await expect(m.publishDraftNotes(42, 9, { note: 's', reviewerState: 'reviewed' })).rejects.toThrow(/publishDraftNotes failed: 403/);
+    await expect(m.fetchReviewerStates(42, 9)).rejects.toThrow(/fetchReviewerStates failed: 403/);
   });
 });
