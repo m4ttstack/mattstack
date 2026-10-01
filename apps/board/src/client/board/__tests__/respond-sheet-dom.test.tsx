@@ -1149,7 +1149,7 @@ test('a held post-step reply is captioned as a draft, not as posting', async () 
   const reply = postCards()[1]!;
   expect(caption(reply)).toBe('will post as reply');
   await React.act(async () => control(reply, 'hold')!.click());
-  expect(caption(reply)).toBe('drafted reply');
+  expect(caption(reply)).toBe('drafted reply · not posting');
 });
 
 test('a fix pick beside an edited reply approves bare and wraps the reply', async () => {
@@ -1250,7 +1250,7 @@ test('a held post card shows the draft without the chip; post brings the edit ba
   await render(perThreadPostGate(), withFixPlan());
   const reply = postCards()[1]!;
   await editThenHold(reply);
-  expect(caption(reply)).toBe('drafted reply');
+  expect(caption(reply)).toBe('drafted reply · not posting');
   expect(reply.querySelector('.tui-thread-reply-text')!.textContent).toBe(
     'The delay is fixed by design.'
   );

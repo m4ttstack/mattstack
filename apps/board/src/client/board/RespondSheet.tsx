@@ -621,6 +621,7 @@ function RespondSheetBody({
         canEdit={live}
         onChange={text => form.setText(p.name, text)}
         onReset={() => form.clearText(p.name)}
+        controls={<PostResolveChoice pick={p} form={form} />}
       />
     );
   };
@@ -782,7 +783,9 @@ function RespondSheetBody({
                     }
                     reply={pick?.reply ? editableReply(pick) : undefined}
                   >
-                    {pick && <PostResolveChoice pick={pick} form={form} />}
+                    {pick && !pick.reply && (
+                      <PostResolveChoice pick={pick} form={form} />
+                    )}
                   </PostStepCard>
                 );
               })
@@ -821,7 +824,7 @@ function RespondSheetBody({
                         pane.
                       </p>
                     )}
-                    <PostResolveChoice pick={p} form={form} />
+                    {!p.reply && <PostResolveChoice pick={p} form={form} />}
                   </section>
                 );
               })}

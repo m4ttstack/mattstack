@@ -5,6 +5,7 @@ import { Markdown } from '@mattstack/tui-kit';
 import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import type { CarryoverCall, SkippedEntry } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
+import { SearchCheckIcon } from './icons.tsx';
 import { editedText, sendableTexts } from './respond-post.ts';
 import { EditableReply, EditedChip, PostResolveChoice } from './RespondCards.tsx';
 import { SEVERITY_LABEL, type CarryoverPick } from './review-gate.ts';
@@ -138,9 +139,19 @@ export function CarryoverCard({
           </p>
         )}
         {carry.note && (
-          <div className="tui-thread-verdict">
-            <span className="tui-thread-verdict-k">check</span>
-            <span className="tui-thread-verdict-note">{carry.note}</span>
+          <div
+            className="tui-carry-check"
+            data-settled={
+              carry.call === 'fixed' || carry.call === 'pushback-accepted'
+                ? ''
+                : undefined
+            }
+          >
+            <span className="tui-carry-check-icon">
+              <SearchCheckIcon />
+            </span>
+            <span className="tui-carry-check-k">agent's check</span>
+            <span className="tui-carry-check-note">{carry.note}</span>
           </div>
         )}
         <EditableReply
@@ -150,9 +161,9 @@ export function CarryoverCard({
           canEdit={posting}
           onChange={t => form.setText(pick.name, t)}
           onReset={() => form.clearText(pick.name)}
+          controls={<PostResolveChoice pick={pick} form={form} />}
         />
       </div>
-      <PostResolveChoice pick={pick} form={form} />
     </section>
   );
 }

@@ -2322,19 +2322,63 @@ body {
   font-size: var(--gate-font-meta);
   color: var(--text-3);
 }
-/* Post and hold are one choice, side by side; resolve is independent of
-   both, so it takes its own row. */
+/* Post and hold are one two-way switch; resolve is independent of both, so
+   it sits beside the switch as its own tick. */
 .tui-post-controls {
   display: flex;
-  flex-direction: column;
-  gap: var(--gate-gap-row);
-}
-.tui-post-controls > .tui-gate-choices {
-  flex-direction: row;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
 }
-.tui-post-controls > .tui-gate-choices > .tui-gate-choice {
-  flex: 1 1 220px;
+.tui-post-switch {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.tui-post-switch-item {
+  position: relative;
+  padding: 4px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color 120ms,
+    color 120ms;
+}
+.tui-post-switch-item:hover:not([data-checked]) {
+  color: var(--text-1);
+}
+.tui-post-switch-item[data-checked] {
+  background: color-mix(in srgb, var(--fill-accent) 28%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--fill-accent) 70%, transparent);
+  color: var(--text-accent-small);
+}
+.tui-post-switch-item:has(> input:focus-visible) {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 1px;
+}
+.tui-post-switch-input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.tui-post-resolve {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  cursor: pointer;
+  user-select: none;
 }
 /* The resolve tick is painted with the on-fill token through a mask, so it
    follows the fill it sits on in either scheme. */
@@ -2390,13 +2434,24 @@ body {
   background: color-mix(in srgb, var(--fg) 5%, transparent);
 }
 .tui-thread-reply-k {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-ok-small);
 }
-.tui-thread-reply[data-kind='direction'] .tui-thread-reply-k {
+.tui-thread-reply[data-kind='direction'] .tui-thread-reply-k,
+.tui-thread-reply[data-held] .tui-thread-reply-k {
+  color: var(--text-2);
+}
+.tui-thread-reply-text {
+  font-size: 14px;
+}
+/* Held: the reply stays readable but stops looking like it will post. */
+.tui-thread-reply[data-held] {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+.tui-thread-reply[data-held] .tui-thread-reply-text {
   color: var(--text-2);
 }
 /* The margins undo the padding plus border, so the words sit exactly where
@@ -2422,7 +2477,13 @@ body {
 }
 .tui-thread-reply-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+  margin-top: 2px;
+}
+.tui-thread-reply-controls {
+  margin-left: auto;
 }
 /* A respond-post reply option carries the full reply text, so the box
    tops its checkbox against the first line instead of centring it. */
@@ -4123,11 +4184,42 @@ a.tui-id-card-ref:focus-visible {
   border-left-color: var(--fill-accent);
 }
 .tui-carry-quote-k {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-3);
+}
+.tui-carry-quote-text {
+  font-size: 14px;
+}
+/* The agent's verdict on the thread: amber while the author still owes a
+   move, green once it is settled. */
+.tui-carry-check {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.tui-carry-check-icon {
+  display: inline-flex;
+  align-self: center;
+  color: var(--text-warn);
+}
+.tui-carry-check[data-settled] .tui-carry-check-icon {
+  color: var(--text-ok);
+}
+.tui-carry-check-k {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.tui-carry-check-note {
+  color: var(--text-1);
 }
 .tui-carry-quote-text [data-part='markdown'] > * {
   margin: 0;

@@ -110,7 +110,9 @@ function ThreadCard({
 /** A reply the developer may rewrite before it posts: the draft at rest,
     an auto-growing box while editing. `value` is the edit, absent when
     there is none; `canEdit` is false while the thread will not post this
-    reply (held, or picked fix or skip), which also closes an open box. */
+    reply (held, or picked fix or skip), which also closes an open box.
+    `controls`, when given, sit at the right of the box's footer, so the
+    reply and the decision on it read as one place. */
 function EditableReply({
   label,
   draft,
@@ -118,6 +120,7 @@ function EditableReply({
   canEdit,
   onChange,
   onReset,
+  controls,
 }: {
   label: string;
   draft: string;
@@ -125,6 +128,7 @@ function EditableReply({
   canEdit: boolean;
   onChange: (text: string) => void;
   onReset: () => void;
+  controls?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   if (editing && !canEdit) setEditing(false);
@@ -155,9 +159,17 @@ function EditableReply({
     el.setSelectionRange(el.value.length, el.value.length);
   }, [open, ref]);
   return (
-    <div className="tui-thread-reply" data-kind="verbatim">
+    <div
+      className="tui-thread-reply"
+      data-kind="verbatim"
+      data-held={controls && !canEdit ? '' : undefined}
+    >
       <span className="tui-thread-reply-k">
-        {canEdit ? 'will post as reply' : 'drafted reply'}
+        {canEdit
+          ? 'will post as reply'
+          : controls
+            ? 'drafted reply · not posting'
+            : 'drafted reply'}
       </span>
       {open ? (
         <textarea
@@ -187,9 +199,9 @@ function EditableReply({
           the reply is empty
         </span>
       )}
-      {canEdit && (
+      {(canEdit || controls) && (
         <div className="tui-thread-reply-actions">
-          {open ? (
+          {!canEdit ? null : open ? (
             <>
               <Button
                 type="button"
@@ -232,6 +244,9 @@ function EditableReply({
             >
               edit
             </Button>
+          )}
+          {controls && (
+            <div className="tui-thread-reply-controls">{controls}</div>
           )}
         </div>
       )}
@@ -334,8 +349,9 @@ function ReplyChoiceBody({
   );
 }
 
-/** A per-thread post question's controls: post or hold its reply, and,
-    independently of either, resolve the thread. */
+/** A per-thread post question's controls, one compact row: post or hold
+    its reply as a two-way switch, and, independently of either, resolve
+    the thread. What each does rides the tooltip, not a subtitle. */
 function PostResolveChoice({
   pick,
   form,
@@ -347,15 +363,27 @@ function PostResolveChoice({
   const picked = new Set(Array.isArray(current) ? current : []);
   const posting = picked.has(pick.post);
   const resolving = picked.has(pick.resolve);
-  const resolveHint = useId();
+  const resolveHint = posting
+    ? 'resolve the thread once the reply posts'
+    : 'resolve the thread without replying';
   const choices = [
-    { post: true, label: 'post', subtitle: 'post this reply to the thread' },
-    { post: false, label: 'hold', subtitle: 'keep it back; nothing is posted' },
+    {
+      post: true,
+      value: 'post',
+      text: 'Post',
+      hint: 'post this reply to the thread',
+    },
+    {
+      post: false,
+      value: 'hold',
+      text: 'Hold',
+      hint: 'keep it back; nothing is posted',
+    },
   ];
   return (
     <div className="tui-post-controls">
       <div
-        className="tui-gate-choices"
+        className="tui-post-switch"
         role="radiogroup"
         aria-label={`${pick.label}: post or hold`}
       >
@@ -363,31 +391,28 @@ function PostResolveChoice({
           const checked = posting === c.post;
           return (
             <label
-              className="tui-gate-choice"
+              className="tui-post-switch-item"
               data-checked={checked || undefined}
-              key={c.label}
+              title={c.hint}
+              key={c.value}
             >
               <input
                 type="radio"
-                className="tui-gate-choice-input"
-                data-type="radio"
-                data-checked={checked ? '' : undefined}
+                className="tui-post-switch-input"
                 name={`${pick.name}:post`}
-                value={c.label}
+                value={c.value}
                 checked={checked}
                 onChange={() => form.toggleMulti(pick.name, pick.post, c.post)}
               />
-              <span className="tui-gate-choice-label">
-                <span className="tui-gate-choice-label-row">{c.label}</span>
-                <span className="tui-gate-choice-subtitle">{c.subtitle}</span>
-              </span>
+              {c.text}
             </label>
           );
         })}
       </div>
       <label
-        className="tui-gate-choice tui-post-resolve"
+        className="tui-post-resolve"
         data-checked={resolving || undefined}
+        title={resolveHint}
       >
         <span className="tui-check">
           <input
@@ -397,7 +422,7 @@ function PostResolveChoice({
             data-checked={resolving ? '' : undefined}
             value="resolve"
             aria-label={`${pick.label}: resolve`}
-            aria-describedby={resolveHint}
+            aria-description={resolveHint}
             checked={resolving}
             onChange={e =>
               form.toggleMulti(pick.name, pick.resolve, e.currentTarget.checked)
@@ -405,14 +430,7 @@ function PostResolveChoice({
           />
           <span className="tui-check-tick" aria-hidden="true" />
         </span>
-        <span className="tui-gate-choice-label">
-          <span className="tui-gate-choice-label-row">resolve</span>
-          <span className="tui-gate-choice-subtitle" id={resolveHint}>
-            {posting
-              ? 'resolve the thread once the reply posts'
-              : 'resolve the thread without replying'}
-          </span>
-        </span>
+        Resolve
       </label>
     </div>
   );
