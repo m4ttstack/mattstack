@@ -306,6 +306,29 @@ test('a pane row focuses on click with no hint text eating the task line', () =>
   );
 });
 
+test('hovering a desktop row docks the agent card; a phone row never opens one', async () => {
+  const jay = buddy('jay', 'boxscore', { pane: 'wBT:p1' });
+  const { unmount } = renderTree({
+    rooms: [room('boxscore')],
+    buddies: [jay],
+    onFocusPane: vi.fn(),
+  });
+  await userEvent.hover(screen.getByTestId('ws-jay'));
+  expect(
+    await screen.findByTestId('detail-jay', {}, { timeout: 2000 })
+  ).toBeInTheDocument();
+  unmount();
+
+  renderTree({
+    rooms: [room('boxscore')],
+    buddies: [jay],
+    onSelectBuddy: vi.fn(),
+  });
+  await userEvent.hover(screen.getByTestId('ws-jay'));
+  await new Promise(r => setTimeout(r, 800));
+  expect(screen.queryByTestId('detail-jay')).toBeNull();
+});
+
 test("a row's dot reads herdr's state: an agent blocked on the human goes red", () => {
   renderTree({
     rooms: [room('rt')],

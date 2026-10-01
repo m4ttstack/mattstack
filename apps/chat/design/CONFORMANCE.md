@@ -130,13 +130,17 @@ banner shipped with Mantine's generic `red` — `rgb(255,206,217)` over
 by-eye review because both are, broadly, red. Do not exempt a colour in
 `why:` without a reason that survives being read back.
 
-Status colour pairs, which are easy to swap:
+Status colour pairs, which are easy to swap. A signed-in agent reads herdr's
+own state (`agent-state.ts`: `blocked`, `working`, `done`), falling back to
+presence when it has no pane; the word stays grey unless it is waiting on
+you:
 
-| status | dot | text |
+| state | dot | text |
 | --- | --- | --- |
-| live / working | `--dot-ok` | `--ok` |
-| idle | `--dot-warn` | `--warn` |
-| offline | transparent, `1px solid var(--border)` | `--muted` |
+| waiting on you (`blocked`) | `--tk-dot-bad` | `--tk-text-bad-small` |
+| working | `--tk-dot-ok` | `--tk-text-3` |
+| done | `--tk-dot-warn` | `--tk-text-3` |
+| signed out | transparent, `1px solid var(--tk-border)` | `--tk-text-3` |
 
 The dot ramp and the text ramp are **different colours on purpose** — the dots
 are saturated for signal at 8px, the text is the readable ramp. Using one for
