@@ -11,7 +11,7 @@ import type { MigrationDef } from "../migrations/index.ts";
 import { createNdjsonEmitter, type Emit } from "../emit.ts";
 import type { ApplyEvent, StepId } from "../contract.ts";
 import { STEP_IDS } from "../contract.ts";
-import { UserActionableError } from "../errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import type { Probes } from "../probes.ts";
 import { STEPS } from "../steps/index.ts";
 import { fakeProbes, fakeTray } from "./fakes.ts";

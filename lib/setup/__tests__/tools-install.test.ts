@@ -6,7 +6,7 @@ import type { PackRequirements } from "../requirements.ts";
 import type { ToolResolution } from "../../deps/resolve.ts";
 import type { LinkOutcome } from "../../deps/links.ts";
 import type { DetectedEditor } from "../../editors.ts";
-import { UserActionableError } from "../errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { readSetupState } from "../state.ts";
 
 function noopResolution(tool: string): ToolResolution {

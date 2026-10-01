@@ -34,7 +34,7 @@ import { readSetupState, updateSetupState } from "../lib/setup/state.ts";
 import { notifyEnabled } from "../lib/notifier.ts";
 import { envelope, STEP_IDS, WAIVABLE_ROW_IDS, type ApplyEvent, type ConnectField, type Integration, type StepId } from "../lib/setup/contract.ts";
 import { createHumanEmitter } from "../lib/setup/emit.ts";
-import { UserActionableError, userErrorPayload } from "../lib/setup/errors.ts";
+import { UserActionableError, userErrorPayload } from "../lib/errors.ts";
 import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverStore } from "../lib/setup/finish-gate.ts";
 import { isValidHostname, isValidHttpsUrl } from "../lib/setup/host-validate.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";

@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { fakeProbes } from "./fakes.ts";
 import { INTEGRATIONS, integrationDef, type ValidateCtx } from "../integrations.ts";
-import { UserActionableError } from "../errors.ts";
+import { UserActionableError } from "../../errors.ts";
 
 const noHost: ValidateCtx = { host: null, team: { slug: "acme", remote: null } };
 

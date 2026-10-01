@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createRealProbes, readStdinJson, withWellKnownBinFallback, withLocalBinOnPath } from "../probes.ts";
-import { UserActionableError } from "../errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { fakeProbes } from "./fakes.ts";
 
 function streamFrom(text: string): ReadableStream<Uint8Array> {

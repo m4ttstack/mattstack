@@ -16,7 +16,7 @@ import type { SecretsSeams } from "../../lib/secrets/store.ts";
 import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import { fakeProbes, ok } from "../../lib/setup/__tests__/fakes.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
-import { UserActionableError } from "../../lib/setup/errors.ts";
+import { UserActionableError } from "../../lib/errors.ts";
 import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
 
 const fakeSecrets: SecretsSeams = {

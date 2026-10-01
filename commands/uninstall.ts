@@ -11,7 +11,7 @@ import { createRealSecretsExecSeam, type SecretsSeams } from "../lib/secrets/sto
 import { createApplyContext, type ApplyContext, type CreateApplyContextDeps } from "../lib/setup/apply.ts";
 import { envelope, type ApplyEvent } from "../lib/setup/contract.ts";
 import { createHumanEmitter } from "../lib/setup/emit.ts";
-import { UserActionableError, userErrorPayload } from "../lib/setup/errors.ts";
+import { UserActionableError, userErrorPayload } from "../lib/errors.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { computeUninstallActions, runUninstall, type UninstallAction } from "../lib/setup/uninstall.ts";
 import { createRelayClient, inviteRelayUrl, type RelayClient } from "../lib/team/relay-client.ts";

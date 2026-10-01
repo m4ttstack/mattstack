@@ -19,6 +19,7 @@
  */
 
 import { join } from "path";
+import { logCliEvent } from "../cli-logger.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { parseRemoteUrl } from "../enrich.ts";
 import type { Probes } from "./probes.ts";
@@ -54,9 +55,9 @@ function defaultReader(warn: (message: string) => void): SettingsReader {
   };
 }
 
-/** stderr only, never stdout — keeps a `--json` command's envelope on stdout uncorrupted. A caller on a JSON path that wants total silence passes its own no-op via `readTeamSnapshot`'s `warn` param. */
+/** The CLI log, never a stream: this runs under --json paths whose stdout is the envelope. A caller that wants silence passes its own no-op through the warn param. */
 function defaultWarn(message: string): void {
-  console.error(message);
+  logCliEvent("warn", "setup.team-settings", message);
 }
 
 /** `[remote "origin"]`'s `url =` line, scoped to that section (stops at the next `[` header) so a later `[remote "upstream"]` block, or a `url =` line inside a `[branch]` section, can never be mistaken for origin's. `pushurl` is a distinct key and never matches `\burl\s*=`. Exported so lib/team's create/publish can read the same `.git/config` shape without a second regex. */

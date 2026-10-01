@@ -30,7 +30,7 @@ import { fakeProbes } from "./fakes.ts";
 import { homeInitStep, homeRestoreStep } from "../steps/home.ts";
 import { outcomeFromJoin, outcomeFromJoinError, teamCreateStep, teamJoinStep } from "../steps/team.ts";
 import { JoinPeeringStoreError, type JoinResult } from "../../team/join.ts";
-import { UserActionableError } from "../errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { secretsWriteStep } from "../steps/secrets.ts";
 import { pathLinkStep } from "../steps/path.ts";
 import { settingsSeedStep } from "../steps/settings.ts";

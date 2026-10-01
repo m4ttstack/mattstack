@@ -14,7 +14,7 @@ import { tryResolveRepoArg } from "../repo-arg.ts";
 import { parseRemote } from "../skills/init.ts";
 import { ENGINE_PACK_REF, findInstalledPluginDir } from "../skills/installed-plugins.ts";
 import { materializeRepo, type MaterializeRepoOutcome, type PackOutcome } from "../skills/materialize.ts";
-import { UserActionableError } from "./errors.ts";
+import { UserActionableError } from "../errors.ts";
 import type { Probes } from "./probes.ts";
 
 export const ENGINE_PACK_MISSING_CODE = "engine-pack-missing";

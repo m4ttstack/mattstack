@@ -11,7 +11,7 @@ import { join } from "path";
 import { wellKnownBinDirs } from "../bundled-tool.ts";
 import { daemonSocketQuery, trayRequest, type DaemonResponse, type TrayClient } from "../daemon-client.ts";
 import { readWrapperPrefix } from "../dev-mode.ts";
-import { UserActionableError } from "./errors.ts";
+import { UserActionableError } from "../errors.ts";
 
 export interface ExecResult {
   code: number;

@@ -15,7 +15,7 @@ import { dirname, join } from "path";
 import { link, type LinkOutcome } from "../deps/links.ts";
 import { appBundlePath, bundledToolExec, resolveTool } from "../deps/resolve.ts";
 import { detectEditors, type DetectedEditor } from "../editors.ts";
-import { UserActionableError } from "./errors.ts";
+import { UserActionableError } from "../errors.ts";
 import type { Probes } from "./probes.ts";
 import type { PackRequirements } from "./requirements.ts";
 import { updateSetupState } from "./state.ts";

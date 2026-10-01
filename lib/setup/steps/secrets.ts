@@ -13,7 +13,7 @@
 import { drainStaged } from "../staging.ts";
 import { NoAgeKeyError, writeSecret } from "../../secrets/store.ts";
 import { writeTeamSecret } from "../../secrets/team-store.ts";
-import { UserActionableError } from "../errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 

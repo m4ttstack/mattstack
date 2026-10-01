@@ -15,7 +15,7 @@
  */
 
 import type { ConnectField, Integration } from "./contract.ts";
-import { UserActionableError } from "./errors.ts";
+import { UserActionableError } from "../errors.ts";
 import { isValidHttpsUrl } from "./host-validate.ts";
 import type { Probes } from "./probes.ts";
 import { interpretSdmStatus } from "../sdm/core.ts";

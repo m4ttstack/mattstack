@@ -5,7 +5,7 @@ import { basename, join, relative } from "node:path";
 import { execFileSync } from "node:child_process";
 import { updateRepoIndex } from "../../repo-index.ts";
 import { setSetting } from "../../settings/write.ts";
-import { UserActionableError } from "../errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { createRealProbes } from "../probes.ts";
 import { ENGINE_PACK_MISSING_CODE, findEnginePackDir, materializeSkills } from "../skills-materialize.ts";
 import { fakeProbes } from "./fakes.ts";

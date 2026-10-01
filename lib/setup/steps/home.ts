@@ -44,8 +44,8 @@ async function checkLocalKey(ctx: ApplyContext): Promise<KeyStatus> {
  *
  * Taking line 0 is wrong when the child CRASHES rather than failing cleanly:
  * bun prints the offending source line and a stack first, so the "error" the
- * app showed was `79828 |     console.error(...)` — a frame from the compiled
- * binary, with the actual exception discarded. Prefer a line that names an
+ * app showed was a numbered source frame from the compiled binary's own
+ * logging call, with the actual exception discarded. Prefer a line that names an
  * error, fall back to the first non-frame line, and only then to line 0.
  */
 export function failureDetail(stderr: string): string {

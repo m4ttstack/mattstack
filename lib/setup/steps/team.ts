@@ -16,7 +16,7 @@ import { forgeTokenFor } from "./forge-token.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import type { StepId } from "../contract.ts";
-import { UserActionableError } from "../errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { readIntent } from "../intent.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 

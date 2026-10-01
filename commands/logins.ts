@@ -13,7 +13,7 @@ import {
 } from "../lib/logins/store.ts";
 import { promptSecret, type PromptSecretOptions } from "../lib/prompt-secret.ts";
 import { InvalidSecretsSegmentError, NoAgeKeyError, createRealSecretsExecSeam } from "../lib/secrets/store.ts";
-import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
+import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { readStdinJson } from "../lib/setup/probes.ts";
 
 export interface LoginsDeps {

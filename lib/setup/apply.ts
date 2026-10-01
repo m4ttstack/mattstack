@@ -12,7 +12,7 @@ import type { SecretsSeamsFactory } from "../team/join.ts";
 import type { RelayClient } from "../team/relay-client.ts";
 import { STEP_IDS, type EventId, type NeedRequest, type StepId, type StepKind, type StepState, type TeamRef } from "./contract.ts";
 import type { Emit } from "./emit.ts";
-import { UserActionableError } from "./errors.ts";
+import { UserActionableError } from "../errors.ts";
 import { readIntent, teamRefFromIntent, clearIntent, type SetupIntent } from "./intent.ts";
 import { askAppDirectly, awaitNeed, hasDirectRoute, type NeedReply } from "./need.ts";
 import type { Probes } from "./probes.ts";
