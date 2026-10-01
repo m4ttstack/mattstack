@@ -48,7 +48,8 @@
           "content": "Avatar leads, status and recency fold into one line, the task wraps instead of truncating, context moves to an icon-led inset (no SEEN / REPO label column), Focus pane becomes the one primary action.",
           "lineHeight": 1.5,
           "fontFamily": "$font",
-          "fontSize": 13
+          "fontSize": 13,
+          "fontWeight": "normal"
         },
         {
           "type": "frame",
@@ -176,7 +177,8 @@
                                   "fill": "$text-3",
                                   "content": "· active 3m ago",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -256,7 +258,8 @@
                               "fill": "$text-3",
                               "content": "main",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -285,7 +288,8 @@
                               "fill": "$text-3",
                               "content": "wHH:p3W",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "frame",
@@ -301,7 +305,8 @@
                               "fill": "$text-4",
                               "content": "…/repo-tools",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -603,7 +608,8 @@
                                   "fill": "$text-3",
                                   "content": "· active 2m ago",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -639,6 +645,7 @@
                           "lineHeight": 1.4,
                           "fontFamily": "$font",
                           "fontSize": 13,
+                          "fontWeight": "normal",
                           "fontStyle": "italic"
                         }
                       ]
@@ -702,7 +709,8 @@
                               "fill": "$text-3",
                               "content": "rt-369-output-layer",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -731,7 +739,8 @@
                               "fill": "$text-3",
                               "content": "wHH:p42",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "frame",
@@ -747,7 +756,8 @@
                               "fill": "$text-4",
                               "content": "…/eomer",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -1050,7 +1060,8 @@
                                   "fill": "$text-3",
                                   "content": "· 13m ago",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -1130,7 +1141,8 @@
                               "fill": "$text-3",
                               "content": "main",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -1386,7 +1398,8 @@
                                   "fill": "$text-3",
                                   "content": "· active 3m ago",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -1466,7 +1479,8 @@
                               "fill": "$text-3",
                               "content": "main",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -1495,7 +1509,8 @@
                               "fill": "$text-3",
                               "content": "wHH:p3W",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "frame",
@@ -1511,7 +1526,8 @@
                               "fill": "$text-4",
                               "content": "…/repo-tools",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -1813,7 +1829,8 @@
                                   "fill": "$text-3",
                                   "content": "· active 2m ago",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -1849,6 +1866,7 @@
                           "lineHeight": 1.4,
                           "fontFamily": "$font",
                           "fontSize": 13,
+                          "fontWeight": "normal",
                           "fontStyle": "italic"
                         }
                       ]
@@ -1912,7 +1930,8 @@
                               "fill": "$text-3",
                               "content": "rt-369-output-layer",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -1941,7 +1960,8 @@
                               "fill": "$text-3",
                               "content": "wHH:p42",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "frame",
@@ -1957,7 +1977,8 @@
                               "fill": "$text-4",
                               "content": "…/eomer",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -2260,7 +2281,8 @@
                                   "fill": "$text-3",
                                   "content": "· 13m ago",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -2340,7 +2362,8 @@
                               "fill": "$text-3",
                               "content": "main",
                               "fontFamily": "$mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -2517,7 +2540,8 @@
           "content": "The header pill shows who, not just how many. Rows go two-line so the task gets the full width; the repo only shows when it differs from the room's. Hovering a row expands it in place instead of stacking a second floating card over the popover and the sidebar.",
           "lineHeight": 1.4,
           "fontFamily": "$font",
-          "fontSize": 13
+          "fontSize": 13,
+          "fontWeight": "normal"
         },
         {
           "type": "frame",
@@ -2821,7 +2845,8 @@
                               "fill": "$text-3",
                               "content": "wakes on @mention",
                               "fontFamily": "$font",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -2858,7 +2883,8 @@
                           "fill": "$text-4",
                           "content": "3",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -2946,7 +2972,8 @@
                                       "fill": "$text-4",
                                       "content": "3m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -2957,7 +2984,8 @@
                                   "fill": "$text-3",
                                   "content": "Start execution, subagent-driven",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -3075,7 +3103,8 @@
                                       "fill": "$text-4",
                                       "content": "3m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -3086,7 +3115,8 @@
                                   "fill": "$text-3",
                                   "content": "Agent tool limits assessment",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -3131,7 +3161,8 @@
                                   "fill": "$text-3",
                                   "content": "master",
                                   "fontFamily": "$mono",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -3140,7 +3171,8 @@
                                   "fill": "$text-4",
                                   "content": "·",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "icon",
@@ -3159,7 +3191,8 @@
                                   "fill": "$text-3",
                                   "content": "wHH:p30",
                                   "fontFamily": "$mono",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -3168,7 +3201,8 @@
                                   "fill": "$text-4",
                                   "content": "…/acme-api",
                                   "fontFamily": "$mono",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -3382,7 +3416,8 @@
                                       "fill": "$text-4",
                                       "content": "2m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -3394,6 +3429,7 @@
                                   "content": "“RT-369 output layer: executing phase 1 (foundation)”",
                                   "fontFamily": "$font",
                                   "fontSize": 12,
+                                  "fontWeight": "normal",
                                   "fontStyle": "italic"
                                 }
                               ]
@@ -3433,7 +3469,8 @@
                           "fill": "$text-4",
                           "content": "3",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -3521,7 +3558,8 @@
                                       "fill": "$text-4",
                                       "content": "8m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -3532,7 +3570,8 @@
                                   "fill": "$text-3",
                                   "content": "MR board decision queue",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -3624,7 +3663,8 @@
                                       "fill": "$text-4",
                                       "content": "21m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -3635,7 +3675,8 @@
                                   "fill": "$text-3",
                                   "content": "RT-366",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -3727,7 +3768,8 @@
                                       "fill": "$text-4",
                                       "content": "34m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -3738,7 +3780,8 @@
                                   "fill": "$text-3",
                                   "content": "Claude Code",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -3791,7 +3834,8 @@
                           "fill": "$text-4",
                           "content": "mervin",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -4094,7 +4138,8 @@
                               "fill": "$text-3",
                               "content": "wakes on @mention",
                               "fontFamily": "$font",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -4131,7 +4176,8 @@
                           "fill": "$text-4",
                           "content": "3",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -4219,7 +4265,8 @@
                                       "fill": "$text-4",
                                       "content": "3m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -4230,7 +4277,8 @@
                                   "fill": "$text-3",
                                   "content": "Start execution, subagent-driven",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -4348,7 +4396,8 @@
                                       "fill": "$text-4",
                                       "content": "3m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -4359,7 +4408,8 @@
                                   "fill": "$text-3",
                                   "content": "Agent tool limits assessment",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -4404,7 +4454,8 @@
                                   "fill": "$text-3",
                                   "content": "master",
                                   "fontFamily": "$mono",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -4413,7 +4464,8 @@
                                   "fill": "$text-4",
                                   "content": "·",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "icon",
@@ -4432,7 +4484,8 @@
                                   "fill": "$text-3",
                                   "content": "wHH:p30",
                                   "fontFamily": "$mono",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -4441,7 +4494,8 @@
                                   "fill": "$text-4",
                                   "content": "…/acme-api",
                                   "fontFamily": "$mono",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -4655,7 +4709,8 @@
                                       "fill": "$text-4",
                                       "content": "2m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -4667,6 +4722,7 @@
                                   "content": "“RT-369 output layer: executing phase 1 (foundation)”",
                                   "fontFamily": "$font",
                                   "fontSize": 12,
+                                  "fontWeight": "normal",
                                   "fontStyle": "italic"
                                 }
                               ]
@@ -4706,7 +4762,8 @@
                           "fill": "$text-4",
                           "content": "3",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -4794,7 +4851,8 @@
                                       "fill": "$text-4",
                                       "content": "8m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -4805,7 +4863,8 @@
                                   "fill": "$text-3",
                                   "content": "MR board decision queue",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -4897,7 +4956,8 @@
                                       "fill": "$text-4",
                                       "content": "21m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -4908,7 +4968,8 @@
                                   "fill": "$text-3",
                                   "content": "RT-366",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -5000,7 +5061,8 @@
                                       "fill": "$text-4",
                                       "content": "34m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -5011,7 +5073,8 @@
                                   "fill": "$text-3",
                                   "content": "Claude Code",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -5064,7 +5127,8 @@
                           "fill": "$text-4",
                           "content": "mervin",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -5111,7 +5175,8 @@
           "content": "Dots follow herdr's agent state: green working, orange done, red blocked on you (and the blocked row says so). Hover reveals an icon-only focus button pinned to the row's right edge, so the task keeps its room. Long tasks end in an ellipsis. Signed-out agents collapse to one expandable row.",
           "lineHeight": 1.4,
           "fontFamily": "$font",
-          "fontSize": 13
+          "fontSize": 13,
+          "fontWeight": "normal"
         },
         {
           "type": "frame",
@@ -5178,7 +5243,8 @@
                       "fill": "$text-4",
                       "content": "7 on · 2 off",
                       "fontFamily": "$font",
-                      "fontSize": 12
+                      "fontSize": 12,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "icon",
@@ -5308,7 +5374,8 @@
                           "fill": "$text-3",
                           "content": "MR board decision queue",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -5365,7 +5432,8 @@
                           "fill": "$text-3",
                           "content": "Start execution, sub…",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -5446,7 +5514,8 @@
                           "fill": "$bad-text",
                           "content": "RT-366 · waiting on you",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -5502,7 +5571,8 @@
                           "fill": "$text-3",
                           "content": "RT-369 output layer: ex…",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -5558,7 +5628,8 @@
                           "fill": "$text-3",
                           "content": "Claude Code",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -5596,7 +5667,8 @@
                       "fill": "$text-4",
                       "content": "2 signed out",
                       "fontFamily": "$font",
-                      "fontSize": 12
+                      "fontSize": 12,
+                      "fontWeight": "normal"
                     }
                   ]
                 },
@@ -5692,7 +5764,8 @@
                           "fill": "$text-3",
                           "content": "Agent tool limits assess…",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -5997,7 +6070,8 @@
                       "fill": "$text-4",
                       "content": "7 on · 2 off",
                       "fontFamily": "$font",
-                      "fontSize": 12
+                      "fontSize": 12,
+                      "fontWeight": "normal"
                     },
                     {
                       "type": "icon",
@@ -6127,7 +6201,8 @@
                           "fill": "$text-3",
                           "content": "MR board decision queue",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -6184,7 +6259,8 @@
                           "fill": "$text-3",
                           "content": "Start execution, sub…",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -6265,7 +6341,8 @@
                           "fill": "$bad-text",
                           "content": "RT-366 · waiting on you",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -6321,7 +6398,8 @@
                           "fill": "$text-3",
                           "content": "RT-369 output layer: ex…",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -6377,7 +6455,8 @@
                           "fill": "$text-3",
                           "content": "Claude Code",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -6415,7 +6494,8 @@
                       "fill": "$text-4",
                       "content": "2 signed out",
                       "fontFamily": "$font",
-                      "fontSize": 12
+                      "fontSize": 12,
+                      "fontWeight": "normal"
                     }
                   ]
                 },
@@ -6511,7 +6591,8 @@
                           "fill": "$text-3",
                           "content": "Agent tool limits assess…",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -6840,7 +6921,8 @@
                               "fill": "$text-3",
                               "content": "Start execution, sub…",
                               "fontFamily": "$font",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -6919,7 +7001,8 @@
                   "content": "The button is the row's only pane affordance; the full task lives in the hover card.",
                   "lineHeight": 1.4,
                   "fontFamily": "$font",
-                  "fontSize": 12
+                  "fontSize": 12,
+                  "fontWeight": "normal"
                 }
               ]
             }
@@ -6962,7 +7045,8 @@
           "content": "No icons, no pane ids, no paths. Under the task, two quiet lines answer \"where do I find this agent\": the herdr tab in its workspace, then repo/worktree and branch. The status line uses herdr's own agent state, so a blocked agent reads as waiting on you. Mention and DM drop to subtle buttons so Focus pane is the one obvious action.",
           "lineHeight": 1.4,
           "fontFamily": "$font",
-          "fontSize": 13
+          "fontSize": 13,
+          "fontWeight": "normal"
         },
         {
           "type": "frame",
@@ -7090,7 +7174,8 @@
                                   "fill": "$text-3",
                                   "content": "· 3m",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -7153,7 +7238,8 @@
                               "fill": "$text-3",
                               "content": "in repo-tools 🧰",
                               "fontFamily": "$font",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -7164,7 +7250,8 @@
                           "fill": "$text-3",
                           "content": "acme-api/gandalf · master",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -7366,7 +7453,8 @@
                                   "fill": "$text-3",
                                   "content": "· 4m",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -7429,7 +7517,8 @@
                               "fill": "$text-3",
                               "content": "in repo-tools 🧰",
                               "fontFamily": "$font",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -7440,7 +7529,8 @@
                           "fill": "$text-3",
                           "content": "mattstack/saruman · rt-366",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -7642,7 +7732,8 @@
                                   "fill": "$text-3",
                                   "content": "· idle 8m",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -7691,6 +7782,7 @@
                           "lineHeight": 1.4,
                           "fontFamily": "$font",
                           "fontSize": 13,
+                          "fontWeight": "normal",
                           "fontStyle": "italic"
                         }
                       ]
@@ -7737,7 +7829,8 @@
                               "fill": "$text-3",
                               "content": "in repo-tools 🧰",
                               "fontFamily": "$font",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -7748,7 +7841,8 @@
                           "fill": "$text-3",
                           "content": "mattstack main checkout · main",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -7964,7 +8058,8 @@
                                   "fill": "$text-3",
                                   "content": "· 3m",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -8027,7 +8122,8 @@
                               "fill": "$text-3",
                               "content": "in repo-tools 🧰",
                               "fontFamily": "$font",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -8038,7 +8134,8 @@
                           "fill": "$text-3",
                           "content": "acme-api/gandalf · master",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -8240,7 +8337,8 @@
                                   "fill": "$text-3",
                                   "content": "· 4m",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -8303,7 +8401,8 @@
                               "fill": "$text-3",
                               "content": "in repo-tools 🧰",
                               "fontFamily": "$font",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -8314,7 +8413,8 @@
                           "fill": "$text-3",
                           "content": "mattstack/saruman · rt-366",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -8516,7 +8616,8 @@
                                   "fill": "$text-3",
                                   "content": "· idle 8m",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -8565,6 +8666,7 @@
                           "lineHeight": 1.4,
                           "fontFamily": "$font",
                           "fontSize": 13,
+                          "fontWeight": "normal",
                           "fontStyle": "italic"
                         }
                       ]
@@ -8611,7 +8713,8 @@
                               "fill": "$text-3",
                               "content": "in repo-tools 🧰",
                               "fontFamily": "$font",
-                              "fontSize": 13
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -8622,7 +8725,8 @@
                           "fill": "$text-3",
                           "content": "mattstack main checkout · main",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -8754,7 +8858,8 @@
               "content": "• Workspace label, title, repo, branch, herdr state: already in rt pane list (workspace, title, agentStatus).",
               "lineHeight": 1.4,
               "fontFamily": "$font",
-              "fontSize": 12
+              "fontSize": 12,
+              "fontWeight": "normal"
             },
             {
               "type": "text",
@@ -8766,7 +8871,8 @@
               "content": "• Tab label (\"loosening mcp rules\"): herdr has it (tab.list label), rt pane list does not carry it yet. Needs one field on the daemon's pane row.",
               "lineHeight": 1.4,
               "fontFamily": "$font",
-              "fontSize": 12
+              "fontSize": 12,
+              "fontWeight": "normal"
             },
             {
               "type": "text",
@@ -8778,7 +8884,8 @@
               "content": "• Worktree name (gandalf, saruman): the rt worktree registry entry for the pane's cwd; a checkout that is not a pool tree reads \"main checkout\".",
               "lineHeight": 1.4,
               "fontFamily": "$font",
-              "fontSize": 12
+              "fontSize": 12,
+              "fontWeight": "normal"
             },
             {
               "type": "text",
@@ -8790,7 +8897,8 @@
               "content": "• Away note: the chat status text, unchanged.",
               "lineHeight": 1.4,
               "fontFamily": "$font",
-              "fontSize": 12
+              "fontSize": 12,
+              "fontWeight": "normal"
             }
           ]
         }
@@ -8831,7 +8939,8 @@
           "content": "This is the dropdown under the \"7 in #mattstack\" pill, not the sidebar. A. Split dropdown (recommended): the list stays put on the left and the hovered row fills a fixed detail pane on the right, so moving down the list only swaps the pane. Agents blocked on you sort into their own group at the top. B. Docked card: the card floats beside the dropdown, level with the row.",
           "lineHeight": 1.4,
           "fontFamily": "$font",
-          "fontSize": 13
+          "fontSize": 13,
+          "fontWeight": "normal"
         },
         {
           "type": "frame",
@@ -8950,7 +9059,8 @@
                                   "fill": "$text-3",
                                   "content": "wakes on @mention",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -9014,7 +9124,8 @@
                                       "fill": "$text-4",
                                       "content": "1",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -9094,7 +9205,8 @@
                                               "fill": "$text-4",
                                               "content": "4m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         },
@@ -9113,7 +9225,8 @@
                                               "fill": "$text-3",
                                               "content": "RT-366",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -9152,7 +9265,8 @@
                                       "fill": "$text-4",
                                       "content": "2",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -9258,7 +9372,8 @@
                                               "fill": "$text-4",
                                               "content": "3m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         },
@@ -9277,7 +9392,8 @@
                                               "fill": "$text-3",
                                               "content": "Agent tool limits assessment",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -9371,7 +9487,8 @@
                                               "fill": "$text-4",
                                               "content": "2m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         },
@@ -9390,7 +9507,8 @@
                                               "fill": "$text-3",
                                               "content": "rt terminal UI improvements",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -9429,7 +9547,8 @@
                                       "fill": "$text-4",
                                       "content": "3",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -9509,7 +9628,8 @@
                                               "fill": "$text-4",
                                               "content": "6m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         },
@@ -9528,7 +9648,8 @@
                                               "fill": "$text-3",
                                               "content": "Start execution, subagent-driven",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -9612,7 +9733,8 @@
                                               "fill": "$text-4",
                                               "content": "8m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         },
@@ -9631,7 +9753,8 @@
                                               "fill": "$text-3",
                                               "content": "MR board decision queue badge",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -9715,7 +9838,8 @@
                                               "fill": "$text-4",
                                               "content": "34m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         },
@@ -9734,7 +9858,8 @@
                                               "fill": "$text-3",
                                               "content": "Claude Code",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -9783,7 +9908,8 @@
                                       "fill": "$text-4",
                                       "content": "mervin",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -9881,7 +10007,8 @@
                                               "fill": "$text-3",
                                               "content": "· 3m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -9944,7 +10071,8 @@
                                           "fill": "$text-3",
                                           "content": "in repo-tools 🧰",
                                           "fontFamily": "$font",
-                                          "fontSize": 13
+                                          "fontSize": 13,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     },
@@ -9955,7 +10083,8 @@
                                       "fill": "$text-3",
                                       "content": "acme-api/gandalf · master",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -10159,7 +10288,8 @@
                                   "fill": "$text-3",
                                   "content": "wakes on @mention",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -10223,7 +10353,8 @@
                                       "fill": "$text-4",
                                       "content": "1",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -10303,7 +10434,8 @@
                                               "fill": "$text-4",
                                               "content": "4m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         },
@@ -10322,7 +10454,8 @@
                                               "fill": "$text-3",
                                               "content": "RT-366",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -10361,7 +10494,8 @@
                                       "fill": "$text-4",
                                       "content": "2",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -10467,7 +10601,8 @@
                                               "fill": "$text-4",
                                               "content": "3m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         },
@@ -10486,7 +10621,8 @@
                                               "fill": "$text-3",
                                               "content": "Agent tool limits assessment",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -10580,7 +10716,8 @@
                                               "fill": "$text-4",
                                               "content": "2m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         },
@@ -10599,7 +10736,8 @@
                                               "fill": "$text-3",
                                               "content": "rt terminal UI improvements",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -10638,7 +10776,8 @@
                                       "fill": "$text-4",
                                       "content": "3",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -10718,7 +10857,8 @@
                                               "fill": "$text-4",
                                               "content": "6m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         },
@@ -10737,7 +10877,8 @@
                                               "fill": "$text-3",
                                               "content": "Start execution, subagent-driven",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -10821,7 +10962,8 @@
                                               "fill": "$text-4",
                                               "content": "8m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         },
@@ -10840,7 +10982,8 @@
                                               "fill": "$text-3",
                                               "content": "MR board decision queue badge",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -10924,7 +11067,8 @@
                                               "fill": "$text-4",
                                               "content": "34m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         },
@@ -10943,7 +11087,8 @@
                                               "fill": "$text-3",
                                               "content": "Claude Code",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -10992,7 +11137,8 @@
                                       "fill": "$text-4",
                                       "content": "mervin",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -11090,7 +11236,8 @@
                                               "fill": "$text-3",
                                               "content": "· 3m",
                                               "fontFamily": "$font",
-                                              "fontSize": 12
+                                              "fontSize": 12,
+                                              "fontWeight": "normal"
                                             }
                                           ]
                                         }
@@ -11153,7 +11300,8 @@
                                           "fill": "$text-3",
                                           "content": "in repo-tools 🧰",
                                           "fontFamily": "$font",
-                                          "fontSize": 13
+                                          "fontSize": 13,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     },
@@ -11164,7 +11312,8 @@
                                       "fill": "$text-3",
                                       "content": "acme-api/gandalf · master",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -11385,7 +11534,8 @@
                               "fill": "$text-4",
                               "content": "1",
                               "fontFamily": "$font",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -11465,7 +11615,8 @@
                                       "fill": "$text-4",
                                       "content": "4m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -11484,7 +11635,8 @@
                                       "fill": "$text-3",
                                       "content": "RT-366",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -11523,7 +11675,8 @@
                               "fill": "$text-4",
                               "content": "2",
                               "fontFamily": "$font",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -11629,7 +11782,8 @@
                                       "fill": "$text-4",
                                       "content": "3m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -11648,7 +11802,8 @@
                                       "fill": "$text-3",
                                       "content": "Agent tool limits assessment",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -11742,7 +11897,8 @@
                                       "fill": "$text-4",
                                       "content": "2m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -11761,7 +11917,8 @@
                                       "fill": "$text-3",
                                       "content": "rt terminal UI improvements",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -11800,7 +11957,8 @@
                               "fill": "$text-4",
                               "content": "3",
                               "fontFamily": "$font",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -11880,7 +12038,8 @@
                                       "fill": "$text-4",
                                       "content": "6m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -11899,7 +12058,8 @@
                                       "fill": "$text-3",
                                       "content": "Start execution, subagent-driven",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -11983,7 +12143,8 @@
                                       "fill": "$text-4",
                                       "content": "8m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -12002,7 +12163,8 @@
                                       "fill": "$text-3",
                                       "content": "MR board decision queue badge",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -12086,7 +12248,8 @@
                                       "fill": "$text-4",
                                       "content": "34m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -12105,7 +12268,8 @@
                                       "fill": "$text-3",
                                       "content": "Claude Code",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -12154,7 +12318,8 @@
                               "fill": "$text-4",
                               "content": "mervin",
                               "fontFamily": "$font",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         }
@@ -12278,7 +12443,8 @@
                                           "fill": "$text-3",
                                           "content": "· 3m",
                                           "fontFamily": "$font",
-                                          "fontSize": 12
+                                          "fontSize": 12,
+                                          "fontWeight": "normal"
                                         }
                                       ]
                                     }
@@ -12341,7 +12507,8 @@
                                       "fill": "$text-3",
                                       "content": "in repo-tools 🧰",
                                       "fontFamily": "$font",
-                                      "fontSize": 13
+                                      "fontSize": 13,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 },
@@ -12352,7 +12519,8 @@
                                   "fill": "$text-3",
                                   "content": "acme-api/gandalf · master",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -12493,7 +12661,8 @@
           "content": "One emphasis level per job: the name is bold, everything else is regular weight. The status word is grey unless the agent is waiting on you. No divider, no chips, one coloured element per card. V1 makes the herdr location itself the Focus pane target. V2 keeps a button and folds the location into a single muted line.",
           "lineHeight": 1.45,
           "fontFamily": "$font",
-          "fontSize": 13
+          "fontSize": 13,
+          "fontWeight": "normal"
         },
         {
           "type": "frame",
@@ -12627,7 +12796,8 @@
                                       "fill": "$text-3",
                                       "content": "Working · 3m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -12645,7 +12815,8 @@
                           "content": "Agent tool limits assessment",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -12686,7 +12857,8 @@
                                   "fill": "$text-3",
                                   "content": "repo-tools 🧰 · acme-api/gandalf",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -12830,7 +13002,8 @@
                                       "fill": "$bad-text",
                                       "content": "Waiting on you · 4m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -12848,7 +13021,8 @@
                           "content": "RT-366",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -12889,7 +13063,8 @@
                                   "fill": "$text-3",
                                   "content": "repo-tools 🧰 · mattstack/saruman",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -13054,7 +13229,8 @@
                                   "fill": "$text-3",
                                   "content": "Done · 8m",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -13080,7 +13256,8 @@
                           "content": "MR board decision queue badge",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -13089,7 +13266,8 @@
                           "fill": "$text-3",
                           "content": "repo-tools 🧰 › release coordinator",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -13293,7 +13471,8 @@
                                       "fill": "$text-3",
                                       "content": "Working · 3m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -13311,7 +13490,8 @@
                           "content": "Agent tool limits assessment",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -13352,7 +13532,8 @@
                                   "fill": "$text-3",
                                   "content": "repo-tools 🧰 · acme-api/gandalf",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -13496,7 +13677,8 @@
                                       "fill": "$bad-text",
                                       "content": "Waiting on you · 4m",
                                       "fontFamily": "$font",
-                                      "fontSize": 12
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -13514,7 +13696,8 @@
                           "content": "RT-366",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -13555,7 +13738,8 @@
                                   "fill": "$text-3",
                                   "content": "repo-tools 🧰 · mattstack/saruman",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -13720,7 +13904,8 @@
                                   "fill": "$text-3",
                                   "content": "Done · 8m",
                                   "fontFamily": "$font",
-                                  "fontSize": 12
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -13746,7 +13931,8 @@
                           "content": "MR board decision queue badge",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
-                          "fontSize": 14
+                          "fontSize": 14,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "text",
@@ -13755,7 +13941,8 @@
                           "fill": "$text-3",
                           "content": "repo-tools 🧰 › release coordinator",
                           "fontFamily": "$font",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         }
                       ]
                     },
@@ -13818,6 +14005,2264 @@
                           "fontFamily": "$font",
                           "fontSize": 12,
                           "fontWeight": "500"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "xnBzo",
+      "x": 3540,
+      "y": 889,
+      "name": "07 · Chosen: V2 card docked by the room dropdown",
+      "theme": {
+        "mode": "light"
+      },
+      "fill": "$panel",
+      "layout": "vertical",
+      "gap": 24,
+      "padding": 40,
+      "children": [
+        {
+          "type": "text",
+          "id": "ja3lS",
+          "name": "Chosen direction: V2 car",
+          "fill": "$text-1",
+          "content": "Chosen direction: V2 card, docked beside the room dropdown",
+          "fontFamily": "$font",
+          "fontSize": 22,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "c4mDQ",
+          "name": "Blurb",
+          "fill": "$text-3",
+          "textGrowth": "fixed-width",
+          "width": 1040,
+          "content": "The room dropdown keeps its narrow list grouped by herdr state. Hovering a row docks the V2 card beside it, level with the row; the list never moves.",
+          "lineHeight": 1.45,
+          "fontFamily": "$font",
+          "fontSize": 13
+        },
+        {
+          "type": "frame",
+          "id": "o7zX3T",
+          "name": "Stages",
+          "gap": 24,
+          "children": [
+            {
+              "type": "frame",
+              "id": "J0ptl",
+              "name": "Stage light",
+              "theme": {
+                "mode": "light"
+              },
+              "fill": "$bg",
+              "cornerRadius": 12,
+              "gap": 8,
+              "padding": 24,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "fT9ve",
+                  "name": "Room dropdown",
+                  "width": 340,
+                  "fill": "$overlay",
+                  "cornerRadius": 10,
+                  "stroke": "$border",
+                  "strokeWidth": 1,
+                  "effect": {
+                    "type": "shadow",
+                    "shadowType": "outer",
+                    "color": "$shadow",
+                    "offset": {
+                      "x": 0,
+                      "y": 10
+                    },
+                    "blur": 30
+                  },
+                  "layout": "vertical",
+                  "gap": 1,
+                  "padding": 6,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "EqWqB",
+                      "name": "Popover header",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "padding": [
+                        8,
+                        10,
+                        4,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "A1hJWB",
+                          "name": "7 in #mattstack",
+                          "fill": "$text-1",
+                          "content": "7 in #mattstack",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "n4bn2E",
+                      "name": "Section Needs you",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "padding": [
+                        10,
+                        10,
+                        4,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "uEFgO",
+                          "name": "dot",
+                          "fill": "$bad-fill",
+                          "width": 6,
+                          "height": 6
+                        },
+                        {
+                          "type": "text",
+                          "id": "FO0Zi",
+                          "name": "Needs you",
+                          "fill": "$bad-text",
+                          "content": "Needs you",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "zxhrG",
+                          "name": "1",
+                          "fill": "$text-4",
+                          "content": "1",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "cXdxi",
+                      "name": "Member freddy",
+                      "width": "fill_container",
+                      "cornerRadius": 7,
+                      "gap": 10,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "feI17",
+                          "name": "avatar (invadr sprite)",
+                          "width": 22,
+                          "height": 22,
+                          "fill": "$cyan-wash",
+                          "cornerRadius": 5.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "pi03C",
+                              "name": "sprite",
+                              "width": 13.64,
+                              "height": 13.64,
+                              "icon": "alien",
+                              "library": "phosphor",
+                              "weight": 700,
+                              "fill": "$cyan-text"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ul0Sz",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 1,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "AHGdx",
+                              "name": "Line 1",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "UNTfR",
+                                  "name": "freddy",
+                                  "fill": "$text-1",
+                                  "content": "freddy",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "W7ZV24",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "rWzKl",
+                                  "name": "4m",
+                                  "fill": "$text-4",
+                                  "content": "4m",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "vskqJ",
+                              "name": "task (truncates)",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 17,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "I54vxH",
+                                  "name": "RT-366",
+                                  "fill": "$text-3",
+                                  "content": "RT-366",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "q7UwqX",
+                      "name": "Section Working",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "padding": [
+                        10,
+                        10,
+                        4,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "w1ofGL",
+                          "name": "Working",
+                          "fill": "$text-3",
+                          "content": "Working",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "fWtey",
+                          "name": "2",
+                          "fill": "$text-4",
+                          "content": "2",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "S7TCOb",
+                      "name": "Member davey",
+                      "width": "fill_container",
+                      "fill": "$hover",
+                      "cornerRadius": 7,
+                      "gap": 10,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "RWOzi",
+                          "name": "avatar (invadr sprite)",
+                          "width": 22,
+                          "height": 22,
+                          "fill": "$bad-wash",
+                          "cornerRadius": 5.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "Abvdz",
+                              "name": "sprite",
+                              "width": 13.64,
+                              "height": 13.64,
+                              "icon": "alien",
+                              "library": "phosphor",
+                              "weight": 700,
+                              "fill": "$bad-text"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Hvrvp",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 1,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "YssEM",
+                              "name": "Line 1",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "v9iGKz",
+                                  "name": "davey",
+                                  "fill": "$text-1",
+                                  "content": "davey",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "iNCN5",
+                                  "name": "repo chip",
+                                  "fill": "$inset",
+                                  "cornerRadius": 4,
+                                  "stroke": "$border-soft",
+                                  "strokeWidth": 1,
+                                  "padding": [
+                                    1,
+                                    6
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "KgF9U",
+                                      "name": "acme-api",
+                                      "fill": "$text-3",
+                                      "content": "acme-api",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "500"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "P2DLE",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "UHNMv",
+                                  "name": "3m",
+                                  "fill": "$text-4",
+                                  "content": "3m",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "SLiEm",
+                              "name": "task (truncates)",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 17,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "N5Sil",
+                                  "name": "x MCP agent limita",
+                                  "fill": "$text-3",
+                                  "content": "Agent tool limits assessment",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "icon",
+                          "id": "v052n",
+                          "name": "chevron-right",
+                          "width": 14,
+                          "height": 14,
+                          "icon": "chevron-right",
+                          "library": "lucide",
+                          "fill": "$text-4"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "TMxnP",
+                      "name": "Member alani",
+                      "width": "fill_container",
+                      "cornerRadius": 7,
+                      "gap": 10,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "OSzIk",
+                          "name": "avatar (invadr sprite)",
+                          "width": 22,
+                          "height": 22,
+                          "fill": "$cyan-wash",
+                          "cornerRadius": 5.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "LdIBq",
+                              "name": "sprite",
+                              "width": 13.64,
+                              "height": 13.64,
+                              "icon": "alien",
+                              "library": "phosphor",
+                              "weight": 700,
+                              "fill": "$cyan-text"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "usuem",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 1,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "rtsao",
+                              "name": "Line 1",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "JbdZN",
+                                  "name": "alani",
+                                  "fill": "$text-1",
+                                  "content": "alani",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "Yp0SI",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "QwLht",
+                                  "name": "2m",
+                                  "fill": "$text-4",
+                                  "content": "2m",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "pdu2W",
+                              "name": "task (truncates)",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 17,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "XSxkx",
+                                  "name": "rt terminal UI improveme",
+                                  "fill": "$text-3",
+                                  "content": "rt terminal UI improvements",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "NPIoY",
+                      "name": "Section Done",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "padding": [
+                        10,
+                        10,
+                        4,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Pgj1R",
+                          "name": "Done",
+                          "fill": "$text-3",
+                          "content": "Done",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "zOb27",
+                          "name": "3",
+                          "fill": "$text-4",
+                          "content": "3",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "R7d3N",
+                      "name": "Member nestor",
+                      "width": "fill_container",
+                      "cornerRadius": 7,
+                      "gap": 10,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "n2y0Nu",
+                          "name": "avatar (invadr sprite)",
+                          "width": 22,
+                          "height": 22,
+                          "fill": "$purple-wash",
+                          "cornerRadius": 5.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "gs59Y",
+                              "name": "sprite",
+                              "width": 13.64,
+                              "height": 13.64,
+                              "icon": "alien",
+                              "library": "phosphor",
+                              "weight": 700,
+                              "fill": "$purple-text"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "klaED",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 1,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "q76wz",
+                              "name": "Line 1",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "XEIso",
+                                  "name": "nestor",
+                                  "fill": "$text-1",
+                                  "content": "nestor",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "dn04T",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "uWEG6",
+                                  "name": "6m",
+                                  "fill": "$text-4",
+                                  "content": "6m",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "QJB14",
+                              "name": "task (truncates)",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 17,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "h0fUF",
+                                  "name": "Start execution, subagen",
+                                  "fill": "$text-3",
+                                  "content": "Start execution, subagent-driven",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "qsjEO",
+                      "name": "Member ava",
+                      "width": "fill_container",
+                      "cornerRadius": 7,
+                      "gap": 10,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "wNmct",
+                          "name": "avatar (invadr sprite)",
+                          "width": 22,
+                          "height": 22,
+                          "fill": "$purple-wash",
+                          "cornerRadius": 5.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "iLVTt",
+                              "name": "sprite",
+                              "width": 13.64,
+                              "height": 13.64,
+                              "icon": "alien",
+                              "library": "phosphor",
+                              "weight": 700,
+                              "fill": "$purple-text"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "FqiQ5",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 1,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "kNHNj",
+                              "name": "Line 1",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "Md0Uz",
+                                  "name": "ava",
+                                  "fill": "$text-1",
+                                  "content": "ava",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "rQaUM",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "iKyLi",
+                                  "name": "8m",
+                                  "fill": "$text-4",
+                                  "content": "8m",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "E7gqif",
+                              "name": "task (truncates)",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 17,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "HlYSB",
+                                  "name": "MR board decision queue ",
+                                  "fill": "$text-3",
+                                  "content": "MR board decision queue badge",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "W2lF0",
+                      "name": "Member janet",
+                      "width": "fill_container",
+                      "cornerRadius": 7,
+                      "gap": 10,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "JDpQ5",
+                          "name": "avatar (invadr sprite)",
+                          "width": 22,
+                          "height": 22,
+                          "fill": "$bad-wash",
+                          "cornerRadius": 5.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "IF3vp",
+                              "name": "sprite",
+                              "width": 13.64,
+                              "height": 13.64,
+                              "icon": "alien",
+                              "library": "phosphor",
+                              "weight": 700,
+                              "fill": "$bad-text"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "peXrC",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 1,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "Qcncc",
+                              "name": "Line 1",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "aph19",
+                                  "name": "janet",
+                                  "fill": "$text-1",
+                                  "content": "janet",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "pvCtZ",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "CWKSc",
+                                  "name": "34m",
+                                  "fill": "$text-4",
+                                  "content": "34m",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "ftB5k",
+                              "name": "task (truncates)",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 17,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "zt7v0",
+                                  "name": "Claude Code",
+                                  "fill": "$text-3",
+                                  "content": "Claude Code",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "NpKJs",
+                      "name": "Signed out",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "padding": [
+                        10,
+                        10,
+                        6,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "zmVWu",
+                          "name": "chevron-right",
+                          "width": 13,
+                          "height": 13,
+                          "icon": "chevron-right",
+                          "library": "lucide",
+                          "fill": "$text-4"
+                        },
+                        {
+                          "type": "text",
+                          "id": "Zku84",
+                          "name": "1 signed out",
+                          "fill": "$text-3",
+                          "content": "1 signed out",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "FMbfL",
+                          "name": "mervin",
+                          "fill": "$text-4",
+                          "content": "mervin",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "kOn8U",
+                  "name": "Dock offset",
+                  "layout": "vertical",
+                  "padding": [
+                    146,
+                    0,
+                    0,
+                    0
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "lsHRC",
+                      "name": "Agent card V2 · davey",
+                      "width": 300,
+                      "fill": "$overlay",
+                      "cornerRadius": 12,
+                      "stroke": "$border-soft",
+                      "strokeWidth": 1,
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "$shadow",
+                        "offset": {
+                          "x": 0,
+                          "y": 12
+                        },
+                        "blur": 32
+                      },
+                      "layout": "vertical",
+                      "gap": 14,
+                      "padding": 16,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "E24bk",
+                          "name": "Header",
+                          "width": "fill_container",
+                          "gap": 10,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "J7R8E1",
+                              "name": "avatar (invadr sprite)",
+                              "width": 32,
+                              "height": 32,
+                              "fill": "$bad-wash",
+                              "cornerRadius": 8,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "ZHTs1",
+                                  "name": "sprite",
+                                  "width": 19.2,
+                                  "height": 19.2,
+                                  "icon": "alien",
+                                  "library": "phosphor",
+                                  "weight": 700,
+                                  "fill": "$bad-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Z94M9P",
+                              "name": "Identity",
+                              "width": "fill_container",
+                              "layout": "vertical",
+                              "gap": 1,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "ElmQ4",
+                                  "name": "davey",
+                                  "fill": "$text-1",
+                                  "content": "davey",
+                                  "fontFamily": "$font",
+                                  "fontSize": 16,
+                                  "fontWeight": "700"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "gikHy",
+                                  "name": "Status",
+                                  "width": "fill_container",
+                                  "gap": 6,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "I1anM",
+                                      "name": "dot",
+                                      "fill": "$ok-fill",
+                                      "width": 6,
+                                      "height": 6
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "OYG62",
+                                      "name": "Working · 3m",
+                                      "fill": "$text-3",
+                                      "content": "Working · 3m",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "F03Vfu",
+                          "name": "Body",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "jbxH7",
+                              "name": "Task",
+                              "fill": "$text-1",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "Agent tool limits assessment",
+                              "lineHeight": 1.45,
+                              "fontFamily": "$font",
+                              "fontSize": 14
+                            },
+                            {
+                              "type": "text",
+                              "id": "wrSbO",
+                              "name": "workspace › tab",
+                              "fill": "$text-3",
+                              "content": "repo-tools 🧰 › loosening mcp rules",
+                              "fontFamily": "$font",
+                              "fontSize": 12
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "apDAB",
+                          "name": "Actions",
+                          "width": "fill_container",
+                          "gap": 14,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "dOuoC",
+                              "name": "btn Focus pane",
+                              "height": 28,
+                              "fill": "$accent-fill",
+                              "cornerRadius": 7,
+                              "padding": [
+                                0,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "BSPhy",
+                                  "name": "Focus pane",
+                                  "fill": "$on-accent",
+                                  "content": "Focus pane",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "QlQF4",
+                              "name": "spacer",
+                              "width": "fill_container",
+                              "height": 1
+                            },
+                            {
+                              "type": "text",
+                              "id": "cEvTn",
+                              "name": "Mention",
+                              "fill": "$text-3",
+                              "content": "Mention",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "pcl9t",
+                              "name": "Message",
+                              "fill": "$text-3",
+                              "content": "Message",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "kyhRr",
+              "name": "Stage dark",
+              "theme": {
+                "mode": "dark"
+              },
+              "fill": "$bg",
+              "cornerRadius": 12,
+              "gap": 8,
+              "padding": 24,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "VVwUE",
+                  "name": "Room dropdown",
+                  "width": 340,
+                  "fill": "$overlay",
+                  "cornerRadius": 10,
+                  "stroke": "$border",
+                  "strokeWidth": 1,
+                  "effect": {
+                    "type": "shadow",
+                    "shadowType": "outer",
+                    "color": "$shadow",
+                    "offset": {
+                      "x": 0,
+                      "y": 10
+                    },
+                    "blur": 30
+                  },
+                  "layout": "vertical",
+                  "gap": 1,
+                  "padding": 6,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "vG5sg",
+                      "name": "Popover header",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "padding": [
+                        8,
+                        10,
+                        4,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "iESvH",
+                          "name": "7 in #mattstack",
+                          "fill": "$text-1",
+                          "content": "7 in #mattstack",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "xPxCm",
+                      "name": "Section Needs you",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "padding": [
+                        10,
+                        10,
+                        4,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "ellipse",
+                          "id": "E4Iwke",
+                          "name": "dot",
+                          "fill": "$bad-fill",
+                          "width": 6,
+                          "height": 6
+                        },
+                        {
+                          "type": "text",
+                          "id": "pkjJT",
+                          "name": "Needs you",
+                          "fill": "$bad-text",
+                          "content": "Needs you",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "x7Osn",
+                          "name": "1",
+                          "fill": "$text-4",
+                          "content": "1",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "w7xX4",
+                      "name": "Member freddy",
+                      "width": "fill_container",
+                      "cornerRadius": 7,
+                      "gap": 10,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "YMkT7",
+                          "name": "avatar (invadr sprite)",
+                          "width": 22,
+                          "height": 22,
+                          "fill": "$cyan-wash",
+                          "cornerRadius": 5.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "aDEp5",
+                              "name": "sprite",
+                              "width": 13.64,
+                              "height": 13.64,
+                              "icon": "alien",
+                              "library": "phosphor",
+                              "weight": 700,
+                              "fill": "$cyan-text"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "r77uU",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 1,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "b5kYE",
+                              "name": "Line 1",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "MSPSB",
+                                  "name": "freddy",
+                                  "fill": "$text-1",
+                                  "content": "freddy",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "bBL96",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "SJv9w",
+                                  "name": "4m",
+                                  "fill": "$text-4",
+                                  "content": "4m",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "f8sOH",
+                              "name": "task (truncates)",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 17,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "NUf1g",
+                                  "name": "RT-366",
+                                  "fill": "$text-3",
+                                  "content": "RT-366",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "iVvXv",
+                      "name": "Section Working",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "padding": [
+                        10,
+                        10,
+                        4,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "D3IJwm",
+                          "name": "Working",
+                          "fill": "$text-3",
+                          "content": "Working",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "uKQFs",
+                          "name": "2",
+                          "fill": "$text-4",
+                          "content": "2",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "BpBpg",
+                      "name": "Member davey",
+                      "width": "fill_container",
+                      "fill": "$hover",
+                      "cornerRadius": 7,
+                      "gap": 10,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "pfPvH",
+                          "name": "avatar (invadr sprite)",
+                          "width": 22,
+                          "height": 22,
+                          "fill": "$bad-wash",
+                          "cornerRadius": 5.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "zc0V0",
+                              "name": "sprite",
+                              "width": 13.64,
+                              "height": 13.64,
+                              "icon": "alien",
+                              "library": "phosphor",
+                              "weight": 700,
+                              "fill": "$bad-text"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Gltqn",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 1,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "oIjTM",
+                              "name": "Line 1",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "lWAxH",
+                                  "name": "davey",
+                                  "fill": "$text-1",
+                                  "content": "davey",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "X1BQl",
+                                  "name": "repo chip",
+                                  "fill": "$inset",
+                                  "cornerRadius": 4,
+                                  "stroke": "$border-soft",
+                                  "strokeWidth": 1,
+                                  "padding": [
+                                    1,
+                                    6
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "IxchQ",
+                                      "name": "acme-api",
+                                      "fill": "$text-3",
+                                      "content": "acme-api",
+                                      "fontFamily": "$font",
+                                      "fontSize": 11,
+                                      "fontWeight": "500"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "qyahI",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "n94ma5",
+                                  "name": "3m",
+                                  "fill": "$text-4",
+                                  "content": "3m",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "A52xw8",
+                              "name": "task (truncates)",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 17,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "rS1Cm",
+                                  "name": "x MCP agent limita",
+                                  "fill": "$text-3",
+                                  "content": "Agent tool limits assessment",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "icon",
+                          "id": "t1D1jS",
+                          "name": "chevron-right",
+                          "width": 14,
+                          "height": 14,
+                          "icon": "chevron-right",
+                          "library": "lucide",
+                          "fill": "$text-4"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "LzljN",
+                      "name": "Member alani",
+                      "width": "fill_container",
+                      "cornerRadius": 7,
+                      "gap": 10,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "Q6uiJ",
+                          "name": "avatar (invadr sprite)",
+                          "width": 22,
+                          "height": 22,
+                          "fill": "$cyan-wash",
+                          "cornerRadius": 5.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "PgTeJ",
+                              "name": "sprite",
+                              "width": 13.64,
+                              "height": 13.64,
+                              "icon": "alien",
+                              "library": "phosphor",
+                              "weight": 700,
+                              "fill": "$cyan-text"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "DYzxa",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 1,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "IcNbn",
+                              "name": "Line 1",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "o0noyz",
+                                  "name": "alani",
+                                  "fill": "$text-1",
+                                  "content": "alani",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "AFUlv",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "uhxoK",
+                                  "name": "2m",
+                                  "fill": "$text-4",
+                                  "content": "2m",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "NKmuB",
+                              "name": "task (truncates)",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 17,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "oGOT2",
+                                  "name": "rt terminal UI improveme",
+                                  "fill": "$text-3",
+                                  "content": "rt terminal UI improvements",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "m2jeeA",
+                      "name": "Section Done",
+                      "width": "fill_container",
+                      "gap": 6,
+                      "padding": [
+                        10,
+                        10,
+                        4,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "w18PFE",
+                          "name": "Done",
+                          "fill": "$text-3",
+                          "content": "Done",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "FygnY",
+                          "name": "3",
+                          "fill": "$text-4",
+                          "content": "3",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "M3v02D",
+                      "name": "Member nestor",
+                      "width": "fill_container",
+                      "cornerRadius": 7,
+                      "gap": 10,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "WRZDU",
+                          "name": "avatar (invadr sprite)",
+                          "width": 22,
+                          "height": 22,
+                          "fill": "$purple-wash",
+                          "cornerRadius": 5.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "asmFO",
+                              "name": "sprite",
+                              "width": 13.64,
+                              "height": 13.64,
+                              "icon": "alien",
+                              "library": "phosphor",
+                              "weight": 700,
+                              "fill": "$purple-text"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "wize4",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 1,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "UQWGf",
+                              "name": "Line 1",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "wTNSj",
+                                  "name": "nestor",
+                                  "fill": "$text-1",
+                                  "content": "nestor",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "dt2Za",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "uRG8b",
+                                  "name": "6m",
+                                  "fill": "$text-4",
+                                  "content": "6m",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "hwCAt",
+                              "name": "task (truncates)",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 17,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "dagXv",
+                                  "name": "Start execution, subagen",
+                                  "fill": "$text-3",
+                                  "content": "Start execution, subagent-driven",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Y47rkI",
+                      "name": "Member ava",
+                      "width": "fill_container",
+                      "cornerRadius": 7,
+                      "gap": 10,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "nlzbt",
+                          "name": "avatar (invadr sprite)",
+                          "width": 22,
+                          "height": 22,
+                          "fill": "$purple-wash",
+                          "cornerRadius": 5.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "M5FGm5",
+                              "name": "sprite",
+                              "width": 13.64,
+                              "height": 13.64,
+                              "icon": "alien",
+                              "library": "phosphor",
+                              "weight": 700,
+                              "fill": "$purple-text"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "jX96P",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 1,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "t1Jsd6",
+                              "name": "Line 1",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "pRTz4",
+                                  "name": "ava",
+                                  "fill": "$text-1",
+                                  "content": "ava",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "z9O5s",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "CuBoQ",
+                                  "name": "8m",
+                                  "fill": "$text-4",
+                                  "content": "8m",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "g0znS",
+                              "name": "task (truncates)",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 17,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "gIZvd",
+                                  "name": "MR board decision queue ",
+                                  "fill": "$text-3",
+                                  "content": "MR board decision queue badge",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "T2p7O",
+                      "name": "Member janet",
+                      "width": "fill_container",
+                      "cornerRadius": 7,
+                      "gap": 10,
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "KczEO",
+                          "name": "avatar (invadr sprite)",
+                          "width": 22,
+                          "height": 22,
+                          "fill": "$bad-wash",
+                          "cornerRadius": 5.5,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "BJt1k",
+                              "name": "sprite",
+                              "width": 13.64,
+                              "height": 13.64,
+                              "icon": "alien",
+                              "library": "phosphor",
+                              "weight": 700,
+                              "fill": "$bad-text"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "vnNGu",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 1,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "fu2xf",
+                              "name": "Line 1",
+                              "width": "fill_container",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "xaxXq",
+                                  "name": "janet",
+                                  "fill": "$text-1",
+                                  "content": "janet",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "UUBpp",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "YYQzq",
+                                  "name": "34m",
+                                  "fill": "$text-4",
+                                  "content": "34m",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "IGTQa",
+                              "name": "task (truncates)",
+                              "clip": true,
+                              "width": "fill_container",
+                              "height": 17,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "Kznhn",
+                                  "name": "Claude Code",
+                                  "fill": "$text-3",
+                                  "content": "Claude Code",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "mDyRC",
+                      "name": "Signed out",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "padding": [
+                        10,
+                        10,
+                        6,
+                        10
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "OdxV1",
+                          "name": "chevron-right",
+                          "width": 13,
+                          "height": 13,
+                          "icon": "chevron-right",
+                          "library": "lucide",
+                          "fill": "$text-4"
+                        },
+                        {
+                          "type": "text",
+                          "id": "bHmcn",
+                          "name": "1 signed out",
+                          "fill": "$text-3",
+                          "content": "1 signed out",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "U1gGv",
+                          "name": "mervin",
+                          "fill": "$text-4",
+                          "content": "mervin",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "b9lJBF",
+                  "name": "Dock offset",
+                  "layout": "vertical",
+                  "padding": [
+                    146,
+                    0,
+                    0,
+                    0
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "Wg1UY",
+                      "name": "Agent card V2 · davey",
+                      "width": 300,
+                      "fill": "$overlay",
+                      "cornerRadius": 12,
+                      "stroke": "$border-soft",
+                      "strokeWidth": 1,
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "$shadow",
+                        "offset": {
+                          "x": 0,
+                          "y": 12
+                        },
+                        "blur": 32
+                      },
+                      "layout": "vertical",
+                      "gap": 14,
+                      "padding": 16,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "d8Ze8",
+                          "name": "Header",
+                          "width": "fill_container",
+                          "gap": 10,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "XKqcr",
+                              "name": "avatar (invadr sprite)",
+                              "width": 32,
+                              "height": 32,
+                              "fill": "$bad-wash",
+                              "cornerRadius": 8,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "ag6Bc",
+                                  "name": "sprite",
+                                  "width": 19.2,
+                                  "height": 19.2,
+                                  "icon": "alien",
+                                  "library": "phosphor",
+                                  "weight": 700,
+                                  "fill": "$bad-text"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "RHNWX",
+                              "name": "Identity",
+                              "width": "fill_container",
+                              "layout": "vertical",
+                              "gap": 1,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "a2mLYl",
+                                  "name": "davey",
+                                  "fill": "$text-1",
+                                  "content": "davey",
+                                  "fontFamily": "$font",
+                                  "fontSize": 16,
+                                  "fontWeight": "700"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "M6B8nn",
+                                  "name": "Status",
+                                  "width": "fill_container",
+                                  "gap": 6,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "EHOyi",
+                                      "name": "dot",
+                                      "fill": "$ok-fill",
+                                      "width": 6,
+                                      "height": 6
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "Kvx5r",
+                                      "name": "Working · 3m",
+                                      "fill": "$text-3",
+                                      "content": "Working · 3m",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "omz8Y",
+                          "name": "Body",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 4,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "WfzCb",
+                              "name": "Task",
+                              "fill": "$text-1",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "Agent tool limits assessment",
+                              "lineHeight": 1.45,
+                              "fontFamily": "$font",
+                              "fontSize": 14
+                            },
+                            {
+                              "type": "text",
+                              "id": "PeyIC",
+                              "name": "workspace › tab",
+                              "fill": "$text-3",
+                              "content": "repo-tools 🧰 › loosening mcp rules",
+                              "fontFamily": "$font",
+                              "fontSize": 12
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "QOgcz",
+                          "name": "Actions",
+                          "width": "fill_container",
+                          "gap": 14,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "A5sIbk",
+                              "name": "btn Focus pane",
+                              "height": 28,
+                              "fill": "$accent-fill",
+                              "cornerRadius": 7,
+                              "padding": [
+                                0,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "QJfzZ",
+                                  "name": "Focus pane",
+                                  "fill": "$on-accent",
+                                  "content": "Focus pane",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "z8Sw9",
+                              "name": "spacer",
+                              "width": "fill_container",
+                              "height": 1
+                            },
+                            {
+                              "type": "text",
+                              "id": "Bus5W",
+                              "name": "Mention",
+                              "fill": "$text-3",
+                              "content": "Mention",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "pxo5j",
+                              "name": "Message",
+                              "fill": "$text-3",
+                              "content": "Message",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "500"
+                            }
+                          ]
                         }
                       ]
                     }
