@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import type { ReactNode } from 'react';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type {
@@ -10,6 +11,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { KeyPanel, type PanelStore, type PanelTab } from './KeyPanel';
+import classes from './KeyPanel.module.css';
 import { PanelToolbar } from './PanelToolbar';
 import { schemaFields } from './testSchemas';
 import { SettingsRepoContext, SettingsTeamContext } from './useConsoleSettings';
@@ -376,6 +378,45 @@ describe('KeyPanel', () => {
         name: 'remove rt.worktreeCwd from machine · repo',
       })
     ).toBeInTheDocument();
+  });
+
+  it('keeps the Move button shown while its menu is open', async () => {
+    const sheet = document.createElement('style');
+    sheet.textContent = readFileSync(
+      'src/app/settings/KeyPanel.module.css',
+      'utf8'
+    ).replace(
+      /\.([a-zA-Z][\w-]*)/g,
+      (_, name: string) => `.${(classes as Record<string, string>)[name]}`
+    );
+    document.head.appendChild(sheet);
+    // jsdom's :focus-within misreports after a focus change, so a computed
+    // style cannot isolate the open-menu reveal; this asks the module's
+    // top-level rules for one that holds without hover or focus.
+    const revealedBy = (el: Element) =>
+      Array.from(sheet.sheet!.cssRules)
+        .filter(
+          (r): r is CSSStyleRule =>
+            r instanceof CSSStyleRule && r.style.opacity === '1'
+        )
+        .flatMap(r => r.selectorText.split(','))
+        .filter(s => !/:hover|:focus-within/.test(s))
+        .some(s => el.matches(s));
+    try {
+      renderPanel(def('board.agent.model'), LAYERS);
+      const user = await screen.findByTestId('layer-user');
+      const move = within(user).getByRole('button', {
+        name: 'move board.agent.model from user',
+      });
+      const actions = move.closest<HTMLElement>(`.${classes.actions}`)!;
+      expect(revealedBy(actions)).toBe(false);
+
+      await userEvent.click(move);
+      await screen.findByRole('menuitem', { name: 'Move to machine' });
+      expect(revealedBy(actions)).toBe(true);
+    } finally {
+      sheet.remove();
+    }
   });
 
   it("shows rt's refusal of a move under the layers", async () => {

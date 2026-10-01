@@ -42,7 +42,8 @@
 }
 
 .line:focus-within .actions,
-.line[data-editing] .actions {
+.line[data-editing] .actions,
+.actions:has([data-expanded]) {
   width: auto;
   overflow: visible;
   opacity: 1;
