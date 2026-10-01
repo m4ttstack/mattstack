@@ -17,6 +17,7 @@ import {
   respondItemLabel,
   reviewLogged,
   reviewMenuItems,
+  SEAT_HINT,
 } from './format.ts';
 import { laneDismissed } from './row-status.ts';
 
@@ -354,6 +355,17 @@ export function rowActions(
     );
 
   const gitlab: RowAction[] = [];
+  if (env.local && env.self === null)
+    gitlab.push(
+      item(
+        'gitlab',
+        'seat-hint',
+        'author actions',
+        PEOPLE,
+        { kind: 'open', url: '' },
+        { blocked: SEAT_HINT }
+      )
+    );
   if (env.local && own) {
     for (const g of gitlabMenuItems(mrx)) {
       if (g.disabled) continue;
@@ -615,10 +627,10 @@ export function bulkActions(
     const picks = new Map<string, BoardMRWithReview[]>();
     let fits = true;
     for (const { mr, actions, offered, own: isOwn } of rows) {
-      const own = actions.find(a => a.key === key);
-      if (own) {
+      const offeredAction = actions.find(a => a.key === key);
+      if (offeredAction) {
         targets.push(mr);
-        for (const o of own.pick?.options ?? [])
+        for (const o of offeredAction.pick?.options ?? [])
           picks.set(o.value, [...(picks.get(o.value) ?? []), mr]);
       } else if (!alreadyThere(key, offered, isOwn)) fits = false;
     }

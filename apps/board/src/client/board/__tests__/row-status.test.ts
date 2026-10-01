@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
 import { domainForKind } from '@mattstack/gate-kit';
-
 import type { BoardMRWithReview } from '../../types.ts';
 import {
   candidateLines,

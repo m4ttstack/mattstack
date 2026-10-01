@@ -395,3 +395,19 @@ test("bulk never offers an author-only action once someone else's MR is checked"
   for (const k of AUTHOR_ONLY) expect(entries.map(e => e.key)).not.toContain(k);
   expect(entries.map(e => e.key)).toContain('find-thread');
 });
+
+test('a seatless board says where author actions went, and nothing more', () => {
+  const actions = rowActions(
+    brokenAndMergeable(),
+    actionEnvOf({ ...ownEnv, self: null }, brokenAndMergeable())
+  );
+  const hint = actions.find(a => a.key === 'seat-hint');
+  expect(hint?.blocked).toBe(
+    'set your seat in board settings to act on your own MRs'
+  );
+  expect(hint?.bulk).toBeUndefined();
+  expect(keys(brokenAndMergeable(), ownEnv)).not.toContain('seat-hint');
+  expect(
+    keys(brokenAndMergeable(), { ...ownEnv, self: null, local: false })
+  ).not.toContain('seat-hint');
+});
