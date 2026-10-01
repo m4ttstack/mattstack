@@ -755,6 +755,13 @@ function requireOwnMr(mr: BoardMR): Response | null {
   return ownedHere(mr) ? null : new Response('not your MR', { status: 403 });
 }
 
+/** Each MR with the channel `/slack/post` would send it to. */
+function withSlackChannel<T extends BoardMR>(
+  mrs: T[]
+): Array<T & { slackChannel: string }> {
+  return mrs.map(mr => ({ ...mr, slackChannel: channelForMR(config, mr) }));
+}
+
 /** The review-request text for these MRs, from the board's Slack templates.
     A header forces the multi rendering even for one MR, since the single
     template has no header line to put it on. */
@@ -1326,7 +1333,10 @@ const httpServer = Bun.serve({
                     attachGates(
                       attachDoctors(
                         attachResponds(
-                          attachReviews(mrs, readReviewStates()),
+                          attachReviews(
+                            withSlackChannel(mrs),
+                            readReviewStates()
+                          ),
                           readRespondStates()
                         ),
                         readDoctorStates()
@@ -1430,7 +1440,7 @@ const httpServer = Bun.serve({
           attachPeerState(
             attachNotes(
               attachDrafts(
-                attachSlack(decision.mrs, slackRefs),
+                attachSlack(withSlackChannel(decision.mrs), slackRefs),
                 heldDraftsByMr(readDrafts())
               ),
               readNotes()
