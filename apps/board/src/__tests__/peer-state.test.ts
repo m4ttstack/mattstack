@@ -13,8 +13,12 @@ import {
   readNudges,
   readSentNudges,
   resolveSentNudge,
-  retireSentNudge,
+  dismissSentNudge,
+  finishSentNudge,
+  pruneFinishedSentNudges,
+  SENT_FINISH_KEEP_MS,
   sentNudgeDisplay,
+  sentNudgeView,
   writeNudge,
   writeSentNudge,
   type NudgeState,
@@ -338,20 +342,22 @@ describe('resolveSentNudge', () => {
   });
 });
 
-describe('retireSentNudge', () => {
+const DONE = { result: 'done' as const, at: 1 };
+
+describe('finishSentNudge', () => {
   test('is a no-op when no row exists for the MR', () => {
-    retireSentNudge(URL_A, 10, db);
+    finishSentNudge(URL_A, DONE, 10, db);
     expect(readSentNudges(db).size).toBe(0);
   });
 
-  test('deletes the sent nudge when it was sent before the cutoff', () => {
+  test('marks the sent nudge done when it was sent before the cutoff', () => {
     writeSentNudge(
       { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
       db
     );
     resolveSentNudge(URL_A, { result: 'launched', at: 5 }, db);
-    retireSentNudge(URL_A, 10, db);
-    expect(readSentNudges(db).has(URL_A)).toBe(false);
+    finishSentNudge(URL_A, DONE, 10, db);
+    expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe('done');
   });
 
   test("keeps a nudge sent at or after the cutoff, so a redelivered old 'done' cannot clear a fresh ask", () => {
@@ -359,33 +365,33 @@ describe('retireSentNudge', () => {
       { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 20 },
       db
     );
-    retireSentNudge(URL_A, 10, db);
+    finishSentNudge(URL_A, DONE, 10, db);
     expect(readSentNudges(db).has(URL_A)).toBe(true);
-    retireSentNudge(URL_A, 20, db);
+    finishSentNudge(URL_A, DONE, 20, db);
     expect(readSentNudges(db).has(URL_A)).toBe(true);
   });
 
-  test('a matching nudge id retires regardless of clock skew between boards', () => {
+  test('a matching nudge id finishes regardless of clock skew between boards', () => {
     writeSentNudge(
       { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 20 },
       db
     );
     // ifSentBefore says "keep" (author clock behind asker clock), but the id
     // pins the done to this exact ask.
-    retireSentNudge(URL_A, 10, db, 'n1');
-    expect(readSentNudges(db).has(URL_A)).toBe(false);
+    finishSentNudge(URL_A, DONE, 10, db, 'n1');
+    expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe('done');
   });
 
-  test('a mismatched nudge id never retires, even when the timestamp allows', () => {
+  test('a mismatched nudge id never finishes, even when the timestamp allows', () => {
     writeSentNudge(
       { nudgeId: 'n2', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
       db
     );
-    retireSentNudge(URL_A, 10, db, 'n1');
+    finishSentNudge(URL_A, DONE, 10, db, 'n1');
     expect(readSentNudges(db).has(URL_A)).toBe(true);
   });
 
-  test('only retires the named MR', () => {
+  test('only finishes the named MR', () => {
     writeSentNudge(
       { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
       db
@@ -394,26 +400,26 @@ describe('retireSentNudge', () => {
       { nudgeId: 'n2', mrUrl: URL_B, iid: 1, reviewer: 'grace', sentAt: 1 },
       db
     );
-    retireSentNudge(URL_A, 10, db);
+    finishSentNudge(URL_A, DONE, 10, db);
     const map = readSentNudges(db);
-    expect(map.has(URL_A)).toBe(false);
-    expect(map.has(URL_B)).toBe(true);
+    expect(map.get(URL_A)?.resolution?.result).toBe('done');
+    expect(map.get(URL_B)?.resolution).toBeUndefined();
   });
 
-  test('a fresh ask that lands between the read and the delete is not retired', () => {
+  test('a fresh ask that lands between the read and the delete is not finished', () => {
     writeSentNudge(
       { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
       db
     );
 
     // A second connection stands in for the fresh writeSentNudge that lands
-    // right before retireSentNudge's own DELETE runs -- the exact case the
+    // right before finishSentNudge's own UPDATE runs -- the exact case the
     // ifSentBefore guard exists for.
     const other = openStateDb(db.filename);
     const originalQuery = db.query.bind(db);
     let injected = false;
     (db as unknown as { query: typeof db.query }).query = ((sql: string) => {
-      if (!injected && sql.includes('DELETE FROM nudges_sent')) {
+      if (!injected && sql.includes('UPDATE nudges_sent')) {
         injected = true;
         other
           .query(
@@ -436,7 +442,7 @@ describe('retireSentNudge', () => {
     }) as typeof db.query;
 
     try {
-      retireSentNudge(URL_A, 10, db);
+      finishSentNudge(URL_A, DONE, 10, db);
     } finally {
       (db as unknown as { query: typeof db.query }).query = originalQuery;
       other.close();
@@ -444,6 +450,104 @@ describe('retireSentNudge', () => {
 
     expect(injected).toBe(true);
     expect(readSentNudges(db).get(URL_A)?.nudgeId).toBe('n2');
+  });
+
+  test('records the outcome and the finish time', () => {
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
+      db
+    );
+    finishSentNudge(
+      URL_A,
+      { result: 'done', outcome: 'comment', at: 99 },
+      10,
+      db
+    );
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual({
+      result: 'done',
+      outcome: 'comment',
+      at: 99,
+    });
+  });
+
+  test('a failed run is recorded with its reason', () => {
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
+      db
+    );
+    resolveSentNudge(URL_A, { result: 'launched', at: 5 }, db);
+    finishSentNudge(
+      URL_A,
+      { result: 'failed', reason: 'boom', at: 9 },
+      10,
+      db
+    );
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual({
+      result: 'failed',
+      reason: 'boom',
+      at: 9,
+    });
+  });
+
+  test('a redelivered report never overwrites a finished ask', () => {
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
+      db
+    );
+    finishSentNudge(URL_A, { result: 'done', at: 20 }, 10, db);
+    finishSentNudge(URL_A, { result: 'failed', at: 30 }, 10, db);
+    resolveSentNudge(URL_A, { result: 'confirmed', at: 40 }, db);
+    expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe('done');
+  });
+
+  test('a rejected ask stays rejected', () => {
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
+      db
+    );
+    resolveSentNudge(URL_A, { result: 'rejected', at: 5 }, db);
+    finishSentNudge(URL_A, { result: 'done', at: 20 }, 10, db);
+    expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe('rejected');
+  });
+});
+
+describe('dismissSentNudge', () => {
+  test('deletes only the named MR sent ask', () => {
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
+      db
+    );
+    writeSentNudge(
+      { nudgeId: 'n2', mrUrl: URL_B, iid: 1, reviewer: 'grace', sentAt: 1 },
+      db
+    );
+    dismissSentNudge(URL_A, db);
+    const map = readSentNudges(db);
+    expect(map.has(URL_A)).toBe(false);
+    expect(map.has(URL_B)).toBe(true);
+  });
+});
+
+describe('pruneFinishedSentNudges', () => {
+  test('drops finished asks past the keep window and nothing else', () => {
+    const base = { iid: 1, reviewer: 'grace', sentAt: 1 };
+    writeSentNudge({ ...base, nudgeId: 'a', mrUrl: URL_A }, db);
+    finishSentNudge(URL_A, { result: 'done', at: 1000 }, 10, db);
+    writeSentNudge({ ...base, nudgeId: 'b', mrUrl: URL_B }, db);
+    pruneFinishedSentNudges(1000 + SENT_FINISH_KEEP_MS + 1, db);
+    const map = readSentNudges(db);
+    expect(map.has(URL_A)).toBe(false);
+    expect(map.has(URL_B)).toBe(true);
+  });
+
+  test('keeps a finished ask inside the window', () => {
+    writeSentNudge(
+      { nudgeId: 'a', mrUrl: URL_A, iid: 1, reviewer: 'grace', sentAt: 1 },
+      db
+    );
+    finishSentNudge(URL_A, { result: 'failed', at: 1000 }, 10, db);
+    pruneFinishedSentNudges(1000 + SENT_FINISH_KEEP_MS - 1, db);
+    expect(readSentNudges(db).has(URL_A)).toBe(true);
   });
 });
 
@@ -489,6 +593,76 @@ describe('sentNudgeDisplay', () => {
         6
       )
     ).toBe('confirmed');
+    expect(
+      sentNudgeDisplay(
+        { ...base, resolution: { result: 'done', at: 5 } },
+        NUDGE_NO_RESPONSE_MS + 1
+      )
+    ).toBe('done');
+    expect(
+      sentNudgeDisplay(
+        { ...base, resolution: { result: 'failed', at: 5 } },
+        6
+      )
+    ).toBe('failed');
+  });
+});
+
+describe('sentNudgeView', () => {
+  const base: SentNudge = {
+    nudgeId: 'n',
+    mrUrl: URL_A,
+    iid: 1,
+    reviewer: 'grace',
+    sentAt: 100,
+    kind: 're-review',
+  };
+
+  test('carries the display, reviewer, kind and send time', () => {
+    expect(sentNudgeView(base, 200)).toEqual({
+      display: 'requested',
+      reviewer: 'grace',
+      kind: 're-review',
+      sentAt: 100,
+    });
+  });
+
+  test('a done ask carries its verdict and finish time', () => {
+    const done: SentNudge = {
+      ...base,
+      resolution: { result: 'done', outcome: 'comment', at: 150 },
+    };
+    expect(sentNudgeView(done, 200)).toMatchObject({
+      display: 'done',
+      outcome: 'comment',
+      finishedAt: 150,
+    });
+  });
+
+  test('a failed or rejected ask carries its reason', () => {
+    const failed: SentNudge = {
+      ...base,
+      resolution: { result: 'failed', reason: 'boom', at: 150 },
+    };
+    expect(sentNudgeView(failed, 200)).toMatchObject({
+      display: 'failed',
+      reason: 'boom',
+      finishedAt: 150,
+    });
+  });
+
+  test('a finished ask past its keep window is off the row', () => {
+    const done: SentNudge = {
+      ...base,
+      resolution: { result: 'done', at: 150 },
+    };
+    expect(sentNudgeView(done, 150 + SENT_FINISH_KEEP_MS + 1)).toBeNull();
+  });
+
+  test('an unanswered ask is never hidden by age', () => {
+    expect(sentNudgeView(base, 100 + SENT_FINISH_KEEP_MS * 5)).toMatchObject({
+      display: 'no-response',
+    });
   });
 });
 

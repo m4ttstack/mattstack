@@ -7,6 +7,18 @@ import type { PeerReviewState } from '../peer/peer-reviews.ts';
 
 const URL_A = 'https://gitlab.com/acme/webapp/-/merge_requests/4821';
 
+interface FinishCall {
+  mrUrl: string;
+  finish: {
+    result: 'done' | 'failed';
+    outcome?: string;
+    reason?: string;
+    at: number;
+  };
+  ifSentBefore: number;
+  nudgeId?: string;
+}
+
 /** Recording fake deps -- every call is pushed to its own array so tests can
     assert both "was it called" and "with exactly what". */
 function fakeDeps(): MaterializeDeps & {
@@ -20,7 +32,7 @@ function fakeDeps(): MaterializeDeps & {
       at: number;
     };
   }>;
-  retirements: Array<{ mrUrl: string; ifSentBefore: number; nudgeId?: string }>;
+  finishes: FinishCall[];
   logs: string[];
 } {
   const peerReviews: PeerReviewState[] = [];
@@ -33,17 +45,13 @@ function fakeDeps(): MaterializeDeps & {
       at: number;
     };
   }> = [];
-  const retirements: Array<{
-    mrUrl: string;
-    ifSentBefore: number;
-    nudgeId?: string;
-  }> = [];
+  const finishes: FinishCall[] = [];
   const logs: string[] = [];
   return {
     peerReviews,
     nudges,
     resolutions,
-    retirements,
+    finishes,
     logs,
     writePeerReview(s) {
       peerReviews.push(s);
@@ -55,9 +63,10 @@ function fakeDeps(): MaterializeDeps & {
     resolveSentNudge(mrUrl, resolution) {
       resolutions.push({ mrUrl, resolution });
     },
-    retireSentNudge(mrUrl, ifSentBefore, nudgeId) {
-      retirements.push({
+    finishSentNudge(mrUrl, finish, ifSentBefore, nudgeId) {
+      finishes.push({
         mrUrl,
+        finish,
         ifSentBefore,
         ...(nudgeId !== undefined ? { nudgeId } : {}),
       });
@@ -143,23 +152,50 @@ describe('materializeEnvelope', () => {
       expect(deps.resolutions).toEqual([]);
     });
 
-    test("status 'done' retires the sent nudge, guarded on the review's updatedAt", () => {
+    test("status 'done' finishes the sent nudge with the verdict, guarded on the review's updatedAt", () => {
       const deps = fakeDeps();
       const e = envelope({
-        payload: { mrUrl: URL_A, iid: 4821, status: 'done', updatedAt: 500 },
+        payload: {
+          mrUrl: URL_A,
+          iid: 4821,
+          status: 'done',
+          outcome: 'comment',
+          updatedAt: 500,
+        },
       });
       materializeEnvelope(e, deps, 1000);
-      expect(deps.retirements).toEqual([{ mrUrl: URL_A, ifSentBefore: 500 }]);
+      expect(deps.finishes).toEqual([
+        {
+          mrUrl: URL_A,
+          finish: { result: 'done', outcome: 'comment', at: 1000 },
+          ifSentBefore: 500,
+        },
+      ]);
     });
 
-    test('an in-flight status never retires the sent nudge', () => {
+    test("status 'error' fails the sent nudge", () => {
+      const deps = fakeDeps();
+      const e = envelope({
+        payload: { mrUrl: URL_A, iid: 4821, status: 'error', updatedAt: 500 },
+      });
+      materializeEnvelope(e, deps, 1000);
+      expect(deps.finishes).toEqual([
+        {
+          mrUrl: URL_A,
+          finish: { result: 'failed', at: 1000 },
+          ifSentBefore: 500,
+        },
+      ]);
+    });
+
+    test('an in-flight status never finishes the sent nudge', () => {
       for (const status of ['queued', 'reviewing'] as const) {
         const deps = fakeDeps();
         const e = envelope({
           payload: { mrUrl: URL_A, iid: 4821, status, updatedAt: 500 },
         });
         materializeEnvelope(e, deps, 1000);
-        expect(deps.retirements).toEqual([]);
+        expect(deps.finishes).toEqual([]);
       }
     });
 
@@ -294,11 +330,11 @@ describe('materializeEnvelope', () => {
       expect(deps.resolutions).toEqual([
         { mrUrl: URL_A, resolution: { result: 'confirmed', at: 1000 } },
       ]);
-      expect(deps.retirements).toEqual([]);
+      expect(deps.finishes).toEqual([]);
       expect(deps.peerReviews).toEqual([]);
     });
 
-    test('a done respond state retires the sent ask', () => {
+    test('a done respond state finishes the sent ask', () => {
       const deps = fakeDeps();
       const e = envelope({
         type: 'respond-state',
@@ -306,11 +342,35 @@ describe('materializeEnvelope', () => {
         payload: { mrUrl: URL_A, iid: 4821, status: 'done', updatedAt: 7 },
       });
       materializeEnvelope(e, deps, 1000);
-      expect(deps.retirements).toEqual([{ mrUrl: URL_A, ifSentBefore: 7 }]);
+      expect(deps.finishes).toEqual([
+        {
+          mrUrl: URL_A,
+          finish: { result: 'done', at: 1000 },
+          ifSentBefore: 7,
+        },
+      ]);
       expect(deps.peerReviews).toEqual([]);
     });
 
-    test('a done respond state carrying the nudge id retires by id, not clocks', () => {
+    test('an errored respond state fails the sent ask', () => {
+      const deps = fakeDeps();
+      const e = envelope({
+        type: 'respond-state',
+        from: 'pat',
+        payload: { mrUrl: URL_A, iid: 4821, status: 'error', updatedAt: 7 },
+      });
+      materializeEnvelope(e, deps, 1000);
+      expect(deps.finishes).toEqual([
+        {
+          mrUrl: URL_A,
+          finish: { result: 'failed', at: 1000 },
+          ifSentBefore: 7,
+        },
+      ]);
+      expect(deps.resolutions).toEqual([]);
+    });
+
+    test('a done respond state carrying the nudge id finishes by id, not clocks', () => {
       const deps = fakeDeps();
       const e = envelope({
         type: 'respond-state',
@@ -324,8 +384,13 @@ describe('materializeEnvelope', () => {
         },
       });
       materializeEnvelope(e, deps, 1000);
-      expect(deps.retirements).toEqual([
-        { mrUrl: URL_A, ifSentBefore: 7, nudgeId: 'ask-9' },
+      expect(deps.finishes).toEqual([
+        {
+          mrUrl: URL_A,
+          finish: { result: 'done', at: 1000 },
+          ifSentBefore: 7,
+          nudgeId: 'ask-9',
+        },
       ]);
     });
 

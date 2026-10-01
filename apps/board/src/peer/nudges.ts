@@ -134,11 +134,15 @@ export interface SentNudge {
   sentAt: number;
   /** Absent means re-review (also on rows from before first-look asks). */
   kind?: AskKind;
-  resolution?: {
-    result: NudgeResult | 'confirmed';
-    reason?: string;
-    at: number;
-  };
+  resolution?: SentNudgeResolution;
+}
+
+export interface SentNudgeResolution {
+  result: NudgeResult | 'confirmed' | 'done' | 'failed';
+  reason?: string;
+  /** The finished run's verdict word ('comment', 'approve'), on 'done'. */
+  outcome?: string;
+  at: number;
 }
 
 /** Write a sent nudge, replacing any prior row for the same MR -- a board
@@ -194,7 +198,7 @@ function readSentNudgeRow(mrUrl: string, db: Database): SentNudge | null {
     the final word. */
 export function resolveSentNudge(
   mrUrl: string,
-  resolution: NonNullable<SentNudge['resolution']>,
+  resolution: SentNudgeResolution,
   db: Database = getStateDb()
 ): void {
   runCriticalWrite('sent nudge resolve', () => {
@@ -211,30 +215,78 @@ export function resolveSentNudge(
   });
 }
 
-/** Retire a sent nudge once the ask it carried has finished: delete the row
-    so the chip clears and the ask comes back on the menu. Correlation, in
-    preference order: a `nudgeId` pins the finishing report to one exact ask
-    (retire on match, keep on mismatch, no clocks involved); without one, the
-    `ifSentBefore` guard keeps the ask alive when the finishing report is
-    older than the nudge -- at-least-once delivery means a peer's pre-nudge
-    "done" can arrive after a fresh ask went out, and that redelivery must not
-    retire it. The timestamp fallback compares two different boards' clocks,
-    so skew can hold a finished ask until it self-expires; peers that echo the
-    id back never hit that. */
-export function retireSentNudge(
+/** How long a finished ask (done or failed) stays on the row before it
+    clears itself. */
+export const SENT_FINISH_KEEP_MS = 24 * 60 * 60_000;
+
+/** Mark a sent ask finished, `done` or `failed`, and keep it on the row so
+    the asker can read the result. Correlation, in preference order: a
+    `nudgeId` pins the finishing report to one exact ask (no clocks
+    involved); without one, the `ifSentBefore` guard ignores a finishing
+    report older than the ask -- at-least-once delivery means a peer's
+    pre-nudge "done" can arrive after a fresh ask went out. The timestamp
+    fallback compares two boards' clocks, so skew can hold a finished ask
+    open until it self-expires; peers that echo the id back never hit that.
+    Only an unresolved, confirmed or launched ask finishes: a rejected,
+    expired or already finished one keeps its first verdict. */
+export function finishSentNudge(
   mrUrl: string,
+  finish: Pick<SentNudgeResolution, 'outcome' | 'reason' | 'at'> & {
+    result: 'done' | 'failed';
+  },
   ifSentBefore: number,
   db: Database = getStateDb(),
   nudgeId?: string
 ): void {
-  persistOrWarn('sent nudge retire', () => {
+  persistOrWarn('sent nudge finish', () => {
     const tx = db.transaction(() => {
       const prev = readSentNudgeRow(mrUrl, db);
       if (!prev) return;
       if (nudgeId !== undefined) {
         if (prev.nudgeId !== nudgeId) return;
       } else if (prev.sentAt >= ifSentBefore) return;
-      db.query('DELETE FROM nudges_sent WHERE mr_url = ?').run(mrUrl);
+      const r = prev.resolution?.result;
+      if (r && r !== 'confirmed' && r !== 'launched') return;
+      const next: SentNudge = { ...prev, resolution: finish };
+      db.query(
+        'UPDATE nudges_sent SET nudge = ?, updated_at = ? WHERE mr_url = ?'
+      ).run(JSON.stringify(next), Date.now(), mrUrl);
+    });
+    tx();
+  });
+}
+
+/** Drop a sent ask from the row outright: the asker's dismiss. */
+export function dismissSentNudge(
+  mrUrl: string,
+  db: Database = getStateDb()
+): void {
+  persistOrWarn('sent nudge dismiss', () => {
+    db.query('DELETE FROM nudges_sent WHERE mr_url = ?').run(mrUrl);
+  });
+}
+
+/** A finished ask past its keep window: off the row, awaiting a prune. */
+export function isFinishedStale(n: SentNudge, now: number): boolean {
+  const r = n.resolution;
+  if (!r || (r.result !== 'done' && r.result !== 'failed')) return false;
+  return now - r.at > SENT_FINISH_KEEP_MS;
+}
+
+/** Delete finished asks older than SENT_FINISH_KEEP_MS. */
+export function pruneFinishedSentNudges(
+  now: number = Date.now(),
+  db: Database = getStateDb()
+): void {
+  const stale = [...readSentNudges(db).values()].filter(n =>
+    isFinishedStale(n, now)
+  );
+  if (stale.length === 0) return;
+  persistOrWarn('sent nudge finished prune', () => {
+    const tx = db.transaction(() => {
+      for (const n of stale) {
+        db.query('DELETE FROM nudges_sent WHERE mr_url = ?').run(n.mrUrl);
+      }
     });
     tx();
   });
@@ -260,6 +312,36 @@ export function pruneSentNudges(
   });
 }
 
+/** The board payload's view of a sent ask, or null once a finished one has
+    outlived its keep window. */
+export interface SentNudgeView {
+  display: SentNudgeDisplay;
+  reviewer: string;
+  kind?: AskKind;
+  sentAt: number;
+  reason?: string;
+  outcome?: string;
+  finishedAt?: number;
+}
+
+export function sentNudgeView(
+  n: SentNudge,
+  now: number
+): SentNudgeView | null {
+  if (isFinishedStale(n, now)) return null;
+  const r = n.resolution;
+  const finished = r?.result === 'done' || r?.result === 'failed';
+  return {
+    display: sentNudgeDisplay(n, now),
+    reviewer: n.reviewer,
+    kind: n.kind,
+    sentAt: n.sentAt,
+    ...(r?.reason ? { reason: r.reason } : {}),
+    ...(r?.outcome ? { outcome: r.outcome } : {}),
+    ...(finished && r ? { finishedAt: r.at } : {}),
+  };
+}
+
 /** A sent nudge stays visible for this long with no board-to-board response
     before the chip self-expires to "no-response" in the UI. */
 export const NUDGE_NO_RESPONSE_MS = 48 * 60 * 60_000;
@@ -270,7 +352,9 @@ export type SentNudgeDisplay =
   | 'launched'
   | 'rejected'
   | 'expired'
-  | 'no-response';
+  | 'no-response'
+  | 'done'
+  | 'failed';
 
 /** How a sent nudge should render right now. Resolution wins outright;
     otherwise it's "requested" until NUDGE_NO_RESPONSE_MS elapses, then the
