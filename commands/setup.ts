@@ -48,6 +48,7 @@ import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, 
 import { STEPS } from "../lib/setup/steps/index.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
+import { markSetupFinished } from "../lib/setup/state.ts";
 import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
 import type { Plan, Row, RowStatus } from "../lib/setup/contract.ts";
 import { createRelayClient, inviteRelayUrl, type RelayClient } from "../lib/team/relay-client.ts";
@@ -191,6 +192,10 @@ export interface ApplyDeps {
   steps?: StepDef[];
   /** Overrides the plan `setupApply` composes for its hard-precondition gate — tests stub `{requiredMissing: []}` instead of driving all validators through fake probes. */
   planForGate?: () => Promise<{ requiredMissing: string[] }>;
+  /** Overrides the plan a finished full run reads its finish blockers from. */
+  planForFinish?: () => Promise<{ finishBlockedBy: string[] }>;
+  /** Diagnostics kept off stdout, where `--json` streams NDJSON. */
+  printError?: (s: string) => void;
   needOpts?: CreateApplyContextDeps["needOpts"];
   print: (s: string) => void;
   exit: (code: number) => never;
@@ -298,9 +303,10 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
     : createHumanEmitter(deps.print);
 
   let result: { ok: boolean; failedStep?: StepId };
+  let selection: { from?: StepId; only?: StepId } = {};
   try {
     await gateHardPreconditions(args, deps);
-    const selection = resolveStepSelection(args);
+    selection = resolveStepSelection(args);
     const ctx: ApplyContext = await createApplyContext({
       probes: deps.probes,
       emit,
@@ -329,6 +335,22 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
   }
 
   if (!result.ok) deps.exit(2);
+  if (selection.from === undefined && selection.only === undefined) await finishIfClear(deps);
+}
+
+/**
+ * The wizard's Finish waits on the plan's finish blockers; a full run that
+ * leaves none has done everything Finish would, and a terminal or
+ * `--post-install` setup has no wizard to press it in.
+ */
+async function finishIfClear(deps: ApplyDeps): Promise<void> {
+  try {
+    const plan = await (deps.planForFinish?.() ??
+      composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() }));
+    if (plan.finishBlockedBy.length === 0) markSetupFinished(deps.probes);
+  } catch (err) {
+    (deps.printError ?? console.error)(`rt setup apply: setup left unfinished, the finish check failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /**
@@ -558,6 +580,20 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
     }
     throw err;
   }
+}
+
+// ─── finish (`rt setup finish`) ─────────────────────────────────────────
+
+export type FinishDeps = IntentDeps;
+
+/** mattstack.app runs this at the wizard's Finish; until it has, every launch reopens setup. */
+export async function setupFinish(args: string[], _ctx: CommandContext = {}, deps: FinishDeps = realIntentDeps()): Promise<void> {
+  const { finishedAt } = markSetupFinished(deps.probes);
+  if (args.includes("--json")) {
+    deps.print(JSON.stringify(envelope({ ok: true, finishedAt }, deps.probes.now())));
+    return;
+  }
+  deps.print("setup finish: setup is finished on this Mac");
 }
 
 // ─── repo-root (`rt setup repo-root set`) ──────────────────────────────────

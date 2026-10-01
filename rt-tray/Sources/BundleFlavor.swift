@@ -53,7 +53,7 @@ enum BundleFlavor {
 /// `NSHomeDirectory()` resolves through the passwd entry and does not honor
 /// a `HOME` environment override on this platform for a plain (non-sandboxed)
 /// process -- every HOME-scoped path in this app (tray/daemon sockets,
-/// FirstRunDetector, PermissionsService) must read through here instead, or
+/// SetupSession, PermissionsService) must read through here instead, or
 /// the stub/XCUITest harness's `HOME` override silently falls through to the
 /// real `~/.mattstack` and collides with whatever tray/daemon is really running.
 enum AppHome {

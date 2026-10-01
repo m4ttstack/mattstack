@@ -148,7 +148,7 @@ enum AXID {
     static let settingsUninstallConfirm = "settings.uninstall.confirm"
     static let settingsUninstallKeepData = "settings.uninstall.keepData"
 
-    // Menu (app menu + tray gear menu)
+    // App menu
     static let menuAppSettings = "menu.app.settings"
     static let menuEditFind = "menu.edit.find"
     static let menuEditFindNext = "menu.edit.findNext"
@@ -158,30 +158,22 @@ enum AXID {
     static let findBarNext = "findBar.next"
     static let findBarStatus = "findBar.status"
     static let findBarDone = "findBar.done"
-    static let menuGearMattstackWindow = "menu.gear.mattstackWindow"
-    static let menuGearSetupStatus = "menu.gear.setupStatus"
-    static let menuGearSettings = "menu.gear.settings"
-    static let menuGearUninstall = "menu.gear.uninstall"
-    static let menuGearCheckForUpdates = "menu.gear.checkForUpdates"
-    static let menuGearRestartDaemon = "menu.gear.restartDaemon"
-    static let menuGearStopDaemon = "menu.gear.stopDaemon"
-    static let menuGearViewLogs = "menu.gear.viewLogs"
-    static let menuGearOpenCrashLog = "menu.gear.openCrashLog"
-    static let menuGearStartAtLogin = "menu.gear.startAtLogin"
-    static let menuGearQuit = "menu.gear.quit"
 
     // Tray menu (the status item's own menu, dock-first spec 2026-09-15).
-    // Distinct AXIDs from the panel's gear menu above: same labels, two
-    // different NSMenuItem instances, so the walkthrough can address either.
     static let trayOpen = "tray.open"
     static let trayStatus = "tray.status"
     static let trayProcesses = "tray.processes"
     static let trayWorktrees = "tray.worktrees"
     static let trayRestartDaemon = "tray.restartDaemon"
+    static let trayStopDaemon = "tray.stopDaemon"
     static let trayViewLogs = "tray.viewLogs"
+    static let trayOpenCrashLog = "tray.openCrashLog"
+    static let trayResumeSetup = "tray.resumeSetup"
+    static let traySetupStatus = "tray.setupStatus"
     static let traySettings = "tray.settings"
     static let trayStartAtLogin = "tray.startAtLogin"
     static let trayCheckForUpdates = "tray.checkForUpdates"
+    static let trayUninstall = "tray.uninstall"
     static let trayQuit = "tray.quit"
     static let trayDevRestart = "tray.dev.restart"
     static let trayDevRebuild = "tray.dev.rebuild"

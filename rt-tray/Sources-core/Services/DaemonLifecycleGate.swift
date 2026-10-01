@@ -9,8 +9,8 @@ public enum DaemonLifecycleOp: String, Sendable, Codable {
 /// can be told from a restart someone requested over the socket without
 /// correlating timestamps against the rt CLI log.
 public enum DaemonOrigin {
-    /// The tray's own gear menu.
-    public static let menu = "gear menu"
+    /// The menu bar menu.
+    public static let menu = "tray menu"
     /// A flavor handover retiring this bundle's agent.
     public static let flavorRetire = "flavor retire"
     /// Launch re-registering the agent because the bundle's plist changed.

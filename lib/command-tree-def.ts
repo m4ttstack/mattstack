@@ -2614,6 +2614,13 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      finish: {
+        description: "Mark setup as finished on this Mac",
+        module: "./commands/setup.ts",
+        fn: "setupFinish",
+        hidden: true,
+        args: [SETUP_JSON_ARG],
+      },
       waive: {
         description: "Skip a finish-gated checklist row on this Mac so setup can finish without it",
         module: "./commands/setup.ts",
