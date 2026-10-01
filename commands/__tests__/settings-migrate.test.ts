@@ -13,6 +13,8 @@ import { parse } from "jsonc-parser";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { settingsMigrate } from "../settings-keys.ts";
+import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { teamSettingsPath, userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
 import { valueHash } from "../../packages/rt-client/src/settings/migrate.ts";
 import { getDef } from "../../packages/rt-client/src/settings/registry-machinery.ts";
@@ -46,22 +48,20 @@ const ROLES_BUMP = {
 describe("rt settings migrate", () => {
   const origHome = process.env.HOME;
   let home: string;
-  let logSpy: ReturnType<typeof spyOn<Console, "log">>;
-  let errSpy: ReturnType<typeof spyOn<Console, "error">>;
+  let cap: ReturnType<typeof captureOut>;
   let warnSpy: ReturnType<typeof spyOn<Console, "warn">>;
 
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-settings-migrate-cli-")));
     process.env.HOME = home;
     process.exitCode = 0;
-    logSpy = spyOn(console, "log").mockImplementation(() => {});
-    errSpy = spyOn(console, "error").mockImplementation(() => {});
+    cap = captureOut();
+    out.__test__.setHuman(() => false);
     warnSpy = spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
-    logSpy.mockRestore();
-    errSpy.mockRestore();
+    cap.restore();
     warnSpy.mockRestore();
     process.env.HOME = origHome;
     process.exitCode = 0;
@@ -73,8 +73,8 @@ describe("rt settings migrate", () => {
     writeFileSync(file, JSON.stringify(obj, null, 2));
   }
   const read = (file: string) => parse(readFileSync(file, "utf8")) as Record<string, unknown>;
-  const printed = () => logSpy.mock.calls.map((c) => String(c[0])).join("\n").replace(/\x1b\[[0-9;]*m/g, "");
-  const allJsonBodies = () => logSpy.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
+  const printed = () => cap.stdout();
+  const allJsonBodies = () => cap.lines().filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
   const noPrompt = { interactive: false, confirm: async () => { throw new Error("must not prompt"); } };
 
   test("a dry run changes nothing and lists what --write would do", async () => {
@@ -84,8 +84,15 @@ describe("rt settings migrate", () => {
       await settingsMigrate([], noPrompt);
       expect(readFileSync(userSettingsPath(), "utf8")).toBe(before);
       expect(printed()).toContain(`would write ${EB}@2 from ${EB}`);
+      expect(printed()).toMatch(/^rt\.notify\.eventBridges\s+user\s+\S*settings\.user\.jsonc\s+would write/m);
       expect(process.exitCode).toBe(0);
     });
+  });
+
+  test("a dry run with nothing to do is one done line", async () => {
+    await settingsMigrate([], noPrompt);
+    expect(printed()).toBe("[ok] Every stored setting is under its current name\n");
+    expect(process.exitCode).toBe(0);
   });
 
   test("--write adds the current name and a baseline, and leaves the old name", async () => {
@@ -153,7 +160,8 @@ describe("rt settings migrate", () => {
       expect(process.exitCode).toBe(1);
       process.exitCode = 0;
       await settingsMigrate(["--prune", "--yes", "--force", EB], noPrompt);
-      expect(printed()).toContain(`deleting diverged ${EB}; its value was: ${JSON.stringify(EB_V1)}`);
+      expect(printed()).toContain(`Deleting diverged ${EB}`);
+      expect(printed()).toContain(`its value was: ${JSON.stringify(EB_V1)}`);
       expect(read(userSettingsPath())).toEqual({ [`${EB}@2`]: EB_V2_EDITED });
     });
   });
@@ -164,7 +172,7 @@ describe("rt settings migrate", () => {
       const before = readFileSync(userSettingsPath(), "utf8");
       await settingsMigrate(["--prune", "--yes", "--force"], noPrompt);
       expect(process.exitCode).toBe(1);
-      expect(errSpy.mock.calls.map((c) => String(c[0])).join("\n")).toContain("--force needs a key");
+      expect(cap.stderr()).toContain("--force needs a key");
       expect(readFileSync(userSettingsPath(), "utf8")).toBe(before);
     });
   });
@@ -175,7 +183,7 @@ describe("rt settings migrate", () => {
       const before = readFileSync(userSettingsPath(), "utf8");
       await settingsMigrate(["--prune", "--force", "--yes"], noPrompt);
       expect(process.exitCode).toBe(1);
-      expect(errSpy.mock.calls.map((c) => String(c[0])).join("\n")).toContain("--force needs a key");
+      expect(cap.stderr()).toContain("--force needs a key");
       expect(readFileSync(userSettingsPath(), "utf8")).toBe(before);
     });
   });
@@ -184,7 +192,7 @@ describe("rt settings migrate", () => {
     await withMigrationAsync(EB, EB_BUMP, async () => {
       write(userSettingsPath(), { [EB]: EB_V1, [`${EB}@2`]: EB_V2_EDITED });
       await settingsMigrate(["--prune", "--yes", "--force", EB, "--force", "rt.roles"], noPrompt);
-      expect(errSpy.mock.calls.map((c) => String(c[0])).join("\n")).toContain("--force rt.roles matches no older store name in this plan");
+      expect(cap.stdout()).toContain("--force rt.roles matches no older store name in this plan");
       expect(read(userSettingsPath())).toEqual({ [`${EB}@2`]: EB_V2_EDITED });
       expect(process.exitCode).toBe(0);
     });
@@ -194,7 +202,7 @@ describe("rt settings migrate", () => {
     await withMigrationAsync(EB, EB_BUMP, async () => {
       write(userSettingsPath(), { [EB]: EB_V1 });
       await settingsMigrate(["--json"], noPrompt);
-      const body = JSON.parse(logSpy.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith("{"))!) as { ok: boolean; writes: unknown[] };
+      const body = JSON.parse(cap.lines().find((l) => l.startsWith("{"))!) as { ok: boolean; writes: unknown[] };
       expect(body.ok).toBe(true);
       expect(body.writes).toHaveLength(1);
     });
@@ -216,13 +224,16 @@ describe("rt settings migrate", () => {
         expect(dryBody.writes[0]).not.toHaveProperty("value");
         expect(JSON.stringify(dryBody)).not.toContain(JSON.stringify(EB_V2).slice(1, -1));
         expect(JSON.stringify(dryBody)).not.toContain("(secret)");
+        cap.reset();
+        out.__test__.setHuman(() => false);
 
         await settingsMigrate(["--write"], noPrompt);
         expect(read(userSettingsPath())[`${EB}@2`]).toEqual(EB_V2);
 
         write(userSettingsPath(), { [EB]: EB_V1, [`${EB}@2`]: EB_V2_EDITED });
         await settingsMigrate(["--prune", "--yes", "--force", EB], noPrompt);
-        expect(printed()).toContain(`deleting diverged ${EB}; its value was: (secret)`);
+        expect(printed()).toContain(`Deleting diverged ${EB}`);
+        expect(printed()).toContain("its value was: (secret)");
         expect(printed()).not.toContain(JSON.stringify(EB_V1));
 
         write(userSettingsPath(), { [EB]: EB_V1, [`${EB}@2`]: EB_V2_EDITED });

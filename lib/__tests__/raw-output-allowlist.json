@@ -47,7 +47,6 @@
   "commands/sdm.ts",
   "commands/secrets.ts",
   "commands/services.ts",
-  "commands/settings-keys.ts",
   "commands/settings-schema.ts",
   "commands/settings.ts",
   "commands/setup.ts",

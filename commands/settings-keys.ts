@@ -24,7 +24,6 @@
  */
 
 import { parse, type ParseError } from "jsonc-parser";
-import { bold, dim, red, reset } from "../lib/tui.ts";
 import * as out from "../lib/ui/out.ts";
 import type { CellInput, FailureInput } from "../lib/ui/out.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
@@ -539,21 +538,27 @@ export function renderExplainRow(row: ExplainRow, currentName?: string): CellInp
 
 // ─── check ──────────────────────────────────────────────────────────────────
 
-/** A header line per finding, then values or issues. A `merged` finding
-    carries no scope or file, so its header names only the repo, if any. */
-export function renderCheckFinding(f: CheckFinding): string {
+/** Drops empty trailing cells so a row without a store name or file does not end in padding. */
+function trimRow(cells: CellInput[]): CellInput[] {
+  const text = (c: CellInput): string => (typeof c === "string" ? c : Array.isArray(c) ? c.map((s) => (typeof s === "string" ? s : s.text)).join("") : c.text);
+  while (cells.length > 1 && text(cells[cells.length - 1]!) === "") cells.pop();
+  return cells;
+}
+
+/**
+ * A row per finding, then a row per value or issue under it. A `merged`
+ * finding carries no scope or file, so its row names only the repo, if any.
+ */
+export function renderCheckFinding(f: CheckFinding): CellInput[][] {
   const where = [f.scope, f.repo].filter(Boolean).join("/");
-  const label = where ? `${where}  ` : "";
-  const file = f.file ? `  ${dim}${f.file}${reset}` : "";
   const kindText = f.newer ? "unregistered (from a newer rt)" : f.kind;
-  const kind = f.kind === "stale" || f.kind === "leftover" ? `${dim}${kindText}${reset}` : `${red}${kindText}${reset}`;
-  const name = f.storeName ? `  ${f.storeName}` : "";
-  const values =
-    f.kind === "diverged" && "olderValue" in f
-      ? `\n      ${f.storeName}: ${formatValueInline(f.olderValue)}\n      current: ${formatValueInline(f.currentValue)}`
-      : "";
-  const issues = f.issues.map((i) => `\n      ${formatIssuePath(i.path)}: ${i.message}`).join("");
-  return `  ${bold}${f.key}${reset}  ${label}${kind}${name}${file}${values}${issues}`;
+  const role: Segment["role"] = f.kind === "stale" || f.kind === "leftover" ? "dim" : f.kind === "unregistered" ? "warn" : "failed";
+  const rows: CellInput[][] = [trimRow([out.key(f.key), where, { text: kindText, role }, f.storeName ?? "", out.faint(f.file ?? "")])];
+  if (f.kind === "diverged" && "olderValue" in f) {
+    rows.push(["", `${f.storeName}: ${formatValueInline(f.olderValue)}`], ["", `current: ${formatValueInline(f.currentValue)}`]);
+  }
+  for (const i of f.issues) rows.push(["", `${formatIssuePath(i.path)}: ${i.message}`]);
+  return rows;
 }
 
 export async function settingsCheck(args: string[]): Promise<void> {
@@ -561,14 +566,18 @@ export async function settingsCheck(args: string[]): Promise<void> {
   const report = checkStores();
 
   if (json) {
-    console.log(JSON.stringify({ ok: report.failing === 0, findings: report.findings }));
+    out.json({ ok: report.failing === 0, findings: report.findings });
   } else {
-    console.log("");
-    for (const f of report.findings) console.log(renderCheckFinding(f));
     const unregistered = report.findings.filter((f) => f.kind === "unregistered").length;
     const older = report.findings.filter((f) => f.kind === "stale" || f.kind === "leftover").length;
-    console.log(`\n  ${report.failing} failing, ${unregistered} unregistered, ${older} stale or leftover`);
-    console.log("");
+    out.print(
+      out.table(report.findings.flatMap(renderCheckFinding)),
+      out.summary(
+        report.failing > 0 ? "failed" : "done",
+        report.failing > 0 ? "Some stored settings need fixing" : "Your stored settings check out",
+        [`${report.failing} failing`, `${unregistered} unregistered`, `${older} stale or leftover`],
+      ),
+    );
   }
 
   if (report.failing > 0) process.exitCode = 1;
@@ -581,7 +590,7 @@ export interface MigrateDeps {
   interactive?: boolean;
 }
 
-const whereOf = (x: { scope: string; repo?: string; file: string }) => `${[x.scope, x.repo].filter(Boolean).join("/")}  ${dim}${x.file}${reset}`;
+const whereCells = (x: { scope: string; repo?: string; file: string }): CellInput[] => [[x.scope, x.repo].filter(Boolean).join("/"), out.faint(x.file)];
 const isSecret = (key: string) => getDef(key)?.secret === true;
 const shown = (key: string, value: unknown) => (isSecret(key) ? "(secret)" : formatValueInline(value));
 /** `undefined` rather than a placeholder string: JSON.stringify drops the property entirely, matching check.ts's own secret handling. */
@@ -593,11 +602,13 @@ const redactOlder = <T extends OlderName>(o: T): T => ({
   authored: redacted(o.key, o.authored),
 });
 
-function renderOlder(o: OlderName): string {
-  const color = o.label === "diverged" ? red : dim;
-  const values = o.label === "diverged" ? `\n      ${o.storeName}: ${shown(o.key, o.olderValue)}\n      current: ${shown(o.key, o.currentValue)}` : "";
-  return `  ${bold}${o.key}${reset}  ${whereOf(o)}  ${color}${o.storeName}: ${o.label}${reset}${values}`;
+function olderRows(o: OlderName): CellInput[][] {
+  const row: CellInput[] = [out.key(o.key), ...whereCells(o), { text: `${o.storeName}: ${o.label}`, role: o.label === "diverged" ? "needs-you" : "dim" }];
+  if (o.label !== "diverged") return [row];
+  return [row, ["", "", "", `${o.storeName}: ${shown(o.key, o.olderValue)}`], ["", "", "", `current: ${shown(o.key, o.currentValue)}`]];
 }
+
+const failureRow = (f: MigrationPlan["failures"][number]): CellInput[] => [out.key(f.key), ...whereCells(f), { text: `cannot migrate ${f.fromName}: ${f.message}`, role: "failed" }];
 
 /**
  * rt settings migrate [--write | --prune [--team] [--force <key>]... [--yes]] [--json]
@@ -607,10 +618,11 @@ function renderOlder(o: OlderName): string {
  */
 export async function settingsMigrate(args: string[], deps: MigrateDeps = {}): Promise<void> {
   const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
   const write = args.includes("--write");
   const prune = args.includes("--prune");
   if (write && prune) {
-    console.error("rt settings: run --write and --prune separately (write first; prune once every reader of the store knows the new names)");
+    out.fail({ title: "Write and prune are separate runs", why: "Prune only once every reader of the store knows the new names.", next: out.cmd("rt settings migrate --write") });
     process.exitCode = 1;
     return;
   }
@@ -626,33 +638,30 @@ export async function settingsMigrate(args: string[], deps: MigrateDeps = {}): P
       else forced.add(value);
     });
     if (forceUsageError) {
-      console.error("rt settings migrate --prune: --force needs a key (e.g. --force rt.notify.eventBridges)");
+      out.fail({ title: "--force needs a key", hint: "for example --force rt.notify.eventBridges" });
       process.exitCode = 1;
       return;
     }
-    for (const key of forced) {
-      if (!plan.older.some((o) => o.key === key)) {
-        console.error(`rt settings migrate --prune: --force ${key} matches no older store name in this plan`);
-      }
-    }
+    const unmatched = [...forced].filter((key) => !plan.older.some((o) => o.key === key));
+    if (unmatched.length > 0) out.print(...unmatched.map((key) => out.line("warn", `--force ${key} matches no older store name in this plan`)));
     const interactive = deps.interactive ?? (process.stdin.isTTY === true && !json && !process.env.RT_BATCH);
     const ask = deps.confirm ?? (async (message: string) => (await import("../lib/ui/prompts.ts")).confirm({ message, destructive: true }));
     return migratePrune(plan, { json, team: args.includes("--team"), yes: args.includes("--yes"), forced, interactive, ask });
   }
   if (json) {
-    console.log(JSON.stringify({
+    out.json({
       ok: plan.failures.length === 0,
       writes: plan.writes.map((w) => ({ ...w, value: redacted(w.key, w.value) })),
       failures: plan.failures,
       older: plan.older.map((o) => redactOlder(o)),
-    }));
+    });
   } else {
-    console.log("");
-    for (const w of plan.writes) console.log(`  ${bold}${w.key}${reset}  ${whereOf(w)}  would write ${w.storeName} from ${w.fromName}: ${shown(w.key, w.value)}`);
-    for (const f of plan.failures) console.log(`  ${bold}${f.key}${reset}  ${whereOf(f)}  ${red}cannot migrate ${f.fromName}${reset}: ${f.message}`);
-    for (const o of plan.older) console.log(renderOlder(o));
-    if (plan.writes.length + plan.failures.length + plan.older.length === 0) console.log("  every stored key is under its current store name");
-    console.log("");
+    const rows: CellInput[][] = [
+      ...plan.writes.map((w): CellInput[] => [out.key(w.key), ...whereCells(w), `would write ${w.storeName} from ${w.fromName}: ${shown(w.key, w.value)}`]),
+      ...plan.failures.map(failureRow),
+      ...plan.older.flatMap(olderRows),
+    ];
+    out.print(rows.length > 0 ? out.table(rows) : out.line("done", "Every stored setting is under its current name"));
   }
   if (plan.failures.length > 0) process.exitCode = 1;
 }
@@ -670,14 +679,14 @@ function migrateWrite(plan: MigrationPlan, json: boolean): void {
   }
   const ok = errors.length === 0 && plan.failures.length === 0;
   if (json) {
-    console.log(JSON.stringify({ ok, written: written.map((w) => ({ ...w, value: redacted(w.key, w.value) })), errors, failures: plan.failures }));
+    out.json({ ok, written: written.map((w) => ({ ...w, value: redacted(w.key, w.value) })), errors, failures: plan.failures });
   } else {
-    console.log("");
-    for (const w of written) console.log(`  ${bold}${w.key}${reset}  ${whereOf(w)}  wrote ${w.storeName} from ${w.fromName}`);
-    for (const e of errors) console.log(`  ${bold}${e.key}${reset}  ${red}${e.error}${reset}`);
-    for (const f of plan.failures) console.log(`  ${bold}${f.key}${reset}  ${whereOf(f)}  ${red}cannot migrate ${f.fromName}${reset}: ${f.message}`);
-    if (written.length + errors.length + plan.failures.length === 0) console.log("  nothing to write");
-    console.log("");
+    const rows: CellInput[][] = [
+      ...written.map((w): CellInput[] => [out.key(w.key), ...whereCells(w), `wrote ${w.storeName} from ${w.fromName}`]),
+      ...errors.map((e): CellInput[] => [out.key(e.key), { text: e.error, role: "failed" }]),
+      ...plan.failures.map(failureRow),
+    ];
+    out.print(rows.length > 0 ? out.table(rows) : out.line("skipped", "Nothing to write"));
   }
   if (!ok) process.exitCode = 1;
 }
@@ -697,10 +706,15 @@ async function migratePrune(
   for (const [file, names] of byFile) {
     const scope = names[0]!.scope;
     if (!o.json) {
-      console.log(`\n  ${bold}${scope} store${reset}  ${dim}${file}${reset}`);
-      for (const n of names) console.log(`    ${n.storeName}${n.repo ? `  (${n.repo})` : ""}  ${n.label}`);
       const versions = [...new Map(names.map((n) => [n.key, n.storeVersion])).entries()].map(([k, v]) => `${k} (storeVersion ${v})`);
-      console.log(`    every reader of this store must know: ${versions.join(", ")}`);
+      out.print(
+        out.section(
+          `${scope} store`,
+          file,
+          out.table(names.map((n): CellInput[] => [n.storeName, n.repo ?? "", n.label])),
+          out.paragraph(`Every reader of this store must know: ${versions.join(", ")}`),
+        ),
+      );
     }
     const noun = names.length === 1 ? "name" : "names";
     const approved = o.yes || (o.interactive && (await o.ask(`Delete ${names.length} older store ${noun} from the ${scope} store (${file})?`)));
@@ -710,7 +724,7 @@ async function migratePrune(
       continue;
     }
     for (const n of names) {
-      if (n.label === "diverged" && !o.json) console.log(`  deleting diverged ${n.storeName}; its value was: ${shown(n.key, n.authored)}`);
+      if (n.label === "diverged" && !o.json) out.print(out.line("warn", `Deleting diverged ${n.storeName}`, `its value was: ${shown(n.key, n.authored)}`));
       try {
         pruneStoreName(n.key, n.storeName, n.scope, { ...(n.repo ? { repoIdentity: n.repo } : {}), ...(n.team ? { team: n.team } : {}), force: n.label === "diverged" });
         pruned.push(n);
@@ -720,12 +734,12 @@ async function migratePrune(
     }
   }
   if (o.json) {
-    console.log(JSON.stringify({ ok: refused.length === 0, pruned: pruned.map((n) => redactOlder(n)), refused: refused.map((r) => redactOlder(r)) }));
+    out.json({ ok: refused.length === 0, pruned: pruned.map((n) => redactOlder(n)), refused: refused.map((r) => redactOlder(r)) });
   } else {
-    console.log("");
-    for (const r of refused) console.log(`  ${bold}${r.key}${reset}  ${whereOf(r)}  ${r.storeName}: ${red}${r.reason}${reset}`);
-    console.log(`  pruned ${pruned.length}, refused ${refused.length}`);
-    console.log("");
+    out.print(
+      out.table(refused.map((r): CellInput[] => [out.key(r.key), ...whereCells(r), { text: `${r.storeName}: ${r.reason}`, role: "refused" }])),
+      out.summary(refused.length > 0 ? "warn" : "done", `Pruned ${pruned.length} older ${pruned.length === 1 ? "name" : "names"}`, [`${pruned.length} pruned`, `${refused.length} refused`]),
+    );
   }
   if (refused.length > 0) process.exitCode = 1;
 }

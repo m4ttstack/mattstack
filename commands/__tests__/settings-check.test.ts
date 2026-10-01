@@ -8,11 +8,13 @@
  * priming with 0 keeps every run isolated.
  */
 
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { settingsCheck } from "../settings-keys.ts";
+import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { machineSettingsPath } from "../../lib/rt-paths.ts";
 import { userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
 import { renameProperty } from "../../packages/rt-client/src/settings/migrations/helpers.ts";
@@ -21,23 +23,22 @@ import { withMigrationAsync } from "../../packages/rt-client/src/settings/__test
 describe("rt settings check", () => {
   const origHome = process.env.HOME;
   let home: string;
-  let logSpy: ReturnType<typeof spyOn<Console, "log">>;
+  let cap: ReturnType<typeof captureOut>;
 
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-settings-check-cli-")));
     process.env.HOME = home;
     process.exitCode = 0;
-    logSpy = spyOn(console, "log").mockImplementation(() => {});
+    cap = captureOut();
+    out.__test__.setHuman(() => false);
   });
 
   afterEach(() => {
-    logSpy.mockRestore();
+    cap.restore();
     process.env.HOME = origHome;
     process.exitCode = 0;
     rmSync(home, { recursive: true, force: true });
   });
-
-  const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
 
   function write(file: string, obj: unknown): void {
     mkdirSync(dirname(file), { recursive: true });
@@ -49,7 +50,7 @@ describe("rt settings check", () => {
 
     await settingsCheck(["--json"]);
 
-    const printed = logSpy.mock.calls.map((c) => c[0] as string).find((line) => line.startsWith("{"));
+    const printed = cap.stdout();
     const parsed = JSON.parse(printed as string);
     expect(parsed.ok).toBe(false);
     expect(parsed.findings.length).toBeGreaterThan(0);
@@ -61,18 +62,26 @@ describe("rt settings check", () => {
 
     await settingsCheck([]);
 
-    const lines = logSpy.mock.calls.map((c) => stripAnsi(String(c[0]))).join("\n").split("\n");
+    const lines = cap.stdout().split("\n");
     const layer = lines.findIndex((l) => l.includes("rt.homeSnapshot") && l.includes("nonconforming"));
     expect(lines[layer]).toContain("machine");
     expect(lines[layer]).toContain(machineSettingsPath());
-    expect(lines[layer + 1]).toBe("      enabled: expected boolean, got string");
-    expect(lines[layer + 2]).toBe("      debounceSec: expected number, got string");
+    expect(lines[layer + 1]).toMatch(/^\s+enabled: expected boolean, got string$/);
+    expect(lines[layer + 2]).toMatch(/^\s+debounceSec: expected number, got string$/);
 
     const merged = lines.findIndex((l) => l.includes("rt.homeSnapshot") && l.includes("merged"));
-    expect(lines[merged]).toBe("  rt.homeSnapshot  merged");
-    expect(lines[merged + 1]).toBe("      enabled: expected boolean, got string");
-    expect(lines[merged + 2]).toBe("      debounceSec: expected number, got string");
+    expect(lines[merged]).toMatch(/^rt\.homeSnapshot\s+merged$/);
+    expect(lines[merged + 1]).toMatch(/^\s+enabled: expected boolean, got string$/);
+    expect(lines[merged + 2]).toMatch(/^\s+debounceSec: expected number, got string$/);
+    expect(cap.stdout()).toMatch(/\n\[failed\] Some stored settings need fixing  \d+ failing, 0 unregistered, 0 stale or leftover\n$/);
     expect(process.exitCode).toBe(1);
+  });
+
+  test("clean stores print one done summary and nothing else", async () => {
+    write(machineSettingsPath(), { "rt.repoRoots": ["~/Documents/GitHub"] });
+    await settingsCheck([]);
+    expect(cap.stdout()).toBe("[ok] Your stored settings check out  0 failing, 0 unregistered, 0 stale or leftover\n");
+    expect(process.exitCode).toBe(0);
   });
 
   test("--json reports no findings and leaves the exit code alone on clean stores", async () => {
@@ -80,7 +89,7 @@ describe("rt settings check", () => {
 
     await settingsCheck(["--json"]);
 
-    const printed = logSpy.mock.calls.map((c) => c[0] as string).find((line) => line.startsWith("{"));
+    const printed = cap.stdout();
     const parsed = JSON.parse(printed as string);
     expect(parsed.ok).toBe(true);
     expect(parsed.findings).toEqual([]);
@@ -98,10 +107,10 @@ describe("rt settings check", () => {
     await withMigrationAsync(EB, EB_BUMP, async () => {
       write(userSettingsPath(), { [EB]: [{ pattern: "gate/*" }], [`${EB}@2`]: [{ match: "herd/*" }] });
       await settingsCheck([]);
-      const out = stripAnsi(logSpy.mock.calls.map((c) => String(c[0])).join("\n"));
-      expect(out).toContain("diverged");
-      expect(out).toContain('[{"match":"gate/*"}]');
-      expect(out).toContain('[{"match":"herd/*"}]');
+      const text = cap.stdout();
+      expect(text).toContain("diverged");
+      expect(text).toContain('[{"match":"gate/*"}]');
+      expect(text).toContain('[{"match":"herd/*"}]');
       expect(process.exitCode).toBe(1);
     });
   });
@@ -110,7 +119,7 @@ describe("rt settings check", () => {
     await withMigrationAsync(EB, EB_BUMP, async () => {
       write(userSettingsPath(), { [EB]: [{ pattern: "gate/*" }], [`${EB}@2`]: [{ match: "herd/*" }] });
       await settingsCheck(["--json"]);
-      const printed = logSpy.mock.calls.map((c) => c[0] as string).find((line) => line.startsWith("{"));
+      const printed = cap.stdout();
       const f = (JSON.parse(printed as string) as { findings: Record<string, unknown>[] }).findings.find((x) => x.kind === "diverged");
       expect(f).toMatchObject({ storeName: EB, olderValue: [{ match: "gate/*" }], currentValue: [{ match: "herd/*" }] });
     });
