@@ -94,19 +94,68 @@ reject() { # name findings-file extras-file expected-stderr
   check "$1 names the field" "$4" "$ERR"
 }
 M=$(mutate 'del(.findings[1].body)' "$V2"); reject "v2 entry without a body" "$M" "$X" "findings file: findings[1].body: required non-empty string"; rm -f "$M"
-M=$(mutate '.version = 3' "$V2"); reject "unknown version" "$M" "$X" "findings file: version: 2 when present (absent is a legacy file)"; rm -f "$M"
+M=$(mutate '.version = 4' "$V2"); reject "unknown version" "$M" "$X" "findings file: version: 2 or 3 when present (absent is a legacy file)"; rm -f "$M"
 M=$(mutate '.findings[0].tier = "minor"' "$V2"); reject "lowercase tier" "$M" "$X" "findings file: findings[0].tier: Critical|Important|Minor"; rm -f "$M"
 M=$(mutate '.findings[1].id = "f1"' "$V2"); reject "duplicate id" "$M" "$X" "findings file: findings: id f1 appears more than once"; rm -f "$M"
 M=$(mutate '.findings[0].disposition = "open"' "$V2"); reject "disposition outside the enum" "$M" "$X" "findings file: findings[0].disposition: new|still-open|addressed-check"; rm -f "$M"
 M=$(mutate '.summary.readiness = "with fixes"' "$V2"); reject "spaced readiness" "$M" "$X" "findings file: summary.readiness: yes|no|with-fixes"; rm -f "$M"
 M=$(mutate 'del(.target)' "$X"); reject "extras without a target" "$V2" "$M" "extras: target: required non-empty string"; rm -f "$M"
 M=$(mutate '.round = 0' "$X"); reject "round below 1" "$V2" "$M" "extras: round: integer of at least 1 when present"; rm -f "$M"
-M=$(mutate '.questions += [{"id": "findings-9", "options": []}]' "$X"); reject "extras naming a findings question" "$V2" "$M" "extras: questions: findings-* ids are built from the findings file"; rm -f "$M"
+M=$(mutate '.questions += [{"id": "findings-9", "options": []}]' "$X"); reject "extras naming a findings question" "$V2" "$M" "extras: questions: findings-*, thread-* and skipped-* ids are built from the findings file"; rm -f "$M"
 
 BAD=$(mktemp); printf 'not json' > "$BAD"; run "$BAD" "$X"; rm -f "$BAD"
 check "non-JSON findings file exits 1" 1 "$RC"
 run "$V2";                     check "one argument is usage" 2 "$RC"
 run "$V2" "$DIR/missing.json"; check "an unreadable file is usage" 2 "$RC"
+
+# --- version 3: earlier threads become thread-N questions ---
+V3="$DIR/fixtures/findings-v3.json"
+run "$V3" "$X"
+check "v3 exits 0" 0 "$RC"
+check "thread questions lead, then findings, then extras" \
+  '["thread-1","thread-2","thread-3","findings-1","outcome"]' \
+  "$(q '[.questions[].id] | tojson')"
+check "a thread question offers exactly post and resolve for its discussion" \
+  '["post:a1b2","resolve:a1b2"]' "$(q '[.questions[0].options[].value] | tojson')"
+check "fixed recommends both" '["Post reply (recommended)","Resolve thread (recommended)"]' \
+  "$(q '[.questions[0].options[].label] | tojson')"
+check "pushback-accepted recommends both" '["Post reply (recommended)","Resolve thread (recommended)"]' \
+  "$(q '[.questions[1].options[].label] | tojson')"
+check "not-fixed recommends the reply only" '["Post reply (recommended)","Resolve thread"]' \
+  "$(q '[.questions[2].options[].label] | tojson')"
+check "the label is file:line, the file alone, or General thread" \
+  '["queue/worker.ts:40","queue/enqueue.ts","General thread"]' "$(q '[.questions[0,1,2].label] | tojson')"
+check "the carryover context carries the whole card" \
+  '{"authorReply":"dropped in the catch block now","call":"fixed","file":"queue/worker.ts:40","gate-ctx":"carryover@1","note":"worker.ts:40 returns before enqueue for non-retryable errors","original":"permanent failures re-enqueue forever","reply":"Confirmed, thanks.","round":1,"thread":"a1b2"}' \
+  "$(q '.questions[0].context | to_entries | sort_by(.key) | from_entries | tojson')"
+check "a thread with no author reply and no file omits both keys" \
+  '["call","gate-ctx","original","reply","round","thread"]' "$(q '.questions[2].context | keys | tojson')"
+check "thread questions are multi" true "$(q '.questions[0].multi')"
+
+# fit keeps the thread questions structured
+FIT=$(printf '%s' "$OUT" | sh "$GC" fit); FRC=$?
+check "fit accepts carryover@1" 0 "$FRC"
+check "fit stays structured with thread questions" structured "$(printf '%s' "$FIT" | jq -r .mode)"
+check "a fitted carryover context is still JSON" carryover@1 \
+  "$(printf '%s' "$FIT" | jq -r '.questions[0].context | fromjson | .["gate-ctx"]')"
+check "prose flattens a thread to its call, the reply and both sides" \
+  'queue/worker.ts:40 · round 1 · fixed by author
+You wrote: permanent failures re-enqueue forever
+Author replied: dropped in the catch block now
+Checked: worker.ts:40 returns before enqueue for non-retryable errors
+Will post as reply: Confirmed, thanks.' \
+  "$(printf '%s' "$OUT" | sh "$GC" prose | jq -r '.questions[0].context')"
+
+# contract violations
+m=$(mutate '.threads[0].call = "still-open"' "$V3"); run "$m" "$X"; rm -f "$m"
+check "an unknown call exits 1" 1 "$RC"
+check "and names the field" 'findings file: threads[0].call: fixed|not-fixed|pushback-accepted|pushback-rejected' "$ERR"
+m=$(mutate '.threads[1].discussionId = "a1b2"' "$V3"); run "$m" "$X"; rm -f "$m"
+check "a repeated discussion exits 1" 'findings file: threads: discussion a1b2 appears more than once' "$ERR"
+m=$(mutate 'del(.threads[0].reply)' "$V3"); run "$m" "$X"; rm -f "$m"
+check "a thread needs its reply" 'findings file: threads[0].reply: required non-empty string' "$ERR"
+m=$(mutate 'del(.threads)' "$V3"); run "$m" "$X"; rm -f "$m"
+check "a v3 file with no threads is a first-round review" '["findings-1","outcome"]' "$(q '[.questions[].id] | tojson')"
 
 [ "$fails" -eq 0 ] || { echo "$fails failing"; exit 1; }
 echo "all passing"

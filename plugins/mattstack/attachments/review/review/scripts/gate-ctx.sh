@@ -2,8 +2,9 @@
 # gate-ctx.sh -- validate, size-fit, and flatten a gate-ctx@1 gate open.
 #   gate-ctx.sh fit [--limit <bytes>] < source.json
 #   gate-ctx.sh prose < source.json
-# source.json: {"context": <gate-level object>, "questions": [<question,
-# its "context" an object when it has one>]}.
+# source.json: {"context": <plan@1, post@1 or review@1>, "questions":
+# [<question, its "context" a thread@1, reply@1, carryover@1 or findings@1
+# object when it has one>]}.
 # stdout: {"mode","bytes","fits","trimmed","context","questions"}, every context
 # already a string, ready for --context and each question's context field.
 # "fits": false means even the smallest prose is over the limit. A review@1
@@ -73,6 +74,19 @@ def reply_errs($values): [
      | chk(($values | sort) == ["post:\($t)", "resolve:\($t)"]; "options: exactly post:\($t) and resolve:\($t)")
    else empty end)
 ];
+def carryover_errs($values): [
+  chk(.thread | str; "thread: required non-empty string"),
+  chk(.round | type == "number" and . == floor and . >= 1; "round: integer of at least 1"),
+  chk(.call | among(["fixed","not-fixed","pushback-accepted","pushback-rejected"]); "call: fixed|not-fixed|pushback-accepted|pushback-rejected"),
+  chk(.original | str; "original: required non-empty string"),
+  chk(.reply | str; "reply: required non-empty string"),
+  chk(optional("file"; str); "file: non-empty string when present"),
+  chk(optional("authorReply"; str); "authorReply: non-empty string when present"),
+  chk(optional("note"; str); "note: non-empty string when present"),
+  (if .thread | str then .thread as $t
+     | chk(($values | sort) == ["post:\($t)", "resolve:\($t)"]; "options: exactly post:\($t) and resolve:\($t)")
+   else empty end)
+];
 def review_errs: [
   chk(.readiness | among(["yes","no","with-fixes"]); "readiness: yes|no|with-fixes"),
   chk(.summary | str; "summary: required non-empty string"),
@@ -109,6 +123,7 @@ def shape_errs($where; $allowed; $values):
     elif .["gate-ctx"] == "review@1" then review_errs
     elif .["gate-ctx"] == "thread@1" then thread_errs
     elif .["gate-ctx"] == "reply@1" then reply_errs($values)
+    elif .["gate-ctx"] == "carryover@1" then carryover_errs($values)
     else findings_errs($values) end
   ) | map("\($where): \(.)") end;
 def option_values: [.options[]? | if type == "object" then .value else . end];
@@ -118,10 +133,10 @@ def errors:
   else
     (if has("context") then .context | shape_errs("gate"; ["plan@1","post@1","review@1"]; []) else [] end)
     + [.questions[] | select(has("context")) | option_values as $v | .id as $id
-        | .context | shape_errs("\($id)"; ["thread@1","reply@1","findings@1"]; $v)[]]
-    + [.questions[] | select(.context["gate-ctx"]? == "reply@1" and .multi != true)
-        | "\(.id): multi: a reply@1 question is multi"]
-    + ([.questions[] | select(.context["gate-ctx"]? == "reply@1") | {id, t: .context.thread}]
+        | .context | shape_errs("\($id)"; ["thread@1","reply@1","findings@1","carryover@1"]; $v)[]]
+    + [.questions[] | select((.context["gate-ctx"]? | among(["reply@1","carryover@1"])) and .multi != true)
+        | "\(.id): multi: a per-thread question is multi"]
+    + ([.questions[] | select(.context["gate-ctx"]? | among(["reply@1","carryover@1"])) | {id, t: .context.thread}]
         | group_by(.t) | map(select(length > 1) | .[1:][] | "\(.id): thread \(.t) is offered by more than one question"))
   end;
 
@@ -158,6 +173,14 @@ def prose:
        + (if has("fix") then ["Fix: \(.fix)"] else [] end)
        + (if has("evidence") then ["Evidence: \(.evidence)"] else [] end)
      | join("\n")] | join("\n\n")
+  elif .["gate-ctx"] == "carryover@1" then
+    ([([(if has("file") then .file else "General thread" end), "round \(.round)",
+        {"fixed":"fixed by author","not-fixed":"waiting on author","pushback-accepted":"author pushed back, accept","pushback-rejected":"author pushed back, hold firm"}[.call]]
+       | join(" · ")),
+      "You wrote: \(.original)"]
+     + (if has("authorReply") then ["Author replied: \(.authorReply)"] else ["The author has not replied in this thread."] end)
+     + (if has("note") then ["Checked: \(.note)"] else [] end)
+     + ["Will post as reply: \(.reply)"]) | join("\n")
   elif .["gate-ctx"] == "thread@1" then
     (["[\(.severity | sev)] \(.author): \(.claim.summary)"]
      + [(.claim.points // [])[] | "- \(.)"]
