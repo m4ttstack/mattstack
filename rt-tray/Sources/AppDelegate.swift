@@ -668,10 +668,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         let main = NSMenu()
         let appItem = NSMenuItem(); main.addItem(appItem)
         let appMenu = NSMenu()
-        let settingsItem = appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
-        settingsItem.setAccessibilityIdentifier(AXID.menuAppSettings)
+        appMenu.addItem(withTitle: "About mattstack", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+                        keyEquivalent: "").setAccessibilityIdentifier(AXID.menuAppAbout)
+        appMenu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates),
+                        keyEquivalent: "").setAccessibilityIdentifier(AXID.menuAppCheckForUpdates)
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit mattstack", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings),
+                        keyEquivalent: ",").setAccessibilityIdentifier(AXID.menuAppSettings)
+        appMenu.addItem(withTitle: "Setup status…", action: #selector(showSetupStatus),
+                        keyEquivalent: "").setAccessibilityIdentifier(AXID.menuAppSetupStatus)
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Quit mattstack", action: #selector(NSApplication.terminate(_:)),
+                        keyEquivalent: "q").setAccessibilityIdentifier(AXID.menuAppQuit)
         appItem.submenu = appMenu
         let editItem = NSMenuItem(); main.addItem(editItem)
         let edit = NSMenu(title: "Edit")
@@ -687,7 +695,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowItem.submenu = windowMenu
+        let helpItem = NSMenuItem(); main.addItem(helpItem)
+        let help = NSMenu(title: "Help")
+        help.addItem(withTitle: "mattstack Help", action: #selector(openDocsSite),
+                     keyEquivalent: "?").setAccessibilityIdentifier(AXID.menuHelpDocs)
+        help.addItem(withTitle: "View Logs…", action: #selector(viewDaemonLogs),
+                     keyEquivalent: "").setAccessibilityIdentifier(AXID.menuHelpViewLogs)
+        help.addItem(withTitle: "Open Crash Log", action: #selector(openCrashLog),
+                     keyEquivalent: "").setAccessibilityIdentifier(AXID.menuHelpOpenCrashLog)
+        helpItem.submenu = help
         NSApp.mainMenu = main
+        NSApp.helpMenu = help
+    }
+
+    @objc private func openDocsSite() {
+        NSWorkspace.shared.open(DocsSite.home)
     }
 
     /// Gatekeeper's translocation and a DMG mount both make SMAppService and
@@ -924,7 +946,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         let updateItem = ActionMenuItem(trayUpdateMenuTitle, axid: AXID.trayCheckForUpdates) {
             NotificationCenter.default.post(name: .rtCheckUpdates, object: nil)
         }
-        updateItem.isEnabled = TrayState.shared.canCheckForUpdates || TrayState.shared.updateAvailable != nil
+        updateItem.isEnabled = canCheckForUpdates
         menu.addItem(updateItem)
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Uninstall mattstack…", axid: AXID.trayUninstall) {
@@ -1080,6 +1102,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             return "Update Available: \(tag)"
         }
         return "Check for Updates…"
+    }
+
+    @MainActor
+    private var canCheckForUpdates: Bool {
+        TrayState.shared.canCheckForUpdates || TrayState.shared.updateAvailable != nil
     }
 
     /// The user's start-at-login switch, and the authority on it. Launch
@@ -1893,6 +1920,18 @@ extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         // AppKit delivers menu-delegate callbacks on the main thread.
         MainActor.assumeIsolated { rebuildTrayMenu(menu) }
+    }
+}
+
+extension AppDelegate: NSMenuItemValidation {
+    /// The tray menu sets its update item by hand (it does not autoenable);
+    /// the app menu's copy is validated here so both read the same state.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(checkForUpdates) else { return true }
+        return MainActor.assumeIsolated {
+            menuItem.title = trayUpdateMenuTitle
+            return canCheckForUpdates
+        }
     }
 }
 
