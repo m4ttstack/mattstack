@@ -409,11 +409,17 @@ export async function postToSlack(
 
 // ── code owner posts ─────────────────────────────────────────────────────────
 
-/** Every channel the token's user can see, name to id, from one listing. */
+export interface ListedChannel {
+  id: string;
+  /** A user token can only post where its user has joined. */
+  member: boolean;
+}
+
+/** Every channel the token's user can see, by name, from one listing. */
 export async function listChannels(
   token: string
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+): Promise<Map<string, ListedChannel>> {
+  const out = new Map<string, ListedChannel>();
   let cursor = '';
   for (let page = 0; page < MAX_PAGES; page++) {
     const data = await call('conversations.list', token, {
@@ -422,8 +428,12 @@ export async function listChannels(
       limit: '1000',
       ...(cursor ? { cursor } : {}),
     });
-    for (const c of data.channels as Array<{ id: string; name: string }>)
-      out.set(c.name, c.id);
+    for (const c of data.channels as Array<{
+      id: string;
+      name: string;
+      is_member?: boolean;
+    }>)
+      out.set(c.name, { id: c.id, member: c.is_member === true });
     cursor =
       (data.response_metadata as { next_cursor?: string })?.next_cursor ?? '';
     if (!cursor) break;
@@ -449,8 +459,9 @@ export function readOwnerPosts(
 }
 
 /** Post an MR's review request to one Code Owner channel and remember it.
-    The write retries then throws: a lost record would let the next confirm
-    post the same channel twice. */
+    Once Slack has the message, a failed record write is logged rather than
+    thrown: reporting the channel as failed would invite the retry that posts
+    it twice. */
 export async function postToOwnerChannel(
   token: string,
   channel: { name: string; id: string },
@@ -467,14 +478,21 @@ export async function postToOwnerChannel(
     permalink: buildPermalink(domain, channel.id, ts),
     postedAt: now,
   };
-  runCriticalWrite('owner post write', () =>
-    setKvValue(
-      'owner-posts',
-      mrUrl,
-      { ...readOwnerPosts(mrUrl, db), [channel.name]: post },
-      db
-    )
-  );
+  try {
+    runCriticalWrite('owner post write', () =>
+      setKvValue(
+        'owner-posts',
+        mrUrl,
+        { ...readOwnerPosts(mrUrl, db), [channel.name]: post },
+        db
+      )
+    );
+  } catch (err) {
+    console.warn(
+      `board: posted ${mrUrl} to #${channel.name} but could not record it`,
+      err
+    );
+  }
   return post;
 }
 

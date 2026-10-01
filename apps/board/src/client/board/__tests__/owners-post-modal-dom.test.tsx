@@ -57,7 +57,7 @@ const PREVIEW = {
       reason: 'approved',
       channel: 'pod-billing',
     },
-    { section: 'Tools', reason: 'no-channel' },
+    { section: 'C#Tools', reason: 'no-channel' },
     {
       section: 'Hub - #pod-hub',
       reason: 'already-posted',
@@ -66,8 +66,13 @@ const PREVIEW = {
     },
     {
       section: 'Gone - #pod-gone',
-      reason: 'channel-unavailable',
+      reason: 'channel-missing',
       channel: 'pod-gone',
+    },
+    {
+      section: 'Ops - #pod-ops',
+      reason: 'not-member',
+      channel: 'pod-ops',
     },
   ],
 };
@@ -138,9 +143,8 @@ test('says why each skipped section is left out, and links a post already made',
   expect(text).toContain('already approved');
   expect(text).toContain('Tools');
   expect(text).toContain('no channel in its name');
-  expect(text).toContain(
-    '#pod-gone is not in Slack, or the board is not in it'
-  );
+  expect(text).toContain('#pod-gone was not found in Slack');
+  expect(text).toContain('you are not in #pod-ops, join it in Slack to post');
   const link = document.querySelector(
     'a[href="https://team.slack.example/archives/C1/p1"]'
   );
@@ -228,9 +232,14 @@ test('a failed preview shows the reason and offers no confirm', async () => {
   expect(confirmButton()).toBeUndefined();
 });
 
-test('a failed post keeps the dialog open and says nothing was confirmed sent', async () => {
+test('a section name keeps a hash that is not its channel', async () => {
+  await open({ '/slack/owners/preview': ok(PREVIEW) });
+  expect(document.body.textContent).toContain('C#Tools');
+});
+
+test('a failed post keeps the dialog open, reports the status and asks for a fresh preview', async () => {
   const posted: string[][] = [];
-  await open(
+  const calls = await open(
     {
       '/slack/owners/preview': ok(PREVIEW),
       '/slack/owners/post': fail(502, ''),
@@ -241,6 +250,11 @@ test('a failed post keeps the dialog open and says nothing was confirmed sent', 
   expect(posted).toEqual([]);
   expect(document.body.textContent).toContain('post failed (502)');
   expect(confirmButton()!.disabled).toBe(false);
+  expect(calls.map(c => c.path)).toEqual([
+    '/slack/owners/preview',
+    '/slack/owners/post',
+    '/slack/owners/preview',
+  ]);
 });
 
 test('a partly failed post names the channels that did not go', async () => {

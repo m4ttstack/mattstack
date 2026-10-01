@@ -14,8 +14,12 @@ interface PostOutcome {
 
 /** A section name without the channel it carries: `Acme - #pod-acme` reads
     `Acme` beside a row that already shows the channel. */
-function sectionLabel(section: string): string {
-  return section.replace(/\s*-?\s*#[A-Za-z0-9_-]+\s*$/, '').trim() || section;
+function sectionLabel(section: string, channel?: string): string {
+  if (!channel) return section;
+  const bare = section
+    .replace(new RegExp(`\\s*-?\\s*#${channel}\\s*$`, 'i'), '')
+    .trim();
+  return bare || section;
 }
 
 function skipReason(skip: OwnerSkip) {
@@ -30,8 +34,10 @@ function skipReason(skip: OwnerSkip) {
           already posted to #{skip.channel}
         </a>
       );
-    case 'channel-unavailable':
-      return `#${skip.channel} is not in Slack, or the board is not in it`;
+    case 'channel-missing':
+      return `#${skip.channel} was not found in Slack`;
+    case 'not-member':
+      return `you are not in #${skip.channel}, join it in Slack to post`;
   }
 }
 
@@ -85,12 +91,10 @@ function OwnersPostModal({
       onPosted(body.posted.map(p => p.channel));
       return;
     }
-    if (body?.failed?.length) {
-      setOutcome(body);
-      await load();
-    } else {
+    if (body?.failed?.length) setOutcome(body);
+    else
       setError(`post failed (${res.status})${res.text ? `: ${res.text}` : ''}`);
-    }
+    await load();
     setPosting(false);
   };
 
@@ -116,7 +120,7 @@ function OwnersPostModal({
                 <>
                   #{c.channel}
                   <span className="tui-owners-sections">
-                    {c.sections.map(sectionLabel).join(', ')}
+                    {c.sections.map(s => sectionLabel(s, c.channel)).join(', ')}
                   </span>
                 </>
               }
@@ -145,7 +149,7 @@ function OwnersPostModal({
           {preview.skipped.map(s => (
             <ListGroup.Fact
               key={s.section}
-              label={sectionLabel(s.section)}
+              label={sectionLabel(s.section, s.channel)}
               value={skipReason(s)}
             />
           ))}

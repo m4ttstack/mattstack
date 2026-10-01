@@ -109,7 +109,13 @@ function fakePr(project: string, iid: number, username: string) {
 }
 
 const PRS: Record<string, ReturnType<typeof fakePr>[]> = {
-  'g/p': [fakePr('g/p', 701, 'alice'), fakePr('g/p', 702, 'bob')],
+  'g/p': [
+    fakePr('g/p', 701, 'alice'),
+    fakePr('g/p', 702, 'bob'),
+    fakePr('g/p', 703, 'alice'),
+    fakePr('g/p', 704, 'alice'),
+    fakePr('g/p', 705, 'alice'),
+  ],
   'g/q': [fakePr('g/q', 801, 'alice')],
 };
 
@@ -137,7 +143,26 @@ const APPROVAL_STATE = {
       approved: false,
     },
     { rule_type: 'code_owner', section: 'Docs', approved: false },
+    {
+      rule_type: 'code_owner',
+      section: 'Outside - #outside-channel',
+      approved: false,
+    },
   ],
+};
+
+const rule = (section: string) => ({
+  rule_type: 'code_owner',
+  section,
+  approved: false,
+});
+/** 704 posts to one channel that works and one whose post fails; 705 is
+    answered slowly so a second confirm lands while the first runs. */
+const APPROVAL_BY_IID: Record<string, unknown> = {
+  '704': {
+    rules: [rule('Acme - #acme-channel'), rule('Flaky - #flaky-channel')],
+  },
+  '705': { rules: [rule('Acme - #acme-channel')] },
 };
 
 const forgeSeen: Array<{ repoName: string; path: string }> = [];
@@ -174,11 +199,24 @@ const rtDaemon = Bun.serve({
         repoName: body?.repoName ?? '',
         path: body?.path ?? '',
       });
+      const iid = /merge_requests\/(\d+)\//.exec(body?.path ?? '')?.[1] ?? '';
+      if (iid === '705') await new Promise(r => setTimeout(r, 600));
+      if (iid === '703')
+        return Response.json({
+          ok: true,
+          data: {
+            status: 200,
+            body: '{"rules":[{"rule_type":"code_owner","sec',
+            truncated: true,
+            nextPage: null,
+            totalPages: null,
+          },
+        });
       return Response.json({
         ok: true,
         data: {
           status: 200,
-          body: APPROVAL_STATE,
+          body: APPROVAL_BY_IID[iid] ?? APPROVAL_STATE,
           truncated: false,
           nextPage: null,
           totalPages: null,
@@ -292,10 +330,15 @@ test('preview groups unapproved sections by channel and says why the rest are sk
     },
     {
       section: 'Gone - #missing-channel',
-      reason: 'channel-unavailable',
+      reason: 'channel-missing',
       channel: 'missing-channel',
     },
     { section: 'Docs', reason: 'no-channel' },
+    {
+      section: 'Outside - #outside-channel',
+      reason: 'not-member',
+      channel: 'outside-channel',
+    },
   ]);
   expect(body.text).toContain(url('g/p', 701));
   expect(forgeSeen.at(-1)?.path).toBe(
@@ -339,6 +382,7 @@ test('post refuses a channel the preview did not offer, and sends nothing', asyn
     ['code-review'],
     ['other-channel'],
     ['acme-channel', 'missing-channel'],
+    ['outside-channel'],
     [],
   ]) {
     const res = await post('/slack/owners/post', {
@@ -401,3 +445,49 @@ test('post sends once per confirmed channel, remembers it, and leaves the review
   db.close();
   expect(refs).toEqual([]);
 }, 20_000);
+
+const sentFor = (iid: number) =>
+  sent().filter(m => m.text.includes(url('g/p', iid)));
+
+test('a truncated approval answer is an error, never read as no sections', async () => {
+  await ready();
+  const res = await post('/slack/owners/preview', { mrUrl: url('g/p', 703) });
+  expect(res.status).toBe(502);
+  expect(await res.text()).toContain('too large');
+}, 15_000);
+
+test('a partly failed post reports each channel, and the one that went is not offered again', async () => {
+  await ready();
+  const res = await post('/slack/owners/post', {
+    mrUrl: url('g/p', 704),
+    channels: ['acme-channel', 'flaky-channel'],
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as {
+    posted: Array<{ channel: string }>;
+    failed: Array<{ channel: string; error: string }>;
+  };
+  expect(body.posted.map(p => p.channel)).toEqual(['acme-channel']);
+  expect(body.failed.map(f => f.channel)).toEqual(['flaky-channel']);
+  expect(body.failed[0]!.error).toContain('not_in_channel');
+  expect(sentFor(704)).toHaveLength(1);
+  const again = (await (
+    await post('/slack/owners/preview', { mrUrl: url('g/p', 704) })
+  ).json()) as Preview;
+  expect(again.channels.map(c => c.channel)).toEqual(['flaky-channel']);
+}, 15_000);
+
+test('a second confirm while the first is still running is refused, so nothing posts twice', async () => {
+  await ready();
+  const confirm = () =>
+    post('/slack/owners/post', {
+      mrUrl: url('g/p', 705),
+      channels: ['acme-channel'],
+    });
+  const first = confirm();
+  await new Promise(r => setTimeout(r, 100));
+  const second = await confirm();
+  expect(second.status).toBe(409);
+  expect((await first).status).toBe(200);
+  expect(sentFor(705)).toHaveLength(1);
+}, 15_000);

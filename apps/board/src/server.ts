@@ -280,6 +280,7 @@ import {
   slackSweepTargets,
   sweepSlackRefs,
   unreactFromMR,
+  type ListedChannel,
 } from './slack.ts';
 import {
   beatStillValid,
@@ -785,7 +786,7 @@ async function ownersPostPlan(
   mr: BoardMR,
   slackToken: string
 ): Promise<
-  { plan: OwnersPostPlan; channelIds: Map<string, string> } | Response
+  { plan: OwnersPostPlan; channels: Map<string, ListedChannel> } | Response
 > {
   const projectPath = mr.webUrl
     ? projectPathFromWebUrl(mr.webUrl, config.gitlabHost)
@@ -815,9 +816,15 @@ async function ownersPostPlan(
       { status: 502 }
     );
   }
-  let channelIds: Map<string, string>;
+  if (res.data.truncated) {
+    return new Response(
+      "GitLab's approval answer for this MR is too large to read",
+      { status: 502 }
+    );
+  }
+  let channels: Map<string, ListedChannel>;
   try {
-    channelIds = await listChannels(slackToken);
+    channels = await listChannels(slackToken);
   } catch (err) {
     return new Response(
       `could not list Slack channels: ${err instanceof Error ? err.message : err}`,
@@ -833,10 +840,61 @@ async function ownersPostPlan(
   return {
     plan: planOwnersPost(ownerRulesFromApprovalState(res.data.body), {
       posted,
-      available: new Set(channelIds.keys()),
+      slack: channels,
     }),
-    channelIds,
+    channels,
   };
+}
+
+/** Confirms run one at a time per MR: the plan is read before the posts and
+    the record is written after each, so two at once would both post. */
+const ownerPostsRunning = new Set<string>();
+
+/** The preview when `channels` is null; otherwise posts to those channels,
+    each of which must be in the plan rebuilt here. */
+async function ownersPreviewOrPost(
+  mr: BoardMR,
+  slackToken: string,
+  channels: unknown
+): Promise<Response> {
+  const planned = await ownersPostPlan(mr, slackToken);
+  if (planned instanceof Response) return planned;
+  const text = mrPostText([mr]);
+  if (channels === null) return Response.json({ text, ...planned.plan });
+  const offered = new Set(planned.plan.channels.map(c => c.channel));
+  if (
+    !Array.isArray(channels) ||
+    channels.length === 0 ||
+    !channels.every(c => typeof c === 'string' && offered.has(c)) ||
+    new Set(channels).size !== channels.length
+  ) {
+    return new Response(
+      `"channels" must be one or more of: ${[...offered].join(', ') || '(none to post to)'}`,
+      { status: 400 }
+    );
+  }
+  const posted: Array<{ channel: string; permalink: string }> = [];
+  const failed: Array<{ channel: string; error: string }> = [];
+  for (const name of channels as string[]) {
+    try {
+      const sent = await postToOwnerChannel(
+        slackToken,
+        { name, id: planned.channels.get(name)!.id },
+        text,
+        mr.webUrl!
+      );
+      posted.push({ channel: name, permalink: sent.permalink });
+    } catch (err) {
+      failed.push({
+        channel: name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return Response.json(
+    { posted, failed },
+    { status: posted.length > 0 || failed.length === 0 ? 200 : 502 }
+  );
 }
 
 /** The seat authored it and, once the GitLab token's user is known (the
@@ -3499,46 +3557,18 @@ const httpServer = Bun.serve({
         if (!mr) return new Response('MR is not on the board', { status: 400 });
         const refused = requireOwnMr(mr);
         if (refused) return refused;
-        const planned = await ownersPostPlan(mr, slackToken);
-        if (planned instanceof Response) return planned;
-        const text = mrPostText([mr]);
-        if (pathname === '/slack/owners/preview') {
-          return Response.json({ text, ...planned.plan });
+        if (pathname === '/slack/owners/preview')
+          return ownersPreviewOrPost(mr, slackToken, null);
+        if (ownerPostsRunning.has(mrUrl))
+          return new Response('a post for this MR is still running', {
+            status: 409,
+          });
+        ownerPostsRunning.add(mrUrl);
+        try {
+          return await ownersPreviewOrPost(mr, slackToken, channels);
+        } finally {
+          ownerPostsRunning.delete(mrUrl);
         }
-        const offered = new Set(planned.plan.channels.map(c => c.channel));
-        if (
-          !Array.isArray(channels) ||
-          channels.length === 0 ||
-          !channels.every(c => typeof c === 'string' && offered.has(c)) ||
-          new Set(channels).size !== channels.length
-        ) {
-          return new Response(
-            `"channels" must be one or more of: ${[...offered].join(', ') || '(none to post to)'}`,
-            { status: 400 }
-          );
-        }
-        const posted: Array<{ channel: string; permalink: string }> = [];
-        const failed: Array<{ channel: string; error: string }> = [];
-        for (const name of channels as string[]) {
-          try {
-            const sent = await postToOwnerChannel(
-              slackToken,
-              { name, id: planned.channelIds.get(name)! },
-              text,
-              mrUrl
-            );
-            posted.push({ channel: name, permalink: sent.permalink });
-          } catch (err) {
-            failed.push({
-              channel: name,
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
-        return Response.json(
-          { posted, failed },
-          { status: posted.length > 0 || failed.length === 0 ? 200 : 502 }
-        );
       }
       case '/slack/react': {
         // Add or remove a review-signal reaction (eyes/speech_balloon/white_check_mark)

@@ -6,7 +6,11 @@ export interface OwnerRule {
 }
 
 export type OwnerSkipReason =
-  'approved' | 'no-channel' | 'already-posted' | 'channel-unavailable';
+  | 'approved'
+  | 'no-channel'
+  | 'already-posted'
+  | 'channel-missing'
+  | 'not-member';
 
 export interface OwnerSkip {
   section: string;
@@ -36,12 +40,17 @@ export function ownerRulesFromApprovalState(body: unknown): OwnerRule[] {
 /**
  * Which channels an MR's review request goes to, and why every other section
  * is left out. GitLab emits one rule per owned path, so a section counts as
- * approved only when all of its rules are. `available` is the channels Slack
- * lists for the posting user; omit it to skip that check.
+ * approved only when all of its rules are. `slack` is every channel Slack
+ * lists for the posting user, and whether that user is in it, since a user
+ * token cannot post to a channel its user has not joined; omit it to skip
+ * both checks.
  */
 export function planOwnersPost(
   rules: OwnerRule[],
-  opts: { posted: Record<string, string>; available?: Set<string> }
+  opts: {
+    posted: Record<string, string>;
+    slack?: Map<string, { member: boolean }>;
+  }
 ): OwnersPostPlan {
   const approvedBySection = new Map<string, boolean>();
   for (const rule of rules) {
@@ -65,8 +74,10 @@ export function planOwnersPost(
         channel,
         permalink: opts.posted[channel],
       });
-    } else if (opts.available && !opts.available.has(channel)) {
-      skipped.push({ section, reason: 'channel-unavailable', channel });
+    } else if (opts.slack && !opts.slack.has(channel)) {
+      skipped.push({ section, reason: 'channel-missing', channel });
+    } else if (opts.slack && !opts.slack.get(channel)!.member) {
+      skipped.push({ section, reason: 'not-member', channel });
     } else {
       byChannel.set(channel, [...(byChannel.get(channel) ?? []), section]);
     }

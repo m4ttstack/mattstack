@@ -127,13 +127,20 @@ describe('planOwnersPost', () => {
     });
   });
 
-  test('a channel Slack does not list is skipped', () => {
+  test('a channel Slack does not list is skipped as missing, one the user is not in as not a member', () => {
     const plan = planOwnersPost(
       [
         { section: 'Acme - #pod-acme', approved: false },
         { section: 'Docs - #pod-docs', approved: false },
+        { section: 'Ops - #pod-ops', approved: false },
       ],
-      { posted: {}, available: new Set(['pod-docs']) }
+      {
+        posted: {},
+        slack: new Map([
+          ['pod-docs', { member: true }],
+          ['pod-ops', { member: false }],
+        ]),
+      }
     );
     expect(plan.channels).toEqual([
       { channel: 'pod-docs', sections: ['Docs - #pod-docs'] },
@@ -141,9 +148,10 @@ describe('planOwnersPost', () => {
     expect(plan.skipped).toEqual([
       {
         section: 'Acme - #pod-acme',
-        reason: 'channel-unavailable',
+        reason: 'channel-missing',
         channel: 'pod-acme',
       },
+      { section: 'Ops - #pod-ops', reason: 'not-member', channel: 'pod-ops' },
     ]);
   });
 });
