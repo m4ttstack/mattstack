@@ -31,7 +31,7 @@ export function decideUpdate(p: Pick<Probes, "exists" | "home" | "readFile">, ve
 }
 
 const GROUPS: { label: string; states: UpdateOutcome["state"][] }[] = [
-  { label: "changed", states: ["done", "partial"] },
+  { label: "ran", states: ["done", "partial"] },
   { label: "skipped", states: ["skipped"] },
   { label: "needs you", states: ["needs-you"] },
   { label: "failed", states: ["failed"] },
