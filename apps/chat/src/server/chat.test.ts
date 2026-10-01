@@ -300,6 +300,7 @@ test('buddies join the live herdr pane title by sessionId', async () => {
           agentStatus: 'working',
           sessionId: 's1',
           title: 'Fix the thing',
+          tab: 'loosening mcp rules',
         },
       ],
     },
@@ -308,6 +309,51 @@ test('buddies join the live herdr pane title by sessionId', async () => {
   expect((await res.json()).buddies[0]).toMatchObject({
     handle: 'a',
     paneTitle: 'Fix the thing',
+    paneWorkspace: 'x',
+    paneTab: 'loosening mcp rules',
+    agentStatus: 'working',
+  });
+});
+
+test('a pane herdr reports with no session id still joins its buddy by handle', async () => {
+  vi.mocked(rt.chatBuddies).mockResolvedValueOnce({
+    ok: true,
+    data: {
+      buddies: [
+        {
+          sessionId: 's1',
+          handle: 'a',
+          baseHandle: 'a',
+          name: 'a',
+          signedInAt: 1,
+          lastSeenAt: 1,
+          status: 'idle',
+        },
+      ],
+    },
+  });
+  vi.mocked(rt.chatRooms).mockResolvedValueOnce({
+    ok: true,
+    data: { rooms: [] },
+  });
+  vi.mocked(rt.paneList).mockResolvedValueOnce({
+    ok: true,
+    data: {
+      panes: [
+        {
+          paneId: 'w1:p1',
+          workspace: 'x',
+          agentStatus: 'blocked',
+          presence: { handle: 'a', name: 'a', status: 'idle', rooms: [] },
+        },
+      ],
+    },
+  });
+  const res = await routes.request('/api/chat/buddies');
+  expect((await res.json()).buddies[0]).toMatchObject({
+    handle: 'a',
+    paneWorkspace: 'x',
+    agentStatus: 'blocked',
   });
 });
 

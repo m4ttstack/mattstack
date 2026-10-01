@@ -12,13 +12,14 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import { notifications } from '@mattstack/app-kit/notifications';
-import type { BuddyStatus } from '@mattstack/rt-client';
+import type { AgentStatus, BuddyStatus } from '@mattstack/rt-client';
 
+import { agentState, type AgentState } from './agent-state';
 import { AgentName } from './AgentName';
 import { useBuddies } from './buddies-context';
 import { doing, type DoingLine } from './doing';
 import { HUMAN_HANDLE } from './human';
-import { STATUS_WORD } from './statusDetail';
+import { StateDot, StateWord } from './StateDot';
 import { useAutoGrowTextarea } from './use-auto-grow-textarea';
 
 /** `BuddyOption`/`HereOption` render inside `Popover.Dropdown`
@@ -36,21 +37,14 @@ const BORDER_SOFT = 'var(--tk-border-soft)';
 const PURPLE = 'var(--tk-text-purple-small)';
 const ACCENT_TEXT = 'var(--mantine-color-accent-text)';
 
-const STATUS_TEXT_COLOR: Record<'live' | 'idle', string> = {
-  live: 'var(--mantine-color-ok-text)',
-  idle: 'var(--mantine-color-warn-text)',
-};
-const DOT_COLOR: Record<'live' | 'idle', string> = {
-  live: 'var(--tk-fill-ok)',
-  idle: 'var(--tk-fill-warn)',
-};
-const STATUS_ORDER: readonly ('live' | 'idle')[] = ['live', 'idle'];
+const SIGNED_IN_ORDER: readonly AgentState[] = ['blocked', 'working', 'done'];
 const BAD_TEXT = 'var(--mantine-color-bad-text)';
 
 export interface ComposerBuddy {
   handle: string;
   name?: string;
   status: BuddyStatus;
+  agentStatus?: AgentStatus;
   branch?: string;
   cwd?: string;
   paneTitle?: string;
@@ -127,21 +121,6 @@ function detectMentionToken(text: string, caret: number): MentionToken | null {
   return { start: atIndex, end: caret, query };
 }
 
-function Dot({ status }: { status: 'live' | 'idle' }) {
-  return (
-    <Box
-      component="span"
-      style={{
-        width: 8,
-        height: 8,
-        borderRadius: '50%',
-        flex: 'none',
-        background: DOT_COLOR[status],
-      }}
-    />
-  );
-}
-
 /**
  * One `.opt` row. Clicking routes on room membership alone: a mention still
  * lands in an idle buddy's unread, it just doesn't wake them yet.
@@ -150,7 +129,7 @@ function BuddyOption({
   handle,
   name,
   withAvatar,
-  status,
+  state,
   inRoom,
   room,
   task,
@@ -160,7 +139,7 @@ function BuddyOption({
   name: string;
   /** Set when another option reads the same name: the id-seeded avatar tells them apart. */
   withAvatar: boolean;
-  status: 'live' | 'idle';
+  state: AgentState;
   inRoom: boolean;
   room: string;
   task: DoingLine | null;
@@ -192,7 +171,7 @@ function BuddyOption({
         cursor: 'pointer',
       }}
     >
-      <Dot status={status} />
+      <StateDot state={state} />
       <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
         {withAvatar ? (
           <Text component="span" size="sm" fw={600} truncate>
@@ -219,13 +198,7 @@ function BuddyOption({
           </Text>
         )}
       </Stack>
-      <Text
-        component="span"
-        size="xs"
-        style={{ color: STATUS_TEXT_COLOR[status], flex: 'none' }}
-      >
-        {STATUS_WORD[status]}
-      </Text>
+      <StateWord state={state} />
     </UnstyledButton>
   );
 }
@@ -327,11 +300,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
     const filtered = query
       ? relevant.filter(b => nameOf(b.handle).toLowerCase().startsWith(query))
       : relevant;
-    const options = STATUS_ORDER.flatMap(status =>
-      filtered.filter(
-        (b): b is ComposerBuddy & { status: typeof status } =>
-          b.status === status
-      )
+    const options = SIGNED_IN_ORDER.flatMap(state =>
+      filtered.filter(b => b.status !== 'offline' && agentState(b) === state)
     );
     const optionNameCounts = new Map<string, number>();
     for (const b of options) {
@@ -613,7 +583,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
                   handle={b.handle}
                   name={nameOf(b.handle)}
                   withAvatar={(optionNameCounts.get(nameOf(b.handle)) ?? 0) > 1}
-                  status={b.status as 'live' | 'idle'}
+                  state={agentState(b)}
                   inRoom={roomMembers.includes(b.handle)}
                   room={room}
                   task={doing(b)}

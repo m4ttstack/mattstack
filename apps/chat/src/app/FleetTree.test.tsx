@@ -287,39 +287,61 @@ test('a workstream with no pane is not a target', () => {
   expect(row.style.cursor).toBe('default');
 });
 
-test('the focus-pane hint rides only the desktop pane rows', () => {
-  const { rerender } = renderTree({
+test('a pane row focuses on click with no hint text eating the task line', () => {
+  renderTree({
     rooms: [room('boxscore')],
-    buddies: [buddy('jay', 'boxscore', { pane: 'wBT:p1' })],
+    buddies: [
+      buddy('jay', 'boxscore', {
+        pane: 'wBT:p1',
+        paneTitle: 'Boxscore mattstack integration',
+      }),
+    ],
     onFocusPane: vi.fn(),
   });
-  // Desktop: the row focuses a pane, so it carries the hint.
-  expect(screen.getByTestId('ws-focus-hint-jay')).toBeInTheDocument();
-
-  // Phone: the same row opens a DM (`onSelectBuddy`) with no hover to hint on.
-  rerender(
-    <FleetTree
-      rooms={[room('boxscore')]}
-      dms={[]}
-      buddies={[buddy('jay', 'boxscore', { pane: 'wBT:p1' })]}
-      now={NOW}
-      onFocusPane={vi.fn()}
-      onSelectBuddy={vi.fn()}
-    />
+  const row = screen.getByTestId('ws-jay');
+  expect(row).toHaveAccessibleName("Focus jay's pane");
+  expect(row).not.toHaveTextContent(/focus pane/i);
+  expect(screen.getByTestId('ws-doing-jay')).toHaveTextContent(
+    'Boxscore mattstack integration'
   );
-  expect(screen.queryByTestId('ws-focus-hint-jay')).toBeNull();
+});
 
-  // No pane, no target, no hint.
-  rerender(
-    <FleetTree
-      rooms={[room('rt')]}
-      dms={[]}
-      buddies={[buddy('max', 'rt')]}
-      now={NOW}
-      onFocusPane={vi.fn()}
-    />
+test('hovering a desktop row docks the agent card; a phone row never opens one', async () => {
+  const jay = buddy('jay', 'boxscore', { pane: 'wBT:p1' });
+  const { unmount } = renderTree({
+    rooms: [room('boxscore')],
+    buddies: [jay],
+    onFocusPane: vi.fn(),
+  });
+  await userEvent.hover(screen.getByTestId('ws-jay'));
+  expect(
+    await screen.findByTestId('detail-jay', {}, { timeout: 2000 })
+  ).toBeInTheDocument();
+  unmount();
+
+  renderTree({
+    rooms: [room('boxscore')],
+    buddies: [jay],
+    onSelectBuddy: vi.fn(),
+  });
+  await userEvent.hover(screen.getByTestId('ws-jay'));
+  await new Promise(r => setTimeout(r, 800));
+  expect(screen.queryByTestId('detail-jay')).toBeNull();
+});
+
+test("a row's dot reads herdr's state: an agent blocked on the human goes red", () => {
+  renderTree({
+    rooms: [room('rt')],
+    buddies: [
+      buddy('max', 'rt', { agentStatus: 'blocked' }),
+      buddy('remy', 'rt', { agentStatus: 'done' }),
+    ],
+  });
+  expect(screen.getByTestId('dot-max')).toHaveAttribute(
+    'data-state',
+    'blocked'
   );
-  expect(screen.queryByTestId('ws-focus-hint-max')).toBeNull();
+  expect(screen.getByTestId('dot-remy')).toHaveAttribute('data-state', 'done');
 });
 
 test('rooms and DMs both close, by hover × and by right-click menu', async () => {
@@ -455,8 +477,11 @@ test('the daemon down withholds every presence claim in the tree', () => {
   expect(screen.getByTestId('ws-doing-max')).toHaveTextContent(
     'presence withheld'
   );
-  // The dot goes hollow: no background, a hairline instead.
-  expect(screen.getByTestId('dot-max').style.background).toBe('transparent');
+  // The dot goes hollow, the signed-out treatment, claiming no state.
+  expect(screen.getByTestId('dot-max')).toHaveAttribute(
+    'data-state',
+    'offline'
+  );
   // No pane title leaks anywhere while the daemon is down.
   expect(screen.queryByText(/Boxscore mattstack integration/)).toBeNull();
 });

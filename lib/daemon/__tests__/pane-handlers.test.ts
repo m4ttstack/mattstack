@@ -85,6 +85,21 @@ test("pane:list lists only claude panes, joined to presence by session id, with 
   expect(res.data.panes.find((p) => p.paneId === "w1:p2")?.focused).toBe(false);
 });
 
+test("pane:list carries the herdr tab label, and leaves it unset when the tab is unknown", async () => {
+  const withTabs = {
+    ...SNAPSHOT,
+    snapshot: { ...SNAPSHOT.snapshot, tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "loosening mcp rules", number: 3, focused: false, pane_count: 2, agent_status: "idle" }] },
+  };
+  const { pane } = harness((method) => (method === "session.snapshot" ? withTabs : new HerdrFakeError("invalid_request", method)));
+  const res = await pane["pane:list"]({});
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data.panes.find((p) => p.paneId === "w1:p1")!.tab).toBe("loosening mcp rules");
+  const { pane: noTabs } = harness((method) => (method === "session.snapshot" ? SNAPSHOT : new HerdrFakeError("invalid_request", method)));
+  const bare = await noTabs["pane:list"]({});
+  if (!bare.ok) throw new Error(bare.error);
+  expect(bare.data.panes.find((p) => p.paneId === "w1:p1")!.tab).toBeUndefined();
+});
+
 test("pane:list falls back to the presence row's pane id when herdr has no session id", async () => {
   const { chat, pane } = harness(
     (method) => (method === "session.snapshot" ? SNAPSHOT : new HerdrFakeError("invalid_request", method)),

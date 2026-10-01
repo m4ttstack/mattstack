@@ -39,6 +39,29 @@ test('@ autocompletes from the roster, offers DM instead for a buddy outside the
   expect(screen.getByText(/@here/)).toHaveTextContent(/wakes 2 agents/);
 });
 
+test("the mention picker reads herdr's state, an agent waiting on you first", async () => {
+  renderWithProviders(
+    <Composer
+      room="build"
+      roomMembers={['busy', 'stuck']}
+      buddies={[
+        { handle: 'busy', status: 'live', agentStatus: 'working' },
+        { handle: 'stuck', status: 'idle', agentStatus: 'blocked' },
+      ]}
+    />
+  );
+  await userEvent.type(screen.getByRole('textbox'), '@');
+  const options = await screen.findAllByTestId(
+    /^composer-option-(busy|stuck)$/
+  );
+  expect(options.map(o => o.dataset.testid)).toEqual([
+    'composer-option-stuck',
+    'composer-option-busy',
+  ]);
+  expect(options[0]).toHaveTextContent('Waiting on you');
+  expect(options[1]).toHaveTextContent('Working');
+});
+
 test('choosing DM instead hands the handle to onOpenDm, drops the @ token and keeps the draft', async () => {
   const onOpenDm = vi.fn();
   renderWithProviders(

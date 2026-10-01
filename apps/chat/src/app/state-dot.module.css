@@ -1,0 +1,36 @@
+.dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tk-dot-ok);
+}
+
+.dot[data-size='sm'] {
+  width: 6px;
+  height: 6px;
+}
+
+.dot[data-state='blocked'] {
+  background: var(--tk-dot-bad);
+}
+
+.dot[data-state='done'] {
+  background: var(--tk-dot-warn);
+}
+
+.word {
+  flex: none;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--tk-text-3);
+}
+
+.word[data-state='blocked'] {
+  color: var(--tk-text-bad-small);
+}
+
+.dot[data-state='offline'] {
+  background: transparent;
+  border: 1px solid var(--tk-border);
+}

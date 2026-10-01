@@ -11,6 +11,7 @@ import {
   chatWho,
   getSetting,
   paneList,
+  type AgentStatus,
   type ChatMessage,
   type InviteResult,
   type RoomSummary,
@@ -61,23 +62,44 @@ function parseIntParam(raw: string | undefined): number | undefined {
 
 const CHAT_NAME = /^[a-z0-9._-]+$/;
 
+/** Where a buddy's session runs in herdr, in the buddy row's own field names. */
+interface PaneInfo {
+  paneTitle?: string;
+  paneWorkspace: string;
+  paneTab?: string;
+  agentStatus: AgentStatus;
+}
+
+interface PaneIndex {
+  bySession: Map<string, PaneInfo>;
+  byHandle: Map<string, PaneInfo>;
+}
+
 /**
- * sessionId -> the herdr pane title Claude Code maintains for that session.
- * Degrades to an empty map on any failure, herdr being down included: the
+ * The herdr pane each buddy runs in, by session id and, for a pane herdr
+ * reports without one, by the presence handle `pane:list` matched it to.
+ * Degrades to empty maps on any failure, herdr being down included: the
  * buddy roster is the important half of `/api/chat/buddies` and must never
  * 502 because the pane list could not be read.
  */
-async function paneTitleBySessionId(): Promise<Map<string, string>> {
+async function paneIndex(): Promise<PaneIndex> {
+  const index: PaneIndex = { bySession: new Map(), byHandle: new Map() };
   try {
     const res = await paneList(rtOpts());
-    if (!res?.ok || !res.data) return new Map();
-    const map = new Map<string, string>();
+    if (!res?.ok || !res.data) return index;
     for (const pane of res.data.panes) {
-      if (pane.sessionId && pane.title) map.set(pane.sessionId, pane.title);
+      const info: PaneInfo = {
+        ...(pane.title ? { paneTitle: pane.title } : {}),
+        paneWorkspace: pane.workspace,
+        ...(pane.tab ? { paneTab: pane.tab } : {}),
+        agentStatus: pane.agentStatus,
+      };
+      if (pane.sessionId) index.bySession.set(pane.sessionId, info);
+      if (pane.presence) index.byHandle.set(pane.presence.handle, info);
     }
-    return map;
+    return index;
   } catch {
-    return new Map();
+    return index;
   }
 }
 
@@ -307,13 +329,13 @@ export const chat = new Hono()
     // human's rooms: the human is in no room he never joined, which was
     // every fleet room, so every buddy read as being nowhere. One wave of
     // calls, in buddy order, so a failure is that buddy's alone.
-    const [perBuddy, paneTitles] = await Promise.all([
+    const [perBuddy, panes] = await Promise.all([
       Promise.all(
         buddiesRes.data.buddies.map(b =>
           chatRooms({ handle: b.handle }, rtOpts()).catch(() => null)
         )
       ),
-      paneTitleBySessionId(),
+      paneIndex(),
     ]);
     const roomsByHandle = new Map<string, string[]>();
     buddiesRes.data.buddies.forEach((b, i) => {
@@ -327,14 +349,12 @@ export const chat = new Hono()
       roomsByHandle.set(b.handle, tags);
     });
 
-    const buddies = buddiesRes.data.buddies.map(buddy => {
-      const paneTitle = paneTitles.get(buddy.sessionId);
-      return {
-        ...buddy,
-        rooms: roomsByHandle.get(buddy.handle) ?? [],
-        ...(paneTitle !== undefined ? { paneTitle } : {}),
-      };
-    });
+    const buddies = buddiesRes.data.buddies.map(buddy => ({
+      ...buddy,
+      rooms: roomsByHandle.get(buddy.handle) ?? [],
+      ...(panes.bySession.get(buddy.sessionId) ??
+        panes.byHandle.get(buddy.handle)),
+    }));
     return c.json({ buddies }, 200);
   })
   .get(
