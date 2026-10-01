@@ -336,8 +336,6 @@ export function AgentHoverCard({
   now,
   inRoom,
   task,
-  onOpen,
-  onClose,
   children,
 }: {
   buddy: RosterBuddy;
@@ -347,22 +345,17 @@ export function AgentHoverCard({
   now?: number;
   inRoom?: boolean;
   task?: DoingLine | null;
-  onOpen?: () => void;
-  onClose?: () => void;
   children: React.ReactElement;
 }) {
   return (
     <HoverCard
       position={position}
       offset={offset}
-      onOpen={onOpen}
-      onClose={onClose}
       width={CARD_WIDTH}
       openDelay={500}
       closeDelay={120}
       withinPortal
       shadow="md"
-      radius="lg"
       classNames={{ dropdown: cardClasses.dropdown }}
     >
       <HoverCard.Target>{children}</HoverCard.Target>

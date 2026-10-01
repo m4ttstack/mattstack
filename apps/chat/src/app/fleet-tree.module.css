@@ -1,15 +1,19 @@
-/* A workstream row's hover wash. It lives in CSS rather than a `useHover`
-   state because nothing about the row's BEHAVIOUR turns on hover -- unlike
-   the room and DM rows, whose × must exist in the DOM for keyboard focus
-   and for a test to reach, so those keep the JS state. */
-.wsRow:hover,
-.wsRow[data-active] {
-  background: var(--ui-bg-4);
+/* Workstream, room and DM rows share one hover paint, the colour `Table`'s
+   `highlightOnHover` uses. A workstream row also holds it while its agent
+   card is open (`aria-expanded`, set by the HoverCard target). */
+:where([data-mantine-color-scheme='light']) .wsRow,
+:where([data-mantine-color-scheme='light']) .listRow {
+  --row-hover: var(--mantine-color-gray-1);
 }
 
-/* Room and DM rows. The × keeps its slot at rest and only fades in, so the
-   badges beside it never move under the pointer; `pointer-events: none`
-   stops a click landing on the invisible × instead of the row. */
+:where([data-mantine-color-scheme='dark']) .wsRow,
+:where([data-mantine-color-scheme='dark']) .listRow {
+  --row-hover: var(--mantine-color-dark-5);
+}
+
+/* The × keeps its slot at rest and only fades in, so the badges beside it
+   never move under the pointer; `pointer-events: none` stops a click
+   landing on the invisible × instead of the row. */
 .close {
   opacity: 0;
   pointer-events: none;
@@ -17,8 +21,9 @@
 }
 
 @media (hover: hover) {
+  .wsRow:hover,
   .listRow:hover {
-    background: var(--ui-bg-4);
+    background-color: var(--row-hover);
   }
 
   .listRow:hover .close {
@@ -27,14 +32,27 @@
   }
 }
 
+.wsRow:focus-within,
+.wsRow[aria-expanded='true'],
+.listRow:focus-within,
 .listRow[data-menu-open] {
-  background: var(--ui-bg-4);
+  background-color: var(--row-hover);
 }
 
 .listRow:focus-within .close,
 .listRow[data-menu-open] .close {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* The selected room or DM keeps its accent wash over any hover. */
+.listRow[data-active] {
+  color: var(--mantine-color-accent-text);
+  background-color: color-mix(
+    in srgb,
+    var(--mantine-color-accent-text) var(--tk-wash),
+    transparent
+  );
 }
 
 .dotSlot {

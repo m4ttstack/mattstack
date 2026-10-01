@@ -40,7 +40,6 @@ const ACCENT_DEEP =
   'light-dark(var(--mantine-color-accent-7), var(--mantine-color-accent-text))';
 const ACCENT_ON = 'light-dark(var(--mantine-color-white), var(--tk-bg))';
 const ACCENT_TEXT = 'var(--mantine-color-accent-text)';
-const ACCENT_WASH = `color-mix(in srgb, ${ACCENT_TEXT} var(--tk-wash), transparent)`;
 const BORDER = 'var(--tk-border)';
 
 /** `.ws`'s own `padding-left`. No spacing token lands on it: it is the room
@@ -413,8 +412,6 @@ function RoomRow({
         padding: '0 var(--mantine-spacing-md)',
         borderRadius: 'var(--mantine-radius-md)',
         cursor: 'pointer',
-        background: active ? ACCENT_WASH : undefined,
-        color: active ? ACCENT_TEXT : undefined,
       }}
     >
       <Icon
@@ -496,13 +493,11 @@ function WorkstreamRow({
       : undefined;
   const clickable = onClick !== undefined;
   const state = reachable ? agentState(buddy) : 'offline';
-  const [cardOpen, setCardOpen] = useState(false);
   const row = (
     <UnstyledButton
       className={classes.wsRow}
       component={clickable ? 'button' : 'div'}
       data-testid={`ws-${handle}`}
-      data-active={cardOpen || undefined}
       aria-label={
         onSelectBuddy
           ? `Message ${shown}`
@@ -572,8 +567,8 @@ function WorkstreamRow({
   );
   // The phone path opens a DM on tap and has no hover, so only the desktop
   // tree docks the card, flush to the sidebar's right edge, level with the
-  // row. The row stays marked while its card is open, so moving onto the
-  // card never loses which agent it describes.
+  // row. The row stays marked while its card is open (`aria-expanded`), so
+  // moving onto the card never loses which agent it describes.
   if (onSelectBuddy) return row;
   return (
     <AgentHoverCard
@@ -583,8 +578,6 @@ function WorkstreamRow({
       reachable={reachable}
       now={now}
       task={task}
-      onOpen={() => setCardOpen(true)}
-      onClose={() => setCardOpen(false)}
     >
       {row}
     </AgentHoverCard>
@@ -682,7 +675,6 @@ function DmRow({
         padding: '0 var(--mantine-spacing-md)',
         borderRadius: 'var(--mantine-radius-md)',
         cursor: 'pointer',
-        background: active ? ACCENT_WASH : undefined,
       }}
     >
       {/* textContent, not three separate runs: the arrow needs its own span
@@ -777,10 +769,10 @@ function DmOverflowRow({
 }
 
 /**
- * The sidebar's one tree. Every repo the fleet works in heads a group -- its
- * room when it has one, a plain label when it does not -- with that repo's
- * signed-in sessions under it and its signed-out members rolled into a line.
- * Direct conversations follow, named by their pair.
+ * The sidebar's one tree. Each room heads a group with the signed-in
+ * sessions of the repo it is named for under it and that repo's signed-out
+ * members rolled into a line. Direct conversations follow, named by their
+ * pair.
  *
  * This replaces both of the surfaces it succeeds (a flat rooms rail and a
  * separate roster panel): a handle read next to the room it works in answers

@@ -251,8 +251,7 @@ test('every tree row label sits on the meta step', () => {
     rooms: [room('rt')],
     buddies: [buddy('max', 'rt'), buddy('gail', 'board')],
   });
-  // The handle and the task line beside it were 11.2px and 10.56px, a
-  // difference nobody could see. One step now carries both.
+  // The handle and its task line share one type step.
   expect(screen.getByTestId('ws-handle-max').style.fontSize).toBe(
     'var(--mantine-font-size-xs)'
   );
@@ -324,9 +323,11 @@ test('hovering a desktop row docks the agent card; a phone row never opens one',
     onFocusPane: vi.fn(),
   });
   await userEvent.hover(screen.getByTestId('ws-jay'));
-  expect(
-    await screen.findByTestId('detail-jay', {}, { timeout: 2000 })
-  ).toBeInTheDocument();
+  const card = await screen.findByTestId('detail-jay', {}, { timeout: 2000 });
+  // Moving onto the card keeps the row marked, so it stays clear which
+  // agent the card describes.
+  await userEvent.hover(card);
+  expect(screen.getByTestId('ws-jay')).toHaveAttribute('aria-expanded', 'true');
   unmount();
 
   renderTree({
@@ -369,7 +370,7 @@ test('rooms and DMs both close, by hover × and by right-click menu', async () =
 
   const dmClose = screen.getByTestId('dm-close-dm-jay-max');
   expect(dmClose).toHaveAttribute('aria-label', 'Close jay ↔ max');
-  expect(dmClose.style.display).toBe('');
+  expect(dmClose).not.toHaveStyle({ display: 'none' });
   await userEvent.hover(screen.getByTestId('dm-row-dm-jay-max'));
   await userEvent.click(dmClose);
   expect(onClose).toHaveBeenCalledWith('dm-jay-max');

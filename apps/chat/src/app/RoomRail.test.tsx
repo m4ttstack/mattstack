@@ -157,11 +157,11 @@ test('the hover × closes that row without selecting it', async () => {
       onSelectRoom={onSelectRoom}
     />
   );
-  // The × holds its slot at rest (CSS only shows it on hover or focus), so
-  // revealing it never shifts the row under the pointer.
+  // The × is laid out at rest, never `display: none`, so revealing it
+  // cannot shift the row. Its fade-in is CSS, which this suite does not load.
   const close = screen.getByTestId('dm-close-dm-1');
   expect(close).toHaveAttribute('aria-label', 'Close fred ↔ gitq-main');
-  expect(close.style.display).toBe('');
+  expect(close).not.toHaveStyle({ display: 'none' });
   await userEvent.hover(screen.getByTestId('dm-row-dm-1'));
   await userEvent.click(close);
   expect(onCloseRoom).toHaveBeenCalledWith('dm-1');
