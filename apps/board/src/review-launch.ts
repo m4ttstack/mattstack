@@ -1,4 +1,4 @@
-import { resumeAgentPane } from './agent-launch.ts';
+import { resumeAgentPane, resumePackEnv } from './agent-launch.ts';
 import {
   dispatchPrompt,
   launchLegacyResume,
@@ -125,7 +125,7 @@ export async function launchReReview(
         prompt,
         workspaceLabel: ctx.workspaceLabel,
         tabLabel: mrTabLabel(iid, ctx.author, 'RE'),
-        ...(ctx.pack ? { env: { MATTSTACK_PACK: ctx.pack } } : {}),
+        env: resumePackEnv(ctx.pack),
       });
       if (!result.focusedExisting) {
         io.writeReviewState(statePath, {

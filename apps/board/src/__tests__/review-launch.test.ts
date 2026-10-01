@@ -578,10 +578,10 @@ describe('launchReReview: a resume re-resolves the pack', () => {
     });
   }
 
-  test('the agentId arm resumes with MATTSTACK_PACK when a pack is known, and no env otherwise', async () => {
+  test('the agentId arm resumes with MATTSTACK_PACK when a pack is known, and an empty one to clear it otherwise', async () => {
     for (const [pack, env] of [
       ['widgets', { MATTSTACK_PACK: 'widgets' }],
-      [undefined, undefined],
+      [undefined, { MATTSTACK_PACK: '' }],
     ] as const) {
       resumeCalls = [];
       writeReviewState(

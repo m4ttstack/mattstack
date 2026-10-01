@@ -127,7 +127,7 @@ describe('launchReopen', () => {
     expect(write.now).toBe(write.patch.reopenedAt!);
   });
 
-  test('a known pack rides both resume arms; no pack sends no env', async () => {
+  test('a known pack rides both resume arms; no pack sends the clear signal', async () => {
     const agentCalls: Array<Record<string, unknown>> = [];
     const { io, legacyCalls } = makeIo({
       resumeAgentPane: async opts => {
@@ -147,7 +147,7 @@ describe('launchReopen', () => {
       io
     );
     expect(agentCalls[0]?.env).toEqual({ MATTSTACK_PACK: 'widgets' });
-    expect('env' in agentCalls[1]!).toBe(false);
+    expect(agentCalls[1]?.env).toEqual({ MATTSTACK_PACK: '' });
     expect(legacyCalls[0]).toMatchObject({ pack: 'widgets' });
   });
 

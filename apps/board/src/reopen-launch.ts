@@ -1,4 +1,4 @@
-import { resumeAgentPane } from './agent-launch.ts';
+import { resumeAgentPane, resumePackEnv } from './agent-launch.ts';
 import { launchLegacyResume } from './herdr.ts';
 
 /** How the reopen actually started. `no-session` means nothing on file to
@@ -93,7 +93,7 @@ export async function launchReopen(
         prompt: ctx.prompt,
         workspaceLabel: ctx.workspaceLabel,
         tabLabel: ctx.tabLabel,
-        ...(ctx.pack ? { env: { MATTSTACK_PACK: ctx.pack } } : {}),
+        env: resumePackEnv(ctx.pack),
       });
       if (!result.focusedExisting) {
         writeReopened({

@@ -304,6 +304,13 @@ function packFromEnv(env: Record<string, string> | undefined): string | undefine
   return pack !== undefined && PACK_NAME_RE.test(pack) ? pack : undefined;
 }
 
+/** An empty MATTSTACK_PACK is the caller clearing the pack: it never reaches the pane, where an empty exported variable still reads as present. */
+function withoutPackClear(env: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (env?.MATTSTACK_PACK !== "") return env;
+  const { MATTSTACK_PACK: _cleared, ...rest } = env;
+  return rest;
+}
+
 const agentOwner = (id: string): string => `agent:${id}`;
 
 /** Names the real flag the caller will be looking for; codex.ts's own
@@ -648,7 +655,7 @@ export function createAgentHandlers(opts: {
         }
         const effectiveSocket = bgSocket ?? payload.herdrSocket;
         const res = await launch(rec, { kind: "start", sessionId: rec.sessionId }, prompt, tabLabel, workspaceLabel, {
-          ...(payload.env !== undefined && { env: payload.env }),
+          ...(payload.env !== undefined && { env: withoutPackClear(payload.env) }),
           ...(effectiveSocket !== undefined && { herdrSocket: effectiveSocket }),
           ...(payload.trustWaitMs !== undefined && { trustWaitMs: payload.trustWaitMs }),
         });
@@ -713,11 +720,13 @@ export function createAgentHandlers(opts: {
       const resumeEnvError = envError(payload.env, surface);
       if (resumeEnvError) return { ok: false, error: resumeEnvError };
       const resumePack = packFromEnv(payload.env);
+      const clearsPack = payload.env?.MATTSTACK_PACK === "";
+      const callerEnv = withoutPackClear(payload.env);
       // The daemon's own relaunches (reconciler, gate answer-time resume)
       // send only an id, so the stored pack stands in for the caller's.
       const launchEnv = payload.env?.MATTSTACK_PACK === undefined && rec.pack !== undefined && surface === "herdr"
-        ? { ...payload.env, MATTSTACK_PACK: rec.pack }
-        : payload.env;
+        ? { ...callerEnv, MATTSTACK_PACK: rec.pack }
+        : callerEnv;
       // ↺ prefix: resume tabs must never dedup against the still-open launch
       // tab; repeated resumes share the label and dedup against each other.
       const tabLabel = payload.tab ?? `↺ ${rec.label ?? rec.id}`;
@@ -747,7 +756,8 @@ export function createAgentHandlers(opts: {
         if (!res.ok) return res;
         const now = Date.now();
         markAgentResumed(rec.id, now, db);
-        if (resumePack !== undefined && resumePack !== rec.pack) updateAgentPack(rec.id, resumePack, db);
+        if (clearsPack && rec.pack !== undefined) updateAgentPack(rec.id, null, db);
+        else if (resumePack !== undefined && resumePack !== rec.pack) updateAgentPack(rec.id, resumePack, db);
         if (wasBg && attempt.paneId) {
           // Same owner, new pane: release the stale claim by the exact ref
           // it was registered under (releaseByPane's own convention), then

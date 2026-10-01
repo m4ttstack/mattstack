@@ -118,6 +118,20 @@ describe("openStateDb — fresh open", () => {
     expect(() => openStateDb(dbPath, "cli").close()).not.toThrow();
   });
 
+  test("a v15 database missing agents.pack gains it on open", () => {
+    const dbPath = join(dir, "state.db");
+    const db = openStateDb(dbPath, "cli");
+    db.exec("ALTER TABLE agents DROP COLUMN pack;");
+    db.exec("PRAGMA user_version = 15;");
+    db.close();
+
+    const healed = openStateDb(dbPath, "cli");
+    expect(userVersion(healed)).toBe(15);
+    const columns = (healed.query("PRAGMA table_info(agents);").all() as { name: string }[]).map(c => c.name);
+    expect(columns).toContain("pack");
+    healed.close();
+  });
+
   test("the db file exists on disk after open", () => {
     const dbPath = join(dir, "state.db");
     const db = openStateDb(dbPath, "cli");

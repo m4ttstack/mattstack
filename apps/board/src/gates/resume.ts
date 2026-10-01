@@ -1,5 +1,5 @@
 import type { GateRow as FacilityGateRow } from '@mattstack/rt-client';
-import type { AgentLaunchResult } from '../agent-launch.ts';
+import { resumePackEnv, type AgentLaunchResult } from '../agent-launch.ts';
 import { mrTabLabel, type SkillPathResolver } from '../herdr.ts';
 import { resolveSkillPath } from '../skill-path.ts';
 import { GATE_LIST_PAGE_LIMIT, type GateEventFrame } from './ingest.ts';
@@ -159,7 +159,7 @@ export async function resumeParkedGate(
       prompt,
       workspaceLabel: kindIo.workspaceLabel,
       tabLabel: mrTabLabel(gate.iid, undefined, '↺'),
-      ...(pack ? { env: { MATTSTACK_PACK: pack } } : {}),
+      env: resumePackEnv(pack),
     });
   } catch (err) {
     console.error(

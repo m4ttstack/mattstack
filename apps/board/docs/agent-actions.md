@@ -89,9 +89,10 @@ skills that own the actual work, and resolves them with a vendored
 
 Every launch runs under a team pack: the launching tab's `pack`, else the
 `board.defaultPack` user setting. The launched pane gets that name as
-`MATTSTACK_PACK`, and the rt agent record keeps it: a board resume sends the
-pack it resolves now, and a relaunch the daemon starts on its own (a reconcile
-or a gate answer) re-applies the stored one. Bindings come from the file `rt skills materialize` writes
+`MATTSTACK_PACK`, and the rt agent record keeps it. A board resume sends the
+pack it resolves now, or clears the stored one when it resolves none, so that
+pane runs with no `MATTSTACK_PACK`. A relaunch the daemon starts on its own (a
+reconcile or a gate answer) re-applies whatever pack is stored. Bindings come from the file `rt skills materialize` writes
 for the MR's repo and that pack,
 `~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`, where `<slug>` is the
 forge host and project path joined by `-` (`gitlab.example.com-acme-widgets`).

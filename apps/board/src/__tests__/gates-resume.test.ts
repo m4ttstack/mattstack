@@ -289,10 +289,10 @@ describe('resumeParkedGate', () => {
     }
   });
 
-  test('the resumed pane carries MATTSTACK_PACK for the pack resolved for the same tab, and no env without one', async () => {
+  test('the resumed pane carries MATTSTACK_PACK for the pack resolved for the same tab, and an empty one to clear it without one', async () => {
     for (const [pack, env] of [
       ['widgets', { MATTSTACK_PACK: 'widgets' }],
-      [undefined, undefined],
+      [undefined, { MATTSTACK_PACK: '' }],
     ] as const) {
       const states = new Map([[MR_URL, baseReview()]]);
       const { io: reviewIo } = makeKindIo({

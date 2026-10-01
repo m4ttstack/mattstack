@@ -434,7 +434,7 @@ function addPackColumnIfMissing(db: Database): void {
  * endpoint_claims.start_time (S068): the claiming pid's start-time, so a
  * recycled pid across a reboot reads as dead rather than pinning a port
  * forever. Called unconditionally from `openStateDb`, outside
- * `runMigrations`'s BEGIN IMMEDIATE transaction, unlike the three
+ * `runMigrations`'s BEGIN IMMEDIATE transaction, unlike the
  * `addXColumnIfMissing` helpers above: those run inside the transaction,
  * where a losing racer's duplicate-column error rolls back the whole
  * migration; this one needs its own catch-and-recheck (below) to tolerate

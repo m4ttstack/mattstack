@@ -106,4 +106,6 @@ test("agents.pack round-trips, reads back undefined when unset, and updateAgentP
   expect(getAgent(without.id, db)?.pack).toBeUndefined();
   updateAgentPack(withPack.id, "gadgets", db);
   expect(getAgent(withPack.id, db)?.pack).toBe("gadgets");
+  updateAgentPack(withPack.id, null, db);
+  expect(getAgent(withPack.id, db)?.pack).toBeUndefined();
 });

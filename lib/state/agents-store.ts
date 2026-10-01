@@ -140,7 +140,7 @@ export function updateAgentSessionId(id: string, sessionId: string, db: Database
   runCriticalWrite("updateAgentSessionId", () => db.query(UPDATE_SESSION_SQL).run(sessionId, id), { id });
 }
 
-export function updateAgentPack(id: string, pack: string, db: Database = getStateDb()): void {
+export function updateAgentPack(id: string, pack: string | null, db: Database = getStateDb()): void {
   runCriticalWrite("updateAgentPack", () => db.query(UPDATE_PACK_SQL).run(pack, id), { id });
 }
 
