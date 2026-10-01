@@ -440,9 +440,9 @@ strips credentials from URLs, query params, token shapes and auth headers; a
 new tool inherits it and must never answer around it.
 
 The `mr_*` tools cover what board panes and pipeline verbs write (notes,
-approvals, resolves, note edits, draft state, retries, rebase, create, update, upload,
-merge). `mr_merge` is on the server (GitLab still enforces approvals and
-pipeline rules); the skill's ship gate is the human check. `mr_upload` is
+approvals, resolves, note edits, draft state, retries, rebase, create,
+update, upload, merge). `mr_merge` is on the server (GitLab still enforces
+approvals and pipeline rules); the skill's ship gate is the human check. `mr_upload` is
 the one tool that sends a local file off the machine, so its daemon guard
 (`lib/daemon/upload-guard.ts`) refuses anything outside the target repo's
 worktrees, the user's Claude Code temp root, rt's own evidence folder

@@ -51,7 +51,11 @@ export interface DiscussionHandlerSeams {
   gitlabToken?: () => Promise<string | undefined>;
   mutator?: (baseURL: string, token: string) => CommentInlineMutator;
   commentMutator?: (baseURL: string, token: string) => CommentMutator;
-  diffs?: (baseURL: string, projectPath: string, iid: number, token: string) => Promise<{ diffs: Array<{ newPath: string; diff: string }>; truncated: boolean }>;
+  diffs?: (
+    baseURL: string, projectPath: string, iid: number, token: string,
+    opts: { reqSignal?: AbortSignal; timeoutMs?: number },
+  ) => Promise<{ diffs: MrDiffRow[]; truncated: boolean }>;
+  warn?: (obj: object, msg: string) => void;
   refresh?: (repoName: string, iid: number) => Promise<unknown>;
   readCached?: (repoName: string, iid: number) => { discussions: Discussion[]; fetchedAt: number } | undefined;
 }
@@ -93,6 +97,16 @@ const DISCUSSIONS_TTL_MS = 2 * 60 * 1000;
 /** GitLab's page size for this endpoint; a full page means there may be more. */
 const DIFFS_PAGE_SIZE = 100;
 const DIFFS_FETCH_TIMEOUT_MS = 30_000;
+/** The anchor read plus the post must fit inside the MCP client's 30s write budget. */
+const ANCHOR_DIFFS_TIMEOUT_MS = 8_000;
+
+export interface MrDiffRow {
+  newPath: string;
+  oldPath?: string;
+  diff: string;
+  collapsed?: boolean;
+  tooLarge?: boolean;
+}
 
 /**
  * Every other outbound fetch in the daemon carries a bound (linear.ts,
@@ -108,18 +122,18 @@ export async function fetchMrDiffs(
   projectPath: string,
   iid: number,
   token: string,
-  opts: { reqSignal?: AbortSignal; fetchFn?: typeof fetch } = {},
-): Promise<{ diffs: Array<{ newPath: string; diff: string }>; truncated: boolean }> {
+  opts: { reqSignal?: AbortSignal; fetchFn?: typeof fetch; timeoutMs?: number } = {},
+): Promise<{ diffs: MrDiffRow[]; truncated: boolean }> {
   const fetchFn = opts.fetchFn ?? fetch;
   const encoded = encodeURIComponent(projectPath);
   const url = `${baseURL}/api/v4/projects/${encoded}/merge_requests/${iid}/diffs?per_page=${DIFFS_PAGE_SIZE}`;
-  const timeout = AbortSignal.timeout(DIFFS_FETCH_TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(opts.timeoutMs ?? DIFFS_FETCH_TIMEOUT_MS);
   const signal = opts.reqSignal ? AbortSignal.any([timeout, opts.reqSignal]) : timeout;
   const res = await fetchFn(url, { headers: { "PRIVATE-TOKEN": token }, signal });
   if (!res.ok) throw new Error(`GitLab diffs API: ${res.status}`);
-  const raw = (await res.json()) as Array<{ new_path: string; diff: string }>;
+  const raw = (await res.json()) as Array<{ new_path: string; old_path?: string; diff: string; collapsed?: boolean; too_large?: boolean }>;
   return {
-    diffs: raw.map((d) => ({ newPath: d.new_path, diff: d.diff })),
+    diffs: raw.map((d) => ({ newPath: d.new_path, oldPath: d.old_path, diff: d.diff, collapsed: d.collapsed, tooLarge: d.too_large })),
     truncated: raw.length >= DIFFS_PAGE_SIZE,
   };
 }
@@ -142,7 +156,9 @@ export function createDiscussionHandlers(
   const gitlabTokenFn = seams.gitlabToken ?? (async () => (await loadSecrets()).gitlabToken);
   const mutatorFn = seams.mutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
   const commentMutatorFn = seams.commentMutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
-  const diffsFn = seams.diffs ?? ((baseURL: string, projectPath: string, iid: number, token: string) => fetchMrDiffs(baseURL, projectPath, iid, token));
+  const diffsFn = seams.diffs ?? ((baseURL: string, projectPath: string, iid: number, token: string, opts: { reqSignal?: AbortSignal; timeoutMs?: number }) =>
+    fetchMrDiffs(baseURL, projectPath, iid, token, opts));
+  const warnFn = seams.warn ?? ((obj: object, msg: string) => log.warn(obj, msg));
   const refreshFn = seams.refresh ?? ((repoName: string, iid: number) => refreshDiscussions(deps, repoName, iid));
   const readCachedFn = seams.readCached ?? ((repoName: string, iid: number) => getDiscussionsFileStore().read(repoName, iid));
 
@@ -310,7 +326,7 @@ export function createDiscussionHandlers(
       }
     },
 
-    "mr:comment-inline": async (payload) => {
+    "mr:comment-inline": async (payload, signal) => {
       const p = payload as {
         repoName?: string; iid?: number; body?: string; path?: string; line?: number;
         oldPath?: string; oldLine?: number;
@@ -347,19 +363,28 @@ export function createDiscussionHandlers(
         if (position.oldLine === undefined) {
           let page: Awaited<ReturnType<typeof diffsFn>> | undefined;
           try {
-            page = await diffsFn(repoCtx.provider.baseURL, repoCtx.projectPath, iid, token);
+            page = await diffsFn(repoCtx.provider.baseURL, repoCtx.projectPath, iid, token, {
+              reqSignal: signal,
+              timeoutMs: ANCHOR_DIFFS_TIMEOUT_MS,
+            });
           } catch (err) {
-            log.warn({ err, repoName, iid }, "mr:comment-inline: diff read failed, posting the anchor unverified");
+            if (signal?.aborted) return { ok: false, error: "request aborted before the comment was posted" };
+            warnFn({ err, repoName, iid }, "mr:comment-inline: diff read failed, posting the anchor unverified");
           }
           if (page) {
             const file = page.diffs.find((d) => d.newPath === path);
             const refusal = `line ${line} of ${path} is not in this MR's diff, so GitLab cannot anchor a comment there`;
             if (file) {
-              const kind = classifyNewLine(file.diff, line);
-              if (kind.kind === "outside") {
-                return { ok: false, error: `${refusal}; lines in the diff near it: ${kind.nearest.join(", ")}` };
+              if (file.oldPath && position.oldPath === undefined) position.oldPath = file.oldPath;
+              const unreadable = file.collapsed === true || file.tooLarge === true || file.diff === "";
+              const kind = unreadable ? undefined : classifyNewLine(file.diff, line);
+              if (kind?.kind === "outside") {
+                const hint = kind.nearest.length > 0
+                  ? `; lines in the diff near it: ${kind.nearest.join(", ")}`
+                  : "; the file has no new-side lines, so pass oldLine to comment on a removed line";
+                return { ok: false, error: refusal + hint };
               }
-              if (kind.kind === "context") position.oldLine = kind.oldLine;
+              if (kind?.kind === "context") position.oldLine = kind.oldLine;
             } else if (!page.truncated) {
               return { ok: false, error: `${refusal}; this file has no diff in this MR` };
             }
