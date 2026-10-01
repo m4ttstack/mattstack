@@ -161,6 +161,8 @@ digraph ship {
     "ship gate ship" [shape=box];
     "ship answer (ship)?" [shape=diamond];
     "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" [shape=plaintext];
+    "run_field_set {key: shipTarget, value: -, stage: ship} (iterate)" [shape=plaintext];
+    "run_field_set {key: shipTarget, value: -, stage: ship} (hold)" [shape=plaintext];
     "Ship gate rounds = 2 (ship)?" [shape=diamond];
     "Ship gate reopenings = 2 (ship)?" [shape=diamond];
     "Rebase in progress (ship gate budget spent)?" [shape=diamond];
@@ -290,13 +292,15 @@ digraph ship {
     "ship gate ship" -> "ship answer (ship)?";
     "ship answer (ship)?" -> "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" [label="proceed: record the consented target"];
     "run_field_set {key: shipTarget, value: <resolved target>, stage: ship}" -> "dirty answer (ship)?";
-    "ship answer (ship)?" -> "Ship gate rounds = 2 (ship)?" [label="iterate: redo with their note"];
+    "ship answer (ship)?" -> "run_field_set {key: shipTarget, value: -, stage: ship} (iterate)" [label="iterate: clear the recorded consent first"];
+    "run_field_set {key: shipTarget, value: -, stage: ship} (iterate)" -> "Ship gate rounds = 2 (ship)?";
     "Ship gate rounds = 2 (ship)?" -> "Run the domain steps before the gate (none when unbound)" [label="no: redo with their note"];
     "Ship gate rounds = 2 (ship)?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, their last note quoted"];
     "Rebase in progress (ship gate budget spent)?" -> "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" [label="yes"];
     "Rebase in progress (ship gate budget spent)?" -> "Which exit is this (ship)?" [label="no: a failure, what was quoted is the reason"];
     "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" -> "Which exit is this (ship)?" [label="a failure, what was quoted is the reason"];
-    "ship answer (ship)?" -> "Which exit is this (ship)?" [label="hold"];
+    "ship answer (ship)?" -> "run_field_set {key: shipTarget, value: -, stage: ship} (hold)" [label="hold: clear the recorded consent first"];
+    "run_field_set {key: shipTarget, value: -, stage: ship} (hold)" -> "Which exit is this (ship)?";
     "ship answer (ship)?" -> "Rebase in progress (ship abort)?" [label="dirty = abort: nothing is pushed"];
     "Rebase in progress (ship abort)?" -> "git_rebase {tree: <root>, abort: true}" [label="yes"];
     "Rebase in progress (ship abort)?" -> "Which exit is this (ship)?" [label="no"];
@@ -509,7 +513,9 @@ context says so, and Abort aborts that rebase first.
 | `next` | **Proceed** / **Iterate here** / **Hold** | always |
 
 Scope `ship`. Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|hold","note":"<their words or null>"}`.
-Abort and Hold push nothing. Proceed records the target it consented to
+Abort and Hold push nothing. Iterate and Hold clear the recorded target
+with `run_field_set {key: shipTarget, value: -}` before they leave the gate, so a
+resume after either one re-asks the gate. Proceed records the target it consented to
 with `run_field_set {key: shipTarget, value: <resolved target>}`, `stage:
 "ship"` in an own run and `stage: run.current_stage` in an inherited one;
 when the stack store was unreadable the value is `<default branch> (stack

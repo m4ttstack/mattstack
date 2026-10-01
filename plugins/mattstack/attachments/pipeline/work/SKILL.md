@@ -87,7 +87,7 @@ digraph work {
         "run_decision {contract: gate@1, scope: redirect:<from>:<attempt>, selection: {from, to, reason}}" [shape=plaintext];
         "Is the <from> row still running?" [shape=diamond];
         "run_stage {action: redirect, stage: <from>, to, reason}" [shape=plaintext];
-        "run_field_set {key: <each produce from <to> on>, value: -}" [shape=plaintext];
+        "run_field_set {key: <each produce from <to> on>, value: -, stage: <the stage>}" [shape=plaintext];
         "Ship at or after <to>?" [shape=diamond];
     }
 
@@ -150,9 +150,9 @@ digraph work {
     "run_field_set {key: hold, value: <their words, or held>, stage}" -> "Held: end the turn naming run and stage";
     "run_decision {contract: gate@1, scope: redirect:<from>:<attempt>, selection: {from, to, reason}}" -> "Is the <from> row still running?";
     "Is the <from> row still running?" -> "run_stage {action: redirect, stage: <from>, to, reason}" [label="yes: a Go back or Fix handed back mid-stage"];
-    "Is the <from> row still running?" -> "run_field_set {key: <each produce from <to> on>, value: -}" [label="no: done (Close) or failed (failure gate): no redirect call"];
-    "run_stage {action: redirect, stage: <from>, to, reason}" -> "run_field_set {key: <each produce from <to> on>, value: -}";
-    "run_field_set {key: <each produce from <to> on>, value: -}" -> "Ship at or after <to>?";
+    "Is the <from> row still running?" -> "run_field_set {key: <each produce from <to> on>, value: -, stage: <the stage>}" [label="no: done (Close) or failed (failure gate): no redirect call"];
+    "run_stage {action: redirect, stage: <from>, to, reason}" -> "run_field_set {key: <each produce from <to> on>, value: -, stage: <the stage>}";
+    "run_field_set {key: <each produce from <to> on>, value: -, stage: <the stage>}" -> "Ship at or after <to>?";
     "Ship at or after <to>?" -> "run_field_set {key: shipTarget, value: -, stage: ship}" [label="yes: clear the recorded consent"];
     "Ship at or after <to>?" -> "run_stage {action: start, stage}" [label="no: stage = <to>, walk forward"];
     "run_field_set {key: shipTarget, value: -, stage: ship}" -> "run_stage {action: start, stage}" [label="stage = <to> walk forward, or the retried stage"];
