@@ -16,6 +16,7 @@ import { CardsFooter, ItemCards } from './ItemCards';
 import { JsonDraft } from './JsonDraft';
 import { ModeToggle } from './ModeToggle';
 import { NamedSections } from './NamedSections';
+import { PanelToolbar } from './PanelToolbar';
 
 type Entry = Record<string, unknown>;
 type Parsed = { ok: true; value: unknown } | { ok: false; message: string };
@@ -186,52 +187,54 @@ export function DraftEditor({
 
   return (
     <Stack ref={root} gap={10} onKeyDown={onKeyDown}>
-      <Group justify="space-between" wrap="nowrap" gap={8}>
-        <Text fz={12} c={colors.muted}>
-          {`Editing the ${targetLabel} layer`}
-        </Text>
-        {(form || onForm || replaceWith) && (
-          <Group gap={8} wrap="nowrap">
-            {form && mode === 'json' && !fits && (
-              <Text fz={12} c={colors.muted}>
-                {parsed.ok
-                  ? 'This value does not fit the form.'
-                  : 'Fix the JSON to switch back to the form.'}
-              </Text>
-            )}
-            {replaceWith && (
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                onClick={() => {
-                  setOrigin(null);
-                  setDraft(structuredClone(replaceWith.value));
-                  setText(pretty(replaceWith.value));
-                  setFormGeneration(g => g + 1);
-                  if (form && !canDraw(form, replaceWith.value))
-                    setMode('json');
-                }}
-              >
-                {replaceWith.label}
-              </Button>
-            )}
-            {form ? (
-              <ModeToggle
-                value={mode}
-                onChange={m => (m === 'json' ? toJson() : toForm())}
-                formDisabled={mode === 'json' && !fits}
-              />
-            ) : (
-              onForm && (
+      <PanelToolbar>
+        <Group justify="space-between" wrap="nowrap" gap={8}>
+          <Text fz={12} c={colors.muted}>
+            {`Editing the ${targetLabel} layer`}
+          </Text>
+          {(form || onForm || replaceWith) && (
+            <Group gap={8} wrap="nowrap">
+              {form && mode === 'json' && !fits && (
+                <Text fz={12} c={colors.muted}>
+                  {parsed.ok
+                    ? 'This value does not fit the form.'
+                    : 'Fix the JSON to switch back to the form.'}
+                </Text>
+              )}
+              {replaceWith && (
+                <Button
+                  size="compact-sm"
+                  variant="subtle"
+                  onClick={() => {
+                    setOrigin(null);
+                    setDraft(structuredClone(replaceWith.value));
+                    setText(pretty(replaceWith.value));
+                    setFormGeneration(g => g + 1);
+                    if (form && !canDraw(form, replaceWith.value))
+                      setMode('json');
+                  }}
+                >
+                  {replaceWith.label}
+                </Button>
+              )}
+              {form ? (
                 <ModeToggle
-                  value="json"
-                  onChange={m => m === 'form' && leaveForForm()}
+                  value={mode}
+                  onChange={m => (m === 'json' ? toJson() : toForm())}
+                  formDisabled={mode === 'json' && !fits}
                 />
-              )
-            )}
-          </Group>
-        )}
-      </Group>
+              ) : (
+                onForm && (
+                  <ModeToggle
+                    value="json"
+                    onChange={m => m === 'form' && leaveForForm()}
+                  />
+                )
+              )}
+            </Group>
+          )}
+        </Group>
+      </PanelToolbar>
       {mode === 'json' && (
         <JsonDraft
           key={`${def.key}:${targetLabel}:${JSON.stringify(schema) ?? ''}`}
