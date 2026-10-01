@@ -42,6 +42,7 @@ import {
 import { useRowSave, type RowStore } from './useRowSave';
 import {
   APPROVAL_KEY,
+  cancelOnEscape,
   EDITOR_KINDS,
   isRung,
   isStoreScope,
@@ -277,7 +278,16 @@ function LayerLine({
             </Text>
           )}
         </Box>
-        <Box className={classes.value}>{value}</Box>
+        <Box
+          className={classes.value}
+          onKeyDown={
+            editing && store && !composite
+              ? cancelOnEscape(() => setEditing(false))
+              : undefined
+          }
+        >
+          {value}
+        </Box>
         <Status role={role} row={row} />
         <Group gap={2} wrap="nowrap" className={classes.actions}>
           {row.file !== null && (

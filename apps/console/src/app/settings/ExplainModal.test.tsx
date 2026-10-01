@@ -318,6 +318,80 @@ describe('ExplainModal', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('Escape on an editor’s Form | JSON switch abandons that edit, modal stays', async () => {
+    const BRIDGES: SettingDefWire = {
+      ...DEF,
+      key: 'rt.notify.eventBridges',
+      type: 'array',
+      scopes: ['user', 'machine'],
+      effective: { scope: 'default', file: null, value: [] },
+      ...schemaFields('rt.notify.eventBridges'),
+    };
+    explainGet.mockResolvedValue(
+      ok({
+        def: BRIDGES,
+        rows: [
+          { scope: 'default', file: null, present: false },
+          { scope: 'user', file: '/stores/user.jsonc', present: false },
+          { scope: 'machine', file: '/stores/local.jsonc', present: false },
+        ],
+      })
+    );
+    const { onClose } = renderModal(
+      store({ defs: [BRIDGES] }),
+      'rt.notify.eventBridges'
+    );
+
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: 'set rt.notify.eventBridges at user',
+      })
+    );
+    const layer = screen.getByTestId('layer-user');
+    within(layer).getByRole('radio', { name: 'Form' }).focus();
+    await userEvent.keyboard('{Escape}');
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(within(layer).queryByText('Editing the user layer')).toBeNull();
+  });
+
+  it('Escape on a switch being set at a layer abandons that edit, modal stays', async () => {
+    const FLAG: SettingDefWire = {
+      ...DEF,
+      key: 'rt.flag',
+      type: 'boolean',
+      effective: { scope: 'machine', file: '/stores/local.jsonc', value: true },
+    };
+    explainGet.mockResolvedValue(
+      ok({
+        def: FLAG,
+        rows: [
+          { scope: 'default', file: null, present: false },
+          { scope: 'user', file: '/stores/user.jsonc', present: false },
+          {
+            scope: 'machine',
+            file: '/stores/local.jsonc',
+            present: true,
+            value: true,
+          },
+        ],
+      })
+    );
+    const s = store({ defs: [FLAG] });
+    const { onClose } = renderModal(s, 'rt.flag');
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'set rt.flag at user' })
+    );
+    const layer = screen.getByTestId('layer-user');
+    within(layer).getByRole('switch', { name: 'rt.flag' }).focus();
+    await userEvent.keyboard('{Escape}');
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(within(layer).queryByRole('switch')).toBeNull();
+    expect(s.set).not.toHaveBeenCalled();
+  });
+
   it('Escape on the tab bar closes', async () => {
     explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
     const { onClose } = renderModal(store());

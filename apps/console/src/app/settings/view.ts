@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from 'react';
 import type {
   ExplainRowWire,
   SettingDefWire,
@@ -282,9 +283,26 @@ export const ROW_CONTROLS =
 
 /** Escape here abandons an edit or closes a menu, never the row or modal
     around it. A radio or checkbox (the tab bar, a switch) has no Escape of
-    its own. */
+    its own; inside an open editor, `cancelOnEscape` has already taken it. */
 export const ESCAPE_OWNERS =
   'input:not([type=radio]):not([type=checkbox]), textarea, select, [contenteditable="true"], [role="menu"], [role="listbox"]';
+
+/** An editor root's keydown: Escape anywhere inside abandons the edit and
+    is marked handled, so the row or modal around it stays open. An open
+    menu, listbox or combobox dropdown takes that Escape first. */
+export function cancelOnEscape(cancel: () => void) {
+  return (e: KeyboardEvent<HTMLElement>) => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('[role="menu"], [role="listbox"]')) return;
+    // A Select/Autocomplete target closes its own dropdown on Escape without
+    // stopping the event; its aria-expanded is still "true" here since that
+    // close hasn't re-rendered yet.
+    if (target.getAttribute('aria-expanded') === 'true') return;
+    e.preventDefault();
+    cancel();
+  };
+}
 
 /** Where the value in effect may move. settings-kit moves global layers
     only, and a move re-sets the value at its target, which would reject a
