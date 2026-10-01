@@ -558,10 +558,13 @@ export function renderCheckFinding(f: CheckFinding): CellInput[][] {
   const kindText = f.newer ? "unregistered (from a newer rt)" : f.kind;
   const role: Segment["role"] = f.kind === "stale" || f.kind === "leftover" ? "dim" : f.kind === "unregistered" ? "warn" : "failed";
   const rows: CellInput[][] = [trimRow([out.key(f.key), where, { text: kindText, role }, f.storeName ?? "", out.faint(f.file ?? "")])];
+  // Detail text sits in the last column, where the file path already is: in any
+  // earlier column it would pad every finding's row to the detail's width.
+  const detail = (text: string): CellInput[] => ["", "", "", "", text];
   if (f.kind === "diverged" && "olderValue" in f) {
-    rows.push(["", `${f.storeName}: ${formatValueInline(f.olderValue)}`], ["", `current: ${formatValueInline(f.currentValue)}`]);
+    rows.push(detail(`${f.storeName}: ${formatValueInline(f.olderValue)}`), detail(`current: ${formatValueInline(f.currentValue)}`));
   }
-  for (const i of f.issues) rows.push(["", `${formatIssuePath(i.path)}: ${i.message}`]);
+  for (const i of f.issues) rows.push(detail(`${formatIssuePath(i.path)}: ${i.message}`));
   return rows;
 }
 

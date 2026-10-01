@@ -64,6 +64,7 @@ describe("rt settings check", () => {
 
     const lines = cap.stdout().split("\n");
     const layer = lines.findIndex((l) => l.includes("rt.homeSnapshot") && l.includes("nonconforming"));
+    expect(lines[layer]).toMatch(/^rt\.homeSnapshot\s+machine {2}nonconforming/);
     expect(lines[layer]).toContain("machine");
     expect(lines[layer]).toContain(machineSettingsPath());
     expect(lines[layer + 1]).toMatch(/^\s+enabled: expected boolean, got string$/);
