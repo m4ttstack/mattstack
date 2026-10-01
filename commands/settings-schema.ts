@@ -7,6 +7,8 @@
 import { spawnSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { fileURLToPath } from "url";
+import * as out from "../lib/ui/out.ts";
+import type { CellInput, FailureInput } from "../lib/ui/out.ts";
 import { buildLock, checkLockAgainst, classifyLockDiff, isMissingPathAtRef, LOCK_PATH as DEFAULT_LOCK_PATH, readBreakingChanges, type Lock } from "../lib/settings/schema-lock.ts";
 import { applyDrafts, draftMigrations, MIGRATION_SCHEMAS_PATH, MIGRATIONS_INDEX_PATH, type Draft } from "../lib/settings/schema-draft.ts";
 import { getDef } from "../lib/settings/registry.ts";
@@ -21,16 +23,17 @@ function flagValue(args: string[], flag: string): string | undefined {
 
 export async function settingsSchemaLock(args: string[], deps: { lockPath?: string } = {}): Promise<void> {
   const LOCK_PATH = deps.lockPath ?? DEFAULT_LOCK_PATH;
-  const out = flagValue(args, "--out") ?? LOCK_PATH;
+  out.payloadOnStdout();
+  const target = flagValue(args, "--out") ?? LOCK_PATH;
   // A compiled rt resolves LOCK_PATH inside its own bundle (/$bunfs/...), where the lock
   // file is absent and nothing can be written; from source the committed file exists.
-  if (out === LOCK_PATH && (LOCK_PATH.startsWith("/$bunfs/") || !existsSync(LOCK_PATH))) {
-    console.error("rt settings schema lock: run from source (bun run cli.ts settings schema lock); the compiled binary has no checkout to write into");
+  if (target === LOCK_PATH && (LOCK_PATH.startsWith("/$bunfs/") || !existsSync(LOCK_PATH))) {
+    out.fail({ title: "This has to run from source", why: "The compiled rt has no checkout to write the lock into.", next: out.cmd("bun run cli.ts settings schema lock") });
     process.exitCode = 1;
     return;
   }
-  writeFileSync(out, `${JSON.stringify(buildLock(), null, 2)}\n`);
-  console.log(out);
+  writeFileSync(target, `${JSON.stringify(buildLock(), null, 2)}\n`);
+  out.payload(`${target}\n`);
 }
 
 type Git = (args: string[], cwd: string) => { status: number | null; stdout: string; stderr: string };
@@ -56,7 +59,7 @@ function lockAtRef(ref: string, repoRoot: string, git: Git): Lock | Error {
 
 function lockAtPath(path: string): Lock | Error {
   if (existsSync(path)) return parseLock(readFileSync(path, "utf8"), path);
-  console.error(`rt settings schema diff: ${path} does not exist; diffing against an empty lock`);
+  out.print(out.line("warn", "No lock file there, so diffing against an empty lock", path));
   return {};
 }
 
@@ -72,16 +75,17 @@ export async function settingsSchemaDiff(
   deps: { repoRoot?: string; git?: Git; shippedLock?: Lock | null; migrationsIndexPath?: string; migrationSchemasPath?: string } = {},
 ): Promise<void> {
   const repoRoot = deps.repoRoot ?? REPO_ROOT;
-  const fail = (message: string) => {
-    console.error(`rt settings schema diff: ${message}`);
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  const fail = (message: string, more: Partial<FailureInput> = {}) => {
+    out.fail({ title: message, ...more });
     process.exitCode = 1;
   };
   // A compiled rt diffs its own bundled registry and has no checkout for git to read.
-  if (repoRoot.startsWith("/$bunfs/")) return fail("run from source (bun run cli.ts settings schema diff); the compiled binary has no checkout to diff");
-  const json = args.includes("--json");
+  if (repoRoot.startsWith("/$bunfs/")) return fail("This has to run from source", { why: "The compiled rt has no checkout to diff.", next: out.cmd("bun run cli.ts settings schema diff") });
   const against = flagValue(args, "--against");
   const againstRef = flagValue(args, "--against-ref");
-  if (against !== undefined && againstRef !== undefined) return fail("pass --against <file> or --against-ref <ref>, not both");
+  if (against !== undefined && againstRef !== undefined) return fail("Pass --against <file> or --against-ref <ref>, not both");
   const prev = against !== undefined ? lockAtPath(against) : lockAtRef(againstRef ?? "origin/main", repoRoot, deps.git ?? realGit);
   if (prev instanceof Error) return fail(prev.message);
 
@@ -119,17 +123,19 @@ export async function settingsSchemaDiff(
     }
   }
   if (json) {
-    console.log(JSON.stringify({ ok, shipped: shippedRef, changes, problems, drafts }, null, 2));
+    out.json({ ok, shipped: shippedRef, changes, problems, drafts }, 2);
   } else if (changes.length === 0) {
-    console.log("no schema changes");
+    out.print(out.line("done", "No schema changes"));
   } else {
-    for (const c of changes) console.log(`${c.kind.padEnd(8)} ${c.key}  ${c.detail}`);
-    for (const p of problems) console.log(`problem: ${p}`);
-    for (const d of drafts) {
-      console.log(d.kind === "step" ? `drafted   ${d.key}  migrateFrom version ${d.version}` : `drafted   ${d.key}  renamedFrom ${d.from}`);
-      for (const n of d.notes) console.log(`          note: ${n}`);
-    }
-    if (drafts.length > 0) console.log("next: review the drafts, add real examples, set storeVersion, then bun run cli.ts settings schema lock");
+    out.print(
+      out.table(changes.map((c): CellInput[] => [{ text: c.kind, role: c.kind === "breaking" ? "warn" : "done" }, out.key(c.key), c.detail])),
+      ...problems.map((p) => out.line("failed", p)),
+      ...drafts.flatMap((d) => [
+        out.line("done", `Drafted ${d.key}`, d.kind === "step" ? `migrateFrom version ${d.version}` : `renamedFrom ${d.from}`),
+        ...d.notes.map((n) => out.callout("note", n)),
+      ]),
+      ...(drafts.length > 0 ? [out.callout("next", ["review the drafts, add real examples, set storeVersion, then run ", out.cmd("bun run cli.ts settings schema lock")])] : []),
+    );
   }
   if (!ok) process.exitCode = 1;
 }
