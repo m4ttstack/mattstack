@@ -387,6 +387,7 @@ export interface RowHandlers {
   dismiss: (mr: BoardMR, lane: Lane) => void;
   standDown: (mr: BoardMR, on: boolean) => void;
   postSlack: (mr: BoardMR) => void;
+  postOwners: (mr: BoardMR) => void;
 }
 
 export function dispatchRowAction(
@@ -417,6 +418,9 @@ export function dispatchRowAction(
       return undefined;
     case 'post-slack':
       h.postSlack(mr);
+      return undefined;
+    case 'post-owners':
+      h.postOwners(mr);
       return undefined;
     case 'ask':
       return runOne({ ...req, reviewer: opts.pick ?? req.reviewer }, mr, deps);
