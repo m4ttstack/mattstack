@@ -227,6 +227,23 @@ a bare path) calls it unconditionally. The `--json` byte-identity tests
 (`commands/__tests__/settings-json-frozen.test.ts` is the model) assert an
 empty stderr as well as the frozen stdout.
 
+A setup run (`rt setup apply`, `update`, `uninstall`) reaches a person through
+`createStepEmitter` in `lib/setup/emit.ts`: one rt-ui step per `step` event,
+titled from the `plan` event (never the id), streamed `log` lines as sub-lines
+that also go to the CLI log through `logCliEvent` at `debug`, a `fix` callout
+for a remedy, and a `summary` at the end; a verb awaits `flush()` before it
+exits. The NDJSON stream and the plan are the app's contract and go through
+each verb's `json` seam (`out.json`): their shape (keys, structure, types,
+exit codes, every value a program reads) never changes without a contract
+change, while a `Row.detail`, a `StepOutcome.detail` or `remedy` and a
+`UserActionableError` message are copy the tray displays and never parses.
+`commands/__tests__/setup-copy.test.ts` pins both views as snapshots, so a
+wording change is a deliberate `bun test --update-snapshots`, and a machine
+view change is a failing test. Write that copy in the command-description
+style, and never put a plain-words key into an envelope: plainer words for a
+person ride the error's `why` and `next` or `exitWithUserError`'s `human`
+argument.
+
 Failures have one shape. A command that cannot continue throws
 `UserActionableError` (`lib/errors.ts`) with what happened in a short plain
 sentence, an optional `why`, the command to run as `next`, and any raw
