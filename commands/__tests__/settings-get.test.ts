@@ -9,7 +9,7 @@ import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { settingsExplain, settingsGet, settingsList } from "../settings-keys.ts";
-import { setSetting } from "../../lib/settings/write.ts";
+import { setSetting, setSettingsNoticeSink } from "../../lib/settings/write.ts";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
@@ -20,8 +20,11 @@ describe("rt settings get / list / explain", () => {
   let cap: ReturnType<typeof captureOut>;
   let exits: number[];
   const origExit = process.exit;
+  let restoreSink: () => void;
 
   beforeEach(() => {
+    const previousSink = setSettingsNoticeSink(() => {});
+    restoreSink = () => void setSettingsNoticeSink(previousSink);
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-settings-get-")));
     process.env.HOME = home;
     closeStateDb();
@@ -32,6 +35,7 @@ describe("rt settings get / list / explain", () => {
   });
 
   afterEach(() => {
+    restoreSink();
     cap.restore();
     (process as any).exit = origExit;
     process.env.HOME = origHome;
@@ -87,7 +91,7 @@ describe("rt settings get / list / explain", () => {
       await settingsList(["--repo", "local-only", "--json"]);
       expect(cap.lines()).toHaveLength(1);
       expect(JSON.parse(cap.stdout()).ok).toBe(true);
-      expect(cap.stderr()).toBe("[warning] Repo settings for local-only are out of reach  its remote is not one rt can key on\n");
+      expect(cap.stderr()).toBe("[warning] Repo settings for local-only are out of reach  its remote is not one rt can key on\n  next: rt settings explain rt.repoIdentityOverrides\n");
     } finally {
       rmSync(repoPath, { recursive: true, force: true });
     }

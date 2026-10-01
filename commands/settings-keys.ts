@@ -140,7 +140,10 @@ async function resolveRepoContext(repoName: string | undefined): Promise<RepoCon
   const derived = await deriveRepoIdentity(repoPath);
   const identity = derived.kind === "remote" ? derived.id : null;
   if (!identity) {
-    out.print(out.line("warn", `Repo settings for ${repoName} are out of reach`, "its remote is not one rt can key on"));
+    out.print(
+      out.line("warn", `Repo settings for ${repoName} are out of reach`, "its remote is not one rt can key on"),
+      out.callout("next", out.cmd("rt settings explain rt.repoIdentityOverrides")),
+    );
   }
   return {
     repoIdentity: identity,
