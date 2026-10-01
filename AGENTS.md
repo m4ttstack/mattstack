@@ -440,21 +440,21 @@ strips credentials from URLs, query params, token shapes and auth headers; a
 new tool inherits it and must never answer around it.
 
 The `mr_*` tools cover what board panes and pipeline verbs write (notes,
-approvals, resolves, draft state, retries, rebase, create, update, upload,
-merge). `mr_merge` is on the server (GitLab still enforces approvals and
-pipeline rules); the skill's ship gate is the human check. `mr_upload` is
-the one tool that sends a local file off the machine, so its daemon guard
-(`lib/daemon/upload-guard.ts`) refuses anything outside the target repo's
-worktrees, the user's Claude Code temp root, rt's own evidence folder
-(`~/.mattstack/evidence/`, `evidenceDir()` in `lib/rt-paths.ts`, for
-screenshots you want to upload; admitted only as a real directory the
-user owns, never a symlink), a pipeline run's own evidence folder
-(`~/.mattstack/work/<run id>/evidence/`, for a run that exists) and
-`rt.mcp.uploadRoots`, and anything whose bytes do not match its image or
-video extension; widen the roots through that setting, never by loosening
-the guard. Target resolution (`repoName` as identity, path or
-label, or `mrUrl`) lives in `lib/mcp/mr-target.ts`; the daemon verbs still
-take the serialized identity only.
+approvals, resolves, note edits, draft state, retries, rebase, create,
+update, upload, merge). `mr_merge` is on the server (GitLab still enforces
+approvals and pipeline rules); the skill's ship gate is the human check.
+`mr_upload` is the one tool that sends a local file off the machine, so
+its daemon guard (`lib/daemon/upload-guard.ts`) refuses anything outside
+the target repo's worktrees, the user's Claude Code temp root, rt's own
+evidence folder (`~/.mattstack/evidence/`, `evidenceDir()` in
+`lib/rt-paths.ts`, for screenshots you want to upload; admitted only as a
+real directory the user owns, never a symlink), a pipeline run's own
+evidence folder (`~/.mattstack/work/<run id>/evidence/`, for a run that
+exists) and `rt.mcp.uploadRoots`, and anything whose bytes do not match
+its image or video extension; widen the roots through that setting, never
+by loosening the guard. Target resolution (`repoName` as identity, path
+or label, or `mrUrl`) lives in `lib/mcp/mr-target.ts`; the daemon verbs
+still take the serialized identity only.
 
 Decision gates (`rt gate ask`, `rt gate wait`, the board's stage sheet) are
 the only way an unattended pane asks a human anything. The

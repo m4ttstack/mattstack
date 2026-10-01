@@ -9,6 +9,7 @@
  *   discussions:reply    — post a note into an existing thread
  *   mr:comment-inline    - post a new positioned (line-anchored) discussion
  *   mr:comment           - post a new top-level note (resolvable discussion or plain note)
+ *   mr:note-update       - replace the body of an existing note
  *
  * All handlers take `{ repoName, iid }` and look up the cache entry whose
  * `mr.iid` matches. Writes go through `refreshDiscussions` in
@@ -28,6 +29,7 @@ import { refreshDiscussions, type BroadcastFn } from "../discussions-store.ts";
 import { getDiscussionsFileStore } from "../discussions-file-store.ts";
 import { grants, loadRepoTracking } from "../../repo-tracking.ts";
 import { lazyChildLogger } from "../../daemon-logger.ts";
+import { classifyNewLine } from "../diff-line-kind.ts";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { Commands, Discussion } from "../../../packages/rt-client/src/commands.ts";
 
@@ -37,7 +39,7 @@ const log = lazyChildLogger("discussions");
 export type CommentInlineMutator = Pick<NoteMutator, "fetchDiffRefs" | "createPositionedDiscussion" | "deleteNote">;
 
 /** The subset of NoteMutator mr:comment needs; test seam. */
-export type CommentMutator = Pick<NoteMutator, "createDiscussion" | "createNote">;
+export type CommentMutator = Pick<NoteMutator, "createDiscussion" | "createNote" | "updateNote">;
 
 /**
  * Injectable plumbing for `discussions:reply`, `mr:comment-inline` and
@@ -49,6 +51,11 @@ export interface DiscussionHandlerSeams {
   gitlabToken?: () => Promise<string | undefined>;
   mutator?: (baseURL: string, token: string) => CommentInlineMutator;
   commentMutator?: (baseURL: string, token: string) => CommentMutator;
+  diffs?: (
+    baseURL: string, projectPath: string, iid: number, token: string,
+    opts: { reqSignal?: AbortSignal; timeoutMs?: number },
+  ) => Promise<{ diffs: MrDiffRow[]; truncated: boolean }>;
+  warn?: (obj: object, msg: string) => void;
   refresh?: (repoName: string, iid: number) => Promise<unknown>;
   readCached?: (repoName: string, iid: number) => { discussions: Discussion[]; fetchedAt: number } | undefined;
 }
@@ -77,12 +84,29 @@ function buildTextPosition(
   };
 }
 
+const ANCHOR_HINT = " (an unchanged line needs both line and oldLine; a removed line needs oldLine)";
+
+function withAnchorHint(err: unknown): string {
+  const text = String(err);
+  return text.includes("line_code") ? text + ANCHOR_HINT : text;
+}
+
 /** Discussions are stable per push; 2min TTL keeps reads fast without going stale. */
 const DISCUSSIONS_TTL_MS = 2 * 60 * 1000;
 
 /** GitLab's page size for this endpoint; a full page means there may be more. */
 const DIFFS_PAGE_SIZE = 100;
 const DIFFS_FETCH_TIMEOUT_MS = 30_000;
+/** The anchor read plus the post must fit inside the MCP client's 30s write budget. */
+const ANCHOR_DIFFS_TIMEOUT_MS = 8_000;
+
+export interface MrDiffRow {
+  newPath: string;
+  oldPath?: string;
+  diff: string;
+  collapsed?: boolean;
+  tooLarge?: boolean;
+}
 
 /**
  * Every other outbound fetch in the daemon carries a bound (linear.ts,
@@ -98,18 +122,18 @@ export async function fetchMrDiffs(
   projectPath: string,
   iid: number,
   token: string,
-  opts: { reqSignal?: AbortSignal; fetchFn?: typeof fetch } = {},
-): Promise<{ diffs: Array<{ newPath: string; diff: string }>; truncated: boolean }> {
+  opts: { reqSignal?: AbortSignal; fetchFn?: typeof fetch; timeoutMs?: number } = {},
+): Promise<{ diffs: MrDiffRow[]; truncated: boolean }> {
   const fetchFn = opts.fetchFn ?? fetch;
   const encoded = encodeURIComponent(projectPath);
   const url = `${baseURL}/api/v4/projects/${encoded}/merge_requests/${iid}/diffs?per_page=${DIFFS_PAGE_SIZE}`;
-  const timeout = AbortSignal.timeout(DIFFS_FETCH_TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(opts.timeoutMs ?? DIFFS_FETCH_TIMEOUT_MS);
   const signal = opts.reqSignal ? AbortSignal.any([timeout, opts.reqSignal]) : timeout;
   const res = await fetchFn(url, { headers: { "PRIVATE-TOKEN": token }, signal });
   if (!res.ok) throw new Error(`GitLab diffs API: ${res.status}`);
-  const raw = (await res.json()) as Array<{ new_path: string; diff: string }>;
+  const raw = (await res.json()) as Array<{ new_path: string; old_path?: string; diff: string; collapsed?: boolean; too_large?: boolean }>;
   return {
-    diffs: raw.map((d) => ({ newPath: d.new_path, diff: d.diff })),
+    diffs: raw.map((d) => ({ newPath: d.new_path, oldPath: d.old_path, diff: d.diff, collapsed: d.collapsed, tooLarge: d.too_large })),
     truncated: raw.length >= DIFFS_PAGE_SIZE,
   };
 }
@@ -125,12 +149,16 @@ export function createDiscussionHandlers(
   & { "discussions:reply": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"discussions:reply">> }
   & { "mr:comment-inline": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:comment-inline">> }
   & { "mr:comment": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:comment">> }
+  & { "mr:note-update": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:note-update">> }
   & HandlerMap {
   const deps = { ctx, broadcast };
   const repoContextFn = seams.repoContext ?? getRepoContext;
   const gitlabTokenFn = seams.gitlabToken ?? (async () => (await loadSecrets()).gitlabToken);
   const mutatorFn = seams.mutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
   const commentMutatorFn = seams.commentMutator ?? ((baseURL: string, token: string) => new NoteMutator(baseURL, token, providerRequestHook()));
+  const diffsFn = seams.diffs ?? ((baseURL: string, projectPath: string, iid: number, token: string, opts: { reqSignal?: AbortSignal; timeoutMs?: number }) =>
+    fetchMrDiffs(baseURL, projectPath, iid, token, opts));
+  const warnFn = seams.warn ?? ((obj: object, msg: string) => log.warn(obj, msg));
   const refreshFn = seams.refresh ?? ((repoName: string, iid: number) => refreshDiscussions(deps, repoName, iid));
   const readCachedFn = seams.readCached ?? ((repoName: string, iid: number) => getDiscussionsFileStore().read(repoName, iid));
 
@@ -298,7 +326,7 @@ export function createDiscussionHandlers(
       }
     },
 
-    "mr:comment-inline": async (payload) => {
+    "mr:comment-inline": async (payload, signal) => {
       const p = payload as {
         repoName?: string; iid?: number; body?: string; path?: string; line?: number;
         oldPath?: string; oldLine?: number;
@@ -332,6 +360,37 @@ export function createDiscussionHandlers(
         if (!token) return { ok: false, error: "no gitlabToken in secrets" };
         const mutator = mutatorFn(repoCtx.provider.baseURL, token);
 
+        if (position.oldLine === undefined) {
+          let page: Awaited<ReturnType<typeof diffsFn>> | undefined;
+          try {
+            page = await diffsFn(repoCtx.provider.baseURL, repoCtx.projectPath, iid, token, {
+              reqSignal: signal,
+              timeoutMs: ANCHOR_DIFFS_TIMEOUT_MS,
+            });
+          } catch (err) {
+            if (signal?.aborted) return { ok: false, error: "request aborted before the comment was posted" };
+            warnFn({ err, repoName, iid }, "mr:comment-inline: diff read failed, posting the anchor unverified");
+          }
+          if (page) {
+            const file = page.diffs.find((d) => d.newPath === path);
+            const refusal = `line ${line} of ${path} is not in this MR's diff, so GitLab cannot anchor a comment there`;
+            if (file) {
+              if (file.oldPath && position.oldPath === undefined) position.oldPath = file.oldPath;
+              const unreadable = file.collapsed === true || file.tooLarge === true || file.diff === "";
+              const kind = unreadable ? undefined : classifyNewLine(file.diff, line);
+              if (kind?.kind === "outside") {
+                const hint = kind.nearest.length > 0
+                  ? `; lines in the diff near it: ${kind.nearest.join(", ")}`
+                  : "; the file has no new-side lines, so pass oldLine to comment on a removed line";
+                return { ok: false, error: refusal + hint };
+              }
+              if (kind?.kind === "context") position.oldLine = kind.oldLine;
+            } else if (!page.truncated) {
+              return { ok: false, error: `${refusal}; this file has no diff in this MR` };
+            }
+          }
+        }
+
         const postOnce = async () => {
           const diffRefs = await mutator.fetchDiffRefs(repoCtx.projectId, iid);
           return mutator.createPositionedDiscussion(repoCtx.projectId, iid, body, buildTextPosition(position, diffRefs));
@@ -347,6 +406,7 @@ export function createDiscussionHandlers(
           return { ok: true, data: { discussionId, noteId, verified: true } };
         };
 
+        if (signal?.aborted) return { ok: false, error: "request aborted before the comment was posted" };
         const first = await postOnce();
         const firstNote = first.notes[0];
         if (!firstNote) return { ok: false, error: "GitLab created a discussion with no notes" };
@@ -371,7 +431,7 @@ export function createDiscussionHandlers(
           return {
             ok: false,
             error: `first attempt degraded (note ${firstNote.id} type ${firstNote.type}, deleted); `
-              + `retry failed: ${String(err)}`,
+              + `retry failed: ${withAnchorHint(err)}`,
           };
         }
         const secondNote = second.notes[0];
@@ -393,7 +453,7 @@ export function createDiscussionHandlers(
             + `note ${secondNote.id} type ${secondNote.type}); both general notes were deleted`,
         };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        return { ok: false, error: withAnchorHint(err) };
       }
     },
 
@@ -445,6 +505,37 @@ export function createDiscussionHandlers(
 
         const mrUrl = `${repoCtx.provider.baseURL}/${repoCtx.projectPath}/-/merge_requests/${iid}`;
         return { ok: true, data: { noteId, discussionId, resolvable, url: `${mrUrl}#note_${noteId}`, mrUrl } };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "mr:note-update": async (payload) => {
+      const p = payload as { repoName?: string; iid?: number; noteId?: number; body?: string } | undefined;
+      const iid = p?.iid;
+      const noteId = p?.noteId;
+      const body = p?.body;
+      if (!p?.repoName || typeof iid !== "number" || !Number.isInteger(iid) || iid <= 0 ||
+          typeof noteId !== "number" || !Number.isInteger(noteId) || noteId <= 0 ||
+          typeof body !== "string" || !body.trim()) {
+        return { ok: false, error: "missing repoName/iid/noteId/body" };
+      }
+      const decoded = decodeRepo(payload);
+      if (!decoded.ok) {
+        return { ok: false, error: "repo must be a serialized identity" };
+      }
+      const repoName = decoded.repo;
+
+      const repoPath = ctx.repoIndex()[repoName];
+      try {
+        const repoCtx = await repoContextFn(repoName, repoPath);
+        const token = await gitlabTokenFn();
+        if (!token) return { ok: false, error: "no gitlabToken in secrets" };
+        await commentMutatorFn(repoCtx.provider.baseURL, token).updateNote(repoCtx.projectId, iid, noteId, body);
+
+        await refreshFn(repoName, iid).catch((err) =>
+          log.warn({ err, repoName, iid }, "mr:note-update: post-edit discussions refresh failed"));
+        return { ok: true, data: { noteId } };
       } catch (err) {
         return { ok: false, error: String(err) };
       }
