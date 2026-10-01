@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { createRelayClient, inviteRelayUrl, DEFAULT_INVITE_RELAY_URL } from "../relay-client.ts";
 import { generateKey, seal, sealReply } from "../invite-crypto.ts";
-import { UserActionableError } from "../../setup/errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import type { InvitePointer } from "../../setup/intent.ts";
 import type { Probes } from "../../setup/probes.ts";
 

@@ -1,4 +1,4 @@
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 import type { InvitePointer } from "../setup/intent.ts";
 
 export const INVITE_ID_BYTES = 16;

@@ -12,7 +12,7 @@
  */
 
 import { dirname, join } from "path";
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 
 export interface TeamLocalRecord {

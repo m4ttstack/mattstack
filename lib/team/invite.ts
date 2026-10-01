@@ -14,7 +14,7 @@ import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { teamSettingsPath } from "../rt-paths.ts";
 import { createRealSecretsExecSeam, readSecret } from "../secrets/store.ts";
 import { readStore } from "../settings/stores.ts";
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 import type { InvitePointer } from "../setup/intent.ts";
 import type { Probes } from "../setup/probes.ts";
 import { forgeFromRemote, readTeamSnapshot, type SettingsReader } from "../setup/team-settings.ts";

@@ -8,7 +8,7 @@
 import { gitWithToken } from "./git-credential.ts";
 import { join } from "path";
 import { validateSlug } from "../secrets/store.ts";
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
 import { parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
 import { withoutUrls } from "./redact.ts";

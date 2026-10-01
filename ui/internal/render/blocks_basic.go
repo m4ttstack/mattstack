@@ -50,15 +50,26 @@ func (r *renderer) callout(b protocol.Block) {
 	r.calloutLines(calloutColor(b.Label), b.Label, b.Body)
 }
 
+// calloutLines never wraps a cell holding a command: it is pasted whole.
 func (r *renderer) calloutLines(c color.Color, label string, body []protocol.Cell) {
 	label = Clean(label)
 	bar := calloutIndent + fg(c).Render(theme.GlyphBar) + " "
-	for i, line := range body {
-		if i == 0 {
-			r.emit(bar + fg(c).Render(label) + " " + cell(line))
-			continue
+	cont := bar + strings.Repeat(" ", lipgloss.Width(label)+1)
+	w := min(r.width-lipgloss.Width(cont), paragraphMax)
+	first := true
+	for _, line := range body {
+		rows := []protocol.Cell{line}
+		if !hasCommand(line) {
+			rows = wrapCell(line, w)
 		}
-		r.emit(bar + strings.Repeat(" ", lipgloss.Width(label)+1) + cell(line))
+		for _, row := range rows {
+			if first {
+				r.emit(bar + fg(c).Render(label) + " " + cell(row))
+				first = false
+				continue
+			}
+			r.emit(cont + cell(row))
+		}
 	}
 }
 
@@ -95,11 +106,26 @@ func (r *renderer) banner(b protocol.Block) {
 }
 
 func (r *renderer) failure(b protocol.Block) {
-	s := indent + glyph("failed") + " " + textStyle.Render(Clean(b.Title))
-	if b.Hint != "" {
-		s += "  " + faintStyle.Render(Clean(b.Hint))
+	w := min(r.width-len(calloutIndent), paragraphMax)
+	title := wrapCell(protocol.Cell{{Text: b.Title}}, w)
+	hint := Clean(b.Hint)
+	inline := hint != "" && len(title) == 1 &&
+		lipgloss.Width(Clean(b.Title))+2+lipgloss.Width(hint) <= w
+	for i, row := range title {
+		s := calloutIndent + cell(row)
+		if i == 0 {
+			s = indent + glyph("failed") + " " + cell(row)
+		}
+		if inline {
+			s += "  " + faintStyle.Render(hint)
+		}
+		r.emit(s)
 	}
-	r.emit(s)
+	if hint != "" && !inline {
+		for _, row := range wrapCell(protocol.Cell{{Text: hint, Role: "faint"}}, w) {
+			r.emit(calloutIndent + cell(row))
+		}
+	}
 	if b.Why != "" {
 		r.calloutLines(theme.Dimmer, "why", []protocol.Cell{{{Text: b.Why}}})
 	}
@@ -108,8 +134,11 @@ func (r *renderer) failure(b protocol.Block) {
 	}
 	if b.Details != "" {
 		r.gap()
+		dw := min(r.width-len(indent), paragraphMax)
 		for _, l := range splitLines(b.Details) {
-			r.emit(indent + faintStyle.Render(Clean(l)))
+			for _, row := range wrapCell(protocol.Cell{{Text: l, Role: "faint"}}, dw) {
+				r.emit(indent + cell(row))
+			}
 		}
 	}
 }

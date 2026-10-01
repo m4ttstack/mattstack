@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { UserActionableError } from "../../setup/errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertDevAppRef, deckVersionAtTag, parseManagedDeckApps, runDevAppRebuild, runUpdateMachine, type UpdateMachineSeams } from "../update-machine.ts";

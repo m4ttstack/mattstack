@@ -8,7 +8,7 @@ import { join } from "path";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, userErrorPayload } from "../lib/setup/errors.ts";
+import { UserActionableError, userErrorPayload } from "../lib/errors.ts";
 import { execWithTimeout } from "../lib/setup/probes.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { isValidSkillId, presetById, resolveWritingStyle, WRITING_STYLE_KEY, WRITING_STYLE_SOURCE_LABEL, type ResolvedWritingStyle } from "../lib/skills/writing-style.ts";

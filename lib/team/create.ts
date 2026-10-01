@@ -16,7 +16,7 @@ import { TEAM_PATH_REGEX } from "../secrets/team-store.ts";
 import { forgeArgv } from "./forge.ts";
 import { assertOnlyTeam } from "./one-team.ts";
 import { updateTeamLocal } from "./team-local.ts";
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 import { readIntent, writeIntent } from "../setup/intent.ts";
 import { gitUsable } from "../setup/home-git.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";

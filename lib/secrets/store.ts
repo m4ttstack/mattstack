@@ -181,10 +181,27 @@ export async function sopsAgeKeyEnv(ageKeySeam: AgeKeySeam): Promise<Record<stri
   return { SOPS_AGE_KEY: result.key };
 }
 
+/** `sops -d` exited non-zero. The stderr rides apart from the message so a caller can read it without parsing. */
+export class SopsDecryptError extends Error {
+  constructor(
+    public readonly filePath: string,
+    public readonly stderr: string,
+  ) {
+    super(`sops -d ${filePath}: ${stderr}`);
+    this.name = "SopsDecryptError";
+  }
+}
+
+/** sops could not unwrap the file's data key with the identity it was handed: none of the file's recipients is this Mac's key. */
+export function sopsKeyMismatch(stderr: string): boolean {
+  return /did not match any of the recipients|no identity matched any of the recipients/i
+    .test(stderr.replace(/\s*\n\s*\|?\s*/g, " "));
+}
+
 async function sopsDecrypt(filePath: string, env: Record<string, string>, execSeam: SecretsExecSeam): Promise<Record<string, string>> {
   const result = await execSeam.run(["sops", "-d", filePath], { env, sensitive: true });
   if (result.code !== 0) {
-    throw new Error(`sops -d ${filePath}: ${result.stderr}`);
+    throw new SopsDecryptError(filePath, result.stderr);
   }
   try {
     return JSON.parse(result.stdout);

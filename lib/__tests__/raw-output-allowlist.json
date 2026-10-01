@@ -1,4 +1,5 @@
 [
+  "cli.ts",
   "commands/accounts.ts",
   "commands/agent.ts",
   "commands/apps.ts",

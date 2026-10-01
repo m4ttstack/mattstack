@@ -65,6 +65,8 @@ Plain text off a TTY (a pipe, an agent that did not pass `--json`) comes from th
 
 Ruled 2026-09-30: only `--json` is frozen; plain text off a TTY takes the new wording.
 
+Ruled 2026-10-01: "frozen" means the shape. Keys, structure, types, exit codes and every value a program reads stay byte-identical. A human-facing string inside the JSON (a setup row's `detail` or `remedy`, a notice, a summary line) may change wording, because the tray and the other readers display it rather than parse it. The characterization test for a verb whose JSON carries such strings compares the shape and the machine-read values, and pins the human strings separately so a wording change is a deliberate edit, never an accident.
+
 ## Block vocabulary
 
 | Block | Carries | Used by |

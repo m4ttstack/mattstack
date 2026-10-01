@@ -9,7 +9,7 @@
 import type { CommandContext } from "../lib/command-tree.ts";
 import { reidentifyRepo } from "../lib/repo-reidentify-dispatch.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
+import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import type { StoreReport } from "../lib/state/reidentify.ts";
 
 const USAGE = "usage: rt repos reidentify <old-identity> <new-identity> [--dry-run] [--json]";

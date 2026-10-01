@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { readFileSync, readdirSync, writeFileSync } from "fs";
+import { readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { relative, resolve } from "path";
 
 // Human output goes through lib/ui/out.ts. This list holds the files that
@@ -7,16 +7,17 @@ import { relative, resolve } from "path";
 // conversion is done.
 const ROOT = resolve(import.meta.dir, "..", "..");
 const ALLOWLIST = resolve(import.meta.dir, "raw-output-allowlist.json");
-const SCAN_ROOTS = ["commands", "lib"];
+const SCAN_ROOTS = ["cli.ts", "commands", "lib"];
 
 // The output layer itself, and the color modules it retires last.
 const EXEMPT = [/^lib\/ui\//, /^lib\/tui\//, /^lib\/ansi\.ts$/, /^lib\/tui\.ts$/];
 
 const RAW = [/\bconsole\.(log|error|warn|info)\s*\(/, /\bprocess\.std(out|err)\b(?!\.(isTTY|columns|rows|fd|on|once|off|removeListener)\b)/, /from\s+["'][^"']*\/(ansi|tui|tui\/palette)\.ts["']/, /\\x1b\[|\\u001b\[/];
 
-function collect(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const full = resolve(dir, entry.name);
+function collect(path: string): string[] {
+  if (statSync(path).isFile()) return [path];
+  return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
+    const full = resolve(path, entry.name);
     if (entry.name === "node_modules" || entry.name === "__tests__") return [];
     if (entry.isDirectory()) return collect(full);
     return entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts") ? [full] : [];

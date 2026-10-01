@@ -15,7 +15,7 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { updateRepoIndexAsync } from "../lib/repo-index.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, userErrorPayload } from "../lib/setup/errors.ts";
+import { UserActionableError, userErrorPayload } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { materializeSkills, packVerdict, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { createTeam } from "../lib/team/create.ts";

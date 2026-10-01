@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { readInviteRecords, upsertInviteRecord, removeInviteRecord, inviteRecordsPath, type InviteRecord } from "../invite-records.ts";
-import { UserActionableError } from "../../setup/errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { dirname } from "path";
 

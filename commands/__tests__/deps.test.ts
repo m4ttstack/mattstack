@@ -6,6 +6,8 @@ import { HELPERS_DIR, RT_BUNDLE_PATH, __test__ as bundleLayoutTest } from "../..
 import { setSetting } from "../../lib/settings/write.ts";
 import { fakeProbes, type FakeProbesOpts } from "../../lib/setup/__tests__/fakes.ts";
 import { linkPath } from "../../lib/deps/links.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { depsLink, depsReconcile, depsResolve, depsUnlink } from "../deps.ts";
 
 const LOCK = {
@@ -25,9 +27,11 @@ const LOCK = {
  * dies, and reads the spies' recorded calls before mockRestore() (bun's
  * mockRestore() clears .mock.calls). Matches commands/__tests__/runs.test.ts.
  */
-async function runCapturingExit(fn: () => Promise<void>): Promise<{ exitCode: number | undefined; logs: string[]; errors: string[] }> {
+async function runCapturingExit(fn: () => Promise<void>): Promise<{ exitCode: number | undefined; logs: string[]; errors: string[]; stderr: string }> {
   const logs: string[] = [];
   const errors: string[] = [];
+  const io = captureOut();
+  ui.__test__.setHuman(() => false);
   const exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit sentinel");
   });
@@ -39,11 +43,12 @@ async function runCapturingExit(fn: () => Promise<void>): Promise<{ exitCode: nu
   });
   try {
     await fn();
-    return { exitCode: undefined, logs, errors };
+    return { exitCode: undefined, logs, errors, stderr: io.stderr() };
   } catch {
     const exitCode = exitSpy.mock.calls.at(-1)?.[0] as number | undefined;
-    return { exitCode, logs, errors };
+    return { exitCode, logs, errors, stderr: io.stderr() };
   } finally {
+    io.restore();
     exitSpy.mockRestore();
     logSpy.mockRestore();
     errorSpy.mockRestore();
@@ -116,9 +121,11 @@ describe("rt deps commands", () => {
   test("depsLink exits 2 on a user-actionable refusal in human mode (F13: occupied)", async () => {
     const path = linkPath(home, "gh");
     const p = bundleProbe({ files: { [path]: "#!/bin/sh\necho unrelated\n" } });
-    const { exitCode, logs } = await runCapturingExit(() => depsLink(["gh"], {}, p));
+    const { exitCode, logs, stderr } = await runCapturingExit(() => depsLink(["gh"], {}, p));
     expect(exitCode).toBe(2);
-    expect(logs.join("\n")).toContain("exists and is not a mattstack-managed link");
+    expect(logs).toEqual([]);
+    expect(stderr).toContain("[failed] ");
+    expect(stderr).toContain("exists and is not a mattstack-managed link");
   });
 
   test("depsLink --json also exits 2 on refusal, with the contract's {error} envelope an app can decode", async () => {

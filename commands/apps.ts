@@ -6,7 +6,7 @@
 
 import type { CommandContext } from "../lib/command-tree.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, userErrorPayload } from "../lib/setup/errors.ts";
+import { UserActionableError, userErrorPayload } from "../lib/errors.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { MATTSTACK_REGISTRAR, deckHealthyAt, readDeckApiPortFrom } from "../lib/setup/steps/deck.ts";
 

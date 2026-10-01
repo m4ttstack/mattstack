@@ -4,7 +4,7 @@
  * tray watches the staging dir, compares the staged bundle's MSBuildStamp
  * with its own, and offers "New build · Restart".
  */
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 import type { RunResult } from "../subprocess.ts";
 import {
   dropCachedEntry,

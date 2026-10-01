@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"rt-ui/internal/protocol"
 	"rt-ui/internal/theme"
@@ -42,11 +43,33 @@ func (r *renderer) copy(b protocol.Block) {
 
 func (r *renderer) verbatim(b protocol.Block) {
 	r.caption(b.Caption)
+	rail := calloutIndent + railStyle.Render("│") + " "
+	w := r.width - lipgloss.Width(rail)
 	for _, line := range b.Lines {
 		for _, l := range splitLines(line) {
-			r.emit(calloutIndent + railStyle.Render("│") + " " + dimStyle.Render(cleanCode(l)))
+			for _, row := range cutRows(cleanCode(l), w) {
+				r.emit(rail + dimStyle.Render(row))
+			}
 		}
 	}
+}
+
+// cutRows breaks s every w cells with no word wrap and nothing dropped: the
+// end of a stack line carries its file and line number.
+func cutRows(s string, w int) []string {
+	if w < minWrap {
+		return []string{s}
+	}
+	var rows []string
+	for ansi.StringWidth(s) > w {
+		head := ansi.Truncate(s, w, "")
+		if head == "" || !strings.HasPrefix(s, head) {
+			break
+		}
+		rows = append(rows, head)
+		s = s[len(head):]
+	}
+	return append(rows, s)
 }
 
 func (r *renderer) diff(b protocol.Block) {

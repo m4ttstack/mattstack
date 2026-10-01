@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { publishTeam } from "../publish.ts";
 import { teamLocalPath } from "../team-local.ts";
-import { UserActionableError } from "../../setup/errors.ts";
+import { UserActionableError } from "../../errors.ts";
 
 const DIR = "/home/x/.mattstack/teams/acme";
 

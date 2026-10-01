@@ -15,7 +15,7 @@ import { mattstackHome } from "../rt-paths.ts";
 import { createRealProbes, type Probes } from "../setup/probes.ts";
 import { convergePackCache } from "../setup/pack-cache.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
-import { UserActionableError } from "../setup/errors.ts";
+import { UserActionableError } from "../errors.ts";
 import { readTeamLocal } from "../team/team-local.ts";
 import {
   startSnapshot,

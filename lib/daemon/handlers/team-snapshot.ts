@@ -5,7 +5,7 @@
  * client.
  */
 
-import { UserActionableError } from "../../setup/errors.ts";
+import { UserActionableError } from "../../errors.ts";
 import type { TeamSnapshotsHandle } from "../team-snapshots.ts";
 import type { HandlerMap } from "./types.ts";
 

@@ -12,7 +12,7 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { flagValues } from "../lib/cli-args.ts";
 import { processFlavor } from "../lib/flavor.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
+import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { servicePlists } from "../lib/setup/need.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 

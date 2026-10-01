@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"rt-ui/internal/protocol"
+	"rt-ui/internal/textwrap"
 	"rt-ui/internal/theme"
 )
 
@@ -116,6 +117,44 @@ func cell(c protocol.Cell) string {
 		b.WriteString(segment(s))
 	}
 	return b.String()
+}
+
+// minWrap is the narrowest column worth wrapping into: below it, text is
+// emitted whole and the terminal wraps it.
+const minWrap = 20
+
+func segText(s protocol.Segment) string { return s.Text }
+
+func withSegText(s protocol.Segment, t string) protocol.Segment {
+	s.Text = t
+	return s
+}
+
+// wrapCell breaks a cell into rows of at most w cells. Text is cleaned first
+// so the wrap measures exactly what segment paints.
+func wrapCell(c protocol.Cell, w int) []protocol.Cell {
+	if w < minWrap {
+		return []protocol.Cell{c}
+	}
+	clean := make(protocol.Cell, len(c))
+	for i, s := range c {
+		clean[i] = withSegText(s, Clean(s.Text))
+	}
+	rows := textwrap.Spans(clean, w, segText, withSegText)
+	out := make([]protocol.Cell, len(rows))
+	for i, r := range rows {
+		out[i] = r
+	}
+	return out
+}
+
+func hasCommand(c protocol.Cell) bool {
+	for _, s := range c {
+		if s.Role == "command" {
+			return true
+		}
+	}
+	return false
 }
 
 func pad(s string, w int) string {

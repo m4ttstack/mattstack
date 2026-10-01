@@ -194,3 +194,130 @@ func TestNoLeadingOrTrailingBlankLines(t *testing.T) {
 		t.Fatalf("no blocks should render nothing")
 	}
 }
+
+func plainAt(w int, bs ...protocol.Block) string {
+	return ansi.Strip(render.Render(bs, render.Options{Width: w}))
+}
+
+func rows(s string) []string {
+	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+}
+
+func noSpace(s string) string { return strings.ReplaceAll(s, " ", "") }
+
+func checkWidth(t *testing.T, out string, w int) {
+	t.Helper()
+	for _, r := range rows(out) {
+		if n := ansi.StringWidth(r); n > w {
+			t.Fatalf("row is %d cells, wider than %d: %q\n%s", n, w, r, out)
+		}
+	}
+}
+
+func TestLongFailureTitleWrapsUnderItsText(t *testing.T) {
+	title := "reidentify takes two identities, got 1; usage: rt repos reidentify <old-identity> <new-identity> [--dry-run] [--json]"
+	out := plainAt(40, protocol.Block{T: "failure", Title: title})
+	checkWidth(t, out, 40)
+	rs := rows(out)
+	if len(rs) < 3 || !strings.HasPrefix(rs[0], "  ✗ ") {
+		t.Fatalf("title did not wrap:\n%s", out)
+	}
+	words := []string{strings.TrimPrefix(rs[0], "  ✗ ")}
+	for _, r := range rs[1:] {
+		if !strings.HasPrefix(r, "    ") || r[4] == ' ' {
+			t.Fatalf("continuation row is not under the title text: %q", r)
+		}
+		words = append(words, r[4:])
+	}
+	if noSpace(strings.Join(words, "")) != noSpace(title) {
+		t.Fatalf("wrapped title lost text: %q", words)
+	}
+}
+
+func TestFailureHintDropsBelowWhenItDoesNotFit(t *testing.T) {
+	b := protocol.Block{T: "failure", Title: "rt hit an unexpected error", Hint: "kaboom from the seam test"}
+	if got, want := plainAt(80, b), "  ✗ rt hit an unexpected error  kaboom from the seam test\n"; got != want {
+		t.Fatalf("a hint that fits left the title row:\ngot  %q\nwant %q", got, want)
+	}
+	if got, want := plainAt(40, b), "  ✗ rt hit an unexpected error\n    kaboom from the seam test\n"; got != want {
+		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+	long := protocol.Block{T: "failure", Title: strings.Repeat("title ", 10), Hint: "short"}
+	rs := rows(plainAt(40, long))
+	if last := rs[len(rs)-1]; last != "    short" {
+		t.Fatalf("a hint under a wrapped title should sit on its own row, got %q", last)
+	}
+}
+
+const teamSecretsWhy = "No age key on this Mac matches the team's recipients. The team owner adds your key, then you pull the team again."
+
+func TestCalloutBodyWrapsAndKeepsTheBarOnEveryRow(t *testing.T) {
+	for _, w := range []int{100, 60} {
+		out := plainAt(w, protocol.Block{
+			T: "failure", Title: "This Mac cannot read the team's secrets yet",
+			Why: teamSecretsWhy, Next: cmd("rt team pull"),
+		})
+		checkWidth(t, out, w)
+		rs := rows(out)
+		body := min(w-10, 76)
+		var why []string
+		for _, r := range rs[1 : len(rs)-1] {
+			switch {
+			case strings.HasPrefix(r, "    ▌ why "):
+				why = append(why, strings.TrimPrefix(r, "    ▌ why "))
+			case strings.HasPrefix(r, "    ▌     ") && !strings.HasPrefix(r, "    ▌      "):
+				why = append(why, strings.TrimPrefix(r, "    ▌     "))
+			default:
+				t.Fatalf("width %d: a why row lost its bar or indent: %q\n%s", w, r, out)
+			}
+			if n := ansi.StringWidth(why[len(why)-1]); n > body {
+				t.Fatalf("width %d: why row is %d cells, over %d", w, n, body)
+			}
+		}
+		if len(why) < 2 || strings.Join(why, " ") != teamSecretsWhy {
+			t.Fatalf("width %d: why did not wrap whole:\n%s", w, out)
+		}
+		if rs[len(rs)-1] != "    ▌ next rt team pull" {
+			t.Fatalf("width %d: next row %q", w, rs[len(rs)-1])
+		}
+	}
+}
+
+func TestCalloutKeepsASegmentStyleAcrossTheBreak(t *testing.T) {
+	body := protocol.Cell{{Text: "Click + under Full Disk Access and "}, {Text: "add the app at its install path", Role: "strong"}}
+	out := render.Render([]protocol.Block{{T: "callout", Label: "note", Body: []protocol.Cell{body}}}, render.Options{Width: 40})
+	checkWidth(t, ansi.Strip(out), 40)
+	rs := rows(out)
+	last := rs[len(rs)-1]
+	if len(rs) < 2 || !strings.Contains(ansi.Strip(last), "path") || !strings.Contains(last, "\x1b[1m") {
+		t.Fatalf("the strong run lost its style on the next row:\n%q", out)
+	}
+}
+
+func TestACommandIsNeverWrapped(t *testing.T) {
+	long := "rt repos reidentify gitlab.example.com/acme/widgets gitlab.example.com/acme/gadgets"
+	out := plainAt(40, protocol.Block{T: "failure", Title: "x", Next: cmd(long)})
+	if !strings.Contains(out, "    ▌ next "+long+"\n") {
+		t.Fatalf("the command was wrapped:\n%s", out)
+	}
+}
+
+func TestFailureDetailsWrap(t *testing.T) {
+	details := strings.TrimSpace(strings.Repeat("details ", 12))
+	out := plainAt(40, protocol.Block{T: "failure", Title: "x", Details: details})
+	checkWidth(t, out, 40)
+	rs := rows(out)
+	if len(rs) < 4 || rs[1] != "" {
+		t.Fatalf("details did not wrap under a gap:\n%s", out)
+	}
+	var got []string
+	for _, r := range rs[2:] {
+		if !strings.HasPrefix(r, "  ") || r[2] == ' ' {
+			t.Fatalf("a details row lost its indent: %q", r)
+		}
+		got = append(got, r[2:])
+	}
+	if strings.Join(got, " ") != details {
+		t.Fatalf("details lost text: %q", strings.Join(got, " "))
+	}
+}

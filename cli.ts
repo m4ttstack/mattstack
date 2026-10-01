@@ -92,7 +92,8 @@ if (args[0] !== "--daemon") {
 }
 
 if (args[0] === "--version" || args[0] === "-V") {
-  console.log(versionBanner(_RT_VERSION, processFlavor(), buildFlavor(), { execPath: process.execPath, sourceDir: import.meta.dir }));
+  const { payload } = await import("./lib/ui/out.ts");
+  payload(versionBanner(_RT_VERSION, processFlavor(), buildFlavor(), { execPath: process.execPath, sourceDir: import.meta.dir }) + "\n");
 } else if (args[0] === "--daemon") {
   // Hidden entry point: start the daemon server directly.
   // Used when rt is a compiled binary — daemon install spawns `rt --daemon`
@@ -119,15 +120,17 @@ if (args[0] === "--version" || args[0] === "-V") {
   // The daemon inherits TCC grants from mattstack.app via SMAppService's
   // AssociatedBundleIdentifiers, so the grant goes on the tray app, not on rt.
   const { execSync } = await import("child_process");
+  const out = await import("./lib/ui/out.ts");
   const trayPath = trayAppPath();
-  console.log("\n  Opening System Settings → Privacy → Full Disk Access…\n");
-  console.log(`  1. Click ${"\x1b[1m"}+${"\x1b[0m"} and add: ${"\x1b[1m"}${trayPath}${"\x1b[0m"}`);
-  console.log(`     (the rt daemon inherits this grant via SMAppService)`);
-  console.log(`  2. Restart the daemon: ${"\x1b[1m"}rt daemon restart${"\x1b[0m"}\n`);
+  out.print(
+    out.line("needs-you", "Grant Full Disk Access to mattstack.app", "System Settings is opening"),
+    out.callout("note", ["Click + under Full Disk Access and add ", out.strong(trayPath)], "The rt daemon takes the grant from the app."),
+    out.callout("next", out.cmd("rt daemon restart")),
+  );
   try {
     execSync('open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"');
   } catch {
-    console.error("  Could not open System Settings — open it manually: System Settings → Privacy & Security → Full Disk Access");
+    out.fail({ title: "System Settings did not open", next: "Open Privacy & Security, then Full Disk Access, yourself" });
     process.exit(1);
   }
 } else {
@@ -165,7 +168,8 @@ if (args[0] === "--version" || args[0] === "-V") {
 
   // User plugins merge into the tree at the root; built-ins always win.
   // ExecFailure propagates a plugin exec target's exit code as rt's own
-  // (dispatch has already logged the error outcome by the time it rethrows).
+  // (dispatch has already logged the error outcome by the time it rethrows);
+  // every other error is sorted by lib/errors.ts.
   const { loadPluginTree, ExecFailure } = await import("./lib/plugins.ts");
   const fullTree = loadPluginTree(TREE);
   try {
@@ -173,14 +177,15 @@ if (args[0] === "--version" || args[0] === "-V") {
     await dispatch(fullTree, args, ["rt"], baseDir);
   } catch (err) {
     if (err instanceof ExecFailure) process.exit(err.code);
-    throw err;
+    const { exitFromDispatch } = await import("./lib/errors.ts");
+    exitFromDispatch(err);
   }
 }
 }
 
-// Rethrowing here reproduces exactly what a top-level await throw used to
-// do: Bun formats a rethrow-from-.catch the same as an uncaught top-level
-// exception (full stack, exit code 1) — verified empirically, not assumed.
-__main().catch((err) => {
-  throw err;
+// An error from before dispatch (the plugin tree, notice routing) takes the
+// same exit as one from a command, so no path prints a bare stack.
+__main().catch(async (err) => {
+  const { exitFromDispatch } = await import("./lib/errors.ts");
+  exitFromDispatch(err);
 });
