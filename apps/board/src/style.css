@@ -3792,22 +3792,30 @@ a.tui-id-card-ref:focus-visible {
   gap: 4px 12px;
   margin: -22px -28px 18px -26px;
   padding: 16px 28px 16px 26px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
-  background: color-mix(in srgb, var(--card) 72%, transparent);
-  backdrop-filter: blur(20px) saturate(1.4);
 }
-/* A short fade under the rule, so scrolling content dissolves into the
-   heading instead of butting against it. */
+/* The frosted material lives on the two pseudo-elements, not the heading:
+   an element with its own backdrop-filter becomes a backdrop root, and the
+   fade below it could then only blur the heading, never the cards. ::before
+   is the bar and its rule; ::after is the same material under the rule, a
+   10px band at full strength that then fades out, so cards dissolve into the
+   bar rather than into a brighter wash. */
+.tui-sheet-round::before,
 .tui-sheet-round::after {
   content: '';
   position: absolute;
-  inset: 100% 0 auto;
-  height: 32px;
-  background: linear-gradient(
-    color-mix(in srgb, var(--card) 80%, transparent),
-    transparent
-  );
+  z-index: -1;
+  background: color-mix(in srgb, var(--card) 72%, transparent);
+  backdrop-filter: blur(20px) saturate(1.4);
   pointer-events: none;
+}
+.tui-sheet-round::before {
+  inset: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+}
+.tui-sheet-round::after {
+  inset: 100% 0 auto;
+  height: 34px;
+  mask-image: linear-gradient(black 10px, transparent);
 }
 .tui-sheet-round-n {
   margin: 0;
