@@ -29,6 +29,22 @@ afterEach(() => {
 
 const URL_A = 'https://gitlab.com/acme/webapp/-/merge_requests/4821';
 
+describe('writeReviewState boardTabId', () => {
+  test('the launch write keeps the board tab, and a launch with none clears it', () => {
+    const p = reviewFilePath(URL_A);
+    writeReviewState(
+      p,
+      { mrUrl: URL_A, iid: 4821, status: 'queued', boardTabId: 'gadgets-tab' },
+      1000,
+      db
+    );
+    writeReviewState(p, { status: 'reviewing', tabId: 'w1:t1' }, 2000, db);
+    expect(readReviewStates(db).get(URL_A)?.boardTabId).toBe('gadgets-tab');
+    writeReviewState(p, { status: 'queued', boardTabId: '' }, 3000, db);
+    expect(readReviewStates(db).get(URL_A)?.boardTabId).toBe('');
+  });
+});
+
 describe('reviewFilePath', () => {
   test('is deterministic', () => {
     expect(reviewFilePath(URL_A)).toBe(reviewFilePath(URL_A));

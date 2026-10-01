@@ -158,6 +158,55 @@ describe("materializeRepo", () => {
     if (!out.packs[0]!.ok) expect(out.packs[0]!.detail).toContain("widgets/pack/skills.jsonc");
   });
 
+  test("a base pack beside a claiming pack in one zone claims nothing and gets no file", () => {
+    const { root, engine, home } = makeWorld();
+    zone(root, "acme", { projects: ["acme/widgets"], packs: { widgets: {}, "acme-base": { base: true } } });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.map((p) => [p.pack, p.ok])).toEqual([["widgets", true]]);
+    expect(readdirSync(join(root, "repos", SLUG, "packs"))).toEqual(["widgets"]);
+  });
+
+  test("a base pack is not counted when two claiming packs share a zone", () => {
+    const { root, engine, home } = makeWorld();
+    zone(root, "acme", { projects: ["acme/widgets"], packs: { widgets: {}, gadgets: {}, "acme-base": { base: true } } });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.map((p) => [p.pack, p.ok])).toEqual([["gadgets", false], ["widgets", false]]);
+    if (!out.packs[0]!.ok) expect(out.packs[0]!.detail).toContain('zone "acme" holds 2 packs (gadgets, widgets) that all claim');
+  });
+
+  test("one base pack name in two declaring zones is not refused", () => {
+    const { root, engine, home } = makeWorld();
+    zone(root, "acme-w", { projects: ["acme/widgets"], packs: { widgets: {}, "acme-base": { base: true } } });
+    zone(root, "acme-g", { projects: ["acme/widgets"], packs: { gadgets: {}, "acme-base": { base: true } } });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.map((p) => [p.pack, p.ok])).toEqual([["gadgets", true], ["widgets", true]]);
+  });
+
+  test("a declaring zone holding only base packs writes nothing", () => {
+    const { root, engine, home } = makeWorld();
+    zone(root, "acme", { projects: ["acme/widgets"], packs: { "acme-base": { base: true } } });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    expect(out).toMatchObject({ kind: "written", packs: [] });
+    expect(existsSync(join(root, "repos", SLUG, "packs"))).toBe(false);
+  });
+
+  test("a claiming pack extending the base beside it in its own zone merges the installed base layer", () => {
+    const { root, engine, home } = makeWorld();
+    installBase(home, { base: true, bindings: { "mattstack:stage-ship": { policy: "acme-base:squash" } } });
+    const zoneCopy = { base: true, bindings: { "mattstack:stage-ship": { policy: "acme-base:unpublished" } } };
+    zone(root, "acme", { projects: ["acme/widgets"], packs: { widgets: { extends: "acme-base@acme" }, "acme-base": zoneCopy } });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.map((p) => p.pack)).toEqual(["widgets"]);
+    const widgets = out.packs[0]!;
+    if (!widgets.ok) throw new Error(widgets.detail);
+    expect(widgets.layers).toEqual(["default", "base:acme-base", "pack"]);
+    expect(body(widgets.path).bindings["mattstack:stage-ship"]!.policy).toBe("acme-base:squash");
+  });
+
   test("one pack name in two declaring zones is refused in both", () => {
     const { root, engine, home } = makeWorld();
     zone(root, "acme", { projects: ["acme/widgets"], packs: { widgets: {} } });
@@ -176,7 +225,7 @@ describe("materializeRepo", () => {
     zone(root, "acme", { projects: ["acme/widgets"], packs: {} });
     write(join(root, "repos", SLUG, "skills.jsonc"), "{}");
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
-    expect(out).toEqual({ kind: "written", repo: "gitlab.example.com/acme/widgets", slug: SLUG, packs: [], migrated: null });
+    expect(out).toEqual({ kind: "written", repo: "gitlab.example.com/acme/widgets", slug: SLUG, packs: [], migrated: null, pruned: [], pruneWarnings: [] });
     expect(existsSync(join(root, "repos", SLUG, "packs"))).toBe(false);
     expect(readFileSync(join(root, "repos", SLUG, "skills.jsonc"), "utf8")).toBe("{}");
   });
@@ -226,5 +275,155 @@ describe("materializeRepo", () => {
       if (!p.ok) expect(p.detail).toContain(join(root, "user", "skills", "overrides.jsonc"));
     }
     expect(existsSync(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc"))).toBe(false);
+  });
+});
+
+describe("materializeRepo stale bindings files", () => {
+  const packFile = (root: string, pack: string) => join(root, "repos", SLUG, "packs", pack, "skills.jsonc");
+
+  function twoZones() {
+    const world = makeWorld();
+    zone(world.root, "acme-w", { projects: ["acme/widgets"], packs: { widgets: {} } });
+    zone(world.root, "acme-g", { projects: ["acme/widgets"], packs: { gadgets: {} } });
+    const deps = { fs: realFs, mattstackRoot: world.root, claudeHome: world.home, enginePackDir: world.engine };
+    materializeRepo(deps, REMOTE);
+    return { ...world, deps };
+  }
+
+  test("a pack removed from its zone has its file set aside on the next run, replacing an older .stale", () => {
+    const { root, deps } = twoZones();
+    const gadgets = packFile(root, "gadgets");
+    const before = readFileSync(gadgets, "utf8");
+    write(`${gadgets}.stale`, "older");
+    rmSync(join(root, "teams", "acme-g", "mattstack", "packs", "gadgets"), { recursive: true });
+
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.pruned).toEqual([`${gadgets}.stale`]);
+    expect(existsSync(gadgets)).toBe(false);
+    expect(readFileSync(`${gadgets}.stale`, "utf8")).toBe(before);
+    expect(existsSync(packFile(root, "widgets"))).toBe(true);
+  });
+
+  test("a file whose zone is absent on this machine is left alone while another zone still declares the repo", () => {
+    const { root, deps } = twoZones();
+    const gadgets = packFile(root, "gadgets");
+    const before = readFileSync(gadgets, "utf8");
+    rmSync(join(root, "teams", "acme-g"), { recursive: true });
+
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.map((p) => p.pack)).toEqual(["widgets"]);
+    expect(out.pruned).toEqual([]);
+    expect(readFileSync(gadgets, "utf8")).toBe(before);
+  });
+
+  test("a file whose zone directory no longer reads as a zone is left alone", () => {
+    const { root, deps } = twoZones();
+    rmSync(join(root, "teams", "acme-g", "mattstack", "mattstack.jsonc"));
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.pruned).toEqual([]);
+    expect(existsSync(packFile(root, "gadgets"))).toBe(true);
+  });
+
+  test("a file whose zone has its marker but no team.jsonc (a partial clone) is left alone", () => {
+    const { root, deps } = twoZones();
+    rmSync(join(root, "teams", "acme-g", "mattstack", "team.jsonc"));
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.pruned).toEqual([]);
+    expect(existsSync(packFile(root, "gadgets"))).toBe(true);
+  });
+
+  test("a file whose zone's team.jsonc does not parse is left alone", () => {
+    const { root, deps } = twoZones();
+    write(join(root, "teams", "acme-g", "mattstack", "team.jsonc"), "{ nope");
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.pruned).toEqual([]);
+    expect(existsSync(packFile(root, "gadgets"))).toBe(true);
+  });
+
+  test("a file with no zone line (written before zones were recorded) is left alone", () => {
+    const { root, deps } = twoZones();
+    const legacy = packFile(root, "gizmos");
+    write(legacy, "// GENERATED by rt skills materialize\n// repo: gitlab.example.com/acme/widgets\n// pack: gizmos\n{}\n");
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.pruned).toEqual([]);
+    expect(readFileSync(legacy, "utf8")).toContain("// pack: gizmos");
+  });
+
+  test("a pack whose zone stopped declaring the repo is set aside while another zone still declares it", () => {
+    const { root, deps } = twoZones();
+    write(join(root, "teams", "acme-g", "mattstack", "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: [] }));
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.pruned).toEqual([`${packFile(root, "gadgets")}.stale`]);
+    expect(existsSync(packFile(root, "widgets"))).toBe(true);
+  });
+
+  test("a rename that fails is a warning on the outcome, never a lost repo row", () => {
+    const { root, deps } = twoZones();
+    rmSync(join(root, "teams", "acme-g", "mattstack", "packs", "gadgets"), { recursive: true });
+    const gadgets = packFile(root, "gadgets");
+    const fs: MaterializeFs = {
+      ...realFs,
+      rename: (from, to) => {
+        if (to.endsWith(".stale")) throw new Error("EACCES: permission denied");
+        realFs.rename(from, to);
+      },
+    };
+    const out = materializeRepo({ ...deps, fs }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.map((p) => [p.pack, p.ok])).toEqual([["widgets", true]]);
+    expect(out.pruned).toEqual([]);
+    expect(out.pruneWarnings).toEqual([`could not set aside ${gadgets}: EACCES: permission denied`]);
+    expect(existsSync(gadgets)).toBe(true);
+  });
+
+  test("a pack that turns into a base pack has its file set aside", () => {
+    const { root, deps } = twoZones();
+    write(join(root, "teams", "acme-g", "mattstack", "packs", "gadgets", "pack", "skills.jsonc"), JSON.stringify({ base: true }));
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.pruned).toEqual([`${packFile(root, "gadgets")}.stale`]);
+  });
+
+  test("a pack that fails this run keeps its last good file", () => {
+    const { root, deps } = twoZones();
+    const gadgets = packFile(root, "gadgets");
+    const before = readFileSync(gadgets, "utf8");
+    write(join(root, "teams", "acme-g", "mattstack", "packs", "gadgets", "pack", "skills.jsonc"), "{ nope");
+
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.find((p) => p.pack === "gadgets")!.ok).toBe(false);
+    expect(out.pruned).toEqual([]);
+    expect(readFileSync(gadgets, "utf8")).toBe(before);
+    expect(existsSync(`${gadgets}.stale`)).toBe(false);
+  });
+
+  test("files this run wrote are never set aside", () => {
+    const { root, deps } = twoZones();
+    const out = materializeRepo(deps, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.pruned).toEqual([]);
+    expect(readdirSync(join(root, "repos", SLUG, "packs")).sort()).toEqual(["gadgets", "widgets"]);
+    expect(readdirSync(join(root, "repos", SLUG, "packs", "widgets"))).toEqual(["skills.jsonc"]);
+  });
+
+  test("a repo no zone declares any more has its pack files left alone", () => {
+    const { root, deps } = twoZones();
+    const before = readFileSync(packFile(root, "widgets"), "utf8");
+    for (const slug of ["acme-w", "acme-g"]) {
+      write(join(root, "teams", slug, "mattstack", "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: [] }));
+    }
+    const out = materializeRepo(deps, REMOTE);
+    expect(out).toEqual({ kind: "undeclared", repo: "gitlab.example.com/acme/widgets" });
+    expect(readFileSync(packFile(root, "widgets"), "utf8")).toBe(before);
+    expect(existsSync(packFile(root, "gadgets"))).toBe(true);
+    expect(existsSync(`${packFile(root, "widgets")}.stale`)).toBe(false);
   });
 });

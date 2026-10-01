@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { dirname, join } from "path";
+import { basename, dirname, join } from "path";
+import { execFileSync } from "child_process";
+import { updateRepoIndex } from "../../lib/repo-index.ts";
 import { __test__ as pickImplTest, type PickImpl } from "../../lib/ui/pick.ts";
 import type { PickRequest, PickResult } from "../../lib/ui/protocol.ts";
 import * as sources from "../../lib/skills/sources.ts";
@@ -316,6 +318,144 @@ describe("skillsBind", () => {
     expect(readFileSync(manifestPath, "utf8")).toBe(before);
     // Rejection is before any compile: no artifact is left behind either.
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
+  });
+
+  describe("a base pack", () => {
+    let savedHome: string | undefined;
+    let savedEnginePackDir: string | undefined;
+    beforeEach(() => {
+      savedHome = process.env.HOME;
+      savedEnginePackDir = process.env.RT_ENGINE_PACK_DIR;
+    });
+    afterEach(() => {
+      if (savedHome === undefined) delete process.env.HOME;
+      else process.env.HOME = savedHome;
+      if (savedEnginePackDir === undefined) delete process.env.RT_ENGINE_PACK_DIR;
+      else process.env.RT_ENGINE_PACK_DIR = savedEnginePackDir;
+    });
+
+    test.each([["text", "no stale file"], ["--json", "no stale file"], ["text", "a stale bindings file"]])(
+      "bind (%s, %s) writes its own fragment once, regenerates and compiles nothing",
+      async (mode, variant) => {
+        const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-base-")));
+        process.env.HOME = join(root, "home");
+        mkdirSync(process.env.HOME, { recursive: true });
+        process.env.RT_ENGINE_PACK_DIR = join(root, "missing-engine-pack");
+        const packDir = join(root, "zone", "mattstack", "packs", "acme-base");
+        writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
+        const fragmentPath = join(packDir, "pack", "skills.jsonc");
+        writeFile(fragmentPath, `{\n  "base": true,\n  "bindings": {}\n}\n`);
+        const stale = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "acme-base", "skills.jsonc");
+        if (variant === "a stale bindings file") writeFile(stale, `{ "bindings": { "mattstack:watch-ci": { "domain": "acme:watch-ci-domain-v1" } } }`);
+        const staleBefore = variant === "a stale bindings file" ? readFileSync(stale, "utf8") : null;
+        const { mattstackDir } = makeEngineFixture();
+        const rootsSpy = spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(mattstackDir));
+
+        let result;
+        try {
+          result = await runExpectingCleanExit(() =>
+            skillsBind([
+              "watch-ci", "domain", "acme:watch-ci-domain-v2",
+              "--pack", "acme-base", "--pack-dir", packDir,
+              ...(mode === "--json" ? ["--json"] : []),
+            ]),
+          );
+        } finally {
+          rootsSpy.mockRestore();
+        }
+
+        expect(result.exitCode).toBeUndefined();
+        expect(process.exitCode ?? 0).toBe(0);
+        expect(result.errors).toEqual([]);
+        expect(readManifestBindings(fragmentPath)["mattstack:watch-ci"]?.domain).toBe("acme:watch-ci-domain-v2");
+        expect(JSON.parse(stripJsonc(readFileSync(fragmentPath, "utf8"))).base).toBe(true);
+        expect(existsSync(join(packDir, "skills"))).toBe(false);
+        if (staleBefore !== null) expect(readFileSync(stale, "utf8")).toBe(staleBefore);
+        if (mode === "--json") {
+          expect(logs).toHaveLength(1);
+          const payload = JSON.parse(logs[0]!);
+          expect(payload).toMatchObject({ ok: true, base: true, from: "(unbound)", to: "acme:watch-ci-domain-v2" });
+          expect("regenerated" in payload).toBe(false);
+        } else {
+          expect(logs).toContain(
+            "acme-base is a base pack: packs that extend it pick this up once it is published and their bindings files are regenerated",
+          );
+        }
+      },
+    );
+
+    test("an explicit --manifest takes the normal path and reports a failed regenerate", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-base-")));
+      process.env.HOME = join(root, "home");
+      mkdirSync(process.env.HOME, { recursive: true });
+      process.env.RT_ENGINE_PACK_DIR = join(root, "missing-engine-pack");
+      const packDir = join(root, "zone", "mattstack", "packs", "acme-base");
+      writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
+      writeFile(join(packDir, "pack", "skills.jsonc"), `{\n  "base": true,\n  "bindings": {}\n}\n`);
+      const manifest = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
+      writeFile(manifest, `{ "bindings": {} }`);
+      const { mattstackDir } = makeEngineFixture();
+      const rootsSpy = spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(mattstackDir));
+      const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await skillsBind([
+          "watch-ci", "domain", "acme:watch-ci-domain-v2", "--json",
+          "--pack", "acme-base", "--pack-dir", packDir, "--manifest", manifest,
+        ]);
+      } finally {
+        errorSpy.mockRestore();
+        rootsSpy.mockRestore();
+      }
+
+      expect(process.exitCode).toBe(1);
+      expect(logs).toHaveLength(1);
+      const payload = JSON.parse(logs[0]!);
+      expect(payload).toMatchObject({ ok: false, regenerated: false });
+      expect(payload.regenerateDetail).toContain("engine-pack-missing");
+      expect("base" in payload).toBe(false);
+    });
+
+    test("a fragment that symlinks outside the pack is refused, and the outside file is untouched", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-base-")));
+      const packDir = join(root, "zone", "mattstack", "packs", "acme-base");
+      writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
+      const outside = join(root, "elsewhere", "skills.jsonc");
+      const outsideText = `{\n  "base": true,\n  "bindings": {}\n}\n`;
+      writeFile(outside, outsideText);
+      symlinkSync(outside, join(packDir, "pack", "skills.jsonc"));
+      const { mattstackDir } = makeEngineFixture();
+
+      const { exitCode, errors } = await runExpectingCleanExit(() =>
+        skillsBind([
+          "watch-ci", "domain", "acme:watch-ci-domain-v2",
+          "--pack", "acme-base", "--pack-dir", packDir, "--mattstack-dir", mattstackDir,
+        ]),
+      );
+
+      expect(exitCode).toBe(1);
+      expect(errors.some((l) => l.includes("resolves outside the pack") && l.includes("nothing written"))).toBe(true);
+      expect(readFileSync(outside, "utf8")).toBe(outsideText);
+    });
+
+    test("a base with no verbs of its own says to edit its fragment directly", async () => {
+      const packDir = join(makePackDir(), "mattstack", "packs", "acme-base");
+      const fragmentPath = join(packDir, "pack", "skills.jsonc");
+      writeFile(fragmentPath, JSON.stringify({ base: true }));
+      const { mattstackDir } = makeEngineFixture();
+
+      const { exitCode, errors } = await runExpectingCleanExit(() =>
+        skillsBind([
+          "watch-ci", "domain", "acme:watch-ci-domain-v2",
+          "--pack", "acme-base", "--pack-dir", packDir, "--mattstack-dir", mattstackDir,
+        ]),
+      );
+
+      expect(exitCode).toBe(1);
+      expect(errors[0]).toContain(
+        `pack "acme-base" is a base pack with no verbs of its own, so bind cannot check the slot; edit ${fragmentPath} directly`,
+      );
+      expect(readFileSync(fragmentPath, "utf8")).toBe(JSON.stringify({ base: true }));
+    });
   });
 
   test("unknown slot: clean error naming the real slots, exit 1, writes nothing", async () => {
@@ -741,6 +881,67 @@ describe("applyBind", () => {
         expect(errors.some((l) => l.includes("bindings file not regenerated") && l.includes("engine-pack-missing"))).toBe(true);
         expect(errors.some((l) => l.includes("rt skills materialize"))).toBe(true);
       }
+    });
+  });
+
+  describe("regeneratePackFile scope", () => {
+    let savedHome: string | undefined;
+    let savedEnginePackDir: string | undefined;
+    let root: string | undefined;
+    beforeEach(() => {
+      savedHome = process.env.HOME;
+      savedEnginePackDir = process.env.RT_ENGINE_PACK_DIR;
+    });
+    afterEach(() => {
+      if (savedHome === undefined) delete process.env.HOME;
+      else process.env.HOME = savedHome;
+      if (savedEnginePackDir === undefined) delete process.env.RT_ENGINE_PACK_DIR;
+      else process.env.RT_ENGINE_PACK_DIR = savedEnginePackDir;
+      if (root) rmSync(root, { recursive: true, force: true });
+      root = undefined;
+    });
+
+    function seedTwoRepoWorld(registered: string[] = ["widgets", "gadgets"]): { home: string; manifest: (slug: string) => string } {
+      root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-scope-")));
+      const home = join(root, "home");
+      mkdirSync(home, { recursive: true });
+      process.env.HOME = home;
+      process.env.RT_ENGINE_PACK_DIR = join(root, "engine");
+      writeFile(join(root, "engine", "pack", "skills.jsonc"), "{}");
+      const zone = join(home, ".mattstack", "teams", "acme", "mattstack");
+      writeFile(join(zone, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "acme" }));
+      writeFile(join(zone, "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets", "acme/gadgets"] }));
+      writeFile(join(zone, "packs", "widgets", "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { domain: "widgets:ci" } } }));
+      for (const name of registered) {
+        const dir = join(root, "src", name);
+        execFileSync("git", ["init", "-q", dir]);
+        execFileSync("git", ["-C", dir, "remote", "add", "origin", `https://gitlab.example.com/acme/${name}.git`]);
+        updateRepoIndex(basename(dir), dir);
+      }
+      return { home, manifest: (slug) => join(home, ".mattstack", "repos", slug, "packs", "widgets", "skills.jsonc") };
+    }
+
+    test("regenerates only the repo the bindings file belongs to", async () => {
+      const { home, manifest } = seedTwoRepoWorld();
+      const widgets = manifest("gitlab.example.com-acme-widgets");
+      const gadgets = manifest("gitlab.example.com-acme-gadgets");
+      const untouched = `{ "marker": "gadgets before bind" }`;
+      writeFile(gadgets, untouched);
+      const gadgetsLegacy = join(home, ".mattstack", "repos", "gitlab.example.com-acme-gadgets", "skills.jsonc");
+      writeFile(gadgetsLegacy, "{}");
+
+      expect(await regeneratePackFile(widgets)).toEqual({ ok: true });
+
+      expect(readManifestBindings(widgets)["mattstack:watch-ci"]?.domain).toBe("widgets:ci");
+      expect(readFileSync(gadgets, "utf8")).toBe(untouched);
+      expect(existsSync(gadgetsLegacy)).toBe(true);
+      expect(existsSync(`${gadgetsLegacy}.migrated`)).toBe(false);
+    });
+
+    test("a bindings file no registered checkout produces reports no registered repo wrote it", async () => {
+      const { manifest } = seedTwoRepoWorld(["gadgets"]);
+      const orphan = manifest("gitlab.example.com-acme-widgets");
+      expect(await regeneratePackFile(orphan)).toEqual({ ok: false, detail: `no registered repo wrote ${orphan}` });
     });
   });
 

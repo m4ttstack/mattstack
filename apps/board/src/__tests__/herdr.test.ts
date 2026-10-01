@@ -251,6 +251,13 @@ describe('command builders', () => {
       buildResumePaneCommand('/repo', 'sess-1', 'hi', 'cswap run 2 --')
     ).toBe("cd '/repo' && cswap run 2 -- --resume 'sess-1' 'hi'");
   });
+  test('buildResumePaneCommand with a pack resumes with MATTSTACK_PACK set', () => {
+    expect(
+      buildResumePaneCommand('/repo', 'sess-1', 'hi', undefined, 'widgets')
+    ).toBe(
+      "cd '/repo' && MATTSTACK_PACK='widgets' claude --resume 'sess-1' 'hi'"
+    );
+  });
   test('buildResumePaneCommand with a prompt resumes and sends it as the first message', () => {
     expect(buildResumePaneCommand('/repo', 'sess-1', 're-review please')).toBe(
       "cd '/repo' && claude --resume 'sess-1' 're-review please'"
@@ -690,6 +697,34 @@ describe('launchLegacyResume (pre-rt-agent sessionId resume, over HerdrRunner)',
     const runCall = calls.find(c => c[0] === 'pane' && c[1] === 'run');
     expect(runCall?.[2]).toBe('w40:p7');
     expect(runCall?.[3]).toBe("cd '/repo' && claude --resume 'sess-1'");
+  });
+
+  test('a pack rides the resumed pane as MATTSTACK_PACK', async () => {
+    const calls: string[][] = [];
+    const runner: HerdrRunner = async args => {
+      calls.push(args);
+      if (args[0] === 'workspace' && args[1] === 'list') return WS_LIST;
+      if (args[0] === 'tab' && args[1] === 'create') return TAB_CREATE;
+      return JSON.stringify({ result: { type: 'ok' } });
+    };
+    await launchLegacyResume(
+      {
+        mrUrl: 'https://x/mr/1',
+        iid: 4821,
+        cwd: '/repo',
+        repo: 'acme/widgets',
+        workspaceLabel: 'reviews',
+        statePath: '/s/1.json',
+        sessionId: 'sess-1',
+        workspaceKind: 'review',
+        pack: 'widgets',
+      },
+      runner
+    );
+    const runCall = calls.find(c => c[0] === 'pane' && c[1] === 'run');
+    expect(runCall?.[3]).toBe(
+      "cd '/repo' && MATTSTACK_PACK='widgets' claude --resume 'sess-1'"
+    );
   });
 
   test('sends a prompt as the first resumed message when given, under the re-review tab glyph', async () => {

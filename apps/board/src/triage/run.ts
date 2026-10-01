@@ -386,6 +386,7 @@ export async function runTriage(
         origin: 'auto',
         tier,
         fixClasses,
+        boardTabId: '',
         noPack: !deps.pack,
       });
       const launchResult = await deps.launchDoctor({

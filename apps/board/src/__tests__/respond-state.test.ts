@@ -29,6 +29,22 @@ afterEach(() => {
 
 const URL_A = 'https://gitlab.com/acme/webapp/-/merge_requests/4821';
 
+describe('writeRespondState boardTabId', () => {
+  test('the launch write keeps the board tab, and a launch with none clears it', () => {
+    const p = respondFilePath(URL_A);
+    writeRespondState(
+      p,
+      { mrUrl: URL_A, iid: 4821, status: 'queued', boardTabId: 'gadgets-tab' },
+      1000,
+      db
+    );
+    writeRespondState(p, { status: 'implementing', tabId: 'w1:t1' }, 2000, db);
+    expect(readRespondStates(db).get(URL_A)?.boardTabId).toBe('gadgets-tab');
+    writeRespondState(p, { status: 'queued', boardTabId: '' }, 3000, db);
+    expect(readRespondStates(db).get(URL_A)?.boardTabId).toBe('');
+  });
+});
+
 describe('writeRespondState counts', () => {
   test('round-trips posted and threads', () => {
     const p = respondFilePath(URL_A);

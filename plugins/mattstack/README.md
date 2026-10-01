@@ -382,7 +382,8 @@ The bindings manifest schema lives at
 `plugin/schemas/skills-manifest.schema.json`, with a worked explanation in
 `plugin/schemas/skills-manifest.md`. A pack may declare
 `"extends": "<plugin>@<marketplace>"` to build on a base pack, overriding its
-fills slot by slot. The team installs the base by listing it in
+fills slot by slot; the base marks itself `"base": true` so it never
+claims a repo of its own. The team installs the base by listing it in
 `claude.plugins`; members do not join the base's team. `pack/skills.jsonc` in this repo is a
 real example: it binds `mattstack:shepherdr`'s `tiering`, `strategy`, and
 `accounts` slots and leaves `domain` unbound.

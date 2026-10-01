@@ -61,13 +61,14 @@ export function renderInitOutcome(out: InitOutcome): string {
   ].join("\n");
 }
 
-export function initMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[] } {
-  if (r.skipped) return { ok: false, detail: r.reason, warnings: [] };
+export function initMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[]; pruneWarnings: string[] } {
+  if (r.skipped) return { ok: false, detail: r.reason, warnings: [], pruneWarnings: [] };
   const row = r.repos[0];
-  if (!row) return { ok: false, detail: "materialize wrote nothing", warnings: [] };
+  if (!row) return { ok: false, detail: "materialize wrote nothing", warnings: [], pruneWarnings: [] };
+  const pruneWarnings = row.pruneWarnings ?? [];
   const { written, failures, warnings } = packVerdict([row], pack);
-  if (failures.length > 0) return { ok: false, detail: failures.join("; "), warnings };
-  return { ok: written > 0, detail: row.detail, warnings };
+  if (failures.length > 0) return { ok: false, detail: failures.join("; "), warnings, pruneWarnings };
+  return { ok: written > 0, detail: row.detail, warnings, pruneWarnings };
 }
 
 function message(err: unknown): string {
@@ -148,8 +149,9 @@ function realDeps(opts: { json: boolean }): InitDeps {
       return identity;
     },
     materialize: async (repoName, pack) => {
-      const { ok, detail, warnings } = initMaterializeVerdict(await materializeSkills(p, { repo: repoName }), pack);
+      const { ok, detail, warnings, pruneWarnings } = initMaterializeVerdict(await materializeSkills(p, { repo: repoName }), pack);
       for (const w of warnings) console.error(`rt skills init: warning: another pack failed to materialize: ${w}`);
+      for (const w of pruneWarnings) console.error(`rt skills init: warning: ${w}`);
       return { ok, detail };
     },
     // compilePackAll and checkPack resolve outside withCleanErrors, so a usage error from

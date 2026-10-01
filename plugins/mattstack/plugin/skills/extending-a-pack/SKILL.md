@@ -292,8 +292,12 @@ again at zero. Takes over: the author finishes the rule.
   every materialize. That is why the fragment, not the generated file, is
   checked for the new `bindings` entry.
 - Two packs on one repo never conflict: each gets its own bindings file.
-  Two packs in one zone that both claim a repo are refused, and a base pack
-  named by `extends` belongs in a zone that declares no projects.
+  Two packs in one zone that both claim a repo are refused. A base pack
+  named by `extends` says `"base": true` in its own `pack/skills.jsonc`, so
+  it claims no repo, gets no bindings file, and can sit beside the pack
+  that claims the repo. Materialize reads the installed copy of the base
+  (from the plugin cache), not the copy in the zone, so an edit to the base
+  takes effect only once it is published and the installed plugin updates.
 - When the ask has both a stage level and a verb level (`mattstack:stage-ship`
   and `mattstack:ship`), bind both, one bind call each.
 - A `shepherdr` door compiles only with its two required slots bound:

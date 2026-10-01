@@ -590,6 +590,22 @@ describe("syncPack", () => {
     expect(report.steps.find((s) => s.name === "materialize")).toEqual({ name: "materialize", status: "ran", detail: "materialized 1" });
   });
 
+  test("materialize warnings reach the report's warnings and leave the step ran", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const deps = makeDeps(pack, engine, {
+      calls: [],
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      drift: [false],
+    });
+    deps.materialize = async () => ({ ok: true, detail: "materialized 1", warnings: ["repo-a: could not set aside /h/gadgets/skills.jsonc: EACCES"] });
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "materialize")?.status).toBe("ran");
+    expect(report.warnings).toContain("repo-a: could not set aside /h/gadgets/skills.jsonc: EACCES");
+  });
+
   test("materialize is asked about the pack being synced", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");

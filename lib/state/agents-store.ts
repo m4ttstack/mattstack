@@ -23,13 +23,15 @@ export interface AgentRecord {
       injected at all (no subject means no gate
       for the hook to check). */
   subject?: string;
+  /** The team pack name the last launch ran under, re-applied as MATTSTACK_PACK on a resume that names none. */
+  pack?: string;
   paneId?: string; tabId?: string; workspaceId?: string;
   extraArgs?: string; exitCode?: number; resultPath?: string; yolo?: boolean;
   createdAt: number; lastResumedAt?: number; finishedAt?: number;
 }
 
 const COLUMNS =
-  "id, repo, cwd, provider, surface, session_id, model, effort, account, label, caller, handle, subject, " +
+  "id, repo, cwd, provider, surface, session_id, model, effort, account, label, caller, handle, subject, pack, " +
   "pane_id, tab_id, workspace_id, extra_args, exit_code, result_path, yolo, " +
   "created_at, last_resumed_at, finished_at";
 
@@ -40,6 +42,7 @@ const SELECT_REPO_SQL = `SELECT ${COLUMNS} FROM agents WHERE repo = ? ORDER BY c
 const UPDATE_PANE_SQL = `UPDATE agents SET pane_id = ?, tab_id = ?, workspace_id = ? WHERE id = ?;`;
 const UPDATE_RESUMED_SQL = `UPDATE agents SET last_resumed_at = ? WHERE id = ?;`;
 const UPDATE_SESSION_SQL = `UPDATE agents SET session_id = ? WHERE id = ?;`;
+const UPDATE_PACK_SQL = `UPDATE agents SET pack = ? WHERE id = ?;`;
 const UPDATE_FINISH_SQL = `UPDATE agents SET exit_code = ?, result_path = ?, finished_at = ? WHERE id = ?;`;
 const UPDATE_GONE_SQL = `UPDATE agents SET finished_at = ? WHERE id = ?;`;
 const DELETE_SQL = `DELETE FROM agents WHERE id = ?;`;
@@ -56,7 +59,7 @@ interface AgentRow {
   id: string; repo: string; cwd: string; provider: string; surface: string;
   session_id: string; model: string | null; effort: string | null;
   account: string | null; label: string | null; caller: string | null; handle: string | null;
-  subject: string | null;
+  subject: string | null; pack: string | null;
   pane_id: string | null; tab_id: string | null; workspace_id: string | null;
   extra_args: string | null; exit_code: number | null; result_path: string | null; yolo: number | null;
   created_at: number; last_resumed_at: number | null; finished_at: number | null;
@@ -75,6 +78,7 @@ function rowToRecord(r: AgentRow): AgentRecord {
   if (r.caller !== null) rec.caller = r.caller;
   if (r.handle !== null) rec.handle = r.handle;
   if (r.subject !== null) rec.subject = r.subject;
+  if (r.pack !== null) rec.pack = r.pack;
   if (r.pane_id !== null) rec.paneId = r.pane_id;
   if (r.tab_id !== null) rec.tabId = r.tab_id;
   if (r.workspace_id !== null) rec.workspaceId = r.workspace_id;
@@ -96,7 +100,7 @@ export function insertAgent(rec: AgentRecord, db: Database = getStateDb()): void
     db.query(INSERT_SQL).run(
       rec.id, rec.repo, rec.cwd, rec.provider, rec.surface, rec.sessionId,
       rec.model ?? null, rec.effort ?? null, rec.account ?? null,
-      rec.label ?? null, rec.caller ?? null, rec.handle ?? null, rec.subject ?? null,
+      rec.label ?? null, rec.caller ?? null, rec.handle ?? null, rec.subject ?? null, rec.pack ?? null,
       rec.paneId ?? null, rec.tabId ?? null, rec.workspaceId ?? null,
       rec.extraArgs ?? null, rec.exitCode ?? null, rec.resultPath ?? null,
       rec.yolo === undefined ? null : (rec.yolo ? 1 : 0),
@@ -134,6 +138,10 @@ export function markAgentResumed(id: string, at: number, db: Database = getState
     capture). No-op for claude, which never needs this. */
 export function updateAgentSessionId(id: string, sessionId: string, db: Database = getStateDb()): void {
   runCriticalWrite("updateAgentSessionId", () => db.query(UPDATE_SESSION_SQL).run(sessionId, id), { id });
+}
+
+export function updateAgentPack(id: string, pack: string | null, db: Database = getStateDb()): void {
+  runCriticalWrite("updateAgentPack", () => db.query(UPDATE_PACK_SQL).run(pack, id), { id });
 }
 
 export function finishAgent(

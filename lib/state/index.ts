@@ -141,7 +141,7 @@ export {
 } from "./chat-store.ts";
 
 export {
-  insertAgent, getAgent, listAgents, updateAgentPane, updateAgentSessionId, markAgentResumed,
+  insertAgent, getAgent, listAgents, updateAgentPack, updateAgentPane, updateAgentSessionId, markAgentResumed,
   finishAgent, markAgentGone, deleteAgent, newAgentId, pruneAgents, AGENTS_RETENTION_MS,
   type AgentRecord, type AgentSurface,
 } from "./agents-store.ts";

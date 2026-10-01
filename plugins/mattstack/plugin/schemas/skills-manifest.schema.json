@@ -16,6 +16,10 @@
       "pattern": "^[a-z0-9][a-z0-9-]*@[a-z0-9][a-z0-9-]*$",
       "description": "Fragment only: the base pack whose fragment layers under this one, as <plugin>@<marketplace>. One level; a base pack cannot extend. Never present in a generated file."
     },
+    "base": {
+      "type": "boolean",
+      "description": "Fragment only: true marks a base pack, one that other packs name with extends. A base pack never claims a repo, gets no bindings file of its own, and does not count as a second pack in its zone. Never present in a generated file."
+    },
     "skills": {
       "type": "object",
       "additionalProperties": false,

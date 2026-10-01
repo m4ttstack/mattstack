@@ -61,6 +61,22 @@ export function packForLaunch(
   return pack;
 }
 
+/** The board tab a launch request came from: its `tabId`, when that is a
+    non-empty string. */
+export function requestBoardTab(body: unknown): string | undefined {
+  const tabId = (body as { tabId?: unknown } | null)?.tabId;
+  return typeof tabId === 'string' && tabId !== '' ? tabId : undefined;
+}
+
+/** The board tab a lane's reopen resolves its pack from: the tab the lane
+    launched from, so the reopened pane keeps that pack, else the asking tab. */
+export function laneBoardTab(
+  launched: string | undefined,
+  asking: string | undefined
+): string | undefined {
+  return launched || asking || undefined;
+}
+
 /**
  * Resolve which skill a board launch should use for `project` under `pack`:
  * `bindings["board:<kind>"].<kind>` from the per-pack file

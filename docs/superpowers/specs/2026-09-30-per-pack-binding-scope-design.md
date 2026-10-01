@@ -71,6 +71,9 @@ published from whichever team repo owns it.
 
 - A pack declares it in its fragment: `"extends": "acme-base@<marketplace>"`.
   The manifest schema gains `extends` (string, `<plugin>@<marketplace>`).
+- The base marks itself with `"base": true` in its own fragment, so it
+  never claims a repo, gets no bindings file, and does not count as a
+  second pack in its zone; it can sit beside the pack that claims the repo.
 - The team lists the base in `claude.plugins`, so `plugins.install` already
   installs it for every member; members do not join the base's team.
 - Materialize reads the base's fragment from the installed plugin's

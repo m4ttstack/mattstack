@@ -32,6 +32,15 @@ test("agentResume forwards workspace and tab", async () => {
   expect(seen?.payload).toMatchObject({ id: "ag-1", prompt: "go", workspace: "reviews", tab: "⟲ !5" });
 });
 
+test("agentResume forwards env", async () => {
+  const fake = fakeDaemon({ "agent:resume": { ok: true, data: { id: "ag-1" } } });
+  const res = await agentResume({ id: "ag-1", env: { MATTSTACK_PACK: "widgets" } }, { sockPath: fake.sock });
+  fake.stop();
+  expect(res.ok).toBe(true);
+  const seen = fake.seen.find((s) => s.cmd === "agent:resume");
+  expect(seen?.payload).toMatchObject({ env: { MATTSTACK_PACK: "widgets" } });
+});
+
 // Pins the allowlist in agentStart's forwarding loop: a field left out there
 // is silently dropped before it ever reaches the daemon, no matter what the
 // Commands payload type declares.

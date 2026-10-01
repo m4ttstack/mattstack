@@ -34,11 +34,11 @@ import { mattstackHome } from "../lib/rt-paths.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
-import { materializeSkills, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
+import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
-import { readZonesFrom, type InitFs } from "../lib/skills/init.ts";
+import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { discoverPacks, findEnclosingPack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
@@ -108,6 +108,7 @@ type Flags = {
   mattstackDir: string | null;
   json: boolean;
   strict: boolean;
+  bind?: boolean;
 };
 
 function parseFlags(args: string[]): Flags {
@@ -389,9 +390,19 @@ function repoSlugArg(repo: string): string {
  * A team pack is compiled against its own per-pack file for one repo: the
  * only one, `--repo`, or the first project its zone declares. A standalone
  * pack (the mattstack plugin) has no repo; its pack/skills.jsonc IS its
- * manifest.
+ * manifest, and so is a base pack's when binding it. The base check runs
+ * before the repo lookup because a file left under repos/<slug>/packs/<base>/
+ * from before the pack became a base is never swept.
  */
-function findDefaultManifest(mattstackRoot: string, team: string, packDir: string, repo: string | null): string {
+function findDefaultManifest(mattstackRoot: string, team: string, packDir: string, repo: string | null, bind = false): string {
+  const ownManifest = join(packDir, "pack", "skills.jsonc");
+  if (isBasePack(realInitFs, packDir)) {
+    if (bind) return ownManifest;
+    throw new SkillsUsageError(
+      `pack "${team}" is a base pack and has no bindings file of its own; bind it to edit its shared fills, or compile a pack that extends it`,
+    );
+  }
+
   const reposRoot = join(mattstackRoot, "repos");
   const candidates = listSubdirs(reposRoot)
     .map((slug) => ({ slug, path: packManifestPath(mattstackRoot, slug, team) }))
@@ -425,7 +436,6 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
     );
   }
 
-  const ownManifest = join(packDir, "pack", "skills.jsonc");
   // Team packs sit at <repo>/mattstack/packs/<team>; that path shape
   // survives worktrees, unlike the teams-zone location, and a team pack's
   // pack/skills.jsonc is a merge fragment, never its manifest.
@@ -454,6 +464,8 @@ type Resolved = {
   surface: SurfaceConfig | null;
   internalRoster: Set<string>;
   manifestPath: string | null;
+  /** Set only for bind with no --manifest: the manifest is the base pack's own fragment. */
+  base: boolean;
   provenance: Record<string, string>;
   pipelines: Record<string, string[]>;
   stages: VerbDef[];
@@ -504,7 +516,8 @@ async function resolve(flags: Flags): Promise<Resolved> {
 
   const fullRoster = readVerbRoster(packDir);
   // A pack with no verb roster needs no manifest: bindings only feed compile targets.
-  const manifestPath = fullRoster.length === 0 ? null : (flags.manifest ?? findDefaultManifest(mattstackRoot, team, packDir, flags.repo));
+  const manifestPath = fullRoster.length === 0 ? null : (flags.manifest ?? findDefaultManifest(mattstackRoot, team, packDir, flags.repo, flags.bind === true));
+  const base = flags.bind === true && flags.manifest === null && isBasePack(realInitFs, packDir);
   const bindings = manifestPath ? readManifestBindings(manifestPath) : {};
   const provenance = manifestPath ? readManifestProvenance(readFileSync(manifestPath, "utf8")) : {};
   // No compile targets means nothing needs plugin roots or the invocable roster;
@@ -543,7 +556,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
   }
 
   return {
-    packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath, provenance,
+    packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath, base, provenance,
     pipelines, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha,
   };
 }
@@ -1517,6 +1530,7 @@ export async function skillsMaterialize(args: string[]): Promise<void> {
       for (const r of result.repos) {
         console.log(`${r.ok ? "materialized" : r.noManifest ? "no skills declared for" : "failed"} ${r.name}: ${r.detail}`);
         if (r.migrated) console.log(`  renamed the old merged file to ${r.migrated}`);
+        if (r.pruned?.length) console.log(`  ${setAsideLine(r.pruned.length)}: ${r.pruned.join(", ")}`);
       }
     }
     const code = materializeExitCode(result, dir !== undefined);
@@ -2267,11 +2281,15 @@ export async function applyBind(opts: {
   if (!existsSync(fragmentPath)) return writeManifestOnly();
   const fragmentReal = realpathSync(fragmentPath);
   const packDirReal = realpathSync(opts.packDir);
+  const fragmentIsManifest = fragmentReal === realpathSync(opts.manifestPath);
   if (fragmentReal !== packDirReal && !fragmentReal.startsWith(packDirReal + sep)) {
+    if (fragmentIsManifest) {
+      throw new SkillsUsageError(`the bindings file ${fragmentPath} resolves outside the pack (${fragmentReal}); nothing written`);
+    }
     console.error(`rt skills bind: ${fragmentPath} resolves outside the pack; skipping fragment write`);
     return writeManifestOnly();
   }
-  if (fragmentReal === realpathSync(opts.manifestPath)) return writeManifestOnly();
+  if (fragmentIsManifest) return writeManifestOnly();
 
   const fragmentAfter = edit(readFileSync(fragmentPath, "utf8"));
   if (opts.fixtureMode) {
@@ -2312,7 +2330,12 @@ export function regenerateOutcomeFor(result: MaterializeSkillsResult, manifestPa
 }
 
 export async function regeneratePackFile(manifestPath: string): Promise<RegenerateOutcome> {
-  return regenerateOutcomeFor(await materializeSkills(createRealProbes(), {}), manifestPath);
+  const p = createRealProbes();
+  // The missing-engine skip is the actionable reason, so it outranks an unmatched checkout.
+  if (!findEnginePackDir(p)) return regenerateOutcomeFor(await materializeSkills(p, {}), manifestPath);
+  const dir = await registeredCheckoutForSlug(p, manifestRepoKey(manifestPath));
+  if (!dir) return { ok: false, detail: `no registered repo wrote ${manifestPath}` };
+  return regenerateOutcomeFor(await materializeSkills(p, { dir }), manifestPath);
 }
 
 export async function skillsBind(args: string[]): Promise<void> {
@@ -2347,12 +2370,18 @@ export async function skillsBind(args: string[]): Promise<void> {
       mattstackDir: bindFlags.mattstackDir,
       json: false,
       strict: false,
+      bind: true,
     });
 
     // Roster verb wins on a name collision -- resolve() lets compileTargets reject
     // that collision pack-wide, so bind's own tie-break only ever matters for --dry-run.
     const rosterVerb = resolved.fullRoster.find((v) => v.name === verbName);
     const verb = rosterVerb ?? resolved.stages.find((v) => v.name === verbName);
+    if (!verb && resolved.base && resolved.fullRoster.length === 0) {
+      throw new SkillsUsageError(
+        `pack "${resolved.team}" is a base pack with no verbs of its own, so bind cannot check the slot; edit ${join(resolved.packDir, "pack", "skills.jsonc")} directly`,
+      );
+    }
     if (!verb) {
       const knownVerbs = resolved.fullRoster.map((v) => v.name).sort();
       const knownStages = resolved.stages.map((v) => v.name).sort();
@@ -2416,6 +2445,15 @@ export async function skillsBind(args: string[]): Promise<void> {
       fixtureMode: bindFlags.mattstackDir !== null,
       materialize: () => regeneratePackFile(manifestPath),
     });
+    if (resolved.base) {
+      if (bindFlags.json) {
+        console.log(JSON.stringify({ ok: true, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, base: true }));
+        return;
+      }
+      console.log(summary);
+      console.log(`${resolved.team} is a base pack: packs that extend it pick this up once it is published and their bindings files are regenerated`);
+      return;
+    }
     // A recompile here would read the stale bindings file and bake the old fill in.
     if (regenerated === false) {
       process.exitCode = 1;

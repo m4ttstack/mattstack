@@ -1,4 +1,6 @@
-import { resumeAgentPane } from './agent-launch.ts';
+import { resumeAgentPane, resumePackEnv } from './agent-launch.ts';
+import type { BoardConfig } from './config.ts';
+import { reviewSkillForTab } from './data.ts';
 import {
   dispatchPrompt,
   launchLegacyResume,
@@ -9,6 +11,11 @@ import {
   type SkillPathResolver,
 } from './herdr.ts';
 import { launchErrorMessage } from './launch-error.ts';
+import {
+  laneBoardTab,
+  packForLaunch,
+  resolveLaunchSkill,
+} from './manifest-bindings.ts';
 import { respondFilePath, writeRespondState } from './respond-state.ts';
 import {
   readReviewStates,
@@ -26,14 +33,35 @@ export type ReReviewLaunch =
   | { kind: 'launched' }
   | { kind: 'error'; message: string };
 
-/** The launch settings a re-review needs from the board's config. */
-export interface ReReviewCtx {
+/** The skill and pack a launch resolves for one board tab (or none). */
+export interface TabLaunch {
+  skill: string;
+  pack?: string;
+}
+
+/** A review launch for board tab `tab`: the tab's `reviewSkill` when it
+    names one, else the pack's `board:review` binding; the pack is the tab's,
+    else `board.defaultPack`, either way. */
+export function reviewLaunchForTab(
+  cfg: BoardConfig,
+  mrUrl: string,
+  tab: string | undefined,
+  mattstackHome?: string
+): TabLaunch {
+  const pack = packForLaunch(cfg, tab) ?? undefined;
+  const skill = reviewSkillForTab(cfg, tab, mrUrl, (kind, url, t) =>
+    resolveLaunchSkill(kind, url, cfg, packForLaunch(cfg, t), mattstackHome)
+  );
+  return { skill, pack };
+}
+
+/** The launch settings every board launch shares, from the board's config. */
+interface LaunchCtx {
   cwd: string;
   /** The serialized rt repo identity (`repoIdentityField`'s output), threaded
       to startAgentPane as `repo` -- never a bare GitLab project path. */
   repo: string;
   workspaceLabel: string;
-  skill: string;
   author?: string;
   /** cswap account, --model, and --effort forwarded to launchReview's
       startAgentPane call (the board.agent.* settings). Unused on the legacy
@@ -47,9 +75,23 @@ export interface ReReviewCtx {
   claudeCommand?: string;
   /** Operator note from the human who launched the re-review (see operatorNoteParagraph). */
   note?: string;
+}
+
+/** A re-review's settings. The skill and pack come from the board tab the
+    lane launched from, else `boardTabId` (the tab asking, absent for
+    triage), resolved through `forTab`. */
+export interface ReReviewCtx extends LaunchCtx {
   /** false launches a plain first review instead of the re-review framing
       (a peer's first-look ask). Absent means re-review. */
   reReview?: boolean;
+  boardTabId?: string;
+  forTab(tab: string | undefined): TabLaunch;
+}
+
+/** A peer respond ask's settings: it has no board tab, so the caller
+    resolves the skill and pack up front. */
+export interface RespondAskCtx extends LaunchCtx {
+  skill: string;
   /** Team pack the launched wrapper resolves bindings with; rides the pane as MATTSTACK_PACK. */
   pack?: string;
 }
@@ -100,6 +142,9 @@ export async function launchReReview(
 ): Promise<ReReviewLaunch> {
   const existing = io.readReviewStates().get(mrUrl);
   const statePath = io.reviewFilePath(mrUrl);
+  const boardTabId = laneBoardTab(existing?.boardTabId, ctx.boardTabId);
+  const { skill, pack } = ctx.forTab(boardTabId);
+  const lane = { boardTabId: boardTabId ?? '', noPack: !pack };
   const prompt = await dispatchPrompt(
     'board:review',
     {
@@ -107,7 +152,7 @@ export async function launchReReview(
       statePath,
       statusBin: statusBinPath(),
       reportPath: reviewReportPath(statePath),
-      skill: ctx.skill,
+      skill,
       reReview: ctx.reReview ?? true,
       note: ctx.note,
     },
@@ -115,16 +160,14 @@ export async function launchReReview(
   );
 
   if (existing?.agentId) {
-    io.writeReviewState(statePath, {
-      status: 'reviewing',
-      noPack: !ctx.pack,
-    });
+    io.writeReviewState(statePath, { status: 'reviewing', ...lane });
     try {
       const result = await io.resumeAgentPane({
         agentId: existing.agentId,
         prompt,
         workspaceLabel: ctx.workspaceLabel,
         tabLabel: mrTabLabel(iid, ctx.author, 'RE'),
+        env: resumePackEnv(pack),
       });
       if (!result.focusedExisting) {
         io.writeReviewState(statePath, {
@@ -148,10 +191,7 @@ export async function launchReReview(
   }
 
   if (existing?.sessionId) {
-    io.writeReviewState(statePath, {
-      status: 'reviewing',
-      noPack: !ctx.pack,
-    });
+    io.writeReviewState(statePath, { status: 'reviewing', ...lane });
     try {
       const { tabId, workspaceId } = await io.launchLegacyResume({
         mrUrl,
@@ -166,6 +206,7 @@ export async function launchReReview(
         tabPrefix: 'RE',
         author: ctx.author,
         claudeCommand: ctx.claudeCommand,
+        pack,
       });
       io.writeReviewState(statePath, {
         status: 'reviewing',
@@ -184,12 +225,7 @@ export async function launchReReview(
     }
   }
 
-  io.writeReviewState(statePath, {
-    mrUrl,
-    iid,
-    status: 'queued',
-    noPack: !ctx.pack,
-  });
+  io.writeReviewState(statePath, { mrUrl, iid, status: 'queued', ...lane });
   try {
     const result = await io.launchReview({
       mrUrl,
@@ -198,14 +234,14 @@ export async function launchReReview(
       repo: ctx.repo,
       workspaceLabel: ctx.workspaceLabel,
       statePath,
-      skill: ctx.skill,
+      skill,
       reReview: ctx.reReview ?? true,
       author: ctx.author,
       account: ctx.account,
       model: ctx.model,
       effort: ctx.effort,
       note: ctx.note,
-      pack: ctx.pack,
+      pack,
     });
     if (!result.focusedExisting) {
       io.writeReviewState(statePath, {
@@ -248,7 +284,7 @@ export const defaultRespondAskIo: RespondAskIo = {
 export async function launchRespondAsk(
   mrUrl: string,
   iid: number,
-  ctx: ReReviewCtx,
+  ctx: RespondAskCtx,
   io: RespondAskIo = defaultRespondAskIo,
   resolvePath: SkillPathResolver = resolveSkillPath
 ): Promise<ReReviewLaunch> {
@@ -257,6 +293,7 @@ export async function launchRespondAsk(
     mrUrl,
     iid,
     status: 'queued',
+    boardTabId: '',
     noPack: !ctx.pack,
   });
   try {

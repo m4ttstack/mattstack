@@ -25,7 +25,7 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 import {
   deleteAgent, finishAgent, getAgent, identityName, insertAgent, isValidChatName, listAgents, markAgentResumed,
-  newAgentId, reserveAgentHandle, updateAgentPane, updateAgentSessionId, type AgentRecord, type AgentSurface,
+  newAgentId, reserveAgentHandle, updateAgentPack, updateAgentPane, updateAgentSessionId, type AgentRecord, type AgentSurface,
 } from "../../state/index.ts";
 import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, pointerPrompt, writePromptFile, type AgentInvocation, type AgentProvider } from "../../agent-argv/index.ts";
 import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-hooks.ts";
@@ -284,6 +284,32 @@ function isStringRecord(v: unknown): v is Record<string, string> {
 // buildPaneCommand interpolates the key into the pane's shell line raw (only
 // the value is quoted), so anything but a shell-inert identifier is injection.
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function envError(env: unknown, surface: AgentSurface): string | null {
+  if (env === undefined) return null;
+  if (!isStringRecord(env)) return "env must be an object of strings";
+  if (!Object.keys(env).every((k) => ENV_KEY_RE.test(k))) return "invalid env key";
+  // Headless spawns argv directly (no pane shell line for buildPaneCommand
+  // to interpolate env into), so a silently dropped env would run without
+  // the variables the caller thinks it passed.
+  if (surface === "headless") return "env is only supported for the herdr surface";
+  return null;
+}
+
+const PACK_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/** The caller's MATTSTACK_PACK when it is a well-formed pack name; only a name, never other env, is kept on the record. */
+function packFromEnv(env: Record<string, string> | undefined): string | undefined {
+  const pack = env?.MATTSTACK_PACK;
+  return pack !== undefined && PACK_NAME_RE.test(pack) ? pack : undefined;
+}
+
+/** An empty MATTSTACK_PACK is the caller clearing the pack: it never reaches the pane, where an empty exported variable still reads as present. */
+function withoutPackClear(env: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (env?.MATTSTACK_PACK !== "") return env;
+  const { MATTSTACK_PACK: _cleared, ...rest } = env;
+  return rest;
+}
 
 const agentOwner = (id: string): string => `agent:${id}`;
 
@@ -545,18 +571,8 @@ export function createAgentHandlers(opts: {
       if (surface === "headless" && !prompt) {
         return { ok: false, error: `headless launch requires a prompt (${headlessStdinBlurb(provider)})` };
       }
-      if (payload.env !== undefined && !isStringRecord(payload.env)) {
-        return { ok: false, error: "env must be an object of strings" };
-      }
-      if (payload.env !== undefined && !Object.keys(payload.env).every((k) => ENV_KEY_RE.test(k))) {
-        return { ok: false, error: "invalid env key" };
-      }
-      // Headless spawns argv directly (no pane shell line for buildPaneCommand
-      // to interpolate env into), so a silently dropped env would run without
-      // the variables the caller thinks it passed.
-      if (payload.env !== undefined && surface === "headless") {
-        return { ok: false, error: "env is only supported for the herdr surface" };
-      }
+      const startEnvError = envError(payload.env, surface);
+      if (startEnvError) return { ok: false, error: startEnvError };
       if (payload.handle !== undefined && !isValidChatName(payload.handle)) {
         return { ok: false, error: "invalid handle" };
       }
@@ -580,6 +596,8 @@ export function createAgentHandlers(opts: {
       // this field is whether resolveHookSettingsPath sees an explicit
       // subject to gate hook injection on.
       if (payload.subject !== undefined) rec.subject = payload.subject;
+      const pack = packFromEnv(payload.env);
+      if (pack !== undefined) rec.pack = pack;
       const model = payload.model ?? fromSetting(`agent.${provider}.model`, log);
       const effort = payload.effort ?? fromSetting(`agent.${provider}.effort`, log);
       const extraArgs = payload.extraArgs ?? fromSetting(`agent.${provider}.extraArgs`, log);
@@ -637,7 +655,7 @@ export function createAgentHandlers(opts: {
         }
         const effectiveSocket = bgSocket ?? payload.herdrSocket;
         const res = await launch(rec, { kind: "start", sessionId: rec.sessionId }, prompt, tabLabel, workspaceLabel, {
-          ...(payload.env !== undefined && { env: payload.env }),
+          ...(payload.env !== undefined && { env: withoutPackClear(payload.env) }),
           ...(effectiveSocket !== undefined && { herdrSocket: effectiveSocket }),
           ...(payload.trustWaitMs !== undefined && { trustWaitMs: payload.trustWaitMs }),
         });
@@ -699,6 +717,16 @@ export function createAgentHandlers(opts: {
       if (surface === "headless" && !payload.prompt) {
         return { ok: false, error: `headless resume requires a prompt (${headlessStdinBlurb(rec.provider as AgentProvider)})` };
       }
+      const resumeEnvError = envError(payload.env, surface);
+      if (resumeEnvError) return { ok: false, error: resumeEnvError };
+      const resumePack = packFromEnv(payload.env);
+      const clearsPack = payload.env?.MATTSTACK_PACK === "";
+      const callerEnv = withoutPackClear(payload.env);
+      // The daemon's own relaunches (reconciler, gate answer-time resume)
+      // send only an id, so the stored pack stands in for the caller's.
+      const launchEnv = payload.env?.MATTSTACK_PACK === undefined && rec.pack !== undefined && surface === "herdr"
+        ? { ...callerEnv, MATTSTACK_PACK: rec.pack }
+        : callerEnv;
       // ↺ prefix: resume tabs must never dedup against the still-open launch
       // tab; repeated resumes share the label and dedup against each other.
       const tabLabel = payload.tab ?? `↺ ${rec.label ?? rec.id}`;
@@ -722,11 +750,14 @@ export function createAgentHandlers(opts: {
           opts.lifecycle!.watch(ensured.socket);
         }
         const res = await launch(attempt, { kind: "resume", sessionId: rec.sessionId }, payload.prompt, tabLabel, workspaceLabel, {
+          ...(launchEnv !== undefined && { env: launchEnv }),
           ...(bgSocket !== undefined && { herdrSocket: bgSocket }),
         });
         if (!res.ok) return res;
         const now = Date.now();
         markAgentResumed(rec.id, now, db);
+        if (clearsPack && rec.pack !== undefined) updateAgentPack(rec.id, null, db);
+        else if (resumePack !== undefined && resumePack !== rec.pack) updateAgentPack(rec.id, resumePack, db);
         if (wasBg && attempt.paneId) {
           // Same owner, new pane: release the stale claim by the exact ref
           // it was registered under (releaseByPane's own convention), then
