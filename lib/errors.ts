@@ -70,3 +70,33 @@ export function exitUserError(err: UserActionableError, json: boolean, _verb: st
   }
   process.exit(2);
 }
+
+const UNEXPECTED_TITLE = "rt hit an unexpected error";
+const LOG_VIEWER = "rt daemon logs";
+
+/**
+ * The top of the CLI: an expected failure takes exitUserError's route, so
+ * the seam and a verb that handles its own --json write the same envelope;
+ * anything else is one line for the person and a stack for the log.
+ * ExecFailure is sorted out by the caller first, since its exit code is the
+ * plugin's own.
+ */
+export function exitFromDispatch(err: unknown): never {
+  if (err instanceof UserActionableError) return exitUserError(err, process.argv.includes("--json"), "");
+  return exitUnexpected(err);
+}
+
+export function exitUnexpected(err: unknown): never {
+  const message = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error && err.stack ? err.stack : String(err);
+  logCliEvent("error", "cli", message, { stack });
+  // The screen gets the stack only where a person is not reading it live, or
+  // asked for it; the log always has it. Nothing here touches stdout, so an
+  // agent that passed --json reads an empty stdout, never a half envelope.
+  const showStack = !out.isHuman("stderr") || process.env.RT_LOG_LEVEL === "debug";
+  out.fail(
+    { title: UNEXPECTED_TITLE, hint: message.split("\n")[0] ?? message, next: out.cmd(LOG_VIEWER) },
+    ...(showStack ? [out.verbatim(stack.split("\n"), "stack")] : []),
+  );
+  process.exit(1);
+}

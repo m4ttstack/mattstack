@@ -1,7 +1,8 @@
 import { test, expect, beforeEach, afterEach, spyOn } from "bun:test";
-import { readdirSync, readFileSync } from "fs";
-import { join } from "path";
-import { UserActionableError, exitUserError, failureFor, userErrorPayload } from "../errors.ts";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
+import { UserActionableError, exitFromDispatch, exitUnexpected, exitUserError, failureFor, userErrorPayload } from "../errors.ts";
 import { UserActionableError as ViaShim, exitUserError as exitViaShim, userErrorPayload as payloadViaShim } from "../setup/errors.ts";
 import { logsDir } from "../rt-paths.ts";
 import * as out from "../ui/out.ts";
@@ -129,4 +130,115 @@ test("a multi-line message collapses to one title line in plain output", () => {
   const err = new UserActionableError("members-error", "first line\nsecond line");
   expect(() => exitUserError(err, false, "team members sync")).toThrow("exit 2");
   expect(captured.stderr()).toBe("[failed] first line second line\n");
+});
+
+const UNEXPECTED_HEAD = "[failed] rt hit an unexpected error  kaboom\n  next: rt daemon logs\n";
+
+/** Runs fn with --json on argv, the way the real gate and the seam see it. */
+function withJsonArgv(fn: () => void): void {
+  const argv = process.argv;
+  process.argv = [...argv, "--json"];
+  try {
+    fn();
+  } finally {
+    process.argv = argv;
+  }
+}
+
+test("exitFromDispatch: an expected failure is the same block as exitUserError, exit 2", () => {
+  expect(() => exitFromDispatch(teamError())).toThrow("exit 2");
+  expect(captured.stdout()).toBe("");
+  expect(captured.stderr()).toBe(
+    "[failed] This Mac cannot read the acme team's secrets yet\n" +
+      "  why: No age key on this Mac matches the team's recipients.\n" +
+      "  next: rt team pull\n" +
+      "  the full output is in the rt log\n",
+  );
+  expect(lastCliLogLine().module).toBe("errors");
+});
+
+test("exitFromDispatch: an expected failure under --json is the envelope on stdout, nothing on stderr, exit 2", () => {
+  withJsonArgv(() => expect(() => exitFromDispatch(teamError())).toThrow("exit 2"));
+  expect(captured.stderr()).toBe("");
+  expect(captured.lines()).toHaveLength(1);
+  const { at, ...body } = JSON.parse(captured.stdout());
+  expect(typeof at).toBe("string");
+  expect(body).toEqual({ contract: 1, error: { code: "team-secrets-unreadable", message: "This Mac cannot read the acme team's secrets yet", team: "acme" } });
+  expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(2);
+});
+
+test("exitFromDispatch: an unexpected error under --json still writes nothing to stdout", () => {
+  withJsonArgv(() => expect(() => exitFromDispatch(new Error("kaboom"))).toThrow("exit 1"));
+  expect(captured.stdout()).toBe("");
+  expect(captured.stderr().startsWith(UNEXPECTED_HEAD)).toBe(true);
+});
+
+test("exitFromDispatch: anything else is one line with the message as hint and the stack shown off a terminal, exit 1", () => {
+  expect(() => exitFromDispatch(new Error("kaboom"))).toThrow("exit 1");
+  expect(captured.stdout()).toBe("");
+  const text = captured.stderr();
+  expect(text.startsWith(UNEXPECTED_HEAD + "stack:\n  Error: kaboom\n")).toBe(true);
+  expect(text).toContain("      at ");
+  expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
+});
+
+test("exitUnexpected writes the message and stack to the cli log", () => {
+  expect(() => exitUnexpected(new Error("kaboom in the log"))).toThrow("exit 1");
+  const entry = lastCliLogLine();
+  expect(entry.level).toBe("error");
+  expect(entry.module).toBe("cli");
+  expect(entry.msg).toBe("kaboom in the log");
+  expect(String(entry.stack)).toContain("Error: kaboom in the log");
+  expect(String(entry.stack)).toContain("    at ");
+});
+
+test("a thrown non-Error has no stack: the hint is its text and the excerpt repeats it", () => {
+  expect(() => exitUnexpected("boom")).toThrow("exit 1");
+  expect(captured.stderr()).toBe("[failed] rt hit an unexpected error  boom\n  next: rt daemon logs\nstack:\n  boom\n");
+});
+
+test("a multi-line message gives a one-line hint", () => {
+  expect(() => exitUnexpected(new Error("sops -d /x/rt.json: Failed to get the data key required to decrypt the SOPS file.\n\nGroup 0: FAILED"))).toThrow("exit 1");
+  expect(captured.stderr().split("\n")[0]).toBe("[failed] rt hit an unexpected error  sops -d /x/rt.json: Failed to get the data key required to decrypt the SOPS file.");
+});
+
+test("escape sequences in a message or stack never reach the terminal", () => {
+  const err = new Error("evil\x1b[2Jname");
+  err.stack = "Error: evil\x1b[2Jname\n    at run (\x1b[31mboom.ts\x1b[0m:1:7)";
+  expect(() => exitUnexpected(err)).toThrow("exit 1");
+  expect(captured.stderr()).not.toContain("\x1b[");
+  expect(captured.stderr()).toContain("[failed] rt hit an unexpected error  evilname");
+  expect(captured.stderr()).toContain("      at run (boom.ts:1:7)");
+});
+
+test("at a terminal the stack stays in the log unless RT_LOG_LEVEL=debug", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rt-errors-"));
+  const record = join(dir, "record.ndjson");
+  const savedBin = process.env.RT_UI_BIN;
+  const savedFake = process.env.RT_UI_FAKE;
+  const savedLevel = process.env.RT_LOG_LEVEL;
+  process.env.RT_UI_BIN = resolve(import.meta.dir, "..", "ui", "__tests__", "fake-rt-ui.ts");
+  process.env.RT_UI_FAKE = JSON.stringify({ record });
+  out.__test__.setHuman(() => true);
+  const sentTypes = () => readFileSync(record, "utf8").trim().split("\n").slice(1).map((l) => (JSON.parse(l) as { t: string }).t);
+  try {
+    delete process.env.RT_LOG_LEVEL;
+    expect(() => exitUnexpected(new Error("kaboom"))).toThrow("exit 1");
+    expect(sentTypes()).toEqual(["hello", "failure"]);
+    expect(captured.stderr()).toBe("STYLED\n");
+
+    rmSync(record, { force: true });
+    process.env.RT_LOG_LEVEL = "debug";
+    expect(() => exitUnexpected(new Error("kaboom"))).toThrow("exit 1");
+    expect(sentTypes()).toEqual(["hello", "failure", "verbatim"]);
+  } finally {
+    if (savedBin === undefined) delete process.env.RT_UI_BIN;
+    else process.env.RT_UI_BIN = savedBin;
+    if (savedFake === undefined) delete process.env.RT_UI_FAKE;
+    else process.env.RT_UI_FAKE = savedFake;
+    if (savedLevel === undefined) delete process.env.RT_LOG_LEVEL;
+    else process.env.RT_LOG_LEVEL = savedLevel;
+    rmSync(dir, { recursive: true, force: true });
+  }
+  expect(existsSync(record)).toBe(false);
 });
