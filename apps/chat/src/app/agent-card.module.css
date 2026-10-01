@@ -59,6 +59,14 @@
   color: var(--tk-text-1);
 }
 
+.away {
+  font-size: var(--mantine-font-size-md);
+  font-style: italic;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  color: var(--tk-text-3);
+}
+
 .where {
   overflow: hidden;
   font-size: var(--mantine-font-size-xs);
@@ -79,8 +87,4 @@
 
 .actions > .spacer {
   flex: 1;
-}
-
-.quiet {
-  padding-inline: var(--mantine-spacing-xs);
 }

@@ -7,11 +7,6 @@
   cursor: default;
 }
 
-.targetRow {
-  flex: 1;
-  min-width: 0;
-}
-
 .targetFit {
   width: fit-content;
   max-width: 100%;

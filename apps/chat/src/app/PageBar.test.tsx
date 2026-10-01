@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 import './icons';
 
+import { BuddiesProvider } from './buddies-context';
 import { PageBar, RoomMenu } from './PageBar';
 import { fetchMock, installFetchMock } from './test-utils';
 
@@ -35,7 +36,9 @@ test('the members pill counts each herdr state and opens a roster grouped by it,
     />
   );
   const chip = screen.getByTestId('members-chip');
-  expect(chip).toHaveAccessibleName('Members of #build');
+  expect(chip).toHaveAccessibleName(
+    'Members of #build: 1 waiting on you, 1 working, 1 done'
+  );
   expect(screen.getByTestId('members-count-blocked')).toHaveTextContent('1');
   expect(screen.getByTestId('members-count-working')).toHaveTextContent('1');
   expect(screen.getByTestId('members-count-done')).toHaveTextContent('1');
@@ -59,6 +62,69 @@ test('the members pill counts each herdr state and opens a roster grouped by it,
   expect(screen.queryByTestId('members-row-gitq-main')).toBeNull();
   await userEvent.click(screen.getByTestId('members-signed-out'));
   expect(screen.getByTestId('members-row-gitq-main')).toBeInTheDocument();
+});
+
+test("a card docked beside the members dropdown takes its own button's click", async () => {
+  const mention = vi.fn();
+  const max = {
+    sessionId: 's-max',
+    handle: 'max',
+    baseHandle: 'max',
+    name: 'max',
+    signedInAt: 1,
+    lastSeenAt: 1,
+    status: 'live' as const,
+    rooms: ['rt'],
+  };
+  renderWithProviders(
+    <BuddiesProvider
+      buddies={[max]}
+      roomMembers={['max']}
+      now={2}
+      reachable
+      actions={{ mention, dm: vi.fn() }}
+    >
+      <PageBar
+        room={{ room: 'rt', memberCount: 1, unread: 0, mentions: 0 }}
+        buddies={[max]}
+      />
+    </BuddiesProvider>
+  );
+  await userEvent.click(screen.getByTestId('members-chip'));
+  await userEvent.hover(await screen.findByTestId('members-row-max'));
+  await userEvent.click(
+    await screen.findByTestId('card-mention-max', {}, { timeout: 2000 })
+  );
+  expect(mention).toHaveBeenCalledWith('max');
+});
+
+test('an empty room reads a hollow zero on the pill', () => {
+  renderWithProviders(
+    <PageBar
+      room={{ room: 'rt', memberCount: 0, unread: 0, mentions: 0 }}
+      buddies={[]}
+    />
+  );
+  expect(screen.getByTestId('members-chip')).toHaveTextContent('0');
+  expect(screen.getByTestId('members-count-none')).toHaveAttribute(
+    'data-state',
+    'offline'
+  );
+});
+
+test("the pill's label spells out each count, so colour is never the only cue", () => {
+  renderWithProviders(
+    <PageBar
+      room={{ room: 'build', memberCount: 2, unread: 0, mentions: 0 }}
+      buddies={[
+        { handle: 'a', status: 'live', agentStatus: 'blocked' },
+        { handle: 'b', status: 'live' },
+      ]}
+    />
+  );
+  expect(screen.getByTestId('members-chip')).toHaveAccessibleName(
+    'Members of #build: 1 waiting on you, 1 working'
+  );
 });
 
 test("a member's repo shows only when it differs from the room's", async () => {

@@ -56,15 +56,44 @@ export function paneLocation(b: {
     : b.paneWorkspace;
 }
 
-/** How long the state line's state has held: the last heartbeat for a
-    signed-in buddy, the sign-out for one that left. */
-export function stateSince(
-  b: { status: BuddyStatus; lastSeenAt: number; signedOutAt?: number },
-  now: number
-): string {
+type SeenRow = {
+  status: BuddyStatus;
+  lastSeenAt: number;
+  signedOutAt?: number;
+};
+
+/** The age presence can vouch for: the last heartbeat (sign-in or a
+    delivery) for a signed-in buddy, the sign-out for one that left. It is
+    not how long herdr's state has held; herdr reports no such time. */
+export function seenElapsed(b: SeenRow, now: number): string {
   const at =
     b.status === 'offline' && b.signedOutAt !== undefined
       ? b.signedOutAt
       : b.lastSeenAt;
   return formatElapsed(now - at);
+}
+
+/** `seen 3m ago`, or `13m ago` after a sign-out word. */
+export function seenAgo(b: SeenRow, now: number): string {
+  const elapsed = seenElapsed(b, now);
+  return b.status === 'offline' ? `${elapsed} ago` : `seen ${elapsed} ago`;
+}
+
+/** Parity anchor: lib/chat-room-name.ts's `slugifyChatName`, the rule rt
+    names repo rooms with. */
+function slugifyChatName(raw: string): string {
+  const slug = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '');
+  return slug || 'x';
+}
+
+/** Whether `room` is the room rt derives for `repo`: the slugified label,
+    or a path-kind repo's two-segment form ending in it (`pool-gamma` for
+    `gamma`, lib/chat-room.ts). */
+export function isRoomForRepo(room: string, repo: string): boolean {
+  const slug = slugifyChatName(repo);
+  return room === slug || room.endsWith(`-${slug}`);
 }

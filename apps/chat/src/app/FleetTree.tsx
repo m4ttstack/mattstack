@@ -12,7 +12,7 @@ import { useHover } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { RoomSummary } from '@mattstack/rt-client';
 
-import { AGENT_STATE_WORD, agentState, stateSince } from './agent-state';
+import { AGENT_STATE_WORD, agentState, seenAgo } from './agent-state';
 import { AgentHoverCard, AgentName } from './AgentName';
 import {
   displayName,
@@ -563,7 +563,7 @@ function WorkstreamRow({
       <Tooltip
         label={
           reachable
-            ? `${AGENT_STATE_WORD[state]} · ${stateSince(buddy, now)}`
+            ? `${AGENT_STATE_WORD[state]} · ${seenAgo(buddy, now)}`
             : 'presence withheld while the daemon is down'
         }
         position="left"

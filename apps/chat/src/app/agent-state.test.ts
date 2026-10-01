@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'vitest';
 
-import { agentState, paneLocation, stateSince } from './agent-state';
+import {
+  agentState,
+  isRoomForRepo,
+  paneLocation,
+  seenAgo,
+  seenElapsed,
+} from './agent-state';
 
 describe('agentState', () => {
   test('a signed-out buddy is offline whatever herdr last said', () => {
@@ -45,19 +51,34 @@ describe('paneLocation', () => {
   });
 });
 
-describe('stateSince', () => {
-  test('a signed-in buddy reads its last heartbeat age', () => {
-    expect(stateSince({ status: 'live', lastSeenAt: 1_000 }, 181_000)).toBe(
+describe('seenAgo', () => {
+  test('a signed-in buddy reads as seen, never as a state age', () => {
+    expect(seenAgo({ status: 'live', lastSeenAt: 1_000 }, 181_000)).toBe(
+      'seen 3m ago'
+    );
+    expect(seenElapsed({ status: 'live', lastSeenAt: 1_000 }, 181_000)).toBe(
       '3m'
     );
   });
 
   test('a signed-out buddy reads how long ago it left', () => {
     expect(
-      stateSince(
+      seenAgo(
         { status: 'offline', lastSeenAt: 0, signedOutAt: 60_000 },
         660_000
       )
-    ).toBe('10m');
+    ).toBe('10m ago');
+  });
+});
+
+describe('isRoomForRepo', () => {
+  test("a repo's slug or a path-kind repo's two-segment room both match", () => {
+    expect(isRoomForRepo('rt', 'rt')).toBe(true);
+    expect(isRoomForRepo('my-app', 'My App')).toBe(true);
+    expect(isRoomForRepo('pool-gamma', 'gamma')).toBe(true);
+  });
+
+  test('another repo does not', () => {
+    expect(isRoomForRepo('rt', 'acme-api')).toBe(false);
   });
 });

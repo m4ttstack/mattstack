@@ -1,14 +1,22 @@
 import { Fragment, useState } from 'react';
 import {
+  Badge,
   Button,
   Popover,
   ScrollArea,
+  Tooltip,
   UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { AnimatedChevron, Icon } from '@mattstack/app-kit/icons';
 import type { AgentStatus, RoomSummary } from '@mattstack/rt-client';
 
-import { agentState, stateSince, type AgentState } from './agent-state';
+import {
+  AGENT_STATE_WORD,
+  agentState,
+  isRoomForRepo,
+  seenElapsed,
+  type AgentState,
+} from './agent-state';
 import { AgentHoverCard, HandleAvatar } from './AgentName';
 import { useBuddies } from './buddies-context';
 import { doing, type DoingInput } from './doing';
@@ -51,7 +59,7 @@ function MemberRow({
   // The room is usually named for its repo, so the chip only earns its place
   // on an agent working somewhere else.
   const otherRepo =
-    room.kind !== 'dm' && member.repo && member.repo !== room.room
+    room.kind !== 'dm' && member.repo && !isRoomForRepo(room.room, member.repo)
       ? member.repo
       : undefined;
   const row = (
@@ -60,10 +68,19 @@ function MemberRow({
       <div className={classes.text}>
         <div className={classes.line}>
           <span className={classes.name}>{name}</span>
-          {otherRepo && <span className={classes.repo}>{otherRepo}</span>}
+          {otherRepo && (
+            <Badge
+              variant="outline"
+              size="sm"
+              color="gray"
+              classNames={{ root: classes.repo }}
+            >
+              {otherRepo}
+            </Badge>
+          )}
           {member.lastSeenAt !== undefined && (
             <span className={classes.age}>
-              {stateSince({ ...member, lastSeenAt: member.lastSeenAt }, now)}
+              {seenElapsed({ ...member, lastSeenAt: member.lastSeenAt }, now)}
             </span>
           )}
         </div>
@@ -117,6 +134,9 @@ export function RoomMembers({
   const roomLabel = room.kind === 'dm' ? 'conversation' : `#${room.room}`;
   const nameOf = (b: MemberBuddy) =>
     b.name ?? ctx?.nameOf(b.handle) ?? b.handle;
+  const tally = groups.map(
+    g => `${g.members.length} ${AGENT_STATE_WORD[g.state].toLowerCase()}`
+  );
 
   return (
     <Popover
@@ -128,6 +148,11 @@ export function RoomMembers({
       radius="lg"
       width={320}
       trapFocus
+      // A row's agent card is portalled outside this dropdown, so a mousedown
+      // on its buttons would read as outside and close the list (and the card
+      // with it) before the click lands. On click, the button's handler runs
+      // first.
+      clickOutsideEvents={['click', 'touchend']}
       classNames={{ dropdown: classes.dropdown }}
     >
       <Popover.Target>
@@ -135,7 +160,11 @@ export function RoomMembers({
           variant="default"
           size="sm"
           data-testid="members-chip"
-          aria-label={`Members of ${roomLabel}`}
+          aria-label={
+            tally.length > 0
+              ? `Members of ${roomLabel}: ${tally.join(', ')}`
+              : `Members of ${roomLabel}`
+          }
           onClick={() => setOpened(o => !o)}
           leftSection={
             stack.length > 0 ? (
@@ -153,25 +182,32 @@ export function RoomMembers({
           }
           rightSection={<AnimatedChevron opened={opened} size={14} />}
         >
-          <span className={classes.counts}>
-            {groups.length > 0 ? (
-              groups.map(g => (
-                <span
-                  key={g.state}
-                  className={classes.countItem}
-                  data-testid={`members-count-${g.state}`}
-                >
-                  <StateDot state={g.state} />
-                  {g.members.length}
+          <Tooltip
+            label={tally.join(' · ')}
+            disabled={opened || tally.length === 0}
+            openDelay={300}
+            withinPortal
+          >
+            <span className={classes.counts}>
+              {groups.length > 0 ? (
+                groups.map(g => (
+                  <span
+                    key={g.state}
+                    className={classes.countItem}
+                    data-testid={`members-count-${g.state}`}
+                  >
+                    <StateDot state={g.state} />
+                    {g.members.length}
+                  </span>
+                ))
+              ) : (
+                <span className={classes.countItem}>
+                  <StateDot state="offline" testId="members-count-none" />0
                 </span>
-              ))
-            ) : (
-              <span className={classes.countItem}>
-                <StateDot state="offline" testId="members-count-none" />0
-              </span>
-            )}
-            {!reachable && <span>last known</span>}
-          </span>
+              )}
+              {!reachable && <span>last known</span>}
+            </span>
+          </Tooltip>
         </Button>
       </Popover.Target>
       <Popover.Dropdown data-testid="members-dropdown">
@@ -224,23 +260,27 @@ export function RoomMembers({
               </div>
             </ScrollArea.Autosize>
             {offline.length > 0 && (
-              <UnstyledButton
-                className={classes.signedOut}
-                aria-expanded={offlineOpen}
-                data-testid="members-signed-out"
-                onClick={() => setOfflineOpen(o => !o)}
-              >
-                <Icon
-                  name={offlineOpen ? 'chevronDown' : 'chevronRight'}
-                  size={12}
-                />
-                {offline.length} signed out
-                {!offlineOpen && (
-                  <span className={classes.names}>
-                    {offline.map(nameOf).join(' ')}
+              <div className={classes.signedOutRule}>
+                <UnstyledButton
+                  className={classes.signedOut}
+                  aria-expanded={offlineOpen}
+                  data-testid="members-signed-out"
+                  onClick={() => setOfflineOpen(o => !o)}
+                >
+                  <span className={classes.signedOutLabel}>
+                    <Icon
+                      name={offlineOpen ? 'chevronDown' : 'chevronRight'}
+                      size={12}
+                    />
+                    {offline.length} signed out
                   </span>
-                )}
-              </UnstyledButton>
+                  {!offlineOpen && (
+                    <span className={classes.names}>
+                      {offline.map(nameOf).join(' ')}
+                    </span>
+                  )}
+                </UnstyledButton>
+              </div>
             )}
           </>
         ) : (

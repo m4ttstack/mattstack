@@ -83,10 +83,22 @@ test("the card's status line reads herdr's state and its location reads workspac
     />
   );
   expect(screen.getByTestId('status-jay')).toHaveTextContent(
-    'Waiting on you · 1s'
+    'Waiting on you · seen 1s ago'
   );
   expect(screen.getByTestId('where-jay')).toHaveTextContent(
     'boxscore › metrics hardening'
+  );
+});
+
+test("an away message reads as a quote, so it can't pass for a pane title", () => {
+  renderWithProviders(
+    <AgentCard
+      buddy={{ ...row('ava', 'ava'), statusText: 'release coordinator' }}
+      now={NOW}
+    />
+  );
+  expect(screen.getByTestId('away-ava')).toHaveTextContent(
+    '“release coordinator”'
   );
 });
 

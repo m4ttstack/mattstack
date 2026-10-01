@@ -1,11 +1,4 @@
-import {
-  Box,
-  Button,
-  Group,
-  HoverCard,
-  Stack,
-  Text,
-} from '@mattstack/app-kit/core';
+import { Box, Button, Group, HoverCard, Text } from '@mattstack/app-kit/core';
 import { Invadr } from 'invadrs/react';
 
 import cardClasses from './agent-card.module.css';
@@ -14,7 +7,7 @@ import {
   AGENT_STATE_WORD,
   agentState,
   paneLocation,
-  stateSince,
+  seenAgo,
 } from './agent-state';
 import { useBuddies } from './buddies-context';
 import { displayName } from './display-name';
@@ -24,12 +17,11 @@ import type { RosterBuddy } from './roster-types';
 import { HANDLE_PALETTE, type SpeakerHue } from './speaker-hue';
 import { StateDot } from './StateDot';
 
-export type AgentNameVariant = 'row' | 'inline' | 'name';
+export type AgentNameVariant = 'inline' | 'name';
 
 /** One avatar size per variant, each lifted from an existing spec value
-    (tag height, badge height, chip height) rather than a new number. */
+    (badge height, chip height) rather than a new number. */
 const AVATAR_SIZE: Record<AgentNameVariant, number> = {
-  row: 18,
   inline: 22,
   name: 14,
 };
@@ -95,9 +87,8 @@ export interface AgentNameProps {
   handle: string;
   /** Display name; unset falls back to the roster row, the context directory, then the id. */
   name?: string;
-  /** `row`: a roster row (sm name, status word, away line). `inline`: a
-      message sender (lg name, repo token). `name`: the bare name at the
-      surrounding size, for chips and DM pairs. */
+  /** `inline`: a message sender (lg name, repo token). `name`: the bare
+      name at the surrounding size, for chips and DM pairs. */
   variant?: AgentNameVariant;
   /** `false` drops the hover card and, with it, the hover styling -- both
       hang off the card's `.target` wrapper, so neither survives without it.
@@ -122,10 +113,10 @@ export interface AgentNameProps {
   now?: number;
   inRoom?: boolean;
   /** `doing()`'s result for this handle, the caller's own since it already
-      holds the buddy row and the clock (`now`) this renders under. `row`
-      and `inline` render it after the repo token; the hover card renders
-      it as its own second line. An away message (`kind: 'away'`) is
-      skipped here -- the existing italic curly-quote line covers it. */
+      holds the buddy row and the clock (`now`) this renders under.
+      `inline` renders it after the repo token, skipping an away message
+      (`kind: 'away'`); the card renders it as its own line, an away
+      message in quotes. */
   task?: DoingLine | null;
 }
 
@@ -219,12 +210,12 @@ export function AgentCard({
   // shows the title/branch instead of nothing.
   const displayTask =
     task === undefined && reachable ? doing(buddy, now) : task;
-  const taskText =
+  const taskLine =
     reachable &&
     displayTask &&
     displayTask.kind !== 'path' &&
     displayTask.kind !== 'signed-out'
-      ? displayTask.text
+      ? displayTask
       : undefined;
   const where =
     paneLocation(buddy) ??
@@ -243,14 +234,24 @@ export function AgentCard({
           >
             <StateDot state={reachable ? state : 'offline'} size="sm" />
             {reachable
-              ? `${AGENT_STATE_WORD[state]} · ${stateSince(buddy, now)}`
+              ? `${AGENT_STATE_WORD[state]} · ${seenAgo(buddy, now)}`
               : 'presence unknown while the daemon is down'}
           </span>
         </div>
       </div>
-      {(taskText || where) && (
+      {(taskLine || where) && (
         <div className={cardClasses.body}>
-          {taskText && <span className={cardClasses.task}>{taskText}</span>}
+          {taskLine &&
+            (taskLine.kind === 'away' ? (
+              <span
+                className={cardClasses.away}
+                data-testid={`away-${buddy.handle}`}
+              >
+                “{taskLine.text}”
+              </span>
+            ) : (
+              <span className={cardClasses.task}>{taskLine.text}</span>
+            ))}
           {where && (
             <span
               className={cardClasses.where}
@@ -277,7 +278,6 @@ export function AgentCard({
             size="sm"
             variant="subtle"
             color="gray"
-            classNames={{ root: cardClasses.quiet }}
             disabled={!inRoom}
             onClick={() => ctx.actions?.mention(buddy.handle)}
             data-testid={`card-mention-${buddy.handle}`}
@@ -288,7 +288,6 @@ export function AgentCard({
             size="sm"
             variant="subtle"
             color="gray"
-            classNames={{ root: cardClasses.quiet }}
             onClick={() => ctx.actions?.dm(buddy.handle)}
             data-testid={`card-dm-${buddy.handle}`}
           >
@@ -314,7 +313,7 @@ export function AgentHoverCard({
   children,
 }: {
   buddy: RosterBuddy;
-  position?: 'bottom-start' | 'right-start' | 'left-start';
+  position?: 'bottom-start' | 'right-start';
   offset?: number;
   reachable?: boolean;
   now?: number;
@@ -326,7 +325,7 @@ export function AgentHoverCard({
     <HoverCard
       position={position}
       offset={offset}
-      width={320}
+      width={340}
       openDelay={500}
       closeDelay={120}
       withinPortal
@@ -368,50 +367,12 @@ export function AgentName({
 }: AgentNameProps) {
   const ctx = useBuddies();
   const buddy = buddyProp ?? ctx?.byHandle.get(handle);
-  const reachable = reachableProp ?? ctx?.reachable ?? true;
   const shown = name ?? buddy?.name ?? ctx?.nameOf(handle) ?? handle;
   const repo = repoToken(buddy);
   const showTask = task && task.kind !== 'away';
 
   let label: React.ReactNode;
-  if (variant === 'row') {
-    label = (
-      <Group gap="xs" wrap="nowrap" align="center" style={{ minWidth: 0 }}>
-        {withAvatar && <HandleAvatar handle={handle} variant={variant} />}
-        <Stack gap={1} style={{ flex: 1, minWidth: 0 }}>
-          <Group gap={0} wrap="nowrap" align="baseline" style={{ minWidth: 0 }}>
-            <Group
-              gap={0}
-              wrap="nowrap"
-              align="baseline"
-              className={classes.name}
-              style={{ minWidth: 0 }}
-            >
-              <Text
-                size="sm"
-                fw={600}
-
-                style={{ flex: 'none' }}
-              >
-                {shown}
-              </Text>
-              {repo && <RepoToken repo={repo} />}
-              {showTask && <TaskLine handle={handle} task={task!} />}
-            </Group>
-          </Group>
-          {reachable && buddy?.statusText && (
-            <Text
-              component="span"
-              data-testid={`away-${handle}`}
-              style={{ ...MUTED_XS, fontStyle: 'italic' }}
-            >
-              “{buddy.statusText}”
-            </Text>
-          )}
-        </Stack>
-      </Group>
-    );
-  } else if (variant === 'inline') {
+  if (variant === 'inline') {
     label = (
       <Group
         gap={0}
@@ -484,7 +445,6 @@ export function AgentName({
   return (
     <AgentHoverCard
       buddy={buddy}
-      position={variant === 'row' ? 'left-start' : 'bottom-start'}
       reachable={reachableProp}
       now={now}
       inRoom={inRoom}
@@ -493,15 +453,8 @@ export function AgentName({
       {variant === 'name' ? (
         <span className={classes.target}>{label}</span>
       ) : (
-        // The row fills its line (the status word rides its right edge); a
-        // sender sizes to its text, or the wash would run to the margin.
-        <Box
-          className={`${classes.target} ${
-            variant === 'row' ? classes.targetRow : classes.targetFit
-          }`}
-        >
-          {label}
-        </Box>
+        // A sender sizes to its text, or the wash would run to the margin.
+        <Box className={`${classes.target} ${classes.targetFit}`}>{label}</Box>
       )}
     </AgentHoverCard>
   );

@@ -120,15 +120,8 @@
 }
 
 .repo {
-  overflow: hidden;
+  flex-shrink: 1;
   min-width: 0;
-  padding: 0 6px;
-  border: 1px solid var(--tk-border-soft);
-  border-radius: var(--mantine-radius-sm);
-  font-size: var(--mantine-font-size-xs);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: var(--tk-text-3);
 }
 
 .age {
@@ -146,6 +139,10 @@
   color: var(--tk-text-3);
 }
 
+.signedOutRule {
+  border-top: 1px solid var(--tk-border-soft);
+}
+
 .signedOut {
   display: flex;
   align-items: center;
@@ -153,7 +150,13 @@
   width: 100%;
   min-width: 0;
   padding: var(--mantine-spacing-sm);
-  border-top: 1px solid var(--tk-border-soft);
+}
+
+.signedOutLabel {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
   font-size: var(--mantine-font-size-xs);
   color: var(--tk-text-3);
 }
@@ -161,6 +164,7 @@
 .names {
   overflow: hidden;
   min-width: 0;
+  font-size: var(--mantine-font-size-xs);
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--tk-text-4);
