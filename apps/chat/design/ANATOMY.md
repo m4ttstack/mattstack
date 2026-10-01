@@ -69,9 +69,12 @@ a room:
   row with no hash, the name in `.grp` (muted 11.2px), and `no room` on the
   right; it is not clickable.
 - **Workstream rows** (`.ws`, 30px, indented `26.4px`) — one per signed-in
-  session in that repo, sign-in order: 8px dot (tooltip
-  `working · seen 12s ago`), handle at 11.2px / 600, then the task line
-  filling the row. When two or more rows in the tree share a name, each
+  session in that repo, sign-in order: 8px dot in herdr's state (green
+  working, orange done, red waiting on you; tooltip `Working · 12s`),
+  handle at 11.2px / 600, then the task line filling the row. Nothing
+  overlays the task on hover: the row's highlight is the click hint, and
+  after the hover delay the agent card docks to the sidebar's right, level
+  with the row (desktop only). When two or more rows in the tree share a name, each
   carries its id-seeded avatar before the name, and its aria-label names it
   with its place in the tree (`Focus remy (1 of 2)'s pane`); a unique name
   gets neither. `.ws.on` marks the selected workstream. Clicking focuses
@@ -162,18 +165,22 @@ Daemon down: the banner sits above both panels; chips become
 Console's second 64px bar. Title at **20px / 700** (`#rt`, or the `a ↔ b`
 pair plus a `dm` tag for a DM).
 
-Room chips, all `.chip` (22px, radius 6px, 10.56px / 500): `N in room`,
-`N working` (`.chip.live` + dot), `N idle` (`.chip.idle`), `N offline`
-(`.chip.offline`), `wakes: <mode>`. A chip whose count is **≤2 names its
-handles**: `1 working: max`. DM chips: `both working` (or the pair of
-statuses) and one chip per end's task line.
+The members pill replaces the room chips, drawn on
+`docs/apps/design/chat/chat.pen` (boards 05 and 07), not the artboards: a
+stack of up to three sprites, then one dot and count per herdr state (red
+waiting on you, green working, orange done), then the chevron. It opens the
+room dropdown: `N in #room` and `wakes: <mode>` in its header, members
+grouped `Needs you` / `Working` / `Done` as two-line rows (name, a repo chip
+only when it differs from the room's, the age; the task line under it), and
+the signed-out members folded into one `N signed out` row. Hovering a row
+docks the agent card to the dropdown's right, level with the row.
 
-Right side: `add agents` (`.btn.sm`, user-plus), `mark read` with the count,
-and the 30px ⋯ menu (`Close #room` / `Close this conversation`). The old
-`join order` select is gone — rows keep sign-in order.
+Right side: `add agents`, `mark read` with the count, and the expand-all
+toggle, all at the kit's `sm` size. The old `join order` select is gone —
+rows keep sign-in order.
 
-Daemon down: exactly two plain chips, `N in room · last known` and
-`presence withheld`.
+Daemon down: the pill reads `last known` and the dropdown withholds
+presence.
 
 ## Transcript — room and DM
 
@@ -219,12 +226,15 @@ A DM transcript opens with `start of this conversation · <day>`.
 
 ## Hover card (every handle)
 
-A `.pop`, 300px: dot + `.hpill` (the display name) + status word header;
-then **the task line** at `.sm` / 500 (omitted when the fallback is the
-muted folder form); then the `.kv` grid (repo, where (`branch · pane
-wBT:p1`), path (`.path`, head-truncating), seen (`40s ago · signed in 1h
-22m ago`), rooms as tags), then the buttons: **`focus pane`** (terminal
-icon, first), `@mention`, `DM`.
+Drawn on `docs/apps/design/chat/chat.pen` (board 06's V2), not the
+artboards. 320px: the sprite, the name at 16px / 700, and one status line
+(dot, herdr's state word, the age; red only when the agent is waiting on
+you). Then the task line (omitted when the fallback is the folder form) and
+one muted `workspace › tab` line saying where the pane lives in herdr (repo
+and branch when there is no pane; herdr's numbered default tab label is
+dropped). Then `Focus pane` as the one filled button, with quiet `Mention`
+and `Message` on the right. In the sidebar and the room dropdown the card
+docks to the list's right, level with the row, so the list never moves.
 
 ## Close sheet
 
