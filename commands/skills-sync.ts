@@ -79,12 +79,13 @@ export function manifestTarget(args: string[]): { manifest?: string; repo?: stri
   return { ...(manifest ? { manifest } : {}), ...(repo ? { repo } : {}) };
 }
 
-export function syncMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string } {
-  if (r.skipped) return { ok: true, detail: `skipped: ${r.reason}` };
+export function syncMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[] } {
+  if (r.skipped) return { ok: true, detail: `skipped: ${r.reason}`, warnings: [] };
+  const warnings = r.repos.flatMap((row) => (row.pruneWarnings ?? []).map((w) => `${row.name}: ${w}`));
   const verdict = packVerdict(r.repos, pack);
-  if (verdict.failures.length > 0) return { ok: false, detail: verdict.failures.join("; ") };
+  if (verdict.failures.length > 0) return { ok: false, detail: verdict.failures.join("; "), warnings };
   const others = verdict.warnings.length > 0 ? `; other packs failed: ${verdict.warnings.join("; ")}` : "";
-  return { ok: true, detail: `materialized ${verdict.written} ${pack} pack file${verdict.written === 1 ? "" : "s"}${others}` };
+  return { ok: true, detail: `materialized ${verdict.written} ${pack} pack file${verdict.written === 1 ? "" : "s"}${others}`, warnings };
 }
 
 function stepLine(step: SyncStep): string {

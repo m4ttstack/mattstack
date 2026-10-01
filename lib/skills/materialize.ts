@@ -91,7 +91,9 @@ function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, ow
  * header records is present here (its marker reads as a team zone and its team.jsonc parses) and no longer holds a
  * claiming pack of that name for this repo. A file whose zone is absent or partial (not cloned yet, mid-sync, an
  * unreadable mount) or that records no zone is left alone, as is every pack this run claimed, ok or failed, so a
- * broken pack keeps its last good bindings.
+ * broken pack keeps its last good bindings. One limit remains: a pack directory caught mid-checkout (its
+ * pack/skills.jsonc momentarily absent) reads as no longer claiming, so its file can be set aside until the next
+ * materialize rewrites it; that is a rename, never a delete.
  */
 function setAsideStale(deps: MaterializeDeps, ref: RepoRef, owned: Set<string>, allZones: ZoneInfo[]): { pruned: string[]; warnings: string[] } {
   const pruned: string[] = [];

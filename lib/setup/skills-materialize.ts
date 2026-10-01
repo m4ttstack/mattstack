@@ -143,7 +143,8 @@ export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: 
     } else if (outcome.kind === "undeclared") {
       repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares ${outcome.repo}` });
     } else if (outcome.packs.length === 0) {
-      repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares a pack for ${outcome.repo}`, pruned: outcome.pruned, pruneWarnings: outcome.pruneWarnings });
+      const detail = [`no team declares a pack for ${outcome.repo}`, ...outcome.pruneWarnings].join("; ");
+      repos.push({ ...target, ok: false, noManifest: true, detail, pruned: outcome.pruned, pruneWarnings: outcome.pruneWarnings });
     } else {
       const detail = [describe(outcome.packs), ...outcome.pruneWarnings].join("; ");
       repos.push({ ...target, ok: outcome.packs.every((pk) => pk.ok), detail, packs: outcome.packs, migrated: outcome.migrated, pruned: outcome.pruned, pruneWarnings: outcome.pruneWarnings });

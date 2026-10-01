@@ -88,9 +88,10 @@ export function isBasePack(fs: Pick<InitFs, "readFile">, dir: string): boolean {
   }
 }
 
+/** A base pack never claims a repo, so it does not occupy the zone's one pack slot. */
 function zoneHasPack(fs: InitFs, dir: string): boolean {
   const packs = join(dir, "mattstack", "packs");
-  return fs.readDir(packs).some((name) => isPackDir(fs, join(packs, name)));
+  return fs.readDir(packs).some((name) => isPackDir(fs, join(packs, name)) && !isBasePack(fs, join(packs, name)));
 }
 
 export function readZones(fs: InitFs, home: string): ZoneInfo[] {
@@ -337,7 +338,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
     return refuse("zone-mismatch", `zone "${choice.zone.slug}" is on ${choice.zone.host}, the repo is on ${repo.host}`);
   }
   if (choice.kind === "has-pack") {
-    return refuse("zone-has-pack", `zone "${choice.zone.slug}" already carries a pack; a zone hosts one pack, so create a zone for this team (rt team create)`);
+    return refuse("zone-has-pack", `zone "${choice.zone.slug}" already carries a pack that claims repos; a zone hosts one such pack (a base pack may sit beside it), so create a zone for this team (rt team create)`);
   }
   const zone = choice.zone;
   const pack = zone.namespace;
