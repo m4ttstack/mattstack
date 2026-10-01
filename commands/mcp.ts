@@ -1,5 +1,6 @@
 import { mcpTools, type McpToolDef } from "../lib/mcp/tools.ts";
 import { callTool } from "../lib/mcp/redact.ts";
+import * as out from "../lib/ui/out.ts";
 
 declare const RT_VERSION: string;
 
@@ -9,7 +10,7 @@ export function mcpToolsPayload(tools: McpToolDef[] = mcpTools()): { tools: Arra
 
 export async function mcpToolsList(args: string[]): Promise<void> {
   const payload = mcpToolsPayload();
-  if (args.includes("--json")) { console.log(JSON.stringify(payload)); return; }
+  if (args.includes("--json")) { out.json(payload); return; }
   for (const t of payload.tools) console.log(t.name);
 }
 
