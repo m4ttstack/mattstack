@@ -9,7 +9,9 @@ export const SCOPE_COLOR: Record<StoreScope, string> = {
   machine: 'accent',
 };
 
-export function ScopeDot({ scope }: { scope: StoreScope }) {
+type BadgeBase = StoreScope | 'default';
+
+export function ScopeDot({ scope }: { scope: BadgeBase }) {
   return (
     <Box
       component="span"
@@ -19,7 +21,7 @@ export function ScopeDot({ scope }: { scope: StoreScope }) {
         display: 'inline-block',
         borderRadius: '50%',
         flex: 'none',
-        background: `var(--mantine-color-${SCOPE_COLOR[scope]}-filled)`,
+        background: `var(--mantine-color-${scope === 'default' ? 'gray' : SCOPE_COLOR[scope]}-filled)`,
       }}
     />
   );
@@ -31,21 +33,22 @@ export function ScopeBadge({
   scope,
   bare = false,
 }: {
-  scope: LayerScope;
+  scope: LayerScope | 'default';
   bare?: boolean;
 }) {
-  const base = rungBase(scope)!;
+  const base: BadgeBase = scope === 'default' ? 'default' : rungBase(scope)!;
   const named = useSettingsTeam();
   const team = bare ? null : named;
+  const hue = base === 'default' ? null : SCOPE_COLOR[base];
   return (
     <Badge
       variant="light"
-      color={SCOPE_COLOR[base]}
+      color={hue ?? 'gray'}
       radius="sm"
       tt="none"
       fw={500}
       lts={0}
-      c={`var(--tk-text-${SCOPE_COLOR[base]}-small)`}
+      c={hue ? `var(--tk-text-${hue}-small)` : undefined}
       leftSection={<ScopeDot scope={base} />}
       style={{
         '--badge-height': '17px',
@@ -55,7 +58,7 @@ export function ScopeBadge({
       }}
       styles={{ section: { marginInlineEnd: 4 } }}
     >
-      {layerLabel(scope, team)}
+      {scope === 'default' ? 'default' : layerLabel(scope, team)}
     </Badge>
   );
 }

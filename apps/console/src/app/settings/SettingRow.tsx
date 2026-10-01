@@ -1,8 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActionIcon,
   Box,
-  Button,
   Collapse,
   Group,
   Highlight,
@@ -13,29 +12,19 @@ import {
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
-import {
-  formatValue,
-  rowKind,
-  SHAPES,
-  summarize,
-} from '@mattstack/settings-kit/shapes';
 
-import { compositeParts } from './CompositeControls';
 import { IssueLines } from './IssueLines';
 import type { WireIssue } from './issues';
 import { RepoReach } from './RepoReach';
 import { RowMenu, SLOT } from './RowMenu';
-import { ScalarControl } from './ScalarControl';
+import { useRowParts } from './rowParts';
 import { ScopeBadge } from './ScopeBadge';
-import { useSettingsRepo } from './useConsoleSettings';
 import { useRowSave, type RowStore } from './useRowSave';
 import {
   APPROVAL_KEY,
   badgeScope,
   firstSentence,
   isEditable,
-  rungBase,
-  rungOf,
   sourceText,
   splitKey,
   type StoreScope,
@@ -92,101 +81,22 @@ export function SettingRow({
   useEffect(() => {
     if (!open) setAsJson(false);
   }, [open]);
-  const kind = rowKind(def);
   const [ns, name] = splitKey(def.key);
   const badge = badgeScope(def, subhead);
   const isComposite = def.type === 'object' || def.type === 'array';
-  // With no repo picked, every write here would be a global one, which a
-  // repo-only key refuses; the repo reach beside the name says where it is set.
-  const repo = useSettingsRepo();
-  const perRepo = def.repoOnly === true && repo === null;
+  const parts = useRowParts(def, row, {
+    suggestions,
+    open,
+    onToggle: () => setOpen(o => !o),
+    asJson,
+    setAsJson,
+  });
+  const control = parts.control;
+  const body = parts.body;
+  const perRepo = parts.perRepo;
   // A global source label ("unset", "default") says nothing about a key
   // that only lives in repo sections; the repo reach carries it instead.
   const plain = perRepo ? null : sourceText(def);
-
-  let control: ReactNode;
-  let body: ReactNode = null;
-  if (perRepo) {
-    control = (
-      <Text fz={12} c={text.muted}>
-        set per repo
-      </Text>
-    );
-  } else if (def.key === APPROVAL_KEY) {
-    const hash =
-      typeof def.effective.value === 'string' ? def.effective.value : null;
-    const at = rungBase(def.effective.scope) ? def.effective.scope : null;
-    control = (
-      <Group gap={8} wrap="nowrap">
-        {hash && (
-          <Text fz={12} ff="monospace" c={text.muted}>
-            {hash.slice(0, 12)}
-          </Text>
-        )}
-        {hash && at && def.writable && (
-          <Button
-            size="compact-xs"
-            variant="default"
-            onClick={() => void row.clear(at)}
-          >
-            Revoke
-          </Button>
-        )}
-      </Group>
-    );
-  } else if (kind === 'scalar' || kind === 'enum') {
-    control = (
-      <ScalarControl
-        def={def}
-        writeScope={rungOf(row.target.scope, row.target.repo ?? null)}
-        onSave={v => void row.save(v)}
-        suggestions={suggestions}
-      />
-    );
-  } else if (kind === 'external') {
-    const shape = SHAPES[def.key];
-    const owner = shape?.kind === 'external' ? shape.app : 'another app';
-    control = (
-      <Text fz={12} c={text.muted}>
-        {def.effective.value === undefined
-          ? `edited in ${owner}`
-          : `${summarize(def)} · edited in ${owner}`}
-      </Text>
-    );
-  } else if (
-    kind === 'readonly' &&
-    def.type !== 'object' &&
-    def.type !== 'array'
-  ) {
-    // An unset or rejected value is already said by the source text or the
-    // error line; the control repeats nothing.
-    const shown = def.secret
-      ? def.effective.scope === null
-        ? null
-        : '•••'
-      : def.effective.value === undefined
-        ? null
-        : formatValue(def.effective.value);
-    control =
-      shown === null ? null : (
-        <Text fz={12} c={text.muted} ff="monospace">
-          {shown}
-        </Text>
-      );
-  } else {
-    const composite = compositeParts(
-      def,
-      kind,
-      row,
-      open,
-      () => setOpen(o => !o),
-      asJson,
-      () => setAsJson(false),
-      () => setAsJson(true)
-    );
-    control = composite.control;
-    body = composite.body;
-  }
 
   return (
     <Box
