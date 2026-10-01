@@ -36,7 +36,9 @@ import {
 import { outcomeFromChecks, settleChecks, verifyStep } from "../steps/verify.ts";
 import { accountRows } from "../validators/accounts.ts";
 import { teamSyncRow } from "../validators/rt-health.ts";
-import type { Row } from "../contract.ts";
+import { finalizePlan, type Row } from "../contract.ts";
+import { rowsToChecks } from "../../../commands/verify.ts";
+import { updateNotification } from "../update.ts";
 
 // ─── shared fakes (mirrors steps-a/b.test.ts's trivial no-ops) ─────────────
 
@@ -1755,7 +1757,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(outcomeFromChecks([fail("account.gitlab")], rows)).toEqual({ state: "needs-you", detail: "to connect: GitLab" });
       });
 
-      test("a joined board with no switchboard token is left for the member, so rt setup update ends needing them", async () => {
+      test("an unpeered joined board blocks neither Install nor Finish, yet verify reports it and the update notification counts it", async () => {
         const teams = "/fake-home/.mattstack/teams";
         const p = fakeProbes({
           fetch: async () => ({ status: 200, body: "", headers: {} }),
@@ -1767,8 +1769,26 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         });
         const team: TeamSnapshot = { slug: "acme", integrations: { switchboard: { url: "https://sb.test" } }, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
         const rows = await accountRows(p, team, [], { has: async () => null }, null, { switchboardUrl: "https://sb.test" });
-        expect(rows.find((r) => r.id === "account.switchboard")?.status).toBe("needs-you");
-        expect(outcomeFromChecks([fail("account.switchboard")], rows)).toEqual({ state: "needs-you", detail: "to connect: Switchboard" });
+        expect(rows.find((r) => r.id === "account.board-peering")?.status).toBe("needs-you");
+
+        const plan = finalizePlan({ slug: "acme", name: "acme", mode: "none" }, [{ id: "accounts", title: "Accounts", rows }]);
+        expect(plan.canInstall).toBe(true);
+        expect(plan.requiredMissing).toEqual([]);
+        expect(plan.finishBlockedBy).toEqual([]);
+
+        const outcome = outcomeFromChecks(rowsToChecks(plan, { ci: false }), rows);
+        expect(outcome).toEqual({ state: "needs-you", detail: "board not peered: ask the team owner to re-invite you" });
+        expect(updateNotification("1.2.3", [{ id: "verify", state: outcome.state, detail: (outcome as { detail: string }).detail }])?.message).toBe(
+          "verify: board not peered: ask the team owner to re-invite you",
+        );
+      });
+
+      test("an unpeered board sits beside other member tasks in verify's summary", () => {
+        const rows = [rowOf("account.slack", "account", "Slack", "missing"), { ...rowOf("account.board-peering", "account", "Board peering", "needs-you"), required: false }];
+        expect(outcomeFromChecks([fail("account.slack"), { name: "account.board-peering", status: "warn", detail: "", severity: "warning" }], rows)).toEqual({
+          state: "needs-you",
+          detail: "to connect: Slack · board not peered: ask the team owner to re-invite you",
+        });
       });
 
       test("a connected account whose credential is now invalid is a genuine failure", () => {
