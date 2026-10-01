@@ -283,7 +283,7 @@ The dispatcher draws the breadcrumb before the handler runs, through
 `out.note`, on stderr, when a person is reading stderr (a terminal, no
 `--json`, no `RT_BATCH`) and the leaf is neither `fullscreen` nor `hidden`.
 It is its own render call (one helper launch per command), so it is first on
-screen whatever the command paints first, and no blank line follows it.
+screen whatever the command paints first, and one blank line follows it.
 
 A spinner that should leave nothing behind is `withTransientStep(label, task)`
 from `lib/ui/transient-step.ts`: the Go step draws it and a `done` event

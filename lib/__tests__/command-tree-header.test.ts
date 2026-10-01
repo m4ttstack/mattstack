@@ -63,8 +63,9 @@ test("at a terminal the breadcrumb is drawn once, on stderr, before the handler 
   expect(drawnBeforeHandler).toBe(CLEAR + "STYLED\n");
   expect(io.stderr()).toBe(CLEAR + "STYLED\n");
   expect(io.stdout()).toBe("");
-  expect(wire()).toEqual(["call", "hello", "section"]);
+  expect(wire()).toEqual(["call", "hello", "section", "table"]);
   expect(sent()[2]).toMatchObject({ t: "section", title: "rt › show" });
+  expect(sent()[3]).toEqual({ t: "table", rows: [{ cells: [[{ text: "" }]] }] });
 });
 
 test("a nested command's breadcrumb names the whole path", async () => {
@@ -73,11 +74,11 @@ test("a nested command's breadcrumb names the whole path", async () => {
   expect(sent()[2]!.title).toBe("rt › fruit › peel");
 });
 
-test("with no helper the breadcrumb is one plain line on stderr", async () => {
+test("with no helper the breadcrumb is one plain line and one empty row on stderr", async () => {
   process.env.RT_UI_BIN = join(dir, "no-such-binary");
   const tree: Record<string, CommandNode> = { show: { description: "Show it", handler: async () => {} } };
   await dispatch(tree, ["show"]);
-  expect(io.stderr()).toMatch(/^\x1b\[2J\x1b\[Hrt › show( \(dev mode\))?\n$/);
+  expect(io.stderr()).toMatch(/^\x1b\[2J\x1b\[Hrt › show( \(dev mode\))?\n\n$/);
   expect(io.stdout()).toBe("");
 });
 

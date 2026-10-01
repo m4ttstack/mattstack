@@ -500,7 +500,8 @@ export async function dispatch(
  */
 function renderHeader(node: CommandNode, breadcrumb: string[]): void {
   if (node.fullscreen || node.hidden || !out.isHuman("stderr")) return;
-  out.note(out.section(breadcrumb.join(" › "), IS_DEV_MODE ? "dev mode" : undefined));
+  // The empty table is the one block that prints a bare empty row plain and nothing visible styled.
+  out.note(out.section(breadcrumb.join(" › "), IS_DEV_MODE ? "dev mode" : undefined), out.table([[""]]));
 }
 
 /** Verb paths ("pane", "worktree provision") from rt.picker.hidden, plus --all. */
