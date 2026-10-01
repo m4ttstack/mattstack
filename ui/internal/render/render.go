@@ -77,5 +77,13 @@ func (r *renderer) block(b protocol.Block) {
 		r.section(b)
 	case "changes":
 		r.changes(b)
+	case "paragraph":
+		r.paragraph(b)
+	case "copy":
+		r.copy(b)
+	case "verbatim":
+		r.verbatim(b)
+	case "diff":
+		r.diff(b)
 	}
 }
