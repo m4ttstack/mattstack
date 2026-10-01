@@ -1,5 +1,7 @@
-// rt-ui renders rt's interactive screens. stdin/stdout carry the protocol;
-// every byte of UI goes to /dev/tty. Exit codes are the contract TS maps.
+// rt-ui renders rt's interactive screens and its static output. For the
+// interactive verbs stdin/stdout carry the protocol and every byte of UI goes
+// to /dev/tty; render is the exception and prints to stdout. Exit codes are
+// the contract TS maps.
 package main
 
 import (
@@ -42,6 +44,8 @@ func main() {
 		os.Exit(runSteps())
 	case "session":
 		os.Exit(runSession(os.Args[2:]))
+	case "render":
+		os.Exit(runRender(os.Args[2:]))
 	default:
 		usage()
 		os.Exit(ExitBadSpec)
@@ -49,5 +53,5 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: rt-ui prompt | rt-ui pick | rt-ui steps | rt-ui session --view <kind> | rt-ui --version")
+	fmt.Fprintln(os.Stderr, "usage: rt-ui prompt | rt-ui pick | rt-ui steps | rt-ui render [--width N] [--no-color] | rt-ui session --view <kind> | rt-ui --version")
 }

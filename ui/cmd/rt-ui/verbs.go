@@ -8,11 +8,15 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 
+	"github.com/charmbracelet/colorprofile"
+
 	"rt-ui/internal/prompt"
 	"rt-ui/internal/protocol"
+	"rt-ui/internal/render"
 	"rt-ui/internal/session"
 	"rt-ui/internal/steps"
 	"rt-ui/internal/tty"
@@ -248,4 +252,70 @@ func viewFor(name string) func(*session.Emitter) session.View {
 		return func(em *session.Emitter) session.View { return session.NewEcho(em) }
 	}
 	return func(*session.Emitter) session.View { return nil }
+}
+
+// runRender prints static blocks to stdout and exits. The color depth comes
+// from the environment, not from stdout, because rt pipes this output and
+// writes it to the terminal itself.
+func runRender(args []string) int {
+	width, noColor := 80, false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--width":
+			if i+1 < len(args) {
+				if n, err := strconv.Atoi(args[i+1]); err == nil {
+					width = n
+				}
+				i++
+			}
+		case "--no-color":
+			noColor = true
+		}
+	}
+
+	sc := bufio.NewScanner(os.Stdin)
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	if !sc.Scan() {
+		fmt.Fprintln(os.Stderr, "rt-ui render: no hello on stdin")
+		return ExitBadSpec
+	}
+	var hello struct {
+		T        string `json:"t"`
+		Protocol int    `json:"protocol"`
+	}
+	if err := json.Unmarshal(sc.Bytes(), &hello); err != nil || hello.T != "hello" {
+		fmt.Fprintln(os.Stderr, "rt-ui render: first line is not a hello")
+		return ExitBadSpec
+	}
+	if hello.Protocol != protocol.Version {
+		fmt.Fprintf(os.Stderr, "rt-ui render: protocol %d, rt-ui speaks %d\n", hello.Protocol, protocol.Version)
+		return ExitBadSpec
+	}
+
+	var blocks []protocol.Block
+	for sc.Scan() {
+		if len(sc.Bytes()) == 0 {
+			continue
+		}
+		b, err := protocol.DecodeBlock(sc.Bytes())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "rt-ui render:", err)
+			return ExitBadSpec
+		}
+		blocks = append(blocks, b)
+	}
+	if err := sc.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "rt-ui render:", err)
+		return ExitBadSpec
+	}
+
+	profile := colorprofile.Env(os.Environ())
+	if noColor {
+		profile = colorprofile.NoTTY
+	}
+	w := &colorprofile.Writer{Forward: os.Stdout, Profile: profile}
+	if _, err := w.WriteString(render.Render(blocks, render.Options{Width: width})); err != nil {
+		return ExitInternal
+	}
+	return ExitOK
 }
