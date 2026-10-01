@@ -16,6 +16,7 @@ export interface ResumableState {
   status: string;
   agentId?: string;
   tabId?: string;
+  boardTabId?: string;
   paneId?: string;
   workspaceId?: string;
   gateId?: string;
@@ -35,9 +36,9 @@ export interface KindResumeIo {
     patch: Partial<ResumableState> & { status: string }
   ): void;
   filePath(mrUrl: string): string;
-  /** Resolve the domain skill the resumed wrapper should delegate to --
-      review honors a tab's `reviewSkill` override via `tabId`; respond/doctor
-      have no such override and ignore it. */
+  /** Resolve the domain skill the resumed wrapper should delegate to.
+      `tabId` is the board tab the lane launched from: its pack picks the
+      binding, and review also honors its `reviewSkill` override. */
   resolveSkill(mrUrl: string, tabId?: string): string;
   /** The pack `resolveSkill` resolves with for the same `tabId`; absent
       means the generic skill, recorded on the state as `noPack`. */
@@ -140,8 +141,8 @@ export async function resumeParkedGate(
   }
 
   const statePath = kindIo.filePath(gate.mrUrl);
-  const skill = kindIo.resolveSkill(gate.mrUrl, gate.tabId);
-  const pack = kindIo.resolvePack(gate.tabId);
+  const skill = kindIo.resolveSkill(gate.mrUrl, gate.boardTabId);
+  const pack = kindIo.resolvePack(gate.boardTabId);
   const noPack = !pack;
   const prompt = await kindIo.prompt(
     gate.mrUrl,
@@ -268,7 +269,7 @@ async function resumeIfMissed(
     openedAt: row.openedAt,
     questions: row.questions as GateQuestion[],
     agentId: state.agentId,
-    tabId: state.tabId,
+    boardTabId: state.boardTabId,
   };
   const resumed = await resumeParkedGate(gate, io, resolvePath);
   if (!resumed) return;

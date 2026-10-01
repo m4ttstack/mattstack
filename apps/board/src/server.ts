@@ -171,7 +171,9 @@ import {
 import { launchErrorMessage } from './launch-error.ts';
 import { hasLocalOrigin, isLocalRequest, requireJsonBody } from './local.ts';
 import {
+  laneBoardTab,
   packForLaunch,
+  requestBoardTab,
   resolveLaunchSkill,
   type BoardSkillKind,
 } from './manifest-bindings.ts';
@@ -1738,6 +1740,7 @@ const httpServer = Bun.serve({
           });
         const resume = (body as { resume?: unknown })?.resume === true;
         const focusOnly = (body as { focus?: unknown })?.focus === true;
+        const boardTabId = requestBoardTab(body);
         const noteParse = parseLaunchNote(body);
         if (!noteParse.ok)
           return new Response(noteParse.error, { status: 400 });
@@ -1776,7 +1779,7 @@ const httpServer = Bun.serve({
               author,
               tabLabel: mrTabLabel(parsed.iid, author, '↺'),
               claudeCommand: config.claudeCommand,
-              pack: launchPack(undefined),
+              pack: launchPack(laneBoardTab(existing.boardTabId, boardTabId)),
             },
             respondReopenIo()
           );
@@ -1802,7 +1805,8 @@ const httpServer = Bun.serve({
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
           status: 'queued',
-          noPack: !launchPack(undefined),
+          boardTabId: boardTabId ?? '',
+          noPack: !launchPack(boardTabId),
         });
         void launchRespond({
           mrUrl: parsed.mrUrl,
@@ -1811,8 +1815,8 @@ const httpServer = Bun.serve({
           repo,
           workspaceLabel: config.respondsWorkspace,
           statePath,
-          skill: resolveLaunchSkillFor('respond', parsed.mrUrl, undefined),
-          pack: launchPack(undefined),
+          skill: resolveLaunchSkillFor('respond', parsed.mrUrl, boardTabId),
+          pack: launchPack(boardTabId),
           author,
           ...loadAgentSettings(),
           ...respondFreshDispatchFields(existing),
@@ -1869,6 +1873,7 @@ const httpServer = Bun.serve({
             status: 400,
           });
         const focusOnly = (body as { focus?: unknown })?.focus === true;
+        const boardTabId = requestBoardTab(body);
         const noteParse = parseLaunchNote(body);
         if (!noteParse.ok)
           return new Response(noteParse.error, { status: 400 });
@@ -1953,7 +1958,8 @@ const httpServer = Bun.serve({
           origin: 'manual',
           tier,
           fixClasses,
-          noPack: !launchPack(undefined),
+          boardTabId: boardTabId ?? '',
+          noPack: !launchPack(boardTabId),
         });
         void launchDoctor({
           mrUrl: parsed.mrUrl,
@@ -1962,8 +1968,8 @@ const httpServer = Bun.serve({
           repo,
           workspaceLabel: config.doctorsWorkspace,
           statePath,
-          skill: resolveLaunchSkillFor('doctor', parsed.mrUrl, undefined),
-          pack: launchPack(undefined),
+          skill: resolveLaunchSkillFor('doctor', parsed.mrUrl, boardTabId),
+          pack: launchPack(boardTabId),
           author,
           ...loadAgentSettings(),
           note: launchNote,
@@ -3515,8 +3521,9 @@ function respondResumeIo(): KindResumeIo {
         patch as Partial<RespondState> & { status: RespondStatus }
       ),
     filePath: respondFilePath,
-    resolveSkill: mrUrl => resolveLaunchSkillFor('respond', mrUrl, undefined),
-    resolvePack: () => launchPack(undefined),
+    resolveSkill: (mrUrl, tabId) =>
+      resolveLaunchSkillFor('respond', mrUrl, tabId),
+    resolvePack: launchPack,
     prompt: (
       mrUrl,
       statePath,
@@ -3553,8 +3560,9 @@ function doctorResumeIo(): KindResumeIo {
         patch as Partial<DoctorState> & { status: DoctorStatus }
       ),
     filePath: doctorFilePath,
-    resolveSkill: mrUrl => resolveLaunchSkillFor('doctor', mrUrl, undefined),
-    resolvePack: () => launchPack(undefined),
+    resolveSkill: (mrUrl, tabId) =>
+      resolveLaunchSkillFor('doctor', mrUrl, tabId),
+    resolvePack: launchPack,
     prompt: (
       mrUrl,
       statePath,

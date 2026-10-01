@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 
 import { parseConfig } from '../config.ts';
 import {
+  laneBoardTab,
   packForLaunch,
+  requestBoardTab,
   resolveBoardSkill,
   resolveLaunchSkill,
 } from '../manifest-bindings.ts';
@@ -284,5 +286,82 @@ describe('resolveLaunchSkill', () => {
     expect(logs).toEqual([
       'doctor skill: config:doctor (config, pack widgets)',
     ]);
+  });
+
+  test("respond and doctor launch with the requesting tab's pack, else the default pack", () => {
+    const tabbed = parseConfig(
+      JSON.stringify({
+        ...base,
+        defaultPack: 'widgets',
+        tabs: [
+          {
+            id: 'gadgets-tab',
+            label: 'Gadgets',
+            source: { kind: 'authors' },
+            pack: 'gadgets',
+          },
+        ],
+      })
+    );
+    const fill = (pack: string) =>
+      JSON.stringify({
+        bindings: {
+          'board:respond': { respond: `${pack}:respond` },
+          'board:doctor': { doctor: `${pack}:doctor` },
+        },
+      });
+    const home = makeHome('gitlab.com-org-repo', 'gadgets', fill('gadgets'));
+    const widgetsDir = join(
+      home,
+      'repos',
+      'gitlab.com-org-repo',
+      'packs',
+      'widgets'
+    );
+    mkdirSync(widgetsDir, { recursive: true });
+    writeFileSync(join(widgetsDir, 'skills.jsonc'), fill('widgets'));
+
+    for (const kind of ['respond', 'doctor'] as const) {
+      const tab = requestBoardTab({ mrUrl, iid: 7, tabId: 'gadgets-tab' });
+      expect(packForLaunch(tabbed, tab)).toBe('gadgets');
+      expect(
+        resolveLaunchSkill(
+          kind,
+          mrUrl,
+          tabbed,
+          packForLaunch(tabbed, tab),
+          home
+        )
+      ).toBe(`gadgets:${kind}`);
+
+      const none = requestBoardTab({ mrUrl, iid: 7 });
+      expect(packForLaunch(tabbed, none)).toBe('widgets');
+      expect(
+        resolveLaunchSkill(
+          kind,
+          mrUrl,
+          tabbed,
+          packForLaunch(tabbed, none),
+          home
+        )
+      ).toBe(`widgets:${kind}`);
+    }
+  });
+});
+
+describe('requestBoardTab', () => {
+  test('a string tabId is the board tab; anything else is none', () => {
+    expect(requestBoardTab({ tabId: 'gadgets-tab' })).toBe('gadgets-tab');
+    expect(requestBoardTab({ tabId: 7 })).toBeUndefined();
+    expect(requestBoardTab({ tabId: '' })).toBeUndefined();
+    expect(requestBoardTab(null)).toBeUndefined();
+  });
+});
+
+describe('laneBoardTab', () => {
+  test('a reopen keeps the tab the lane launched from, else takes the asking tab', () => {
+    expect(laneBoardTab('gadgets-tab', 'widgets-tab')).toBe('gadgets-tab');
+    expect(laneBoardTab('', 'widgets-tab')).toBe('widgets-tab');
+    expect(laneBoardTab(undefined, undefined)).toBeUndefined();
   });
 });

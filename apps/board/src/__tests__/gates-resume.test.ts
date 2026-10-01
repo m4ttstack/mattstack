@@ -243,7 +243,7 @@ describe('resumeParkedGate', () => {
     });
   });
 
-  test("threads the gate's tabId to resolveSkill", async () => {
+  test("threads the gate's board tab to resolveSkill", async () => {
     const states = new Map([[MR_URL, baseReview()]]);
     const { io: reviewIo, calls: reviewCalls } = makeKindIo({
       wrapper: 'review',
@@ -252,7 +252,7 @@ describe('resumeParkedGate', () => {
       filePath: reviewFilePath,
       states,
     });
-    const gate = baseGate({ agentId: 'agent-1', tabId: 'tab-9' });
+    const gate = baseGate({ agentId: 'agent-1', boardTabId: 'tab-9' });
     const { io: resumeIo } = fakeResumeIo({ 'review-post': reviewIo });
 
     await resumeParkedGate(gate, resumeIo, async () => null);
@@ -276,7 +276,7 @@ describe('resumeParkedGate', () => {
         states,
         pack,
       });
-      const gate = baseGate({ agentId: 'agent-1', tabId: 'tab-9' });
+      const gate = baseGate({ agentId: 'agent-1', boardTabId: 'tab-9' });
       const { io: resumeIo } = fakeResumeIo({ 'review-post': reviewIo });
 
       await resumeParkedGate(gate, resumeIo, async () => null);
@@ -303,7 +303,7 @@ describe('resumeParkedGate', () => {
         states,
         pack,
       });
-      const gate = baseGate({ agentId: 'agent-1', tabId: 'tab-9' });
+      const gate = baseGate({ agentId: 'agent-1', boardTabId: 'tab-9' });
       const { io: resumeIo, calls: resumeCalls } = fakeResumeIo({
         'review-post': reviewIo,
       });
@@ -452,6 +452,7 @@ function fakeEventIo(
   review: Map<string, ResumableState>;
   respond: Map<string, ResumableState>;
   doctor: Map<string, ResumableState>;
+  kindCalls: Record<'review' | 'respond' | 'doctor', DomainCalls>;
 } {
   const rowsBySubject = new Map<string, FacilityGateRow[]>();
   for (const r of opts.rows ?? []) {
@@ -466,21 +467,21 @@ function fakeEventIo(
 
   const calls: EventCalls = { resumeAgentPane: [], notify: [], applyRow: [] };
 
-  const { io: reviewIo } = makeKindIo({
+  const { io: reviewIo, calls: reviewCalls } = makeKindIo({
     wrapper: 'review',
     workspaceLabel: 'reviews',
     resumedStatus: 'reviewing',
     filePath: reviewFilePath,
     states: review,
   });
-  const { io: respondIo } = makeKindIo({
+  const { io: respondIo, calls: respondCalls } = makeKindIo({
     wrapper: 'respond',
     workspaceLabel: 'responds',
     resumedStatus: 'implementing',
     filePath: respondFilePath,
     states: respond,
   });
-  const { io: doctorIo } = makeKindIo({
+  const { io: doctorIo, calls: doctorCalls } = makeKindIo({
     wrapper: 'doctor',
     workspaceLabel: 'doctors',
     resumedStatus: 'fixing',
@@ -544,7 +545,18 @@ function fakeEventIo(
       calls.notify.push(message);
     },
   };
-  return { io, calls, review, respond, doctor };
+  return {
+    io,
+    calls,
+    review,
+    respond,
+    doctor,
+    kindCalls: {
+      review: reviewCalls,
+      respond: respondCalls,
+      doctor: doctorCalls,
+    },
+  };
 }
 
 const noSkillLookup = async () => null;
@@ -589,6 +601,36 @@ describe('handleAnsweredEvent', () => {
     expect(calls.resumeAgentPane[0]!.prompt).toContain('/board:respond');
     expect(respond.get(MR_URL)?.resumedGateId).toBe(GATE_ID);
     expect(review.get(MR_URL)).toBeUndefined();
+  });
+
+  test('a respond or doctor resume resolves its pack from the board tab the lane launched from, not its herdr tab', async () => {
+    for (const [kind, domain, status] of [
+      ['respond-plan', 'respond', 'implementing'],
+      ['doctor-escalation', 'doctor', 'fixing'],
+    ] as const) {
+      const { io, kindCalls } = fakeEventIo({
+        rows: [facilityRow({ kind })],
+        review: {},
+        [domain]: {
+          [MR_URL]: baseReview({
+            status,
+            tabId: 'w1:t1',
+            boardTabId: 'gadgets-tab',
+          }),
+        },
+      });
+      const frame: GateEventFrame = {
+        topic: `gate/answered/${GATE_ID}`,
+        payload: { id: GATE_ID, subject: SUBJECT },
+      };
+
+      await handleAnsweredEvent(frame, io, noSkillLookup);
+
+      expect(kindCalls[domain].resolvePack).toEqual(['gadgets-tab']);
+      expect(kindCalls[domain].resolveSkill).toEqual([
+        { mrUrl: MR_URL, tabId: 'gadgets-tab' },
+      ]);
+    }
   });
 
   test('a doctor-escalation answered+parked gate resumes through the event path against doctor state', async () => {

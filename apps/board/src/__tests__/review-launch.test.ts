@@ -508,6 +508,17 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
     });
   });
 
+  test('a peer ask has no board tab, so it clears the one an earlier launch left', async () => {
+    writeRespondState(
+      respondFilePath(URL_A),
+      { mrUrl: URL_A, iid: IID, status: 'done', boardTabId: 'gadgets-tab' },
+      1000,
+      db
+    );
+    await launchRespondAsk(URL_A, IID, CTX, makeRespondIo(), noSkillPath);
+    expect(readRespondStates(db).get(URL_A)?.boardTabId).toBe('');
+  });
+
   test('threads the pack through to the respond launch', async () => {
     await launchRespondAsk(
       URL_A,

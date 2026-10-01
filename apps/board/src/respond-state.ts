@@ -37,7 +37,11 @@ export interface RespondState {
       gone, can recover it instead of guessing 1. Absent on a state written
       before this field existed. */
   round?: number;
+  /** The herdr tab the pane runs in; not a board tab (see boardTabId). */
   tabId?: string;
+  /** The board tab the launch came from, "" for one with none (a peer's ask).
+      A gate resume and a reopen resolve the pack from it. */
+  boardTabId?: string;
   workspaceId?: string;
   /** Claude Code session id, captured by the status CLI. Lets the board
       relaunch the same conversation via `claude --resume <sessionId>`
@@ -124,6 +128,7 @@ export function writeRespondState(
     held: patch.held,
     round: patch.round,
     tabId: patch.tabId,
+    boardTabId: patch.boardTabId,
     workspaceId: patch.workspaceId,
     sessionId: patch.sessionId,
     agentId: patch.agentId,

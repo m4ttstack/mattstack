@@ -225,6 +225,27 @@ test('call doctor goes to the broken MR and the toast says who was skipped', asy
   );
 });
 
+test('respond, resume response and call doctor send the board tab they launch from', async () => {
+  const mine = boardMr(106, {
+    blockers: { any: true, pipelineFailing: true },
+    respond: { status: 'done', sessionId: 'sess-1' },
+  });
+  servedData = { ...BOARD_DATA, mrs: [...BOARD_DATA.mrs, mine] };
+  await renderBoard();
+  for (const label of ['restart response', 'resume response', 'call doctor']) {
+    await rightClick(106);
+    await click(label);
+  }
+  const sent = posts
+    .filter(p => p.url === '/respond' || p.url === '/doctor')
+    .map(p => ({ url: p.url, resume: p.body.resume, tabId: p.body.tabId }));
+  expect(sent).toEqual([
+    { url: '/respond', resume: undefined, tabId: 'team' },
+    { url: '/respond', resume: true, tabId: 'team' },
+    { url: '/doctor', resume: undefined, tabId: 'team' },
+  ]);
+});
+
 test('a selection no bulk action fits says so', async () => {
   const busy = (iid: number) =>
     boardMr(iid, {

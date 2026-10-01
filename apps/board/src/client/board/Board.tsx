@@ -597,21 +597,27 @@ export function Board() {
             quiet
           );
         case 'respond':
-          return respondAction(mr, {}, note, intent, quiet);
+          return respondAction(mr, { tabId: state.tab }, note, intent, quiet);
         case 'resume-respond':
           return resumeRespondAction(
             mr,
-            { resume: true },
+            { resume: true, tabId: state.tab },
             note,
             undefined,
             quiet
           );
         case 'doctor':
-          return doctorAction(mr, {}, note, intent, quiet);
+          return doctorAction(mr, { tabId: state.tab }, note, intent, quiet);
         case 'rebase-local':
           // The doctor chassis scoped to a checkout rebase: the fallback when
           // the GitLab-side rebase can't (conflicts) or didn't work.
-          return doctorAction(mr, { mode: 'rebase' }, note, undefined, quiet);
+          return doctorAction(
+            mr,
+            { mode: 'rebase', tabId: state.tab },
+            note,
+            undefined,
+            quiet
+          );
       }
     },
     [

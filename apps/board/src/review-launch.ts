@@ -259,6 +259,7 @@ export async function launchRespondAsk(
     mrUrl,
     iid,
     status: 'queued',
+    boardTabId: '',
     noPack: !ctx.pack,
   });
   try {
