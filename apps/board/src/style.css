@@ -3792,8 +3792,7 @@ a.tui-id-card-ref:focus-visible {
   gap: 4px 12px;
   margin: -22px -28px 18px -26px;
   padding: 16px 28px 16px 26px;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--border-soft) 60%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
   background: color-mix(in srgb, var(--card) 72%, transparent);
   backdrop-filter: blur(20px) saturate(1.4);
 }
@@ -3803,7 +3802,7 @@ a.tui-id-card-ref:focus-visible {
   content: '';
   position: absolute;
   inset: 100% 0 auto;
-  height: 18px;
+  height: 32px;
   background: linear-gradient(
     color-mix(in srgb, var(--card) 80%, transparent),
     transparent
