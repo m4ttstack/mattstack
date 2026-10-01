@@ -15,12 +15,12 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUD
 metadata:
   slots: "review"
   slot-review: "required mr-review@2 -- owns the domain review flow for one MR: resolving the MR/ticket, producing the draft review, writing the report, reporting the severity levels present, and executing the posting once handed the human's decision. Never presents posting gates or decides disposition."
-  compiled: "mattstack:gate-protocol@0.30.11"
+  compiled: "mattstack:gate-protocol@0.30.12"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-1991 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2012 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -470,7 +470,9 @@ What the graph cannot show:
   finding's `line`, always both, never a `position` object; for a line the
   diff removed, add `oldPath` and `oldLine` as well. The daemon re-fetches
   the diff refs and checks every placement itself, so no sha is needed.
-  Every comment body and the summary are written in the loaded voice.
+  Every comment body and the summary are written in the loaded voice,
+  except a restored finding's text: it posts as recorded, in a comment or
+  in the summary.
   `mr_approve` runs on its own only after the submit came back `approved:
   false`, or when the review was already up or posted by hand and the
   outcome is `approve`; approval has no read, so a resumed pane approves
@@ -666,7 +668,8 @@ picks name no finding ids to compare against.
 
 Record it as round 1 with `--sha unknown`, since that review's commit is
 not known (so none of its skipped findings ever reads as `changed`), and
-`--outcome` the answer's `outcome` value. Then read the ledger again:
+`--outcome` the answer's `outcome` value, the `--skipped` json quoted as
+`Record the verdict answer in --report` says. Then read the ledger again:
 its `round` is now 1, so this pass is round 2, and its `skipped` holds
 the rebuilt list. A record that exits nonzero does not stop the review:
 quote its stderr in the pane and go on, and the read after it still
@@ -801,8 +804,8 @@ branch>`; false when it has no `file` or its round's sha is `unknown`.
 ### Write the review report to --report
 
 Save the review to `--report <path>` as Markdown: a short summary line,
-then the findings, grouped by tier, each with its anchor and what to
-change. Write it before the gate opens, so the board makes the
+then the findings, grouped by tier, each led by a short label (its
+title) and then its anchor and what to change. Write it before the gate opens, so the board makes the
 "reviewing..." badge clickable to open the review modal while you hold at
 the gate. On the domain path the domain skill wrote the report itself;
 this box is the generic path's. Either way the file exists before `done`.
@@ -1011,23 +1014,34 @@ head sha this pass reviewed> --outcome <comment|approve> --skipped
 `--skipped` is this round's findings the human left unticked, one object
 each, with this round's own bare `id` (the record round-qualifies it):
 
-- **Per-finding path** (`findings-N` keys): every finding in the report
-  json whose `id` no `findings-N` answer picked, as `{id, title,
-  severity, file, line, excerpt, snippet}`. `id` and `title` are the
-  json's; `severity` is its `tier` lowercased; `file` and `line` are its
-  own, left out when it has none; `excerpt` is its `body` verbatim (its
-  `title` when the json carries no `body`); `snippet` is the code at its
-  anchor at the reviewed sha (`git show <sha>:<file>`, its `line` and up
-  to two lines either side), left out when it has no `line` or that read
-  fails.
-- **Tier fallback, generic path** (a `tiers` key): every finding listed
-  under a tier the `tiers` answer left unticked (every finding, for
-  `{"tiers": []}`), as `{id, title, severity, file, line, excerpt}`. `id`
-  numbers `--report`'s findings in the order they appear there (`f1`,
-  `f2`, ...), the same on every pass that reads that report; `severity`
-  is the tier lowercased; `file` and `line` are its anchor, left out when
-  it has none; `excerpt` is the finding's text from `--report`.
-- **Tier fallback, domain path** (a `tiers` key): `[]`.
+- **Per-finding path** (`findings-N` keys): every entry of the report
+  json's `findings` array whose `id` no `findings-N` answer picked, never
+  one of its `skipped` entries (those already carry round-qualified ids),
+  as `{id, title, severity, file, line, excerpt, snippet}`. `id` and
+  `title` are the entry's; `severity` is its `tier` lowercased; `file`
+  and `line` are its own, left out when it has none; `excerpt` is its
+  `body` verbatim (its `title` when it carries no `body`); `snippet` is
+  the code at its anchor at the reviewed sha (`git show <sha>:<file>`,
+  its `line` and up to two lines either side), left out when it has no
+  `line` or that read fails.
+- **Tier fallback** (a `tiers` key): the findings under every tier the
+  `tiers` answer left unticked (every finding, for `{"tiers": []}`), on
+  either path. Where they are read from:
+  - **Domain path, json sibling with a `findings` array that fits the
+    schema** (no fitted open came back): each entry of that array whose
+    `tier` was left unticked, built exactly as on the per-finding path,
+    with its own `id`, `body` and anchor.
+  - **Generic path, or a domain json absent or unparseable:** each
+    finding listed in `--report` under such a tier, as `{id, title,
+    severity, file, line, excerpt}`. `id` numbers the findings under
+    `--report`'s tier headings in the order they appear there (`f1`,
+    `f2`, ...), never an Earlier threads or Skipped earlier entry, the
+    same on every pass that reads that report; `title` is the finding's
+    short label as `--report` writes it (its leading words when the entry
+    has no separate label), never empty, since the record refuses an
+    empty title; `severity` is the tier lowercased; `file` and `line` are
+    its anchor, left out when it has none; `excerpt` is the finding's
+    text from `--report`.
 - **Clean review** (neither key): `[]`.
 
 `--restored` is every `skipped-N` answer value with its `restore:`
@@ -1039,6 +1053,11 @@ unticked and one invented skipped finding brought back:
 
 Every value there is invented: fill each from this round's own findings
 and answers, and never copy the example.
+
+Each of `--skipped`, `--restored` and `--confirmed` rides as one
+single-quoted shell argument. A single quote inside a title, body or
+snippet is written `'\''` (close the quote, an escaped quote, reopen it),
+so the argument reaches the record whole.
 
 `<n>` is 1 on a first review and the re-review's round otherwise.
 `--confirmed` lists the `discussionId` of every thread whose call is
@@ -1105,8 +1124,10 @@ The finding has no `file` and `line` to anchor to (its option's anchor was
 the json's `fileLabel`, or `file` alone). It posts in the review's summary
 comment instead of an inline thread. Add it to the summary note: its tier
 and title, what to change, and its `fileLabel` or `file` when it has one.
-The summary posts once, as the `summary` of the one `mr_review_submit`
-call.
+A restored finding with no anchor adds its recorded title and text as
+written, never put into the loaded voice, then its `file` when it has
+one. The summary posts once, as the `summary` of the one
+`mr_review_submit` call.
 
 ### Fix what the mr_view error names (review)
 
@@ -1197,8 +1218,8 @@ empty.
 A restored finding (a `restore:<id>` picked in a `skipped-N` answer)
 posts like a picked one: a comment at its recorded `file` and `line`,
 `body` its recorded `title` and then its `excerpt` verbatim, or in the
-summary note (`Add the finding to the summary note`) when it has no
-`file` and `line`. Its text is the board's record of it, never
+summary note (`Add the finding to the summary note`) when it lacks a
+`file` or a `line`. Its text is the board's record of it, never
 rewritten: from the ledger read this pass made at the start of the
 re-review, or on a pane resumed on the verdict or at a posting origin,
 from `--report`'s Skipped earlier section.
@@ -1992,7 +2013,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.11 path=attachments/gate-protocol/SKILL.md lines=7-456 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.12 path=attachments/gate-protocol/SKILL.md lines=7-456 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act

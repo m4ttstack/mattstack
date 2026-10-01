@@ -36,6 +36,11 @@ caller.
   earlier thread the human chose to act on, already decided. `body` is
   absent when the human held the reply and only resolves. They post in
   the same submitted review as the findings; never as separate replies.
+- On a re-review, `restored`: one `{id, title, body, file, line}` per
+  finding the human brought back from an earlier round, each with its
+  recorded title, body and anchor (`file` and `line` left out when it
+  has none). They post as selected findings, with their recorded text as
+  written: never re-judged, re-worded or put into the writing style.
 - The draft, in the review flow's Strengths / Issues shape: Strengths /
   Issues (Critical / Important / Minor, each `file:line`) / Assessment
   (yes | no | with fixes), when it is in context -- take it as given, never
@@ -69,19 +74,23 @@ Post inline threads only for the selected findings -- on the legacy form,
 every finding in the selected levels. A deselected or unraised finding
 drops entirely: not into the summary, not into a footnote, not through any
 other channel. An earlier thread the human left alone gets no reply and is
-not resolved.
+not resolved. A restored finding is selected, not a side door: the human
+ticked it, so it posts like any selected finding, with its recorded
+text.
 
 ## Summary comment
 
 A review is the inline threads for the selected findings plus ONE
 summary, identical regardless of which disposition was chosen. The
 summary carries Strengths and the Assessment, and its issue list is
-scoped to what was actually selected: a deselected Minor does not
-resurface in the summary either. A selected finding with no `file` anchor
-lives in that issue list, and only there.
+scoped to what was actually selected, restored findings included: a
+deselected Minor does not resurface in the summary either. A selected
+finding with no `file` anchor, or a restored one missing its `file` or
+`line`, lives in that issue list, and only there; a restored one keeps
+its recorded text there too.
 
-Empty selection (`findings`, or legacy `levels`, is empty): no inline
-threads, post only the summary. Under Approve with nothing selected: skip
+Empty selection (`findings`, or legacy `levels`, is empty, and nothing
+restored): no inline threads, post only the summary. Under Approve with nothing selected: skip
 the issue list and just approve with a brief note; on GitLab that note is
 the `summary` of the one submitted review, with the approve outcome.
 
@@ -93,11 +102,11 @@ Request changes. Where it is unavailable, post a blocking-framed Comment:
 the summary's Assessment names the findings that block the merge and says
 approval is withheld until they are fixed.
 
-On GitLab a review is ONE submitted review: the selected findings with a
-`file` and `line` as its comments, the summary as its summary note, the
-disposition as its outcome, and on a re-review the decided `replies` as
-its replies, all in a single call. Nothing posts on its
-own before or after that call. The forge marks the reviewer as having
+On GitLab a review is ONE submitted review: the selected and restored
+findings with a `file` and `line` as its comments, the summary as its
+summary note, the disposition as its outcome, and on a re-review the
+decided `replies` as its replies, all in a single call. Nothing posts on
+its own before or after that call. The forge marks the reviewer as having
 reviewed, and approves when the disposition is Approve.
 
 A comment whose line is outside the diff cannot be placed. The call says
@@ -149,7 +158,7 @@ left as a bare id or number. Required every time, on every disposition.
 |---|---|
 | Decided `{findings, disposition}`, or legacy `{levels, disposition}`, + draft (parked: the report file AND its json sibling) + target in hand | Post per the sections above. |
 | No decided selection arrived | Stop; name it a caller bug. Never ask a question here. |
-| Posting inline threads | Selected findings only (legacy: whole selected levels); deselected findings drop, no side door. |
+| Posting inline threads | Selected findings only (legacy: whole selected levels), plus restored findings with their recorded text; deselected findings drop, no side door. |
 | A selected finding carries no `file` anchor | It rides in the summary comment; never invent a line for it. |
 | Posting the summary | One comment, scoped to what was selected; an unanchorable selected finding lives here. |
 | Disposition is Approve | GitLab: outcome approve on the one submit. GitHub: gh pr review --approve. |

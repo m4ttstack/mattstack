@@ -73,9 +73,10 @@ draft exactly (never re-judged). It is version 3 of this file:
   `Minor`). `changed` is true when the code the finding pointed at has
   moved since the round that skipped it: `git diff <that round's
   sha>..HEAD -- <file>` touches its line (any hunk in the file, for an
-  entry with a `file` and no `line`), or its recorded `snippet` is no
-  longer in the file; false when it has no `file` or that round's sha is
-  `unknown`.
+  entry with a `file` and no `line`), or, when a non-empty `snippet` was
+  recorded, that snippet is no longer in the file (an empty `snippet`
+  means none was recorded and tests nothing); false when it has no `file`
+  or that round's sha is `unknown`.
 - A would-be finding that says what a skipped one says, about the same
   code, is that skipped finding: it stays out of `findings` and is
   reported only under `skipped`. The reviewer already decided not to

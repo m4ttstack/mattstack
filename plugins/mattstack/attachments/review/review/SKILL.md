@@ -756,8 +756,9 @@ neither option gets no entry. A caller that decided the selection hands
 A skipped finding the human brought back (`restore:<id>` picked in a
 `skipped-<n>` answer) posts like a selected finding: a comment at its
 recorded `file` and `line` with its recorded text as the body, or in the
-summary's issue list when it has no anchor. Its text is the caller's
-record of it, never rewritten: the caller's `restored` entry when it
+summary's issue list when it lacks a `file` or a `line`. Its text is the
+caller's record of it, never rewritten or put into the writing style,
+in a comment or in the summary: the caller's `restored` entry when it
 decided the selection (`title`, then `body` verbatim), else the skipped
 entry it handed in with that `id` (`title`, then `excerpt` verbatim).
 
