@@ -320,6 +320,25 @@ describe("skillsBind", () => {
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
   });
 
+  test("a base pack: clean error saying it has no bindings file of its own", async () => {
+    const packDir = join(makePackDir(), "mattstack", "packs", "acme-base");
+    writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
+    writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
+    const { mattstackDir } = makeEngineFixture();
+
+    const { exitCode, errors } = await runExpectingCleanExit(() =>
+      skillsBind([
+        "watch-ci", "domain", "acme:watch-ci-domain-v2",
+        "--pack", "acme-base", "--pack-dir", packDir, "--mattstack-dir", mattstackDir,
+      ]),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(errors[0]).toContain('pack "acme-base" is a base pack');
+    expect(errors[0]).toContain("has no bindings file of its own");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(JSON.stringify({ base: true }));
+  });
+
   test("unknown slot: clean error naming the real slots, exit 1, writes nothing", async () => {
     const packDir = makePackDir();
     writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });

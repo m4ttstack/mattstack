@@ -947,7 +947,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
     });
 
-    test("a bindings file no pack still owns is set aside and counted", async () => {
+    function staleGadgetsProbes() {
       const repoDir = mkdtempSync(join(home, "repo-"));
       updateRepoIndex(basename(repoDir), repoDir);
       const world = materializeWorld(home);
@@ -956,11 +956,30 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
         home,
         ...world,
         dirs: { ...world.dirs, [packs]: ["gadgets"] },
-        files: { ...world.files, [`${packs}/gadgets/skills.jsonc`]: "{}" },
+        files: { ...world.files, [`${packs}/gadgets/skills.jsonc`]: "// zone: acme\n{}" },
       });
+      return { p, packs, repoName: basename(repoDir) };
+    }
+
+    test("a bindings file no pack still owns is set aside and counted", async () => {
+      const { p, packs } = staleGadgetsProbes();
       expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file, set aside 1 stale bindings file" });
       expect(p.readFile(`${packs}/gadgets/skills.jsonc`)).toBeNull();
-      expect(p.readFile(`${packs}/gadgets/skills.jsonc.stale`)).toBe("{}");
+      expect(p.readFile(`${packs}/gadgets/skills.jsonc.stale`)).toBe("// zone: acme\n{}");
+    });
+
+    test("a stale file that cannot be set aside is a warning in the tally, never a lost row", async () => {
+      const { p, packs, repoName } = staleGadgetsProbes();
+      const rename = p.rename.bind(p);
+      p.rename = (from, to) => {
+        if (to.endsWith(".stale")) throw new Error("EACCES: permission denied");
+        rename(from, to);
+      };
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({
+        state: "done",
+        detail: `materialized 1 pack file; warning: ${repoName}: could not set aside ${packs}/gadgets/skills.jsonc: EACCES: permission denied`,
+      });
+      expect(p.readFile(`${packs}/gadgets/skills.jsonc`)).toBe("// zone: acme\n{}");
     });
 
     describe("seeds board.defaultPack", () => {
@@ -1249,6 +1268,14 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx } = makeCtx(teamPackProbes(["widgets"], [], ["acme-base"]), { team: ACME_TEAM });
       await boardKeysStep.run(ctx);
       expect(getSetting("board.defaultPack").value).toBe("widgets");
+    });
+
+    test("a team whose only pack is a base leaves board.defaultPack unset and says why", async () => {
+      const { ctx, logs } = makeCtx(teamPackProbes([], [], ["acme-base"]), { team: ACME_TEAM });
+      const outcome = await boardKeysStep.run(ctx);
+      expect(outcome.state).toBe("done");
+      expect(getSetting("board.defaultPack").value).toBeUndefined();
+      expect(logs).toContainEqual({ id: "board.keys", line: "board.defaultPack: the team has no pack that claims repos, left unset" });
     });
 
     test("leaves board.defaultPack alone when set", async () => {

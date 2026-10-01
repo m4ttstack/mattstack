@@ -2321,7 +2321,7 @@ describe("skillsMaterialize --dir exit codes", () => {
     process.env.RT_ENGINE_PACK_DIR = ENGINE;
     declareWidgets();
     const stale = join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "gadgets", "skills.jsonc");
-    writeFile(stale, "{}");
+    writeFile(stale, "// zone: acme\n{}");
     await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
     expect(process.exitCode).toBe(0);
     expect(logs).toContain(`  set aside 1 stale bindings file: ${stale}.stale`);

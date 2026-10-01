@@ -41,6 +41,8 @@ export interface MaterializeRepoResult {
   migrated?: string | null;
   /** Bindings files this run renamed to `.stale` (their new paths): no pack claims them any more. */
   pruned?: string[];
+  /** Stale files the sweep could not rename; the run still wrote its packs. */
+  pruneWarnings?: string[];
 }
 
 export type MaterializeSkillsResult =
@@ -56,10 +58,12 @@ export function materializeTally(repos: MaterializeRepoResult[]): string {
     if (r.packs) return r.packs.flatMap((pk) => (pk.ok ? [] : [`${pk.pack} (${r.name}): ${pk.detail}`]));
     return r.ok || r.noManifest ? [] : [`${r.name}: ${r.detail}`];
   });
+  const warnings = repos.flatMap((r) => (r.pruneWarnings ?? []).map((w) => `${r.name}: ${w}`));
   const head = `materialized ${written} pack file${written === 1 ? "" : "s"}` +
     (undeclared > 0 ? `, no skills declared ${undeclared}` : "") +
     (pruned > 0 ? `, ${setAsideLine(pruned)}` : "");
-  return failures.length > 0 ? `${head}; failed: ${failures.join("\nfailed: ")}` : head;
+  const lines = [...failures.map((f) => `failed: ${f}`), ...warnings.map((w) => `warning: ${w}`)];
+  return lines.length > 0 ? `${head}; ${lines.join("\n")}` : head;
 }
 
 export function setAsideLine(count: number): string {
@@ -139,9 +143,10 @@ export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: 
     } else if (outcome.kind === "undeclared") {
       repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares ${outcome.repo}` });
     } else if (outcome.packs.length === 0) {
-      repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares a pack for ${outcome.repo}`, pruned: outcome.pruned });
+      repos.push({ ...target, ok: false, noManifest: true, detail: `no team declares a pack for ${outcome.repo}`, pruned: outcome.pruned, pruneWarnings: outcome.pruneWarnings });
     } else {
-      repos.push({ ...target, ok: outcome.packs.every((pk) => pk.ok), detail: describe(outcome.packs), packs: outcome.packs, migrated: outcome.migrated, pruned: outcome.pruned });
+      const detail = [describe(outcome.packs), ...outcome.pruneWarnings].join("; ");
+      repos.push({ ...target, ok: outcome.packs.every((pk) => pk.ok), detail, packs: outcome.packs, migrated: outcome.migrated, pruned: outcome.pruned, pruneWarnings: outcome.pruneWarnings });
     }
   }
   return { skipped: false, repos };
