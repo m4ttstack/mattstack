@@ -68,6 +68,13 @@ public enum SetupCompletion {
         return .show(resume)
     }
 
+    public enum MenuEntry: Equatable, Sendable { case resume, status }
+
+    /// The tray menu's setup items, read fresh each time it opens.
+    public static func menuEntries(finished: Bool) -> [MenuEntry] {
+        finished ? [.status] : [.resume, .status]
+    }
+
     /// Finish and the titlebar close at Done share one gate; the read-only
     /// status window never finishes anything.
     public static func closeRecordsFinish(step: SetupStep, finishEnabled: Bool, readOnly: Bool) -> Bool {

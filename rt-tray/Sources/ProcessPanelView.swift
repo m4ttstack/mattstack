@@ -14,7 +14,6 @@ struct ProcessPanelView: View {
     @StateObject private var columnSettings = ColumnSettings()
     @ObservedObject private var trayState = TrayState.shared
     @State private var showColumnPicker = false
-    @State private var startAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,8 +49,7 @@ struct ProcessPanelView: View {
 
     // MARK: - Status Strip
 
-    /// The former tray menu, collapsed into the panel: daemon health +
-    /// status on the left, operational verbs behind a gear on the right.
+    /// Daemon health and status on the left, the process filter on the right.
     private var statusStrip: some View {
         HStack(spacing: 8) {
             Circle()
@@ -64,135 +62,9 @@ struct ProcessPanelView: View {
             Spacer(minLength: 4)
             SearchField(text: $controller.searchText)
                 .frame(width: 180)
-
-            PanelMenu(icon: "gearshape", makeMenu: makeGearMenu)
-                .help("Daemon and app controls")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-    }
-
-    private func makeGearMenu() -> NSMenu {
-        let menu = NSMenu()
-        // NSMenu.autoenablesItems defaults true and re-enables any item whose
-        // target has no validateMenuItem — that would silently override the
-        // Check for Updates item's explicit isEnabled below.
-        menu.autoenablesItems = false
-        for line in bootDiagnosticsLines() {
-            menu.addItem(infoMenuItem(line))
-        }
-        if !bootDiagnosticsLines().isEmpty {
-            menu.addItem(.separator())
-        }
-        menu.addItem(ActionMenuItem("Open mattstack", axid: AXID.menuGearMattstackWindow) {
-            NotificationCenter.default.post(name: .showMattstackWindow, object: nil)
-        })
-        menu.addItem(.separator())
-        menu.addItem(ActionMenuItem("Restart Daemon", axid: AXID.menuGearRestartDaemon) {
-            NotificationCenter.default.post(name: .rtRestartDaemon, object: nil)
-        })
-        menu.addItem(ActionMenuItem("Stop Daemon", axid: AXID.menuGearStopDaemon) {
-            NotificationCenter.default.post(name: .rtStopDaemon, object: nil)
-        })
-        menu.addItem(.separator())
-        menu.addItem(ActionMenuItem("View Logs…", axid: AXID.menuGearViewLogs) {
-            NotificationCenter.default.post(name: .rtViewDaemonLogs, object: nil)
-        })
-        menu.addItem(ActionMenuItem("Open Crash Log", axid: AXID.menuGearOpenCrashLog) {
-            NotificationCenter.default.post(name: .rtOpenCrashLog, object: nil)
-        })
-        menu.addItem(.separator())
-        if !SetupSession.isFinished {
-            menu.addItem(ActionMenuItem("Resume setup…", axid: AXID.menuGearResumeSetup) {
-                NotificationCenter.default.post(name: .rtResumeSetup, object: nil)
-            })
-        }
-        menu.addItem(ActionMenuItem("Setup status…", axid: AXID.menuGearSetupStatus) {
-            NotificationCenter.default.post(name: .rtShowSetupStatus, object: nil)
-        })
-        menu.addItem(ActionMenuItem("Settings…", axid: AXID.menuGearSettings) {
-            NotificationCenter.default.post(name: .rtShowSettings, object: nil)
-        })
-        menu.addItem(.separator())
-        menu.addItem(ActionMenuItem("Start at Login", state: startAtLogin ? .on : .off, axid: AXID.menuGearStartAtLogin) {
-            toggleStartAtLogin()
-        })
-        menu.addItem(.separator())
-        let updateItem = ActionMenuItem(updateMenuTitle, axid: AXID.menuGearCheckForUpdates) {
-            NotificationCenter.default.post(name: .rtCheckUpdates, object: nil)
-        }
-        updateItem.isEnabled = trayState.canCheckForUpdates || trayState.updateAvailable != nil
-        menu.addItem(updateItem)
-        menu.addItem(.separator())
-        menu.addItem(ActionMenuItem("Uninstall mattstack…", axid: AXID.menuGearUninstall) {
-            NotificationCenter.default.post(name: .rtShowUninstall, object: nil)
-        })
-        menu.addItem(.separator())
-        menu.addItem(ActionMenuItem("Quit mattstack", axid: AXID.menuGearQuit) {
-            // Not NSApplication.shared.terminate(nil) directly: without
-            // quitConfirmed set first, applicationShouldTerminate intercepts
-            // it and turns it into a window close instead of a real quit.
-            NotificationCenter.default.post(name: .rtQuitMattstack, object: nil)
-        })
-        return menu
-    }
-
-    /// Restart count, last-crash reason, and boot verdict (S026), plus the
-    /// phase-2 degraded-health cause -- shown only when there's something to
-    /// report, so a healthy daemon's gear menu stays uncluttered.
-    private func bootDiagnosticsLines() -> [String] {
-        var lines: [String] = []
-        if let count = trayState.restartCount, count > 0 {
-            lines.append("Restarts: \(count)")
-        }
-        if let verdict = trayState.bootVerdict {
-            lines.append("Status: \(verdict)")
-        }
-        if let reason = trayState.lastCrashReason {
-            lines.append("Last crash: \(reason)")
-        }
-        if let subsystem = trayState.failingSubsystem {
-            lines.append("Degraded: \(subsystem)")
-        }
-        return lines
-    }
-
-    /// A non-actionable label row (no target/action) for read-only status
-    /// lines in an otherwise all-verbs menu.
-    private func infoMenuItem(_ title: String) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.isEnabled = false
-        return item
-    }
-
-    /// The user's start-at-login switch — and the authority on it.
-    ///
-    /// AppDelegate auto-registers the login item at startup so a flavor
-    /// switch (spec MAT-383 §3) doesn't silently lose it. That must never
-    /// undo a deliberate OFF, so turning it off here records an opt-out and
-    /// turning it back on clears it. The flag is written only after the
-    /// SMAppService call actually succeeds — a failed unregister leaves the
-    /// item enabled, and recording an opt-out for it would lie.
-    private func toggleStartAtLogin() {
-        do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-                LoginItemPreference.isOptedOut = true
-            } else {
-                try SMAppService.mainApp.register()
-                LoginItemPreference.isOptedOut = false
-            }
-        } catch {
-            TrayLog.error("login item toggle failed", ["err": String(describing: error)])
-        }
-        startAtLogin = SMAppService.mainApp.status == .enabled
-    }
-
-    private var updateMenuTitle: String {
-        if let tag = trayState.updateAvailable {
-            return "Update Available: \(tag)"
-        }
-        return "Check for Updates…"
     }
 
     private var approvalRow: some View {
@@ -448,65 +320,6 @@ struct PanelChip: View {
         }
         return Color.clear
     }
-}
-
-/// A menu trigger dressed as a PanelButton. A plain SwiftUI button (so hover
-/// styling actually renders — SwiftUI's Menu label ignores state changes
-/// under the borderless style) that pops a native NSMenu anchored below it.
-struct PanelMenu: View {
-    let icon: String
-    let makeMenu: () -> NSMenu
-
-    @State private var isHovering = false
-    @State private var anchorView: NSView?
-
-    var body: some View {
-        Button(action: showMenu) {
-            Image(systemName: icon)
-                .font(.system(size: 13))
-                .frame(width: 16, height: 16)
-                .foregroundColor(isHovering ? .primary : .secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(isHovering ? Color.primary.opacity(0.06) : Color.clear)
-                .cornerRadius(4)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .onHover { isHovering = $0 }
-        .background(MenuAnchor { anchorView = $0 })
-    }
-
-    private func showMenu() {
-        let menu = makeMenu()
-        guard let view = anchorView, let window = view.window else {
-            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
-            return
-        }
-        // Screen coordinates (y-up): the menu's top-left lands at the given
-        // point, so aim just under the button's bottom edge.
-        let rectInWindow = view.convert(view.bounds, to: nil)
-        let rectOnScreen = window.convertToScreen(rectInWindow)
-        menu.popUp(
-            positioning: nil,
-            at: NSPoint(x: rectOnScreen.minX, y: rectOnScreen.minY - 4),
-            in: nil
-        )
-    }
-}
-
-/// Invisible NSView that hands its handle back so NSMenu.popUp can anchor
-/// to the SwiftUI button's position.
-private struct MenuAnchor: NSViewRepresentable {
-    let onResolve: (NSView) -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async { onResolve(view) }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 /// NSMenuItem that runs a closure — NSMenu wants target/selector pairs.

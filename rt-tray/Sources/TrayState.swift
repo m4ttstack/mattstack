@@ -20,7 +20,7 @@ class TrayState: ObservableObject {
     @Published var needsApproval: Bool = false
     /// Set when UpdaterController finds a newer release (its version string).
     @Published var updateAvailable: String? = nil
-    /// Mirrors UpdaterController's Sparkle KVO — gates the gear menu's
+    /// Mirrors UpdaterController's Sparkle KVO and gates the tray menu's
     /// "Check for Updates…" item independently of an already-found update.
     @Published var canCheckForUpdates: Bool = false
 
@@ -84,7 +84,6 @@ extension Notification.Name {
     static let rtResumeSetup     = Notification.Name("rtResumeSetup")
     static let rtShowSettings    = Notification.Name("rtShowSettings")
     static let rtShowUninstall   = Notification.Name("rtShowUninstall")
-    static let rtQuitMattstack   = Notification.Name("rtQuitMattstack")
     static let showMattstackWindow = Notification.Name("showMattstackWindow")
     static let rtDevRestartIntoStaged = Notification.Name("rtDevRestartIntoStaged")
     static let rtDevRebuildChanged = Notification.Name("rtDevRebuildChanged")

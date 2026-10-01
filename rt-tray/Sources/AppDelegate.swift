@@ -205,14 +205,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         NotificationCenter.default.addObserver(
             self, selector: #selector(devRebuildChanged), name: .rtDevRebuildChanged, object: nil)
         DevBuildWatcher.shared.start()
-        // The process panel's own gear-menu "Quit mattstack" (distinct from
-        // the tray menu's, which calls quitFromTray() directly) posts this
-        // instead of calling NSApp.terminate itself, so it goes through the
-        // same quitConfirmed gate -- calling terminate without it would just
-        // be intercepted by applicationShouldTerminate and turned into a
-        // window close.
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(quitFromTray), name: .rtQuitMattstack, object: nil)
 
         // Independent backstop for applicationShouldTerminate: the quit
         // AppleEvent's kAEQuitReason is documented optional, so a real
@@ -221,7 +213,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(handleSystemSessionEnding), name: NSWorkspace.willPowerOffNotification, object: nil)
 
-        // Setup / Settings surfaces, posted by the gear menu and the Done screen
+        // Setup / Settings surfaces, posted by the tray menu and the Done screen
         NotificationCenter.default.addObserver(self, selector: #selector(showSetupStatus), name: .rtShowSetupStatus, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resumeSetup), name: .rtResumeSetup, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(showSettings), name: .rtShowSettings, object: nil)
@@ -786,8 +778,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
     }
 
-    /// The tray menu's and gear menu's "Open mattstack" both post
-    /// `.showMattstackWindow` and land here: always show(), never toggle --
+    /// The tray menu's "Open mattstack" posts `.showMattstackWindow` and
+    /// lands here: always show(), never toggle --
     /// toggling is reserved for the global hotkey alone, or "Open mattstack"
     /// would sometimes close the window instead of raising it. Mirrors
     /// applicationShouldHandleReopen's same weak-controller fallback.
@@ -873,9 +865,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
     /// Rebuilt from scratch on every `menuNeedsUpdate` (right before the
     /// tray menu is shown) so the daemon-status line, the Start at Login
-    /// checkmark, and the Check for Updates title are never stale --
-    /// mirrors `ProcessPanelView.makeGearMenu()`'s same fresh-build-per-open
-    /// approach, which still owns the panel's own gear menu unchanged.
+    /// checkmark, the setup items, and the Check for Updates title are
+    /// never stale.
     @MainActor
     private func rebuildTrayMenu(_ menu: NSMenu) {
         menu.removeAllItems()
@@ -896,6 +887,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         status.isEnabled = false
         status.setAccessibilityIdentifier(AXID.trayStatus)
         menu.addItem(status)
+        for line in Self.daemonDiagnostics(TrayState.shared) {
+            let item = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        }
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Processes…", axid: AXID.trayProcesses) { [weak self] in
             self?.detachProcessPanel()
@@ -911,9 +907,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         menu.addItem(ActionMenuItem("Restart Daemon", axid: AXID.trayRestartDaemon) {
             NotificationCenter.default.post(name: .rtRestartDaemon, object: nil)
         })
+        menu.addItem(ActionMenuItem("Stop Daemon", axid: AXID.trayStopDaemon) {
+            NotificationCenter.default.post(name: .rtStopDaemon, object: nil)
+        })
         menu.addItem(ActionMenuItem("View Logs…", axid: AXID.trayViewLogs) {
             NotificationCenter.default.post(name: .rtViewDaemonLogs, object: nil)
         })
+        menu.addItem(ActionMenuItem("Open Crash Log", axid: AXID.trayOpenCrashLog) {
+            NotificationCenter.default.post(name: .rtOpenCrashLog, object: nil)
+        })
+        for entry in SetupCompletion.menuEntries(finished: SetupSession.isFinished) {
+            switch entry {
+            case .resume:
+                menu.addItem(ActionMenuItem("Resume setup…", axid: AXID.trayResumeSetup) {
+                    NotificationCenter.default.post(name: .rtResumeSetup, object: nil)
+                })
+            case .status:
+                menu.addItem(ActionMenuItem("Setup status…", axid: AXID.traySetupStatus) {
+                    NotificationCenter.default.post(name: .rtShowSetupStatus, object: nil)
+                })
+            }
+        }
         menu.addItem(ActionMenuItem("Settings…", axid: AXID.traySettings) {
             NotificationCenter.default.post(name: .rtShowSettings, object: nil)
         })
@@ -928,9 +942,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         updateItem.isEnabled = TrayState.shared.canCheckForUpdates || TrayState.shared.updateAvailable != nil
         menu.addItem(updateItem)
         menu.addItem(.separator())
+        menu.addItem(ActionMenuItem("Uninstall mattstack…", axid: AXID.trayUninstall) {
+            NotificationCenter.default.post(name: .rtShowUninstall, object: nil)
+        })
+        menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Quit mattstack", axid: AXID.trayQuit) { [weak self] in
             self?.quitFromTray()
         })
+    }
+
+    /// Restart count, last-crash reason, boot verdict and a degraded
+    /// subsystem, shown only when there is something to report.
+    @MainActor
+    private static func daemonDiagnostics(_ state: TrayState) -> [String] {
+        var lines: [String] = []
+        if let count = state.restartCount, count > 0 { lines.append("Restarts: \(count)") }
+        if let verdict = state.bootVerdict { lines.append("Status: \(verdict)") }
+        if let reason = state.lastCrashReason { lines.append("Last crash: \(reason)") }
+        if let subsystem = state.failingSubsystem { lines.append("Degraded: \(subsystem)") }
+        return lines
     }
 
     @MainActor
@@ -1047,9 +1077,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         return "Check for Updates…"
     }
 
-    /// Mirrors `ProcessPanelView.toggleStartAtLogin()`'s exact opt-out
-    /// bookkeeping (see that method's doc comment) for the tray-level copy
-    /// of the same control; the panel's own gear menu keeps its copy as-is.
+    /// The user's start-at-login switch, and the authority on it. Launch
+    /// auto-registers the login item so a flavor switch does not lose it,
+    /// which must never undo a deliberate OFF: turning it off records an
+    /// opt-out and turning it on clears it, each only after the
+    /// SMAppService call succeeds.
     private func toggleTrayStartAtLogin() {
         do {
             if SMAppService.mainApp.status == .enabled {
@@ -1744,7 +1776,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// Restart count, last-crash reason, and boot verdict (S026) — a separate
     /// query from the main status poll since this data only lives on the
     /// `ping` reply (see `DaemonClient.querySupervision`), not `tray:status`.
-    /// Best-effort: a nil result just means the gear menu shows no boot info,
+    /// Best-effort: a nil result just means the tray menu shows no boot info,
     /// same as before this feature existed.
     ///
     /// Main-actor because the `TrayState.shared` writes below publish into
