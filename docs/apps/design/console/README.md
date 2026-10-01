@@ -1,28 +1,66 @@
-# Console settings rows, direction B4 approved 2026-10-01
+# Console pipeline viewer boards
 
-The settings row and its explain view, redrawn after the row's three
-trailing controls (summary toggle, `⋯`, `›`) and the busy explain modal
-proved confusing in use. Approved by Matt on 2026-10-01 ("build B4, keep
-the scope names"). Spec:
-`docs/superpowers/specs/2026-10-01-console-settings-row-design.md`.
+The design for console's Wiring Graph tab: skills drawn as templates, with
+the files that fill each placeholder on one side and the steps it links to on
+the other, a drawer for reading and rebinding, and the unsynced banner and
+confirm. The spec is
+`docs/superpowers/specs/2026-10-01-console-pipeline-viewer-design.md`; the
+`.pen` and the exports here are the reference every UI task is compared with.
+
+Every pack, skill, file and contract name on the canvas is invented (`acme`
+is the pack). The line counts and title lengths keep realistic shapes so the
+layouts are proofed against real volumes.
 
 ## What lives here
 
 | file | what it is |
 | --- | --- |
-| `settings.pen` | the design source, a pen.dev document. Open it in Pen; the MCP reads and edits it. Never edit the renders by hand. |
-| `renders/*.light.png` | 2x exports of the approved boards |
-| `parity/` | the build compared with the boards, by eye and by number, and the board corrections that followed |
+| `console.pen` | the design source, a pen.dev document. Open it in Pen; the MCP reads and edits it. Never edit the exports by hand. |
+| `parity/<slug>.<light\|dark>.html` | html-css export of each board with layer names, the design side of `scripts/parity/compare.ts` |
+| `renders/<slug>.<light\|dark>.png` | 1x PNG export of each board, 1680 x 1040 |
 
-Approved boards:
+The file also holds exploration boards (window chrome, tray options, React
+Flow focus studies, anatomy sheets). Only the 18 boards below are the
+reference; nothing else is exported or compared.
 
-- `B · Expand in place (approved row)`: rows at rest and under the pointer,
-  one open with the Value tab
-- `B4 · Tabs back, calmer (approved 2026-10-01)`: the open row, both tabs
-- `R · Run detail keeps a thin modal`: the one place the panel still sits in
-  a modal
+## Boards
 
-Kept for the record: `A · One row, one door (rejected)`, `B2 · Open row,
-Where it's set (too busy)`, `B3 · One line says where it's set (rejected)`,
-and `M1` / `M2`, the detail modal that B replaced. Every name, path and
-machine on the canvas is invented.
+Each slug is drawn in a light and a dark frame. Routes are on the Wiring page
+(`/wiring?tab=graph`); `scenario` is the fixture scenario the harness loads.
+
+| slug | frame (light) | light id | dark id | route | extra |
+| --- | --- | --- | --- | --- | --- |
+| `template-work` | `Template · work · light` | `lC5eZ` | `T2xm1n` | `/wiring?tab=graph&focus=pipeline:feature` | |
+| `template-plan` | `Template · plan · light` | `I4dEtA` | `E3EwS` | `/wiring?tab=graph&focus=stage-plan` | |
+| `drawer-text-range` | `Template · work · drawer · light` | `BdTVo` | `kDP83` | `/wiring?tab=graph&focus=pipeline:feature&select=row:1` | |
+| `drawer-include-row` | `Drawer · include row · rendered · light` | `dXMWN` | `Z5jhtb` | `/wiring?tab=graph&focus=stage-plan&select=row:140` | |
+| `drawer-input-card` | `Drawer · input card · used by · light` | `JG4X2` | `S30e79` | `/wiring?tab=graph&focus=stage-plan&select=input:include:gate-protocol&drawerTab=used-by` | |
+| `drawer-history` | `Drawer · output · history · light` | `vS78O` | `MlMLL` | `/wiring?tab=graph&focus=stage-plan&select=output&drawerTab=history` | |
+| `drawer-rebind` | `Drawer · slot row · rebind · light` | `arHq7` | `yyN81` | `/wiring?tab=graph&focus=stage-plan&select=row:136&rebind=1` | open the Select, pick `plan-policy-strict` |
+| `unsynced-banner` | `Unsynced · banner after rebind · light` | `S9Mvq` | `sNfzF` | `/wiring?tab=graph&focus=stage-plan` | scenario `unsynced` |
+| `unsynced-confirm` | `Unsynced · sync confirm · light` | `dkOZg` | `V9BST` | `/wiring?tab=graph&focus=stage-plan` | scenario `unsynced`, click "Sync changes" |
+
+The dark frame of each pair carries the same name with `dark` in place of
+`light`. To re-export a board, open `console.pen` in Pen and run Pencil's
+`Export` on its id: `html-css` with `includeLayerNames: true` into `parity/`,
+and `png` at `scale: 1` into `renders/`, renamed to the slug pattern.
+
+## Kit chrome is not compared
+
+The rail, app bar, PageShell tab bar, Drawer frame, Modal frame and Select
+dropdown are the kit's and Mantine's own, so a parity run compares the
+content inside them and never the frame around it. The boards draw that
+chrome only so each content layer sits where it will in the app.
+
+## Board-fix list
+
+Where a kit piece and a board disagree, the kit wins (`docs/apps/ui-authoring.md`).
+Each difference below is expected in a parity run and is not fixed in the
+app. A kit-versus-board difference found in a later task is added here by that
+task, never left silent.
+
+- Drawer shadow and border: Mantine `Drawer`.
+- Modal frame and button sizes: the kit's `modals.confirm`.
+- Select chevron and dropdown shadow: Mantine `Select`.
+- Badge and Alert padding: Mantine defaults.
+- SegmentedControl track: Mantine `SegmentedControl`.
