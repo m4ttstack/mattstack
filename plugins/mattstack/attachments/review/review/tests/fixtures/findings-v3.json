@@ -13,6 +13,13 @@
     {"discussionId": "e5f6", "round": 2, "call": "not-fixed",
      "original": "the README still says linear backoff", "reply": "This one is still as it was; the README says linear."}
   ],
+  "skipped": [
+    {"id": "r1-f3", "round": 1, "tier": "Minor", "title": "unused import in the retry module", "file": "queue/retry.ts", "line": 3, "changed": true},
+    {"id": "r1-f5", "round": 1, "tier": "Important", "title": "the lease renewal has no test", "changed": false},
+    {"id": "r2-f1", "round": 2, "tier": "Minor", "title": "log line says attempt, means retry", "file": "queue/worker.ts", "changed": false},
+    {"id": "r2-f2", "round": 2, "tier": "Minor", "title": "magic number 250", "file": "queue/retry.ts", "line": 9, "changed": false},
+    {"id": "r2-f4", "round": 2, "tier": "Minor", "title": "comment restates the code", "file": "queue/retry.ts", "line": 21, "changed": false}
+  ],
   "findings": [
     {"id": "f1", "tier": "Important", "title": "retry count resets on requeue", "body": "the counter is rebuilt from zero when a job is requeued, so the cap never trips.", "file": "queue/retry.ts", "line": 18, "fix": "carry attempts on the job", "disposition": "new"}
   ]

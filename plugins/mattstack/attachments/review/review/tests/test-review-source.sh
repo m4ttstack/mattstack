@@ -112,8 +112,8 @@ run "$V2" "$DIR/missing.json"; check "an unreadable file is usage" 2 "$RC"
 V3="$DIR/fixtures/findings-v3.json"
 run "$V3" "$X"
 check "v3 exits 0" 0 "$RC"
-check "thread questions lead, then findings, then extras" \
-  '["thread-1","thread-2","thread-3","findings-1","outcome"]' \
+check "thread questions lead, then findings, then skipped, then extras" \
+  '["thread-1","thread-2","thread-3","findings-1","skipped-1","skipped-2","outcome"]' \
   "$(q '[.questions[].id] | tojson')"
 check "a thread question offers exactly post and resolve for its discussion" \
   '["post:a1b2","resolve:a1b2"]' "$(q '[.questions[0].options[].value] | tojson')"
@@ -154,8 +154,34 @@ m=$(mutate '.threads[1].discussionId = "a1b2"' "$V3"); run "$m" "$X"; rm -f "$m"
 check "a repeated discussion exits 1" 'findings file: threads: discussion a1b2 appears more than once' "$ERR"
 m=$(mutate 'del(.threads[0].reply)' "$V3"); run "$m" "$X"; rm -f "$m"
 check "a thread needs its reply" 'findings file: threads[0].reply: required non-empty string' "$ERR"
-m=$(mutate 'del(.threads)' "$V3"); run "$m" "$X"; rm -f "$m"
+m=$(mutate 'del(.threads, .skipped)' "$V3"); run "$m" "$X"; rm -f "$m"
 check "a v3 file with no threads is a first-round review" '["findings-1","outcome"]' "$(q '[.questions[].id] | tojson')"
+
+# --- skipped findings: restore:<id> options, none recommended ---
+run "$V3" "$X"
+check "skipped chunks at four, in the order given" \
+  '[["skipped-1",["restore:r1-f3","restore:r1-f5","restore:r2-f1","restore:r2-f2"]],["skipped-2",["restore:r2-f4"]]]' \
+  "$(q '[.questions[] | select(.id | startswith("skipped-")) | [.id, [.options[].value]]] | tojson')"
+check "no skipped option is recommended" 0 \
+  "$(q '[.questions[] | select(.id | startswith("skipped-")) | .options[].label | select(test("recommended"))] | length')"
+check "the option reads without a card: anchor, round, changed" \
+  'queue/retry.ts:3 · skipped in round 1 · code changed since' "$(q '.questions[4].options[0].description')"
+check "an unanchored, unchanged one says only its round" 'skipped in round 1' "$(q '.questions[4].options[1].description')"
+check "the context entry lowercases severity and joins file:line" \
+  '{"id":"r1-f3","round":1,"severity":"minor","title":"unused import in the retry module","file":"queue/retry.ts:3","changed":true}' \
+  "$(q '.questions[4].context.skipped[0] | tojson')"
+FIT=$(printf '%s' "$OUT" | sh "$GC" fit); FRC=$?
+check "fit accepts skipped@1" 0 "$FRC"
+check "fit stays structured with skipped questions" structured "$(printf '%s' "$FIT" | jq -r .mode)"
+check "prose lists each skipped finding on a line" \
+  '[MINOR] unused import in the retry module (queue/retry.ts:3) · skipped in round 1 · code changed since' \
+  "$(printf '%s' "$OUT" | sh "$GC" prose | jq -r '.questions[4].context' | head -1)"
+m=$(mutate '.skipped[1].id = "r1-f3"' "$V3"); run "$m" "$X"; rm -f "$m"
+check "a repeated skipped id exits 1" 'findings file: skipped: id r1-f3 appears more than once' "$ERR"
+m=$(mutate 'del(.skipped[0].changed)' "$V3"); run "$m" "$X"; rm -f "$m"
+check "changed is required" 'findings file: skipped[0].changed: required boolean' "$ERR"
+m=$(mutate '.skipped = []' "$V3"); run "$m" "$X"; rm -f "$m"
+check "an empty skipped list builds no question" 0 "$(q '[.questions[] | select(.id | startswith("skipped-"))] | length')"
 
 [ "$fails" -eq 0 ] || { echo "$fails failing"; exit 1; }
 echo "all passing"

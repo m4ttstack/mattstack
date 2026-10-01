@@ -5,8 +5,10 @@
 # extras.json: {"target": "!87", "reviewer"?, "round"?, "questions": [<the
 # questions that follow the findings, outcome first>]}.
 # stdout: {"context": <review@1>, "questions": [thread-1.., findings-1..,
-# extras questions]}. Findings go Critical, Important, Minor (report order
-# within a tier), four options per findings-N question. Option labels and
+# skipped-1.., extras questions]}. Findings go Critical, Important, Minor
+# (report order within a tier), four options per findings-N question;
+# skipped findings keep report order, four per skipped-N question, and no
+# restore:<id> option is ever recommended. Option labels and
 # descriptions are the degraded view older renderers parse: keep their recipe
 # byte-exact. A findings file without "version" 2 or 3 is legacy: its
 # findings questions carry no context, so fit turns the whole gate to prose.
@@ -26,6 +28,7 @@ def optional($k; f): (has($k) | not) or (.[$k] | f);
 def among($xs): . as $v | $xs | index([$v]) != null;
 def entries: if (.findings | type) == "array" then .findings else [] end;
 def threads: if (.threads | type) == "array" then .threads else [] end;
+def skips: if (.skipped | type) == "array" then .skipped else [] end;
 def structured: .version == 2 or .version == 3;
 def pos: type == "number" and . == floor and . >= 1;
 
@@ -63,6 +66,17 @@ def file_errs: [
       chk(optional("note"; str); "threads[\($i)].note: non-empty string when present")
     )),
   ([threads[] | .discussionId?] | group_by(.) | map(select(length > 1) | .[0])[] | "threads: discussion \(.) appears more than once"),
+  chk(optional("skipped"; type == "array"); "skipped: array when present"),
+  (skips | to_entries[] | .key as $i | .value | (
+      chk(.id | str; "skipped[\($i)].id: required non-empty string"),
+      chk(.round | pos; "skipped[\($i)].round: integer of at least 1"),
+      chk(.tier | among(["Critical","Important","Minor"]); "skipped[\($i)].tier: Critical|Important|Minor"),
+      chk(.title | str; "skipped[\($i)].title: required non-empty string"),
+      chk(.changed | type == "boolean"; "skipped[\($i)].changed: required boolean"),
+      chk(optional("file"; str); "skipped[\($i)].file: non-empty string when present"),
+      chk(optional("line"; pos); "skipped[\($i)].line: integer of at least 1 when present")
+    )),
+  ([skips[] | .id?] | group_by(.) | map(select(length > 1) | .[0])[] | "skipped: id \(.) appears more than once"),
   ([entries[] | .id?] | group_by(.) | map(select(length > 1) | .[0])[] | "findings: id \(.) appears more than once")
 ];
 def extras_errs: [
@@ -111,10 +125,20 @@ def thread_question($n):
        + with_entries(select(.key == "authorReply" or .key == "note"))),
      options: [{value: "post:\(.discussionId)", label: "Post reply (recommended)"},
                {value: "resolve:\(.discussionId)", label: (if settled then "Resolve thread (recommended)" else "Resolve thread" end)}]};
+def skip_option:
+  thread_anchor as $a
+  | {value: "restore:\(.id)", label: opt_label,
+     description: ([$a, "skipped in round \(.round)", (if .changed then "code changed since" else null end)] | map(select(. != null)) | join(" · "))};
+def skip_entry:
+  thread_anchor as $a
+  | {id, round, severity: (.tier | ascii_downcase), title}
+    + (if $a then {file: $a} else {} end)
+    + {changed};
 
 def build($x):
   structured as $v2
   | (.findings | sort_by(rank)) as $ordered
+  | skips as $skips
   | {context: ({"gate-ctx": "review@1"}
       + ($x | with_entries(select(.key == "reviewer")))
       + {readiness: .summary.readiness, summary: .summary.reasoning,
@@ -126,6 +150,10 @@ def build($x):
        | map({id: "findings-\(.key + 1)", label: "Post which findings to \($x.target)?", multi: true}
            + (if $v2 then {context: {"gate-ctx": "findings@1", findings: (.value | map(entry))}} else {} end)
            + {options: (.value | map(option))}))
+       + ([range(0; $skips | length; 4) as $i | $skips[$i:$i + 4]] | to_entries
+          | map({id: "skipped-\(.key + 1)", label: "Bring back a finding you skipped earlier?", multi: true,
+                 context: {"gate-ctx": "skipped@1", skipped: (.value | map(skip_entry))},
+                 options: (.value | map(skip_option))}))
        + $x.questions)};
 JQ
 )

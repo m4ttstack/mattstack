@@ -3,8 +3,8 @@
 #   gate-ctx.sh fit [--limit <bytes>] < source.json
 #   gate-ctx.sh prose < source.json
 # source.json: {"context": <plan@1, post@1 or review@1>, "questions":
-# [<question, its "context" a thread@1, reply@1, carryover@1 or findings@1
-# object when it has one>]}.
+# [<question, its "context" a thread@1, reply@1, carryover@1, findings@1 or
+# skipped@1 object when it has one>]}.
 # stdout: {"mode","bytes","fits","trimmed","context","questions"}, every context
 # already a string, ready for --context and each question's context field.
 # "fits": false means even the smallest prose is over the limit. A review@1
@@ -114,6 +114,20 @@ def findings_errs($values): [
     | ($values[] | select(. as $v | $ids | index([$v]) == null) | "option \(.): no findings entry carries its value"),
       ($ids | group_by(.) | map(select(length > 1) | .[0])[] | "findings: id \(.) appears more than once"))
 ];
+def skipped_errs($values): [
+  chk(.skipped | type == "array" and length > 0; "skipped: required non-empty array"),
+  (entries("skipped") | to_entries[] | .key as $i | .value | (
+    chk(.id | str; "skipped[\($i)].id: required non-empty string"),
+    chk(.round | type == "number" and . == floor and . >= 1; "skipped[\($i)].round: integer of at least 1"),
+    chk(.severity | among(["critical","important","minor"]); "skipped[\($i)].severity: critical|important|minor"),
+    chk(.title | str; "skipped[\($i)].title: required non-empty string"),
+    chk(.changed | type == "boolean"; "skipped[\($i)].changed: required boolean"),
+    chk(optional("file"; str); "skipped[\($i)].file: non-empty string when present"),
+    chk("restore:\(.id)" as $v | $values | index([$v]) != null; "skipped[\($i)].id: matches no option value of this question")
+  )),
+  ([entries("skipped")[] | .id?] as $ids
+    | ($values[] | select(. as $v | ($ids | map("restore:\(.)")) | index([$v]) == null) | "option \(.): no skipped entry carries its value"))
+];
 def shape_errs($where; $allowed; $values):
   if type != "object" then ["\($where): context must be an object"]
   elif (.["gate-ctx"] | among($allowed)) | not then ["\($where): gate-ctx must be one of \($allowed | join(", "))"]
@@ -124,6 +138,7 @@ def shape_errs($where; $allowed; $values):
     elif .["gate-ctx"] == "thread@1" then thread_errs
     elif .["gate-ctx"] == "reply@1" then reply_errs($values)
     elif .["gate-ctx"] == "carryover@1" then carryover_errs($values)
+    elif .["gate-ctx"] == "skipped@1" then skipped_errs($values)
     else findings_errs($values) end
   ) | map("\($where): \(.)") end;
 def option_values: [.options[]? | if type == "object" then .value else . end];
@@ -133,7 +148,7 @@ def errors:
   else
     (if has("context") then .context | shape_errs("gate"; ["plan@1","post@1","review@1"]; []) else [] end)
     + [.questions[] | select(has("context")) | option_values as $v | .id as $id
-        | .context | shape_errs("\($id)"; ["thread@1","reply@1","findings@1","carryover@1"]; $v)[]]
+        | .context | shape_errs("\($id)"; ["thread@1","reply@1","findings@1","carryover@1","skipped@1"]; $v)[]]
     + [.questions[] | select((.context["gate-ctx"]? | among(["reply@1","carryover@1"])) and .multi != true)
         | "\(.id): multi: a per-thread question is multi"]
     + ([.questions[] | select(.context["gate-ctx"]? | among(["reply@1","carryover@1"])) | {id, t: .context.thread}]
@@ -181,6 +196,11 @@ def prose:
      + (if has("authorReply") then ["Author replied: \(.authorReply)"] else ["The author has not replied in this thread."] end)
      + (if has("note") then ["Checked: \(.note)"] else [] end)
      + ["Will post as reply: \(.reply)"]) | join("\n")
+  elif .["gate-ctx"] == "skipped@1" then
+    [.skipped[]
+     | "[\(.severity | ascii_upcase)] \(.title)" + (if has("file") then " (\(.file))" else "" end)
+       + " · skipped in round \(.round)" + (if .changed then " · code changed since" else "" end)]
+    | join("\n")
   elif .["gate-ctx"] == "thread@1" then
     (["[\(.severity | sev)] \(.author): \(.claim.summary)"]
      + [(.claim.points // [])[] | "- \(.)"]
