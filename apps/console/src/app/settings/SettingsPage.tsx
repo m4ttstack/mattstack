@@ -189,16 +189,29 @@ export function SettingsPage() {
       { replace: true }
     );
 
+  const openKey = openRow.open?.key ?? null;
   const sections = useMemo(
     () =>
-      buildSections(store.defs, {
-        query,
-        changedOnly,
-        editableOnly,
-        needsFixing: needsFixingOnly,
-        scope,
-      }),
-    [store.defs, query, changedOnly, editableOnly, needsFixingOnly, scope]
+      buildSections(
+        store.defs,
+        {
+          query,
+          changedOnly,
+          editableOnly,
+          needsFixing: needsFixingOnly,
+          scope,
+        },
+        openKey
+      ),
+    [
+      store.defs,
+      query,
+      changedOnly,
+      editableOnly,
+      needsFixingOnly,
+      scope,
+      openKey,
+    ]
   );
   const total = store.defs.length;
   const agentProvider: Provider =

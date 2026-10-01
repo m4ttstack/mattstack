@@ -237,6 +237,73 @@ describe('Needs fixing on the page', () => {
     expect(screen.getByText('roles')).toBeInTheDocument();
   });
 
+  it('under Needs fixing, a fixed row stays open through the re-read and leaves once closed', async () => {
+    const KEY = 'rt.notify.eventBridges';
+    const broken = [RULE, RULE, { ...RULE, url: 3 }];
+    const fixed = [RULE, RULE, { ...RULE, url: 'https://x.test' }];
+    let defs = [bridges(), fine()];
+    let wrote = false;
+    let rereads = 0;
+    vi.stubGlobal('fetch', async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        if (url.startsWith('/api/settings/explain/'))
+          return {
+            def: null,
+            rows: [
+              { scope: 'default', file: null, present: false },
+              { scope: 'user', file: USER_FILE, present: true, value: broken },
+            ],
+          };
+        if (url.endsWith('/api/settings/set')) {
+          defs = [
+            bridges({
+              issues: undefined,
+              effective: { scope: 'user', file: USER_FILE, value: fixed },
+            }),
+            fine(),
+          ];
+          wrote = true;
+          return {
+            effective: { scope: 'user', file: USER_FILE, value: fixed },
+          };
+        }
+        if (wrote) rereads++;
+        return { defs };
+      },
+    }));
+    renderPage();
+    const chip = await screen.findByRole('checkbox', { name: /^Needs fixing/ });
+    await userEvent.click(chip.closest('label') ?? chip);
+    await fix(
+      await screen.findByText('user · [2].url: expected string, got number')
+    );
+    await expectOpenOnWhere(KEY);
+    const layer = await screen.findByTestId('layer-user');
+    const url = within(await within(layer).findByTestId('item-2')).getByRole(
+      'textbox',
+      { name: 'url' }
+    );
+    await userEvent.clear(url);
+    await userEvent.type(url, 'https://x.test');
+    await userEvent.click(within(layer).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(rereads).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(chip.closest('label') ?? chip.parentElement!).toHaveTextContent(
+        'Needs fixing 0'
+      )
+    );
+    expect(
+      screen.getByRole('button', { name: `close ${KEY}` })
+    ).toHaveAttribute('aria-expanded', 'true');
+
+    await userEvent.click(screen.getByRole('button', { name: `close ${KEY}` }));
+    await waitFor(() =>
+      expect(document.querySelector(`[data-key="${KEY}"]`)).toBeNull()
+    );
+  });
+
   it('Fix on a merged issue opens the row with no layer editor', async () => {
     vi.stubGlobal('fetch', async (url: string) => ({
       ok: true,

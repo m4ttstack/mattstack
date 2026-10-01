@@ -164,16 +164,21 @@ export function isEditable(def: SettingDefWire): boolean {
   return EDITOR_KINDS.has(editorKind(def));
 }
 
+/** `keep` (the open row) passes the chips and the scope filter, which its
+    own writes can stop it matching; the query reads only key and
+    description, so it still applies. */
 export function applyFilter(
   defs: SettingDefWire[],
-  f: ViewFilter
+  f: ViewFilter,
+  keep: string | null = null
 ): SettingDefWire[] {
   return filterDefs(defs, f.query).filter(
     d =>
-      (!f.changedOnly || isSet(d)) &&
-      (!f.editableOnly || isEditable(d)) &&
-      (!f.needsFixing || needsFixing(d)) &&
-      (f.scope === 'any' || rungBase(d.effective.scope) === f.scope)
+      d.key === keep ||
+      ((!f.changedOnly || isSet(d)) &&
+        (!f.editableOnly || isEditable(d)) &&
+        (!f.needsFixing || needsFixing(d)) &&
+        (f.scope === 'any' || rungBase(d.effective.scope) === f.scope))
   );
 }
 
@@ -193,8 +198,12 @@ function rowRank(d: SettingDefWire): number {
 /** Every group with at least one registered key, in GROUPS order, with
     unknown first segments after them. Empty-after-filter sections are kept
     so the index can show zeros. */
-export function buildSections(all: SettingDefWire[], f: ViewFilter): Section[] {
-  const shownKeys = new Set(applyFilter(all, f).map(d => d.key));
+export function buildSections(
+  all: SettingDefWire[],
+  f: ViewFilter,
+  keep: string | null = null
+): Section[] {
+  const shownKeys = new Set(applyFilter(all, f, keep).map(d => d.key));
   const byGroup = new Map<string, { group: Group; defs: SettingDefWire[] }>();
   for (const d of all) {
     const group = groupOf(d.key);

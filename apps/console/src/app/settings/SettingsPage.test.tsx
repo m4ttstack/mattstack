@@ -729,6 +729,63 @@ describe('open rows', () => {
     ).toHaveValue('Prune');
   });
 
+  it('the open row outlives a write that stops it matching the filter, and leaves once closed', async () => {
+    const KEY = 'rt.logRetentionDays';
+    const cleared = DEFS.map(d =>
+      d.key === KEY ? { ...d, effective: { scope: null, file: null } } : d
+    );
+    explainRows = [
+      { scope: 'default', file: null, present: false },
+      { scope: 'machine', file: '/m', present: true, value: 7 },
+    ];
+    let rereads = 0;
+    let wrote = false;
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.startsWith('/api/settings/explain/'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            def: DEFS.find(d => d.key === KEY),
+            rows: explainRows,
+          }),
+        };
+      if (url.endsWith('/api/settings/unset')) {
+        wrote = true;
+        defsResponse = serve(cleared);
+        explainRows = [explainRows[0]!, { ...explainRows[1]!, present: false }];
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ effective: { scope: null, file: null } }),
+        };
+      }
+      if (wrote && url.startsWith('/api/settings/defs')) rereads++;
+      return defsResponse();
+    });
+    renderPage();
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: /Changed/ })
+    );
+    await userEvent.click(screen.getByRole('button', { name: `open ${KEY}` }));
+    const layer = await within(rowOf(KEY)).findByTestId('layer-machine');
+    await userEvent.click(
+      within(layer).getByRole('button', { name: `remove ${KEY} from machine` })
+    );
+    await waitFor(() => expect(rereads).toBeGreaterThan(0));
+    await new Promise(r => setTimeout(r, 0));
+    expect(rowOf(KEY)).not.toBeNull();
+    expect(chevron(KEY)).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      within(rowOf(KEY)).getByRole('radio', { name: "Where it's set" })
+    ).toBeChecked();
+
+    await userEvent.click(chevron(KEY));
+    await waitFor(() =>
+      expect(document.querySelector(`[data-key="${KEY}"]`)).toBeNull()
+    );
+  });
+
   it('mounts no modal', async () => {
     window.history.replaceState(
       null,
