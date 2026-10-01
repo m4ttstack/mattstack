@@ -1,8 +1,9 @@
-import { readFile } from 'node:fs/promises';
+import { realpath as fsRealpath, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
+import { pluginRootOf } from '../shared/pluginRoot';
 import { runGit as liveRunGit, type RunGit } from './git-bin';
 import { GIT_LOG_FORMAT, parseGitLog, type GitCommit } from './gitLog';
 import { runRt as liveRunRt, RtNotFoundError, type RunRt } from './rt-bin';
@@ -56,6 +57,18 @@ interface SkillsCompositionFill {
   sourcePath: string;
   registered: boolean;
 }
+/** One compile target: a roster verb or a stage, with where its template and
+    its compiled artifact live. `placeholders[].line` counts the engine file's
+    frontmatter, so it opens the template at the right line. */
+interface SkillsCompositionTarget {
+  name: string;
+  kind: 'verb' | 'stage';
+  public: boolean;
+  artifactPath: string;
+  templatePath: string | null;
+  placeholders: { kind: string; arg: string | null; line: number }[];
+  engineError: string | null;
+}
 interface SkillsCompositionResponse {
   pack: string;
   packDir: string;
@@ -68,6 +81,9 @@ interface SkillsCompositionResponse {
       and the client has to be able to tell that apart from a pack with no
       pipelines. */
   pipelines?: Record<string, string[]>;
+  /** Every compile target, stages included. Optional because an rt older than
+      the field answers without it. */
+  targets?: SkillsCompositionTarget[];
   /** The manifest's absolute path on disk, or `null` for a rosterless pack.
       Optional because an rt older than this field answers without it --
       absent and null both mean "no path to show," and neither is a path a
@@ -173,6 +189,86 @@ interface SkillsBindResponse {
 
 interface SkillsCompilePreviewResponse {
   content: string;
+}
+
+type SkillsDriftCause =
+  'frontmatter' | 'source' | 'fill' | 'include' | 'structure' | 'vendored';
+
+interface SkillsAnatomySource {
+  ref: string;
+  path: string;
+  version: string;
+  builtVersion: string | null;
+  lines: number;
+}
+interface SkillsAnatomyTarget {
+  skill: string;
+  path: string;
+  lines: number | null;
+}
+/** Line ranges are 1-based and inclusive. For a stale skill the text,
+    variable and verb.path parts carry `renderedLines: null`: the fresh build's
+    ranges would not match the file on disk. */
+interface SkillsAnatomyPart {
+  kind: 'text' | 'include' | 'slot' | 'verb.path' | 'variable';
+  name: string | null;
+  templateLines: [number, number] | null;
+  renderedLines: [number, number] | null;
+  mode: 'inline' | 'reference' | null;
+  source: SkillsAnatomySource | null;
+  target: SkillsAnatomyTarget | null;
+  changed: boolean;
+}
+interface SkillsAnatomyResponse {
+  pack: string;
+  skill: string;
+  kind: 'verb' | 'stage';
+  public: boolean;
+  description: string | null;
+  template: SkillsAnatomySource;
+  rendered: { path: string; exists: boolean; lines: number };
+  status: 'in-sync' | 'stale' | 'never-compiled';
+  staleBecause: SkillsDriftCause[];
+  parts: SkillsAnatomyPart[];
+  links: { path: string; line: number }[];
+}
+
+interface SkillsSourceResponse {
+  path: string;
+  content: string;
+  lines: number;
+}
+
+/** `from` is set only on a rename or copy, naming where the file came from. */
+interface SkillsPendingFile {
+  path: string;
+  status: string;
+  from?: string;
+}
+interface SkillsBindingChange {
+  engineRef: string;
+  slot: string;
+  from: string | null;
+  to: string | null;
+}
+interface SkillsSurfaceChange {
+  skill: string;
+  from: 'public' | 'internal';
+  to: 'public' | 'internal';
+}
+interface SkillsChangesResponse {
+  pack: string;
+  packDir: string;
+  dirty: boolean;
+  files: SkillsPendingFile[];
+  outsideScope: SkillsPendingFile[];
+  bindings: SkillsBindingChange[];
+  surface: SkillsSurfaceChange[];
+}
+interface SkillsDiscardResponse {
+  pack: string;
+  packDir: string;
+  discarded: SkillsPendingFile[];
 }
 
 /**
@@ -444,10 +540,45 @@ const bindBody = validator(
   }
 );
 
-const syncBody = validator('json', (value): { pack?: string } => {
+const syncBody = validator(
+  'json',
+  (value): { pack?: string; commitPending?: boolean } => {
+    const v = value as { pack?: unknown; commitPending?: unknown };
+    return {
+      pack: typeof v?.pack === 'string' ? v.pack : undefined,
+      commitPending: v?.commitPending === true ? true : undefined,
+    };
+  }
+);
+
+const discardBody = validator('json', (value): { pack?: string } => {
   const v = value as { pack?: unknown };
   return { pack: typeof v?.pack === 'string' ? v.pack : undefined };
 });
+
+const skillQuery = validator(
+  'query',
+  (value): { pack?: string; skill?: string } => {
+    const v = value as { pack?: unknown; skill?: unknown };
+    return {
+      pack: typeof v?.pack === 'string' ? v.pack : undefined,
+      skill: typeof v?.skill === 'string' ? v.skill : undefined,
+    };
+  }
+);
+
+const sourceQuery = validator(
+  'query',
+  (value): { pack?: string; path?: string } => {
+    const v = value as { pack?: unknown; path?: unknown };
+    return {
+      pack: typeof v?.pack === 'string' ? v.pack : undefined,
+      path: typeof v?.path === 'string' ? v.path : undefined,
+    };
+  }
+);
+
+const MAX_SOURCE_BYTES = 1_048_576;
 
 const compileQuery = validator(
   'query',
@@ -475,7 +606,8 @@ export function mountSkills(
   app: Hono,
   runRt: RunRt = liveRunRt,
   runGit: RunGit = liveRunGit,
-  readPackFile: ReadPackFile = liveReadPackFile
+  readPackFile: ReadPackFile = liveReadPackFile,
+  realpath: (path: string) => Promise<string> = path => fsRealpath(path)
 ) {
   const cache = new Map<string, { at: number; result: RtRunResult }>();
 
@@ -515,6 +647,20 @@ export function mountSkills(
     const result = await runRt(argv);
     cache.set(key, { at: Date.now(), result });
     return result;
+  }
+
+  /** Every cached read whose argv names this pack: a write to the pack makes
+      composition, check, compile and anatomy answers stale together. */
+  function dropCachedReads(pack: string): void {
+    for (const key of cache.keys()) {
+      let argv: unknown;
+      try {
+        argv = JSON.parse(key);
+      } catch {
+        continue;
+      }
+      if (Array.isArray(argv) && argv.includes(pack)) cache.delete(key);
+    }
   }
 
   return app
@@ -593,7 +739,7 @@ export function mountSkills(
       }
     })
     .post('/api/skills/sync', syncBody, async c => {
-      const { pack } = c.req.valid('json');
+      const { pack, commitPending } = c.req.valid('json');
       if (!pack) return c.json({ error: 'pack is required' }, 400);
       try {
         // Never `cachedRun`: sync mutates checkouts and installed caches, and
@@ -604,19 +750,12 @@ export function mountSkills(
           '--pack',
           pack,
           '--json',
+          ...(commitPending ? ['--commit-pending'] : []),
         ]);
         // Swept even on a refusal: a chain that stopped at recheck has still
         // pulled, bumped, and compiled, so every cached read naming this pack
         // is stale regardless of the report's verdict.
-        for (const key of cache.keys()) {
-          let argv: unknown;
-          try {
-            argv = JSON.parse(key);
-          } catch {
-            continue;
-          }
-          if (Array.isArray(argv) && argv.includes(pack)) cache.delete(key);
-        }
+        dropCachedReads(pack);
         const payload = parseJsonPayload(stdout);
         if (payload === undefined) {
           return c.json(
@@ -763,15 +902,7 @@ export function mountSkills(
         // this same map under an argv that names the pack. Dropping only the
         // `surface list` key would leave those answering pre-write for the rest
         // of the TTL. Invalidate every entry whose argv carries this pack.
-        for (const key of cache.keys()) {
-          let argv: unknown;
-          try {
-            argv = JSON.parse(key);
-          } catch {
-            continue;
-          }
-          if (Array.isArray(argv) && argv.includes(pack)) cache.delete(key);
-        }
+        dropCachedReads(pack);
 
         const after = await runRt([
           'skills',
@@ -882,15 +1013,7 @@ export function mountSkills(
           // stale too -- the same per-pack cache sweep the surface-apply
           // route runs after `e8f4163`. Never a narrower invalidation: a
           // written binding changes what every one of those routes answers.
-          for (const key of cache.keys()) {
-            let argv: unknown;
-            try {
-              argv = JSON.parse(key);
-            } catch {
-              continue;
-            }
-            if (Array.isArray(argv) && argv.includes(pack)) cache.delete(key);
-          }
+          dropCachedReads(pack);
         }
 
         const response: SkillsBindResponse = {
@@ -1101,6 +1224,145 @@ export function mountSkills(
           diff: bounded.diff,
         };
         return c.json(response, 200);
+      } catch (err) {
+        if (err instanceof RtNotFoundError) {
+          return c.json({ error: err.message }, 503);
+        }
+        return c.json({ error: (err as Error).message }, 502);
+      }
+    })
+    .get('/api/skills/anatomy', skillQuery, async c => {
+      const { pack, skill } = c.req.valid('query');
+      if (!pack || !skill) {
+        return c.json({ error: 'pack and skill are required' }, 400);
+      }
+      try {
+        const { stdout, stderr } = await cachedRun([
+          'skills',
+          'anatomy',
+          '--pack',
+          pack,
+          '--skill',
+          skill,
+          '--json',
+        ]);
+        const payload = parseJsonPayload(stdout);
+        if (payload === undefined) {
+          return c.json(
+            { error: stderr.trim() || 'rt produced no output' },
+            502
+          );
+        }
+        return c.json(payload as SkillsAnatomyResponse, 200);
+      } catch (err) {
+        if (err instanceof RtNotFoundError) {
+          return c.json({ error: err.message }, 503);
+        }
+        return c.json({ error: (err as Error).message }, 502);
+      }
+    })
+    .get('/api/skills/source', sourceQuery, async c => {
+      const { pack, path } = c.req.valid('query');
+      if (!pack || !path) {
+        return c.json({ error: 'pack and path are required' }, 400);
+      }
+      const notFound = () =>
+        c.json({ error: 'not a skill file of this pack' }, 404);
+      if (!path.endsWith('.md') || path.split('/').includes('..')) {
+        return notFound();
+      }
+      try {
+        // The readable roots come from rt, never from the request: the pack
+        // directory plus the plugin roots of the engines its verbs compile
+        // from.
+        const { stdout } = await cachedRun([
+          'skills',
+          'composition',
+          '--pack',
+          pack,
+          '--json',
+        ]);
+        const composition = parseJsonPayload(stdout) as
+          SkillsCompositionResponse | undefined;
+        if (!composition || !composition.packDir) return notFound();
+        const roots = new Set<string>([composition.packDir]);
+        for (const verb of composition.verbs ?? []) {
+          const root = verb.sourcePath ? pluginRootOf(verb.sourcePath) : null;
+          if (root) roots.add(root);
+        }
+        // Confinement is judged on the resolved path, so a symlink inside a
+        // root cannot lead out of it.
+        const real = await realpath(path);
+        if (![...roots].some(r => real === r || real.startsWith(`${r}/`))) {
+          return notFound();
+        }
+        const content = await readPackFile(real);
+        if (Buffer.byteLength(content, 'utf8') > MAX_SOURCE_BYTES) {
+          return c.json({ error: 'file too large' }, 413);
+        }
+        return c.json(
+          {
+            path,
+            content,
+            lines: content.split('\n').length,
+          } as SkillsSourceResponse,
+          200
+        );
+      } catch {
+        return notFound();
+      }
+    })
+    .get('/api/skills/changes', packQuery, async c => {
+      const { pack } = c.req.valid('query');
+      if (!pack) return c.json({ error: 'pack is required' }, 400);
+      try {
+        // Never `cachedRun`: the answer is what is on disk right now, and the
+        // page polls it to notice an edit made outside the console.
+        const { stdout, stderr } = await runRt([
+          'skills',
+          'changes',
+          '--pack',
+          pack,
+          '--json',
+        ]);
+        const payload = parseJsonPayload(stdout);
+        if (payload === undefined) {
+          return c.json(
+            { error: stderr.trim() || 'rt produced no output' },
+            502
+          );
+        }
+        return c.json(payload as SkillsChangesResponse, 200);
+      } catch (err) {
+        if (err instanceof RtNotFoundError) {
+          return c.json({ error: err.message }, 503);
+        }
+        return c.json({ error: (err as Error).message }, 502);
+      }
+    })
+    .post('/api/skills/discard', discardBody, async c => {
+      const { pack } = c.req.valid('json');
+      if (!pack) return c.json({ error: 'pack is required' }, 400);
+      try {
+        const { stdout, stderr } = await runRt([
+          'skills',
+          'discard',
+          '--pack',
+          pack,
+          '--json',
+        ]);
+        // Swept even on a refusal: rt restores tracked paths and then cleans
+        // untracked ones as separate steps, so a failure in the second has
+        // still changed what the cached reads describe.
+        dropCachedReads(pack);
+        const payload = parseJsonPayload(stdout);
+        if (payload === undefined) {
+          return c.json(
+            { error: stderr.trim() || 'rt produced no output' },
+            502
+          );
+        }
+        return c.json(payload as SkillsDiscardResponse, 200);
       } catch (err) {
         if (err instanceof RtNotFoundError) {
           return c.json({ error: err.message }, 503);

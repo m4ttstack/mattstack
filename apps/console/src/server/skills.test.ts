@@ -1786,3 +1786,439 @@ describe('skills bind route', () => {
     });
   });
 });
+
+const postJson = (app: Hono, path: string, body: unknown) =>
+  app.request(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+describe('skills anatomy route', () => {
+  it('runs rt skills anatomy for the pack and skill', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify({ pack: 'acme', skill: 'stage-plan', parts: [] }),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(
+      '/api/skills/anatomy?pack=acme&skill=stage-plan'
+    );
+
+    expect(res.status).toBe(200);
+    expect(rt.calls[0]).toEqual([
+      'skills',
+      'anatomy',
+      '--pack',
+      'acme',
+      '--skill',
+      'stage-plan',
+      '--json',
+    ]);
+  });
+
+  it('400s without a skill or without a pack, before rt is spawned', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    expect((await app.request('/api/skills/anatomy?pack=acme')).status).toBe(
+      400
+    );
+    expect(
+      (await app.request('/api/skills/anatomy?skill=stage-plan')).status
+    ).toBe(400);
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
+  it('is cached like the other reads', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{"parts":[]}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    await app.request('/api/skills/anatomy?pack=acme&skill=stage-plan');
+    await app.request('/api/skills/anatomy?pack=acme&skill=stage-plan');
+
+    expect(rt.calls).toHaveLength(1);
+  });
+
+  it('is 502 with rt stderr when rt prints nothing', async () => {
+    const rt = fakeRt({
+      code: 1,
+      stdout: '',
+      stderr: 'rt skills: no skill named "nope"',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request('/api/skills/anatomy?pack=acme&skill=nope');
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining('nope'),
+    });
+  });
+
+  it('is 503 when rt is not installed', async () => {
+    const run = vi.fn(async () => {
+      throw new RtNotFoundError(['/nowhere/rt']);
+    });
+    const app = mountSkills(new Hono(), run);
+
+    const res = await app.request('/api/skills/anatomy?pack=acme&skill=x');
+
+    expect(res.status).toBe(503);
+  });
+});
+
+describe('skills source route', () => {
+  const composition = {
+    pack: 'acme',
+    packDir: '/packs/acme',
+    verbs: [
+      {
+        sourcePath:
+          '/cache/mattstack/0.30.4/attachments/pipeline/work/SKILL.md',
+      },
+    ],
+    fills: [],
+    binders: [],
+    targets: [],
+  };
+  const compositionRt = () =>
+    fakeRtHandler(argv =>
+      argv[1] === 'composition'
+        ? { code: 0, stdout: JSON.stringify(composition), stderr: '' }
+        : { code: 1, stdout: '', stderr: '' }
+    );
+  const files: Record<string, string> = {
+    '/packs/acme/attachments/stage-plan/SKILL.md': 'a\nb',
+    '/cache/mattstack/0.30.4/attachments/gate-protocol/SKILL.md': 'g',
+    '/packs/acme/attachments/big/SKILL.md': 'x'.repeat(1_048_577),
+    '/packs/acme-evil/SKILL.md': 'sibling pack',
+    '/elsewhere/SKILL.md': 'outside every root',
+    '/packs/acme/../other/SKILL.md': 'climbs out lexically',
+    '/etc/passwd': 'root:x:0:0',
+    '/packs/acme/notes.txt': 'not markdown',
+  };
+  const read: ReadPackFile = async p => {
+    if (p in files) return files[p]!;
+    throw new Error('ENOENT');
+  };
+  const identity = async (p: string) => p;
+  const noGit = () => fakeGit(() => ({ code: 0, stdout: '', stderr: '' })).run;
+  const getSource = (app: Hono, path: string, pack = 'acme') =>
+    app.request(
+      `/api/skills/source?pack=${pack}&path=${encodeURIComponent(path)}`
+    );
+
+  it('serves a markdown file under the pack', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      identity
+    );
+
+    const res = await getSource(
+      app,
+      '/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      path: '/packs/acme/attachments/stage-plan/SKILL.md',
+      content: 'a\nb',
+      lines: 2,
+    });
+  });
+
+  it('serves a markdown file under the engine plugin root', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      identity
+    );
+
+    const res = await getSource(
+      app,
+      '/cache/mattstack/0.30.4/attachments/gate-protocol/SKILL.md'
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it.each([
+    '/packs/acme/../other/SKILL.md',
+    '/etc/passwd',
+    '/packs/acme/notes.txt',
+    '/packs/acme-evil/SKILL.md',
+  ])('404s %s', async path => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      identity
+    );
+
+    expect((await getSource(app, path)).status).toBe(404);
+  });
+
+  it('404s a symlink whose real path leaves the roots', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      async () => '/elsewhere/SKILL.md'
+    );
+
+    const res = await getSource(
+      app,
+      '/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  it('404s a path that does not resolve on disk', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      async () => {
+        throw new Error('ENOENT');
+      }
+    );
+
+    const res = await getSource(
+      app,
+      '/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  it('404s when rt cannot name the pack', async () => {
+    const rt = fakeRtHandler(() => ({
+      code: 1,
+      stdout: '',
+      stderr: 'no pack',
+    }));
+    const app = mountSkills(new Hono(), rt.run, noGit(), read, identity);
+
+    const res = await getSource(
+      app,
+      '/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  it('413s a file past 1 MB', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      identity
+    );
+
+    const res = await getSource(app, '/packs/acme/attachments/big/SKILL.md');
+
+    expect(res.status).toBe(413);
+  });
+
+  it('413s on bytes, not characters', async () => {
+    const wide = '€'.repeat(400_000);
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      async () => wide,
+      identity
+    );
+
+    const res = await getSource(
+      app,
+      '/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(413);
+  });
+
+  it('400s without a pack or a path', async () => {
+    const rt = compositionRt();
+    const app = mountSkills(new Hono(), rt.run, noGit(), read, identity);
+
+    expect((await app.request('/api/skills/source?path=%2Fa.md')).status).toBe(
+      400
+    );
+    expect((await app.request('/api/skills/source?pack=acme')).status).toBe(
+      400
+    );
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+});
+
+describe('skills changes and discard routes', () => {
+  it('changes passes the pack through and is never cached', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify({ dirty: false }),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const first = await app.request('/api/skills/changes?pack=acme');
+    await app.request('/api/skills/changes?pack=acme');
+
+    expect(first.status).toBe(200);
+    expect(rt.calls).toHaveLength(2);
+    expect(rt.calls[0]).toEqual([
+      'skills',
+      'changes',
+      '--pack',
+      'acme',
+      '--json',
+    ]);
+  });
+
+  it('changes 400s without a pack', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    expect((await app.request('/api/skills/changes')).status).toBe(400);
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
+  it('changes answers a pack outside git as a non-2xx { error }', async () => {
+    const rt = fakeRt({
+      code: 1,
+      stdout: '',
+      stderr: 'rt skills: pack acme is not in a git repo',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request('/api/skills/changes?pack=acme');
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining('not in a git repo'),
+    });
+  });
+
+  it('discard posts rt skills discard', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify({ discarded: [] }),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postJson(app, '/api/skills/discard', { pack: 'acme' });
+
+    expect(res.status).toBe(200);
+    expect(rt.calls[0]).toEqual([
+      'skills',
+      'discard',
+      '--pack',
+      'acme',
+      '--json',
+    ]);
+  });
+
+  it('discard 400s without a pack, before rt is spawned', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    expect((await postJson(app, '/api/skills/discard', {})).status).toBe(400);
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
+  it('discard surfaces a refusal as a non-2xx { error }', async () => {
+    const rt = fakeRt({
+      code: 1,
+      stdout: '',
+      stderr: 'rt skills: pack acme is in the shared checkout',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postJson(app, '/api/skills/discard', { pack: 'acme' });
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining('shared checkout'),
+    });
+  });
+
+  it("discard drops the pack's cached reads so anatomy refetches", async () => {
+    const rt = fakeRtHandler(argv =>
+      argv[1] === 'discard'
+        ? { code: 0, stdout: '{"discarded":[]}', stderr: '' }
+        : { code: 0, stdout: '{"parts":[]}', stderr: '' }
+    );
+    const app = mountSkills(new Hono(), rt.run);
+    const anatomy = '/api/skills/anatomy?pack=acme&skill=stage-plan';
+
+    await app.request(anatomy);
+    await postJson(app, '/api/skills/discard', { pack: 'acme' });
+    await app.request(anatomy);
+
+    expect(rt.calls.filter(argv => argv[1] === 'anatomy')).toHaveLength(2);
+  });
+
+  it("discard leaves another pack's cached reads alone", async () => {
+    const rt = fakeRtHandler(argv =>
+      argv[1] === 'discard'
+        ? { code: 0, stdout: '{"discarded":[]}', stderr: '' }
+        : { code: 0, stdout: '{"parts":[]}', stderr: '' }
+    );
+    const app = mountSkills(new Hono(), rt.run);
+    const anatomy = '/api/skills/anatomy?pack=globex&skill=stage-plan';
+
+    await app.request(anatomy);
+    await postJson(app, '/api/skills/discard', { pack: 'acme' });
+    await app.request(anatomy);
+
+    expect(rt.calls.filter(argv => argv[1] === 'anatomy')).toHaveLength(1);
+  });
+
+  it('sync passes --commit-pending when asked', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify({ ok: true, steps: [] }),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    await postJson(app, '/api/skills/sync', {
+      pack: 'acme',
+      commitPending: true,
+    });
+
+    expect(rt.calls[0]).toContain('--commit-pending');
+  });
+
+  it('sync leaves --commit-pending off unless it is exactly true', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify({ ok: true, steps: [] }),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    await postJson(app, '/api/skills/sync', { pack: 'acme' });
+    await postJson(app, '/api/skills/sync', {
+      pack: 'acme',
+      commitPending: 'yes',
+    });
+
+    expect(rt.calls[0]).not.toContain('--commit-pending');
+    expect(rt.calls[1]).not.toContain('--commit-pending');
+  });
+});

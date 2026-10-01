@@ -4,7 +4,6 @@ import {
   buildSpine,
   invertBindings,
   needsAttention,
-  pluginRootOf,
   spineRows,
   type OutlineCheck,
   type SpineComposition,
@@ -777,27 +776,5 @@ describe('buildSpine: includes', () => {
         sourcePath: null,
       },
     ]);
-  });
-});
-
-describe('pluginRootOf', () => {
-  it('strips a flat skills or attachments layout back to the plugin root', () => {
-    expect(pluginRootOf('/r/skills/ship/SKILL.md')).toBe('/r');
-    expect(pluginRootOf('/r/attachments/review-posting/SKILL.md')).toBe('/r');
-  });
-
-  it('strips a grouped attachments layout back to the plugin root', () => {
-    expect(pluginRootOf('/r/attachments/review/review/SKILL.md')).toBe('/r');
-  });
-
-  it('takes the innermost layout when the root itself contains a skills dir', () => {
-    expect(pluginRootOf('/a/skills/b/attachments/c/SKILL.md')).toBe(
-      '/a/skills/b'
-    );
-  });
-
-  it('answers null for a path in neither layout rather than guessing', () => {
-    expect(pluginRootOf('/steps/ship/SKILL.md')).toBeNull();
-    expect(pluginRootOf('/r/skills/ship/README.md')).toBeNull();
   });
 });
