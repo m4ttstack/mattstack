@@ -11,7 +11,6 @@
   "commands/deps.ts",
   "commands/endpoint.ts",
   "commands/events.ts",
-  "commands/extension.ts",
   "commands/flavor.ts",
   "commands/gate.ts",
   "commands/git/backup.ts",

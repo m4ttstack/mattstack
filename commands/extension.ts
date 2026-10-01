@@ -10,7 +10,11 @@ import { execSync } from "child_process";
 import { existsSync } from "fs";
 import { join, resolve } from "path";
 import { fileURLToPath } from "url";
-import { bold, cyan, dim, green, yellow, red, reset } from "../lib/tui.ts";
+import { logCliEvent } from "../lib/cli-logger.ts";
+import { childEnv } from "../lib/subprocess.ts";
+import { interactive } from "../lib/ui/gate.ts";
+import * as out from "../lib/ui/out.ts";
+import { openStep, type StepHandle } from "../lib/ui/spawn.ts";
 import { detectEditors } from "../lib/editors.ts";
 
 // ─── VSIX Finder ─────────────────────────────────────────────────────────────
@@ -37,7 +41,7 @@ function findVsix(): string | null {
   const pkgJson = join(sourceDir, "package.json");
   if (existsSync(pkgJson)) {
     try {
-      console.log(`  ${dim}building extension from source…${reset}`);
+      out.print(out.line("running", "Building the extension from source"));
       execSync("npm run package", { cwd: sourceDir, stdio: "pipe" });
       for (const match of glob.scanSync(sourceDir)) {
         return join(sourceDir, match);
@@ -52,26 +56,86 @@ function findVsix(): string | null {
 
 // ─── Install ─────────────────────────────────────────────────────────────────
 
+type InstallOutcome = { ok: true } | { ok: false; output: string; timedOut?: true };
+type Installer = (cliPath: string, vsixPath: string) => Promise<InstallOutcome>;
+
+const INSTALL_TIMEOUT_MS = 30_000;
+
+/** An editor CLI prints progress first and its verdict last. */
+function failureHint(result: { output: string; timedOut?: true }): string {
+  if (result.timedOut) return `it did not finish within ${INSTALL_TIMEOUT_MS / 1000} seconds`;
+  return result.output.split("\n").map((l) => l.trim()).filter(Boolean).at(-1) ?? "it gave no reason";
+}
+
+// Async rather than execSync: a blocked loop can starve the step's spinner
+// process of the message that starts it.
+async function installWithCli(cliPath: string, vsixPath: string): Promise<InstallOutcome> {
+  const proc = Bun.spawn([cliPath, "--install-extension", vsixPath, "--force"], { stdout: "pipe", stderr: "pipe", env: childEnv() });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    proc.kill();
+  }, INSTALL_TIMEOUT_MS);
+  const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  clearTimeout(timer);
+  if (code === 0 && !timedOut) return { ok: true };
+  const output = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
+  return timedOut ? { ok: false, output, timedOut: true } : { ok: false, output };
+}
+
+function stepFor(title: string): StepHandle | null {
+  if (!interactive()) return null;
+  try {
+    return openStep(title);
+  } catch {
+    return null;
+  }
+}
+
+async function installInto(
+  editors: Array<{ name: string; cliPath: string }>,
+  vsixPath: string,
+  install: Installer = installWithCli,
+): Promise<number> {
+  let installed = 0;
+  for (const editor of editors) {
+    const step = stepFor(`Installing in ${editor.name}`);
+    const result = await install(editor.cliPath, vsixPath);
+    if (result.ok) {
+      installed++;
+      const title = `Installed in ${editor.name}`;
+      if (!(step && (await step.done(title)))) out.print(out.line("done", title));
+    } else {
+      const title = `${editor.name} did not take the extension`;
+      const hint = failureHint(result);
+      if (!(step && (await step.fail(title, hint)))) out.print(out.line("failed", title, hint));
+    }
+  }
+  if (installed > 0) {
+    out.print(
+      out.summary("done", "RT Context is installed", [`${installed} of ${editors.length} editors`]),
+      out.callout("next", "Restart your editor to turn it on"),
+    );
+  }
+  return installed;
+}
+
+export const __test__ = { installInto };
+
 export async function installExtension(): Promise<void> {
-  // 1. Find the vsix
   const vsixPath = findVsix();
   if (!vsixPath) {
-    console.log(`  ${red}✗${reset} rt-context.vsix not found`);
-    console.log(`  ${dim}expected next to the rt binary or in extensions/vscode/rt-context/${reset}\n`);
+    out.fail({ title: "rt could not find its editor extension", why: "It ships beside the rt program and is missing there." });
     return;
   }
+  logCliEvent("debug", "extension", "vsix found", { path: vsixPath });
 
-  console.log(`  ${dim}vsix: ${vsixPath}${reset}\n`);
-
-  // 2. Detect installed editors
   const editors = detectEditors();
   if (editors.length === 0) {
-    console.log(`  ${yellow}no VS Code-compatible editors found${reset}`);
-    console.log(`  ${dim}install Cursor, VS Code, Antigravity, or similar first${reset}\n`);
+    out.print(out.line("pending", "No editor that takes VS Code extensions was found", "install Cursor, VS Code or a similar editor first"));
     return;
   }
 
-  // 3. Show fuzzy picker for editor selection
   const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
 
   const selected = await filterableMultiselect({
@@ -84,33 +148,12 @@ export async function installExtension(): Promise<void> {
   });
 
   if (!selected || selected.length === 0) {
-    console.log(`\n  ${dim}no editors selected${reset}\n`);
+    out.print(out.line("skipped", "No editors selected"));
     return;
   }
 
-  console.log("");
-
-  // 4. Install into each selected editor
-  let installed = 0;
-  for (const cliPath of selected) {
-    const editor = editors.find((e) => e.cliPath === cliPath)!;
-
-    try {
-      execSync(`"${cliPath}" --install-extension "${vsixPath}" --force 2>&1`, {
-        stdio: "pipe",
-        timeout: 30_000,
-      });
-      console.log(`  ${green}✓${reset} rt-context installed (${editor.name})`);
-      installed++;
-    } catch (err: any) {
-      const msg = err?.stderr?.toString?.()?.trim() || "unknown error";
-      console.log(`  ${red}✗${reset} ${editor.name} — ${msg}`);
-    }
-  }
-
-  if (installed > 0) {
-    console.log(`\n  ${green}${bold}✓ installed${reset} ${dim}— restart your editor to activate${reset}`);
-  }
-
-  console.log("");
+  await installInto(
+    selected.map((cliPath) => editors.find((e) => e.cliPath === cliPath)!),
+    vsixPath,
+  );
 }
