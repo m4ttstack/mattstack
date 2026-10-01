@@ -1,0 +1,1 @@
+{"ok":false,"findings":[{"key":"rt.repoRoots","scope":"machine","file":"<MACHINE_STORE>","kind":"invalid","issues":[{"path":[],"message":"expected array, got string"}]}]}

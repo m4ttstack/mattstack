@@ -218,6 +218,15 @@ so it pastes clean, which means it must never carry untrusted multi-line
 text. Step sub-lines sit under their running step: they clear when the step
 ends with `done` and stay beneath it when it fails.
 
+`out.print` writes plain text to stdout under `--json` too, so a verb whose
+`--json` branch can still print a note (a repo whose identity cannot derive,
+a lock file that is missing) calls `out.payloadOnStdout()` as soon as it
+knows `--json` was passed; otherwise the note lands inside the envelope a
+program is parsing. A verb that prints a payload (`rt settings get`'s value,
+a bare path) calls it unconditionally. The `--json` byte-identity tests
+(`commands/__tests__/settings-json-frozen.test.ts` is the model) assert an
+empty stderr as well as the frozen stdout.
+
 Failures have one shape. A command that cannot continue throws
 `UserActionableError` (`lib/errors.ts`) with what happened in a short plain
 sentence, an optional `why`, the command to run as `next`, and any raw

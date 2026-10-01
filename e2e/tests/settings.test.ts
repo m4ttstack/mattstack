@@ -442,13 +442,13 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
     expect(unknown.provenance).toEqual([{ scope: "team", file: teamStore }]);
   }, 30_000);
 
-  test("explain (human output — the verb has no --json) shows every reachable rung", async () => {
+  test("explain (human output) shows every reachable rung", async () => {
     const res = await finished(runRt(["settings", "explain", "rt.worktrees", "--repo", REPO_NAME]));
     expect(res.exitCode).toBe(0);
     const out = stripAnsi(res.stdout);
 
     expect(out).toContain("rt.worktrees");
-    expect(out).toContain("(registry default)");
+    expect(out).toContain("built-in default");
     expect(out).toMatch(new RegExp(`team\\.repo\\s+${teamStore}\\s+\\{"onDeck":3`));
     expect(out).toMatch(new RegExp(`user\\.repo\\s+${userStore}\\s+\\{"namePool"`));
     expect(out).toMatch(new RegExp(`machine\\.repo\\s+${machineStore}\\s+\\{"root"`));
@@ -467,7 +467,7 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
       runRt(["settings", "set", "rt.worktrees", '{"namePool":["gamma"]}', "--scope", "user", "--repo", REPO_NAME]),
     );
     expect(res.exitCode).toBe(0);
-    expect(stripAnsi(res.stdout)).toContain("rt.worktrees set (user, settings-repo)");
+    expect(stripAnsi(res.stdout)).toContain("[ok] Saved rt.worktrees  your user settings for settings-repo");
 
     const after = readFileSync(userStore, "utf8");
     expect(after).toContain("// e2e user store — this header comment must survive");
@@ -490,7 +490,7 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
       runRt(["settings", "set", "deck.access", '{"app":{"mode":"emails","emails":["alice@example.com"]}}', "--scope", "user"]),
     );
     expect(res.exitCode).toBe(0);
-    expect(stripAnsi(res.stdout)).toContain("deck.access set (user)");
+    expect(stripAnsi(res.stdout)).toContain("[ok] Saved deck.access  your user settings");
 
     const out = await rtJson(["settings", "get", "deck.access", "--json"]);
     expect(out.ok).toBe(true);

@@ -9,7 +9,9 @@ import { rtDir } from "../lib/rt-paths.ts";
 import { DEV_MODE_TAG, devWrapperOwnsRt, installRtBinary, rtBinaryPath } from "../lib/dev-mode.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { spawnSync } from "child_process";
-import { dim, green, red, reset, yellow } from "../lib/tui.ts";
+import * as out from "../lib/ui/out.ts";
+import type { FailureInput } from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
 import { loadSecrets, saveSecret } from "../lib/linear.ts";
 import { SHARED_CHECKOUT_CANDIDATES } from "../lib/release/shared-checkout.ts";
 import {
@@ -29,8 +31,7 @@ export async function setSdmEmail(args: string[]): Promise<void> {
   if (fromArgs) {
     email = fromArgs;
   } else if (!process.stdin.isTTY) {
-    console.log(`\n  ${red}✗ no email given and no terminal to prompt in${reset}`);
-    console.log(`  ${dim}usage: rt sdm set-email <email>${reset}\n`);
+    out.fail({ title: "No email given and no terminal to ask in", next: out.cmd("rt sdm set-email <email>") });
     process.exitCode = 1;
     return;
   } else {
@@ -43,29 +44,23 @@ export async function setSdmEmail(args: string[]): Promise<void> {
           : "you@example.com",
       });
     } catch {
-      if (secrets.sdmEmail) {
-        console.log(`  ${dim}keeping existing StrongDM email${reset}`);
-      }
+      if (secrets.sdmEmail) out.print(out.line("skipped", "Kept your StrongDM email"));
       return;
     }
   }
 
   if (!email.trim()) {
-    if (secrets.sdmEmail) {
-      console.log(`  ${dim}keeping existing StrongDM email${reset}`);
-    } else {
-      console.log(`  ${yellow}no email entered${reset}`);
-    }
+    out.print(secrets.sdmEmail ? out.line("skipped", "Kept your StrongDM email") : out.line("skipped", "No email entered"));
     return;
   }
 
   try {
     await saveSecret("sdmEmail", email.trim());
   } catch (err) {
-    console.log(`\n  ${red}✗ failed to save StrongDM email: ${err instanceof Error ? err.message : String(err)}${reset}\n`);
+    out.fail({ title: "Could not save your StrongDM email", why: err instanceof Error ? err.message : String(err) });
     process.exit(1);
   }
-  console.log(`\n  ${green}✓${reset} StrongDM email saved\n`);
+  out.print(out.line("done", "StrongDM email saved"));
 }
 
 // ─── Test push notification ──────────────────────────────────────────────────
@@ -74,8 +69,7 @@ export async function sendTestPushNotification(): Promise<void> {
   const { TRAY_SOCK_PATH } = await import("../lib/daemon-config.ts");
 
   if (!existsSync(TRAY_SOCK_PATH)) {
-    console.log(`\n  ${yellow}⚠${reset}  rt tray is not running`);
-    console.log(`     ${dim}(no socket at ~/.mattstack/rt/tray.sock — start the tray app first)${reset}\n`);
+    out.print(out.line("off", "The mattstack app is not running", "open it, then try again"));
     return;
   }
 
@@ -97,12 +91,12 @@ export async function sendTestPushNotification(): Promise<void> {
     } as any);
 
     if (response.ok) {
-      console.log(`\n  ${green}✓${reset} Test push sent to rt tray\n`);
+      out.print(out.line("done", "Test notification sent"));
     } else {
-      console.log(`\n  ${red}✗${reset} rt tray returned HTTP ${response.status}\n`);
+      out.fail({ title: "The app did not accept the test notification", hint: `HTTP ${response.status}` });
     }
   } catch (e) {
-    console.log(`\n  ${red}✗${reset} Failed to reach rt tray: ${(e as Error).message}\n`);
+    out.fail({ title: "Could not reach the mattstack app", why: (e as Error).message });
   }
 }
 
@@ -234,10 +228,14 @@ export function enableDevMode(sourcePath: string): void {
 }
 
 export interface SourcePathSeams {
-  log: (line: string) => void;
-  error: (line: string) => void;
+  print: (...blocks: Block[]) => void;
+  fail: (f: FailureInput) => void;
+  json: (value: unknown) => void;
+  payload: (text: string) => void;
   exit: (code: number) => never;
 }
+
+const realSeams: SourcePathSeams = { print: out.print, fail: out.fail, json: out.json, payload: out.payload, exit: (c) => process.exit(c) };
 
 /**
  * `rt settings source-path [<path>]`: reads or sets the rt checkout the dev
@@ -247,22 +245,28 @@ export interface SourcePathSeams {
 export async function sourcePathCommand(
   args: string[],
   _ctx: CommandContext = {},
-  seams: SourcePathSeams = { log: (l) => console.log(l), error: (l) => console.error(l), exit: (c) => process.exit(c) },
+  seams: SourcePathSeams = realSeams,
 ): Promise<void> {
   const json = args.includes("--json");
   const given = args.find((a) => !a.startsWith("--"));
 
   if (given === undefined) {
     const current = readDevModeConfig().sourcePath ?? null;
-    seams.log(json ? JSON.stringify(envelope({ sourcePath: current })) : (current ?? "no source checkout set"));
+    if (json) {
+      seams.json(envelope({ sourcePath: current }));
+      return;
+    }
+    // The path is the payload: a script reads it from stdout, so the hint goes to stderr.
+    out.payloadOnStdout();
+    if (current) seams.payload(`${current}\n`);
+    else seams.print(out.line("pending", "No source checkout set yet"), out.callout("next", out.cmd("rt settings source-path <path>")));
     return;
   }
 
   const sourcePath = resolvePath(given);
   if (!existsSync(join(sourcePath, "cli.ts"))) {
-    const message = `${sourcePath} is not an rt checkout (no cli.ts)`;
-    if (json) seams.log(JSON.stringify(envelope({ ok: false, error: { code: "not-rt-source", message } })));
-    else seams.error(`rt settings source-path: ${message}`);
+    if (json) seams.json(envelope({ ok: false, error: { code: "not-rt-source", message: `${sourcePath} is not an rt checkout (no cli.ts)` } }));
+    else seams.fail({ title: "That folder is not an rt checkout", hint: sourcePath, why: "It has no cli.ts." });
     seams.exit(2);
     return;
   }
@@ -271,8 +275,8 @@ export async function sourcePathCommand(
   if (wrapperOwnsRt) enableDevMode(sourcePath);
   else saveSourcePath(sourcePath, detectBunPath());
 
-  if (json) seams.log(JSON.stringify(envelope({ ok: true, sourcePath, wrapperRewritten: wrapperOwnsRt })));
-  else seams.log(`  source checkout: ${sourcePath}${wrapperOwnsRt ? ` (${rtBinaryPath()} rewritten)` : ""}`);
+  if (json) seams.json(envelope({ ok: true, sourcePath, wrapperRewritten: wrapperOwnsRt }));
+  else seams.print(out.line("done", "Source checkout set", sourcePath), ...(wrapperOwnsRt ? [out.line("done", "Dev wrapper rewritten", rtBinaryPath())] : []));
 }
 
 /**
