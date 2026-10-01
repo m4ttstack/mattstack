@@ -12,7 +12,7 @@ only on an approve outcome (`mr_approve`). Nothing submits a review, so on
 GitLab the reviewer is never a reviewer and never in a "reviewed" state. A
 comment outcome is invisible to GitLab's review state, and the board's pill
 falls back to "needs review" whenever the findings went out as plain notes
-(!43878 is the live example).
+(a live MR reviewed through the board on 2026-09-30 is the example).
 
 Later rounds have two jobs, checking what the author did with earlier
 threads and finding what is new, and today only the second is done well. A
@@ -53,7 +53,7 @@ read from GitLab's source (`MergeRequests::UpdateReviewerStateService`).
   Each submit adds a "left review comments" system note.
 - Submitting adds the submitter as a reviewer in that state unless they are
   the MR author, or the reviewer limit is reached: on Free only when the MR
-  has no reviewers, on Premium and above (Assured) up to the limit.
+  has no reviewers, on Premium and above up to the limit.
 - Approve is not a `reviewer_state`: publish, then `POST .../approve`, which
   sets the reviewer's state to `approved`. After an approval, a later
   Comment submit still publishes everything and leaves the approval alone.
@@ -113,7 +113,8 @@ Layers:
 - `packages/rt-client/src/commands.ts`: the `mr:review-submit` command
   type; rebuild `dist`.
 - `lib/daemon/handlers/discussions.ts`: the `mr:review-submit` handler
-  beside `mr:comment`, behind the same `grants()` and repo decoding.
+  beside `mr:comment`, behind the same repo decoding and token lookup (no
+  `grants()` check, as `mr:comment` has none).
 - `lib/mcp/tools.ts`: the tool; regenerate
   `plugins/mattstack/attachments/mcp-tools/reference.md`; update the root
   `AGENTS.md` paragraph that lists what the `mr_*` tools write. Like every
@@ -215,8 +216,9 @@ earlier row's `restored`.
 - **Old reviews**: an MR with no rows builds round 1 from the prior report,
   whose `review-post-answer:` line says what was ticked and whose findings
   JSON holds the rest. No backfill job.
-- **Cleanup**: rows go when the board prunes the MR's review state (merged
-  or closed).
+- **Cleanup**: rows go when the board drops the MR's review tombstone
+  (`dropPrunedReviewState`), not at the prune itself: a pruned review the
+  latch pass resurrects must still find its rounds.
 - **v4 is announced in rt chat before merging**; a second lane holding v4
   renumbers.
 
@@ -266,19 +268,23 @@ question). An edited reply rides its thread's answer as `{value, text}`.
 
 - `statusBucket` (`apps/board/src/view.ts`): a reviewer whose GitLab state
   is `REVIEWED` reads "commented".
-- Older runs that never set a state (!43878): the board member's own plain
-  note, or an open latch, reads "commented" too.
+- Older runs that never set a state: a plain note by a roster member other
+  than the author, or an armed latch that is not resolved, reads
+  "commented" too.
 - The latch arms on a comment outcome and is spent on approve, as today.
 
 ## Phases
 
 1. **Real GitLab reviews**: section 1, the posting steps, section 5.
    Round 1 lands as a submitted review.
-2. **Rounds 2 to N**: the report contract, re-review inputs, thread replies
-   and resolves through the submit tool, the gate's earlier-thread cards
-   wired to real questions.
-3. **Skipped findings**: section 3 and the skipped row wired; building
-   round 1 from old reports.
+2. **Rounds 2 to N**: the round record's table and `review-ledger`
+   verbs from section 3 (a later round's round number, last reviewed
+   commit and `confirmed` list come from nowhere else; `skipped` and
+   `restored` are written empty until phase 3), the report contract,
+   re-review inputs, thread replies and resolves through the submit tool,
+   the gate's earlier-thread cards wired to real questions.
+3. **Skipped findings**: the record's `skipped` and `restored` written and
+   read, the skipped row wired; building round 1 from old reports.
 
 Each phase ships on its own.
 
@@ -317,7 +323,7 @@ Merge, then on the machine: sync the shared checkout, restart the daemon,
   refusal names them.
 - **Reviewer limit**: on a Free project with a reviewer already assigned,
   GitLab does not add the submitter, so their state is not set; the review
-  still publishes. Assured is Premium.
+  still publishes. The projects the board reviews are on Premium.
 - **Author reviewing their own MR**: GitLab never adds the author as a
   reviewer; the review publishes with no state.
 - **v4 collision** with another lane's migration: announced first.

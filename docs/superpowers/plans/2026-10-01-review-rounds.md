@@ -39,9 +39,9 @@
 4. **Finding ids repeat across rounds** (`f1` in round 1 is not `f1` in round 2). Expected: a skipped finding is stored and restored under a round-qualified id (`r1-f1`), so restoring one never restores its namesake. Test in Task 8.
 5. **A reviewer's earlier thread whose author never replied, or a thread on a line that no longer exists.** Expected: the card still renders ("The author hasn't replied in this thread."), the reply posts into the thread (replies need no position), and nothing tries to re-anchor it. Tests in Task 10 (script) and Task 12 (sheet).
 
-## Deviation from the spec, for Matt to confirm
+## Phase order note
 
-The spec lists the round record (section 3) under Phase 3. This plan creates the `review_rounds` table and the `review-ledger` verbs at the start of Phase 2 (Tasks 8 and 9), because Phase 2's inputs need two things only the record holds: the last reviewed commit and the round number. In Phase 2 the record's `skipped` and `restored` are always written as `[]`; Phase 3 fills them. One migration instead of two, and nothing else moves.
+The round record's table and `review-ledger` verbs land at the start of Phase 2 (Tasks 8 and 9), as the spec's Phases section now says: Phase 2's inputs need the round number, the last reviewed commit and the `confirmed` list, which nothing else holds. In Phase 2 the record's `skipped` and `restored` are always written as `[]`; Phase 3 fills them. One migration instead of two.
 
 ## File Map
 
@@ -50,7 +50,7 @@ The spec lists the round record (section 3) under Phase 3. This plan creates the
 | `packages/glance/src/NoteMutator.ts` | modify | pending-comment (draft note) REST calls, reviewer states |
 | `packages/glance/src/index.ts` | modify | export `DraftNote`, `ReviewerState` |
 | `packages/glance/tests/note-mutator.test.ts` | modify | unit tests for the new calls |
-| `packages/glance/tests/live/review-submit.live.test.ts` | create | harness test against the fixture repo |
+| `packages/glance/tests/live-review-submit.test.ts` | create | harness test against the fixture repo, gated on `GLANCE_LIVE` |
 | `packages/rt-client/src/commands.ts` | modify | `mr:review-submit` command type |
 | `lib/daemon/review-submit.ts` | create | payload validation and the submit sequence, no I/O of its own |
 | `lib/daemon/handlers/discussions.ts` | modify | `mr:review-submit` handler wiring |
@@ -677,6 +677,7 @@ export interface ReviewSubmitDeps {
   resolve: (discussionId: string) => Promise<void>;
 }
 
+/** The three fields the handler adds after the sequence: it alone knows the MR url and reads GitLab back. */
 type Strip<T> = T extends unknown ? Omit<T, "mrUrl" | "reviewerState" | "summaryNoteId"> : never;
 export type ReviewSubmitOutcome = Strip<ReviewSubmitData>;
 
@@ -1269,66 +1270,122 @@ git commit -m "mcp: mr_review_submit, one tool call per GitLab review"
 ### Task 5: harness test against the fixture repo
 
 **Files:**
-- Create: `packages/glance/tests/live/review-submit.live.test.ts`
+- Create: `packages/glance/tests/live-review-submit.test.ts` (beside `tests/live-events.test.ts`; `tsconfig.tests.json` includes `tests/live-*.test.ts`, and `bun test tests` picks it up, so the skip guard below is what keeps it off CI)
 
 **Interfaces:**
-- Consumes: Task 1's methods; the live suite's credential loader `packages/glance/tests/live/credentials.ts`. Read one existing file in `packages/glance/tests/live/` first and copy its credential loading, its `GLANCE_LIVE` skip guard, and how it creates and cleans up a fixture MR. Use exactly those helpers; do not hand-roll MR creation.
+- Consumes: Task 1's methods; from `tests/live/credentials.ts`: `loadCredentials()` (null when `harness_credentials.json` is absent), `ownerUser(creds)`, `approverUsers(creds)`, `gitlabRepo(creds)` (`{web_url, path_with_namespace?, project_id?}`); the gitbeaker MR pattern `tests/live-events.test.ts` lines 85-89 uses (`Projects.show`, `Branches.create`, `Commits.create`, `MergeRequests.create`, cleanup `Branches.remove` in a `finally`). The owner opens the MR and an approver reviews it: GitLab records no reviewer state for an MR's author.
 
-This suite mutates a real GitLab fixture project. Budget ONE run. Never print or stage `harness_credentials.json`.
+This test mutates the real GitLab fixture project. Budget ONE run. Never print or stage `harness_credentials.json`.
 
 - [ ] **Step 1: Write the test**
 
-The test body, using the file's existing helpers for `owner`/`reviewer` clients, `projectId`, and a fresh MR `iid` whose diff adds at least 5 lines to one new file `path`:
-
 ```ts
-test('a submitted review publishes comments, drops nothing, and sets the reviewer state', async () => {
-  const m = new NoteMutator(baseURL, reviewerToken);
-  const refs = await m.fetchDiffRefs(projectId, iid);
-  const pos = (line: number) => ({ ...refs, position_type: 'text' as const, new_path: path, old_path: path, new_line: line });
+/**
+ * Live check of NoteMutator's pending-comment calls against the harness
+ * repo. Gated: set GLANCE_LIVE=1 to run; skipped silently otherwise.
+ */
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { Gitlab } from '@gitbeaker/rest';
+import { NoteMutator, type TextPosition } from '../src/NoteMutator.ts';
+import { approverUsers, gitlabRepo, loadCredentials, ownerUser } from './live/credentials.ts';
 
-  const good = await m.createDraftNote(projectId, iid, 'harness: inline finding', { position: pos(2) });
-  expect(good.line_code).not.toBeNull();
+const LIVE = !!process.env.GLANCE_LIVE;
+const FILE = `live-review-submit-${Date.now()}.txt`;
+const FIVE_LINES = 'one\ntwo\nthree\nfour\nfive\n';
 
-  const bad = await m.createDraftNote(projectId, iid, 'harness: outside the diff', { position: pos(9999) });
-  expect(bad.line_code).toBeNull();
-  await m.deleteDraftNote(projectId, iid, bad.id);
+describe.skipIf(!LIVE)('live: submitted review', () => {
+  let host: string;
+  let repo: string;
+  let projectId: number;
+  let iid: number;
+  let branch: string;
+  let owner: InstanceType<typeof Gitlab>;
+  let reviewer: NoteMutator;
+  let reviewerName: string;
+  let reviewerToken: string;
 
-  expect((await m.listDraftNotes(projectId, iid)).map(d => d.id)).toEqual([good.id]);
+  beforeAll(async () => {
+    const creds = await loadCredentials();
+    if (!creds) throw new Error('harness_credentials.json not found at the package root');
+    const gl = gitlabRepo(creds);
+    host = new URL(gl.web_url).origin;
+    repo = gl.path_with_namespace ?? new URL(gl.web_url).pathname.replace(/^\//, '');
+    const approver = approverUsers(creds)[0];
+    if (!approver) throw new Error('harness needs one approver user');
+    reviewerName = approver.username;
+    reviewerToken = approver.token;
+    owner = new Gitlab({ host, token: ownerUser(creds).token });
+    reviewer = new NoteMutator(host, reviewerToken);
 
-  await m.publishDraftNotes(projectId, iid, { note: 'harness: summary', reviewerState: 'reviewed' });
-  expect(await m.listDraftNotes(projectId, iid)).toEqual([]);
-
-  const states = await m.fetchReviewerStates(projectId, iid);
-  expect(states.find(s => s.username === reviewerUsername)?.state).toBe('reviewed');
-});
-
-test('a pending reply with resolve resolves the thread on publish', async () => {
-  const m = new NoteMutator(baseURL, reviewerToken);
-  const refs = await m.fetchDiffRefs(projectId, iid);
-  const thread = await m.createPositionedDiscussion(projectId, iid, 'harness: thread to resolve', {
-    ...refs, position_type: 'text', new_path: path, old_path: path, new_line: 3,
+    const proj = await owner.Projects.show(repo);
+    projectId = gl.project_id ?? (proj.id as number);
+    branch = `live-review-submit-${Date.now()}`;
+    await owner.Branches.create(repo, branch, proj.default_branch as string);
+    await owner.Commits.create(repo, branch, 'live-review-submit: five lines', [
+      { action: 'create', filePath: FILE, content: FIVE_LINES },
+    ]);
+    const mr = await owner.MergeRequests.create(repo, branch, proj.default_branch as string, `Live review submit ${branch}`);
+    iid = mr.iid as number;
   });
-  await m.createDraftNote(projectId, iid, 'harness: confirmed', { inReplyToDiscussionId: thread.id, resolveDiscussion: true });
-  await m.publishDraftNotes(projectId, iid, { note: 'harness: round two', reviewerState: 'reviewed' });
 
-  const res = await fetch(`${baseURL}/api/v4/projects/${projectId}/merge_requests/${iid}/discussions/${thread.id}`, {
-    headers: { 'PRIVATE-TOKEN': reviewerToken },
+  afterAll(async () => {
+    if (!owner || !branch) return;
+    try { await owner.MergeRequests.edit(repo, iid, { stateEvent: 'close' }); } catch {}
+    try { await owner.Branches.remove(repo, branch); } catch {}
   });
-  const d = (await res.json()) as { notes: Array<{ resolved?: boolean; body: string }> };
-  expect(d.notes.at(-1)!.body).toBe('harness: confirmed');
-  expect(d.notes[0]!.resolved).toBe(true);
+
+  const pos = (refs: { base_sha: string; start_sha: string; head_sha: string }, line: number): TextPosition =>
+    ({ ...refs, position_type: 'text', new_path: FILE, old_path: FILE, new_line: line });
+
+  test('a submitted review publishes its comment, drops a bad anchor only when asked, and sets the reviewer state', async () => {
+    const refs = await reviewer.fetchDiffRefs(projectId, iid);
+
+    const good = await reviewer.createDraftNote(projectId, iid, 'harness: inline finding', { position: pos(refs, 2) });
+    expect(good.line_code).not.toBeNull();
+
+    const bad = await reviewer.createDraftNote(projectId, iid, 'harness: outside the diff', { position: pos(refs, 9999) });
+    expect(bad.line_code).toBeNull();
+    await reviewer.deleteDraftNote(projectId, iid, bad.id);
+
+    expect((await reviewer.listDraftNotes(projectId, iid)).map(d => d.id)).toEqual([good.id]);
+
+    await reviewer.publishDraftNotes(projectId, iid, { note: 'harness: summary', reviewerState: 'reviewed' });
+    expect(await reviewer.listDraftNotes(projectId, iid)).toEqual([]);
+
+    const states = await reviewer.fetchReviewerStates(projectId, iid);
+    expect(states.find(s => s.username === reviewerName)?.state).toBe('reviewed');
+  });
+
+  test('a pending reply with resolve resolves the thread on publish', async () => {
+    const refs = await reviewer.fetchDiffRefs(projectId, iid);
+    const thread = await reviewer.createPositionedDiscussion(projectId, iid, 'harness: thread to resolve', pos(refs, 3));
+    await reviewer.createDraftNote(projectId, iid, 'harness: confirmed', {
+      inReplyToDiscussionId: thread.id,
+      resolveDiscussion: true,
+    });
+    await reviewer.publishDraftNotes(projectId, iid, { note: 'harness: round two', reviewerState: 'reviewed' });
+
+    const res = await fetch(`${host}/api/v4/projects/${projectId}/merge_requests/${iid}/discussions/${thread.id}`, {
+      headers: { 'PRIVATE-TOKEN': reviewerToken },
+    });
+    const d = (await res.json()) as { notes: Array<{ resolved?: boolean; body: string }> };
+    expect(d.notes.at(-1)!.body).toBe('harness: confirmed');
+    expect(d.notes[0]!.resolved).toBe(true);
+  });
 });
 ```
 
-- [ ] **Step 2: Typecheck, then run once live**
+The two empty `catch` blocks in `afterAll` are cleanup of a fixture that may already be gone, the same shape `live-events.test.ts` uses.
 
-Run (from `packages/glance`): `bun run check-types`, then `GLANCE_LIVE=1 bun test tests/live/review-submit.live.test.ts`.
+- [ ] **Step 2: Confirm it skips, typecheck, then run once live**
+
+Run (from `packages/glance`): `bun test tests/live-review-submit.test.ts` (expected: 2 skipped, exit 0), then `bun run check-types`, then `GLANCE_LIVE=1 bun test tests/live-review-submit.test.ts`.
 Expected: 2 pass. If credentials are rejected (401), stop and report: Matt refreshes the harness tokens; do not retry in a loop.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add :/packages/glance/tests/live/review-submit.live.test.ts
+git add :/packages/glance/tests/live-review-submit.test.ts
 git commit -m "glance: live harness test for a submitted review"
 ```
 
@@ -2124,7 +2181,7 @@ Add a test to `review-rounds.test.ts` for that wiring:
 - [ ] **Step 5: Run tests and gates**
 
 Run (from `apps/board`): `bun test src/__tests__/state-db.test.ts src/__tests__/review-rounds.test.ts src/__tests__/review-state.test.ts src/__tests__/state-purity.test.ts` then `bun run typecheck`.
-Expected: PASS. If `state-purity.test.ts` lists which modules may touch the db, add `review-rounds.ts` the way `review-state.ts` is listed.
+Expected: PASS (`state-purity.test.ts` scans for `'state'` path joins, which `review-rounds.ts` has none of).
 
 - [ ] **Step 6: Commit**
 
@@ -2138,7 +2195,7 @@ git commit -m "board: review_rounds table (state db v4) and its reader"
 **Files:**
 - Create: `apps/board/bin/review-ledger.ts`
 - Modify: `apps/board/src/subcommands.ts` (one `VERBS` entry)
-- Test: create `apps/board/src/__tests__/review-ledger.test.ts`; extend `apps/board/src/__tests__/status-bin.test.ts` if it enumerates verbs
+- Test: create `apps/board/src/__tests__/review-ledger.test.ts`
 
 **Interfaces:**
 - Consumes: Task 8's `recordRound`, `readRounds`, `ledgerView`, `qualifySkippedId`; `boardRootFromStatePath` (`src/agent-status/emit.ts`); `dbPathForRoot`, `openStateDb` (`src/state/index.ts`).
@@ -2363,7 +2420,7 @@ In `apps/board/src/subcommands.ts` add to `VERBS`, after `'review-status'`:
 - [ ] **Step 3: Run tests**
 
 Run (from `apps/board`): `bun test src/__tests__/review-ledger.test.ts src/__tests__/status-bin.test.ts` then `bun run typecheck`.
-Expected: PASS. If `status-bin.test.ts` pins the verb list, add `review-ledger` to its expectation.
+Expected: PASS.
 
 - [ ] **Step 4: Commit**
 
@@ -2371,8 +2428,6 @@ Expected: PASS. If `status-bin.test.ts` pins the verb list, add `review-ledger` 
 git add :/apps/board/bin/review-ledger.ts :/apps/board/src/subcommands.ts :/apps/board/src/__tests__/review-ledger.test.ts
 git commit -m "board: review-ledger record and read verbs"
 ```
-
-(Add `status-bin.test.ts` to the commit if it changed.)
 
 ### Task 10: the gate scripts build the earlier-thread questions
 
@@ -2450,8 +2505,8 @@ check "not-fixed recommends the reply only" '["Post reply (recommended)","Resolv
 check "the label is file:line, the file alone, or General thread" \
   '["queue/worker.ts:40","queue/enqueue.ts","General thread"]' "$(q '[.questions[0,1,2].label] | tojson')"
 check "the carryover context carries the whole card" \
-  '{"gate-ctx":"carryover@1","thread":"a1b2","round":1,"call":"fixed","original":"permanent failures re-enqueue forever","reply":"Confirmed, thanks.","file":"queue/worker.ts:40","authorReply":"dropped in the catch block now","note":"worker.ts:40 returns before enqueue for non-retryable errors"}' \
-  "$(q '.questions[0].context | tojson')"
+  '{"authorReply":"dropped in the catch block now","call":"fixed","file":"queue/worker.ts:40","gate-ctx":"carryover@1","note":"worker.ts:40 returns before enqueue for non-retryable errors","original":"permanent failures re-enqueue forever","reply":"Confirmed, thanks.","round":1,"thread":"a1b2"}' \
+  "$(q '.questions[0].context | to_entries | sort_by(.key) | from_entries | tojson')"
 check "a thread with no author reply and no file omits both keys" \
   '["call","gate-ctx","original","reply","round","thread"]' "$(q '.questions[2].context | keys | tojson')"
 check "thread questions are multi" true "$(q '.questions[0].multi')"
@@ -2725,7 +2780,7 @@ note?, reply}`. The question is a multi with exactly two options,
 `reply`. `thread-<n>` ids are separate questions, never chunks of one.
 ```
 
-Then `bun run skills:expand:board` (required for any gate-protocol edit).
+That section ("Structured context (gate-ctx@1)") documents the shapes as a table: add `carryover@1` as a ROW of that table carrying the same facts, not as prose under it. Then `bun run skills:expand:board` (required for any gate-protocol edit).
 
 - [ ] **Step 6: Edit the board wrapper (`apps/board/skills-src/review/SKILL.md`)**
 
@@ -3174,7 +3229,7 @@ recommended: a skipped finding comes back only when the human ticks it.
 Answers read back as one union across the chunks.
 ```
 
-Run `bun run skills:expand:board`.
+As in Task 11, this goes in as a ROW of the "Structured context (gate-ctx@1)" table, not prose under it. Run `bun run skills:expand:board`.
 
 - [ ] **Step 5: Edit the board wrapper (`apps/board/skills-src/review/SKILL.md`)**
 
@@ -3306,7 +3361,7 @@ Storybook `Gates/Board/ReviewGateSheet` (RoundThree, RoundThreeBringingOneBack, 
 
 - [ ] **Step 3: Purity and the public repo**
 
-Search the diff for employer names, real MR numbers and ticket ids: `git diff origin/main...HEAD | grep -niE "assured|claimview|RT-[0-9]|SKILLS-[0-9]"`. Expected: no hits in skill sources, fixtures, tests or stories (the spec and this plan may name the claimview pack as a consumer).
+Search the diff for employer names, real MR numbers and ticket ids: `git diff origin/main...HEAD | grep -niE "assured|claimview|RT-[0-9]|SKILLS-[0-9]|![0-9]{4,}"`. Expected: no hits anywhere except the claimview pack named as a consumer in the spec and this plan, and the invented `!87` in fixtures.
 
 - [ ] **Step 4: Confirm the v4 claim still stands**
 
