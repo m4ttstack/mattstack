@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
-import type { ParityNode } from './boards';
 import { compare, normColor, visibleOnly } from './compare';
+import type { ParityNode } from './config';
 
 const n = (key: string, o: Partial<ParityNode> = {}): ParityNode => ({
   key,

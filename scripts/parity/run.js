@@ -1,11 +1,12 @@
 // A browser_run_code_unsafe function file: run it with
-// { filename: <this file>, args: { slug, scheme } }, harness.ts running.
-// Optional args: harness (URL), designOnly (skip the app side).
+// { filename: <this file>, args: { slug, scheme, harness } }, the app's
+// harness.ts running at the harness URL (http://127.0.0.1:<its port>).
+// Optional args: designOnly (skip the app side).
 // Must stay one bare function expression: the tool wraps the file in parens.
-async (
-  page,
-  { slug, scheme, harness = 'http://127.0.0.1:11096', designOnly = false }
-) => {
+async (page, { slug, scheme, harness, designOnly = false }) => {
+  if (!harness) {
+    return { error: 'args.harness is required: the URL of the app harness' };
+  }
   const cfgRes = await page.request.get(
     `${harness}/config?slug=${encodeURIComponent(slug)}&scheme=${encodeURIComponent(scheme)}`
   );

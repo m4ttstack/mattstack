@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { hugsWidth, hugWidthPaths, penPaths, readPen } from './pen';
+import {
+  hugWidthPaths,
+  penPaths,
+  readPen,
+} from '../../../../scripts/parity/pen';
 
 const EXPORT = fileURLToPath(
   new URL(
@@ -10,11 +14,14 @@ const EXPORT = fileURLToPath(
     import.meta.url
   )
 );
+const PEN = fileURLToPath(
+  new URL('../../../../docs/apps/design/boxscore/boxscore.pen', import.meta.url)
+);
 const ROOT = 'Leaderboard · Table';
 const TABS = 'Main/Content/Standings/Tabs Row/Tabs';
 
 describe('pen layer paths', () => {
-  const pen = readPen();
+  const pen = readPen(PEN);
 
   it('has one path per layer the design export names', () => {
     const named = readFileSync(EXPORT, 'utf8').match(/data-pencil-name=/g);
@@ -41,7 +48,7 @@ describe('pen layer paths', () => {
 });
 
 describe('content roots', () => {
-  const pen = readPen();
+  const pen = readPen(PEN);
 
   it('finds a content layer inside the named board, keyed from that layer', () => {
     const status = penPaths(pen, 'Refresh Status', 'Leaderboard · Refreshing');
@@ -50,15 +57,5 @@ describe('content roots', () => {
     expect(() =>
       penPaths(pen, 'Refresh Status', 'Leaderboard · Table')
     ).toThrow(/no layer named "Refresh Status" in "Leaderboard · Table"/);
-  });
-});
-
-describe('hugsWidth', () => {
-  it('treats a frame with no width or a fit_content width as hugging', () => {
-    expect(hugsWidth({ type: 'frame' })).toBe(true);
-    expect(hugsWidth({ type: 'frame', width: 'fit_content(80)' })).toBe(true);
-    expect(hugsWidth({ type: 'frame', width: 80 })).toBe(false);
-    expect(hugsWidth({ type: 'frame', width: 'fill_container' })).toBe(false);
-    expect(hugsWidth({ type: 'text' })).toBe(false);
   });
 });

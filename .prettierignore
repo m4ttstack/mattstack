@@ -19,7 +19,7 @@ apps/*/state
 apps/*/state.*
 apps/*/src/server/embedded/manifest.ts
 # browser_run_code_unsafe function files: a trailing semicolon breaks the tool's loader
-apps/boxscore/scripts/parity/*.js
+scripts/parity/*.js
 # rt's own code keeps rt's style (double quotes); prettier is the apps' tool
 /cli.ts
 /test-setup.ts

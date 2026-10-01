@@ -1,15 +1,17 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import {
   boardBySlug,
+  outputDirOf,
   targetsOf,
   type Mismatch,
+  type ParityApp,
   type ParityNode,
-} from './boards';
+} from './config';
 
-export const OUTPUT_DIR = join(homedir(), '.fast-browser', 'output', 'parity');
+const REPO_ROOT = resolve(import.meta.dirname, '../..');
 
 const BOX_TOLERANCE = 1;
 const CHANNEL_TOLERANCE = 1;
@@ -270,32 +272,74 @@ function readNodes(path: string): ParityNode[] {
   return JSON.parse(readFileSync(path, 'utf8')) as ParityNode[];
 }
 
-function compareFiles(designPath: string, appPath: string, slug: string) {
-  const board = boardBySlug(slug);
+export function compareFiles(
+  app: ParityApp,
+  designPath: string,
+  appPath: string,
+  slug: string
+): Mismatch[] {
+  const board = boardBySlug(app.boards, slug);
   return compare(visibleOnly(readNodes(designPath)), readNodes(appPath), {
     dynamicText: board.dynamicText,
   });
 }
 
-const USAGE = `usage:
-  bun scripts/parity/compare.ts <design.json> <app.json> <slug>
-  bun scripts/parity/compare.ts --board <slug> <dark|light>   (reads ${OUTPUT_DIR})`;
+/** One result per target of a board, compared lazily from the files the runner uploaded. */
+export function* compareBoard(
+  app: ParityApp,
+  slug: string,
+  scheme: string
+): Generator<{ stem: string; mismatches: Mismatch[] }> {
+  for (const t of targetsOf(boardBySlug(app.boards, slug))) {
+    const base = join(outputDirOf(app), `${t.stem}.${scheme}`);
+    yield {
+      stem: t.stem,
+      mismatches: compareFiles(
+        app,
+        `${base}.design.json`,
+        `${base}.app.json`,
+        slug
+      ),
+    };
+  }
+}
 
-function main(argv: string[]): number {
-  if (argv[0] === '--board' && argv.length === 3) {
-    const [, slug, scheme] = argv as [string, string, string];
+/** An app is the `app` export of `apps/<name>/scripts/parity/harness.ts`. */
+async function loadApp(name: string): Promise<ParityApp> {
+  if (!/^[\w-]+$/.test(name)) throw new Error(`bad app name: ${name}`);
+  const path = join(REPO_ROOT, 'apps', name, 'scripts/parity/harness.ts');
+  if (!existsSync(path)) {
+    throw new Error(`no parity config for "${name}": expected ${path}`);
+  }
+  const mod = (await import(pathToFileURL(path).href)) as { app?: ParityApp };
+  if (!mod.app) throw new Error(`${path} must export \`app\``);
+  return mod.app;
+}
+
+const USAGE = `usage:
+  bun scripts/parity/compare.ts --app <name> <design.json> <app.json> <slug>
+  bun scripts/parity/compare.ts --app <name> --board <slug> <dark|light>   (reads the app's output dir)
+<name> is the folder under apps/ whose scripts/parity/harness.ts exports \`app\``;
+
+async function main(argv: string[]): Promise<number> {
+  if (argv[0] !== '--app' || argv.length < 2) {
+    console.error(USAGE);
+    return 2;
+  }
+  const app = await loadApp(argv[1]!);
+  const rest = argv.slice(2);
+  if (rest[0] === '--board' && rest.length === 3) {
+    const [, slug, scheme] = rest as [string, string, string];
     let total = 0;
-    for (const t of targetsOf(boardBySlug(slug))) {
-      const base = join(OUTPUT_DIR, `${t.stem}.${scheme}`);
-      const m = compareFiles(`${base}.design.json`, `${base}.app.json`, slug);
-      total += m.length;
-      console.log(formatTable(`${t.stem} ${scheme}`, m));
+    for (const { stem, mismatches } of compareBoard(app, slug, scheme)) {
+      total += mismatches.length;
+      console.log(formatTable(`${stem} ${scheme}`, mismatches));
     }
     return total === 0 ? 0 : 1;
   }
-  if (argv.length === 3 && !argv[0]!.startsWith('--')) {
-    const [designPath, appPath, slug] = argv as [string, string, string];
-    const m = compareFiles(designPath, appPath, slug);
+  if (rest.length === 3 && !rest[0]!.startsWith('--')) {
+    const [designPath, appPath, slug] = rest as [string, string, string];
+    const m = compareFiles(app, designPath, appPath, slug);
     console.log(formatTable(slug, m));
     return m.length === 0 ? 0 : 1;
   }
@@ -305,7 +349,7 @@ function main(argv: string[]): number {
 
 if (import.meta.main) {
   try {
-    process.exit(main(process.argv.slice(2)));
+    process.exit(await main(process.argv.slice(2)));
   } catch (err) {
     console.error(err instanceof Error ? err.message : err);
     process.exit(2);

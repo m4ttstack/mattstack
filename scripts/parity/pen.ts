@@ -1,10 +1,9 @@
 /**
- * Reads layer sizing from `boxscore.pen` so the harness can tell a layer that
+ * Reads layer sizing from an app's `.pen` so the harness can tell a layer that
  * hugs its content (Pencil measured it in the canvas font) from one with a
  * fixed or fill width.
  */
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
 export interface PenNode {
   type?: string;
@@ -14,11 +13,7 @@ export interface PenNode {
   children?: PenNode[];
 }
 
-export const PEN_PATH = fileURLToPath(
-  new URL('../../../../docs/apps/design/boxscore/boxscore.pen', import.meta.url)
-);
-
-export function readPen(path = PEN_PATH): PenNode {
+export function readPen(path: string): PenNode {
   return JSON.parse(readFileSync(path, 'utf8')) as PenNode;
 }
 

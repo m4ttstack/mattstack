@@ -32,19 +32,22 @@ Every root is its own target with its own output stem
 relative to that root, not the page frame. The kit sets the content width
 (its rail is not the board's), so after the route loads the runner resizes the
 app viewport until the widest root on the route matches its design width, and
-reports the width it used as `appViewportWidth`. Paths below are relative to `apps/boxscore`
-unless they start with `docs/` (repo root) or `~`.
+reports the width it used as `appViewportWidth`. Paths below are relative to the repo
+root unless they start with `~`. The collector, runner, compare CLI and harness
+server are shared by every app and live in `scripts/parity/`; the board table and
+harness config are boxscore's own.
 
 ## What is where
 
 | Thing                                                               | Where                                                        |
 | ------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Board table (slug, route, storage, scenario, roots, height, action) | `scripts/parity/boards.ts`                                   |
+| Board table (slug, route, storage, scenario, roots, height, action) | `apps/boxscore/scripts/parity/boards.ts`                     |
+| Harness config (ports, design dir, pen path, board table)           | `apps/boxscore/scripts/parity/harness.ts`                    |
 | Design exports, one per board and scheme                            | `docs/apps/design/boxscore/parity/<slug>.<dark\|light>.html` |
 | Design renders (what the boards look like)                          | `docs/apps/design/boxscore/renders/<slug>.<scheme>.png`      |
 | Collector (browser function file)                                   | `scripts/parity/collect.js`                                  |
 | One-call runner (browser function file)                             | `scripts/parity/run.js`                                      |
-| Config and upload helper for the runner                             | `scripts/parity/harness.ts`                                  |
+| Config and upload server for the runner                             | `scripts/parity/serve.ts`                                    |
 | Diff and CLI                                                        | `scripts/parity/compare.ts`                                  |
 | Every output (JSON, PNG)                                            | `~/.fast-browser/output/parity/`, never the repo             |
 
@@ -110,7 +113,7 @@ To see the design keys for a board, run the design side (step 3 with
 | 11005 | The installed boxscore app                                        | Taken. Never start anything on it.         |
 | 11095 | Fixture API server (`src/server/index.ts` with `PORT`)            | `PORT` overrides the app's 11005           |
 | 5305  | Vite dev client, proxying `/api` and `/ws` to `BOXSCORE_API_PORT` | `vite.config.ts` reads `BOXSCORE_API_PORT` |
-| 11096 | `harness.ts` (config + uploads)                                   | `PARITY_HARNESS_PORT` overrides it         |
+| 11096 | `harness.ts` (config + uploads), `harnessPort` in its config      | `PARITY_HARNESS_PORT` overrides it         |
 
 Always use a `http://localhost` origin. `.mattstack` URLs do not work in the
 browser.
@@ -119,7 +122,7 @@ If those ports are taken (a test-drive server someone else is using), leave
 them alone and move all three: start the fixture server on another `PORT`,
 Vite on another `--port` with `BOXSCORE_API_PORT` pointing at it, and the
 harness with `PARITY_HARNESS_PORT=<port> PARITY_APP_ORIGIN=http://localhost:<vite port>`;
-then pass `harness: "http://127.0.0.1:<port>"` to `run.js`. Run the parity
+then pass that `harness: "http://127.0.0.1:<port>"` to `run.js` in step 3. Run the parity
 page in its own tab, since the runner navigates the current one.
 
 ## Steps for one board and scheme
@@ -180,8 +183,12 @@ been closed`), open one with `browser_tabs` `{ "action": "new", "url":
 
 ```json
 {
-  "filename": "<absolute path to apps/boxscore>/scripts/parity/run.js",
-  "args": { "slug": "<slug>", "scheme": "<scheme>" }
+  "filename": "<absolute path to the repo root>/scripts/parity/run.js",
+  "args": {
+    "slug": "<slug>",
+    "scheme": "<scheme>",
+    "harness": "http://127.0.0.1:11096"
+  }
 }
 ```
 
@@ -215,21 +222,23 @@ counts, and the app width used per route) on success, or
 the same plus `failedStep`, `error` and `url`. A timeout at `app: load <route>`
 means the root `data-parity` element never appeared.
 
-Optional args: `designOnly: true` stops after the design side;
-`harness` overrides `http://127.0.0.1:11096`.
+`harness` is required: the URL of the harness from step 1 (the default port is
+`harnessPort` in `harness.ts`). Optional arg: `designOnly: true` stops after
+the design side.
 
 ### 4. Compare
 
-From `apps/boxscore`:
+From the repo root (`--app boxscore` loads the `app` export of
+`apps/boxscore/scripts/parity/harness.ts`):
 
 ```bash
-bun scripts/parity/compare.ts --board <slug> <scheme>
+bun scripts/parity/compare.ts --app boxscore --board <slug> <scheme>
 ```
 
 or for one pair of files:
 
 ```bash
-bun scripts/parity/compare.ts ~/.fast-browser/output/parity/<stem>.<scheme>.design.json ~/.fast-browser/output/parity/<stem>.<scheme>.app.json <slug>
+bun scripts/parity/compare.ts --app boxscore ~/.fast-browser/output/parity/<stem>.<scheme>.design.json ~/.fast-browser/output/parity/<stem>.<scheme>.app.json <slug>
 ```
 
 It prints `<title>: 0 mismatches` and exits 0, or a table (`key`, `field`,
