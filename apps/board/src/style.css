@@ -3777,14 +3777,22 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-bad-small);
 }
 
+/* The round is the context every card below is read in, so it stays pinned
+   while the column scrolls. The negative top and margin pull it over the
+   column's own top padding, which a sticky box otherwise keeps clear and
+   lets cards show through. */
 .tui-sheet-round {
+  position: sticky;
+  top: -22px;
+  z-index: 2;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 12px;
-  margin: 0 0 18px;
-  padding-bottom: 12px;
+  margin: -22px 0 18px;
+  padding: 22px 0 12px;
   border-bottom: 1px solid var(--border-soft);
+  background: var(--card);
 }
 .tui-sheet-round-n {
   margin: 0;
