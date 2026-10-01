@@ -327,9 +327,10 @@ The git verbs fail through `commands/git/shared.ts`: `failPlain(json, title,
 message)` keeps git's own message as the `--json` error and prints it under a
 plain title for a person, `failUsage` does the same for a usage string, and
 both exit 1. A refusal by policy (the ownership guard, an undo rt will not
-do, the uncommitted-changes guard) is never a failure: `refuseWith`,
-`refusalNote` and `drawFailure` print a `refused` note on stderr and keep the
-`--json` error and exit code.
+do, the uncommitted-changes guard) is never a failure: `refuseWith` prints a
+`refused` note on stderr and keeps the `--json` error and exit code,
+`refusalNote` returns the note's blocks, and `drawFailure(failure, refused)`
+draws them only when `refused` is true, else a coral failure.
 
 ## The TypeScript CLI is UI-free
 

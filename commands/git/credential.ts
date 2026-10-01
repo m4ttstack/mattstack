@@ -39,6 +39,7 @@ export async function gitCredentialCommand(
   deps: GitCredentialDeps = REAL_DEPS,
   readInput: () => Promise<string> = () => Bun.stdin.text(),
 ): Promise<void> {
+  out.payloadOnStdout();
   const op = args.find((a) => !a.startsWith("--")) ?? "";
   const input = await readInput();
   out.payload(await gitCredentialReply(op, input, deps));

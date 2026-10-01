@@ -6,6 +6,7 @@ import { join } from "path";
 import { rtCredentialHelper } from "../../../lib/setup/steps/repos.ts";
 import { gitCredentialCommand, gitCredentialReply } from "../credential.ts";
 import { captureOut } from "../../../lib/ui/__tests__/capture-out.ts";
+import * as out from "../../../lib/ui/out.ts";
 
 let root: string;
 
@@ -77,6 +78,9 @@ describe("rt git credential", () => {
 
 describe("rt git credential, as git reads it", () => {
   const deps = { confirmedHost: () => "git.example.test", lookupStored: async () => "tok_sample" };
+
+  beforeEach(() => out.__test__.reset());
+  afterEach(() => out.__test__.reset());
 
   test("stdout is the reply byte for byte and stderr is empty", async () => {
     const io = captureOut();
