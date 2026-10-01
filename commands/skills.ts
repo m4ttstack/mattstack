@@ -48,7 +48,7 @@ import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
-import { findPlaceholders } from "../lib/skills/placeholders.ts";
+import { findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
@@ -678,7 +678,13 @@ function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageE
   return rules;
 }
 
-function compileVerb(target: CompileTarget, resolved: Resolved, emittedTargetDirs: string[], verbSides: Record<string, Side>): CompileResult {
+function compileVerb(
+  target: CompileTarget,
+  resolved: Resolved,
+  emittedTargetDirs: string[],
+  verbSides: Record<string, Side>,
+  trace?: (entry: TraceEntry) => void,
+): CompileResult {
   const { isPublic, isStage } = target;
   let verb = target.verb;
   const where = `${isStage ? "stage" : "verb"} "${verb.name}"`;
@@ -722,6 +728,7 @@ function compileVerb(target: CompileTarget, resolved: Resolved, emittedTargetDir
       where,
       verbSides,
       side: isPublic ? "skills" : "attachments",
+      trace,
     });
   } catch (err) {
     const message = (err as Error).message;
