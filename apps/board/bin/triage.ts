@@ -56,7 +56,7 @@ import {
   resolveDispatchIdentity,
   runTriage,
 } from '../src/triage/run.ts';
-import { seatOf } from '../src/view.ts';
+import { triageOwns } from '../src/triage/seat.ts';
 
 // Fully disabled is the common cron-invoked case: decide it BEFORE taking the
 // lock, because process.exit() skips finally blocks and would strand the lock
@@ -108,8 +108,9 @@ try {
     );
   };
 
-  // Own-MR identity from the GitLab token (ruling: never defaultMember),
-  // cached so steady-state runs are pure socket reads.
+  // The GitLab token's user, cached so steady-state runs are pure socket
+  // reads. An MR is triage's only when this user AND the seat authored it
+  // (triageOwns), so a seatless board runs no auto-doctor and no respond ask.
   // Throw rather than process.exit(1) on a resolution failure: an exit here
   // would skip the finally block and strand the lock until the stale window
   // reclaims it.
@@ -124,7 +125,7 @@ try {
 
   // SCOPE (review fix 1): triage's MR scope is deliberately the BOARD's
   // visibility scope -- buildBoard applies the member, own-draft, stale-window,
-  // ticket-prefix, and project filters -- intersected with the token identity.
+  // ticket-prefix, and project filters -- intersected with triageOwns.
   // Tradeoff: an own MR the board filters out (stale, wrong ticket prefix, or
   // a draft when config.defaultMember differs from the token identity) is out
   // of auto-triage reach. In exchange, every doctor state and held draft the
@@ -138,7 +139,9 @@ try {
       readProjectMRs
     );
     return buildBoard(prs, boardConfig, undefined, tags, windows)
-      .filter(m => m.author.username === username && m.webUrl)
+      .filter(
+        m => !!m.webUrl && triageOwns(m, boardConfig.defaultMember, username)
+      )
       .map(m => ({
         mrUrl: m.webUrl!,
         iid: m.iid,
@@ -220,12 +223,7 @@ try {
       boardConfig.switchboard.url,
       switchboardToken
     );
-    // A respond ask acts on your own MR only: authored by the token identity
-    // AND the board's seat, so an "all" board answers none of them.
-    const seat = seatOf(boardConfig.defaultMember);
-    const ownUrls = new Set(
-      (await fetchOwnMrs()).filter(m => m.author === seat).map(m => m.mrUrl)
-    );
+    const ownUrls = new Set((await fetchOwnMrs()).map(m => m.mrUrl));
     const nudgeResult = await runNudgePass({
       readNudges,
       markNudgeHandled: (id, r, reason) => markNudgeHandled(id, r, reason),
