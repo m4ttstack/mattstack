@@ -17,7 +17,8 @@ export interface ReopenableState {
 }
 
 /** The patch a reopen writes back: the untouched status, the fresh pane ids,
-    and the reopenedAt stamp that exempts the pane from the gate sweep's
+    the board tab and pack presence the pane now runs under, and the
+    reopenedAt stamp that exempts the pane from the gate sweep's
     close-missed-done (see planSweep) until the next write. */
 export interface ReopenStatePatch {
   status: string;
@@ -25,6 +26,8 @@ export interface ReopenStatePatch {
   workspaceId?: string;
   agentId?: string;
   paneId?: string;
+  boardTabId: string;
+  noPack: boolean;
   reopenedAt?: number;
 }
 
@@ -46,8 +49,11 @@ export interface ReopenCtx {
       iid/author inside launchLegacyResume. */
   tabLabel: string;
   claudeCommand?: string;
-  /** Team pack the resumed wrapper resolves bindings with; rides the pane as MATTSTACK_PACK. */
-  pack?: string;
+  /** The board tab the lane launched from, else the tab asking; '' for none. */
+  boardTabId: string;
+  /** Team pack the resumed wrapper resolves bindings with; rides the pane as
+      MATTSTACK_PACK, and undefined sends the clear signal. */
+  pack: string | undefined;
 }
 
 /** Seams for the two resume arms and the domain's state store, so tests can
@@ -77,11 +83,19 @@ export async function launchReopen(
   ctx: ReopenCtx,
   io: ReopenIo
 ): Promise<ReopenLaunch> {
-  const writeReopened = (pane: Omit<ReopenStatePatch, 'status'>) => {
+  const writeReopened = (
+    pane: Pick<ReopenStatePatch, 'tabId' | 'workspaceId' | 'agentId' | 'paneId'>
+  ) => {
     const now = Date.now();
     io.writeState(
       ctx.statePath,
-      { status: existing.status, ...pane, reopenedAt: now },
+      {
+        status: existing.status,
+        ...pane,
+        boardTabId: ctx.boardTabId,
+        noPack: !ctx.pack,
+        reopenedAt: now,
+      },
       now
     );
   };

@@ -663,6 +663,14 @@ function launchPack(tabId: string | undefined): string | undefined {
   return packForLaunch(config, tabId) ?? undefined;
 }
 
+function reopenLane(
+  launched: string | undefined,
+  asking: string | undefined
+): { boardTabId: string; pack: string | undefined } {
+  const boardTabId = laneBoardTab(launched, asking);
+  return { boardTabId: boardTabId ?? '', pack: launchPack(boardTabId) };
+}
+
 /**
  * Refine each MR's comment signal by fetching its discussions: reviewer threads
  * (with status) and general comments, minus bots/linkbacks. Fetched for EVERY
@@ -1633,7 +1641,7 @@ const httpServer = Bun.serve({
               author,
               tabLabel: mrTabLabel(parsed.iid, author, '↺'),
               claudeCommand: config.claudeCommand,
-              pack: launchPack(laneBoardTab(existing.boardTabId, tabId)),
+              ...reopenLane(existing.boardTabId, tabId),
             },
             reviewReopenIo()
           );
@@ -1774,7 +1782,7 @@ const httpServer = Bun.serve({
               author,
               tabLabel: mrTabLabel(parsed.iid, author, '↺'),
               claudeCommand: config.claudeCommand,
-              pack: launchPack(laneBoardTab(existing.boardTabId, boardTabId)),
+              ...reopenLane(existing.boardTabId, boardTabId),
             },
             respondReopenIo()
           );
