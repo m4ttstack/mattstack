@@ -2,8 +2,8 @@
  * The network-free half of mr:upload. Every mattstack MCP tool runs with no
  * permission check, so this is the only thing between an agent and sending an
  * arbitrary local file to a forge: the realpath must be a regular file under
- * one of the caller's roots or a run's own evidence folder (see runEvidenceRoot),
- * the extension must be an image or video type, and the size is capped. A
+ * one of the caller's roots, rt's own evidence root (evidenceDir) or a run's
+ * own evidence folder (see runEvidenceRoot), the extension must be an image or video type, and the size is capped. A
  * caller root must be a non-empty absolute string; anything else is skipped
  * rather than resolved against the daemon's own cwd. Symlinks resolve
  * before the containment check, so a link inside a root that points outside
@@ -20,6 +20,7 @@
 import { closeSync, constants, fstatSync, openSync, readdirSync, readSync, realpathSync, statSync, type Stats } from "fs";
 import { homedir } from "os";
 import { basename, extname, isAbsolute, join, relative, sep } from "path";
+import { evidenceDir } from "../rt-paths.ts";
 import { isPathComponent, runsRoot } from "../runs/paths.ts";
 
 export const UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
@@ -180,7 +181,7 @@ function readVerified(real: string, expect: Stats, maxBytes: number): { bytes: U
 export function checkUploadPath(
   path: unknown,
   roots: readonly string[],
-  opts: { maxBytes?: number; workRoot?: string; runsRoot?: string } = {},
+  opts: { maxBytes?: number; workRoot?: string; runsRoot?: string; evidenceRoot?: string } = {},
 ): UploadCheck {
   if (typeof path !== "string" || !isAbsolute(path)) return { ok: false, error: "path must be absolute" };
   const real = safeRealpath(path);
@@ -190,8 +191,8 @@ export function checkUploadPath(
   if (!stat.isFile()) return { ok: false, error: "path is not a regular file" };
 
   const evidence = { workRoot: opts.workRoot ?? workRoot(), runsRoot: opts.runsRoot ?? runsRoot() };
-  if (!contained(real, roots) && runEvidenceRoot(real, evidence) === null) {
-    return { ok: false, error: "path is outside the allowed upload roots (a worktree of the target repo, the Claude Code temp root, a run's evidence folder, or an rt.mcp.uploadRoots entry)" };
+  if (!contained(real, [...roots, opts.evidenceRoot ?? evidenceDir()]) && runEvidenceRoot(real, evidence) === null) {
+    return { ok: false, error: "path is outside the allowed upload roots (a worktree of the target repo, the Claude Code temp root, rt's evidence folder ~/.mattstack/evidence, a run's evidence folder, or an rt.mcp.uploadRoots entry)" };
   }
 
   const ext = extname(real).slice(1).toLowerCase() as (typeof UPLOAD_EXTENSIONS)[number];

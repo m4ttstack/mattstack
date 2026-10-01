@@ -37,6 +37,15 @@ export function mattstackHome(): string {
   return join(home(), ".mattstack");
 }
 
+/**
+ * ~/.mattstack/evidence - where capture tooling saves screenshots and
+ * recordings meant for an MR. mr_upload trusts this tree out of the box
+ * (lib/daemon/upload-guard.ts), so nothing else may be stored here.
+ */
+export function evidenceDir(): string {
+  return join(mattstackHome(), "evidence");
+}
+
 /** ~/.mattstack/rt — the root of all rt state. App-level files live directly here. */
 export function rtDir(): string {
   return join(home(), ".mattstack", "rt");
