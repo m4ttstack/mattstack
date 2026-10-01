@@ -11,7 +11,7 @@ import {
 import { Icon } from '@mattstack/app-kit/icons';
 import type { RoomSummary } from '@mattstack/rt-client';
 
-import { agentState, stateLine } from './agent-state';
+import { agentState, isRoomForRepo, stateLine } from './agent-state';
 import { AgentHoverCard, AgentName } from './AgentName';
 import {
   displayName,
@@ -110,6 +110,21 @@ export interface FleetGroup {
   offline: RosterBuddy[];
 }
 
+/** The room an agent's repo maps to. A presence row's `repo` is a display
+    label (a local repo's basename, a remote's own casing), while rt names
+    rooms by slug and, for a local repo, two path segments, so an exact name
+    is tried first and the slug rule only when none matches. */
+function roomForRepo(
+  rooms: FleetRoom[],
+  repo: string | undefined
+): FleetRoom | undefined {
+  if (!repo) return undefined;
+  return (
+    rooms.find(r => r.room === repo) ??
+    rooms.find(r => isRoomForRepo(r.room, repo))
+  );
+}
+
 /**
  * One group per room, in listing order, holding the agents working in the
  * repo it is named for (the room sign-in derives from that repo's cwd).
@@ -121,15 +136,15 @@ export function groupByRepo(
   rooms: FleetRoom[],
   buddies: RosterBuddy[]
 ): FleetGroup[] {
-  const byRepo = new Map<string, RosterBuddy[]>();
+  const byRoom = new Map<string, RosterBuddy[]>();
   for (const buddy of [...buddies].sort(
     (a, b) => a.signedInAt - b.signedInAt
   )) {
-    if (!buddy.repo) continue;
-    const repo = buddy.repo;
-    const members = byRepo.get(repo);
+    const room = roomForRepo(rooms, buddy.repo);
+    if (!room) continue;
+    const members = byRoom.get(room.room);
     if (members) members.push(buddy);
-    else byRepo.set(repo, [buddy]);
+    else byRoom.set(room.room, [buddy]);
   }
 
   const split = (members: RosterBuddy[]) => ({
@@ -140,18 +155,17 @@ export function groupByRepo(
   return rooms.map(room => ({
     repo: room.room,
     room,
-    ...split(byRepo.get(room.room) ?? []),
+    ...split(byRoom.get(room.room) ?? []),
   }));
 }
 
-/** The agents the tree lists: those working in a repo that has a room. The
-    fleet count reads the same set, so it always matches the rows. */
+/** The agents the tree lists: those whose repo maps to a room. The fleet
+    count reads the same set, so it always matches the rows. */
 export function listedBuddies(
   rooms: FleetRoom[],
   buddies: RosterBuddy[]
 ): RosterBuddy[] {
-  const withRoom = new Set(rooms.map(r => r.room));
-  return buddies.filter(b => b.repo !== undefined && withRoom.has(b.repo));
+  return buddies.filter(b => roomForRepo(rooms, b.repo) !== undefined);
 }
 
 /**

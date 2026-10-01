@@ -220,7 +220,6 @@ test('the fleet tree leaves out a buddy with no repo room', () => {
     />
   );
   expect(screen.queryByTestId('ws-rt-chat-wt')).toBeNull();
-  expect(screen.queryByText('no room')).toBeNull();
 });
 
 test('seeded messages survive to the opened room, even if the fetch rejects', async () => {

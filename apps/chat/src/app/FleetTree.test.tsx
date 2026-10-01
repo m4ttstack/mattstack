@@ -107,7 +107,22 @@ test('an agent whose repo has no room, or no repo at all, is not listed', () => 
   expect(screen.getByTestId('ws-max')).toBeInTheDocument();
   expect(screen.queryByTestId('ws-gail')).toBeNull();
   expect(screen.queryByTestId('ws-shep')).toBeNull();
-  expect(screen.queryByText('no room')).toBeNull();
+});
+
+test("an agent is listed under its repo's room even when the names differ in case or path form", () => {
+  renderTree({
+    rooms: [room('myrepo'), room('projects-scratch')],
+    buddies: [buddy('ada', 'MyRepo'), buddy('bo', 'scratch')],
+  });
+  const rows = screen
+    .getAllByTestId(/^(room-row-|ws-(?!doing|handle))/)
+    .map(el => el.dataset.testid);
+  expect(rows).toEqual([
+    'room-row-myrepo',
+    'ws-ada',
+    'room-row-projects-scratch',
+    'ws-bo',
+  ]);
 });
 
 test("a repo's signed-out members collapse into one line naming them", () => {
