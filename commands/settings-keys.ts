@@ -261,10 +261,9 @@ async function resolveRepoTarget(args: string[]): Promise<{
 }
 
 /** Shared by set and unset: `--team` only means anything at team scope. */
-function teamFlag(args: string[], scope: SettingScope): string | undefined {
+function teamFlag(args: string[], scope: SettingScope, usage: string): string | undefined {
   const team = flagValue(args, "--team");
   if (args.includes("--team")) {
-    const usage = "rt settings set <key> <value> --scope team --team <name>";
     if (scope !== "team") fail({ title: "A team name only goes with the team scope", why: `You asked for the ${scope} scope.`, next: out.cmd(usage) });
     if (team === undefined || team.startsWith("--") || team.trim() === "") fail({ title: "Name the team", next: out.cmd(usage) });
   }
@@ -282,7 +281,7 @@ export async function settingsSet(args: string[]): Promise<void> {
   // write.ts's "Team selection"). Taking it silently at user/machine scope
   // would let a `--scope user --team acme` write look like it targeted a team
   // store while writing the user one.
-  const team = teamFlag(args, scope);
+  const team = teamFlag(args, scope, "rt settings set <key> <value> --scope team --team <name>");
 
   const trimmed = rawValue.trim();
   const errors: ParseError[] = [];
@@ -323,7 +322,7 @@ export async function settingsUnset(args: string[]): Promise<void> {
   const [key] = positionals(args);
   if (!key) fail({ title: "Name the setting to remove", next: out.cmd(UNSET_USAGE) });
   const scope = requireScope(flagValue(args, "--scope"), "Say which settings to remove it from", UNSET_USAGE);
-  const team = teamFlag(args, scope);
+  const team = teamFlag(args, scope, "rt settings unset <key> --scope team --team <name>");
   const target = await resolveRepoTarget(args);
 
   const removed = collectSettingsNotices(() => {

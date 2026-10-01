@@ -72,6 +72,12 @@ describe("rt settings set / unset output", () => {
     expect(cap.stderr()).toContain("why: You asked for the user scope.");
   });
 
+  test("unset with a team name at the user scope points at the unset command", async () => {
+    await expect(settingsUnset(["rt.logLevel", "--scope", "user", "--team", "acme"])).rejects.toThrow("__exit_1");
+    expect(cap.stderr()).toContain("next: rt settings unset <key> --scope team --team <name>");
+    expect(exits).toEqual([1]);
+  });
+
   test("unset of an absent key is skipped, not failed, and prints no tip", async () => {
     await settingsUnset(["rt.logLevel", "--scope", "user"]);
     expect(cap.stdout()).toBe("[skipped] rt.logLevel was not set  nothing to remove from your user settings\n");
