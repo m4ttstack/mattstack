@@ -192,8 +192,14 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 				if t == "" {
 					t = title
 				}
+				// fail is the only coral ending, so "failed" on done gets the
+				// dot an unknown status gets.
 				g := okGlyph
-				if ev.Status != "" {
+				switch ev.Status {
+				case "":
+				case "failed":
+					g = render.Glyph("")
+				default:
 					g = render.Glyph(ev.Status)
 				}
 				final(g, t, ev.Hint)

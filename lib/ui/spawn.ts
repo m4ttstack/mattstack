@@ -74,8 +74,8 @@ export interface StepHandle {
   log(level: StepLevel, text: string): void;
   /** A transient line under the running step: erased when it ends done, kept when it fails. */
   sub(text: string): void;
-  /** Resolves true when rt-ui painted the final line; false when it was dead (caller prints the line itself). A status ends the step in that state in place of done. */
-  done(title?: string, hint?: string, status?: RenderStatus): Promise<boolean>;
+  /** Resolves true when rt-ui painted the final line; false when it was dead (caller prints the line itself). A status ends the step in that state in place of done; a failing ending is `fail`. */
+  done(title?: string, hint?: string, status?: Exclude<RenderStatus, "failed">): Promise<boolean>;
   fail(title?: string, hint?: string): Promise<boolean>;
 }
 

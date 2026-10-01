@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { createStepRunner, withSpinner, __test__ } from "../steps.ts";
 import { T, toAnsiFg } from "../../tui/palette.ts";
-import { openStep } from "../spawn.ts";
+import { openStep, type StepHandle } from "../spawn.ts";
 
 const FAKE = resolve(import.meta.dir, "fake-rt-ui.ts");
 let dir: string;
@@ -172,4 +172,11 @@ test("a step can end in a status other than done", async () => {
     { t: "start", title: "connecting Slack…" },
     { t: "done", title: "Slack", hint: "not connected", status: "needs-you" },
   ]);
+});
+
+test("done takes every status but failed, which only fail may end with", () => {
+  const done: StepHandle["done"] = async () => true;
+  // @ts-expect-error
+  void done("x", undefined, "failed");
+  void done("x", undefined, "warn");
 });

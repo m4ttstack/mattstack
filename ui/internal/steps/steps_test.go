@@ -166,6 +166,28 @@ func TestDoneWithAStatusEndsInThatStatusNotAFailure(t *testing.T) {
 	}
 }
 
+func TestDoneWithTheFailedStatusIsNotPaintedAsAFailure(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"syncing…"}`, `{"t":"done","title":"synced","status":"failed"}`}
+	_, tty, exit := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	if exit != 0 || !strings.Contains(tty, "•") || !strings.Contains(tty, "synced") {
+		t.Fatalf("exit %d tty %q", exit, tty)
+	}
+	if strings.Contains(tty, "✗") || strings.Contains(tty, "255;121;121") {
+		t.Fatalf("done painted the coral cross: %q", tty)
+	}
+}
+
+func TestDoneWithAnUnknownStatusGetsTheDimDot(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"syncing…"}`, `{"t":"done","title":"synced","status":"mystery"}`}
+	_, tty, exit := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	if exit != 0 || !strings.Contains(tty, "•") || !strings.Contains(tty, "synced") {
+		t.Fatalf("exit %d tty %q", exit, tty)
+	}
+	if strings.Contains(tty, "✗") || strings.Contains(tty, "255;121;121") {
+		t.Fatalf("done painted the coral cross: %q", tty)
+	}
+}
+
 func rowOf(screen, needle string) int {
 	for i, l := range strings.Split(screen, "\n") {
 		if strings.Contains(l, needle) {
