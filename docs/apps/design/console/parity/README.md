@@ -52,14 +52,15 @@ to the build:
   ActionIcons, 2px apart; Tooltip is 31px tall, sans 11.2px, radius 6,
   below its target; Buttons are 26px tall at 11.2px; inputs, Select and
   Buttons have radius 6; the Modal's radius is 6 (the board drew 12).
-- **Theme colours**: `--tk-text-2/3/4` all resolve to one muted grey
-  (`#60646c` light), so the board's lighter `#80838d` became that grey (the
-  caption, overridden values, `unset`); the soft border is `#d9d9e0`;
-  "in effect" text is the small ok token (`#0d3d38`, glyph `#008573`); badge
-  labels use their hue's small text token at weight 500 with a 6px dot;
-  chevrons are always the primary text colour; primary text (key names, the
-  winning value, active tab, input text) renders `#000`, Mantine's body
-  text, where the board used `--tk-text-1` `#1c2024`.
+- **Theme colours** (current values in `packages/tokens/src/values.ts`):
+  `--tk-text-2/3/4` all resolve to one muted grey, so the board's lighter
+  grey became `--tk-text-3` (the caption, overridden values, `unset`); the
+  soft border is `--tk-border-soft`; "in effect" text is the small ok token
+  (`--tk-text-ok-small`, glyph `--tk-text-ok-vivid`); badge labels use their
+  hue's small text token at weight 500 with a 6px dot; chevrons are always
+  the primary text colour; primary text (key names, the winning value,
+  active tab, input text) renders Mantine's body text
+  (`--mantine-color-text`), where the board used `--tk-text-1`.
 - **Board B's open row** now copies B4's open row, so the open panel has one
   geometry on both boards.
 
