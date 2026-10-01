@@ -252,6 +252,9 @@ function SheetLost({
   );
 }
 
+/** One per blur step of the heading's progressive fade (style.css). */
+const FADE_LAYERS = [0, 1, 2, 3, 4, 5, 6, 7];
+
 /** The round a review or respond gate is on, as the first thing the main
     column says, with a one-line account of what this round holds. */
 function RoundHeading({ round, summary }: { round: number; summary?: string }) {
@@ -259,6 +262,11 @@ function RoundHeading({ round, summary }: { round: number; summary?: string }) {
     <div className="tui-sheet-round">
       <h2 className="tui-sheet-round-n">Round {round}</h2>
       {summary && <span className="tui-sheet-round-summary">{summary}</span>}
+      <span className="tui-sheet-round-fade" aria-hidden="true">
+        {FADE_LAYERS.map(i => (
+          <span key={i} />
+        ))}
+      </span>
     </div>
   );
 }
