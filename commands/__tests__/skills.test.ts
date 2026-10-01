@@ -612,18 +612,22 @@ describe("skillsCompile", () => {
     expect(errors[0]).toContain("no repos/*/packs/t/skills.jsonc");
   });
 
-  test("a base pack has no bindings file of its own, and the error says so", async () => {
+  test.each([["no stale file"], ["a stale bindings file"]])("a base pack has no bindings file of its own, and the error says so (%s)", async (variant) => {
     const mattstackDir = makeMattstackDir();
     const packDir = join(mattstackDir, "teams", "acme", "mattstack", "packs", "acme-base");
     writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+    if (variant === "a stale bindings file") {
+      writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-widgets", "packs", "acme-base", "skills.jsonc"), manifestJsonc(true));
+    }
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsCompile(["--team", "acme-base", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
 
     expect(exitCode).toBe(1);
-    expect(errors[0]).toContain('pack "acme-base" is a base pack');
-    expect(errors[0]).toContain("has no bindings file of its own");
+    expect(errors[0]).toContain(
+      'pack "acme-base" is a base pack and has no bindings file of its own; bind it to edit its shared fills, or compile a pack that extends it',
+    );
   });
 
   test("two repos for one pack: --repo picks, and without it the zone's first project wins", async () => {

@@ -320,23 +320,69 @@ describe("skillsBind", () => {
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
   });
 
-  test("a base pack: clean error saying it has no bindings file of its own", async () => {
-    const packDir = join(makePackDir(), "mattstack", "packs", "acme-base");
-    writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
-    writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
-    const { mattstackDir } = makeEngineFixture();
+  describe("a base pack", () => {
+    let savedHome: string | undefined;
+    let savedEnginePackDir: string | undefined;
+    beforeEach(() => {
+      savedHome = process.env.HOME;
+      savedEnginePackDir = process.env.RT_ENGINE_PACK_DIR;
+    });
+    afterEach(() => {
+      if (savedHome === undefined) delete process.env.HOME;
+      else process.env.HOME = savedHome;
+      if (savedEnginePackDir === undefined) delete process.env.RT_ENGINE_PACK_DIR;
+      else process.env.RT_ENGINE_PACK_DIR = savedEnginePackDir;
+    });
 
-    const { exitCode, errors } = await runExpectingCleanExit(() =>
-      skillsBind([
-        "watch-ci", "domain", "acme:watch-ci-domain-v2",
-        "--pack", "acme-base", "--pack-dir", packDir, "--mattstack-dir", mattstackDir,
-      ]),
+    test.each([["text", "no stale file"], ["--json", "no stale file"], ["text", "a stale bindings file"]])(
+      "bind (%s, %s) writes its own fragment once, regenerates and compiles nothing",
+      async (mode, variant) => {
+        const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-base-")));
+        process.env.HOME = join(root, "home");
+        mkdirSync(process.env.HOME, { recursive: true });
+        process.env.RT_ENGINE_PACK_DIR = join(root, "missing-engine-pack");
+        const packDir = join(root, "zone", "mattstack", "packs", "acme-base");
+        writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
+        const fragmentPath = join(packDir, "pack", "skills.jsonc");
+        writeFile(fragmentPath, `{\n  "base": true,\n  "bindings": {}\n}\n`);
+        const stale = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "acme-base", "skills.jsonc");
+        if (variant === "a stale bindings file") writeFile(stale, `{ "bindings": { "mattstack:watch-ci": { "domain": "acme:watch-ci-domain-v1" } } }`);
+        const staleBefore = variant === "a stale bindings file" ? readFileSync(stale, "utf8") : null;
+        const { mattstackDir } = makeEngineFixture();
+        const rootsSpy = spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(mattstackDir));
+
+        let result;
+        try {
+          result = await runExpectingCleanExit(() =>
+            skillsBind([
+              "watch-ci", "domain", "acme:watch-ci-domain-v2",
+              "--pack", "acme-base", "--pack-dir", packDir,
+              ...(mode === "--json" ? ["--json"] : []),
+            ]),
+          );
+        } finally {
+          rootsSpy.mockRestore();
+        }
+
+        expect(result.exitCode).toBeUndefined();
+        expect(process.exitCode).toBe(0);
+        expect(result.errors).toEqual([]);
+        expect(readManifestBindings(fragmentPath)["mattstack:watch-ci"]?.domain).toBe("acme:watch-ci-domain-v2");
+        expect(JSON.parse(stripJsonc(readFileSync(fragmentPath, "utf8"))).base).toBe(true);
+        expect(existsSync(join(packDir, "skills"))).toBe(false);
+        if (staleBefore !== null) expect(readFileSync(stale, "utf8")).toBe(staleBefore);
+        if (mode === "--json") {
+          expect(logs).toHaveLength(1);
+          const payload = JSON.parse(logs[0]!);
+          expect(payload).toMatchObject({ ok: true, base: true, from: "(unbound)", to: "acme:watch-ci-domain-v2" });
+          expect("regenerated" in payload).toBe(false);
+        } else {
+          expect(logs).toContain(
+            "acme-base is a base pack: packs that extend it pick this up once it is published and their bindings files are regenerated",
+          );
+        }
+      },
     );
-
-    expect(exitCode).toBe(1);
-    expect(errors[0]).toContain('pack "acme-base" is a base pack');
-    expect(errors[0]).toContain("has no bindings file of its own");
-    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(JSON.stringify({ base: true }));
   });
 
   test("unknown slot: clean error naming the real slots, exit 1, writes nothing", async () => {
