@@ -38,7 +38,7 @@ import { materializeSkills, type MaterializeSkillsResult } from "../lib/setup/sk
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
-import { readZonesFrom, type InitFs } from "../lib/skills/init.ts";
+import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { discoverPacks, findEnclosingPack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
@@ -397,10 +397,15 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
     .map((slug) => ({ slug, path: packManifestPath(mattstackRoot, slug, team) }))
     .filter((c) => existsSync(c.path));
 
+  const baseError = () => new SkillsUsageError(
+    `pack "${team}" is a base pack ("base": true in ${join(packDir, "pack", "skills.jsonc")}), so it has no bindings file of its own; compile a pack that extends it`,
+  );
+
   if (repo) {
     const wanted = repoSlugArg(repo);
     const hit = candidates.find((c) => c.slug === wanted);
     if (hit) return hit.path;
+    if (isBasePack(realInitFs, packDir)) throw baseError();
     throw new SkillsUsageError(
       `no ${team} bindings file for repo "${repo}" under ${reposRoot} (have: ${candidates.map((c) => c.slug).join(", ") || "none"}); run rt skills materialize`,
     );
@@ -433,6 +438,7 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
   const teamShaped = parts.at(-2) === "packs" && parts.at(-3) === "mattstack";
   const standalone = !isUnder(join(mattstackRoot, "teams"), packDir) && !teamShaped;
   if (standalone && existsSync(ownManifest)) return ownManifest;
+  if (isBasePack(realInitFs, packDir)) throw baseError();
   throw new SkillsUsageError(
     `no repos/*/packs/${team}/skills.jsonc under ${reposRoot}` +
       (standalone ? ` and ${ownManifest} is absent` : "") +

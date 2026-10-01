@@ -2,6 +2,8 @@ import { stripJsonc } from "./sources.ts";
 
 export type Fragment = {
   extends?: string;
+  /** A base pack only exists to be named by other packs' `extends`: it never claims a repo and gets no bindings file. */
+  base?: boolean;
   skills?: { enabled?: string[] };
   pipelines?: Record<string, string[]>;
   bindings?: Record<string, Record<string, string>>;
@@ -29,6 +31,7 @@ function isStringArray(value: unknown): boolean {
 
 function shapeError(doc: Record<string, unknown>): string | null {
   if (doc.extends !== undefined && typeof doc.extends !== "string") return "extends is not a string";
+  if (doc.base !== undefined && typeof doc.base !== "boolean") return "base is not a boolean";
   if (doc.skills !== undefined) {
     if (!isObject(doc.skills)) return "skills is not an object";
     if (doc.skills.enabled !== undefined && !isStringArray(doc.skills.enabled)) return "skills.enabled is not an array of strings";

@@ -1,6 +1,6 @@
 import { dirname, join } from "path";
 import { findInstalledPluginDir, PLUGIN_REF_RE } from "./installed-plugins.ts";
-import { isPackDir, parseRemote, readZonesFrom, type InitFs, type ZoneInfo } from "./init.ts";
+import { isBasePack, isPackDir, parseRemote, readZonesFrom, type InitFs, type ZoneInfo } from "./init.ts";
 import { FragmentError, mergeLayers, parseFragment, renderManifest, type Fragment, type Layer } from "./manifest-merge.ts";
 import { legacyManifestPath, packManifestPath } from "./manifest-paths.ts";
 
@@ -28,9 +28,11 @@ function readFragment(fs: MaterializeFs, path: string): Fragment | null {
   return text === null ? null : parseFragment(text, path);
 }
 
-function packsIn(fs: MaterializeFs, zone: ZoneInfo): string[] {
+function claimingPacksIn(fs: MaterializeFs, zone: ZoneInfo): string[] {
   const packsDir = join(zone.dir, "mattstack", "packs");
-  return fs.readDir(packsDir).filter((name) => isPackDir(fs, join(packsDir, name))).sort();
+  return fs.readDir(packsDir)
+    .filter((name) => isPackDir(fs, join(packsDir, name)) && !isBasePack(fs, join(packsDir, name)))
+    .sort();
 }
 
 function baseLayer(deps: MaterializeDeps, pack: string, ref: string): Layer | { error: string } {
@@ -95,7 +97,7 @@ export function materializeRepo(deps: MaterializeDeps, remote: string | null): M
     sharedError = err.message;
   }
 
-  const claims = zones.map((zone) => ({ zone, names: packsIn(deps.fs, zone) }));
+  const claims = zones.map((zone) => ({ zone, names: claimingPacksIn(deps.fs, zone) }));
   const zonesByPack = new Map<string, string[]>();
   for (const { zone, names } of claims) {
     for (const pack of names) zonesByPack.set(pack, [...(zonesByPack.get(pack) ?? []), zone.slug]);
@@ -104,7 +106,7 @@ export function materializeRepo(deps: MaterializeDeps, remote: string | null): M
   const packs: PackOutcome[] = [];
   for (const { zone, names } of claims) {
     if (names.length > 1) {
-      const detail = `zone "${zone.slug}" holds ${names.length} packs (${names.join(", ")}) that all claim ${repo}; a zone binds one pack per repo, so move the others to a zone that declares no projects`;
+      const detail = `zone "${zone.slug}" holds ${names.length} packs (${names.join(", ")}) that all claim ${repo}; a zone binds one pack per repo, so mark a shared base pack "base": true, or move the others to a zone that declares no projects`;
       for (const pack of names) packs.push({ pack, zone: zone.slug, ok: false, detail });
       continue;
     }

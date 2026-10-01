@@ -158,6 +158,55 @@ describe("materializeRepo", () => {
     if (!out.packs[0]!.ok) expect(out.packs[0]!.detail).toContain("widgets/pack/skills.jsonc");
   });
 
+  test("a base pack beside a claiming pack in one zone claims nothing and gets no file", () => {
+    const { root, engine, home } = makeWorld();
+    zone(root, "acme", { projects: ["acme/widgets"], packs: { widgets: {}, "acme-base": { base: true } } });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.map((p) => [p.pack, p.ok])).toEqual([["widgets", true]]);
+    expect(readdirSync(join(root, "repos", SLUG, "packs"))).toEqual(["widgets"]);
+  });
+
+  test("a base pack is not counted when two claiming packs share a zone", () => {
+    const { root, engine, home } = makeWorld();
+    zone(root, "acme", { projects: ["acme/widgets"], packs: { widgets: {}, gadgets: {}, "acme-base": { base: true } } });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.map((p) => [p.pack, p.ok])).toEqual([["gadgets", false], ["widgets", false]]);
+    if (!out.packs[0]!.ok) expect(out.packs[0]!.detail).toContain('zone "acme" holds 2 packs (gadgets, widgets) that all claim');
+  });
+
+  test("one base pack name in two declaring zones is not refused", () => {
+    const { root, engine, home } = makeWorld();
+    zone(root, "acme-w", { projects: ["acme/widgets"], packs: { widgets: {}, "acme-base": { base: true } } });
+    zone(root, "acme-g", { projects: ["acme/widgets"], packs: { gadgets: {}, "acme-base": { base: true } } });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.map((p) => [p.pack, p.ok])).toEqual([["gadgets", true], ["widgets", true]]);
+  });
+
+  test("a declaring zone holding only base packs writes nothing", () => {
+    const { root, engine, home } = makeWorld();
+    zone(root, "acme", { projects: ["acme/widgets"], packs: { "acme-base": { base: true } } });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    expect(out).toMatchObject({ kind: "written", packs: [] });
+    expect(existsSync(join(root, "repos", SLUG, "packs"))).toBe(false);
+  });
+
+  test("a claiming pack extending the base beside it in its own zone merges the installed base layer", () => {
+    const { root, engine, home } = makeWorld();
+    const baseFragment = { base: true, bindings: { "mattstack:stage-ship": { policy: "acme-base:squash" } } };
+    installBase(home, baseFragment);
+    zone(root, "acme", { projects: ["acme/widgets"], packs: { widgets: { extends: "acme-base@acme" }, "acme-base": baseFragment } });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.map((p) => p.pack)).toEqual(["widgets"]);
+    const widgets = out.packs[0]!;
+    if (!widgets.ok) throw new Error(widgets.detail);
+    expect(widgets.layers).toEqual(["default", "base:acme-base", "pack"]);
+    expect(body(widgets.path).bindings["mattstack:stage-ship"]!.policy).toBe("acme-base:squash");
+  });
+
   test("one pack name in two declaring zones is refused in both", () => {
     const { root, engine, home } = makeWorld();
     zone(root, "acme", { projects: ["acme/widgets"], packs: { widgets: {} } });

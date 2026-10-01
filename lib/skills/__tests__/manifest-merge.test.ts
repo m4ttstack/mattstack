@@ -66,6 +66,7 @@ describe("parseFragment", () => {
     ["a string skills.enabled", '{ "skills": { "enabled": "widgets:work" } }'],
     ["a non-array pipeline", '{ "pipelines": { "feature": "stage-plan" } }'],
     ["a non-string extends", '{ "extends": 1 }'],
+    ["a non-boolean base", '{ "base": "yes" }'],
   ])("throws FragmentError naming the path on %s", (_label, text) => {
     const path = "/zone/packs/gadgets/pack/skills.jsonc";
     expect(() => parseFragment(text, path)).toThrow(FragmentError);

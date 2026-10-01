@@ -36,6 +36,7 @@ fragment, then the user's overrides. Later layers win per slot.
 |---|---|---|
 | `version` | const `1` | everyone; the only required key |
 | `extends` | `<plugin>@<marketplace>` | `rt skills materialize`; fragment only (`pack/skills.jsonc`), never in a generated file. The base pack's fills layer under this pack's, one level, overridden slot by slot |
+| `base` | boolean | `rt skills materialize`; fragment only. `true` marks a base pack that other packs name with `extends`: it never claims a repo, gets no bindings file of its own, and can sit in a zone beside the pack that claims the repo |
 | `skills.enabled` | array of skill names | documentation in phase 1 |
 | `pipelines` | work type -> the stage-skill names a pack rosters (all eight `stage-*` for `work`) | `rt skills compile` (stage roster); not resolved at run time |
 | `bindings` | wrapper name -> { slot -> inner skill name } | `resolve-args.sh` (phase 1) |

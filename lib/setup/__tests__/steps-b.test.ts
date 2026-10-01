@@ -1204,11 +1204,12 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
     });
 
     /** A team zone at ~/.mattstack/teams/acme whose mattstack/packs holds each named pack with its pack/skills.jsonc, plus plugin dirs that carry only a plugin.json. */
-    function teamPackProbes(packs: string[], pluginsOnly: string[] = []) {
+    function teamPackProbes(packs: string[], pluginsOnly: string[] = [], bases: string[] = []) {
       const packsDir = join(home, ".mattstack", "teams", "acme", "mattstack", "packs");
       const files: Record<string, string> = {};
-      const dirs: Record<string, string[]> = { [packsDir]: [...packs, ...pluginsOnly] };
+      const dirs: Record<string, string[]> = { [packsDir]: [...packs, ...pluginsOnly, ...bases] };
       for (const pack of packs) files[join(packsDir, pack, "pack", "skills.jsonc")] = "{}";
+      for (const base of bases) files[join(packsDir, base, "pack", "skills.jsonc")] = JSON.stringify({ base: true });
       for (const plugin of pluginsOnly) files[join(packsDir, plugin, ".claude-plugin", "plugin.json")] = JSON.stringify({ name: plugin });
       return fakeProbes({ home, files, dirs });
     }
@@ -1226,6 +1227,12 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx } = makeCtx(teamPackProbes(["widgets", "gadgets"], ["acme-tools"]), { team: ACME_TEAM });
       await boardKeysStep.run(ctx);
       expect(getSetting("board.defaultPack").value).toBe("gadgets");
+    });
+
+    test("a base pack is never the seeded default, even when it sorts first", async () => {
+      const { ctx } = makeCtx(teamPackProbes(["widgets"], [], ["acme-base"]), { team: ACME_TEAM });
+      await boardKeysStep.run(ctx);
+      expect(getSetting("board.defaultPack").value).toBe("widgets");
     });
 
     test("leaves board.defaultPack alone when set", async () => {

@@ -364,8 +364,9 @@ mattstack's own `pack/skills.jsonc` (defaults), the base pack the fragment's
 the pack's own `pack/skills.jsonc`, then
 `~/.mattstack/user/skills/overrides.jsonc`. Two packs never conflict: each
 gets its own file. Two packs in one team zone that both claim a repo is a
-per-pack error, and a base pack belongs in a zone that declares no
-projects. The file's header names the layer each binding came from
+per-pack error; a base pack says `"base": true` in its fragment, so it
+claims no repo, gets no file, and is not counted against its zone. The
+file's header names the layer each binding came from
 (`default`, `base:<pack>`, `pack`, `override`). Fragments and overrides are
 JSONC with full-line `//` comments only.
 

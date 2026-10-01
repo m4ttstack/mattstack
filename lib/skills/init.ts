@@ -1,5 +1,6 @@
 import { join, relative, resolve } from "path";
 import { applyEdits, modify } from "jsonc-parser";
+import { FragmentError, parseFragment } from "./manifest-merge.ts";
 import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 
@@ -72,6 +73,19 @@ function hostOnly(value: unknown): string | null {
 /** A pack is a directory holding the fragment materialize layers, so every "which packs are here" question agrees with materialize. */
 export function isPackDir(fs: Pick<InitFs, "exists">, dir: string): boolean {
   return fs.exists(join(dir, "pack", "skills.jsonc"));
+}
+
+/** An unreadable fragment is not a base, so materialize still tries the pack and reports the parse error against it. */
+export function isBasePack(fs: Pick<InitFs, "readFile">, dir: string): boolean {
+  const path = join(dir, "pack", "skills.jsonc");
+  const text = fs.readFile(path);
+  if (text === null) return false;
+  try {
+    return parseFragment(text, path).base === true;
+  } catch (err) {
+    if (err instanceof FragmentError) return false;
+    throw err;
+  }
 }
 
 function zoneHasPack(fs: InitFs, dir: string): boolean {
