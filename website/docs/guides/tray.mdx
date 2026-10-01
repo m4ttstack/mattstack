@@ -31,7 +31,7 @@ From the menu bar menu you can:
 - uninstall mattstack
 - quit
 
-The daemon's status line sits near the top. When the daemon has restarted, crashed or is degraded, the menu lists that under the status line. To stop the daemon, run `rt daemon stop`.
+The daemon's status line sits near the top. When the daemon is degraded, that line names the cause, for example `Daemon: degraded (refresh: 1 enrich error)`. A crash loop, a failed boot or the last crash reason shows on its own line underneath. To stop the daemon, run `rt daemon stop`.
 
 ## Worktrees panel
 

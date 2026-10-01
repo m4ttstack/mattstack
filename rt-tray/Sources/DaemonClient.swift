@@ -319,7 +319,6 @@ struct HealthData: Decodable {
 /// Mirrors `lib/daemon/supervision-state.ts`'s `SupervisionState`, as carried
 /// on the `ping` command's reply (not `tray:status` -- see `querySupervision`).
 struct SupervisionInfo: Decodable {
-    let bootAttempts: Int
     let lastReadyAt: Int?
     let recentFailures: [BootFailureInfo]
     let lastExit: LastExitInfo?

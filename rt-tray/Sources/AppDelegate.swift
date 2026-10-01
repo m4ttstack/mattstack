@@ -878,14 +878,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         })
         if BundleFlavor.isDevBuild { addDevBuildItems(to: menu) }
         menu.addItem(.separator())
-        let status = NSMenuItem(title: TrayState.shared.statusText, action: nil, keyEquivalent: "")
-        status.isEnabled = false
+        let statusText = TrayState.shared.statusText
+        let status = Self.infoMenuItem(statusText, quiet: DaemonStatusLines.isQuiet(statusText))
         status.setAccessibilityIdentifier(AXID.trayStatus)
         menu.addItem(status)
-        for line in Self.daemonDiagnostics(TrayState.shared) {
-            let item = NSMenuItem(title: line, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
+        let diagnostics = DaemonStatusLines.diagnostics(status: statusText,
+                                                        bootVerdict: TrayState.shared.bootVerdict,
+                                                        lastCrashReason: TrayState.shared.lastCrashReason)
+        for line in diagnostics {
+            menu.addItem(Self.infoMenuItem(line, quiet: false))
         }
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Processes…", axid: AXID.trayProcesses) { [weak self] in
@@ -954,16 +955,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         return item
     }
 
-    /// Restart count, last-crash reason, boot verdict and a degraded
-    /// subsystem, shown only when there is something to report.
+    /// Disabled so it never highlights or fires; AppKit draws an attributed
+    /// title's explicit color as given, so the line is not dimmed.
     @MainActor
-    private static func daemonDiagnostics(_ state: TrayState) -> [String] {
-        var lines: [String] = []
-        if let count = state.restartCount, count > 0 { lines.append("Restarts: \(count)") }
-        if let verdict = state.bootVerdict { lines.append("Status: \(verdict)") }
-        if let reason = state.lastCrashReason { lines.append("Last crash: \(reason)") }
-        if let subsystem = state.failingSubsystem { lines.append("Degraded: \(subsystem)") }
-        return lines
+    private static func infoMenuItem(_ title: String, quiet: Bool) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: NSFont.menuFont(ofSize: 0),
+            .foregroundColor: quiet ? NSColor.secondaryLabelColor : NSColor.labelColor,
+        ])
+        item.isEnabled = false
+        return item
     }
 
     @MainActor
@@ -1727,11 +1729,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         currentHealth = health
         updateMenuBarTitle(status: health)
         TrayState.shared.health = health
-        TrayState.shared.failingSubsystem = failingSubsystem
         if let failingSubsystem {
-            TrayState.shared.statusText = "Daemon: degraded — \(failingSubsystem)"
+            TrayState.shared.statusText = DaemonStatusLines.degraded(failingSubsystem)
         } else {
-            TrayState.shared.statusText = "Daemon: running · pid \(status.pid) · \(formatUptime(status.uptime))"
+            TrayState.shared.statusText = DaemonStatusLines.running(pid: status.pid, uptime: formatUptime(status.uptime))
         }
         // The daemon being reachable only proves the daemon's own agent is
         // approved — another registered agent (deck) can still be pending.
@@ -1765,7 +1766,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
     }
 
-    /// Restart count, last-crash reason, and boot verdict (S026) — a separate
+    /// Last-crash reason and boot verdict (S026) — a separate
     /// query from the main status poll since this data only lives on the
     /// `ping` reply (see `DaemonClient.querySupervision`), not `tray:status`.
     /// Best-effort: a nil result just means the tray menu shows no boot info,
@@ -1780,7 +1781,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     @MainActor
     private func refreshBootDiagnostics() async {
         guard let supervision = await daemonClient.querySupervision() else { return }
-        TrayState.shared.restartCount = supervision.bootAttempts
         let now = Date()
         if let (verdict, reason) = bootVerdict(from: supervision, now: now) {
             TrayState.shared.bootVerdict = verdict
