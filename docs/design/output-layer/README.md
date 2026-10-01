@@ -18,12 +18,12 @@ background, so on a light terminal the two diff lines are dark blocks (owned by
 the phase that first prints a diff); the table rule and tree branches use the
 `Rule` tone and are faint on dark, as is the rail beside a stack. A status
 line with a hint does not wrap yet, and a wrapped `--flag` can break at its
-hyphens. In the settings renders the `check` table is the worst case: a detail row's text
-widens the shared scope column, so the file path is pushed past 100 columns and wraps mid-word, and long
-`list` values (`rt.homeSnapshot`) wrap flush left with no indent. On a light terminal the peach `next`
-label and warn caveats and the bright green on `done` marks and `explain` rungs are low contrast, and
-peach is shared by `next` and warn, so a `next` rail reads like a warning. On a dark terminal the
-`explain` branches are close to invisible.
+hyphens. In the settings renders, long `list` values (`rt.homeSnapshot`) wrap flush left
+with no indent under the value column, and the issue lines under a `check` finding are plain text in
+the file column, so they read as part of the path. On a light terminal the peach `next` label and warn
+caveats and the bright green on `done` marks and `explain` rungs are low contrast, and peach is shared
+by `next` and warn, so a `next` rail reads like a warning. On a dark terminal the `explain` branches are
+close to invisible.
 
 To regenerate: write the hello line and the fixture blocks as NDJSON, pipe them
 through `ui/dist/rt-ui render --width 80` with `COLORTERM=truecolor`, and view
