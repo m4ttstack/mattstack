@@ -863,6 +863,13 @@ export interface Commands {
     data: { noteId: number; discussionId: string | null; resolvable: boolean; url: string; mrUrl: string };
   };
 
+  /** Replaces the body of an existing MR note. GitLab decides who may edit;
+      its refusal comes back as the error text. */
+  "mr:note-update": {
+    payload: { repoName: string; iid: number; noteId: number; body: string };
+    data: { noteId: number };
+  };
+
   /** Wire reply is `{ok:true}` on success (no `data`); a failure is `{ok:false,error}`. */
   "mr:action": { payload: { repoName: string; iid: number; action: MRActionName; args?: unknown[] }; data: Record<string, never> };
 
@@ -1150,6 +1157,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "discussions:diffs",
   "mr:comment-inline",
   "mr:comment",
+  "mr:note-update",
   "mr:action",
   "mr:create",
   "mr:update",

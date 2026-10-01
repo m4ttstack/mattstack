@@ -347,10 +347,46 @@ GitLab only. Reply to an existing MR discussion thread. Returns discussionId, no
 }
 ```
 
+### mr_update_note
+
+<!-- mcp-lint: allow -->
+GitLab only. Replace the body of an existing MR note or thread comment by its noteId (from mr_threads, mr_comment, mr_comment_inline or mr_reply_thread). GitLab only lets you edit notes you are allowed to edit, and its refusal comes back as its own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "repoName": {
+      "type": "string",
+      "description": "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo."
+    },
+    "iid": {
+      "type": "number",
+      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+    },
+    "mrUrl": {
+      "type": "string",
+      "description": "The MR's https URL; supplies both the repo and iid."
+    },
+    "noteId": {
+      "type": "number"
+    },
+    "body": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "noteId",
+    "body"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### mr_comment_inline
 
 <!-- mcp-lint: allow -->
-GitLab only. Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. Use mr_reply_thread to reply to an existing thread. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+GitLab only. Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. line is the line number in the new version of the file; the daemon fills oldLine for an unchanged line and refuses a line outside the diff, so pass oldLine yourself only to comment on a removed line. Use mr_reply_thread to reply to an existing thread. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
 {

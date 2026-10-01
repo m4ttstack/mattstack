@@ -25,6 +25,13 @@ test("truncated is true when exactly a full page (100) comes back", async () => 
   expect(out.truncated).toBe(true);
 });
 
+test("carries old_path, collapsed and too_large through", async () => {
+  const raw = [{ new_path: "a.ts", old_path: "b.ts", diff: "", collapsed: true, too_large: false }];
+  const fetchFn = (async () => new Response(JSON.stringify(raw), { status: 200 })) as unknown as typeof fetch;
+  const out = await fetchMrDiffs("https://gitlab.example.com", "g/repo", 7, "tok", { fetchFn });
+  expect(out.diffs).toEqual([{ newPath: "a.ts", oldPath: "b.ts", diff: "", collapsed: true, tooLarge: false }]);
+});
+
 test("maps new_path/diff to newPath/diff", async () => {
   const fetchFn = (async () => new Response(JSON.stringify([{ new_path: "a.ts", diff: "@@" }]), { status: 200 })) as unknown as typeof fetch;
   const out = await fetchMrDiffs("https://gitlab.example.com", "g/repo", 7, "tok", { fetchFn });

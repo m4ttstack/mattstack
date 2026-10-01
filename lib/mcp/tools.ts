@@ -374,8 +374,31 @@ export function mcpTools(): McpToolDef[] {
       },
     },
     {
+      name: "mr_update_note",
+      description: `GitLab only. Replace the body of an existing MR note or thread comment by its noteId (from mr_threads, mr_comment, mr_comment_inline or mr_reply_thread). GitLab only lets you edit notes you are allowed to edit, and its refusal comes back as its own text. ${REPO_NAME_RULE}`,
+      inputSchema: {
+        type: "object",
+        properties: { ...MR_TARGET_PROPS, noteId: { type: "number" }, body: { type: "string" } },
+        required: ["noteId", "body"],
+        additionalProperties: false,
+      },
+      shellForms: { none: "GitLab note edits have no glab verb; a glab api call hits the glab catch-all on mr_view" },
+      async handler(input) {
+        const bad = checkRequired(input, [{ name: "noteId", type: "number" }, { name: "body", type: "string" }]);
+        if (bad) return err(bad);
+        const target = await resolveMrTarget(input);
+        if (!target.ok) return err(target.error);
+        return fromResponse(await rtCommand<Commands["mr:note-update"]["data"]>("mr:note-update", {
+          repoName: target.identity,
+          iid: target.iid,
+          noteId: input.noteId as number,
+          body: input.body as string,
+        }, { timeoutMs: MR_WRITE_TIMEOUT_MS }));
+      },
+    },
+    {
       name: "mr_comment_inline",
-      description: `GitLab only. Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. Use mr_reply_thread to reply to an existing thread. ${REPO_NAME_RULE}`,
+      description: `GitLab only. Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. line is the line number in the new version of the file; the daemon fills oldLine for an unchanged line and refuses a line outside the diff, so pass oldLine yourself only to comment on a removed line. Use mr_reply_thread to reply to an existing thread. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
