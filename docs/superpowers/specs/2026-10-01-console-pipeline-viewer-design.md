@@ -125,6 +125,32 @@ history`.
   - Copy rendered text: the compiled body, today's "Copy agent context".
   - Copy path.
 
+## Unsynced changes
+
+Rebind and the public/internal switch write into the pack's checkout and
+recompile there; Claude sessions keep loading the installed copy until a sync.
+Today `rt skills sync` refuses a dirty pack checkout, so Rebind followed by
+Sync fails unless the change is committed by hand.
+
+- **Banner**: whenever the pack checkout has changes not yet synced, a banner
+  sits at the top of the Wiring page on every focus: "2 unsynced changes in
+  acme. Your Claude sessions still use the old version." It stays until a
+  sync or a discard.
+- **Change list**: read from the pack checkout's git status, so it includes
+  edits made in an editor, not only console's own actions. Each entry names
+  the skill and the change ("plan: domain slot -> new-policy", "review: made
+  internal") where console can say it, else the file path.
+- **Sync changes**: commits the pending changes, then runs today's sync
+  (rebuild, push, installed cache update). It confirms first, because the
+  push shares the change with the team. Afterwards the "/reload-plugins" hint
+  shows, as on the Health tab.
+- **Discard**: reverts the pending changes after a confirm.
+- **Canvas**: an edited slot row and its input card carry an "unsynced" tag.
+
+Needs from rt: a way to list a pack's pending changes (`--json`), a sync that
+commits pending pack changes instead of refusing, and a discard. Verb names
+are settled in the plan.
+
 ## Slot and placeholder states
 
 | State | Input card | Template row |
@@ -204,6 +230,7 @@ New in console's server:
 | History, compare | Drawer History tab |
 | Used by, Show in map | Drawer Used by tab |
 | Rebind, public/internal switch, Open source, Copy agent context | Drawer actions |
+| Sync (Health tab) | Unchanged on Health; also "Sync changes" in the unsynced banner |
 | Loading, composition failed, check failed, no pipeline, no packs | Same messages in the focus list and canvas |
 
 ## Testing
