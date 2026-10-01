@@ -290,7 +290,11 @@ export function RoomMembers({
           </span>
         </div>
         {reachable ? (
-          <ScrollArea.Autosize mah={LIST_MAX_HEIGHT}>
+          <ScrollArea.Autosize
+            mah={LIST_MAX_HEIGHT}
+            scrollbars="y"
+            classNames={{ root: classes.list, content: classes.listContent }}
+          >
             {groups.map(g => (
               <Fragment key={g.state}>
                 <Menu.Label data-testid={`members-group-${g.state}`}>
