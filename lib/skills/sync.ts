@@ -83,6 +83,8 @@ function stops(o: Outcome): boolean {
 }
 
 const hitCount = (n: number): string => `${n} ${n === 1 ? "hit" : "hits"}`;
+/** git's own messages often end in a period already. */
+const ended = (text: string): string => (text.endsWith(".") ? text : `${text}.`);
 const sentenceCase = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
 function pluginId(info: PackInfo): string {
@@ -283,17 +285,20 @@ function expectedBlobs(files: HashedFile[]): Map<string, string | null> {
   return expected;
 }
 
+/** `sha` is null when rt could not tell which commit git made; `short` is what git's own summary line printed, if anything. */
+type CommitId = { sha: string | null; short: string | null };
+
 /**
  * The commit `git commit` just made, from its own "[main 1a2b3c4] ..." line:
  * reading HEAD afterwards could name a commit another process made on top.
  */
-async function madeCommit(deps: SyncDeps, dir: string, stdout: string): Promise<string | null> {
-  const short = /^\[[^\]]* ([0-9a-f]{7,})\]/m.exec(stdout)?.[1];
-  if (!short) return null;
+async function madeCommit(deps: SyncDeps, dir: string, stdout: string): Promise<CommitId> {
+  const short = /^\[[^\]]* ([0-9a-f]{7,})\]/m.exec(stdout)?.[1] ?? null;
+  if (short === null) return { sha: null, short };
   const full = await deps.run("git", ["rev-parse", "--verify", `${short}^{commit}`], { cwd: dir });
   const sha = full.code === 0 ? full.stdout.trim() : "";
   // A ref named like the short sha resolves ahead of the object itself.
-  return sha.startsWith(short) ? sha : null;
+  return { sha: sha.startsWith(short) ? sha : null, short };
 }
 
 function shownPath(f: PendingFile): string {
@@ -366,8 +371,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   let staged: HashedFile[] = [];
   let compiled: { written: string[]; removed: string[] } = { written: [], removed: [] };
   let builtBlobs = new Map<string, string | null>();
-  /** rt's own commits this run, oldest first; `sha` is null when rt could not tell which commit git made. */
-  const made: { subject: string; sha: string | null }[] = [];
+  /** rt's own commits this run, oldest first. */
+  const made: (CommitId & { subject: string })[] = [];
 
   /** Where the pack sits in its repo, read once: git diff and status print repo-root paths. */
   const prefixOfPack = async (): Promise<string> => {
@@ -376,6 +381,12 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (res.code !== 0) throw new Error(`git rev-parse --show-prefix failed in ${pack.dir}: ${res.stderr.trim()}`);
     packPrefix = res.stdout.trim();
     return packPrefix;
+  };
+
+  const repoRootOf = async (): Promise<string> => {
+    const res = await deps.run("git", ["rev-parse", "--show-toplevel"], { cwd: pack.dir });
+    if (res.code !== 0) throw new Error(`git rev-parse --show-toplevel failed in ${pack.dir}: ${res.stderr.trim()}`);
+    return res.stdout.trim();
   };
 
   const finish = (): SyncReport => ({
@@ -667,11 +678,13 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (stops(recheck)) return finish();
 
   const pendingSubject = `skills: ${pack.name} pending changes`;
+  const versionSubject = `skills sync: ${pack.name} v${bumpAfter}`;
 
   /**
    * Moves HEAD back past rt's own commits in one compare-and-move, so it only
-   * happens while HEAD is still exactly rt's newest commit; the index is left
-   * alone. Null once undone, else why the commits stay.
+   * happens while HEAD is still exactly rt's newest commit and that commit
+   * sits directly on rt's oldest; the index is left alone. Null once undone,
+   * else why the commits stay.
    */
   async function undoCommits(): Promise<string | null> {
     if (made.length === 0) return null;
@@ -679,6 +692,13 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     const base = made[0]!.sha;
     const it = made.length === 1 ? "it" : "them";
     if (newest === null || base === null) return `rt could not tell which commit git made, so it left ${it} in place`;
+    if (made.length > 1) {
+      // The move names the oldest commit's parent as the target, which would
+      // rewind a commit someone else made between rt's two.
+      const parent = await deps.run("git", ["rev-parse", "--verify", `${newest}^1`], { cwd: pack.dir });
+      if (parent.code !== 0) return `rt could not read what its newest commit sits on (${parent.stderr.trim()}), so it left them in place`;
+      if (parent.stdout.trim() !== base) return "a commit rt did not make sits between them, so rt left them in place";
+    }
     const move = await deps.run("git", ["update-ref", "-m", `rt skills sync: undo ${pack.name} pending changes`, "HEAD", `${base}~1`, newest], { cwd: pack.dir });
     if (move.code === 0) {
       made.length = 0;
@@ -690,10 +710,12 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     return `rt could not undo ${it} (${move.stderr.trim()})`;
   }
 
-  const keptCommits = (why: string): string => {
-    const names = made.map((c) => `${c.sha ? `${c.sha.slice(0, 12)} ` : ""}(${c.subject})`);
+  const keptCommits = (why: string, pushed: boolean): string => {
+    const names = made.map((c) => `${c.sha?.slice(0, 12) ?? c.short ?? ""} (${c.subject})`.trimStart());
     const one = names.length === 1;
-    return `your pack edits stay in rt's ${one ? "commit" : "commits"} ${names.join(" and ")}, which ${one ? "is" : "are"} not pushed; ${why}`;
+    const hold = published ? "your pack edits stay in rt's" : "rt's";
+    const unpushed = pushed ? "" : `, which ${one ? "is" : "are"} not pushed`;
+    return `${hold} ${one ? "commit" : "commits"} ${names.join(" and ")}${unpushed}; ${why}`;
   };
 
   /**
@@ -702,23 +724,31 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
    * the manifest and every file compile wrote or removed back the way the
    * pending tree holds them (HEAD plus the person's staged edits), and
    * deletes what compile added. A path in `unseen` is someone else's now, so
-   * it is left as found.
+   * it is left as found. `versionStaged` is what rt's own staging landed in
+   * the index, so a failed add passes nothing.
    */
-  async function abandon(lead: string, unseen: string[], versionStaged: string[], outcome: (detail: string) => Outcome, next: string): Promise<Outcome> {
+  async function abandon(lead: string, unseen: string[], versionStaged: string[], outcome: (detail: string) => Outcome, next: string, pushed = false): Promise<Outcome> {
     const skip = new Set(unseen);
     const pendingCommit = made[0]?.subject === pendingSubject ? made[0].sha : null;
+    const toUndo = made.length;
     const kept = await undoCommits();
-    if (kept !== null && made.length > 1) {
-      return outcome(`${lead}, and ${keptCommits(kept)}; the version bump and the rebuilt skills are in them. ${next}`);
+    const pushNote = pushed ? "The push may have reached the remote, and the next sync's pull will show it" : "rt pushed nothing";
+    const rtThen = pushed ? "; rt " : " and ";
+    if (kept !== null && made.some((c) => c.subject === versionSubject)) {
+      return outcome(`${ended(lead)} ${pushNote}${pushed ? "; " : ", and "}${keptCommits(kept, pushed)}; the version bump and the rebuilt skills are in ${made.length === 1 ? "it" : "them"}. ${next}`);
     }
-    const commitNote = kept === null ? "" : `; ${keptCommits(kept)}`;
+    const commitNote = kept === null ? "" : `; ${keptCommits(kept, pushed)}`;
+    const undone = toUndo > 0 && kept === null ? `undid its ${toUndo === 1 ? "commit" : "commits"}, but ` : "";
 
     const ours = versionStaged.filter((p) => !skip.has(p));
     if (ours.length > 0) {
       const source = pendingCommit ?? "HEAD";
       const reset = await deps.run("git", ["reset", "-q", source, "--", ...ours.map(literal)], { cwd: pack.dir });
       if (reset.code !== 0) {
-        return outcome(`${lead}, and could not take its own version staging back out of the index (${reset.stderr.trim()}), so that staging is still in the index: ${ours.join(", ")}${commitNote}. ${next}`);
+        const edits = published && kept === null ? ", and your pack edits are still staged, not committed" : "";
+        return outcome(
+          `${ended(lead)} ${pushNote}${rtThen}${undone}could not take its own version staging back out of the index (${reset.stderr.trim()}), so that staging is still in the index: ${ours.join(", ")}; the worktree keeps the version bump (${bumpBefore} -> ${bumpAfter}) and the rebuilt skills${edits}${commitNote}. ${next}`,
+        );
       }
     }
 
@@ -739,7 +769,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       if (!skip.has(MANIFEST_REL)) packSourceVersion = bumpBefore ?? packSourceVersion;
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
-      return outcome(`${lead}, and could not put the build back (${why}): the checkout keeps the version bump (${bumpBefore} -> ${bumpAfter}) and the compiled output${commitNote}. ${next}`);
+      return outcome(`${ended(lead)} ${pushNote}${rtThen}${undone}could not put the build back (${why}): the checkout keeps the version bump (${bumpBefore} -> ${bumpAfter}) and the compiled output${commitNote}. ${next}`);
     }
 
     const which = leftAsFound.length === 1 ? "it" : "them";
@@ -750,58 +780,76 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
           ? `put back what it built, except ${leftAsFound.join(", ")}, which it left as it found ${which}`
           : `left what it built as it found it (${leftAsFound.join(", ")})`;
     const stillBumped = skip.has(MANIFEST_REL) && bumpAfter !== null && manifestVersionOrNull(pack.dir) === bumpAfter ? `; ${MANIFEST_REL} still carries rt's version bump (${bumpBefore} -> ${bumpAfter})` : "";
-    const left = !published ? "nothing was committed" : kept === null ? "your pack edits are still staged, not committed" : keptCommits(kept);
-    return outcome(`${lead} and ${putBack}${stillBumped}, so ${left}. ${next}`);
+    const left = kept !== null ? keptCommits(kept, pushed) : published ? "your pack edits are still staged, not committed" : "nothing is committed";
+    return outcome(`${ended(lead)} ${pushNote}${rtThen}${putBack}${stillBumped}, so ${left}. ${next}`);
   }
 
   const unstage = "Unstage those, then run this again";
-  const unseenLead = (unseen: string[]) => `The index in ${pack.dir} holds changes rt did not stage: ${unseen.join(", ")}. rt pushed nothing`;
-  const failedLead = (what: string) => `${what}. rt pushed nothing`;
+  const unseenLead = (unseen: string[]) => `The index in ${pack.dir} holds changes rt did not stage: ${unseen.join(", ")}`;
 
   const commitPush = await tryStep(async () => {
     if (!rebuild) return skipped("nothing changed, so there is nothing to commit");
+    const stop = (what: string, versionStaged: string[], pushed = false): Promise<Outcome> => abandon(what, [], versionStaged, failed, "Run this again once that is sorted", pushed);
+    /** Refuses when the commit's tree is not the index snapshot taken just before it: whatever was staged meanwhile rode in. */
+    const rodeIn = async (sha: string, snapshot: string, what: string, versionStaged: string[]): Promise<Outcome | null> => {
+      const tree = await deps.run("git", ["rev-parse", `${sha}^{tree}`], { cwd: pack.dir });
+      if (tree.code === 0 && tree.stdout.trim() === snapshot) return null;
+      const diff = await deps.run("git", ["diff", "--name-only", "-z", "--no-renames", "--no-relative", snapshot, `${sha}^{tree}`], { cwd: pack.dir });
+      const paths = diff.stdout.split("\0").filter(Boolean);
+      const prefix = await prefixOfPack();
+      const where = prefix === "" ? pack.dir : await repoRootOf();
+      const fromPack = paths.map((p) => (prefix === "" ? p : posix.relative(prefix, p)));
+      return abandon(`Something was staged in ${where} while rt committed ${what}: ${paths.join(", ") || "rt could not tell what"}`, fromPack, versionStaged, refused, unstage);
+    };
     // git commit takes the whole index, so each commit first checks the
-    // index holds exactly what rt staged for it, content included.
+    // index holds exactly what rt staged for it, content included, and then
+    // that the commit holds exactly the index it checked.
     if (published) {
       const snapshot = await deps.run("git", ["write-tree"], { cwd: pack.dir });
-      if (snapshot.code !== 0) return failed(`git write-tree failed: ${snapshot.stderr.trim()}`);
+      if (snapshot.code !== 0) return stop(`git write-tree failed: ${snapshot.stderr.trim()}`, []);
       const unseen = await unseenStaged(deps, pack.dir, await prefixOfPack(), expectedBlobs(staged));
       if (unseen.length > 0) return abandon(unseenLead(unseen), unseen, [], refused, unstage);
       const pendingCommit = await deps.run("git", ["commit", "-m", pendingSubject], { cwd: pack.dir });
-      if (pendingCommit.code !== 0) return failed(`git commit failed: ${pendingCommit.stderr.trim()}`);
-      const sha = await madeCommit(deps, pack.dir, pendingCommit.stdout);
-      made.push({ subject: pendingSubject, sha });
-      if (sha === null) return abandon(failedLead("rt could not tell which commit git made for your pack edits"), [], [], refused, "Look over the commit, then run this again");
-      // Anything staged between the check above and the commit rode in with it.
-      const tree = await deps.run("git", ["rev-parse", `${sha}^{tree}`], { cwd: pack.dir });
-      if (tree.code !== 0 || tree.stdout.trim() !== snapshot.stdout.trim()) {
-        const slipped = await deps.run("git", ["diff", "--name-only", "-z", "--no-renames", "--no-relative", snapshot.stdout.trim(), `${sha}^{tree}`], { cwd: pack.dir });
-        const prefix = await prefixOfPack();
-        const paths = slipped.stdout.split("\0").filter(Boolean).map((p) => (prefix === "" ? p : posix.relative(prefix, p)));
-        return abandon(`Something was staged in ${pack.dir} while rt committed your pack edits: ${paths.join(", ") || "rt could not tell what"}. rt pushed nothing`, paths, [], refused, unstage);
-      }
+      if (pendingCommit.code !== 0) return stop(`git commit failed: ${pendingCommit.stderr.trim()}`, []);
+      const id = await madeCommit(deps, pack.dir, pendingCommit.stdout);
+      made.push({ subject: pendingSubject, ...id });
+      if (id.sha === null) return abandon("rt could not tell which commit git made for your pack edits", [], [], refused, "Look over the commit, then run this again");
+      const rode = await rodeIn(id.sha, snapshot.stdout.trim(), "your pack edits", []);
+      if (rode !== null) return rode;
     }
-    const stop = (what: string, versionStaged: string[]): Promise<Outcome> | Outcome =>
-      made.length > 0 ? abandon(failedLead(what), [], versionStaged, failed, "Run this again once that is sorted") : failed(what);
     // Only the files this run's compile wrote or removed, by literal name: a
     // file dropped into a compiled folder meanwhile stays out of the commit.
     const ignored = await ignoredUntracked(deps, pack.dir, compiled.written);
     const addPaths = [MANIFEST_REL, ...compiled.written.filter((p) => !ignored.has(p))];
     const versionStaged = [...addPaths, ...compiled.removed];
     const add = await deps.run("git", ["add", "--", ...addPaths.map(literal)], { cwd: pack.dir });
-    if (add.code !== 0) return stop(`git add failed: ${add.stderr.trim()}`, versionStaged);
+    if (add.code !== 0) return stop(`git add failed: ${add.stderr.trim()}`, []);
     if (compiled.removed.length > 0) {
       const rm = await deps.run("git", ["rm", "--cached", "--ignore-unmatch", "--quiet", "--", ...compiled.removed.map(literal)], { cwd: pack.dir });
-      if (rm.code !== 0) return stop(`git rm failed: ${rm.stderr.trim()}`, versionStaged);
+      if (rm.code !== 0) return stop(`git rm failed: ${rm.stderr.trim()}`, addPaths);
     }
     const unseen = await unseenStaged(deps, pack.dir, await prefixOfPack(), new Map(versionStaged.map((p) => [p, builtBlobs.get(p) ?? null])));
     if (unseen.length > 0) return abandon(unseenLead(unseen), unseen, versionStaged, refused, unstage);
-    const versionSubject = `skills sync: ${pack.name} v${bumpAfter}`;
+    if (published) {
+      // The version commit must sit directly on the pending commit, or the
+      // undo could not take both back without rewinding what landed between.
+      const head = await deps.run("git", ["rev-parse", "HEAD"], { cwd: pack.dir });
+      if (head.code !== 0) return stop(`git rev-parse HEAD failed: ${head.stderr.trim()}`, versionStaged);
+      if (head.stdout.trim() !== made[0]!.sha) {
+        return abandon(`Something was committed in ${pack.dir} on top of rt's commit of your pack edits`, [], versionStaged, refused, "Look over the commits, then run this again");
+      }
+    }
+    const snapshot = await deps.run("git", ["write-tree"], { cwd: pack.dir });
+    if (snapshot.code !== 0) return stop(`git write-tree failed: ${snapshot.stderr.trim()}`, versionStaged);
     const commit = await deps.run("git", ["commit", "-m", versionSubject], { cwd: pack.dir });
     if (commit.code !== 0) return stop(`git commit failed: ${commit.stderr.trim()}`, versionStaged);
-    if (made.length > 0) made.push({ subject: versionSubject, sha: await madeCommit(deps, pack.dir, commit.stdout) });
+    const id = await madeCommit(deps, pack.dir, commit.stdout);
+    made.push({ subject: versionSubject, ...id });
+    if (id.sha === null) return abandon("rt could not tell which commit git made for the version bump", [], versionStaged, refused, "Look over the commit, then run this again");
+    const rode = await rodeIn(id.sha, snapshot.stdout.trim(), "the version bump", versionStaged);
+    if (rode !== null) return rode;
     const push = await deps.run("git", ["push"], { cwd: pack.dir });
-    if (push.code !== 0) return stop(`git push failed: ${push.stderr.trim()}`, versionStaged);
+    if (push.code !== 0) return stop(`git push failed: ${push.stderr.trim()}`, versionStaged, true);
     return ran(`committed and pushed v${bumpAfter}`);
   });
   steps.push({ name: "commit-push", ...commitPush });
