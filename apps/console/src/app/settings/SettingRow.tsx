@@ -18,7 +18,11 @@ import {
   Tooltip,
   type TextProps,
 } from '@mattstack/app-kit/core';
-import { useSchemeColors, useUncontrolled } from '@mattstack/app-kit/hooks';
+import {
+  useReducedMotion,
+  useSchemeColors,
+  useUncontrolled,
+} from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 
@@ -47,6 +51,11 @@ import {
   splitKey,
   type StoreScope,
 } from './view';
+
+/** The panel's collapse, in ms. The open card's frame
+    (SettingRow.module.css) reads it as `--row-motion`, so both move
+    together. */
+const ROW_MOTION_MS = 200;
 
 export interface RowOpen {
   tab: PanelTab;
@@ -138,6 +147,7 @@ export function SettingRow({
     onChange: onOpenChange,
   });
   const isOpen = open !== null;
+  const reduceMotion = useReducedMotion();
   const { shown, opening } = useLastOpen(open);
   const [asJson, setAsJson] = useState(false);
   // A closed row starts fresh: JSON mode chosen in one opening must not
@@ -183,6 +193,7 @@ export function SettingRow({
   return (
     <Box
       data-key={def.key}
+      style={{ '--row-motion': `${ROW_MOTION_MS}ms` }}
       className={classes.item}
       mod={{ open: isOpen }}
       onKeyDown={onKey}
@@ -274,6 +285,7 @@ export function SettingRow({
       <Collapse
         expanded={isOpen}
         keepMounted={false}
+        transitionDuration={reduceMotion ? 0 : ROW_MOTION_MS}
         id={panelId}
         role="region"
         aria-label={`${def.key} settings`}

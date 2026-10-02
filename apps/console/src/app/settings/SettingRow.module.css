@@ -1,6 +1,12 @@
+/* The card's frame moves with the panel's collapse; `--row-motion` is the
+   collapse's own duration, set on the row. */
 .item {
   --inset: 12px;
+  border: 0 solid var(--tk-border);
   border-bottom: 1px solid var(--tk-border-soft);
+  transition-property: margin-block, border-width, border-color, border-radius;
+  transition-duration: var(--row-motion);
+  transition-timing-function: ease;
 }
 
 /* The open card's 1px border takes 1px of inset, so opening moves nothing. */
@@ -19,6 +25,22 @@
 
 .item[data-open] .header {
   padding-block: 11px 12px;
+}
+
+/* Padding gives back what the growing border takes, over the same time. */
+.header,
+.inset,
+.panel {
+  transition: padding var(--row-motion) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item,
+  .header,
+  .inset,
+  .panel {
+    transition: none;
+  }
 }
 
 :where([data-mantine-color-scheme='light']) .header {

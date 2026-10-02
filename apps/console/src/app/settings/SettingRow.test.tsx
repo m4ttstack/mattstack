@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import type { ReactElement } from 'react';
 import { MantineProvider } from '@mattstack/app-kit/core';
 import { theme } from '@mattstack/app-kit/design-system';
@@ -397,6 +398,98 @@ describe('SettingRow disclosure', () => {
           name: 'cancel editing board.agent.model at user',
         })
       ).toBeNull();
+    });
+  });
+
+  describe('the open card’s frame', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    const openRow = () =>
+      renderRow(
+        <SettingRow
+          def={scalar()}
+          store={store()}
+          subhead={null}
+          query=""
+          defaultOpen={{ tab: 'where', fix: null }}
+        />
+      );
+
+    it('moves over the same time as the panel’s collapse', async () => {
+      // jsdom lays nothing out; a measured panel is what makes the
+      // collapse write its transition.
+      vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(
+        120
+      );
+      openRow();
+      const item = document.querySelector<HTMLElement>(
+        '[data-key="board.agent.model"]'
+      )!;
+      const motion = item.style.getPropertyValue('--row-motion');
+      expect(motion).toMatch(/^\d+ms$/);
+      const region = document.querySelector<HTMLElement>(
+        '[aria-label="board.agent.model settings"]'
+      )!;
+      await userEvent.click(
+        screen.getByRole('button', { name: 'close board.agent.model' })
+      );
+      await waitFor(() =>
+        expect(region.style.transition).toContain(`height ${motion}`)
+      );
+    });
+
+    it('transitions its margins and border over that time, and holds still under reduced motion', () => {
+      const sheet = document.createElement('style');
+      sheet.textContent = readFileSync(
+        'src/app/settings/SettingRow.module.css',
+        'utf8'
+      );
+      document.head.appendChild(sheet);
+      try {
+        const rules = Array.from(sheet.sheet!.cssRules);
+        const item = rules.find(
+          (r): r is CSSStyleRule =>
+            r instanceof CSSStyleRule && r.selectorText === '.item'
+        )!;
+        const moved = item.style.getPropertyValue('transition-property');
+        expect(moved).toContain('margin-block');
+        expect(moved).toContain('border-width');
+        expect(item.style.getPropertyValue('transition-duration')).toBe(
+          'var(--row-motion)'
+        );
+        const reduced = rules.find(
+          (r): r is CSSMediaRule =>
+            r instanceof CSSMediaRule &&
+            r.media.mediaText.includes('prefers-reduced-motion: reduce')
+        )!;
+        const still = Array.from(reduced.cssRules).find(
+          (r): r is CSSStyleRule =>
+            r instanceof CSSStyleRule && r.selectorText.includes('.item')
+        )!;
+        expect(still.style.getPropertyValue('transition')).toBe('none');
+      } finally {
+        sheet.remove();
+      }
+    });
+
+    it('under reduced motion the panel closes at once', async () => {
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0);
+      const real = window.matchMedia;
+      vi.spyOn(window, 'matchMedia').mockImplementation(query =>
+        query.includes('prefers-reduced-motion')
+          ? { ...real(query), matches: true }
+          : real(query)
+      );
+      explains([
+        { scope: 'default', file: null, present: false },
+        { scope: 'user', file: '/u', present: true, value: 'm-1' },
+      ]);
+      openRow();
+      await screen.findByTestId('layer-user');
+      await userEvent.click(
+        screen.getByRole('button', { name: 'close board.agent.model' })
+      );
+      expect(screen.queryByTestId('layer-user')).toBeNull();
     });
   });
 });
