@@ -268,17 +268,6 @@ describe('buildSpine: slots', () => {
     );
   });
 
-  it("counts every binding site that resolves to a fill, not just the roster's", () => {
-    const spine = buildSpine(PACK, EMPTY_CHECK);
-    const shipDomain = spine.stages[2].slots[0];
-    const provision = spine.stages[0].slots[0];
-
-    // stage-ship and the ship verb both bind it; stage-provision and
-    // review-core both bind work-provision.
-    expect(shipDomain.siteCount).toBe(2);
-    expect(provision.siteCount).toBe(2);
-  });
-
   it('a slot with a resolveError carries the error through, not a fill', () => {
     const composition: SpineComposition = {
       ...PACK,
@@ -306,17 +295,6 @@ describe('buildSpine: slots', () => {
     expect(slot?.fill).toBeNull();
   });
 
-  it("carries rt's inlined flag through, and leaves a binder-only slot at null", () => {
-    // The compiler emits a seam only for an INLINED fill, so this flag is the
-    // only thing that tells a reader whether a bound slot is absent from the
-    // compiled body because it is referenced or because something is wrong.
-    // A binder-only slot carries no flag at all -- neither, not false.
-    const spine = buildSpine(PACK, EMPTY_CHECK);
-
-    expect(spine.orchestrator?.slots[0].inlined).toBe(true);
-    expect(spine.stages[0].slots[0].inlined).toBeNull();
-  });
-
   it('carries the layer that set a verb slot, and null where rt states none', () => {
     const composition: SpineComposition = {
       ...PACK,
@@ -335,32 +313,6 @@ describe('buildSpine: slots', () => {
     expect(spine.stages[0].slots[0].layer).toBeNull();
     const external = spine.outside.find(e => e.key === 'external:board');
     expect(external?.slots.map(s => s.layer)).toEqual([null]);
-  });
-
-  it('reports a referenced fill as referenced rather than as unflagged', () => {
-    const composition: SpineComposition = {
-      ...PACK,
-      verbs: [
-        verb('work', {
-          slots: [
-            {
-              name: 'tiering',
-              contract: 'model-tiering@1',
-              required: false,
-              boundTo: 'mattstack:model-tiering',
-              fillSourcePath: '/fills/mattstack:model-tiering',
-              fillVersion: '0.8.0',
-              registered: true,
-              inlined: false,
-            },
-          ],
-        }),
-      ],
-    };
-
-    expect(
-      buildSpine(composition, EMPTY_CHECK).orchestrator?.slots[0].inlined
-    ).toBe(false);
   });
 });
 
@@ -639,17 +591,6 @@ describe('invertBindings: every site that resolves to a fill', () => {
     expect(sites).toHaveLength(2);
     expect(sites.map(site => site.verb)).toEqual(['alpha', 'zeta']);
   });
-
-  it("the slot row's site count is the length of the index's list for that fill", () => {
-    const spine = buildSpine(PACK, EMPTY_CHECK);
-    const slot = spine.stages[2].slots[0];
-
-    // One inversion, two readers -- the chip cannot claim a number the
-    // drawer's list does not have rows for.
-    expect(slot.boundTo).toBe('demo:ship-domain');
-    expect(invertBindings(PACK)['demo:ship-domain']).toHaveLength(2);
-    expect(slot.siteCount).toBe(2);
-  });
 });
 
 describe('buildSpine: orphaned fills', () => {
@@ -671,92 +612,5 @@ describe('buildSpine: orphaned fills', () => {
     expect(spine.orphans.map(o => o.fill)).not.toContain(
       'demo:mr-board-review'
     );
-  });
-});
-
-describe('buildSpine: includes', () => {
-  const MATTSTACK_ROOT = '/plugins/mattstack';
-
-  function withShipIncludes(
-    includes: string[] | undefined,
-    sourcePath:
-      string | null = `${MATTSTACK_ROOT}/attachments/review/ship/SKILL.md`
-  ): SpineComposition {
-    return {
-      ...PACK,
-      verbs: PACK.verbs.map(v =>
-        v.name === 'ship' ? { ...v, sourcePath, includes } : v
-      ),
-    };
-  }
-
-  it("threads a verb's includes onto its row, each as the mattstack attachment rt inlines", () => {
-    const ship = buildSpine(
-      withShipIncludes(['review-core-body', 'review-posting']),
-      EMPTY_CHECK
-    ).outside.find(e => e.verb === 'ship');
-
-    expect(ship?.includes).toEqual([
-      {
-        name: 'review-core-body',
-        ref: 'mattstack:review-core-body',
-        sourcePath: `${MATTSTACK_ROOT}/attachments/review-core-body/SKILL.md`,
-      },
-      {
-        name: 'review-posting',
-        ref: 'mattstack:review-posting',
-        sourcePath: `${MATTSTACK_ROOT}/attachments/review-posting/SKILL.md`,
-      },
-    ]);
-  });
-
-  it('reads an rt older than the includes field as a verb including nothing', () => {
-    const spine = buildSpine(PACK, EMPTY_CHECK);
-
-    expect(spine.orchestrator?.includes).toEqual([]);
-    for (const row of [...spine.stages, ...spine.outside])
-      expect(row.includes).toEqual([]);
-  });
-
-  it('resolves includes at the mattstack root even for a verb from another plugin', () => {
-    const composition: SpineComposition = {
-      ...withShipIncludes(undefined, `${MATTSTACK_ROOT}/skills/ship/SKILL.md`),
-    };
-    composition.verbs = [
-      ...composition.verbs,
-      verb('custom', {
-        plugin: 'demo',
-        engineRef: 'demo:custom',
-        sourcePath: '/packs/demo/skills/custom/SKILL.md',
-        includes: ['gitlab-mr-threads'],
-      } as Partial<SpineComposition['verbs'][number]>),
-    ];
-
-    const custom = buildSpine(composition, EMPTY_CHECK).outside.find(
-      e => e.verb === 'custom'
-    );
-
-    expect(custom?.includes).toEqual([
-      {
-        name: 'gitlab-mr-threads',
-        ref: 'mattstack:gitlab-mr-threads',
-        sourcePath: `${MATTSTACK_ROOT}/attachments/gitlab-mr-threads/SKILL.md`,
-      },
-    ]);
-  });
-
-  it('leaves the include path null, ref intact, when no mattstack source is on hand to derive the root from', () => {
-    const ship = buildSpine(
-      withShipIncludes(['review-posting'], null),
-      EMPTY_CHECK
-    ).outside.find(e => e.verb === 'ship');
-
-    expect(ship?.includes).toEqual([
-      {
-        name: 'review-posting',
-        ref: 'mattstack:review-posting',
-        sourcePath: null,
-      },
-    ]);
   });
 });

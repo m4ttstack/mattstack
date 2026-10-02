@@ -85,8 +85,6 @@ const SLOTS = [
     fillSourcePath:
       '/Users/matt/.claude/plugins/cache/acme/demo/0.4.11/attachments/watch-ci-domain/SKILL.md',
     fill: null,
-    siteCount: 1,
-    inlined: true,
     layer: null,
   },
 ];

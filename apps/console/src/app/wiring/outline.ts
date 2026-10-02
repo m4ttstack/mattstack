@@ -1,6 +1,5 @@
 import type { InferResponseType } from 'hono/client';
 
-import { pluginRootOf } from '../../shared/pluginRoot';
 import type { client } from '../api';
 
 export type SkillsComposition = InferResponseType<
@@ -65,33 +64,8 @@ export interface SlotOutlineNode {
    */
   fillSourcePath: string | null;
   fill: BoundFill | null;
-  /** Binding sites across the whole manifest that resolve to this fill. */
-  siteCount: number;
-  /**
-   * Whether the compiler vendors this fill's body into the verb's artifact
-   * (`true`) or leaves a reference to it (`false`) -- the reason a compiled
-   * body carries a seam for some fills and no trace of others. Null where rt
-   * states neither, which is a slot that is unbound or known only from a
-   * binder; three states, and collapsing null into false would claim a
-   * reference the compiler never emitted.
-   */
-  inlined: boolean | null;
   /** Null for a binder-only slot or an rt that predates the field. */
   layer: string | null;
-}
-
-/**
- * One `{{include:<name>}}` the verb's author wrote. Always a mattstack
- * attachment: rt resolves every include against the mattstack plugin root,
- * whichever plugin the verb itself lives in, so the ref never varies by
- * pack. `sourcePath` is that resolution replayed from a mattstack verb's own
- * source path; null when the composition carries none to derive the root
- * from.
- */
-export interface IncludeOutlineNode {
-  name: string;
-  ref: string;
-  sourcePath: string | null;
 }
 
 export type BindingSiteKind = CompositionBinder['kind'];
@@ -144,7 +118,6 @@ export interface SpineEntry {
   staleFiles: string[];
   orphanFiles: string[];
   slots: SlotOutlineNode[];
-  includes: IncludeOutlineNode[];
 }
 
 export interface OrphanFillEntry {
@@ -322,12 +295,6 @@ export function buildSpine(
       .map(v => [v.engineRef as string, v] as const)
   );
 
-  // One inversion, two readers: the chip below counts what the inverse index
-  // lists, so the two can never disagree about the same fill.
-  const bindingSites = invertBindings(composition);
-  const siteCount = (boundTo: string | null) =>
-    boundTo ? (bindingSites[boundTo]?.length ?? 0) : 0;
-
   const boundBindings = new Set<string>();
   for (const verb of composition.verbs) {
     for (const slot of verb.slots) {
@@ -351,24 +318,6 @@ export function buildSpine(
       : (workTypes[0] ?? null);
   const stageRefs = workType ? (composition.pipelines?.[workType] ?? []) : [];
 
-  const mattstackRoot =
-    composition.verbs
-      .filter(v => v.plugin === 'mattstack' && v.sourcePath)
-      .map(v => pluginRootOf(v.sourcePath as string))
-      .find((root): root is string => root !== null) ?? null;
-
-  function includesFor(
-    verb: CompositionVerb | undefined
-  ): IncludeOutlineNode[] {
-    return (verb?.includes ?? []).map(name => ({
-      name,
-      ref: `mattstack:${name}`,
-      sourcePath: mattstackRoot
-        ? `${mattstackRoot}/attachments/${name}/SKILL.md`
-        : null,
-    }));
-  }
-
   function slotsFor(
     verb: CompositionVerb | undefined,
     binder: CompositionBinder | undefined
@@ -381,8 +330,6 @@ export function buildSpine(
       resolveError: slot.resolveError,
       fillSourcePath: slot.fillSourcePath,
       fill: slot.boundTo ? (fillsByBinding.get(slot.boundTo) ?? null) : null,
-      siteCount: siteCount(slot.boundTo),
-      inlined: slot.inlined,
       layer: slot.layer ?? null,
     }));
     const declared = new Set(slots.map(s => s.name));
@@ -397,8 +344,6 @@ export function buildSpine(
         boundTo: slot.boundTo,
         fillSourcePath: null,
         fill,
-        siteCount: siteCount(slot.boundTo),
-        inlined: null,
         layer: null,
       });
     }
@@ -432,7 +377,6 @@ export function buildSpine(
       staleFiles: checkRow?.staleFiles ?? [],
       orphanFiles: checkRow?.orphanFiles ?? [],
       slots,
-      includes: includesFor(verb),
     };
   }
 
@@ -482,7 +426,6 @@ export function buildSpine(
           staleFiles: [],
           orphanFiles: [],
           slots: [],
-          includes: [],
         };
         externalGroups.set(plugin, group);
         outside.push(group);
@@ -496,8 +439,6 @@ export function buildSpine(
           boundTo: slot.boundTo,
           fillSourcePath: null,
           fill,
-          siteCount: siteCount(slot.boundTo),
-          inlined: null,
           layer: null,
         });
       }
@@ -539,7 +480,6 @@ export function buildSpine(
       staleFiles: checkRow?.staleFiles ?? [],
       orphanFiles: checkRow?.orphanFiles ?? [],
       slots,
-      includes: includesFor(rosterVerb),
     });
   }
 
