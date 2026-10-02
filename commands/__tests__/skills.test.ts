@@ -2990,14 +2990,14 @@ describe("skillsDiscard guards", () => {
     expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_BEFORE);
   });
 
-  test("a file that lands under a pack root while the person confirms is never deleted", async () => {
+  test("a file that lands under a pack root while the person confirms refuses the discard and deletes nothing", async () => {
     const { packDir } = makeCommittedPack();
     writeFile(join(packDir, "attachments", "x", "SKILL.md"), "new skill\n");
     writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
     const lateBeside = join(packDir, "attachments", "x", "late.md");
     const lateElsewhere = join(packDir, "attachments", "y", "late.md");
 
-    await discardWith(
+    const { exitCode, stderr } = await discardWith(
       {
         interactive: () => true,
         confirm: async () => {
@@ -3009,12 +3009,38 @@ describe("skillsDiscard guards", () => {
       ["--pack", "acme", "--pack-dir", packDir],
     );
 
-    expect(existsSync(join(packDir, "attachments", "x", "SKILL.md"))).toBe(false);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("changed while");
+    expect(readFileSync(join(packDir, "attachments", "x", "SKILL.md"), "utf8")).toBe("new skill\n");
     expect(readFileSync(lateBeside, "utf8")).toBe("late\n");
     expect(readFileSync(lateElsewhere, "utf8")).toBe("late\n");
-    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_BEFORE);
-    expect(porcelain(packDir)).toBe("?? attachments/x/late.md\n?? attachments/y/late.md\n");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_AFTER);
   });
+
+  test.each<[string, string[]]>([["without --expect", []], ["with --expect", ["--expect"]]])(
+    "an edit to a listed file while the person confirms refuses and throws nothing away, %s",
+    async (_label, expectFlag) => {
+      const { packDir } = makeCommittedPack();
+      writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+      const signature = expectFlag.length > 0 ? [...expectFlag, (await changesJson(["--pack", "acme", "--pack-dir", packDir])).signature] : [];
+      const later = BINDINGS_AFTER.replace("plan-policy-strict", "plan-policy-loose");
+
+      const { exitCode, stderr } = await discardWith(
+        {
+          interactive: () => true,
+          confirm: async () => {
+            writeFile(join(packDir, "pack", "skills.jsonc"), later);
+            return true;
+          },
+        },
+        ["--pack", "acme", "--pack-dir", packDir, ...signature],
+      );
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("changed while");
+      expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(later);
+    },
+  );
 
   test("--json never prompts, even at a terminal", async () => {
     const { packDir } = makeCommittedPack();

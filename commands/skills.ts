@@ -1948,6 +1948,14 @@ async function discardPending(packDir: string, team: string, pending: PendingFil
   return discarded;
 }
 
+function changedUnderDiscard(message: string, title: string, next: string): SkillsUsageError {
+  return new SkillsUsageError(`${message}, so nothing was thrown away`, {
+    title,
+    why: "rt threw nothing away. Look over the changes again, then discard.",
+    next: out.cmd(next),
+  });
+}
+
 /** Takes `--expect <signature>` out of the arguments; parseFlags is shared by every skills verb, and only discard takes it. */
 function takeExpect(args: string[]): { expect: string | null; rest: string[] } {
   const i = args.indexOf("--expect");
@@ -1982,15 +1990,13 @@ export async function skillsDiscard(args: string[], io: DiscardIo = REAL_DISCARD
       });
     }
 
-    const pending = (await readPackPending(packDir, team)).filter(fullyInScope);
-    if (expect !== null && (await signedChanges(packDir, team, pending)).signature !== expect) {
-      throw new SkillsUsageError(`pack ${team} changed since its pending changes were shown, so nothing was thrown away`, {
-        title: `The ${team} pack changed since its changes were shown`,
-        why: "rt threw nothing away. Look over the changes again, then discard.",
-        next: out.cmd(`rt skills changes --pack ${team}`),
-      });
+    let pending = (await readPackPending(packDir, team)).filter(fullyInScope);
+    const prompting = pending.length > 0 && !flags.json && io.interactive();
+    const signature = expect !== null || prompting ? (await signedChanges(packDir, team, pending)).signature : null;
+    if (expect !== null && signature !== expect) {
+      throw changedUnderDiscard(`pack ${team} changed since its pending changes were shown`, `The ${team} pack changed since its changes were shown`, `rt skills changes --pack ${team}`);
     }
-    if (pending.length > 0 && !flags.json && io.interactive()) {
+    if (prompting) {
       out.print(
         out.line("pending", `Pack ${team} has ${pending.length === 1 ? "1 change" : `${pending.length} changes`} that are not synced yet`),
         out.table(pending.map((f) => [f.status, shownPath(f)]), ["Status", "Path"]),
@@ -1999,6 +2005,13 @@ export async function skillsDiscard(args: string[], io: DiscardIo = REAL_DISCARD
         out.print(out.line("skipped", `Kept every change in pack ${team}`));
         return;
       }
+      // The list stayed on screen while the person decided; anything that
+      // moved since is not what they said yes to.
+      const now = (await readPackPending(packDir, team)).filter(fullyInScope);
+      if ((await signedChanges(packDir, team, now)).signature !== signature) {
+        throw changedUnderDiscard(`pack ${team} changed while you were deciding`, `The ${team} pack changed while you were deciding`, `rt skills discard --pack ${team}`);
+      }
+      pending = now;
     }
     const payload: DiscardPayload = { pack: team, packDir, discarded: await discardPending(packDir, team, pending) };
 
