@@ -572,26 +572,27 @@ function quietReviewCounts(mr: BoardMR): boolean {
   );
 }
 
-/** Coarse review-readiness bucket, most-blocking first: GitLab's own review
-    state, conversation states included. The row's pill says the same thing
+/** Coarse review-readiness bucket, in the order you need to look at them:
+    needs review first, approved last. GitLab's own review state,
+    conversation states included. The row's pill says the same thing
     (see `statusPhrase`), so a row can never sit under a group header its own
     badge contradicts. */
 export function statusBucket(mr: BoardMR): { label: string; order: number } {
   // Review-state axis only. Mechanical blockers (conflicts / CI) are row flags,
   // not their own groups, so an MR with conflicts still shows under its review
   // state instead of being hidden in a "conflicts" bucket.
-  if (hasChangesRequested(mr)) return { label: 'changes requested', order: 0 };
+  if (hasChangesRequested(mr)) return { label: 'changes requested', order: 1 };
   if (mr.reviews.isApproved) return { label: 'approved', order: 4 };
   // A rule no assigned reviewer covers (a codeowner section) can still be owed.
   if (allReviewersApproved(mr) && approvalSlots(mr).filled > 0)
-    return { label: 'needs review', order: 2 };
-  if (mr.reviewerComments > 0) return { label: 'commented', order: 1 };
+    return { label: 'needs review', order: 0 };
+  if (mr.reviewerComments > 0) return { label: 'commented', order: 2 };
   // Reviewed and all threads resolved, just not formally approved — further along
-  // than an untouched MR, so it sits between "needs review" and "approved".
+  // than anything above it, so it sits just before "approved".
   if (commentsAllResolved(mr)) return { label: 'comments resolved', order: 3 };
   if (anyReviewerReviewed(mr) || quietReviewCounts(mr))
-    return { label: 'commented', order: 1 };
-  return { label: 'needs review', order: 2 };
+    return { label: 'commented', order: 2 };
+  return { label: 'needs review', order: 0 };
 }
 
 /** An MR carrying the app-initiated review status the client attaches at

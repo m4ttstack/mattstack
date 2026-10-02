@@ -207,18 +207,21 @@ import {
 } from './peer/envelope.ts';
 import { type MaterializeDeps } from './peer/inbox.ts';
 import {
+  dismissSentNudge,
+  finishSentNudge,
   pendingNudgesByMr,
+  pruneFinishedSentNudges,
   pruneNudges,
   pruneSentNudges,
   readNudges,
   readSentNudges,
   resolveSentNudge,
-  retireSentNudge,
-  sentNudgeDisplay,
+  reviewerDisplayName,
+  sentNudgeView,
   writeNudge,
   writeSentNudge,
   type PendingNudge,
-  type SentNudgeDisplay,
+  type SentNudgeView,
 } from './peer/nudges.ts';
 import {
   createInvite,
@@ -492,10 +495,11 @@ async function fetchReconcilerView(): Promise<ReconcilerView> {
 const peerDeps: Omit<MaterializeDeps, 'reportAuth'> = {
   writePeerReview,
   writeNudge,
-  resolveSentNudge,
-  // Adapter: the store takes its db before the nudge id.
-  retireSentNudge: (mrUrl, ifSentBefore, nudgeId) =>
-    retireSentNudge(mrUrl, ifSentBefore, undefined, nudgeId),
+  // Adapters: the store takes its db before the nudge id and the sender.
+  resolveSentNudge: (mrUrl, resolution, from) =>
+    resolveSentNudge(mrUrl, resolution, undefined, from),
+  finishSentNudge: (mrUrl, finish, ifSentBefore, nudgeId, from) =>
+    finishSentNudge(mrUrl, finish, ifSentBefore, undefined, nudgeId, from),
   log: line => console.error(line),
 };
 const peering = makePeering({
@@ -530,12 +534,7 @@ function kickOutbox(client: SwitchboardClient): void {
     unhandled nudges peers sent here. */
 interface PeerAttachments {
   peerReviews?: PeerReviewState[];
-  sentNudge?: {
-    display: SentNudgeDisplay;
-    reviewer: string;
-    reason?: string;
-    kind?: AskKind;
-  };
+  sentNudge?: SentNudgeView;
   nudges?: PendingNudge[];
 }
 
@@ -561,20 +560,18 @@ function attachPeerState<T extends { webUrl?: string | null }>(
   return attachPeerReviews(mrs, readPeerReviews()).map(mr => {
     if (!mr.webUrl) return mr;
     const s = sent.get(mr.webUrl);
+    const view = s ? sentNudgeView(s, now) : null;
+    const reviewerName = s
+      ? reviewerDisplayName(s.reviewer, config.members, memberNames)
+      : undefined;
+    const sentNudge = view
+      ? { ...view, ...(reviewerName ? { reviewerName } : {}) }
+      : null;
     const nudges = inbound.get(mr.webUrl);
-    if (!s && !nudges) return mr;
+    if (!sentNudge && !nudges) return mr;
     return {
       ...mr,
-      ...(s
-        ? {
-            sentNudge: {
-              display: sentNudgeDisplay(s, now),
-              reviewer: s.reviewer,
-              reason: s.resolution?.reason,
-              kind: s.kind,
-            },
-          }
-        : {}),
+      ...(sentNudge ? { sentNudge } : {}),
       ...(nudges ? { nudges } : {}),
     };
   });
@@ -1428,6 +1425,7 @@ const httpServer = Bun.serve({
           pruneDrafts(onBoard);
           prunePeerReviews(onBoard);
           pruneSentNudges(onBoard);
+          pruneFinishedSentNudges();
           pruneNudges(onBoard);
         }
         const reviews = readReviewStates();
@@ -3080,6 +3078,31 @@ const httpServer = Bun.serve({
             headers: { 'content-type': 'application/json' },
           }
         );
+      }
+      case '/nudge/dismiss': {
+        // The sent-ask band's dismiss: drop this board's own record of the
+        // ask for one MR. Nothing is sent to the peer.
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const { mrUrl } = (body ?? {}) as { mrUrl?: unknown };
+        if (typeof mrUrl !== 'string' || !mrUrl)
+          return new Response('expected { mrUrl: string }', { status: 400 });
+        dismissSentNudge(mrUrl);
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { 'content-type': 'application/json' },
+        });
       }
       case '/peer/invite': {
         // Mint a one-paste invite for a peer. Operator-only: needs the admin

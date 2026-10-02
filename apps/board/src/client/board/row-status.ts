@@ -23,7 +23,6 @@ import {
   DOCTOR_LABEL,
   draftKey,
   laneInterrupted,
-  NUDGE_RETRYABLE,
   RESPOND_ACTIVE,
 } from './format.ts';
 import { parseGateCtx } from './gate-ctx.ts';
@@ -594,57 +593,6 @@ function peerLines(mr: BoardMRWithReview, now: number): Candidate[] {
       detail: [age, hint].filter(Boolean).join(' · ') || undefined,
       verbs: [verb],
     });
-  }
-  const sent = mr.sentNudge;
-  if (sent) {
-    const kind = sent.kind ?? 're-review';
-    if (NUDGE_RETRYABLE.has(sent.display)) {
-      // The ask word: "the nudge" for a re-review, "the <kind> ask" otherwise.
-      const askWord = kind === 're-review' ? 'nudge' : `${kind} ask`;
-      // A rejection carries the peer's own reason; surface it instead of
-      // pretending nobody answered. Expiry and silence stay "unanswered".
-      out.push(
-        sent.display === 'rejected'
-          ? {
-              tone: 'quiet',
-              word: `${sent.reviewer} declined the ${askWord}`,
-              detail: sent.reason || 'right-click to ask again',
-              verbs: [],
-            }
-          : {
-              tone: 'quiet',
-              word:
-                kind === 're-review'
-                  ? `nudge to ${sent.reviewer} went unanswered`
-                  : `${kind} ask to ${sent.reviewer} went unanswered`,
-              detail: 'right-click to ask again',
-              verbs: [],
-            }
-      );
-    } else if (sent.display === 'requested') {
-      const since = agoMs(sent.sentAt, now);
-      out.push({
-        tone: 'quiet',
-        word:
-          kind === 'review'
-            ? `asked ${sent.reviewer} for a review`
-            : kind === 'respond'
-              ? `asked ${sent.reviewer} to respond`
-              : `nudged ${sent.reviewer}`,
-        detail: since ? `no answer yet, ${since}` : 'no answer yet',
-        verbs: [],
-      });
-    } else {
-      out.push({
-        tone: 'work',
-        word:
-          kind === 'respond'
-            ? `${sent.reviewer} responding…`
-            : `${sent.reviewer} ${kind === 'review' ? '' : 're-'}reviewing…`,
-        spin: true,
-        verbs: [],
-      });
-    }
   }
   for (const p of mr.peerReviews ?? []) {
     if (p.status === 'queued' || p.status === 'reviewing') {

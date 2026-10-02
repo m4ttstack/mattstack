@@ -113,7 +113,7 @@ function fakeDeps(): MaterializeDeps & {
     resolveSentNudge(mrUrl, resolution) {
       resolutions.push({ mrUrl, resolution });
     },
-    retireSentNudge() {},
+    finishSentNudge() {},
     log(line) {
       logs.push(line);
     },

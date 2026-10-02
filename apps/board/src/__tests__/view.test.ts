@@ -1024,7 +1024,7 @@ describe('groupMRs status', () => {
     expect(groups.map(g => g.label)).toEqual(['needs review']);
   });
 
-  test('review-state order: changes requested, commented, needs review, comments resolved, approved', () => {
+  test('review-state order, what to look at first: needs review, changes requested, commented, comments resolved, approved', () => {
     const list = [
       mr({
         iid: 1,
@@ -1062,9 +1062,9 @@ describe('groupMRs status', () => {
     ];
     const groups = groupMRs(list, 'status', [], NOW);
     expect(groups.map(g => g.label)).toEqual([
+      'needs review',
       'changes requested',
       'commented',
-      'needs review',
       'comments resolved',
       'approved',
     ]);

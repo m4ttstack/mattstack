@@ -40,7 +40,7 @@ const noDeps = {
   writePeerReview: () => {},
   writeNudge: () => {},
   resolveSentNudge: () => {},
-  retireSentNudge: () => {},
+  finishSentNudge: () => {},
   log: () => {},
 };
 
