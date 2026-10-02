@@ -264,8 +264,13 @@ export async function serve(): Promise<void> {
   // this closes is deck's own three listeners (api/gateway/canary) and its
   // two background timers, so /healthz stops answering and the ports are
   // actually released rather than lingering past process exit.
+  //
+  // SIGTERM exits 143, never 0: the LaunchAgent's KeepAlive is
+  // SuccessfulExit=false, so a clean exit on a SIGTERM launchd did not send
+  // (a relaunch, a stray kill) would leave deck down for good. launchd's own
+  // stops (bootout, kickstart -k) ignore the exit code.
   let shuttingDown = false;
-  function shutdown(): void {
+  function shutdown(exitCode: number): void {
     if (shuttingDown) return;
     shuttingDown = true;
     clearInterval(reconcileInterval);
@@ -286,10 +291,10 @@ export async function serve(): Promise<void> {
     } catch {
       /* already stopped */
     }
-    process.exit(0);
+    process.exit(exitCode);
   }
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', () => shutdown(143));
+  process.on('SIGINT', () => shutdown(0));
 }
 
 /** Best-effort DNS driver for the uninstall teardown: undefined when the deck
