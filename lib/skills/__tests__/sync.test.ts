@@ -105,6 +105,8 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
   }
 
   for (const id of installedVersions.keys()) installDirFor(id);
+  /** The commits the fake git made, by the short sha its summary line printed. */
+  const made = new Map<string, string>();
 
   const run = async (cmd: string, args: string[], opts?: { cwd?: string }): Promise<RunResult> => {
     world.calls.push({ cmd, args, cwd: opts?.cwd });
@@ -145,6 +147,13 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       }
       const failure = world.gitFail?.[args[0]!];
       if (failure) return { code: 1, stdout: "", stderr: failure };
+      if (args[0] === "commit") {
+        const sha = createHash("sha1").update(`commit ${made.size}`).digest("hex");
+        made.set(sha.slice(0, 7), sha);
+        return { code: 0, stdout: `[main ${sha.slice(0, 7)}] ${args[2]}\n`, stderr: "" };
+      }
+      if (args[0] === "rev-parse" && args[1] === "--verify") return { code: 0, stdout: `${made.get(args[2]!.replace("^{commit}", "")) ?? ""}\n`, stderr: "" };
+      if (args[0] === "write-tree" || (args[0] === "rev-parse" && args[1]!.endsWith("^{tree}"))) return { code: 0, stdout: `${"e".repeat(40)}\n`, stderr: "" };
       if (args[0] === "hash-object") {
         const paths = args.slice(args.indexOf("--") + 1);
         return { code: 0, stdout: paths.map((p) => blobOf(readFileSync(join(cwd, p)))).join("\n") + "\n", stderr: "" };
@@ -1799,10 +1808,109 @@ describe("commit-pending against real git", () => {
 
     expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
     expect(report.steps.at(-1)!.detail).toContain(rtCommit.slice(0, 12));
-    expect(report.steps.at(-1)!.detail).toContain("not pushed");
+    expect(report.steps.at(-1)!.detail).toContain("not pushed; HEAD has moved past it");
+    const moves = world.calls.filter((c) => c.cmd === "git" && (c.args[0] === "update-ref" || c.args[0] === "reset" && c.args[1] === "--soft"));
+    expect(moves.map((c) => c.args.slice(-3))).toEqual([["HEAD", `${rtCommit}~1`, rtCommit]]);
     expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["someone else", "skills: acme pending changes", "base"]);
     expect(remoteLog(remote)).toEqual(["base"]);
     expect(readVersion(pack.dir)).toBe("1.0.0");
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a commit rt cannot identify, because a ref is named like its short sha, is left in place and named, never undone", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) => {
+      const res = await run(cmd, args, opts);
+      const short = cmd === "git" && args[0] === "commit" && args.includes("skills: acme pending changes") ? /\[main ([0-9a-f]+)\]/.exec(res.stdout)?.[1] : undefined;
+      if (short) mustGit(root, "tag", short, "HEAD~1");
+      return res;
+    };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(report.steps.at(-1)!.detail).toContain("could not tell which commit git made");
+    expect(report.steps.at(-1)!.detail).toContain("(skills: acme pending changes), which is not pushed");
+    expect(world.calls.some((c) => c.cmd === "git" && c.args[0] === "update-ref")).toBe(false);
+    expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["skills: acme pending changes", "base"]);
+    expect(readVersion(pack.dir)).toBe("1.0.0");
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a file staged while rt makes its pending commit is caught by the tree check, and rt undoes that commit", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = rebuildingCompile(pack);
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) => {
+      if (cmd === "git" && args[0] === "commit" && args.includes("skills: acme pending changes")) {
+        writeFileSync(join(pack.dir, "skills", "keep", "sneaked.md"), "staged by someone else\n");
+        mustGit(root, "add", "skills/keep/sneaked.md");
+      }
+      return run(cmd, args, opts);
+    };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    const detail = report.steps.at(-1)!.detail;
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(detail).toContain("while rt committed your pack edits: skills/keep/sneaked.md");
+    expect(detail).toContain("still staged, not committed");
+    expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["base"]);
+    expect(mustGit(root, "status", "--porcelain")).toBe("M  pack/skills.jsonc\nA  skills/keep/sneaked.md\n");
+    expectBuildPutBack(pack);
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a failed push undoes both of rt's commits and puts the build back, so the pack edits are still staged", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = rebuildingCompile(pack);
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) => (cmd === "git" && args[0] === "push" ? { code: 1, stdout: "", stderr: "fatal: could not read from remote repository" } : run(cmd, args, opts));
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    const detail = report.steps.at(-1)!.detail;
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "failed" });
+    expect(detail).toContain("git push failed: fatal: could not read from remote repository");
+    expect(detail).toContain("still staged, not committed");
+    expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["base"]);
+    expect(mustGit(root, "status", "--porcelain")).toBe("M  pack/skills.jsonc\n");
+    expectBuildPutBack(pack);
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a HEAD rt cannot read after a refused undo is reported as unreadable, not as moved", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    stageAfterPendingCommit(deps, root, "skills/keep/slipped-in.md", () => "staged by someone else\n");
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) => {
+      if (cmd === "git" && args[0] === "update-ref") return { code: 128, stdout: "", stderr: "fatal: cannot lock ref 'HEAD'" };
+      if (cmd === "git" && args[0] === "rev-parse" && args[1] === "HEAD") return { code: 128, stdout: "", stderr: "fatal: bad object HEAD" };
+      return run(cmd, args, opts);
+    };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    const detail = report.steps.at(-1)!.detail;
+    expect(detail).toContain("rt could not read HEAD (fatal: bad object HEAD)");
+    expect(detail).not.toContain("moved past");
+    expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
 
   test("a manifest another process edits and stages before the version commit is left as found and named", async () => {
@@ -1818,7 +1926,7 @@ describe("commit-pending against real git", () => {
 
     const detail = report.steps.at(-1)!.detail;
     expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
-    expect(detail).toContain("except .claude-plugin/plugin.json, which it left as it found");
+    expect(detail).toContain("except .claude-plugin/plugin.json, which it left as it found it; .claude-plugin/plugin.json still carries rt's version bump (1.0.0 -> 1.0.1)");
     const manifest = JSON.parse(readFileSync(join(pack.dir, ".claude-plugin", "plugin.json"), "utf8"));
     expect(manifest).toMatchObject({ version: "1.0.1", description: "edited elsewhere" });
     expect(mustGit(root, "show", ":.claude-plugin/plugin.json")).toContain("edited elsewhere");
@@ -1867,6 +1975,7 @@ describe("commit-pending against real git", () => {
     const detail = report.steps.at(-1)!.detail;
     expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
     expect(detail).toContain("left what it built as it found it (.claude-plugin/plugin.json");
+    expect(detail).toContain("still carries rt's version bump (1.0.0 -> 1.0.1)");
     expect(detail).not.toContain("put the version and the rebuilt skills back");
     expect(readVersion(pack.dir)).toBe("1.0.1");
     expect(mustGit(root, "rev-list", "--count", "HEAD").trim()).toBe("1");
