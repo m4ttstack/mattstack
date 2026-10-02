@@ -156,10 +156,7 @@ test('a draft with auto-merge armed offers cancel auto-merge, unblocked', () => 
     autoMergeButton: { visible: false, isActive: true },
   });
   const by = Object.fromEntries(
-    rowActions(armedDraft, actionEnvOf(ownEnv, armedDraft)).map(a => [
-      a.key,
-      a,
-    ])
+    rowActions(armedDraft, actionEnvOf(ownEnv, armedDraft)).map(a => [a.key, a])
   );
   expect(by.setAutoMerge).toBeUndefined();
   expect(by.cancelAutoMerge).toBeDefined();

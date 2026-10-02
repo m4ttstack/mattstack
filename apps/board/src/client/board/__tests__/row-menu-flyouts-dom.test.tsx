@@ -79,7 +79,11 @@ test('the reaction row toggles a mark and keeps the menu open', async () => {
 });
 
 test('a blocked reaction is disabled, names its reason, and does not run', async () => {
-  const reaction = (key: string, label: string, blocked?: string): MenuEntry => ({
+  const reaction = (
+    key: string,
+    label: string,
+    blocked?: string
+  ): MenuEntry => ({
     key,
     section: 'top',
     label,
@@ -105,7 +109,9 @@ test('a blocked reaction is disabled, names its reason, and does not run', async
   await clickItem('mark as commented');
   expect(harness.effects).toEqual([]);
   await clickItem('mark as approved');
-  expect(harness.effects.map(e => e.effect)).toEqual(['react-white_check_mark']);
+  expect(harness.effects.map(e => e.effect)).toEqual([
+    'react-white_check_mark',
+  ]);
 });
 
 test('a blocked row in a flyout shows its reason and does not run', async () => {
