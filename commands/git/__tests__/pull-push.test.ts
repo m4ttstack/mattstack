@@ -144,3 +144,9 @@ test("a dry run push to a --remote URL with a token never prints the token", asy
   expect(io.stdout() + io.stderr()).not.toContain("tok123");
   expect(io.stdout()).toContain("git push -u <remote> feature");
 });
+
+test("a dry run pull from a --remote URL with a token never prints the token", async () => {
+  await pullCommand(["--dry-run", "--remote", "https://user:tok123@example.test/x.git"], ctxFor(repo));
+  expect(io.stdout() + io.stderr()).not.toContain("tok123");
+  expect(io.stdout()).toContain("--progress <remote>\n");
+});

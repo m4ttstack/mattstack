@@ -15,9 +15,8 @@
 import { execFileSync, spawnSync } from "child_process";
 import * as out from "../../lib/ui/out.ts";
 import { getCurrentBranch } from "../../lib/git-ops.ts";
-import { withoutUrls } from "../../lib/team/redact.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
-import { NOT_ON_A_BRANCH } from "./shared.ts";
+import { NOT_ON_A_BRANCH, printable } from "./shared.ts";
 
 function argValue(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
@@ -49,13 +48,6 @@ function getUpstreamConfig(branch: string, cwd: string): UpstreamConfig | null {
 function setUpstreamConfig(branch: string, remote: string, cwd: string): void {
   execFileSync("git", ["config", `branch.${branch}.remote`, remote], { cwd, stdio: "pipe" });
   execFileSync("git", ["config", `branch.${branch}.merge`, `refs/heads/${branch}`], { cwd, stdio: "pipe" });
-}
-
-const SCHEME_USERINFO_RE = /^([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/i;
-
-/** The only way a remote name or URL reaches the screen: userinfo of any scheme and token shapes are dropped. The argv given to git stays the real value. */
-function printable(remote: string): string {
-  return withoutUrls(remote).replace(SCHEME_USERINFO_RE, "$1");
 }
 
 function labelUpstream(u: UpstreamConfig | null): string {

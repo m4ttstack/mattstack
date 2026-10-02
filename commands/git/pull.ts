@@ -13,7 +13,7 @@ import { spawnSync } from "child_process";
 import * as out from "../../lib/ui/out.ts";
 import { getCurrentBranch, hasUncommittedChanges } from "../../lib/git-ops.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
-import { NOT_ON_A_BRANCH, refusalNote, uncommittedChanges } from "./shared.ts";
+import { NOT_ON_A_BRANCH, printable, refusalNote, uncommittedChanges } from "./shared.ts";
 
 function argValue(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
@@ -46,6 +46,7 @@ export async function pullCommand(
   }
 
   const remote = argValue(args, "--remote") ?? "origin";
+  const shown = printable(remote);
   const dryRun = args.includes("--dry-run");
   const noVerify = args.includes("--no-verify");
   const forceRebase = args.includes("--rebase");
@@ -61,14 +62,14 @@ export async function pullCommand(
   gitArgs.push(remote);
 
   if (dryRun) {
-    out.print(out.line("skipped", `Would pull ${branch} from ${remote}`, "dry run"), out.copy(`git ${gitArgs.join(" ")}`, "the command"));
+    out.print(out.line("skipped", `Would pull ${branch} from ${shown}`, "dry run"), out.copy(`git ${[...gitArgs.slice(0, -1), shown].join(" ")}`, "the command"));
     return;
   }
 
-  out.print(out.line("running", `Pulling ${branch} from ${remote}`));
+  out.print(out.line("running", `Pulling ${branch} from ${shown}`));
   const r = spawnSync("git", gitArgs, { cwd, stdio: "inherit" });
   if (r.status === 0) {
-    out.print(out.line("done", `Pulled ${branch}`, `from ${remote}`));
+    out.print(out.line("done", `Pulled ${branch}`, `from ${shown}`));
     return;
   }
 
