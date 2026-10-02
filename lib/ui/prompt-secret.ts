@@ -36,7 +36,7 @@ export interface PromptSecretOptions {
 
 export function promptSecret(message: string, io: PromptIO = defaultPromptIO(), opts: PromptSecretOptions = {}): Promise<string> {
   if (!io.stdin.isTTY) {
-    return Promise.reject(new Error(`${message}: not a TTY — pass --stdin to read the value from stdin instead`));
+    return Promise.reject(new Error(`${message}: not a TTY, so pass --stdin to read the value from stdin instead`));
   }
   io.write(`${message}: `);
   return new Promise((resolve, reject) => {

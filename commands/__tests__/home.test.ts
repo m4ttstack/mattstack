@@ -771,6 +771,7 @@ describe("homeInit", () => {
       expect(exitCode).toBeUndefined();
       expect(picker.calls).toEqual([]);
       expect(logs.some((l) => l.includes("desktop") && l.includes("laptop"))).toBe(true);
+      expect(logs).toContain("  next: rt home init --profile <key>");
       expect(seam.calls).toEqual([]);
     });
 
@@ -836,6 +837,7 @@ describe("homeInit", () => {
       expect(exitCode).toBeUndefined();
       expect(seam.calls).toEqual([]);
       expect(logs.some((l) => l.includes("no machine-key file yet"))).toBe(true);
+      expect(logs).toContain("  next: rt home init --profile <key>");
     });
 
     test("truly fresh machine, --dry-run: says materialize will also run, since its plan can't be previewed pre-clone", async () => {
@@ -2303,7 +2305,19 @@ describe("homeClaim / homeRelease", () => {
     await runCatchingExit(() => homeClaim(["prefs/", "--owner", "matt@laptop"], {}, ownersPath, provisioned));
     const { exitCode, errors } = await runCatchingExit(() => homeClaim(["prefs/", "--owner", "alice@desktop"], {}, ownersPath, provisioned));
     expect(exitCode).toBe(1);
-    expect(errors).toEqual(["[refused] prefs/ is already claimed by matt@laptop", "  next: rt home claim prefs/ --force"]);
+    expect(errors).toEqual(["[refused] prefs/ is already claimed by matt@laptop", "  next: rt home claim prefs/ --owner alice@desktop --force"]);
+  });
+
+  test("the refusal's next keeps the owner and note the person gave, quoting what a shell would split", async () => {
+    await runCatchingExit(() => homeClaim(["my prefs/", "--owner", "matt@laptop"], {}, ownersPath, provisioned));
+    const { errors } = await runCatchingExit(() => homeClaim(["my prefs/", "--owner=alice@desktop", "--note", "ci box's"], {}, ownersPath, provisioned));
+    expect(errors).toEqual(["[refused] my prefs/ is already claimed by matt@laptop", "  next: rt home claim 'my prefs/' --owner alice@desktop --note 'ci box'\\''s' --force"]);
+  });
+
+  test("the refusal's next leaves out an owner the person never named", async () => {
+    await runCatchingExit(() => homeClaim(["prefs/", "--owner", "matt@laptop"], {}, ownersPath, provisioned));
+    const { errors } = await runCatchingExit(() => homeClaim(["prefs/"], {}, ownersPath, provisioned));
+    expect(errors[1]).toBe("  next: rt home claim prefs/ --force");
   });
 
   test("release removes a previously claimed zone and names who owned it", async () => {

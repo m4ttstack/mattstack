@@ -204,7 +204,7 @@ describe("home.init", () => {
     const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamAbsent()) });
 
     const outcome = await homeInitStep.run(ctx);
-    expect(outcome).toEqual({ state: "done", detail: "This Mac is set up  /fake-home/.mattstack" });
+    expect(outcome).toEqual({ state: "done", detail: "This Mac is set up: /fake-home/.mattstack" });
   });
 
   test("`rt home init` failure -> failed, remedy points at gh auth login", async () => {

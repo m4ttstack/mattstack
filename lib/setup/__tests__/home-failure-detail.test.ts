@@ -48,7 +48,7 @@ describe("failureDetail", () => {
   // out.fail tags its title when something already reached stderr in the same process.
   test("a tagged home init failure title after an unrelated line is still found", () => {
     const stderr = [
-      "[warn] rt could not read one of your settings",
+      "[warning] rt could not read one of your settings",
       `[failed] ${INIT_STEP_FAILED.cloneUserRepo}`,
       "what it said:",
       "  remote: Permission denied",
@@ -98,7 +98,7 @@ describe("homeInitRemedy: missing executable", () => {
 describe("homeInitDoneDetail", () => {
   test("the done detail is home init's ending line without its tag", () => {
     expect(homeInitDoneDetail("[ok] Clone your home repo  https://forge.example.test/sample/home.git\n[ok] This Mac is set up  /fake-home/.mattstack\n")).toBe(
-      "This Mac is set up  /fake-home/.mattstack",
+      "This Mac is set up: /fake-home/.mattstack",
     );
   });
 });
@@ -113,7 +113,7 @@ describe("homeInitRemedy: the clone step", () => {
   test("a tagged clone title after an unrelated line is still the clone step", () => {
     const auth = homeInitRemedy("fatal: Authentication failed for 'https://forge.example.test/sample/home.git/'");
     const stderr = [
-      "[warn] rt could not read one of your settings",
+      "[warning] rt could not read one of your settings",
       `[failed] ${INIT_STEP_FAILED.cloneUserRepo}`,
       "what it said:",
       "  remote: Permission denied",

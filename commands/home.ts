@@ -60,7 +60,7 @@ import {
   type InitPlan,
   type InitStep,
 } from "../lib/home/init-plan.ts";
-import { createRealExecSeam, executeInitPlan, INIT_STEP_FAILED, type ExecSeam, type InitResult } from "../lib/home/init-exec.ts";
+import { createRealExecSeam, executeInitPlan, INIT_OUTPUT_CAPTION, INIT_STEP_FAILED, type ExecSeam, type InitResult } from "../lib/home/init-exec.ts";
 import {
   AgeKeyAbsentError,
   createRealAgeKeySeam,
@@ -258,7 +258,7 @@ function errorMessage(err: unknown): string {
 /** What a child process said, under the failure: the title stays one clean line and the renderer strips its escapes. */
 function childOutput(text: string): Block[] {
   const lines = text.split("\n").filter((line) => line.trim() !== "");
-  return lines.length > 0 ? [out.verbatim(lines, "what it said")] : [];
+  return lines.length > 0 ? [out.verbatim(lines, INIT_OUTPUT_CAPTION)] : [];
 }
 
 function planBlock(home: string, steps: InitStep[]): Block {
@@ -689,6 +689,7 @@ export async function homeInit(args: string[], _ctx: CommandContext = {}, seams:
         out.print(
           planBlock(home, previewPlan.steps),
           out.callout("note", `This Mac has no machine-key file yet, and its profiles are only known once the repo above is cloned, so "${key}" is a stand-in. Name the profile ahead of time to settle it.`),
+          out.callout("next", out.cmd("rt home init --profile <key>")),
           // The refresh depends on what the clone lands, so it cannot be previewed from here; staying silent would let a fresh Mac's dry run imply provisioning is the whole story.
           ...(noMaterialize ? [] : [out.callout("note", "rt will also refresh what it generates from your settings. That plan can only be shown once your home repo is cloned.")]),
         );
@@ -757,6 +758,7 @@ export async function homeInit(args: string[], _ctx: CommandContext = {}, seams:
         out.print(
           out.line("needs-you", "This Mac needs a machine profile", `existing: ${profiles.join(", ")}`),
           out.callout("note", `A live run asks you to pick one, or to start a new one called ${key}.`),
+          out.callout("next", out.cmd("rt home init --profile <key>")),
         );
         return;
       }
@@ -889,6 +891,7 @@ export async function homeKeyExport(
   _ctx: CommandContext = {},
   seams: AgeKeySeam = createRealAgeKeySeam(),
 ): Promise<void> {
+  out.payloadOnStdout();
   try {
     // The key and its header are a payload: a person pipes them to a
     // password manager, so they are never styled and nothing else joins them.
@@ -1108,6 +1111,11 @@ function parseClaimArgs(args: string[]): { zone: string | undefined; owner: stri
   return { zone: positional[0], owner, note, force };
 }
 
+/** A word a POSIX shell reads back unchanged: bare when it is plain, else single-quoted. */
+function shellWord(word: string): string {
+  return /^[A-Za-z0-9_./:@=+-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
+}
+
 function homeRepoRoot(): string {
   return join(mattstackHome(), "user");
 }
@@ -1161,7 +1169,8 @@ export async function homeClaim(
       process.exit(1);
     }
     if (err instanceof ZoneOwnedByOthersError) {
-      refuse(`${err.zone} is already claimed by ${err.existingOwner}`, out.callout("next", out.cmd(`rt home claim ${err.zone} --force`)));
+      const again = ["rt home claim", shellWord(err.zone), ...(ownerArg === undefined ? [] : ["--owner", shellWord(ownerArg)]), ...(note === undefined ? [] : ["--note", shellWord(note)]), "--force"];
+      refuse(`${err.zone} is already claimed by ${err.existingOwner}`, out.callout("next", out.cmd(again.join(" "))));
     }
     throw err;
   }

@@ -50,6 +50,9 @@ export const INIT_STEP_FAILED: Record<InitStep["kind"], string> = {
   writeSkillsSymlink: "rt could not link your skills list",
 };
 
+/** The caption over a failed step's own output; `lib/setup/steps/home.ts` skips the line it renders as when it picks a cause. */
+export const INIT_OUTPUT_CAPTION = "what it said";
+
 type StepLog = (message: string) => void;
 
 class StepFailed extends Error {

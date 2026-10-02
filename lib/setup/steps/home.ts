@@ -8,7 +8,7 @@
 
 import { join } from "path";
 import { readAgeKey } from "../../home/age-key.ts";
-import { INIT_STEP_FAILED } from "../../home/init-exec.ts";
+import { INIT_OUTPUT_CAPTION, INIT_STEP_FAILED } from "../../home/init-exec.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { toFailedOutcome } from "./step-utils.ts";
@@ -74,7 +74,7 @@ export function failureDetail(stderr: string): string {
   const titleAt = lines.findIndex((l) => INIT_FAILURE_TITLES.has(untagged(l)));
   if (titleAt !== -1) {
     const title = untagged(lines[titleAt]!);
-    const said = lines.slice(titleAt + 1).filter((l) => l !== "what it said:" && !isFrame(l));
+    const said = lines.slice(titleAt + 1).filter((l) => l !== `${INIT_OUTPUT_CAPTION}:` && !isFrame(l));
     const cause = said.find((l) => ERROR_WORDS.test(l)) ?? said[0];
     return cause === undefined ? title : `${title}: ${cause}`;
   }
@@ -90,10 +90,10 @@ export function failureDetail(stderr: string): string {
   return untagged(chosen);
 }
 
-/** `rt home init`'s last stdout line is its ending (`[ok] This Mac is set up  <home>` off a terminal); the app shows it without the tag. */
+/** `rt home init`'s last stdout line is its ending (`[ok] This Mac is set up  <home>` off a terminal); the app shows it without the tag, title and hint joined by a colon. */
 export function homeInitDoneDetail(stdout: string): string {
   const last = stdout.trim().split("\n").pop() ?? "";
-  return untagged(last);
+  return untagged(last).replace(/ {2,}/, ": ");
 }
 
 async function homeInitRun(ctx: ApplyContext): Promise<StepOutcome> {
