@@ -66,6 +66,7 @@ import {
 import { chatViewerUrl, readChatViewerUrlSetting } from "../lib/chat-viewer-url.ts";
 import { parseDuration } from "./events.ts";
 import * as out from "../lib/ui/out.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
 import {
   chatArchive,
@@ -137,11 +138,11 @@ function positionals(args: string[]): string[] {
 const POST_FLAGS: ReadonlySet<string> = new Set(["--as", "--session", "--sock", "--file", "--as-is", "--quiet", "--json"]);
 const DM_FLAGS: ReadonlySet<string> = new Set(["--as", "--session", "--sock", "--file", "--as-is", "--json"]);
 
-function refuseUnknownFlags(args: string[], allowed: ReadonlySet<string>, usage: string): void {
+function refuseUnknownFlags(args: string[], allowed: ReadonlySet<string>, verb: "post" | "dm", usage: string): void {
   for (const a of args) {
     if (!a.startsWith("--")) continue;
     const name = a.split("=")[0]!;
-    if (!allowed.has(name)) fail(`unknown flag ${name}\n${usage}`);
+    if (!allowed.has(name)) failUsage(`rt chat ${verb} does not take ${name}`, usage);
   }
 }
 
@@ -167,25 +168,38 @@ function show(blocks: () => Block[], frozen: () => string): void {
   else say(frozen());
 }
 
-function fail(msg: string): never {
-  console.error(`rt chat: ${msg}`);
+function fail(f: out.FailureInput): never {
+  out.fail(f);
   process.exit(1);
 }
 
-const NAME_RULE = "must match ^[a-z0-9._-]+$";
+function failUsage(title: string, usage: string, why?: string): never {
+  out.fail(usageFailure(title, usage, why));
+  process.exit(1);
+}
+
+/** A policy refusal is a `refused` note on stderr, never a failure block; it still exits 1. */
+function refuse(...blocks: Block[]): never {
+  out.note(...blocks);
+  process.exit(1);
+}
+
+const NAME_WHY = "Names use lowercase letters, digits, dots, dashes and underscores.";
+const SESSION_ID_INVALID: out.FailureInput = { title: "That session id is not valid", why: "A session id uses letters, digits, dots, dashes and underscores." };
+const NO_SESSION: out.FailureInput = { title: "rt cannot tell which session this is", why: "Chat needs a session id. Claude Code sets one; anywhere else, pass --session <id>." };
 
 /** Rejects with the reason rather than silently normalizing (Global Constraint). */
 function requireValidName(kind: string, name: string): void {
-  if (!isValidChatName(name)) fail(`invalid ${kind} "${name}" — ${NAME_RULE}`);
+  if (!isValidChatName(name)) fail({ title: `"${name}" is not a valid ${kind} name`, why: NAME_WHY });
 }
 
-/** sign-in/sign-out only — every other verb's session-id use (resolveHandle) goes through readChatSession, which degrades an invalid id to "no session" rather than failing. */
+/** sign-in/sign-out only. Every other verb's session-id use (resolveHandle) goes through readChatSession, which degrades an invalid id to "no session" rather than failing. */
 function requireValidSessionId(id: string): void {
-  if (!isValidSessionId(id)) fail(`invalid session id "${id}" — must match ^[A-Za-z0-9._-]+$`);
+  if (!isValidSessionId(id)) fail(SESSION_ID_INVALID);
 }
 
 function unwrap<T>(res: RtResponse<T>, label: string): T {
-  if (!res.ok || res.data === undefined) fail(res.error ?? `${label} failed`);
+  if (!res.ok || res.data === undefined) fail({ title: res.error ?? `The chat ${label} did not go through` });
   return res.data;
 }
 
@@ -287,7 +301,7 @@ function herdrPaneHandle(): string | null {
 function identityFlagValue(args: string[], flag: "--as" | "--name"): string | undefined {
   if (!args.includes(flag)) return undefined;
   const value = flagValue(args, flag);
-  if (!value) fail(`sign-in ${flag} needs a non-empty value`);
+  if (!value) failUsage(flag === "--as" ? "Which identity?" : "What name?", `rt chat sign-in ${flag} <name>`);
   return value;
 }
 
@@ -295,7 +309,7 @@ function resolveSignInRequest(args: string[]): { baseHandle?: string; continue?:
   const explicit = identityFlagValue(args, "--as");
   const named = identityFlagValue(args, "--name");
   if (explicit !== undefined && named !== undefined) {
-    fail("sign-in takes --as or --name, not both: --as continues an identity, --name starts a fresh one");
+    fail({ title: "Sign in with one of them, not both", why: "--as continues an identity you had; --name starts a fresh one." });
   }
   if (explicit !== undefined) {
     requireValidName("handle", explicit);
@@ -328,7 +342,7 @@ function readChatHandleSetting(): string | undefined {
  * own to have a prior handle for.
  */
 function resolvePaneRequest(args: string[]): { continue?: string } {
-  if (args.includes("--name")) fail("sign-in --pane takes --as only, not --name");
+  if (args.includes("--name")) fail({ title: "A pane sign-in continues an identity", why: "sign-in --pane takes --as, never --name." });
   const explicit = identityFlagValue(args, "--as");
   if (explicit === undefined) return {};
   requireValidName("handle", explicit);
@@ -376,7 +390,7 @@ function resolveHandle(args: string[]): string {
   const session = readChatSession(currentSessionId(args));
   if (session) {
     if (flagValue(args, "--as") !== undefined) {
-      fail(`signed in as ${sessionName(session)}: sign out to change identity (rt chat sign-out)`);
+      refuse(out.line("refused", `You are signed in as ${sessionName(session)}`), out.callout("why", "One session keeps one identity. Leave out --as, or sign out to change it."), out.callout("next", out.cmd("rt chat sign-out")));
     }
     return session.handle;
   }
@@ -661,7 +675,7 @@ function helpBlocks(): Block[] {
 
 async function runJoin(args: string[]): Promise<void> {
   const room = positional(args);
-  if (!room) fail("usage: rt chat join <room> [--as <handle>] [--wake-on mention|all|none]");
+  if (!room) failUsage("Which room?", "rt chat join <room>");
   requireValidName("room", room);
 
   const handle = resolveHandle(args);
@@ -671,7 +685,7 @@ async function runJoin(args: string[]): Promise<void> {
   let wakeOn: WakeMode | undefined;
   if (wakeOnRaw !== undefined) {
     if (wakeOnRaw !== "mention" && wakeOnRaw !== "all" && wakeOnRaw !== "none") {
-      fail(`--wake-on must be mention, all, or none (got "${wakeOnRaw}")`);
+      fail({ title: `"${wakeOnRaw}" is not a wake setting`, why: "Use mention, all or none." });
     }
     wakeOn = wakeOnRaw;
   }
@@ -688,7 +702,7 @@ async function runJoin(args: string[]): Promise<void> {
 
 async function runLeave(args: string[]): Promise<void> {
   const room = positional(args);
-  if (!room) fail("usage: rt chat leave <room>");
+  if (!room) failUsage("Which room?", "rt chat leave <room>");
   requireValidName("room", room);
 
   const handle = resolveHandle(args);
@@ -706,7 +720,7 @@ async function runLeave(args: string[]): Promise<void> {
 
 async function runArchive(args: string[]): Promise<void> {
   const room = positional(args);
-  if (!room) fail("usage: rt chat archive <room> [--reopen]");
+  if (!room) failUsage("Which room?", "rt chat archive <room>");
   requireValidName("room", room);
 
   const handle = resolveHandle(args);
@@ -742,19 +756,19 @@ async function resolveBody(words: string[], args: string[], usage: string): Prom
     try {
       text = normalizeBody(readFileSync(file, "utf8"));
     } catch {
-      fail(`cannot read --file ${file}`);
+      fail({ title: "That file could not be read", why: file });
     }
-    if (!text) fail(`--file ${file} is empty`);
+    if (!text) fail({ title: "That file is empty", why: file });
     return text;
   }
   const wantsStdin = (words.length === 1 && words[0] === "-") || (words.length === 0 && !process.stdin.isTTY);
   if (wantsStdin) {
     const text = normalizeBody(await readStdin());
-    if (!text) fail(usage);
+    if (!text) failUsage("What is the message?", usage);
     return text;
   }
   const body = words.join(" ");
-  if (!body) fail(usage);
+  if (!body) failUsage("What is the message?", usage);
   return body;
 }
 
@@ -776,14 +790,14 @@ const WALL_CHARS = 500;
  * message, because the hint at post time is the one that changes the next
  * post. `--as-is` is the override for the rare body that really is one line.
  */
-function requireReadable(body: string, args: string[]): void {
+function requireReadable(body: string, args: string[], heredoc: string): void {
   if (args.includes("--as-is")) return;
   if (body.length >= WALL_CHARS && !body.includes("\n")) {
-    fail(
-      `refusing a ${body.length}-character body with no line breaks.\n` +
-        "Post the message from a heredoc so its paragraphs and lists survive:\n" +
-        "  rt chat post <room> <<'EOF'\n  ...\n  EOF\n" +
-        "(--as-is posts it anyway.)",
+    refuse(
+      out.line("refused", `That message is ${body.length} characters with no line breaks`),
+      out.callout("why", "A long one-line message has usually lost its paragraphs on the way in."),
+      out.callout("next", out.cmd(heredoc)),
+      out.callout("note", "Put the message on stdin from a heredoc so its paragraphs and lists survive.", "--as-is posts it as it is."),
     );
   }
 }
@@ -794,13 +808,13 @@ async function runPost(args: string[]): Promise<void> {
   // Body is the positional tokens after the room, flag-aware: `--as <handle>`
   // (and every other recognized flag) is resolved separately by resolveHandle,
   // so a bare args.slice(1).join(" ") would splice the flag back into the post.
-  refuseUnknownFlags(args, POST_FLAGS, POST_USAGE);
+  refuseUnknownFlags(args, POST_FLAGS, "post", POST_USAGE);
   const rest = positionals(args);
   const room = rest[0];
-  if (!room) fail(POST_USAGE);
+  if (!room) failUsage("Which room?", POST_USAGE);
   requireValidName("room", room);
   const body = await resolveBody(rest.slice(1), args, POST_USAGE);
-  requireReadable(body, args);
+  requireReadable(body, args, "rt chat post <room> <<'EOF'");
 
   const handle = resolveHandle(args);
   requireValidName("handle", handle);
@@ -834,9 +848,9 @@ async function runPost(args: string[]): Promise<void> {
 async function runAck(args: string[]): Promise<void> {
   const rest = positionals(args);
   const raw = rest[0];
-  if (!raw) fail("usage: rt chat ack <messageId>");
+  if (!raw) failUsage("Which message?", "rt chat ack <messageId>");
   const id = Number(raw);
-  if (!Number.isInteger(id) || id <= 0) fail(`not a message id: ${raw} (the delivered line shows it as "#<id>")`);
+  if (!Number.isInteger(id) || id <= 0) fail({ title: `"${raw}" is not a message id`, why: "A delivered message shows its id as #<id>." });
 
   const handle = resolveHandle(args);
   requireValidName("handle", handle);
@@ -853,9 +867,9 @@ async function runAck(args: string[]): Promise<void> {
 }
 
 function parseMessageId(raw: string | undefined, verb: string): number {
-  if (!raw) fail(`usage: rt chat ${verb} <messageId>`);
+  if (!raw) failUsage("Which message?", `rt chat ${verb} <messageId>`);
   const id = Number(raw);
-  if (!Number.isInteger(id) || id <= 0) fail(`not a message id: ${raw} (the delivered line shows it as "#<id>")`);
+  if (!Number.isInteger(id) || id <= 0) fail({ title: `"${raw}" is not a message id`, why: "A delivered message shows its id as #<id>." });
   return id;
 }
 
@@ -921,7 +935,7 @@ async function runRead(args: string[]): Promise<void> {
   const limitRaw = flagValue(args, "--limit");
   if (limitRaw !== undefined) {
     const n = Number(limitRaw);
-    if (!Number.isFinite(n) || n <= 0) fail(`--limit must be a positive number (got "${limitRaw}")`);
+    if (!Number.isFinite(n) || n <= 0) fail({ title: `"${limitRaw}" is not a number of messages`, why: "--limit takes a positive number." });
     limit = n;
   }
 
@@ -929,16 +943,16 @@ async function runRead(args: string[]): Promise<void> {
   const sinceRaw = flagValue(args, "--since");
   if (sinceRaw !== undefined) {
     const ms = parseDuration(sinceRaw);
-    if (ms == null) fail(`--since: bad duration "${sinceRaw}" (use 30s, 5m, 500ms, or bare seconds)`);
+    if (ms == null) fail({ title: `"${sinceRaw}" is not a length of time`, why: "--since takes 30s, 5m, 500ms or a number of seconds." });
     sinceMs = Date.now() - ms;
   }
 
   const lastRaw = flagValue(args, "--last");
   if (lastRaw !== undefined) {
-    if (sinceRaw !== undefined) fail("--last and --since are mutually exclusive");
-    if (!room) fail("--last needs a room");
+    if (sinceRaw !== undefined) fail({ title: "Use --last or --since, not both" });
+    if (!room) failUsage("Which room?", "rt chat read <room> --last <n>");
     const n = Number(lastRaw);
-    if (!Number.isInteger(n) || n <= 0) fail(`--last must be a positive integer (got "${lastRaw}")`);
+    if (!Number.isInteger(n) || n <= 0) fail({ title: `"${lastRaw}" is not a number of messages`, why: "--last takes a positive whole number." });
     // chat:messages orders newest-first, then reverses to oldest-first (same
     // top-to-bottom order a plain read renders), so no reverse here.
     const page = unwrap(await chatMessages({ room, limit: n }, sockOpts(args)), "read");
@@ -1023,9 +1037,9 @@ async function runMark(args: string[]): Promise<void> {
   let upto: number | undefined;
   const uptoRaw = flagValue(args, "--upto");
   if (uptoRaw !== undefined) {
-    if (!room) fail("--upto needs a room");
+    if (!room) failUsage("Which room?", "rt chat mark <room> --upto <messageId>");
     const n = Number(uptoRaw);
-    if (!Number.isInteger(n) || n <= 0) fail(`--upto must be a positive message id (got "${uptoRaw}")`);
+    if (!Number.isInteger(n) || n <= 0) fail({ title: `"${uptoRaw}" is not a message id`, why: "--upto takes a positive message id." });
     upto = n;
   }
 
@@ -1060,13 +1074,13 @@ async function runPrune(args: string[]): Promise<void> {
 const DM_USAGE = "usage: rt chat dm <handle> <text | <<'EOF'> [--file <path>] [--as-is]";
 
 async function runDm(args: string[]): Promise<void> {
-  refuseUnknownFlags(args, DM_FLAGS, DM_USAGE);
+  refuseUnknownFlags(args, DM_FLAGS, "dm", DM_USAGE);
   const rest = positionals(args);
   const to = rest[0];
-  if (!to) fail(DM_USAGE);
+  if (!to) failUsage("Who is it for?", DM_USAGE);
   requireValidName("handle", to);
   const body = await resolveBody(rest.slice(1), args, DM_USAGE);
-  requireReadable(body, args);
+  requireReadable(body, args, "rt chat dm <handle> <<'EOF'");
 
   const from = resolveHandle(args);
   requireValidName("handle", from);
@@ -1090,9 +1104,9 @@ async function runDm(args: string[]): Promise<void> {
  */
 async function runInvite(args: string[]): Promise<void> {
   const paneId = positional(args);
-  if (!paneId) fail("usage: rt chat invite <pane> --room <room> [--note <text>]");
+  if (!paneId) failUsage("Which pane?", "rt chat invite <pane> --room <room>");
   const room = flagValue(args, "--room");
-  if (!room) fail("--room is required");
+  if (!room) failUsage("Which room?", "rt chat invite <pane> --room <room>");
   requireValidName("room", room);
   const note = flagValue(args, "--note");
   const session = readChatSession(currentSessionId(args));
@@ -1131,7 +1145,7 @@ async function runSignIn(args: string[]): Promise<void> {
   }
 
   const sessionId = currentSessionId(args);
-  if (!sessionId) fail("no session id — pass --session <id> or run under CLAUDE_CODE_SESSION_ID");
+  if (!sessionId) fail(NO_SESSION);
   requireValidSessionId(sessionId);
 
   const request = resolveSignInRequest(args);
@@ -1248,11 +1262,11 @@ async function runSignOut(args: string[]): Promise<void> {
   const sessionId = currentSessionId(args);
   if (!sessionId) {
     if (quiet) return;
-    fail("no session id — pass --session <id> or run under CLAUDE_CODE_SESSION_ID");
+    fail(NO_SESSION);
   }
   if (!isValidSessionId(sessionId)) {
     if (quiet) return;
-    fail(`invalid session id "${sessionId}" — must match ^[A-Za-z0-9._-]+$`);
+    fail(SESSION_ID_INVALID);
   }
 
   const session = readChatSession(sessionId);
@@ -1263,7 +1277,7 @@ async function runSignOut(args: string[]): Promise<void> {
   deleteChatSession(sessionId);
 
   if (!res.ok && !quiet) {
-    console.error(`rt chat: sign-out: daemon error (${res.error ?? "sign-out failed"}) — local state cleaned up anyway`);
+    out.note(out.line("warn", "Signed out here, but the daemon did not hear it", res.error ?? "sign-out failed"));
   }
 
   if (args.includes("--json")) {
@@ -1293,7 +1307,7 @@ async function runSignOutViaPane(args: string[], paneId: string): Promise<void> 
   // for an unrecognized `pane`/`viaPane` field it silently ignores -- with
   // no sessionId, printing "signed out" would be a false success and no
   // session would actually be deleted.
-  if (!sessionId) fail("sign-out --pane needs a daemon that supports it; restart the rt daemon");
+  if (!sessionId) fail({ title: "The rt daemon is too old to sign a pane out", next: out.cmd("rt daemon restart") });
 
   const session = readChatSession(sessionId);
   deleteChatSession(sessionId);
@@ -1312,10 +1326,10 @@ async function runSignOutViaPane(args: string[], paneId: string): Promise<void> 
  */
 async function runAway(args: string[]): Promise<void> {
   const text = positionals(args).join(" ");
-  if (!text) fail("usage: rt chat away <text>");
+  if (!text) failUsage("What should your status say?", "rt chat away <text>");
 
   const sessionId = currentSessionId(args);
-  if (!sessionId) fail("no session id — pass --session <id> or run under CLAUDE_CODE_SESSION_ID");
+  if (!sessionId) fail(NO_SESSION);
 
   const res = await chatAway({ sessionId, text });
   unwrap(res, "away");
@@ -1329,7 +1343,7 @@ async function runAway(args: string[]): Promise<void> {
 
 async function runBack(args: string[]): Promise<void> {
   const sessionId = currentSessionId(args);
-  if (!sessionId) fail("no session id — pass --session <id> or run under CLAUDE_CODE_SESSION_ID");
+  if (!sessionId) fail(NO_SESSION);
 
   const res = await chatBack({ sessionId });
   unwrap(res, "back");
@@ -1346,7 +1360,7 @@ async function runBack(args: string[]): Promise<void> {
 const USAGE =
   "usage: rt chat <join|leave|archive|post|read|ack|claim|release|rooms|who|mark|prune|sign-in|sign-out|away|back|buddies|dm|invite> ...";
 
-/** Stdout usage printer, shared by the --help guard below (fail() covers the error path). */
+/** The --help text: blocks for a person, the one usage line for anyone else. */
 function usage(): void {
   show(helpBlocks, () => USAGE);
 }
@@ -1413,7 +1427,7 @@ export async function chat(args: string[]): Promise<void> {
       if (!picked) process.exit(0);
       verb = picked;
     } else {
-      fail(USAGE);
+      failUsage("Which chat verb?", USAGE);
     }
   }
   if (verbHelpRequested(rest)) {
@@ -1421,7 +1435,7 @@ export async function chat(args: string[]): Promise<void> {
     return;
   }
   const handler = VERBS[verb];
-  if (!handler) fail(`unknown verb "${verb}" — ${USAGE}`);
+  if (!handler) fail({ title: `rt chat has no verb called ${verb}`, next: out.cmd("rt chat --help"), details: `Verbs: ${Object.keys(VERBS).join(", ")}` });
   await handler(rest);
 }
 

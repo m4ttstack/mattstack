@@ -3,7 +3,6 @@
   "commands/apps.ts",
   "commands/bg.ts",
   "commands/cd.ts",
-  "commands/chat.ts",
   "commands/ci.ts",
   "commands/code.ts",
   "commands/cron.ts",

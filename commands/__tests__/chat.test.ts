@@ -131,7 +131,7 @@ afterEach(async () => {
  */
 async function runChatRaw(args: string[], opts: { sock?: string; human?: boolean } = {}): Promise<{ code: number; stdout: string; stderr: string; rawStdout: string }> {
   if (opts.sock) args = [...args, "--sock", opts.sock];
-  const io = captureOut({ console: true });
+  const io = captureOut();
   ui.__test__.setHuman(() => opts.human === true);
   const exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit sentinel");
@@ -213,7 +213,7 @@ describe("rt chat CLI", () => {
   test("an invalid room name is rejected with the reason", async () => {
     const { code, stderr } = await runChatRaw(["join", "Bad/Name"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("[a-z0-9._-]");
+    expect(stderr).toContain("lowercase letters, digits, dots, dashes and underscores");
   });
 
   test("--json emits a parseable object for every verb", async () => {
@@ -236,7 +236,7 @@ describe("rt chat CLI — additional verb behavior", () => {
   test("--as rejects an invalid handle the same way a bad room does", async () => {
     const { code, stderr } = await runChatRaw(["join", "r", "--as", "Bad Handle"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("[a-z0-9._-]");
+    expect(stderr).toContain("lowercase letters, digits, dots, dashes and underscores");
   });
 
   test("post prints the viewer link when chat.viewerUrl is set, and --json carries it", async () => {
@@ -434,7 +434,7 @@ describe("rt chat CLI — additional verb behavior", () => {
     const { code, stderr } = await runChatRaw(["claim", "m-412", "--as", "b"]);
     expect(code).toBe(1);
     expect(stderr).toContain("not a message id");
-    expect((await runChatRaw(["release", "--as", "b"])).stderr).toContain("usage: rt chat release <messageId>");
+    expect((await runChatRaw(["release", "--as", "b"])).stderr).toContain("next: rt chat release <messageId>");
   });
 
   test("leave drops membership so rooms no longer lists it", async () => {
@@ -494,7 +494,8 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     await signInInProcess({ as: "x", session: "s1" });
     const { code, stderr } = await runChatRaw(["post", "r", "hi", "--as", "y", "--session", "s1"]);
     expect(code).not.toBe(0);
-    expect(stderr).toMatch(/signed in as x.*sign out/);
+    expect(stderr).toContain("You are signed in as x");
+    expect(stderr).toContain("rt chat sign-out");
   });
 
   test("deriveRoomForCwd: remote-kind, path-kind, not-a-worktree", () => {
@@ -684,7 +685,7 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
   test("sign-in --pane --room rejects an invalid room name locally, before contacting the daemon", async () => {
     const { code, stderr } = await runChatRaw(["sign-in", "--pane", "w1:p1", "--room", "Bad Room"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("[a-z0-9._-]");
+    expect(stderr).toContain("lowercase letters, digits, dots, dashes and underscores");
     expect(seen.find((s) => s.cmd === "chat:sign-in")).toBeUndefined();
   });
 
@@ -749,7 +750,7 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     const { code, stderr } = await runChatRaw(["sign-out", "--session", "s1"]);
     expect(code).toBe(0);
     expect(existsSync(sessionPath)).toBe(false);
-    expect(stderr).toContain("daemon");
+    expect(stderr.startsWith("[warning] Signed out here, but the daemon did not hear it")).toBe(true);
   });
 
   test("sign-out --quiet prints nothing even when the daemon is unreachable", async () => {
@@ -873,7 +874,7 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     const { code, stdout, stderr } = await runChatRaw(["sign-out", "--pane", "w1:p1"]);
     expect(code).not.toBe(0);
     expect(stdout).toBe("");
-    expect(stderr).toContain("sign-out --pane needs a daemon that supports it");
+    expect(stderr).toContain("The rt daemon is too old to sign a pane out");
   });
 
   test("a new session in the same herdr pane signs in as a new identity", async () => {
@@ -1421,6 +1422,82 @@ describe("rt chat at a terminal", () => {
       delete process.env.RT_UI_FAKE;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// ─── failures ───────────────────────────────────────────────────────────────
+
+describe("rt chat failures", () => {
+  test("a missing room asks which room and shows the command", async () => {
+    const r = await runChatRaw(["join"]);
+    expect(r.code).toBe(1);
+    expect(r.rawStdout).toBe("");
+    expect(r.stderr).toBe("Which room?\n  next: rt chat join <room>");
+  });
+
+  test("a failure under --json leaves stdout empty and exits 1", async () => {
+    const r = await runChatRaw(["join", "Bad/Name", "--json"]);
+    expect(r.code).toBe(1);
+    expect(r.rawStdout).toBe("");
+    expect(r.stderr).toBe('"Bad/Name" is not a valid room name\n  why: Names use lowercase letters, digits, dots, dashes and underscores.');
+  });
+
+  test("an unknown verb names the verbs and where help is", async () => {
+    const r = await runChatRaw(["bogus"]);
+    expect(r.code).toBe(1);
+    expect(r.stderr.startsWith("rt chat has no verb called bogus\n  next: rt chat --help\n  Verbs: ack, claim, release, join, leave, ")).toBe(true);
+  });
+
+  test("no verb off a terminal asks which one", async () => {
+    // A test run from an interactive terminal would otherwise open the verb picker and wait.
+    const origBatch = process.env.RT_BATCH;
+    process.env.RT_BATCH = "1";
+    try {
+      const r = await runChatRaw([]);
+      expect(r.code).toBe(1);
+      expect(r.stderr.startsWith("Which chat verb?\n  next: rt chat <join|leave|")).toBe(true);
+    } finally {
+      if (origBatch === undefined) delete process.env.RT_BATCH;
+      else process.env.RT_BATCH = origBatch;
+    }
+  });
+
+  test("a daemon refusal is the title, as the daemon worded it", async () => {
+    const r = await runChatRaw(["archive", "ghost", "--as", "a"]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("no such room");
+    expect(r.stderr.split("\n")).toHaveLength(1);
+  });
+
+  test("the long one-line refusal keeps its heredoc and its override", async () => {
+    await runChat(["join", "r", "--as", "a"]);
+    const r = await runChatRaw(["post", "r", "x".repeat(520), "--as", "a"]);
+    expect(r.code).toBe(1);
+    expect(r.rawStdout).toBe("");
+    expect(r.stderr).toBe(
+      "[refused] That message is 520 characters with no line breaks\n" +
+        "  why: A long one-line message has usually lost its paragraphs on the way in.\n" +
+        "  next: rt chat post <room> <<'EOF'\n" +
+        "  note: Put the message on stdin from a heredoc so its paragraphs and lists survive.\n" +
+        "        --as-is posts it as it is.",
+    );
+    const dm = await runChatRaw(["dm", "b", "x".repeat(520), "--as", "a"]);
+    expect(dm.code).toBe(1);
+    expect(dm.stderr).toContain("\n  next: rt chat dm <handle> <<'EOF'\n");
+  });
+
+  test("a second identity while signed in is refused with the sign-out command", async () => {
+    await signInInProcess({ as: "x", session: "s1" });
+    const r = await runChatRaw(["post", "r", "hi", "--as", "y", "--session", "s1"]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toBe("[refused] You are signed in as x\n  why: One session keeps one identity. Leave out --as, or sign out to change it.\n  next: rt chat sign-out");
+  });
+
+  test("a flag post does not take is refused by name, with the usage as the command", async () => {
+    await runChat(["join", "r", "--as", "a"]);
+    const r = await runChatRaw(["post", "r", "hello", "--herd", "gate-cleanup-1", "--as", "a"]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toBe("rt chat post does not take --herd\n  next: rt chat post <room> <text | <<'EOF'> [--file <path>] [--as-is] [--quiet]");
   });
 });
 
