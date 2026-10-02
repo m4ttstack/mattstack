@@ -33,7 +33,6 @@
   "commands/state-backup-init.ts",
   "commands/state-backup-status.ts",
   "commands/state.ts",
-  "commands/sync.ts",
   "commands/worktree-hook.ts",
   "lib/chat-viewer-url.ts",
   "lib/cli-logger.ts",
