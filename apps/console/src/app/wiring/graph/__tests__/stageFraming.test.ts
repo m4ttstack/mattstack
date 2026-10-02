@@ -100,6 +100,8 @@ describe('frameStage', () => {
     );
 
     expect(framing.viewport.zoom).toBe(MIN_FRAME_ZOOM);
+    // No drawer, so the input column stays on the stage.
+    expect(framing.viewport.x).toBe(0);
     const [[minX], [maxX]] = framing.extent;
     expect(maxX - minX).toBeGreaterThan(600 / MIN_FRAME_ZOOM);
   });
@@ -135,6 +137,7 @@ describe('frameStage under a drawer', () => {
   it('pans by the zoom the viewer is at', () => {
     expect(panFor(1408, 1, 600)).toBe(-110);
     expect(panFor(1408, 1, 0)).toBe(0);
+    expect(panFor(600, MIN_FRAME_ZOOM, 0)).toBe(0);
     expect(panFor(1100, 0.8, 600)).toBeCloseTo(1100 - 600 - 24 - 894 * 0.8);
   });
 });

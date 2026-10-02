@@ -20,7 +20,6 @@ const MARKER = /^<!--/;
 const CONTEXT_LINES = 15;
 
 const CODE_CLASSES = {
-  row: classes.line,
   gutter: classes.band,
   gutterLabel: classes.bandLabel,
   numberCell: classes.numberCell,
@@ -93,6 +92,7 @@ export function TextTab({
             mutedPattern={MARKER}
             scrollTo={scrollLineOf(highlight)}
             classNames={CODE_CLASSES}
+            scrollbarType="hover"
             rowAttributes={parityLayers}
           />
         ) : (

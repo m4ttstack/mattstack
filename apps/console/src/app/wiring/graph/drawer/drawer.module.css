@@ -120,12 +120,6 @@
   min-height: 0;
 }
 
-/* Lines run to the drawer's edge and scroll sideways, as on the boards. */
-.line {
-  width: 100%;
-  min-width: 0;
-}
-
 .band {
   box-sizing: content-box;
   width: 87px;

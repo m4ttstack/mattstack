@@ -1,6 +1,5 @@
-import { lazy, Suspense, useCallback, useMemo } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import { Box, Text } from '@mattstack/app-kit/core';
-import { useElementSize } from '@mattstack/app-kit/hooks';
 
 import { useAnatomy, usePendingChanges } from '../useWiring';
 import {
@@ -17,9 +16,20 @@ import { useGraphFocus } from './useGraphFocus';
 
 const TemplateCanvas = lazy(() => import('./TemplateCanvas'));
 
-/** The focus header's offset from the stage's top: `.header` in
-    graph.module.css. */
-const HEADER_TOP = 20;
+/** An element's bottom edge within the stage it is positioned in, kept
+    current as it resizes. */
+function useBottomInStage() {
+  const [bottom, setBottom] = useState(0);
+  const ref = useCallback((element: HTMLElement | null) => {
+    if (!element) return;
+    const measure = () => setBottom(element.offsetTop + element.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return { ref, bottom };
+}
 
 /** The Graph tab's stage: the focused skill's header over its canvas. */
 export function GraphTab({ pack, height }: { pack: string; height: string }) {
@@ -61,7 +71,7 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
     () => selectedContent(url, view, anatomy) !== null,
     [url, view, anatomy]
   );
-  const header = useElementSize();
+  const header = useBottomInStage();
 
   return (
     <Box
@@ -78,7 +88,7 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
             view={view}
             height={height}
             cover={drawerOpen ? DRAWER_WIDTH : 0}
-            headerBottom={focused ? HEADER_TOP + header.height : 0}
+            headerBottom={focused ? header.bottom : 0}
             onSelect={onSelect}
           />
         </Suspense>

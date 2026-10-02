@@ -44,8 +44,10 @@ export type Framing = {
 };
 
 /** The viewport x that keeps the template clear of a drawer covering `cover`
-    px of the stage, never right of the boards' corner. */
+    px of the stage, never right of the boards' corner. With no drawer the
+    graph keeps the corner, so a narrow stage never hides its input column. */
 export function panFor(stageWidth: number, zoom: number, cover: number) {
+  if (cover <= 0) return 0;
   return Math.min(0, stageWidth - cover - RIGHT_ROOM - TEMPLATE_RIGHT * zoom);
 }
 
