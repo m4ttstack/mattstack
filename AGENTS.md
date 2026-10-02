@@ -329,7 +329,8 @@ plain title for a person, `failUsage` does the same for a usage string, and
 both exit 1. A refusal by policy (the ownership guard, an undo rt will not
 do, the uncommitted-changes guard) is never a failure: `refuseWith` prints a
 `refused` note on stderr and keeps the `--json` error and exit code, and
-`refusalNote` returns the note's blocks.
+`refusalNote` returns the note's blocks. `drawFailure(failure, refused)` draws
+that refused note only when `refused` is true, else a coral failure.
 
 A `print` seam on a command's deps (`TeamDeps`) carries the `--json`
 envelope line and nothing else; its default is `out.payload`, so a test of
