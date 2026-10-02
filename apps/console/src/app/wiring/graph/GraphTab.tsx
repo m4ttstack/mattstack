@@ -15,6 +15,7 @@ import {
   selectedContent,
   SkillDrawer,
 } from './drawer/SkillDrawer';
+import { useDrawerMode } from './drawer/useDrawerMode';
 import { FocusHeader, kindOf, statusOf } from './FocusHeader';
 import classes from './graph.module.css';
 import { layoutTemplate } from './layout/templateLayout';
@@ -79,6 +80,7 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
     () => selectedContent(url, view, anatomy) !== null,
     [url, view, anatomy]
   );
+  const [drawerMode] = useDrawerMode();
   const header = useBottomInStage();
 
   return (
@@ -118,7 +120,7 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
             layout={layout}
             view={view}
             height={height}
-            cover={drawerOpen ? DRAWER_WIDTH : 0}
+            cover={drawerOpen && drawerMode === 'side' ? DRAWER_WIDTH : 0}
             headerBottom={focused ? header.bottom : 0}
             onSelect={onSelect}
           />
