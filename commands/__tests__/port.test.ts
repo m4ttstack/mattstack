@@ -91,6 +91,7 @@ test("uptime reads as the largest unit that fits", () => {
 test("off a terminal rt port prints the list once, on stdout, with no scan line", async () => {
   fakeDaemon(ENTRIES);
   const io = captureOut();
+  io.reset();
   out.__test__.setHuman(() => false);
   try {
     await portScanner([]);
@@ -104,6 +105,7 @@ test("off a terminal rt port prints the list once, on stdout, with no scan line"
 test("rt port kill off a terminal lists instead of opening a picker", async () => {
   fakeDaemon(ENTRIES);
   const io = captureOut();
+  io.reset();
   out.__test__.setHuman(() => false);
   try {
     await portScanner(["kill"]);
@@ -117,6 +119,7 @@ test("rt port kill off a terminal lists instead of opening a picker", async () =
 test("rt port kill with no ports is the one done line", async () => {
   fakeDaemon([]);
   const io = captureOut();
+  io.reset();
   out.__test__.setHuman(() => false);
   try {
     await portScanner(["kill"]);
@@ -129,6 +132,7 @@ test("rt port kill with no ports is the one done line", async () => {
 test("when the daemon does not answer, rt port scans by itself and says so on stderr", async () => {
   noDaemon(ENTRIES);
   const io = captureOut();
+  io.reset();
   out.__test__.setHuman(() => false);
   try {
     await portScanner([]);

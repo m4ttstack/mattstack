@@ -28,6 +28,7 @@ const realLastQueryTimedOut = realDaemonClient.lastQueryTimedOut;
  */
 async function runExpectingCleanExit(fn: () => Promise<void>): Promise<{ exitCode: number | undefined; errors: string[]; logs: string[] }> {
   const io = captureOut();
+  io.reset();
   out.__test__.setHuman(() => false);
   const savedTTY = process.stdin.isTTY;
   const savedBatch = process.env.RT_BATCH;

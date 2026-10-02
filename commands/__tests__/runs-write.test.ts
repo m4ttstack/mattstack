@@ -252,6 +252,7 @@ describe("rt runs positional rejection", () => {
   test("a positional that is not a subcommand is a usage error, exit 2, before any daemon call", async () => {
     const exitSpy = spyOn(process, "exit").mockImplementation((() => { throw new Error("exit"); }) as never);
     const io = captureOut();
+    io.reset();
     out.__test__.setHuman(() => false);
     try {
       await expect(runsList(["stage-start", "--stage", "plan"])).rejects.toThrow("exit");

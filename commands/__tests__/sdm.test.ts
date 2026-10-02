@@ -269,6 +269,7 @@ describe("sdm verbs", () => {
 
   beforeEach(() => {
     io = captureOut();
+    io.reset();
     out.__test__.setHuman(() => false);
     gate.setInteractive(() => false);
   });

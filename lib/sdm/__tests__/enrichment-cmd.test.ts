@@ -45,6 +45,7 @@ describe("enrichmentCmd init: scaffold refusal when the team store owns rt.sdmEn
     // needs no daemon or StrongDM stubbing, just an isolated HOME.
     process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "enr-cmd-home-")));
     io = captureOut();
+    io.reset();
     out.__test__.setHuman(() => false);
   });
 
