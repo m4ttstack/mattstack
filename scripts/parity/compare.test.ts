@@ -96,6 +96,22 @@ describe('parity compare', () => {
       )
     ).toEqual([]);
   });
+  it('reports design keys that differ only by their dash', () => {
+    const en = String.fromCharCode(0x2013);
+    const r = compare(
+      [n(`text · L1${en}15`), n('text · L1-15')],
+      [n('text · L1-15')],
+      { dynamicText: [] }
+    );
+    expect(r).toEqual([
+      {
+        key: 'text · L1-15',
+        field: 'dash collision',
+        design: '2',
+        app: '1',
+      },
+    ]);
+  });
   it('flags a duplicate app key', () => {
     const r = compare([n('A')], [n('A'), n('A')], { dynamicText: [] });
     expect(r).toEqual([
@@ -170,6 +186,23 @@ describe('visibleOnly', () => {
 });
 
 describe('withoutNestedRoots', () => {
+  it('leaves every key of a collector tree with no nested root as it was', () => {
+    // Collector-shaped: preorder, every node named, repeats indexed per parent.
+    const nodes: ParityNode[] = [
+      n('Stage', { name: 'Stage', parent: -1, tag: 'div' }),
+      n('row[0]', { name: 'row', parent: 0, tag: 'div', fill: '#fff' }),
+      n('row[0]/ln', { name: 'ln', parent: 1, kind: 'text', text: 'L1' }),
+      n('row[0]/i', { name: 'i', parent: 1, tag: 'svg' }),
+      n('row[1]', { name: 'row', parent: 0, tag: 'div' }),
+      n('row[1]/ln', { name: 'ln', parent: 4, kind: 'text', text: 'L2' }),
+      n('t[0]', { name: 't', parent: 0, kind: 'text', text: 'A' }),
+      n('t[1]', { name: 't', parent: 0, kind: 'text', text: 'B' }),
+    ];
+    expect(withoutNestedRoots(nodes, ['Stage', 'Focus header'])).toEqual(
+      nodes
+    );
+  });
+
   const raw = (
     name: string,
     parent: number,

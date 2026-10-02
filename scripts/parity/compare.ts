@@ -197,6 +197,27 @@ const DASHES = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`, 'g');
 const dashFree = (nodes: ParityNode[]) =>
   nodes.map(v => ({ ...v, key: v.key.replace(DASHES, '-') }));
 
+/** Design layers that only their dashes told apart, which reading dashes as
+    hyphens would otherwise pair with one app node without a word. */
+function dashCollisions(
+  designNodes: ParityNode[],
+  app: ParityNode[]
+): Mismatch[] {
+  const spellings = new Map<string, string[]>();
+  for (const d of designNodes) {
+    const key = d.key.replace(DASHES, '-');
+    spellings.set(key, [...(spellings.get(key) ?? []), d.key]);
+  }
+  return [...spellings]
+    .filter(([, keys]) => new Set(keys).size > 1)
+    .map(([key, keys]) => ({
+      key,
+      field: 'dash collision',
+      design: String(keys.length),
+      app: String(app.filter(a => a.key === key).length),
+    }));
+}
+
 export function compare(
   designNodes: ParityNode[],
   appNodes: ParityNode[],
@@ -204,7 +225,7 @@ export function compare(
 ): Mismatch[] {
   const design = dashFree(designNodes);
   const app = dashFree(appNodes);
-  const out: Mismatch[] = [];
+  const out: Mismatch[] = dashCollisions(designNodes, app);
   const appByKey = new Map<string, ParityNode>();
   const appCount = new Map<string, number>();
   for (const a of app) {
