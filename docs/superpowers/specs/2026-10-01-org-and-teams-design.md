@@ -486,9 +486,9 @@ since it was written for one team per repo (`Sources/Settings/TeamPane.swift`,
 - The copy changes from "your team owner" and "This Mac holds one team
   today" to "your org admin" and "This Mac holds one org".
 
-These Swift changes land as PR 5, after the conversion: an app without them
-still works, it only keeps showing Invite to members (who get rt's refusal)
-and offers no team picker.
+These Swift changes are PR 5 of the stack (section 10). Because the new
+fields decode as optionals, an app without them would still work, only
+showing Invite to members (who get rt's refusal) and offering no team picker.
 
 ## 9. Converting the existing team repo
 
@@ -518,7 +518,8 @@ looked for, so a miss after rollout says exactly what to fix.
 
 ### Rollout
 
-1. Merge, and ship one app and plugin release.
+1. Merge the stack (section 10), and ship one app and plugin release of its
+   own.
 2. Once the admin's Mac runs it, run the conversion and push.
 3. Members update the app. The launch-time `rt setup update` unsets
    `board.defaultPack` (a dated `MigrationDef`, which runs before the steps),
@@ -531,9 +532,15 @@ That window is accepted: it affects two members, who update right after.
 
 ## 10. Build order
 
-Four stacked PRs. The old layout stops being read at PR 1, and the dev app
-runs from main, so the four merge together and the conversion follows at
-once on the admin's Mac:
+Five stacked PRs, each based on the one before it and each green against its
+own base. Nothing merges to main until all five are reviewed and green. They
+then land top down (PR 5 into PR 4, and so on down to PR 1), and PR 1 merges
+to main as one commit, so main moves from the old layout to the new one in a
+single step and is never half converted. The stack rebases on main as main
+moves, not once at the end. A release follows the merge at once, then the
+conversion, then members update. The Mac app change in PR 5 is tested with a
+dev app built from the stack branch in a scratch tree, never in the shared
+checkout.
 
 1. Names, layout and resolver: the renames in section 1, the paths, the
    `org` scope, the `add` merge with per-item provenance, `mattstack.org`,
@@ -551,9 +558,7 @@ once on the admin's Mac:
    `team.identity` update steps, the `team status --json` fields, and the
    setup rows.
 4. The conversion script and the migration that unsets `board.defaultPack`.
-
-PR 5, the Mac app's Settings › Team pane (section 8), follows the conversion
-on its own and needs a dev app rebuild.
+5. The Mac app's Settings › Team pane (section 8).
 
 ## Testing
 
