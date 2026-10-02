@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import type { PackInfo } from "../packs.ts";
@@ -1508,6 +1508,25 @@ const remoteLog = (remote: string) => mustGit(remote, "log", "--format=%s", "mai
 
 const byStep = (steps: { name: string; status: string; detail: string }[]) => Object.fromEntries(steps.map((s) => [s.name, s]));
 
+/** A compile that rewrites one skill, adds another and drops a third, the way a real recompile touches a pack. */
+function rebuildingCompile(pack: PackInfo): SyncDeps["compilePack"] {
+  return async () => {
+    writeFileSync(join(pack.dir, "skills", "keep", "SKILL.md"), "keep, recompiled\n");
+    mkdirSync(join(pack.dir, "attachments", "fresh"), { recursive: true });
+    writeFileSync(join(pack.dir, "attachments", "fresh", "SKILL.md"), "fresh\n");
+    rmSync(join(pack.dir, "attachments", "old"), { recursive: true });
+    return { ok: true, errors: [], written: ["skills/keep/SKILL.md", "attachments/fresh/SKILL.md"], removed: ["attachments/old/SKILL.md"] };
+  };
+}
+
+/** The compiled files and the version are as the base commit left them. */
+function expectBuildPutBack(pack: PackInfo): void {
+  expect(readVersion(pack.dir)).toBe("1.0.0");
+  expect(readFileSync(join(pack.dir, "skills", "keep", "SKILL.md"), "utf8")).toBe("keep\n");
+  expect(readFileSync(join(pack.dir, "attachments", "old", "SKILL.md"), "utf8")).toBe("old\n");
+  expect(existsSync(join(pack.dir, "attachments", "fresh"))).toBe(false);
+}
+
 describe("commit-pending against real git", () => {
   test("a staged deletion, an unstaged deletion and an edit land as one commit, pushed with the bump, and leave the tree clean", async () => {
     const { root, remote, pack } = realPackRepo("");
@@ -1673,12 +1692,56 @@ describe("commit-pending against real git", () => {
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
 
-  test("a file staged between the pending commit and the version commit refuses the version commit and pushes nothing", async () => {
+  test("a listed file another process stages again with new content before the pending commit refuses it, with nothing committed or pushed", async () => {
     const { root, remote, pack } = realPackRepo("");
     const engine = fixturePack("beacon", "local", "2.0.0");
     writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
     const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
     const deps = realGitDeps(root, pack, engine, world);
+    deps.materialize = async () => {
+      writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": { "unseen": {} } }\n');
+      mustGit(root, "add", "pack/skills.jsonc");
+      return { ok: true, detail: "materialized 1" };
+    };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(report.steps.at(-1)!.detail).toContain("pack/skills.jsonc");
+    expect(world.calls.some((c) => c.cmd === "git" && ["commit", "push"].includes(c.args[0]!))).toBe(false);
+    expect(mustGit(root, "rev-list", "--count", "HEAD").trim()).toBe("1");
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a refusal before the pending commit puts the version and the rebuilt skills back and leaves the pack edits staged", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = rebuildingCompile(pack);
+    deps.materialize = async () => {
+      writeFileSync(join(pack.dir, "pack", "extra.jsonc"), "{}\n");
+      mustGit(root, "add", "pack/extra.jsonc");
+      return { ok: true, detail: "materialized 1" };
+    };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(report.steps.at(-1)!.detail).toContain("put the version and the rebuilt skills back");
+    expectBuildPutBack(pack);
+    expect(mustGit(root, "status", "--porcelain")).toBe("A  pack/extra.jsonc\nM  pack/skills.jsonc\n");
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a file staged between the pending commit and the version commit refuses the version commit and pushes nothing", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = rebuildingCompile(pack);
     const run = deps.run;
     deps.run = async (cmd, args, opts) => {
       const res = await run(cmd, args, opts);
@@ -1693,9 +1756,12 @@ describe("commit-pending against real git", () => {
 
     expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
     expect(report.steps.at(-1)!.detail).toContain("skills/keep/slipped-in.md");
+    expect(report.steps.at(-1)!.detail).toContain("put the version and the rebuilt skills back");
     expect(world.calls.some((c) => c.cmd === "git" && c.args[0] === "push")).toBe(false);
     expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["skills: acme pending changes", "base"]);
     expect(remoteLog(remote)).toEqual(["base"]);
+    expectBuildPutBack(pack);
+    expect(mustGit(root, "status", "--porcelain")).toBe("A  skills/keep/slipped-in.md\n");
   }, REAL_GIT_TIMEOUT_MS);
 
   test("a clean pack inside a larger repo commits its rebuilt skills, read from the pack", async () => {

@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmdirSync, rmSync, writeFileSync } from "fs";
 import { join, posix, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, relativeToPrefix, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
@@ -218,7 +218,7 @@ const MANIFEST_REL = ".claude-plugin/plugin.json";
 
 const literal = (path: string): string => `:(literal)${path}`;
 
-/** git add refuses an ignored path named outright, where adding its folder skipped it. */
+/** git add refuses an ignored path named outright. */
 async function ignoredUntracked(deps: SyncDeps, dir: string, paths: string[]): Promise<Set<string>> {
   if (paths.length === 0) return new Set();
   const res = await deps.run("git", ["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", ...paths.map(literal)], { cwd: dir });
@@ -226,32 +226,66 @@ async function ignoredUntracked(deps: SyncDeps, dir: string, paths: string[]): P
   return new Set(res.stdout.split("\0").filter(Boolean));
 }
 
+const ZERO_ID = /^0+$/;
+
 /**
- * Every path the index holds a change for, both sides of a rename, spelled
- * from the pack. `--no-relative` keeps a staged file outside the pack in the
- * list even when diff.relative is set.
+ * Every path the index holds a change for, spelled from the pack, with the
+ * blob id the index now has there (null where the index drops the path, a
+ * rename's source included). `--no-relative` keeps a staged file outside the
+ * pack in the list even when diff.relative is set.
  */
-async function stagedPaths(deps: SyncDeps, dir: string, prefix: string): Promise<string[]> {
-  const res = await deps.run("git", ["diff", "--cached", "--name-status", "-z", "--no-relative"], { cwd: dir });
+async function stagedBlobs(deps: SyncDeps, dir: string, prefix: string): Promise<Map<string, string | null>> {
+  const res = await deps.run("git", ["diff", "--cached", "--raw", "-z", "--no-relative", "--no-abbrev"], { cwd: dir });
   if (res.code !== 0) throw new Error(`git diff --cached failed in ${dir}: ${res.stderr.trim()}`);
   const fields = res.stdout.split("\0");
-  const paths: string[] = [];
+  const rel = (p: string) => (prefix === "" ? p : posix.relative(prefix, p));
+  const blobs = new Map<string, string | null>();
   for (let i = 0; i < fields.length; ) {
-    const status = fields[i++] ?? "";
-    if (status === "") continue;
-    if (status.startsWith("R")) paths.push(fields[i++]!, fields[i++]!);
-    else if (status.startsWith("C")) {
+    const meta = fields[i++] ?? "";
+    if (!meta.startsWith(":")) continue;
+    const [, , , dstId = "", status = ""] = meta.slice(1).split(" ");
+    const now = ZERO_ID.test(dstId) ? null : dstId;
+    if (status.startsWith("R")) {
+      blobs.set(rel(fields[i++]!), null);
+      blobs.set(rel(fields[i++]!), now);
+    } else if (status.startsWith("C")) {
       i++;
-      paths.push(fields[i++]!);
-    } else paths.push(fields[i++]!);
+      blobs.set(rel(fields[i++]!), now);
+    } else blobs.set(rel(fields[i++]!), now);
   }
-  return prefix === "" ? paths : paths.map((p) => posix.relative(prefix, p));
+  return blobs;
 }
 
-/** The staged paths beyond `expected`, which a commit made now would carry without anyone having seen them. */
-async function extraStaged(deps: SyncDeps, dir: string, prefix: string, expected: string[]): Promise<string[]> {
-  const allowed = new Set(expected);
-  return (await stagedPaths(deps, dir, prefix)).filter((p) => !allowed.has(p));
+/**
+ * The staged paths a commit made now would carry without anyone having seen
+ * them: a path rt never staged, or one whose staged content is not what rt
+ * recorded when it staged it (null: rt staged it gone).
+ */
+async function unseenStaged(deps: SyncDeps, dir: string, prefix: string, expected: Map<string, string | null>): Promise<string[]> {
+  return [...(await stagedBlobs(deps, dir, prefix))].filter(([path, blob]) => !expected.has(path) || expected.get(path) !== blob).map(([path]) => path);
+}
+
+/** What the index must hold for each staged entry: its content id at its path, and nothing at a rename's source. */
+function expectedBlobs(files: HashedFile[]): Map<string, string | null> {
+  const expected = new Map<string, string | null>();
+  for (const f of files) {
+    if (f.from !== undefined) expected.set(f.from, null);
+    expected.set(f.path, f.hash);
+  }
+  return expected;
+}
+
+/** Climbs from each removed file toward the pack, stopping at the first folder that still holds anything. */
+function pruneEmptiedDirs(packDir: string, paths: string[]): void {
+  for (const path of paths) {
+    for (let dir = join(packDir, path, ".."); dir.startsWith(`${packDir}${sep}`); dir = join(dir, "..")) {
+      try {
+        rmdirSync(dir);
+      } catch {
+        break;
+      }
+    }
+  }
 }
 
 function shownPath(f: PendingFile): string {
@@ -321,8 +355,9 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   let pendingHashed: HashedFile[] = [];
   let packPrefix: string | null = null;
   let published = false;
-  let staged: PendingFile[] = [];
+  let staged: HashedFile[] = [];
   let compiled: { written: string[]; removed: string[] } = { written: [], removed: [] };
+  let builtBlobs = new Map<string, string | null>();
 
   /** Where the pack sits in its repo, read once: git diff and status print repo-root paths. */
   const prefixOfPack = async (): Promise<string> => {
@@ -601,6 +636,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       return refused(`${result.errors.join("; ")}. rt put the version back to ${bumpBefore}, so ${leftAs}`);
     }
     compiled = { written: result.written, removed: result.removed };
+    const built = await hashPending(deps, pack.dir, [MANIFEST_REL, ...compiled.written].map((path) => ({ path, status: "" })));
+    builtBlobs = new Map([...built.map((f): [string, string | null] => [f.path, f.hash]), ...compiled.removed.map((path): [string, null] => [path, null])]);
     return ran("compiled clean");
   });
   steps.push({ name: "compile", ...compile });
@@ -619,15 +656,49 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   steps.push({ name: "recheck", ...recheck });
   if (stops(recheck)) return finish();
 
+  /**
+   * Takes back rt's own version staging, then puts the manifest and every
+   * file compile wrote or removed back the way the index holds them (HEAD
+   * plus the person's staged edits), and deletes what compile added, so a
+   * refused commit leaves only the person's own work behind.
+   */
+  async function putBuildBack(versionStaged: string[]): Promise<void> {
+    if (versionStaged.length > 0) {
+      const reset = await deps.run("git", ["reset", "-q", "--", ...versionStaged.map(literal)], { cwd: pack.dir });
+      if (reset.code !== 0) throw new Error(`git reset failed: ${reset.stderr.trim()}`);
+    }
+    const touched = [MANIFEST_REL, ...compiled.written, ...compiled.removed];
+    const listed = await deps.run("git", ["ls-files", "-z", "--", ...touched.map(literal)], { cwd: pack.dir });
+    if (listed.code !== 0) throw new Error(`git ls-files failed: ${listed.stderr.trim()}`);
+    const indexed = new Set(listed.stdout.split("\0").filter(Boolean));
+    if (indexed.size > 0) {
+      const restore = await deps.run("git", ["restore", "--worktree", "--", ...[...indexed].map(literal)], { cwd: pack.dir });
+      if (restore.code !== 0) throw new Error(`git restore failed: ${restore.stderr.trim()}`);
+    }
+    const added = compiled.written.filter((p) => !indexed.has(p));
+    for (const path of added) rmSync(join(pack.dir, path), { force: true });
+    pruneEmptiedDirs(pack.dir, added);
+    packSourceVersion = bumpBefore ?? packSourceVersion;
+  }
+
+  async function refuseUnseen(unseen: string[], versionStaged: string[]): Promise<Outcome> {
+    const left = published && versionStaged.length > 0 ? `your pack edits stay committed here (skills: ${pack.name} pending changes) and go out with the next sync` : published ? "your pack edits are still staged, not committed" : "the checkout is as rt found it";
+    try {
+      await putBuildBack(versionStaged);
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      return refused(`The index in ${pack.dir} holds changes rt did not stage: ${unseen.join(", ")}. rt pushed nothing, and could not put the build back (${why}): the checkout keeps the version bump (${bumpBefore} -> ${bumpAfter}) and the compiled output. Unstage those, then run this again`);
+    }
+    return refused(`The index in ${pack.dir} holds changes rt did not stage: ${unseen.join(", ")}. rt pushed nothing and put the version and the rebuilt skills back, so ${left}. Unstage those, then run this again`);
+  }
+
   const commitPush = await tryStep(async () => {
     if (!rebuild) return skipped("nothing changed, so there is nothing to commit");
     // git commit takes the whole index, so each commit first checks the
-    // index holds only what rt staged for it.
+    // index holds exactly what rt staged for it, content included.
     if (published) {
-      const extra = await extraStaged(deps, pack.dir, await prefixOfPack(), staged.flatMap((f) => (f.from === undefined ? [f.path] : [f.from, f.path])));
-      if (extra.length > 0) {
-        return refused(`Something besides your pack edits is staged in ${pack.dir}: ${extra.join(", ")}. rt committed and pushed nothing; unstage those, then run this again`);
-      }
+      const unseen = await unseenStaged(deps, pack.dir, await prefixOfPack(), expectedBlobs(staged));
+      if (unseen.length > 0) return refuseUnseen(unseen, []);
       const pendingCommit = await deps.run("git", ["commit", "-m", `skills: ${pack.name} pending changes`], { cwd: pack.dir });
       if (pendingCommit.code !== 0) return failed(`git commit failed: ${pendingCommit.stderr.trim()}`);
     }
@@ -641,11 +712,9 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       const rm = await deps.run("git", ["rm", "--cached", "--ignore-unmatch", "--quiet", "--", ...compiled.removed.map(literal)], { cwd: pack.dir });
       if (rm.code !== 0) return failed(`git rm failed: ${rm.stderr.trim()}`);
     }
-    const extra = await extraStaged(deps, pack.dir, await prefixOfPack(), [...addPaths, ...compiled.removed]);
-    if (extra.length > 0) {
-      const kept = published ? `; your pack edits stay committed here (skills: ${pack.name} pending changes) and go out with the next sync` : "";
-      return refused(`Something besides the rebuilt skills is staged in ${pack.dir}: ${extra.join(", ")}. rt pushed nothing${kept}. Unstage those, then run this again`);
-    }
+    const versionStaged = [...addPaths, ...compiled.removed];
+    const unseen = await unseenStaged(deps, pack.dir, await prefixOfPack(), new Map(versionStaged.map((p) => [p, builtBlobs.get(p) ?? null])));
+    if (unseen.length > 0) return refuseUnseen(unseen, versionStaged);
     const commit = await deps.run("git", ["commit", "-m", `skills sync: ${pack.name} v${bumpAfter}`], { cwd: pack.dir });
     if (commit.code !== 0) return failed(`git commit failed: ${commit.stderr.trim()}`);
     const push = await deps.run("git", ["push"], { cwd: pack.dir });
