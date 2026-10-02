@@ -426,3 +426,41 @@ describe("renderStackRefusal", () => {
     expect(STACK_REFUSAL_EXIT).toBe(4);
   });
 });
+
+describe("the hints a person reads", () => {
+  test("a gitq stack member", async () => {
+    const store = gitqStore([{ stackName: "s1", root: "master", nodes: [{ branch: "feat", parent: "master" }] }]);
+    const verdict = await checkStackMembership({ cwd: "/repo", branch: "feat", defaultBranch: "master", runners: runners({ gitqStacks: async () => store }) });
+    if (verdict.verdict !== "refuse") throw new Error("expected refusal");
+    expect(verdict.refusal.hint).toBe("feat is in stack s1, so changing it on its own would break the stack");
+    expect(renderStackRefusal(verdict.refusal, "human")).toBe("feat is in stack s1, so changing it on its own would break the stack. Run: gitq sync --stack s1");
+  });
+
+  test("a stack gitq does not track, from either end, with no merge request id in the sentence", async () => {
+    const forge = (mrs: { iid: number; source: string; target: string; url: string }[]) => runners({ forgeOpenMrs: async () => ({ ok: true, mrs }) });
+    const own = await checkStackMembership({ cwd: "/repo", branch: "feat-child", defaultBranch: "master", runners: forge([{ iid: 42, source: "feat-child", target: "feat-parent", url: "u" }]) });
+    const one = await checkStackMembership({ cwd: "/repo", branch: "feat-parent", defaultBranch: "master", runners: forge([{ iid: 8, source: "feat-child", target: "feat-parent", url: "u" }]) });
+    const two = await checkStackMembership({
+      cwd: "/repo",
+      branch: "feat-parent",
+      defaultBranch: "master",
+      runners: forge([
+        { iid: 8, source: "feat-child", target: "feat-parent", url: "u" },
+        { iid: 9, source: "feat-other", target: "feat-parent", url: "u" },
+      ]),
+    });
+    if (own.verdict !== "refuse" || one.verdict !== "refuse" || two.verdict !== "refuse") throw new Error("expected refusals");
+    expect(own.refusal.hint).toBe("feat-child is in a stack gitq does not track yet: its open merge request targets feat-parent");
+    expect(one.refusal.hint).toBe("feat-parent is in a stack gitq does not track yet: the open merge request from feat-child targets it");
+    expect(two.refusal.hint).toBe("feat-parent is in a stack gitq does not track yet: the open merge requests from feat-child, feat-other target it");
+    expect(two.refusal.mrs?.map((mr) => mr.iid)).toEqual([8, 9]);
+  });
+
+  test("the two checks that could not run", async () => {
+    const noDefault = await checkStackMembership({ cwd: "/repo", branch: "feat", defaultBranch: null, runners: runners({}) });
+    const forgeDown = await checkStackMembership({ cwd: "/repo", branch: "feat", defaultBranch: "master", runners: runners({ forgeOpenMrs: async () => ({ ok: false, error: "gh pr list failed: not logged in" }) }) });
+    if (noDefault.verdict !== "unverified" || forgeDown.verdict !== "unverified") throw new Error("expected unverified");
+    expect(noDefault.refusal.hint).toBe("rt could not find the default branch, so it cannot tell whether this branch is in a stack");
+    expect(forgeDown.refusal.hint).toBe("rt could not list the open merge requests, so it cannot tell whether this branch is in a stack (gh pr list failed: not logged in)");
+  });
+});

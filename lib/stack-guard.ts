@@ -128,23 +128,25 @@ export async function checkStackMembership(opts: {
         stack: membership,
         mrs: null,
         tool,
-        hint: `${opts.branch} is a member of stack ${membership.name} (parent ${membership.parent}); rebasing it alone onto ${opts.defaultBranch ?? membership.root} would break the stack`,
+        hint: `${opts.branch} is in stack ${membership.name}, so changing it on its own would break the stack`,
       },
     };
   }
   if (opts.defaultBranch === null) {
-    return unavailable(opts.branch, "could not determine the default branch (no origin/main or origin/master), so open MRs cannot be classified as stacked");
+    return unavailable(opts.branch, "rt could not find the default branch, so it cannot tell whether this branch is in a stack");
   }
   const forge = await opts.runners.forgeOpenMrs(opts.cwd);
   if (!forge.ok) {
-    return unavailable(opts.branch, `could not list open MRs to rule out a stack: ${forge.error}`);
+    return unavailable(opts.branch, `rt could not list the open merge requests, so it cannot tell whether this branch is in a stack (${forge.error})`);
   }
   const own = forge.mrs.filter((mr) => mr.source === opts.branch && mr.target !== opts.defaultBranch);
   const dependents = forge.mrs.filter((mr) => mr.target === opts.branch);
   if (own.length > 0 || dependents.length > 0) {
     const detail = own.length > 0
-      ? `its open MR !${own[0]!.iid} targets ${own[0]!.target}`
-      : `open MR${dependents.length === 1 ? "" : "s"} ${dependents.map((mr) => `!${mr.iid} (${mr.source})`).join(", ")} target it`;
+      ? `its open merge request targets ${own[0]!.target}`
+      : dependents.length === 1
+        ? `the open merge request from ${dependents[0]!.source} targets it`
+        : `the open merge requests from ${dependents.map((mr) => mr.source).join(", ")} target it`;
     return {
       verdict: "refuse",
       refusal: {
@@ -154,7 +156,7 @@ export async function checkStackMembership(opts: {
         stack: null,
         mrs: [...own, ...dependents],
         tool: "gitq track",
-        hint: `${opts.branch} is part of an untracked stack (${detail}); track it, then sync the stack`,
+        hint: `${opts.branch} is in a stack gitq does not track yet: ${detail}`,
       },
     };
   }
