@@ -307,7 +307,6 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
     });
 
     if (!ok) {
-      // Nothing is going to change, so the backup made above is dropped.
       if (backupBranch) {
         try { git(["branch", "-D", backupBranch], cwd); } catch { /* */ }
       }
