@@ -138,12 +138,13 @@ export function readReviewReport(
   return readReport('review', mrUrl, db);
 }
 
-/** Read-merge-write a review row. First write stamps startedAt; every write
-    stamps updatedAt. Tries updateByHandle first; when no row exists it
-    requires `patch.mrUrl` and `patch.iid` to insert a fresh row, else there
-    is no identity to key the row by and the caller is doing something wrong. */
 const RUN_STARTS: ReadonlySet<ReviewStatus> = new Set(['queued', 'reviewing']);
 
+/** Read-merge-write a review row. First write stamps startedAt; every write
+    stamps updatedAt; a write that moves the lane into queued or reviewing from
+    nothing, done or error stamps runStartedAt unless the patch carries one. Tries updateByHandle first; when no row exists it
+    requires `patch.mrUrl` and `patch.iid` to insert a fresh row, else there
+    is no identity to key the row by and the caller is doing something wrong. */
 export function writeReviewState(
   handle: string,
   patch: Partial<ReviewState> & { status: ReviewStatus },

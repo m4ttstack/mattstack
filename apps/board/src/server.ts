@@ -1921,6 +1921,7 @@ const httpServer = Bun.serve({
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
           status: 'queued',
+          runStartedAt: Date.now(),
           boardTabId: tabId ?? '',
           noPack: !launchPack(tabId),
         });
@@ -4039,7 +4040,8 @@ async function handleAgentSignal(
         readNudges(),
         signal.mrUrl,
         authorUsername,
-        readReviewStates().get(signal.mrUrl)?.runStartedAt
+        readReviewStates().get(signal.mrUrl)?.runStartedAt,
+        emittedAt
       );
       enqueueOutbox(
         makeEnvelope(authorUsername, 'review-state', {

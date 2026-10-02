@@ -15,7 +15,7 @@ describe('askIdForRun', () => {
       ask({ id: 'old', materializedAt: 100 }),
       ask({ id: 'new', materializedAt: 200 }),
     ];
-    expect(askIdForRun(nudges, MR, 'ada', 250)).toBe('new');
+    expect(askIdForRun(nudges, MR, 'ada', 250, 250)).toBe('new');
   });
 
   test('an ask that lands mid-run belongs to the next run', () => {
@@ -23,7 +23,7 @@ describe('askIdForRun', () => {
       ask({ id: 'first', materializedAt: 100 }),
       ask({ id: 'retry', materializedAt: 300 }),
     ];
-    expect(askIdForRun(nudges, MR, 'ada', 250)).toBe('first');
+    expect(askIdForRun(nudges, MR, 'ada', 250, 250)).toBe('first');
   });
 
   test('ignores respond asks, other authors and other MRs', () => {
@@ -32,18 +32,26 @@ describe('askIdForRun', () => {
       ask({ id: 'grace', from: 'grace', materializedAt: 100 }),
       ask({ id: 'other', mrUrl: `${MR}0`, materializedAt: 100 }),
     ];
-    expect(askIdForRun(nudges, MR, 'ada', 250)).toBeUndefined();
+    expect(askIdForRun(nudges, MR, 'ada', 250, 250)).toBeUndefined();
   });
 
   test('matches the author case-insensitively', () => {
-    expect(askIdForRun([ask({ from: 'ada' })], MR, 'Ada', 250)).toBe('a1');
+    expect(askIdForRun([ask({ from: 'ada' })], MR, 'Ada', 250, 250)).toBe('a1');
   });
 
   test('a row from before materializedAt existed falls back to receivedAt', () => {
-    expect(askIdForRun([ask({ receivedAt: 100 })], MR, 'ada', 250)).toBe('a1');
+    expect(askIdForRun([ask({ receivedAt: 100 })], MR, 'ada', 250, 250)).toBe('a1');
   });
 
   test('no run start on file means no echo', () => {
-    expect(askIdForRun([ask({})], MR, 'ada', undefined)).toBeUndefined();
+    expect(askIdForRun([ask({})], MR, 'ada', undefined, 250)).toBeUndefined();
+  });
+
+  test('a run stamp later than the signal was emitted echoes nothing', () => {
+    expect(askIdForRun([ask({})], MR, 'ada', 250, 200)).toBeUndefined();
+  });
+
+  test('a run stamp equal to emittedAt echoes', () => {
+    expect(askIdForRun([ask({})], MR, 'ada', 250, 250)).toBe('a1');
   });
 });

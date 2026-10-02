@@ -254,4 +254,26 @@ describe('writeReviewState runStartedAt', () => {
     writeReviewState(p, { status: 'queued' }, 3000, db);
     expect(readReviewStates(db).get(URL_A)?.runStartedAt).toBe(3000);
   });
+
+  test('a launch write over a stale queued row stamps a new start', () => {
+    const p = reviewFilePath(URL_A);
+    writeReviewState(p, { mrUrl: URL_A, iid: 4821, status: 'queued' }, 1000, db);
+    writeReviewState(p, { status: 'queued', runStartedAt: 5000 }, 5000, db);
+    expect(readReviewStates(db).get(URL_A)?.runStartedAt).toBe(5000);
+  });
+
+  test('a launch write over a stale reviewing row stamps a new start', () => {
+    const p = reviewFilePath(URL_A);
+    writeReviewState(p, { mrUrl: URL_A, iid: 4821, status: 'queued' }, 1000, db);
+    writeReviewState(p, { status: 'reviewing' }, 2000, db);
+    writeReviewState(p, { status: 'reviewing', runStartedAt: 5000 }, 5000, db);
+    expect(readReviewStates(db).get(URL_A)?.runStartedAt).toBe(5000);
+  });
+
+  test('an in-run reviewing write with no explicit stamp keeps the old one', () => {
+    const p = reviewFilePath(URL_A);
+    writeReviewState(p, { mrUrl: URL_A, iid: 4821, status: 'queued' }, 1000, db);
+    writeReviewState(p, { status: 'reviewing' }, 2000, db);
+    expect(readReviewStates(db).get(URL_A)?.runStartedAt).toBe(1000);
+  });
 });
