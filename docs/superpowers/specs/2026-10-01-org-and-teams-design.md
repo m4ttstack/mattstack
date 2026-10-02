@@ -463,7 +463,11 @@ against the old layout. So two update-safe steps are added at the front of
 the update run, and to the set pinned in `lib/setup/__tests__/update-safe.test.ts`:
 
 1. `org.pull`: one fetch and rebase cycle, the same as `rt team pull`. A
-   failure is a failed item and the run continues.
+   pull that cannot finish (offline, a conflict, a dirty tree) is a
+   `partial` item in both a full Install and an update run, never `failed`:
+   Install must not stop on it, and an offline launch must not raise an
+   update notification. A real conflict still reaches the member through
+   the `team.sync` row, which `verify` reports.
 2. `team.identity`: records `forgeUsername` while it is absent.
 
 Then the existing update-safe steps run. `skills.materialize` no longer seeds
