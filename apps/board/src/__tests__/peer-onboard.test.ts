@@ -82,6 +82,7 @@ describe('joinSwitchboard', () => {
       const r = await joinSwitchboard('https://x/invite/' + 'a'.repeat(32), {
         defaultMember: dm,
         relayUrl: 'https://x',
+        inTeam: () => true,
         persist: () => {},
         startPeering: () => {},
         fetchFn: f,
@@ -96,6 +97,7 @@ describe('joinSwitchboard', () => {
     const r = await joinSwitchboard('garbage', {
       defaultMember: 'grace',
       relayUrl: 'https://x',
+      inTeam: () => true,
       persist: () => {},
       startPeering: () => {},
       fetchFn: goodFetch,
@@ -110,6 +112,7 @@ describe('joinSwitchboard', () => {
       {
         defaultMember: 'Grace', // canonicalized before redeem
         relayUrl: 'https://sb.example.app',
+        inTeam: () => true,
         persist: token => calls.push(`persist:${token}`),
         startPeering: (url, token) => calls.push(`start:${url}:${token}`),
         fetchFn: fakeFetch((url, init) => {
@@ -133,6 +136,7 @@ describe('joinSwitchboard', () => {
     const r = await joinSwitchboard('https://x/invite/' + 'a'.repeat(32), {
       defaultMember: 'bob',
       relayUrl: 'https://x',
+      inTeam: () => true,
       persist: () => {
         persisted = true;
       },
@@ -148,6 +152,7 @@ describe('joinSwitchboard', () => {
     const r = await joinSwitchboard('https://x/invite/' + 'a'.repeat(32), {
       defaultMember: 'grace',
       relayUrl: 'https://x',
+      inTeam: () => true,
       persist: () => {
         throw new Error('disk');
       },
@@ -168,6 +173,7 @@ describe('joinSwitchboard', () => {
       {
         defaultMember: 'grace',
         relayUrl: 'https://sb.example.app',
+        inTeam: () => true,
         persist: token => calls.push(`persist:${token}`),
         startPeering: () => calls.push('start'),
         fetchFn: fakeFetch(() => (fetched++, Response.json({ token: 'tok' }))),
@@ -186,6 +192,7 @@ describe('joinSwitchboard', () => {
       {
         defaultMember: 'grace',
         relayUrl: 'https://sb.example.app',
+        inTeam: () => true,
         persist: () => {},
         startPeering: () => {},
         fetchFn: fakeFetch(
@@ -197,6 +204,26 @@ describe('joinSwitchboard', () => {
       }
     );
     expect(urls).toEqual(['https://sb.example.app/invites/redeem']);
+  });
+
+  test('a Mac in no team is refused before any network call, with nothing persisted or started', async () => {
+    let fetched = 0;
+    const calls: string[] = [];
+    const r = await joinSwitchboard(
+      'https://sb.example.app/invite/' + 'a'.repeat(32),
+      {
+        defaultMember: 'grace',
+        relayUrl: 'https://sb.example.app',
+        inTeam: () => false,
+        persist: token => calls.push(`persist:${token}`),
+        startPeering: () => calls.push('start'),
+        fetchFn: fakeFetch(() => (fetched++, Response.json({ token: 'tok' }))),
+      }
+    );
+    expect(r.status).toBe(400);
+    expect(r.body).toContain('team');
+    expect(fetched).toBe(0);
+    expect(calls).toEqual([]);
   });
 });
 

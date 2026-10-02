@@ -3234,6 +3234,7 @@ const httpServer = Bun.serve({
         const r = await joinSwitchboard(invite, {
           defaultMember: config.defaultMember,
           relayUrl: config.switchboard.url,
+          inTeam,
           persist(token) {
             // upsertEnvKeys reads "" as a removal, so an empty token must never
             // reach it: that would quietly delete the token line this board is

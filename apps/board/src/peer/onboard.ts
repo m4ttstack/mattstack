@@ -85,6 +85,8 @@ export interface JoinCtx {
   defaultMember: string;
   /** The one switchboard this board peers through. */
   relayUrl: string;
+  /** Whether this Mac is in a team; a board outside one never peers. */
+  inTeam: () => boolean;
   persist(token: string): void;
   startPeering(url: string, token: string): void;
   fetchFn?: typeof fetch;
@@ -98,6 +100,12 @@ export async function joinSwitchboard(
     return {
       status: 400,
       body: 'joining needs your own username: set "defaultMember" in config.json first',
+    };
+  }
+  if (!ctx.inTeam()) {
+    return {
+      status: 400,
+      body: 'Join a team on this Mac first, then paste the invite again.',
     };
   }
   const parsed = parseInvite(invite, ctx.relayUrl);

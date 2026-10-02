@@ -25,7 +25,12 @@ import {
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { getSetting, setSetting, switchboardUrl } from '@mattstack/rt-client';
+import {
+  getSetting,
+  listTeams,
+  setSetting,
+  switchboardUrl,
+} from '@mattstack/rt-client';
 import { loadConfig, type BoardConfig } from '../src/config.ts';
 import { readEnvFile, upsertEnvKeys } from '../src/env-file.ts';
 import { canonicalUsername } from '../src/peer/envelope.ts';
@@ -308,6 +313,10 @@ async function main() {
     // own MRs from anyone else's, so redeeming here would burn a one-time
     // invite on a board that would publish nothing.
     console.error('Peer boards need your username; set it above and re-run.');
+  } else if (classified.kind === 'invite' && listTeams().length === 0) {
+    console.error(
+      'Join a team on this Mac first, then paste the invite again.'
+    );
   } else if (classified.kind === 'invite') {
     // Redeem as late as possible (right before the .env write below) so a crash
     // between redeem and persist cannot burn the one-time invite.
