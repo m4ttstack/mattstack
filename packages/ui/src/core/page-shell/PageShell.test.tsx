@@ -938,6 +938,37 @@ test('an opening docked topNotch takes its height at once', async () => {
   });
 });
 
+test('a docked topNotch that goes away takes its height with it', async () => {
+  await withMeasuredHeight(54, () => {
+    const { rerender } = renderWithProviders(
+      <NotchedShell notch={{ opened: true }} />
+    );
+    rerender(<NotchedShell />);
+    rerender(<NotchedShell notch={{ opened: false }} />);
+
+    expect(screen.getByText(/^content:/).textContent).not.toContain('px');
+    expect(screen.getByText(/^sidebar:/).textContent).not.toContain('px');
+  });
+});
+
+test('a docked topNotch animates only as it opens and closes, never as it resizes in place', async () => {
+  await withMeasuredHeight(54, async () => {
+    const { rerender } = renderWithProviders(
+      <NotchedShell notch={{ opened: false }} />
+    );
+    const wrapper = () =>
+      screen.getByText('banner').parentElement!.parentElement!
+        .parentElement as HTMLElement;
+
+    rerender(<NotchedShell notch={{ opened: true }} />);
+    expect(wrapper().style.transition).toContain('height');
+    await waitFor(() => expect(wrapper().style.transition).toBe(''));
+
+    rerender(<NotchedShell notch={{ opened: false }} />);
+    expect(wrapper().style.transition).toContain('height');
+  });
+});
+
 test('a simple-mode topNotch still docks inside the content area', () => {
   renderWithProviders(
     <PageShell
