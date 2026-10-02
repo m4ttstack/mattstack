@@ -13,6 +13,7 @@ import { trayRequest } from "../../daemon-client.ts";
 import { herdrError, injectAfterTurn, injectIntoPane } from "../inject.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import { attendPane } from "../attend.ts";
+import { withProcessSession } from "../pane-process-session.ts";
 import { cwdPath, driveTrustAccept } from "../trust-accept.ts";
 import type { RelocationWatcher } from "../relocation-announce.ts";
 import { BG_SESSION, bgSocketPath, type BgService } from "../bg-service.ts";
@@ -168,6 +169,8 @@ export function createPaneHandlers(opts: {
   schedule?: (work: Promise<void>) => void;
   /** Drives the relocation dialog on the pane an announcement resolves to; omitted, the handler reports `disabled` and drives nothing. */
   relocation?: RelocationWatcher;
+  /** Claude Code session registry roots for the pane-process fallback; claude-registry.ts's own roots by default. */
+  claudeRegistryRoots?: string[];
 }):
   // Declared as direct `unknown`-payload members (not `Pick<TypedHandlers, ...>`)
   // rather than the narrower per-command payload types the catalog would
@@ -194,6 +197,7 @@ export function createPaneHandlers(opts: {
   const log = opts.log;
   const schedule = opts.schedule ?? ((work: Promise<void>) => { void work; });
   const relocation = opts.relocation;
+  const claudeRegistryRoots = opts.claudeRegistryRoots;
 
   async function snapshot(sockPath?: string): Promise<HerdrResult<{ snapshot: HerdrSnapshot }>> {
     return herdr<{ snapshot: HerdrSnapshot }>("session.snapshot", {}, { sockPath });
@@ -211,7 +215,7 @@ export function createPaneHandlers(opts: {
         ...presence,
       };
       const claude = snap.result.snapshot.panes.filter((p) => p.agent === "claude");
-      const rows = await Promise.all(claude.map((p) => paneRow(p, ctx)));
+      const rows = await Promise.all(claude.map(async (p) => paneRow(await withProcessSession(herdr, p, undefined, claudeRegistryRoots), ctx)));
 
       // Ensure-on-touch never applies here (spec "The bg service"): a
       // read-shaped list only looks when the server is already up, never
@@ -228,7 +232,7 @@ export function createPaneHandlers(opts: {
           };
           const bgClaude = bgSnap.result.snapshot.panes.filter((p) => p.agent === "claude");
           for (const p of bgClaude) {
-            const row = await paneRow(p, bgCtx, formatPaneRef(p.pane_id, "bg"));
+            const row = await paneRow(await withProcessSession(herdr, p, bg.socketPath(), claudeRegistryRoots), bgCtx, formatPaneRef(p.pane_id, "bg"));
             bgRows.push({ ...row, paneId: formatPaneRef(row.paneId, "bg") });
           }
         }

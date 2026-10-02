@@ -749,6 +749,59 @@ test("chat:sign-in viaPane refuses a pane herdr has no Claude session for, disti
   expect(res2.error).not.toBe(res.error);
 });
 
+function staleEnvPaneHandler(paneId: string, claudePid: number): FakeHerdrHandler {
+  return (method) => {
+    if (method === "pane.process_info") {
+      return { process_info: { pane_id: paneId, shell_pid: 1, foreground_process_group_id: claudePid, foreground_processes: [{ pid: claudePid, name: "2.1.287" }] } };
+    }
+    if (method !== "session.snapshot") return new HerdrFakeError("invalid_request", method);
+    return { snapshot: { workspaces: [], panes: [{ pane_id: paneId, workspace_id: "w1", tab_id: "w1:t1", agent: "claude", agent_status: "idle" }] } };
+  };
+}
+
+function claudeRegistryRoot(pid: number, sessionId: string): string {
+  const root = mkdtempSync(join(tmpdir(), "chat-creg-"));
+  writeFileSync(join(root, `${pid}.json`), JSON.stringify({ pid, sessionId, messagingSocketPath: `/tmp/cc-socks/${pid}.sock` }));
+  return root;
+}
+
+test("chat:sign-in viaPane falls back to the pane's foreground Claude process when herdr has no agent_session for it", async () => {
+  const uuid = "44444444-4444-4444-4444-444444444444";
+  const { sock: herdrSock, stop } = fakeHerdr(staleEnvPaneHandler("w1:p1", 4242));
+  stops.push(stop);
+  const herdr: typeof herdrRequest = (m, p, o) => herdrRequest(m, p, { ...o, sockPath: herdrSock });
+  const h = createChatHandlers({
+    db: openStateDb(join(tmpdir(), `chat-viapane-proc-${process.pid}-${n++}.db`)),
+    emitEvent: () => 0,
+    herdr,
+    claudeRegistryRoots: [claudeRegistryRoot(4242, uuid)],
+    paneSessionBudgetMs: 20,
+    paneSessionPollMs: 5,
+  });
+  const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, continue: "kai" });
+  expect(res.ok).toBe(true);
+  if (!res.ok) throw new Error("unreachable");
+  expect(res.data.sessionId).toBe(uuid);
+});
+
+test("chat:sign-out viaPane falls back to the pane's foreground Claude process when herdr has no agent_session for it", async () => {
+  const uuid = "55555555-5555-5555-5555-555555555555";
+  const { sock: herdrSock, stop } = fakeHerdr(staleEnvPaneHandler("w1:p1", 4343));
+  stops.push(stop);
+  const herdr: typeof herdrRequest = (m, p, o) => herdrRequest(m, p, { ...o, sockPath: herdrSock });
+  const h = createChatHandlers({
+    db: openStateDb(join(tmpdir(), `chat-viapane-proc-out-${process.pid}-${n++}.db`)),
+    emitEvent: () => 0,
+    herdr,
+    claudeRegistryRoots: [claudeRegistryRoot(4343, uuid)],
+  });
+  await h["chat:sign-in"]({ sessionId: uuid, continue: "x" });
+  const res = await h["chat:sign-out"]({ pane: "w1:p1", viaPane: true });
+  expect(res.ok).toBe(true);
+  if (!res.ok) throw new Error("unreachable");
+  expect(res.data.sessionId).toBe(uuid);
+});
+
 test("chat:sign-in viaPane re-polls the snapshot when herdr has not yet reported the pane's agent_session, and succeeds once it does", async () => {
   const uuid = "33333333-3333-3333-3333-333333333333";
   let calls = 0;
