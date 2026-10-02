@@ -86,7 +86,7 @@ digraph sdm_connect {
     "STOP: a status error goes on to rt sdm connections, never the sdm CLI" -> "rt sdm connections --json";
     "rt sdm login (preflight, timeout at least 240s)" -> "Preflight login result?";
     "Preflight login result?" -> "rt sdm connections --json" [label="exit 0"];
-    "Preflight login result?" -> "Hand off: the user runs the manual login in a terminal" [label="non-zero, names the manual login"];
+    "Preflight login result?" -> "Hand off: the user runs the manual login in a terminal" [label="non-zero, a next: line names the manual login (a tip: naming it is not a hand-off)"];
     "Preflight login result?" -> "Not connected: error and hint relayed" [label="non-zero, anything else"];
     "rt sdm connections --json" -> "Connections envelope ok?";
     "Connections envelope ok?" -> "Match the request against label, tier and key" [label="ok: true"];
@@ -146,7 +146,7 @@ digraph sdm_connect {
     "Connect attempts = 2?" -> "Not connected: error and hint relayed" [label="yes: budget spent"];
     "rt sdm login (session expired mid-connect)" -> "Mid-connect login result?";
     "Mid-connect login result?" -> "Production yes already given for this key?" [label="exit 0"];
-    "Mid-connect login result?" -> "Hand off: the user runs the manual login in a terminal" [label="non-zero, names the manual login"];
+    "Mid-connect login result?" -> "Hand off: the user runs the manual login in a terminal" [label="non-zero, a next: line names the manual login (a tip: naming it is not a hand-off)"];
     "Mid-connect login result?" -> "Not connected: error and hint relayed" [label="non-zero, anything else"];
     "Production yes already given for this key?" -> "rt sdm connect '<key>' --confirm-production --json" [label="yes"];
     "Production yes already given for this key?" -> "rt sdm connect '<key>' --json" [label="no"];
@@ -200,15 +200,17 @@ and suggest retrying their query. Never paste the whole envelope.
 
 ## Call notes
 
-- JSON is on stdout; progress lines are on stderr. Parse stdout only.
+- JSON is on stdout and is the only thing there. rt keeps its progress in
+  its own log; anything on stderr is a note for the person. Parse stdout
+  only.
 - The connection key always goes in single quotes. A key that contains a
   single quote is not run: tell the user, never escape it by hand.
 - `rt sdm login` is a silent browser flow. It usually finishes in seconds,
   but a cold or MFA session escalates to a visible Chrome window and can
   take about 3 minutes: run it with a timeout of at least 240s and tell the
-  user a browser window may appear. When it exits non-zero naming the
-  manual login, give the user that exact command to run in a terminal; the
-  SAML hop is theirs.
+  user a browser window may appear. When it exits non-zero with a `next:`
+  line on stderr naming `rt sdm login --manual`, give the user that exact
+  command to run in a terminal; the SAML hop is theirs.
 - `health: "error"` with `appRunning: false` is fine: connect launches the
   desktop app itself and waits for it.
 - `rt sdm connect` defaults to 8h and the enrichment-authored reason: omit

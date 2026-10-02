@@ -1,0 +1,32 @@
+{
+  "status": {
+    "exitCode": 0,
+    "stdout": "{\n  \"ok\": true,\n  \"health\": \"ok\",\n  \"message\": null,\n  \"appRunning\": \"<machine>\",\n  \"tunnels\": []\n}\n",
+    "stderr": ""
+  },
+  "connections": {
+    "exitCode": 0,
+    "stdout": "{\n  \"ok\": true,\n  \"durations\": [\n    \"8h\",\n    \"4h\",\n    \"1h\"\n  ],\n  \"defaultDuration\": \"8h\",\n  \"connections\": [\n    {\n      \"key\": \"sdm:acme-alpha-staging\",\n      \"label\": \"acme-alpha-staging\",\n      \"sdmResource\": \"acme-alpha-staging\",\n      \"tier\": null,\n      \"production\": false,\n      \"standingAccess\": true,\n      \"connected\": false,\n      \"address\": null,\n      \"defaultReason\": \"investigating acme-alpha-staging data\",\n      \"db\": null\n    },\n    {\n      \"key\": \"sdm:acme-beta-qa-prod\",\n      \"label\": \"acme-beta-qa-prod\",\n      \"sdmResource\": \"acme-beta-qa-prod\",\n      \"tier\": null,\n      \"production\": false,\n      \"standingAccess\": true,\n      \"connected\": false,\n      \"address\": null,\n      \"defaultReason\": \"investigating acme-beta-qa-prod data\",\n      \"db\": null\n    }\n  ]\n}\n",
+    "stderr": ""
+  },
+  "connect-no-key": {
+    "exitCode": 1,
+    "stdout": "{\n  \"ok\": false,\n  \"stage\": \"health\",\n  \"error\": \"a connection key is required with --json\",\n  \"hint\": \"rt sdm connections --json lists valid keys\"\n}\n",
+    "stderr": ""
+  },
+  "connect-unknown-key": {
+    "exitCode": 1,
+    "stdout": "{\n  \"ok\": false,\n  \"stage\": \"health\",\n  \"error\": \"unknown connection key: no-such-key\",\n  \"hint\": \"rt sdm connections --json lists valid keys; rt sdm refresh re-discovers\"\n}\n",
+    "stderr": ""
+  },
+  "status-logged-out": {
+    "exitCode": 1,
+    "stdout": "{\n  \"ok\": false,\n  \"health\": \"not-authenticated\",\n  \"message\": \"Your StrongDM login has expired, or this Mac has not logged in yet.\",\n  \"appRunning\": \"<machine>\",\n  \"tunnels\": []\n}\n",
+    "stderr": ""
+  },
+  "connections-logged-out": {
+    "exitCode": 1,
+    "stdout": "{\n  \"ok\": false,\n  \"health\": \"not-authenticated\",\n  \"error\": \"Your StrongDM login has expired, or this Mac has not logged in yet.\"\n}\n",
+    "stderr": ""
+  }
+}

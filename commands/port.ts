@@ -1,5 +1,5 @@
 /**
- * rt port — Zero-config port scanner + killer.
+ * rt port: Zero-config port scanner + killer.
  *
  * Usage:
  *   rt port          show all listening ports for known repos (daemon-first)
@@ -11,11 +11,12 @@
  */
 
 import { execSync } from "child_process";
-import { bold, cyan, dim, green, yellow, red, reset } from "../lib/tui.ts";
-import { withInlineSpinner } from "../lib/tui/inline-spinner.ts";
+import { basename } from "path";
 import { scanListeningPorts, type PortEntry } from "../lib/port-scanner.ts";
 import { repoLabel } from "../lib/repo-label.ts";
-import type { PickRow, PickSegment } from "../lib/ui/protocol.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block, PickRow, PickSegment } from "../lib/ui/protocol.ts";
+import { withTransientStep } from "../lib/ui/transient-step.ts";
 
 // ─── Data fetching ───────────────────────────────────────────────────────────
 
@@ -24,18 +25,17 @@ async function getPortData(): Promise<{ entries: PortEntry[]; source: "daemon" |
   // refresh: true → daemon re-scans before returning, so we never serve the
   // 30s-stale cache on a direct CLI invocation. A fresh scan does an lsof per
   // listening PID, so allow more than the default 2s.
-  const result = await withInlineSpinner("scanning ports…", () =>
-    daemonQuery("ports", { refresh: true }, 15_000),
-  );
+  const result = await withTransientStep("Scanning ports", () => daemonQuery("ports", { refresh: true }, 15_000));
 
   if (result?.ok && result.data?.ports) {
     return { entries: result.data.ports as PortEntry[], source: "daemon" };
   }
 
-  // Fallback to direct scan
-  console.log(`  ${dim}(daemon not available, scanning directly...)${reset}`);
+  // daemonQuery's own daemon-down note fires only after a failed restart; a
+  // missing daemon or a timed-out one falls back here with nothing said.
+  out.note(out.line("warn", "Scanned your ports without the rt daemon"));
   return {
-    entries: await withInlineSpinner("scanning ports…", async () => scanListeningPorts()),
+    entries: await withTransientStep("Scanning ports", async () => scanListeningPorts()),
     source: "direct",
   };
 }
@@ -47,7 +47,6 @@ async function getPortData(): Promise<{ entries: PortEntry[]; source: "daemon" |
  * e.g. "my-repo-wktree-2/apps/portal" or "my-repo/."
  */
 function folderPath(entry: PortEntry): string {
-  const { basename } = require("path") as typeof import("path");
   const wtName = entry.worktree ? basename(entry.worktree) : (entry.repo ? repoLabel(entry.repo) : "unknown");
   return entry.relativeDir && entry.relativeDir !== "." ? `${wtName}/${entry.relativeDir}` : wtName;
 }
@@ -73,13 +72,11 @@ function formatUptime(etime: string): string {
   return trimmed;
 }
 
-function displayPorts(entries: PortEntry[]): void {
-  if (entries.length === 0) {
-    console.log(`\n  ${green}${bold}✓ no listening ports for known repos${reset}\n`);
-    return;
-  }
+const NOTHING_LISTENING = "Nothing is listening in your repos";
 
-  // Group by repo → worktree
+export function portBlocks(entries: PortEntry[]): Block[] {
+  if (entries.length === 0) return [out.line("done", NOTHING_LISTENING)];
+
   const grouped = new Map<string, Map<string, PortEntry[]>>();
   for (const entry of entries) {
     const repoKey = entry.repo || "unknown";
@@ -90,58 +87,84 @@ function displayPorts(entries: PortEntry[]): void {
     wtMap.get(wtKey)!.push(entry);
   }
 
-  console.log("");
+  const blocks: Block[] = [];
   for (const [repoName, worktrees] of grouped) {
-    console.log(`  ${bold}${cyan}${repoLabel(repoName)}${reset}`);
-
-    for (const [_wtPath, ports] of worktrees) {
-      const branchName = ports[0]?.branch;
-      if (branchName) {
-        console.log(`    ${dim}${branchName}${reset}`);
-      }
-
-      for (const p of ports) {
-        const portStr = `:${p.port}`.padEnd(7);
-        const dirStr = folderPath(p).padEnd(30);
-        const cmdStr = p.command.padEnd(8);
-        const uptimeStr = formatUptime(p.uptime);
-        console.log(`      ${yellow}${portStr}${reset} ${dirStr} ${dim}${cmdStr}${reset} ${dim}(${uptimeStr})${reset}`);
-      }
+    const trees: Block[] = [];
+    for (const [wtPath, ports] of worktrees) {
+      const branch = ports[0]?.branch;
+      const root = branch ? out.key(branch) : out.dim(wtPath === "unknown" ? "unknown folder" : basename(wtPath));
+      trees.push(out.tree(root, ports.map((p) => [`:${p.port}`, folderPath(p), out.dim(p.command), out.dim(formatUptime(p.uptime))])));
     }
-    console.log("");
+    blocks.push(out.section(repoLabel(repoName), undefined, ...trees));
   }
+  return blocks;
 }
 
 // ─── Kill helpers ────────────────────────────────────────────────────────────
 
-function killByPort(port: number): void {
-  try {
-    // -sTCP:LISTEN: only kill the listener — plain `-i :port` also matches
-    // clients connected to the port (browser tabs, curl, etc.).
-    const output = execSync(`lsof -iTCP:${port} -sTCP:LISTEN -P -n 2>/dev/null`, {
-      encoding: "utf8", stdio: "pipe",
-    });
-    const lines = output.trim().split("\n").filter(Boolean);
-    if (lines.length <= 1) {
-      console.log(`\n  ${dim}no processes on port ${port}${reset}\n`);
-      return;
+interface PortSystem {
+  /** lsof's listener table for the port, header included; empty when nothing listens. */
+  listeners(port: number): string;
+  kill(pid: number): void;
+}
+
+const realSystem: PortSystem = {
+  listeners: (port) => {
+    try {
+      // -sTCP:LISTEN: only the listener. Plain `-i :port` also matches clients
+      // connected to the port (browser tabs, curl, etc.).
+      return execSync(`lsof -iTCP:${port} -sTCP:LISTEN -P -n 2>/dev/null`, { encoding: "utf8", stdio: "pipe" });
+    } catch {
+      return "";
     }
-    const pids = new Set<string>();
-    for (const line of lines.slice(1)) {
-      const pid = line.split(/\s+/)[1];
-      if (pid) pids.add(pid);
+  },
+  kill: (pid) => process.kill(pid, "SIGKILL"),
+};
+
+let system: PortSystem = realSystem;
+
+interface StopTarget {
+  pid: number;
+  command: string;
+  port: number;
+}
+
+function stopAll(targets: StopTarget[]): void {
+  const done: Block[] = [];
+  const failures: out.FailureInput[] = [];
+  for (const { pid, command, port } of targets) {
+    const where = `pid ${pid}, port ${port}`;
+    // process.kill on 0 or a negative pid signals a whole process group.
+    if (!Number.isInteger(pid) || pid <= 0) {
+      done.push(out.line("skipped", `${command} has no process to stop`, where));
+      continue;
     }
-    for (const pid of pids) {
-      try {
-        execSync(`kill -9 ${pid}`);
-        console.log(`  ${green}killed${reset} pid ${pid} on :${port}`);
-      } catch {
-        console.log(`  ${red}failed to kill${reset} pid ${pid}`);
-      }
+    try {
+      system.kill(pid);
+      done.push(out.line("done", `Stopped ${command}`, where));
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ESRCH") done.push(out.line("skipped", `${command} had already stopped`, where));
+      else failures.push({ title: `Could not stop ${command}`, hint: where, why: code === "EPERM" ? "It belongs to another user or to macOS." : (err as Error).message });
     }
-  } catch {
-    console.log(`\n  ${dim}no processes on port ${port}${reset}\n`);
   }
+  out.print(...done);
+  for (const f of failures) out.fail(f);
+}
+
+function killByPort(port: number): void {
+  const rows = system.listeners(port).trim().split("\n").filter(Boolean).slice(1);
+  const targets = new Map<number, StopTarget>();
+  for (const row of rows) {
+    const [command, pidText] = row.split(/\s+/);
+    const pid = Number(pidText);
+    if (command && pidText && !targets.has(pid)) targets.set(pid, { pid, command, port });
+  }
+  if (targets.size === 0) {
+    out.print(out.line("skipped", `Nothing is listening on port ${port}`));
+    return;
+  }
+  stopAll([...targets.values()]);
 }
 
 async function showKillPicker(entries: PortEntry[]): Promise<void> {
@@ -173,22 +196,15 @@ async function showKillPicker(entries: PortEntry[]): Promise<void> {
   );
 
   if (!selectedPids || selectedPids.length === 0) {
-    console.log(`\n  ${dim}nothing selected${reset}\n`);
+    out.print(out.line("skipped", "Nothing selected"));
     return;
   }
 
-  console.log("");
-  for (const pid of selectedPids) {
+  const targets = selectedPids.flatMap((pid) => {
     const entry = entries.find((p) => String(p.pid) === pid);
-    if (!entry) continue;
-    try {
-      execSync(`kill -9 ${pid}`);
-      console.log(`  ${green}killed${reset} ${entry.command} (pid ${pid}) on :${entry.port}`);
-    } catch {
-      console.log(`  ${red}failed to kill${reset} pid ${pid}`);
-    }
-  }
-  console.log("");
+    return entry ? [{ pid: entry.pid, command: entry.command, port: entry.port }] : [];
+  });
+  stopAll(targets);
 }
 
 // ─── Entry ───────────────────────────────────────────────────────────────────
@@ -199,38 +215,27 @@ export async function portScanner(args: string[]): Promise<void> {
     return killByPort(parseInt(args[0]!, 10));
   }
 
-  // Subcommand: rt port kill → jump to interactive kill picker
   if (args[0] === "kill") {
     const killArgs = args.slice(1);
     if (killArgs.length > 0 && /^\d+$/.test(killArgs[0] || "")) {
       return killByPort(parseInt(killArgs[0]!, 10));
     }
-    const { entries } = await getPortData();
-    if (entries.length === 0) {
-      console.log(`\n  ${green}${bold}✓ no listening ports for known repos${reset}\n`);
-      return;
-    }
-    if (!process.stdin.isTTY) {
-      displayPorts(entries);
-      return;
-    }
-    return showKillPicker(entries);
   }
 
-  // Default: scan and display
   const { entries } = await getPortData();
 
-  if (entries.length === 0) {
-    console.log(`\n  ${green}${bold}✓ no listening ports for known repos${reset}\n`);
+  // The kill picker already shows every port, so a terminal gets the picker
+  // and everything else gets the list.
+  if (entries.length === 0 || !process.stdin.isTTY) {
+    out.print(...portBlocks(entries));
     return;
   }
-
-  // Non-TTY: print table and exit
-  if (!process.stdin.isTTY) {
-    displayPorts(entries);
-    return;
-  }
-
-  // TTY: interactive kill picker (already shows port info in options)
   await showKillPicker(entries);
 }
+
+export const __test__ = {
+  formatUptime,
+  setSystem(fake: PortSystem | undefined): void {
+    system = fake ?? realSystem;
+  },
+};

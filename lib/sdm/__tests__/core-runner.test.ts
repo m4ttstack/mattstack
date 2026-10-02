@@ -46,6 +46,13 @@ describe("runSdmCommand", () => {
     expect(Date.now() - start).toBeLessThan(3_000);
   });
 
+  test("a character split across two pipe chunks comes out whole", async () => {
+    const lines: string[] = [];
+    const r = await runSdmCommand(["split-utf8"], l => lines.push(l));
+    expect(lines).toEqual(["caf\u00e9 ready"]);
+    expect(r.output).toBe("caf\u00e9 ready\n");
+  });
+
   test("missing binary maps to ENOENT", async () => {
     process.env.RT_SDM_BIN = "/nonexistent/sdm-not-here";
     const r = await runSdmCommand(["ok"], () => {});
@@ -77,15 +84,15 @@ describe("loginSdmWith", () => {
     expect(await loginSdmWith(mkRun({ ok: true, output: "logged in" }), () => {})).toEqual({ ok: true });
   });
 
-  test("timeout maps to SAML remediation text", async () => {
+  test("a timeout says the login ran out of time in the browser", async () => {
     const r = await loginSdmWith(mkRun({ ok: false, output: "", timedOut: true }), () => {});
     expect(r.ok).toBe(false);
-    expect(r.error).toContain("SAML");
+    expect(r.error).toBe("The login timed out before your browser finished it.");
   });
 
   test("other failures surface trimmed output", async () => {
     const r = await loginSdmWith(mkRun({ ok: false, output: "  sso rejected  \n" }), () => {});
-    expect(r).toEqual({ ok: false, error: "Login failed: sso rejected" });
+    expect(r).toEqual({ ok: false, error: "sso rejected" });
   });
 
   test("passes login args and a generous timeout", async () => {
@@ -155,6 +162,13 @@ describe("connectResourceWith", () => {
     expect(r.ok).toBe(true);
     expect(calls()).toBe(1);
   });
+
+  test("a failed connect is StrongDM's own words, or says it gave none", async () => {
+    const said = await connectResourceWith(mkRun([{ ok: false, output: "  no route to gateway \n" }]).run, "res", () => {}, { waitsMs: [], sleep: noSleep });
+    expect(said.error).toBe("no route to gateway");
+    const silent = await connectResourceWith(mkRun([{ ok: false, output: "" }]).run, "res", () => {}, { waitsMs: [], sleep: noSleep });
+    expect(silent.error).toBe("StrongDM gave no reason.");
+  });
 });
 
 describe("runSdmLoginInteractive", () => {
@@ -163,7 +177,7 @@ describe("runSdmLoginInteractive", () => {
     const r = await runSdmLoginInteractive(["login"], () => {});
     expect(r.ok).toBe(false);
     expect(r.spawnErrorCode).toBe("ENOENT");
-    expect(r.output).toContain("strongdm.com");
+    expect(r.output).toBe("The StrongDM CLI is not installed. Install it from https://www.strongdm.com/docs/cli/.");
   });
 
   test("kills a hung login at the timeout", async () => {

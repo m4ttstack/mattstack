@@ -1,4 +1,6 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, describe, test, expect } from "bun:test";
+import { installFakePick } from "../../ui/pick-fake.ts";
+import { runNavPicker } from "../../navigate.ts";
 import { buildPickerOptions } from "../picker.ts";
 import type { SdmConnection } from "../browse.ts";
 import type { RecentEntry } from "../state.ts";
@@ -99,6 +101,39 @@ describe("buildPickerOptions", () => {
     expect(q.label.startsWith("● ")).toBe(true);  // connected
     expect(s.label.startsWith("✓ ")).toBe(true);  // standing access, not connected
     expect(d.label.startsWith("  ")).toBe(true);  // on-demand
-    expect(q.color).toContain("94");              // connected row rendered blue
+    expect(q.tone).toBe("blue");
+    expect(s.tone).toBe("peach");
+    expect(d.tone).toBe("mint");
+  });
+
+  test("a row names its tier's tone, and no option carries an escape sequence", () => {
+    const options = buildPickerOptions([conn("p", "production"), conn("q", "qa"), conn("x")], []);
+    const rows = options.filter(o => !o.separator);
+    expect(rows.find(o => o.value === "demo:p")!.tone).toBe("coral");
+    expect(rows.find(o => o.value === "demo:q")!.tone).toBe("pink");
+    expect(rows.find(o => o.value === "demo:x")!.tone).toBeUndefined();
+    expect(JSON.stringify(options)).not.toContain("\\u001b");
+  });
+});
+
+describe("the pick request", () => {
+  let fake: ReturnType<typeof installFakePick> | undefined;
+  afterEach(() => {
+    fake?.restore();
+    fake = undefined;
+  });
+
+  test("an sdm row reaches rt-ui as a bold label and a dim hint, and nothing else", async () => {
+    fake = installFakePick([{ kind: "result", result: { action: "cancel", value: null, query: "" } }]);
+    const options = buildPickerOptions(
+      [{ ...conn("q", "qa"), standingAccess: true }, conn("d", "development")],
+      [],
+      new Set(["example-q"]),
+    );
+    await runNavPicker({ options, message: "sdm connections", breadcrumb: ["rt", "sdm", "connections"] });
+    expect(fake.calls[0]!.request.rows).toEqual([
+      { value: "demo:d", match: "  d", left: [{ text: "  d", bold: true, column: true }, { text: "  example-d  development", tone: "dim" }], group: "Development" },
+      { value: "demo:q", match: "● q", left: [{ text: "● q", bold: true, column: true }, { text: "  example-q  qa", tone: "dim" }], group: "QA" },
+    ]);
   });
 });

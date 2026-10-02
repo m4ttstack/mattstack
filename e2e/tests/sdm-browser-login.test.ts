@@ -121,9 +121,9 @@ exit 0
 
     // The whole drive (spawn sdm, launch off-screen Chrome, CDP navigate +
     // click, reach complete) should finish well inside this budget.
-    await session.waitForText("logged in", 45_000);
+    await session.waitForText("Logged in to StrongDM", 45_000);
     const screen = await session.screen();
-    expect(screen).toContain("logged in");
+    expect(screen).toContain("Logged in to StrongDM");
     expect(completeHits).toBeGreaterThan(0);
   }, 90_000);
 });

@@ -53,12 +53,14 @@ export interface GuidedOptions {
 export type GuidedResult =
   | { outcome: "connected"; address: string; verify: VerifyOutcome; unverified?: boolean }
   | { outcome: "aborted"; reason: string }
-  | { outcome: "failed"; stage: "health" | "login" | "access" | "connect" | "verify"; error: string; hint?: string };
+  | { outcome: "failed"; stage: "health" | "login" | "access" | "connect" | "verify"; error: string; hint?: string; next?: string };
 
-function hintFor(code?: SdmFailureCode): string | undefined {
-  if (code === "not-authenticated") return "Run `rt sdm login`, then retry.";
-  if (code === "no-access") return "Check the resource name, or request access with a reason.";
-  return undefined;
+// `hint` is read by a person (the --json envelope's hint, the CLI's failure `next:` line),
+// so it never quotes a command; `next` carries the command, for the CLI to show.
+function adviceFor(code?: SdmFailureCode): { hint?: string; next?: string } {
+  if (code === "not-authenticated") return { hint: "Log in to StrongDM again, then connect.", next: "rt sdm login" };
+  if (code === "no-access") return { hint: "Check the connection name, or ask for access with a reason." };
+  return {};
 }
 
 export async function runGuidedConnect(
@@ -68,18 +70,18 @@ export async function runGuidedConnect(
 ): Promise<GuidedResult> {
   let snapshot = await deps.getSnapshot();
   if (snapshot.health.status === "not-installed" || snapshot.health.status === "error") {
-    return { outcome: "failed", stage: "health", error: snapshot.health.message ?? "StrongDM CLI unavailable." };
+    return { outcome: "failed", stage: "health", error: snapshot.health.message ?? "StrongDM did not answer." };
   }
   if (snapshot.health.status === "not-authenticated") {
     if (!opts.interactive) {
-      return { outcome: "failed", stage: "login", error: snapshot.health.message ?? "Not authenticated." };
+      return { outcome: "failed", stage: "login", error: snapshot.health.message ?? "StrongDM says you are not logged in." };
     }
     if (!(await deps.confirmLogin())) return { outcome: "aborted", reason: "login declined" };
     const login = await deps.login(deps.onLine);
-    if (!login.ok) return { outcome: "failed", stage: "login", error: login.error ?? "Login failed." };
+    if (!login.ok) return { outcome: "failed", stage: "login", error: login.error ?? "The login did not finish." };
     snapshot = await deps.getSnapshot(true);
     if (snapshot.health.status !== "ok") {
-      return { outcome: "failed", stage: "login", error: snapshot.health.message ?? "Still not authenticated." };
+      return { outcome: "failed", stage: "login", error: snapshot.health.message ?? "StrongDM still says you are not logged in." };
     }
   }
 
@@ -97,7 +99,7 @@ export async function runGuidedConnect(
     if (!reason?.trim()) reason = target.reasonSuggestion ?? `investigating ${target.label} data`;
     const access = await deps.requestAccess(target.sdmResource, duration, reason, deps.onLine);
     if (!access.ok) {
-      return { outcome: "failed", stage: "access", error: access.error ?? "Access request failed.", hint: hintFor(access.code) };
+      return { outcome: "failed", stage: "access", error: access.error ?? "StrongDM did not grant access.", ...adviceFor(access.code) };
     }
   }
 
@@ -105,7 +107,7 @@ export async function runGuidedConnect(
   // connectResource treats "already connected" as success.
   const conn = await deps.connect(target.sdmResource, deps.onLine);
   if (!conn.ok) {
-    return { outcome: "failed", stage: "connect", error: conn.error ?? "Connect failed.", hint: hintFor(conn.code) };
+    return { outcome: "failed", stage: "connect", error: conn.error ?? "StrongDM did not open the tunnel.", ...adviceFor(conn.code) };
   }
 
   const fresh = await deps.getSnapshot(true);
@@ -114,7 +116,7 @@ export async function runGuidedConnect(
     return {
       outcome: "failed",
       stage: "verify",
-      error: `sdm reports no local address for ${target.sdmResource} after connect.`,
+      error: "StrongDM did not report a local address for it.",
     };
   }
   const url = buildPostgresUrl(address, target.db);
@@ -133,8 +135,9 @@ export async function runGuidedConnect(
     return {
       outcome: "failed",
       stage: "verify",
-      error: `Tunnel is not reachable: ${verify.lastError?.message ?? "unknown error"}`,
-      hint: "Reconnect with `rt sdm`, or check the resource in the StrongDM app.",
+      error: `The tunnel did not answer: ${verify.lastError?.message ?? "no reason given"}`,
+      hint: "Connect again, or check this connection in the StrongDM app.",
+      next: `rt sdm connect ${target.key}`,
     };
   }
   deps.recordRecent(target);

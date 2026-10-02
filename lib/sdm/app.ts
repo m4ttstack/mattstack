@@ -50,11 +50,11 @@ export async function ensureSdmApp(
   if (await d.isRunning()) return { ok: true };
   onLine("StrongDM app is not running; launching it");
   const launched = await d.launch();
-  if (launched.code !== 0) return { ok: false, error: "Could not launch the StrongDM app (`open -ga SDM` failed)." };
+  if (launched.code !== 0) return { ok: false, error: "macOS could not open the StrongDM app." };
   for (let i = 0; i < APP_WAIT_ATTEMPTS; i++) {
     await d.sleep(APP_WAIT_INTERVAL_MS);
     const fresh = await d.getSnapshot(true);
     if (fresh.health.status !== "error") return { ok: true };
   }
-  return { ok: false, error: `StrongDM app did not become ready within ${APP_WAIT_ATTEMPTS}s of launching.` };
+  return { ok: false, error: `The StrongDM app opened but was not ready after ${APP_WAIT_ATTEMPTS} seconds.` };
 }

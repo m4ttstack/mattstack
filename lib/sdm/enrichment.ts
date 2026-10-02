@@ -23,6 +23,8 @@ import { rtDir } from "../rt-paths.ts";
 import { join } from "node:path";
 import { stripJsonc } from "../jsonc.ts";
 import { getSetting } from "../settings/resolve.ts";
+import * as out from "../ui/out.ts";
+import { warn } from "../ui/warn.ts";
 import type { Value } from "../settings/registry-schemas.ts";
 
 export type EnrichmentEntry = Value<"rt.sdmEnrichment">[string];
@@ -48,7 +50,10 @@ export function probeEnrichmentStore(): Record<string, EnrichmentEntry> | undefi
   try {
     return getSetting<Record<string, EnrichmentEntry>>(SETTING_KEY).value;
   } catch (err) {
-    console.warn(`rt: ignoring "${SETTING_KEY}" — ${(err as Error).message}`);
+    const message = (err as Error).message;
+    warn("sdm", `ignoring "${SETTING_KEY}" -- ${message}`, {
+      show: { title: "Your sdm enrichment setting is being ignored", hint: message.split("\n")[0], next: out.cmd("rt settings check") },
+    });
     return undefined;
   }
 }
@@ -62,7 +67,10 @@ export function loadEnrichment(path = enrichmentPath()): Record<string, Enrichme
     return JSON.parse(stripJsonc(raw));
   } catch (err) {
     if (existsSync(path)) {
-      console.warn(`rt: failed to parse ${path}, ignoring enrichment file: ${(err as Error).message}`);
+      warn("sdm", `failed to parse ${path}, ignoring enrichment file: ${(err as Error).message}`, {
+        context: { path },
+        show: { title: "Your sdm enrichment file could not be read", hint: "rt is ignoring it" },
+      });
     }
     return {};
   }
