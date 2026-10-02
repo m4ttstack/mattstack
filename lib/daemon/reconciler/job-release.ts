@@ -19,6 +19,7 @@ const ENDED_JOB_STATUSES = new Set(["closed", "crashed"]);
  * a `done` job's pane can still pick up a follow-up in the same tree.
  */
 export function herdJobTreeHold(store: Pick<HerdStore, "get" | "jobs">, rec: TreeRecord): string | null {
+  if (rec.releasedAt) return null;
   const owner = rec.owner;
   if (!owner) return "job tree with no owner";
   if (!owner.startsWith(HERD_OWNER_PREFIX)) return `job tree owned by ${owner}`;
@@ -30,9 +31,20 @@ export function herdJobTreeHold(store: Pick<HerdStore, "get" | "jobs">, rec: Tre
   // row keeps moving (its pane closing) after the slot changed hands, so match
   // on the branch the tree carries rather than on recency.
   const path = canon(rec.path);
-  const jobs = store
-    .jobs(herdId)
-    .filter((j) => canon(j.worktree) === path && (j.branch === null || j.branch === rec.branch));
+  const atPath = store.jobs(herdId).filter((j) => canon(j.worktree) === path);
+  const onBranch = atPath.filter((j) => j.branch === rec.branch);
+  // The agent may have moved to a follow-up branch in its own tree, so the
+  // jobs spawned on this claim count too, whatever branch their row carries
+  // (a `--dir` job's is null). A row from an earlier claim of the slot
+  // predates claimedAt, and a spawn still in flight has no row at all, so
+  // both leave the herd-wide hold.
+  const claimed = rec.claimedAt ? Date.parse(rec.claimedAt) : NaN;
+  let jobs: typeof atPath;
+  if (!Number.isNaN(claimed)) {
+    jobs = atPath.filter((j) => onBranch.includes(j) || j.createdAt >= claimed);
+  } else {
+    jobs = onBranch.length > 0 ? atPath.filter((j) => onBranch.includes(j) || j.branch === null) : atPath;
+  }
   if (jobs.length === 0) return `herd ${herdId} is active`;
   const live = jobs.find((j) => !ENDED_JOB_STATUSES.has(j.status));
   return live ? `herd job ${herdId}/${live.name} is ${live.status}` : null;

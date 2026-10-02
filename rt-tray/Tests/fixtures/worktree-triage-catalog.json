@@ -393,7 +393,7 @@
         "group": "waiting",
         "verdict": "Herd job settings-kit/tray-label is still at a gate.",
         "actions": [
-          "open-herd",
+          "release",
           "open-finder",
           "open-terminal",
           "copy-path"

@@ -50,10 +50,15 @@ describe("triageRow", () => {
     expect(r.actions).not.toContain("dispose");
   });
   test.each([
-    ["process", "stop-process"], ["herd", "open-herd"], ["run", "open-run"],
+    ["process", "stop-process"], ["herd", "release"], ["run", "open-run"],
   ] as const)("a %s hold is waiting with %s", (kind, action) => {
     const r = row({ hold: { kind, detail: "d" }, containment: "none" });
     expect([r.group, r.actions[0]]).toEqual(["waiting", action]);
+  });
+  test("a job tree another owner holds is waiting with nothing to release", () => {
+    const r = row({ hold: { kind: "owner", detail: "job tree owned by alex" } });
+    expect(r.group).toBe("waiting");
+    expect(r.actions).not.toContain("release");
   });
   test("a stale orphan being stopped is waiting with no primary action", () => {
     const r = row({ hold: { kind: "orphan-stopping", detail: "d" } });

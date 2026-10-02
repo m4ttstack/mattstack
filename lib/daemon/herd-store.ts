@@ -194,9 +194,12 @@ export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStor
           [input.herd, input.name, input.worktree, input.branch ?? null, input.tree ?? null, input.pane ?? null, input.agentSession ?? null, input.agentId ?? null, input.handle, input.status, input.disposable ? 1 : 0, now, now],
         );
       } else {
+        // job-release.ts tells a tree's own job by createdAt >= the tree's
+        // claimedAt, so a respawn into a fresh claim starts the clock again.
+        const createdAt = input.worktree === existing.worktree ? existing.createdAt : now;
         db.run(
-          "UPDATE herd_jobs SET worktree = ?, branch = ?, tree = ?, pane = ?, agentSession = ?, agentId = ?, handle = ?, status = ?, disposable = ?, updatedAt = ? WHERE herd = ? AND name = ?",
-          [input.worktree, input.branch !== undefined ? input.branch : existing.branch, input.tree !== undefined ? input.tree : existing.tree, input.pane !== undefined ? input.pane : existing.pane, input.agentSession !== undefined ? input.agentSession : existing.agentSession, input.agentId !== undefined ? input.agentId : existing.agentId, input.handle, input.status, input.disposable === undefined ? existing.disposable : (input.disposable ? 1 : 0), now, input.herd, input.name],
+          "UPDATE herd_jobs SET worktree = ?, branch = ?, tree = ?, pane = ?, agentSession = ?, agentId = ?, handle = ?, status = ?, disposable = ?, createdAt = ?, updatedAt = ? WHERE herd = ? AND name = ?",
+          [input.worktree, input.branch !== undefined ? input.branch : existing.branch, input.tree !== undefined ? input.tree : existing.tree, input.pane !== undefined ? input.pane : existing.pane, input.agentSession !== undefined ? input.agentSession : existing.agentSession, input.agentId !== undefined ? input.agentId : existing.agentId, input.handle, input.status, input.disposable === undefined ? existing.disposable : (input.disposable ? 1 : 0), createdAt, now, input.herd, input.name],
         );
       }
       return toJob(getJobStmt.get(input.herd, input.name) as JobColumns);

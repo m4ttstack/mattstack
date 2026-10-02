@@ -457,4 +457,29 @@ describe("triage action verbs", () => {
     stuck("papa");
     expect(await handlers["worktree:stop-holders"]({ repoName, tree: "papa" })).toEqual({ ok: false, error: "not-held" });
   });
+
+  test("release frees a herd-held job tree for the next pass and clears its stale hold", async () => {
+    const rec = stuck("quebec");
+    saveRegistry(repoName, loadRegistry(repoName).map((t) =>
+      t.path === rec.path ? { ...t, disposal: "job" as const, owner: "herd:h1", heldReason: "herd h1 is active" } : t));
+    let kicked = 0;
+    handlers = buildHandlers(entries, liveRuns, liveCwds, {
+      jobTreeHold: (r) => (r.releasedAt ? null : "herd h1 is active"),
+      kick: () => { kicked++; },
+    });
+    const before = await rowFor("quebec");
+    expect([before.group, before.actions[0], before.hold.kind]).toEqual(["waiting", "release", "herd"]);
+
+    expect(await handlers["worktree:release"]({ repoName, tree: "quebec" })).toEqual({ ok: true, data: { tree: "quebec" } });
+    const after = loadRegistry(repoName).find((t) => t.name === "quebec")!;
+    expect(after.releasedAt).toBeString();
+    expect(after.heldReason).toBeUndefined();
+    expect(after.disposal).toBe("job");
+    expect(kicked).toBe(1);
+  });
+
+  test("release refuses a tree no herd is holding", async () => {
+    stuck("romeo");
+    expect(await handlers["worktree:release"]({ repoName, tree: "romeo" })).toEqual({ ok: false, error: "not-held" });
+  });
 });
