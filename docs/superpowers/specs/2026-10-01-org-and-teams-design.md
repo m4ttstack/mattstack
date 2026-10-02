@@ -446,7 +446,49 @@ Then the existing update-safe steps run. `skills.materialize` no longer seeds
 
 `requiresTeam` on board and boxscore keeps meaning "this Mac has an org"
 (`deck.managed` keys on the clone). A member on no team keeps both apps on,
-with the "no pack" pill and the `team.none` row.
+with the "no pack" pill and the `team.none` row. The Apps pane's "Needs a
+team" caption keys on `team status` reporting `solo` (no clone), which keeps
+its meaning.
+
+### Restore on a new Mac
+
+The wizard's restore card replays a member's clones and packs from their home
+repo. The machine-local record (`createdByRt`, `joinedByRt`) is not part of
+the home repo, so today a restored creator loses it. Under this design the
+role comes from the roster and `forgeUsername`, and `team.identity` runs in
+the full apply as well as the update run, so a restored Mac gets its admin,
+owner or member role back with no extra step.
+
+### A failed join check
+
+On a fresh Mac the forge token is connected on the checklist, after the team
+screen, so the login check cannot run during the team screen's dry run. A
+mismatch surfaces at Install as a failed `team.join` step, whose message
+names both logins and the fix: "This invite is for <x>; you're signed in as
+<y>. Ask for an invite for <y>, or connect <x>'s token."
+
+### The Mac app's own surfaces
+
+The wizard, the checklist, Done, Setup status, the Apps pane, the
+member-joined alert and the menu bar need no change. Settings › Team does,
+since it was written for one team per repo (`Sources/Settings/TeamPane.swift`,
+`Sources-core/Settings/TeamSettingsModel.swift`):
+
+- It decodes the new `team status --json` fields `role`, `activeTeam` and
+  `teams` as optionals, so an older rt keeps working with a newer app and the
+  reverse.
+- The Team section shows the org name and a "Your team" row. When the roster
+  lists the member on more than one team, that row is a picker that runs
+  `rt team use <team>` and reloads.
+- The Invite section shows only for an org admin. When the org has more than
+  one team, it carries a team picker passed as `--teams`; otherwise it sends
+  no `--teams` and rt uses the admin's active team.
+- The copy changes from "your team owner" and "This Mac holds one team
+  today" to "your org admin" and "This Mac holds one org".
+
+These Swift changes land as PR 5, after the conversion: an app without them
+still works, it only keeps showing Invite to members (who get rt's refusal)
+and offers no team picker.
 
 ## 9. Converting the existing team repo
 
@@ -510,6 +552,9 @@ once on the admin's Mac:
    setup rows.
 4. The conversion script and the migration that unsets `board.defaultPack`.
 
+PR 5, the Mac app's Settings › Team pane (section 8), follows the conversion
+on its own and needs a dev app rebuild.
+
 ## Testing
 
 - Resolver: a fixture org `acme` with teams `widgets` and `gadgets` on the
@@ -538,8 +583,13 @@ once on the admin's Mac:
   mismatched login and an old-version pointer; a member the admin adds to a
   second team keeps their first team; the update run orders the migration,
   `org.pull`, `team.identity` and `plugins.install` as section 8 says.
-- The Mac app's plan decoding: a `PlanModels` decode test with the new rows,
-  and the Done screen listing `team.none`.
+- Restore under an isolated HOME: a restored Mac with no machine-local record
+  gets its role back from the roster after `team.identity`.
+- The Mac app: a `PlanModels` decode test with the new rows, the Done screen
+  listing `team.none`, `TeamSettingsModel` decoding `team status --json` with
+  and without the new fields, and the Team pane rendered in the dev app in
+  light and dark for an admin with two teams, an owner and a member,
+  screenshotted and looked at.
 - The board and boxscore rendered in Fast Browser in both schemes, showing the
   active team's roster.
 - Docs: `docs/settings-architecture.md` (scopes, the `add` merge),
