@@ -119,9 +119,11 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
   const outside = changes.outsideScope.map(file => file.path);
 
   /**
-   * A confirm runs its write only on the changes it listed: rt acts on
-   * whatever is pending when it starts, and the list came from a poll that
-   * can be seconds old and stayed fixed while the confirm was open.
+   * A confirm refuses its write when a fresh read of the pack differs from
+   * the list it showed, since that list came from a poll that can be seconds
+   * old and stayed fixed while the confirm was open. rt then reads the pack
+   * again on its own and acts on whatever is pending when it starts, so an
+   * edit landing between this check and that read is not caught here.
    */
   const confirmed =
     (

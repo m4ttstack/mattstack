@@ -12,8 +12,12 @@ export type PendingChange = {
 const BINDINGS_FILE = 'pack/skills.jsonc';
 const SURFACE_FILES = new Set(['pack/surface.jsonc', 'surface.jsonc']);
 /** rt compiles a public skill under `skills/<name>` and an internal one
-    under `attachments/<name>`, so a surface change moves it between them. */
-const OUTPUT_ROOTS = ['skills', 'attachments'];
+    under `attachments/<name>`; a compile empties and rewrites that
+    directory, and removes the compiled copy on the other side. */
+const OTHER_SIDE: Record<string, string> = {
+  skills: 'attachments',
+  attachments: 'skills',
+};
 
 const FILE_STATUS: Record<string, string> = {
   M: 'edited',
@@ -28,55 +32,68 @@ const fillName = (binding: string | null) =>
 const dirOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
 
 /**
- * The compiled output directories, pack-relative, that the reported changes
- * rebuild. A binding change rebuilds the skill its binder belongs to. A
- * surface change moves its skill between its two output directories and
- * rebuilds every skill that links to it by path. Empty until the
- * composition has loaded, so nothing is hidden on a guess.
+ * The compiled output, pack-relative, that the reported changes rebuild:
+ * `rebuilt` directories hold only compiled files, and in `removed`
+ * directories only deletions are compiled output going away.
+ *
+ * A binding change rebuilds the skill its binder belongs to. A surface
+ * change rebuilds every skill that links to the moved one by path, and,
+ * when the moved skill is itself compiled, writes its output on the new
+ * side and removes it from the old. A hand-authored skill is moved as
+ * source, so none of its files count. Empty until the composition has
+ * loaded, so nothing is hidden on a guess.
  */
-function rebuiltDirsOf(
+function compiledOutputOf(
   changes: SkillsChanges,
   composition: SkillsComposition | undefined
-): string[] {
-  if (!composition) return [];
+): { rebuilt: string[]; removed: string[] } {
+  if (!composition) return { rebuilt: [], removed: [] };
   const root = `${composition.packDir}/`;
-  const targets = composition.targets ?? [];
-  const rebuilt = new Set<string>();
-  const dirs: string[] = [];
+  const targets = (composition.targets ?? []).filter(target =>
+    target.artifactPath.startsWith(root)
+  );
+  const outputOf = (target: (typeof targets)[number]) =>
+    dirOf(target.artifactPath.slice(root.length));
+  const names = new Set<string>();
+  const removed: string[] = [];
 
   for (const change of changes.bindings)
     for (const binder of composition.binders ?? [])
       if (binder.ref === change.engineRef)
-        rebuilt.add(binder.verb ?? suffixOf(binder.ref));
+        names.add(binder.verb ?? suffixOf(binder.ref));
 
   for (const change of changes.surface) {
-    for (const outputRoot of OUTPUT_ROOTS)
-      dirs.push(`${outputRoot}/${change.skill}`);
     for (const target of targets)
       if (
         target.placeholders.some(
           p => p.kind === 'verb.path' && p.arg === change.skill
         )
       )
-        rebuilt.add(target.name);
+        names.add(target.name);
+    const moved = targets.find(target => target.name === change.skill);
+    if (!moved) continue;
+    names.add(moved.name);
+    const [side] = outputOf(moved).split('/');
+    const other = side ? OTHER_SIDE[side] : undefined;
+    if (other) removed.push(`${other}/${moved.name}`);
   }
 
-  for (const target of targets)
-    if (rebuilt.has(target.name) && target.artifactPath.startsWith(root))
-      dirs.push(dirOf(target.artifactPath.slice(root.length)));
-
-  return dirs;
+  return {
+    rebuilt: targets.filter(target => names.has(target.name)).map(outputOf),
+    removed,
+  };
 }
 
 /**
  * What the pack would share on a sync, as a person reads it: each binding
  * and surface change by the skill it changes, then every other pending file
  * in the pack by its path. A file is left out only when a reported change
- * accounts for it: the bindings or surface file it was read from, or the
- * compiled output of a skill it rebuilt. rt reads only the bindings and the
- * public list from those two files, so another edit inside one of them
- * rides along with the change it sits beside rather than on a line of its
- * own.
+ * accounts for it: the bindings or surface file it was read from, a file in
+ * the output of a compiled skill it rebuilt, or the removal of a compiled
+ * skill's old output after a surface move. A hand-authored skill's moved and
+ * added files stay listed. rt reads only the bindings and the public list
+ * from those two files, so another edit inside one of them rides along with
+ * the change it sits beside rather than on a line of its own.
  */
 export function pendingChangesOf(
   changes: SkillsChanges,
@@ -94,16 +111,19 @@ export function pendingChangesOf(
       detail: `${change.from} → ${change.to}`,
     })),
   ];
-  const rebuilt = rebuiltDirsOf(changes, composition);
-  const explained = (path: string) =>
+  const { rebuilt, removed } = compiledOutputOf(changes, composition);
+  const within = (dirs: string[], path: string) =>
+    dirs.some(dir => path.startsWith(`${dir}/`));
+  const explained = ({ path, status }: SkillsChanges['files'][number]) =>
     (changes.bindings.length > 0 && path === BINDINGS_FILE) ||
     (changes.surface.length > 0 && SURFACE_FILES.has(path)) ||
-    rebuilt.some(dir => path.startsWith(`${dir}/`));
+    within(rebuilt, path) ||
+    (status === 'D' && within(removed, path));
 
   return [
     ...named,
     ...changes.files
-      .filter(file => !explained(file.path))
+      .filter(file => !explained(file))
       .map(file => ({
         key: `file:${file.path}`,
         name: file.path,

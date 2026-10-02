@@ -262,15 +262,15 @@ export function useSkillSource(pack: string | null, path: string | null) {
   });
 }
 
-/** Feeds the unsynced-changes banner. A failed poll means "unknown", so the
-    hook never suspends, never retries (the next poll is 15s away) and never
-    toasts: callers read `data` and treat `isError` as "show nothing". The
-    answer is what is on disk right now, hence the focus refetch. */
 async function readPendingChanges(pack: string): Promise<SkillsChanges> {
   const res = await client.api.skills.changes.$get({ query: { pack } });
   return readOrThrow<SkillsChanges>(res, 'skills changes');
 }
 
+/** Feeds the unsynced-changes banner. A failed poll means "unknown", so the
+    hook never suspends, never retries (the next poll is 15s away) and never
+    toasts: callers read `data` and treat `isError` as "show nothing". The
+    answer is what is on disk right now, hence the focus refetch. */
 export function usePendingChanges(pack: string | null) {
   return useQuery({
     queryKey: ['skills', 'changes', pack],

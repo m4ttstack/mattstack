@@ -12,6 +12,21 @@ const rebind = (extra: SkillsChanges['files'] = []): SkillsChanges => {
   return { ...changes, files: [...changes.files, ...extra] };
 };
 
+/** The composition once `skill` compiles internal, as rt reports it after
+    the move. */
+function movedInternal(skill: string) {
+  const moved = designFixture('composition');
+  moved.targets = moved.targets!.map(target =>
+    target.name === skill
+      ? {
+          ...target,
+          artifactPath: `/fixture/packs/acme/attachments/${skill}/SKILL.md`,
+        }
+      : target
+  );
+  return moved;
+}
+
 const names = (changes: SkillsChanges, withComposition = true) =>
   pendingChangesOf(changes, withComposition ? composition : undefined).map(
     change => change.name
@@ -40,7 +55,7 @@ describe('pendingChangesOf', () => {
     ).toEqual(['plan', 'attachments/plan-policy-strict/SKILL.md']);
   });
 
-  it("hides a surface change's file and its skill's two output directories", () => {
+  it("hides a compiled skill's surface move: its file, its new output, and its old output's removal", () => {
     const changes: SkillsChanges = {
       ...designFixture('changes.clean'),
       dirty: true,
@@ -49,10 +64,44 @@ describe('pendingChangesOf', () => {
         { path: 'pack/surface.jsonc', status: 'M' },
         { path: 'skills/review/SKILL.md', status: 'D' },
         { path: 'attachments/review/SKILL.md', status: '??' },
+        { path: 'skills/review/references/notes.md', status: '??' },
         { path: 'skills/work/SKILL.md', status: 'M' },
       ],
     };
-    expect(names(changes)).toEqual(['review', 'skills/work/SKILL.md']);
+    expect(
+      pendingChangesOf(changes, movedInternal('review')).map(c => c.name)
+    ).toEqual([
+      'review',
+      'skills/review/references/notes.md',
+      'skills/work/SKILL.md',
+    ]);
+  });
+
+  it("lists every file of a hand-authored skill's surface move, which rt moves as source", () => {
+    const changes: SkillsChanges = {
+      ...designFixture('changes.clean'),
+      dirty: true,
+      surface: [{ skill: 'house-style', from: 'public', to: 'internal' }],
+      files: [
+        { path: 'pack/surface.jsonc', status: 'M' },
+        {
+          path: 'attachments/house-style/SKILL.md',
+          status: 'R',
+          from: 'skills/house-style/SKILL.md',
+        },
+        { path: 'attachments/house-style/references/x.md', status: '??' },
+      ],
+    };
+    expect(
+      pendingChangesOf(changes, composition).map(c => [c.name, c.detail])
+    ).toEqual([
+      ['house-style', 'public → internal'],
+      [
+        'attachments/house-style/SKILL.md',
+        'renamed from skills/house-style/SKILL.md',
+      ],
+      ['attachments/house-style/references/x.md', 'added'],
+    ]);
   });
 
   it('hides the output of a skill that links to the moved skill by path', () => {
