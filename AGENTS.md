@@ -602,26 +602,30 @@ the `rt-chat` and gate skills under `skills/`.
 
 ## Switchboard and `rt team join`
 
-The switchboard is the only service a board token is ever sent to, and only
-the team-declared URL (`board.switchboardUrl`, https only) is trusted: a URL
-that arrives inside an invite alone is never peered with. `rt team join`
-stores the invite-sealed board token under the rt secrets scope and writes
-the user latch `rt.integrations.switchboardUrl` only when it is unset or
-invalid; a different confirmed URL is never overwritten, the join warns and
-points at `rt setup switchboard connect --host <url>` instead. The setup
-row `account.switchboard` reads that latch, probes `<url>/healthz` with no
-auth header (`/health` is not a route), and offers Confirm with the declared
-URL prefilled when the latch is empty or differs. Its peering half is the
-`account.board-peering` row, checked only once the switchboard is reachable
-(or when only another cloned team declares one): for every team this
-machine joined by invite with an https switchboard, it reads at check time
-whether the board's `.env` or rt's `switchboardToken` holds a token.
-Unpeered is `needs-you` with the re-invite remedy; it is never required or
-finish-gated (only the owner can fix it), but `verify` reports it, so `rt
-setup update` notifies. Change any of these three (join, latch, rows)
-together or not at all; `lib/team/join.ts`, `lib/team/board-token.ts`,
-`lib/setup/validators/accounts.ts` and `lib/setup/validators/access.ts` are
-the seams, and RT-260 is the incident that made this a rule.
+The switchboard URL is a built-in constant, `SWITCHBOARD_URL` in
+`packages/rt-client/src/switchboard.ts`, read only through `switchboardUrl()`.
+No setting holds it and no setup row asks for it; the hidden
+`RT_SWITCHBOARD_URL` override (https, or http to loopback, never written or
+shown) exists for local relay work and tests. A board token is only ever sent
+to `switchboardUrl()`. `rt team invite` mints the invitee's board token there
+when this Mac holds the switchboard admin token and seals only the token into
+the invite; `rt team join` stores it under the rt secrets scope, writes no URL
+setting, and refuses a pointer from an older rt whose URL is not
+`switchboardUrl()`. The board refuses a pasted invite on any other origin.
+The `account.board-peering` row applies on every Mac in a team, created or
+joined: `needs-you` with the re-invite remedy when neither the board's `.env`
+nor rt's `switchboardToken` holds a token, `error` with a re-check when
+`<url>/healthz` (no auth header; `/health` is not a route) does not answer
+200, `ready` otherwise. It is never required or finish-gated (only the owner
+can fix it), but `verify` reports it, so `rt setup update` notifies. The
+stored copies older rt wrote (`board.switchboardUrl`,
+`rt.integrations.switchboardUrl`, the board's `config.json` `switchboard.url`)
+are retired keys deleted by the `2026-10-02-retire-switchboard-url`
+migration, and `lib/__tests__/no-switchboard-url-setting.test.ts` fails any
+code that names one. Change invite, join and the row together or not at all;
+`lib/team/invite.ts`, `lib/team/join.ts`, `lib/team/board-token.ts` and
+`lib/setup/validators/accounts.ts` are the seams, and RT-260 is the incident
+that made this a rule.
 
 ## Writing-style presets
 

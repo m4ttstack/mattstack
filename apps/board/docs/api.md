@@ -27,7 +27,7 @@ and templates, `staleAfterDays`, the fetch and sync timestamps and any
 `fetchError`, and the sync-scope fields the coverage banner renders. Each MR
 may carry `review`, `respond`, `doctor`, `draft`, `slack`, and peer state.
 `local` reflects the locality gate. `canInvite` is true when the request is
-local and this board holds both a switchboard URL and an admin secret.
+local and this board holds the switchboard admin secret.
 `peering` is `"ok"` or `"unauthorized"` for a peered board, and `null` when the
 board is not peering at all.
 
@@ -67,7 +67,7 @@ board consumes the bus journal by cursor; see `docs/agent-actions.md`.
 
 | endpoint            | body                                                                                                                                                                                                                                                                                                     |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /nudge`       | `{ mrUrl, iid, reviewer }`, asking a peer's board for a re-review on your own MR. `400` with no switchboard configured, `409` with a plain-text reason when the reviewer is not on the switchboard, or `{"ok":true,"queued":true}` when the relay is unreachable and the ask is queued for the next tick |
+| `POST /nudge`       | `{ mrUrl, iid, reviewer }`, asking a peer's board for a re-review on your own MR. `400` with body "this board is not peering", `409` with a plain-text reason when the reviewer is not on the switchboard, or `{"ok":true,"queued":true}` when the relay is unreachable and the ask is queued for the next tick |
 | `POST /peer/invite` | mint a one-paste invite. Operator-only: needs the admin token                                                                                                                                                                                                                                            |
 | `GET /peer/boards`  | list peered boards. Operator-only                                                                                                                                                                                                                                                                        |
 | `POST /peer/join`   | redeem an invite, persist the URL and token, and hot-start peering with no restart                                                                                                                                                                                                                       |

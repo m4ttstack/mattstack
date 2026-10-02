@@ -45,7 +45,6 @@ install, or seed the team store once and point everyone at it.
 | `defaultPack` | team pack a launch resolves its skill bindings with when its tab names no `pack`, e.g. `widgets`. Read from the `board.defaultPack` user setting, which `rt setup` seeds with the team's first pack. Empty means launches use the generic skills |
 | `claudeCommand` | verbatim override for the command that starts Claude in every pane, with the prompt or resume flags appended after it. Normally unset: the board composes this from the `board.agent.*` settings. See below |
 | `slack` | review channel, post templates, sweep interval, and signal emoji. See [Slack integration](slack.md) |
-| `switchboard` | `{ "url": "..." }` for peer boards. See [peer boards](peer-boards.md) |
 | `triage` | reviewer-side automation block. See [agent actions](agent-actions.md#reviewer-side-automation) |
 | `tabs` | board tabs, in display order. See below |
 

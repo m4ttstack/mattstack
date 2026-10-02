@@ -47,12 +47,9 @@ and publishes nothing to peers.
 
 `bun run setup` prompts once for a board invite. Paste the whole link your
 operator gave you (`.../invite/<code>`) and setup redeems it, writing the
-switchboard URL to `board.switchboardUrl` and the token it gets back to `.env`
-as `SWITCHBOARD_TOKEN`. Blank input keeps whatever is already configured.
-
-A bare URL with no `/invite/<code>` falls back to a manual flow that prompts
-for a board token separately, for the rare case someone hands you a token out
-of band instead of a link.
+token it gets back to `.env` as `SWITCHBOARD_TOKEN`. Blank input keeps
+whatever is already configured. The board only accepts an invite from
+mattstack's own switchboard; an invite link on any other host is refused.
 
 Everything degrades cleanly when peer features are not set up: no badges, no
 nudge action, and `POST /nudge` returns `400`.
@@ -107,8 +104,7 @@ change is additive and older boards keep polling.
 To invite from the board's own UI instead of curl, put the admin token where
 the board (not the relay) reads it: the `SWITCHBOARD_ADMIN_TOKEN` env var, or
 `switchboardAdminToken` in the rt daemon's secrets (`rt secrets set rt
-switchboardAdminToken`) on the machine running your own board. You also need
-`switchboard.url` configured.
+switchboardAdminToken`) on the machine running your own board.
 
 With both set, open settings ("team members") locally and each roster member
 gets an **invite** button. Anyone already peered shows **peered** with a
@@ -156,9 +152,8 @@ curl -X POST $URL/invites \
 ```
 
 The invite link works everywhere: `bun run setup`'s prompt and the board's own
-"join peer boards". The raw `POST /boards` token only works with `bun run
-setup`'s manual fallback (paste the bare switchboard URL, then the token
-separately), since "join peer boards" only accepts a link.
+"join peer boards". A raw `POST /boards` token is for headless operator setups
+only: put it in `.env` as `SWITCHBOARD_TOKEN` yourself.
 
 ## Privacy
 
