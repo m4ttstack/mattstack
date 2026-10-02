@@ -317,8 +317,7 @@ export async function syncBranch(
       syncLog.cmd(pushArgs, cwd, 0, "", "");
     } catch (err: any) {
       syncLog.cmd(pushArgs, cwd, 1, "", String(err));
-      // The step already painted its failed line; the summary must still
-      // count this branch as failed, never as synced.
+      // The summary must still count this branch as failed, never as synced.
       pushFailure = { title: `Could not push ${branch}`, details: errText(err) };
     }
   }
