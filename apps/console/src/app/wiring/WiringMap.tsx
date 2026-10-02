@@ -154,7 +154,7 @@ export function WiringMap() {
       tabBar={{ title: 'Wiring', actions }}
     >
       {graphPack && (
-        <PageShell.Sidebar hideCollapseButton>
+        <PageShell.Sidebar hideCollapseButton bg="var(--tk-panel)">
           <GraphSidebar pack={graphPack} />
         </PageShell.Sidebar>
       )}

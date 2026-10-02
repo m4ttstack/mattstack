@@ -64,8 +64,7 @@ task, never left silent.
 - Select chevron and dropdown shadow: Mantine `Select`.
 - Badge and Alert padding: Mantine defaults.
 - SegmentedControl track: Mantine `SegmentedControl`.
-- Focus list box, surface and right border: the kit's `PageShell.Sidebar` draws them (216 wide with its border, on the sidebar surface), so the list root paints nothing. Its height follows console's one page-row height (`PAGE_ROW_HEIGHT`, 40px on every page) rather than the board's 44px Wiring bar, so the list is 4px taller and the bottom-pinned Unwired row sits 4px lower.
-- Focus list active row: the kit's `NavLink` light variant in `accent` (a solid tint step and its label colour), not the board's 10% accent wash and accent text.
+- Focus list box: `PageShell.Sidebar` paints the panel surface (`bg="var(--tk-panel)"`) and its right border around the list, so the list root itself paints nothing and is 215 wide inside the sidebar's 216. Its height follows console's one page-row height (`PAGE_ROW_HEIGHT`, 40px on every page) rather than the board's 44px Wiring bar, so the list is 4px taller and the bottom-pinned Unwired row sits 4px lower.
 - Unwired row rule: a Mantine `Divider` above the row, so the rule is its own element rather than the row's top border.
 - Needs attention switch: in the spec, missing from the boards. It sits above the Unwired rule, where it moves nothing the boards draw.
 

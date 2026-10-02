@@ -284,12 +284,28 @@ describe('Graph tab: the focus list', () => {
     renderAt('?tab=graph&focus=stage-plan');
     const list = await focusList();
 
-    await user.click(within(list).getByTestId('focus-pipeline:feature'));
-    // Past the fold's collapse, so a closing row would be gone by now.
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const pipeline = within(list).getByTestId('focus-pipeline:feature');
+    await user.click(pipeline);
 
-    expect(params().get('focus')).toBe('pipeline:feature');
+    await waitFor(() => expect(params().get('focus')).toBe('pipeline:feature'));
+    expect(pipeline).toHaveAttribute('data-expanded');
     expect(within(list).getByTestId('focus-stage-plan')).toBeInTheDocument();
+  });
+
+  it('draws rows in the wash tone and the switch in the contrast tone', async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&focus=shepherdr');
+    const list = await focusList();
+
+    expect(within(list).getByTestId('focus-shepherdr')).toHaveAttribute(
+      'data-variant',
+      'wash'
+    );
+    expect(
+      within(list)
+        .getByRole('switch', { name: 'Needs attention' })
+        .closest('[data-variant]')
+    ).toHaveAttribute('data-variant', 'contrast');
   });
 
   it('focuses an on-demand verb', async () => {
@@ -381,6 +397,9 @@ describe('Graph tab: the focus list', () => {
     expect(
       within(list).queryByTestId('focus-pipeline:feature')
     ).not.toBeInTheDocument();
+    expect(
+      within(list).getByRole('switch', { name: 'Needs attention' })
+    ).toBeChecked();
   });
 
   it('warns that no row can state its drift when check fails', async () => {

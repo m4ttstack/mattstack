@@ -24,6 +24,7 @@ import {
 import { useGraphFocus } from './useGraphFocus';
 
 const BODY = 'var(--tk-text-1)';
+const SECONDARY = 'var(--tk-text-2)';
 const MUTED = 'var(--tk-text-3)';
 
 const PIPELINE_NOTICE: Record<NonNullable<FocusGroups['empty']>, string> = {
@@ -73,17 +74,19 @@ function RowLabel({
   size,
   active,
   rest,
+  strong = false,
 }: {
   text: string;
   size: number;
   active: boolean;
   rest: string;
+  strong?: boolean;
 }) {
   return (
     <Text
       span
       fz={size}
-      fw={active ? 500 : 400}
+      fw={active || strong ? 500 : 400}
       c={active ? undefined : rest}
       data-parity="l"
     >
@@ -111,6 +114,7 @@ function ItemRow({
     <NavLink
       component="button"
       type="button"
+      variant="wash"
       color="accent"
       active={active}
       label={
@@ -147,17 +151,23 @@ function StepRow({
     <NavLink
       component="button"
       type="button"
+      variant="wash"
       color="accent"
       active={active}
       label={
-        <RowLabel text={item.label} size={12} active={active} rest={MUTED} />
+        <RowLabel
+          text={item.label}
+          size={12}
+          active={active}
+          rest={SECONDARY}
+        />
       }
       leftSection={
         <Text
           span
           fz={10}
           lh="normal"
-          c={active ? undefined : MUTED}
+          c={active ? undefined : SECONDARY}
           className={classes.stepNumber}
           data-parity="n"
         >
@@ -194,10 +204,17 @@ function PipelineRow({
     <NavLink
       component="button"
       type="button"
+      variant="wash"
       color="accent"
       active={active}
       label={
-        <RowLabel text={item.label} size={13} active={active} rest={BODY} />
+        <RowLabel
+          text={item.label}
+          size={13}
+          active={active}
+          rest={BODY}
+          strong
+        />
       }
       leftSection={
         <Icon
@@ -261,7 +278,7 @@ function UnwiredRow({
         component="button"
         type="button"
         label={
-          <RowLabel text="Unwired" size={12} active={false} rest={MUTED} />
+          <RowLabel text="Unwired" size={12} active={false} rest={SECONDARY} />
         }
         leftSection={
           <Icon name="eyeOff" size={15} color={MUTED} data-parity="i" />
@@ -382,17 +399,18 @@ export function GraphSidebar({ pack }: { pack: string }) {
     useGraphFocus(pack);
   const onFocus = (key: string) => patch({ focus: key });
   const shown = groups && url.attention ? onlyAttention(groups) : groups;
-  // The filter reads drift from check, so it waits for check to answer.
-  const loading = !shown || (url.attention && checkQuery.isPending);
+  // The filter reads drift from check, so its rows wait for check to answer.
+  const ready =
+    shown && !(url.attention && checkQuery.isPending) ? shown : null;
 
-  return (
-    <Stack
-      gap={2}
-      className={classes.list}
-      data-parity="Focus list"
-      data-testid="focus-list"
-    >
-      {compositionQuery.isError ? (
+  if (compositionQuery.isError) {
+    return (
+      <Stack
+        gap={2}
+        className={classes.list}
+        data-parity="Focus list"
+        data-testid="focus-list"
+      >
         <Alert
           variant="light"
           color="bad"
@@ -409,53 +427,59 @@ export function GraphSidebar({ pack }: { pack: string }) {
             </Button>
           </Stack>
         </Alert>
-      ) : loading ? (
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack
+      gap={2}
+      className={classes.list}
+      data-parity="Focus list"
+      data-testid="focus-list"
+    >
+      {checkQuery.isError && (
+        <Alert
+          variant="light"
+          color="warn"
+          icon={<Icon name="warning" size={14} />}
+          data-testid="check-error"
+        >
+          <Text size="xs">
+            rt skills check failed, so no row below can state its drift:{' '}
+            {(checkQuery.error as Error).message}
+          </Text>
+        </Alert>
+      )}
+      {!ready ? (
         <Stack gap={2} data-testid="focus-list-loading">
           {[0, 1, 2, 3, 4, 5].map(i => (
             <Skeleton key={i} height={32} />
           ))}
         </Stack>
+      ) : url.attention && isEmpty(ready) ? (
+        <AttentionEmpty check={checkQuery.data} />
       ) : (
-        <>
-          {checkQuery.isError && (
-            <Alert
-              variant="light"
-              color="warn"
-              icon={<Icon name="warning" size={14} />}
-              data-testid="check-error"
-            >
-              <Text size="xs">
-                rt skills check failed, so no row below can state its drift:{' '}
-                {(checkQuery.error as Error).message}
-              </Text>
-            </Alert>
-          )}
-          {url.attention && isEmpty(shown) ? (
-            <AttentionEmpty check={checkQuery.data} />
-          ) : (
-            <FocusGroupsList
-              groups={shown}
-              activeKey={focused?.key ?? null}
-              onFocus={onFocus}
-            />
-          )}
-          <Box className={classes.spacer} />
-          <Switch
-            label="Needs attention"
-            checked={url.attention}
-            onChange={event =>
-              patch({ attention: event.currentTarget.checked })
-            }
-            classNames={{ root: classes.toggle }}
-          />
-          {shown.unwired.count > 0 && (
-            <UnwiredRow
-              unwired={shown.unwired}
-              activeKey={focused?.key ?? null}
-              onFocus={onFocus}
-            />
-          )}
-        </>
+        <FocusGroupsList
+          groups={ready}
+          activeKey={focused?.key ?? null}
+          onFocus={onFocus}
+        />
+      )}
+      <Box className={classes.spacer} />
+      <Switch
+        variant="contrast"
+        label="Needs attention"
+        checked={url.attention}
+        onChange={event => patch({ attention: event.currentTarget.checked })}
+        classNames={{ root: classes.toggle }}
+      />
+      {ready && ready.unwired.count > 0 && (
+        <UnwiredRow
+          unwired={ready.unwired}
+          activeKey={focused?.key ?? null}
+          onFocus={onFocus}
+        />
       )}
     </Stack>
   );
