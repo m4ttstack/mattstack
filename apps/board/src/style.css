@@ -2943,11 +2943,11 @@ a.tui-id-card-ref:focus-visible {
 }
 
 /* ── row action menu (right-click): what the ContextMenu recipe left behind ──
-   The menu's whole shell is `[data-part="contextmenu"]` now -- the fixed box,
-   the 200px measure, the 90ms entry animation, the measured viewport clamp,
-   the label/item/hint/separator parts and the item's hover/focus wash and
-   disabled dim all live in the kit. Three groups survive here, none of which a
-   menu shell could own:
+   The menu's whole shell lives in the kit -- the fixed positioner and its
+   viewport clamp, the popup (`[data-part="contextmenu"]`) with its 200px
+   measure and 90ms entry animation, the flyouts and the reaction row, every
+   part, and the item's hover/focus wash and disabled dim. Three groups survive
+   here, none of which a menu shell could own:
 
    1. NOTE MODE (`.tui-menu-noting`, `.tui-menu-note`, `.tui-menu-note-hint`).
       An application mode, not menu chrome: it knows about launch notes, the

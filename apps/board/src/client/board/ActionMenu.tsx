@@ -10,19 +10,27 @@ import {
   SlackLogo,
 } from './icons.tsx';
 import {
-  BULK_SECTION,
   type ActionGlyph,
-  type BulkSection,
   type Lane,
   type MenuEntry,
   type RunOpts,
+  type Section,
 } from './row-actions.ts';
 
-const SECTIONS: Array<[BulkSection, string]> = [
+const FLAT_SECTIONS: Array<[Section, string]> = [
   ['agent', 'agent actions'],
   ['gitlab', 'gitlab'],
   ['slack', 'slack'],
 ];
+
+const FLYOUTS: Array<[Section, string, ActionGlyph]> = [
+  ['sessions', 'sessions and reports', { kind: 'menu', name: 'file' }],
+  ['gitlab', 'gitlab', { kind: 'menu', name: 'branch' }],
+  ['slack', 'slack', { kind: 'slack' }],
+  ['more', 'more', { kind: 'menu', name: 'note' }],
+];
+
+const isReaction = (e: MenuEntry) => /^(un)?react-/.test(e.key);
 
 function glyphNode(g: ActionGlyph): React.ReactNode {
   switch (g.kind) {
@@ -74,14 +82,16 @@ function entryLabel(e: MenuEntry, text: string) {
 
 /** Context menu anchored at the cursor. The kit's ContextMenu recipe owns
     the shell (box, viewport clamp, dismissals); this draws a list of entries
-    in the board's three sections, plus the stages any entry can ask for: a
-    second-click confirm, a picker, and the alt-click note box. */
+    as a short top level (reactions, agent actions) with the rest in flyouts,
+    or every section inline when `flat`, plus the stages any entry can ask
+    for: a second-click confirm, a picker, and the alt-click note box. */
 function ActionMenu({
   x,
   y,
   subject,
   entries,
   empty,
+  flat,
   onRun,
   onClose,
 }: {
@@ -92,6 +102,8 @@ function ActionMenu({
   entries: MenuEntry[];
   /** Shown in place of the sections when there are no entries. */
   empty?: string;
+  /** Render every section inline under its heading, as the bulk menu does. */
+  flat?: boolean;
   onRun: (key: string, opts: RunOpts) => void | Promise<unknown>;
   onClose: () => void;
 }) {
@@ -129,9 +141,9 @@ function ActionMenu({
   if (picking?.pick) {
     const pick = picking.pick;
     return (
-      // Each stage is a distinct keyed ContextMenu: the recipe's viewport
-      // clamp is a layout effect keyed on [x, y] only, so a new key is what
-      // re-runs it against this stage's own size.
+      // Each stage is a distinct keyed ContextMenu: the recipe takes its
+      // initial focus once per mount, so only a new key moves focus into the
+      // new stage.
       <ContextMenu
         key="asking"
         x={x}
@@ -163,9 +175,8 @@ function ActionMenu({
         y={y}
         ariaLabel={`note for ${subject}`}
         onClose={onClose}
-        // The recipe focuses this once the clamp has committed and the menu
-        // has stopped being `visibility: hidden`; `autoFocus`, or a focus call
-        // from an effect here, would run while hidden and silently no-op.
+        // Without it the recipe focuses the menu itself on mount, taking focus
+        // back from an `autoFocus` on the textarea.
         initialFocusRef={noteRef}
         className="tui-menu-noting"
       >
@@ -241,7 +252,20 @@ function ActionMenu({
       <span className="tui-menu-check">✓</span>
     ) : undefined;
 
-  return (
+  const renderItem = (e: MenuEntry) => (
+    <ContextMenu.Item
+      key={e.key}
+      label={entryLabel(
+        e,
+        e.confirm && armed === armKey(e) ? e.confirm : e.label
+      )}
+      hint={hintOf(e)}
+      trailing={trailingOf(e)}
+      disabled={!!e.blocked || pending.includes(e.key)}
+      onClick={click(e)}
+    />
+  );
+  const shell = (body: React.ReactNode) => (
     <ContextMenu
       key="items"
       x={x}
@@ -255,30 +279,82 @@ function ActionMenu({
           {emptyNote}
         </div>
       )}
-      {SECTIONS.map(([section, title]) => {
-        const items = entries.filter(e => BULK_SECTION[e.section] === section);
+      {body}
+    </ContextMenu>
+  );
+
+  if (flat)
+    return shell(
+      FLAT_SECTIONS.map(([section, title]) => {
+        const items = entries.filter(e => e.section === section);
         if (!items.length) return null;
         return (
           <Fragment key={section}>
             {section !== 'agent' && <ContextMenu.Separator />}
             <ContextMenu.Label>{title}</ContextMenu.Label>
-            {items.map(e => (
-              <ContextMenu.Item
-                key={e.key}
-                label={entryLabel(
-                  e,
-                  e.confirm && armed === armKey(e) ? e.confirm : e.label
-                )}
-                hint={hintOf(e)}
-                trailing={trailingOf(e)}
-                disabled={!!e.blocked || pending.includes(e.key)}
-                onClick={click(e)}
-              />
-            ))}
+            {items.map(renderItem)}
           </Fragment>
         );
-      })}
-    </ContextMenu>
+      })
+    );
+
+  const top = entries.filter(e => e.section === 'top');
+  const reactions = top.filter(isReaction);
+  const agentItems = entries.filter(e => e.section === 'agent');
+  const flyouts = FLYOUTS.map(([section, title, glyph]) => ({
+    section,
+    title,
+    glyph,
+    items: entries.filter(e => e.section === section),
+  })).filter(f => f.items.length);
+
+  return shell(
+    <>
+      {reactions.length > 0 && (
+        <ContextMenu.Row aria-label="slack reactions">
+          {reactions.map(e => (
+            <ContextMenu.Item
+              key={e.key}
+              label={e.glyph ? glyphNode(e.glyph) : e.label}
+              aria-label={e.label}
+              title={e.label}
+              aria-pressed={!!e.marked}
+              trailing={
+                pending.includes(e.key) ? (
+                  <span className="tui-menu-spin" aria-label="working" />
+                ) : undefined
+              }
+              disabled={pending.includes(e.key)}
+              onClick={click(e)}
+            />
+          ))}
+        </ContextMenu.Row>
+      )}
+      {top.filter(e => !isReaction(e)).map(renderItem)}
+      {agentItems.length > 0 && (
+        <>
+          {top.length > 0 && <ContextMenu.Separator />}
+          <ContextMenu.Label>agent actions</ContextMenu.Label>
+          {agentItems.map(renderItem)}
+        </>
+      )}
+      {flyouts.length > 0 && (top.length > 0 || agentItems.length > 0) && (
+        <ContextMenu.Separator />
+      )}
+      {flyouts.map(f =>
+        f.items.length === 1 ? (
+          renderItem(f.items[0]!)
+        ) : (
+          <ContextMenu.Sub
+            key={f.section}
+            label={iconLabel(glyphNode(f.glyph), f.title)}
+            ariaLabel={`${f.title} for ${subject}`}
+          >
+            {f.items.map(renderItem)}
+          </ContextMenu.Sub>
+        )
+      )}
+    </>
   );
 }
 

@@ -172,8 +172,21 @@ const menu = () => document.querySelector('[data-part="contextmenu"]');
 const items = () => [
   ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
 ];
+const flyoutRows = () => [
+  ...document.querySelectorAll<HTMLElement>(
+    '[data-part="contextmenu-sub"] > [aria-haspopup="menu"]'
+  ),
+];
+/** Clicks the item containing `text`. A single-row menu keeps most rows in
+    flyouts, so each is opened in turn until the item shows. */
 async function click(text: string) {
-  const hit = items().find(el => el.textContent?.includes(text));
+  const find = () => items().find(el => el.textContent?.includes(text));
+  let hit = find();
+  for (const row of flyoutRows()) {
+    if (hit) break;
+    await React.act(async () => row.click());
+    hit = find();
+  }
   if (!hit)
     throw new Error(
       `no item "${text}" in ${items()

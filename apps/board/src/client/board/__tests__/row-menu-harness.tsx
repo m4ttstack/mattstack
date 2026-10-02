@@ -7,7 +7,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { afterAll, afterEach, beforeAll } from 'bun:test';
 
 import type { BoardMRWithReview } from '../../types.ts';
-import type { ActionRequest, RunOpts } from '../row-actions.ts';
+import type { ActionRequest, MenuEntry, RunOpts } from '../row-actions.ts';
 import { actionEnvOf, type MenuEnv } from './menu-fixtures.ts';
 
 export interface Effect {
@@ -24,6 +24,7 @@ export const harness: { effects: Effect[]; closed: boolean } = {
 let React: typeof import('react');
 let createRoot: typeof import('react-dom/client').createRoot;
 let RowMenu: typeof import('../RowMenu.tsx').RowMenu;
+let ActionMenu: typeof import('../ActionMenu.tsx').ActionMenu;
 let root: ReturnType<typeof import('react-dom/client').createRoot> | null =
   null;
 let container: HTMLDivElement | null = null;
@@ -37,6 +38,7 @@ export function useMenuHarness(): void {
     React = await import('react');
     ({ createRoot } = await import('react-dom/client'));
     ({ RowMenu } = await import('../RowMenu.tsx'));
+    ({ ActionMenu } = await import('../ActionMenu.tsx'));
   });
   afterEach(async () => {
     await closeMenu();
@@ -109,6 +111,33 @@ export async function openMenu(
   env: MenuEnv,
   opts: { reactionsReply?: string[] | null } = {}
 ): Promise<void> {
+  await mount(renderRowMenu(mr, env, opts.reactionsReply ?? null));
+}
+
+/** The shared menu on its own, as the bulk menu draws it: effects are the
+    bare entry keys. */
+export async function openActionMenu(
+  entries: MenuEntry[],
+  opts: { flat?: boolean } = {}
+): Promise<void> {
+  await mount(
+    <ActionMenu
+      x={10}
+      y={10}
+      subject="2 selected"
+      entries={entries}
+      flat={opts.flat}
+      onRun={key => {
+        harness.effects.push({ effect: key, iid: 0 });
+      }}
+      onClose={() => {
+        harness.closed = true;
+      }}
+    />
+  );
+}
+
+async function mount(node: React.ReactNode): Promise<void> {
   await closeMenu();
   harness.effects = [];
   harness.closed = false;
@@ -118,7 +147,7 @@ export async function openMenu(
   container = el;
   root = r;
   await React.act(async () => {
-    r.render(renderRowMenu(mr, env, opts.reactionsReply ?? null));
+    r.render(node);
   });
 }
 
@@ -130,38 +159,121 @@ export async function closeMenu(): Promise<void> {
   container = null;
 }
 
-/** The open menu, top to bottom: `# label`, item text, `---` separator. */
+const ITEM = '[role="menuitem"]';
+const OPENER = '[aria-haspopup="menu"]';
+// Scoped to a Sub part: the kit's hidden root trigger is an opener too.
+const SUB_ROW = `[data-part="contextmenu-sub"] > ${OPENER}`;
+
+/** A reaction toggle shows only its emoji; its words are its aria-label. */
+function labelOf(el: Element): string {
+  return el.getAttribute('aria-label') ?? el.textContent ?? '';
+}
+
+function rootMenu(): Element | null {
+  return document.querySelector('[data-part="contextmenu"]');
+}
+
+function subRows(): HTMLElement[] {
+  return [...(rootMenu()?.querySelectorAll<HTMLElement>(SUB_ROW) ?? [])];
+}
+
+/** A flyout's panel is portalled next to the menu, not inside its Sub, so it
+    is found through the row's aria-controls. Null while closed. */
+function panelOf(row: HTMLElement): Element | null {
+  const id = row.getAttribute('aria-controls');
+  return row.getAttribute('aria-expanded') === 'true' && id
+    ? document.getElementById(id)
+    : null;
+}
+
+async function openRow(row: HTMLElement): Promise<Element | null> {
+  if (row.getAttribute('aria-expanded') !== 'true')
+    await React.act(async () => {
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+  return panelOf(row);
+}
+
+/** Opens the flyout whose row reads `title`. */
+export async function openSub(title: string): Promise<void> {
+  const row = subRows().find(el => labelOf(el) === title);
+  if (!row) throw new Error(`no flyout "${title}"`);
+  await openRow(row);
+}
+
+/** The open menu, top to bottom: `# label`, item text, `---` separator,
+    `[a | b]` for a row of toggles, `> title` for a flyout. */
 export function menuLines(): string[] {
-  const menu = document.querySelector('[data-part="contextmenu"]');
+  const menu = rootMenu();
   if (!menu) return [];
   return [...menu.children].map(el => {
     const part = el.getAttribute('data-part');
     if (part === 'contextmenu-label') return `# ${el.textContent}`;
     if (part === 'contextmenu-separator') return '---';
+    if (part === 'contextmenu-row')
+      return `[${[...el.querySelectorAll(ITEM)].map(labelOf).join(' | ')}]`;
+    if (part === 'contextmenu-sub')
+      return `> ${el.querySelector(OPENER)?.firstElementChild?.textContent ?? ''}`;
     if (el.tagName === 'TEXTAREA') return '[note box]';
     return el.textContent ?? '';
   });
 }
 
+/** Every item label on screen, open flyouts included. */
 export function itemTexts(): string[] {
-  return [...document.querySelectorAll('[role="menuitem"]')].map(
-    el => el.textContent ?? ''
-  );
+  return [...document.querySelectorAll(ITEM)].map(labelOf);
+}
+
+/** Every item label, flyout contents included, top to bottom. Opens each
+    flyout to read it. */
+export async function allItemLabels(): Promise<string[]> {
+  const menu = rootMenu();
+  if (!menu) return [];
+  const out: string[] = [];
+  for (const el of [...menu.children]) {
+    const part = el.getAttribute('data-part');
+    if (part === 'contextmenu-row')
+      out.push(...[...el.querySelectorAll(ITEM)].map(labelOf));
+    else if (part === 'contextmenu-sub') {
+      const panel = await openRow(el.querySelector<HTMLElement>(OPENER)!);
+      out.push(...[...(panel?.querySelectorAll(ITEM) ?? [])].map(labelOf));
+    } else if (el.matches(ITEM)) out.push(labelOf(el));
+  }
+  return out;
+}
+
+/** The item reading exactly `text`, else the first that contains it. The menu
+    is searched first, then each flyout in turn, opening it; the flyout that
+    holds the hit is left open. */
+async function locate(text: string): Promise<HTMLElement | undefined> {
+  const scopes: Array<() => Promise<Element | null>> = [
+    async () => rootMenu(),
+    ...subRows().map(row => () => openRow(row)),
+  ];
+  const matches = [
+    (el: Element) => labelOf(el) === text,
+    (el: Element) => labelOf(el).includes(text),
+  ];
+  for (const match of matches)
+    for (const scope of scopes) {
+      const hit = [
+        ...((await scope())?.querySelectorAll<HTMLElement>(
+          `${ITEM}:not(${OPENER})`
+        ) ?? []),
+      ].find(match);
+      if (hit) return hit;
+    }
+  return undefined;
 }
 
 export async function clickItem(
   text: string,
   init: MouseEventInit = {}
 ): Promise<void> {
-  const items = [
-    ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-  ];
-  const hit =
-    items.find(el => el.textContent === text) ??
-    items.find(el => el.textContent?.includes(text));
+  const hit = await locate(text);
   if (!hit) {
     throw new Error(
-      `no menu item "${text}" in: ${items.map(el => el.textContent).join(' | ')}`
+      `no menu item "${text}" in: ${(await allItemLabels()).join(' | ')}`
     );
   }
   await React.act(async () => {
@@ -202,7 +314,7 @@ export async function clickEach(
   env: MenuEnv
 ): Promise<string[]> {
   await openMenu(mr, env);
-  const labels = itemTexts();
+  const labels = await allItemLabels();
   const out: string[] = [];
   for (const label of labels) {
     await openMenu(mr, env);

@@ -1591,6 +1591,7 @@ export function Board() {
             subject={`${selectedMrs.length} selected`}
             entries={bulkEntries}
             empty={`nothing fits all ${selectedMrs.length}`}
+            flat
             onClose={() => setRowMenu(null)}
             onRun={(key, opts) => {
               const entry = bulkEntries.find(e => e.key === key);

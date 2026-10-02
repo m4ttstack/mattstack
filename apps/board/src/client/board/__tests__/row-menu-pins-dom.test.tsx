@@ -1,6 +1,6 @@
-/** Pins of the one-row menu as it stands before the shared action model:
-    what each MR state shows and what each click does. These must pass
-    unchanged while RowMenu moves onto ActionMenu. */
+/** Pins of the one-row menu: what each MR state shows at the top level, and
+    what each click does, flyout rows included. A row may move between the
+    top level and a flyout; a click row may never go missing. */
 import { expect, test } from 'bun:test';
 
 import {
@@ -31,38 +31,22 @@ test('own idle MR, local, slack thread not found, gitlab buttons up', async () =
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1418",
+      "no thread, find it again",
+      "---",
       "# agent actions",
       "review",
       "respond",
       "rebase locally",
-      "resume reviewno sessionblocked",
-      "resume responseno sessionblocked",
-      "view agent reviewno report yetblocked",
-      "view agent responseno report yetblocked",
-      "dismiss review linenothing to dismissblocked",
-      "dismiss respond linenothing to dismissblocked",
-      "dismiss doctor linenothing to dismissblocked",
-      "ask a reviewer's agent to re-reviewno peer reviewblocked",
-      "request review from…",
       "---",
-      "# gitlab",
-      "merge",
-      "rebase on target",
-      "set auto-merge",
-      "mark as draft",
-      "open in gitlab",
-      "---",
-      "# slack",
-      "no thread, find it again",
-      "open MR post in slackno threadblocked",
-      "post to slack",
-      "copy for slack",
-      "add a note",
-      "auto-doctor: ignore this MR",
+      "> sessions and reports",
+      "> gitlab",
+      "> slack",
+      "> more",
     ]
   `);
   expect(await clickEach(ownIdle, ownEnv)).toMatchInlineSnapshot(`
     [
+      "no thread, find it again → find-thread",
       "review → launch:review",
       "respond → launch:respond",
       "rebase locally → launch:rebase-local",
@@ -80,7 +64,6 @@ test('own idle MR, local, slack thread not found, gitlab buttons up', async () =
       "set auto-merge → mr:setAutoMerge",
       "mark as draft → draft:true",
       "open in gitlab → open:https://gitlab.example.com/acme/webapp/-/merge_requests/1418",
-      "no thread, find it again → find-thread",
       "open MR post in slackno threadblocked → (nothing) (stays open)",
       "post to slack → post-slack",
       "copy for slack → copy",
@@ -95,36 +78,29 @@ test("teammate's MR after my commented review, slack thread found", async () => 
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1419",
+      "[mark as looking | mark as commented | unmark approved]",
+      "---",
       "# agent actions",
       "re-review",
       "ask kim's agent to respond",
-      "resume review",
-      "view agent review",
-      "dismiss review linenothing to dismissblocked",
       "---",
-      "# gitlab",
+      "> sessions and reports",
       "open in gitlab",
-      "---",
-      "# slack",
-      "👀mark as looking",
-      "💬mark as commented",
-      "✅unmark approved✓",
-      "open MR post in slack",
-      "copy for slack",
+      "> slack",
       "add a note",
     ]
   `);
   expect(await clickEach(teammateReviewed, ownEnv)).toMatchInlineSnapshot(`
     [
+      "mark as looking → react:eyes:false (stays open)",
+      "mark as commented → react:speech_balloon:false (stays open)",
+      "unmark approved → react:white_check_mark:true (stays open)",
       "re-review → launch:re-review",
       "ask kim's agent to respond → ask:respond:kim",
       "resume review → launch:resume-review",
       "view agent review → view-report:review",
       "dismiss review linenothing to dismissblocked → (nothing) (stays open)",
       "open in gitlab → open:https://gitlab.example.com/acme/webapp/-/merge_requests/1419",
-      "👀mark as looking → react:eyes:false (stays open)",
-      "💬mark as commented → react:speech_balloon:false (stays open)",
-      "✅unmark approved✓ → react:white_check_mark:true (stays open)",
       "open MR post in slack → open:https://slack.example.com/archives/C1/p1",
       "copy for slack → copy",
       "add a note → note",
@@ -141,27 +117,11 @@ test('own MR with lanes running, a broken pipeline, a draft and a stack above it
       "focus review",
       "relaunch response",
       "call doctor",
-      "resume review",
-      "resume response",
-      "view agent reviewno report yetblocked",
-      "view agent responseno report yetblocked",
-      "dismiss review linenothing to dismissblocked",
-      "dismiss respond linenothing to dismissblocked",
-      "dismiss doctor linenothing to dismissblocked",
-      "ask a reviewer's agent to re-reviewno peer reviewblocked",
-      "request review from…",
       "---",
-      "# gitlab",
-      "mergedraftblocked",
-      "rebase on targetup to dateblocked",
-      "set auto-mergedraftblocked",
-      "mark ready",
-      "open in gitlab",
-      "---",
-      "# slack",
+      "> sessions and reports",
+      "> gitlab",
       "copy for slack",
-      "edit note",
-      "auto-doctor: ignore this stack",
+      "> more",
     ]
   `);
   expect(await clickEach(ownBusy, busyEnv)).toMatchInlineSnapshot(`
@@ -195,39 +155,23 @@ test('failed lanes, finished respond, conflicts and a peer review with comments'
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1422",
+      "find slack thread",
+      "---",
       "# agent actions",
       "review",
       "restart response",
       "call doctor",
       "rebase locally",
-      "resume reviewno sessionblocked",
-      "resume response",
-      "view agent reviewno report yetblocked",
-      "view agent responseno report yetblocked",
-      "dismiss review line",
-      "dismiss respond linenothing to dismissblocked",
-      "dismiss doctor line",
-      "ask kim's agent to re-review",
-      "request review from…",
       "---",
-      "# gitlab",
-      "mergenot mergeable yetblocked",
-      "rebase on targetup to dateblocked",
-      "set auto-mergenot mergeable yetblocked",
-      "mark as draft",
-      "open in gitlab",
-      "---",
-      "# slack",
-      "find slack thread",
-      "open MR post in slackno threadblocked",
-      "post to slack",
-      "copy for slack",
-      "add a note",
-      "re-enable auto-doctor",
+      "> sessions and reports",
+      "> gitlab",
+      "> slack",
+      "> more",
     ]
   `);
   expect(await clickEach(failedLanes, failedEnv)).toMatchInlineSnapshot(`
     [
+      "find slack thread → find-thread",
       "review → launch:review",
       "restart response → launch:respond",
       "call doctor → launch:doctor",
@@ -246,7 +190,6 @@ test('failed lanes, finished respond, conflicts and a peer review with comments'
       "set auto-mergenot mergeable yetblocked → (nothing) (stays open)",
       "mark as draft → draft:true",
       "open in gitlab → open:https://gitlab.example.com/acme/webapp/-/merge_requests/1422",
-      "find slack thread → find-thread",
       "open MR post in slackno threadblocked → (nothing) (stays open)",
       "post to slack → post-slack",
       "copy for slack → copy",
@@ -264,13 +207,9 @@ test('a remote board keeps only what needs no local server', async () => {
       "# !1418",
       "# agent actions",
       "agent actionsneed a local boardblocked",
-      "view agent reviewno report yetblocked",
-      "view agent responseno report yetblocked",
       "---",
-      "# gitlab",
+      "> sessions and reports",
       "open in gitlab",
-      "---",
-      "# slack",
       "copy for slack",
       "add a note",
     ]
@@ -324,7 +263,8 @@ test('a slack mark keeps the menu open and shows its check once the reply lands'
   await flush();
   expect(harness.effects).toEqual([{ effect: 'react:eyes:false', iid: 1419 }]);
   expect(harness.closed).toBe(false);
-  expect(
-    itemTexts().some(t => t.includes('unmark looking') && t.endsWith('✓'))
-  ).toBe(true);
+  const looking = [...document.querySelectorAll('[role="menuitem"]')].find(
+    el => el.getAttribute('aria-label') === 'unmark looking'
+  );
+  expect(looking?.getAttribute('aria-pressed')).toBe('true');
 });

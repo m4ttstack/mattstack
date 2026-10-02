@@ -2,10 +2,12 @@ import { expect, test } from 'bun:test';
 
 import { MR_URL, mrx } from './menu-fixtures.ts';
 import {
+  allItemLabels,
   clickItem,
   harness,
   itemTexts,
   openMenu,
+  openSub,
   useMenuHarness,
 } from './row-menu-harness.tsx';
 
@@ -45,6 +47,7 @@ test('engaged peers block the item with a reason', async () => {
     }),
     { self: 'pat', roster: ['pat', 'kim', 'jo'] }
   );
+  await openSub('sessions and reports');
   const ask = itemTexts().find(t => t.includes('request review from'));
   expect(ask).toContain('everyone engaged');
   await clickItem('request review from');
@@ -87,7 +90,9 @@ test('a known enrollment list narrows the picker to enrolled members', async () 
 
 test("the stand-down item is hidden on someone else's MR", async () => {
   await openMenu(mrx(1418), { self: 'kim', roster: ['pat'] });
-  expect(itemTexts().some(t => t.includes('auto-doctor'))).toBe(false);
+  expect((await allItemLabels()).some(t => t.includes('auto-doctor'))).toBe(
+    false
+  );
 });
 
 test('a standalone MR offers "ignore this MR" and fires on: true', async () => {
