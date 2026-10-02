@@ -691,7 +691,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     const newest = made.at(-1)!.sha;
     const base = made[0]!.sha;
     const it = made.length === 1 ? "it" : "them";
-    if (newest === null || base === null) return `rt could not tell which commit git made, so it left ${it} in place`;
+    if (newest === null || base === null) return `rt left ${it} in place`;
     if (made.length > 1) {
       // The move names the oldest commit's parent as the target, which would
       // rewind a commit someone else made between rt's two.
@@ -699,7 +699,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       if (parent.code !== 0) return `rt could not read what its newest commit sits on (${parent.stderr.trim()}), so it left them in place`;
       if (parent.stdout.trim() !== base) return "a commit rt did not make sits between them, so rt left them in place";
     }
-    const move = await deps.run("git", ["update-ref", "-m", `rt skills sync: undo ${pack.name} pending changes`, "HEAD", `${base}~1`, newest], { cwd: pack.dir });
+    const undone = made.map((c) => (c.subject === versionSubject ? `v${bumpAfter}` : "pending changes")).join(" and ");
+    const move = await deps.run("git", ["update-ref", "-m", `rt skills sync: undo ${pack.name} ${undone}`, "HEAD", `${base}~1`, newest], { cwd: pack.dir });
     if (move.code === 0) {
       made.length = 0;
       return null;
@@ -713,7 +714,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   const keptCommits = (why: string, pushed: boolean): string => {
     const names = made.map((c) => `${c.sha?.slice(0, 12) ?? c.short ?? ""} (${c.subject})`.trimStart());
     const one = names.length === 1;
-    const hold = published ? "your pack edits stay in rt's" : "rt's";
+    const hold = published ? "your pack edits stay in rt's" : "the version bump and the rebuilt skills are in rt's";
     const unpushed = pushed ? "" : `, which ${one ? "is" : "are"} not pushed`;
     return `${hold} ${one ? "commit" : "commits"} ${names.join(" and ")}${unpushed}; ${why}`;
   };
@@ -735,7 +736,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     const pushNote = pushed ? "The push may have reached the remote, and the next sync's pull will show it" : "rt pushed nothing";
     const rtThen = pushed ? "; rt " : " and ";
     if (kept !== null && made.some((c) => c.subject === versionSubject)) {
-      return outcome(`${ended(lead)} ${pushNote}${pushed ? "; " : ", and "}${keptCommits(kept, pushed)}; the version bump and the rebuilt skills are in ${made.length === 1 ? "it" : "them"}. ${next}`);
+      const built = published ? "; the version bump and the rebuilt skills are in them" : "";
+      return outcome(`${ended(lead)} ${pushNote}${pushed ? "; " : ", and "}${keptCommits(kept, pushed)}${built}. ${next}`);
     }
     const commitNote = kept === null ? "" : `; ${keptCommits(kept, pushed)}`;
     const undone = toUndo > 0 && kept === null ? `undid its ${toUndo === 1 ? "commit" : "commits"}, but ` : "";

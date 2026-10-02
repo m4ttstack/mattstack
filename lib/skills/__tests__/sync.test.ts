@@ -1794,6 +1794,7 @@ describe("commit-pending against real git", () => {
     expect(remoteLog(remote)).toEqual(["base"]);
     expectBuildPutBack(pack);
     expect(mustGit(root, "status", "--porcelain")).toBe("M  pack/skills.jsonc\nA  skills/keep/slipped-in.md\n");
+    expect(mustGit(root, "reflog", "-1", "--format=%gs").trim()).toBe("rt skills sync: undo acme pending changes");
 
     mustGit(root, "rm", "-q", "--cached", "skills/keep/slipped-in.md");
     rmSync(join(pack.dir, "skills", "keep", "slipped-in.md"));
@@ -1853,9 +1854,10 @@ describe("commit-pending against real git", () => {
     const report = await syncPack(pack, engine, deps, { commitPending: true });
 
     expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
-    expect(report.steps.at(-1)!.detail).toContain("could not tell which commit git made");
+    const detail = report.steps.at(-1)!.detail;
+    expect(detail.split("could not tell which commit git made")).toHaveLength(2);
     expect(printed).toMatch(/^[0-9a-f]{7,}$/);
-    expect(report.steps.at(-1)!.detail).toContain(`rt's commit ${printed} (skills: acme pending changes), which is not pushed`);
+    expect(detail).toContain(`rt's commit ${printed} (skills: acme pending changes), which is not pushed; rt left it in place. Look over the commit, then run this again`);
     expect(world.calls.some((c) => c.cmd === "git" && c.args[0] === "update-ref")).toBe(false);
     expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["skills: acme pending changes", "base"]);
     expect(readVersion(pack.dir)).toBe("1.0.0");
@@ -1908,6 +1910,7 @@ describe("commit-pending against real git", () => {
     expect(detail).toContain("still staged, not committed");
     expect(detail).not.toContain("pushed nothing");
     expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["base"]);
+    expect(mustGit(root, "reflog", "-1", "--format=%gs").trim()).toBe("rt skills sync: undo acme pending changes and v1.0.1");
     expect(mustGit(root, "status", "--porcelain")).toBe("M  pack/skills.jsonc\n");
     expectBuildPutBack(pack);
     expect(remoteLog(remote)).toEqual(["base"]);
@@ -1928,8 +1931,39 @@ describe("commit-pending against real git", () => {
     expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "failed" });
     expect(detail).toContain("The push may have reached the remote, and the next sync's pull will show it; rt put the version and the rebuilt skills back, so nothing is committed");
     expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["base"]);
+    expect(mustGit(root, "reflog", "-1", "--format=%gs").trim()).toBe("rt skills sync: undo acme v1.0.1");
     expect(mustGit(root, "status", "--porcelain")).toBe("");
     expectBuildPutBack(pack);
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a clean pack's version commit that HEAD has moved past when its push fails is kept and named as holding the build", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = rebuildingCompile(pack);
+    let versionSha = "";
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) => {
+      if (cmd === "git" && args[0] === "push") {
+        versionSha = mustGit(root, "rev-parse", "HEAD").trim();
+        mustGit(root, "commit", "-q", "--allow-empty", "-m", "someone else");
+        return { code: 1, stdout: "", stderr: "fatal: could not read from remote repository" };
+      }
+      return run(cmd, args, opts);
+    };
+
+    const report = await syncPack(pack, engine, deps);
+
+    const detail = report.steps.at(-1)!.detail;
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "failed" });
+    expect(detail).toContain(
+      `The push may have reached the remote, and the next sync's pull will show it; the version bump and the rebuilt skills are in rt's commit ${versionSha.slice(0, 12)} (skills sync: acme v1.0.1); HEAD has moved past it, so rt left it in place. Run this again once that is sorted`,
+    );
+    expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["someone else", "skills sync: acme v1.0.1", "base"]);
+    expect(mustGit(root, "status", "--porcelain")).toBe("");
+    expect(readVersion(pack.dir)).toBe("1.0.1");
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
 
