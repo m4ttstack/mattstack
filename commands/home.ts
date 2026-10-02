@@ -42,6 +42,7 @@ import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
 import { openStep, type StepHandle } from "../lib/ui/spawn.ts";
 import { interactive } from "../lib/ui/gate.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
+import { shellQuote } from "../lib/herdr-launch.ts";
 import { withoutUrls } from "../lib/team/redact.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { isSafeMachineKeySegment, machineKey, mattstackHome } from "../lib/rt-paths.ts";
@@ -1111,11 +1112,6 @@ function parseClaimArgs(args: string[]): { zone: string | undefined; owner: stri
   return { zone: positional[0], owner, note, force };
 }
 
-/** A word a POSIX shell reads back unchanged: bare when it is plain, else single-quoted. */
-function shellWord(word: string): string {
-  return /^[A-Za-z0-9_./:@=+-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
-}
-
 function homeRepoRoot(): string {
   return join(mattstackHome(), "user");
 }
@@ -1169,7 +1165,7 @@ export async function homeClaim(
       process.exit(1);
     }
     if (err instanceof ZoneOwnedByOthersError) {
-      const again = ["rt home claim", shellWord(err.zone), ...(ownerArg === undefined ? [] : ["--owner", shellWord(ownerArg)]), ...(note === undefined ? [] : ["--note", shellWord(note)]), "--force"];
+      const again = ["rt home claim", shellQuote(err.zone), ...(ownerArg === undefined ? [] : ["--owner", shellQuote(ownerArg)]), ...(note === undefined ? [] : ["--note", shellQuote(note)]), "--force"];
       refuse(`${err.zone} is already claimed by ${err.existingOwner}`, out.callout("next", out.cmd(again.join(" "))));
     }
     throw err;
