@@ -16,7 +16,7 @@
 
 ## Global Constraints
 
-- Never use em dashes or en dashes in any file, comment, test name, commit message or PR body. Today's source holds several (`—` in `stillShuttingDownLine`, the install summary, the uninstall and stop notes); every one of them is in a line this plan replaces, and no new code carries one.
+- Never use em dashes or en dashes in any file, comment, test name, commit message or PR body. Today's source holds several long dashes (in `stillShuttingDownLine`, the install summary, the uninstall and stop notes); every one of them is in a line this plan replaces, and no new code carries one.
 - Never write the phrase banned under the second heading of `~/.claude/rules/no-em-dashes.md`.
 - Comments state only a constraint the code cannot show.
 - `--json` keeps its shape: `rt daemon status --json` (`{ ok: true, state: "not-installed" }` and `{ ok: true, ...verdict }`) and `rt daemon log-level --json` (the daemon's reply) are byte-identical, pinned in Task 3.
