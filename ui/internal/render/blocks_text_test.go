@@ -226,3 +226,16 @@ func TestALongDiffLineWrapsInsideThePane(t *testing.T) {
 		t.Fatalf("the added line lost text:\n%s", got)
 	}
 }
+
+func TestALongDiffLineStaysInsideTheNarrowestPane(t *testing.T) {
+	long := "next(alpha, beta, gamma, delta, epsilon, zeta);"
+	got := plainAt(20, protocol.Block{T: "diff", Hunks: []protocol.DiffHunk{{Header: "@@ -1 +1 @@", Lines: []protocol.DiffLine{
+		{Kind: "del", Text: "old();"},
+		{Kind: "add", Text: long},
+	}}}})
+	checkWidth(t, got, 20)
+	rs := rows(got)
+	if noSpace(strings.Join(rs[1:], "")) != "-old();+"+noSpace(long) {
+		t.Fatalf("the diff lost text:\n%s", got)
+	}
+}

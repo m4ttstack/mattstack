@@ -189,3 +189,13 @@ func TestATreeLastColumnWrapsUnderItsBranch(t *testing.T) {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
 }
+
+func TestATreeWithALongRootStaysInsideTheNarrowestPane(t *testing.T) {
+	got := plainAt(20, protocol.Block{T: "tree", Root: text("rt.worktreeApp.a-root-name-much-wider-than-the-pane"), Children: [][]protocol.Cell{
+		{text("user"), text("a value that is long enough to clip")},
+	}})
+	checkWidth(t, got, 20)
+	if !strings.Contains(rows(got)[0], "…") {
+		t.Fatalf("the root was not clipped:\n%s", got)
+	}
+}

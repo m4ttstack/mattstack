@@ -145,7 +145,7 @@ func (r *renderer) table(b protocol.Block) {
 func (r *renderer) tree(b protocol.Block) {
 	avail := r.width - len(indent)
 	for _, row := range wrapCell(b.Root, avail) {
-		r.emit(indent + cell(row))
+		r.emit(indent + fitLine(cell(row), avail))
 	}
 	cols := 0
 	for _, child := range b.Children {

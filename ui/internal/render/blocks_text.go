@@ -131,11 +131,9 @@ func (r *renderer) diff(b protocol.Block) {
 }
 
 // diffRows wraps a line of code as the mission diff does, at spaces and
-// hyphens, so a band never runs past the pane.
+// hyphens, and cuts a word wider than the pane, so a band never runs past it.
 func diffRows(s string, w int) []string {
-	if w < minWrap {
-		return []string{s}
-	}
+	w = max(1, w)
 	same := func(t string) string { return t }
 	with := func(_, t string) string { return t }
 	rows := textwrap.Spans([]string{s}, w, same, with)
