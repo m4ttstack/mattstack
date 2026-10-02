@@ -34,6 +34,8 @@ export interface StepEmitter {
   tip(id: EventId, line: string): void;
   /** Resolves once every step line and the summary are drawn. Await it before exiting. */
   flush(): Promise<void>;
+  /** Resolves the terminal's background when steps will be drawn. Await it before the run starts: a step's work (sudo) may read the terminal, which the query holds raw. */
+  settle(): Promise<void>;
 }
 
 type FinalState = Exclude<StepState, "pending" | "running">;
@@ -218,6 +220,9 @@ export function createStepEmitter(opts: StepEmitterOptions): StepEmitter {
     },
     async flush() {
       await queue;
+    },
+    async settle() {
+      if (human) await settleBackground();
     },
   };
 }

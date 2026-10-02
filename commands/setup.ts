@@ -276,6 +276,7 @@ export async function setupApply(args: string[], _ctx: CommandContext = {}, deps
       needOpts: deps.needOpts,
       ...(human ? { tip: human.tip } : {}),
     });
+    await human?.settle();
     result = await runApplyWith(deps.steps ?? STEPS, ctx, selection);
   } catch (err) {
     await human?.flush();
@@ -394,6 +395,7 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
       needOpts: deps.needOpts,
       ...(human ? { tip: human.tip } : {}),
     });
+    await human?.settle();
     const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx);
     const lastId = result.outcomes.at(-1)?.id;
     if (lockError && lastId) emit({ event: "log", id: lastId, line: `warn: setup update lock not taken, running unguarded: ${lockError}` });
