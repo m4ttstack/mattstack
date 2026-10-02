@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState } from 'react';
-import { Box, Button, Group, Text } from '@mantine/core';
+import { Alert, Box, Button, Group, Text } from '@mantine/core';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
 import { Notch } from '../notch/Notch';
@@ -271,6 +271,53 @@ function WithRootTabBarTitleAndActionsDemo() {
 export const WithRootTabBarTitleAndActions: Story = {
   name: 'Root tab bar with title + actions, spanning a sidebar (tabBar)',
   render: () => <WithRootTabBarTitleAndActionsDemo />,
+};
+
+function WithDockedNotchDemo() {
+  const [opened, setOpened] = useState(true);
+
+  return (
+    <Box h="100vh">
+      <PageShell
+        tabBarHeight={40}
+        sidebarWidth={216}
+        tabs={[{ id: 'graph', label: 'Graph', active: true }]}
+        tabBar={{
+          title: 'Wiring',
+          actions: (
+            <Button size="xs" onClick={() => setOpened(current => !current)}>
+              Toggle banner
+            </Button>
+          ),
+        }}
+        topNotch={{
+          content: (
+            <Alert variant="tint-outline" color="warn" radius={0} w="100%">
+              A root topNotch with compound children docks under the tab bar,
+              above the sidebar and the content, and both give up its height.
+            </Alert>
+          ),
+          opened,
+        }}
+      >
+        <PageShell.Sidebar hideCollapseButton>
+          <Box p="sm">
+            <Text size="sm">Focus list</Text>
+          </Box>
+        </PageShell.Sidebar>
+        <PageShell.Main>
+          <PageShell.Content>
+            <SomeContent />
+          </PageShell.Content>
+        </PageShell.Main>
+      </PageShell>
+    </Box>
+  );
+}
+
+export const WithDockedNotch: Story = {
+  name: 'Root topNotch docked under the tab bar, above a sidebar (compound)',
+  render: () => <WithDockedNotchDemo />,
 };
 
 export const WithTabIconsAndColor: Story = {

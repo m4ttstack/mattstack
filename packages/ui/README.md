@@ -89,6 +89,12 @@ root bar takes tabs only, and a `PageShell.TabBar` composed in
 </PageShell>
 ```
 
+Such a page can also pass the root a `topNotch`: with compound children it
+docks full width under that tab bar, above the sidebar and the content, and
+both give up its measured height so neither scrolls. A `topNotch` on
+`PageShell.Content` stays over the content column only, and in simple mode
+the root's goes to the auto-wrapped content as before.
+
 A `Badge` that sits on the page ground (`--tk-bg`) takes one of the kit's
 opt-in quiet tones, `variant="quiet"` (raised fill) or
 `variant="quiet-outline"` (card fill with the kit border); Mantine's gray

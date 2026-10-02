@@ -63,6 +63,7 @@ export { usePageShellContext } from './page-shell/hooks';
 export type { PageShellContentProps } from './page-shell/components/Content';
 export type { PageShellHeaderProps } from './page-shell/components/Header';
 export type { PageShellSidebarProps } from './page-shell/components/Sidebar';
+export type { PageShellTopNotch } from './page-shell/components/TopNotchSlot';
 // The tab bar itself is rendered by the PageShell root (its `tabs` prop),
 // so only the tab shape and the height constant cross the barrel.
 // Collision-checked like the names above: neither exists in

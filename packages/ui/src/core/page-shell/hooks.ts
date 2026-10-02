@@ -51,11 +51,16 @@ export function usePageShellContext() {
 const toUnit = (value: string | number) =>
   typeof value === 'number' ? rem(value) : value;
 
+// A measured pixel height, not a theme size: kept out of rem scaling, and
+// left out of the expression entirely when there is none.
+const notchTerm = (height: number) => (height > 0 ? ` - ${height}px` : '');
+
 /**
  * The height available to `PageShell.Content`: the shell's height mode
  * minus the external top offset, minus the tab bar when the root renders
- * one, minus the header when one is registered (a fixed header overlays
- * instead of stacking, so it doesn't subtract). `heightMode="auto"` opts
+ * one, minus the root's docked `topNotch` while it is open, minus the header
+ * when one is registered (a fixed header overlays instead of stacking, so it
+ * doesn't subtract). `heightMode="auto"` opts
  * out of clamping entirely.
  */
 export function usePageShellContentHeight(): string {
@@ -67,27 +72,28 @@ export function usePageShellContentHeight(): string {
     heightMode,
     topOffset,
     fixedHeader,
+    topNotchHeight,
   } = usePageShellContext();
 
   if (heightMode === 'auto') return 'auto';
 
   const headerTerm = hasHeader && !fixedHeader ? headerHeight : 0;
   const tabBarTerm = hasTabBar ? tabBarHeight : 0;
-  return `calc(${heightMode} - ${toUnit(topOffset)} - ${toUnit(headerTerm)} - ${toUnit(tabBarTerm)})`;
+  return `calc(${heightMode} - ${toUnit(topOffset)} - ${toUnit(headerTerm)} - ${toUnit(tabBarTerm)}${notchTerm(topNotchHeight)})`;
 }
 
 /**
  * The height available to `PageShell.Sidebar`: the full shell height minus
- * the external top offset and the tab bar (the tab bar spans above the
- * whole body row, sidebar included; the header runs alongside the sidebar,
- * so it never subtracts).
+ * the external top offset, the tab bar and the root's docked `topNotch`
+ * (both span above the whole body row, sidebar included; the header runs
+ * alongside the sidebar, so it never subtracts).
  */
 export function usePageShellSidebarHeight(): string {
-  const { heightMode, topOffset, hasTabBar, tabBarHeight } =
+  const { heightMode, topOffset, hasTabBar, tabBarHeight, topNotchHeight } =
     usePageShellContext();
 
   if (heightMode === 'auto') return 'auto';
 
   const tabBarTerm = hasTabBar ? tabBarHeight : 0;
-  return `calc(${heightMode} - ${toUnit(topOffset)} - ${toUnit(tabBarTerm)})`;
+  return `calc(${heightMode} - ${toUnit(topOffset)} - ${toUnit(tabBarTerm)}${notchTerm(topNotchHeight)})`;
 }

@@ -1,11 +1,11 @@
-import { Box, Flex, Group, ScrollArea, Transition } from '@mantine/core';
+import { Flex, ScrollArea } from '@mantine/core';
 import type {
   ContainerProps,
   FlexProps,
   ScrollAreaAutosizeProps,
 } from '@mantine/core';
 
-import { useElementSize, useSchemeColors } from '@mattstack/app-kit/hooks';
+import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { ContentContainer } from '../../content-container/ContentContainer';
 import {
   useIsInMain,
@@ -14,6 +14,7 @@ import {
   usePageShellContext,
 } from '../hooks';
 import { SidebarToggleButton } from './SidebarToggleButton';
+import { TopNotchSlot, type PageShellTopNotch } from './TopNotchSlot';
 
 const Wrapper = ({
   children,
@@ -77,7 +78,7 @@ export interface PageShellContentProps {
    * animates its height between the measured banner height and 0 so the
    * banner slides away instead of popping out of layout.
    */
-  topNotch?: { content: React.ReactNode; opened: boolean };
+  topNotch?: PageShellTopNotch;
 }
 
 /**
@@ -122,34 +123,7 @@ export const Content = ({
   // on by default only in scroll mode. An explicit prop still wins.
   const withContentContainer = contentContainer ?? !scrollClamp;
 
-  // The banner's rendered height, so the collapse wrapper below can animate
-  // between an exact pixel height and 0 (`height: auto` can't transition).
-  const { ref: notchRef, height: notchHeight } = useElementSize();
-
-  const topNotchUI = topNotch && (
-    <Box
-      style={{
-        height: topNotch.opened ? notchHeight : 0,
-        transition: 'height 200ms linear',
-      }}
-    >
-      <Transition
-        keepMounted
-        mounted={topNotch.opened}
-        transition="slide-down"
-        duration={200}
-        timingFunction="ease"
-      >
-        {transitionStyle => (
-          <div ref={notchRef} style={transitionStyle}>
-            <Group w="100%" justify="center">
-              {topNotch.content}
-            </Group>
-          </div>
-        )}
-      </Transition>
-    </Box>
-  );
+  const topNotchUI = topNotch && <TopNotchSlot notch={topNotch} />;
 
   // The opener normally lives in the header; with no header it floats here
   // so a drawer-collapsed sidebar always stays reachable.

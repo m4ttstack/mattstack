@@ -794,3 +794,128 @@ test('a sidebar bg is its own surface', () => {
     'data-own-surface'
   );
 });
+
+/** Runs `body` with every measured element reporting `height` px: jsdom
+    does no layout, and Mantine's useElementSize reads a ResizeObserver
+    whose callback it defers through requestAnimationFrame. */
+function withMeasuredHeight(height: number, body: () => void) {
+  const realRaf = window.requestAnimationFrame;
+  const realCaf = window.cancelAnimationFrame;
+  const realResizeObserver = window.ResizeObserver;
+  window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+    cb(0);
+    return 0;
+  };
+  window.cancelAnimationFrame = () => {};
+  window.ResizeObserver = class {
+    cb: ResizeObserverCallback;
+    constructor(cb: ResizeObserverCallback) {
+      this.cb = cb;
+    }
+    observe() {
+      this.cb(
+        [
+          {
+            borderBoxSize: [{ blockSize: height, inlineSize: 320 }],
+            contentRect: { height, width: 320 },
+          } as unknown as ResizeObserverEntry,
+        ],
+        this as unknown as ResizeObserver
+      );
+    }
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  try {
+    body();
+  } finally {
+    window.ResizeObserver = realResizeObserver;
+    window.requestAnimationFrame = realRaf;
+    window.cancelAnimationFrame = realCaf;
+  }
+}
+
+function NotchedShell({ notch }: { notch?: { opened: boolean } }) {
+  return (
+    <PageShell
+      tabBarHeight={40}
+      tabs={[{ id: 'graph', label: 'Graph', active: true }]}
+      tabBar={{ title: 'Wiring' }}
+      topNotch={notch && { content: <div>banner</div>, opened: notch.opened }}
+    >
+      <PageShell.Sidebar>
+        {height => <div>sidebar:{height}</div>}
+      </PageShell.Sidebar>
+      <PageShell.Main>
+        <PageShell.Content>
+          {height => <div>content:{height}</div>}
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+}
+
+test('a root topNotch in compound mode docks full width between the tab bar and the body row', () => {
+  renderWithProviders(<NotchedShell notch={{ opened: true }} />);
+
+  const banner = screen.getByText('banner');
+  const tabList = screen.getByRole('tablist', { name: 'Page tabs' });
+  const sidebar = document.getElementById('page-shell-sidebar')!;
+  const main = document.getElementById('page-shell-main')!;
+
+  expect(sidebar).not.toContainElement(banner);
+  expect(main).not.toContainElement(banner);
+  expect(
+    tabList.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy();
+  expect(
+    banner.compareDocumentPosition(sidebar) & Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy();
+});
+
+test('a docked topNotch takes its measured height from both the content and the sidebar', () => {
+  withMeasuredHeight(54, () => {
+    renderWithProviders(<NotchedShell notch={{ opened: true }} />);
+
+    expect(screen.getByText(/^content:/).textContent).toContain('- 54px');
+    expect(screen.getByText(/^sidebar:/).textContent).toContain('- 54px');
+  });
+});
+
+test('a closed docked topNotch takes nothing from either height', () => {
+  withMeasuredHeight(54, () => {
+    renderWithProviders(<NotchedShell notch={{ opened: false }} />);
+
+    expect(screen.getByText(/^content:/).textContent).not.toContain('px');
+    expect(screen.getByText(/^sidebar:/).textContent).not.toContain('px');
+  });
+});
+
+test('a compound shell with no root topNotch keeps its heights as they were', () => {
+  withMeasuredHeight(54, () => {
+    const { unmount } = renderWithProviders(<NotchedShell />);
+    const content = screen.getByText(/^content:/).textContent;
+    const sidebar = screen.getByText(/^sidebar:/).textContent;
+    unmount();
+    renderWithProviders(<NotchedShell notch={{ opened: false }} />);
+
+    expect(content).not.toContain('px');
+    expect(screen.getByText(/^content:/).textContent).toBe(content);
+    expect(screen.getByText(/^sidebar:/).textContent).toBe(sidebar);
+  });
+});
+
+test('a simple-mode topNotch still docks inside the content area', () => {
+  renderWithProviders(
+    <PageShell
+      title="Dashboard"
+      topNotch={{ content: <div>banner</div>, opened: true }}
+    >
+      <div>body</div>
+    </PageShell>
+  );
+
+  expect(document.getElementById('page-shell-content')).toContainElement(
+    screen.getByText('banner')
+  );
+});

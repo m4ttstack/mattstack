@@ -41,6 +41,9 @@ export interface PageShellContextValue {
   fixedHeader: boolean;
   /** True when the header renders its title at row scale (see `Header`). */
   compactHeader: boolean;
+  /** Pixel height the root's docked `topNotch` takes up under the tab bar,
+      or 0 when there is none or it is closed. */
+  topNotchHeight: number;
 }
 
 export const PageShellContext = /* @__PURE__ */ createContext<

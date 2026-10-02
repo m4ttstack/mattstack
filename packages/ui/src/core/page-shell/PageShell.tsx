@@ -6,7 +6,7 @@ import {
   useEffect,
   useState,
 } from 'react';
-import { Group, Stack } from '@mantine/core';
+import { Box, Group, Stack } from '@mantine/core';
 import type { BoxProps, StackProps } from '@mantine/core';
 
 import { useIsMobile, useSchemeColors } from '@mattstack/app-kit/hooks';
@@ -17,6 +17,10 @@ import { Main } from './components/Main';
 import { Sidebar } from './components/Sidebar';
 import { PAGE_SHELL_TAB_BAR_HEIGHT, TabBar } from './components/TabBar';
 import type { PageShellTab, PageShellTabBarProps } from './components/TabBar';
+import {
+  TopNotchSlot,
+  type PageShellTopNotch,
+} from './components/TopNotchSlot';
 import { PageShellContext } from './context';
 import { useSideDrawerState } from './useSideDrawerState';
 
@@ -82,8 +86,15 @@ export interface PageShellProps extends Omit<StackProps, 'children' | 'title'> {
   title?: React.ReactNode;
   /** Simple mode: right-aligned actions for the auto-rendered header. */
   actions?: React.ReactNode;
-  /** Simple mode: the `PageShell.Content` topNotch banner slot. */
-  topNotch?: { content: React.ReactNode; opened: boolean };
+  /**
+   * A banner slot. In simple mode it is the auto-wrapped `PageShell.Content`'s
+   * topNotch. With compound children it is opt-in page chrome instead: docked
+   * full width between the root tab bar and the body row (sidebar and content
+   * alike), with its measured height taken from both the content and the
+   * sidebar heights so neither scrolls. A compound page that wants the banner
+   * over its content column only passes `topNotch` to `PageShell.Content`.
+   */
+  topNotch?: PageShellTopNotch;
   /**
    * Tab row rendered above the body row (sidebar included) -- page-level
    * sub-navigation between sibling views. Tabs link router-agnostically:
@@ -147,7 +158,8 @@ function containsCompoundChild(children: React.ReactNode): boolean {
  *
  * The simple form still works: with no compound children, `title`/
  * `actions`/`topNotch` render the classic title-row-above-content page
- * (an auto-wrapped Main/Header/Content).
+ * (an auto-wrapped Main/Header/Content). With compound children, a root
+ * `topNotch` docks under the tab bar, above sidebar and content both.
  *
  * A `tabs` prop renders a page-level tab row (`TabBar`) above the body row
  * in either mode, with `tabBar` carrying its title and actions; the height
@@ -233,6 +245,9 @@ function PageShellRoot({
   // inside the auto-wrapped content column instead of as the sidebar.
   const isCompound = containsCompoundChild(children);
 
+  const dockedNotch = isCompound ? topNotch : undefined;
+  const [dockedNotchHeight, setDockedNotchHeight] = useState(0);
+
   const body = isCompound ? (
     children
   ) : (
@@ -265,6 +280,7 @@ function PageShellRoot({
         topOffset: resolvedTopOffset,
         fixedHeader,
         compactHeader,
+        topNotchHeight: dockedNotch ? dockedNotchHeight : 0,
       }}
     >
       <Stack
@@ -289,6 +305,11 @@ function PageShellRoot({
         {...stackProps}
       >
         {showRootTabBar && <TabBar {...tabBar} tabs={tabs ?? []} />}
+        {dockedNotch && (
+          <Box flex="none">
+            <TopNotchSlot notch={dockedNotch} onHeight={setDockedNotchHeight} />
+          </Box>
+        )}
         <Group gap={0} align="stretch" pos="relative" flex={1} w="100%">
           {body}
         </Group>
