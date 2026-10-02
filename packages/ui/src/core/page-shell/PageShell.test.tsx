@@ -742,3 +742,55 @@ test('a surface passed through scrollAreaProps marks the frame too', () => {
     'data-own-surface'
   );
 });
+
+test('a sidebar given its own bg marks itself data-own-surface, and only then', () => {
+  const { unmount } = renderWithProviders(
+    <PageShell>
+      <PageShell.Sidebar>
+        <div>kit surface</div>
+      </PageShell.Sidebar>
+      <PageShell.Main>
+        <PageShell.Content>
+          <div>body</div>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+  expect(document.getElementById('page-shell-sidebar')).not.toHaveAttribute(
+    'data-own-surface'
+  );
+  unmount();
+  renderWithProviders(
+    <PageShell sideBarHeaderBg="var(--ui-bg-2)">
+      <PageShell.Sidebar>
+        <div>shared surface</div>
+      </PageShell.Sidebar>
+      <PageShell.Main>
+        <PageShell.Content>
+          <div>body</div>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+  expect(document.getElementById('page-shell-sidebar')).not.toHaveAttribute(
+    'data-own-surface'
+  );
+});
+
+test('a sidebar bg is its own surface', () => {
+  renderWithProviders(
+    <PageShell>
+      <PageShell.Sidebar bg="var(--tk-panel)">
+        <div>own surface</div>
+      </PageShell.Sidebar>
+      <PageShell.Main>
+        <PageShell.Content>
+          <div>body</div>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+  expect(document.getElementById('page-shell-sidebar')).toHaveAttribute(
+    'data-own-surface'
+  );
+});

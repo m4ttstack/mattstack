@@ -64,7 +64,7 @@ task, never left silent.
 - Select chevron and dropdown shadow: Mantine `Select`.
 - Badge and Alert padding: Mantine defaults.
 - SegmentedControl track: Mantine `SegmentedControl`.
-- Focus list box: `PageShell.Sidebar` paints the panel surface (`bg="var(--tk-panel)"`) and its right border around the list, so the list root itself paints nothing and is 215 wide inside the sidebar's 216. Its height follows console's one page-row height (`PAGE_ROW_HEIGHT`, 40px on every page) rather than the board's 44px Wiring bar, so the list is 4px taller and the bottom-pinned Unwired row sits 4px lower.
+- Focus list box: the list root sits inside `PageShell.Sidebar`, which paints the panel surface (`bg="var(--tk-panel)"`, which the Tokyo theme keeps because an explicit sidebar `bg` marks the rail `data-own-surface`) and the right border. The root itself paints neither, so it compares with no fill or stroke and is 215 wide inside the sidebar's 216. Its height follows console's one page-row height (`PAGE_ROW_HEIGHT`, 40px on every page) rather than the board's 44px Wiring bar, so the list is 4px taller and the bottom-pinned Unwired row sits 4px lower.
 - Unwired row rule: a Mantine `Divider` above the row, so the rule is its own element rather than the row's top border.
 - Needs attention switch: in the spec, missing from the boards. It sits above the Unwired rule, where it moves nothing the boards draw.
 

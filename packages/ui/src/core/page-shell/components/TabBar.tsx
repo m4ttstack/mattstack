@@ -60,10 +60,11 @@ export interface PageShellTabBarProps {
  * body row, sidebar included. Composed inside `PageShell.Main` instead, it
  * sits beside a sidebar; a consumer's own tab row registers in the height
  * math through `usePageShellContext().setHasTabBar`, as this one does. Sized
- * by the root's `tabBarHeight`, on the shared shell surface (context `bg`). Built on Mantine's native `Tabs`/`Tabs.Tab` (role="tablist"
- * / role="tab" come from Mantine); the active tab carries the same calm
- * primary-light tint the kit uses for other active states (`SelectableList`
- * rows, the docs sidebar), on top of Mantine's native active indicator.
+ * by the root's `tabBarHeight`, on the shared shell surface (context `bg`).
+ * Built on Mantine's native `Tabs`/`Tabs.Tab` (role="tablist" / role="tab"
+ * come from Mantine); the active tab carries the same calm primary-light
+ * tint the kit uses for other active states (`SelectableList` rows, the docs
+ * sidebar), on top of Mantine's native active indicator.
  *
  * `title` and `actions` sit outside the tablist, before and after it, so
  * the tablist stays a clean tablist for assistive tech while the row stands

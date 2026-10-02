@@ -99,7 +99,9 @@ or `--mantine-*`). The surfaces an app picks are the page body's and,
 where its board draws one, the sidebar's: `PageShell.Content` and
 `PageShell.Sidebar` take `bg`, the kit's documented surface override, set
 to a surface role from the table below (`bg="var(--tk-panel)"`), never a
-hue or a raw value.
+hue or a raw value. An explicit `bg` marks the frame `data-own-surface`,
+and the theme keeps that surface instead of painting its own (the grid on
+Content, the card on Sidebar).
 
 When a kit control reads wrong (it blends into the page, or its contrast
 is low), check where it sits. Kit controls are drawn for `PageShell`
