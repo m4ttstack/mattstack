@@ -1,5 +1,5 @@
 /**
- * rt release — release-cycle verbs.
+ * rt release: release-cycle verbs.
  *
  *   rt release preflight [--json]
  *   rt release verify [tag] [--json] [--no-wait]
@@ -48,16 +48,22 @@ import {
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import {
   listJoin,
+  qualifyStop,
   runReleaseApp,
+  type QualifyStop,
   type ReleaseAppOptions,
+  type ReleaseAppProgress,
   type ReleaseAppReport,
   type ReleaseAppSeams,
+  type StepResult,
+  type StepStatus,
 } from "../lib/release/release-app.ts";
 import { conformanceViolations } from "../scripts/lib/picker-conformance.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { flagValue } from "../lib/cli-args.ts";
 import { confirm } from "../lib/ui/prompts.ts";
 import { interactive } from "../lib/ui/gate.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 
 async function fetchJson(url: string): Promise<unknown> {
   const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
@@ -241,7 +247,7 @@ export async function releaseUpdateMachine(args: string[], _ctx: CommandContext 
 }
 
 /** `workDirPath` reads whatever `workDir()` lazily created, or null if the run never touched it, so the caller can remove it when done. */
-async function createRealReleaseAppSeams(json: boolean): Promise<{ seams: ReleaseAppSeams; workDirPath: () => string | null }> {
+async function createRealReleaseAppSeams(): Promise<{ seams: ReleaseAppSeams; workDirPath: () => string | null }> {
   const top = await runCapture(["git", "rev-parse", "--show-toplevel"]);
   let workDir: string | null = null;
   const seams: ReleaseAppSeams = {
@@ -261,8 +267,7 @@ async function createRealReleaseAppSeams(json: boolean): Promise<{ seams: Releas
     },
     writeFile: (path, text) => writeFileSync(path, text),
     confirm: (message) => confirm({ message }),
-    // --json owns stdout for the envelope, so progress goes to stderr there.
-    log: (line) => void (json ? process.stderr : process.stdout).write(`${line}\n`),
+    progress: (event) => out.print(...progressBlocks(event)),
   };
   return { seams, workDirPath: () => workDir };
 }
@@ -274,28 +279,62 @@ export interface ReleaseAppCommandDeps {
 
 const RELEASE_APPS_USAGE = "usage: rt release apps [--dry-run] [--json] [--yes-notes <notes hash>]";
 
-function releaseAppSummary(report: ReleaseAppReport): string {
+const STEP_STATUS: Record<StepStatus, RenderStatus> = { ok: "done", done: "skipped", planned: "pending", failed: "failed", stopped: "needs-you", pending: "pending" };
+
+const QUALIFY_STOP_STATUS: Record<QualifyStop, RenderStatus> = { "not-fast-path": "refused", "nothing-moved": "skipped", "no-release-tag": "failed" };
+
+/** A stopped notes step waits on a person; a stopped qualify step is a refusal, nothing to do, or an environment problem. */
+function stepStatus(step: StepResult): RenderStatus {
+  const stop = qualifyStop(step);
+  return stop ? QUALIFY_STOP_STATUS[stop] : STEP_STATUS[step.status];
+}
+
+export function progressBlocks(event: ReleaseAppProgress): Block[] {
+  switch (event.kind) {
+    case "step":
+      return [out.line(stepStatus(event.step), event.step.label, event.step.detail), ...(event.step.command ? [out.callout("next", out.cmd(event.step.command))] : [])];
+    case "watching":
+      return [out.line("running", `Watching the release build for ${event.tag}`, "a real run takes 25 to 50 minutes")];
+    case "notes":
+      return [out.verbatim(event.notes.split("\n"), "release notes"), out.kv("notes hash", event.hash)];
+  }
+}
+
+export function releaseAppBlocks(report: ReleaseAppReport): Block[] {
+  const resume = report.resume ? [out.callout("next", out.cmd(report.resume))] : [];
   switch (report.status) {
     case "released":
-      return `released ${report.nextTag}`;
+      return [out.summary("done", `Released ${report.nextTag}`)];
     case "planned":
-      return `dry run: nothing changed; rerun without --dry-run to release ${listJoin(report.apps)} as ${report.nextTag}`;
+      return [out.summary("pending", "Dry run: nothing changed", [`a real run releases ${listJoin(report.apps)} as ${report.nextTag}`])];
     case "awaiting-approval":
-      return `the notes need approval; to accept them: ${report.resume}`;
-    case "declined":
-      return report.resume ? `declined; nothing committed or tagged. To regenerate and ask again: ${report.resume}` : `declined; nothing committed or tagged`;
+      return [out.summary("needs-you", "The notes need your approval"), ...resume];
+    case "declined": {
+      if (report.resume) return [out.summary("skipped", "You said no: nothing was committed or tagged"), ...resume];
+      const last = report.steps.at(-1);
+      switch (qualifyStop(last)) {
+        case "nothing-moved":
+          return [out.line("skipped", "Nothing to release", last?.detail)];
+        case "no-release-tag":
+          return [out.failure({ title: "rt cannot release from here", why: last?.detail })];
+        default:
+          return [out.line("refused", "rt will not take the fast path for this release", last?.detail)];
+      }
+    }
     case "pending":
-      return `${report.nextTag} is tagged but its publish has not verified yet; recheck with: ${report.resume}`;
+      return [out.summary("pending", `${report.nextTag} is tagged, and its publish has not verified yet`), ...resume];
     case "failed": {
       const step = report.steps.at(-1)?.label ?? "qualify";
-      return report.resume ? `stopped at ${step}; resume: ${report.resume}` : `stopped at ${step}; this needs a decision, not a rerun`;
+      return [out.summary("failed", `Stopped at ${step}`, report.resume ? undefined : ["this needs a decision, not a rerun"]), ...resume];
     }
   }
 }
 
 export async function releaseApps(args: string[], _ctx: CommandContext = {}, deps: ReleaseAppCommandDeps = {}): Promise<void> {
   const json = args.includes("--json");
-  const real = deps.seams ? null : await createRealReleaseAppSeams(json);
+  // The envelope owns stdout, so progress moves to stderr for this run.
+  if (json) out.payloadOnStdout();
+  const real = deps.seams ? null : await createRealReleaseAppSeams();
   const seams = deps.seams ?? real!.seams;
   const cleanupWorkDir = () => {
     const dir = real?.workDirPath();
@@ -306,26 +345,33 @@ export async function releaseApps(args: string[], _ctx: CommandContext = {}, dep
       // best effort; a leftover scratch dir under tmpdir() is not worth failing the verb over
     }
   };
-  const usage = () => exitUserError(new UserActionableError("usage", RELEASE_APPS_USAGE), json, "release apps");
+  const usage = (title: string, why?: string): never => {
+    if (json) exitUserError(new UserActionableError("usage", RELEASE_APPS_USAGE), true, "release apps");
+    out.fail(usageFailure(title, RELEASE_APPS_USAGE, why));
+    return process.exit(2);
+  };
+  const badHash = () => usage("The notes hash is the 12 characters a stopped run printed");
 
   try {
     let yesNotes: string | null;
     try {
       yesNotes = flagValue(args, "--yes-notes") ?? null;
     } catch {
-      return usage();
+      return badHash();
     }
-    if (yesNotes !== null && !/^[0-9a-f]{12}$/.test(yesNotes)) return usage();
+    if (yesNotes !== null && !/^[0-9a-f]{12}$/.test(yesNotes)) return badHash();
     const yesAt = args.indexOf("--yes-notes");
-    if (args.some((a, i) => !a.startsWith("--") && !(yesAt >= 0 && i === yesAt + 1))) return usage();
+    if (args.some((a, i) => !a.startsWith("--") && !(yesAt >= 0 && i === yesAt + 1))) return usage("This command takes no app name", "It releases every app that changed.");
 
     const report = await (deps.run ?? runReleaseApp)(seams, {
       dryRun: args.includes("--dry-run"),
       json,
       yesNotes,
     });
-    if (json) console.log(JSON.stringify(envelope(report)));
-    else console.log(releaseAppSummary(report));
+    const stop = report.status === "declined" && !report.resume ? qualifyStop(report.steps.at(-1)) : null;
+    if (json) out.json(envelope(report));
+    else if (stop === "not-fast-path" || stop === "no-release-tag") out.note(...releaseAppBlocks(report));
+    else out.print(...releaseAppBlocks(report));
     if (report.status === "failed" || report.status === "declined" || report.status === "pending") process.exitCode = 1;
   } finally {
     cleanupWorkDir();

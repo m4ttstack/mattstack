@@ -102,6 +102,9 @@ export interface ReleaseAppOptions {
   yesNotes?: string | null;
 }
 
+/** What a run reports as it goes; the command decides how it is drawn. */
+export type ReleaseAppProgress = { kind: "step"; step: StepResult } | { kind: "watching"; tag: string } | { kind: "notes"; notes: string; hash: string };
+
 export interface ReleaseAppSeams extends VerifySeams {
   /** True only when a human can answer the notes prompt (a real TTY, RT_BATCH unset). */
   isTTY: boolean;
@@ -110,7 +113,7 @@ export interface ReleaseAppSeams extends VerifySeams {
   readFile(path: string): string | null;
   writeFile(path: string, text: string): void;
   confirm(message: string): Promise<boolean>;
-  log(line: string): void;
+  progress(event: ReleaseAppProgress): void;
 }
 
 const LABELS: Record<StepId, string> = {
@@ -119,12 +122,6 @@ const LABELS: Record<StepId, string> = {
   tag: "tag",
   verify: "verify publish",
 };
-
-const STEP_MARK: Record<StepStatus, string> = { ok: "✓", done: "-", planned: "•", failed: "✗", stopped: "!", pending: "…" };
-
-export function formatStep(s: StepResult): string {
-  return `${STEP_MARK[s.status]} ${s.label}: ${s.detail}${s.command ? `\n    ${s.command}` : ""}`;
-}
 
 class StepFailure extends Error {
   constructor(readonly step: StepId, message: string, readonly resume: string | null) {
@@ -178,6 +175,15 @@ async function remoteTags(seams: ReleaseAppSeams): Promise<RemoteTag[]> {
 /** Two of qualify's three stops with nothing to resume; `qualifyStop` tells them apart by these, since the report has no key for why it stopped. */
 const NO_RELEASE_TAG = "origin has no release tag. Run this from an rt checkout.";
 const NOTHING_MOVED = "nothing has moved since ";
+
+export type QualifyStop = "no-release-tag" | "nothing-moved" | "not-fast-path";
+
+/** Why a qualify step stopped with nothing to resume: an environment problem, nothing to release, or main does not qualify. */
+export function qualifyStop(step: StepResult | undefined): QualifyStop | null {
+  if (step?.id !== "qualify" || step.status !== "stopped") return null;
+  if (step.detail === NO_RELEASE_TAG) return "no-release-tag";
+  return step.detail.startsWith(NOTHING_MOVED) ? "nothing-moved" : "not-fast-path";
+}
 
 function newestReleaseTag(tags: RemoteTag[]): string {
   const newest = tags[0];
@@ -382,7 +388,7 @@ async function finishVerify(
   rec: Recorder,
   report: (status: ReleaseStatus, resume?: string | null) => ReleaseAppReport,
 ): Promise<ReleaseAppReport> {
-  seams.log(`  watching release.yml for ${tag} (a real run takes 25-50 minutes)`);
+  seams.progress({ kind: "watching", tag });
   try {
     const verify = await runVerify(seams, { tag });
     if (verify.clean) {
@@ -409,7 +415,7 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
   const rec: Recorder = (id, status, detail, command) => {
     const step: StepResult = { id, label: LABELS[id], status, detail, ...(command ? { command } : {}) };
     steps.push(step);
-    seams.log(formatStep(step));
+    seams.progress({ kind: "step", step });
   };
 
   let lastTag: string | null = null;
@@ -505,12 +511,12 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
   } else {
     if (opts.yesNotes !== null) {
       if (opts.yesNotes !== hash) {
-        if (!opts.json) seams.log(`\n${notes}\nnotes hash ${hash}`);
+        if (!opts.json) seams.progress({ kind: "notes", notes, hash });
         rec("notes", "stopped", `The approved hash ${opts.yesNotes} does not match these notes (${hash} for ${ctx.nextTag}). They need approval again; nothing was committed.`);
         return report("awaiting-approval", `${rerun}${opts.json ? " --json" : ""} --yes-notes ${hash}`);
       }
     } else {
-      if (!opts.json) seams.log(`\n${notes}\nnotes hash ${hash}`);
+      if (!opts.json) seams.progress({ kind: "notes", notes, hash });
       if (opts.json || !seams.isTTY) {
         rec("notes", "stopped", `The notes for ${ctx.nextTag} (hash ${hash}) need your approval. Nothing was committed.`);
         return report("awaiting-approval", `${rerun}${opts.json ? " --json" : ""} --yes-notes ${hash}`);

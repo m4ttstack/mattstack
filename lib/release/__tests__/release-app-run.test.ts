@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { notesHash, renderNotes, runReleaseApp, type ReleaseAppOptions, type ReleaseAppSeams } from "../release-app.ts";
+import { notesHash, renderNotes, runReleaseApp, type ReleaseAppOptions, type ReleaseAppProgress, type ReleaseAppSeams } from "../release-app.ts";
 import type { RunResult } from "../../subprocess.ts";
 
 const LAST = "v2.13.0";
@@ -35,7 +35,7 @@ class World {
   runs = new Map<number, Run>();
   written = new Map<string, string>();
   calls: string[][] = [];
-  logs: string[] = [];
+  events: ReleaseAppProgress[] = [];
   confirmAnswer = true;
   confirmPrompts: string[] = [];
   releaseConclusion = "success";
@@ -220,7 +220,7 @@ class World {
       readFile: () => null,
       writeFile: (path, text) => { this.written.set(path, text); },
       confirm: async (message) => { this.confirmPrompts.push(message); return this.confirmAnswer; },
-      log: (line) => { this.logs.push(line); },
+      progress: (event) => { this.events.push(event); },
       ...overrides,
     };
   }

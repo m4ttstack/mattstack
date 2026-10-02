@@ -12,7 +12,7 @@ only pending rows (the rest ok) read as `pending`; any stale row reads as `faile
 release marked prerelease, a release body that does not match the committed notes, or
 releases/latest resolving another tag past the propagation window) reads as `release state
 wrong`. An `error` row (verify could not check,
-for example "could not reach gh") takes the `pending, or an error row` edge: verify reruns
+for example "rt could not reach GitHub") takes the `pending, or an error row` edge: verify reruns
 through `Verify reruns = 4?`.
 
 ```dot
@@ -38,16 +38,16 @@ digraph publish_and_finish {
     "Docs deploy result?" [shape=diamond];
     "Docs deploy attempts = 2?" [shape=diamond];
     "bash scripts/deploy-docs.sh, retried once" [shape=plaintext];
-    "rt release update-machine --plan" [shape=plaintext];
+    "rt release update-machine --plan --json" [shape=plaintext];
     "Gate: approve the update-machine legs" [shape=box];
     "Update-machine plan answer?" [shape=diamond];
     "STOP: --yes runs only after Matt approves the plan" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "rt release update-machine --yes" [shape=plaintext];
+    "rt release update-machine --yes --json" [shape=plaintext];
     "Update-machine summary?" [shape=diamond];
     "STOP: never switch the shared checkout's branch" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Update-machine runs = 2?" [shape=diamond];
     "Fix what the halted leg names" [shape=box];
-    "rt release update-machine --yes, rerun after the fix" [shape=plaintext];
+    "rt release update-machine --yes --json, rerun after the fix" [shape=plaintext];
     "Off-script gate: assets missing" [shape=box];
     "Assets missing: gate rounds = 2?" [shape=diamond];
     "Off-script gate: release state wrong after publish" [shape=box];
@@ -129,8 +129,8 @@ digraph publish_and_finish {
     "Draft flips = 1?" -> "Off-script gate: draft will not publish" [label="yes: budget spent"];
     "bash scripts/deploy-docs.sh" -> "Docs deploy result?";
     "bash scripts/deploy-docs.sh, retried once" -> "Docs deploy result?";
-    "Docs deploy result?" -> "rt release update-machine --plan" [label="deployed"];
-    "Off-script gate: rt.cool setup missing" -> "rt release update-machine --plan" [label="take: Matt deployed rt.cool himself"];
+    "Docs deploy result?" -> "rt release update-machine --plan --json" [label="deployed"];
+    "Off-script gate: rt.cool setup missing" -> "rt release update-machine --plan --json" [label="take: Matt deployed rt.cool himself"];
     "Off-script gate: rt.cool setup missing" -> "Rt.cool setup missing: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: rt.cool setup missing" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: rt.cool setup missing" -> "Handed back to Matt" [label="hand back"];
@@ -139,40 +139,40 @@ digraph publish_and_finish {
     "Docs deploy result?" -> "Off-script gate: rt.cool setup missing" [label="setup missing"];
     "Docs deploy result?" -> "Docs deploy attempts = 2?" [label="failed"];
     "Docs deploy attempts = 2?" -> "bash scripts/deploy-docs.sh, retried once" [label="no"];
-    "Off-script gate: rt.cool deploy failing" -> "rt release update-machine --plan" [label="take: Matt deployed rt.cool himself"];
+    "Off-script gate: rt.cool deploy failing" -> "rt release update-machine --plan --json" [label="take: Matt deployed rt.cool himself"];
     "Off-script gate: rt.cool deploy failing" -> "Rt.cool deploy failing: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: rt.cool deploy failing" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: rt.cool deploy failing" -> "Handed back to Matt" [label="hand back"];
     "Rt.cool deploy failing: gate rounds = 2?" -> "bash scripts/deploy-docs.sh, retried once" [label="no: retry"];
     "Rt.cool deploy failing: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Docs deploy attempts = 2?" -> "Off-script gate: rt.cool deploy failing" [label="yes: budget spent"];
-    "rt release update-machine --plan" -> "Gate: approve the update-machine legs";
+    "rt release update-machine --plan --json" -> "Gate: approve the update-machine legs";
     "Gate: approve the update-machine legs" -> "Update-machine plan answer?";
-    "Update-machine plan answer?" -> "rt release update-machine --yes" [label="approve every leg"];
+    "Update-machine plan answer?" -> "rt release update-machine --yes --json" [label="approve every leg"];
     "Update-machine plan answer?" -> "Held: release paused, resume point named" [label="hold"];
     "Update-machine plan answer?" -> "Handed back to Matt" [label="hand back: Matt runs it with its own prompts"];
     "Update-machine plan answer?" -> "STOP: --yes runs only after Matt approves the plan" [label="tempted to run --yes before the answer"];
     "STOP: --yes runs only after Matt approves the plan" -> "Gate: approve the update-machine legs";
-    "rt release update-machine --yes" -> "Update-machine summary?";
-    "rt release update-machine --yes, rerun after the fix" -> "Update-machine summary?";
+    "rt release update-machine --yes --json" -> "Update-machine summary?";
+    "rt release update-machine --yes --json, rerun after the fix" -> "Update-machine summary?";
     "Update-machine summary?" -> "Released and this machine updated" [label="every leg ok and the verify sweep clean"];
     "Off-script gate: shared checkout off main" -> "Released and this machine updated" [label="take: Matt finished the halted legs himself"];
     "Off-script gate: shared checkout off main" -> "Shared checkout off main: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: shared checkout off main" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: shared checkout off main" -> "Handed back to Matt" [label="hand back"];
-    "Shared checkout off main: gate rounds = 2?" -> "rt release update-machine --yes, rerun after the fix" [label="no: retry"];
+    "Shared checkout off main: gate rounds = 2?" -> "rt release update-machine --yes --json, rerun after the fix" [label="no: retry"];
     "Shared checkout off main: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Update-machine summary?" -> "Off-script gate: shared checkout off main" [label="the shared checkout is off main"];
     "Update-machine summary?" -> "STOP: never switch the shared checkout's branch" [label="tempted to switch the shared checkout's branch"];
     "STOP: never switch the shared checkout's branch" -> "Off-script gate: shared checkout off main";
     "Update-machine summary?" -> "Update-machine runs = 2?" [label="any other leg halted"];
     "Update-machine runs = 2?" -> "Fix what the halted leg names" [label="no"];
-    "Fix what the halted leg names" -> "rt release update-machine --yes, rerun after the fix";
+    "Fix what the halted leg names" -> "rt release update-machine --yes --json, rerun after the fix";
     "Off-script gate: update-machine leg halted" -> "Released and this machine updated" [label="take: Matt finished the halted legs himself"];
     "Off-script gate: update-machine leg halted" -> "Update-machine leg halted: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: update-machine leg halted" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: update-machine leg halted" -> "Handed back to Matt" [label="hand back"];
-    "Update-machine leg halted: gate rounds = 2?" -> "rt release update-machine --yes, rerun after the fix" [label="no: retry"];
+    "Update-machine leg halted: gate rounds = 2?" -> "rt release update-machine --yes --json, rerun after the fix" [label="no: retry"];
     "Update-machine leg halted: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Update-machine runs = 2?" -> "Off-script gate: update-machine leg halted" [label="yes: budget spent"];
     "Update-machine summary?" -> "Off-script gate: update-machine leg halted" [label="a halt only Matt can clear: the #rt announce failed or a sha256 mismatch"];
@@ -202,10 +202,11 @@ answers received at that gate: it is yes once Matt has answered iterate twice.
 
 ### Gate: approve the update-machine legs
 
-Show the `--plan` output. Say plainly that `--yes` skips every per-leg confirm: the prod app
-replace, the dev app replace, and the daemon restart announced in #rt. From Bash there is no TTY,
-and without `--yes` the verb refuses outright rather than guess at consent; that refusal is why
-this gate comes first, not a reason to pass `--yes` unasked. The legs, in order:
+Show each leg's `label` and `detail` from the `--plan` envelope. Say plainly that `--yes` skips
+every per-leg confirm: the prod app replace, the dev app replace, and the daemon restart announced
+in #rt. From Bash there is no TTY, and without `--yes` the verb refuses outright rather than guess
+at consent; that refusal is why this gate comes first, not a reason to pass `--yes` unasked. The
+legs, in order:
 
 - **Prod app**: downloads the released dmg, checks it against SHA256SUMS (a mismatch aborts before
   anything mounts), replaces `/Applications/mattstack.app` by moving the old one aside, and never
@@ -224,9 +225,9 @@ this gate comes first, not a reason to pass `--yes` unasked. The legs, in order:
 - **Verify**: a read-only sweep of all of the above.
 
 A leg that ends aborted or in error halts every later state-changing leg; the verify sweep still
-runs and the summary names the leg that halted. `--verify-only` runs the sweep alone (refused
-with `--plan`). Hand back means Matt runs the verb on a terminal and answers each leg's prompt
-himself; declining a prompt skips only that leg.
+runs and the envelope's `haltedAfter` names the leg that halted. `--verify-only` runs the sweep
+alone (refused with `--plan`). Hand back means Matt runs the verb on a terminal and answers each
+leg's prompt himself; declining a prompt skips only that leg.
 
 ### Fix what the halted leg names
 
@@ -294,6 +295,6 @@ update-machine runs again.
 
 ### Off-script gate: update-machine leg halted
 
-Quote the summary's halted leg and its detail (the failed #rt announce, a sha256 mismatch, or a
-leg still halting after the fix). Take: Matt finished the halted legs himself. Iterate: Matt fixed
-the cause, and update-machine runs again.
+Quote the `haltedAfter` leg and its `detail` from the envelope (the failed #rt announce, a sha256
+mismatch, or a leg still halting after the fix). Take: Matt finished the halted legs himself.
+Iterate: Matt fixed the cause, and update-machine runs again.
