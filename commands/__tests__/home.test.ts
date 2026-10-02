@@ -571,7 +571,7 @@ describe("homeInit", () => {
       );
 
       expect(exitCode).toBe(1);
-      expect(errors.some((e) => e.includes("not a safe machine-key segment"))).toBe(true);
+      expect(errors.some((e) => e.includes("cannot name a Mac"))).toBe(true);
       expect(seam.calls).toEqual([]);
     });
 
@@ -682,7 +682,7 @@ describe("homeInit", () => {
       );
 
       expect(exitCode).toBe(1);
-      expect(errors.some((e) => e.includes("ghost") && e.includes("--new-profile"))).toBe(true);
+      expect(errors.some((e) => e.includes("ghost") && e.includes("as a new profile"))).toBe(true);
       expect(picker.calls).toEqual([]);
       expect(seam.calls).toEqual([]);
     });
@@ -704,7 +704,7 @@ describe("homeInit", () => {
       );
 
       expect(exitCode).toBe(1);
-      expect(errors.some((e) => e.includes("--profile") && e.includes("--new-profile"))).toBe(true);
+      expect(errors.some((e) => e.includes("no terminal to ask which"))).toBe(true);
       expect(picker.calls).toEqual([]);
       expect(seam.calls).toEqual([]);
     });
@@ -1166,7 +1166,7 @@ describe("homeInit", () => {
 
       expect(exec.calls).toEqual([["rt", "intercept", "install"]]); // deck setup never spawned
       expect(logs.some((l) => l.includes("already healthy"))).toBe(true);
-      expect(logs.some((l) => l.includes("deck healthy — setup skipped"))).toBe(true);
+      expect(logs.some((l) => l.includes("deck is already running well"))).toBe(true);
     });
 
     test("a tracked repo missing from disk is reported by name, never cloned", async () => {
@@ -2002,7 +2002,7 @@ describe("homeClaim / homeRelease", () => {
     const { exitCode, errors } = await runCatchingExit(() => homeClaim(["../escape"], {}, ownersPath, provisioned));
 
     expect(exitCode).toBe(1);
-    expect(errors.some((e) => e.includes("not a valid snapshot zone"))).toBe(true);
+    expect(errors.some((e) => e.includes("is not a path rt can track"))).toBe(true);
   });
 
   test("claim with no zone argument: exits 1, explains a zone is required", async () => {
@@ -2087,7 +2087,7 @@ describe("homeClaim / homeRelease", () => {
     const { exitCode, errors } = await runCatchingExit(() => homeRelease(["../escape"], {}, ownersPath, provisioned));
 
     expect(exitCode).toBe(1);
-    expect(errors.some((e) => e.includes("not a valid snapshot zone"))).toBe(true);
+    expect(errors.some((e) => e.includes("is not a path rt can track"))).toBe(true);
   });
 
   test("release with no zone argument: exits 1, explains a zone is required", async () => {
