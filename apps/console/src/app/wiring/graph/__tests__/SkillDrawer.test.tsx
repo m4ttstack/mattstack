@@ -1,5 +1,6 @@
 import '../../../icons';
 
+import { notifications } from '@mattstack/app-kit/notifications';
 import {
   renderWithProviders,
   stubVirtualLayout,
@@ -94,7 +95,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // The store outlives a render, so one test's toast would satisfy the next.
+  act(() => notifications.clean());
   restoreLayout();
+  vi.restoreAllMocks();
   vi.clearAllMocks();
   window.history.pushState(null, '', '/');
 });
@@ -362,6 +366,47 @@ describe('SkillDrawer', () => {
     const blob = writeText.mock.calls.at(-1)![0] as string;
     expect(blob).toMatch(/^Verb: work\nEngine: mattstack:work/);
     expect(blob).toContain('Seams:');
+  });
+
+  it('says so when the clipboard refuses a copy', async () => {
+    mockDesignPack();
+    writeText.mockRejectedValue(new Error('Document is not focused'));
+    const error = vi.spyOn(notifications, 'error');
+    const success = vi.spyOn(notifications, 'success');
+    renderAt('?tab=graph&focus=pipeline:feature&select=row:1');
+
+    fireEvent.click(within(await drawer()).getByTestId('drawer-menu'));
+    fireEvent.click(await screen.findByText('Copy path'));
+
+    expect(
+      await screen.findByText(
+        'Could not copy the path: Document is not focused'
+      )
+    ).toBeInTheDocument();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(success).not.toHaveBeenCalled();
+  });
+
+  it('says so when the compile preview behind the rendered text fails', async () => {
+    mockDesignPack();
+    compileGet.mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({ error: 'rt skills compile: timed out' }),
+    });
+    const error = vi.spyOn(notifications, 'error');
+    renderAt('?tab=graph&focus=pipeline:feature&select=row:1');
+
+    fireEvent.click(within(await drawer()).getByTestId('drawer-menu'));
+    fireEvent.click(await screen.findByText('Copy rendered text'));
+
+    expect(
+      await screen.findByText(
+        'Could not copy the rendered text: rt skills compile: timed out'
+      )
+    ).toBeInTheDocument();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(writeText).not.toHaveBeenCalled();
   });
 
   it("ends an input card source line with the file's own line count", async () => {
