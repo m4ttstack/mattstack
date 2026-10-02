@@ -14,7 +14,7 @@ import { NOTIFICATION_DEFAULTS } from "./notification-events.ts";
 
 const ALL_SCOPES: SettingScope[] = ["user", "team", "machine"];
 
-export const REGISTRY: readonly SettingDef[] = [
+const ROWS: readonly SettingDef[] = [
   // --- migrated:true (wave 1) ---------------------------------------------
   {
     key: "rt.roles",
@@ -371,10 +371,24 @@ export const REGISTRY: readonly SettingDef[] = [
   {
     key: "mattstack.roster",
     type: "array",
-    scopes: ["team"],
+    scopes: ["org"],
     merge: "replace",
     description:
-      "The suite-wide team roster: [{username, name?}] GitLab usernames with optional display names. Any suite app that lists people reads this; hiding someone is the app's own overlay (e.g. boxscore.hiddenMembers).",
+      "Everyone in the org: [{username, name?, agePublicKey?, teams?}], by forge username. teams lists the team folders a member belongs to. Any app that lists people reads this; hiding someone is the app's own overlay (e.g. boxscore.hiddenMembers).",
+  },
+  {
+    key: "mattstack.org",
+    type: "object",
+    scopes: ["org"],
+    merge: "replace",
+    description: "Who may change shared settings: the org's admins, and each team's owners, by forge username.",
+  },
+  {
+    key: "mattstack.activeTeam",
+    type: "string",
+    scopes: ["user"],
+    merge: "replace",
+    description: "The team you use the apps as, when the roster lists you on more than one.",
   },
 
   // --- claude (installer-lane) --------------------------------------------
@@ -923,3 +937,12 @@ export const REGISTRY: readonly SettingDef[] = [
     description: "Skill id that sets the voice for prose posted under your name (reviews, replies, PR descriptions). A team value is the default a member's user value overrides.",
   },
 ];
+
+/** `org` goes after `team` so a key's first scope, which the apps group their settings pages by, does not change. */
+function withOrgScope(def: SettingDef): SettingDef {
+  if (!def.scopes.includes("team") || def.scopes.includes("org")) return def;
+  const at = def.scopes.indexOf("team") + 1;
+  return { ...def, scopes: [...def.scopes.slice(0, at), "org", ...def.scopes.slice(at)] };
+}
+
+export const REGISTRY: readonly SettingDef[] = ROWS.map(withOrgScope);
