@@ -385,7 +385,7 @@ test('a checked child of an open MR blocks bulk merge with the reason', async ()
     i.textContent?.includes('!103 sits on !101, which is still open')
   );
   expect(merge?.textContent?.startsWith('merge')).toBe(true);
-  expect(merge?.hasAttribute('disabled')).toBe(true);
+  expect(merge?.getAttribute('aria-disabled')).toBe('true');
   await React.act(async () => merge?.click());
   await settle();
   expect(posts.filter(p => p.url === '/mr/action')).toEqual([]);

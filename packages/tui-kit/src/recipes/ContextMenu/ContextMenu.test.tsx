@@ -34,10 +34,9 @@ import { CONTEXTMENU_PARTS, ContextMenu } from "./ContextMenu.tsx";
  *     `userEvent.keyboard`, a real key event to the focused element, which
  *     bubbles to the `document` listener `useEscapeClose` installs.
  *  3. A DISABLED ITEM IS CLICKED PROGRAMMATICALLY (`el.click()`). Playwright's
- *     actionability check makes a driver click on a disabled control hang
- *     until it times out; `HTMLElement.click()` on a disabled form control is
- *     a defined no-op (the activation behaviour returns early), which is
- *     exactly the browser behaviour the `disabled` prop is claiming.
+ *     actionability check makes a driver click on an `aria-disabled` control
+ *     hang until it times out. `el.click()` still dispatches the click, so it
+ *     proves the recipe, not the browser, keeps it from running.
  *  4. THE LAYER STACK IS MODULE-GLOBAL (src/hooks/layers.ts).
  *     vitest-browser-react's per-test cleanup unmounts every tree, which pops
  *     the registration, so no test resets it by hand.
@@ -180,7 +179,7 @@ describe("ContextMenu (browser)", () => {
     await expect.element(screen.getByRole("button", { name: "scheme" })).toHaveFocus();
   });
 
-  it("a disabled item is disabled in the DOM and does not fire", async () => {
+  it("a disabled item is aria-disabled, not natively disabled, and does not fire", async () => {
     const onClick = vi.fn();
     const screen = await renderWithTheme(
       <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
@@ -189,17 +188,19 @@ describe("ContextMenu (browser)", () => {
     );
 
     const item = rootOf(screen.container).querySelector<HTMLButtonElement>("button") as HTMLButtonElement;
-    expect(item.disabled).toBe(true);
+    expect(item.disabled).toBe(false);
+    expect(item.getAttribute("aria-disabled")).toBe("true");
     item.click();
 
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it("a disabled item still shows its hint, and the arrow keys skip it", async () => {
+  it("a disabled item still shows its hint, the arrow keys reach it, and Enter does not run it", async () => {
+    const onMerge = vi.fn();
     const screen = await renderWithTheme(
       <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
         <ContextMenu.Item label="review" onClick={noop} />
-        <ContextMenu.Item label="merge" hint="pipeline running" disabled onClick={noop} />
+        <ContextMenu.Item label="merge" hint="pipeline running" disabled onClick={onMerge} />
         <ContextMenu.Item label="open in gitlab" onClick={noop} />
       </ContextMenu>,
     );
@@ -209,6 +210,15 @@ describe("ContextMenu (browser)", () => {
 
     await userEvent.keyboard("{ArrowDown}");
     await expect.element(screen.getByRole("menuitem", { name: "review" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    const merge = screen.getByRole("menuitem", { name: "merge pipeline running" });
+    await expect.element(merge).toHaveFocus();
+    expect(merge.element().matches(":focus-visible")).toBe(true);
+    expect(getComputedStyle(merge.element()).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard(" ");
+    expect(onMerge).not.toHaveBeenCalled();
+    await expect.element(merge).toHaveFocus();
     await userEvent.keyboard("{ArrowDown}");
     await expect.element(screen.getByRole("menuitem", { name: "open in gitlab" })).toHaveFocus();
   });

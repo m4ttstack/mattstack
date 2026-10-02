@@ -201,7 +201,7 @@ describe("ContextMenu (visual)", () => {
   });
 
   it("the hovered item's accent wash matches its baseline", async () => {
-    // The one state neither still above can show: `.item:hover:not(:disabled)`
+    // The one state neither still above can show: `.item[data-highlighted]:not([data-disabled])`
     // paints `--surface-wash-accent-16`, the same wash Segmented and SelectBox
     // use, and it is the menu's only interactive colour.
     const screen = await renderFixture(boardMenu());

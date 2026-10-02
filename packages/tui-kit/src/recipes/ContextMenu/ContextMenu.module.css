@@ -56,15 +56,17 @@
   }
 
   /* Base UI moves focus with the pointer, so `data-highlighted` is both hover
-     and keyboard focus. A disabled Sub row (`data-disabled`) stays focusable,
-     so it is washed only when the keyboard put it there. `data-popup-open`
-     keeps a Sub's row lit while its panel is open. */
+     and keyboard focus. A disabled row (`data-disabled`) stays focusable, so
+     it is washed only when the keyboard put it there. `:not(:hover)` because
+     the pointer focuses a row by script, which keeps `:focus-visible` once a
+     key opened the menu. `data-popup-open` keeps a Sub's row lit while its
+     panel is open. */
   .item {
     outline: none;
   }
 
-  .item[data-highlighted]:not([data-disabled], :disabled),
-  .item[data-disabled]:focus-visible,
+  .item[data-highlighted]:not([data-disabled]),
+  .item[data-disabled]:focus-visible:not(:hover),
   .item[data-popup-open] {
     background: var(--surface-wash-accent-16);
   }
@@ -73,7 +75,6 @@
      glyphs take --muted, about 3:1 on the card (a disabled control is exempt
      from the text bar) and several times dimmer than a live --text-1 label;
      the hint keeps --text-4 so the reason stays legible, set in italic. */
-  .item:disabled,
   .item[data-disabled] {
     color: var(--muted);
     cursor: not-allowed;
@@ -85,7 +86,6 @@
     color: var(--text-4);
   }
 
-  .item:disabled .hint,
   .item[data-disabled] .hint {
     font-style: italic;
   }

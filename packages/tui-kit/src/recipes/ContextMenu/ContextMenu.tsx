@@ -120,22 +120,6 @@ function deferEscape(details: CloseDetails): boolean {
     - `focus-out`: Tab moving focus out of the menu leaves it open. */
 const ROOT_IGNORED_CLOSES: ReadonlySet<string> = new Set(["outside-press", "focus-out"]);
 
-/** Base UI keeps a disabled item focusable through `aria-disabled` and strips
-    the native attribute. An Item keeps the native one, which the board
-    asserts: it is inert to the pointer and skipped by the arrow keys (Base
-    UI's navigation skips `:disabled`). So Base UI is never told an Item is
-    disabled, and the button carries it instead. */
-function buttonRender(disabled: boolean | undefined) {
-  return (props: ComponentProps<"button">) => (
-    <button
-      {...props}
-      type="button"
-      disabled={disabled}
-      aria-disabled={disabled ? undefined : props["aria-disabled"]}
-    />
-  );
-}
-
 interface PopupKeyEvent {
   key: string;
   target: EventTarget;
@@ -198,7 +182,9 @@ export interface ContextMenuItemOwnProps {
   hint?: string;
   /** An arbitrary right-hand node that REPLACES the hint. */
   trailing?: ReactNode;
-  /** Disables the underlying `<button>`; styling follows from `:disabled`. */
+  /** Base UI's `aria-disabled` model: the item stays focusable and the arrow
+      keys reach it, but a click or Enter never calls `onClick`. Styling
+      follows from `data-disabled`. */
   disabled?: boolean;
   onClick?: (e: ReactMouseEvent<HTMLButtonElement>) => void;
 }
@@ -229,8 +215,8 @@ export interface ContextMenuSubOwnProps {
   label: ReactNode;
   /** The nested menu's accessible name. */
   ariaLabel: string;
-  /** A disabled Sub never opens. Its row stays focusable (Base UI's
-      `aria-disabled` model), unlike a disabled Item. */
+  /** A disabled Sub never opens. Its row stays focusable, as a disabled
+      Item does. */
   disabled?: boolean;
   /** The nested menu's items. */
   children?: ReactNode;
@@ -417,8 +403,9 @@ export const ContextMenu = defineCompound({
         return (
           <Menu.Item
             ref={ref as Ref<HTMLButtonElement>}
-            render={buttonRender(disabled)}
+            render={<button type="button" />}
             nativeButton
+            disabled={disabled}
             closeOnClick={false}
             {...(rest as Omit<Menu.Item.Props, "onClick">)}
             onClick={(e) => {
@@ -434,6 +421,8 @@ export const ContextMenu = defineCompound({
             {/* The label's <span> carries no slot because the board gives it no
                 class either: it exists so space-between has two children. */}
             <span>{label}</span>
+            {/* Inside the button, so a disabled item's reason is part of its
+                accessible name. */}
             {trailing ??
               (hint ? (
                 <span {...getStyles({ part: "hint" })} data-part={CONTEXTMENU_PARTS.hint}>

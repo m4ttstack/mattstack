@@ -78,7 +78,7 @@ test('the reaction row toggles a mark and keeps the menu open', async () => {
   expect(harness.closed).toBe(false);
 });
 
-test('a blocked reaction is disabled, names its reason, and does not run', async () => {
+test('a blocked reaction is aria-disabled, names its reason, and does not run', async () => {
   const reaction = (
     key: string,
     label: string,
@@ -99,11 +99,16 @@ test('a blocked reaction is disabled, names its reason, and does not run', async
     ...document.querySelectorAll<HTMLButtonElement>(
       '[data-part="contextmenu-row"] [role="menuitem"]'
     ),
-  ].map(el => [el.disabled, el.getAttribute('aria-label'), el.title]);
+  ].map(el => [
+    el.getAttribute('aria-disabled'),
+    el.hasAttribute('disabled'),
+    el.getAttribute('aria-label'),
+    el.title,
+  ]);
   expect(toggles).toEqual([
-    [true, 'mark as looking (no thread)', 'mark as looking (no thread)'],
-    [true, 'mark as commented (blocked)', 'mark as commented (blocked)'],
-    [false, 'mark as approved', 'mark as approved'],
+    ['true', false, 'mark as looking (no thread)', 'mark as looking (no thread)'],
+    ['true', false, 'mark as commented (blocked)', 'mark as commented (blocked)'],
+    ['false', false, 'mark as approved', 'mark as approved'],
   ]);
   await clickItem('mark as looking');
   await clickItem('mark as commented');
@@ -120,7 +125,7 @@ test('a blocked row in a flyout shows its reason and does not run', async () => 
   const post = [
     ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
   ].find(el => el.textContent?.includes('open MR post in slack'))!;
-  expect(post.disabled).toBe(true);
+  expect(post.getAttribute('aria-disabled')).toBe('true');
   expect(post.textContent).toContain('no thread');
   await clickItem('open MR post in slack');
   expect(harness.effects).toEqual([]);
@@ -145,10 +150,10 @@ test('a blocked row shows its reason without a blocked tag; one with no reason k
   const tagOf = (el: HTMLElement) =>
     el.querySelector('[data-part="contextmenu-hint"]')?.textContent ?? null;
 
-  expect(row('merge').disabled).toBe(true);
+  expect(row('merge').getAttribute('aria-disabled')).toBe('true');
   expect(row('merge').textContent).toBe('mergeneeds approval');
   expect(tagOf(row('merge'))).toBeNull();
-  expect(row('rebase').disabled).toBe(true);
+  expect(row('rebase').getAttribute('aria-disabled')).toBe('true');
   expect(tagOf(row('rebase'))).toBe('blocked');
 });
 

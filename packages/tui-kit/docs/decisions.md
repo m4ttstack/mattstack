@@ -194,10 +194,15 @@ menu ARIA are each easy to get subtly wrong by hand, and Base UI already gets
 them right. The public API did not change: the caller still mounts the menu
 at a point and owns `onClose`.
 
-Base UI is driven, not trusted, in six places:
+Base UI is driven, not trusted, in eight places:
 
 - The menu is controlled and always open while mounted. Every item has
   `closeOnClick={false}`, so only the caller closes it.
+- An item's click skips Base UI's own click handlers, one of which refocuses
+  the clicked item. The caller decides where focus goes next.
+- The popup takes its first focus (the caller's `initialFocusRef`, else the
+  popup itself) from its ref callback, before Base UI's focus manager runs,
+  so Base UI never moves it to the first tabbable instead.
 - Base UI's Escape is cancelled. The root and each open submenu join the
   kit's layer stack (`useEscapeClose`), so one Escape closes one layer
   whatever order the two `document` listeners run in. A menu over a drawer
@@ -229,6 +234,13 @@ together with the other:
 Base UI's focus return on close is off for the root. The recipe returns focus
 itself, and only when focus was lost with the menu, so a menu swapped in under
 a new key keeps the focus it took.
+
+A disabled Item or Sub is Base UI's own: `aria-disabled` on a button that
+keeps no native `disabled`, focusable and reached by the arrow keys, and inert
+to a click, Enter or Space. A natively disabled button that has focus drops it
+to `<body>` in WebKit and Firefox, which loses the reader's place in the menu.
+The styling keys on `data-disabled`, and the hint stays inside the button, so
+a blocked row's reason is part of its accessible name.
 
 The other overlays (Modal, SideDrawer, Tooltip) stay hand-rolled. Nothing
 they do needs what Base UI adds.

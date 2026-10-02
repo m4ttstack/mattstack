@@ -3023,7 +3023,7 @@ a.tui-id-card-ref:focus-visible {
 }
 /* A bulk item that cannot run keeps its words on one line with the reason
    wrapped under them, indented past the 13px icon and 9px gap. The
-   recipe's :disabled rule dims the label; the reason takes the hint's
+   recipe's [data-disabled] rule dims the label; the reason takes the hint's
    legible token and italic, as the recipe's disabled hint does. */
 .tui-menu-blocked {
   display: flex;
@@ -3040,10 +3040,10 @@ a.tui-id-card-ref:focus-visible {
 }
 /* A disabled row's glyph dims with its label. An emoji ignores colour, so
    it is greyed and faded instead. */
-[data-part='contextmenu-item']:disabled .tui-menu-icon-label svg {
+[data-part='contextmenu-item'][data-disabled] .tui-menu-icon-label svg {
   color: inherit;
 }
-[data-part='contextmenu-item']:disabled .tui-menu-emoji {
+[data-part='contextmenu-item'][data-disabled] .tui-menu-emoji {
   filter: grayscale(1);
   opacity: 0.45;
 }
@@ -3068,7 +3068,7 @@ a.tui-id-card-ref:focus-visible {
 }
 /* A disabled agent action drops its lane colour for the recipe's muted one,
    so it never reads as a live action. */
-[data-part='contextmenu-item']:disabled .tui-menu-agent {
+[data-part='contextmenu-item'][data-disabled] .tui-menu-agent {
   color: inherit;
 }
 /* Trailing nodes a slack-mark item hands the shell: the set mark, and the
