@@ -44,7 +44,6 @@
   "lib/navigate.ts",
   "lib/pickers.ts",
   "lib/prompt-secret.ts",
-  "lib/rebase-escalation.ts",
   "lib/repo-index.ts",
   "lib/repo-tracking.ts",
   "lib/run-history.ts",
