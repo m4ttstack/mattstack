@@ -1291,8 +1291,51 @@ describe('issues while Where it’s set is open', () => {
       screen.getByRole('button', { name: 'close board.agent.model' })
     );
     expect(
-      screen.getByText('stored value rejected: not a model')
+      await screen.findByText('stored value rejected: not a model')
     ).toBeInTheDocument();
+  });
+
+  it('while the panel collapses, an issue it still draws stays off the row', async () => {
+    // With no animation frames the collapse never leaves its exit.
+    const frames = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation(() => 0);
+    try {
+      explains([
+        { scope: 'default', file: null, present: false },
+        { scope: 'user', file: '/u', present: false },
+        { scope: 'machine', file: '/m', present: true, invalid: 'not a model' },
+      ]);
+      renderRow(
+        <SettingRow
+          def={def('board.agent.model', {
+            effective: { scope: 'machine', file: '/m', invalid: 'not a model' },
+            issues: [
+              {
+                scope: 'machine',
+                file: '/m',
+                kind: 'invalid',
+                path: [],
+                message: 'not a model',
+              },
+            ],
+          })}
+          store={store()}
+          subhead={null}
+          query=""
+          defaultOpen={{ tab: 'where', fix: null }}
+        />
+      );
+      const machine = await screen.findByTestId('layer-machine');
+      await userEvent.click(
+        screen.getByRole('button', { name: 'close board.agent.model' })
+      );
+      expect(screen.getAllByText(/not a model/)).toEqual([
+        within(machine).getByText('not a model'),
+      ]);
+    } finally {
+      frames.mockRestore();
+    }
   });
 });
 

@@ -83,19 +83,30 @@ function Marked({
   );
 }
 
-/** The last open state, kept while the panel collapses so it closes with
-    its content. `opening` counts openings: each one mounts a fresh panel,
-    even one that lands before the last collapse ends. */
-function useLastOpen(open: RowOpen | null) {
-  const last = useRef(open);
+const sameOpen = (a: RowOpen | null, b: RowOpen | null) =>
+  a?.tab === b?.tab && a?.fix === b?.fix;
+
+/** The open state the panel draws: the live one while open, the last one
+    while the panel collapses, and null once `settle` ends the collapse (at
+    once when `instant`). `opening` counts openings, so each one mounts a
+    fresh panel, even one that lands before the last collapse ends. */
+function usePanelOpen(open: RowOpen | null, instant: boolean) {
+  const isOpen = open !== null;
+  const [kept, setKept] = useState(open);
+  const [wasOpen, setWasOpen] = useState(isOpen);
   const [opening, setOpening] = useState(0);
-  const [wasOpen, setWasOpen] = useState(open !== null);
-  if ((open !== null) !== wasOpen) {
-    setWasOpen(open !== null);
-    if (open !== null) setOpening(n => n + 1);
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) setOpening(n => n + 1);
   }
-  if (open !== null) last.current = open;
-  return { shown: last.current, opening };
+  if (isOpen ? !sameOpen(open, kept) : instant && kept !== null) setKept(open);
+  return {
+    shown: open ?? kept,
+    opening,
+    settle: () => {
+      if (!isOpen) setKept(null);
+    },
+  };
 }
 
 /** Whether a text selection reaches into `el`: the click that ends a drag
@@ -148,7 +159,7 @@ export function SettingRow({
   });
   const isOpen = open !== null;
   const reduceMotion = useReducedMotion();
-  const { shown, opening } = useLastOpen(open);
+  const { shown, opening, settle } = usePanelOpen(open, reduceMotion);
   const [asJson, setAsJson] = useState(false);
   // A closed row starts fresh: JSON mode chosen in one opening must not
   // resurface on the next.
@@ -163,7 +174,7 @@ export function SettingRow({
   // A global source label ("unset", "default") says nothing about a key
   // that only lives in repo sections; the repo reach carries it instead.
   const plain = parts.perRepo ? null : sourceText(def);
-  const onWhere = open?.tab === 'where';
+  const onWhere = shown?.tab === 'where';
   const drawnBelow = onWhere
     ? (issue: WireIssue) => whereDraws(def, issue, repo)
     : undefined;
@@ -286,6 +297,7 @@ export function SettingRow({
         expanded={isOpen}
         keepMounted={false}
         transitionDuration={reduceMotion ? 0 : ROW_MOTION_MS}
+        onTransitionEnd={settle}
         id={panelId}
         role="region"
         aria-label={`${def.key} settings`}
