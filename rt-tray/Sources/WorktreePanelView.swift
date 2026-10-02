@@ -57,7 +57,7 @@ enum TriagePalette {
 }
 
 enum TriageLabels {
-    static let buttonActions: Set<String> = ["dispose", "review", "push-branch", "unkeep", "stop-process", "open-herd", "open-run", "remove"]
+    static let buttonActions: Set<String> = ["dispose", "review", "push-branch", "unkeep", "stop-process", "release", "open-run", "remove"]
 
     static func button(_ action: String) -> String {
         switch action {
@@ -66,7 +66,7 @@ enum TriageLabels {
         case "push-branch": return "Push branch"
         case "unkeep": return "Un-keep"
         case "stop-process": return "Stop process"
-        case "open-herd": return "Open herd"
+        case "release": return "Release"
         case "open-run": return "Open run"
         case "remove": return "Remove"
         default: return action
@@ -80,6 +80,7 @@ enum TriageLabels {
         case "keep": return "Keeping…"
         case "unkeep": return "Un-keeping…"
         case "stop-process": return "Stopping…"
+        case "release": return "Releasing…"
         case "remove": return "Removing…"
         default: return "Working…"
         }
@@ -121,6 +122,7 @@ enum TriageLabels {
 struct WorktreePanelView: View {
     @StateObject private var controller: WorktreePanelController
     @State private var confirmingDisposeAnyway: TriageRow?
+    @State private var confirmingRelease: TriageRow?
     @State private var keptOpen: Bool
     /// The verb each busy row is running, so its button can say what it is doing.
     @State private var inFlight: [String: String] = [:]
@@ -156,6 +158,18 @@ struct WorktreePanelView: View {
             Button("Cancel", role: .cancel) {}
         } message: { row in
             Text(TriageConfirm.disposeAnywayMessage(row))
+        }
+        .alert(confirmingRelease.map(TriageConfirm.releaseTitle) ?? "",
+               isPresented: Binding(get: { confirmingRelease != nil },
+                                    set: { if !$0 { confirmingRelease = nil } }),
+               presenting: confirmingRelease) { row in
+            Button("Release") {
+                inFlight[row.id] = "release"
+                controller.release(row)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { row in
+            Text(TriageConfirm.releaseMessage(row))
         }
     }
 
@@ -287,8 +301,9 @@ struct WorktreePanelView: View {
         case "unkeep": inFlight[r.id] = "unkeep"; controller.unkeep(r)
         case "stop-process": inFlight[r.id] = "stop-process"; controller.stopHolders(r)
         case "remove": inFlight[r.id] = "remove"; controller.remove(r)
-        case "open-herd", "open-run":
-            // The tray has no herd or run surface; the console is where both live.
+        case "release": confirmingRelease = r
+        case "open-run":
+            // The tray has no run surface; the console is where runs live.
             if let url = URL(string: "https://console.mattstack") { NSWorkspace.shared.open(url) }
         case "open-finder": NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: r.path)])
         case "open-terminal":

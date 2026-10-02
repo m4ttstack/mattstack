@@ -113,6 +113,15 @@ let triageChecks: [Check] = [
         c.expectEqual(TriageConfirm.disposeAnywayMessage(neville),
                       "This is the only copy of 19 unpushed commits. The files go to the trash for 14 days, but the commits may not be recoverable.")
     },
+    Check("release asks first, naming the tree and what holds it") { c in
+        let herdJSON = """
+        {"repo":"r","tree":"huan","path":"/p/h","branch":"b","mr":null,"ticket":null,"push":{"kind":"pushed"},"containment":"on-remote","dirt":{"kind":"none","files":[]},"group":"waiting","verdict":"Waiting: herd h1 is active.","actions":["release"],"hold":{"kind":"herd","detail":"herd h1 is active"},"fingerprint":{"headSha":"h","dirtHash":"d","mrState":null}}
+        """
+        let huan = try JSONDecoder().decode(TriageRow.self, from: Data(herdJSON.utf8))
+        c.expectEqual(TriageConfirm.releaseTitle(huan), "Release huan from its herd?")
+        c.expectEqual(TriageConfirm.releaseMessage(huan),
+                      "It's held because herd h1 is active. Releasing lets cleanup go ahead, with its usual checks: it still waits for anything running inside to stop.")
+    },
     Check("a remove footer names the trash path when the daemon returns one") { c in
         c.expectEqual(TriageStatusLine.action(tree: "daisy", outcome: .done, done: TriageStatusLine.removed(trash: "/p/.worktrees/.trash-daisy")).text,
                       "daisy: moved to the trash at /p/.worktrees/.trash-daisy")

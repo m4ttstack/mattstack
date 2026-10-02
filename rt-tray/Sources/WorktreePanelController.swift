@@ -159,6 +159,7 @@ final class WorktreePanelController: ObservableObject {
         run(row, "worktree:push-branch", ["fingerprint": row.fingerprint.jsonObject, "commitDirty": commitDirty], done: "pushed")
     }
     func stopHolders(_ row: TriageRow) { run(row, "worktree:stop-holders", [:], done: "processes stopped") }
+    func release(_ row: TriageRow) { run(row, "worktree:release", [:], done: "released; cleanup runs next") }
     func remove(_ row: TriageRow) { run(row, "worktree:triage-remove", [:], done: TriageStatusLine.removed(trash:)) }
 
     /// One at a time, so the footer and the button can report "1 of 2" and a
