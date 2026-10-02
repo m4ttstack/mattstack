@@ -17,7 +17,6 @@
   "commands/mcp.ts",
   "commands/nav.ts",
   "commands/pane.ts",
-  "commands/port.ts",
   "commands/post-install.ts",
   "commands/reconciler.ts",
   "commands/release.ts",
