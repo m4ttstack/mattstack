@@ -11,12 +11,21 @@ import { openStep, type StepHandle } from "./spawn.ts";
 
 export { __test__ } from "./gate.ts";
 
+export interface StepOptions {
+  done?: string;
+  doneHint?: string;
+  error?: string;
+  errorHint?: string;
+  /** On a throw the step erases itself and prints nothing: the caller draws the failure. */
+  failSilently?: boolean;
+}
+
 export interface StepRunner {
   /** Run an async step with spinner then done/error transition. */
   run<T>(
     pending: string,
     task: (step: { sub(text: string): void }) => Promise<T>,
-    opts?: { done?: string; doneHint?: string; error?: string; errorHint?: string },
+    opts?: StepOptions,
   ): Promise<T>;
 }
 
@@ -53,7 +62,7 @@ export function createStepRunner(): StepRunner {
     async run<T>(
       pending: string,
       task: (step: { sub(text: string): void }) => Promise<T>,
-      opts?: { done?: string; doneHint?: string; error?: string; errorHint?: string },
+      opts?: StepOptions,
     ) {
       const step: StepHandle | null = interactive() ? tryOpenStep(pending) : null;
       try {
@@ -67,6 +76,10 @@ export function createStepRunner(): StepRunner {
         }
         return r;
       } catch (e) {
+        if (opts?.failSilently) {
+          await step?.clear();
+          throw e;
+        }
         const hint = opts?.errorHint ?? (e instanceof Error ? e.message : undefined);
         const title = opts?.error ?? `${stripEllipsis(pending)} failed`;
         if (!step) {
@@ -85,7 +98,7 @@ export function createStepRunner(): StepRunner {
 export async function withSpinner<T>(
   label: string,
   task: () => Promise<T>,
-  opts?: { doneLabel?: string; failLabel?: string; errorHint?: string },
+  opts?: { doneLabel?: string; failLabel?: string; failSilently?: boolean },
 ): Promise<T> {
-  return createStepRunner().run(label, task, { done: opts?.doneLabel, error: opts?.failLabel, errorHint: opts?.errorHint });
+  return createStepRunner().run(label, task, { done: opts?.doneLabel, error: opts?.failLabel, failSilently: opts?.failSilently });
 }

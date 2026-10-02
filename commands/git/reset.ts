@@ -174,8 +174,7 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
     try {
       await withSpinner("Fetching from origin…", () => gitAsync(["fetch", "origin"]), {
         doneLabel: "Fetched from origin",
-        failLabel: "Could not fetch from origin",
-        errorHint: "",
+        failSilently: true,
       });
     } catch (err) {
       return {

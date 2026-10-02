@@ -86,6 +86,31 @@ test("off a terminal a step that throws prints a failed line and rethrows", asyn
   expect(io.stdout()).toBe("[failed] Could not push  rejected by the remote\n");
 });
 
+test("a step that fails silently erases itself, draws no failed line, and rethrows", async () => {
+  const steps = createStepRunner();
+  await expect(steps.run("Pushing…", async () => { throw new Error("rejected"); }, { done: "Pushed", failSilently: true })).rejects.toThrow("rejected");
+  expect(sent()).toEqual([
+    { t: "hello", protocol: 1 },
+    { t: "start", title: "Pushing…" },
+    { t: "done", title: "Pushing…", clear: true },
+  ]);
+  expect(io.stdout()).toBe("");
+  expect(io.stderr()).toBe("");
+});
+
+test("off a terminal a step that fails silently prints nothing and rethrows", async () => {
+  __test__.setInteractive(() => false);
+  await expect(withSpinner("Fetching from origin…", async () => { throw new Error("gone"); }, { failSilently: true })).rejects.toThrow("gone");
+  expect(io.stdout()).toBe("");
+  expect(io.stderr()).toBe("");
+});
+
+test("failing silently leaves a step that works ending as it always did", async () => {
+  __test__.setInteractive(() => false);
+  await createStepRunner().run("Pushing…", async () => 1, { done: "Pushed", failSilently: true });
+  expect(io.stdout()).toBe("[ok] Pushed\n");
+});
+
 test("under a payload verb the step's plain line goes to stderr", async () => {
   __test__.setInteractive(() => false);
   layer.payloadOnStdout();

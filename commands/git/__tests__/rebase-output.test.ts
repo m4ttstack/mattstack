@@ -160,3 +160,19 @@ test("rebase --json keeps stdout for the bundle alone", async () => {
   expect(io.stdout()).toBe("");
   expect(io.stderr()).toBe("[ok] Fetched from origin\n");
 });
+
+test("a failed fetch draws one failure, and git's own words print once, in it", async () => {
+  const repo = makeRepo(root);
+  const origin = join(root, "origin.git");
+  execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin], { stdio: "pipe" });
+  git(repo, "remote", "add", "origin", origin);
+  git(repo, "push", "-q", "origin", "main");
+  git(repo, "remote", "set-head", "origin", "main");
+  git(repo, "checkout", "-qb", "feature");
+  git(repo, "remote", "set-url", "origin", join(root, "gone.git"));
+  expect(await exitCodeOf(() => rebaseCommand([], ctxFor(repo)))).toBe(1);
+  expect(io.stdout()).toBe("");
+  expect(io.stderr()).toStartWith("Could not fetch from origin\n  Command failed: git fetch origin\n");
+  expect(io.stderr().split("Could not fetch").length - 1).toBe(1);
+  expect(io.stderr().split("Command failed").length - 1).toBe(1);
+});

@@ -268,11 +268,12 @@ describe("what a reset prints", () => {
     expect(io.lines().at(-1)).toBe(`[ok] ${hostile} already matches origin/${hostile}`);
   });
 
-  test("a failed fetch ends its step bare, and git's own words print once, in the failure", async () => {
+  test("a failed fetch draws one failure, and git's own words print once, in it", async () => {
     const { local } = makeFixture();
     execFileSync("git", ["remote", "set-url", "origin", join(tmpRoot, "gone.git")], { cwd: local, stdio: "pipe" });
     expect(await exitCodeOf(() => originCommand([], ctxFor(local)))).toBe(1);
-    expect(io.stdout()).toBe("[failed] Could not fetch from origin\n");
+    expect(io.stdout()).toBe("");
+    expect(io.stderr().split("Could not fetch").length - 1).toBe(1);
     expect(io.stderr()).toStartWith("Could not fetch from origin\n  Command failed: git fetch origin\n");
     expect(io.stderr().split("Command failed").length - 1).toBe(1);
   });
