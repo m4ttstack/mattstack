@@ -958,7 +958,7 @@ EOF
 
 ---
 
-### Task 3: Setup drops the switchboard rows and connect flow; board peering applies to every joined team
+### Task 3: Setup drops the switchboard rows and connect flow; board peering applies to every team on the Mac
 
 **Files:**
 - Modify: `lib/setup/contract.ts:7`
@@ -976,7 +976,7 @@ EOF
 
 **Interfaces:**
 - Consumes: `switchboardUrl(env)` from Task 1.
-- Produces: `Integration` no longer includes `"switchboard"`; `TeamIntegrations` has no `switchboard`; `UserIntegrationOverrides` is `{ forgeHost?: string }`; `boardPeering(p, has, extraRoots?)` applies to every team with `joinedByRt`. `boardRoots` and `sourceBoardRoots` in `lib/team/board-token.ts` become exported in Task 6, not here.
+- Produces: `Integration` no longer includes `"switchboard"`; `TeamIntegrations` has no `switchboard`; `UserIntegrationOverrides` is `{ forgeHost?: string }`; `boardPeering(p, has, extraRoots?)` applies to every team `discoverTeams(p)` finds on the Mac, created or joined (the same rule as the board's `listTeams().length > 0` gate). `boardRoots` and `sourceBoardRoots` in `lib/team/board-token.ts` become exported in Task 6, not here.
 
 - [ ] **Step 1: Write the failing setup tests**
 
@@ -1006,7 +1006,7 @@ describe("accountRows: account.board-peering", () => {
   const peeringRow = async (p: ReturnType<typeof fakeProbes>, secrets?: SecretPresence) => pickRow(rowsFor(p, secrets), "account.board-peering");
   const withToken = fakeSecrets({ "rt.switchboardToken": "tok-1" });
 
-  test("a joined team with no token anywhere -> needs-you with the re-invite remedy, never required, no relay probe", async () => {
+  test("a team with no token anywhere -> needs-you with the re-invite remedy, never required, no relay probe", async () => {
     const p = machine({ acme: { joinedByRt: true } });
     const r = await peeringRow(p);
     expect(r.status).toBe("needs-you");
@@ -1086,16 +1086,17 @@ describe("accountRows: account.board-peering", () => {
     expect(rows.some((row) => row.id === "account.board-peering")).toBe(false);
   });
 
-  test("a creator machine (not joined by invite) has no peering row", async () => {
-    const rows = await rowsFor(machine({ acme: { joinedByRt: false } }));
-    expect(rows.some((row) => row.id === "account.board-peering")).toBe(false);
+  test("a team created on this Mac gets the row too", async () => {
+    const r = await peeringRow(machine({ acme: { joinedByRt: false } }));
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toContain("acme");
   });
 
-  test("a joined team other than the active one is checked", async () => {
+  test("every team on the Mac is named, not only the active one", async () => {
     const r = await peeringRow(machine({ acme: { joinedByRt: false }, beta: { joinedByRt: true } }));
     expect(r.status).toBe("needs-you");
+    expect(r.detail).toContain("acme");
     expect(r.detail).toContain("beta");
-    expect(r.detail).not.toContain("acme");
   });
 
   test("a secrets store that throws -> its own could-not-read status, never read as no token", async () => {
@@ -1124,7 +1125,7 @@ describe("boardPeering: which Macs it applies to", () => {
     expect(await verdict(p)).toEqual({ kind: "not-applicable" });
   });
 
-  test("a team created on this Mac is not applicable", async () => {
+  test("a team created on this Mac applies too", async () => {
     const p = fakeProbes({
       home: HOME,
       dirs: { [TEAMS]: ["acme"] },
@@ -1133,7 +1134,7 @@ describe("boardPeering: which Macs it applies to", () => {
         [`${HOME}/.mattstack/rt/teams/acme.json`]: JSON.stringify({ createdByRt: true, joinedByRt: false }),
       },
     });
-    expect(await verdict(p)).toEqual({ kind: "not-applicable" });
+    expect(await verdict(p)).toEqual({ kind: "unpeered", teams: ["acme"] });
   });
 
   test("a joined team with no switchboard declaration still applies", async () => {
@@ -1181,27 +1182,26 @@ In `commands/__tests__/setup-connect.test.ts`: delete the comment and `describe(
 Run: `bun test lib/setup/__tests__/validators-accounts.test.ts lib/team/__tests__/board-token.test.ts lib/setup/__tests__/plan.test.ts`
 Expected: FAIL. The peering row is absent for a team with no declared switchboard, the healthz probe never runs, and the plan still holds `account.switchboard`/`access.switchboard`.
 
-- [ ] **Step 3: Board peering applies to every joined team**
+- [ ] **Step 3: Board peering applies to every team on the Mac**
 
-Replace `lib/team/board-token.ts`'s imports, `declaresHttpsSwitchboard`, and `boardPeering` so the file reads (keep `TOKEN_LINE`, `boardRoots`, `sourceBoardRoots`, `boardEnvHasSwitchboardToken`, `SecretPresenceCheck`, `BoardPeering` as they are):
+Replace `lib/team/board-token.ts`'s imports, `declaresHttpsSwitchboard`, and `boardPeering` so the file reads (drop the now-unused `readTeamLocal` import; keep `TOKEN_LINE`, `boardRoots`, `sourceBoardRoots`, `boardEnvHasSwitchboardToken`, `SecretPresenceCheck`, `BoardPeering` as they are):
 
 ```ts
 import { join, resolve } from "path";
 import type { Probes } from "../setup/probes.ts";
 import { discoverTeams } from "../setup/team-settings.ts";
 import { isCompiledRt } from "../rt-self.ts";
-import { readTeamLocal } from "./team-local.ts";
 ```
 
 ```ts
 /**
- * Whether a team this machine joined by invite expects its board to peer while
- * neither token source holds a token. A creator's machine has nothing a
- * re-invite could fix. Only presence is asked of the secrets store, and a
- * store that cannot answer is reported as such, never read as no token.
+ * Whether this Mac is in a team (created or joined) while neither token
+ * source holds a token: every Mac in a team peers through the switchboard.
+ * Only presence is asked of the secrets store, and a store that cannot
+ * answer is reported as such, never read as no token.
  */
 export async function boardPeering(p: Probes, has: SecretPresenceCheck, extraRoots: string[] = sourceBoardRoots()): Promise<BoardPeering> {
-  const teams = discoverTeams(p).filter((slug) => readTeamLocal(p, slug).joinedByRt);
+  const teams = discoverTeams(p);
   if (teams.length === 0) return { kind: "not-applicable" };
   if (boardEnvHasSwitchboardToken(p, extraRoots)) return { kind: "peered" };
   try {
@@ -1247,7 +1247,7 @@ async function boardPeeringRow(p: Probes, secrets: SecretPresence): Promise<Row 
   const peering = await boardPeering(p, (domain, key) => secrets.has(domain, key));
   if (peering.kind === "not-applicable") return null;
   if (peering.kind === "unpeered") {
-    return row({ ...BOARD_PEERING_BASE, status: "needs-you", detail: `You joined ${peering.teams.join(", ")} by invite, but this Mac's board has no switchboard token, so it cannot peer. Ask ${REINVITE}`, action: REINVITE_STEPS });
+    return row({ ...BOARD_PEERING_BASE, status: "needs-you", detail: `This Mac is in ${peering.teams.join(", ")}, but its board has no switchboard token, so it cannot peer. Ask ${REINVITE}`, action: REINVITE_STEPS });
   }
   if (peering.kind === "unreadable") {
     return row({ ...BOARD_PEERING_BASE, status: "error", detail: `Could not read your secrets store to check the board's switchboard token (${peering.error})`, action: ACCOUNT_RECHECK_ACTION });
@@ -1348,7 +1348,7 @@ Expected: all PASS; `setup-copy` snapshots unchanged (no snapshot names a switch
 ```bash
 git add -A lib/setup lib/team/board-token.ts lib/team/__tests__/board-token.test.ts commands/setup.ts commands/__tests__/setup-connect.test.ts lib/command-tree-def.ts lib/daemon.ts lib/__tests__/no-settings-bypass.test.ts website/docs/reference
 git commit -m "$(cat <<'EOF'
-setup: drop the switchboard rows; board peering covers every joined team
+setup: drop the switchboard rows; board peering covers every team on the Mac
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 EOF
@@ -2331,8 +2331,8 @@ when this Mac holds the switchboard admin token and seals only the token into
 the invite; `rt team join` stores it under the rt secrets scope, writes no URL
 setting, and refuses a pointer from an older rt whose URL is not
 `switchboardUrl()`. The board refuses a pasted invite on any other origin.
-The `account.board-peering` row applies on every Mac that joined a team by
-invite: `needs-you` with the re-invite remedy when neither the board's `.env`
+The `account.board-peering` row applies on every Mac in a team, created or
+joined: `needs-you` with the re-invite remedy when neither the board's `.env`
 nor rt's `switchboardToken` holds a token, `error` with a re-check when
 `<url>/healthz` (no auth header; `/health` is not a route) does not answer
 200, `ready` otherwise. It is never required or finish-gated (only the owner
