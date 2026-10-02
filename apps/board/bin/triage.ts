@@ -49,6 +49,7 @@ import {
 import type { OwnMrFacts } from '../src/triage/edge.ts';
 import { runLatchPass, type LatchMrFacts } from '../src/triage/latch.ts';
 import {
+  CRON_CLAIM_STALE_MS,
   readMemory,
   releaseCron,
   tryClaimCron,
@@ -100,13 +101,15 @@ if (
   process.exit(0);
 
 // One run at a time: a slow run plus a fresh trigger must not interleave
-// dispatches. A stale claim (crashed run) is reclaimed. A peer pass waits for
-// a held claim; a full pass yields to it.
+// dispatches. A stale claim (crashed run) is reclaimed. Both passes wait for a
+// held claim: a full pass that exits behind a short peer pass would leave its
+// doctor and latch work for the next MR change.
 if (peerMode && !(await peerPreflight())) process.exit(0);
 
-const lockToken = peerMode
-  ? await claimCronWaiting({ tryClaim: tryClaimCron })
-  : tryClaimCron(Date.now());
+const lockToken = await claimCronWaiting({
+  tryClaim: tryClaimCron,
+  maxWaitMs: peerMode ? CRON_CLAIM_STALE_MS : 30_000,
+});
 if (lockToken === false) {
   process.exit(0);
 }

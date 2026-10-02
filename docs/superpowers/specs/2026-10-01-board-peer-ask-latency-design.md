@@ -130,7 +130,9 @@ A mode of `apps/board/bin/triage.ts`.
   held it waits, polling every second for up to `CRON_CLAIM_STALE_MS`
   (2 minutes), instead of exiting, so an ask that lands while a full pass is
   past its nudge read is not stranded. If it still cannot claim, it exits and
-  the next broadcast retries.
+  the next broadcast retries. The full pass waits the same way for up to 30s,
+  so a short peer pass does not push its doctor and latch work to the next MR
+  change.
 - Under the claim: `runPeerTick` with the board's materialize functions
   (pull, materialize, ack), then `runNudgePass`, then `drainOutbox`, then
   `writeMemory`.

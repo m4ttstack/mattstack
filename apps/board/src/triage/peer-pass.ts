@@ -9,10 +9,9 @@ export function triageShouldRun(
   return peerMode ? on.peerAsks : on.triage || on.reReview || on.peerAsks;
 }
 
-/** The peer pass waits for a full pass's claim instead of exiting: a full pass
-    already past its nudge read would otherwise strand a fresh ask until the
-    next MR change. Bounded by the stale window, after which the claim is
-    reclaimable anyway. */
+/** A pass waits for a held claim instead of exiting, so the work it was
+    triggered for is not stranded until the next broadcast. Defaults to the
+    stale window, after which the claim is reclaimable anyway. */
 export async function claimCronWaiting(opts: {
   tryClaim: (now: number) => string | false;
   now?: () => number;
