@@ -109,8 +109,7 @@ func TestFailureShowsWhyNextAndDetails(t *testing.T) {
 	want := "  ✗ This Mac cannot read the team's secrets yet\n" +
 		"    ▌ why No key on this machine matches.\n" +
 		"    ▌ next rt setup status\n" +
-		"\n" +
-		"  details are in the log\n"
+		"    details are in the log\n"
 	if got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
@@ -156,7 +155,7 @@ func TestNewlinesInASingleLineFieldBecomeSpaces(t *testing.T) {
 
 func TestFailureDetailsKeepTheirLines(t *testing.T) {
 	got := plain(protocol.Block{T: "failure", Title: "x", Details: "one\ntwo\r\nthree"})
-	want := "  ✗ x\n\n  one\n  two\n  three\n"
+	want := "  ✗ x\n    one\n    two\n    three\n"
 	if got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
@@ -310,15 +309,15 @@ func TestFailureDetailsWrap(t *testing.T) {
 	out := plainAt(40, protocol.Block{T: "failure", Title: "x", Details: details})
 	checkWidth(t, out, 40)
 	rs := rows(out)
-	if len(rs) < 4 || rs[1] != "" {
-		t.Fatalf("details did not wrap under a gap:\n%s", out)
+	if len(rs) < 3 || rs[1] == "" {
+		t.Fatalf("details did not wrap straight under the title:\n%s", out)
 	}
 	var got []string
-	for _, r := range rs[2:] {
-		if !strings.HasPrefix(r, "  ") || r[2] == ' ' {
-			t.Fatalf("a details row lost its indent: %q", r)
+	for _, r := range rs[1:] {
+		if !strings.HasPrefix(r, "    ") || r[4] == ' ' {
+			t.Fatalf("a details row is not at the body column: %q", r)
 		}
-		got = append(got, r[2:])
+		got = append(got, r[4:])
 	}
 	if strings.Join(got, " ") != details {
 		t.Fatalf("details lost text: %q", strings.Join(got, " "))
@@ -538,6 +537,34 @@ func TestACommandMovedToItsOwnRowIsStillCleaned(t *testing.T) {
 func TestAFailureNextWithProseAndACommandSplitsTheSameWay(t *testing.T) {
 	got := plain(protocol.Block{T: "failure", Title: "x", Next: protocol.Cell{{Text: "Run "}, {Text: "rt setup status", Role: "command"}}})
 	if want := "  ✗ x\n    ▌ next Run\n    ▌      rt setup status\n"; got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestBackToBackFailuresStayApart(t *testing.T) {
+	got := plain(
+		protocol.Block{T: "failure", Title: "The rebase stopped on conflicts in 2 files", Details: "src/app.ts\nA backup is at rt-backup/rebase/feature/login/2026-09-30T10-00-00"},
+		protocol.Block{T: "failure", Title: "The agent did not finish in 10 minutes"},
+	)
+	want := "  ✗ The rebase stopped on conflicts in 2 files\n" +
+		"    src/app.ts\n" +
+		"    A backup is at rt-backup/rebase/feature/login/2026-09-30T10-00-00\n" +
+		"  ✗ The agent did not finish in 10 minutes\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestAnExcerptPrintedWithAFailureSitsUnderIt(t *testing.T) {
+	got := plain(
+		protocol.Block{T: "failure", Title: "Could not connect to Acme QA", Why: "The gateway did not respond."},
+		protocol.Block{T: "verbatim", Caption: "what StrongDM printed", Lines: []string{"connecting to acme-db-qa"}},
+	)
+	want := "  ✗ Could not connect to Acme QA\n" +
+		"    ▌ why The gateway did not respond.\n" +
+		"    what StrongDM printed\n" +
+		"    │ connecting to acme-db-qa\n"
+	if got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
 }

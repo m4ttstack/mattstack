@@ -253,11 +253,10 @@ func (r *renderer) failure(b protocol.Block) {
 		r.calloutLines(theme.StaticPeach, "next", []protocol.Cell{b.Next})
 	}
 	if b.Details != "" {
-		r.gap()
-		dw := min(r.width-len(indent), paragraphMax)
+		dw := min(r.width-len(calloutIndent), paragraphMax)
 		for _, l := range splitLines(b.Details) {
 			for _, row := range wrapCell(protocol.Cell{{Text: l, Role: "faint"}}, dw) {
-				r.emit(indent + cell(row))
+				r.emit(calloutIndent + cell(row))
 			}
 		}
 	}
