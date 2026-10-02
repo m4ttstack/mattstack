@@ -375,6 +375,21 @@ describe('SettingRow disclosure', () => {
       expect(screen.getByTestId('layer-user')).toBeInTheDocument();
     });
 
+    it('the closing panel is inert and hidden from assistive tech', async () => {
+      openRow();
+      await screen.findByTestId('layer-user');
+      const region = document.querySelector<HTMLElement>(
+        '[aria-label="board.agent.model settings"]'
+      )!;
+      expect(region).not.toHaveAttribute('inert');
+      await userEvent.click(
+        screen.getByRole('button', { name: 'close board.agent.model' })
+      );
+      expect(region).toContainElement(screen.getByTestId('layer-user'));
+      expect(region).toHaveAttribute('aria-hidden', 'true');
+      expect(region).toHaveAttribute('inert');
+    });
+
     it('reopening starts a fresh panel', async () => {
       openRow();
       await userEvent.click(
