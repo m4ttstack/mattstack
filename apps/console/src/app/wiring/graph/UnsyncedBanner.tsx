@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import {
   Alert,
+  Anchor,
   Button,
   Group,
   Paper,
@@ -11,8 +13,8 @@ import { modals } from '@mattstack/app-kit/modals';
 import { notifications } from '@mattstack/app-kit/notifications';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { suffixOf, type SkillsComposition } from '../outline';
 import {
+  fetchPendingChanges,
   isSkillsWriting,
   syncRefusal,
   useCompositionSnapshot,
@@ -20,11 +22,16 @@ import {
   usePendingChanges,
   useSkillsSync,
   useSkillsWriting,
+  writeBusyMessage,
   type SkillsChanges,
 } from '../useWiring';
 import { ButtonLabel } from './ButtonLabel';
 import classes from './graph.module.css';
-import { stepLabel } from './model/focusModel';
+import {
+  pendingChangesOf,
+  sameChanges,
+  type PendingChange,
+} from './model/pendingChanges';
 
 const MUTED = 'var(--tk-text-3)';
 const BODY = 'var(--tk-text-1)';
@@ -32,83 +39,15 @@ const BUTTON = {
   root: classes.boardButton,
   section: classes.boardButtonSection,
 };
-/** The banner names this many changes; the sync confirm names them all. */
+/** The banner names this many changes until asked for the rest. */
 const BANNER_LIMIT = 3;
-
-type PendingChange = { key: string; name: string; detail: string | null };
-
-const fillName = (binding: string | null) =>
-  binding === null ? 'nothing' : suffixOf(binding);
-
-const FILE_STATUS: Record<string, string> = {
-  M: 'edited',
-  A: 'added',
-  '??': 'added',
-  D: 'deleted',
-};
-
-/** Where rt writes a binding and a surface change, pack-relative. */
-const BINDINGS_FILE = 'pack/skills.jsonc';
-const SURFACE_FILES = new Set(['pack/surface.jsonc', 'surface.jsonc']);
-
-/** Every compiled skill's directory, pack-relative: rt rebuilds these after
-    a bind or a surface change. Empty until the composition has loaded. */
-function compiledDirsOf(composition: SkillsComposition | undefined): string[] {
-  if (!composition) return [];
-  const root = `${composition.packDir}/`;
-  const dirs = [
-    ...(composition.targets ?? []).map(target =>
-      target.artifactPath.slice(0, target.artifactPath.lastIndexOf('/'))
-    ),
-    ...composition.verbs.map(verb => verb.artifactPath),
-  ];
-  return dirs
-    .filter(dir => dir.startsWith(root))
-    .map(dir => dir.slice(root.length));
-}
-
-/**
- * What the pack would share on a sync, as a person reads it: each binding
- * and surface change by the skill it changes, then every edited file those
- * changes do not account for, by its path, so nothing a sync commits goes
- * unlisted.
- */
-function pendingChangesOf(
-  changes: SkillsChanges,
-  compiledDirs: string[]
-): PendingChange[] {
-  const named: PendingChange[] = [
-    ...changes.bindings.map(change => ({
-      key: `binding:${change.engineRef}:${change.slot}`,
-      name: stepLabel(suffixOf(change.engineRef)),
-      detail: `${change.slot} slot: ${fillName(change.from)} → ${fillName(change.to)}`,
-    })),
-    ...changes.surface.map(change => ({
-      key: `surface:${change.skill}`,
-      name: change.skill,
-      detail: `${change.from} → ${change.to}`,
-    })),
-  ];
-  const rebuilt = named.length > 0;
-  const explained = (path: string) =>
-    (changes.bindings.length > 0 && path === BINDINGS_FILE) ||
-    (changes.surface.length > 0 && SURFACE_FILES.has(path)) ||
-    (rebuilt && compiledDirs.some(dir => path.startsWith(`${dir}/`)));
-  return [
-    ...named,
-    ...changes.files
-      .filter(file => !explained(file.path))
-      .map(file => ({
-        key: `file:${file.path}`,
-        name: file.path,
-        detail: file.from
-          ? `renamed from ${file.from}`
-          : (FILE_STATUS[file.status] ?? null),
-      })),
-  ];
-}
+const CHANGED =
+  'The pack changed since this list was shown. Review the new list and try again.';
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+
+const outsideNote = (paths: string[]) =>
+  `Sync is off until you commit or stash these files outside the pack: ${paths.join(', ')}`;
 
 /** The changes poll, read the way the banner shows it: only in-pack edits
     count, and a failed poll is unknown, so it shows nothing. */
@@ -134,35 +73,91 @@ function ChangeLine({ change, gap }: { change: PendingChange; gap: number }) {
   );
 }
 
+/** Every change, as both confirms list them. */
+function ChangeList({ pending }: { pending: PendingChange[] }) {
+  return (
+    <Paper
+      variant="panel-outline"
+      radius={7}
+      className={classes.changeList}
+      data-parity="list"
+    >
+      <Stack gap={6}>
+        {pending.map(change => (
+          <ChangeLine key={change.key} change={change} gap={8} />
+        ))}
+      </Stack>
+    </Paper>
+  );
+}
+
 /**
  * Across the Wiring page while the pack has edits nobody has synced: what
- * they are, and the two ways out, each behind a confirm.
+ * they are, and the two ways out, each behind a confirm that lists every
+ * change it acts on.
  */
 export function UnsyncedBanner({ pack }: { pack: string }) {
-  const changes = useUnsynced(pack);
+  const current = useUnsynced(pack);
   const queryClient = useQueryClient();
   const sync = useSkillsSync(pack);
   const discard = useDiscardChanges(pack);
   const writing = useSkillsWriting(pack);
   const composition = useCompositionSnapshot(pack).data;
+  const [expanded, setExpanded] = useState(false);
+  // The host slides the banner out once the pack is clean; it keeps the
+  // last list on screen while it goes rather than emptying first.
+  const [held, setHeld] = useState(current);
+  if (current !== null && current !== held) setHeld(current);
+  const changes = current ?? held;
 
   if (!changes) return null;
 
-  const pending = pendingChangesOf(changes, compiledDirsOf(composition));
+  const pending = pendingChangesOf(changes, composition);
   const count = pending.length;
-  const shown = pending.slice(0, BANNER_LIMIT);
+  const shown = expanded ? pending : pending.slice(0, BANNER_LIMIT);
+  const hidden = count - shown.length;
   const outside = changes.outsideScope.map(file => file.path);
 
-  /** Writes start from a confirm's answer, so the lock is read then. */
-  const unlessWriting = (write: () => void) => () => {
-    if (isSkillsWriting(queryClient, pack)) {
-      notifications.error(
-        `Another change to ${pack} is still being written. Try again once it finishes.`
-      );
-      return;
-    }
-    write();
-  };
+  /**
+   * A confirm runs its write only on the changes it listed: rt acts on
+   * whatever is pending when it starts, and the list came from a poll that
+   * can be seconds old and stayed fixed while the confirm was open.
+   */
+  const confirmed =
+    (
+      listed: SkillsChanges,
+      write: () => void,
+      refuse?: (fresh: SkillsChanges) => string | null
+    ) =>
+    () => {
+      void (async () => {
+        if (isSkillsWriting(queryClient, pack)) {
+          notifications.error(writeBusyMessage(pack));
+          return;
+        }
+        let fresh: SkillsChanges;
+        try {
+          fresh = await fetchPendingChanges(queryClient, pack);
+        } catch (error) {
+          notifications.error((error as Error).message);
+          return;
+        }
+        if (!sameChanges(listed, fresh)) {
+          notifications.error(CHANGED);
+          return;
+        }
+        const reason = refuse?.(fresh);
+        if (reason) {
+          notifications.error(reason);
+          return;
+        }
+        if (isSkillsWriting(queryClient, pack)) {
+          notifications.error(writeBusyMessage(pack));
+          return;
+        }
+        write();
+      })();
+    };
 
   // Reported from the promise, which settles whether or not the banner is
   // still mounted; a `mutate` callback is dropped once it unmounts.
@@ -209,18 +204,7 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
             the {pack} pack and shares {plural(count, 'it', 'them')} with your
             team. Then it rebuilds the pack and updates your installed copy.
           </Text>
-          <Paper
-            variant="panel-outline"
-            radius={7}
-            className={classes.changeList}
-            data-parity="list"
-          >
-            <Stack gap={6}>
-              {pending.map(change => (
-                <ChangeLine key={change.key} change={change} gap={8} />
-              ))}
-            </Stack>
-          </Paper>
+          <ChangeList pending={pending} />
           <Text fz={12} lh="normal" c={MUTED} data-parity="after">
             Afterwards, run /reload-plugins in open Claude sessions to pick it
             up.
@@ -258,16 +242,29 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
         icon: <Icon name="close" size={16} data-parity="close" />,
       },
       attributes: { content: { 'data-parity': 'Modal · sync changes' } },
-      onConfirm: unlessWriting(runSync),
+      onConfirm: confirmed(changes, runSync, fresh =>
+        fresh.outsideScope.length > 0
+          ? outsideNote(fresh.outsideScope.map(file => file.path))
+          : null
+      ),
     });
 
   const confirmDiscard = () =>
     modals.confirm({
       destructive: true,
       title: `Discard ${count} ${plural(count, 'change', 'changes')}?`,
-      message: `This throws away ${plural(count, 'the change', 'the changes')} listed above in ${pack}. It cannot be undone.`,
+      message: (
+        <Stack gap="sm">
+          <Text size="sm">
+            This throws away{' '}
+            {plural(count, 'this change', `these ${count} changes`)} in {pack}.
+            It cannot be undone.
+          </Text>
+          <ChangeList pending={pending} />
+        </Stack>
+      ),
       labels: { confirm: 'Discard' },
-      onConfirm: unlessWriting(runDiscard),
+      onConfirm: confirmed(changes, runDiscard),
     });
 
   return (
@@ -293,15 +290,21 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
           {shown.map(change => (
             <ChangeLine key={change.key} change={change} gap={6} />
           ))}
-          {count > shown.length && (
-            <Text fz={12} lh="normal" c={MUTED}>
-              and {count - shown.length} more
-            </Text>
+          {(hidden > 0 || expanded) && count > BANNER_LIMIT && (
+            <Anchor
+              component="button"
+              type="button"
+              fz={12}
+              lh="normal"
+              className={classes.bannerMore}
+              onClick={() => setExpanded(value => !value)}
+            >
+              {expanded ? 'Show fewer' : `Show ${hidden} more`}
+            </Anchor>
           )}
           {outside.length > 0 && (
             <Text fz={12} lh="normal" c={MUTED}>
-              Sync refuses until you commit or stash these files outside the
-              pack: {outside.join(', ')}
+              {outsideNote(outside)}
             </Text>
           )}
         </Stack>
@@ -323,7 +326,7 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
           radius={6}
           classNames={BUTTON}
           leftSection={<Icon name="refresh" size={13} data-parity="i" />}
-          disabled={writing}
+          disabled={writing || outside.length > 0}
           loading={sync.isPending}
           onClick={confirmSync}
           data-parity="button · Sync changes"

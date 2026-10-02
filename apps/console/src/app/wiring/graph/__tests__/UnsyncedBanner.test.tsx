@@ -10,11 +10,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { navigate } from 'wouter/use-browser-location';
 
 import type { SkillsChanges } from '../../useWiring';
 import { designFixture, designSource } from './designFixtures';
 
 const changesGet = vi.fn();
+const ACME = { name: 'acme', dir: '/fixture/packs/acme', layout: 'grouped' };
+const packs = vi.fn(() => [ACME]);
 const syncPost = vi.fn();
 const discardPost = vi.fn();
 const bindPost = vi.fn();
@@ -23,20 +26,7 @@ vi.mock('../../../api', () => ({
   client: {
     api: {
       skills: {
-        packs: {
-          $get: () =>
-            Promise.resolve(
-              ok({
-                packs: [
-                  {
-                    name: 'acme',
-                    dir: '/fixture/packs/acme',
-                    layout: 'grouped',
-                  },
-                ],
-              })
-            ),
-        },
+        packs: { $get: () => Promise.resolve(ok({ packs: packs() })) },
         composition: {
           $get: () => Promise.resolve(ok(designFixture('composition'))),
         },
@@ -51,7 +41,9 @@ vi.mock('../../../api', () => ({
               )
             ),
         },
-        changes: { $get: () => changesGet() },
+        changes: {
+          $get: (args: { query: { pack: string } }) => changesGet(args),
+        },
         source: {
           $get: ({ query }: { query: { path: string } }) =>
             Promise.resolve(ok(designSource(query.path))),
@@ -120,6 +112,25 @@ const REFUSED = {
   restartNeeded: false,
 };
 
+const FOUR_PATHS = [
+  'attachments/plan-policy/SKILL.md',
+  'attachments/plan-policy-lite/SKILL.md',
+  'attachments/gate-protocol/SKILL.md',
+  'pack/notes.md',
+];
+const FOUR_FILES: SkillsChanges = {
+  ...designFixture('changes.clean'),
+  dirty: true,
+  files: FOUR_PATHS.map(path => ({ path, status: 'M' })),
+};
+const CHANGED =
+  'The pack changed since this list was shown. Review the new list and try again.';
+
+const withNotes = (changes: SkillsChanges): SkillsChanges => ({
+  ...changes,
+  files: [...changes.files, { path: 'pack/notes.md', status: '??' }],
+});
+
 let restoreLayout: () => void;
 
 function serveChanges(changes: SkillsChanges) {
@@ -147,6 +158,7 @@ afterEach(() => {
   });
   restoreLayout();
   vi.clearAllMocks();
+  packs.mockReturnValue([ACME]);
   window.history.pushState(null, '', '/');
 });
 
@@ -271,18 +283,35 @@ describe('the unsynced banner', () => {
     ).toBeInTheDocument();
   });
 
-  it("does not list the rebind's own bindings file or the skills it rebuilt", async () => {
+  it("does not list the rebind's own bindings file or the stage it rebuilt", async () => {
     const unsynced = designFixture('changes.unsynced');
     serveChanges({
       ...unsynced,
-      files: [...unsynced.files, { path: 'skills/work/SKILL.md', status: 'M' }],
+      files: [
+        ...unsynced.files,
+        { path: 'attachments/stage-plan/SKILL.md', status: 'M' },
+      ],
     });
     renderAt();
     const root = await banner();
 
     await waitFor(() => expect(root).toHaveTextContent(TITLE));
-    expect(within(root).queryByText('skills/work/SKILL.md')).toBeNull();
+    expect(
+      within(root).queryByText('attachments/stage-plan/SKILL.md')
+    ).toBeNull();
     expect(within(root).queryByText('pack/skills.jsonc')).toBeNull();
+  });
+
+  it('names every change, the ones past the first three behind a show-more in place', async () => {
+    serveChanges(FOUR_FILES);
+    renderAt();
+    const root = await banner();
+
+    expect(root).toHaveTextContent('4 unsynced changes in acme.');
+    expect(within(root).queryByText(FOUR_PATHS[3]!)).toBeNull();
+    await userEvent.click(button(root, 'Show 1 more'));
+    for (const path of FOUR_PATHS)
+      expect(within(root).getByText(path)).toBeInTheDocument();
   });
 
   it('names a surface change by its skill', async () => {
@@ -301,7 +330,7 @@ describe('the unsynced banner', () => {
     expect(within(root).getByText('public → internal')).toBeInTheDocument();
   });
 
-  it('warns that sync refuses while files outside the pack are edited too', async () => {
+  it('turns Sync off, and says why, while files outside the pack are edited too', async () => {
     serveChanges({
       ...designFixture('changes.unsynced'),
       outsideScope: [
@@ -313,8 +342,10 @@ describe('the unsynced banner', () => {
     const root = await banner();
 
     expect(root).toHaveTextContent(
-      'Sync refuses until you commit or stash these files outside the pack: README.md, notes/todo.md'
+      'Sync is off until you commit or stash these files outside the pack: README.md, notes/todo.md'
     );
+    expect(button(root, 'Sync changes')).toBeDisabled();
+    expect(button(root, 'Discard')).toBeEnabled();
   });
 
   it('docks above the focus list and the canvas alike, under the tab bar', async () => {
@@ -329,6 +360,25 @@ describe('the unsynced banner', () => {
     expect(
       root.compareDocumentPosition(sidebar) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+
+  it('starts over for another pack, with its list folded again', async () => {
+    packs.mockReturnValue([
+      ACME,
+      { name: 'globex', dir: '/fixture/packs/globex', layout: 'grouped' },
+    ]);
+    serveChanges(FOUR_FILES);
+    renderAt('?tab=graph&pack=acme');
+    await userEvent.click(button(await banner(), 'Show 1 more'));
+    expect(button(await banner(), 'Show fewer')).toBeInTheDocument();
+
+    act(() => navigate('/wiring?tab=graph&pack=globex'));
+
+    await waitFor(() =>
+      expect(
+        button(screen.getByTestId('unsynced-banner'), 'Show 1 more')
+      ).toBeInTheDocument()
+    );
   });
 
   it('shows on the Surface tab too', async () => {
@@ -428,9 +478,48 @@ describe('Sync changes', () => {
     serveChanges(designFixture('changes.clean'));
     act(() => sync.answer(SYNCED));
 
-    await waitFor(() =>
-      expect(screen.queryByTestId('unsynced-banner')).toBeNull()
-    );
+    await waitFor(() => expect(root).not.toBeVisible());
+  });
+
+  it('lists every change in its confirm', async () => {
+    serveChanges(FOUR_FILES);
+    renderAt();
+    await userEvent.click(button(await banner(), 'Sync changes'));
+
+    const confirm = await dialog('Sync 4 changes?');
+    for (const path of FOUR_PATHS)
+      expect(within(confirm).getByText(path)).toBeInTheDocument();
+  });
+
+  it('posts nothing when the pack changed while its confirm was open', async () => {
+    renderAt();
+    await userEvent.click(button(await banner(), 'Sync changes'));
+    const confirm = await dialog('Sync 1 change?');
+    serveChanges(withNotes(designFixture('changes.unsynced')));
+
+    await userEvent.click(button(confirm, 'Sync changes'));
+
+    expect(await screen.findByText(CHANGED)).toBeInTheDocument();
+    expect(syncPost).not.toHaveBeenCalled();
+  });
+
+  it('posts nothing when files outside the pack turned up while its confirm was open', async () => {
+    renderAt();
+    await userEvent.click(button(await banner(), 'Sync changes'));
+    const confirm = await dialog('Sync 1 change?');
+    serveChanges({
+      ...designFixture('changes.unsynced'),
+      outsideScope: [{ path: 'README.md', status: 'M' }],
+    });
+
+    await userEvent.click(button(confirm, 'Sync changes'));
+
+    expect(
+      await screen.findByText(
+        'Sync is off until you commit or stash these files outside the pack: README.md'
+      )
+    ).toBeInTheDocument();
+    expect(syncPost).not.toHaveBeenCalled();
   });
 
   it('reports a sync that settles after the banner has unmounted', async () => {
@@ -483,8 +572,11 @@ describe('Discard', () => {
 
     const confirm = await dialog('Discard 1 change?');
     expect(confirm).toHaveTextContent(
-      'This throws away the change listed above in acme. It cannot be undone.'
+      'This throws away this change in acme. It cannot be undone.'
     );
+    expect(
+      within(confirm).getByText('domain slot: plan-policy → plan-policy-strict')
+    ).toBeInTheDocument();
     expect(button(confirm, 'Discard').getAttribute('style')).toMatch(/red/);
     expect(discardPost).not.toHaveBeenCalled();
 
@@ -496,6 +588,31 @@ describe('Discard', () => {
     expect(
       await screen.findByText('Discarded the unsynced changes in acme')
     ).toBeInTheDocument();
+  });
+
+  it('lists every change in its confirm', async () => {
+    serveChanges(FOUR_FILES);
+    renderAt();
+    await userEvent.click(button(await banner(), 'Discard'));
+
+    const confirm = await dialog('Discard 4 changes?');
+    expect(confirm).toHaveTextContent(
+      'This throws away these 4 changes in acme. It cannot be undone.'
+    );
+    for (const path of FOUR_PATHS)
+      expect(within(confirm).getByText(path)).toBeInTheDocument();
+  });
+
+  it('throws nothing away when the pack changed while its confirm was open', async () => {
+    renderAt();
+    await userEvent.click(button(await banner(), 'Discard'));
+    const confirm = await dialog('Discard 1 change?');
+    serveChanges(withNotes(designFixture('changes.unsynced')));
+
+    await userEvent.click(button(confirm, 'Discard'));
+
+    expect(await screen.findByText(CHANGED)).toBeInTheDocument();
+    expect(discardPost).not.toHaveBeenCalled();
   });
 
   it('shows the error when rt refuses to discard', async () => {

@@ -266,19 +266,33 @@ export function useSkillSource(pack: string | null, path: string | null) {
     hook never suspends, never retries (the next poll is 15s away) and never
     toasts: callers read `data` and treat `isError` as "show nothing". The
     answer is what is on disk right now, hence the focus refetch. */
+async function readPendingChanges(pack: string): Promise<SkillsChanges> {
+  const res = await client.api.skills.changes.$get({ query: { pack } });
+  return readOrThrow<SkillsChanges>(res, 'skills changes');
+}
+
 export function usePendingChanges(pack: string | null) {
   return useQuery({
     queryKey: ['skills', 'changes', pack],
-    queryFn: async () => {
-      const res = await client.api.skills.changes.$get({
-        query: { pack: pack ?? '' },
-      });
-      return readOrThrow<SkillsChanges>(res, 'skills changes');
-    },
+    queryFn: () => readPendingChanges(pack ?? ''),
     enabled: pack !== null,
     refetchInterval: 15_000,
     refetchOnWindowFocus: true,
     retry: false,
+  });
+}
+
+/** What is pending in the pack right now, read past the poll's cache, for a
+    write that must act on what its confirm showed and nothing else. Lands
+    in the same cache entry, so the banner redraws from it. */
+export function fetchPendingChanges(
+  queryClient: QueryClient,
+  pack: string
+): Promise<SkillsChanges> {
+  return queryClient.fetchQuery({
+    queryKey: ['skills', 'changes', pack],
+    queryFn: () => readPendingChanges(pack),
+    staleTime: 0,
   });
 }
 
@@ -371,6 +385,10 @@ export function useSkillsWriting(pack: string): boolean {
 export function isSkillsWriting(queryClient: QueryClient, pack: string) {
   return queryClient.isMutating({ mutationKey: skillsWriteKey(pack) }) > 0;
 }
+
+/** What a write refused for the lock says, wherever it was refused. */
+export const writeBusyMessage = (pack: string) =>
+  `Another change to ${pack} is still being written. Try again once it finishes.`;
 
 /** The one client mutation surface for both skills writes -- the surface
     roster's Apply and Rebind's Apply both go through this, so there is one

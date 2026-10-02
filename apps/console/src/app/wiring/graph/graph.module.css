@@ -102,9 +102,11 @@
   margin-inline-end: 6px;
 }
 
+/* The board's bottom rule sits inside the banner's 10px padding, as the
+   board buttons' does. */
 .banner {
   width: 100%;
-  padding: 10px 16px;
+  padding: 10px 16px 9px;
   border-width: 0 0 1px;
 }
 
@@ -126,6 +128,10 @@
 
 .changeLine {
   min-width: 0;
+}
+
+.bannerMore {
+  align-self: flex-start;
 }
 
 .changeList {

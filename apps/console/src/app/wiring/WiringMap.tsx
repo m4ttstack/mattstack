@@ -47,7 +47,7 @@ export function WiringMap() {
   const unsynced = useUnsyncedBanner(pack);
   const showTab = (tab: WiringTab) => patch({ tab });
   const notch = pack
-    ? { content: <UnsyncedBanner pack={pack} />, opened: unsynced }
+    ? { content: <UnsyncedBanner key={pack} pack={pack} />, opened: unsynced }
     : undefined;
 
   // No pack means nothing for a tab to show yet -- the same gate the pack
