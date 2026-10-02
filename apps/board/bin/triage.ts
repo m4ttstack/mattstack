@@ -3,7 +3,11 @@
 // the same one idempotent evaluation pass. The board server NEVER runs this.
 import { deckAppUrl } from '@mattstack/app-server/event-bridge';
 import { GitLabProvider, parseRepoId, type MRDetail } from '@mattstack/glance';
-import { readDiscussions, readProjectMRs } from '@mattstack/rt-client';
+import {
+  listTeams,
+  readDiscussions,
+  readProjectMRs,
+} from '@mattstack/rt-client';
 import {
   loadAgentSettings,
   loadConfig,
@@ -70,13 +74,12 @@ import {
 } from '../src/triage/run.ts';
 import { triageOwns } from '../src/triage/seat.ts';
 
-// A peer pass is only useful on a paired board. Checked before the claim so an
-// unpaired or unconfigured machine exits quietly without queueing behind a
-// full pass.
+// A peer pass is only useful on a board that peers. Checked before the claim
+// so a machine outside any team, or without a token, exits quietly without
+// queueing behind a full pass.
 async function peerPreflight(): Promise<boolean> {
   try {
-    const cfg = loadConfig();
-    return !!cfg.switchboard.url && !!(await loadSwitchboardToken());
+    return listTeams().length > 0 && !!(await loadSwitchboardToken());
   } catch {
     return false;
   }
@@ -266,7 +269,7 @@ try {
   }
 
   const switchboardToken = await loadSwitchboardToken();
-  if (boardConfig.switchboard.url && switchboardToken) {
+  if (listTeams().length > 0 && switchboardToken) {
     const client = makeSwitchboardClient(
       boardConfig.switchboard.url,
       switchboardToken

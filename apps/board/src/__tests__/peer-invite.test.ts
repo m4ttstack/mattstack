@@ -1,16 +1,18 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-  carrySwitchboard,
   classifySetupAnswer,
   parseInvite,
   redeemInvite,
 } from '../peer/invite.ts';
 
+const SB = 'https://sb.example.app';
+
 describe('parseInvite', () => {
   test('extracts url + code, tolerating whitespace', () => {
     const p = parseInvite(
-      '  https://sb.example.app/invite/aabbccddeeff00112233445566778899 \n'
+      '  https://sb.example.app/invite/aabbccddeeff00112233445566778899 \n',
+      SB
     );
     expect(p).toEqual({
       ok: true,
@@ -20,7 +22,8 @@ describe('parseInvite', () => {
   });
   test('lowercases the code and tolerates a trailing slash after it', () => {
     const upper = parseInvite(
-      'https://sb.example.app/invite/AABBCCDDEEFF00112233445566778899'
+      'https://sb.example.app/invite/AABBCCDDEEFF00112233445566778899',
+      SB
     );
     expect(upper).toEqual({
       ok: true,
@@ -28,7 +31,8 @@ describe('parseInvite', () => {
       code: 'aabbccddeeff00112233445566778899',
     });
     const slashed = parseInvite(
-      'https://sb.example.app/invite/aabbccddeeff00112233445566778899/'
+      'https://sb.example.app/invite/aabbccddeeff00112233445566778899/',
+      `${SB}/`
     );
     expect(slashed).toEqual({
       ok: true,
@@ -44,41 +48,56 @@ describe('parseInvite', () => {
       'https://sb.example.app/invite/',
       'https://sb.example.app/invite/nothex!',
     ]) {
-      const p = parseInvite(bad);
+      const p = parseInvite(bad, SB);
       expect(p.ok).toBe(false);
+    }
+  });
+  test('refuses an invite minted on another host, naming the switchboard it accepts', () => {
+    const p = parseInvite(
+      'https://evil.example.app/invite/aabbccddeeff00112233445566778899',
+      SB
+    );
+    expect(p.ok).toBe(false);
+    if (!p.ok) expect(p.message).toContain(SB);
+  });
+  test('a different port or scheme on the same name is another host', () => {
+    for (const other of [
+      'https://sb.example.app:8443/invite/' + 'a'.repeat(32),
+      'http://sb.example.app/invite/' + 'a'.repeat(32),
+    ]) {
+      expect(parseInvite(other, SB).ok).toBe(false);
     }
   });
 });
 
 describe('classifySetupAnswer', () => {
-  test('blank skips, invite parses, bare url falls back to manual', () => {
-    expect(classifySetupAnswer('')).toEqual({ kind: 'skip' });
+  test('blank skips and an invite on the switchboard parses', () => {
+    expect(classifySetupAnswer('', SB)).toEqual({ kind: 'skip' });
     expect(
-      classifySetupAnswer('https://sb.example.app/invite/' + 'a'.repeat(32))
+      classifySetupAnswer('https://sb.example.app/invite/' + 'a'.repeat(32), SB)
     ).toEqual({
       kind: 'invite',
       url: 'https://sb.example.app',
       code: 'a'.repeat(32),
     });
-    expect(classifySetupAnswer('https://sb.example.app/')).toEqual({
-      kind: 'manual-url',
-      url: 'https://sb.example.app',
-    });
   });
-  test('garbage input is invalid, not silently skipped', () => {
-    expect(classifySetupAnswer('garbage')).toEqual({
+  test('a bare url is invalid: the switchboard address is never typed', () => {
+    expect(classifySetupAnswer('https://sb.example.app/', SB)).toEqual({
       kind: 'invalid',
       message: expect.any(String),
     });
   });
-  test('a broken invite link is invalid, never a manual url', () => {
-    // Falling through to manual-url would store the whole invite path as
-    // switchboard.url, and every later relay call would target
-    // .../invite/abc/<endpoint>.
-    expect(classifySetupAnswer('https://sb.example.app/invite/abc')).toEqual({
-      kind: 'invalid',
-      message: expect.any(String),
-    });
+  test('garbage, a broken invite and a foreign invite are all invalid', () => {
+    for (const answer of [
+      'garbage',
+      'https://sb.example.app/invite/abc',
+      'https://evil.example.app/invite/' + 'a'.repeat(32),
+    ]) {
+      expect(classifySetupAnswer(answer, SB)).toEqual({
+        kind: 'invalid',
+        message: expect.any(String),
+      });
+    }
   });
 });
 
@@ -139,17 +158,5 @@ describe('redeemInvite', () => {
         message: 'unexpected response from the switchboard',
       }
     );
-  });
-});
-
-describe('carrySwitchboard', () => {
-  test('fresh join wins, existing survives a blank re-run, absent stays absent', () => {
-    expect(
-      carrySwitchboard({ url: 'https://old' }, { url: 'https://new' })
-    ).toEqual({ switchboard: { url: 'https://new' } });
-    expect(carrySwitchboard({ url: 'https://old' }, null)).toEqual({
-      switchboard: { url: 'https://old' },
-    });
-    expect(carrySwitchboard(undefined, null)).toEqual({});
   });
 });

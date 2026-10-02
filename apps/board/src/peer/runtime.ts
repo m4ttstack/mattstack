@@ -122,7 +122,7 @@ export function tickOnPeerInbox(
 }
 
 export const TOKEN_MISSING_LOG =
-  "board: switchboard url is set but no switchboard token is stored, so peer asks cannot arrive; re-invite this board from the team owner's members panel (rt team invite on the owner's machine)";
+  "board: this Mac is in a team but no switchboard token is stored, so peer asks cannot arrive; re-invite this board from the team owner's members panel (rt team invite on the owner's machine)";
 
 /** Tracks whether the last read found no token, for the board banner, and
     logs that once per process: the boot retry reads every minute forever. */
@@ -140,6 +140,16 @@ export function tokenMissingNotice(log: (line: string) => void) {
     },
     missing: () => missing,
   };
+}
+
+/** Every Mac in a team peers through the switchboard, so only there does a
+    missing token deserve a banner. */
+export function switchboardTokenBanner(s: {
+  inTeam: boolean;
+  peering: boolean;
+  missing: boolean;
+}): boolean {
+  return s.inTeam && !s.peering && s.missing;
 }
 
 /** The token lives behind the rt daemon, which can come up after the board,

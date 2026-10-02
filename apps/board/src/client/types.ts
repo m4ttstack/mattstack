@@ -229,14 +229,14 @@ export interface BoardData {
       syncs. null when unset: the board then follows rt's window. */
   staleAfterDays: number | null;
   /** Whether this board can hand out peer-board invites: local request, and the
-      board holds both a switchboard url and the credential that authorizes it. */
+      board holds the switchboard admin credential. */
   canInvite: boolean;
   /** Peering health: "ok" when the switchboard accepts us, "unauthorized" when
       it rejects us, null when this board isn't peering at all. */
   peering: 'ok' | 'unauthorized' | null;
-  /** A switchboard url is configured but the rt daemon holds no board token
-      for it, so peering never starts and no ask can arrive. Absent from an
-      older server. */
+  /** This Mac is in a team but the rt daemon holds no board token, so
+      peering never starts and no ask can arrive. Absent from an older
+      server. */
   switchboardTokenMissing?: boolean;
   /** Board tabs, in display order. Always non-empty (config.tabs falls back to
       IMPLICIT_TABS server-side). */

@@ -4,12 +4,12 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 
 import type { getSetting, setSetting } from '@mattstack/rt-client';
+import { switchboardUrl } from '@mattstack/rt-client';
 import {
   daemonRepoField,
   loadConfigFrom,
   parseConfig,
   repoIdentityField,
-  saveSwitchboardUrl,
   setHiddenInRaw,
 } from '../config.ts';
 
@@ -350,78 +350,31 @@ describe('slack emoji config', () => {
 });
 
 describe('switchboard config', () => {
-  test('defaults to empty url', () => {
-    expect(parseConfig(JSON.stringify(base)).switchboard).toEqual({ url: '' });
-  });
-  test('accepts an https url', () => {
-    const cfg = parseConfig(
-      JSON.stringify({
-        ...base,
-        switchboard: { url: 'https://sb.example.dev' },
-      })
-    );
-    expect(cfg.switchboard.url).toBe('https://sb.example.dev');
-  });
-  test('rejects a plain-http url for a non-local relay: the bearer would travel cleartext', () => {
-    expect(() =>
+  test('always the built-in switchboard, whatever config.json says', () => {
+    expect(parseConfig(JSON.stringify(base)).switchboard).toEqual({
+      url: switchboardUrl(),
+    });
+    expect(
       parseConfig(
         JSON.stringify({
           ...base,
-          switchboard: { url: 'http://sb.example.dev' },
+          switchboard: { url: 'https://elsewhere.example.dev' },
         })
-      )
-    ).toThrow(/https/);
+      ).switchboard
+    ).toEqual({ url: switchboardUrl() });
   });
-  test('allows plain http for a local relay (dev loopback)', () => {
-    for (const url of [
-      'http://localhost:7940',
-      'http://127.0.0.1:7940',
-      'http://[::1]:7940',
+
+  test('a leftover switchboard block of any shape never fails a parse', () => {
+    for (const switchboard of [
+      'x',
+      { url: 5 },
+      { url: 'http://sb.example.dev' },
+      null,
     ]) {
-      const cfg = parseConfig(
-        JSON.stringify({ ...base, switchboard: { url } })
-      );
-      expect(cfg.switchboard.url).toBe(url);
+      expect(
+        parseConfig(JSON.stringify({ ...base, switchboard })).switchboard.url
+      ).toBe(switchboardUrl());
     }
-  });
-  test('rejects a non-object block', () => {
-    expect(() =>
-      parseConfig(JSON.stringify({ ...base, switchboard: 'x' }))
-    ).toThrow(/switchboard/);
-  });
-  test('rejects a non-string url', () => {
-    expect(() =>
-      parseConfig(JSON.stringify({ ...base, switchboard: { url: 5 } }))
-    ).toThrow(/switchboard.url/);
-  });
-});
-
-describe('saveSwitchboardUrl', () => {
-  function tmpConfig(): string {
-    const p = join(mkdtempSync(join(tmpdir(), 'configtest-')), 'config.json');
-    writeFileSync(p, JSON.stringify(base, null, 2) + '\n');
-    return p;
-  }
-
-  // Both seams passed explicitly: the defaults are the real resolver and
-  // writer, and a machine whose store already owns board.switchboardUrl
-  // takes the store branch and overwrites the developer's real value.
-  test('writes the block and reparses', () => {
-    const p = tmpConfig();
-    const writes: unknown[] = [];
-    const write = ((...args: unknown[]) => {
-      writes.push(args);
-    }) as SetSettingFn;
-    const cfg = saveSwitchboardUrl(
-      'https://sb.example.app/',
-      p,
-      fakeResolve({}),
-      write
-    );
-    expect(cfg.switchboard.url).toBe('https://sb.example.app');
-    const onDisk = JSON.parse(readFileSync(p, 'utf8'));
-    expect(onDisk.switchboard).toEqual({ url: 'https://sb.example.app/' });
-    expect(writes).toEqual([]);
   });
 });
 

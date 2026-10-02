@@ -83,7 +83,9 @@ export async function removePeerBoard(
 
 export interface JoinCtx {
   defaultMember: string;
-  persist(url: string, token: string): void;
+  /** The one switchboard this board peers through. */
+  relayUrl: string;
+  persist(token: string): void;
   startPeering(url: string, token: string): void;
   fetchFn?: typeof fetch;
 }
@@ -98,10 +100,10 @@ export async function joinSwitchboard(
       body: 'joining needs your own username: set "defaultMember" in config.json first',
     };
   }
-  const parsed = parseInvite(invite);
+  const parsed = parseInvite(invite, ctx.relayUrl);
   if (!parsed.ok) return { status: 400, body: parsed.message };
   const r = await redeemInvite(
-    parsed.url,
+    ctx.relayUrl,
     parsed.code,
     canonicalUsername(ctx.defaultMember),
     ctx.fetchFn
@@ -118,14 +120,14 @@ export async function joinSwitchboard(
     return { status, body: r.message };
   }
   try {
-    ctx.persist(parsed.url, r.token);
+    ctx.persist(r.token);
   } catch (err) {
     return {
       status: 500,
       body: `joining failed after the invite was used (${err instanceof Error ? err.message : err}); ask for a re-invite and try again`,
     };
   }
-  ctx.startPeering(parsed.url, r.token);
+  ctx.startPeering(ctx.relayUrl, r.token);
   return {
     status: 200,
     body: JSON.stringify({ ok: true, username: r.username }),
