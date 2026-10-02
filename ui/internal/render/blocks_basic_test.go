@@ -345,7 +345,7 @@ func TestCalloutKeepsASegmentStyleAcrossTheBreak(t *testing.T) {
 func TestACommandIsNeverWrapped(t *testing.T) {
 	long := "rt repos reidentify gitlab.example.com/acme/widgets gitlab.example.com/acme/gadgets"
 	out := plainAt(40, protocol.Block{T: "failure", Title: "x", Next: cmd(long)})
-	if !strings.Contains(out, "    ▌ next "+long+"\n") {
+	if !strings.Contains(out, "    ▌ next\n"+long+"\n") {
 		t.Fatalf("the command was wrapped:\n%s", out)
 	}
 }
@@ -678,5 +678,42 @@ func TestABlankBlockPrintsOneEmptyRow(t *testing.T) {
 	}
 	if got := plain(protocol.Block{T: "line", Status: "done", Title: "a"}, blank, protocol.Block{T: "line", Status: "done", Title: "b"}); got != "  ✓ a\n\n  ✓ b\n" {
 		t.Fatalf("between lines: %q", got)
+	}
+}
+
+func TestACommandTooWideForItsRowOutdentsToTheBar(t *testing.T) {
+	long := "git push --force-with-lease origin rt-backup/reset/feature/logins-2026"
+	if len(long) != 70 {
+		t.Fatalf("fixture is %d wide", len(long))
+	}
+	got := plainAt(80, protocol.Block{T: "callout", Label: "next", Body: []protocol.Cell{cmd(long)}})
+	checkWidth(t, got, 80)
+	if want := "    ▌ next\n    ▌ " + long + "\n"; got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+	got = plainAt(80, protocol.Block{T: "failure", Title: "x", Next: protocol.Cell{{Text: "Run "}, {Text: long, Role: "command"}}})
+	checkWidth(t, got, 80)
+	if want := "  ✗ x\n    ▌ next Run\n    ▌ " + long + "\n"; got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestACommandTooWideForTheBarPrintsAtColumnZero(t *testing.T) {
+	long := "git push --force-with-lease origin rt-backup/reset/feature/login-2026-09-30"
+	if len(long) <= 74 || len(long) > 80 {
+		t.Fatalf("fixture is %d wide", len(long))
+	}
+	got := plainAt(80, protocol.Block{T: "callout", Label: "next", Body: []protocol.Cell{cmd(long + "\x1b[2J")}})
+	checkWidth(t, got, 80)
+	if want := "    ▌ next\n" + long + "\n"; got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestACommandWiderThanThePaneOverflowsWhole(t *testing.T) {
+	long := "rt repos reidentify gitlab.example.com/acme/widgets gitlab.example.com/acme/gadgets"
+	got := plainAt(80, protocol.Block{T: "callout", Label: "next", Body: []protocol.Cell{cmd(long)}})
+	if want := "    ▌ next\n" + long + "\n"; got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
 }

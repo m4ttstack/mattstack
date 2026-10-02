@@ -438,3 +438,23 @@ func TestQueryRestoresOnEveryFailure(t *testing.T) {
 		t.Fatalf("raw mode failed but the query went out: %q", f.wrote)
 	}
 }
+
+func TestALeakedGhosttyEnvironmentIsHonouredOnlyUnderGhostty(t *testing.T) {
+	cases := map[string]Background{
+		"":               Dark,
+		"ghostty":        Dark,
+		"herdr":          Dark,
+		"tmux":           Dark,
+		"vscode":         Unknown,
+		"iTerm.app":      Unknown,
+		"Apple_Terminal": Unknown,
+		"WezTerm":        Unknown,
+	}
+	for program, want := range cases {
+		w := ghosttyWorld(map[string]string{"/h/.config/ghostty/config": "background = #000000\n"})
+		w.env["TERM_PROGRAM"] = program
+		if got := Resolve(w.inputs()); got != want {
+			t.Errorf("TERM_PROGRAM=%q: got %v want %v", program, got, want)
+		}
+	}
+}

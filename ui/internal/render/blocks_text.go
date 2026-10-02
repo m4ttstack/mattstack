@@ -59,6 +59,7 @@ func (r *renderer) copy(b protocol.Block) {
 	for _, l := range splitLines(b.Text) {
 		r.emit(textStyle.Render(Clean(l)))
 	}
+	r.afterCopy = true
 }
 
 func (r *renderer) verbatim(b protocol.Block) {

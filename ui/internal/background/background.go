@@ -141,7 +141,16 @@ func parseHex(s string) (color.Color, bool) {
 
 func ghostty(in Inputs) Background {
 	resources := in.Getenv("GHOSTTY_RESOURCES_DIR")
-	if resources == "" && in.Getenv("TERM_PROGRAM") != "ghostty" {
+	program := in.Getenv("TERM_PROGRAM")
+	if resources == "" && program != "ghostty" {
+		return Unknown
+	}
+	// GHOSTTY_RESOURCES_DIR leaks into anything started from a Ghostty shell
+	// (an editor's terminal, a tmux server later attached elsewhere), so it
+	// counts only when no other terminal claims TERM_PROGRAM.
+	switch program {
+	case "", "ghostty", "herdr", "tmux":
+	default:
 		return Unknown
 	}
 	home := in.Getenv("HOME")

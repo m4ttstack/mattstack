@@ -105,14 +105,31 @@ func (r *renderer) calloutLines(c color.Color, label string, body []protocol.Cel
 	first := true
 	for _, line := range body {
 		for _, row := range calloutRows(line, w) {
+			lead := cont
 			if first {
-				r.emit(bar + fg(c).Render(label) + " " + r.cell(row))
-				first = false
-				continue
+				lead = bar + fg(c).Render(label) + " "
 			}
-			r.emit(cont + r.cell(row))
+			text := r.cell(row)
+			if hasCommand(row) && lipgloss.Width(lead+text) > r.width {
+				if first {
+					r.emit(strings.TrimRight(lead, " "))
+				}
+				r.emit(outdent(bar, text, r.width))
+			} else {
+				r.emit(lead + text)
+			}
+			first = false
 		}
 	}
+}
+
+// outdent places a command row too wide for its label column: at the bar if
+// it fits there, else at column 0 with no bar so it still pastes whole.
+func outdent(bar, text string, width int) string {
+	if lipgloss.Width(bar+text) <= width {
+		return bar + text
+	}
+	return text
 }
 
 // calloutRows breaks one body row. A command is pasted whole, so it is never

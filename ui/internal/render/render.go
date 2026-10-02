@@ -17,10 +17,11 @@ type Options struct {
 }
 
 type renderer struct {
-	width int
-	light bool
-	p     palette
-	out   strings.Builder
+	width     int
+	light     bool
+	afterCopy bool
+	p         palette
+	out       strings.Builder
 }
 
 // Render returns the styled text for blocks: every line newline-terminated,
@@ -49,8 +50,14 @@ func (r *renderer) gap() {
 	r.out.WriteByte('\n')
 }
 
+// blocks leads the block after a copy with a gap, since a copy carries no
+// rail to set it apart and must not end on a blank row.
 func (r *renderer) blocks(bs []protocol.Block) {
 	for i := 0; i < len(bs); i++ {
+		if r.afterCopy && bs[i].T != "blank" {
+			r.gap()
+		}
+		r.afterCopy = false
 		switch bs[i].T {
 		case "line":
 			j := runEnd(bs, i, "line", "callout")

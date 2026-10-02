@@ -213,7 +213,9 @@ Five rules cost the most when broken:
   `theme.StaticDark` on a dark background and `theme.StaticLight` otherwise;
   `ui/internal/background` picks from the `rt.ui.background` setting
   (`auto`, `dark`, `light`), then on `auto` `COLORFGBG`, Ghostty's configured
-  background and last the terminal's OSC 11 answer, and an unknown
+  background (only when `TERM_PROGRAM` is unset, `ghostty`, `herdr` or
+  `tmux`, since Ghostty's environment leaks into editors and multiplexers
+  started from it) and last the terminal's OSC 11 answer, and an unknown
   background gets the light set. Setting `dark` or `light` skips the
   terminal query. A new accent needs a tone in both sets that passes both
   sets' contrast tests. Never give body text a fixed color.
@@ -230,8 +232,9 @@ A callout row that is only a command prints whole. A row whose one command
 is its last segment (`["Commit them, or set them aside with ", out.cmd("rt git
 stash push")]`) prints its sentence on the label row and the command on the
 row under it, so end the sentence where the command starts; any other row
-wraps at its spaces and never splits a command. Off a terminal the row stays
-one line. Consecutive `kv` blocks in one `out.print` share a key column, so
+wraps at its spaces and never splits a command. A command too wide for the
+label column moves to the bar column, then to column 0 with no bar, and only
+one wider than the pane runs past it. Off a terminal the row stays one line. Consecutive `kv` blocks in one `out.print` share a key column, so
 print a group of them in one call.
 
 `out.print` writes plain text to stdout under `--json` too, so a verb whose

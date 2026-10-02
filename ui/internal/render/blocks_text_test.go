@@ -238,3 +238,24 @@ func TestALongDiffLineStaysInsideTheNarrowestPane(t *testing.T) {
 		t.Fatalf("the diff lost text:\n%s", got)
 	}
 }
+
+func TestABlockAfterACopyBlockStartsAfterOneBlankRow(t *testing.T) {
+	copyBlock := protocol.Block{T: "copy", Caption: "send this link", Text: "example://join?invite=abc123"}
+	line := protocol.Block{T: "line", Status: "done", Title: "Invite created"}
+	if got, want := plain(copyBlock, line), "    send this link\nexample://join?invite=abc123\n\n  ✓ Invite created\n"; got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+	if got, want := plain(copyBlock, copyBlock), "    send this link\nexample://join?invite=abc123\n\n    send this link\nexample://join?invite=abc123\n"; got != want {
+		t.Fatalf("two copies: got\n%q\nwant\n%q", got, want)
+	}
+	if got, want := plain(copyBlock, protocol.Block{T: "blank"}, line), "    send this link\nexample://join?invite=abc123\n\n  ✓ Invite created\n"; got != want {
+		t.Fatalf("a blank after a copy: got\n%q\nwant\n%q", got, want)
+	}
+	nested := protocol.Block{T: "section", Title: "Invite", Blocks: []protocol.Block{copyBlock}}
+	if got, want := plain(nested, line), "  Invite\n    send this link\nexample://join?invite=abc123\n\n  ✓ Invite created\n"; got != want {
+		t.Fatalf("a copy ending a section: got\n%q\nwant\n%q", got, want)
+	}
+	if got := plain(line, copyBlock); strings.HasSuffix(got, "\n\n") {
+		t.Fatalf("a copy left a trailing blank row: %q", got)
+	}
+}
