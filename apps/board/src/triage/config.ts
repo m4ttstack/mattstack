@@ -247,7 +247,27 @@ export interface ReReviewConfig {
   enabled: boolean;
 }
 
-const RE_REVIEW_DEFAULTS: ReReviewConfig = { enabled: true };
+export interface PeerAsksConfig {
+  enabled: boolean;
+}
+
+/** Both switches are store-only and ship enabled; a resolver throw degrades
+    to that default rather than silently switching the feature off. */
+function loadEnabledFlag(
+  key: 'board.reReview' | 'board.peerAsks',
+  resolve: GetSettingFn
+): { enabled: boolean } {
+  const raw = storeValue<unknown>(key, resolve, 'defaulting to enabled');
+  if (raw === undefined || raw === null) return { enabled: true };
+  const source = `settings key "${key}"`;
+  if (typeof raw !== 'object' || Array.isArray(raw))
+    throw new Error(`${source} must be an object`);
+  const { enabled } = raw as Record<string, unknown>;
+  if (enabled !== undefined && typeof enabled !== 'boolean') {
+    throw new Error(`${source} "enabled" must be a boolean`);
+  }
+  return { enabled: (enabled as boolean | undefined) ?? true };
+}
 
 /** `board.reReview` is store-only (no config.json block) and ships enabled:
     the re-review latch is basic board behavior, not a per-developer sweep
@@ -258,20 +278,11 @@ const RE_REVIEW_DEFAULTS: ReReviewConfig = { enabled: true };
 export function loadReReviewConfig(
   resolve: GetSettingFn = getSetting
 ): ReReviewConfig {
-  const raw = storeValue<unknown>(
-    'board.reReview',
-    resolve,
-    'defaulting to enabled'
-  );
-  if (raw === undefined || raw === null) return { ...RE_REVIEW_DEFAULTS };
-  const source = `settings key "board.reReview"`;
-  if (typeof raw !== 'object' || Array.isArray(raw))
-    throw new Error(`${source} must be an object`);
-  const { enabled } = raw as Record<string, unknown>;
-  if (enabled !== undefined && typeof enabled !== 'boolean') {
-    throw new Error(`${source} "enabled" must be a boolean`);
-  }
-  return {
-    enabled: (enabled as boolean | undefined) ?? RE_REVIEW_DEFAULTS.enabled,
-  };
+  return loadEnabledFlag('board.reReview', resolve);
+}
+
+export function loadPeerAsksConfig(
+  resolve: GetSettingFn = getSetting
+): PeerAsksConfig {
+  return loadEnabledFlag('board.peerAsks', resolve);
 }

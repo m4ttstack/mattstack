@@ -543,6 +543,14 @@ export const REGISTRY: readonly SettingDef[] = [
     description: "Gate for the board's automatic re-review sweep ({enabled}); rt's cron.triage step installs the board-triage trigger only while this is on. A fresh key, not an ownership-latch port, so a default is fine here.",
   },
   {
+    key: "board.peerAsks",
+    type: "object",
+    scopes: ["user", "team"],
+    merge: "deep",
+    default: { enabled: true },
+    description: "Gate for starting the agent when a teammate's board asks this one for a review, re-review or replies ({enabled}); rt's cron.triage step installs the board-peer trigger only while this is on. Auto-doctor stays under board.triage.",
+  },
+  {
     key: "board.codeowners",
     type: "object",
     scopes: ALL_SCOPES,
