@@ -239,6 +239,52 @@ describe('the unsynced banner', () => {
     expect(within(root).getByText('pack/notes.md')).toBeInTheDocument();
   });
 
+  it('lists an edited file the rebind does not explain, in the banner and the sync confirm', async () => {
+    const unsynced = designFixture('changes.unsynced');
+    serveChanges({
+      ...unsynced,
+      files: [
+        ...unsynced.files,
+        { path: 'attachments/gate-protocol/SKILL.md', status: 'M' },
+      ],
+    });
+    renderAt();
+    const root = await banner();
+
+    expect(root).toHaveTextContent(
+      '2 unsynced changes in acme. Your Claude sessions still use the old version.'
+    );
+    expect(
+      within(root).getByText('domain slot: plan-policy → plan-policy-strict')
+    ).toBeInTheDocument();
+    expect(
+      within(root).getByText('attachments/gate-protocol/SKILL.md')
+    ).toBeInTheDocument();
+
+    await userEvent.click(button(root, 'Sync changes'));
+    const confirm = await dialog('Sync 2 changes?');
+    expect(
+      within(confirm).getByText('attachments/gate-protocol/SKILL.md')
+    ).toBeInTheDocument();
+    expect(
+      within(confirm).getByText('domain slot: plan-policy → plan-policy-strict')
+    ).toBeInTheDocument();
+  });
+
+  it("does not list the rebind's own bindings file or the skills it rebuilt", async () => {
+    const unsynced = designFixture('changes.unsynced');
+    serveChanges({
+      ...unsynced,
+      files: [...unsynced.files, { path: 'skills/work/SKILL.md', status: 'M' }],
+    });
+    renderAt();
+    const root = await banner();
+
+    await waitFor(() => expect(root).toHaveTextContent(TITLE));
+    expect(within(root).queryByText('skills/work/SKILL.md')).toBeNull();
+    expect(within(root).queryByText('pack/skills.jsonc')).toBeNull();
+  });
+
   it('names a surface change by its skill', async () => {
     serveChanges({
       ...designFixture('changes.clean'),
@@ -249,6 +295,8 @@ describe('the unsynced banner', () => {
     renderAt();
     const root = await banner();
 
+    expect(root).toHaveTextContent('1 unsynced change in acme.');
+    expect(within(root).queryByText('pack/surface.jsonc')).toBeNull();
     expect(within(root).getByText('review')).toBeInTheDocument();
     expect(within(root).getByText('public → internal')).toBeInTheDocument();
   });
@@ -267,6 +315,20 @@ describe('the unsynced banner', () => {
     expect(root).toHaveTextContent(
       'Sync refuses until you commit or stash these files outside the pack: README.md, notes/todo.md'
     );
+  });
+
+  it('docks above the focus list and the canvas alike, under the tab bar', async () => {
+    renderAt();
+    const root = await banner();
+    const sidebar = document.getElementById('page-shell-sidebar')!;
+
+    expect(document.getElementById('page-shell-main')).not.toContainElement(
+      root
+    );
+    expect(sidebar).not.toContainElement(root);
+    expect(
+      root.compareDocumentPosition(sidebar) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it('shows on the Surface tab too', async () => {

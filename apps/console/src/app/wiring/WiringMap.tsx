@@ -157,6 +157,7 @@ export function WiringMap() {
       drawerStateKey="console-wiring-focus"
       tabs={tabs}
       tabBar={{ title: 'Wiring', actions }}
+      topNotch={notch}
     >
       {graphPack && (
         <PageShell.Sidebar hideCollapseButton bg="var(--tk-panel)">
@@ -165,15 +166,11 @@ export function WiringMap() {
       )}
       <PageShell.Main>
         {graphPack ? (
-          <PageShell.Content
-            bg="var(--tk-bg)"
-            contentContainer={false}
-            topNotch={notch}
-          >
+          <PageShell.Content bg="var(--tk-bg)" contentContainer={false}>
             {height => <GraphTab pack={graphPack} height={height} />}
           </PageShell.Content>
         ) : (
-          <PageShell.Content topNotch={notch}>
+          <PageShell.Content>
             {packsQuery.isError ? (
               <GenericError
                 title="Couldn't load skills packs"

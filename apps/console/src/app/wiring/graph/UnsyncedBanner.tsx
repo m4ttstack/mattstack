@@ -11,10 +11,11 @@ import { modals } from '@mattstack/app-kit/modals';
 import { notifications } from '@mattstack/app-kit/notifications';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { suffixOf } from '../outline';
+import { suffixOf, type SkillsComposition } from '../outline';
 import {
   isSkillsWriting,
   syncRefusal,
+  useCompositionSnapshot,
   useDiscardChanges,
   usePendingChanges,
   useSkillsSync,
@@ -46,12 +47,36 @@ const FILE_STATUS: Record<string, string> = {
   D: 'deleted',
 };
 
+/** Where rt writes a binding and a surface change, pack-relative. */
+const BINDINGS_FILE = 'pack/skills.jsonc';
+const SURFACE_FILES = new Set(['pack/surface.jsonc', 'surface.jsonc']);
+
+/** Every compiled skill's directory, pack-relative: rt rebuilds these after
+    a bind or a surface change. Empty until the composition has loaded. */
+function compiledDirsOf(composition: SkillsComposition | undefined): string[] {
+  if (!composition) return [];
+  const root = `${composition.packDir}/`;
+  const dirs = [
+    ...(composition.targets ?? []).map(target =>
+      target.artifactPath.slice(0, target.artifactPath.lastIndexOf('/'))
+    ),
+    ...composition.verbs.map(verb => verb.artifactPath),
+  ];
+  return dirs
+    .filter(dir => dir.startsWith(root))
+    .map(dir => dir.slice(root.length));
+}
+
 /**
  * What the pack would share on a sync, as a person reads it: each binding
- * and surface change by the skill it changes, or, when no such change
- * explains the edits, each edited file by its path.
+ * and surface change by the skill it changes, then every edited file those
+ * changes do not account for, by its path, so nothing a sync commits goes
+ * unlisted.
  */
-function pendingChangesOf(changes: SkillsChanges): PendingChange[] {
+function pendingChangesOf(
+  changes: SkillsChanges,
+  compiledDirs: string[]
+): PendingChange[] {
   const named: PendingChange[] = [
     ...changes.bindings.map(change => ({
       key: `binding:${change.engineRef}:${change.slot}`,
@@ -64,14 +89,23 @@ function pendingChangesOf(changes: SkillsChanges): PendingChange[] {
       detail: `${change.from} → ${change.to}`,
     })),
   ];
-  if (named.length > 0) return named;
-  return changes.files.map(file => ({
-    key: `file:${file.path}`,
-    name: file.path,
-    detail: file.from
-      ? `renamed from ${file.from}`
-      : (FILE_STATUS[file.status] ?? null),
-  }));
+  const rebuilt = named.length > 0;
+  const explained = (path: string) =>
+    (changes.bindings.length > 0 && path === BINDINGS_FILE) ||
+    (changes.surface.length > 0 && SURFACE_FILES.has(path)) ||
+    (rebuilt && compiledDirs.some(dir => path.startsWith(`${dir}/`)));
+  return [
+    ...named,
+    ...changes.files
+      .filter(file => !explained(file.path))
+      .map(file => ({
+        key: `file:${file.path}`,
+        name: file.path,
+        detail: file.from
+          ? `renamed from ${file.from}`
+          : (FILE_STATUS[file.status] ?? null),
+      })),
+  ];
 }
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
@@ -110,10 +144,11 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
   const sync = useSkillsSync(pack);
   const discard = useDiscardChanges(pack);
   const writing = useSkillsWriting(pack);
+  const composition = useCompositionSnapshot(pack).data;
 
   if (!changes) return null;
 
-  const pending = pendingChangesOf(changes);
+  const pending = pendingChangesOf(changes, compiledDirsOf(composition));
   const count = pending.length;
   const shown = pending.slice(0, BANNER_LIMIT);
   const outside = changes.outsideScope.map(file => file.path);
