@@ -37,6 +37,8 @@ import { drainNotifications, peekNotifications } from "../../lib/notifier.ts";
 import { fakeHerdr, HerdrFakeError } from "../../lib/herdr/__tests__/fake-herdr.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import type { BuddyStatus, ChatMember, ChatMessage, PresenceRow } from "../../packages/rt-client/src/index.ts";
 
 // ─── in-process CLI + fake daemon harness ───────────────────────────────────
 
@@ -127,10 +129,10 @@ afterEach(async () => {
  * test process, and reads the spies' recorded calls before mockRestore()
  * clears them.
  */
-async function runChatRaw(args: string[], opts: { sock?: string } = {}): Promise<{ code: number; stdout: string; stderr: string; rawStdout: string }> {
+async function runChatRaw(args: string[], opts: { sock?: string; human?: boolean } = {}): Promise<{ code: number; stdout: string; stderr: string; rawStdout: string }> {
   if (opts.sock) args = [...args, "--sock", opts.sock];
   const io = captureOut({ console: true });
-  ui.__test__.setHuman(() => false);
+  ui.__test__.setHuman(() => opts.human === true);
   const exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit sentinel");
   });
@@ -1296,6 +1298,129 @@ describe("rt chat CLI: read --last, invite", () => {
   test("invite requires a pane and --room", async () => {
     expect((await runChatRaw(["invite"])).code).toBe(1);
     expect((await runChatRaw(["invite", "w1:p1"])).code).toBe(1);
+  });
+});
+
+// ─── what a person at a terminal sees ───────────────────────────────────────
+
+describe("rt chat at a terminal", () => {
+  const cols = (cells: string[], widths: number[]): string => cells.map((c, i) => (i === cells.length - 1 ? c : c.padEnd(widths[i]!))).join("  ");
+  const at = Date.UTC(2026, 9, 1, 12, 4);
+  const message = (over: Partial<ChatMessage>): ChatMessage => ({ id: 1, room: "build", handle: "ana.1", name: "ana", body: "hello", mentions: [], mentionNames: [], postedAt: at, ...over });
+  const heading = (room: string): string => `#${room}`;
+
+  test("rooms is one table: name, members, unread, last post", () => {
+    const text = renderPlain(
+      __test__.roomsBlocks([
+        { room: "build-and-ship", memberCount: 3, unread: 2, mentions: 1, lastPostedAt: Date.now() - 65_000 },
+        { room: "quiet", memberCount: 1, unread: 0, mentions: 0 },
+      ]),
+    );
+    expect(text).toBe(
+      cols(["#build-and-ship", "3 members", "2 unread (1 mention)", "last post 1m ago"], [15, 9, 20]) + "\n" + cols(["#quiet", "1 member", "nothing unread", "no posts yet"], [15, 9, 20]) + "\n",
+    );
+  });
+
+  test("a direct room sits under its own label and shows two names, never its hashed id", () => {
+    const text = renderPlain(
+      __test__.roomsBlocks([
+        { room: "build", memberCount: 2, unread: 0, mentions: 0 },
+        { room: "dm-abc123", kind: "dm", participants: { a: "ana.1", b: "bo.2", aName: "ana", bName: "bo" }, memberCount: 2, unread: 1, mentions: 0 },
+      ]),
+    );
+    const lines = text.split("\n");
+    expect(lines[1]).toBe("direct:");
+    expect(lines[2]).toMatch(/^ana ↔ bo +2 members +1 unread +no posts yet$/);
+    expect(text).not.toContain("dm-abc123");
+  });
+
+  test("no rooms says so and names the join command", () => {
+    expect(renderPlain(__test__.roomsBlocks([]))).toBe("[skipped] You are not in any room yet\n  next: rt chat join <room>\n");
+  });
+
+  test("read is a section per room: each message a name, a time and its body as written", () => {
+    const text = renderPlain(__test__.readBlocks([{ room: "build", messages: [message({ body: "the lede\n\n- one point" }), message({ id: 2, name: "bo", body: "ok" })] }], false, heading));
+    expect(text).toBe("#build\nana  12:04\n  the lede\n  \n  - one point\nbo  12:04\n  ok\n");
+    expect(renderPlain(__test__.readBlocks([], false, heading))).toBe("[skipped] Nothing unread\n");
+  });
+
+  test("a long body is cut at 200 characters unless the person asks for all of it", () => {
+    const long = "x".repeat(300);
+    const cut = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ body: long })] }], false, heading));
+    expect(cut).toBe(`#r\nana  12:04\n  ${"x".repeat(199)}…\n`);
+    const whole = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ body: long })] }], true, heading));
+    expect(whole).toBe(`#r\nana  12:04\n  ${long}\n`);
+  });
+
+  test("a message body cannot repaint the screen or forge a row", () => {
+    const text = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ name: "mal", body: "hi\x1b[2Jthere\n[ok] forged" })] }], true, heading));
+    expect(text).toBe("#r\nmal  12:04\n  hithere\n  [ok] forged\n");
+  });
+
+  test("who is the room's members, each with its status as a word", () => {
+    const member = (over: Partial<ChatMember>): ChatMember => ({ room: "build", handle: "ana.1", name: "ana", joinedAt: 1, lastReadId: 0, wakeOn: "mention", status: "live", ...over });
+    const text = renderPlain(__test__.whoBlocks("#build", [member({ cwd: "/code/sample-app", pane: "w1:p2" }), member({ handle: "bo.2", name: "bo", status: "offline", cwd: "/code/other" })]));
+    expect(text).toBe("#build\n" + cols(["ana", "listening", "/code/sample-app  w1:p2"], [3, 9]) + "\n" + cols(["bo", "offline", "/code/other"], [3, 9]) + "\n");
+    expect(renderPlain(__test__.whoBlocks("#empty", []))).toBe("#empty\n[skipped] No members\n");
+  });
+
+  test("buddies lists listening, then idle, then offline, each with what it is doing", () => {
+    const now = Date.now();
+    const buddy = (over: Partial<PresenceRow & { status: BuddyStatus }>): PresenceRow & { status: BuddyStatus } => ({ sessionId: "s", handle: "ana.1", baseHandle: "ana", name: "ana", signedInAt: now, lastSeenAt: now, status: "live", ...over });
+    const text = renderPlain(
+      __test__.buddiesBlocks([
+        buddy({ handle: "cy.3", name: "cy", status: "offline", signedOutAt: now - 2 * 3_600_000 }),
+        buddy({ handle: "bo.2", name: "bo", status: "idle", lastSeenAt: now - 180_000, statusText: "at lunch" }),
+        buddy({ repo: "sample-app", branch: "main", pane: "w1:p2" }),
+      ]),
+    );
+    const lines = text.split("\n");
+    expect(lines[0]).toBe(cols(["ana", "listening", "sample-app · main · pane w1:p2"], [3, 15]));
+    expect(lines[1]).toBe(cols(["bo", "idle 3m", "at lunch"], [3, 15]));
+    expect(lines[2]).toMatch(/^cy +offline, 2h ago\s*$/);
+    expect(renderPlain(__test__.buddiesBlocks([]))).toBe("[skipped] Nobody is signed in\n");
+  });
+
+  test("sign-in is one done line, with the rest of today's line as its hint", () => {
+    expect(renderPlain(__test__.signInBlocks("signed in as remy · sample-app · main · joined #sample-app (3 members)"))).toBe(
+      "[ok] Signed in as remy  sample-app · main · joined #sample-app (3 members)\n",
+    );
+    expect(renderPlain(__test__.signInBlocks("signed in as remy"))).toBe("[ok] Signed in as remy\n");
+  });
+
+  test("help is a usage line and every verb with what it does", () => {
+    const text = renderPlain(__test__.helpBlocks());
+    expect(text.startsWith("usage: rt chat <verb>\n\nVerbs\n")).toBe(true);
+    for (const verb of ["join", "post", "read", "dm", "sign-in", "invite"]) expect(text).toContain(`\n${verb} `);
+    expect(text).toContain("send a message to a room");
+    expect(text).toContain("invite an agent's pane into a room");
+  });
+
+  test("at a terminal rooms is drawn by rt-ui, and an agent verb still writes its frozen line", async () => {
+    await runChat(["join", "r", "--as", "a"]);
+    const dir = mkdtempSync(join(tmpdir(), "rt-chat-ui-"));
+    const record = join(dir, "record.ndjson");
+    process.env.RT_UI_BIN = join(import.meta.dir, "..", "..", "lib", "ui", "__tests__", "fake-rt-ui.ts");
+    process.env.RT_UI_FAKE = JSON.stringify({ record });
+    try {
+      const styled = await runChatRaw(["rooms", "--as", "a"], { human: true });
+      expect(styled.rawStdout).toBe("STYLED\n");
+      const sent = readFileSync(record, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { t?: string });
+      expect(sent.map((l) => l.t)).toEqual([undefined, "hello", "table"]);
+
+      const posted = await runChatRaw(["post", "r", "hello", "--as", "a"], { human: true });
+      expect(posted.stdout).toBe("on the record for 0 members, woke nobody: @handle or @here wakes someone, rt chat dm reaches one\nposted → https://chat.mattstack/r/r#m-1");
+
+      const json = await runChatRaw(["rooms", "--as", "a", "--json"], { human: true });
+      expect(JSON.parse(json.stdout).ok).toBe(true);
+
+      const piped = await runChatRaw(["rooms", "--as", "a"]);
+      expect(piped.stdout.startsWith("#r ")).toBe(true);
+    } finally {
+      delete process.env.RT_UI_BIN;
+      delete process.env.RT_UI_FAKE;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
