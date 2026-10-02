@@ -281,9 +281,11 @@ export async function checkLatest(seams: VerifySeams, tag: string, releaseData: 
   // small negative elapsed right after publish, and that is still well
   // inside the propagation window, not proof the window has passed.
   if (elapsed !== null && elapsed < LATEST_PROPAGATION_WINDOW_MS) {
+    const minutes = Math.round(elapsed / 60_000);
+    const published = minutes < 1 ? "just published" : `published ${minutes} minute${minutes === 1 ? "" : "s"} ago`;
     return {
       id, label, status: "pending", pinned: tag, current: latest.tag_name,
-      detail: `still propagating: published ${Math.round(elapsed / 60_000)} minutes ago, and the latest-release link can lag about 20 minutes behind`,
+      detail: `still propagating: ${published}, and the latest-release link can lag about 20 minutes behind`,
     };
   }
 

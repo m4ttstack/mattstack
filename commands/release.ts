@@ -48,6 +48,8 @@ import {
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import {
   listJoin,
+  notesDeclined,
+  plannedPhase,
   qualifyStop,
   runReleaseApp,
   type QualifyStop,
@@ -283,8 +285,9 @@ const STEP_STATUS: Record<StepStatus, RenderStatus> = { ok: "done", done: "done"
 
 const QUALIFY_STOP_STATUS: Record<QualifyStop, RenderStatus> = { "not-fast-path": "refused", "nothing-moved": "skipped", "no-release-tag": "failed" };
 
-/** A stopped notes step waits on a person; a stopped qualify step is a refusal, nothing to do, or an environment problem. */
+/** A stopped notes step waits on a person unless they already said no; a stopped qualify step is a refusal, nothing to do, or an environment problem. */
 function stepStatus(step: StepResult): RenderStatus {
+  if (notesDeclined(step)) return "skipped";
   const stop = qualifyStop(step);
   return stop ? QUALIFY_STOP_STATUS[stop] : STEP_STATUS[step.status];
 }
@@ -306,7 +309,11 @@ export function releaseAppBlocks(report: ReleaseAppReport): Block[] {
     case "released":
       return [out.summary("done", `Released ${report.nextTag}`)];
     case "planned":
-      return [out.summary("pending", "Dry run: nothing changed", [`a real run releases ${listJoin(report.apps)} as ${report.nextTag}`])];
+      return [
+        out.summary("pending", "Dry run: nothing changed", [
+          plannedPhase(report) === "released" ? `a real run checks the publish of ${report.lastTag} again` : `a real run releases ${listJoin(report.apps)} as ${report.nextTag}`,
+        ]),
+      ];
     case "awaiting-approval":
       return [out.summary("needs-you", "The notes need your approval"), ...resume];
     case "declined": {

@@ -747,7 +747,7 @@ function describePlannedLeg(id: LegId, tag: string): string {
     case "prod-app":
       return `Download the ${tag} app, check its checksum, and swap it in for the installed one without opening it`;
     case "dev-bundle":
-      return `Build the dev app at ${tag} in a scratch folder, quit the running copy, swap the new one in and open it`;
+      return `Build the dev app at ${tag} in a scratch folder, quit the running copy, swap the new one in, and reopen it if it was running`;
     case "checkout-sync":
       return "Pull main into the shared checkout and install its packages";
     case "daemon":

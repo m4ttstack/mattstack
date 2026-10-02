@@ -114,6 +114,17 @@ describe("rt release apps: output", () => {
     expect(h.logs).toEqual(["[not yet] Dry run: nothing changed  a real run releases boxscore, chat and console as v2.13.2"]);
   });
 
+  test("a dry run when the newest tag already covers main says a real run only checks that publish again", async () => {
+    const steps = [
+      { id: "qualify" as const, label: "qualify", status: "ok" as const, detail: "v2.13.1 has not moved since" },
+      { id: "notes" as const, label: "release notes", status: "done" as const, detail: "v2.13.1 already ships these notes" },
+      { id: "tag" as const, label: "tag", status: "done" as const, detail: "v2.13.1 is on origin" },
+      { id: "verify" as const, label: "verify", status: "planned" as const, detail: "would re-verify v2.13.1" },
+    ];
+    const h = await invoke(["--dry-run"], { result: report("planned", { nextTag: "v2.13.1", steps }) });
+    expect(h.logs).toEqual(["[not yet] Dry run: nothing changed  a real run checks the publish of v2.13.1 again"]);
+  });
+
   test("a pending publish exits 1 and names the recheck", async () => {
     const h = await invoke([], { result: report("pending", { resume: "rt release verify v2.13.2" }) });
     expect(h.exitCode).toBe(1);
@@ -196,6 +207,10 @@ describe("rt release apps: output", () => {
     );
     expect(renderPlain(progressBlocks({ kind: "step", step: { id: "tag", label: "tag", status: "done", detail: "pushed v2.13.2 at 0123456ab" } }))).toBe("[ok] tag  pushed v2.13.2 at 0123456ab\n");
     expect(renderPlain(progressBlocks({ kind: "step", step: { id: "notes", label: "release notes", status: "stopped", detail: "the notes need approval" } }))).toBe("[needs you] release notes  the notes need approval\n");
+    const notesStop = (detail: string) => renderPlain(progressBlocks({ kind: "step", step: { id: "notes", label: "release notes", status: "stopped", detail } }));
+    expect(notesStop("You said no at the prompt. Nothing was committed.")).toBe("[skipped] release notes  You said no at the prompt. Nothing was committed.\n");
+    expect(notesStop("The notes for v2.13.2 (hash 0123456789ab) need your approval. Nothing was committed.")).toStartWith("[needs you] release notes  ");
+    expect(notesStop("The approved hash 0123456789ab does not match these notes (ba9876543210 for v2.13.2). They need approval again; nothing was committed.")).toStartWith("[needs you] release notes  ");
     expect(renderPlain(progressBlocks({ kind: "step", step: { id: "qualify", label: "qualify", status: "stopped", detail: "Main does not qualify for the fast path since v2.13.1: lib/ changed" } }))).toBe(
       "[refused] qualify  Main does not qualify for the fast path since v2.13.1: lib/ changed\n",
     );

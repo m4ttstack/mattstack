@@ -354,7 +354,16 @@ describe("checkLatest", () => {
     });
     const row = await checkLatest(s, "v2.10.2", RELEASE);
     expect(row.status).toBe("pending");
-    expect(row.detail).toStartWith("still propagating: published ");
+    expect(row.detail).toBe("still propagating: published 7 minutes ago, and the latest-release link can lag about 20 minutes behind");
+  });
+
+  test("one minute after publish reads as one minute", async () => {
+    const s = seams({
+      now: () => new Date("2026-09-18T21:08:55Z").getTime(),
+      fetchJson: () => Promise.resolve({ tag_name: "v2.10.1", assets: [] }),
+    });
+    const row = await checkLatest(s, "v2.10.2", RELEASE);
+    expect(row.detail).toStartWith("still propagating: published 1 minute ago,");
   });
 
   test("pending, not stale, when the local clock is slightly behind GitHub's (negative elapsed)", async () => {
@@ -364,6 +373,17 @@ describe("checkLatest", () => {
     });
     const row = await checkLatest(s, "v2.10.2", RELEASE);
     expect(row.status).toBe("pending");
+    expect(row.detail).toBe("still propagating: just published, and the latest-release link can lag about 20 minutes behind");
+  });
+
+  test("a clock a few minutes behind GitHub's still reads as just published, never a negative age", async () => {
+    const s = seams({
+      now: () => new Date("2026-09-18T21:04:55Z").getTime(),
+      fetchJson: () => Promise.resolve({ tag_name: "v2.10.1", assets: [] }),
+    });
+    const row = await checkLatest(s, "v2.10.2", RELEASE);
+    expect(row.status).toBe("pending");
+    expect(row.detail).toStartWith("still propagating: just published,");
   });
 
   test("stale with an unknown-publish-time message when releaseData is null", async () => {

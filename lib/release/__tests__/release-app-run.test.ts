@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { notesHash, renderNotes, runReleaseApp, type ReleaseAppOptions, type ReleaseAppProgress, type ReleaseAppSeams } from "../release-app.ts";
+import { notesDeclined, notesHash, plannedPhase, renderNotes, runReleaseApp, type ReleaseAppOptions, type ReleaseAppProgress, type ReleaseAppSeams } from "../release-app.ts";
 import type { RunResult } from "../../subprocess.ts";
 
 const LAST = "v2.13.0";
@@ -244,6 +244,7 @@ describe("runReleaseApp: qualification", () => {
     w.land(["apps/chat/x.ts", "RELEASE_NOTES.md"]);
     const r = await runReleaseApp(w.seams(), opts({ dryRun: true }));
     expect(r.status).toBe("planned");
+    expect(plannedPhase(r)).toBe("notes");
     expect(r.apps).toEqual(["chat"]);
     expect(r.steps[0]!.detail).toContain(`releasing chat as ${NEXT}`);
   });
@@ -336,6 +337,7 @@ describe("runReleaseApp: the approval flow", () => {
     const r = await runReleaseApp(w.seams(), opts({ yesNotes: "0".repeat(12) }));
     expect(r.status).toBe("awaiting-approval");
     expect(r.steps.find((s) => s.id === "notes")).toMatchObject({ status: "stopped" });
+    expect(notesDeclined(r.steps.find((s) => s.id === "notes"))).toBe(false);
     expect(mutations(w.calls)).toEqual([]);
   });
 
@@ -347,6 +349,7 @@ describe("runReleaseApp: the approval flow", () => {
     expect(r.status).toBe("declined");
     expect(w.confirmPrompts).toEqual([`Commit these notes and tag ${NEXT}?`]);
     expect(mutations(w.calls)).toEqual([]);
+    expect(notesDeclined(r.steps.at(-1))).toBe(true);
   });
 
   test("on a TTY, accepting the prompt commits, tags and verifies", async () => {
@@ -506,6 +509,7 @@ describe("runReleaseApp: resume", () => {
     const verifyStep = r.steps.find((s) => s.id === "verify")!;
     expect(verifyStep.status).toBe("planned");
     expect(verifyStep.detail).toContain(`would re-verify ${LAST}`);
+    expect(plannedPhase(r)).toBe("released");
     expect(mutations(w.calls.slice(before))).toEqual([]);
   });
 

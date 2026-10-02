@@ -283,6 +283,9 @@ describe("rt release update-machine", () => {
     const report = await runUpdateMachine(seams, { plan: true });
     expect(report.legs).toHaveLength(6);
     expect(report.legs.every((l) => l.status === "planned")).toBe(true);
+    expect(report.legs.find((l) => l.id === "dev-bundle")!.detail).toBe(
+      `Build the dev app at ${TAG} in a scratch folder, quit the running copy, swap the new one in, and reopen it if it was running`,
+    );
     expect(report.ok).toBe(true);
     // Only the read-only tag resolution may have run; nothing state-changing did.
     for (const prefix of ["ditto", "download", "git clone", "kill", "open", "mv", "hdiutil"]) {

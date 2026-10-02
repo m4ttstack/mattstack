@@ -178,6 +178,19 @@ const NOTHING_MOVED = "nothing has moved since ";
 
 export type QualifyStop = "no-release-tag" | "nothing-moved" | "not-fast-path";
 
+/** The notes step's detail when the person said no; `notesDeclined` tells it from the approval stops by this. */
+const NOTES_DECLINED = "You said no at the prompt. Nothing was committed.";
+
+/** A notes step stopped because the person said no at the prompt, not because the notes wait on approval. */
+export function notesDeclined(step: StepResult | undefined): boolean {
+  return step?.id === "notes" && step.status === "stopped" && step.detail === NOTES_DECLINED;
+}
+
+/** The phase a dry run planned: a tag already done means a real run only re-checks that tag's publish. */
+export function plannedPhase(report: ReleaseAppReport): Phase {
+  return report.steps.some((s) => s.id === "tag" && s.status === "done") ? "released" : "notes";
+}
+
 /** Why a qualify step stopped with nothing to resume: an environment problem, nothing to release, or main does not qualify. */
 export function qualifyStop(step: StepResult | undefined): QualifyStop | null {
   if (step?.id !== "qualify" || step.status !== "stopped") return null;
@@ -530,7 +543,7 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
         return report("failed", err.resume);
       }
       if (!confirmed) {
-        rec("notes", "stopped", "You said no at the prompt. Nothing was committed.");
+        rec("notes", "stopped", NOTES_DECLINED);
         return report("declined", rerun);
       }
     }
