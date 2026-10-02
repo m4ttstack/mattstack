@@ -116,10 +116,11 @@ function renderPanel(
       </SettingsTeamContext.Provider>
     </QueryClientProvider>
   );
-  const { rerender } = renderWithProviders(panel(opts.fix));
+  const { rerender, unmount } = renderWithProviders(panel(opts.fix));
   return {
     s,
     onTab,
+    unmount,
     refix: (fix: string | null) => rerender(panel(fix)),
     repick: (repo: string) => rerender(panel(opts.fix, repo)),
   };
@@ -132,6 +133,28 @@ describe('KeyPanel', () => {
     await prefetchKeyExplain(d, null);
     renderPanel(d, LAYERS);
     expect(screen.getByTestId('layer-user')).toBeInTheDocument();
+  });
+
+  it('an older read that lands late never replaces the newer rows a panel seeds from', async () => {
+    const d = def('board.agent.model');
+    const older = LAYERS;
+    const newer = LAYERS.map(r =>
+      r.scope === 'user' ? { ...r, value: 'm-newer' } : r
+    );
+    let land: (v: unknown) => void = () => {};
+    explainGet
+      .mockImplementationOnce(() => new Promise(r => (land = r)))
+      .mockResolvedValue(ok({ def: d, rows: newer }));
+    const warming = prefetchKeyExplain(d, null);
+    const first = renderPanel(d, newer);
+    expect(await screen.findByText('m-newer')).toBeInTheDocument();
+    land(ok({ def: d, rows: older }));
+    await warming;
+    first.unmount();
+    renderPanel(d, newer);
+    expect(screen.getByTestId('layer-value-user')).toHaveTextContent(
+      'm-newer'
+    );
   });
 
   it('shows the tab it is given and reports a switch', async () => {

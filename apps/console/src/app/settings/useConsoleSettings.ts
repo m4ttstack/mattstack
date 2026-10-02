@@ -257,12 +257,20 @@ const explainId = (key: string, repo: string | null) => `${key}\n${repo ?? ''}`;
 // growing to a placeholder and then jumping to the real rows.
 const explainCache = new Map<string, ExplainBody>();
 const explainInFlight = new Map<string, Promise<void>>();
+// Only the newest read per key may fill the cache: a slow read-ahead that
+// lands after a panel's fresh read would otherwise seed the next open with
+// the older rows.
+const explainLatest = new Map<string, number>();
+let explainRequests = 0;
 
 function readExplain(key: string, repo: string | null): Promise<ExplainBody> {
+  const id = explainId(key, repo);
+  const request = ++explainRequests;
+  explainLatest.set(id, request);
   return getJson<ExplainBody>(
     `${BASE}/explain/${encodeURIComponent(key)}${query({ repo })}`
   ).then(body => {
-    explainCache.set(explainId(key, repo), body);
+    if (explainLatest.get(id) === request) explainCache.set(id, body);
     return body;
   });
 }
@@ -296,6 +304,7 @@ export function prefetchKeyExplain(
 export function resetExplainCache() {
   explainCache.clear();
   explainInFlight.clear();
+  explainLatest.clear();
 }
 
 /** One key's layer stack, with the picked repo's rungs when one is given.
