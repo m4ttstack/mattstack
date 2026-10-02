@@ -70,7 +70,7 @@ board consumes the bus journal by cursor; see `docs/agent-actions.md`.
 | `POST /nudge`       | `{ mrUrl, iid, reviewer }`, asking a peer's board for a re-review on your own MR. `400` with body "this board is not peering", `409` with a plain-text reason when the reviewer is not on the switchboard, or `{"ok":true,"queued":true}` when the relay is unreachable and the ask is queued for the next tick |
 | `POST /peer/invite` | mint a one-paste invite. Operator-only: needs the admin token                                                                                                                                                                                                                                            |
 | `GET /peer/boards`  | list peered boards. Operator-only                                                                                                                                                                                                                                                                        |
-| `POST /peer/join`   | redeem an invite, persist the URL and token, and hot-start peering with no restart                                                                                                                                                                                                                       |
+| `POST /peer/join`   | redeem an invite, persist the token, and hot-start peering with no restart                                                                                                                                                                                                                               |
 
 ## Caching
 
