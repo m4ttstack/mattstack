@@ -78,5 +78,6 @@ the ANSI output on each background.
 
 - `worktree-dark.png`, `worktree-light.png`: `rt worktree` provision, list, triage, dispose with its refusals, a busy lock, ready-approve, adopt, the restore list, each, two failures and a not-ready warning.
 - `code-dark.png`, `code-light.png`: `rt code`, `rt settings extension`, the worktree config warning and the one-at-a-time fallback.
+- `chat-dark.png`, `chat-light.png`: what a person sees from `rt chat`: rooms, read, who, buddies, sign-in, help, a failure, the two policy refusals and the sign-out warning. Off a terminal these verbs print their older plain text, unchanged.
 
 `rt cd` and `rt nav` have no render: 5c does not change them.
