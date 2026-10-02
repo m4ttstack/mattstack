@@ -573,7 +573,7 @@ export interface WorktreeAdoptData {
   refused: Array<{ tree: string; reason: string; detail?: string }>;
 }
 
-export interface TriageHold { kind: "process" | "orphan-stopping" | "herd" | "run"; detail: string }
+export interface TriageHold { kind: "process" | "orphan-stopping" | "herd" | "owner" | "run"; detail: string }
 export interface TriageRow {
   repo: string; tree: string; path: string; branch: string | null;
   mr: { iid: number; state: "opened" | "merged" | "closed"; title: string; at: string | null; url: string | null } | null;
@@ -583,7 +583,7 @@ export interface TriageRow {
   dirt: { kind: "none" | "junk" | "lockfile" | "real"; files: string[] };
   group: "safe" | "look" | "only-copy" | "waiting" | "broken" | "kept";
   verdict: string;
-  actions: Array<"dispose" | "review" | "push-branch" | "keep" | "unkeep" | "stop-process" | "open-herd" | "open-run" | "remove" | "open-finder" | "open-terminal" | "copy-path">;
+  actions: Array<"dispose" | "review" | "push-branch" | "keep" | "unkeep" | "stop-process" | "release" | "open-run" | "remove" | "open-finder" | "open-terminal" | "copy-path">;
   hold?: TriageHold;
   keptAt?: string;
   fingerprint: { headSha: string; dirtHash: string; mrState: string | null };
@@ -1114,6 +1114,8 @@ export interface Commands {
   "worktree:triage-diff": { payload: { repoName: string; tree: string }; data: { files: WorktreeTriageDiffFile[]; truncatedFiles?: true } };
   "worktree:triage-remove": { payload: { repoName: string; tree: string }; data: { removed: true; trash?: { path: string; keptUntil: string } } };
   "worktree:stop-holders": { payload: { repoName: string; tree: string }; data: { terminated: Array<{ pid: number; label: string }> } };
+  /** Frees a job tree its owner still holds; the dispose that follows keeps every guard. */
+  "worktree:release": { payload: { repoName: string; tree: string }; data: { tree: string } };
 
   // ─── Background server (daemon-owned background herdr session) ──────────
   "bg:ensure": { payload: { claim?: string }; data: { socket: string; started: boolean; parity: { ok: boolean; drift: string[] } | null } };
@@ -1264,6 +1266,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "worktree:triage-diff",
   "worktree:triage-remove",
   "worktree:stop-holders",
+  "worktree:release",
 
   "bg:ensure",
   "bg:status",

@@ -75,6 +75,18 @@ describe("herd-store", () => {
     expect(s.jobs(h.id)).toHaveLength(1);
   });
 
+  test("upsertJob onto a new worktree restarts createdAt; the same worktree keeps it", async () => {
+    const s = store();
+    const h = herd(s);
+    const first = s.upsertJob({ herd: h.id, name: "job-a", worktree: "/w/one", handle: "job-a", status: "crashed" });
+    await Bun.sleep(5);
+    const same = s.upsertJob({ herd: h.id, name: "job-a", worktree: "/w/one", handle: "job-a", status: "active" });
+    expect(same.createdAt).toBe(first.createdAt);
+    await Bun.sleep(5);
+    const respawned = s.upsertJob({ herd: h.id, name: "job-a", worktree: "/w/two", handle: "job-a", status: "spawning" });
+    expect(respawned.createdAt).toBeGreaterThan(first.createdAt);
+  });
+
   test("upsertJob rejects a job name outside the grammar", () => {
     const s = store();
     const h = herd(s);

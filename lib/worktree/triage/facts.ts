@@ -57,14 +57,16 @@ function cacheEntry(repo: string, branch: string | null, entries: Record<string,
 }
 
 function holdOf(rec: TreeRecord, deps: TriageDeps): TriageHold | null {
+  // The reactor stores a job hold in heldReason too; judged fresh first, it
+  // reads as the herd's, never as a process the panel could stop.
+  if (rec.disposal === "job") {
+    const h = deps.jobTreeHold(rec);
+    if (h) return { kind: rec.owner?.startsWith("herd:") ? "herd" : "owner", detail: h };
+  }
   if (rec.heldReason) {
     return rec.heldReason.startsWith("stopped stale orphan")
       ? { kind: "orphan-stopping", detail: rec.heldReason }
       : { kind: "process", detail: rec.heldReason };
-  }
-  if (rec.disposal === "job") {
-    const h = deps.jobTreeHold(rec);
-    if (h) return { kind: "herd", detail: h };
   }
   const run = deps.findRunningRun(rec.path);
   if (run.kind === "match") return { kind: "run", detail: `pipeline run ${run.run.id} is live at ${run.run.currentStage}` };

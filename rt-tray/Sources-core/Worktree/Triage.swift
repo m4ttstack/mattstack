@@ -208,6 +208,13 @@ public enum TriageConfirm {
         return "This is the only copy of \(n) unpushed commit\(n == 1 ? "" : "s"). "
             + "The files go to the trash for 14 days, but the commits may not be recoverable."
     }
+
+    public static func releaseTitle(_ row: TriageRow) -> String { "Release \(row.tree) from its herd?" }
+
+    public static func releaseMessage(_ row: TriageRow) -> String {
+        let why = row.hold.map { "It's held because \($0.detail.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: #"\.$"#, with: "", options: .regularExpression)). " } ?? ""
+        return why + "Releasing hands it to the usual cleanup, which still waits for anything running inside to stop."
+    }
 }
 
 /// Keeps the 10 s poll from stacking queries behind a slow daemon, and keeps

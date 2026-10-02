@@ -7,9 +7,9 @@ import { keepStillHolds, type Fingerprint } from "./fingerprint.ts";
 export type BrokenKind = "gone" | "unlinked";
 export type TriageGroup ="safe" | "look" | "only-copy" | "waiting" | "broken" | "kept";
 export type TriageAction = "dispose" | "review" | "push-branch" | "keep" | "unkeep" | "stop-process"
-  | "open-herd" | "open-run" | "remove" | "open-finder" | "open-terminal" | "copy-path";
+  | "release" | "open-run" | "remove" | "open-finder" | "open-terminal" | "copy-path";
 export type PushKind = "pushed" | "in-main" | "remote-deleted" | "unpushed";
-export interface TriageHold { kind: "process" | "orphan-stopping" | "herd" | "run"; detail: string }
+export interface TriageHold { kind: "process" | "orphan-stopping" | "herd" | "owner" | "run"; detail: string }
 export interface TriageFacts {
   repo: string; tree: string; path: string; branch: string | null;
   /** "gone": the folder itself is missing. "unlinked": the folder is there but its git link is not. */
@@ -78,7 +78,7 @@ function actionsOf(f: TriageFacts, group: TriageGroup): TriageAction[] {
     case "broken": return ["remove", "copy-path"];
     case "kept": return ["unkeep", ...TAIL];
     case "waiting": {
-      const lead: Record<TriageHold["kind"], TriageAction[]> = { process: ["stop-process"], herd: ["open-herd"], run: ["open-run"], "orphan-stopping": [] };
+      const lead: Record<TriageHold["kind"], TriageAction[]> = { process: ["stop-process"], herd: ["release"], owner: [], run: ["open-run"], "orphan-stopping": [] };
       return [...lead[f.hold!.kind], ...TAIL];
     }
     case "only-copy": return ["push-branch", "keep", ...TAIL];
