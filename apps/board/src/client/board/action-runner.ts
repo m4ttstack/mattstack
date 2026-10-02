@@ -5,6 +5,7 @@
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
 import type { ActionResult } from '../api.ts';
+import type { ToastHandle } from './launch-flow.ts';
 import { mrRef } from './MrLinks.tsx';
 import type {
   ActionRequest,
@@ -30,6 +31,7 @@ export interface RunnerDeps {
     opts: LaunchOpts
   ) => Promise<ActionResult | undefined>;
   addToast: (text: string) => void;
+  startToast: (text: string) => ToastHandle;
   reload: (fresh: boolean) => void;
   /** A fired merge holds its row at "merging…" until the MR leaves the
       board; only a refusal lets go, so merge never reappears mid-flight. */
@@ -257,16 +259,17 @@ export async function runOne(
   if (!url) return undefined;
   const spec = postSpec(req);
   const pending = spec.pending?.(mr);
-  if (pending) deps.addToast(pending);
+  const toast = pending
+    ? deps.startToast(pending)
+    : { done: deps.addToast, fail: deps.addToast };
   const result = await post(req, spec, mr, url, deps);
   if (!result.ok) {
-    deps.addToast(spec.fail(mr, result));
+    toast.fail(spec.fail(mr, result));
     // A GitLab refusal means the row was out of date; show what GitLab says now.
     if (spec.fresh) deps.reload(true);
     return result;
   }
-  const done = spec.done?.(mr, result);
-  if (done) deps.addToast(done);
+  toast.done(spec.done?.(mr, result) ?? spec.manyDone([{ mr, result }]));
   deps.reload(spec.fresh);
   return result;
 }

@@ -2,6 +2,12 @@ import type { BoardMR } from '../../data.ts';
 import type { ActionResult } from '../api.ts';
 import { mrRef } from './MrLinks.tsx';
 
+/** The kit's `ToastHandle`, restated so this file stays DOM-free. */
+export interface ToastHandle {
+  done: (text: string) => void;
+  fail: (text: string) => void;
+}
+
 /** Deps a launch flow needs from its caller: how to POST, how to reflect the
     optimistic queued/rollback state (no-ops for non-optimistic actions like
     resume), how to toast, and how to reload once the server answers. */
@@ -10,9 +16,12 @@ export interface LaunchFlowDeps {
   setQueued: () => void;
   rollback: () => void;
   addToast: (t: string) => void;
+  startToast: (t: string) => ToastHandle;
   reload: () => void;
   verbing: string;
   noun: string;
+  /** The launch toast's done text, before the MR ref: "review started". */
+  started: string;
   /** Overrides the default failure toast (`couldn't launch ${noun} for !${iid}
       (${status})`). Resume actions use this to surface the server's own
       response text, matching today's handleResume (`resume review failed for
@@ -23,9 +32,10 @@ export interface LaunchFlowDeps {
 
 /** The pure shape common to every launch-a-pane action (characterized from
     today's handleLaunch): claim optimistic queued state, toast that it's
-    starting, POST, and on the answer either roll back + toast the failure
-    status, or toast a "focused an existing tab" note when the server says so
-    and reload either way that reflects the server's real state.
+    starting, POST, and on the answer settle that one toast: roll back and
+    turn it into the failure status, or mark it done (saying so when the
+    server focused an existing tab instead), and reload to the server's
+    real state.
 
     DOM-free by design (no react, no browser globals) so it stays importable
     from a plain root-tsconfig test without pulling DOM types into that
@@ -42,9 +52,10 @@ export async function runLaunchFlow(
   // what the click asked for -- the pane is already running. `focus: true`
   // tells the server it may only focus: a pane that turns out to be gone is
   // a refusal, never a fresh launch, and the reload shows the row's real state.
+  let toast: ToastHandle | undefined;
   if (intent === 'launch') {
     deps.setQueued();
-    deps.addToast(`${deps.verbing} for ${mrRef(mr)}…`);
+    toast = deps.startToast(`${deps.verbing} for ${mrRef(mr)}…`);
   }
   const result = await deps.post({
     mrUrl: mr.webUrl,
@@ -61,23 +72,25 @@ export async function runLaunchFlow(
       return result;
     }
     deps.rollback();
-    deps.addToast(
+    toast?.fail(
       deps.failureMessage
         ? deps.failureMessage(result, mr)
         : `couldn't launch ${deps.noun} for ${mrRef(mr)} (${result.status})`
     );
     return result;
   }
-  // Resume actions route through here too (axis: null + a bespoke
-  // failureMessage above), but the server never sets `focused` on a resume
-  // response today -- this branch is inert for resume until/unless that
-  // changes, at which point resume would start showing this toast too.
-  if (result.body?.focused)
-    deps.addToast(
-      intent === 'focus'
-        ? `focused ${deps.noun} tab for ${mrRef(mr)}`
-        : `${deps.noun} already running for ${mrRef(mr)} — focused its tab`
+  // The server never sets `focused` on a resume response today, so resume
+  // only ever takes the started branch.
+  if (intent === 'focus') {
+    if (result.body?.focused)
+      deps.addToast(`focused ${deps.noun} tab for ${mrRef(mr)}`);
+  } else {
+    toast?.done(
+      result.body?.focused
+        ? `${deps.noun} already running for ${mrRef(mr)}... focused its tab`
+        : `${deps.started} for ${mrRef(mr)}`
     );
+  }
   deps.reload();
   return result;
 }
