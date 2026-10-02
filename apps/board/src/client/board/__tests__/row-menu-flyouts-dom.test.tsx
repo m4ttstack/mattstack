@@ -148,8 +148,18 @@ test('a blocked reaction is aria-disabled, names its reason, and does not run', 
     el.title,
   ]);
   expect(toggles).toEqual([
-    ['true', false, 'mark as looking (no thread)', 'mark as looking (no thread)'],
-    ['true', false, 'mark as commented (blocked)', 'mark as commented (blocked)'],
+    [
+      'true',
+      false,
+      'mark as looking (no thread)',
+      'mark as looking (no thread)',
+    ],
+    [
+      'true',
+      false,
+      'mark as commented (blocked)',
+      'mark as commented (blocked)',
+    ],
     ['false', false, 'mark as approved', 'mark as approved'],
   ]);
   await clickItem('mark as looking');
