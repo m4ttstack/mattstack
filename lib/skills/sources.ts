@@ -4,6 +4,7 @@ import { join, relative, sep } from "path";
 import { parse as parseYaml } from "yaml";
 import { resolveClaudeBin } from "../claude-bin.ts";
 import { stripJsonc } from "../jsonc.ts";
+import { warn } from "../ui/warn.ts";
 import { findPlaceholders } from "./placeholders.ts";
 import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
 
@@ -68,7 +69,9 @@ export function buildPluginRoots(list: PluginListEntry[]): PluginRoots {
     const name = entry.id.split("@")[0];
     if (!name) continue;
     if (!existsSync(entry.installPath)) {
-      console.error(`rt: skipping plugin "${name}" -- installPath does not exist: ${entry.installPath}`);
+      warn("skills", `skipping plugin "${name}" -- installPath does not exist: ${entry.installPath}`, {
+        show: { title: `Skipped the ${name} plugin`, hint: "its folder is gone" },
+      });
       continue;
     }
     const dir = realpathSync(entry.installPath);

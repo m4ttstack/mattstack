@@ -269,6 +269,8 @@ export type InitRefusalCode =
 
 export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "install-failed";
 
+export type InitRemedy = { commands: string[]; folder?: string };
+
 export type InitOutcome =
   | {
       ok: true;
@@ -279,11 +281,14 @@ export type InitOutcome =
       restartNeeded: true;
       tryNext: string;
     }
-  | { ok: false; refused: true; code: InitRefusalCode; detail: string }
-  | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: string };
+  | { ok: false; refused: true; code: InitRefusalCode; detail: string; next?: string }
+  | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy };
 
-function refuse(code: InitRefusalCode, detail: string): InitOutcome {
-  return { ok: false, refused: true, code, detail };
+/** rt declining by rule, drawn as refused; every other refusal code is a missing prerequisite or a usage slip, drawn as a failure. */
+export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["pack-exists", "zone-has-pack", "zone-mismatch"]);
+
+function refuse(code: InitRefusalCode, detail: string, next?: string): InitOutcome {
+  return { ok: false, refused: true, code, detail, ...(next ? { next } : {}) };
 }
 
 /** Anchored to the CLI's own "already ..." phrasings so a failing call that merely mentions the word does not read as success. */
@@ -305,16 +310,16 @@ async function marketplaceNames(claude: NonNullable<InitDeps["claude"]>): Promis
 
 export async function initPack(opts: { repoDir: string; zone: string | null }, deps: InitDeps): Promise<InitOutcome> {
   const remote = await deps.gitRemote(opts.repoDir);
-  if (remote.kind === "not-a-repo") return refuse("not-a-repo", `${opts.repoDir} is not a git checkout`);
-  if (remote.kind === "no-remote") return refuse("no-remote", `${opts.repoDir} has no git remote; add one so the zone can declare it`);
+  if (remote.kind === "not-a-repo") return refuse("not-a-repo", `${opts.repoDir} is not a git repo`);
+  if (remote.kind === "no-remote") return refuse("no-remote", `${opts.repoDir} has no git remote. Add one, so the team zone can name this repo`);
   const repo = parseRemote(remote.url);
-  if (!repo) return refuse("no-remote", `could not read a host and path from remote "${withoutCredentials(remote.url)}"`);
+  if (!repo) return refuse("no-remote", `rt could not read a host and path from the remote ${withoutCredentials(remote.url)}`);
 
   const workDescription = deps.engineDescription("work");
   if (workDescription === null) {
-    return refuse("mattstack-missing", "the mattstack plugin is not installed, so the work engine cannot be read; run rt setup pack first");
+    return refuse("mattstack-missing", "The mattstack plugin is not installed, so rt cannot read the work engine", "rt setup pack");
   }
-  if (!deps.claude) return refuse("claude-missing", "claude binary not found on PATH; install the Claude CLI, then re-run");
+  if (!deps.claude) return refuse("claude-missing", "Claude Code is not on your PATH. Install it, then run this again");
   const claude = deps.claude;
 
   let zones = readZones(deps.fs, deps.home);
@@ -322,7 +327,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
   let wantedZone = opts.zone;
   if (choice.kind === "missing" && opts.zone === null) {
     if (!deps.isTTY) {
-      return refuse("zone-missing", `no team zone without a pack covers ${repo.host}; run rt team create <Name> --remote <url>, then re-run`);
+      return refuse("zone-missing", `No team zone on ${repo.host} is free for a new pack`, "rt team create <name> --remote <url>");
     }
     const answer = await deps.promptZone();
     const created = await deps.createZone(answer.name, answer.remote);
@@ -330,37 +335,37 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
     zones = readZones(deps.fs, deps.home);
     choice = chooseZone(zones, repo, created.slug);
   }
-  if (choice.kind === "missing") return refuse("zone-missing", `no team zone named "${wantedZone}"`);
+  if (choice.kind === "missing") return refuse("zone-missing", `There is no team zone called ${wantedZone}`);
   if (choice.kind === "ambiguous") {
-    return refuse("zone-ambiguous", `several zones could host this pack: ${choice.zones.map((z) => z.slug).join(", ")}; pass --zone <slug>`);
+    return refuse("zone-ambiguous", `More than one team zone could hold this pack: ${choice.zones.map((z) => z.slug).join(", ")}`, "rt skills init --zone <slug>");
   }
   if (choice.kind === "mismatch") {
-    return refuse("zone-mismatch", `zone "${choice.zone.slug}" is on ${choice.zone.host}, the repo is on ${repo.host}`);
+    return refuse("zone-mismatch", `The ${choice.zone.slug} zone is on ${choice.zone.host}, but this repo is on ${repo.host}`);
   }
   if (choice.kind === "has-pack") {
-    return refuse("zone-has-pack", `zone "${choice.zone.slug}" already carries a pack that claims repos; a zone hosts one such pack (a base pack may sit beside it), so create a zone for this team (rt team create)`);
+    return refuse("zone-has-pack", `The ${choice.zone.slug} zone already has a team pack, and a zone holds only one (a base pack can sit beside it)`, "rt team create <name> --remote <url>");
   }
   const zone = choice.zone;
   const pack = zone.namespace;
   if (!isValidNamespace(pack, zone.dir)) {
-    return refuse("invalid-namespace", `zone "${zone.slug}" has an invalid namespace "${pack}"; fix mattstack/mattstack.jsonc in the zone`);
+    return refuse("invalid-namespace", `The ${zone.slug} zone's namespace, ${pack}, is not a valid pack name. Fix it in the zone's mattstack/mattstack.jsonc`);
   }
   const packDir = join(zone.dir, "mattstack", "packs", pack);
   if (zone.hasPack || deps.fs.exists(packDir)) {
-    return refuse("pack-exists", `${join(zone.dir, "mattstack", "packs")} already holds this repo's pack; init never touches an existing pack (see mattstack:extending-a-pack)`);
+    return refuse("pack-exists", "This zone already has a pack for this repo, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill");
   }
   const marketplace = zone.marketplace ?? zone.slug;
   const pluginId = `${pack}@${marketplace}`;
 
   const wrote: string[] = [];
 
-  const remedyFor = (code: FailureCode): string => {
-    if (code === "write-failed") return `then: remove ${packDir} and re-run rt skills init`;
-    if (code === "materialize-failed") return `then: rt skills materialize --dir ${opts.repoDir}`;
+  const remedyFor = (code: FailureCode): InitRemedy => {
+    if (code === "write-failed") return { commands: ["rt skills init"], folder: packDir };
+    if (code === "materialize-failed") return { commands: [`rt skills materialize --dir ${opts.repoDir}`] };
     if (code === "compile-failed" || code === "check-drift") {
-      return `then: rt skills compile --pack-dir ${packDir} and rt skills check --pack-dir ${packDir}`;
+      return { commands: [`rt skills compile --pack-dir ${packDir}`, `rt skills check --pack-dir ${packDir}`] };
     }
-    return `then: claude plugin marketplace add ${zone.dir} and claude plugin install ${pluginId}`;
+    return { commands: [`claude plugin marketplace add ${zone.dir}`, `claude plugin install ${pluginId}`] };
   };
 
   const failed = (code: FailureCode, detail: string): InitOutcome =>
@@ -406,7 +411,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
   const materialized = materializedAttempt.value;
   const manifestPath = packManifestPath(join(deps.home, ".mattstack"), repo.slug, pack);
   if (!materialized.ok || !deps.fs.exists(manifestPath)) {
-    return failed("materialize-failed", `${materialized.detail}; expected ${manifestPath}`);
+    return failed("materialize-failed", `${materialized.detail}. rt expected the bindings file at ${manifestPath}`);
   }
   const compiledAttempt = await attempt("compile-failed", () => deps.compile(packDir, manifestPath));
   if ("outcome" in compiledAttempt) return compiledAttempt.outcome;
@@ -414,7 +419,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
   if (!compiled.ok) return failed("compile-failed", compiled.errors.join("\n"));
   const checkedAttempt = await attempt("check-drift", () => deps.check(packDir, manifestPath));
   if ("outcome" in checkedAttempt) return checkedAttempt.outcome;
-  if (checkedAttempt.value.drift) return failed("check-drift", "rt skills check reports drift right after compile");
+  if (checkedAttempt.value.drift) return failed("check-drift", "The pack was out of date right after it compiled");
 
   const known = await attempt("install-failed", () => marketplaceNames(claude));
   if ("outcome" in known) return known.outcome;
@@ -422,13 +427,13 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
     const added = await attempt("install-failed", () => claude(["plugin", "marketplace", "add", zone.dir]));
     if ("outcome" in added) return added.outcome;
     if (added.value.code !== 0 && !isAlreadyDone(added.value)) {
-      return failed("install-failed", `claude plugin marketplace add exited ${added.value.code}: ${added.value.stderr.trim() || added.value.stdout.trim()}`);
+      return failed("install-failed", `Adding the zone's marketplace to Claude Code failed (exit ${added.value.code}): ${added.value.stderr.trim() || added.value.stdout.trim()}`);
     }
   }
   const installed = await attempt("install-failed", () => claude(["plugin", "install", pluginId]));
   if ("outcome" in installed) return installed.outcome;
   if (installed.value.code !== 0 && !isAlreadyDone(installed.value)) {
-    return failed("install-failed", `claude plugin install ${pluginId} exited ${installed.value.code}: ${installed.value.stderr.trim() || installed.value.stdout.trim()}`);
+    return failed("install-failed", `Installing ${pluginId} in Claude Code failed (exit ${installed.value.code}): ${installed.value.stderr.trim() || installed.value.stdout.trim()}`);
   }
 
   return {

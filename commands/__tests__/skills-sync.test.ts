@@ -4,7 +4,10 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { PackInfo } from "../../lib/skills/packs.ts";
 import type { MaterializeSkillsResult } from "../../lib/setup/skills-materialize.ts";
-import { deriveEngine, manifestTarget, syncMaterializeVerdict } from "../skills-sync.ts";
+import type { SyncReport } from "../../lib/skills/sync.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import * as out from "../../lib/ui/out.ts";
+import { deriveEngine, manifestTarget, syncBlocks, syncFailure, syncMaterializeVerdict, syncRefusal } from "../skills-sync.ts";
 
 function pack(name: string): PackInfo {
   return { name, dir: `/fake/${name}`, layout: "flat", surfacePath: `/fake/${name}/surface.jsonc`, marketplace: "local" };
@@ -120,8 +123,13 @@ describe("syncMaterializeVerdict", () => {
     expect(syncMaterializeVerdict(result([r.repos[1]!]), "widgets").ok).toBe(true);
   });
 
+  test("a written pack file reads as plain words", () => {
+    const r = result([{ name: "repo-a", path: "/r/a", ok: true, detail: "", packs: [written("widgets")] }]);
+    expect(syncMaterializeVerdict(r, "widgets").detail).toBe("wrote 1 widgets bindings file");
+  });
+
   test("a skipped run is not a failure", () => {
-    expect(syncMaterializeVerdict({ skipped: true, reason: "engine-pack-missing", repos: [] }, "widgets")).toEqual({ ok: true, detail: "skipped: engine-pack-missing", warnings: [] });
+    expect(syncMaterializeVerdict({ skipped: true, reason: "engine-pack-missing", repos: [] }, "widgets")).toEqual({ ok: true, detail: "nothing was written: engine-pack-missing", warnings: [] });
   });
 
   test("a stale file that could not be set aside is a warning line, not a failure", () => {
@@ -135,5 +143,116 @@ describe("syncMaterializeVerdict", () => {
       "repo-a: could not set aside /h/gadgets/skills.jsonc: EACCES",
       "repo-b: could not set aside /h/other/skills.jsonc: EACCES",
     ]);
+  });
+});
+
+describe("syncBlocks", () => {
+  const report = (over: Partial<SyncReport>): SyncReport => ({
+    ok: true,
+    pack: "acme",
+    steps: [],
+    versions: { engine: { before: "1.0.0", after: "1.0.0" }, pack: { source: "0.5.3", installedBefore: "0.5.3", installedAfter: "0.5.3" } },
+    warnings: [],
+    restartNeeded: false,
+    ...over,
+  });
+
+  test("each step is a line with a plain title, never a step id", () => {
+    const text = renderPlain(
+      syncBlocks(
+        report({
+          steps: [
+            { name: "guards", status: "ran", detail: "engine and pack checkouts clean on main" },
+            { name: "pull-engine", status: "skipped", detail: "The engine and the pack share a checkout, so it is pulled once, with the pack" },
+            { name: "commit-push", status: "ran", detail: "committed and pushed v0.5.4" },
+          ],
+          versions: { engine: { before: "1.0.0", after: "1.1.0" }, pack: { source: "0.5.4", installedBefore: "0.5.3", installedAfter: "0.5.4" } },
+          warnings: ["The beta cswap account's plugins folder (/s/beta/plugins) does not point at /c/plugins"],
+          restartNeeded: true,
+        }),
+      ),
+    );
+    expect(text).toBe(
+      [
+        "[ok] Safety checks  engine and pack checkouts clean on main",
+        "[skipped] Pull the engine  The engine and the pack share a checkout, so it is pulled once, with the pack",
+        "[ok] Commit and push  committed and pushed v0.5.4",
+        "Engine: 1.0.0 -> 1.1.0",
+        "Installed pack: 0.5.3 -> 0.5.4",
+        "[warning] The beta cswap account's plugins folder (/s/beta/plugins) does not point at /c/plugins",
+        "",
+        "[ok] Synced",
+        "  next: Run /reload-plugins in any Claude session that is already running",
+        "",
+      ].join("\n"),
+    );
+    expect(text).not.toContain("pull-engine");
+  });
+
+  test("nothing to do is one summary", () => {
+    expect(renderPlain(syncBlocks(report({})))).toBe("[ok] Already current\n");
+  });
+
+  test("a refusal is not a failure: the steps before it on stdout, then a refused note", () => {
+    const refused = report({
+      ok: false,
+      steps: [
+        { name: "guards", status: "ran", detail: "engine and pack checkouts clean on main" },
+        { name: "bump", status: "refused", detail: "This pack is in the shared checkout at /z/mono/packs/acme, and its compiled skills are out of date" },
+      ],
+    });
+    expect(renderPlain(syncBlocks(refused))).toBe("[ok] Safety checks  engine and pack checkouts clean on main\n");
+    expect(renderPlain(syncRefusal(refused)!)).toBe(
+      "[refused] rt did not sync acme  it stopped at: Bump the pack's version\n  why: This pack is in the shared checkout at /z/mono/packs/acme, and its compiled skills are out of date\n",
+    );
+    expect(syncFailure(refused)).toBeNull();
+  });
+
+  test("a step sync marks refused because a command failed reads as a failure, and the report keeps refused", () => {
+    const pulled = report({
+      ok: false,
+      steps: [{ name: "pull-pack", status: "refused", detail: "Pulling /z/packs/acme failed: not possible to fast-forward. Sort it out by hand, then run this again" }],
+    });
+    expect(syncRefusal(pulled)).toBeNull();
+    expect(renderPlain([out.failure(syncFailure(pulled)!)])).toBe(
+      "The sync stopped at: Pull the pack\n  why: Pulling /z/packs/acme failed: not possible to fast-forward. Sort it out by hand, then run this again\n",
+    );
+    expect(pulled.steps[0]!.status).toBe("refused");
+  });
+
+  test("a strict lint refusal names the check to run", () => {
+    const refused = report({ ok: false, steps: [{ name: "check", status: "refused", detail: "This pack is strict, and mcp lint found 2 hits. Fix them before syncing" }] });
+    expect(renderPlain(syncRefusal(refused)!)).toBe(
+      "[refused] rt did not sync acme  it stopped at: Check for drift\n  why: This pack is strict, and mcp lint found 2 hits. Fix them before syncing\n  next: rt skills check --pack acme\n",
+    );
+  });
+
+  test("a failed step is the failure, named in plain words, with nothing for it on stdout", () => {
+    const failed = report({ ok: false, steps: [{ name: "compile", status: "failed", detail: 'verb "ship": engine not found' }] });
+    expect(renderPlain([out.failure(syncFailure(failed)!)])).toBe('The sync stopped at: Recompile\n  why: verb "ship": engine not found\n');
+    expect(syncBlocks(failed)).toEqual([]);
+    expect(syncRefusal(failed)).toBeNull();
+  });
+
+  test("a multi-line compile refusal keeps every line, none of them in the title", () => {
+    const compile = report({
+      ok: false,
+      steps: [{ name: "compile", status: "refused", detail: "skills/ship.md: unknown slot\nskills/plan.md: missing heading\nrt put the version back to 0.5.2, so the checkout stays clean" }],
+    });
+    const failure = syncFailure(compile)!;
+    expect(failure.title).not.toContain("\n");
+    expect(renderPlain([out.failure(failure)])).toBe(
+      "The sync stopped at: Recompile\n  why: skills/ship.md: unknown slot\n  skills/plan.md: missing heading\n  rt put the version back to 0.5.2, so the checkout stays clean\n",
+    );
+  });
+
+  test("a multi-line refusal detail keeps every line", () => {
+    const dirty = report({
+      ok: false,
+      steps: [{ name: "guards", status: "refused", detail: "The pack checkout at /z/packs/acme has uncommitted changes (M a.md\n?? b.md). Commit or stash them, then run this again" }],
+    });
+    const text = renderPlain(syncRefusal(dirty)!);
+    expect(text).toContain("  why: The pack checkout at /z/packs/acme has uncommitted changes (M a.md\n");
+    expect(text).toContain("       ?? b.md). Commit or stash them, then run this again\n");
   });
 });

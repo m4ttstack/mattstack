@@ -15,13 +15,15 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { updateRepoIndexAsync } from "../lib/repo-index.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, userErrorPayload } from "../lib/errors.ts";
+import { failureFor, logFailureDetail, UserActionableError, userErrorPayload } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { materializeSkills, packVerdict, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { createTeam } from "../lib/team/create.ts";
-import { initPack, type InitDeps, type InitOutcome } from "../lib/skills/init.ts";
+import { initPack, POLICY_REFUSALS, type InitDeps, type InitOutcome, type InitRemedy } from "../lib/skills/init.ts";
 import { loadStepSource, resolvePluginRoots } from "../lib/skills/sources.ts";
 import { textInput } from "../lib/ui/prompts.ts";
+import * as ui from "../lib/ui/out.ts";
+import type { Block, Segment } from "../lib/ui/protocol.ts";
 import { checkPack, compilePackAll } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
 
@@ -46,25 +48,41 @@ export function parseInitArgs(args: string[]): InitArgs {
   return out;
 }
 
-export function renderInitOutcome(out: InitOutcome): string {
-  if (!out.ok) {
-    if (out.refused) return `rt skills init: ${out.detail}`;
-    const remedy = out.remedy ?? "fix, then rt skills compile / check by hand";
-    return [`rt skills init: ${out.code}: ${out.detail}`, `written so far (${remedy}):`, ...out.wrote.map((w) => `  ${w}`)].join("\n");
-  }
+export function initOutcomeBlocks(o: Extract<InitOutcome, { ok: true }>): Block[] {
   return [
-    `pack ${out.pack.name} at ${out.pack.dir}`,
-    `zone ${out.pack.zone}, marketplace ${out.pack.marketplace}, installed ${out.installed.plugin} ${out.installed.version}`,
-    `repo manifest ${out.repo.manifest}`,
-    "run /reload-plugins in your Claude session, then try:",
-    `  ${out.tryNext}`,
-  ].join("\n");
+    ui.line("done", `Created the ${o.pack.name} pack`, o.pack.dir),
+    ui.kv("Zone", o.pack.zone),
+    ui.kv("Marketplace", o.pack.marketplace),
+    ui.kv("Installed", `${o.installed.plugin} ${o.installed.version}`),
+    ui.kv("Repo bindings", o.repo.manifest),
+    ui.callout("next", ["Run ", ui.cmd("/reload-plugins"), " in your Claude session, then try ", ui.cmd(o.tryNext)]),
+  ];
+}
+
+export function initRefusalBlocks(o: Extract<InitOutcome, { ok: false; refused: true }>): Block[] {
+  return [ui.line("refused", o.detail), ...(o.next ? [ui.callout("next", ui.cmd(o.next))] : [])];
+}
+
+function remedyCell(r: InitRemedy): Array<string | Segment> {
+  const commands = r.commands.flatMap((c, i) => (i === 0 ? [ui.cmd(c)] : [", then ", ui.cmd(c)]));
+  return [r.folder ? "Delete the pack folder it started, then run " : "Run ", ...commands];
+}
+
+export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureInput {
+  if (o.refused) return { title: o.detail, ...(o.next ? { next: ui.cmd(o.next) } : {}) };
+  const [title = o.detail, ...rest] = o.detail.split("\n");
+  const details = [...rest, ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
+  return {
+    title,
+    next: o.remedy ? remedyCell(o.remedy) : ["Fix it, then run ", ui.cmd("rt skills compile"), " and ", ui.cmd("rt skills check")],
+    ...(details.length > 0 ? { details: details.join("\n") } : {}),
+  };
 }
 
 export function initMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[]; pruneWarnings: string[] } {
   if (r.skipped) return { ok: false, detail: r.reason, warnings: [], pruneWarnings: [] };
   const row = r.repos[0];
-  if (!row) return { ok: false, detail: "materialize wrote nothing", warnings: [], pruneWarnings: [] };
+  if (!row) return { ok: false, detail: "no bindings file was written", warnings: [], pruneWarnings: [] };
   const pruneWarnings = row.pruneWarnings ?? [];
   const { written, failures, warnings } = packVerdict([row], pack);
   if (failures.length > 0) return { ok: false, detail: failures.join("; "), warnings, pruneWarnings };
@@ -145,13 +163,13 @@ function realDeps(opts: { json: boolean }): InitDeps {
     registerRepo: async (dir) => {
       const identity = serializeIdentity(await deriveRepoIdentity(dir));
       const indexed = await updateRepoIndexAsync(identity, dir);
-      if (!indexed.ok) throw new UserActionableError("locate-failed", `registering ${dir} failed: ${indexed.error}`);
+      if (!indexed.ok) throw new UserActionableError("locate-failed", `rt could not add ${dir} to its repo list: ${indexed.error}`);
       return identity;
     },
     materialize: async (repoName, pack) => {
       const { ok, detail, warnings, pruneWarnings } = initMaterializeVerdict(await materializeSkills(p, { repo: repoName }), pack);
-      for (const w of warnings) console.error(`rt skills init: warning: another pack failed to materialize: ${w}`);
-      for (const w of pruneWarnings) console.error(`rt skills init: warning: ${w}`);
+      for (const w of warnings) ui.note(ui.line("warn", "Another pack did not materialize", w));
+      for (const w of pruneWarnings) ui.note(ui.line("warn", w));
       return { ok, detail };
     },
     // compilePackAll and checkPack resolve outside withCleanErrors, so a usage error from
@@ -167,7 +185,7 @@ function realDeps(opts: { json: boolean }): InitDeps {
       try {
         return { drift: (await checkPack({ packDir, manifest })).drift };
       } catch (err) {
-        console.error(`rt skills init: check threw: ${message(err)}`);
+        ui.note(ui.line("warn", "The check could not run", message(err)));
         return { drift: true };
       }
     },
@@ -180,11 +198,8 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
     parsed = parseInitArgs(args);
   } catch (err) {
     if (err instanceof UserActionableError) {
-      if (args.includes("--json")) {
-        console.log(JSON.stringify(envelope({ error: { code: "usage", message: err.message } })));
-      } else {
-        console.error(`rt skills init: ${err.message}`);
-      }
+      if (args.includes("--json")) ui.json(envelope({ error: { code: "usage", message: err.message } }));
+      else ui.fail({ title: err.message });
       process.exitCode = 2;
       return;
     }
@@ -200,9 +215,10 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
     // that must still refuse cleanly rather than crash to a bare stack.
     if (err instanceof UserActionableError) {
       if (parsed.json) {
-        console.log(JSON.stringify(userErrorPayload(new UserActionableError(err.code, err.message, { ...err.extra, refused: true }))));
+        ui.json(userErrorPayload(new UserActionableError(err.code, err.message, { ...err.extra, refused: true })));
       } else {
-        console.error(`rt skills init: ${err.message}`);
+        logFailureDetail(err);
+        ui.fail(failureFor(err));
       }
       process.exitCode = 2;
       return;
@@ -210,15 +226,15 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
     throw err;
   }
   if (parsed.json) {
-    if (out.ok) {
-      console.log(JSON.stringify(envelope(out)));
-    } else if (out.refused) {
-      console.log(JSON.stringify(userErrorPayload(new UserActionableError(out.code, out.detail, { refused: true }))));
-    } else {
-      console.log(JSON.stringify(userErrorPayload(new UserActionableError(out.code, out.detail, { refused: false, wrote: out.wrote }))));
-    }
+    if (out.ok) ui.json(envelope(out));
+    else if (out.refused) ui.json(userErrorPayload(new UserActionableError(out.code, out.next ? `${out.detail}. Run ${out.next}` : out.detail, { refused: true })));
+    else ui.json(userErrorPayload(new UserActionableError(out.code, out.detail, { refused: false, wrote: out.wrote })));
+  } else if (out.ok) {
+    ui.print(...initOutcomeBlocks(out));
+  } else if (out.refused && POLICY_REFUSALS.has(out.code)) {
+    ui.note(...initRefusalBlocks(out));
   } else {
-    console.log(renderInitOutcome(out));
+    ui.fail(initFailure(out));
   }
   if (!out.ok) process.exitCode = out.refused ? 2 : 1;
 }

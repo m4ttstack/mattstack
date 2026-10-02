@@ -43,7 +43,7 @@ export function bumpPatchVersion(packDir: string): { before: string; after: stri
   const manifest = JSON.parse(readFileSync(path, "utf8")) as { version?: string };
   const before = manifest.version;
   const m = typeof before === "string" ? before.match(/^(\d+)\.(\d+)\.(\d+)$/) : null;
-  if (!m) throw new Error(`cannot bump non-semver version in ${path}: ${String(before)}`);
+  if (!m) throw new Error(`The version in ${path} is not semver (${String(before)}), so rt cannot bump it`);
   const after = `${m[1]}.${m[2]}.${Number(m[3]) + 1}`;
   writeManifestVersion(packDir, after);
   return { before: before as string, after };
@@ -77,6 +77,9 @@ function stops(o: Outcome): boolean {
   return o.status === "refused" || o.status === "failed";
 }
 
+const hitCount = (n: number): string => `${n} ${n === 1 ? "hit" : "hits"}`;
+const sentenceCase = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
 function pluginId(info: PackInfo): string {
   return `${info.name}@${info.marketplace}`;
 }
@@ -84,7 +87,7 @@ function pluginId(info: PackInfo): string {
 function readManifestVersion(dir: string): string {
   const path = join(dir, ".claude-plugin", "plugin.json");
   const manifest = JSON.parse(readFileSync(path, "utf8")) as { version?: string };
-  if (typeof manifest.version !== "string") throw new Error(`no "version" string in ${path}`);
+  if (typeof manifest.version !== "string") throw new Error(`${path} has no version`);
   return manifest.version;
 }
 
@@ -136,33 +139,33 @@ async function readInTreeVersion(deps: SyncDeps, root: string, dir: string): Pro
   const res = await deps.run("git", ["show", spec], { cwd: root });
   if (res.code !== 0) throw new Error(`git show ${spec} failed in ${root}: ${res.stderr.trim()}`);
   const manifest = JSON.parse(res.stdout) as { version?: string };
-  if (typeof manifest.version !== "string") throw new Error(`no "version" string in ${spec}`);
+  if (typeof manifest.version !== "string") throw new Error(`${spec} has no version`);
   return manifest.version;
 }
 
 async function inTreeBranchNote(deps: SyncDeps, root: string): Promise<string> {
   const res = await deps.run("git", ["branch", "--show-current"], { cwd: root });
-  if (res.code !== 0) return `; could not read the shared checkout's branch (${res.stderr.trim()}); the in-tree plugin installs from ${IN_TREE_REF}`;
+  if (res.code !== 0) return `; rt could not read the shared checkout's branch (${res.stderr.trim()}), and the plugin installs from ${IN_TREE_REF}`;
   const branch = res.stdout.trim();
   if (branch === IN_TREE_REF) return "";
-  const where = branch === "" ? "is detached" : `is on "${branch}"`;
-  return `; shared checkout ${root} ${where}, not ${IN_TREE_REF}; the in-tree plugin installs from ${IN_TREE_REF}`;
+  const where = branch === "" ? "is detached" : `is on ${branch}`;
+  return `; the shared checkout at ${root} ${where}, not ${IN_TREE_REF}, and the plugin installs from ${IN_TREE_REF}`;
 }
 
 function guardSummary(engineInTree: boolean, packInTree: boolean, engineCache: string | null): string {
   if (engineCache !== null) {
-    const packPart = packInTree ? "pack is in-tree, its git checks skipped" : "pack checkout clean on main";
-    return `${packPart}; engine is the installed cache at ${engineCache}, never touched by git`;
+    const packPart = packInTree ? "the pack is in the shared checkout, so its git checks are skipped" : "pack checkout clean on main";
+    return `${packPart}; the engine is Claude Code's installed cache at ${engineCache}, which git never touches`;
   }
-  if (engineInTree && packInTree) return "engine and pack are in-tree; git checks skipped";
-  if (engineInTree) return "pack checkout clean on main; engine is in-tree, its git checks skipped";
-  if (packInTree) return "engine checkout clean on main; pack is in-tree, its git checks skipped";
+  if (engineInTree && packInTree) return "the engine and the pack are in the shared checkout, so git checks are skipped";
+  if (engineInTree) return "pack checkout clean on main; the engine is in the shared checkout, so its git checks are skipped";
+  if (packInTree) return "engine checkout clean on main; the pack is in the shared checkout, so its git checks are skipped";
   return "engine and pack checkouts clean on main";
 }
 
 async function listInstalled(deps: SyncDeps): Promise<PluginListEntry[]> {
   const res = await deps.run(deps.claudeBin!, ["plugin", "list", "--json"]);
-  if (res.code !== 0) throw new Error(`claude plugin list --json failed: ${res.stderr.trim()}`);
+  if (res.code !== 0) throw new Error(`Listing Claude Code's plugins failed: ${res.stderr.trim()}`);
   return JSON.parse(res.stdout) as PluginListEntry[];
 }
 
@@ -227,19 +230,19 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   const guards = await tryStep(async () => {
     if (!deps.claudeBin) {
       return refused(
-        `claude binary not found; checked PATH, ${CLAUDE_BIN_FALLBACKS.join(", ")}; install the Claude CLI or put it on PATH, then re-run`,
+        `Claude Code is not on your PATH or at ${CLAUDE_BIN_FALLBACKS.join(", ")}. Install it, then run this again`,
       );
     }
     if (!pack.marketplace) {
-      return refused(`pack "${pack.name}" has no marketplace; it must be installed from a directory marketplace to sync`);
+      return refused(`The ${pack.name} pack was not installed from a directory marketplace, so rt has nothing to sync it from`);
     }
     if (!engine.marketplace) {
-      return refused(`engine "${engine.name}" has no marketplace; install it from its marketplace and re-run`);
+      return refused(`The ${engine.name} engine was not installed from a marketplace. Install it from one, then run this again`);
     }
     for (const rel of [".worktrees", join(".claude", "worktrees")]) {
       const dir = join(pack.dir, rel);
       if (existsSync(dir)) {
-        return refused(`worktrees directory found at ${dir} (a directory-marketplace update copies the whole working tree); prune it and re-run`);
+        return refused(`There is a worktrees folder at ${dir}, and an update would copy it into the plugin. Remove it, then run this again`);
       }
     }
 
@@ -247,14 +250,14 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       const engineStatus = await deps.run("git", ["status", "--porcelain"], { cwd: engine.dir });
       if (engineStatus.code !== 0) return failed(`git status failed in ${engine.dir}: ${engineStatus.stderr.trim()}`);
       if (engineStatus.stdout.trim() !== "") {
-        return refused(`engine checkout dirty at ${engine.dir}: "${engineStatus.stdout.trim()}"; commit or stash and re-run`);
+        return refused(`The engine checkout at ${engine.dir} has uncommitted changes (${engineStatus.stdout.trim()}). Commit or stash them, then run this again`);
       }
     }
     if (packGit) {
       const packStatus = await deps.run("git", ["status", "--porcelain"], { cwd: pack.dir });
       if (packStatus.code !== 0) return failed(`git status failed in ${pack.dir}: ${packStatus.stderr.trim()}`);
       if (packStatus.stdout.trim() !== "") {
-        return refused(`pack checkout dirty at ${pack.dir}: "${packStatus.stdout.trim()}"; commit or stash and re-run`);
+        return refused(`The pack checkout at ${pack.dir} has uncommitted changes (${packStatus.stdout.trim()}). Commit or stash them, then run this again`);
       }
     }
 
@@ -263,7 +266,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       if (engineBranchRes.code !== 0) return failed(`git branch --show-current failed in ${engine.dir}: ${engineBranchRes.stderr.trim()}`);
       const engineBranch = engineBranchRes.stdout.trim();
       if (engineBranch !== "main") {
-        return refused(`engine checkout on branch "${engineBranch}"; check out main and re-run`);
+        return refused(`The engine checkout is on ${engineBranch}, not main. Switch it to main, then run this again`);
       }
     }
     if (packGit) {
@@ -271,13 +274,13 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       if (packBranchRes.code !== 0) return failed(`git branch --show-current failed in ${pack.dir}: ${packBranchRes.stderr.trim()}`);
       const packBranch = packBranchRes.stdout.trim();
       if (packBranch !== "main") {
-        return refused(`pack checkout on branch "${packBranch}"; check out main and re-run`);
+        return refused(`The pack checkout is on ${packBranch}, not main. Switch it to main, then run this again`);
       }
     }
 
     if (inTreeRoot !== null && (engineInTree || packInTree)) {
       branchNote = await inTreeBranchNote(deps, inTreeRoot);
-      if (branchNote !== "") warnings.push(branchNote.slice(2));
+      if (branchNote !== "") warnings.push(sentenceCase(branchNote.slice(2)));
     }
 
     const list = await listInstalled(deps);
@@ -290,18 +293,18 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (stops(guards)) return finish();
 
   const pullEngine = sameCheckout
-    ? skipped("engine and pack share a checkout; pulled once as pull-pack")
+    ? skipped("The engine and the pack share a checkout, so it is pulled once, with the pack")
     : await tryStep(async () => {
         if (engineCached) {
           engineSourceVersion = readManifestVersion(engine.dir);
-          return skipped(`engine is the installed cache at ${engine.dir} (from the ${engine.marketplace} marketplace); never git-pulled, update-engine refreshes it`);
+          return skipped(`The engine is Claude Code's installed cache from the ${engine.marketplace} marketplace, so rt never pulls it; the next step refreshes it`);
         }
         if (engineInTree) {
           engineSourceVersion = await readInTreeVersion(deps, inTreeRoot!, engine.dir);
-          return skipped(`engine is in-tree at ${engine.dir}; kept current by update-machine${branchNote}`);
+          return skipped(`The engine is in the shared checkout at ${engine.dir}, which rt keeps current when it updates this Mac${branchNote}`);
         }
         const res = await deps.run("git", ["pull", "--ff-only"], { cwd: engine.dir });
-        if (res.code !== 0) return refused(`git pull --ff-only failed in ${engine.dir}: ${res.stderr.trim()}; resolve manually and re-run`);
+        if (res.code !== 0) return refused(`Pulling ${engine.dir} failed: ${res.stderr.trim()}. Sort it out by hand, then run this again`);
         engineSourceVersion = readManifestVersion(engine.dir);
         return ran(res.stdout.trim() || "up to date");
       });
@@ -312,10 +315,10 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (packInTree) {
       packSourceVersion = await readInTreeVersion(deps, inTreeRoot!, pack.dir);
       if (sameCheckout) engineSourceVersion = packSourceVersion;
-      return skipped(`pack is in-tree at ${pack.dir}; kept current by update-machine${branchNote}`);
+      return skipped(`The pack is in the shared checkout at ${pack.dir}, which rt keeps current when it updates this Mac${branchNote}`);
     }
     const res = await deps.run("git", ["pull", "--ff-only"], { cwd: pack.dir });
-    if (res.code !== 0) return refused(`git pull --ff-only failed in ${pack.dir}: ${res.stderr.trim()}; resolve manually and re-run`);
+    if (res.code !== 0) return refused(`Pulling ${pack.dir} failed: ${res.stderr.trim()}. Sort it out by hand, then run this again`);
     packSourceVersion = readManifestVersion(pack.dir);
     if (sameCheckout) engineSourceVersion = packSourceVersion;
     return ran(res.stdout.trim() || "up to date");
@@ -332,28 +335,28 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
    */
   async function refreshCachedEngine(): Promise<Outcome> {
     const id = pluginId(engine);
-    const stale = "sync stopped before compiling the pack against a stale engine";
+    const stopped = "rt stopped so the pack is not compiled against an old engine";
     const market = await deps.run(deps.claudeBin!, ["plugin", "marketplace", "update", engine.marketplace!]);
     if (market.code !== 0) {
-      return refused(`claude plugin marketplace update ${engine.marketplace} failed: ${market.stderr.trim()}; ${stale}`);
+      return refused(`Updating the ${engine.marketplace} marketplace failed: ${market.stderr.trim()}. ${stopped}`);
     }
     const scopeArgs = engine.scope ? ["--scope", engine.scope] : [];
     const update = await deps.run(deps.claudeBin!, ["plugin", "update", id, ...scopeArgs, "-y"]);
-    if (update.code !== 0) return refused(`claude plugin update ${id} failed: ${update.stderr.trim()}; ${stale}`);
+    if (update.code !== 0) return refused(`Updating ${id} failed: ${update.stderr.trim()}. ${stopped}`);
     installedEngineAfter = chosenEntryVersion(await listInstalled(deps), id, engine.scope);
-    if (installedEngineAfter === null) return refused(`${id} is not in claude plugin list after its update; ${stale}`);
+    if (installedEngineAfter === null) return refused(`${id} is not installed after its update. ${stopped}`);
     engineSourceVersion = installedEngineAfter;
     if (installedEngineAfter === installedEngineBefore) return skipped(`engine already current at ${installedEngineAfter} in the ${engine.marketplace} marketplace`);
     return ran(`refreshed ${id} from the ${engine.marketplace} marketplace: ${installedEngineBefore ?? "unknown"} -> ${installedEngineAfter}`);
   }
 
   const updateEngine = await tryStep(async () => {
-    if (sameCheckout) return skipped("engine and pack share a checkout; update handled as update-pack");
+    if (sameCheckout) return skipped("The engine and the pack share a checkout, so it is updated once, with the pack");
     if (engineCached) return refreshCachedEngine();
     if (installedEngineBefore === engineSourceVersion) return skipped(`engine already at ${engineSourceVersion}`);
     const id = pluginId(engine);
     const res = await deps.run(deps.claudeBin!, ["plugin", "update", id]);
-    if (res.code !== 0) return failed(`claude plugin update ${id} failed: ${res.stderr.trim()}`);
+    if (res.code !== 0) return failed(`Updating ${id} failed: ${res.stderr.trim()}`);
     installedEngineAfter = engineSourceVersion;
     return ran(`updated ${id}`);
   });
@@ -372,12 +375,10 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     const result = await deps.checkPack(pack.name);
     drift = result.drift;
     if (result.strict && result.lintHits > 0) {
-      return refused(`mcp lint: ${result.lintHits} hits; run rt skills check --pack ${pack.name} and fix them before syncing`);
+      return refused(`This pack is strict, and mcp lint found ${hitCount(result.lintHits)}. Fix them before syncing`);
     }
-    const lintNote = result.lintHits > 0
-      ? ` mcp lint: ${result.lintHits} hits (advisory; set "strictLint": true in the pack's plugin.json to refuse on them)`
-      : "";
-    return ran(`drift=${drift}${lintNote}`);
+    const lintNote = result.lintHits > 0 ? `; mcp lint found ${hitCount(result.lintHits)}, advisory for this pack` : "";
+    return ran(`${drift ? "the compiled skills are out of date" : "the compiled skills are current"}${lintNote}`);
   });
   steps.push({ name: "check", ...checkStep });
   if (stops(checkStep)) return finish();
@@ -386,10 +387,10 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (noOp) return finish();
 
   const bump = await tryStep(async () => {
-    if (!drift) return skipped("no drift; skipping version bump");
+    if (!drift) return skipped("nothing changed, so the version stays");
     if (packInTree) {
       return refused(
-        `pack is in-tree at ${pack.dir} and its compiled output drifted; sync never bumps, compiles or commits inside the shared checkout, so recompile it and bump its plugin.json version in a pull request to the monorepo`,
+        `This pack is in the shared checkout at ${pack.dir}, and its compiled skills are out of date. rt never bumps, compiles or commits there: recompile it and bump its version in a pull request to the monorepo`,
       );
     }
     const { before, after } = bumpPatchVersion(pack.dir);
@@ -402,7 +403,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (stops(bump)) return finish();
 
   const compile = await tryStep(async () => {
-    if (!drift) return skipped("no drift; skipping compile");
+    if (!drift) return skipped("nothing changed, so there is nothing to recompile");
     const result = await deps.compilePack(pack.name);
     if (!result.ok) {
       // A refused compile must leave the checkout exactly as the dirty guard
@@ -412,7 +413,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
         writeManifestVersion(pack.dir, bumpBefore);
         packSourceVersion = bumpBefore;
       }
-      return refused(`${result.errors.join("; ")}; reverted plugin.json to ${bumpBefore} so the checkout stays clean for the next run`);
+      return refused(`${result.errors.join("; ")}. rt put the version back to ${bumpBefore}, so the checkout stays clean`);
     }
     return ran("compiled clean");
   });
@@ -420,20 +421,20 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (stops(compile)) return finish();
 
   const recheck = await tryStep(async () => {
-    if (!drift) return skipped("no drift; skipping recheck");
+    if (!drift) return skipped("nothing changed, so there is nothing to check again");
     const result = await deps.checkPack(pack.name);
     if (result.drift) {
       return refused(
-        `content drift survives recompile; pack checkout carries an uncommitted version bump (${bumpBefore} -> ${bumpAfter}) and its compiled output; take the agent path (mattstack:editing-skills), continuing from this working tree`,
+        `The compiled skills are still out of date after a recompile. The checkout keeps the uncommitted version bump (${bumpBefore} -> ${bumpAfter}) and the compiled output; finish by hand with the mattstack:editing-skills skill, from this working tree`,
       );
     }
-    return ran("drift resolved");
+    return ran("now current");
   });
   steps.push({ name: "recheck", ...recheck });
   if (stops(recheck)) return finish();
 
   const commitPush = await tryStep(async () => {
-    if (!drift) return skipped("no drift; skipping commit");
+    if (!drift) return skipped("nothing changed, so there is nothing to commit");
     const addPaths = [join(".claude-plugin", "plugin.json"), "skills", "attachments"].filter((rel) => existsSync(join(pack.dir, rel)));
     const add = await deps.run("git", ["add", "--", ...addPaths], { cwd: pack.dir });
     if (add.code !== 0) return failed(`git add failed: ${add.stderr.trim()}`);
@@ -452,7 +453,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   const updatePack = await tryStep(async () => {
     const id = pluginId(pack);
     const res = await deps.run(deps.claudeBin!, ["plugin", "update", id]);
-    if (res.code !== 0) return failed(`claude plugin update ${id} failed: ${res.stderr.trim()}`);
+    if (res.code !== 0) return failed(`Updating ${id} failed: ${res.stderr.trim()}`);
     return ran(`updated ${id}`);
   });
   steps.push({ name: "update-pack", ...updatePack });
@@ -463,15 +464,15 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     installedPackAfter = installedVersionFor(list, pluginId(pack));
     installedEngineAfter = installedVersionFor(list, pluginId(engine));
     if (installedPackAfter !== packSourceVersion) {
-      return failed(`installed version ${installedPackAfter ?? "unknown"} does not match source version ${packSourceVersion} after update`);
+      return failed(`The installed copy is at ${installedPackAfter ?? "unknown"}, but the source is at ${packSourceVersion}`);
     }
-    return ran(`installed matches source at ${packSourceVersion}`);
+    return ran(`the installed copy matches the source at ${packSourceVersion}`);
   });
   steps.push({ name: "verify-installed", ...verifyInstalled });
   if (stops(verifyInstalled)) return finish();
 
   const cswapSweep = await tryStep(async () => {
-    if (!existsSync(deps.cswapSessionsDir)) return skipped(`no cswap sessions directory at ${deps.cswapSessionsDir}`);
+    if (!existsSync(deps.cswapSessionsDir)) return skipped(`no cswap sessions folder at ${deps.cswapSessionsDir}`);
     const target = join(deps.configDir, "plugins");
     let flagged = 0;
     for (const entry of readdirSync(deps.cswapSessionsDir, { withFileTypes: true })) {
@@ -480,10 +481,10 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       if (!pathExists(pluginsPath)) continue;
       if (!isAlignedSymlink(pluginsPath, target)) {
         flagged++;
-        warnings.push(`cswap session "${entry.name}" plugins dir (${pluginsPath}) does not point at ${target}`);
+        warnings.push(`The ${entry.name} cswap account's plugins folder (${pluginsPath}) does not point at ${target}`);
       }
     }
-    return ran(flagged === 0 ? "no divergent sessions" : `${flagged} divergent session(s)`);
+    return ran(flagged === 0 ? "every cswap account links the current plugins" : `${flagged} cswap ${flagged === 1 ? "account links" : "accounts link"} another plugins folder`);
   });
   steps.push({ name: "cswap-sweep", ...cswapSweep });
 

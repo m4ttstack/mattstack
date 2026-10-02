@@ -14,11 +14,18 @@ import { setSetting } from "../lib/settings/write.ts";
 import { isValidSkillId, presetById, resolveWritingStyle, WRITING_STYLE_KEY, WRITING_STYLE_SOURCE_LABEL, type ResolvedWritingStyle } from "../lib/skills/writing-style.ts";
 import { isStyleUsable, linkPersonalSkills, listWritingStyles, parsePluginEntries, personalSkillsDir, pluginSkillRoots, readSkillInventory } from "../lib/skills/writing-style-sources.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 
 export interface WritingStyleDeps {
   home: () => string;
   now: () => Date;
+  /** One --json line. Human output goes through show, note and fail. */
   print: (s: string) => void;
+  show: (...blocks: Block[]) => void;
+  note: (...blocks: Block[]) => void;
+  fail: (f: out.FailureInput) => void;
   exit: (code: number) => never;
   isTTY: () => boolean;
   pick: (message: string, options: { value: string; label: string; hint?: string }[]) => Promise<string | null>;
@@ -32,7 +39,10 @@ export function realWritingStyleDeps(): WritingStyleDeps {
   return {
     home: () => process.env.HOME ?? "",
     now: () => new Date(),
-    print: (s) => console.log(s),
+    print: (s) => out.payload(`${s}\n`),
+    show: (...blocks) => out.print(...blocks),
+    note: (...blocks) => out.note(...blocks),
+    fail: (f) => out.fail(f),
     exit: process.exit,
     isTTY: () => process.stdin.isTTY === true,
     pick: async (message, options) => {
@@ -53,10 +63,20 @@ export function realWritingStyleDeps(): WritingStyleDeps {
   };
 }
 
-function refuse(err: UserActionableError, json: boolean, verb: string, deps: WritingStyleDeps): never {
-  deps.print(json ? JSON.stringify(userErrorPayload(err, deps.now())) : `rt skills writing-style ${verb}: ${err.message}`);
+function refuse(err: UserActionableError, json: boolean, deps: WritingStyleDeps, shown?: out.FailureInput): never {
+  if (json) deps.print(JSON.stringify(userErrorPayload(err, deps.now())));
+  else deps.fail(shown ?? { title: err.message });
   return deps.exit(2);
 }
+
+/** rt declining by rule (a name already taken): a refused note, never a failure. Same exit and --json as refuse. */
+function decline(err: UserActionableError, json: boolean, deps: WritingStyleDeps, blocks: Block[]): never {
+  if (json) deps.print(JSON.stringify(userErrorPayload(err, deps.now())));
+  else deps.note(...blocks);
+  return deps.exit(2);
+}
+
+const NO_HOME: out.FailureInput = { title: "Your home repo does not exist yet", next: out.cmd("rt setup") };
 
 async function inventory(deps: WritingStyleDeps) {
   const stdout = await deps.pluginListStdout();
@@ -69,7 +89,7 @@ export async function writingStyleShow(args: string[], _ctx: CommandContext = {}
     deps.print(JSON.stringify(envelope({ skill: resolved.skill, source: resolved.source }, deps.now())));
     return;
   }
-  deps.print(`${resolved.skill} (${WRITING_STYLE_SOURCE_LABEL[resolved.source]})`);
+  deps.show(out.kv("Writing style", resolved.skill, WRITING_STYLE_SOURCE_LABEL[resolved.source]));
 }
 
 export async function writingStyleList(args: string[], _ctx: CommandContext = {}, deps: WritingStyleDeps = realWritingStyleDeps()): Promise<void> {
@@ -78,17 +98,19 @@ export async function writingStyleList(args: string[], _ctx: CommandContext = {}
     deps.print(JSON.stringify(envelope(listing, deps.now())));
     return;
   }
-  const printRow = (o: { id: string; detail: string; installed: boolean; kind: string }) => {
-    const mark = o.id === listing.current.skill ? "*" : " ";
-    deps.print(`${mark} ${o.id.padEnd(40)} ${o.detail}${o.installed || o.kind === "preset" ? "" : " (not installed here)"}`);
-  };
-  for (const o of listing.options) printRow(o);
+  const row = (o: { id: string; detail: string; installed: boolean; kind: string }) => [
+    o.id === listing.current.skill ? out.strong(o.id) : o.id,
+    out.dim(`${o.detail}${o.installed || o.kind === "preset" ? "" : " (not installed here)"}`),
+    o.id === listing.current.skill ? "current" : "",
+  ];
   const known = new Set([...listing.options, ...listing.suggestions].map((o) => o.id));
-  if (!known.has(listing.current.skill)) deps.print(`* ${listing.current.skill} (current)`);
-  if (listing.suggestions.length > 0) {
-    deps.print("Also available (type the id):");
-    for (const o of listing.suggestions) printRow(o);
-  }
+  deps.show(
+    out.table([
+      ...listing.options.map(row),
+      ...(known.has(listing.current.skill) ? [] : [[out.strong(listing.current.skill), "", "current"]]),
+      ...(listing.suggestions.length > 0 ? [{ group: "Also available (type the id)" }, ...listing.suggestions.map(row)] : []),
+    ]),
+  );
 }
 
 function parseUseArgs(args: string[]): { id: string | undefined; scope: string; json: boolean } {
@@ -111,11 +133,11 @@ export async function writingStyleUse(args: string[], _ctx: CommandContext = {},
   const { id: given, scope, json } = parseUseArgs(args);
   // The app's "Use my own skill..." text reaches argv verbatim, so a leading
   // dash must be validated as an id rather than parsed as a flag.
-  if (given !== undefined && !isValidSkillId(given)) return refuse(new UserActionableError("bad-id", `"${given}" is not a skill id`), json, "use", deps);
-  if (scope !== "user" && scope !== "team") return refuse(new UserActionableError("usage", `--scope must be user or team, not "${scope}"`), json, "use", deps);
+  if (given !== undefined && !isValidSkillId(given)) return refuse(new UserActionableError("bad-id", `"${given}" is not a skill id`), json, deps, { title: `${given} is not a skill id`, why: "A skill id is a lowercase name, with its plugin in front when it comes from one (plugin:name)." });
+  if (scope !== "user" && scope !== "team") return refuse(new UserActionableError("usage", `--scope must be user or team, not "${scope}"`), json, deps, usageFailure("Is this style for you or for your team?", "rt skills writing-style use <skill-id> --scope team", "Say user for just you, or team for everyone on your team."));
   // setSetting creates the store directory, and a write inside ~/.mattstack/user before home.init or home.restore clones makes that clone fail.
   if (!existsSync(homeGitDir(deps.home()))) {
-    return refuse(new UserActionableError("no-home-repo", "your home repo does not exist yet; finish rt setup first"), json, "use", deps);
+    return refuse(new UserActionableError("no-home-repo", "your home repo does not exist yet; finish rt setup first"), json, deps, NO_HOME);
   }
 
   linkPersonalSkills(deps.home());
@@ -129,18 +151,19 @@ export async function writingStyleUse(args: string[], _ctx: CommandContext = {},
       id = (await deps.pick("Which writing style?", choosable.map((o) => ({ value: o.id, label: o.label, hint: o.detail })))) ?? undefined;
       if (!id) return deps.exit(0);
     } else {
-      return refuse(new UserActionableError("usage", "usage: rt skills writing-style use <skill-id> [--scope user|team] [--json]"), json, "use", deps);
+      return refuse(new UserActionableError("usage", "usage: rt skills writing-style use <skill-id> [--scope user|team] [--json]"), json, deps, usageFailure("Which writing style?", "rt skills writing-style use <skill-id>"));
     }
   }
 
-  if (!isValidSkillId(id)) return refuse(new UserActionableError("bad-id", `"${id}" is not a skill id`), json, "use", deps);
+  if (!isValidSkillId(id)) return refuse(new UserActionableError("bad-id", `"${id}" is not a skill id`), json, deps, { title: `${id} is not a skill id`, why: "A skill id is a lowercase name, with its plugin in front when it comes from one (plugin:name)." });
   if (!isStyleUsable(id, inv)) {
     const choices = choosable.filter((o) => o.kind === "preset" || o.installed).map((o) => o.id).join(", ");
-    return refuse(new UserActionableError("unknown-skill", `${id} is not installed here. Choose one of: ${choices}`), json, "use", deps);
+    return refuse(new UserActionableError("unknown-skill", `${id} is not installed here. Choose one of: ${choices}`), json, deps, { title: `${id} is not installed here`, details: `Choose one of: ${choices}` });
   }
 
   deps.writeSetting(WRITING_STYLE_KEY, id, scope);
-  deps.print(json ? JSON.stringify(envelope({ skill: id, scope }, deps.now())) : `writing style: ${id} (${scope})`);
+  if (json) deps.print(JSON.stringify(envelope({ skill: id, scope }, deps.now())));
+  else deps.show(out.line("done", "Writing style set", `${id}, for ${scope === "team" ? "your team" : "you"}`));
 }
 
 const NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
@@ -179,19 +202,24 @@ export async function writingStyleNew(args: string[], _ctx: CommandContext = {},
   }
 
   if (!existsSync(homeGitDir(deps.home()))) {
-    return refuse(new UserActionableError("no-home-repo", "your home repo does not exist yet; finish rt setup first"), json, "new", deps);
+    return refuse(new UserActionableError("no-home-repo", "your home repo does not exist yet; finish rt setup first"), json, deps, NO_HOME);
   }
   if (name === undefined) {
     if (deps.isTTY() && !json && !process.env.RT_BATCH) name = (await deps.prompt("Name for your writing style (lowercase, e.g. my-voice)")) ?? undefined;
-    if (name === undefined) return refuse(new UserActionableError("usage", "usage: rt skills writing-style new <name> [--from sparse|conversational|structured] [--json]"), json, "new", deps);
+    if (name === undefined) return refuse(new UserActionableError("usage", "usage: rt skills writing-style new <name> [--from sparse|conversational|structured] [--json]"), json, deps, usageFailure("What should the new writing style be called?", "rt skills writing-style new <name>"));
   }
-  if (!NAME_RE.test(name)) return refuse(new UserActionableError("bad-name", `"${name}" must be lowercase letters, digits, dot, dash or underscore`), json, "new", deps);
+  if (!NAME_RE.test(name)) return refuse(new UserActionableError("bad-name", `"${name}" must be lowercase letters, digits, dot, dash or underscore`), json, deps, { title: `${name} cannot be the name of a writing style`, why: "Use lowercase letters, digits, dots, dashes and underscores." });
 
   const presetId = (PRESET_SHORT as readonly string[]).includes(from) ? `mattstack:writing-style-${from}` : from;
-  if (!presetById(presetId)) return refuse(new UserActionableError("bad-preset", `--from must be one of ${PRESET_SHORT.join(", ")}`), json, "new", deps);
+  if (!presetById(presetId)) return refuse(new UserActionableError("bad-preset", `--from must be one of ${PRESET_SHORT.join(", ")}`), json, deps, { title: "That is not a preset to copy from", details: `Choose one of: ${PRESET_SHORT.join(", ")}` });
 
   const target = join(personalSkillsDir(deps.home()), name);
-  if (existsSync(target)) return refuse(new UserActionableError("exists", `${target} already exists`), json, "new", deps);
+  if (existsSync(target)) {
+    return decline(new UserActionableError("exists", `${target} already exists`), json, deps, [
+      out.line("refused", `You already have a writing style called ${name}`, target),
+      out.callout("next", ["Edit it, then run ", out.cmd(`rt skills writing-style use ${name}`)]),
+    ]);
+  }
 
   const stdout = await deps.pluginListStdout();
   const mattstack = (stdout === null ? null : parsePluginEntries(stdout))?.find((p) => p.id.startsWith("mattstack@") && p.enabled && p.installPath);
@@ -201,7 +229,7 @@ export async function writingStyleNew(args: string[], _ctx: CommandContext = {},
         .find((candidate) => existsSync(join(candidate, "SKILL.md"))) ?? null
     : null;
   if (!source || !existsSync(join(source, "SKILL.md"))) {
-    return refuse(new UserActionableError("no-plugin", "the mattstack plugin with the writing-style presets is not installed; run rt setup"), json, "new", deps);
+    return refuse(new UserActionableError("no-plugin", "the mattstack plugin with the writing-style presets is not installed; run rt setup"), json, deps, { title: "The mattstack plugin with the writing-style presets is not installed", next: out.cmd("rt setup") });
   }
 
   let skillContent: string | null;
@@ -214,10 +242,10 @@ export async function writingStyleNew(args: string[], _ctx: CommandContext = {},
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return refuse(new UserActionableError("no-plugin", `the installed preset ${presetId} is unreadable; reinstall the mattstack plugin (${msg})`), json, "new", deps);
+    return refuse(new UserActionableError("no-plugin", `the installed preset ${presetId} is unreadable; reinstall the mattstack plugin (${msg})`), json, deps, { title: "The installed preset could not be read", why: msg, next: out.cmd("rt setup") });
   }
   if (skillContent === null) {
-    return refuse(new UserActionableError("no-plugin", `the installed preset ${presetId} is unreadable; reinstall the mattstack plugin`), json, "new", deps);
+    return refuse(new UserActionableError("no-plugin", `the installed preset ${presetId} is unreadable; reinstall the mattstack plugin`), json, deps, { title: "The installed preset could not be read", next: out.cmd("rt setup") });
   }
 
   let linkResult: ReturnType<typeof linkPersonalSkills> = null;
@@ -238,10 +266,12 @@ export async function writingStyleNew(args: string[], _ctx: CommandContext = {},
   const conflict = linkResult?.actions.find((a) => a.name === name && a.kind === "conflict");
   if (conflict) {
     rmSync(target, { recursive: true, force: true });
-    return refuse(new UserActionableError("exists", `${conflict.link} already exists`), json, "new", deps);
+    return decline(new UserActionableError("exists", `${conflict.link} already exists`), json, deps, [
+      out.line("refused", `Your Claude skills folder already has something called ${name}`, conflict.link),
+      out.callout("note", "rt left it alone and removed the copy it had just made."),
+    ]);
   }
 
-  deps.print(json
-    ? JSON.stringify(envelope({ name, path: target, from: presetId }, deps.now()))
-    : `created ${target} from ${presetId}\nedit it, then: rt skills writing-style use ${name}`);
+  if (json) deps.print(JSON.stringify(envelope({ name, path: target, from: presetId }, deps.now())));
+  else deps.show(out.line("done", `Created ${name}`, target), out.callout("next", ["Edit it, then run ", out.cmd(`rt skills writing-style use ${name}`)]));
 }

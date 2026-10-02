@@ -94,16 +94,16 @@ export function reconcileSkillLinks(opts: {
     try {
       name = stripFrontmatter(readFileSync(skillMd, "utf8")).frontmatter.name;
     } catch {
-      actions.push({ kind: "skip", name: entry.name, link: "", target: dir, detail: "SKILL.md frontmatter unreadable" });
+      actions.push({ kind: "skip", name: entry.name, link: "", target: dir, detail: "its SKILL.md header could not be read" });
       continue;
     }
     if (typeof name !== "string" || !usableName(name)) {
-      actions.push({ kind: "skip", name: entry.name, link: "", target: dir, detail: "frontmatter has no usable name:" });
+      actions.push({ kind: "skip", name: entry.name, link: "", target: dir, detail: "its SKILL.md header has no name" });
       continue;
     }
     const clash = wanted.get(name);
     if (clash) {
-      actions.push({ kind: "skip", name, link: "", target: dir, detail: `duplicate skill name — already provided by ${clash}` });
+      actions.push({ kind: "skip", name, link: "", target: dir, detail: `another skill already has this name: ${clash}` });
       continue;
     }
     wanted.set(name, dir);
@@ -123,7 +123,7 @@ export function reconcileSkillLinks(opts: {
       continue;
     }
     if (!st.isSymbolicLink()) {
-      actions.push({ kind: "conflict", name, link, target: dir, detail: "a real file or directory occupies this name" });
+      actions.push({ kind: "conflict", name, link, target: dir, detail: "a file or folder rt did not make has this name" });
       continue;
     }
     const raw = readlinkSync(link);
@@ -139,14 +139,14 @@ export function reconcileSkillLinks(opts: {
       continue;
     }
     if (pointsAt.startsWith(skillsDir + "/") || (resolved !== null && resolved.startsWith(skillsDir + "/"))) {
-      actions.push({ kind: "relink", name, link, target: dir, detail: `was → ${raw}` });
+      actions.push({ kind: "relink", name, link, target: dir, detail: `it pointed at ${raw}` });
       if (!dryRun) {
         unlinkSync(link);
         symlinkSync(dir, link);
       }
       continue;
     }
-    actions.push({ kind: "conflict", name, link, target: dir, detail: `points outside this repo: ${raw}` });
+    actions.push({ kind: "conflict", name, link, target: dir, detail: `it links to somewhere outside this repo: ${raw}` });
   }
 
   if (claudeDirExists) {
@@ -159,7 +159,7 @@ export function reconcileSkillLinks(opts: {
       if (!pointsAt.startsWith(skillsDir + "/")) continue;
       const nowIgnored = ignoredDirs.has(pointsAt) || ignoredDirs.has(realpathSafe(pointsAt) ?? "");
       if (!nowIgnored && existsSync(pointsAt) && statSync(pointsAt).isDirectory()) continue;
-      const detail = nowIgnored ? `listed in .skillsignore: ${raw}` : `target gone: ${raw}`;
+      const detail = nowIgnored ? `.skillsignore lists it now: ${raw}` : `the skill it pointed at is gone: ${raw}`;
       actions.push({ kind: "prune", name: entry.name, link, target: null, detail });
       if (!dryRun) unlinkSync(link);
     }
@@ -195,7 +195,7 @@ export function pruneLinksFrom(opts: {
     const raw = readlinkSync(link);
     const pointsAt = resolveLinkTarget(link, raw);
     if (!prefixes.some((p) => pointsAt.startsWith(p))) continue;
-    actions.push({ kind: "prune", name: entry.name, link, target: null, detail: `source gone: ${raw}` });
+    actions.push({ kind: "prune", name: entry.name, link, target: null, detail: `the skill it pointed at is gone: ${raw}` });
     if (!dryRun) unlinkSync(link);
   }
   return { actions, changed: actions.length > 0 };

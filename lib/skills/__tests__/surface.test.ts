@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { HEADER_COMMENT } from "../compile.ts";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -7,7 +7,8 @@ import { computeRows, skillsCompile } from "../../../commands/skills.ts";
 import { compileSkill } from "../compile.ts";
 import { readSurface } from "../sources.ts";
 import type { AttachmentSource, StepSource, VerbDef } from "../types.ts";
-import { runExpectingCleanExit } from "./helpers.ts";
+import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
+import type { CapturedOut } from "../../ui/__tests__/capture-out.ts";
 
 function writeFile(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -289,18 +290,14 @@ const STUBS_TWO_VERBS = `{
 }
 `;
 
-let logSpy: ReturnType<typeof spyOn>;
-let logs: string[];
+let io: CapturedOut;
 
 beforeEach(() => {
-  logs = [];
-  logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-    logs.push(args.map(String).join(" "));
-  });
+  io = captureSkills();
 });
 
 afterEach(() => {
-  logSpy.mockRestore();
+  io.restore();
   // Bun's process.exitCode setter ignores undefined once set truthy -- 0 is
   // the only value that actually clears it between tests in this file.
   process.exitCode = 0;
@@ -321,7 +318,7 @@ describe("skillsCompile with a surface config", () => {
       "--manifest", manifestPath,
     ]);
 
-    expect(logs.some((l) => l.startsWith("compiled old-verb -> attachments"))).toBe(true);
+    expect(io.lines().some((l) => l.includes("Compiled old-verb") && l.endsWith("in attachments/"))).toBe(true);
     expect(existsSync(join(packDir, "skills", "old-verb"))).toBe(false);
     expect(existsSync(join(packDir, "attachments", "old-verb", "SKILL.md"))).toBe(true);
     expect(existsSync(join(packDir, "skills", "watch-ci", "SKILL.md"))).toBe(true);
@@ -341,7 +338,7 @@ describe("skillsCompile with a surface config", () => {
       "--manifest", manifestPath,
     ]);
 
-    expect(logs).toContain("misplaced: stray-skill (run rt skills surface apply, or move it)");
+    expect(io.errLines()).toContain("stray-skill is in the wrong folder");
     expect(process.exitCode).toBe(1);
     // it never moves anything
     expect(existsSync(join(packDir, "skills", "stray-skill", "SKILL.md"))).toBe(true);
@@ -360,30 +357,17 @@ describe("skillsCompile with a surface config", () => {
     const packDir = makePackDir(stubs, surfaceJsonc);
     const manifestPath = makeManifest("acme");
 
-    const errors: string[] = [];
-    const errSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-      errors.push(args.map(String).join(" "));
-    });
-    const exitSpy = spyOn(process, "exit").mockImplementation((() => {
-      throw new Error("process.exit called");
-    }) as never);
-
-    try {
-      await expect(
-        skillsCompile([
-          "--team", "acme",
-          "--pack-dir", packDir,
-          "--mattstack-dir", mattstackDir,
-          "--manifest", manifestPath,
-        ]),
-      ).rejects.toThrow("process.exit called");
-
-      expect(errors.join("\n")).toContain("acme:old-verb");
-      expect(errors.join("\n")).toContain("surface-internal");
-    } finally {
-      errSpy.mockRestore();
-      exitSpy.mockRestore();
-    }
+    const { exitCode, errors } = await runExpectingCleanExit(() =>
+      skillsCompile([
+        "--team", "acme",
+        "--pack-dir", packDir,
+        "--mattstack-dir", mattstackDir,
+        "--manifest", manifestPath,
+      ]),
+    );
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain("acme:old-verb");
+    expect(errors.join("\n")).toContain("surface-internal");
   });
 
   test("no surface.jsonc present: all verbs compile, no internal/misplaced lines, no exit code", async () => {
@@ -398,8 +382,8 @@ describe("skillsCompile with a surface config", () => {
       "--manifest", manifestPath,
     ]);
 
-    expect(logs.some((l) => l.startsWith("internal:"))).toBe(false);
-    expect(logs.some((l) => l.startsWith("misplaced:"))).toBe(false);
+    expect(io.lines().some((l) => l.startsWith("internal:"))).toBe(false);
+    expect(io.stderr()).not.toContain("in the wrong folder");
     expect(existsSync(join(packDir, "skills", "watch-ci", "SKILL.md"))).toBe(true);
     expect(existsSync(join(packDir, "skills", "old-verb", "SKILL.md"))).toBe(true);
     expect(process.exitCode).not.toBe(1);
@@ -486,10 +470,11 @@ describe("computeInternalRoster integration (pack dir doubles as plugin root)", 
     expect(content).toContain("Domain rules inlined from qa-gates for the transition window.");
     expect(content).not.toContain("invoke that skill when this flow needs it");
 
-    expect(logs).toContain("  note: acme:qa-gates is surface-internal; inlined");
+    expect(io.lines().some((l) => l.endsWith("acme:qa-gates is surface-internal; inlined"))).toBe(true);
+    expect(io.stdout()).not.toContain("note: note:");
     // qa-gates is still physically under skills/ and isn't in surface.public --
     // it compiles (inlined) AND is flagged for the move surface apply would do.
-    expect(logs).toContain("misplaced: qa-gates (run rt skills surface apply, or move it)");
+    expect(io.errLines()).toContain("qa-gates is in the wrong folder");
     expect(process.exitCode).toBe(1);
   });
 
@@ -522,11 +507,11 @@ describe("computeInternalRoster integration (pack dir doubles as plugin root)", 
     );
 
     expect(exitCode).toBe(1);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toStartWith("rt skills: ");
-    expect(errors[0]).toContain("gate-check");
-    expect(errors[0]).toContain("acme:qa-gates");
-    expect(errors[0]).toContain("surface-internal");
+    expect(errors).toHaveLength(2);
+    expect(errors[0]).toBe("1 verb did not compile");
+    expect(errors[1]).toContain("gate-check");
+    expect(errors[1]).toContain("acme:qa-gates");
+    expect(errors[1]).toContain("surface-internal");
     expect(existsSync(join(acmeDir, "skills", "gate-check"))).toBe(false);
   });
 
@@ -561,11 +546,11 @@ describe("computeInternalRoster integration (pack dir doubles as plugin root)", 
     );
 
     expect(exitCode).toBe(1);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toStartWith("rt skills: ");
-    expect(errors[0]).toContain("gate-check");
-    expect(errors[0]).toContain("acme:qa-gates");
-    expect(errors[0]).toContain("surface-internal");
+    expect(errors).toHaveLength(2);
+    expect(errors[0]).toBe("1 verb did not compile");
+    expect(errors[1]).toContain("gate-check");
+    expect(errors[1]).toContain("acme:qa-gates");
+    expect(errors[1]).toContain("surface-internal");
     expect(existsSync(join(acmeDir, "skills", "gate-check"))).toBe(false);
   });
 });

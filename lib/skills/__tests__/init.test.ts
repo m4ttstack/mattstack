@@ -382,6 +382,8 @@ describe("initPack", () => {
     });
     const out = await initPack({ repoDir: REPO, zone: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "pack-exists" });
+    if (out.ok || !out.refused) return;
+    expect(out.detail).toBe("This zone already has a pack for this repo, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill");
     expect(fs.exists(`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/pack/stubs.jsonc`)).toBe(false);
   });
 
@@ -408,6 +410,9 @@ describe("initPack", () => {
     });
     const out = await initPack({ repoDir: REPO, zone: "acme" }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "zone-has-pack" });
+    if (out.ok || !out.refused) return;
+    expect(out.detail).toContain("already has a team pack");
+    expect(out.next).toBe("rt team create <name> --remote <url>");
   });
 
   test.each([
@@ -449,7 +454,8 @@ describe("initPack", () => {
     const out = await initPack({ repoDir: REPO, zone: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing" });
     if (out.ok || !out.refused) return;
-    expect(out.detail).toContain("rt team create");
+    expect(out.next).toBe("rt team create <name> --remote <url>");
+    expect(out.detail).toBe("No team zone on gitlab.example.com is free for a new pack");
   });
 
   test("zone-missing with a TTY prompts and creates the zone, then writes team.jsonc for it", async () => {
@@ -507,7 +513,7 @@ describe("initPack", () => {
     if (out.ok || out.refused) return;
     expect(out.detail).toContain("disk full");
     expect(out.wrote).toEqual([`${packDir}/.claude-plugin/plugin.json`]);
-    expect(out.remedy).toContain(packDir);
+    expect(out.remedy).toEqual({ commands: ["rt skills init"], folder: packDir });
   });
 
   test("a compile failure after writing reports every written path", async () => {
@@ -522,7 +528,7 @@ describe("initPack", () => {
   test("materialize that leaves no manifest is materialize-failed", async () => {
     const { deps } = world({ materialize: async () => ({ ok: false, detail: "no team declares" }) });
     const out = await initPack({ repoDir: REPO, zone: null }, deps);
-    expect(out).toMatchObject({ ok: false, refused: false, code: "materialize-failed", remedy: `then: rt skills materialize --dir ${REPO}` });
+    expect(out).toMatchObject({ ok: false, refused: false, code: "materialize-failed", remedy: { commands: [`rt skills materialize --dir ${REPO}`] } });
   });
 
   test("a throw from registerRepo after writing is materialize-failed, keeping wrote", async () => {

@@ -17,6 +17,7 @@ on a dark and a light terminal background.
 | `setup-verbs-dark.png`, `setup-verbs-light.png` | `rt accounts` (table, empty, a failed recheck), `rt logins`, `rt secrets` (list, the usage failure, a team re-encrypt), and `rt uninstall` (the dry run, the kept list) |
 | `dispatcher-dark.png`, `dispatcher-light.png` | the dispatcher at 100 columns: the breadcrumb header, branch and leaf `--help`, an unknown command, the terminal guard, a missing repo, a usage failure, and the notes for a stopped daemon, a first run, split rt data and an unreadable setting |
 | `wrap-narrow-dark.png`, `wrap-narrow-light.png` | 48 columns: a hint wrapping in its own column, a long title taking its hint below, a flag kept whole, and the rule and tree tone |
+| `skills-dark.png`, `skills-light.png` | `rt skills` at 100 columns: a check with stale, never-compiled and behind-the-source rows, a compile with a warning, a compile failure and a misplaced skill, the packs and surface tables with a palette delta, a bind, a link report with a conflict, a refused sync, and the refused `skills init` and `writing-style new` lines |
 
 The light pages are rendered with `COLORFGBG=0;15`, which is how a light
 terminal that reports its background gets the pale diff tints. A light

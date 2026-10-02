@@ -1,8 +1,9 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { mcpTools } from "../../lib/mcp/tools.ts";
+import { captureSkills } from "../../lib/skills/__tests__/helpers.ts";
 import { checkPack, skillsCheck } from "../skills.ts";
 
 function makePack(manifest: Record<string, unknown>, body = "Record it with `rt runs snapshot`."): string {
@@ -17,14 +18,13 @@ function makePack(manifest: Record<string, unknown>, body = "Record it with `rt 
 /** Bun ignores process.exitCode = undefined once it is truthy, so 0 is the
     only value that clears it before the suite's own exit status. */
 async function runCheck(args: string[]): Promise<{ exitCode: number; logs: string[] }> {
-  const logs: string[] = [];
-  const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => { logs.push(a.map(String).join(" ")); });
+  const io = captureSkills();
   process.exitCode = 0;
   try {
     await skillsCheck(args);
-    return { exitCode: Number(process.exitCode ?? 0), logs };
+    return { exitCode: Number(process.exitCode ?? 0), logs: io.lines() };
   } finally {
-    logSpy.mockRestore();
+    io.restore();
     process.exitCode = 0;
   }
 }
@@ -93,11 +93,11 @@ describe("skills check --strict", () => {
     try {
       const strict = await runCheck(["--pack-dir", dir, "--strict"]);
       expect(strict.exitCode).toBe(1);
-      expect(strict.logs).toContain("mcp lint: 1 hits (--strict fails on them)");
+      expect(strict.logs).toContain("[failed] mcp lint: 1 hit  they fail a strict check");
 
       const advisory = await runCheck(["--pack-dir", dir]);
       expect(advisory.exitCode).toBe(0);
-      expect(advisory.logs).toContain("mcp lint: 1 hits (advisory; --strict fails on them)");
+      expect(advisory.logs).toContain("[warning] mcp lint: 1 hit  advisory; they fail a strict check");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -108,7 +108,7 @@ describe("skills check --strict", () => {
     try {
       const { exitCode, logs } = await runCheck(["--pack-dir", dir]);
       expect(exitCode).toBe(0);
-      expect(logs).toContain("mcp lint: 1 hits (strict: --strict and rt skills sync fail on them)");
+      expect(logs).toContain("[warning] mcp lint: 1 hit  this pack is strict, so they fail a strict check and the sync");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -119,7 +119,7 @@ describe("skills check --strict", () => {
     try {
       const { exitCode, logs } = await runCheck(["--pack-dir", dir, "--strict"]);
       expect(exitCode).toBe(1);
-      expect(logs).toContain("mcp lint: 1 hits (strict: --strict and rt skills sync fail on them)");
+      expect(logs).toContain("[failed] mcp lint: 1 hit  this pack is strict, so they fail a strict check and the sync");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -161,8 +161,8 @@ describe("pack script scan", () => {
     try {
       const { exitCode, logs } = await runCheck(["--pack-dir", dir, "--strict"]);
       expect(exitCode).toBe(0);
-      expect(logs.some((l) => l.startsWith("mcp lint (pack scripts, advisory): 1 hit"))).toBe(true);
-      expect(logs).toContain("mcp lint: clean");
+      expect(logs).toContain("[warning] pack scripts: 1 hit  advisory");
+      expect(logs).toContain("[ok] mcp lint  clean");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

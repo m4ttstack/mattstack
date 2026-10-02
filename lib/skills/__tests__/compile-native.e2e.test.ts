@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { skillsCompile, skillsCheck } from "../../../commands/skills.ts";
-import { runExpectingCleanExit } from "./helpers.ts";
+import { captureSkills, runExpectingCleanExit } from "./helpers.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "compile-native");
 
@@ -91,17 +91,14 @@ describe("compile-native end to end", () => {
     const notePath = join(ms, "plugins", "mattstack", "attachments", "gitlab-note", "SKILL.md");
     writeFileSync(notePath, readFileSync(notePath, "utf8").replace("note body", "note body v2"));
 
-    const logs: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-      logs.push(args.map(String).join(" "));
-    });
+    const io = captureSkills();
     try {
       await skillsCheck(["--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest, "--json"]);
     } finally {
-      logSpy.mockRestore();
+      io.restore();
     }
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.stdout());
     const stagePlan = parsed.verbs.find((v: { name: string }) => v.name === "stage-plan");
     expect(stagePlan.status).toBe("stale");
     expect(stagePlan.staleBecause).toEqual(["include"]);
@@ -113,17 +110,14 @@ describe("compile-native end to end", () => {
     const policyPath = join(pack, "attachments", "plan-policy", "SKILL.md");
     writeFileSync(policyPath, readFileSync(policyPath, "utf8").replace("\n{{include:gitlab-note}}\n", "\n"));
 
-    const logs: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-      logs.push(args.map(String).join(" "));
-    });
+    const io = captureSkills();
     try {
       await skillsCheck(["--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest, "--json"]);
     } finally {
-      logSpy.mockRestore();
+      io.restore();
     }
 
-    const parsed = JSON.parse(logs.join("\n"));
+    const parsed = JSON.parse(io.stdout());
     const stagePlan = parsed.verbs.find((v: { name: string }) => v.name === "stage-plan");
     expect(stagePlan.status).toBe("stale");
     expect(stagePlan.staleBecause).toEqual(["structure"]);
@@ -241,19 +235,16 @@ function buildWithRosterVerbs(): { pack: string; ms: string; manifest: string } 
 
 type CompileRun = { logs: string[]; errors: string[]; exitCode: number | undefined };
 
-/** A failing compile prints through console.error and calls process.exit(1); runExpectingCleanExit turns that into a test failure instead of ending the bun process. */
+/** A failing compile calls process.exit(1); runExpectingCleanExit turns that into a result instead of ending the bun process. */
 async function compileCapturingLogs(pack: string, ms: string, manifest: string, extra: string[] = []): Promise<CompileRun> {
-  const logs: string[] = [];
-  const logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-    logs.push(args.map(String).join(" "));
-  });
+  const io = captureSkills();
   try {
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsCompile(["--pack-dir", pack, "--mattstack-dir", ms, "--manifest", manifest, ...extra]),
     );
-    return { logs, errors, exitCode };
+    return { logs: io.lines(), errors, exitCode };
   } finally {
-    logSpy.mockRestore();
+    io.restore();
   }
 }
 
@@ -268,7 +259,7 @@ describe("internal roster verbs", () => {
     expect(md).toContain("${CLAUDE_SKILL_DIR}/../../attachments/receive-review/parts/include-gitlab-note/scripts/note.sh");
     expect(md).not.toContain("${CLAUDE_SKILL_DIR}/parts/");
     expect(existsSync(join(pack, "attachments", "receive-review", "parts", "include-gitlab-note", "scripts", "note.sh"))).toBe(true);
-    expect(logs.find((l) => l.startsWith("compiled receive-review"))).toMatch(/0 warnings\)$/);
+    expect(logs.some((l) => l.startsWith("[ok] Compiled receive-review  "))).toBe(true);
   });
 });
 
@@ -281,7 +272,7 @@ describe("verb.path end to end", () => {
 
     const md = readFileSync(join(pack, "skills", "checkout", "SKILL.md"), "utf8");
     expect(md).toContain("Read ../../attachments/receive-review/SKILL.md first, then ../work/SKILL.md.");
-    expect(logs.find((l) => l.startsWith("compiled checkout"))).toMatch(/0 warnings\)$/);
+    expect(logs.some((l) => l.startsWith("[ok] Compiled checkout  "))).toBe(true);
   });
 
   test("a --verb compile still renders a path to a sibling it is not emitting, and lints it clean", async () => {
@@ -315,7 +306,7 @@ describe("pack.path end to end", () => {
     const anchored = "${CLAUDE_SKILL_DIR}/../../attachments/evidence/scripts/capture.sh";
     expect(readFileSync(join(pack, "attachments", "stage-plan", "SKILL.md"), "utf8")).toContain(`Capture with ${anchored}.`);
     expect(readFileSync(join(pack, "skills", "checkout", "SKILL.md"), "utf8")).toContain(`then ${anchored}.`);
-    expect(logs.find((l) => l.startsWith("compiled stage-plan"))).toMatch(/0 warnings\)$/);
-    expect(logs.find((l) => l.startsWith("compiled checkout"))).toMatch(/0 warnings\)$/);
+    expect(logs.some((l) => l.startsWith("[ok] Compiled stage-plan  "))).toBe(true);
+    expect(logs.some((l) => l.startsWith("[ok] Compiled checkout  "))).toBe(true);
   });
 });
