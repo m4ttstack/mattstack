@@ -161,7 +161,6 @@ async function pickStrict() {
   return root;
 }
 
-/** The confirm, by its title: the drawer is a dialog too. */
 /** A write rt has not answered yet. */
 function held() {
   let answer!: (json: unknown, status?: number) => void;
@@ -194,6 +193,7 @@ const closeDrawer = async () =>
     })
   );
 
+/** The confirm, by its title: the drawer is a dialog too. */
 const dialog = (title: RegExp = /\?$/) =>
   screen.findByRole('dialog', { name: title });
 const noConfirm = () =>

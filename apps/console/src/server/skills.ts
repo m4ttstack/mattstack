@@ -617,21 +617,23 @@ const compileQuery = validator(
     than sharing one across unrelated app instances (tests included). */
 const CACHE_TTL_MS = 5_000;
 
-/**
- * `runRt` defaults to the real, Bun-backed spawner; tests inject a fake with
- * no `Bun` global involved. The return type is left inferred -- annotating
- * it `Hono` erases the chained route types and `AppType` loses this surface.
- */
 const WRITE = { timeoutMs: WRITE_TIMEOUT_MS };
 
 /** Bun drops a request idle past 10s; a write's stays open as long as its
-    spawn may run, and a little longer to answer. */
+    spawn may run, and a little longer to answer. The window counts from
+    this call, so a route arms it again before each spawn: armed once, a
+    read and two writes would outlast it. */
 function holdOpenForWrite(env: unknown, request: Request): void {
   (
     env as { timeout?: (request: Request, seconds: number) => void } | undefined
   )?.timeout?.(request, WRITE_TIMEOUT_MS / 1000 + 10);
 }
 
+/**
+ * `runRt` defaults to the real, Bun-backed spawner; tests inject a fake with
+ * no `Bun` global involved. The return type is left inferred -- annotating
+ * it `Hono` erases the chained route types and `AppType` loses this surface.
+ */
 export function mountSkills(
   app: Hono,
   runRt: RunRt = liveRunRt,
@@ -640,6 +642,15 @@ export function mountSkills(
   realpath: (path: string) => Promise<string> = path => fsRealpath(path)
 ) {
   const cache = new Map<string, { at: number; result: RtRunResult }>();
+
+  /** `runRt` for a write route: every spawn, read or write, first holds the
+      request open for as long as a write may run. */
+  const heldOpen =
+    (env: unknown, request: Request): RunRt =>
+    (argv, opts) => {
+      holdOpenForWrite(env, request);
+      return runRt(argv, opts);
+    };
 
   /** The pack's registered version, or null. Never throws: a pack with no
       plugin manifest is a pack whose version nothing states, which the
@@ -771,13 +782,13 @@ export function mountSkills(
     .post('/api/skills/sync', syncBody, async c => {
       const { pack, commitPending } = c.req.valid('json');
       if (!pack) return c.json({ error: 'pack is required' }, 400);
-      holdOpenForWrite(c.env, c.req.raw);
+      const rt = heldOpen(c.env, c.req.raw);
       try {
         // Never `cachedRun`: sync mutates checkouts and installed caches, and
         // every click must reach the real chain, not a memoized report.
         // Swept whatever the outcome: a chain that stopped at recheck, or was
         // killed, has still pulled, bumped, and compiled.
-        const { stdout, stderr } = await runRt(
+        const { stdout, stderr } = await rt(
           [
             'skills',
             'sync',
@@ -858,12 +869,12 @@ export function mountSkills(
         );
       }
 
-      holdOpenForWrite(c.env, c.req.raw);
+      const rt = heldOpen(c.env, c.req.raw);
       try {
         // Never `cachedRun` here: this is about to write, so the roster it
         // validates against -- and the roster it reports back -- must be
         // what is really on disk right now, not up to CACHE_TTL_MS stale.
-        const before = await runRt([
+        const before = await rt([
           'skills',
           'surface',
           'list',
@@ -919,7 +930,7 @@ export function mountSkills(
         const steps: SkillsSurfaceApplyStep[] = [];
         try {
           for (const step of plan) {
-            const run = await runRt(
+            const run = await rt(
               [
                 'skills',
                 'surface',
@@ -944,7 +955,7 @@ export function mountSkills(
           dropCachedReads(pack);
         }
 
-        const after = await runRt([
+        const after = await rt([
           'skills',
           'surface',
           'list',
@@ -986,14 +997,14 @@ export function mountSkills(
       if (!verb) return c.json({ error: 'verb is required' }, 400);
       if (!slot) return c.json({ error: 'slot is required' }, 400);
       if (!fill) return c.json({ error: 'fill is required' }, 400);
-      holdOpenForWrite(c.env, c.req.raw);
+      const rt = heldOpen(c.env, c.req.raw);
 
       try {
         // Never `cachedRun` here: this is about to write, so `verb`/`slot`/
         // `fill` are checked against the roster and fills as they really are
         // right now, not up to CACHE_TTL_MS stale -- the same rule the
         // surface-apply route follows before its own write.
-        const compositionRun = await runRt([
+        const compositionRun = await rt([
           'skills',
           'composition',
           '--pack',
@@ -1049,7 +1060,7 @@ export function mountSkills(
         // stale too -- the same per-pack cache sweep the surface-apply route
         // runs. Never a narrower invalidation, and never skipped on a failure
         // or a kill: the binding may already be written.
-        const run = await runRt(
+        const run = await rt(
           ['skills', 'bind', verb, slot, fill, '--pack', pack],
           WRITE
         ).finally(() => dropCachedReads(pack));
@@ -1393,12 +1404,12 @@ export function mountSkills(
     .post('/api/skills/discard', discardBody, async c => {
       const { pack } = c.req.valid('json');
       if (!pack) return c.json({ error: 'pack is required' }, 400);
-      holdOpenForWrite(c.env, c.req.raw);
+      const rt = heldOpen(c.env, c.req.raw);
       try {
         // Swept whatever the outcome: rt restores tracked paths and then
         // cleans untracked ones as separate steps, so a failure or a kill in
         // the second has still changed what the cached reads describe.
-        const { stdout, stderr } = await runRt(
+        const { stdout, stderr } = await rt(
           ['skills', 'discard', '--pack', pack, '--json'],
           WRITE
         ).finally(() => dropCachedReads(pack));

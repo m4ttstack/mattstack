@@ -13,7 +13,7 @@ export type RebindOption = {
   name: string;
   plugin: string;
   /** Where else the fill is bound: "bound here now", "bound nowhere", "bound
-      by 2 other skills". */
+      in its fallback slot", "bound by 2 other skills". */
   where: string;
 };
 
@@ -31,11 +31,32 @@ function otherSkills(sites: readonly BindingSite[], ref: string): number {
   return new Set(sites.map(site => site.ref).filter(site => site !== ref)).size;
 }
 
-function whereBound(others: number, here: boolean): string {
-  const skills = `${others} other skill${others === 1 ? '' : 's'}`;
-  if (here)
-    return others === 0 ? 'bound here now' : `bound here now and by ${skills}`;
-  return others === 0 ? 'bound nowhere' : `bound by ${skills}`;
+function ownOtherSlots(
+  sites: readonly BindingSite[],
+  ref: string,
+  slot: string
+): string[] {
+  const slots = sites
+    .filter(site => site.ref === ref && site.slot !== slot)
+    .map(site => site.slot);
+  return [...new Set(slots)].sort();
+}
+
+function listed(names: string[]): string {
+  return names.length < 2
+    ? names.join('')
+    : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
+function whereBound(here: boolean, ownSlots: string[], others: number): string {
+  const places = [
+    here ? 'here now' : null,
+    ownSlots.length > 0
+      ? `in its ${listed(ownSlots)} slot${ownSlots.length === 1 ? '' : 's'}`
+      : null,
+    others > 0 ? `by ${others} other skill${others === 1 ? '' : 's'}` : null,
+  ].filter(place => place !== null);
+  return places.length === 0 ? 'bound nowhere' : `bound ${listed(places)}`;
 }
 
 /**
@@ -58,6 +79,7 @@ export function rebindChoices(
     .map(fill => ({
       fill,
       here: fill.binding === current,
+      ownSlots: ownOtherSlots(sites[fill.binding] ?? [], ref, slot),
       others: otherSkills(sites[fill.binding] ?? [], ref),
     }))
     .sort(
@@ -77,11 +99,11 @@ export function rebindChoices(
     required:
       facts?.required == null ? 'unknown' : facts.required ? 'yes' : 'no',
     current,
-    options: ranked.map(({ fill, here, others }) => ({
+    options: ranked.map(({ fill, here, ownSlots, others }) => ({
       binding: fill.binding,
       name: suffixOf(fill.binding),
       plugin: pluginOf(fill.binding),
-      where: whereBound(others, here),
+      where: whereBound(here, ownSlots, others),
     })),
   };
 }

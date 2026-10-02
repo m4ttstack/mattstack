@@ -1908,6 +1908,61 @@ describe('write routes', () => {
   );
 
   it.each([
+    [
+      '/api/skills/surface/apply',
+      {
+        pack: 'demo',
+        toPublic: ['watch-ci'],
+        toInternal: ['ship'],
+      },
+      4,
+    ],
+    [
+      '/api/skills/bind',
+      {
+        pack: 'demo',
+        verb: 'watch-ci',
+        slot: 'domain',
+        fill: 'demo:watch-ci-domain-v2',
+      },
+      2,
+    ],
+  ] as const)(
+    '%s holds the request open afresh before each of its spawns',
+    async (path, body, spawns) => {
+      const order: string[] = [];
+      const rt = fakeRtHandler(argv => {
+        order.push('spawn');
+        if (isList(argv))
+          return ok(
+            surfaceList([
+              { name: 'watch-ci', kind: 'compiled', status: 'internal' },
+              { name: 'ship', kind: 'compiled', status: 'public' },
+            ])
+          );
+        return handler(argv);
+      });
+      const timeout = vi.fn(() => order.push('arm'));
+      const app = mountSkills(new Hono(), rt.run);
+
+      const res = await app.request(
+        path,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        { timeout }
+      );
+
+      expect(res.status).toBe(200);
+      expect(order).toEqual(
+        Array.from({ length: spawns }, () => ['arm', 'spawn']).flat()
+      );
+    }
+  );
+
+  it.each([
     ['exits nonzero', () => ({ code: 143, stdout: '', stderr: '' })],
     [
       'throws',

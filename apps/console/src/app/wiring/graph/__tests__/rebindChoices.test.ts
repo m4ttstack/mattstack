@@ -21,32 +21,47 @@ describe('rebindChoices', () => {
     ]);
   });
 
-  it("does not count the skill's own other slots as other skills", () => {
-    const composition = designFixture('composition');
-    composition.binders = composition.binders.map(binder =>
-      binder.ref === 'mattstack:stage-plan'
-        ? {
-            ...binder,
-            slots: [
-              ...binder.slots,
-              {
-                name: 'fallback',
-                boundTo: 'acme:plan-policy-lite',
-                layer: 'pack',
-              },
-              {
-                name: 'second',
-                boundTo: 'acme:plan-policy-strict',
-                layer: 'pack',
-              },
-            ],
-          }
-        : binder
-    );
+  it("names the skill's own other slots rather than counting them as other skills", () => {
+    const composition = withOwnSlots({
+      fallback: 'acme:plan-policy-lite',
+      second: 'acme:plan-policy-strict',
+    });
     expect(where(composition)).toEqual([
       ['plan-policy', 'bound here now'],
-      ['plan-policy-strict', 'bound nowhere'],
-      ['plan-policy-lite', 'bound by 1 other skill'],
+      ['plan-policy-strict', 'bound in its second slot'],
+      ['plan-policy-lite', 'bound in its fallback slot and by 1 other skill'],
+    ]);
+  });
+
+  it('says the current fill is bound in its other slots too', () => {
+    const composition = withOwnSlots({
+      fallback: 'acme:plan-policy',
+      second: 'acme:plan-policy',
+    });
+    expect(where(composition)[0]).toEqual([
+      'plan-policy',
+      'bound here now and in its fallback and second slots',
     ]);
   });
 });
+
+/** stage-plan with extra slots of its own, each bound to the given fill. */
+function withOwnSlots(slots: Record<string, string>) {
+  const composition = designFixture('composition');
+  composition.binders = composition.binders.map(binder =>
+    binder.ref === 'mattstack:stage-plan'
+      ? {
+          ...binder,
+          slots: [
+            ...binder.slots,
+            ...Object.entries(slots).map(([name, boundTo]) => ({
+              name,
+              boundTo,
+              layer: 'pack',
+            })),
+          ],
+        }
+      : binder
+  );
+  return composition;
+}
