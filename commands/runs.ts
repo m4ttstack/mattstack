@@ -8,29 +8,43 @@
  */
 import { daemonQuery } from "../lib/daemon-client.ts";
 import { tryResolveRepoArg } from "../lib/repo-arg.ts";
-import { repoLabel } from "../lib/repo-label.ts";
+import { repoLabel, repoLabelQualified } from "../lib/repo-label.ts";
 import { parseIdentity, repoIdentitySlug } from "../lib/settings/identity.ts";
 import { listRunRepoDirs } from "../lib/runs/store.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 import type { RunDetail, RunSummary } from "../packages/rt-client/src/commands.ts";
 
-function fail(msg: string): never {
-  console.error(`rt runs: ${msg}`);
+function fail(f: out.FailureInput): never {
+  out.fail(f);
   process.exit(1);
 }
 
-function flagValue(args: string[], flag: string): string | undefined {
+const NO_DAEMON: out.FailureInput = {
+  title: "The rt daemon is not running",
+  why: "It keeps the record of your runs.",
+  next: out.cmd("rt daemon start"),
+};
+
+const FLAG_QUESTION: Record<"--repo" | "--reason", [title: string, usage: string]> = {
+  "--repo": ["Which repo?", "rt runs --repo <repo>"],
+  "--reason": ["What is the reason?", "rt runs abandon <run> --reason <text>"],
+};
+
+function flagValue(args: string[], flag: "--repo" | "--reason"): string | undefined {
   const i = args.indexOf(flag);
   if (i < 0) return undefined;
   const v = args[i + 1];
-  // Dangling flag (nothing after it, or the next token is itself a flag)
-  // must fail loudly -- silently falling back to "no value" here would
-  // turn `rt runs --repo` into an unscoped list instead of an error.
-  if (v === undefined || v.startsWith("--")) fail(`${flag} requires a value`);
+  // A dangling flag (nothing after it, or the next token is itself a flag)
+  // must fail loudly: falling back to "no value" would turn `rt runs --repo`
+  // into an unscoped list instead of an error.
+  if (v === undefined || v.startsWith("--")) fail(usageFailure(...FLAG_QUESTION[flag]));
   return v;
 }
 
-// Index-based scan (not value comparison — a positional that EQUALS a flag's
-// value, e.g. `rt runs show abc --repo abc`, must still parse).
+// Index-based scan, not value comparison: a positional that EQUALS a flag's
+// value, e.g. `rt runs show abc --repo abc`, must still parse.
 const FLAGS_WITH_VALUES = new Set(["--repo", "--reason"]);
 function positional(args: string[]): string | undefined {
   for (let i = 0; i < args.length; i++) {
@@ -44,29 +58,31 @@ function positional(args: string[]): string | undefined {
   return undefined;
 }
 
-const STATUS_ICON: Record<string, string> = { running: "●", done: "✓", failed: "✗", abandoned: "○", redirected: "»" };
+const RUN_STATUS: Record<string, RenderStatus> = { running: "running", done: "done", failed: "failed", abandoned: "off", redirected: "skipped" };
+const RUN_HEADERS = ["STATUS", "RUN", "REPO", "TYPE", "STAGE", "STARTED"];
 
-export function formatRunLine(r: RunSummary): string {
-  const icon = STATUS_ICON[r.status] ?? "?";
-  const stage = r.status === "running" && r.current_stage ? `@ ${r.current_stage}` : "";
+export function runRow(r: RunSummary): out.CellInput[] {
+  const status = RUN_STATUS[r.status];
+  const stage = r.status === "running" && r.current_stage ? r.current_stage : "";
   const when = new Date(r.started_at).toISOString().slice(0, 16).replace("T", " ");
-  return `${icon} ${r.id}  ${repoLabel(r.repo)}  ${r.work_type}  ${r.status} ${stage}  ${when}`;
+  return [status ? { text: r.status, role: status } : r.status, out.strong(r.id), repoLabel(r.repo), r.work_type, out.dim(stage), out.dim(when)];
 }
 
-export function formatRunDetail(d: RunDetail): string {
-  const lines: string[] = [formatRunLine(d.run)];
-  if (d.schemaAhead) lines.push("(newer schema than this rt knows; some data may be missing)");
-  lines.push("", "stages:");
-  for (const s of d.stages) {
-    lines.push(`  ${STATUS_ICON[s.status] ?? "?"} ${s.name} (attempt ${s.attempt})`);
-    if (s.reason) lines.push(`      reason: ${s.reason}`);
-    if (s.detail_path) lines.push(`      detail: ${s.detail_path}`);
+export function runDetailBlocks(d: RunDetail): Block[] {
+  const blocks: Block[] = [out.table([runRow(d.run)], RUN_HEADERS)];
+  if (d.schemaAhead) blocks.push(out.line("warn", "A newer rt wrote this run", "some of it may be missing here"));
+  if (d.stages.length > 0) {
+    const stages: Block[] = [];
+    for (const s of d.stages) {
+      stages.push(out.line(RUN_STATUS[s.status] ?? "pending", s.name, `attempt ${s.attempt}${s.status === "redirected" ? ", redirected" : ""}`));
+      if (s.reason) stages.push(out.callout("why", s.reason));
+      if (s.detail_path) stages.push(out.callout("note", s.detail_path));
+    }
+    blocks.push(out.section("Stages", undefined, ...stages));
   }
-  lines.push("", "fields:");
-  for (const f of d.fields) lines.push(`  ${f.key} = ${f.value}  [${f.produced_by}]`);
-  lines.push("", "decisions:");
-  for (const dec of d.decisions) lines.push(`  ${dec.contract} ${dec.scope}: ${dec.selection}  [${dec.decided_by}]`);
-  return lines.join("\n");
+  if (d.fields.length > 0) blocks.push(out.section("Fields", undefined, out.table(d.fields.map((f) => [out.key(f.key), f.value, out.dim(f.produced_by)]))));
+  if (d.decisions.length > 0) blocks.push(out.section("Decisions", undefined, out.table(d.decisions.map((x) => [out.key(x.contract), x.scope, x.selection, out.dim(x.decided_by)]))));
+  return blocks;
 }
 
 /** Base for resolveRunsRepoArg's user-facing failures -- both need the same
@@ -86,7 +102,11 @@ export class UnknownRunsRepo extends RunsRepoArgError {
     run-dir fallback below, even when it happens to equal a legacy dir name --
     that fallback exists for a resolver that found nothing, not one that
     found too much. */
-export class AmbiguousRunsRepo extends RunsRepoArgError {}
+export class AmbiguousRunsRepo extends RunsRepoArgError {
+  constructor(readonly arg: string, readonly matches: string[]) {
+    super(`--repo "${arg}" matches more than one repo: ${matches.join(", ")} (pass the full identity)`);
+  }
+}
 
 /**
  * On disk, a run dir's name is `repoIdentitySlug` of the raw identity id
@@ -115,9 +135,7 @@ export async function resolveRunsRepoArg(arg: string): Promise<string> {
   const resolution = await tryResolveRepoArg(arg);
   if (resolution.kind === "resolved") return runDisplayKey(resolution.identity);
   if (resolution.kind === "ambiguous") {
-    throw new AmbiguousRunsRepo(
-      `--repo "${arg}" matches more than one repo: ${resolution.matches.join(", ")} (pass the full identity)`,
-    );
+    throw new AmbiguousRunsRepo(arg, resolution.matches);
   }
   if (listRunRepoDirs().includes(arg)) return arg;
   throw new UnknownRunsRepo(arg);
@@ -128,6 +146,14 @@ export async function resolveRunsRepoArg(arg: string): Promise<string> {
  * present) and exits on an unknown repo, matching the output mode (`--json`
  * envelope vs plain stderr) the rest of each command already uses.
  */
+function repoArgFailure(err: RunsRepoArgError): out.FailureInput {
+  if (err instanceof AmbiguousRunsRepo) {
+    return { title: `More than one repo is called ${err.arg}`, why: `It could be ${err.matches.map(repoLabelQualified).join(" or ")}. Use the full name of the one you mean.` };
+  }
+  if (err instanceof UnknownRunsRepo) return { title: `rt does not know a repo called ${err.arg}` };
+  return { title: err.message };
+}
+
 async function resolveRepoFilter(args: string[]): Promise<string | undefined> {
   const repoArg = flagValue(args, "--repo");
   if (!repoArg) return undefined;
@@ -136,10 +162,10 @@ async function resolveRepoFilter(args: string[]): Promise<string | undefined> {
   } catch (err) {
     if (!(err instanceof RunsRepoArgError)) throw err;
     if (args.includes("--json")) {
-      console.log(JSON.stringify({ ok: false, error: err.message }));
+      out.json({ ok: false, error: err.message });
       process.exit(1);
     }
-    fail(err.message);
+    fail(repoArgFailure(err));
   }
 }
 
@@ -164,17 +190,23 @@ async function pickRunId(runs: RunSummary[], message: string): Promise<string | 
 export async function runsList(args: string[]): Promise<void> {
   const stray = positional(args);
   if (stray) {
-    console.error(`rt runs: unknown subcommand "${stray}"\nusage: rt runs [--repo R] [--json] | rt runs <show|abandon|run-start|run-status|stage-start|stage-done|stage-fail|stage-redirect|field|decision|snapshot> ...`);
+    out.fail({ title: `rt runs has no command called ${stray}`, next: out.cmd("rt runs --help") });
     process.exit(2);
   }
   const repo = await resolveRepoFilter(args);
   const res = await daemonQuery("runs:list", { repo }, 10_000);
-  if (!res) fail("daemon unavailable — the run DB needs the rt daemon (rt daemon start)");
-  if (!res.ok) fail(res.error ?? "list failed");
+  if (!res) fail(NO_DAEMON);
+  if (!res.ok) fail({ title: "Could not list your runs", why: res.error });
   const data = res.data as { runs: RunSummary[] };
-  if (args.includes("--json")) { console.log(JSON.stringify(data)); return; }
-  if (data.runs.length === 0) { console.log("no runs"); return; }
-  for (const r of data.runs) console.log(formatRunLine(r));
+  if (args.includes("--json")) {
+    out.json(data);
+    return;
+  }
+  if (data.runs.length === 0) {
+    out.print(out.line("skipped", "No runs yet"));
+    return;
+  }
+  out.print(out.table(data.runs.map(runRow), RUN_HEADERS));
 }
 
 export async function runsShow(args: string[]): Promise<void> {
@@ -184,18 +216,21 @@ export async function runsShow(args: string[]): Promise<void> {
     const runs = process.stdin.isTTY && !json && !process.env.RT_BATCH
       ? await fetchRunsForPicker(args)
       : [];
-    if (runs.length === 0) fail("usage: rt runs show <runId> [--repo <name>] [--json]");
+    if (runs.length === 0) fail(usageFailure("Which run?", "rt runs show <run>"));
     const picked = await pickRunId(runs, "pick a run to show");
     if (!picked) process.exit(0);
     runId = picked;
   }
   const repo = await resolveRepoFilter(args);
   const res = await daemonQuery("runs:get", { runId, repo }, 10_000);
-  if (!res) fail("daemon unavailable — the run DB needs the rt daemon (rt daemon start)");
-  if (!res.ok) fail(res.error ?? "get failed");
+  if (!res) fail(NO_DAEMON);
+  if (!res.ok) fail({ title: "Could not read that run", why: res.error });
   const data = res.data as RunDetail;
-  if (args.includes("--json")) { console.log(JSON.stringify(data)); return; }
-  console.log(formatRunDetail(data));
+  if (json) {
+    out.json(data);
+    return;
+  }
+  out.print(...runDetailBlocks(data));
 }
 
 export async function runsAbandon(args: string[]): Promise<void> {
@@ -207,7 +242,7 @@ export async function runsAbandon(args: string[]): Promise<void> {
       : [];
     const targets = runs.filter((r) => r.status === "running");
     const pick = targets.length > 0 ? targets : runs;
-    if (pick.length === 0) fail("abandon needs a run id");
+    if (pick.length === 0) fail(usageFailure("Which run?", "rt runs abandon <run>"));
     const picked = await pickRunId(pick, "pick a run to abandon");
     if (!picked) process.exit(0);
     runId = picked;
@@ -215,7 +250,7 @@ export async function runsAbandon(args: string[]): Promise<void> {
   const repo = await resolveRepoFilter(args);
   const reason = flagValue(args, "--reason") ?? "reconciled by hand";
   const res = await daemonQuery("runs:abandon", { runId, repo, reason });
-  if (!res) fail("daemon unavailable — the run DB needs the rt daemon (rt daemon start)");
-  if (!res.ok) fail(res.error ?? "abandon failed");
-  console.log(`abandoned ${runId}`);
+  if (!res) fail(NO_DAEMON);
+  if (!res.ok) fail({ title: "Could not abandon that run", why: res.error });
+  out.print(out.line("done", `Marked ${runId} abandoned`));
 }
