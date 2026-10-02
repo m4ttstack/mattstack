@@ -170,7 +170,7 @@ The key row's provenance already reads `not set anywhere` for an unset key (`des
 **Interfaces:**
 - Changes: `installExtension(_args?: string[], _ctx?: unknown, deps: ExtensionDeps = realExtensionDeps())`; the command tree still calls it with `(args, ctx)`.
 
-- [ ] **Step 1: Failing tests** (in `commands/__tests__/extension-install.test.ts`; add `installExtension` and `type ExtensionDeps` to its `../extension.ts` import):
+- [ ] **Step 1: Failing tests** (in `commands/__tests__/extension-install.test.ts`; add `installExtension` and `type ExtensionDeps` to its `../extension.ts` import, and `describe` and `spyOn` to its `bun:test` import. The file imports the layer as `ui` and its `beforeEach` already opens `io = captureOut()` with the human gate closed, so the cases use those):
 
 ```ts
 describe("installExtension's exit code", () => {
@@ -186,8 +186,6 @@ describe("installExtension's exit code", () => {
     ...over,
   });
   const run = async (d: ExtensionDeps): Promise<number> => {
-    const io = captureOut();
-    out.__test__.setHuman(() => false);
     const exit = spyOn(process, "exit").mockImplementation(((c?: number) => {
       throw new Error(`exit ${c}`);
     }) as unknown as typeof process.exit);
@@ -200,7 +198,6 @@ describe("installExtension's exit code", () => {
       return Number(m[1]);
     } finally {
       exit.mockRestore();
-      io.restore();
     }
   };
 
@@ -388,7 +385,7 @@ function failCannotAsk(what: "repo" | "worktree"): never {
 }
 ```
 
-`lib/repo.ts:273` calls `failCannotAsk("repo")`; `:312` calls `failCannotAsk("worktree")`.
+`lib/repo.ts:273` (`requireRepoIdentity`, only reached with several repos) calls `failCannotAsk("repo")`; `:312` (`pickWorktree`) calls `failCannotAsk(choices.length > 1 ? "repo" : "worktree")`, because with several repos the first question it cannot ask is which repo. Both test cases go through `pickWorktree`: one repo with two worktrees reads `worktree`, two repos with one worktree each read `repo`.
 
 - [ ] **Step 4:** Run the test. PASS.
 - [ ] **Step 5:** Commit, message `repo: the cannot-ask failure names worktrees when it means them`.
@@ -442,17 +439,20 @@ test("a kept missing row's next names the repo as --repo resolves it", () => {
     expect(await tryResolveRepoArg("github.com/m4ttstack/nope")).toEqual({ kind: "none" });
   });
 
-  test("a live directory still resolves as the directory, even when it is spelled like a label", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "rt-label-dir-"));
+  test("a live directory resolves to what it derives, even when a stored row's label is that path", async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-label-dir-")));
     execFileSync("git", ["init", "-q", dir]);
-    setKvValue(REPO_INDEX_NS, RT_ID, "/repos/rt");
+    execFileSync("git", ["-C", dir, "remote", "add", "origin", "git@gitlab.example.com:acme/app.git"]);
+    const pathRow = serializeIdentity({ kind: "path", id: dir });
+    setKvValue(REPO_INDEX_NS, pathRow, dir);
     const derived = serializeIdentity(await deriveRepoIdentity(dir));
+    expect(derived).not.toBe(pathRow);
     expect(await tryResolveRepoArg(dir)).toEqual({ kind: "resolved", identity: derived });
     rmSync(dir, { recursive: true, force: true });
   });
 ```
 
-(Import what the second test needs if the file lacks it: `mkdtempSync`, `rmSync` from `fs`, `tmpdir` from `os`, `execFileSync` from `child_process`, `serializeIdentity` and `deriveRepoIdentity` from where `lib/repo-arg.ts` imports them.) In `lib/__tests__/repo.test.ts`, beside the existing `missingRepoFailure` case (`:64`, a plain name, unchanged):
+(A `path` row's label (`repoLabelFull`) is its folder path, so if the label match ran before the directory branch, this test would get the stored `path` identity back instead of the remote one the folder derives. Import what it needs if the file lacks it: `execFileSync` from `child_process`, `serializeIdentity` and `deriveRepoIdentity` from `../settings/identity.ts`; `mkdtempSync`, `realpathSync`, `rmSync`, `tmpdir` and `join` are already imported.) In `lib/__tests__/repo.test.ts`, beside the existing `missingRepoFailure` case (`:64`, a plain name, unchanged):
 
 ```ts
 test("missingRepoFailure names a remote repo by the label --repo resolves", () => {
@@ -483,6 +483,8 @@ function describeDataMove(r: PrunedEntry, dryRun: boolean): string {
 ```
 
 `pruneBlocks`' needs-you `next`: `out.cmd(\`${r.hint ?? "rt repos locate"} <new-path> --repo ${repoLabelFull(r.repoName)}\`)`. The locate failure at `:163`: `new UserActionableError("locate-failed", "rt could not move this repo's records", {}, { why: indexed.why ?? indexed.error, ...(indexed.next ? { next: indexed.next } : {}), log: \`${name} to ${real}: ${indexed.error}\` })` and drop `healErrorClause` from the import (the old `why` sentence, "rt knows it at a folder that is gone...", becomes the fallback when `indexed.why` is unset: `why: indexed.why ?? "rt knows it at a folder that is gone, and moving its records did not finish."`; the raw error goes to `log`).
+
+`commands/worktree.ts:958` and `:964` (the ready-approval note and its `--json` message) print `--repo ${shellQuote(repoName)}`, the stored identity: both become `--repo ${shellQuote(repoLabelFull(repoName))}` (`repoLabelFull` is already imported there), which `rt settings set --repo` resolves through `resolveRepoArg` once the label match lands. The `--json` message is a human sentence inside the envelope (cross-phase ruling 1); `grep -rn "worktreeReadyApproval.*--repo" commands/__tests__ lib/__tests__ e2e` finds no test that pins it.
 
 `lib/repo.ts` `missingRepoFailure`: `next: out.cmd(\`rt repos locate <new-path> --repo ${repoLabelFull(r.repoName)}\`)` (import `repoLabelFull` from `./repo-label.ts`); a plain-name row's label is its name, so the existing plain-name tests (`lib/__tests__/repo.test.ts:64`, `command-tree.test.ts:449`, `pickers.test.ts:417`, `repo-index-missing.test.ts:139`) do not move.
 
@@ -549,11 +551,11 @@ and, in `lib/worktree/dispose.ts`, `refuse("running-run", runningRunDetail(scan.
 
 ### Task 10: Renders, AGENTS.md and every gate
 
-- [ ] **Step 1:** `bun run ui:build`. `blocks-6h.ts` in the scratchpad builds: a `settings list` table with an invalid, a wrong-shape and a two-copies row (`renderListRow`), the unset get (`kv` row and the `off` line), the extension failure, the logins table with its header, the tool row's unreadable-version line (as `line("failed", ...)`, the way setup draws an invalid row), the members remove blocks, the prune duplicate and kept rows, the port skipped row, the refused bundled link, and the intercept refused line. Copy 5f2's `ansi-page.ts`.
+- [ ] **Step 1:** `bun run ui:build`. `blocks-6h.ts` in the scratchpad builds: a `settings list` table with an invalid, a wrong-shape and a two-copies row (`renderListRow`), the unset get (the `kv` row whose provenance reads `not set anywhere`), the extension failure, the logins table with its header, the tool row's unreadable-version line (as `line("failed", ...)`, the way setup draws an invalid row), the members remove blocks, the prune duplicate and kept rows, the port skipped row, the refused bundled link, and the intercept refused line. Copy 5f2's `ansi-page.ts`.
 - [ ] **Step 2:** Render at width 100, dark and light.
 - [ ] **Step 3:** Screenshot both into `docs/design/output-layer/6h-copy-dark.png` and `-light.png`. Write down plainly what reads wrong: the logins header row reads as a header (faint, a rule under it); the settings labels read as warnings, not code; the refused rows are not coral. Fix and re-render.
 - [ ] **Step 4:** README row: `| \`6h-copy-dark.png\`, \`6h-copy-light.png\` | phase 6 copy polish: settings list labels, an unset get, the extension failure, the logins header, an unreadable tool version, members remove, a prune duplicate and a kept repo, a port row with no pid, a refused bundled link, and intercept's left-alone line |`.
-- [ ] **Step 5:** AGENTS.md: append one sentence to the "Output layer" section: `A command a person can run to fix something names its subject in a form the verb resolves: \`rt repos locate --repo\` takes a repo's \`host/path\` label, so printed commands use that (\`repoLabelFull\`), never the stored identity.` Before writing it, run `grep -rn -- '--repo \${' commands lib --include=*.ts | grep -v __tests__` and check that every printed `--repo` value goes through `repoLabelFull` or is a plain name; any other hit is fixed in this task or the sentence is not written.
+- [ ] **Step 5:** AGENTS.md: append one sentence to the "Output layer" section: `A command a person can run to fix something names its subject in a form the verb resolves: \`rt repos locate --repo\` takes a repo's \`host/path\` label, so printed commands use that (\`repoLabelFull\`), never the stored identity.` Before writing it, run `grep -rn -- '--repo \${' commands lib --include=*.ts | grep -v __tests__`. Expected hits, each accounted for: `lib/repo.ts:34` and `commands/repos.ts:253` (through `repoLabelFull`, Task 7); `commands/worktree.ts:958`, `:964` (through `repoLabelFull`, Task 7); `lib/repo-index.ts:1472` (`missingRepoRefusal`, which 6f stops calling and 6k deletes: left as it is); `lib/skills/placeholders.ts:112`, `:116` (a runs verb's run-dir key, not a printed command a person runs; exempt by `rt:repo-identity` rule 5, and it stays). Any other hit is fixed in this task, or the sentence is not written.
 - [ ] **Step 6:** The eight gates, one at a time from the repo root: `bun run ui:build`, `bun run typecheck`, `bun run test`, `bun run test:e2e`, `bun run test:pty`, `bun run picker:check`, `bun run format:check`, `bun run check`. All pass (known rotating flakes: a failure in an untouched file that passes alone is reported, not fixed).
 - [ ] **Step 7:** Commit, message `docs: copy polish renders`.
 
@@ -571,7 +573,7 @@ and, in `lib/worktree/dispose.ts`, `refuse("running-run", runningRunDetail(scan.
 
 ## Decisions this plan made
 
-1. **An unset `settings get` prints nothing on stdout.** The value is the payload, and `<unset>` was a value a script could mistake for one; the human line says "Not set". The repo's readers all pass `--json`.
+1. **An unset `settings get` prints nothing on stdout.** The value is the payload, and `<unset>` was a value a script could mistake for one; the key row on the human stream says `not set anywhere`. The repo's readers all pass `--json`.
 2. **A refused bundled link exits 1 as today** but reads `refused`; `InstallResult.reason` never reaches the envelope.
 3. **`--repo` resolves a `host/path` label** after the directory branch and before the name lookups, so the commands rt prints are runnable as printed and a live folder still wins.
 4. **A partial `settings extension` install (some editors took it) exits 0,** as today; only nothing installed exits 1.

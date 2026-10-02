@@ -154,7 +154,7 @@ The not-installed-yet `next` above is a sentence because the step is a drag in F
 | `commands/services.ts`, `apps.ts`, `flavor.ts`, `bg.ts`, `cron.ts`, `reconciler.ts`, `endpoint.ts`, `post-install.ts` (modify) | blocks; seams for JSON |
 | `lib/endpoint/config.ts`, `lib/endpoint/run.ts` (modify) | the warning; the passthrough copy |
 | `commands/__tests__/service-verbs-json.test.ts` (create) | the `--json` pins |
-| `commands/__tests__/services.test.ts`, `apps.test.ts`, `flavor-takeover.test.ts`, `bg.test.ts`, `endpoint.test.ts`, `post-install-sweep.test.ts`, `lib/endpoint/__tests__/intercept-run.test.ts`, `config.test.ts` (modify) | human expectations |
+| `commands/__tests__/services.test.ts`, `apps.test.ts`, `flavor-takeover.test.ts`, `bg.test.ts`, `endpoint.test.ts`, `lib/__tests__/post-install-sweep.test.ts`, `lib/endpoint/__tests__/intercept-run.test.ts`, `config.test.ts` (modify) | human expectations |
 | `e2e/tests/bg.test.ts`, `endpoint.test.ts`, `reconciler.test.ts` (modify where they assert human text) | |
 | `lib/__tests__/raw-output-allowlist.json` (modify) | nine lines |
 
@@ -458,6 +458,32 @@ Delete `commands/flavor.ts` from the allowlist.
 **Interfaces:**
 - Produces: `bgStatusBlocks(data: Commands["bg:status"]["data"], now: number): Block[]`; `reconcilerStatusBlocks(data: Commands["reconciler:status"]["data"]): Block[]`. `renderStatus` in both files is deleted (its callers are the verbs and their tests).
 
+- [ ] **Step 0: Move `bg.test.ts`'s `run` onto the capture** (passes on today's code). Its harness (`commands/__tests__/bg.test.ts:36-52`) spies only `console.log` and `console.error`, so once `bg.ts` writes through the layer every `r.stdout` and `r.stderr` would read `""`. Replace it with:
+
+```ts
+async function run(fn: (args: string[]) => Promise<void>, args: string[]) {
+  const io = captureOut({ console: true });
+  ui.__test__.setHuman(() => false);
+  const exitSpy = spyOn(process, "exit").mockImplementation(() => {
+    throw new Error("process.exit sentinel");
+  });
+  let code = 0;
+  try {
+    await fn(args);
+  } catch (e) {
+    if (e instanceof Error && e.message === "process.exit sentinel") code = (exitSpy.mock.calls.at(-1)?.[0] as number | undefined) ?? 1;
+    else throw e;
+  } finally {
+    exitSpy.mockRestore();
+  }
+  const r = { code, stdout: io.stdout(), stderr: io.stderr() };
+  io.restore();
+  return r;
+}
+```
+
+(`import * as ui from "../../lib/ui/out.ts";` and `import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";`.) The capture keeps each line's newline where the old harness joined lines with `"\n"`, so the two exact checks gain it: `:89` `toBe("released herd:hd-1\n")` and `:124` `toBe("stopped\n")`. Every `toContain` and `JSON.parse` check (`:78`, `:80`, `:96`, `:102`, `:109`, `:116`, `:131`, `:138`) reads the same. Run the file: PASS with `bg.ts` untouched. Commit (`bg tests: read output through the capture helper`).
+
 - [ ] **Step 1: Failing tests** (append to `commands/__tests__/bg.test.ts`, and create the reconciler cases there too, since no reconciler unit test exists):
 
 ```ts
@@ -525,9 +551,7 @@ export async function bgStop(args: string[]): Promise<void> {
   const res = await clientStop();
   if (!res.ok && res.error?.startsWith(LIVE_CLAIMS)) {
     const owners = res.error.slice(LIVE_CLAIMS.length);
-    if (!args.includes("--json")) {
-      out.note(out.line("refused", "Left the background server running", `it still has live claims: ${owners}`), out.callout("next", out.cmd(`rt bg release ${owners.split(", ")[0]}`)));
-    }
+    out.note(out.line("refused", "Left the background server running", `it still has live claims: ${owners}`), out.callout("next", out.cmd(`rt bg release ${owners.split(", ")[0]}`)));
     process.exit(1);
   }
   const data = unwrap(res, "stop");
@@ -536,7 +560,7 @@ export async function bgStop(args: string[]): Promise<void> {
 }
 ```
 
-The daemon's sentence is matched by its prefix; the handler and this file change together or not at all. Under `--json` the refusal leaves stdout empty and exits 1, as today; the one difference is that stderr no longer carries `rt bg: <sentence>` there, and nothing reads it.
+The daemon's sentence is matched by its prefix; the handler and this file change together or not at all. Under `--json` the refusal leaves stdout empty and exits 1, as today, and the refused note still goes to stderr (shepherd ruling, review round 2), so a caller learns why; it replaces today's `rt bg: <sentence>` line there.
 
 Update `e2e/tests/bg.test.ts` and `e2e/tests/reconciler.test.ts` where they assert today's plain text (`server: up`, `no live claims`, `swept:`, `cleared`): read each and change it to the new words; keep every `--json` assertion. Delete both files from the allowlist.
 
@@ -547,7 +571,7 @@ Update `e2e/tests/bg.test.ts` and `e2e/tests/reconciler.test.ts` where they asse
 
 ### Task 7: `rt cron` and `rt --post-install`
 
-**Files:** `commands/cron.ts`, `commands/post-install.ts`, `commands/__tests__/post-install-sweep.test.ts`, the allowlist.
+**Files:** `commands/cron.ts`, `commands/post-install.ts`, `lib/__tests__/post-install-sweep.test.ts`, the allowlist.
 
 - [ ] **Step 1: Failing tests.** Create the cron cases in a new `commands/__tests__/cron.test.ts`:
 
@@ -576,7 +600,19 @@ describe("rt cron for a person", () => {
 });
 ```
 
-(Run `bun -e` on `renderPlain([failure(usageFailure("Which trigger?", "rt cron <install|remove> <trigger>", "The one trigger is board-triage."))])` first and use its exact output as the expectation.) In `post-install-sweep.test.ts`, change the transient-root assertion from `rt: running from` to the failure title `Run this from the installed app`, and the migration notes to the new titles.
+(Run `bun -e` on `renderPlain([failure(usageFailure("Which trigger?", "rt cron <install|remove> <trigger>", "The one trigger is board-triage."))])` first and use its exact output as the expectation.) `lib/__tests__/post-install-sweep.test.ts` captures by replacing `console.error` (`setUpFakes` and `tearDownFakes`, `:61-96`), which a note through the layer never reaches. Move it onto the capture first, so it reads the same text today and after:
+
+```ts
+let io: CapturedOut | undefined;
+// in setUpFakes, in place of the console.error swap:
+  io = captureOut({ console: true });
+  ui.__test__.setHuman(() => false);
+// in tearDownFakes, in place of restoring console.error:
+  io?.restore();
+  io = undefined;
+```
+
+and every `stderrLines.join("\n")` reads `io!.stderr()` (`import * as ui from "../ui/out.ts";`, `import { captureOut, type CapturedOut } from "../ui/__tests__/capture-out.ts";`; delete `stderrLines` and `originalConsoleError`). Run it on today's code: PASS. Then change the three expectations to the copy table's words: `:183` `not.toContain("Grant notifications and Full Disk Access to mattstack.app again")`, `:203` `toContain("Grant notifications and Full Disk Access to mattstack.app again")`, `:261` `toContain("Run this from the installed app")`.
 
 - [ ] **Step 2:** Run: FAIL.
 - [ ] **Step 3: Implement** by the copy table. `usageForTrigger`:
@@ -595,7 +631,7 @@ function usageForTrigger(json: boolean, verb: string): never {
 
 Delete `commands/cron.ts` and `commands/post-install.ts` from the allowlist.
 
-- [ ] **Step 4:** Run `bun test commands/__tests__/cron.test.ts commands/__tests__/post-install-sweep.test.ts lib/__tests__/no-raw-output.test.ts`. PASS.
+- [ ] **Step 4:** Run `bun test commands/__tests__/cron.test.ts lib/__tests__/post-install-sweep.test.ts lib/__tests__/no-raw-output.test.ts`. PASS.
 - [ ] **Step 5:** Commit, message `cron, post-install: plain result lines; usage as a usage failure; notes on stderr`.
 
 ---
@@ -725,7 +761,7 @@ sentences; only its debug traces keep the `rt-intercept:` prefix, because
 3. **`bg status` drops the socket path for a person;** `--json` keeps it.
 4. **`rt --post-install`'s notes stay on stderr** (`out.note`), not stdout, because the installer may run setup with `--json`, whose stdout is an envelope stream.
 5. **The transient-root `next` is a sentence, not a command**: the step is a drag in Finder.
-6. **`rt bg stop` with live claims is a refused note and keeps exit 1.** The daemon answers `ok: false`; the CLI recognises its sentence by prefix and draws a refusal naming the owners and `rt bg release <first owner>` instead of coral.
+6. **`rt bg stop` with live claims is a refused note and keeps exit 1**, on stderr under `--json` too (shepherd ruling, review round 2). The daemon answers `ok: false`; the CLI recognises its sentence by prefix and draws a refusal naming the owners and `rt bg release <first owner>` instead of coral.
 7. **`flavor takeover`'s "what changed" lines keep their full paths.** They sit in a `verbatim` block captioned "what changed", which is a record of the files rt touched, not a sentence; the success line above it names no path.
 
 ## Self-Review

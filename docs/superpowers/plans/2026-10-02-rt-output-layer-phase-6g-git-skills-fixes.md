@@ -393,14 +393,15 @@ test("a compile failure is one title and its next, then every error under a capt
   expect(f.title).toBe("The new pack did not compile");
   expect(f.details).toBeUndefined();
   const io = captureOut();
+  io.reset();
   ui.__test__.setHuman(() => false);
   try {
     ui.fail(f, ...initFailureAfter(o));
     const err = io.stderr();
     const at = (s: string) => err.indexOf(s);
     expect(at("The new pack did not compile")).toBe(0);
-    expect(at("next: rt skills compile --pack-dir /p")).toBeGreaterThan(0);
-    expect(at("what did not compile")).toBeGreaterThan(at("next: rt skills compile --pack-dir /p"));
+    expect(at("next: Run rt skills compile --pack-dir /p")).toBeGreaterThan(0);
+    expect(at("what did not compile")).toBeGreaterThan(at("next: Run rt skills compile --pack-dir /p"));
     expect(at("skills/a: missing title")).toBeGreaterThan(at("what did not compile"));
     expect(at("skills/b: bad slot")).toBeGreaterThan(at("skills/a: missing title"));
   } finally {
@@ -425,7 +426,7 @@ test("refusal titles name no path or config file", async () => {
 
 ```ts
   if (o.code === "compile-failed") {
-    return { title: "The new pack did not compile", next: o.next ? ui.cmd(o.next) : remedyCell(o.remedy!) };
+    return { title: "The new pack did not compile", ...(o.why ? { why: o.why } : {}), next: o.next ? ui.cmd(o.next) : o.remedy ? remedyCell(o.remedy) : ["Fix it, then run ", ui.cmd("rt skills compile"), " and ", ui.cmd("rt skills check")] };
   }
 ```
 
@@ -434,12 +435,12 @@ and, beside it, the blocks drawn after the failure:
 ```ts
 export function initFailureAfter(o: Extract<InitOutcome, { ok: false }>): Block[] {
   if (o.code !== "compile-failed") return [];
-  const lines = [o.detail, ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
-  return [ui.verbatim(lines.join("\n"), "what did not compile")];
+  const lines = [...o.detail.split("\n"), ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
+  return [ui.verbatim(lines, "what did not compile")];
 }
 ```
 
-The caller becomes `ui.fail(initFailure(out), ...initFailureAfter(out))` (`commands/skills-init.ts:244`). Both renderers draw a failure's `next` before anything after it, so the errors read below the command that fixes them, as Task 11's AGENTS rule says. (`Block` from `../lib/ui/protocol.ts`; `captureOut` from `../../lib/ui/__tests__/capture-out.ts` in the test.)
+The caller becomes `ui.fail(initFailure(out), ...initFailureAfter(out))` (`commands/skills-init.ts:244`). (`ui.verbatim` takes `string[]`, `lib/ui/out.ts:87`.) Three existing `commands/__tests__/skills-init.test.ts` cases pin the old compile-failed shape and change on purpose: `a failure names each command of its remedy, then what was written` (`:65-77`) now expects `"The new pack did not compile\n  next: Run rt skills compile --pack-dir /z/mattstack/packs/acme, then rt skills check --pack-dir /z/mattstack/packs/acme\n"` from `initFailure`, and `initFailureAfter` to equal `[ui.verbatim(["boom", "Written so far:", "/a", "/b"], "what did not compile")]`; `a multi-line detail keeps each line` (`:79-91`) expects `"The new pack did not compile\n  next: Run rt skills compile --pack-dir /z/p\n"` and `[ui.verbatim(["stubs.jsonc: unknown slot review", "skills.jsonc: duplicate name work", "Written so far:", "/a"], "what did not compile")]`; `with no remedy, the next step is the general one` (`:106-110`) expects `"The new pack did not compile\n  next: Fix it, then run rt skills compile and rt skills check\n"`. The write-failed case (`:93-104`) keeps its details and does not move. Both renderers draw a failure's `next` before anything after it, so the errors read below the command that fixes them, as Task 11's AGENTS rule says. (`Block` from `../lib/ui/protocol.ts`; `captureOut` from `../../lib/ui/__tests__/capture-out.ts` in the test.)
 
 The `--json` refusal envelope's message (`out.detail`, with `. Run <next>` appended) takes the new words: a human sentence inside the envelope (cross-phase ruling 1); `code` and `refused` are unchanged.
 

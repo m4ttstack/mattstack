@@ -32,7 +32,7 @@
 
 ## Review Focus
 
-1. **An agent running `rt gate wait <id>` in Bash while the daemon drops.** Today it reads `rt gate: wait failed (...); retrying until reconnect...` once on stderr, then JSON on stdout. Both streams must be the same bytes after. Pinned in Task 3's fixture (`gate-wait-retry-then-answered`, which drives `waitForGate` with a `wait` that fails once) and by `e2e/tests/gate-answer.test.ts`, untouched.
+1. **An agent running `rt gate wait <id>` in Bash while the daemon drops.** Today it reads `rt gate: wait failed (...); retrying until reconnect...` once on stderr, then JSON on stdout. Both streams must be the same bytes after. Pinned in Task 3's fixture (`gate-wait-retry-then-answered`, which drives `waitForGate` with a `wait` that fails once); no e2e test reaches the retry line.
 2. **Claude Code's WorktreeCreate hook reading `rt worktree claude-hook`'s stdout.** stdout must be the path and a newline, nothing else, and a refusal must leave stdout empty with exit 2. Pinned in Task 6 (`claude-hook writes only the path on stdout`, `a refusal leaves stdout empty and exits 2`).
 3. **`rt mcp tools --json` through a pipe.** The roster is larger than a pipe buffer and the CLI exits right after; it must arrive whole. Pinned by `commands/__tests__/no-mcp-tools-pipe.test.ts`, untouched, after Task 5 moves the write onto `out.jsonFlushed`.
 4. **An exempt file that gains a raw line.** A new `console.log` in `lib/daemon-logger.ts` must fail the guard, not ride the exemption. Pinned in Task 4 (`an exempt file holds exactly the raw lines its entry allows`).
@@ -810,37 +810,43 @@ describe("the hook verbs a person runs", () => {
 });
 ```
 
-Then, inside the existing `describe("hookInstallCommand")` (its temp HOME keeps the real `~/.claude/settings.json` out of reach; add `mkdirSync` and `writeFileSync` to the `fs` import if missing):
+Then, inside the existing `describe("hookInstallCommand")` (its temp HOME keeps the real `~/.claude/settings.json` out of reach; add `writeFileSync` to the `fs` import if missing; the successful install in the middle creates `~/.claude/`):
 
 ```ts
   test("the three hook failures read plainly on stderr", async () => {
     const io = captureOut();
-    out.__test__.setHuman(() => false);
+    // Each case is a fresh process: out.ts remembers that stderr was written
+    // and would render the next failure as a continuation.
+    const fresh = () => {
+      io.reset();
+      io.clear();
+      out.__test__.setHuman(() => false);
+    };
     const exit = spyOn(process, "exit").mockImplementation(((c?: number) => {
       throw new Error(`exit ${c ?? 0}`);
     }) as unknown as typeof process.exit);
     try {
+      fresh();
       await expect(hookInstallCommand([], undefined, { which: () => null })).rejects.toThrow("exit 1");
       expect(io.stderr()).toStartWith("rt is not on your PATH\n");
       expect(io.stdout()).toBe("");
       await hookInstallCommand([], undefined, { which: () => "/x/rt" });
-      io.clear();
+      fresh();
       await hookStatusCommand([], undefined);
       expect(io.stderr()).toStartWith("The worktree hook points at an rt that is gone\n");
-      io.clear();
+      fresh();
       writeFileSync(join(process.env.HOME!, ".claude", "settings.json"), "{");
       await expect(hookUninstallCommand([], undefined)).rejects.toThrow("exit 1");
       expect(io.stderr()).toStartWith("rt could not update Claude Code's settings\n");
       expect(io.stdout()).toBe("");
     } finally {
       exit.mockRestore();
-      out.__test__.setHuman(undefined);
       io.restore();
     }
   });
 ```
 
-(`import * as out from "../../lib/ui/out.ts";` joins the imports; Step 0 already added `captureOut`, `spyOn`, `hookStatusCommand` and `hookUninstallCommand`.)
+(`import * as out from "../../lib/ui/out.ts";` joins the imports; Step 0 already added `captureOut`, `spyOn`, `hookStatusCommand` and `hookUninstallCommand`. `io.reset()` is `out.__test__.reset()`, which clears the stderr-written latch and the human gate, so `fresh` sets the gate again after it.)
 
 The plain renderer writes a `kv` block as `key: value` (checked at `658e704b9`: `renderPlain([kv("runs", "y")])` is `runs: y`).
 

@@ -311,7 +311,7 @@ export async function settleBackground(): Promise<void> {
 
 The latch lives with `resolved` so the reset every background test already runs (`lib/ui/__tests__/background.test.ts`'s `beforeEach` and `afterEach`) clears both; a module flag in `spawn.ts` would survive that reset and make `:206`'s second test see no settling run.
 
-- [ ] **Step 4:** Run `bun test lib/ui/__tests__/spawn.test.ts lib/ui/__tests__/background.test.ts lib/ui/__tests__/steps.test.ts lib/ui/__tests__/transient-step.test.ts lib/__tests__/no-daemon-sync-exec.test.ts lib/__tests__/no-eager-tui.test.ts`. PASS.
+- [ ] **Step 4:** Run `bun test lib/ui/__tests__/spawn.test.ts lib/ui/__tests__/background.test.ts lib/ui/__tests__/steps.test.ts lib/ui/__tests__/transient-step.test.ts lib/__tests__/no-daemon-sync-exec.test.ts lib/__tests__/no-eager-tui.test.ts commands/__tests__/setup-apply.test.ts`. PASS (`setup-apply.test.ts` runs many steps under one process, the case the latch is for).
 - [ ] **Step 5:** Commit, message `ui: settle the terminal background once per process, answer or not`.
 
 ---
@@ -349,7 +349,7 @@ and its name becomes `a task that throws clears its step as failed`.
 
 ### Task 5: "0 of 1 connection have a label"
 
-**Files:** `commands/sdm.ts` (`enrichmentBlocks`), `commands/__tests__/sdm.test.ts`.
+**Files:** `commands/sdm.ts` (`enrichmentBlocks`), `commands/__tests__/sdm.test.ts`, `e2e/tests/sdm-enrichment.test.ts`.
 
 - [ ] **Step 1: Failing test:**
 
@@ -363,7 +363,7 @@ test("the label count reads right for every count", () => {
 });
 ```
 
-(`enrichmentBlocks` is already in `sdm.ts`'s `__test__`.) It replaces `enrichment counts read as English for one connection and for many` (`commands/__tests__/sdm.test.ts:269-275`), which pins today's "0 of 1 connection have a label". In `enrichment shows the file and how many connections have a label` (`:263-267`), the two counted lines become `[not yet] Labels on 0 of 2 connections  the rest show their StrongDM names` and `[ok] Labels on all 2 connections`; its no-connections line stays.
+(`enrichmentBlocks` is already in `sdm.ts`'s `__test__`.) It replaces `enrichment counts read as English for one connection and for many` (`commands/__tests__/sdm.test.ts:269-275`), which pins today's "0 of 1 connection have a label". In `enrichment shows the file and how many connections have a label` (`:263-267`), the two counted lines become `[not yet] Labels on 0 of 2 connections  the rest show their StrongDM names` and `[ok] Labels on all 2 connections`; its no-connections line stays. `e2e/tests/sdm-enrichment.test.ts:45` expects `toContain("0 of 2 connections have a label")` from the real binary: it becomes `toContain("Labels on 0 of 2 connections")`.
 - [ ] **Step 2:** Run: FAIL.
 - [ ] **Step 3: Implement.**
 
@@ -376,7 +376,7 @@ function enrichmentBlocks(path: string, enriched: number, total: number): Block[
 }
 ```
 
-- [ ] **Step 4:** Run the file: PASS.
+- [ ] **Step 4:** Run the file, then `bun test --preload ./e2e/setup.ts --timeout 60000 e2e/tests/sdm-enrichment.test.ts`: PASS.
 - [ ] **Step 5:** Commit, message `sdm: the label count reads right for one connection`.
 
 ---

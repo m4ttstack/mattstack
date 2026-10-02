@@ -605,7 +605,7 @@ function debugLog(cmd: string[], sensitive: boolean | undefined): void {
 }
 ```
 
-(`logCliEvent` from `../cli-logger.ts`, `redactCredentials` from `../daemon/redact-credentials.ts`; `formatDebugLine` already leaves values out, and the redaction also catches a credential inside a URL argument now that the line lands in a file.) Delete `lib/run-history.ts` and `lib/secrets/store.ts` from the allowlist.
+(`logCliEvent` from `../cli-logger.ts`, `redactCredentials` from `../../packages/rt-client/src/redact.ts`, as `lib/ui/warn.ts` imports it; `formatDebugLine` already leaves values out, and the redaction also catches a credential inside a URL argument now that the line lands in a file.) Delete `lib/run-history.ts` and `lib/secrets/store.ts` from the allowlist.
 
 - [ ] **Step 4:** Run `bun test lib/__tests__/run-history.test.ts lib/secrets lib/__tests__/no-raw-output.test.ts`. PASS. Then `git diff origin/main -- lib/__tests__/raw-output-allowlist.json`: eleven deletions, nothing added.
 - [ ] **Step 5:** Commit, message `run history and secrets debug lines through warn and the CLI log`.

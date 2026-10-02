@@ -612,7 +612,7 @@ test("log-level --json with the daemon down leaves stdout empty", async () => {
 Before Step 3 this test fails (today's sentence is on stdout); after, it passes.
 
 - [ ] **Step 4:** Run `bun test commands/__tests__/log-level.test.ts commands/__tests__/daemon-json.test.ts`. PASS.
-- [ ] **Step 5:** Commit (`commands/daemon.ts`, `commands/__tests__/log-level.test.ts`), message `daemon log-level: blocks, an unreachable daemon is a failure with the start command`.
+- [ ] **Step 5:** Commit (`commands/daemon.ts`, `commands/__tests__/log-level.test.ts`, `commands/__tests__/daemon-json.test.ts`), message `daemon log-level: blocks, an unreachable daemon is a failure with the start command`.
 
 ---
 
@@ -885,7 +885,7 @@ The `git config --get remote.origin.url` `execSync` in `manageTracking` is a fix
 
 - [ ] **Step 4:** Run:
   - `bun test commands/__tests__/daemon-tracking.test.ts commands/__tests__/daemon-json.test.ts lib/__tests__/no-raw-output.test.ts`: PASS.
-  - `grep -n "console\.\|process\.std\(out\|err\)\.write\|lib/tui\.ts" commands/daemon.ts`: no output (`lib/tui/label.ts` stays imported).
+  - `grep -n "console\.\|process\.std\(out\|err\)\.write\|lib/tui\.ts" commands/daemon.ts`: no output (`lib/tui/utils/label.ts` stays imported).
   - `rg -n "[\x{2013}\x{2014}]" commands/daemon.ts`: no hits on lines this slice wrote (`git diff origin/main -- commands/daemon.ts` to check any hit; comments already there may keep theirs).
   - `bun run typecheck`: no errors.
   - `bun test --preload ./e2e/setup.ts --timeout 60000 e2e/tests/daemon.test.ts`: PASS.
