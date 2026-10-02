@@ -284,13 +284,6 @@
   pointer-events: none;
 }
 
-/* Content scrolled up stops at the column headings' framed top
-   (`--content-top`), so it never runs under the focus header. */
-.canvas :global(.react-flow__renderer),
-:global(.react-flow__panel).columns {
-  clip-path: inset(var(--content-top) 0 0 0);
-}
-
 .column {
   position: absolute;
   top: 0;
