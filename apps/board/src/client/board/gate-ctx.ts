@@ -11,6 +11,8 @@ export type VerdictCall =
 export type Readiness = 'yes' | 'no' | 'with-fixes';
 export type FindingSeverity = 'critical' | 'important' | 'minor';
 export type Disposition = 'new' | 'still-open' | 'addressed-check';
+export type CarryoverCall =
+  'fixed' | 'not-fixed' | 'pushback-accepted' | 'pushback-rejected';
 
 export interface PlanCtx {
   shape: 'plan@1';
@@ -86,6 +88,37 @@ export interface FindingsCtx {
   findings: FindingEntry[];
 }
 
+/** One of the reviewer's own earlier threads on a re-review, as the agent
+    judged what the author did with it. `thread` is the discussion id its
+    question's `post:` / `resolve:` options name. */
+export interface CarryoverCtx {
+  shape: 'carryover@1';
+  thread: string;
+  file?: string;
+  round: number;
+  call: CarryoverCall;
+  original: string;
+  authorReply?: string;
+  note?: string;
+  reply: string;
+}
+
+/** A finding the reviewer left unticked in an earlier round. `changed`
+    means the code it pointed at has moved since. */
+export interface SkippedEntry {
+  id: string;
+  round: number;
+  severity: FindingSeverity;
+  title: string;
+  file?: string;
+  changed: boolean;
+}
+
+export interface SkippedCtx {
+  shape: 'skipped@1';
+  skipped: SkippedEntry[];
+}
+
 export type GateCtx =
   | PlanCtx
   | PostCtx
@@ -93,7 +126,9 @@ export type GateCtx =
   | ReplyCtx
   | RepliesCtx
   | ReviewCtx
-  | FindingsCtx;
+  | FindingsCtx
+  | CarryoverCtx
+  | SkippedCtx;
 
 type Obj = Record<string, unknown>;
 
@@ -110,6 +145,12 @@ const VERBS = ['reply', 'fix'] as const;
 const READINESS = ['yes', 'no', 'with-fixes'] as const;
 const FINDING_SEVERITIES = ['critical', 'important', 'minor'] as const;
 const DISPOSITIONS = ['new', 'still-open', 'addressed-check'] as const;
+const CARRYOVER_CALLS = [
+  'fixed',
+  'not-fixed',
+  'pushback-accepted',
+  'pushback-rejected',
+] as const;
 
 class Reject extends Error {}
 
@@ -298,6 +339,46 @@ function readFindings(o: Obj): FindingsCtx {
   return { shape: 'findings@1', findings: findings.map(readFinding) };
 }
 
+function round(v: unknown): number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1 ? v : reject();
+}
+
+function readCarryover(o: Obj): CarryoverCtx {
+  const file = optStr(o.file);
+  const authorReply = optStr(o.authorReply);
+  const note = optStr(o.note);
+  return {
+    shape: 'carryover@1',
+    thread: str(o.thread),
+    ...(file !== undefined ? { file } : {}),
+    round: round(o.round),
+    call: oneOf(o.call, CARRYOVER_CALLS),
+    original: str(o.original),
+    ...(authorReply !== undefined ? { authorReply } : {}),
+    ...(note !== undefined ? { note } : {}),
+    reply: str(o.reply),
+  };
+}
+
+function readSkippedEntry(v: unknown): SkippedEntry {
+  const e = obj(v);
+  const file = optStr(e.file);
+  return {
+    id: str(e.id),
+    round: round(e.round),
+    severity: oneOf(e.severity, FINDING_SEVERITIES),
+    title: str(e.title),
+    ...(file !== undefined ? { file } : {}),
+    changed: optFlag(e.changed),
+  };
+}
+
+function readSkipped(o: Obj): SkippedCtx {
+  const skipped = o.skipped;
+  if (!Array.isArray(skipped)) reject();
+  return { shape: 'skipped@1', skipped: skipped.map(readSkippedEntry) };
+}
+
 const READERS = new Map<string, (o: Obj) => GateCtx>([
   ['plan@1', readPlan],
   ['post@1', readPost],
@@ -306,6 +387,8 @@ const READERS = new Map<string, (o: Obj) => GateCtx>([
   ['replies@1', readReplies],
   ['review@1', readReview],
   ['findings@1', readFindings],
+  ['carryover@1', readCarryover],
+  ['skipped@1', readSkipped],
 ]);
 
 export function parseGateCtx(context: string | undefined): GateCtx | null {

@@ -71,7 +71,7 @@ export function isEdited(
 
 /** The trimmed edit each active item sends, keyed by question id. Null when
     an active item's edit is empty: an empty reply cannot post. */
-function sendableTexts(
+export function sendableTexts(
   items: Array<{ name: string; draft: string; active: boolean }>,
   texts: Record<string, string>
 ): Record<string, string> | null {

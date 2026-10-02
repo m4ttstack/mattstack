@@ -252,5 +252,24 @@ function SheetLost({
   );
 }
 
-export { Choices, Note, ProseContext, reserveDock, SheetLost, SheetRows };
+/** The round a review or respond gate is on, as the first thing the main
+    column says, with a one-line account of what this round holds. */
+function RoundHeading({ round, summary }: { round: number; summary?: string }) {
+  return (
+    <div className="tui-sheet-round">
+      <h2 className="tui-sheet-round-n">Round {round}</h2>
+      {summary && <span className="tui-sheet-round-summary">{summary}</span>}
+    </div>
+  );
+}
+
+export {
+  Choices,
+  Note,
+  ProseContext,
+  reserveDock,
+  RoundHeading,
+  SheetLost,
+  SheetRows,
+};
 export type { ChoiceState, RowChip, SheetRow };

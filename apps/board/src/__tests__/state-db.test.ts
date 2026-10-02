@@ -112,6 +112,28 @@ describe('state db', () => {
       a: 1,
     });
   });
+
+  test('v4 adds review_rounds, and a v3 db upgrades in place with its rows intact', () => {
+    const p = tempDbPath();
+    const db = openStateDb(p);
+    db.run(
+      "INSERT INTO agent_states (lane, mr_url, state, handle, updated_at) VALUES ('review', 'u', '{}', 'h', 1)"
+    );
+    db.run('DROP TABLE review_rounds');
+    db.run('PRAGMA user_version = 3');
+    db.close();
+    closeStateDb();
+    const again = openStateDb(p);
+    expect(
+      again
+        .query("SELECT name FROM sqlite_master WHERE name = 'review_rounds'")
+        .get()
+    ).not.toBeNull();
+    expect(again.query('SELECT COUNT(*) AS n FROM agent_states').get()).toEqual(
+      { n: 1 }
+    );
+    expect(SCHEMA_VERSION).toBe(4);
+  });
 });
 
 describe('BOARD_STATE_DB basename validation', () => {

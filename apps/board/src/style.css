@@ -2322,19 +2322,46 @@ body {
   font-size: var(--gate-font-meta);
   color: var(--text-3);
 }
-/* Post and hold are one choice, side by side; resolve is independent of
-   both, so it takes its own row. */
+/* Post and resolve are independent on/off decisions: each a card checkbox,
+   small enough to sit in line with the edit button. An empty box in a plain
+   tile reads as a choice, never as a button that acts on click. */
 .tui-post-controls {
   display: flex;
-  flex-direction: column;
-  gap: var(--gate-gap-row);
-}
-.tui-post-controls > .tui-gate-choices {
-  flex-direction: row;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
-.tui-post-controls > .tui-gate-choices > .tui-gate-choice {
-  flex: 1 1 220px;
+.tui-post-tick {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--card);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color 120ms,
+    border-color 120ms;
+}
+.tui-post-tick:hover {
+  background: color-mix(in srgb, var(--fg) 4%, var(--card));
+}
+.tui-post-tick[data-checked] {
+  border-color: var(--fill-accent);
+  background: color-mix(in srgb, var(--fill-accent) 10%, var(--card));
+}
+.tui-post-tick:has(input:focus-visible) {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 1px;
+}
+.tui-post-tick .tui-gate-choice-input {
+  width: 14px;
+  height: 14px;
 }
 /* The resolve tick is painted with the on-fill token through a mask, so it
    follows the fill it sits on in either scheme. */
@@ -2390,13 +2417,24 @@ body {
   background: color-mix(in srgb, var(--fg) 5%, transparent);
 }
 .tui-thread-reply-k {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-ok-small);
 }
-.tui-thread-reply[data-kind='direction'] .tui-thread-reply-k {
+.tui-thread-reply[data-kind='direction'] .tui-thread-reply-k,
+.tui-thread-reply[data-held] .tui-thread-reply-k {
+  color: var(--text-2);
+}
+.tui-thread-reply-text {
+  font-size: 14px;
+}
+/* Held: the reply stays readable but stops looking like it will post. */
+.tui-thread-reply[data-held] {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+.tui-thread-reply[data-held] .tui-thread-reply-text {
   color: var(--text-2);
 }
 /* The margins undo the padding plus border, so the words sit exactly where
@@ -2422,19 +2460,18 @@ body {
 }
 .tui-thread-reply-actions {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
 }
-.tui-thread-reply-action {
-  border: none;
-  background: none;
-  padding: 0;
-  font-size: 12px;
-  color: var(--text-4);
-  cursor: pointer;
+.tui-thread-reply-controls {
+  margin-left: auto;
 }
-.tui-thread-reply-action:hover {
-  color: var(--text-accent-small);
-  text-decoration: underline;
+/* Holds the edit button's place while the reply is held, so holding and
+   posting never change the card's height. */
+.tui-thread-reply-placeholder {
+  visibility: hidden;
 }
 /* A respond-post reply option carries the full reply text, so the box
    tops its checkbox against the first line instead of centring it. */
@@ -3768,6 +3805,41 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-bad-small);
 }
 
+/* The round is the context every card below is read in, so it stays pinned
+   while the column scrolls. The negative top and margins pull it over the
+   column's own padding (22px 28px, `.tui-sheet-main`), so the frosted bar
+   spans the column and no card shows through above it. It stops 2px short
+   of the left edge, where the sheet's own focus ring is drawn. */
+.tui-sheet-round {
+  position: sticky;
+  top: -22px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin: -22px -28px 28px -26px;
+  padding: 16px 28px 16px 26px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  background: color-mix(in srgb, var(--card) 72%, transparent);
+  backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow: 0 4px 10px -4px color-mix(in srgb, black 14%, transparent);
+}
+.tui-sheet-round-n {
+  margin: 0;
+  font-size: var(--gate-font-display);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-1);
+}
+.tui-sheet-round-summary {
+  font-size: var(--gate-font-body);
+  color: var(--text-2);
+}
+.tui-sheet-round + .tui-sheet-list-head {
+  margin-top: 0;
+}
+
 /* findings list */
 .tui-sheet-list-head {
   display: flex;
@@ -4033,7 +4105,7 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-review-finding-text,
 .tui-review-finding-fix {
-  max-width: 100ch;
+  max-width: 140ch;
 }
 .tui-review-finding-text [data-part='markdown'] > * {
   margin: 0;
@@ -4123,7 +4195,151 @@ a.tui-id-card-ref:focus-visible {
   font-size: var(--gate-font-meta);
 }
 .tui-review-full-report {
+  margin-top: 14px;
+}
+/* Hugs its words, so the hover wash is the size of the control, not a
+   full-width bar; the chevron centres on the label. */
+.tui-review-full-report-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.tui-review-full-report-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.tui-review-full-report-hint {
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+/* An earlier thread's two sides, quoted: what the reviewer wrote, then the
+   author's latest reply, told apart by the rule's colour. */
+.tui-carry-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--border-control);
+}
+.tui-carry-quote[data-who='author'] {
+  border-left-color: var(--fill-accent);
+}
+.tui-carry-quote-k {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.tui-carry-quote-text {
+  font-size: 14px;
+}
+/* The agent's verdict on the thread: amber while the author still owes a
+   move, green once it is settled. */
+.tui-carry-check {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.tui-carry-check-icon {
+  display: inline-flex;
+  align-self: center;
+  color: var(--text-warn);
+}
+.tui-carry-check[data-settled] .tui-carry-check-icon {
+  color: var(--text-ok);
+}
+.tui-carry-check-k {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.tui-carry-check-note {
+  color: var(--text-1);
+}
+.tui-carry-quote-text [data-part='markdown'] > * {
+  margin: 0;
+}
+.tui-carry-quote-text [data-part='markdown'] > * + * {
+  margin-top: 6px;
+}
+
+.tui-review-skipped {
   margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.tui-review-skipped-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tui-review-skipped-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.tui-review-skipped-count {
+  font-size: 15px;
+  color: var(--text-3);
+}
+.tui-review-skipped-hint {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.tui-review-skipped-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+}
+.tui-review-skipped-row {
+  align-items: flex-start;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+.tui-review-skipped-row[data-restoring] {
+  background: color-mix(in srgb, var(--fill-accent) 10%, transparent);
+}
+/* One line of facts under the title, dot-separated, in words: amber marks
+   a severity worth noticing and a finding whose code has moved. */
+.tui-review-skipped-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.tui-review-skipped-meta > * + *::before {
+  content: '·';
+  margin: 0 6px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.tui-review-skipped-path {
+  font-family: var(--font-mono);
+  color: var(--text-4);
+}
+.tui-review-skipped-meta
+  :is([data-severity='critical'], [data-severity='important']),
+.tui-review-skipped-changed {
+  font-weight: 500;
+  color: var(--text-warn-small);
+}
+.tui-review-skipped-restoring {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-accent-small);
 }
 
 /* right rail */
