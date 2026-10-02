@@ -57,9 +57,9 @@ describe('buildFocusGroups on the design pack', () => {
     ]);
   });
 
-  it('lists the on-demand verbs with internal ones locked and review flagged', () => {
+  it('lists the standalone verbs, slotless ones included, with internal ones locked and review flagged', () => {
     expect(
-      groups.onDemand.map(item => [item.label, item.key, item.icon])
+      groups.standalone.map(item => [item.label, item.key, item.icon])
     ).toEqual([
       ['shepherdr', 'shepherdr', 'squareTerminal'],
       ['review', 'review', 'squareTerminal'],
@@ -67,8 +67,12 @@ describe('buildFocusGroups on the design pack', () => {
       ['receive-review', 'receive-review', 'lock'],
       ['ship', 'ship', 'squareTerminal'],
       ['watch-ci', 'watch-ci', 'squareTerminal'],
+      ['checkout', 'checkout', 'squareTerminal'],
+      ['sync-open-mrs', 'sync-open-mrs', 'squareTerminal'],
+      ['rebase-worktree', 'rebase-worktree', 'squareTerminal'],
+      ['standup', 'standup', 'squareTerminal'],
     ]);
-    expect(flagged(groups.onDemand)).toEqual(['review']);
+    expect(flagged(groups.standalone)).toEqual(['review']);
   });
 
   it('lists the board skills this pack binds', () => {
@@ -81,16 +85,10 @@ describe('buildFocusGroups on the design pack', () => {
     ]);
   });
 
-  it('counts unwired verbs and the fill nothing binds, flagged for the required slot left unbound', () => {
-    expect(groups.unwired.count).toBe(6);
+  it('counts the verb whose slot nothing binds and the fill nothing binds, flagged for the required slot', () => {
+    expect(groups.unwired.count).toBe(2);
     expect(groups.unwired.attention).toBe(true);
-    expect(labels(groups.unwired.items)).toEqual([
-      'checkout',
-      'sync-open-mrs',
-      'rebase-worktree',
-      'release-notes',
-      'standup',
-    ]);
+    expect(labels(groups.unwired.items)).toEqual(['release-notes']);
     expect(flagged(groups.unwired.items)).toEqual(['release-notes']);
   });
 
@@ -125,8 +123,8 @@ describe('buildFocusGroups on other packs', () => {
       [2, 'implement'],
       [3, 'ship'],
     ]);
-    expect(labels(groups.onDemand)).toEqual(
-      labels(buildFocusGroups(composition, check).onDemand)
+    expect(labels(groups.standalone)).toEqual(
+      labels(buildFocusGroups(composition, check).standalone)
     );
   });
 
@@ -134,7 +132,7 @@ describe('buildFocusGroups on other packs', () => {
     const groups = buildFocusGroups({ ...composition, pipelines: {} }, check);
     expect(groups.empty).toBe('no-pipeline');
     expect(groups.pipelines).toEqual([]);
-    expect(labels(groups.onDemand)[0]).toBe('work');
+    expect(labels(groups.standalone)[0]).toBe('work');
   });
 
   it('tells an rt too old to report pipelines apart from a pack that declares none', () => {
@@ -144,7 +142,7 @@ describe('buildFocusGroups on other packs', () => {
     );
     expect(groups.empty).toBe('rt-without-pipelines');
     expect(groups.pipelines).toEqual([]);
-    expect(labels(groups.onDemand)[0]).toBe('work');
+    expect(labels(groups.standalone)[0]).toBe('work');
   });
 
   it('lists a board binder that binds no slot', () => {
@@ -169,7 +167,7 @@ describe('buildFocusGroups on other packs', () => {
   it('flags nothing from drift when check has not answered', () => {
     const groups = buildFocusGroups(composition, undefined);
     expect(groups.pipelines[0]!.attention).toBe(false);
-    expect(flagged(groups.onDemand)).toEqual([]);
+    expect(flagged(groups.standalone)).toEqual([]);
     expect(groups.unwired.attention).toBe(true);
   });
 });
@@ -187,7 +185,7 @@ describe('onlyAttention', () => {
   });
 
   it('keeps review and unwired, and drops the board group', () => {
-    expect(labels(filtered.onDemand)).toEqual(['review']);
+    expect(labels(filtered.standalone)).toEqual(['review']);
     expect(filtered.board).toEqual([]);
     expect(labels(filtered.unwired.items)).toEqual(['release-notes']);
   });
@@ -234,12 +232,12 @@ describe('firstFocus', () => {
     );
   });
 
-  it('starts on the first on-demand verb when the pack declares no pipeline', () => {
+  it('starts on the first standalone verb when the pack declares no pipeline', () => {
     const groups = buildFocusGroups(
       { ...composition, pipelines: {} } as SkillsComposition,
       check
     );
-    expect(firstFocus(groups)?.key).toBe(groups.onDemand[0]!.key);
+    expect(firstFocus(groups)?.key).toBe(groups.standalone[0]!.key);
   });
 });
 

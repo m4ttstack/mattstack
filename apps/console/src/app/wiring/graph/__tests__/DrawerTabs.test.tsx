@@ -217,14 +217,14 @@ describe('usedBySites', () => {
       ['PIPELINE STEPS', 'stage-evidence', 268],
       ['PIPELINE STEPS', 'stage-ship', 435],
       ['PIPELINE STEPS', 'stage-watch-ci', 499],
-      ['ON-DEMAND', 'review', 786],
-      ['ON-DEMAND', 'self-review', 442],
-      ['ON-DEMAND', 'receive-review', 1376],
-      ['ON-DEMAND', 'ship', 712],
-      ['ON-DEMAND', 'watch-ci', 804],
-      ['NOT WIRED INTO ANYTHING', 'checkout', 271],
-      ['NOT WIRED INTO ANYTHING', 'sync-open-mrs', 416],
-      ['NOT WIRED INTO ANYTHING', 'rebase-worktree', 451],
+      ['STANDALONE', 'review', 786],
+      ['STANDALONE', 'self-review', 442],
+      ['STANDALONE', 'receive-review', 1376],
+      ['STANDALONE', 'ship', 712],
+      ['STANDALONE', 'watch-ci', 804],
+      ['STANDALONE', 'checkout', 271],
+      ['STANDALONE', 'sync-open-mrs', 416],
+      ['STANDALONE', 'rebase-worktree', 451],
     ]);
     expect(sites[0]!.focus).toBe('pipeline:feature');
     expect(sites[0]!.label).toBe('work/SKILL.md');
@@ -239,12 +239,12 @@ describe('usedBySites', () => {
 
     expect(sites.map(site => [site.group, site.skill, site.line])).toEqual([
       ['PIPELINE STEPS', 'work', 242],
-      ['ON-DEMAND', 'shepherdr', 38],
-      ['ON-DEMAND', 'review', 44],
-      ['ON-DEMAND', 'self-review', 31],
-      ['ON-DEMAND', 'receive-review', 52],
-      ['ON-DEMAND', 'ship', 27],
-      ['ON-DEMAND', 'watch-ci', 35],
+      ['STANDALONE', 'shepherdr', 38],
+      ['STANDALONE', 'review', 44],
+      ['STANDALONE', 'self-review', 31],
+      ['STANDALONE', 'receive-review', 52],
+      ['STANDALONE', 'ship', 27],
+      ['STANDALONE', 'watch-ci', 35],
       ['BOARD', 'board:review', null],
       ['BOARD', 'board:respond', null],
       ['BOARD', 'board:doctor', null],
@@ -374,7 +374,7 @@ describe('Used by tab', () => {
       within(tab)
         .getAllByTestId('used-by-group')
         .map(group => group.textContent)
-    ).toEqual(['PIPELINE STEPS', 'ON-DEMAND', 'NOT WIRED INTO ANYTHING']);
+    ).toEqual(['PIPELINE STEPS', 'STANDALONE']);
     const rows = within(tab).getAllByTestId('used-by-row');
     expect(rows).toHaveLength(14);
     expect(rows[0]).toHaveTextContent('work/SKILL.md');
@@ -414,7 +414,7 @@ describe('Used by tab', () => {
       within(tab)
         .getAllByTestId('used-by-group')
         .map(group => group.textContent)
-    ).toEqual(['PIPELINE STEPS', 'ON-DEMAND', 'BOARD']);
+    ).toEqual(['PIPELINE STEPS', 'STANDALONE', 'BOARD']);
     const board = within(tab)
       .getAllByTestId('used-by-row')
       .find(row => row.textContent?.startsWith('board:review'));

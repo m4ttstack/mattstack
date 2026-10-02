@@ -1,5 +1,6 @@
 import {
   buildSpine,
+  looseEnd,
   needsAttention,
   ORCHESTRATOR_VERB,
   suffixOf,
@@ -25,10 +26,11 @@ export type FocusItem = {
 
 export type FocusGroups = {
   pipelines: FocusItem[];
-  onDemand: FocusItem[];
+  standalone: FocusItem[];
   board: FocusItem[];
-  /** `count` is the unwired verbs plus the fills nothing binds; `items` holds
-      only the verbs, since a fill has no template to focus. */
+  /** `count` is the verbs whose slots nothing binds plus the fills nothing
+      binds; `items` holds only the verbs, since a fill has no template to
+      focus. */
   unwired: { count: number; attention: boolean; items: FocusItem[] };
   /** `rt-without-pipelines` is an rt whose composition predates the field;
       `no-pipeline` is a pack whose manifest declares none. */
@@ -112,16 +114,16 @@ export function buildFocusGroups(
     } satisfies FocusItem;
   });
 
-  const onDemand = first.outside
+  const standalone = first.outside
     .filter(
       entry =>
         !entry.external &&
-        !entry.unwired &&
+        !looseEnd(entry) &&
         !(entry.ref !== null && stageRefs.has(entry.ref))
     )
     .map(itemFor);
   if (pipelines.length === 0 && first.orchestrator)
-    onDemand.unshift(itemFor(first.orchestrator));
+    standalone.unshift(itemFor(first.orchestrator));
 
   const board = [
     ...new Set(
@@ -139,13 +141,11 @@ export function buildFocusGroups(
     children: [],
   }));
 
-  const unwiredItems = first.outside
-    .filter(entry => entry.unwired)
-    .map(itemFor);
+  const unwiredItems = first.outside.filter(looseEnd).map(itemFor);
 
   return {
     pipelines,
-    onDemand,
+    standalone,
     board,
     unwired: {
       count: unwiredItems.length + first.orphans.length,
@@ -172,7 +172,7 @@ export function onlyAttention(groups: FocusGroups): FocusGroups {
       ...pipeline,
       children: flagged(pipeline.children),
     })),
-    onDemand: flagged(groups.onDemand),
+    standalone: flagged(groups.standalone),
     board: flagged(groups.board),
     unwired: unwiredShown(groups.unwired),
   };
@@ -183,7 +183,7 @@ export function onlyAttention(groups: FocusGroups): FocusGroups {
 export function findFocus(groups: FocusGroups, key: string): FocusItem | null {
   const all = [
     ...groups.pipelines.flatMap(pipeline => [pipeline, ...pipeline.children]),
-    ...groups.onDemand,
+    ...groups.standalone,
     ...groups.board,
     ...groups.unwired.items,
   ];
@@ -199,7 +199,7 @@ export function findFocus(groups: FocusGroups, key: string): FocusItem | null {
 export function firstFocus(groups: FocusGroups): FocusItem | null {
   return (
     groups.pipelines[0] ??
-    groups.onDemand[0] ??
+    groups.standalone[0] ??
     groups.board[0] ??
     groups.unwired.items[0] ??
     null

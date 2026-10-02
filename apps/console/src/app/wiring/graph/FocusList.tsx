@@ -340,8 +340,8 @@ function FocusGroupsList({
           onFocus={onFocus}
         />
       ))}
-      {groups.onDemand.length > 0 && <GroupLabel>On-demand</GroupLabel>}
-      {groups.onDemand.map(item => (
+      {groups.standalone.length > 0 && <GroupLabel>Standalone</GroupLabel>}
+      {groups.standalone.map(item => (
         <ItemRow
           key={item.key}
           item={item}
@@ -364,7 +364,7 @@ function FocusGroupsList({
 
 const isEmpty = (groups: FocusGroups) =>
   groups.pipelines.length === 0 &&
-  groups.onDemand.length === 0 &&
+  groups.standalone.length === 0 &&
   groups.board.length === 0 &&
   groups.unwired.count === 0;
 
