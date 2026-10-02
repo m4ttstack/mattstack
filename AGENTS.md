@@ -222,6 +222,13 @@ so it pastes clean, which means it must never carry untrusted multi-line
 text. Step sub-lines sit under their running step: they clear when the step
 ends with `done` and stay beneath it when it fails.
 
+A callout row that is only a command prints whole. A row whose one command
+is its last segment (`["Commit them, or set them aside with ", out.cmd("rt git
+stash push")]`) prints its sentence on the label row and the command on the
+row under it, so end the sentence where the command starts; any other row
+wraps at its spaces and never splits a command. Off a terminal the row stays
+one line.
+
 `out.print` writes plain text to stdout under `--json` too, so a verb whose
 `--json` branch can still print a note (a repo whose identity cannot derive,
 a lock file that is missing) calls `out.payloadOnStdout()` as soon as it

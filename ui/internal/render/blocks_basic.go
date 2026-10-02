@@ -97,7 +97,6 @@ func (r *renderer) callout(b protocol.Block) {
 	r.calloutLines(calloutColor(b.Label), b.Label, b.Body)
 }
 
-// calloutLines never wraps a cell holding a command: it is pasted whole.
 func (r *renderer) calloutLines(c color.Color, label string, body []protocol.Cell) {
 	label = Clean(label)
 	bar := calloutIndent + fg(c).Render(theme.GlyphBar) + " "
@@ -105,11 +104,7 @@ func (r *renderer) calloutLines(c color.Color, label string, body []protocol.Cel
 	w := min(r.width-lipgloss.Width(cont), paragraphMax)
 	first := true
 	for _, line := range body {
-		rows := []protocol.Cell{line}
-		if !hasCommand(line) {
-			rows = wrapCell(line, w)
-		}
-		for _, row := range rows {
+		for _, row := range calloutRows(line, w) {
 			if first {
 				r.emit(bar + fg(c).Render(label) + " " + cell(row))
 				first = false
@@ -118,6 +113,84 @@ func (r *renderer) calloutLines(c color.Color, label string, body []protocol.Cel
 			r.emit(cont + cell(row))
 		}
 	}
+}
+
+// calloutRows breaks one body row. A command is pasted whole, so it is never
+// split: a row that is only a command stays whole, a command that ends a row
+// of prose takes a row of its own, and any other row wraps at its spaces
+// with each command kept on one row.
+func calloutRows(line protocol.Cell, w int) []protocol.Cell {
+	if !hasCommand(line) {
+		return wrapCell(line, w)
+	}
+	if prose, command, ok := trailingCommand(line); ok {
+		return append(calloutRows(prose, w), command)
+	}
+	if onlyCommands(line) || widestCommand(line) > w {
+		return []protocol.Cell{line}
+	}
+	glued := withCommandSpaces([]protocol.Cell{line}, " ", nbsp)[0]
+	return withCommandSpaces(wrapCell(glued, w), nbsp, " ")
+}
+
+// nbsp holds a command together through wrapCell, which breaks only at
+// plain spaces.
+const nbsp = string(rune(0xA0))
+
+// trailingCommand splits a row whose one command is its last segment into
+// the prose before it and the command.
+func trailingCommand(line protocol.Cell) (protocol.Cell, protocol.Cell, bool) {
+	n := len(line)
+	if n < 2 || line[n-1].Role != "command" {
+		return nil, nil, false
+	}
+	prose := append(protocol.Cell(nil), line[:n-1]...)
+	var words strings.Builder
+	for _, s := range prose {
+		if s.Role == "command" {
+			return nil, nil, false
+		}
+		words.WriteString(s.Text)
+	}
+	if strings.TrimSpace(Clean(words.String())) == "" {
+		return nil, nil, false
+	}
+	prose[n-2].Text = strings.TrimRight(prose[n-2].Text, " ")
+	return prose, protocol.Cell{line[n-1]}, true
+}
+
+func onlyCommands(line protocol.Cell) bool {
+	for _, s := range line {
+		if s.Role != "command" && strings.TrimSpace(s.Text) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+func widestCommand(line protocol.Cell) int {
+	n := 0
+	for _, s := range line {
+		if s.Role == "command" {
+			n = max(n, lipgloss.Width(Clean(s.Text)))
+		}
+	}
+	return n
+}
+
+// withCommandSpaces swaps from for to inside command segments only.
+func withCommandSpaces(rows []protocol.Cell, from, to string) []protocol.Cell {
+	out := make([]protocol.Cell, len(rows))
+	for i, row := range rows {
+		out[i] = make(protocol.Cell, len(row))
+		for j, s := range row {
+			if s.Role == "command" {
+				s.Text = strings.ReplaceAll(s.Text, from, to)
+			}
+			out[i][j] = s
+		}
+	}
+	return out
 }
 
 func (r *renderer) kv(b protocol.Block) {

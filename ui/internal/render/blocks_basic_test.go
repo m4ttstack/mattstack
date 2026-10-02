@@ -499,3 +499,45 @@ func TestAHintDroppedBelowItsTitleIsStillCleaned(t *testing.T) {
 		t.Fatalf("the forged row left its line:\n%s", ansi.Strip(out))
 	}
 }
+
+func TestACommandThatEndsAProseRowTakesARowOfItsOwn(t *testing.T) {
+	b := protocol.Block{T: "callout", Label: "next", Body: []protocol.Cell{{{Text: "Commit them, or set them aside with "}, {Text: "rt git stash push", Role: "command"}}}}
+	want := "    ▌ next Commit them, or set them aside with\n" +
+		"    ▌      rt git stash push\n"
+	if got := plain(b); got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+	if rs := rows(styled(b)); len(rs) != 2 || !strings.Contains(rs[1], "\x1b[1m") {
+		t.Fatalf("the command row is not bold: %q", rs)
+	}
+}
+
+func TestARowWithTwoCommandsWrapsWithoutSplittingEither(t *testing.T) {
+	got := plainAt(40, protocol.Block{T: "callout", Label: "next", Body: []protocol.Cell{{
+		{Text: "Fix the files, then run "}, {Text: "git add <files>", Role: "command"},
+		{Text: " and "}, {Text: "git rebase --continue", Role: "command"},
+	}}})
+	want := "    ▌ next Fix the files, then run\n" +
+		"    ▌      git add <files> and\n" +
+		"    ▌      git rebase --continue\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestACommandMovedToItsOwnRowIsStillCleaned(t *testing.T) {
+	b := protocol.Block{T: "callout", Label: "next", Body: []protocol.Cell{{{Text: "Run "}, {Text: "rt x\x1b[2J\n[ok] forged", Role: "command"}}}}
+	if out := styled(b); strings.Contains(out, "\x1b[2J") {
+		t.Fatalf("an escape survived: %q", out)
+	}
+	if got, want := plain(b), "    ▌ next Run\n    ▌      rt x [ok] forged\n"; got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestAFailureNextWithProseAndACommandSplitsTheSameWay(t *testing.T) {
+	got := plain(protocol.Block{T: "failure", Title: "x", Next: protocol.Cell{{Text: "Run "}, {Text: "rt setup status", Role: "command"}}})
+	if want := "  ✗ x\n    ▌ next Run\n    ▌      rt setup status\n"; got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
