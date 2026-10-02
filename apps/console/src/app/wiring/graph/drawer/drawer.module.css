@@ -84,6 +84,7 @@
   flex: none;
 }
 
+/* A 28px target in the 16px the board gives the icon. */
 .close {
   flex: none;
   margin: -6px;
@@ -93,6 +94,7 @@
   gap: 4px;
 }
 
+/* The header's own rule is the line the tabs sit on. */
 .tabs::before {
   display: none;
 }
