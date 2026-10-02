@@ -2207,17 +2207,20 @@ describe('skills source route', () => {
     '/cache/mattstack/0.30.4/README.md',
     '/cache/mattstack/0.30.4/docs/notes.md',
     '/cache/mattstack/0.30.4/skills-extra/x.md',
-  ])('404s %s, a markdown file of the engine outside its skill folders', async path => {
-    const app = mountSkills(
-      new Hono(),
-      compositionRt().run,
-      noGit(),
-      read,
-      identity
-    );
+  ])(
+    '404s %s, a markdown file of the engine outside its skill folders',
+    async path => {
+      const app = mountSkills(
+        new Hono(),
+        compositionRt().run,
+        noGit(),
+        read,
+        identity
+      );
 
-    expect((await getSource(app, path)).status).toBe(404);
-  });
+      expect((await getSource(app, path)).status).toBe(404);
+    }
+  );
 
   it.each([
     '/packs/acme/../other/SKILL.md',
