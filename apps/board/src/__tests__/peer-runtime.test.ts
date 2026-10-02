@@ -259,27 +259,24 @@ describe('tokenMissingNotice', () => {
 
 describe('tickOnPeerInbox', () => {
   test('the writer ticks on peer-inbox', async () => {
-    const { PEER_INBOX_EVENT, tickOnPeerInbox } = await import(
-      '../peer/runtime.ts'
-    );
+    const { PEER_INBOX_EVENT, tickOnPeerInbox } =
+      await import('../peer/runtime.ts');
     let ticks = 0;
     tickOnPeerInbox(PEER_INBOX_EVENT, true, async () => void ticks++);
     expect(ticks).toBe(1);
   });
 
   test('a non-writer never ticks: it does not own the peer state', async () => {
-    const { PEER_INBOX_EVENT, tickOnPeerInbox } = await import(
-      '../peer/runtime.ts'
-    );
+    const { PEER_INBOX_EVENT, tickOnPeerInbox } =
+      await import('../peer/runtime.ts');
     let ticks = 0;
     tickOnPeerInbox(PEER_INBOX_EVENT, false, async () => void ticks++);
     expect(ticks).toBe(0);
   });
 
   test('other daemon events are ignored', async () => {
-    const { PEER_INBOX_EVENT, tickOnPeerInbox } = await import(
-      '../peer/runtime.ts'
-    );
+    const { PEER_INBOX_EVENT, tickOnPeerInbox } =
+      await import('../peer/runtime.ts');
     let ticks = 0;
     tickOnPeerInbox('project-mrs', true, async () => void ticks++);
     expect(ticks).toBe(0);

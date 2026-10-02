@@ -6,7 +6,14 @@ import type { NudgeState } from '../peer/nudges.ts';
 const MR = 'https://gitlab.com/acme/webapp/-/merge_requests/4821';
 
 function ask(over: Partial<NudgeState>): NudgeState {
-  return { id: 'a1', mrUrl: MR, iid: 4821, from: 'ada', receivedAt: 100, ...over };
+  return {
+    id: 'a1',
+    mrUrl: MR,
+    iid: 4821,
+    from: 'ada',
+    receivedAt: 100,
+    ...over,
+  };
 }
 
 describe('askIdForRun', () => {
@@ -40,7 +47,9 @@ describe('askIdForRun', () => {
   });
 
   test('a row from before materializedAt existed falls back to receivedAt', () => {
-    expect(askIdForRun([ask({ receivedAt: 100 })], MR, 'ada', 250, 250)).toBe('a1');
+    expect(askIdForRun([ask({ receivedAt: 100 })], MR, 'ada', 250, 250)).toBe(
+      'a1'
+    );
   });
 
   test('no run start on file means no echo', () => {

@@ -200,11 +200,7 @@ export function makeFetchHandler(
       const params = new URL(req.url).searchParams;
       const since = Number(params.get('since') ?? '0');
       const timeout = Number(params.get('timeout') ?? String(MAX_WAIT_SECONDS));
-      if (
-        !Number.isFinite(since) ||
-        !Number.isFinite(timeout) ||
-        timeout < 0
-      )
+      if (!Number.isFinite(since) || !Number.isFinite(timeout) || timeout < 0)
         return new Response('expected numeric since and timeout', {
           status: 400,
         });

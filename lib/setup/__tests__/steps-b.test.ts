@@ -1330,7 +1330,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       const outcome = await cronTriageStep.run(ctx);
       expect(outcome).toEqual({ state: "done", detail: "Installed the board triage skill" });
-      const triggers = getSetting<{ triggers: { name: string; run: string[] }[] }>("rt.cron").value?.triggers ?? [];
+      const triggers = getSetting<{ triggers: { name: string; run: string[]; event?: string; debounceMs?: number }[] }>("rt.cron").value?.triggers ?? [];
       expect(triggers).toHaveLength(2);
       expect(triggers[0]!.run).toEqual([join(appRoot, HELPERS_DIR, "board"), "triage"]);
       expect(triggers[1]).toEqual({ name: "board-peer", event: "peer-inbox", run: [join(appRoot, HELPERS_DIR, "board"), "triage", "--peer"], debounceMs: 300 });

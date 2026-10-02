@@ -509,7 +509,14 @@ describe('materializeEnvelope', () => {
       const deps = fakeDeps();
       materializeEnvelope(
         envelope({
-          payload: { mrUrl: URL_A, iid: 4821, status: 'done', outcome: 'comment', updatedAt: 500, nudgeId: 'ask-1' },
+          payload: {
+            mrUrl: URL_A,
+            iid: 4821,
+            status: 'done',
+            outcome: 'comment',
+            updatedAt: 500,
+            nudgeId: 'ask-1',
+          },
         }),
         deps,
         1000
@@ -520,7 +527,9 @@ describe('materializeEnvelope', () => {
     test('a review-state with no nudgeId still finishes on the updatedAt guard', () => {
       const deps = fakeDeps();
       materializeEnvelope(
-        envelope({ payload: { mrUrl: URL_A, iid: 4821, status: 'done', updatedAt: 500 } }),
+        envelope({
+          payload: { mrUrl: URL_A, iid: 4821, status: 'done', updatedAt: 500 },
+        }),
         deps,
         1000
       );
@@ -534,7 +543,11 @@ describe('materializeEnvelope', () => {
     test('an inbound ask records when this board materialized it', () => {
       const deps = fakeDeps();
       materializeEnvelope(
-        envelope({ id: 'env-9', type: 're-review-request', payload: { mrUrl: URL_A, iid: 4821 } }),
+        envelope({
+          id: 'env-9',
+          type: 're-review-request',
+          payload: { mrUrl: URL_A, iid: 4821 },
+        }),
         deps,
         1234
       );

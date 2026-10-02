@@ -193,6 +193,7 @@ import {
   parseMrActionBody,
   runMrAction,
 } from './mr-action.ts';
+import { askIdForRun } from './peer/ask-echo.ts';
 import {
   makeSwitchboardClient,
   type SwitchboardClient,
@@ -205,7 +206,6 @@ import {
   type ReReviewRequestPayload,
   type ReviewStatePayload,
 } from './peer/envelope.ts';
-import { askIdForRun } from './peer/ask-echo.ts';
 import { boardMaterializeDeps } from './peer/materialize-deps.ts';
 import {
   dismissSentNudge,
