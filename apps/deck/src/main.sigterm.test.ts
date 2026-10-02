@@ -41,7 +41,10 @@ afterAll(() => {
   proc.kill();
 });
 
-test('SIGTERM exits promptly with code 0, not leaked past the grace period', async () => {
+// 143, never 0: the LaunchAgent's KeepAlive is SuccessfulExit=false, so a
+// clean exit on a SIGTERM launchd did not send would leave deck down for good.
+// launchd's own stops (bootout, kickstart -k) ignore the exit code.
+test('SIGTERM exits promptly with code 143, not leaked past the grace period', async () => {
   for (let i = 0; i < 100; i++) {
     try {
       const res = await fetch(`http://127.0.0.1:${PORT}/healthz`);
@@ -54,7 +57,7 @@ test('SIGTERM exits promptly with code 0, not leaked past the grace period', asy
 
   proc.kill('SIGTERM');
   const exitCode = await proc.exited;
-  expect(exitCode).toBe(0);
+  expect(exitCode).toBe(143);
 
   // The port is actually released, not just the process reaping -- a lingering
   // listener would mean shutdown() returned before apiServer.stop() took effect.
