@@ -771,6 +771,7 @@ export function KeyPanel({
   onPickRepo?: (repo: string) => void;
 }) {
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
+  const repo = useSettingsRepo();
   return (
     <Stack gap={10}>
       <Group justify="space-between" wrap="nowrap" gap={12}>
@@ -795,9 +796,11 @@ export function KeyPanel({
           {value}
         </PanelToolbarSlot.Provider>
       ) : (
-        // A new Fix on the open panel starts its layer's editor afresh.
+        // A new Fix on the open panel starts its layer's editor afresh. A
+        // repo switch does too: a rung's line is the same for every repo,
+        // and its editor would save the old repo's draft into the new one.
         <WhereTab
-          key={`${def.key}:${fix ?? ''}`}
+          key={`${def.key}:${fix ?? ''}:${repo ?? ''}`}
           def={def}
           store={store}
           fix={fix}

@@ -93,10 +93,13 @@ function renderPanel(
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  const panel = (fix: string | null | undefined) => (
+  const panel = (
+    fix: string | null | undefined,
+    repo: string | null = opts.repo ?? null
+  ) => (
     <QueryClientProvider client={client}>
       <SettingsTeamContext.Provider value={opts.team ?? null}>
-        <SettingsRepoContext.Provider value={opts.repo ?? null}>
+        <SettingsRepoContext.Provider value={repo}>
           <KeyPanel
             def={d}
             store={s}
@@ -110,7 +113,12 @@ function renderPanel(
     </QueryClientProvider>
   );
   const { rerender } = renderWithProviders(panel(opts.fix));
-  return { s, onTab, refix: (fix: string | null) => rerender(panel(fix)) };
+  return {
+    s,
+    onTab,
+    refix: (fix: string | null) => rerender(panel(fix)),
+    repick: (repo: string) => rerender(panel(opts.fix, repo)),
+  };
 }
 
 describe('KeyPanel', () => {
@@ -496,6 +504,49 @@ describe('KeyPanel', () => {
         name: 'cancel editing board.agent.model at user',
       })
     ).toBeInTheDocument();
+  });
+
+  it('a repo switch drops an open rung editor and writes nothing', async () => {
+    const d = def('board.ticketPrefixes', {
+      type: 'array',
+      repoScoped: true,
+      effective: { scope: 'user.repo', file: '/stores/user.jsonc', value: [] },
+    });
+    const rows = (value: string[]): ExplainRowWire[] => [
+      { scope: 'default', file: null, present: false },
+      { scope: 'user', file: '/stores/user.jsonc', present: false },
+      { scope: 'user.repo', file: '/stores/user.jsonc', present: true, value },
+    ];
+    const { s, repick } = renderPanel(d, rows(['A']), {
+      repo: 'gitlab.example.com/acme/a',
+    });
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: 'set board.ticketPrefixes at user · repo',
+      })
+    );
+    expect(
+      screen.getByText('Editing the user · repo layer')
+    ).toBeInTheDocument();
+
+    let loaded: (body: unknown) => void = () => {};
+    explainGet.mockReturnValue(
+      new Promise(resolve => {
+        loaded = resolve;
+      })
+    );
+    repick('gitlab.example.com/acme/b');
+    expect(screen.queryByText('Editing the user · repo layer')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+
+    loaded(ok({ def: d, rows: rows(['B']) }));
+    expect(
+      await screen.findByRole('button', {
+        name: 'set board.ticketPrefixes at user · repo',
+      })
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Editing the user · repo layer')).toBeNull();
+    expect(s.set).not.toHaveBeenCalled();
   });
 });
 

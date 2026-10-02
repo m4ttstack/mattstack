@@ -785,8 +785,6 @@ describe('Fix in the explain modal', () => {
     );
     const { rerender } = renderWithProviders(modal(REPO));
     const layer = await screen.findByTestId('layer-team.repo');
-    const port = () =>
-      within(layer).getByRole('textbox', { name: 'fixedPort' });
     await userEvent.type(
       await within(layer).findByRole('textbox', { name: 'fixedPort' }),
       '1'
@@ -796,15 +794,10 @@ describe('Fix in the explain modal', () => {
       expect(within(layer).queryByRole('button', { name: 'Save' })).toBeNull()
     );
     rerender(modal(OTHER_REPO));
-    await userEvent.click(
-      await within(layer).findByRole('button', {
-        name: 'set rt.roles at team · repo',
-      })
-    );
+    const other = await screen.findByTestId('layer-team.repo');
     expect(
-      await within(layer).findByRole('textbox', { name: 'fixedPort' })
-    ).toBeInTheDocument();
-    expect(port()).toHaveAttribute('aria-invalid', 'true');
+      await within(other).findByRole('textbox', { name: 'fixedPort' })
+    ).toHaveAttribute('aria-invalid', 'true');
   });
 
   it('a value the form cannot draw opens in JSON, never in cards', async () => {
