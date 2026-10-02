@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   ActionIcon,
   Button,
+  Combobox,
   createTheme,
   MantineProvider,
   MantineThemeProvider,
@@ -11,6 +12,7 @@ import {
   SegmentedControl,
   Switch,
   Text,
+  useCombobox,
 } from '@mantine/core';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -299,5 +301,55 @@ describe('soft table', () => {
     expect(rule(`${root} > tbody > tr`)).toContain(
       'border-top: 1px solid var(--table-border-color)'
     );
+  });
+});
+
+describe('wash combobox options', () => {
+  const css = readFileSync(
+    path.resolve(import.meta.dirname, 'component-styles.module.css'),
+    'utf-8'
+  );
+  // Whitespace-free, so a selector prettier wraps still reads as one.
+  const flat = css.replace(/\s+/g, '');
+  const rule = (selector: string) =>
+    flat.match(new RegExp(`${selector}\\{([^}]*)\\}`))?.[1] ?? '';
+  const wash =
+    "\\.comboboxOption\\[data-variant='wash'\\]:not\\(\\[data-combobox-selected\\]\\)";
+
+  function Options() {
+    const store = useCombobox();
+    return (
+      <Combobox store={store}>
+        <Combobox.Options>
+          <Combobox.Option value="a" variant="wash" active>
+            a
+          </Combobox.Option>
+          <Combobox.Option value="b">b</Combobox.Option>
+        </Combobox.Options>
+      </Combobox>
+    );
+  }
+
+  it('carry the kit class the wash rules key on, and only a wash option its variant', () => {
+    render(
+      <MantineProvider theme={theme}>
+        <Options />
+      </MantineProvider>
+    );
+    const [a, b] = screen.getAllByRole('option');
+    expect(a).toHaveClass(classes.comboboxOption!);
+    expect(a).toHaveAttribute('data-variant', 'wash');
+    expect(a).toHaveAttribute('data-combobox-active');
+    expect(b).toHaveClass(classes.comboboxOption!);
+    expect(b).not.toHaveAttribute('data-variant');
+  });
+
+  it('set a wash option in body text and wash the active one in the accent, leaving the keyboard cursor to Mantine', () => {
+    expect(rule(wash)).toContain('color:var(--tk-text-1)');
+    const active = rule(`${wash}\\[data-combobox-active\\]`);
+    expect(active).toContain(
+      'background-color:color-mix(insrgb,var(--tk-fill-accent)var(--ui-wash),transparent)'
+    );
+    expect(active).toContain('color:var(--tk-text-accent)');
   });
 });

@@ -124,6 +124,24 @@
   border-bottom: 0;
 }
 
+/* `Combobox.Option variant="wash"`: an option list on a card, in body text,
+   the option marked `active` (the one picked) in the thin accent wash with
+   the accent text step. The keyboard cursor keeps Mantine's own fill. */
+.comboboxOption[data-variant='wash']:not([data-combobox-selected]) {
+  color: var(--tk-text-1);
+}
+
+.comboboxOption[data-variant='wash']:not(
+    [data-combobox-selected]
+  )[data-combobox-active] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+  color: var(--tk-text-accent);
+}
+
 /* Progress's `variant="segmented"`: a bar of parts that sum to the whole,
    with no track behind them, so the gaps between the parts show whatever
    surface the bar sits on. A `gray` part takes the soft line step, and the

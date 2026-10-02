@@ -102,6 +102,9 @@ export const baseTheme = /* @__PURE__ */ createTheme({
     Card: { defaultProps: flatSurfaceProps },
     // `variant="soft"`: a table inside a card (see the CSS module).
     Table: { classNames: { table: classes.tableRoot } },
+    // `Combobox.Option variant="wash"`: a picked option in the accent wash
+    // (see the CSS module).
+    Combobox: { classNames: { option: classes.comboboxOption } },
     // `variant="segmented"`: parts with gaps between them (see the CSS module).
     Progress: { classNames: { root: classes.progressRoot } },
     // `variant="quiet"`: a raised track and a ruled card segment (see the CSS

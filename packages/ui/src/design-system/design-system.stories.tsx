@@ -2,6 +2,8 @@ import {
   ActionIcon,
   Badge,
   Box,
+  Button,
+  Combobox,
   Group,
   NavLink,
   Paper,
@@ -10,6 +12,7 @@ import {
   Stack,
   Switch,
   Text,
+  useCombobox,
 } from '@mantine/core';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
@@ -137,6 +140,30 @@ function PanelTones() {
   );
 }
 
+function WashOptions() {
+  const store = useCombobox();
+  return (
+    <Combobox store={store}>
+      <Paper variant="ground" withBorder p={6}>
+        <Combobox.Options>
+          {['plan-policy', 'plan-policy-strict', 'plan-policy-lite'].map(
+            name => (
+              <Combobox.Option
+                key={name}
+                value={name}
+                variant="wash"
+                active={name === 'plan-policy-strict'}
+              >
+                {name}
+              </Combobox.Option>
+            )
+          )}
+        </Combobox.Options>
+      </Paper>
+    </Combobox>
+  );
+}
+
 function CardTones() {
   return (
     <Box bg="var(--tk-card)" p="lg" w={420}>
@@ -151,6 +178,12 @@ function CardTones() {
         <Paper variant="panel-outline" p="xs">
           Paper panel-outline: a note on the panel
         </Paper>
+        <Group>
+          <Button variant="default">Cancel (Mantine default)</Button>
+          <Button variant="card-outline">Cancel (card-outline)</Button>
+        </Group>
+        <Text size="sm">Combobox.Option wash, the picked one active</Text>
+        <WashOptions />
       </Stack>
     </Box>
   );
@@ -181,6 +214,6 @@ export const PanelTonesStory: Story = {
 };
 
 export const CardTonesStory: Story = {
-  name: 'Card tones: soft-outline and panel-outline paper',
+  name: 'Card tones: outline papers, card-outline button, wash options',
   render: () => <CardTones />,
 };

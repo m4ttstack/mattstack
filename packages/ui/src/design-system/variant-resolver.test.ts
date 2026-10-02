@@ -85,7 +85,25 @@ describe('quiet tones', () => {
     expect(result.border).toContain('solid var(--tk-line-3)');
   });
 
-  it.each(['quiet', 'quiet-outline', 'panel-outline', 'soft-outline'])(
+  it('card-outline is a card fill with a body label and the kit border', () => {
+    const result = variantColorResolver({
+      color: 'accent',
+      theme,
+      variant: 'card-outline',
+    });
+    expect(result.background).toBe('var(--tk-card)');
+    expect(result.hover).toBe('var(--mantine-color-default-hover)');
+    expect(result.color).toBe('var(--tk-text-1)');
+    expect(result.border).toContain('solid var(--tk-border)');
+  });
+
+  it.each([
+    'quiet',
+    'quiet-outline',
+    'panel-outline',
+    'soft-outline',
+    'card-outline',
+  ])(
     '%s ignores the colour, so the primary default changes nothing',
     variant => {
       const plain = variantColorResolver({ color: 'accent', theme, variant });

@@ -106,7 +106,12 @@ card, a `Paper` can take `variant="soft-outline"` (no fill of its own, so the
 card shows through, under a soft rule) or `variant="panel-outline"` (the
 panel surface under the same rule, for a note), and a `Table` can take
 `variant="soft"`: its rules in the soft line step, its header row on the
-panel, and its own `Paper` a soft-outline card. A
+panel, and its own `Paper` a soft-outline card. A secondary `Button` on a
+card can take `variant="card-outline"` (card fill, the kit border and a body
+label, where Mantine's `default` draws its own black or white label), and a
+`Combobox.Option` in a list on a card can take `variant="wash"`: body text,
+and the option marked `active` (the one picked) in the thin accent wash with
+the accent text step. A
 `Progress` that splits a whole into parts can take `variant="segmented"`: no
 track, a gap between the sections that shows the surface beneath, `gray`
 parts in the soft line step, and the part marked `data-active` in the strong
