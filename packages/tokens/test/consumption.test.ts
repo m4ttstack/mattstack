@@ -74,6 +74,8 @@ const WAIVED_TUI: Record<string, string> = {
     "soft rule for card grounds, read by apps/board's gate chrome (its --gate-soft-edge alias); no kit recipe reads it yet.",
   '--surface-overlay':
     "modal/overlay chrome role read by apps/board's decision-queue modal (its --gate-modal-ground alias); no kit recipe reads it yet.",
+  '--text-muted-on-card':
+    "on-card contrast role read by apps/deck's .apps-grid panel (it remaps --muted to it); no kit recipe reads it.",
   '--surface-inset':
     "inset-ground role read by apps/board's gate key chips (its --gate-key-bg alias); no kit recipe reads it yet.",
   '--spacing-rem95':
