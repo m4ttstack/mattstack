@@ -26,7 +26,7 @@ export const LOCATE_TIMEOUT_MS = 2 * 60_000;
 export type LocateOutcome =
   | { via: "daemon" | "local"; ok: true; dryRun: false; result: LocateResult }
   | { via: "daemon" | "local"; ok: true; dryRun: true; plan: LocatePlan }
-  | { via: "daemon" | "local"; ok: false; error: string };
+  | { via: "daemon" | "local"; ok: false; error: string; why?: string; next?: string };
 
 /** A live pid file OR a socket file on disk — either is evidence the daemon holds the registry, whether or not it is currently answering requests. */
 function daemonPresent(): boolean {
@@ -50,7 +50,9 @@ export async function locateMovedRepo(req: {
       return {
         via: "daemon",
         ok: false,
-        error: "the rt daemon is present but did not answer repos:locate; not applying locally (would race the worktree reconciler) — check `rt daemon status` and retry",
+        error: "The rt daemon is running but did not answer",
+        why: "rt will not move the repo itself while the daemon holds its records: the two would race.",
+        next: "rt daemon status",
       };
     }
     if (!res.ok) return { via: "daemon", ok: false, error: res.error ?? "repos:locate failed" };

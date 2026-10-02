@@ -83,6 +83,10 @@ export interface MaterializeResult {
   note: string;
   /** A command a person must run by hand because it asks questions, such as `boardSetup`'s. */
   runYourself?: string;
+  /** Why rt left a step alone, shown as a note under its stage line. */
+  reason?: string;
+  /** Commands a person may run next, each shown under its label. */
+  next?: { label: string; command: string }[];
 }
 
 /**
@@ -145,13 +149,14 @@ async function runStep(step: MaterializeStep, seam: MaterializeExecSeam, rtBin: 
       return {
         step,
         ok: false,
-        stderr: [
-          "The app's deck helper owns deck, and deck is not healthy, so rt did not run deck setup: it would add a second copy.",
-          "If the helper is not registered: rt services register",
-          `To look at it: launchctl print gui/$(id -u)/${step.helperLabel}`,
-        ].join("\n"),
+        stderr: "",
         stdout: "",
         note: "",
+        reason: "The app's deck helper owns deck, and deck is not healthy, so rt did not run deck setup: it would add a second copy.",
+        next: [
+          { label: "If the helper is not registered:", command: "rt services register" },
+          { label: "To look at it:", command: `launchctl print gui/$(id -u)/${step.helperLabel}` },
+        ],
       };
     case "boardSetup":
       return { step, ok: true, stderr: "", stdout: "", note: "", runYourself: boardSetupCommand(step.repoPath) };

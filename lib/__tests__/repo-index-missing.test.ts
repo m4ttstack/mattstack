@@ -87,8 +87,7 @@ describe("missing index rows", () => {
 
   test("the picker row says what to run", () => {
     const opt = repoOption({ repoName: "moved", worktrees: [{ path: "/x/gone", branch: "", isBare: false }], dataDir: "/d", missing: true });
-    expect(opt.hint).toBe("missing — rt repos locate");
-    expect(opt.color).toBeDefined();
+    expect(opt.hint).toBe("missing, rt repos locate finds it");
   });
 
   test("a lost row and the scanned directory sharing its name get distinct picker values", () => {

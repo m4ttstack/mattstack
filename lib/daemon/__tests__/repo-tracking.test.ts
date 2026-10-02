@@ -8,6 +8,9 @@ import { setSetting } from "../../settings/write.ts";
 import { runCapture } from "../../subprocess.ts";
 import { clearIdentityMemo, serializeIdentity } from "../../settings/identity.ts";
 import { updateRepoIndex } from "../../repo-index.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
+import { setWarningLog, __test__ as warnTest } from "../../ui/warn.ts";
+import * as ui from "../../ui/out.ts";
 import { closeStateDb } from "../../state/db.ts";
 import {
   loadRepoTracking, loadMachineRepoTracking, loadMachineRepoTrackingRaw, grants, saveRepoTracking,
@@ -106,18 +109,19 @@ describe("loadRepoTracking through the settings resolver", () => {
       "rt.repoTracking": { version: 2, repos: { a: { mode: "live", caches: ["branches"] } } },
     });
 
-    const warnings: string[] = [];
-    const orig = console.warn;
-    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); };
+    warnTest.reset();
+    const io = captureOut();
     let t: ReturnType<typeof loadRepoTracking>;
+    let stderr: string;
     try {
       t = loadRepoTracking();
+      stderr = io.stderr();
     } finally {
-      console.warn = orig;
+      io.restore();
     }
 
     expect(t.a).toEqual({ mode: "live", caches: ["branches"] });
-    expect(warnings.some((w) => w.includes("store the repos map, not the versioned envelope"))).toBe(true);
+    expect(stderr).toContain("store the repos map, not the versioned envelope");
   });
 });
 
@@ -179,18 +183,19 @@ describe("loadRepoTracking merges mattstack.tracking team intent", () => {
       repos: { "gitlab.com/acme/bar": { caches: ["${repoRoot}"] } },
     }, "team", { team: "acme" });
 
-    const warnings: string[] = [];
-    const orig = console.warn;
-    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); };
+    warnTest.reset();
+    const io = captureOut();
     let t: ReturnType<typeof loadRepoTracking>;
+    let stderr: string;
     try {
       t = loadRepoTracking({ identityMap: { "gitlab.com/acme/bar": BAR } });
+      stderr = io.stderr();
     } finally {
-      console.warn = orig;
+      io.restore();
     }
 
     expect(t).toEqual({ [FOO]: { mode: "live", caches: ["branches"] } });
-    expect(warnings.some((w) => w.includes("mattstack.tracking could not be resolved"))).toBe(true);
+    expect(stderr).toContain("rt: mattstack.tracking could not be resolved");
   });
 
   test("unknown cache names are dropped from team intent; an empty result drops the entry", () => {
@@ -226,6 +231,68 @@ describe("loadRepoTracking merges mattstack.tracking team intent", () => {
 
     const t = loadRepoTracking({ identityMap: { "gitlab.com/acme/foo": FOO } });
     expect(t[FOO]).toBeUndefined();
+  });
+});
+
+describe("repo tracking warnings a person reads", () => {
+  const origHome = process.env.HOME;
+  let home: string;
+
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-tracking-warn-")));
+    process.env.HOME = home;
+    seedTeam();
+    repoTrackingTest.resetTeamTrackingWarning();
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  /** The plain stderr a person reads while `fn` runs, and every message the log got. */
+  function shownWhile(fn: () => void): { stderr: string; logged: string[] } {
+    const logged: string[] = [];
+    warnTest.reset();
+    setWarningLog((_module, message) => {
+      logged.push(message);
+    });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      fn();
+      return { stderr: io.stderr(), logged };
+    } finally {
+      warnTest.reset();
+      io.restore();
+    }
+  }
+
+  test("an unreadable team tracking setting is shown in plain words with the command that checks settings", () => {
+    setSetting("mattstack.tracking", { repos: { "gitlab.com/acme/bar": { caches: ["${repoRoot}"] } } }, "team", { team: "acme" });
+
+    const { stderr, logged } = shownWhile(() => loadRepoTracking({ identityMap: { "gitlab.com/acme/bar": BAR } }));
+
+    expect(stderr).toBe("[warning] The team's repo tracking setting could not be read  only your own tracking applies\n  next: rt settings check\n");
+    expect(logged.some((m) => m.startsWith("mattstack.tracking could not be resolved"))).toBe(true);
+  });
+
+  test("an unreadable machine tracking setting is shown in plain words with the command that checks settings", () => {
+    setSetting("rt.repoTracking", { a: { mode: "${repoRoot}", caches: ["branches"] } }, "machine");
+
+    const { stderr, logged } = shownWhile(() => loadRepoTracking());
+
+    expect(stderr).toBe("[warning] Your repo tracking setting could not be read  no repo is tracked until it is fixed\n  next: rt settings check\n");
+    expect(logged.some((m) => m.startsWith("rt.repoTracking could not be resolved"))).toBe(true);
+  });
+
+  test("a tracking setting in the old versioned shape is shown in plain words with the command that reads it", () => {
+    writeStore(machineSettingsPath(), { "rt.repoTracking": { version: 2, repos: { a: { mode: "live", caches: ["branches"] } } } });
+
+    const { stderr, logged } = shownWhile(() => loadRepoTracking());
+
+    expect(stderr).toBe("[warning] Your repo tracking setting is in an old shape  rt is reading the repos inside it for now\n  next: rt settings get rt.repoTracking\n");
+    expect(logged.some((m) => m.startsWith("rt.repoTracking holds a versioned {version, repos} envelope"))).toBe(true);
   });
 });
 

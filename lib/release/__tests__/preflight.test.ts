@@ -234,13 +234,16 @@ describe("checkGate by path", () => {
     for (const name of ["board", "boxscore", "chat", "console", "gitq"]) expect(keepsFastPath(name)).toBe(true);
     for (const name of ["deck", "fast-browser", "bun"]) expect(keepsFastPath(name)).toBe(false);
   });
-  test("a served app plus the release notes is fast", async () => {
-    expect((await gate(["apps/board/x.ts", "RELEASE_NOTES.md"])).path).toBe("fast");
+  test("a served app plus the release notes is fast, and the reason counts one app", async () => {
+    expect(await gate(["apps/board/x.ts", "RELEASE_NOTES.md"])).toEqual({ path: "fast", reason: "1 served app moved: board" });
   });
   test("a served-only kit alone is fast and names every app built from it", async () => {
     const g = await gate(["packages/ui/src/Button.tsx"]);
     expect(g.path).toBe("fast");
     expect(g.reason).toContain("boxscore, chat, console");
+  });
+  test("two served apps read as a plural count", async () => {
+    expect(await gate(["apps/chat/a.ts", "apps/gitq/b.ts"])).toEqual({ path: "fast", reason: "2 served apps moved: chat, gitq" });
   });
   test("a kit rt or deck also builds from is full", async () => {
     for (const f of ["packages/rt-client/src/index.ts", "packages/server/src/serve.ts", "packages/tui-kit/src/a.ts", "packages/glance/src/a.ts"]) {

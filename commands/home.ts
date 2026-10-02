@@ -587,6 +587,8 @@ async function runRefreshSteps(steps: MaterializeStep[], exec: MaterializeExecSe
     // A sub-line clears when its step ends done, and this guidance must outlive the step.
     const detail = [result.ok ? "" : result.stderr, result.stdout, result.note].filter((text) => text !== "").flatMap((text) => text.split("\n"));
     if (detail.length > 0) out.print(out.verbatim(detail));
+    if (result.reason) out.print(out.callout("note", result.reason));
+    for (const next of result.next ?? []) out.print(out.callout("next", next.label, out.cmd(next.command)));
     if (result.runYourself) out.print(out.callout("next", "Run this yourself, it asks questions:", out.cmd(result.runYourself)));
     if (!result.ok && RT_OWN_STEP_KINDS.has(step.kind)) rtOwnFailed = true;
   }

@@ -23,6 +23,7 @@
 import { existsSync, statSync } from "fs";
 import { join, resolve as resolvePath } from "path";
 import { canon } from "./fs-canon.ts";
+import { shellQuote } from "./nav-fs.ts";
 import {
   getKnownRepos,
   loadRepoIndexEntries,
@@ -46,14 +47,11 @@ import { loadClaims, saveClaims, type EndpointClaim } from "./endpoint/store.ts"
 import { deriveRepoIdentity, parseIdentity, serializeIdentity } from "./settings/identity.ts";
 import { getStateDb } from "./state/index.ts";
 import { listWorktreesAsync, runGit } from "./worktree/git-async.ts";
+import { repoLabel, repoLabelFull } from "./repo-label.ts";
 
-export type LocateRefusalCode =
-  | "not-a-git-repo"
-  | "not-main-worktree"
-  | "nothing-lost"
-  | "old-path-exists"
-  | "identity-mismatch"
-  | "identity-changed";
+const LOCATE_REFUSAL_CODES = ["not-a-git-repo", "not-main-worktree", "nothing-lost", "old-path-exists", "identity-mismatch", "identity-changed"] as const;
+
+export type LocateRefusalCode = (typeof LOCATE_REFUSAL_CODES)[number];
 
 export interface LocateRefusal {
   refusal: LocateRefusalCode;
@@ -119,6 +117,35 @@ function refuse(refusal: LocateRefusalCode, message: string): LocateRefusal {
   return { refusal, message };
 }
 
+const NEXT_JOIN = ": ";
+
+/** A refusal that names a command to run keeps it last in its message, so a `--json` envelope still ends in it; the command must start with `rt ` for `splitRefusalNext` to find it. */
+export function refusalWithNext(sentence: string, command: string): string {
+  if (!command.startsWith("rt ")) throw new Error(`a refusal's command must be an rt command, got: ${command}`);
+  return `${sentence}${NEXT_JOIN}${command}`;
+}
+
+const SHELL_SAFE = /^[\w./~@%+=:,-]+$/;
+
+function shellArg(value: string): string {
+  return SHELL_SAFE.test(value) ? value : shellQuote(value);
+}
+
+/** `refusalWithNext` read back for a person: the sentence alone, ending in a full stop, and the command apart. */
+export function splitRefusalNext(message: string): { sentence: string; next?: string } {
+  const at = message.lastIndexOf(`${NEXT_JOIN}rt `);
+  if (at < 0) return { sentence: message };
+  return { sentence: `${message.slice(0, at)}.`, next: message.slice(at + NEXT_JOIN.length) };
+}
+
+/** A refusal crosses the daemon socket as `<code>: <message>` (`lib/daemon/handlers/repos.ts`, and `repo-locate-dispatch.ts` the same way); null when `error` is not one. */
+export function parseRefusalText(error: string): LocateRefusal | null {
+  const at = error.indexOf(": ");
+  const code = error.slice(0, at);
+  if (at <= 0 || !(LOCATE_REFUSAL_CODES as readonly string[]).includes(code)) return null;
+  return { refusal: code as LocateRefusalCode, message: error.slice(at + 2) };
+}
+
 /** `path` re-rooted onto `newPath`, or null when it lives outside the moved tree (an external worktree keeps its own path). */
 function relocatePath(path: string, oldPath: string, newPath: string): string | null {
   if (path === oldPath) return newPath;
@@ -178,12 +205,12 @@ async function isMainWorktree(path: string): Promise<boolean> {
 export async function planLocate(opts: { newPath: string; repo?: string }): Promise<LocatePlan | LocateRefusal> {
   const newPath = canon(resolvePath(opts.newPath));
   if (!existsSync(join(newPath, ".git"))) {
-    return refuse("not-a-git-repo", `${newPath} is not a git repository`);
+    return refuse("not-a-git-repo", `${newPath} is not a git repo`);
   }
   if (!(await isMainWorktree(newPath))) {
     return refuse(
       "not-main-worktree",
-      `${newPath} is a linked worktree, not the repo's main worktree — locate re-roots every stored path onto the path it is given, so it must be given the repo root`,
+      `${newPath} is one of a repo's worktrees, not the repo's own folder. rt moves every record onto the folder you name, so name the main one.`,
     );
   }
 
@@ -193,38 +220,38 @@ export async function planLocate(opts: { newPath: string; repo?: string }): Prom
 
   const named: RepoIndexEntry | null = opts.repo ? entries.find((e) => e.repoName === opts.repo) ?? null : null;
   if (opts.repo && !named) {
-    return refuse("nothing-lost", `--repo ${opts.repo} is not in the repo index`);
+    return refuse("nothing-lost", `rt does not know a repo called ${repoLabel(opts.repo)}`);
   }
   if (named && existsSync(named.path)) {
-    return refuse("old-path-exists", `${opts.repo} is indexed at ${named.path}, which still exists — that is a second clone, not a move`);
+    return refuse("old-path-exists", `${repoLabel(named.repoName)} is still at ${named.path}, so this folder is a second copy, not a move`);
   }
 
   const identityRow = entries.find((e) => e.repoName === identity) ?? null;
   if (identityRow && existsSync(identityRow.path)) {
     return canon(identityRow.path) === newPath
-      ? refuse("nothing-lost", `${identity} is already indexed at ${newPath}`)
-      : refuse("old-path-exists", `${identity} is already indexed at ${identityRow.path}, which still exists — that is a second clone, not a move`);
+      ? refuse("nothing-lost", `rt already knows ${repoLabel(identity)} at ${newPath}`)
+      : refuse("old-path-exists", `${repoLabel(identity)} is still at ${identityRow.path}, so this folder is a second copy, not a move`);
   }
 
   if (!identityRow) {
     if (lost.length === 0) {
-      return refuse("nothing-lost", `no indexed repo is missing from disk, so ${newPath} has nothing to be located as`);
+      return refuse("nothing-lost", `No repo rt knows is missing, so there is nothing for ${newPath} to be`);
     }
     if (parseIdentity(identity)?.kind === "path") {
       return refuse(
         "identity-changed",
-        `${newPath} derives ${identity}, and no index row is keyed by it. A repo with no origin remote is identified BY its main worktree's path, so moving it mints a new identity rather than keeping the old one — locate re-points paths, it never re-keys a repo. Register the new path instead: rt repos register ${newPath}`,
+        refusalWithNext(`${newPath} has no remote, so rt knows a repo like this by its folder, and moving it makes it a new repo. Register the new folder instead`, `rt repos register ${shellArg(newPath)}`),
       );
     }
     return refuse(
       "identity-mismatch",
-      `${newPath} derives ${identity}, which matches no indexed repo whose path is missing (lost rows: ${lost.map((e) => e.repoName).join(", ")})`,
+      `${newPath} holds ${repoLabelFull(identity)}, and no missing repo rt knows is ${repoLabelFull(identity)}. The missing ones are ${lost.map((e) => repoLabelFull(e.repoName)).join(", ")}.`,
     );
   }
   if (named && canon(named.path) !== canon(identityRow.path)) {
     return refuse(
       "identity-mismatch",
-      `${newPath} derives ${identity} (indexed at ${identityRow.path}), but --repo names ${named.repoName} at ${named.path} — locate matches by identity, never by name`,
+      `${newPath} holds ${repoLabelFull(identity)}, but the repo you named is ${repoLabelFull(named.repoName)}. rt matches a move by what a repo is, not by its name.`,
     );
   }
 
@@ -370,7 +397,7 @@ async function verifyLocate(plan: LocatePlan): Promise<{ error: string | null; s
 function retentionReason(data: DataMigration): string {
   const parts: string[] = [];
   if (data.refused.length > 0) parts.push(`both names hold ${data.refused.join(", ")}`);
-  if (data.registry === "refused") parts.push("its worktree registry could not be written");
+  if (data.registry === "refused") parts.push("rt could not carry over its worktrees");
   return parts.join("; ");
 }
 
@@ -499,3 +526,5 @@ export async function findLocateCandidates(): Promise<LocateCandidate[]> {
   }
   return candidates;
 }
+
+export const __test__ = { retentionReason };

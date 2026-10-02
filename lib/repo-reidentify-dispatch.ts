@@ -14,7 +14,7 @@ export const REIDENTIFY_TIMEOUT_MS = 2 * 60_000;
 
 export type ReidentifyOutcome =
   | { via: "daemon" | "local"; ok: true; report: ReidentifyReport }
-  | { via: "daemon" | "local"; ok: false; error: string; report?: ReidentifyReport };
+  | { via: "daemon" | "local"; ok: false; error: string; report?: ReidentifyReport; why?: string; next?: string };
 
 function daemonPresent(): boolean {
   return isDaemonProcessRunning() || existsSync(DAEMON_SOCK_PATH);
@@ -25,7 +25,13 @@ export async function reidentifyRepo(req: { from: string; to: string; dryRun?: b
   if (daemonPresent()) {
     const res = await daemonSocketQuery("repos:reidentify", { from: req.from, to: req.to, dryRun }, REIDENTIFY_TIMEOUT_MS);
     if (!res) {
-      return { via: "daemon", ok: false, error: "the rt daemon is present but did not answer repos:reidentify; not applying locally (would race the worktree reconciler); check `rt daemon status` and retry" };
+      return {
+        via: "daemon",
+        ok: false,
+        error: "The rt daemon is running but did not answer",
+        why: "rt will not move this repo's data itself while the daemon holds it: the two would race.",
+        next: "rt daemon status",
+      };
     }
     if (!res.ok) return { via: "daemon", ok: false, error: res.error ?? "repos:reidentify failed", ...(res.data ? { report: res.data as ReidentifyReport } : {}) };
     return { via: "daemon", ok: true, report: res.data as ReidentifyReport };

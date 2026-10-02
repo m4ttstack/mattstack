@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { initFailure, initMaterializeVerdict, initOutcomeBlocks, initRefusalBlocks, parseInitArgs, skillsInit } from "../skills-init.ts";
+import { initFailure, initMaterializeVerdict, initOutcomeBlocks, initRefusalBlocks, parseInitArgs, repoListFailure, skillsInit } from "../skills-init.ts";
 import type { InitDeps, InitOutcome } from "../../lib/skills/init.ts";
 import { UserActionableError } from "../../lib/errors.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
@@ -108,6 +108,27 @@ describe("init outcome", () => {
     expect(renderPlain([ui.failure(initFailure({ ok: false, refused: false, code: "compile-failed", detail: "boom", wrote: [] }))])).toBe(
       "boom\n  next: Fix it, then run rt skills compile and rt skills check\n",
     );
+  });
+});
+
+describe("repoListFailure", () => {
+  test("a move the daemon did not answer keeps the daemon's why and the command that checks on it", () => {
+    const err = repoListFailure("/r/api", {
+      error: "The rt daemon is running but did not answer",
+      why: "rt will not move the repo itself while the daemon holds its records: the two would race.",
+      next: "rt daemon status",
+    });
+    expect(err.code).toBe("locate-failed");
+    expect(err.message).toBe("rt could not add /r/api to its repo list: the rt daemon is running but did not answer");
+    expect(err.why).toBe("rt will not move the repo itself while the daemon holds its records: the two would race.");
+    expect(err.next).toBe("rt daemon status");
+  });
+
+  test("a refusal with no guidance carries none", () => {
+    const err = repoListFailure("/r/api", { error: "git worktree repair failed: exit 1" });
+    expect(err.message).toBe("rt could not add /r/api to its repo list: git worktree repair failed: exit 1");
+    expect(err.why).toBeUndefined();
+    expect(err.next).toBeUndefined();
   });
 });
 

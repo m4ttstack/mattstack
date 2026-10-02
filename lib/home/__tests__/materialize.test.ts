@@ -171,14 +171,22 @@ describe("runMaterialize", () => {
     expect(results.every((r) => r.ok)).toBe(true);
   });
 
-  test("reportDeckUnhealthy spawns nothing and fails with the helper label and why deck setup was not run", async () => {
+  test("reportDeckUnhealthy spawns nothing and fails with why deck setup was not run and the two commands to look into it", async () => {
     const seam = new FakeExecSeam();
     const [result] = await runMaterialize([{ kind: "reportDeckUnhealthy", helperLabel: "com.mattstack.deck.dev" }], seam);
     expect(seam.calls).toEqual([]);
-    expect(result!.ok).toBe(false);
-    expect(result!.stderr).toContain("com.mattstack.deck.dev");
-    expect(result!.stderr).toContain("deck setup");
-    expect(result!.stderr).toContain("rt services register");
+    expect(result).toEqual({
+      step: { kind: "reportDeckUnhealthy", helperLabel: "com.mattstack.deck.dev" },
+      ok: false,
+      stderr: "",
+      stdout: "",
+      note: "",
+      reason: "The app's deck helper owns deck, and deck is not healthy, so rt did not run deck setup: it would add a second copy.",
+      next: [
+        { label: "If the helper is not registered:", command: "rt services register" },
+        { label: "To look at it:", command: "launchctl print gui/$(id -u)/com.mattstack.deck.dev" },
+      ],
+    });
     expect(RT_OWN_STEP_KINDS.has("reportDeckUnhealthy")).toBe(false);
   });
 

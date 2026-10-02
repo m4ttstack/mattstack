@@ -30,7 +30,10 @@ import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
 import { closeStateDb, getStateDb, setKvValue } from "../state/index.ts";
 import * as stateNs from "../state/index.ts";
-import { getKnownRepos, loadRepoIndex, updateRepoIndex, __test__ } from "../repo-index.ts";
+import { getKnownRepos, healErrorClause, loadRepoIndex, updateRepoIndex, __test__ } from "../repo-index.ts";
+import * as ui from "../ui/out.ts";
+import { captureOut } from "../ui/__tests__/capture-out.ts";
+import { setWarningLog, __test__ as warnTest } from "../ui/warn.ts";
 
 const TEAM = "acme";
 const REPO_INDEX_NS = "repo-index";
@@ -42,6 +45,7 @@ describe("repo-index — rt.repoRoots (RT-49)", () => {
   let warnSpy: ReturnType<typeof spyOn<Console, "warn">>;
 
   beforeEach(() => {
+    warnTest.reset();
     home = mkdtempSync(join(tmpdir(), "rt-repoindex-home-"));
     process.env.HOME = home;
     closeStateDb();
@@ -440,8 +444,14 @@ describe("repo-index — rt.repoRoots (RT-49)", () => {
   describe("11. fail-open", () => {
     test("an unexpandable ${repoRoot} entry warns and degrades to inference-only roots, no throw", () => {
       setRepoRoots(["${repoRoot}/whatever"]);
-      expect(() => getKnownRepos()).not.toThrow();
-      expect(warnSpy).toHaveBeenCalled();
+      const io = captureOut();
+      try {
+        expect(() => getKnownRepos()).not.toThrow();
+        expect(io.stderr()).toContain("rt: rt.repoRoots could not be resolved");
+        expect(io.stdout()).toBe("");
+      } finally {
+        io.restore();
+      }
     });
 
     test("a non-string element and a nonexistent path each warn and are skipped; the rest of the scan is unaffected", () => {
@@ -449,11 +459,44 @@ describe("repo-index — rt.repoRoots (RT-49)", () => {
       const repo = markerRepo(root, "survivor");
       handEditRepoRoots([42, join(tmpdir(), "rt-does-not-exist-xyz"), root]);
 
-      const repos = getKnownRepos();
-      expect(byName(repos, "survivor")?.worktrees[0]?.path).toBe(repo);
-      expect(warnSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+      const io = captureOut();
+      try {
+        const repos = getKnownRepos();
+        expect(byName(repos, "survivor")?.worktrees[0]?.path).toBe(repo);
+        expect(io.stderr()).toContain("rt: skipping non-string rt.repoRoots entry: 42\n");
+        expect(io.stderr()).toContain('rt: skipping rt.repoRoots entry "');
+      } finally {
+        io.restore();
+      }
 
       rmSync(root, { recursive: true, force: true });
+    });
+
+    test("a skipped rt.repoRoots entry is shown once in plain words, with the command that looks into it", () => {
+      const missing = join(tmpdir(), "rt-does-not-exist-xyz");
+      handEditRepoRoots([42, missing]);
+      const logged: string[] = [];
+      const io = captureOut();
+      ui.__test__.setHuman(() => false);
+      warnTest.reset();
+      setWarningLog((_module, message) => {
+        logged.push(message);
+      });
+      try {
+        getKnownRepos();
+        __test__.readConfiguredRepoRoots();
+        const text = io.stderr();
+        const notAPath = "[warning] A repo folder in your settings is not a path  42 was skipped\n  next: rt settings get rt.repoRoots\n";
+        const notThere = `[warning] A repo folder in your settings does not exist  ${missing} was skipped\n  next: rt settings get rt.repoRoots\n`;
+        expect(logged.filter((m) => m.startsWith("skipping non-string rt.repoRoots entry"))).toHaveLength(2);
+        expect(logged.filter((m) => m.startsWith("skipping rt.repoRoots entry"))).toHaveLength(2);
+        expect(text.split(notAPath).length - 1).toBe(1);
+        expect(text.split(notThere).length - 1).toBe(1);
+        expect(io.stdout()).toBe("");
+      } finally {
+        warnTest.reset();
+        io.restore();
+      }
     });
 
     test("a realpathSync failure (TOCTOU) on a root falls back to its resolved spelling, no throw", () => {
@@ -565,10 +608,16 @@ describe("repo-index — rt.repoRoots (RT-49)", () => {
       mkdirSync(dirname(p), { recursive: true });
       writeFileSync(p, "{ not valid json");
 
-      expect(loadRepoIndex()).toEqual({});
+      const io = captureOut();
+      try {
+        expect(loadRepoIndex()).toEqual({});
+        expect(io.stderr()).toContain("rt: legacy state file ");
+        expect(io.stderr()).toContain("is corrupt JSON, leaving in place");
+      } finally {
+        io.restore();
+      }
       expect(existsSync(p)).toBe(true);
       expect(existsSync(`${p}.migrated`)).toBe(false);
-      expect(warnSpy).toHaveBeenCalled();
     });
 
     test("updateRepoIndex never throws when state.db cannot be opened (e.g. root-owned after sudo)", () => {
@@ -923,4 +972,12 @@ describe("pickerWorktrees", () => {
     };
     expect(pickerWorktrees(repo).map((w) => w.path)).toEqual(["/pool/x/main", "/pool/x/gitq-ish"]);
   });
+});
+
+test("a heal error carried on after a colon starts lower case, and a name keeps its capitals", () => {
+  expect(healErrorClause("The rt daemon is running but did not answer")).toBe("the rt daemon is running but did not answer");
+  expect(healErrorClause("No repo rt knows is missing")).toBe("no repo rt knows is missing");
+  expect(healErrorClause("GitLab refused the token")).toBe("GitLab refused the token");
+  expect(healErrorClause("Docker is not running")).toBe("Docker is not running");
+  expect(healErrorClause("identity-changed: /a has no remote")).toBe("identity-changed: /a has no remote");
 });

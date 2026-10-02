@@ -75,7 +75,9 @@ describe("locateMovedRepo: presence by pid, no answer", () => {
     expect(outcome).toEqual({
       via: "daemon",
       ok: false,
-      error: "the rt daemon is present but did not answer repos:locate; not applying locally (would race the worktree reconciler) — check `rt daemon status` and retry",
+      error: "The rt daemon is running but did not answer",
+      why: "rt will not move the repo itself while the daemon holds its records: the two would race.",
+      next: "rt daemon status",
     });
   });
 });
@@ -110,7 +112,9 @@ describe("locateMovedRepo: presence by socket file, no answer", () => {
       expect(outcome).toEqual({
         via: "daemon",
         ok: false,
-        error: "the rt daemon is present but did not answer repos:locate; not applying locally (would race the worktree reconciler) — check `rt daemon status` and retry",
+        error: "The rt daemon is running but did not answer",
+        why: "rt will not move the repo itself while the daemon holds its records: the two would race.",
+        next: "rt daemon status",
       });
     } finally {
       rmSync(scratch, { recursive: true, force: true });

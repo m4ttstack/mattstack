@@ -357,13 +357,14 @@ after the failure breaks the tool's error.
 one warning through `out.note` and a line in the CLI log. The runner has no
 `log()`; a line between steps is an `out.print` at the call site.
 
-A `print` seam on a command's deps (`TeamDeps`) carries the `--json`
-envelope line and nothing else; its default is `out.payload`, so a test of
-a human branch reads `captureOut()` and a test of the envelope reads the
-seam. A sentence that rides in an envelope and is what a person reads (an
-error's message, a join's `message`, a manual step) follows the copy rules
-like any other: the envelope's shape is what is frozen, not its words, so
-reword it and keep every key, code and status. A command goes in the
+A `print` seam on a command's deps (`TeamDeps`, `RegisterDeps`,
+`ReidentifyDeps`) carries the `--json` envelope line and nothing else; its
+default is `out.payload`, so a test of a human branch reads `captureOut()`
+and a test of the envelope reads the seam. A sentence that rides in an
+envelope and is what a person reads (an error's message, a join's
+`message`, a manual step) follows the copy rules like any other: the
+envelope's shape is what is frozen, not its words, so reword it and keep
+every key, code and status. A command goes in the
 error's `next` option, which the envelope never carries; a result string
 that is the only carrier of its remedy keeps the command as its last words.
 

@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { HELPERS_DIR, RT_BUNDLE_PATH, __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
+import { DAEMON_SOCK_PATH } from "../../daemon-config.ts";
 import { logsDir, rtDir, teamSettingsPath } from "../../rt-paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
@@ -1173,6 +1174,29 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const outcome = await reposCloneStep.run(ctx);
     expect(outcome).toMatchObject({ state: "partial", detail: "cloned 0, present 0, failed 1. Failed: acme-dev" });
     expect(logs.some((l) => l.line.includes("could not be moved"))).toBe(true);
+  });
+
+  test("repos.clone: a move the daemon did not answer logs the command that checks on it before the locate", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    mkdirSync(join(home, "code"), { recursive: true });
+    const dest = join(home, "code", "acme-dev");
+    setKvValue("repo-index", serializeIdentity({ kind: "remote", id: "gitlab.com/acme/acme-dev" }), join(home, "gone-away"));
+    // A plain file at the preload HOME's socket path reads as a present daemon that never answers.
+    expect(DAEMON_SOCK_PATH).toContain("/rt-tests/");
+    expect(existsSync(DAEMON_SOCK_PATH)).toBe(false);
+    mkdirSync(dirname(DAEMON_SOCK_PATH), { recursive: true });
+    writeFileSync(DAEMON_SOCK_PATH, "");
+    try {
+      const p = fakeProbes({ home, exec: async () => ok() });
+      const { ctx, logs } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null } });
+
+      const outcome = await reposCloneStep.run(ctx);
+      expect(outcome).toMatchObject({ state: "partial", detail: "cloned 0, present 0, failed 1. Failed: acme-dev" });
+      const line = logs.find((l) => l.line.includes("could not be moved"))?.line ?? "";
+      expect(line).toEndWith(`(The rt daemon is running but did not answer). Run rt daemon status, then rt repos locate ${dest}`);
+    } finally {
+      rmSync(DAEMON_SOCK_PATH, { force: true });
+    }
   });
 
   const ACME_DEV = { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null };

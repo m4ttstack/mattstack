@@ -30,7 +30,8 @@ import { deleteKvValue, getKvValue, getStateDb, hasKvValue, listKvEntries, listK
 import { rekeyKvNamespace } from "./state/identity-migrate.ts";
 import { deriveRepoIdentity, parseIdentity, serializeIdentity } from "./settings/identity.ts";
 import { repoLabel, repoLabelFull, repoLabelQualified } from "./repo-label.ts";
-import { dim } from "./ansi.ts";
+import * as out from "./ui/out.ts";
+import { warn } from "./ui/warn.ts";
 import { getSetting } from "./settings/resolve.ts";
 import { mergeRegistries, type TreeRecord } from "./worktree/registry.ts";
 import { currentBranchAsync, listWorktreesAsync } from "./worktree/git-async.ts";
@@ -119,7 +120,7 @@ export function loadRepoIndex(): RepoIndex {
   try {
     json = JSON.parse(readFileSync(path, "utf8"));
   } catch (err) {
-    console.warn(`rt: legacy state file ${path} is corrupt JSON, leaving in place: ${(err as Error).message}`);
+    warn("repo-index", `legacy state file ${path} is corrupt JSON, leaving in place: ${(err as Error).message}`, { context: { path } });
     return existing;
   }
 
@@ -265,7 +266,12 @@ export function updateRepoIndex(repoName: string, repoRoot: string): void {
  * ONLY ever a refused/failed locate — the plain write keeps the sync seam's
  * best-effort contract and never reports failure.
  */
-export type IndexHealResult = { ok: true; healed: boolean } | { ok: false; error: string };
+export type IndexHealResult = { ok: true; healed: boolean } | { ok: false; error: string; why?: string; next?: string };
+
+/** A failed heal's `error` carried on after a colon in the caller's own sentence. */
+export function healErrorClause(error: string): string {
+  return /^(The|A|An|No|Nothing|Every|This|That|It|Could|Can|Cannot) /.test(error) ? `${error[0]!.toLowerCase()}${error.slice(1)}` : error;
+}
 
 /**
  * `updateRepoIndex` for callers that can await: the same write, plus the move
@@ -291,7 +297,8 @@ export async function updateRepoIndexAsync(repoName: string, repoRoot: string): 
   }
   const { locateMovedRepo } = await import("./repo-locate-dispatch.ts");
   const outcome = await locateMovedRepo({ newPath: mainPath, repo: repoName });
-  return outcome.ok ? { ok: true, healed: true } : { ok: false, error: outcome.error };
+  if (outcome.ok) return { ok: true, healed: true };
+  return { ok: false, error: outcome.error, ...(outcome.why ? { why: outcome.why } : {}), ...(outcome.next ? { next: outcome.next } : {}) };
 }
 
 /**
@@ -569,11 +576,11 @@ function migrateWorktreeRegistry(from: string, to: string, opts: { dryRun?: bool
     // one — and on a merge the destination row already existed, so its mere
     // presence proves nothing. Compare the readback.
     if (JSON.stringify(getKvValue<TreeRecord[]>(WORKTREE_REGISTRY_NS, to, [])) !== JSON.stringify(next)) {
-      console.warn(`rt: ${from}'s worktree registry did not persist under ${to} — leaving it in place`);
+      warn("repo-index", `${from}'s worktree registry did not persist under ${to}, leaving it in place`, { context: { from, to } });
       return "refused";
     }
   } catch (err) {
-    console.warn(`rt: could not move ${from}'s worktree registry to ${to} (${(err as Error).message})`);
+    warn("repo-index", `could not move ${from}'s worktree registry to ${to} (${(err as Error).message})`, { context: { from, to } });
     return "refused";
   }
   deleteKvValue(WORKTREE_REGISTRY_NS, from);
@@ -657,7 +664,7 @@ export function migrateRepoData(from: string, to: string, opts: { dryRun?: boole
   try {
     names = readdirSync(fromDir);
   } catch (err) {
-    console.warn(`rt: could not read ${from}'s data dir (${(err as Error).message})`);
+    warn("repo-index", `could not read ${from}'s data dir (${(err as Error).message})`, { context: { from } });
     return result;
   }
 
@@ -684,7 +691,7 @@ export function migrateRepoData(from: string, to: string, opts: { dryRun?: boole
       result.removedDir = true;
     }
   } catch (err) {
-    console.warn(`rt: could not migrate ${from}'s data to ${to} (${(err as Error).message})`);
+    warn("repo-index", `could not migrate ${from}'s data to ${to} (${(err as Error).message})`, { context: { from, to } });
   }
   return result;
 }
@@ -733,7 +740,7 @@ export function pruneRepoIndex(opts: { dryRun?: boolean } = {}): PrunedEntry[] {
         // otherwise classify unparseable claim state as droppable.
         let corrupt = false;
         const records = getKvValue<TreeRecord[]>(WORKTREE_REGISTRY_NS, entry.repoName, [], undefined, () => { corrupt = true; });
-        if (corrupt) console.warn(`rt: ${entry.repoName}'s worktree registry is corrupt JSON, leaving it in place`);
+        if (corrupt) warn("repo-index", `${entry.repoName}'s worktree registry is corrupt JSON, leaving it in place`, { context: { repo: entry.repoName } });
         deadRegistry = !corrupt && records.every((r) => r.kind === "main" && !existsSync(r.path));
       }
     } catch { /* unreadable db — treat as no registry and prune as before */ }
@@ -822,9 +829,9 @@ function readConfiguredRepoRoots(): string[] {
   try {
     raw = getSetting<unknown[]>("rt.repoRoots").value;
   } catch (err) {
-    console.warn(
-      `rt: rt.repoRoots could not be resolved (${(err as Error).message}) — scanning inferred roots only`,
-    );
+    warn("repo-index", `rt.repoRoots could not be resolved (${(err as Error).message}), scanning inferred roots only`, {
+      show: { title: "Your repo folders setting could not be read", hint: "rt is looking in its usual places only", next: out.cmd("rt settings check") },
+    });
     return [];
   }
 
@@ -833,12 +840,16 @@ function readConfiguredRepoRoots(): string[] {
   const roots: string[] = [];
   for (const entry of raw) {
     if (typeof entry !== "string") {
-      console.warn(`rt: skipping non-string rt.repoRoots entry: ${JSON.stringify(entry)}`);
+      warn("repo-index", `skipping non-string rt.repoRoots entry: ${JSON.stringify(entry)}`, {
+        show: { title: "A repo folder in your settings is not a path", hint: `${JSON.stringify(entry)} was skipped`, next: out.cmd("rt settings get rt.repoRoots") },
+      });
       continue;
     }
     const expanded = expandLeadingTilde(entry);
     if (!existsSync(expanded)) {
-      console.warn(`rt: skipping rt.repoRoots entry "${entry}" — path does not exist (${expanded})`);
+      warn("repo-index", `skipping rt.repoRoots entry "${entry}", path does not exist (${expanded})`, {
+        show: { title: "A repo folder in your settings does not exist", hint: `${entry} was skipped`, next: out.cmd("rt settings get rt.repoRoots") },
+      });
       continue;
     }
     roots.push(expanded);
@@ -1355,13 +1366,13 @@ async function scanUnregisteredReposAsync(
 
 // ─── Picker option formatting ───────────────────────────────────────────────
 
-/** Shared repo → picker-option mapping, dimmed + labeled for unregistered
+/** Shared repo → picker-option mapping, labeled for unregistered
     repos. `value` stays the raw index key (the wire identity — dispatch needs
     it); only `label` is decoded for humans. Prefer `repoOptions` for a full
     list — it disambiguates repos whose identities share a last segment. */
-export function repoOption(r: KnownRepo, label: string = repoLabel(r.repoName)): { value: string; label: string; hint: string; color?: string } {
+export function repoOption(r: KnownRepo, label: string = repoLabel(r.repoName)): { value: string; label: string; hint: string } {
   if (r.missing) {
-    return { value: r.repoName, label, hint: "missing — rt repos locate", color: dim };
+    return { value: r.repoName, label, hint: "missing, rt repos locate finds it" };
   }
 
   const location = r.worktrees.length > 1
@@ -1374,7 +1385,6 @@ export function repoOption(r: KnownRepo, label: string = repoLabel(r.repoName)):
     hint: r.registered === false
       ? (location ? `${location} · unregistered` : "unregistered")
       : location,
-    ...(r.registered === false ? { color: dim } : {}),
   };
 }
 

@@ -66,7 +66,9 @@ describe("reidentifyRepo", () => {
 
     expect(out.ok).toBe(false);
     expect(out.via).toBe("daemon");
-    expect(!out.ok && out.error).toContain("did not answer repos:reidentify");
+    expect(!out.ok && out.error).toBe("The rt daemon is running but did not answer");
+    expect(!out.ok && out.why).toBe("rt will not move this repo's data itself while the daemon holds it: the two would race.");
+    expect(!out.ok && out.next).toBe("rt daemon status");
   });
 
   test("a daemon refusal carries its report through", async () => {

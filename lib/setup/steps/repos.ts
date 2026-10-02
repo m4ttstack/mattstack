@@ -61,7 +61,8 @@ async function indexDest(ctx: ApplyContext, identity: string, base: string, dest
   // raw host/path the tracked-repos setting carries.
   const indexed = await updateRepoIndexAsync(serializeIdentity({ kind: "remote", id: identity }), dest);
   if (indexed.ok) return true;
-  ctx.log("repos.clone", `${base}: ${dest} is in place, but ${identity} is indexed at a path that no longer exists and could not be moved (${indexed.error}). Run rt repos locate ${dest}`);
+  const run = indexed.next ? `Run ${indexed.next}, then rt repos locate ${dest}` : `Run rt repos locate ${dest}`;
+  ctx.log("repos.clone", `${base}: ${dest} is in place, but ${identity} is indexed at a path that no longer exists and could not be moved (${indexed.error}). ${run}`);
   return false;
 }
 
