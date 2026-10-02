@@ -2438,14 +2438,15 @@ describe("skillsAnatomy --json", () => {
     const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
     const { exitCode, stderr } = await runSkillsCapturing(["anatomy", "--skill", "nope", ...packFlags, "--json"]);
     expect(exitCode).not.toBe(0);
-    expect(stderr).toContain('no skill named "nope"');
+    expect(stderr).toContain("has no skill called nope");
   });
 
   test("anatomy without --skill is a usage error", async () => {
     const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
     const { exitCode, stderr } = await runSkillsCapturing(["anatomy", ...packFlags]);
     expect(exitCode).toBe(1);
-    expect(stderr).toContain("rt skills anatomy needs --skill <name>");
+    expect(stderr).toContain("Which skill?");
+    expect(stderr).toContain("rt skills anatomy --skill <name>");
   });
 
   test("without --json, prints one row per part", async () => {

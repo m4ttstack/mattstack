@@ -1675,14 +1675,19 @@ function spanText(span: [number, number] | null): string {
 export async function skillsAnatomy(args: string[]): Promise<void> {
   await withCleanErrors(async () => {
     const at = args.indexOf("--skill");
-    if (at < 0) throw new SkillsUsageError("rt skills anatomy needs --skill <name>");
+    if (at < 0) throw new SkillsUsageError("rt skills anatomy needs --skill <name>", usageFailure("Which skill?", "rt skills anatomy --skill <name>"));
     const skill = requireFlagValue("--skill", args[at + 1]);
     const flags = parseFlags([...args.slice(0, at), ...args.slice(at + 2)]);
     const resolved = await resolve(flags);
     const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
     const plan = compileTargets(resolved, publicSet, null);
     const target = plan.targets.find((t) => t.verb.name === skill);
-    if (!target) throw new SkillsUsageError(`no skill named "${skill}" in pack ${resolved.team}`);
+    if (!target) {
+      throw new SkillsUsageError(`no skill named "${skill}" in pack ${resolved.team}`, {
+        title: `The ${resolved.team} pack has no skill called ${skill}`,
+        next: out.cmd(`rt skills surface list --pack ${resolved.team}`),
+      });
+    }
 
     const trace: TraceEntry[] = [];
     const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, (e) => trace.push(e));
@@ -1802,9 +1807,14 @@ function workingCopy(packDir: string, rel: string): unknown {
 async function readPackPending(packDir: string, team: string, opts: { wholeRepo?: boolean } = {}): Promise<PendingFile[]> {
   const prefixRes = await runGit(packDir, ["rev-parse", "--show-prefix"]);
   if (prefixRes.exitCode !== 0) {
-    throw new SkillsUsageError(isNotARepo(prefixRes)
-      ? `pack ${team} is not inside a git checkout, so there is no way to tell what changed`
-      : `pack ${team}: ${describeGitFailure(prefixRes)}`);
+    if (isNotARepo(prefixRes)) {
+      throw new SkillsUsageError(`pack ${team} is not inside a git checkout, so there is no way to tell what changed`, {
+        title: `The ${team} pack is not inside a git checkout`,
+        why: "Without git, rt cannot tell what changed.",
+        details: packDir,
+      });
+    }
+    throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(prefixRes)}`);
   }
   const limit = opts.wholeRepo ? [] : ["--", "."];
   const statusRes = await runGit(packDir, ["status", "--porcelain=v1", "--untracked-files=all", ...limit]);
@@ -1911,11 +1921,20 @@ async function discardPending(packDir: string, team: string, pending: PendingFil
 export async function skillsDiscard(args: string[], io: DiscardIo = REAL_DISCARD_IO): Promise<void> {
   await withCleanErrors(async () => {
     const flags = parseFlags(args);
-    if (!flags.team) throw new SkillsUsageError("rt skills discard needs --pack <name>; it throws work away, so it never guesses which pack");
+    if (!flags.team) {
+      throw new SkillsUsageError(
+        "rt skills discard needs --pack <name>; it throws work away, so it never guesses which pack",
+        usageFailure("Which pack?", "rt skills discard --pack <name>", "This throws work away, so it never guesses the pack."),
+      );
+    }
     const { team, packDir } = await resolvePack(flags);
     const shared = io.sharedCheckout();
     if (insideCheckout(packDir, shared)) {
-      throw new SkillsUsageError(`pack ${team} is in the shared checkout at ${shared}, which rt never writes to; changes there go through a pull request`);
+      throw new SkillsUsageError(`pack ${team} is in the shared checkout at ${shared}, which rt never writes to; changes there go through a pull request`, {
+        title: `The ${team} pack is in the shared checkout, which rt never changes`,
+        why: "Changes there go through a pull request.",
+        ...(shared ? { details: shared } : {}),
+      });
     }
 
     const pending = (await readPackPending(packDir, team, { wholeRepo: true })).filter(fullyInScope);
