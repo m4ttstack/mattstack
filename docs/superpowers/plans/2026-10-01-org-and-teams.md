@@ -939,7 +939,7 @@ This is the switch. After it, `getSetting` reads the org store and the active te
 - Modify: `packages/rt-client/src/index.ts`
 - Modify: `packages/rt-client/test/org-fixture.ts`
 - Modify (every gate that treats team-authored values as untrusted): `lib/worktree/config.ts` (`inspectReadyGate`), `commands/settings-keys.ts` (`migratePrune`, `SCOPE_WORDS`), `lib/skills/writing-style.ts` (the source label)
-- Modify (readers and writers of the old store path): `lib/team/board-token.ts` (`declaresHttpsSwitchboard`), `lib/variations.ts` (line 92), `extensions/vscode/rt-context/src/branchNaming.ts` (line 65)
+- Modify (readers and writers of the old store path): `lib/team/board-token.ts` (`declaresHttpsSwitchboard`), `apps/board/src/config.ts` (the roster write's scope), `lib/variations.ts` (line 92), `extensions/vscode/rt-context/src/branchNaming.ts` (line 65)
 - Modify: `lib/__tests__/no-settings-bypass.test.ts` (the rules and the allowlist)
 - Modify (callers of the removed names): `commands/team.ts`, `commands/setup.ts`, `commands/tools.ts`, `commands/verify.ts`, `lib/endpoint/shim.ts`, `lib/repo-reidentify.ts`, `lib/setup/plan.ts`, `lib/team/invite.ts`, `lib/team/members.ts`, `packages/settings-kit/src/server.ts`
 - Test: `packages/rt-client/src/settings/__tests__/resolve.test.ts`, `write.test.ts`, `validate-write.test.ts`, `stores.test.ts`, `paths.test.ts`, `migrate-stores.test.ts`, `check.test.ts`, `lib/__tests__/rt-paths.test.ts`, `lib/__tests__/settings-paths-parity.test.ts`, `lib/worktree/__tests__/ready-approval.test.ts`, `commands/__tests__/settings-migrate.test.ts`, `lib/team/__tests__/board-token.test.ts`, `packages/settings-kit/src/__tests__/server.test.ts`, and the board's server tests under `apps/board/src/__tests__/`
@@ -1194,7 +1194,7 @@ An org value is written by other people, exactly like a team value, so every gat
 ```ts
   test("a ready ladder the org authors is held until you approve it", async () => {
     teamReady([{ run: "echo org" }]);
-    const cfg = loadWorktreeRepoConfig(IDENTITY, repoPath);
+    const cfg = await loadWorktreeRepoConfig("ready-gate", repoPath);
     const gate = await evaluateReadyGate(cfg, "ready-gate", repoPath);
     expect(gate.held).toBe(true);
     expect(gate.steps).toEqual([]);
@@ -1207,12 +1207,12 @@ An org value is written by other people, exactly like a team value, so every gat
       roster: [{ username: "dev1", teams: ["widgets"] }],
       teams: { widgets: { repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 1, ready: [{ run: "echo team" }] } } } } },
     });
-    const cfg = loadWorktreeRepoConfig(IDENTITY, repoPath);
+    const cfg = await loadWorktreeRepoConfig("ready-gate", repoPath);
     expect((await evaluateReadyGate(cfg, "ready-gate", repoPath)).held).toBe(true);
   });
 ```
 
-(match `loadWorktreeRepoConfig`'s real argument order from the file's other tests; import `seedOrg` from `../../../packages/rt-client/test/org-fixture.ts`.)
+(import `seedOrg` from `../../../packages/rt-client/test/org-fixture.ts`.)
 
 `commands/__tests__/settings-migrate.test.ts`, replacing the test near line 172 (`TEAM` there is the clone slug; the store it seeds is now the org store):
 
@@ -1230,7 +1230,7 @@ An org value is written by other people, exactly like a team value, so every gat
   });
 ```
 
-`lib/skills/__tests__/writing-style.test.ts`: add a case that `skills.writingStyle` set in the org store resolves with `source: "team"` (the label reads "team default"), seeded the way that file seeds its team case.
+`lib/skills/__tests__/writing-style.test.ts`: widen its `at` helper's scope parameter from `"user" | "team"` to `"user" | "team" | "org"`, and add beside its team case: `resolveWritingStyle({ home, read: () => at("mattstack:writing-style-conversational", "org") })` answers `source: "team"` (the label reads "team default").
 
 `lib/team/__tests__/board-token.test.ts`: its fixture near line 16 writes the switchboard declaration to `teams/<slug>/mattstack/settings.team.jsonc`; write it to `teams/<slug>/mattstack/org/settings.org.jsonc`, so the existing "unpeered" and "peered" cases keep meaning what they say.
 
@@ -1680,10 +1680,11 @@ Run `bunx tsc --noEmit` and fix each error with these rules:
 | `packages/settings-kit/src/server.ts` | `RtSettingsApi.listTeams` becomes `listOrgs: typeof listOrgs`; the `/defs` reply keeps `team` for now: `const orgs = rt.listOrgs(); ... team: orgs.length === 1 ? orgs[0] : null` (Task 8 replaces it). In `server.test.ts`, the "defs names the machine's one team" test overrides `listTeams`; it overrides `listOrgs` instead |
 | `lib/worktree/config.ts` `inspectReadyGate` | `const teamOwned = owner !== null && isSharedScope(owner);` (import `isSharedScope` beside `SCOPE_ORDER`); the comments on `ReadyGateInfo.teamOwned` and above `evaluateReadyGate` say "org or team authored" |
 | `commands/settings-keys.ts` `migratePrune` | the guard's condition becomes `(n.scope === "team" \|\| n.scope === "org") && !o.team`, and its reason is built as `n.scope + " store: pass --team to prune it"` |
-| `lib/skills/writing-style.ts` line 88 | `source: isSharedScope(scope) ? "team" : "user"` |
+| `lib/skills/writing-style.ts` line 88 | `source: scope !== undefined && isSharedScope(scope) ? "team" : "user"` (`scope` there is `Scope \| undefined`) |
 | `lib/team/board-token.ts` `declaresHttpsSwitchboard` | reads `join(p.home, ".mattstack", "teams", slug, "mattstack", "org", "settings.org.jsonc")`; its comment says "the org's own store" |
 | `lib/variations.ts` line 92 | `setSetting("rt.variations", all, "org", { repoIdentity })`: a shared repo's section sits at the org (spec section 3) |
 | `apps/boxscore/scripts/import-legacy-settings.ts` | the planned `mattstack.roster` write takes scope `'org'` (widen `PlannedWrite`'s scope type), and the closing message says "org and team writes landed in the local org clone" |
+| `apps/board/src/config.ts` `saveRosterMembers` (near line 992) | `write(owner.key, value, owner.key === 'mattstack.roster' ? 'org' : 'team');` Task 3 made the roster an org-only key, so the board's roster save is refused at `'team'` from this task on. In `apps/board/src/__tests__/config-store-latch.test.ts`, the two assertions on that write (near line 527, and the "strips hidden" test after it) expect `scope: 'org'`; its `fakeWrite` runs `validateWrite` with the scope, so a `'team'` write fails there by itself |
 | `extensions/vscode/rt-context/src/branchNaming.ts` line 65 | the legacy import writes `"org"`; reword the comment above it ("the org.repo store rung", and "one org per Mac" for the refusal it describes) |
 
 `lib/team/invite.ts` and `members.ts` still write `board.members` beside `mattstack.roster`; both now land in the org store. Task 18 removes the first.
@@ -1722,7 +1723,7 @@ Expected: all green.
 
 ```bash
 git status --short
-git add packages/rt-client/src packages/rt-client/test/org-fixture.ts lib/rt-paths.ts lib/endpoint/shim.ts lib/repo-reidentify.ts lib/setup/plan.ts lib/setup/team-settings.ts lib/team/invite.ts lib/team/members.ts commands/team.ts commands/setup.ts commands/tools.ts commands/verify.ts commands/settings-keys.ts lib/worktree/config.ts lib/skills/writing-style.ts lib/team/board-token.ts lib/variations.ts apps/boxscore/scripts/import-legacy-settings.ts extensions/vscode/rt-context/src/branchNaming.ts lib/__tests__/no-settings-bypass.test.ts packages/settings-kit/src/server.ts extensions/vscode/rt-context/src/__tests__/branchNaming.test.ts e2e/tests/settings.test.ts
+git add packages/rt-client/src packages/rt-client/test/org-fixture.ts lib/rt-paths.ts lib/endpoint/shim.ts lib/repo-reidentify.ts lib/setup/plan.ts lib/setup/team-settings.ts lib/team/invite.ts lib/team/members.ts commands/team.ts commands/setup.ts commands/tools.ts commands/verify.ts commands/settings-keys.ts lib/worktree/config.ts lib/skills/writing-style.ts lib/team/board-token.ts lib/variations.ts apps/board/src/config.ts apps/boxscore/scripts/import-legacy-settings.ts extensions/vscode/rt-context/src/branchNaming.ts lib/__tests__/no-settings-bypass.test.ts packages/settings-kit/src/server.ts extensions/vscode/rt-context/src/__tests__/branchNaming.test.ts e2e/tests/settings.test.ts
 git add $(git diff --name-only -- '*.test.ts')
 git commit -m "settings: the resolver and the write path read the org store and the active team's store"
 ```
@@ -2137,7 +2138,7 @@ git commit -m "rt settings: the org scope, and --team names a team folder"
 - Modify: `packages/settings-kit/src/server.ts` (`RtSettingsApi`, the `/defs` reply, `effectiveFromRows`)
 - Modify: `apps/console/src/app/settings/useConsoleSettings.ts`, `view.ts`, `SettingsSection.tsx`, `SettingsPage.tsx`, `ExplainModal.tsx`
 - Modify: `apps/board/src/client/board/config-shapes.ts` (`SCOPE_ORDER`), `apps/board/src/config.ts` (the roster write near line 992)
-- Test: `packages/settings-kit/src/__tests__/server.test.ts`, `apps/console/src/app/settings/view.test.ts`, `apps/console/src/server/settings-kit-mount.test.ts`, `apps/board/src/__tests__/config-store-latch.test.ts`
+- Test: `packages/settings-kit/src/__tests__/server.test.ts`, `apps/console/src/app/settings/view.test.ts`, `apps/console/src/server/settings-kit-mount.test.ts`
 
 **Interfaces:**
 - Consumes: Task 4 `activeTeam`, `listOrgs`; Task 6 `merge: "add"`.
@@ -2384,7 +2385,7 @@ Read `org` with `useSettingsOrg()` where the component reads the team, and pass 
 Run: `bun run console:typecheck && bun run console:test`
 Expected: PASS after updating test fixtures that built a defs body with `team:` (they send `org` and `activeTeam` now).
 
-- [ ] **Step 7: The board groups org keys and writes the roster to the org**
+- [ ] **Step 7: The board groups org keys**
 
 In `apps/board/src/client/board/config-shapes.ts`:
 
@@ -2392,21 +2393,7 @@ In `apps/board/src/client/board/config-shapes.ts`:
 const SCOPE_ORDER = ['org', 'team', 'user', 'machine'] as const;
 ```
 
-In `apps/board/src/config.ts`, the roster writer (`saveRosterMembers`, near line 992) writes the owning roster key at the scope that key allows:
-
-```ts
-    write(owner.key, value, owner.key === 'mattstack.roster' ? 'org' : 'team');
-```
-
-`apps/board/src/__tests__/config-store-latch.test.ts` holds the roster-write tests and their helpers (a temp `config.json` path and `fakeResolve`). Its assertion near line 527 expects the roster write at scope `'team'`; it now expects `'org'`:
-
-```ts
-    expect(calls).toEqual([
-      { key: 'mattstack.roster', value: next, scope: 'org' },
-    ]);
-```
-
-The same file's "a write to mattstack.roster strips hidden" test asserts the scope the same way; it becomes `'org'` too. `fakeWrite` there runs `validateWrite` with the scope, so a `'team'` write of the roster now fails the test by itself.
+The roster write itself moved to the org scope in Task 5, with its test.
 
 Run: `bun run board:typecheck && bun run board:test`
 Expected: PASS.
@@ -2441,7 +2428,7 @@ Stop the server and remove `$RT_SCRATCH_HOME` when done.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add packages/settings-kit/src/server.ts packages/settings-kit/src/__tests__/server.test.ts apps/console/src/app/settings apps/console/src/server/settings-kit-mount.test.ts apps/board/src/client/board/config-shapes.ts apps/board/src/config.ts apps/board/src/__tests__/config-store-latch.test.ts
+git add packages/settings-kit/src/server.ts packages/settings-kit/src/__tests__/server.test.ts apps/console/src/app/settings apps/console/src/server/settings-kit-mount.test.ts apps/board/src/client/board/config-shapes.ts
 git commit -m "settings-kit, console and board: name the org layer apart from the team layer"
 ```
 
@@ -5539,7 +5526,8 @@ git commit -m "team sync: push and stage only what this Mac's role owns, and nam
 The creator's roles are written under their forge login, never a guess (spec section 8, Create). With `--create-repo` the forge CLI is already signed in, so the login is known at once. With `--remote` on a recognized forge the token is connected later, on the checklist: create then writes no username, admin, owner or roster entry, and Install's `team.create` rerun writes them. Only a host that is no recognized forge uses `$USER`.
 
 **Files:**
-- Modify: `lib/team/create.ts` (`CreateTeamOpts`, `CreateTeamResult`, `createTeam`, new `withCreator`)
+- Modify: `lib/team/create.ts` (`CreateTeamOpts`, `CreateTeamResult`, `createTeam`, new `withCreator` and `claimPendingAdmin`)
+- Modify: `lib/team/team-local.ts` (`TeamLocalRecord.creatorPending`)
 - Modify: `lib/setup/intent.ts` (`SetupIntent.team.firstTeam?`), `lib/setup/steps/team.ts` (`resolveCreateOpts`, `teamCreateRun`)
 - Modify: `commands/team.ts` (`teamCreate`), `lib/command-tree-def.ts` (the `team create` args)
 - Test: `lib/team/__tests__/create.test.ts`, `commands/__tests__/team.test.ts`, `lib/setup/__tests__/steps-a.test.ts`
@@ -5555,7 +5543,19 @@ export interface CreateTeamResult { slug: string; team: string; name: string; re
 /** The org store's text with `creator` as admin, the first team's owner and the first roster member. Unchanged when the store already names an admin. */
 export function withCreator(storeText: string, team: string, creator: { username: string; agePublicKey?: string }): string;
 export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam?: AgeKeySeam, seams?: CreateTeamSeams): Promise<CreateTeamResult>;
+/**
+ * Finishes a create whose roles waited for the forge login: makes `username`
+ * the admin of an org that names none, commits it and pushes it. Does nothing
+ * unless this Mac's own create left the marker. Never replaces an admin.
+ */
+export async function claimPendingAdmin(p: Probes, slug: string, username: string, token: string | null): Promise<{ claimed: boolean; published: boolean; detail?: string }>;
+
+// lib/team/team-local.ts, on TeamLocalRecord
+/** This Mac created the org but could not yet say who its creator is. Cleared once the roles are written. */
+creatorPending?: { team: string; agePublicKey?: string };
 ```
+
+The marker is what keeps an org from being left with no admin. Install's `team.create` rerun writes the deferred roles, but a person can finish setup while that step is still partial; the intent is then cleared and the step never runs again. So whatever records the username later (the `team.identity` step, or a forge connect; Task 32) also claims the admin role when the marker is there. `createdByRt` cannot stand in for the marker: it is set only on the `--create-repo` path, where the login is always known.
 
 `scaffoldFiles` keeps the signature Task 10 gave it: the creator is written by `withCreator` after the scaffold, in one code path for a first run and a rerun.
 
@@ -5563,7 +5563,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam?: A
 
 - [ ] **Step 1: Write the failing tests**
 
-In `lib/team/__tests__/create.test.ts` (import `withCreator` from `../create.ts` and `readTeamLocal` from `../team-local.ts`):
+In `lib/team/__tests__/create.test.ts` (import `withCreator` and `claimPendingAdmin` from `../create.ts`, `readTeamLocal` and `updateTeamLocal` from `../team-local.ts`):
 
 ```ts
 describe("the creator", () => {
@@ -5634,6 +5634,33 @@ describe("the creator", () => {
     expect(readTeamLocal(p, "acme").forgeUsername).toBe("dev1");
     expect(orgStore(p)["mattstack.org"]).toEqual({ admins: ["dev1"], teams: { widgets: { owners: ["dev1"] } } });
     expect(commits).toEqual(["team: scaffold acme", "team: dev1 is the acme org's admin"]);
+  });
+
+  test("a deferred create leaves a marker, and recording the username later claims the admin role, commits and pushes", async () => {
+    const git: string[] = [];
+    const p = gitAwareFakeProbes(HOME, (argv) => {
+      if (argv[0] === "git" && (argv[1] === "commit" || argv.includes("push"))) git.push(argv.includes("push") ? "push" : `commit ${argv[argv.indexOf("-m") + 1]}`);
+      return null;
+    });
+    await createTeam(p, { ...GITHUB, firstTeam: "widgets" }, new FakeAgeKeySeam(), unknown);
+    expect(readTeamLocal(p, "acme").creatorPending).toEqual({ team: "widgets", agePublicKey: FAKE_PUBLIC_KEY });
+
+    updateTeamLocal(p, "acme", { forgeUsername: "dev1" });
+    expect(await claimPendingAdmin(p, "acme", "dev1", null)).toEqual({ claimed: true, published: true });
+    expect(orgStore(p)["mattstack.org"]).toEqual({ admins: ["dev1"], teams: { widgets: { owners: ["dev1"] } } });
+    expect(orgStore(p)["mattstack.roster"]).toEqual([{ username: "dev1", agePublicKey: FAKE_PUBLIC_KEY, teams: ["widgets"] }]);
+    expect(readTeamLocal(p, "acme").creatorPending).toBeUndefined();
+    expect(git.slice(-2)).toEqual(["commit team: dev1 is the acme org's admin", "push"]);
+
+    expect(await claimPendingAdmin(p, "acme", "someone-else", null)).toEqual({ claimed: false, published: false });
+  });
+
+  test("with no marker, or an org that already names an admin, nothing is claimed", async () => {
+    const p = gitAwareFakeProbes(HOME);
+    await createTeam(p, GITHUB, new FakeAgeKeySeam(), seams);
+    expect(readTeamLocal(p, "acme").creatorPending).toBeUndefined();
+    expect(await claimPendingAdmin(p, "acme", "dev2", null)).toEqual({ claimed: false, published: false });
+    expect((orgStore(p)["mattstack.org"] as { admins: string[] }).admins).toEqual(["dev1"]);
   });
 
   test("an org on no recognized forge records $USER, so its creator is still its admin", async () => {
@@ -5762,14 +5789,16 @@ In `createTeam` (new fourth parameter `seams: CreateTeamSeams = REAL_SEAMS`):
     const before = p.readFile(orgStorePath);
     if (before === null) return { changed: false, deferred: false, username: null };
     const username = await creatorUsername(p, slug, remote, seams);
+    const { publicKey } = await ensureAgeKey(ageKeySeam);
     if (username === null) {
       const named = withCreator(before, team, { username: "x" }) === before;
+      // Whatever records the username later finishes the job from this marker.
+      if (!named) updateTeamLocal(p, slug, { creatorPending: { team, agePublicKey: publicKey } });
       return { changed: false, deferred: !named, username: null };
     }
-    const { publicKey } = await ensureAgeKey(ageKeySeam);
     const after = withCreator(before, team, { username, agePublicKey: publicKey });
     if (after !== before) p.writeFile(orgStorePath, after);
-    if (!readTeamLocal(p, slug).forgeUsername) updateTeamLocal(p, slug, { forgeUsername: username });
+    updateTeamLocal(p, slug, { ...(readTeamLocal(p, slug).forgeUsername ? {} : { forgeUsername: username }), creatorPending: undefined });
     return { changed: after !== before, deferred: false, username };
   };
 ```
@@ -5791,6 +5820,39 @@ In `createTeam` (new fourth parameter `seams: CreateTeamSeams = REAL_SEAMS`):
 - In the build path, `writeScaffold()` is followed by `const creator = await recordCreator(remote);` in both places it is called (the git-deferred branch and the normal path, where it sits before `git add -A` so the scaffold commit carries the roles). Both returns gain `team` and `...(creator.deferred ? { rolesDeferred: true as const } : {})`.
 - `scaffoldFiles` is called with the first team: `scaffoldFiles(slug, opts.name, remote, [publicKey], team)`.
 - `recordIntent` and the early-return intent carry the first team: `team: { slug, name: opts.name, remote, others: opts.others, firstTeam: team }`.
+
+Beside `createTeam`:
+
+```ts
+export async function claimPendingAdmin(p: Probes, slug: string, username: string, token: string | null): Promise<{ claimed: boolean; published: boolean; detail?: string }> {
+  const pending = readTeamLocal(p, slug).creatorPending;
+  if (!pending) return { claimed: false, published: false };
+  const dir = join(p.home, ".mattstack", "teams", slug);
+  const file = join(dir, "mattstack", "org", "settings.org.jsonc");
+  const before = p.readFile(file);
+  if (before === null) return { claimed: false, published: false };
+  const after = withCreator(before, pending.team, { username, ...(pending.agePublicKey ? { agePublicKey: pending.agePublicKey } : {}) });
+  updateTeamLocal(p, slug, { creatorPending: undefined });
+  if (after === before) return { claimed: false, published: false };
+  p.writeFile(file, after);
+  try {
+    const add = await p.exec(["git", "add", "--", "mattstack/org/settings.org.jsonc"], { cwd: dir });
+    if (add.code !== 0) throw gitStepError("git-add-failed", "git add", add);
+    const commit = await p.exec(["git", "commit", "-m", `team: ${username} is the ${slug} org's admin`], { cwd: dir });
+    if (commit.code !== 0) throw gitStepError("git-commit-failed", "git commit", commit);
+    const origin = readExistingOrigin(p, dir);
+    await publishTeam(p, slug, null, { token, tokenRemote: origin });
+    return { claimed: true, published: true };
+  } catch (err) {
+    // The roles are on this Mac either way; only the push is owed.
+    return { claimed: true, published: false, detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+```
+
+(import `publishTeam` from `./publish.ts`; if that makes an import cycle with `publish.ts`, put `claimPendingAdmin` in a new `lib/team/claim-admin.ts` instead and import `withCreator` there.)
+
+`lib/team/team-local.ts`: add `creatorPending?: { team: string; agePublicKey?: string }` to `TeamLocalRecord`, and read it back in `readTeamLocal` the way `agePublicKey` is read (an object whose `team` is a string, else absent). `updateTeamLocal` with `creatorPending: undefined` drops the field, since `JSON.stringify` omits it.
 
 `lib/setup/intent.ts`: `team?: { slug: string; name: string; remote: string; others: boolean; firstTeam?: string };`.
 
@@ -5815,7 +5877,7 @@ When `created.rolesDeferred` is set, the step ends `{ state: "partial", detail: 
 bun test lib/team/__tests__/create.test.ts commands/__tests__/team.test.ts lib/setup
 bunx tsc --noEmit
 bun run docs:gen
-git add lib/team/create.ts lib/setup/intent.ts lib/setup/steps/team.ts commands/team.ts lib/command-tree-def.ts
+git add lib/team/create.ts lib/team/team-local.ts lib/setup/intent.ts lib/setup/steps/team.ts commands/team.ts lib/command-tree-def.ts
 git add $(git diff --name-only -- '*.test.ts' docs)
 git commit -m "rt team create: the creator is the org's admin, the first team's owner and on its roster, under their forge login"
 ```
@@ -6070,10 +6132,11 @@ git commit -m "rt team add: an admin adds a team folder, its pack skeleton, its 
 **Files:**
 - Modify: `lib/setup/intent.ts` (`InvitePointer`)
 - Modify: `lib/team/invite-crypto.ts` (`assertInvitePointerShape` admits both pointer versions)
-- Modify: `lib/team/invite.ts` (`MintInviteOpts`, `MintInviteSeams.publishRoster`, `mintInvite`, `addToRoster`)
+- Modify: `lib/team/invite.ts` (`MintInviteOpts`, `MintInviteSeams.pullOrg` and `publishRoster`, `mintInvite`, `addToRoster`)
+- Modify: `lib/team/publish.ts` (a rejected push on an org that has been pushed before gets its own error)
 - Modify: `lib/team/members.ts` (`withRosterKey`, `withoutMember`: usernames compare without case)
 - Modify: `commands/team.ts` (`teamInvite`), `lib/command-tree-def.ts` (the `team invite` args)
-- Test: `lib/team/__tests__/invite.test.ts`, `lib/team/__tests__/invite-crypto.test.ts`, `lib/team/__tests__/members.test.ts`, `commands/__tests__/team.test.ts`
+- Test: `lib/team/__tests__/invite.test.ts`, `lib/team/__tests__/publish.test.ts`, `lib/team/__tests__/invite-crypto.test.ts`, `lib/team/__tests__/members.test.ts`, `commands/__tests__/team.test.ts`
 
 **Interfaces:**
 - Produces:
@@ -6096,6 +6159,8 @@ export interface InvitePointer {
 export const INVITE_POINTER_VERSION = 2;
 export interface MintInviteOpts { slug: string; handle: string; teams: string[]; now: Date; requirePeering?: boolean }
 // MintInviteSeams gains:
+/** Brings the clone up to date with the org repo before the roster is read and changed. */
+pullOrg: (p: Probes, slug: string, remote: string, token: string | null) => Promise<void>;
 /** Commits the org store and pushes it now. The invite is made only after this returns. */
 publishRoster: (p: Probes, slug: string, handle: string, remote: string, token: string | null) => Promise<void>;
 
@@ -6104,7 +6169,7 @@ export function withRosterKey(roster: RosterMember[], handle: string, agePublicK
 export function withoutMember(roster: RosterMember[], handle: string): { roster: RosterMember[]; removed: RosterMember | null };
 ```
 
-The invite is useless until the invitee's roster entry is in the org repo: join clones the repo, and a clone without the entry puts the joiner on no team. So `mintInvite` writes the entry and pushes it first, and makes the invite only once the push succeeded (spec section 8, Join).
+The invite is useless until the invitee's roster entry is in the org repo: join clones the repo, and a clone without the entry puts the joiner on no team. So `mintInvite` pulls the org, writes the entry and pushes it, and makes the invite only once the push succeeded (spec section 8, Join). The pull comes first because other teams' owners push to the same repo all day: a push with no pull would be rejected whenever the org had moved, and the roster it changed would be a stale one.
 
 `rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]`. With no `--teams`, the inviter's active team.
 
@@ -6145,7 +6210,29 @@ describe("roster edits compare usernames without case", () => {
 });
 ```
 
-In `lib/team/__tests__/invite.test.ts` (every existing `mintInvite` call gains `teams: ["widgets"]`; `baseSeams`' `readTeamStore` default becomes `() => ({ "mattstack.roster": [] })`, and it gains `publishRoster: async () => {}`):
+In `lib/team/__tests__/publish.test.ts`: the existing "non-fast-forward rejection ... is a typed remote-not-empty error" test answers every non-push git call with exit 0; give its exec script `argv[1] === "rev-parse"` answering exit 1 (a first publish has no `origin/main` yet), and add its mirror:
+
+```ts
+  test("a rejected push on an org that has been pushed before says the org moved, never that the repo is not empty", async () => {
+    const p = probesWithZone({
+      home: "/home/x",
+      exec: (argv) =>
+        argv[0] === "git" && argv.includes("push")
+          ? { code: 1, stdout: "", stderr: "! [rejected]        main -> main (fetch first)\nerror: failed to push some refs" }
+          : { code: 0, stdout: "", stderr: "" },
+    });
+    await expect(publishTeam(p, "acme", null)).rejects.toMatchObject({
+      code: "org-moved",
+      message: "The org repo has changes this Mac does not have yet",
+      why: "Someone else pushed first. Pull, then try again.",
+      next: "rt team pull",
+    });
+  });
+```
+
+(after Task 22 these probes also need the org store and an admin's record for the role check, as that file's other tests have them.)
+
+In `lib/team/__tests__/invite.test.ts` (every existing `mintInvite` call gains `teams: ["widgets"]`; `baseSeams`' `readTeamStore` default becomes `() => ({ "mattstack.roster": [] })`, and it gains `pullOrg: async () => {}` and `publishRoster: async () => {}`):
 
 ```ts
   describe("teams", () => {
@@ -6179,16 +6266,30 @@ In `lib/team/__tests__/invite.test.ts` (every existing `mintInvite` call gains `
       expect(relay.createCalls).toEqual([]);
     });
 
-    test("the roster entry is written and pushed before the invite exists", async () => {
+    test("the org is pulled, then the roster entry is written and pushed, all before the invite exists", async () => {
       const relay = fakeRelayClient();
       const order: string[] = [];
       const { seams } = baseSeams({
-        writeSetting: (() => { order.push("roster"); }) as unknown as MintInviteSeams["writeSetting"],
+        pullOrg: async () => { order.push("pull"); },
+        readTeamStore: () => { order.push("read roster"); return { "mattstack.roster": [] }; },
+        writeSetting: (() => { order.push("write roster"); }) as unknown as MintInviteSeams["writeSetting"],
         publishRoster: async (_p, slug, handle) => { order.push(`publish ${slug} ${handle}, invites so far: ${relay.createCalls.length}`); },
       });
       await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
-      expect(order).toEqual(["roster", "publish acme zaphod, invites so far: 0"]);
+      expect(order).toEqual(["pull", "read roster", "write roster", "publish acme zaphod, invites so far: 0"]);
       expect(relay.createCalls.length).toBe(1);
+    });
+
+    test("a pull that fails makes no invite and writes no roster", async () => {
+      const relay = fakeRelayClient();
+      const { seams, writeCalls } = baseSeams({ pullOrg: async () => { throw new Error("could not resolve host"); } });
+      await expect(mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams)).rejects.toMatchObject({
+        code: "org-not-current",
+        message: "rt could not bring the org repo up to date, so it made no invite",
+        why: "could not resolve host",
+      });
+      expect(writeCalls).toEqual([]);
+      expect(relay.createCalls).toEqual([]);
     });
 
     test("a re-invite whose entry needs no change still pushes: an earlier write may never have left this Mac", async () => {
@@ -6304,6 +6405,17 @@ Expected: FAIL.
 - Move the roster write from after `resolveForgeAccess` to directly before `const key = generateKey();`, and push it there:
 
 ```ts
+  // Pulled first: the roster about to be read and pushed has to be the org's
+  // current one, or the push is rejected whenever another team's owner got
+  // there first.
+  try {
+    await seams.pullOrg(p, opts.slug, remote, token);
+  } catch (err) {
+    throw new UserActionableError("org-not-current", "rt could not bring the org repo up to date, so it made no invite", {}, {
+      why: err instanceof Error ? err.message : String(err),
+      next: "rt team status",
+    });
+  }
   // The entry is in the org repo before the invite exists: a joiner whose
   // clone lacks it lands on no team, and the sync engine's debounce is no
   // promise the push happened.
@@ -6318,9 +6430,19 @@ Expected: FAIL.
   }
 ```
 
-- `realMintInviteSeams()` supplies the push:
+- `realMintInviteSeams()` supplies the pull and the push:
 
 ```ts
+    pullOrg: async (p, slug, remote, token) => {
+      const dir = join(p.home, ".mattstack", "teams", slug);
+      // An org that was never pushed has nothing to pull; the publish below makes its first push.
+      const known = await p.exec(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"], { cwd: dir });
+      if (known.code !== 0) return;
+      // --autostash: a settings edit the sync engine has not committed yet must not block the pull.
+      const pull = gitWithToken(["pull", "--rebase", "--autostash", "origin", "main"], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
+      const res = await p.exec(pull.argv, { cwd: dir, env: pull.env });
+      if (res.code !== 0) throw new Error(withoutUrls(`${res.stdout}\n${res.stderr}`.trim()) || `git pull exited ${res.code}`);
+    },
     publishRoster: async (p, slug, handle, remote, token) => {
       const dir = join(p.home, ".mattstack", "teams", slug);
       const file = "mattstack/org/settings.org.jsonc";
@@ -6335,7 +6457,26 @@ Expected: FAIL.
     },
 ```
 
-Import `publishTeam` from `./publish.ts`. The seam takes the probes as its first argument, like `forgeToken` and `grantRead`, so `realMintInviteSeams()` keeps taking none.
+Import `publishTeam` from `./publish.ts`, `gitWithToken` from `./git-credential.ts` and `withoutUrls` from `./redact.ts`. Both seams take the probes as their first argument, like `forgeToken` and `grantRead`, so `realMintInviteSeams()` keeps taking none.
+
+`lib/team/publish.ts`: `classifyPushFailure` reads every rejection as "the repo is not empty", which is only true of a first publish. In `publishTeam`, where the failed push is classified:
+
+```ts
+  if (push.code !== 0) {
+    const text = `${push.stdout}\n${push.stderr}`;
+    // origin/main is only known locally once this clone has pushed or fetched it: a rejection then means the org moved.
+    if (REJECTED_PATTERN.test(text) && (await p.exec(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"], { cwd: dir })).code === 0) {
+      throw new UserActionableError("org-moved", "The org repo has changes this Mac does not have yet", {}, {
+        why: "Someone else pushed first. Pull, then try again.",
+        next: "rt team pull",
+        log: withoutUrls(text.trim()),
+      });
+    }
+    throw classifyPushFailure(push);
+  }
+```
+
+The probe runs only after a rejected push, so a successful publish runs the same git calls as before.
 
 - `addToRoster(seams, opts.slug, opts.handle, teams)`:
 
@@ -6402,7 +6543,7 @@ and pass `teams` to the mint, called as `(deps.mintInvite ?? mintInvite)(deps.pr
 bun test lib/team commands/__tests__/team.test.ts
 bunx tsc --noEmit
 bun run docs:gen
-git add lib/setup/intent.ts lib/team/invite.ts lib/team/invite-crypto.ts lib/team/members.ts commands/team.ts lib/command-tree-def.ts
+git add lib/setup/intent.ts lib/team/invite.ts lib/team/invite-crypto.ts lib/team/publish.ts lib/team/members.ts commands/team.ts lib/command-tree-def.ts
 git add $(git diff --name-only -- '*.test.ts' docs)
 git commit -m "rt team invite: admin only, --teams, and a pointer that names the invitee and their teams"
 ```
@@ -7214,7 +7355,7 @@ git commit -m "rt team status: report your role, your active team and your teams
 - Test: `lib/setup/__tests__/steps-org.test.ts` (new), `lib/setup/__tests__/update-safe.test.ts`, `lib/setup/__tests__/apply.test.ts`, `lib/setup/__tests__/contract.test.ts` (the pinned `STEP_IDS`), `commands/__tests__/setup-connect.test.ts`, `commands/__tests__/setup-copy.test.ts` (snapshot)
 
 **Interfaces:**
-- Consumes: `forgeLogin`, `resolveForge` (`lib/setup/steps/forge-identity.ts`), `readTeamLocal`, `updateTeamLocal`, `forgeFromRemote`.
+- Consumes: `forgeLogin`, `trustedForgeTokenFor` (`lib/setup/steps/forge-token.ts`), `tokenLookupRemoteForHost` (`lib/team/forge-token.ts`), `claimPendingAdmin` (Task 25), `readTeamLocal`, `updateTeamLocal`, `forgeFromRemote`.
 - Produces: step ids `org.pull` and `team.identity`, in that order, directly after `team.join`. Both are update-safe (`kind: "rt"`, `applies: () => true`, never `ctx.need`), so they are the first two steps of an update run, after the migrations.
 
 ```ts
@@ -7229,10 +7370,14 @@ export async function recordForgeIdentity(
   forge: { provider: "github" | "gitlab"; host: string } | null,
   token: string | null,
   login?: typeof forgeLogin,
-): Promise<{ username: string | null; outcome: "already" | "recorded" | "unknown" }>;
+): Promise<{ username: string | null; outcome: "already" | "recorded" | "unknown"; admin?: { claimed: boolean; published: boolean; detail?: string } }>;
+/** The origin of the clone, read from its `.git/config`; works on a clone that has not been converted yet. */
+export function cloneOrigin(p: Pick<Probes, "readFile" | "home">, slug: string): string | null;
 ```
 
-`org.pull` never ends `failed`. A full Install stops at a failed step (`runApplyWith` in `lib/setup/apply.ts`), and a pull that could not run is no reason to stop an Install: the clone was just made, or team sync is off, or the network is down. Trouble is `skipped` or `partial` with the reason; an update run reports a `partial` item the same way it reports a failed one.
+A pull that could not finish depends on the run. In a full Install `org.pull` ends `partial`, never `failed`: a failed step stops the Install (`runApplyWith` in `lib/setup/apply.ts`), and a pull that did not happen is no reason to (the clone was just made, or team sync is off, or the network is down). In an update run it ends `failed`: nothing stops an update run, and only `needs-you` and `failed` items raise the after-update notification (`updateNotification` in `lib/setup/update.ts`), which a member whose Mac is still on the old layout needs to see.
+
+Whenever a username is known, `recordForgeIdentity` also finishes a create whose roles were deferred (`claimPendingAdmin`, Task 25), so an org cannot be left with no admin because its creator finished setup while `team.create` was still partial.
 
 `org.pull` lists clones by their `.git`, never through `discoverOrgs`: on a member's first update after the conversion the clone still holds the old layout, so `discoverOrgs` sees nothing, and the pull is exactly what brings the new layout in.
 
@@ -7291,6 +7436,15 @@ describe("org.pull", () => {
     expect(await pullWith(async () => ({ ok: false, error: "daemon threw" }))).toMatchObject({ state: "partial", detail: "acme was not pulled: daemon threw" });
   });
 
+  test("in an update run the same trouble is a failed item, so the member is told", async () => {
+    const p = fakeProbes({ home: HOME, dirs: TEAMS_DIR, files, daemon: async () => ({ ok: true, data: { outcome: "conflict", detail: "mattstack/org/settings.org.jsonc" } }) });
+    expect(await orgPullStep.run(makeCtx(p, { update: true }).ctx)).toEqual({
+      state: "failed",
+      detail: "acme was not pulled: mattstack/org/settings.org.jsonc",
+      remedy: "Run rt team status to see what is in the way",
+    });
+  });
+
   test("an up-to-date clone is done and says so", async () => {
     expect(await pullWith(async () => ({ ok: true, data: { outcome: "up-to-date", detail: null } }))).toEqual({ state: "done", detail: "acme is already up to date" });
   });
@@ -7330,6 +7484,44 @@ describe("team.identity", () => {
     const { ctx } = makeCtx(p, { identity: { login: async () => "dev1" } });
     expect(await teamIdentityStep.run(ctx)).toEqual({ state: "done", detail: "You are dev1" });
     expect(readTeamLocal(p, "acme").forgeUsername).toBe("dev1");
+  });
+
+  test("on a clone that is not converted yet, the stored token for the clone's own host reaches the lookup", async () => {
+    const p = fakeProbes({ home: HOME, dirs: TEAMS_DIR, files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git"), [`${CLONE}/mattstack/settings.team.jsonc`]: "{}" } });
+    const seen: unknown[][] = [];
+    const { ctx } = makeCtx(p, {
+      identity: {
+        token: async (_ctx, host) => { seen.push(["token for", host]); return "stored-token"; },
+        login: async (_p, provider, host, token) => { seen.push([provider, host, token]); return "dev1"; },
+      },
+    });
+    expect(await teamIdentityStep.run(ctx)).toEqual({ state: "done", detail: "You are dev1" });
+    expect(seen).toEqual([["token for", "github.com"], ["github", "github.com", "stored-token"]]);
+  });
+
+  test("recording the username finishes a create that was waiting for it: this Mac becomes the org's admin", async () => {
+    const p = fakeProbes({
+      home: HOME,
+      dirs: { ...TEAMS_DIR, [CLONE]: [] },
+      files: { ...orgFiles, [teamLocalPath(HOME, "acme")]: JSON.stringify({ creatorPending: { team: "widgets" } }) },
+    });
+    const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, identity: { login: async () => "dev1" } });
+    expect(await teamIdentityStep.run(ctx)).toEqual({ state: "done", detail: "You are dev1, and this org's admin now" });
+    const org = JSON.parse(p.readFile(`${CLONE}/mattstack/org/settings.org.jsonc`)!);
+    expect(org["mattstack.org"]).toEqual({ admins: ["dev1"], teams: { widgets: { owners: ["dev1"] } } });
+    expect(readTeamLocal(p, "acme").creatorPending).toBeUndefined();
+    expect(p.calls.exec.some((argv) => argv.includes("push"))).toBe(true);
+  });
+
+  test("when that push fails the roles still stand, and the step says what is owed", async () => {
+    const p = fakeProbes({
+      home: HOME,
+      dirs: { ...TEAMS_DIR, [CLONE]: [] },
+      files: { ...orgFiles, [teamLocalPath(HOME, "acme")]: JSON.stringify({ creatorPending: { team: "widgets" } }) },
+      exec: (argv) => (argv.includes("push") ? { code: 128, stdout: "", stderr: "fatal: Authentication failed" } : { code: 0, stdout: "", stderr: "" }),
+    });
+    const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, identity: { login: async () => "dev1" } });
+    expect(await teamIdentityStep.run(ctx)).toEqual({ state: "partial", detail: "You are dev1 and this org's admin now, but rt could not push that", remedy: "Run rt team publish" });
   });
 
   test("no org is a skip", async () => {
@@ -7397,6 +7589,41 @@ In `commands/__tests__/setup-connect.test.ts`, inside `describe("integrationConn
   });
 ```
 
+```ts
+  test("a clone that is not converted yet is identified from its origin, since it has no settings to read", async () => {
+    const probes = fakeProbes({
+      fetch: gitlabWithScopes(["api", "read_user"]),
+      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      files: { "/fake-home/.mattstack/teams/acme/.git/config": `[remote "origin"]\n\turl = https://gitlab.com/acme/org.git\n` },
+    });
+    const deps = baseDeps({
+      probes,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "", remote: null, integrations: {} }),
+      forgeLogin: async () => "dev1",
+    });
+    await integrationConnect("gitlab", ["--json"], deps);
+    expect(readTeamLocal(probes, "acme").forgeUsername).toBe("dev1");
+  });
+
+  test("the org's forge is matched by host as well as provider", async () => {
+    const probes = fakeProbes({ fetch: gitlabWithScopes(["api", "read_user"]) });
+    const deps = baseDeps({
+      probes,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      // The org lives on a self-hosted GitLab; this connect validated against gitlab.com.
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", integrations: { forge: { host: "gitlab.example.com", provider: "gitlab" } } }),
+      forgeLogin: neverCalled("forgeLogin"),
+    });
+    await integrationConnect("gitlab", ["--json"], deps);
+    expect(readTeamLocal(probes, "acme").forgeUsername).toBeUndefined();
+  });
+```
+
 (the staging write a not-yet-ready store triggers goes through the probes, as the file's other scope tests show; if `slackTeamSnapshot()` has no `remote`, the spread values above supply what `connectCredential` reads. Import `readTeamLocal` from `../../lib/team/team-local.ts`.)
 
 In `lib/setup/__tests__/update-safe.test.ts`, the pinned list starts with the two new ids:
@@ -7456,12 +7683,14 @@ Expected: FAIL.
  */
 
 import { join } from "path";
+import { claimPendingAdmin } from "../../team/create.ts";
+import { tokenLookupRemoteForHost } from "../../team/forge-token.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { readTeamLocal, updateTeamLocal } from "../../team/team-local.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import type { Probes } from "../probes.ts";
 import { discoverOrgs, forgeFromRemote, parseOriginUrl } from "../team-settings.ts";
-import { resolveForge } from "./forge-identity.ts";
+import { trustedForgeTokenFor } from "./forge-token.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 const PULL_TIMEOUT_MS = 180_000;
@@ -7489,8 +7718,10 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
     // The daemon answers no-team while team sync is off or its engine for a clone made a moment ago has not started.
     if (!res.ok && res.failure?.code === "no-team") return { state: "skipped", detail: `Team sync has not started for ${slug} yet, so it is pulled once it does` };
     const stuck = !res.ok || !res.data ? (res.error ?? "the daemon gave no reason") : res.data.outcome === "conflict" || res.data.outcome === "skipped" ? (res.data.detail ?? res.data.outcome) : null;
-    // Never `failed`: a failed step stops a full Install, and a pull that did not happen is no reason to.
-    if (stuck !== null) return { state: "partial", detail: `${slug} was not pulled: ${stuck}`, remedy: "Run rt team status to see what is in the way" };
+    // A failed step stops a full Install, and a pull that did not happen is no
+    // reason to. Nothing stops an update run, and there only a failed item
+    // reaches the member as a notification.
+    if (stuck !== null) return { state: ctx.update ? "failed" : "partial", detail: `${slug} was not pulled: ${stuck}`, remedy: "Run rt team status to see what is in the way" };
     notes.push(res.data!.outcome === "up-to-date" ? `${slug} is already up to date` : `Pulled ${slug}`);
   }
   ctx.reloadTeam?.();
@@ -7500,9 +7731,21 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
 /** Seamed so a test never spawns gh or glab. */
 export const identitySeams = { login: forgeLogin };
 
-function remoteOf(ctx: ApplyContext, slug: string): string | null {
-  const raw = ctx.p.readFile(join(ctx.p.home, ".mattstack", "teams", slug, ".git", "config"));
+export function cloneOrigin(p: Pick<Probes, "readFile" | "home">, slug: string): string | null {
+  const raw = p.readFile(join(p.home, ".mattstack", "teams", slug, ".git", "config"));
   return raw === null ? null : parseOriginUrl(raw);
+}
+
+/**
+ * The stored token for `host`, behind the same confirmed-host gate every
+ * other lookup uses. Asked for the forge's own host, never through the team
+ * snapshot: a clone that is not converted yet has no snapshot, and its admin
+ * still has to be identified before the conversion.
+ */
+async function storedTokenFor(ctx: ApplyContext, host: string): Promise<string | null> {
+  const token = await trustedForgeTokenFor(ctx, tokenLookupRemoteForHost(host));
+  if (token) ctx.redact(token);
+  return token;
 }
 
 export async function recordForgeIdentity(
@@ -7513,12 +7756,13 @@ export async function recordForgeIdentity(
   login: typeof forgeLogin = identitySeams.login,
 ): Promise<{ username: string | null; outcome: "already" | "recorded" | "unknown" }> {
   const stored = readTeamLocal(p, slug).forgeUsername;
-  if (stored) return { username: stored, outcome: "already" };
   // Only an org on no forge rt knows falls back to the local account name.
-  const username = forge ? await login(p, forge.provider, forge.host, token) : (p.env.USER ?? null);
+  const username = stored ?? (forge ? await login(p, forge.provider, forge.host, token) : (p.env.USER ?? null));
   if (!username) return { username: null, outcome: "unknown" };
-  updateTeamLocal(p, slug, { forgeUsername: username });
-  return { username, outcome: "recorded" };
+  if (!stored) updateTeamLocal(p, slug, { forgeUsername: username });
+  // A no-op unless this Mac's own create is still waiting to name its admin.
+  const admin = await claimPendingAdmin(p, slug, username, token);
+  return { username, outcome: stored ? "already" : "recorded", ...(admin.claimed ? { admin } : {}) };
 }
 
 async function teamIdentityRun(ctx: ApplyContext): Promise<StepOutcome> {
@@ -7527,10 +7771,17 @@ async function teamIdentityRun(ctx: ApplyContext): Promise<StepOutcome> {
   const slug = ctx.team.slug || discoverOrgs(ctx.p)[0] || cloneSlugs(ctx.p)[0] || "";
   if (slug === "") return { state: "skipped", detail: "No org on this Mac" };
 
-  const remote = remoteOf(ctx, slug);
+  const remote = cloneOrigin(ctx.p, slug);
   const declared = ctx.snapshot?.integrations.forge ?? (remote ? forgeFromRemote(remote) : null);
-  const token = declared && !readTeamLocal(ctx.p, slug).forgeUsername ? ((await resolveForge(ctx))?.token ?? null) : null;
+  const record = readTeamLocal(ctx.p, slug);
+  const wanted = declared !== null && (!record.forgeUsername || record.creatorPending !== undefined);
+  const token = wanted ? await (ctx.identity?.token ?? storedTokenFor)(ctx, declared.host) : null;
   const result = await recordForgeIdentity(ctx.p, slug, declared, token, ctx.identity?.login);
+  if (result.admin?.claimed) {
+    return result.admin.published
+      ? { state: "done", detail: `You are ${result.username}, and this org's admin now` }
+      : { state: "partial", detail: `You are ${result.username} and this org's admin now, but rt could not push that`, remedy: "Run rt team publish" };
+  }
   if (result.outcome === "already") return { state: "skipped", detail: "Already recorded" };
   if (result.outcome === "recorded") return { state: "done", detail: `You are ${result.username}` };
   if (!declared) return { state: "needs-you", detail: "rt can't tell who you are, and this org is on no forge it knows" };
@@ -7565,7 +7816,7 @@ export const teamIdentityStep: StepDef = {
 };
 ```
 
-`ApplyContext` gains an optional test seam: `identity?: { login: typeof forgeLogin };` with the comment `/** Test seam for team.identity's forge lookup. */`. If `Probes.daemon` takes no timeout argument today, call it with two arguments (drop `PULL_TIMEOUT_MS`) and note in the step's doc that the probe's own timeout applies; match the real signature in `lib/setup/probes.ts`.
+`ApplyContext` gains an optional test seam: `identity?: { login?: typeof forgeLogin; token?: (ctx: ApplyContext, host: string) => Promise<string | null> };` with the comment `/** Test seams for team.identity's forge lookup and its stored token. */`. The step's imports are `trustedForgeTokenFor` from `./forge-token.ts`, `tokenLookupRemoteForHost` from `../../team/forge-token.ts` and `claimPendingAdmin` from `../../team/create.ts`; it no longer imports `resolveForge`, which reads the forge from the team snapshot and so finds nothing on a clone that is not converted yet. If `Probes.daemon` takes no timeout argument today, call it with two arguments (drop `PULL_TIMEOUT_MS`) and note in the step's doc that the probe's own timeout applies; match the real signature in `lib/setup/probes.ts`.
 
 `lib/setup/steps/index.ts`: import both steps and insert `orgPullStep, teamIdentityStep,` after `teamJoinStep,` in `STEPS`.
 
@@ -7575,10 +7826,13 @@ export const teamIdentityStep: StepDef = {
   if (id === "github" || id === "gitlab") {
     const team = snapshotFor(deps);
     const slug = team.slug || cloneSlugs(deps.probes)[0] || "";
-    const orgForge = team.integrations.forge ?? (team.remote ? forgeFromRemote(team.remote) : null);
-    // Only the org's own forge says who you are in the org, and the token goes only to the host it was just validated against.
-    if (slug !== "" && orgForge?.provider === id) {
-      const host = id === "github" ? "github.com" : (ctx.host ?? "gitlab.com");
+    // A clone that is not converted yet has no settings, so its forge comes from its origin.
+    const remote = team.remote ?? (slug !== "" ? cloneOrigin(deps.probes, slug) : null);
+    const orgForge = team.integrations.forge ?? (remote ? forgeFromRemote(remote) : null);
+    const host = id === "github" ? "github.com" : (ctx.host ?? "gitlab.com");
+    // Only the org's own forge says who you are in the org: the same provider on the
+    // same host. The token goes only to the host it was just validated against.
+    if (slug !== "" && orgForge?.provider === id && orgForge.host === host) {
       await recordForgeIdentity(deps.probes, slug, { provider: id, host }, value, deps.forgeLogin);
     }
   }
@@ -9622,7 +9876,7 @@ struct TeamPaneForm: View {
                 }
             } else {
                 Section("Org") {
-                    LabeledContent("Name") { Text(info?.name ?? "\u{2014}") }
+                    LabeledContent("Name") { Text(info?.name ?? "...") }
                     LabeledContent("Your team") { yourTeam }
                     LabeledContent("Remote") {
                         HStack { Text(maskedRemote).textSelection(.enabled)
@@ -9721,7 +9975,7 @@ struct TeamPaneForm: View {
 }
 ```
 
-The invite result block, the remote row and the share helper are the code that was there, moved as they were. The placeholder for a missing name is the same character the pane shows today, written as an escape (`"\u{2014}"`). The solo branch's copy stays: "Create a team…" and "Join a team…" still open the wizard, and creating a team makes an org with that team in it. The target is macOS 14, which has the two-parameter `onChange(of:initial:)`.
+The invite result block, the remote row and the share helper are the code that was there, moved as they were. The placeholder for a name that has not loaded is `"..."`: plain ASCII, so no tool can turn it into a dash on save. The solo branch's copy stays: "Create a team…" and "Join a team…" still open the wizard, and creating a team makes an org with that team in it. The target is macOS 14, which has the two-parameter `onChange(of:initial:)`.
 
 - [ ] **Step 3: Build**
 
