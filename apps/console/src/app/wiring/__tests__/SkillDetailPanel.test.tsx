@@ -231,9 +231,9 @@ describe('SkillDetailPanel: one write at a time', () => {
     await waitFor(() =>
       expect(screen.getByTestId('surface-switch')).toBeDisabled()
     );
-    expect(
-      within(rebind).getByRole('button', { name: 'Apply' })
-    ).toBeDisabled();
+    const apply = within(rebind).getByRole('button', { name: 'Apply' });
+    expect(apply).toBeDisabled();
+    expect(apply).not.toHaveAttribute('data-loading');
   });
 });
 

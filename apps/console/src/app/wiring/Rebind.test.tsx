@@ -187,6 +187,7 @@ function renderRebind(over: Partial<RebindProps> = {}) {
       composition={over.composition ?? SHARED}
       onApply={over.onApply}
       applying={over.applying}
+      locked={over.locked}
       applyError={over.applyError}
       onClose={over.onClose}
     />
@@ -396,5 +397,20 @@ describe('Rebind: the staged Apply', () => {
     expect(
       screen.getByText('rt skills: manifest is not writable')
     ).toBeInTheDocument();
+  });
+
+  test('holds Apply without a loader while another write to the pack runs', async () => {
+    renderRebind({
+      verb: 'watch-ci',
+      slot: 'domain',
+      composition: SHARED,
+      locked: true,
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /rebind/i }));
+
+    const apply = screen.getByRole('button', { name: /^apply$/i });
+    expect(apply).toBeDisabled();
+    expect(apply).not.toHaveAttribute('data-loading');
   });
 });

@@ -339,6 +339,29 @@ describe('HealthTab: installed caches bar', () => {
     );
   });
 
+  it('refuses a confirmed sync while another write to the pack runs, and says so', async () => {
+    const user = userEvent.setup();
+    const { queryClient } = renderHealthTab(
+      undefined,
+      ALL_IN_SYNC_COMPOSITION,
+      LAG_CHECK
+    );
+    await user.click(await screen.findByTestId('installed-caches-sync'));
+    const confirm = await screen.findByRole('dialog');
+    act(() => {
+      holdWrite(queryClient, 'demo');
+    });
+
+    await user.click(within(confirm).getByRole('button', { name: 'Run sync' }));
+
+    expect(
+      await screen.findByText(
+        'Another change to demo is still being written. Try again once it finishes.'
+      )
+    ).toBeInTheDocument();
+    expect(syncPost).not.toHaveBeenCalled();
+  });
+
   it('shows "recompile needed" on the bar when check reports drift', async () => {
     renderHealthTab(undefined, COMPOSITION, {
       ...CHECK,

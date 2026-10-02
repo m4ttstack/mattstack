@@ -308,8 +308,8 @@ export function RebindPanel({
           size="xs"
           radius={6}
           classNames={BUTTON}
-          disabled={!changed}
-          loading={writing}
+          disabled={!changed || writing}
+          loading={bind.isPending}
           onClick={apply}
           data-parity="button · Apply"
         >

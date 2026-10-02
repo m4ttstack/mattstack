@@ -131,8 +131,12 @@ export interface RebindProps {
       passes `applying`/`applyError` back in from it. */
   onApply?: (fill: string) => void;
   /** True while the caller's apply is in flight -- disables Discard and
-      Apply so a second click cannot start a second, concurrent bind. */
+      Apply so a second click cannot start a second, concurrent bind, and
+      shows Apply's loader. */
   applying?: boolean;
+  /** True while any other write to the pack is in flight: holds Discard and
+      Apply without a loader, since the work running is not this panel's. */
+  locked?: boolean;
   /** Set by the caller after a failed apply (a non-zero `rt skills bind`,
       say), so the panel can say what went wrong. */
   applyError?: string | null;
@@ -151,6 +155,7 @@ export function Rebind({
   composition,
   onApply,
   applying = false,
+  locked = false,
   applyError = null,
   onClose,
 }: RebindProps) {
@@ -359,14 +364,14 @@ export function Rebind({
                 <Button
                   size="xs"
                   variant="default"
-                  disabled={applying}
+                  disabled={applying || locked}
                   onClick={discard}
                 >
                   Discard
                 </Button>
                 <Button
                   size="xs"
-                  disabled={applying}
+                  disabled={applying || locked}
                   loading={applying}
                   onClick={() => onApply?.(target)}
                 >

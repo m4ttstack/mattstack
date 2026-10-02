@@ -82,6 +82,7 @@ vi.mock('../../../api', () => ({
 }));
 
 const { WiringMap } = await import('../../WiringMap');
+const { holdWrite } = await import('../../__tests__/writeLock');
 
 function ok(json: unknown, status = 200) {
   return { ok: status < 400, status, json: async () => json };
@@ -130,17 +131,20 @@ afterEach(() => {
   window.history.pushState(null, '', '/');
 });
 
-function renderAt(search: string) {
+function renderAtWithClient(search: string) {
   window.history.pushState(null, '', `/wiring${search}`);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return renderWithProviders(
+  const view = renderWithProviders(
     <QueryClientProvider client={queryClient}>
       <WiringMap />
     </QueryClientProvider>
   );
+  return Object.assign(view, { queryClient });
 }
+
+const renderAt = (search: string) => renderAtWithClient(search);
 
 const params = () => new URLSearchParams(window.location.search);
 const panel = () => screen.findByTestId('rebind-panel');
@@ -396,6 +400,29 @@ describe('RebindPanel', () => {
       expect(
         within(reopened).getByRole('button', { name: 'Apply' })
       ).toBeEnabled()
+    );
+  });
+
+  it('holds Apply for another write to the pack, with the loader only for its own bind', async () => {
+    const { queryClient } = renderAtWithClient(REBIND);
+    const root = await pickStrict();
+    let end!: () => void;
+    act(() => {
+      end = holdWrite(queryClient, 'acme');
+    });
+
+    const apply = within(root).getByRole('button', { name: 'Apply' });
+    await waitFor(() => expect(apply).toBeDisabled());
+    expect(apply).not.toHaveAttribute('data-loading');
+
+    await act(async () => end());
+    await waitFor(() => expect(apply).toBeEnabled());
+    const bind = held();
+    bindPost.mockReturnValue(bind.promise);
+    await confirmApply(root);
+    await waitFor(() => expect(apply).toHaveAttribute('data-loading'));
+    await act(async () =>
+      bind.answer({ ...FAILED_BIND, ok: true, error: undefined })
     );
   });
 

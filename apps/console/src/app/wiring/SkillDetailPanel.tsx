@@ -403,7 +403,8 @@ export function SkillDetailPanel({
                           verb={entry.verb}
                           slot={slot.name}
                           composition={composition}
-                          applying={writing}
+                          applying={bind.isPending}
+                          locked={writing}
                           applyError={bindError}
                           onApply={fill =>
                             bind.mutate(
