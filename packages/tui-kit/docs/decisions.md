@@ -194,7 +194,7 @@ menu ARIA are each easy to get subtly wrong by hand, and Base UI already gets
 them right. The public API did not change: the caller still mounts the menu
 at a point and owns `onClose`.
 
-Base UI is driven, not trusted, in four places:
+Base UI is driven, not trusted, in six places:
 
 - The menu is controlled and always open while mounted. Every item has
   `closeOnClick={false}`, so only the caller closes it.
@@ -211,6 +211,11 @@ Base UI is driven, not trusted, in four places:
   which is always modal (a backdrop and a scroll lock). It needs a trigger
   anyway, so it gets a hidden `Menu.Trigger`, tied to it through
   `triggerId`.
+- A key pressed in a field inside the menu or a submenu (an input, textarea,
+  select or contenteditable) skips Base UI's handlers, all but Escape. Its
+  typeahead and arrow-key navigation would otherwise swallow typed text and
+  pull focus out of the field, and its Shift+Tab would hold focus where it is
+  (or close a submenu) instead of moving it back a field.
 
 Two things depend on Base UI's floating tree, so change either one only
 together with the other:

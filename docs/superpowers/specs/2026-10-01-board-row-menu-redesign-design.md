@@ -95,7 +95,7 @@ label "review from scratch". Both keys stay.
 | seat-hint (author actions) | agent | local, no seat | always blocked, as today |
 | merge | gitlab | local, own, open | draft: "draft"; merging: "merging"; not `isReady`: merge-status reason |
 | rebase on target | gitlab | local, own | rebasing: "rebasing"; `behindTarget === 0` and no `shouldBeRebased`: "up to date" (a null `behindTarget` leaves it enabled; GitLab refuses a no-op rebase) |
-| set / cancel auto-merge | gitlab | local, own, open | draft: "draft" |
+| set / cancel auto-merge | gitlab | local, own, open | draft: "draft" (set only; an armed auto-merge stays cancellable on a draft) |
 | mark as draft / mark ready | gitlab | local, own | never |
 | open in gitlab | gitlab | always | never |
 | mark / unmark looking, commented, approved | top (reaction row) | local, Slack on, thread found | never |

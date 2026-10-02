@@ -241,8 +241,10 @@ transition that lands while the board is down is replayed at its next boot.
 The row shows a live badge, and the board owns every Slack reaction, so the
 agent never touches Slack.
 
-The gate is enforced on both sides: the client hides the menu items and the
-server returns `403`, so these never fire through a public tunnel.
+The gate is enforced on both sides: the client leaves the agent items out of
+the menu and the server returns `403`, so these never fire through a public
+tunnel. A remote board shows one greyed-out "agent actions" row in their
+place, noting that they need a local board.
 
 There is also a one-shot automation pass for a cron entry, off by default:
 
