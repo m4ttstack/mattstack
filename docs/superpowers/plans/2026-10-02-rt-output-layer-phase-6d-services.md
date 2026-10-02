@@ -19,7 +19,7 @@
 - Never use em dashes or en dashes anywhere. Today's `appNotRunning` message, the `services restart` line, the deck-omitted warning, the post-install notes, the endpoint config warning and the three passthrough notes each hold one; every one is replaced.
 - Never write the phrase banned under the second heading of `~/.claude/rules/no-em-dashes.md`.
 - Comments state only a constraint the code cannot show.
-- `--json` keeps its shape: `apps list|enable|disable --json` (the tray decodes them), `services list|register|restart --json`, `flavor takeover --json` (the tray), `cron install|remove --json`, `bg status|release|stop --json`, `reconciler status|clear --json`, `endpoint lookup|release --json`. Human sentences inside an exit-2 envelope (`error.message`) may be reworded (cross-phase ruling 1, the 2026-10-01 spec ruling): `apps`' deck-not-running and not-managed messages, `services`' app-not-running message, `cron`'s board-missing message. Every other value is byte-identical, pinned in Task 3.
+- `--json` keeps its shape: `apps list|enable|disable --json` (the tray decodes them), `services list|register|restart --json`, `flavor takeover --json` (the tray), `cron install|remove --json`, `bg status|release|stop --json`, `reconciler status|clear --json`, `endpoint lookup|release --json`. Human sentences inside an exit-2 envelope (`error.message`) may be reworded (cross-phase ruling 1, the 2026-10-01 spec ruling): `apps`' deck-not-running and not-managed messages, `services`' app-not-running message, `cron`'s board-missing message. Every other value is byte-identical. Task 3 pins `apps list` (deck down), `services list`, `bg status|release|stop` and `reconciler status|clear`. `flavor takeover --json` is pinned by `commands/__tests__/flavor-takeover.test.ts`'s `--json` cases (`:272-274`, `:282`, `:362`, `:407-410`), which must pass with only human-text expectations changed. The rest (`services register|restart`, `cron install|remove`, `endpoint lookup|release`, `apps enable|disable`) keep their `--json` line untouched: each task rewrites only the human branch, and the reviewer checks that in the diff.
 - Exit codes do not change.
 - Rule 2: human text on stdout; `rt --post-install`'s notes stay on stderr (`out.note`), because the installer may read setup's stdout. Rule 3: failures through `out.fail`, policy refusals as `refused` notes.
 - Copy to "you", plainly; no paths, store names or ids in sentences; commands in a `next` callout.
@@ -32,8 +32,8 @@
 ## Review Focus
 
 1. **The tray's Apps settings reading `rt apps list --json` when deck is down.** It decodes the exit-2 envelope's `error.code`; only `error.message` may change words. Pinned in Task 3 (`apps list --json, deck down, keeps its envelope shape and code`).
-2. **`rt flavor takeover dev --json` from the tray.** The success envelope's keys and values (`flavor`, `retired`, `bootedOut`, `handDeck`, `rt`) and the exit-2 failure envelope are byte-identical. Pinned in Task 3 and by `commands/__tests__/flavor-takeover.test.ts`, which must pass with only its human-text expectations changed.
-3. **`rt bg stop` while claims are live.** It is rt declining, so it reads `refused`, not a failure, and still exits 0. Pinned in Task 6 (`stop with live claims is a refusal that names the release command`).
+2. **`rt flavor takeover dev --json` from the tray.** The success envelope's keys and values (`flavor`, `retired`, `bootedOut`, `handDeck`, `rt`) and the exit-2 failure envelope are byte-identical. Pinned by `commands/__tests__/flavor-takeover.test.ts`'s `--json` cases (`:272-274`, `:282`, `:362`, `:407-410`), which must pass with only its human-text expectations changed.
+3. **`rt bg stop` while claims are live.** The daemon replies `{ ok: false, error: "bg server has live claims: <owners>" }` (`lib/daemon/handlers/bg.ts:43-50`) and the CLI exits 1 (`commands/__tests__/bg.test.ts:134-139`). It is rt declining, so a person reads a `refused` note naming the owners and the release command, not coral; the exit stays 1 and `--json` stdout stays empty. Pinned in Task 3 (`bg stop --json with live claims`) and Task 6 (`stop with live claims is a refusal that names the release command`).
 4. **An intercepted dev server whose role is not set up.** The note must say plainly that the command ran without an rt port, with no `rt-intercept:` prefix and no long dash, while the debug traces keep their prefix (`commands/intercept.ts` matches it). Pinned in Task 8 (`a passthrough note is one plain sentence; debug traces keep their prefix`).
 5. **An endpoint setting that cannot be resolved.** One warning, through `warn`, shown once per process, naming the repo by its label. Pinned in Task 8 (`an unresolvable endpoint setting warns once through warn`).
 
@@ -43,6 +43,8 @@
 |---|---|---|
 | `rt-tray/Sources-core/Settings/AppsSettingsModel.swift:31,44` | `apps list --json`, `apps enable|disable <name> --json` | unchanged envelopes; `error.message` reworded |
 | `rt-tray/Sources-core/Flavor/FlavorLaunch.swift:113` | `flavor takeover <dev|prod> --json` | unchanged |
+| `rt-tray/Sources-core/Rt/RtFailureCopy.swift:56` | shows `apps list --json`'s `error.message` verbatim | each reworded message is one short line; `why` and `next` stay out of `message` |
+| `commands/__tests__/intercept-output.test.ts:235`, `e2e/tests/endpoint.test.ts:394` | the passthrough note contains `passthrough` | changed in Task 8 to `ran without an rt port` |
 | `lib/setup/steps/services.ts` | calls the tray directly, not `commands/services.ts` | unaffected |
 | `scripts/e2e-cleanroom.sh:90`, the release `test-install` recipe | `rt --post-install` exit code | unchanged |
 | `plugins/mattstack/.../shepherdr/SKILL.md:846` | names "the endpoint lookup" as a step through `rt_verb` (`--json`) | unchanged envelope |
@@ -60,7 +62,7 @@
 | `mattstack.app returned an unexpected /services response (status <n>)` | message `mattstack.app gave an answer rt could not read`, `log: "status <n>"` |
 | `rt services list: no registered agents` | print `line("skipped", "No background services are registered")` |
 | `<label>: <status>` per agent | print `table` of `[strong(label), status word]`; status `enabled` as `running`, `requiresApproval` as `needs-you` ("waiting for your approval"), `notRegistered` and `notFound` as `off`, anything else as `skipped` with the raw word |
-| `deck not bundled yet -- only the daemon is registered` (warn seam) | note `line("warn", "Only the daemon was registered", "this app does not carry deck yet")` |
+| `deck not bundled yet -- only the daemon is registered` (warn seam) | the seam takes one string, so note `line("warn", "Only the daemon was registered: this app does not carry deck yet")` |
 | `rt services register: ok (<plists>)` / `failed (...)` | print `line("done", "Registered <n> background service(s)", <names>)` / fail `{ title: "mattstack.app did not register them", hint: <names> }` (exit 1 as today) |
 | `rt services restart: <label> -- ok` / `failed` | print `line("done", "Restarted <label>")` / fail `{ title: "mattstack.app did not restart <label>" }` (exit 1) |
 | usage (`usage: rt services restart <label> [--json]`) | human: fail `usageFailure("Which service?", "rt services restart <label>")`, exit 2; `--json`: unchanged |
@@ -101,7 +103,7 @@ Exit 2 on every failure, as today; `--json` unchanged.
 | `rt reconciler: usage: rt reconciler clear <agentId> [--json]` | fail `usageFailure("Which agent?", "rt reconciler clear <agentId>")` |
 | bg status: `server: up|down`, `socket: <path>`, claims | print `line(up ? "running" : "off", up ? "The background server is running" : "The background server is stopped")`; claims `section("Live claims", undefined, table([strong(owner), dim(pane or "-"), "<age>"]))` or `line("skipped", "No live claims")`; the socket path is in `--json` only |
 | `released <owner>` / `<owner> was not claimed` | `line("done", "Released <owner>")` / `line("skipped", "<owner> was not claimed")` |
-| `stopped` / `not stopped` | `line("done", "Stopped the background server")` / note `line("refused", "Left the background server running", "it still has live claims")`, `callout("next", cmd("rt bg release <owner>"))` |
+| `stopped` / the daemon's `bg server has live claims: <owners>` (exit 1) | `line("done", "Stopped the background server")` / note `line("refused", "Left the background server running", "it still has live claims: <owners>")`, `callout("next", cmd("rt bg release <first owner>"))`, exit 1 as today |
 | reconciler status: `swept: <iso>|never`, `herdr: reachable|unreachable`, executors | `kv("last sweep", <local time> or "never")`, `line(reachable ? "done" : "warn", reachable ? "herdr is reachable" : "herdr is not reachable")`, `table` of `[strong(agentId), state word, dim(paneRef or "-")]` or `line("skipped", "No known executors")`; states: live `running`, blocked `needs-you`, hidden `off`, gone `warn` ("gone"), cleared `skipped`, unknown `skipped` |
 | `cleared <agentId>` | `line("done", "Cleared <agentId>")` |
 
@@ -291,12 +293,17 @@ describe("service verbs --json (frozen shape)", () => {
     expect((await captured(() => bgStatus(["--json"]))).stdout).toBe('{"ok":true,"up":true,"socket":"/tmp/bg.sock","claims":[{"owner":"runner","pane":"bg:w1:p1","createdAt":1}]}\n');
     replies = { "bg:release": { ok: true, data: { released: true } } };
     expect((await captured(() => bgRelease(["runner", "--json"]))).stdout).toBe('{"ok":true,"released":true}\n');
-    replies = { "bg:stop": { ok: true, data: { stopped: false } } };
-    expect((await captured(() => bgStop(["--json"]))).stdout).toBe('{"ok":true,"stopped":false}\n');
+    replies = { "bg:stop": { ok: true, data: { stopped: true } } };
+    expect((await captured(() => bgStop(["--json"]))).stdout).toBe('{"ok":true,"stopped":true}\n');
     replies = { "reconciler:status": { ok: true, data: { sweptAt: 0, herdrReachable: true, executors: [] } } };
     expect((await captured(() => reconcilerStatus(["--json"]))).stdout).toBe('{"ok":true,"sweptAt":0,"herdrReachable":true,"executors":[]}\n');
     replies = { "reconciler:clear": { ok: true, data: { cleared: true } } };
     expect((await captured(() => reconcilerClear(["ag-1", "--json"]))).stdout).toBe('{"ok":true,"cleared":true}\n');
+  });
+
+  test("bg stop --json with live claims: stdout empty, exit 1", async () => {
+    replies = { "bg:stop": { ok: false, error: "bg server has live claims: runner, herd:h-1" } };
+    expect(await captured(() => bgStop(["--json"]))).toEqual({ code: 1, stdout: "" });
   });
 });
 ```
@@ -337,11 +344,13 @@ import { appsListBlocks } from "../apps.ts";
 
 test("apps list for a person: on and off as states, needs-a-team as a hint", () => {
   const text = renderPlain(appsListBlocks([{ name: "board", displayName: "Board", enabled: true, requiresTeam: true }, { name: "chat", displayName: "Chat", enabled: false, requiresTeam: false }]));
-  expect(text).toMatch(/^on +board +Board +needs a team\noff +chat +Chat\n$/);
+  expect(text).toMatch(/^on +board +Board +needs a team\noff +chat +Chat *\n$/);
 });
 ```
 
-and change the not-managed human case to expect stderr `[refused] rt leaves deck alone  it is not one of the apps mattstack ships`, exit 2.
+(the hint cell is last and empty for `chat`; the plain renderer pads every cell but the last, so that row may end in spaces) and change the not-managed human case to expect stderr `[refused] rt leaves deck alone  it is not one of the apps mattstack ships`, exit 2.
+
+These existing assertions read today's words and change on purpose, to the copy table's: `apps.test.ts:66-69` (the not-managed `error.message`), `:83` (`deck answered an unreadable app list`), `:89` (`no mattstack apps registered`, now read through `renderPlain(appsListBlocks([]))`); `services.test.ts:65` (`rt services list: no registered agents`). Every `error.code` assertion stays.
 
 - [ ] **Step 2:** Run both files: FAIL.
 - [ ] **Step 3: Implement** by the copy table. In `services.ts`:
@@ -473,7 +482,7 @@ test("reconciler status: the sweep, herdr, and each executor's state as a word",
 });
 ```
 
-and, in the same file, `stop with live claims is a refusal that names the release command`: with a fake daemon (the HOME-socket pattern of `commands/__tests__/pane.test.ts`) replying `{ ok: true, data: { stopped: false } }` to `bg:stop`, `bgStop([])` writes stdout `""`, stderr starting `[refused] Left the background server running  it still has live claims\n  next: rt bg release <owner>`, and does not exit.
+and, in the same file, replace `bg stop renders the daemon's refusal text plainly and exits 1` (`:134-139`) with `stop with live claims is a refusal that names the release command`: the daemon replies `{ ok: false, error: "bg server has live claims: herd:hd-1, runner:123" }` to `bg:stop`; `run(bgStop, [])` gives code 1 (kept), stdout `""`, and stderr `[refused] Left the background server running  it still has live claims: herd:hd-1, runner:123\n  next: rt bg release herd:hd-1\n`.
 
 - [ ] **Step 2:** Run: FAIL.
 - [ ] **Step 3: Implement** by the copy table:
@@ -507,7 +516,27 @@ export function reconcilerStatusBlocks(data: Commands["reconciler:status"]["data
 }
 ```
 
-(`ExecutorState` from `packages/rt-client/src/index.ts`; check the executor row type's field names in `ReconcilerStatus` and match them.) `fail(msg)` in both files becomes `out.fail({ title: msg }); process.exit(1);`; the two usage sites use `usageFailure`. Every `--json` line becomes `out.json({ ok: true, ...data })`. `bgStop`'s human branch: `data.stopped ? out.print(out.line("done", "Stopped the background server")) : out.note(out.line("refused", "Left the background server running", "it still has live claims"), out.callout("next", out.cmd("rt bg release <owner>")))`.
+(`ExecutorState` from `packages/rt-client/src/index.ts`; check the executor row type's field names in `ReconcilerStatus` and match them.) `fail(msg)` in both files becomes `out.fail({ title: msg }); process.exit(1);`; the two usage sites use `usageFailure`. Every `--json` line becomes `out.json({ ok: true, ...data })`. `bgStop` reads the reply itself, since the refusal arrives as `ok: false`:
+
+```ts
+const LIVE_CLAIMS = "bg server has live claims: ";
+
+export async function bgStop(args: string[]): Promise<void> {
+  const res = await clientStop();
+  if (!res.ok && res.error?.startsWith(LIVE_CLAIMS)) {
+    const owners = res.error.slice(LIVE_CLAIMS.length);
+    if (!args.includes("--json")) {
+      out.note(out.line("refused", "Left the background server running", `it still has live claims: ${owners}`), out.callout("next", out.cmd(`rt bg release ${owners.split(", ")[0]}`)));
+    }
+    process.exit(1);
+  }
+  const data = unwrap(res, "stop");
+  if (args.includes("--json")) return void out.json({ ok: true, ...data });
+  out.print(out.line("done", "Stopped the background server"));
+}
+```
+
+The daemon's sentence is matched by its prefix; the handler and this file change together or not at all. Under `--json` the refusal leaves stdout empty and exits 1, as today; the one difference is that stderr no longer carries `rt bg: <sentence>` there, and nothing reads it.
 
 Update `e2e/tests/bg.test.ts` and `e2e/tests/reconciler.test.ts` where they assert today's plain text (`server: up`, `no live claims`, `swept:`, `cleared`): read each and change it to the new words; keep every `--json` assertion. Delete both files from the allowlist.
 
@@ -573,7 +602,7 @@ Delete `commands/cron.ts` and `commands/post-install.ts` from the allowlist.
 
 ### Task 8: `rt endpoint`, the endpoint config warning, and the passthrough notes
 
-**Files:** `commands/endpoint.ts`, `lib/endpoint/config.ts`, `lib/endpoint/run.ts`, `commands/__tests__/endpoint.test.ts`, `lib/endpoint/__tests__/intercept-run.test.ts`, `lib/endpoint/__tests__/config.test.ts`, `e2e/tests/endpoint.test.ts`, the allowlist.
+**Files:** `commands/endpoint.ts`, `lib/endpoint/config.ts`, `lib/endpoint/run.ts`, `commands/__tests__/endpoint.test.ts`, `commands/__tests__/intercept-output.test.ts`, `lib/endpoint/__tests__/intercept-run.test.ts`, `lib/endpoint/__tests__/config.test.ts`, `e2e/tests/endpoint.test.ts`, the allowlist.
 
 **Interfaces:**
 - `buildLookupOutput(data, ctx)` returns `{ payload, blocks: Block[] }` in place of `{ payload, lines }`; `payload` is unchanged.
@@ -596,7 +625,7 @@ In `lib/endpoint/__tests__/intercept-run.test.ts`, inside `describe("runIntercep
   });
 ```
 
-(`run` passes the tool as `fakecmd` and the harness's rule names role `web`; `debug` is read from the caller's env, `RT_INTERCEPT_DEBUG`.) Change the two existing `w.includes("passthrough")` checks to `w.includes("ran without an rt port")`.
+(`run` passes the tool as `fakecmd` and the harness's rule names role `web`; `debug` is read from the caller's env, `RT_INTERCEPT_DEBUG`.) Change the two existing `w.includes("passthrough")` checks to `w.includes("ran without an rt port")`. Two more readers expect the old word and change the same way: `commands/__tests__/intercept-output.test.ts:235` (`expect(warned[2]).toContain("passthrough")` becomes `toContain("ran without an rt port")`) and `e2e/tests/endpoint.test.ts:394` (`expect(res.stderr).toContain("passthrough")`, likewise). 6h also edits `commands/__tests__/intercept-output.test.ts` (its left-alone line); whichever of 6d and 6h merges second rebases that file by hand.
 
 In `lib/endpoint/__tests__/config.test.ts`, add `an unresolvable endpoint setting warns once through warn`: with `setWarningLog` capturing and a `getSetting` that throws for `rt.roles` (use the seam the existing tests use to inject a failing setting; if none exists, write a `rt.roles` value with an unsatisfiable `${...}` variable into the temp settings store the file's other tests use), `loadEndpointConfig` twice logs two warnings (module `endpoint`) and shows one note.
 
@@ -696,6 +725,8 @@ sentences; only its debug traces keep the `rt-intercept:` prefix, because
 3. **`bg status` drops the socket path for a person;** `--json` keeps it.
 4. **`rt --post-install`'s notes stay on stderr** (`out.note`), not stdout, because the installer may run setup with `--json`, whose stdout is an envelope stream.
 5. **The transient-root `next` is a sentence, not a command**: the step is a drag in Finder.
+6. **`rt bg stop` with live claims is a refused note and keeps exit 1.** The daemon answers `ok: false`; the CLI recognises its sentence by prefix and draws a refusal naming the owners and `rt bg release <first owner>` instead of coral.
+7. **`flavor takeover`'s "what changed" lines keep their full paths.** They sit in a `verbatim` block captioned "what changed", which is a record of the files rt touched, not a sentence; the success line above it names no path.
 
 ## Self-Review
 

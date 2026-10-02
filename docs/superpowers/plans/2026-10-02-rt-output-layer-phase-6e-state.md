@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `rt state backup`, `rt state restore`, `rt state backup init` and `rt state backup status` print through the output layer, with their `--json` and exit codes unchanged; `rt state backup init` shows its stages as steps; and every raw warning under `lib/state/`, `lib/run-history.ts` and `lib/secrets/store.ts` goes through `warn` (or `logCliEvent`) as 5a's warnings table and the scoping document's rows 46 to 49 decide. Twelve allowlist lines go.
+**Goal:** `rt state backup`, `rt state restore`, `rt state backup init` and `rt state backup status` print through the output layer, with their `--json` and exit codes unchanged; `rt state backup init` shows its stages as steps; and every raw warning under `lib/state/`, `lib/run-history.ts` and `lib/secrets/store.ts` goes through `warn` (or `logCliEvent`) as 5a's warnings table and the scoping document's rows 46 to 49 decide. Eleven allowlist lines go.
 
 **Architecture:** Verbs print blocks built in place (they are short); `state backup init` runs its six stages under the step runner (`createStepRunner` in `lib/ui/steps.ts`), so a person sees each stage settle and a failure keeps its line. Lib warnings call `warn(module, message, { show? })` from `lib/ui/warn.ts`, which logs every warning and shows only the rows marked Show, once per process; the daemon, which sets no warning log, still gets the plain `rt: <message>` stderr line its capture files.
 
@@ -35,7 +35,7 @@
 1. **A damaged state db at startup.** 5a row 33: the person sees once that rt's saved state was reset, with the damaged copy kept; the log has the paths. A second open in the same process does not show it again. Pinned in Task 6 (`a quarantined db is shown once and logged with both paths`).
 2. **The daemon hitting a migration warning.** It sets no warning log, so the line must still reach its stderr capture as `rt: <message>`, never a styled block. Pinned in Task 6 (`with no warning log set, a state warning is the plain stderr line`).
 3. **`rt state restore` while the daemon runs.** rt declines (the db is shared); it reads `refused` with `rt daemon stop` as the next step, still exits 1, and under `--json` stdout stays empty. Pinned in Task 4 (`restore while the daemon runs is a refusal with the stop command`).
-4. **`rt state backup init` failing at the decrypt check.** The failed stage keeps its line and the failure says what to do; earlier stages show done. Pinned in Task 5 (`init stops at the stage that failed and says so`).
+4. **`rt state backup init` failing part way.** The failed stage keeps its line and the failure says what to do; earlier stages show done; nothing after it runs (no key is made). Pinned in Task 5 (`init stops at the stage that failed and says so`, which fails the Git LFS stage).
 5. **A secrets command under `CLI_DEBUG`.** The trace goes to the CLI log at `debug` and never to the screen, and never carries a value (scoping row 49). Pinned in Task 7 (`a secrets debug trace is logged, not printed`).
 
 ## Readers
@@ -62,7 +62,7 @@
 | `Errors: <errors>` (stderr) | note `line("warn", "Some sources were not backed up")`, `verbatim(<errors>)` |
 | `Pruned <n> old backup(s)` | `line("done", "Removed <n> older backup(s)")` |
 | `Encrypted backup failed: <err>` + fallback | note `line("warn", "The encrypted backup failed, so rt saved a local copy instead", <first line of err>)` |
-| restore `rt state: the daemon appears to be running ... --force to override` / `the daemon is running; state.db is shared ...` (exit 1) | note `line("refused", "rt will not restore while the daemon is running", "it shares this data with rt")`, `callout("next", cmd("rt daemon stop"))`, `callout("note", "--force restores anyway.")`, exit 1 |
+| restore `rt state: the daemon appears to be running ... --force to override` / `the daemon is running; state.db is shared ...` (exit 1) | note `line("refused", "rt will not restore while the daemon is running", "it shares this data with rt")`, `callout("next", cmd("rt daemon stop"))`, `callout("note", ["To restore anyway: ", cmd("rt state restore <copy> --force")])` (for `--from-backup`, `cmd("rt state restore --from-backup --force")`), exit 1 |
 | `rt state restore: no age key found in the keychain.` + `On a new machine, pass --identity ...` | fail `{ title: "This Mac has no key to decrypt your backups", why: "On a new Mac, use the team key file.", next: cmd("rt state restore --from-backup --identity <key file>") }`, exit 1 |
 | `Pulling latest backups from home repo...` | the pull runs under `withTransientStep("Pulling your latest backups", ...)` |
 | `Dry run. Would restore:` + `  <app> -> <path>` | `section("Would restore", undefined, table([strong(app), dim(path)]))` |
@@ -99,34 +99,34 @@
 
 ### Lib warnings
 
-Every row's message is logged through `warn(module, message, { context })`; Show rows add `show`. Module names: `state` for `lib/state/*`, `run-history` for `lib/run-history.ts`.
+Every row's message is logged through `warn(module, message, { context })`; Show rows add `show`. Module names: `state` for `lib/state/*`, `run-history` for `lib/run-history.ts`. A path in today's message stays in the message, as 5a's examples do: the daemon sets no warning log, so its stderr capture sees only the message (shepherd ruling, review round 1). Shown rows never show it: their `show` title and hint carry no path.
 
 | Row | File:line | Log message | Shown |
 |---|---|---|---|
-| 1 | `lib/run-history.ts:68` | `legacy run history could not be read, left in place: <err>` (context `{ path }`) | |
-| 2 | `:82` | `legacy run history had no entries rt could read, left in place` | |
-| 3 | `:91` | `imported legacy run history, but the write did not land; left in place to retry` | |
-| 4 | `:98` | `imported legacy run history, but could not rename it: <err>` | |
+| 1 | `lib/run-history.ts:68` | `legacy run history <path> could not be read, left in place: <err>` | |
+| 2 | `:82` | `legacy run history <path> had no entries rt could read, left in place` | |
+| 3 | `:91` | `imported legacy run history <path>, but the write did not land; left in place to retry` | |
+| 4 | `:98` | `imported legacy run history <path>, but could not rename it: <err>` | |
 | 5 | `:126` | `could not record run history for <repo>: <err>` | |
-| 24 | `lib/state/legacy-import.ts:54` | `legacy state file is not valid JSON, left in place: <err>` | |
-| 25 | `:88` | `imported a legacy state file, but the write did not land; left in place to retry` | |
-| 26 | `:95` | `imported a legacy state file, but could not rename it: <err>` | |
+| 24 | `lib/state/legacy-import.ts:54` | `legacy state file <path> is not valid JSON, left in place: <err>` | |
+| 25 | `:88` | `imported legacy state file <path>, but the write did not land; left in place to retry` | |
+| 26 | `:95` | `imported legacy state file <path>, but could not rename it: <err>` | |
 | 27 | `lib/state/identity-migrate.ts:56` | `could not re-key <ns>/<key> to an identity; left in place` | |
 | 28 | `:61` | `<ns>/<identity> already exists; legacy <key> left in place` | |
 | 29 | `:67` | `<ns>/<identity> did not persist; legacy <key> left in place` | |
 | 30 | `:100` | `could not re-key <table>.<col>=<k> to an identity; left in place` | |
 | 31 | `:114` | `<table>.<col>=<k> (rowid <id>) collided with an existing <identity> row; dropped the stale legacy duplicate` | |
 | 32 | `:125` | `<table>.<col> re-key to <identity> did not fully persist; <k> rows left` | |
-| 33 | `lib/state/db.ts:534` | `state db could not be opened (corrupt); quarantined and recreated empty` (context `{ path, quarantinedPath }`) | title `rt's saved state was damaged and has been reset`, hint `the damaged file was kept beside it`, next `rt daemon logs` |
-| 34 | `:582` | `legacy state file is not valid JSON, import skipped: <err>` | |
-| 35 | `:592` | `legacy import failed, skipped (the file is still renamed): <err>` | |
-| 36 | `:667` | `imported a legacy state file, but could not rename it: <err>` | |
+| 33 | `lib/state/db.ts:534` | `state db <path> could not be opened (corrupt); quarantined to <quarantinedPath> and recreated empty` (context `{ path, quarantinedPath }` too) | title `rt's saved state was damaged and has been reset`, hint `the damaged file was kept beside it`, next `rt daemon logs` |
+| 34 | `:582` | `legacy state file <path> is not valid JSON, import skipped: <err>` | |
+| 35 | `:592` | `legacy import failed for <path>, skipped (the file is still renamed): <err>` | |
+| 36 | `:667` | `imported legacy state file <path>, but could not rename it: <err>` | |
 | 37 | `lib/state/branch-cache.ts:93` | `branch_cache key <branch> collided with an existing <want> row; dropped the stale duplicate` | |
 | 38 | `:99` | `branch_cache key repair <branch> to <want> did not persist; left in place` | |
 | 46 | `lib/state/backup-orchestrator.ts:237` | `git lfs prune warned: <first 200 chars of stderr>` | |
 | 47 | `lib/state/backup-restore.ts:159` | `git pull failed (exit <n>); restoring from local backups` | title `rt could not pull the latest backups`, hint `restoring from the copies on this Mac` |
 | 48 | `:172` | `git lfs pull failed (exit <n>); restoring from local backups` | the same as row 47 (shown once: the two share a title and hint) |
-| 49 | `lib/secrets/store.ts:503` | `logCliEvent("debug", "secrets", formatDebugLine(cmd, { sensitive }))` in place of `console.error`, still only under `CLI_DEBUG` | |
+| 49 | `lib/secrets/store.ts:503` | `logCliEvent("debug", "secrets", redactCredentials(formatDebugLine(cmd, { sensitive })))` in place of `console.error`, still only under `CLI_DEBUG` | |
 
 ## File Structure
 
@@ -137,14 +137,14 @@ Every row's message is logged through `warn(module, message, { context })`; Show
 | `commands/__tests__/state-backup.test.ts`, `state-backup-init.test.ts`, `state-backup-status.test.ts`, `state-restore-from-backup.test.ts` (modify) | the capture; new words |
 | `lib/state/db.ts`, `identity-migrate.ts`, `legacy-import.ts`, `branch-cache.ts`, `backup-orchestrator.ts`, `backup-restore.ts`, `lib/run-history.ts`, `lib/secrets/store.ts` (modify) | the warnings |
 | `lib/state/__tests__/db.test.ts`, `identity-migrate.test.ts`, `branch-cache.test.ts`, `legacy-import.test.ts` (if present), `lib/__tests__/run-history.test.ts`, `lib/secrets/__tests__/store*.test.ts` (modify) | `setWarningLog` in place of `console.warn` spies |
-| `lib/__tests__/raw-output-allowlist.json` (modify) | twelve lines |
+| `lib/__tests__/raw-output-allowlist.json` (modify) | eleven lines |
 
 ---
 
 ### Task 1: Confirm the base
 
 - [ ] **Step 1:** `git fetch origin`; `git rebase origin/main`.
-- [ ] **Step 2:** Run each alone: `grep -n "export function warn\|export function setWarningLog" lib/ui/warn.ts`; `grep -n "export function createStepRunner" lib/ui/steps.ts`; `grep -n "export async function withTransientStep" lib/ui/transient-step.ts`. One line each, or **stop**. Then `grep -c "commands/state\|lib/state/\|lib/run-history.ts\|lib/secrets/store.ts" lib/__tests__/raw-output-allowlist.json`: `12`, or stop.
+- [ ] **Step 2:** Run each alone: `grep -n "export function warn\|export function setWarningLog" lib/ui/warn.ts`; `grep -n "export function createStepRunner" lib/ui/steps.ts`; `grep -n "export async function withTransientStep" lib/ui/transient-step.ts`. One line each, or **stop**. Then `grep -c "commands/state\|lib/state/\|lib/run-history.ts\|lib/secrets/store.ts" lib/__tests__/raw-output-allowlist.json`: `11`, or stop.
 - [ ] **Step 3:** Run `bun test commands/__tests__/state-backup.test.ts commands/__tests__/state-backup-init.test.ts commands/__tests__/state-backup-status.test.ts commands/__tests__/state-restore-from-backup.test.ts lib/state lib/__tests__/run-history.test.ts lib/secrets lib/__tests__/no-raw-output.test.ts`. PASS, or stop and report.
 
 ---
@@ -166,23 +166,39 @@ The copy table is the audit. Guard lines: `state.ts` 26, `state-backup-init.ts` 
  * rt state's --json output, pinned before the output layer touches it.
  */
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
+import * as orchestrator from "../../lib/state/backup-orchestrator.ts";
+import * as restore from "../../lib/state/backup-restore.ts";
 import { closeStateDb, getStateDb, listStateBackups } from "../../lib/state/index.ts";
 import { stateBackup, stateRestore } from "../state.ts";
 import { stateBackupStatus } from "../state-backup-status.ts";
 
+const origHome = process.env.HOME;
+let home: string;
 let io: CapturedOut;
+const spies: Array<{ mockRestore(): void }> = [];
+
 beforeEach(() => {
+  home = realpathSync(mkdtempSync(join(tmpdir(), "rt-state-json-")));
+  process.env.HOME = home;
   io = captureOut({ console: true });
   ui.__test__.setHuman(() => false);
   getStateDb();
 });
 afterEach(() => {
+  for (const spy of spies.splice(0)) spy.mockRestore();
   io.restore();
   closeStateDb();
+  process.env.HOME = origHome;
+  rmSync(home, { recursive: true, force: true });
 });
+
+const anyPath = (s: string) => s.replace(/"path":"[^"]+"/, '"path":"<path>"');
 
 test("state backup --local --json is one line: ok, path, pruned", async () => {
   await stateBackup(["--local", "--json"]);
@@ -190,6 +206,28 @@ test("state backup --local --json is one line: ok, path, pruned", async () => {
   expect(Object.keys(parsed)).toEqual(["ok", "path", "pruned"]);
   expect(parsed.ok).toBe(true);
   expect(io.stdout().split("\n")).toHaveLength(2);
+});
+
+test("state backup --json, full backup, is the result with pruned as a count", async () => {
+  spies.push(spyOn(orchestrator, "isBackupConfigured").mockReturnValue(true));
+  spies.push(spyOn(orchestrator, "runFullBackup").mockResolvedValue({ backed: [{ app: "rt", path: "/b/rt.age", sizeBytes: 2048, contentHash: "abc" }], skipped: [], errors: [] }));
+  spies.push(spyOn(orchestrator, "pruneOldBackups").mockResolvedValue({ removed: ["old.age"] } as never));
+  await stateBackup(["--json"]);
+  expect(io.stdout()).toBe('{"backed":[{"app":"rt","path":"/b/rt.age","sizeBytes":2048,"contentHash":"abc"}],"skipped":[],"errors":[],"pruned":1}\n');
+});
+
+test("state backup --json, every source failed, is the local fallback with the errors", async () => {
+  spies.push(spyOn(orchestrator, "isBackupConfigured").mockReturnValue(true));
+  spies.push(spyOn(orchestrator, "runFullBackup").mockResolvedValue({ backed: [], skipped: [], errors: ["rt: disk full"] }));
+  await stateBackup(["--json"]);
+  expect(anyPath(io.stdout())).toBe('{"ok":true,"fallback":"local","path":"<path>","pruned":[],"errors":["rt: disk full"]}\n');
+});
+
+test("state backup --json, the encrypted backup threw, is the local fallback with the error", async () => {
+  spies.push(spyOn(orchestrator, "isBackupConfigured").mockReturnValue(true));
+  spies.push(spyOn(orchestrator, "runFullBackup").mockRejectedValue(new Error("age exploded")));
+  await stateBackup(["--json"]);
+  expect(anyPath(io.stdout())).toBe('{"ok":true,"fallback":"local","path":"<path>","pruned":[],"error":"Error: age exploded"}\n');
 });
 
 test("state restore <copy> --json is one line: ok, restored, from", async () => {
@@ -200,14 +238,22 @@ test("state restore <copy> --json is one line: ok, restored, from", async () => 
   expect(Object.keys(JSON.parse(io.stdout()))).toEqual(["ok", "restored", "from"]);
 });
 
+test("state restore --from-backup --dry-run --json is ok, dryRun, then the result", async () => {
+  spies.push(spyOn(restore, "restoreFromBackup").mockResolvedValue({ restored: [{ app: "rt", targetPath: "/t/state.db" }], skipped: ["chat"], errors: [] }));
+  const key = join(home, "team-key.txt");
+  writeFileSync(key, "AGE-SECRET-KEY-1SAMPLE\n");
+  await stateRestore(["--from-backup", "--identity", key, "--dry-run", "--force", "--json"]);
+  expect(io.stdout()).toBe('{"ok":true,"dryRun":true,"restored":[{"app":"rt","targetPath":"/t/state.db"}],"skipped":["chat"],"errors":[]}\n');
+});
+
 test("state backup status --json with nothing set up prints its sentence today", async () => {
   await stateBackupStatus(["--json"], {});
   expect(io.stdout()).toBe("State backup is not configured. Run `rt state backup init` to set up.\n");
 });
 
 test("state backup status --json when set up is one line: configured, recipients, apps", async () => {
-  mkdirSync(join(process.env.HOME!, ".mattstack", "user", "state-backups"), { recursive: true });
-  writeFileSync(join(process.env.HOME!, ".mattstack", "user", "state-backups", "recipients.txt"), "age1key1\nage1key2\n");
+  mkdirSync(join(home, ".mattstack", "user", "state-backups"), { recursive: true });
+  writeFileSync(join(home, ".mattstack", "user", "state-backups", "recipients.txt"), "age1key1\nage1key2\n");
   await stateBackupStatus(["--json"], {});
   const parsed = JSON.parse(io.stdout());
   expect(Object.keys(parsed)).toEqual(["configured", "recipients", "apps"]);
@@ -215,7 +261,7 @@ test("state backup status --json when set up is one line: configured, recipients
 });
 ```
 
-(`stateRestore` with `--force` skips the daemon check, so no daemon is needed; check `listStateBackups` returns names newest first, and adjust the pick if not. The set-up status case writes `recipients.txt` where `commands/__tests__/state-backup-status.test.ts` writes it; add `mkdirSync`, `writeFileSync` and `join` to the imports. The first status test pins today's sentence so that Task 6's ruled change is a deliberate edit of a pinned line.)
+Every test runs under its own temp HOME, so nothing it writes (`recipients.txt`, a local copy) lands in the preload's shared HOME. `stateRestore` with `--force` skips the daemon check, so no daemon is needed; check `listStateBackups` returns names newest first, and adjust the pick if not. `--dry-run` skips the pull, and `--identity` skips the keychain, so the `--from-backup` pin touches neither. The orchestrator and restore spies replace the live bindings `commands/state.ts` imports (`spyOn` on a module namespace); if a spy does not take (the real `runFullBackup` runs), stop and report rather than adding a seam to the verb. The first status test pins today's sentence so that Task 6's ruled change is a deliberate edit of a pinned line.
 
 - [ ] **Step 2:** Run: PASS on today's code, twice more: PASS.
 - [ ] **Step 3:** Commit, message `state: pin the --json output before the output layer touches it`.
@@ -227,7 +273,7 @@ test("state backup status --json when set up is one line: configured, recipients
 **Files:** `commands/state.ts`, `commands/__tests__/state-backup.test.ts`, `commands/__tests__/state-restore-from-backup.test.ts`, the allowlist.
 
 - [ ] **Step 1: Move the console harness onto the capture.** In `state-backup.test.ts`, replace the `console.log`/`console.error` spies with `captureOut({ console: true })` and `setHuman(() => false)`, so `result.errors` reads `io.stderr()` lines and `result.lines` reads `io.stdout()` lines. Run: PASS unchanged.
-- [ ] **Step 2: Failing tests.** Change the expectations: `usage: rt state restore` becomes the failure title `Which backup?` with `next: rt state restore <copy>`; `not found` becomes `There is no backup called`; `daemon is running` becomes `[refused] rt will not restore while the daemon is running`. Add, inside `describe("rt state backup/restore")` (it sets `home`, and the file's existing `server` variable and its cleanup serve here too):
+- [ ] **Step 2: Failing tests.** Change the expectations: `usage: rt state restore` becomes the failure title `Which backup?` with `next: rt state restore <copy>`; `not found` becomes `There is no backup called`; `daemon is running` becomes `[refused] rt will not restore while the daemon is running`. Add, inside `describe("rt state restore -- live daemon guard")` (`commands/__tests__/state-backup.test.ts:135`: it owns `home`, the `server` variable and the `afterEach` that stops it):
 
 ```ts
   test("restore while the daemon runs is a refusal with the stop command", async () => {
@@ -244,7 +290,7 @@ test("state backup status --json when set up is one line: configured, recipients
     }) as unknown as typeof process.exit);
     try {
       await expect(stateRestore([name!])).rejects.toThrow("exit 1");
-      expect(io.stderr()).toContain("[refused] rt will not restore while the daemon is running  it shares this data with rt\n  next: rt daemon stop\n  note: --force restores anyway.");
+      expect(io.stderr()).toContain(`[refused] rt will not restore while the daemon is running  it shares this data with rt\n  next: rt daemon stop\n  note: To restore anyway: rt state restore ${name} --force\n`);
       expect(io.stdout()).toBe("");
       io.clear();
       await expect(stateRestore([name!, "--json"])).rejects.toThrow("exit 1");
@@ -275,11 +321,11 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-function refuseWhileDaemonRuns(): never {
+function refuseWhileDaemonRuns(forceCommand: string): never {
   out.note(
     out.line("refused", "rt will not restore while the daemon is running", "it shares this data with rt"),
     out.callout("next", out.cmd("rt daemon stop")),
-    out.callout("note", "--force restores anyway."),
+    out.callout("note", ["To restore anyway: ", out.cmd(forceCommand)]),
   );
   process.exit(1);
 }
@@ -289,7 +335,7 @@ function localCopyBlocks(path: string, removed: string[]): out.Block[] {
 }
 ```
 
-(`Block` is `import type { Block } from "../lib/ui/protocol.ts"`; write the type that way.) Replace `fail(msg)` sites one by one with the copy table's failure (each keeps `process.exit(1)`); `requireCopy`'s usage branch `out.fail(usageFailure("Which backup?", "rt state restore <copy>")); process.exit(1);`. The full backup's human branch:
+(`Block` is `import type { Block } from "../lib/ui/protocol.ts"`; write the type that way.) The plain restore calls `refuseWhileDaemonRuns(\`rt state restore ${copy} --force\`)`; `--from-backup` calls `refuseWhileDaemonRuns("rt state restore --from-backup --force")`. Replace the other `fail(msg)` sites one by one with the copy table's failure (each keeps `process.exit(1)`); `requireCopy`'s usage branch `out.fail(usageFailure("Which backup?", "rt state restore <copy>")); process.exit(1);`. The full backup's human branch:
 
 ```ts
       out.print(
@@ -328,7 +374,43 @@ Every `--json` line becomes `out.json(<the same object>)`. Delete `commands/stat
 **Interfaces:**
 - Consumes: `createStepRunner()` from `lib/ui/steps.ts` (`run(pending, task, { done, doneHint, error, errorHint })`); off a terminal each step prints its final line through `out.print`.
 
-- [ ] **Step 1: Failing tests.** Move the file's `console.error` spy onto `captureOut({ console: true })` with `setHuman(() => false)`. Change the missing-tools expectation to the failure title `rt cannot find age, zstd, git-lfs` with `next: brew install age zstd git-lfs` on stderr. Add `init stops at the stage that failed and says so`: with the file's existing seams arranged so the first backup reports an error (copy the arrange of the file's test that exercises `runFullBackup`; if none does, stub `runFullBackup` by `spyOn` on the `backup-orchestrator.ts` module namespace import), expect stdout to contain `[ok] age, zstd and git-lfs are here` and stderr to contain `The first backup did not finish`, and the exit code 1.
+- [ ] **Step 1: Failing tests.** Move the file's `console.error` spy onto `captureOut({ console: true })` with `setHuman(() => false)`. Change the missing-tools expectation to the failure title `rt cannot find age, zstd, git-lfs` with `next: brew install age zstd git-lfs` on stderr. Add, inside `describe("state backup init")` (its `beforeEach` gives a temp HOME):
+
+```ts
+  it("init stops at the stage that failed and says so", async () => {
+    const tools = await import("../../lib/state/backup-tools.ts");
+    const ageKey = await import("../../lib/home/age-key.ts");
+    const bin = join(home, "bin");
+    mkdirSync(bin, { recursive: true });
+    const fakeLfs = join(bin, "git-lfs");
+    writeFileSync(fakeLfs, "#!/bin/sh\necho 'lfs: hooks are locked' >&2\nexit 1\n", { mode: 0o755 });
+    mkdirSync(join(home, ".mattstack", "user", ".git"), { recursive: true });
+    const found = spyOn(tools, "findBackupTool").mockImplementation(((name: string) => (name === "git-lfs" ? fakeLfs : "/usr/bin/true")) as never);
+    const keychain = spyOn(ageKey, "ensureAgeKey").mockImplementation((() => {
+      throw new Error("the keychain must not be touched");
+    }) as never);
+    const io = captureOut({ console: true });
+    ui.__test__.setHuman(() => false);
+    const exitSpy = spyOn(process, "exit").mockImplementation(((c?: number) => {
+      throw new Error(`exit ${c}`);
+    }) as unknown as typeof process.exit);
+    try {
+      const { stateBackupInit } = await import("../state-backup-init.ts");
+      await expect(stateBackupInit([], {})).rejects.toThrow("exit 1");
+      expect(io.stdout()).toContain("[ok] age, zstd and git-lfs are here");
+      expect(io.stderr()).toContain("Git LFS did not install in your home repo");
+      expect(io.stderr()).toContain("lfs: hooks are locked");
+      expect(keychain).not.toHaveBeenCalled();
+    } finally {
+      exitSpy.mockRestore();
+      keychain.mockRestore();
+      found.mockRestore();
+      io.restore();
+    }
+  });
+```
+
+(Import `captureOut` from `../../lib/ui/__tests__/capture-out.ts` and `* as ui` from `../../lib/ui/out.ts`. The fake `git-lfs` fails the second stage before the key stage, so no real keychain, Git LFS or backup is reached; the `ensureAgeKey` spy turns any slip into a failed test instead of a keychain write. If the namespace spy on `findBackupTool` does not take, stop and report.)
 - [ ] **Step 2:** Run: FAIL.
 - [ ] **Step 3: Implement.** Restructure `stateBackupInit` around one runner:
 
@@ -355,7 +437,7 @@ export async function stateBackupInit(_args: string[], _ctx: CommandContext = {}
 }
 ```
 
-The stages, in order, by the copy table: Git LFS (the `lfsInit` spawn throws an `Error` carrying its stderr when it fails, the runner ends the step `failed`, and the catch around the whole run prints `out.fail({ title: "Git LFS did not install in your home repo", details: <stderr> })` and exits 1); this Mac's key; the first backup (throw when `result.errors.length > 0`, caught as `The first backup did not finish` with the errors as `details`); the decrypt check (when `result.backed` is empty, end with `done` and hint `nothing to check yet` by returning early from the task and passing `doneHint`; the runner has no skipped ending, so the hint carries it); the LFS check (on a miss, end the step `done` with hint `not confirmed yet`, then `out.print(out.line("warn", "Git LFS has not taken the encrypted files yet"), out.callout("next", out.cmd("rt state backup status")))`); then `out.print(out.summary("done", "Encrypted backup is set up", ["the daemon backs up every 4 hours"]))`.
+Each stage passes `error` (the stage's failed title, e.g. `Git LFS did not install`) and `errorHint` (the first line of the cause) so the failed line says what broke. The stages, in order, by the copy table: Git LFS (the `lfsInit` spawn throws an `Error` carrying its stderr when it fails, the runner ends the step `failed`, and the catch around the whole run prints `out.fail({ title: "Git LFS did not install in your home repo", details: <stderr> })` and exits 1); this Mac's key; the first backup (throw when `result.errors.length > 0`, caught as `The first backup did not finish` with the errors as `details`); the decrypt check (when `result.backed` is empty, end with `done` and hint `nothing to check yet` by returning early from the task and passing `doneHint`; the runner has no skipped ending, so the hint carries it); the LFS check (on a miss, end the step `done` with hint `not confirmed yet`, then `out.print(out.line("warn", "Git LFS has not taken the encrypted files yet"), out.callout("next", out.cmd("rt state backup status")))`); then `out.print(out.summary("done", "Encrypted backup is set up", ["the daemon backs up every 4 hours"]))`.
 
 If `StepRunner.run`'s options cannot end a step `warn` or `skipped`, keep the step `done` with the hint as above; do not add an option to `lib/ui/steps.ts` (not this slice's file).
 
@@ -392,13 +474,13 @@ const logged: Array<{ module: string; message: string; context: Record<string, u
 setWarningLog((module, message, context) => logged.push({ module, message, context }));
 try {
   // the existing arrange and act
-  expect(logged.some((l) => l.module === "state" && l.message.startsWith("state db could not be opened (corrupt)"))).toBe(true);
+  expect(logged.some((l) => l.module === "state" && /^state db .+ could not be opened \(corrupt\)/.test(l.message))).toBe(true);
 } finally {
   warnings.reset();
 }
 ```
 
-The existing `a throwing legacy importer is isolated ...` test asserts the warning names `project-mrs.json`; paths now ride in `context`, so its check becomes `logged.some((l) => String(l.context.path ?? "").includes("project-mrs.json"))`.
+The existing `a throwing legacy importer is isolated ...` test asserts the warning names `project-mrs.json`; the path stays in the message, so its check becomes `logged.some((l) => l.message.includes("project-mrs.json"))`.
 
 Add, inside `describe("corruption escape")` (its `dir` comes from the file's `beforeEach`; import `setWarningLog` and `__test__ as warnings` from `../../ui/warn.ts`, `captureOut` from `../../ui/__tests__/capture-out.ts`, and `* as ui` from `../../ui/out.ts`):
 
@@ -414,7 +496,7 @@ Add, inside `describe("corruption escape")` (its `dir` comes from the file's `be
         writeFileSync(dbPath, "definitely not a sqlite database, just bytes");
         openStateDb(dbPath, "cli").close();
       }
-      expect(logged.filter((l) => l.message.startsWith("state db could not be opened (corrupt)"))).toHaveLength(2);
+      expect(logged.filter((l) => /^state db .+ could not be opened \(corrupt\)/.test(l.message))).toHaveLength(2);
       expect(logged.every((l) => typeof l.context.path === "string" && typeof l.context.quarantinedPath === "string")).toBe(true);
       expect(io.stderr().match(/rt's saved state was damaged and has been reset/g)).toHaveLength(1);
     } finally {
@@ -430,7 +512,7 @@ Add, inside `describe("corruption escape")` (its `dir` comes from the file's `be
       const dbPath = join(dir, "c.db");
       writeFileSync(dbPath, "definitely not a sqlite database, just bytes");
       openStateDb(dbPath, "cli").close();
-      expect(io.stderr()).toStartWith("rt: state db could not be opened (corrupt)");
+      expect(io.stderr()).toMatch(/^rt: state db .+ could not be opened \(corrupt\)/);
       expect(io.stderr()).not.toContain("\x1b");
     } finally {
       io.restore();
@@ -473,7 +555,7 @@ Each lib file: add `import { warn } from "../ui/warn.ts";` (`"./ui/warn.ts"` fro
 
 ```ts
 // lib/state/db.ts:534
-warn("state", "state db could not be opened (corrupt); quarantined and recreated empty", {
+warn("state", `state db ${path} could not be opened (corrupt); quarantined to ${quarantinedPath} and recreated empty`, {
   context: { path, quarantinedPath },
   show: { title: "rt's saved state was damaged and has been reset", hint: "the damaged file was kept beside it", next: cmd("rt daemon logs") },
 });
@@ -485,7 +567,7 @@ warn("state", `git pull failed (exit ${proc.exitCode}); restoring from local bac
 warn("state", `git lfs prune warned: ${stderr.slice(0, 200)}`);
 ```
 
-(`cmd` from `../ui/out.ts`.) Paths that appear in today's message move into `context` (`{ path }`), never the message, so the log keeps them and nothing shows them. The other rows follow the same form with the table's message and no `show`.
+(`cmd` from `../ui/out.ts`.) A path in today's message stays in the message (the daemon's stderr capture sees only the message); a `show` title or hint never carries one. The other rows follow the same form with the table's message and no `show`.
 
 Delete from the allowlist: `commands/state-backup-status.ts`, `lib/state/backup-orchestrator.ts`, `lib/state/backup-restore.ts`, `lib/state/branch-cache.ts`, `lib/state/db.ts`, `lib/state/identity-migrate.ts`, `lib/state/legacy-import.ts`.
 
@@ -506,7 +588,7 @@ import { readFileSync } from "fs";
 test("a secrets debug trace is logged, not printed", () => {
   const src = readFileSync(join(import.meta.dir, "..", "store.ts"), "utf8");
   const body = src.slice(src.indexOf("function debugLog"), src.indexOf("}", src.indexOf("function debugLog")) + 1);
-  expect(body).toContain('logCliEvent("debug", "secrets"');
+  expect(body).toContain('logCliEvent("debug", "secrets", redactCredentials(');
   expect(body).not.toContain("console.");
 });
 ```
@@ -514,18 +596,18 @@ test("a secrets debug trace is logged, not printed", () => {
 (`CLI_DEBUG` is a module-load constant, so the trace cannot be switched on inside one test run; the source check is the pin.)
 
 - [ ] **Step 2:** Run: FAIL.
-- [ ] **Step 3: Implement** rows 1 to 5 in `lib/run-history.ts` (module `run-history`, paths in `context`), and row 49:
+- [ ] **Step 3: Implement** rows 1 to 5 in `lib/run-history.ts` (module `run-history`, paths kept in the message), and row 49:
 
 ```ts
 function debugLog(cmd: string[], sensitive: boolean | undefined): void {
   if (!CLI_DEBUG) return;
-  logCliEvent("debug", "secrets", formatDebugLine(cmd, { sensitive }));
+  logCliEvent("debug", "secrets", redactCredentials(formatDebugLine(cmd, { sensitive })));
 }
 ```
 
-(`logCliEvent` from `../cli-logger.ts`; `formatDebugLine` already leaves values out.) Delete `lib/run-history.ts` and `lib/secrets/store.ts` from the allowlist.
+(`logCliEvent` from `../cli-logger.ts`, `redactCredentials` from `../daemon/redact-credentials.ts`; `formatDebugLine` already leaves values out, and the redaction also catches a credential inside a URL argument now that the line lands in a file.) Delete `lib/run-history.ts` and `lib/secrets/store.ts` from the allowlist.
 
-- [ ] **Step 4:** Run `bun test lib/__tests__/run-history.test.ts lib/secrets lib/__tests__/no-raw-output.test.ts`. PASS. Then `git diff origin/main -- lib/__tests__/raw-output-allowlist.json`: twelve deletions, nothing added.
+- [ ] **Step 4:** Run `bun test lib/__tests__/run-history.test.ts lib/secrets lib/__tests__/no-raw-output.test.ts`. PASS. Then `git diff origin/main -- lib/__tests__/raw-output-allowlist.json`: eleven deletions, nothing added.
 - [ ] **Step 5:** Commit, message `run history and secrets debug lines through warn and the CLI log`.
 
 ---
@@ -534,7 +616,7 @@ function debugLog(cmd: string[], sensitive: boolean | undefined): void {
 
 - [ ] **Step 1:** `bun run ui:build`. In the scratchpad, `blocks-6e.ts` builds (with `out` from the worktree): the full backup's done line and size table, the not-set-up failure with its tip, the local fallback warning with its excerpt, the restore refusal, the restore section with two rows and a skipped line, the init stages as their final `line("done", ...)` rows plus the closing summary, the LFS-not-confirmed warning with its `next`, the backup status (configured: line, three kv rows, the per-app table), and row 33's shown warning. Copy 5f2's `ansi-page.ts`.
 - [ ] **Step 2:** Render at width 100, dark and light (6a Task 8 Step 2).
-- [ ] **Step 3:** Screenshot both with Fast Browser into `docs/design/output-layer/6e-state-dark.png`, `6e-state-light.png`. Also run `rt state backup init` once through the real steps verb under termwright or a pty only if the repo's `e2e/pty` harness makes it cheap; otherwise say in the report that the live steps were not rendered. Write down plainly what reads wrong: nothing coral except "Some backups were not restored"; the refusal reads as declining; the kv rows align; sizes read as sizes. Fix and re-render.
+- [ ] **Step 3:** Screenshot both with Fast Browser into `docs/design/output-layer/6e-state-dark.png`, `6e-state-light.png`. Also run `rt state backup init` once through the real steps verb under termwright or a pty only if the repo's `e2e/pty` harness makes it cheap; otherwise say in the report that the live steps were not rendered. Write down plainly what reads wrong: coral only on the two failures in the page (the not-set-up failure and "Some backups were not restored"); the refusal reads as declining; the kv rows align; sizes read as sizes. Fix and re-render.
 - [ ] **Step 4:** README row: `| \`6e-state-dark.png\`, \`6e-state-light.png\` | \`rt state\` at 100 columns: a backup with sizes, the not-set-up failure and its tip, the local fallback, the restore refusal and a restore, \`state backup init\`'s stages and summary, \`state backup status\`, and the damaged-state warning |`.
 - [ ] **Step 5:** AGENTS.md (append to "Output layer"):
 
@@ -542,8 +624,7 @@ function debugLog(cmd: string[], sensitive: boolean | undefined): void {
 Warnings under `lib/state/` go through `warn`: logged always, shown only
 where 5a's warnings table or the phase 6 scoping rows say so, and once per
 process. The daemon sets no warning log, so it still files the plain
-`rt: <message>` line from its stderr capture. Paths ride in the warning's
-`context`, never its message.
+`rt: <message>` line from its stderr capture.
 ```
 
 - [ ] **Step 6:** The eight gates, one at a time (6a Task 8 Step 6). All pass.
@@ -570,10 +651,10 @@ process. The daemon sets no warning log, so it still files the plain
 
 ## Self-Review
 
-**Spec coverage.** Phase 6's `state` and `state backup`: Tasks 4 to 6. Steps for a multi-stage run: Task 5. 5a rows 1 to 5, 24 to 38 and scoping rows 46 to 49: Tasks 6 and 7. `--json` frozen: Task 3. Twelve allowlist lines: Tasks 4 to 7.
+**Spec coverage.** Phase 6's `state` and `state backup`: Tasks 4 to 6. Steps for a multi-stage run: Task 5. 5a rows 1 to 5, 24 to 38 and scoping rows 46 to 49: Tasks 6 and 7. `--json` frozen: Task 3. Eleven allowlist lines: Tasks 4 to 7.
 
 **Placeholders.** One test (init's failed stage) builds its arrange from the file's own seams or a namespace `spyOn`, named in Task 5; every other test is written out.
 
-**Type consistency.** `formatBytes`, `plural`, `refuseWhileDaemonRuns`, `localCopyBlocks` and the warn calls match their uses.
+**Type consistency.** `formatBytes`, `plural`, `refuseWhileDaemonRuns(forceCommand)`, `localCopyBlocks` and the warn calls match their uses.
 
 **Review Focus.** Five lines, each pinned by a named test.

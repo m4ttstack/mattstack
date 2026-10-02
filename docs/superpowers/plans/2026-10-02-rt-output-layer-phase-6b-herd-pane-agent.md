@@ -19,7 +19,7 @@
 - Never use em dashes or en dashes in any file, comment, test name, commit message or PR body. Use "..." or rephrase.
 - Never write the phrase banned under the second heading of `~/.claude/rules/no-em-dashes.md`.
 - Comments state only a constraint the code cannot show.
-- 6b only: every `herd`, `pane` and `agent` verb's stdout and stderr off a terminal are byte-identical before and after, `--json` included. `commands/__tests__/fixtures/herd-pane-agent-bytes.json`, captured in Task 3 before any conversion, is the proof and is never regenerated after Task 3. Where today's text holds a long dash (the `rt agent start` codex note), it is frozen text and is not edited; this plan writes `--` when quoting it.
+- 6b only: every `herd`, `pane` and `agent` verb's stdout and stderr off a terminal are byte-identical before and after, `--json` included. `commands/__tests__/fixtures/herd-pane-agent-bytes.json`, captured in Task 3 before any conversion, is the proof and is never regenerated after Task 3. The `rt agent start` codex note is frozen text (it holds a plain `--`, not a long dash) and is not edited.
 - Exit codes do not change.
 - Blocks are drawn only when `out.isHuman()`; coral only for failures (a crashed job, a dead pane); a job waiting at a gate is `needs-you`, a closed job `off`.
 - Copy speaks to "you", plainly; the command to run goes in a `next` callout.
@@ -52,8 +52,8 @@
 
 | View | Blocks |
 |---|---|
-| `herd list` | `table` of `[strong(id), status word, dim("room " + room), "<n> job(s)"]`; status `active` as `running`, `wrapped` as `off`. None: `line("skipped", "No herds", "rt herd list --all shows wrapped ones")` |
-| `herd status` | `section(<herd id>, "room <room>")` holding: a `kv` run (`unread`, `push`, `lifecycle events`); one `line` per problem (missing or dead subscription, lifecycle off, hidden session down); a `table` of jobs `[strong(name), status word, dim("pane " + pane), dim(pane status), gate]`; then one `line` per job that needs the shepherd, with its command in a `next` callout |
+| `herd list` | `table` of `[strong(id), status word, dim("room " + room), "<n> job(s)"]`; status `active` as `running`, `wrapped` as `off`. None: `line("skipped", "No herds")` then a `next` callout `rt herd list --all`; under `--all` the callout is dropped (it would point at itself) |
+| `herd status` | `section(<herd id>, "room <room>")` holding: a `kv` run (`unread`, `push`, `lifecycle events`); a `table` of jobs `[strong(name), status word, dim("pane " + pane), dim(pane status), gate]`; then every problem `line`, herd-wide ones first (missing or dead subscription, lifecycle off, hidden session down, inbox unreachable), then one per job that needs the shepherd, each with its command in a `next` callout where the table below names one |
 | `herd gates` | `table` of `[strong(id), kind, subject, dim(labels)]`. None: `line("skipped", "No open gates")` |
 | `pane list` | `table` of `[strong(paneId), agent status word, who, dim(workspace and title), dim(repo and branch), dim(rooms)]`, background panes after a `background` group label. None: `line("skipped", "No Claude panes")` |
 | `agent list` | `table` of `[strong(id), repo label, surface, dim(the rest of today's record line)]`. None: `line("skipped", "No agent handoffs yet")` |
@@ -152,7 +152,7 @@ Line numbers are `658e704b9`'s.
 
 **Interfaces:**
 - Consumes: `captureOut({ console: true })`; the three files' exported handlers.
-- Produces: the fixture; Tasks 4 to 6 re-run this test unchanged.
+- Produces: the fixture; Tasks 4 to 6 re-run this test unchanged. It covers every `herd`, `pane` and `agent` verb's text form, every `--json` form a skill or agent reads, and a usage or refusal line per file.
 
 - [ ] **Step 1: Write the test**
 
@@ -164,6 +164,7 @@ Line numbers are `658e704b9`'s.
  */
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 
@@ -171,12 +172,19 @@ import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { paneAccounts, paneDirectories, paneFocus, paneList, panePeek, paneSend, paneSpawn } from "../pane.ts";
 import { agent } from "../agent.ts";
-import { close as herdClose, followUp as herdFollowUp, gates as herdGates, list as herdList, status as herdStatus, stop as herdStop } from "../herd.ts";
+import {
+  answer as herdAnswer, ask as herdAsk, attend as herdAttend, close as herdClose, followUp as herdFollowUp, gates as herdGates,
+  list as herdList, milestone as herdMilestone, report as herdReport, resume as herdResume, spawn as herdSpawn, start as herdStart,
+  status as herdStatus, stop as herdStop, wrapUp as herdWrapUp,
+} from "../herd.ts";
 
 const FIXTURE = join(import.meta.dir, "fixtures", "herd-pane-agent-bytes.json");
 
 let home: string;
+let repo: string;
 let origHome: string | undefined;
+const ENV_KEYS = ["HERD_ID", "HERD_JOB", "CLAUDE_CODE_SESSION_ID", "HERDR_WORKSPACE_ID", "HERDR_PANE_ID", "CLAUDE_CONFIG_DIR"] as const;
+const origEnv: Record<string, string | undefined> = {};
 let server: ReturnType<typeof Bun.serve>;
 let replies: Record<string, unknown> = {};
 
@@ -184,6 +192,13 @@ beforeAll(() => {
   origHome = process.env.HOME;
   home = realpathSync(mkdtempSync(join(tmpdir(), "rt-hpa-bytes-")));
   process.env.HOME = home;
+  for (const k of ENV_KEYS) {
+    origEnv[k] = process.env[k];
+    delete process.env[k];
+  }
+  repo = join(home, "sample-app");
+  mkdirSync(repo);
+  spawnSync("git", ["init", "-q", repo]);
   const sockDir = join(home, ".mattstack", "rt");
   mkdirSync(sockDir, { recursive: true });
   server = Bun.serve({
@@ -199,6 +214,10 @@ beforeAll(() => {
 afterAll(() => {
   server.stop(true);
   process.env.HOME = origHome;
+  for (const k of ENV_KEYS) {
+    if (origEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = origEnv[k];
+  }
   rmSync(home, { recursive: true, force: true });
 });
 
@@ -255,22 +274,28 @@ describe("herd, pane and agent (frozen bytes)", () => {
     await run("pane-list-refused-json", paneList, ["--json"]);
     replies = { "pane:peek": { ok: true, data: { paneId: "w1:p1", lines: ["$ ls", "a  b"] } } };
     await run("pane-peek", panePeek, ["w1:p1", "--lines", "2"]);
+    await run("pane-peek-json", panePeek, ["w1:p1", "--lines", "2", "--json"]);
     await run("pane-peek-bad-lines", panePeek, ["w1:p1", "--lines", "x"]);
     replies = { "pane:spawn": { ok: true, data: { ready: true, pane: PANE } } };
     await run("pane-spawn", paneSpawn, ["--cwd", "/code/sample-app"]);
+    await run("pane-spawn-json", paneSpawn, ["--cwd", "/code/sample-app", "--json"]);
     await run("pane-spawn-no-cwd", paneSpawn, []);
     replies = { "pane:send": { ok: true, data: { paneId: "w1:p1", delivered: "accepted", continuation: { delivered: "scheduled" } } } };
     await run("pane-send-then", paneSend, ["w1:p1", "--text", "hi", "--then", "next"]);
+    await run("pane-send-then-json", paneSend, ["w1:p1", "--text", "hi", "--then", "next", "--json"]);
     replies = { "pane:send": { ok: true, data: { paneId: "w1:p1", delivered: "refused", reason: "at a prompt" } } };
     await run("pane-send-refused", paneSend, ["w1:p1", "--text", "hi"]);
     replies = { "pane:focus": { ok: true, data: { paneId: "w1:p1", focused: true } } };
     await run("pane-focus", paneFocus, ["w1:p1"]);
+    await run("pane-focus-json", paneFocus, ["w1:p1", "--json"]);
     replies = { "pane:accounts": { ok: true, data: { accounts: [{ slot: 1, email: "a@example.com", alias: "work", headroom: "62%" }, { slot: 2, email: "b@example.com" }] } } };
     await run("pane-accounts", paneAccounts, []);
+    await run("pane-accounts-json", paneAccounts, ["--json"]);
     replies = { "pane:accounts": { ok: true, data: { accounts: [] } } };
     await run("pane-accounts-none", paneAccounts, []);
     replies = { "pane:directories": { ok: true, data: { directories: [{ path: "/code/sample-app", repo: "sample-app", branch: "main" }] } } };
     await run("pane-directories", paneDirectories, []);
+    await run("pane-directories-json", paneDirectories, ["--json"]);
 
     replies = { "agent:list": { ok: true, data: { agents: [RECORD, { ...RECORD, id: "ag-9", finishedAt: 2, exitCode: 0 }] } } };
     await run("agent-list", agent, ["list", "--repo", "sample-app"]);
@@ -280,6 +305,15 @@ describe("herd, pane and agent (frozen bytes)", () => {
     replies = { "agent:get": { ok: true, data: RECORD } };
     await run("agent-show", agent, ["show", "ag-1a2b3c4d"]);
     await run("agent-show-no-id", agent, ["show"]);
+    replies = { "agent:start": { ok: true, data: { ...RECORD, provider: "codex" } } };
+    await run("agent-start-codex", agent, ["start", "--repo", repo, "--provider", "codex", "--prompt", "hi"]);
+    await run("agent-start-codex-json", agent, ["start", "--repo", repo, "--provider", "codex", "--prompt", "hi", "--json"]);
+    replies = { "agent:start": { ok: true, data: RECORD } };
+    await run("agent-start", agent, ["start", "--repo", repo, "--prompt", "hi", "--account", "work"]);
+    replies = { "agent:resume": { ok: true, data: { ...RECORD, lastResumedAt: 2 } } };
+    await run("agent-resume", agent, ["resume", "ag-1a2b3c4d", "--prompt", "go on"]);
+    await run("agent-resume-json", agent, ["resume", "ag-1a2b3c4d", "--json"]);
+    await run("agent-resume-no-id", agent, ["resume"]);
     await run("agent-unknown-verb", agent, ["frobnicate"]);
     await run("agent-help", agent, ["list", "--help"]);
 
@@ -306,6 +340,58 @@ describe("herd, pane and agent (frozen bytes)", () => {
     replies = { "herd:status": { ok: false, error: "no such herd: h-x" } };
     await run("herd-status-refused-json", herdStatus, ["--herd", "h-x", "--json"]);
 
+    await run("herd-start-no-session", herdStart, ["--name", "sample", "--repo", repo]);
+    await run("herd-ask-outside-worker", herdAsk, ["--questions", "[]"]);
+    process.env.CLAUDE_CODE_SESSION_ID = "11111111-2222-3333-4444-555555555555";
+    process.env.HERD_ID = "h-sample";
+    process.env.HERD_JOB = "job-a";
+    process.env.HERDR_WORKSPACE_ID = "w1";
+    replies = { "herd:start": { ok: true, data: { herd: "h-sample", room: "herd-h-sample", workspace: "w1", subscription: "sub-1", handle: "ana.1", hidden: true } } };
+    await run("herd-start", herdStart, ["--name", "sample", "--repo", repo, "--hidden"]);
+    await run("herd-start-json", herdStart, ["--name", "sample", "--repo", repo, "--json"]);
+    const SPAWNED = { herd: "h-sample", job: "job-a", pane: "w1:p3", worktree: "/code/wt", branch: "job-a", tree: "wt", wasOnDeck: false, agentId: "ag-1", sessionId: "s2", handle: "job-a.2", trust: "stuck" };
+    replies = { "herd:spawn": { ok: true, data: SPAWNED } };
+    await run("herd-spawn-stuck", herdSpawn, ["--herd", "h-sample", "--job", "job-a", "--account", "work"]);
+    await run("herd-spawn-json", herdSpawn, ["--herd", "h-sample", "--job", "job-a", "--account", "work", "--json"]);
+    replies = { "herd:spawn": { ok: true, data: { ...SPAWNED, wasOnDeck: true, trust: "accepted" } } };
+    await run("herd-spawn-accepted", herdSpawn, ["--herd", "h-sample", "--job", "job-a", "--account", "work"]);
+    await run("herd-spawn-no-job", herdSpawn, ["--herd", "h-sample"]);
+    replies = { "herd:resume": { ok: true, data: { subscription: "sub-2", gates: [{ ...GATE, meta: null }], unread: 2, status: STATUS, handle: "ana.1" } } };
+    await run("herd-resume", herdResume, ["h-sample"]);
+    await run("herd-resume-json", herdResume, ["h-sample", "--json"]);
+    replies = { "herd:wrap-up": { ok: true, data: { closed: ["w1:p3", "w1:p4"], workspaceClosed: true, disposed: ["wt"], refused: [{ tree: "wt-b", reason: "dirty worktree" }], deletedJobDirs: false, archived: true } } };
+    await run("herd-wrap-up", herdWrapUp, ["h-sample", "--close-panes", "--dispose", "job-a", "--archive-room"]);
+    await run("herd-wrap-up-json", herdWrapUp, ["h-sample", "--json"]);
+    await run("herd-wrap-up-no-id", herdWrapUp, []);
+    replies = { "herd:attend": { ok: true, data: { tab: "t4", pane: "w1:p3" } } };
+    await run("herd-attend", herdAttend, ["job-a", "--herd", "h-sample"]);
+    await run("herd-attend-json", herdAttend, ["job-a", "--herd", "h-sample", "--json"]);
+    const ANSWERED = { gate: "g7", status: "answered", answer: { answers: { q: "yes" }, by: "matt", answeredAt: 1 }, closedReason: null };
+    replies = { "herd:answer": { ok: true, data: ANSWERED } };
+    await run("herd-answer-answered", herdAnswer, ["g7"]);
+    await run("herd-answer-json", herdAnswer, ["g7", "--json"]);
+    replies = { "herd:answer": { ok: true, data: { ...ANSWERED, status: "open", answer: null } } };
+    await run("herd-answer-open", herdAnswer, ["g7"]);
+    replies = { "herd:answer": { ok: true, data: { ...ANSWERED, status: "closed", answer: null, closedReason: "superseded" } } };
+    await run("herd-answer-closed", herdAnswer, ["g7"]);
+    replies = { "herd:answer": { ok: true, data: { ...ANSWERED, status: "parked", answer: null } } };
+    await run("herd-answer-parked", herdAnswer, ["g7"]);
+    replies = { "herd:answer": { ok: true, data: { ...ANSWERED, answer: null } } };
+    await run("herd-answer-empty", herdAnswer, ["g7"]);
+    replies = { "herd:ask": { ok: true, data: { gate: "g8", message: 12 } } };
+    await run("herd-ask", herdAsk, ["--questions", JSON.stringify(GATE.questions)]);
+    await run("herd-ask-json", herdAsk, ["--questions", JSON.stringify(GATE.questions), "--json"]);
+    await run("herd-ask-bad-json", herdAsk, ["--questions", "{"]);
+    replies = { "herd:milestone": { ok: true, data: { gate: "g9", message: 13 } } };
+    await run("herd-milestone", herdMilestone, ["--artifact", "plan.md", "--summary", "first cut"]);
+    await run("herd-milestone-no-artifact", herdMilestone, []);
+    const reportFile = join(home, "report.md");
+    writeFileSync(reportFile, "all green\n");
+    replies = { "herd:report": { ok: true, data: { message: 14 } } };
+    await run("herd-report", herdReport, ["--file", reportFile]);
+    await run("herd-report-json", herdReport, ["--file", reportFile, "--json"]);
+    for (const k of ["CLAUDE_CODE_SESSION_ID", "HERD_ID", "HERD_JOB", "HERDR_WORKSPACE_ID"]) delete process.env[k];
+
     if (process.env.RT_UPDATE_HPA_BYTES) {
       mkdirSync(dirname(FIXTURE), { recursive: true });
       const ascii = JSON.stringify(got, null, 2).replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
@@ -316,12 +402,14 @@ describe("herd, pane and agent (frozen bytes)", () => {
 });
 ```
 
+The worker verbs (`ask`, `milestone`, `report`, `answer`) and `attend` read `HERD_ID`, `HERD_JOB`, `CLAUDE_CODE_SESSION_ID` and `HERDR_WORKSPACE_ID`. The test clears them in `beforeAll` (with `HERDR_PANE_ID`, and `CLAUDE_CONFIG_DIR` so no caller account is looked up through `cswap`), sets the four only around the herd calls that need them, and restores them in `afterAll`. Every `--account` passed to a spawn or start is there for the same reason. Each reply is typed against `Commands[<verb>]["data"]` in `packages/rt-client/src/commands.ts`; if a field differs there, follow the type. `herd-milestone` sends `plan.md` resolved against the cwd to the daemon, and the fake ignores it; only the gate line is printed.
+
 `agent list --repo sample-app` resolves the repo through `resolveRepoArg`, which reads the repo index under the temp HOME and finds nothing: if the capture shows the `--repo` failure instead of a list, drop `--repo sample-app` from those four calls and set `process.chdir(home)` around them so `currentRepoIdentity()` returns nothing and the verb lists every handoff. Record the choice in the ledger.
 
 - [ ] **Step 2: Capture and read**
 
 Run: `RT_UPDATE_HPA_BYTES=1 bun test commands/__tests__/herd-pane-agent-bytes.test.ts`
-Expected: PASS; 38 entries. Check by eye: `pane-list` holds a `background:` line before the bg pane; `herd-status` holds `subscription MISSING (run rt herd resume)`, `STUCK AT TRUST MODAL`, `SESSION DEAD`, `worker not woken: rt chat dm job-a` and `UNCONSUMED`; `pane-list-refused` has code 1, stdout empty and stderr `rt pane: herdr unavailable: no socket`; `herd-status-json` is indented by two spaces. If a value changes between runs (an age, a temp path), extend `stable` and capture again. Run twice more without the variable: PASS both times.
+Expected: PASS; 75 entries (the number of `run(` calls; if the file and this count ever differ, the file wins). Check by eye: `herd-spawn-stuck` ends with ` (cold provision) (STUCK AT TRUST MODAL)`; `herd-resume` holds the resumed line then `  g7  decision  herd:h-sample/job-d`; `herd-wrap-up` ends with `  refused wt-b: dirty worktree`; `agent-start-codex` holds the `note: codex mints its own session id` line; `herd-answer-answered` holds the two-space indented answer JSON; `pane-list` holds a `background:` line before the bg pane; `herd-status` holds `subscription MISSING (run rt herd resume)`, `STUCK AT TRUST MODAL`, `SESSION DEAD`, `worker not woken: rt chat dm job-a` and `UNCONSUMED`; `pane-list-refused` has code 1, stdout empty and stderr `rt pane: herdr unavailable: no socket`; `herd-status-json` is indented by two spaces. If a value changes between runs (an age, a temp path), extend `stable` and capture again. Run twice more without the variable: PASS both times.
 
 - [ ] **Step 3: Commit**
 
@@ -363,7 +451,7 @@ test("pane list at a terminal: one row per pane, background panes under their ow
   const rows = text.split("\n");
   expect(rows[0]).toMatch(/^w1:p1 +idle +meg +acme · Evaluate codegen +acme · main +#build$/);
   expect(rows[1]).toBe("background:");
-  expect(rows[2]).toMatch(/^bg:w9:p1 +idle +not signed in +acme · nightly +acme · main$/);
+  expect(rows[2]).toMatch(/^bg:w9:p1 +idle +not signed in +acme · nightly +acme · main *$/);
 });
 
 test("no panes says so", () => {
@@ -389,12 +477,12 @@ test("peek is a payload at a terminal", async () => {
 });
 ```
 
-(`PANE` in `pane.test.ts` has `repo: "acme"`; the regexes above use it. Import `out` and `captureOut` if Step 1 did not.)
+(`PANE` in `pane.test.ts` has `repo: "acme"`; the regexes above use it. The rooms cell is last and empty for the bg pane, and the plain renderer pads every cell but the last, so that row ends in spaces: its regex allows them. Import `out` and `captureOut` if Step 1 did not.)
 
 - [ ] **Step 3: Run them to verify they fail**
 
 Run: `bun test commands/__tests__/pane.test.ts -t "terminal|no panes|hostile|payload"`
-Expected: FAIL, `paneListBlocks is not a function`.
+Expected: FAIL: Bun reports `SyntaxError: Export named 'paneListBlocks' not found in module` when the file loads (a missing named export fails at link time).
 
 - [ ] **Step 4: Implement**
 
@@ -541,7 +629,7 @@ describe("agent list at a terminal", () => {
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `bun test commands/__tests__/agent.test.ts -t "at a terminal"`
-Expected: FAIL, `agentListBlocks is not a function`.
+Expected: FAIL: Bun reports `SyntaxError: Export named 'agentListBlocks' not found in module` when the file loads (a missing named export fails at link time).
 
 - [ ] **Step 3: Implement**
 
@@ -612,7 +700,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `commands/herd.ts`, `lib/__tests__/herd-cli.test.ts`, `lib/__tests__/raw-output-allowlist.json`
 
 **Interfaces:**
-- Produces: `herdListBlocks(herds: HerdListRow[]): Block[]`, `herdStatusBlocks(data: HerdStatusData): Block[]`, `herdGatesBlocks(gates: GateRow[]): Block[]`, exported.
+- Produces: `herdListBlocks(herds: HerdListRow[], all?: boolean): Block[]`, `herdStatusBlocks(data: HerdStatusData): Block[]`, `herdGatesBlocks(gates: GateRow[]): Block[]`, exported.
 
 - [ ] **Step 1: Move `lib/__tests__/herd-cli.test.ts`'s `run` onto the capture**
 
@@ -620,7 +708,7 @@ As Task 4 Step 1. Run the file: PASS with `herd.ts` untouched.
 
 - [ ] **Step 2: Write the failing tests**
 
-Append to `lib/__tests__/herd-cli.test.ts`:
+Append to `lib/__tests__/herd-cli.test.ts` (each import only if Step 1 did not already add it; a second import of the same name is a `SyntaxError`):
 
 ```ts
 import { renderPlain } from "../../lib/ui/out-plain.ts";
@@ -637,6 +725,7 @@ describe("herd views at a terminal", () => {
     expect(text.split("\n")[0]).toMatch(/^h-sample +active +room herd-h-sample +2 jobs$/);
     expect(text.split("\n")[1]).toMatch(/^h-two +wrapped +room herd-h-sample +1 job$/);
     expect(renderPlain(herdListBlocks([]))).toBe("[skipped] No herds\n  next: rt herd list --all\n");
+    expect(renderPlain(herdListBlocks([], true))).toBe("[skipped] No herds\n");
   });
 
   test("status: a healthy herd is a heading, its numbers and its jobs, with no problem lines", () => {
@@ -703,7 +792,7 @@ And inside the existing `describe("rt herd brief", ...)` block (it defines `tmpF
 - [ ] **Step 3: Run to verify they fail**
 
 Run: `bun test lib/__tests__/herd-cli.test.ts -t "at a terminal"`
-Expected: FAIL, `herdListBlocks is not a function`.
+Expected: FAIL: Bun reports `SyntaxError: Export named 'herdListBlocks' not found in module` when the file loads (a missing named export fails at link time).
 
 - [ ] **Step 4: Implement**
 
@@ -734,8 +823,8 @@ const JOB_STATUS: Record<HerdStatusData["jobs"][number]["status"], { word: strin
   crashed: { word: "crashed", role: "failed" },
 };
 
-export function herdListBlocks(herds: HerdListRow[]): Block[] {
-  if (herds.length === 0) return [out.line("skipped", "No herds"), out.callout("next", out.cmd("rt herd list --all"))];
+export function herdListBlocks(herds: HerdListRow[], all = false): Block[] {
+  if (herds.length === 0) return all ? [out.line("skipped", "No herds")] : [out.line("skipped", "No herds"), out.callout("next", out.cmd("rt herd list --all"))];
   return [
     out.table(
       herds.map((h) => [out.strong(h.id), { text: h.status, role: h.status === "active" ? "running" : "off" }, out.dim(`room ${h.room}`), `${h.jobs} ${h.jobs === 1 ? "job" : "jobs"}`]),
@@ -774,7 +863,7 @@ export function herdStatusBlocks(data: HerdStatusData): Block[] {
 
 The `kv` run carries no lifecycle row: lifecycle is a problem line when off and silent when on, so the healthy herd reads clean.
 
-Rewrite the verbs: `status`: `if (json) out.json(data, 2); else show(() => herdStatusBlocks(data), () => renderStatus(data));`. `list`: `if (json) return void out.json(data, 2); show(() => herdListBlocks(data.herds), () => (data.herds.length === 0 ? "no herds" : data.herds.map(renderHerdRow).join("\n")));`. `gates`: the same shape with `herdGatesBlocks` and the frozen `no open gates` / row lines. `resume`, `close`, `wrapUp`: each `console.log(x)` becomes `say(x)` with the same string. `brief`'s two `emit` calls are unchanged (they go through `emit`, now `say`), so its body is a payload at a terminal too.
+Rewrite the verbs: `status`: `if (json) out.json(data, 2); else show(() => herdStatusBlocks(data), () => renderStatus(data));`. `list`: `if (json) return void out.json(data, 2); show(() => herdListBlocks(data.herds, has(args, "--all")), () => (data.herds.length === 0 ? "no herds" : data.herds.map(renderHerdRow).join("\n")));`. `gates`: the same shape with `herdGatesBlocks` and the frozen `no open gates` / row lines. `resume`, `close`, `wrapUp`: each `console.log(x)` becomes `say(x)` with the same string. `brief`'s two `emit` calls are unchanged (they go through `emit`, now `say`), so its body is a payload at a terminal too.
 
 Delete `"commands/herd.ts",` from the allowlist.
 

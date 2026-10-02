@@ -19,7 +19,7 @@
 - Never use em dashes or en dashes in any file, comment, test name, commit message or PR body. Today's source holds several long dashes (in `stillShuttingDownLine`, the install summary, the uninstall and stop notes); every one of them is in a line this plan replaces, and no new code carries one.
 - Never write the phrase banned under the second heading of `~/.claude/rules/no-em-dashes.md`.
 - Comments state only a constraint the code cannot show.
-- `--json` keeps its shape: `rt daemon status --json` (`{ ok: true, state: "not-installed" }` and `{ ok: true, ...verdict }`) and `rt daemon log-level --json` (the daemon's reply) are byte-identical, pinned in Task 3.
+- `--json` keeps its shape: `rt daemon status --json` (`{ ok: true, state: "not-installed" }` and `{ ok: true, ...verdict }`) and `rt daemon log-level --json` (the daemon's reply) are byte-identical, pinned in Task 3. One deliberate change: `rt daemon log-level --json` with the daemon down prints a sentence on stdout today and prints nothing there after (the failure goes to stderr). See Decisions.
 - Exit codes do not change. Today every lifecycle failure, every `track` refusal and `log-level`'s unreachable daemon return 0; they still do. Only the log viewer exits non-zero, as today.
 - Rule 1: the children `rt daemon logs` gives the terminal (`lnav`, `tail | pino-pretty`, `logdy`) keep inherited stdio. Rule 3: failures go to stderr through `out.fail`; a policy refusal (a live daemon `uninstall` will not orphan, a non-GitLab repo `track live` will not watch) is a `refused` note.
 - Coral only for failures: `crash-looping`, `boot-failed`, a daemon missing from the app, a tray that failed the op. `not-running` and `not installed` are `off`.
@@ -45,7 +45,8 @@
 | `skills/rt-build-dev-app/SKILL.md:300,334`, `skills/rt-release/publish-and-finish.md:237`, `plugins/mattstack/plugin/skills/creating-a-pack/SKILL.md:148,298` | `rt_verb {args: ["daemon", "status"]}` (appends `--json`) | unchanged envelope |
 | `skills/rt-build-dev-app/SKILL.md` | `rt daemon restart` by exit code | unchanged |
 | `rt-tray/Sources-core/Rt/LogViewerLaunch.swift:44-55` | `rt daemon logs --no-open`: first non-empty stderr line, else stdout, when rt exits before logdy answers | a failure title alone (Task 6) |
-| `e2e/tests/daemon.test.ts:190,209` | `rt daemon status` plain text ("installed", "not installed") | updated in Task 4 to the new words |
+| `e2e/tests/daemon.test.ts:195,213` | `rt daemon status` plain text ("installed", "not installed") | updated in Task 4 to the new words |
+| `e2e/tests/daemon.test.ts:186` | `rt daemon install` stdout contains "saved config" | updated in Task 7 to `Turned the daemon on for this Mac` |
 | `lib/__tests__/no-wire-in-ui.test.ts:40` | `formatFreshnessParts` | kept, unchanged |
 
 ## Copy table
@@ -166,7 +167,7 @@ Every command named above exists in `lib/command-tree-def.ts` (`rt daemon instal
 | `commands/daemon.ts` (modify) | builders, every verb on the layer |
 | `commands/__tests__/daemon-json.test.ts` (create) | the `--json` pins |
 | `commands/__tests__/daemon-status-render.test.ts`, `status-lines.test.ts`, `daemon-flavor-output.test.ts`, `log-level.test.ts`, `daemon-logs-web-viewer.test.ts`, `daemon-restart.test.ts`, `daemon-uninstall-start.test.ts`, `daemon-tracking.test.ts` (modify) | read blocks and the capture, not console text |
-| `e2e/tests/daemon.test.ts` (modify) | two plain-text assertions |
+| `e2e/tests/daemon.test.ts` (modify) | three plain-text assertions |
 | `lib/__tests__/raw-output-allowlist.json` (modify) | one line |
 | `AGENTS.md`, `docs/design/output-layer/` (modify) | a paragraph; two renders |
 
@@ -182,7 +183,7 @@ Every command named above exists in `lib/command-tree-def.ts` (`rt daemon instal
 
 ### Task 2: Move the console harnesses onto the capture
 
-No change to `commands/daemon.ts`. Four test files replace `console.log` by hand; they move onto `captureOut({ console: true })` so the same tests read the old file and, from Task 4 on, the new one.
+No change to `commands/daemon.ts`. Three test files replace `console.log` by hand; they move onto `captureOut({ console: true })` so the same tests read the old file and, from Task 4 on, the new one.
 
 **Files:** `commands/__tests__/daemon-restart.test.ts`, `daemon-uninstall-start.test.ts`, `daemon-tracking.test.ts`.
 
@@ -227,7 +228,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `showStatus`, `setLogLevel` from `commands/daemon.ts`; `markDaemonInstalled`, `DAEMON_SOCK_PATH` from `lib/daemon-config.ts`.
-- Produces: three tests Tasks 4 and 6 re-run unchanged.
+- Produces: three tests Tasks 4 and 6 re-run unchanged; Task 5 adds a fourth.
 
 - [ ] **Step 1: Write the tests**
 
@@ -406,11 +407,11 @@ In `daemon-flavor-output.test.ts`, delete the three `tupleWarning` cases (moved 
 
 In `e2e/tests/daemon.test.ts`, change the `rt daemon status after install shows installed state` and `rt daemon status shows not installed` assertions to the new words: `The daemon is` (any installed state prints a line starting so) and `The daemon is not installed`. Read both tests first; keep every other assertion.
 
-- [ ] **Step 2:** Run the two unit files: FAIL, `statusBlocks is not a function`.
+- [ ] **Step 2:** Run the two unit files: FAIL: Bun reports `SyntaxError: Export named 'statusBlocks' not found in module` when each file loads.
 
 - [ ] **Step 3: Implement**
 
-In `commands/daemon.ts`, replace the `lib/tui.ts` import with:
+In `commands/daemon.ts`, add beside the `lib/tui.ts` import (which stays until Task 9 deletes it):
 
 ```ts
 import * as out from "../lib/ui/out.ts";
@@ -420,7 +421,7 @@ import { withTransientStep } from "../lib/ui/transient-step.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 ```
 
-(`bold`, `dim`, `green`, `yellow`, `red`, `reset` go; Tasks 5 to 9 remove their last uses. Until then `bun run typecheck` reports the remaining uses: finish this task's functions, and leave the rest to their tasks, keeping the import of `lib/tui.ts` until Task 9 removes it.)
+(`bold`, `dim`, `green`, `yellow`, `red`, `reset` lose their uses task by task; Task 9 deletes the import once the last one goes.)
 
 Add, replacing `tupleWarning`, `printFlavorInfo` and `statusLines`:
 
@@ -571,7 +572,7 @@ test("a daemon error is a failure titled in its words", () => {
 });
 ```
 
-- [ ] **Step 2:** Run: FAIL (`logLevelBlocks is not a function`).
+- [ ] **Step 2:** Run: FAIL: Bun reports `SyntaxError: Export named 'logLevelBlocks' not found in module` when the file loads.
 - [ ] **Step 3: Implement**
 
 ```ts
@@ -597,6 +598,18 @@ export async function setLogLevel(args: string[] = []): Promise<void> {
   else out.print(...shown.print);
 }
 ```
+
+Append to `commands/__tests__/daemon-json.test.ts` (no `fakeDaemon()`, so no socket answers):
+
+```ts
+test("log-level --json with the daemon down leaves stdout empty", async () => {
+  await setLogLevel(["--json"]);
+  expect(io.stdout()).toBe("");
+  expect(io.stderr()).toStartWith("The daemon is not running\n");
+});
+```
+
+Before Step 3 this test fails (today's sentence is on stdout); after, it passes.
 
 - [ ] **Step 4:** Run `bun test commands/__tests__/log-level.test.ts commands/__tests__/daemon-json.test.ts`. PASS.
 - [ ] **Step 5:** Commit (`commands/daemon.ts`, `commands/__tests__/log-level.test.ts`), message `daemon log-level: blocks, an unreachable daemon is a failure with the start command`.
@@ -696,9 +709,9 @@ The `spawn` calls (`lnav`, `sh -c tail | pino-pretty`, `logdy`) keep inherited s
 
 ### Task 7: `install` and `uninstall`
 
-**Files:** `commands/daemon.ts`, `commands/__tests__/daemon-uninstall-start.test.ts`.
+**Files:** `commands/daemon.ts`, `commands/__tests__/daemon-uninstall-start.test.ts`, `e2e/tests/daemon.test.ts`.
 
-- [ ] **Step 1: Failing tests.** In `daemon-uninstall-start.test.ts`, change the three `uninstall` assertions: `toContain("launchctl bootout")` stays (now from the `next` callout on stderr, which `output()` includes); `toContain("daemon fully uninstalled")` becomes `toContain("[ok] Uninstalled the daemon")`; add to the still-alive cases `expect(io.stderr()).toContain("[refused] Left the daemon's files alone  it is still running")` and `expect(io.stdout()).not.toContain("refused")`.
+- [ ] **Step 1: Failing tests.** In `e2e/tests/daemon.test.ts:186`, change `expect(result.stdout).toContain("saved config")` to `expect(result.stdout).toContain("Turned the daemon on for this Mac")` (the plain renderer writes the `done` line on stdout off a terminal). In `daemon-uninstall-start.test.ts`, change the three `uninstall` assertions: `toContain("launchctl bootout")` stays (now from the `next` callout on stderr, which `output()` includes); `toContain("daemon fully uninstalled")` becomes `toContain("[ok] Uninstalled the daemon")`; add to the still-alive cases `expect(io.stderr()).toContain("[refused] Left the daemon's files alone  it is still running")` and `expect(io.stdout()).not.toContain("refused")`.
 - [ ] **Step 2:** Run: FAIL.
 - [ ] **Step 3: Implement** `install` and `uninstall` by the copy table. `install`'s wait:
 
@@ -714,8 +727,8 @@ The `spawn` calls (`lnav`, `sh -c tail | pino-pretty`, `logdy`) keep inherited s
 
 The not-responding branch prints `out.line("warn", "The daemon is not answering yet")` and then, per `smStatus`, the copy table's blocks (`requiresApproval` still runs the `open 'x-apple.systempreferences:...'` `execSync` after printing; that fixed string is not this slice's shell-string item). `uninstall`'s still-alive case is `out.note(out.line("refused", "Left the daemon's files alone", "it is still running"), out.callout("next", out.cmd(\`launchctl bootout gui/$UID/${activeLaunchdLabel()}\`)))`.
 
-- [ ] **Step 4:** Run `bun test commands/__tests__/daemon-uninstall-start.test.ts`. PASS.
-- [ ] **Step 5:** Commit, message `daemon install, uninstall: result lines; a live daemon uninstall will not orphan is a refusal`.
+- [ ] **Step 4:** Run `bun test commands/__tests__/daemon-uninstall-start.test.ts`, then `bun test --preload ./e2e/setup.ts --timeout 60000 e2e/tests/daemon.test.ts`. PASS.
+- [ ] **Step 5:** Commit (`commands/daemon.ts`, `commands/__tests__/daemon-uninstall-start.test.ts`, `e2e/tests/daemon.test.ts`), message `daemon install, uninstall: result lines; a live daemon uninstall will not orphan is a refusal`.
 
 ---
 
@@ -872,7 +885,7 @@ The `git config --get remote.origin.url` `execSync` in `manageTracking` is a fix
 
 - [ ] **Step 4:** Run:
   - `bun test commands/__tests__/daemon-tracking.test.ts commands/__tests__/daemon-json.test.ts lib/__tests__/no-raw-output.test.ts`: PASS.
-  - `grep -n "console\.\|process\.std\(out\|err\)\.write\|lib/tui" commands/daemon.ts`: no output.
+  - `grep -n "console\.\|process\.std\(out\|err\)\.write\|lib/tui\.ts" commands/daemon.ts`: no output (`lib/tui/label.ts` stays imported).
   - `rg -n "[\x{2013}\x{2014}]" commands/daemon.ts`: no hits on lines this slice wrote (`git diff origin/main -- commands/daemon.ts` to check any hit; comments already there may keep theirs).
   - `bun run typecheck`: no errors.
   - `bun test --preload ./e2e/setup.ts --timeout 60000 e2e/tests/daemon.test.ts`: PASS.
@@ -925,6 +938,7 @@ reads a failure title.
 2. **`status` drops its two footer lines** (config and logs paths): they are paths in sentences, and every state that needs the logs now names `rt daemon logs` in its own `next`.
 3. **A past crash in `rt daemon logs` is a warning, not coral:** it is a record, and the daemon may be healthy now.
 4. **The viewer seams change shape** (`print`, `fail` in place of `log`, `error`); they are module-internal and only their own test constructs them.
+5. **`rt daemon log-level --json` with the daemon down prints nothing on stdout** (today a sentence). Shepherd ruling, review round 1, under the spirit of Matt's ruling on `state backup status --json`: stdout under `--json` carries only JSON, and no program reads that sentence. Pinned in Task 5 (`log-level --json with the daemon down leaves stdout empty`).
 
 ## Self-Review
 

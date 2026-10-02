@@ -52,7 +52,7 @@
 
 | Code (daemon) | Where it is made | CLI blocks (`refuse`, stderr, exit 1) |
 |---|---|---|
-| `not-holder` | `chat:release` (`lib/daemon/handlers/chat.ts:1027-1033`) | `line("refused", "rt chat will not release a claim you do not hold")`, `callout("why", "Only the agent holding a claim, or the one who posted the message, can release it.")` |
+| `not-holder` | `chat:release` (`lib/daemon/handlers/chat.ts:1043-1050`) | `line("refused", "rt chat will not release a claim you do not hold")`, `callout("why", "Only the agent holding a claim, or the one who posted the message, can release it.")` |
 | `identity-held` | `heldByAnotherSession` (`lib/state/presence-store.ts:260`), and `assertSessionSignedIn`'s reclaimed throw (`:456`) | `line("refused", "Another session is using that identity")`, `callout("why", "Another session signed in as it, so this one no longer speaks for it.")`, `callout("next", cmd("rt chat sign-in"))` |
 | `identity-fixed` | `continuationTarget`'s fixed-identity throw (`lib/state/presence-store.ts:268-270`) | `line("refused", "rt chat keeps that identity for the human or the herd")`, `callout("why", "Agents sign in under names of their own.")`, `callout("next", cmd("rt chat sign-in"))` |
 
@@ -143,7 +143,7 @@ test("a release by neither holder nor author carries not-holder", async () => {
 });
 ```
 
-And `chat:dm refuses a reclaimed sender` (line 1100) gains `expect(res.failure?.code).toBe("identity-held")`.
+And `chat:dm refuses a reclaimed sender` (`lib/daemon/__tests__/chat-handlers.test.ts:1154`) gains `expect(res.failure?.code).toBe("identity-held")`.
 
 - [ ] **Step 2:** Run both files: FAIL (`code` and `failure` are undefined).
 - [ ] **Step 3: Implement.**
@@ -190,7 +190,7 @@ function assertionError(fn: () => void): ReturnType<typeof failureFrom> | null {
 }
 ```
 
-Each `const err = assertionError(...); if (err) return { ok: false, error: err };` becomes `const refused = assertionError(...); if (refused) return refused;`. The three `catch (err) { return { ok: false, error: err instanceof Error ? err.message : String(err) }; }` sites (lines 912, 1204, 1338) return `failureFrom(err)`. `chat:release`:
+Each `const err = assertionError(...); if (err) return { ok: false, error: err };` becomes `const refused = assertionError(...); if (refused) return refused;`. The three `catch (err) { return { ok: false, error: err instanceof Error ? err.message : String(err) }; }` sites (`lib/daemon/handlers/chat.ts:929`, `:1221`, `:1355`) return `failureFrom(err)`. `assertionError` is at `:102`. `failureFrom` attaches a `failure` to any error with a string `code`, not only the three set here (a SQLite `SQLITE_BUSY` carries one too); the CLI draws only the codes in `CHAT_REFUSALS` as refusals and every other code as today's failure in the daemon's words, so that is harmless. `chat:release`:
 
 ```ts
       if (!res.ok) {
@@ -246,7 +246,13 @@ describe("daemon refusals by policy", () => {
 
 (`canned` replies are served as-is by the file's fake daemon; check that it passes a reply's extra keys through unchanged, as it does for `data`, and adjust the fake if it rebuilds replies.)
 
-- [ ] **Step 2:** Run: FAIL (today the refusals print as failures in the daemon's words).
+Three existing tests in `commands/__tests__/chat.test.ts` read today's failure words for these refusals and change on purpose, to the refusal copy, in this step:
+
+- `:422-430` (`release: the holder or the author frees the id; anyone else exits 1 with the reason`): `:427`'s `toContain("neither the holder")` becomes `toContain("[refused] rt chat will not release a claim you do not hold")`; the exit code stays 1.
+- `:795-802` (the held-identity sign-in): `:800`'s `toContain("handle reclaimed")` becomes `toContain("[refused] Another session is using that identity")`. The wire error still says "handle reclaimed" (the sign-in retry and the SessionEnd hook match it); only the person's stderr changes.
+- `:804-809` (`--as naming the human's handle is refused`): `:807`'s `toContain("matt")` becomes `toContain("[refused] rt chat keeps that identity for the human or the herd")`.
+
+- [ ] **Step 2:** Run: FAIL (today the refusals print as failures in the daemon's words; the three updated tests fail the same way).
 - [ ] **Step 3: Implement** in `commands/chat.ts`:
 
 ```ts

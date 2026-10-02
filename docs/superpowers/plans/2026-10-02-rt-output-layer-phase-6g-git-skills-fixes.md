@@ -44,6 +44,7 @@
 | `plugins/mattstack/attachments/forge/rebase-worktree/SKILL.md:257` | quotes `rt sync refused (exit 4): ...` | exit 4 is the stack refusal, untouched |
 | `rt git tag push --json` | nothing reads it: no skill, plugin, MCP tool, tray model, script or e2e test parses it, the verb is not agent-safe so `rt_verb` cannot run it, and only `commands/git/__tests__/mutate*.test.ts` assert it (scoping, Ruling 2) | `remote` is `printable(remote)`; pinned in Task 4 |
 | `skills/rt-*`, `plugins/mattstack` | `rt skills init --json`, `rt skills sync --json` | envelopes unchanged |
+| `rt skills link --json` `actions[].detail` | nothing parses it: the tray, skills, MCP tools and e2e read `kind` and `name`, never `detail` (a human sentence inside the envelope, cross-phase ruling 1) | the conflict detail takes the new words; pinned in Task 7 |
 
 ## File Structure
 
@@ -58,6 +59,14 @@
 | `commands/skills-link.ts`, `lib/skills/link.ts`, `commands/skills-expand.ts` and their tests | titles; the "not ours" phrase | 7 |
 | `commands/skills-sync.ts`, `commands/skills.ts` and their tests | missing Claude; surface apply in one call | 8 |
 | `commands/git/rebase.ts`, `commands/git/shared.ts` (`drawFailure`), `commands/sync.ts`, `lib/rebase-escalation.ts` and their tests | conflict files under a caption | 9 |
+
+---
+
+### Task 0: Confirm the base
+
+- [ ] **Step 1:** `git fetch origin`; `git rebase origin/main`.
+- [ ] **Step 2:** Run `bun test packages/git-core/src/__tests__/stash-mutations.test.ts commands/git/__tests__ lib/__tests__/git-ops.test.ts lib/team/__tests__/redact.test.ts lib/skills/__tests__/init.test.ts lib/skills/__tests__/link.test.ts commands/__tests__/skills-init.test.ts commands/__tests__/skills-link.test.ts commands/__tests__/skills-expand.test.ts commands/__tests__/skills-sync.test.ts commands/__tests__/sync-output.test.ts lib/__tests__/rebase-escalation.test.ts lib/mission`. PASS, or **stop** and report: a failure here is not this slice's.
+- [ ] **Step 3:** Run `grep -n "export function healErrorClause" lib/repo-index.ts` (one line: 6g stops calling it, 6k deletes it) and `grep -n "export function printable" commands/git/shared.ts` (one line, for Task 4). Either empty: stop and report.
 
 ---
 
@@ -149,30 +158,31 @@ Append to `lib/__tests__/git-ops.test.ts` (it builds temp repos; reuse its helpe
 import { existsSync } from "fs";
 
 test("a remote that looks like an option is refused before git runs", () => {
-  const repo = tempRepo();
-  expect(getRemoteDefaultBranch(repo, "--upload-pack=touch /tmp/never", { preferRemote: true })).toBeNull();
+  const repo = makeRepo();
+  const marker = join(repo, "upload-pack-ran");
+  expect(getRemoteDefaultBranch(repo, `--upload-pack=touch ${marker}`, { preferRemote: true })).toBeNull();
+  expect(existsSync(marker)).toBe(false);
 });
 
 test("a remote with shell syntax runs no shell", () => {
-  const repo = tempRepo();
+  const repo = makeRepo();
   const marker = join(repo, "pwned");
   getRemoteDefaultBranch(repo, `x;touch ${marker}`, { preferRemote: true });
   expect(existsSync(marker)).toBe(false);
 });
 ```
 
-(`tempRepo` is the file's own helper; if its name differs, use it.) Append to `commands/git/__tests__/backup.test.ts`:
+(`makeRepo()` is the file's own helper, `lib/__tests__/git-ops.test.ts:11`. The marker sits inside the temp repo, so a run that did reach git writes nothing outside it; today `git ls-remote --symref --upload-pack=touch <marker> HEAD` runs the command, so the first test fails on the marker.) Append to `commands/git/__tests__/backup.test.ts` (it already has `repo` from `makeRepo(root)` in `commands/git/__tests__/helpers.ts`; import `deleteBackup` from `../../../lib/git-backup.ts` and `existsSync` from `fs`):
 
 ```ts
 test("a backup ref with shell syntax is passed as one argument", () => {
-  const repo = makeRepo();
   const marker = join(repo, "pwned");
   expect(() => deleteBackup(`rt-backup/x/$(touch ${marker})`, repo)).toThrow();
   expect(existsSync(marker)).toBe(false);
 });
 ```
 
-(`makeRepo` and `deleteBackup`'s import follow the file's own; `git branch -D` on a missing ref throws, which is the point: no shell ran.)
+(`git branch -D` on a missing ref throws, which is the point: no shell ran.)
 
 Add a source guard to `lib/__tests__/git-ops.test.ts`:
 
@@ -311,17 +321,17 @@ and in `tagPushCommand`, `if (json) out.json(tagPushEnvelope(name, remote));`. T
 
 ```ts
 test("a step that throws keeps the error's why and next", async () => {
-  const deps = fakeDeps({
+  const { deps } = world({
     registerRepo: async () => {
       throw new UserActionableError("locate-failed", "rt could not add this repo to its list", {}, { why: "The rt daemon is not running.", next: "rt daemon start" });
     },
   });
-  const out = await initPack({ repoDir: "/code/sample-app" }, deps);
+  const out = await initPack({ repoDir: REPO, zone: null }, deps);
   expect(out).toMatchObject({ ok: false, refused: false, why: "The rt daemon is not running.", next: "rt daemon start" });
 });
 ```
 
-(`fakeDeps` is the file's builder of a passing `InitDeps`; use its name. If `registerRepo` runs inside a step whose code is not the one `attempt` wraps, put the throw on the dep that `attempt` wraps first and name it in the ledger.) In `commands/__tests__/skills-init.test.ts`:
+(`world(overrides)` is the file's builder of a passing `InitDeps` (`lib/skills/__tests__/init.test.ts:235`), and `REPO` its repo path; `initPack` takes `zone: null` as every other case does. Import `UserActionableError` from `../../errors.ts`. If `registerRepo` runs inside a step whose code is not the one `attempt` wraps, put the throw on the dep that `attempt` wraps first and name it in the ledger.) In `commands/__tests__/skills-init.test.ts`:
 
 ```ts
 test("the failure prefers the error's next to the generic remedy", () => {
@@ -344,13 +354,16 @@ test("the failure prefers the error's next to the generic remedy", () => {
     try {
       return { value: await fn() };
     } catch (err) {
-      if (err instanceof UserActionableError) return { outcome: failed(code, err.message, { why: err.why, next: err.next }) };
+      if (err instanceof UserActionableError) {
+        logFailureDetail(err);
+        return { outcome: failed(code, err.message, { why: err.why, next: err.next }) };
+      }
       return { outcome: failed(code, err instanceof Error ? err.message : String(err)) };
     }
   };
 ```
 
-(import `UserActionableError` from `../errors.ts`). In `commands/skills-init.ts`'s `initFailure`, for the failure branch: `...(o.why ? { why: o.why } : {})` and `next: o.next ? ui.cmd(o.next) : (o.remedy ? remedyCell(o.remedy) : <today's default>)`. `repoListFailure` stops calling `healErrorClause`:
+(import `UserActionableError` and `logFailureDetail` from `../errors.ts`; the error's `log` reaches the CLI log, as every flattened `UserActionableError` must, cross-phase ruling 12). In `commands/skills-init.ts`'s `initFailure`, for the failure branch: `...(o.why ? { why: o.why } : {})` and `next: o.next ? ui.cmd(o.next) : (o.remedy ? remedyCell(o.remedy) : <today's default>)`. `repoListFailure` stops calling `healErrorClause`:
 
 ```ts
 export function repoListFailure(dir: string, indexed: Omit<Extract<IndexHealResult, { ok: false }>, "ok">): UserActionableError {
@@ -374,10 +387,25 @@ export function repoListFailure(dir: string, indexed: Omit<Extract<IndexHealResu
 - [ ] **Step 1: Failing tests** (append to `commands/__tests__/skills-init.test.ts`):
 
 ```ts
-test("a multi-line compile failure is one title with every error under it, and next after them", () => {
-  const f = initFailure({ ok: false, refused: false, code: "compile-failed", detail: "skills/a: missing title\nskills/b: bad slot", wrote: [], remedy: { commands: ["rt skills compile --pack-dir /p"] } });
+test("a compile failure is one title and its next, then every error under a caption", () => {
+  const o = { ok: false, refused: false, code: "compile-failed", detail: "skills/a: missing title\nskills/b: bad slot", wrote: [], remedy: { commands: ["rt skills compile --pack-dir /p"] } } as const;
+  const f = initFailure(o);
   expect(f.title).toBe("The new pack did not compile");
-  expect(f.details).toBe("skills/a: missing title\nskills/b: bad slot");
+  expect(f.details).toBeUndefined();
+  const io = captureOut();
+  ui.__test__.setHuman(() => false);
+  try {
+    ui.fail(f, ...initFailureAfter(o));
+    const err = io.stderr();
+    const at = (s: string) => err.indexOf(s);
+    expect(at("The new pack did not compile")).toBe(0);
+    expect(at("next: rt skills compile --pack-dir /p")).toBeGreaterThan(0);
+    expect(at("what did not compile")).toBeGreaterThan(at("next: rt skills compile --pack-dir /p"));
+    expect(at("skills/a: missing title")).toBeGreaterThan(at("what did not compile"));
+    expect(at("skills/b: bad slot")).toBeGreaterThan(at("skills/a: missing title"));
+  } finally {
+    io.restore();
+  }
 });
 ```
 
@@ -385,7 +413,7 @@ And in `lib/skills/__tests__/init.test.ts`, the not-a-repo and invalid-namespace
 
 ```ts
 test("refusal titles name no path or config file", async () => {
-  const notRepo = await initPack({ repoDir: "/code/not-a-repo" }, fakeDeps({ gitRemote: async () => ({ kind: "not-a-repo" }) }));
+  const notRepo = await initPack({ repoDir: REPO, zone: null }, world({ gitRemote: async () => ({ kind: "not-a-repo" }) }).deps);
   expect(notRepo).toMatchObject({ refused: true, detail: "This folder is not a git repo" });
 });
 ```
@@ -397,10 +425,21 @@ test("refusal titles name no path or config file", async () => {
 
 ```ts
   if (o.code === "compile-failed") {
-    const details = [o.detail, ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
-    return { title: "The new pack did not compile", next: o.next ? ui.cmd(o.next) : remedyCell(o.remedy!), details: details.join("\n") };
+    return { title: "The new pack did not compile", next: o.next ? ui.cmd(o.next) : remedyCell(o.remedy!) };
   }
 ```
+
+and, beside it, the blocks drawn after the failure:
+
+```ts
+export function initFailureAfter(o: Extract<InitOutcome, { ok: false }>): Block[] {
+  if (o.code !== "compile-failed") return [];
+  const lines = [o.detail, ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
+  return [ui.verbatim(lines.join("\n"), "what did not compile")];
+}
+```
+
+The caller becomes `ui.fail(initFailure(out), ...initFailureAfter(out))` (`commands/skills-init.ts:244`). Both renderers draw a failure's `next` before anything after it, so the errors read below the command that fixes them, as Task 11's AGENTS rule says. (`Block` from `../lib/ui/protocol.ts`; `captureOut` from `../../lib/ui/__tests__/capture-out.ts` in the test.)
 
 The `--json` refusal envelope's message (`out.detail`, with `. Run <next>` appended) takes the new words: a human sentence inside the envelope (cross-phase ruling 1); `code` and `refused` are unchanged.
 
@@ -411,9 +450,9 @@ The `--json` refusal envelope's message (`out.detail`, with `. Run <next>` appen
 
 ### Task 7: `skills link` and `skills expand` titles; the "not ours" phrase
 
-- [ ] **Step 1: Failing tests.** In `commands/__tests__/skills-link.test.ts`: `--from` with no value fails with title `Which folder should the links come from?` and `next: rt skills link --from <folder>`; an unknown option fails with title `rt skills link does not take that option` and hint the option; a conflict row's hint reads `a file or folder already has this name; rt did not make it, so rt left it alone`, and the note reads `rt left those alone. Move or rename them by hand, then run this again.`. In `commands/__tests__/skills-expand.test.ts`: `--src` with no value fails with `usageFailure("Which folder holds the skills to expand?", "rt skills expand --src <dir> --out <dir>")`; `--out` with no value with the out-folder twin; `--mattstack-dir` with no value with `usageFailure("Which mattstack folder?", "rt skills expand --mattstack-dir <dir>")`; an unknown option with title `rt skills expand does not take that option`, hint the option.
+- [ ] **Step 1: Failing tests.** In `commands/__tests__/skills-link.test.ts`: `--from` with no value fails with title `Which folder should the links come from?` and `next: rt skills link --from <folder>`; an unknown option fails with title `rt skills link does not take that option` and hint the option; a conflict row's hint reads `left alone: a file or folder already has this name, and rt did not make it` (the row's word is already `left alone`, `commands/skills-link.ts:33`, so the detail does not say it again), the `--json` envelope's conflict action has `detail: "a file or folder already has this name, and rt did not make it"` (pinned), and the note reads `rt left those alone. Move or rename them by hand, then run this again.`. In `commands/__tests__/skills-expand.test.ts`: `--src` with no value fails with `usageFailure("Which folder holds the skills to expand?", "rt skills expand --src <dir> --out <dir>")`; `--out` with no value with the out-folder twin; `--mattstack-dir` with no value with `usageFailure("Which mattstack folder?", "rt skills expand --mattstack-dir <dir>")`; an unknown option with title `rt skills expand does not take that option`, hint the option.
 - [ ] **Step 2:** Run: FAIL.
-- [ ] **Step 3: Implement.** `skills-link.ts`'s `fail(title, next?)` gains a `hint` parameter; the two sites by the tests above. `lib/skills/link.ts:126`: `detail: "a file or folder already has this name; rt did not make it, so rt left it alone"`. `skills-link.ts:118`'s note by the test. `skills-expand.ts`'s `requireFlagValue(flag, value)` maps the flag to its usage failure:
+- [ ] **Step 3: Implement.** `skills-link.ts`'s `fail(title, next?)` gains a `hint` parameter; the two sites by the tests above. `lib/skills/link.ts:126`: `detail: "a file or folder already has this name, and rt did not make it"`. `skills-link.ts:118`'s note by the test. `skills-expand.ts`'s `requireFlagValue(flag, value)` maps the flag to its usage failure:
 
 ```ts
 const MISSING_VALUE: Record<string, out.FailureInput> = {
@@ -425,7 +464,7 @@ const MISSING_VALUE: Record<string, out.FailureInput> = {
 
 and the default branch `fail({ title: "rt skills expand does not take that option", hint: a })`.
 
-- [ ] **Step 4:** Run `bun test commands/__tests__/skills-link.test.ts commands/__tests__/skills-expand.test.ts lib/skills/__tests__/link.test.ts`. PASS.
+- [ ] **Step 4:** Run `bun test commands/__tests__/skills-link.test.ts commands/__tests__/skills-expand.test.ts lib/skills/__tests__/link.test.ts`. PASS. (`lib/skills/__tests__/link.test.ts` asserts the old conflict `detail` if it reads it; update that one string on purpose.)
 - [ ] **Step 5:** Commit, message `skills link, expand: titles without flags; the rt-did-not-make-it phrase`.
 
 ---
@@ -549,7 +588,7 @@ it is worded the same everywhere: rt did not make it, so rt left it alone.
 
 **Spec coverage.** Every 6g row of the scoping document's section 2: stash (1), shell strings (2), tokens (3), Ruling 2 (4), skills init (5, 6), titles and the phrase (7), Claude and surface apply (8), rebase lists (9), `healErrorClause` (5, 10).
 
-**Placeholders.** Tests name the file's own helpers to reuse (`seeded`, `tempRepo`, `makeRepo`, `fakeDeps`, the sync deps builder); each states every assertion.
+**Placeholders.** Tests name the file's own helpers to reuse (`seeded`, `makeRepo()` in `lib/__tests__/git-ops.test.ts`, `makeRepo(root, name)` in `commands/git/__tests__/helpers.ts`, `world()` in `lib/skills/__tests__/init.test.ts`, the sync deps builder); each states every assertion.
 
 **Type consistency.** `stashPop` → `{ kept }`, `holdsCredentialToken`, `conflictFilesBlock`, `drawFailure(f, refused, after)`, `claudeMissingBlocks`, the outcome's `why`/`next` match across tasks.
 

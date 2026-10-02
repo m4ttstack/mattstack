@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** The four renderer follow-ups from 5g: a table never clips a leading column (on a pane too narrow for its columns it stacks each row instead, so no value is lost); a command a callout moved to column 0 is followed by a blank row, as a copy block is; `settleBackground` asks the terminal at most once per process even when no answer comes; and `sdm`'s `withProgress` tells the step a task threw, so an older helper never paints a check over a failure. Plus the one `sdm` copy item: "0 of 1 connection have a label".
+**Goal:** The four renderer follow-ups from 5g: a table never clips a leading column (on a pane too narrow for its columns it stacks each row instead, so no value is lost on a pane 26 columns or wider); a command a callout moved to column 0 is followed by a blank row, as a copy block is; `settleBackground` asks the terminal at most once per process even when no answer comes; and `sdm`'s `withProgress` tells the step a task threw, so an older helper never paints a check over a failure. Plus the one `sdm` copy item: "0 of 1 connection have a label".
 
-**Architecture:** Go: `table` in `ui/internal/render/blocks_layout.go` measures, fits, and when `fitColumns` would cut a leading column, draws the rows stacked: each row's first cell on its own line, every other cell on the lines under it, indented, prefixed by its column header when the table has headers. Trees keep `fitColumns` as they are. `calloutLines` marks a column-0 command so the next row starts after a gap, inside a line run and between blocks alike. TS: a module flag in `lib/ui/spawn.ts`; `withProgress` passes `{ thrown }` to `clear`, as `withTransientStep` already does.
+**Architecture:** Go: `table` in `ui/internal/render/blocks_layout.go` measures, fits, and when `fitColumns` would cut a leading column, draws the rows stacked: each row's first cell on its own line, every other cell on the lines under it, indented, prefixed by its column header when the table has headers. Trees keep `fitColumns` as they are. `calloutLines` marks a column-0 command so the next row starts after a gap, inside a line run and between blocks alike. TS: a once-per-process latch in `lib/ui/background.ts`, beside the resolved background, read by `settleBackground` in `lib/ui/spawn.ts`; `withProgress` passes `{ thrown }` to `clear`, as `withTransientStep` already does.
 
 **Tech Stack:** Go (`ui/`, lipgloss v2), `go test`, Bun + TypeScript, Fast Browser.
 
@@ -20,21 +20,29 @@
 - Comments state only a constraint the code cannot show.
 - `PROTOCOL_VERSION` stays 1. No wire change.
 - Plain (non-TTY) output keeps its bytes: `lib/ui/out-plain.ts` is not edited. Only styled output (`rt-ui render`) changes.
-- No TS change outside `lib/ui/spawn.ts` and `commands/sdm.ts`; no `--json` or exit code change.
+- No TS change outside `lib/ui/spawn.ts`, `lib/ui/background.ts` and `commands/sdm.ts`; no `--json` or exit code change.
 - Shared rt-ui primitives are lifted, never hand-rolled: wrapping goes through `wrapCell` and clipping through `textwrap.ClipOn` (AGENTS.md "Shared rt-ui primitives").
 - Run Go from `ui/` (`go -C ui ...`); `bun run ui:build` after any change under `ui/`. Run `bun test` only from the repo root.
 - Git commands plain and alone from the worktree root. Never `git add -A`, `.` or `-u`.
 - Every commit message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-- Files this slice must not edit: every file another phase 6 slice owns; `lib/ui/**` except `lib/ui/spawn.ts` and its test; `ui/internal/views/**` (the app views keep their own layout).
+- Files this slice must not edit: every file another phase 6 slice owns; `lib/ui/**` except `lib/ui/spawn.ts`, `lib/ui/background.ts` and their tests; `ui/internal/views/**` (the app views keep their own layout).
 - UI validation is mandatory (Task 6): render dark and light, at 100 and at 48 columns.
 
 ## Review Focus
 
-1. **`rt settings list` at 48 columns.** Today the widest leading column (the value) is clipped to eight cells and the value is lost. After: every row stacks, every character of every cell is on screen, no row is wider than the pane. Pinned in Task 1 (`TestANarrowTableStacksAndLosesNothing`).
+1. **`rt settings list` at 48 columns.** Today the widest leading column (the value) is clipped to eight cells and the value is lost. After: every row stacks, every character of every cell is on screen, no row is wider than the pane. Below 26 columns a stacked line is clipped to the pane (`wrapCell` does not wrap under `minWrap`), so the pane edge still holds. Pinned in Task 1 (`TestANarrowTableStacksAndLosesNothing`).
 2. **A table that fits.** Nothing changes: same columns, same rule, same bytes as today. Pinned by the existing `TestTableWithHeadersAndARule` and `TestATableLastColumnWrapsInsideItsColumnOnANarrowPane`, which must pass untouched.
 3. **A command longer than the pane, then a status line.** The command sits at column 0 alone and a blank row separates it from the line after, so a drag-select of the command does not catch the next row. Pinned in Task 2 (`TestACommandMovedToColumnZeroIsFollowedByAGap`), for a run and for a block boundary.
 4. **`NO_COLOR` or an old helper with `rt.ui.background` on auto, during `rt setup apply`'s dozens of steps.** One settle per process, not one per step. Pinned in Task 3 (`settles at most once when no answer comes`).
 5. **A cell holding an escape sequence in a stacked table.** Cleaned like any cell. Pinned in Task 1 (`TestAStackedCellIsStillCleaned`).
+
+---
+
+### Task 0: Confirm the base
+
+- [ ] **Step 1:** `git fetch origin`; `git rebase origin/main`.
+- [ ] **Step 2:** Run each alone from the repo root: `grep -n "^func fitColumns" ui/internal/render/blocks_layout.go`; `grep -n "^func outdent" ui/internal/render/blocks_basic.go`; `grep -n "afterCopy" ui/internal/render/render.go`; `grep -n "clear(opts?: { thrown?: boolean })" lib/ui/spawn.ts`. Each prints at least one line, or **stop** and report which 5g piece is missing.
+- [ ] **Step 3:** Run `go -C ui test ./internal/render/` and `bun test lib/ui/__tests__/spawn.test.ts lib/ui/__tests__/background.test.ts commands/__tests__/sdm.test.ts`. PASS, or stop and report.
 
 ---
 
@@ -61,7 +69,7 @@ func TestANarrowTableStacksAndLosesNothing(t *testing.T) {
 		t.Fatalf("a cell was clipped:\n%s", got)
 	}
 	for _, want := range []string{"rt.worktreeApp", "/Applications/A Long Application Name.app", "user", "rt.ui.background", "auto", "default"} {
-		if !strings.Contains(noSpace(got), noSpace(want)) {
+		if !strings.Contains(flat(got), flat(want)) {
 			t.Fatalf("%q is missing:\n%s", want, got)
 		}
 	}
@@ -80,10 +88,14 @@ func TestATableThatFitsDoesNotStack(t *testing.T) {
 func TestAStackedTableWithoutHeadersStillShowsEveryCell(t *testing.T) {
 	got := plainAt(30, protocol.Block{T: "table", Rows: []protocol.TableRow{cells("feature/a-very-long-branch-name", "ok")}})
 	checkWidth(t, got, 30)
-	if strings.Contains(got, "…") || !strings.Contains(got, "ok") || !strings.Contains(noSpace(got), "feature/a-very-long-branch-name") {
+	if strings.Contains(got, "…") || !strings.Contains(got, "ok") || !strings.Contains(flat(got), "feature/a-very-long-branch-name") {
 		t.Fatalf("got\n%s", got)
 	}
 }
+
+// flat drops every space and line break, so a value wrapped across rows
+// still reads as one string.
+func flat(s string) string { return strings.Join(strings.Fields(s), "") }
 
 func TestAStackedCellIsStillCleaned(t *testing.T) {
 	got := plainAt(30, protocol.Block{T: "table", Rows: []protocol.TableRow{cells("feature/a-very-long-branch-name", "x\x1b[2Jy\n[ok] forged")}})
@@ -98,7 +110,7 @@ func TestAStackedCellIsStillCleaned(t *testing.T) {
 }
 ```
 
-`TestATableOnTheNarrowestPaneStaysInsideIt` stays: its group label is still clipped by `fitLine`, so its "…" check holds.
+`TestATableOnTheNarrowestPaneStaysInsideIt` (width 20) stays and must pass: at 20 columns the table stacks, `wrapCell` returns a cell whole because 18 is under `minWrap` (20), and `stackedTable` clips each line with `fitLine`, so `checkWidth` holds and the "…" check still finds the clipped group label and cells. A pane that narrow cannot show a long value whole; the promise is that nothing is lost at 26 columns and wider (the first cell wraps at `width - 2`, the others at `width - 6`, both at least `minWrap`).
 
 - [ ] **Step 2:** Run `go -C ui test ./internal/render/ -run 'Table|Stack'`. Expected: FAIL (`TestANarrowTableStacksAndLosesNothing` finds "…").
 
@@ -132,19 +144,34 @@ func (r *renderer) stackedTable(b protocol.Block, header []protocol.Cell, avail 
 		if len(row.Cells) == 0 {
 			continue
 		}
-		for _, l := range wrapCell(row.Cells[0], avail) {
-			r.emit(indent + r.cell(l))
+		for _, l := range r.stackedLines(row.Cells[0], avail) {
+			r.emit(indent + l)
 		}
 		for i, c := range row.Cells[1:] {
 			cell := c
 			if i+1 < len(header) {
 				cell = append(append(protocol.Cell{}, header[i+1]...), append(protocol.Cell{{Text: "  "}}, c...)...)
 			}
-			for _, l := range wrapCell(cell, avail-4) {
-				r.emit(under + r.cell(l))
+			for _, l := range r.stackedLines(cell, avail-4) {
+				r.emit(under + l)
 			}
 		}
 	}
+}
+```
+
+and, beside it:
+
+```go
+// stackedLines wraps a stacked cell into w columns. Under minWrap, or for a
+// word wider than w, wrapCell hands the text back whole, and fitLine clips it
+// so the pane edge holds.
+func (r *renderer) stackedLines(c protocol.Cell, w int) []string {
+	var out []string
+	for _, l := range wrapCell(c, w) {
+		out = append(out, r.fitLine(r.cell(l), max(1, w)))
+	}
+	return out
 }
 ```
 
@@ -214,7 +241,7 @@ and at the top of `lineRun`'s `for _, b := range run` loop:
 		}
 ```
 
-In `render.go`, the comment above `blocks` becomes: `// blocks leads the block after a copy, or after a command placed at column 0, with a gap: neither carries a rail to set it apart.`
+A failure block's own column-0 `next` followed by its `details` rows gets no gap from this change (the details are inside the same block, drawn by `failure`, not `lineRun`); that is left as it is and noted in the report. In `render.go`, the comment above `blocks` becomes: `// blocks leads the block after a copy, or after a command placed at column 0, with a gap: neither carries a rail to set it apart.`
 
 - [ ] **Step 4:** Run `go -C ui test ./internal/render/`: PASS (5g's `TestACommandMovedToItsOwnRowIsStillCleaned` and the copy-spacing tests included).
 - [ ] **Step 5:** Commit, message `rt-ui: a command placed at column 0 is followed by a blank row, as a copy block is`.
@@ -223,7 +250,7 @@ In `render.go`, the comment above `blocks` becomes: `// blocks leads the block a
 
 ### Task 3: `settleBackground` settles once
 
-**Files:** `lib/ui/spawn.ts`, `lib/ui/__tests__/spawn.test.ts`.
+**Files:** `lib/ui/background.ts`, `lib/ui/spawn.ts`, `lib/ui/__tests__/spawn.test.ts`, `lib/ui/__tests__/background.test.ts` (run, unchanged).
 
 - [ ] **Step 1: Failing test** (append to `spawn.test.ts`; it already sets `RT_UI_BIN` to the fake helper in its setup, or do so here):
 
@@ -238,7 +265,6 @@ test("settles at most once when no answer comes", async () => {
   bg.__test__.reset();
   bg.__test__.setRead(() => "auto");
   bg.__test__.setTTY(() => true);
-  spawnTest.resetSettle();
   try {
     await settleBackground();
     await settleBackground();
@@ -256,26 +282,36 @@ test("settles at most once when no answer comes", async () => {
 });
 ```
 
-(imports: `* as bg` from `../background.ts`, `settleBackground` and `__test__ as spawnTest` from `../spawn.ts`; add the `fs`, `os`, `path` names the file lacks.)
+(imports: `* as bg` from `../background.ts`, `settleBackground` from `../spawn.ts`; add the `fs`, `os`, `path` names the file lacks. `bg.__test__.reset()` clears the latch, so no reset of its own is needed.)
 
-- [ ] **Step 2:** Run: FAIL (three hellos; `resetSettle` does not exist).
-- [ ] **Step 3: Implement** in `lib/ui/spawn.ts`:
+- [ ] **Step 2:** Run: FAIL (three hellos).
+- [ ] **Step 3: Implement.** In `lib/ui/background.ts`, beside `resolved`:
 
 ```ts
 // A terminal that did not answer once will not answer the next step either.
-let settled = false;
+let settleTried = false;
 
+/** True the first time a process asks to settle auto; false after, answer or not. */
+export function claimSettle(): boolean {
+  if (settleTried) return false;
+  settleTried = true;
+  return true;
+}
+```
+
+and `settleTried = false;` inside `__test__.reset()` beside `resolved = undefined;`. In `lib/ui/spawn.ts`:
+
+```ts
 export async function settleBackground(): Promise<void> {
   const env = rtUiEnv();
-  if (env.RT_UI_BACKGROUND !== "auto" || settled) return;
-  settled = true;
+  if (env.RT_UI_BACKGROUND !== "auto" || !claimSettle()) return;
   // ...the existing spawn and noteBackgroundReport, unchanged
 }
 ```
 
-and add `resetSettle(): void { settled = false; }` to the existing `__test__` object at the end of `spawn.ts` (beside `setExit`).
+The latch lives with `resolved` so the reset every background test already runs (`lib/ui/__tests__/background.test.ts`'s `beforeEach` and `afterEach`) clears both; a module flag in `spawn.ts` would survive that reset and make `:206`'s second test see no settling run.
 
-- [ ] **Step 4:** Run `bun test lib/ui/__tests__/spawn.test.ts lib/ui/__tests__/steps.test.ts lib/ui/__tests__/transient-step.test.ts lib/__tests__/no-daemon-sync-exec.test.ts`. PASS.
+- [ ] **Step 4:** Run `bun test lib/ui/__tests__/spawn.test.ts lib/ui/__tests__/background.test.ts lib/ui/__tests__/steps.test.ts lib/ui/__tests__/transient-step.test.ts lib/__tests__/no-daemon-sync-exec.test.ts lib/__tests__/no-eager-tui.test.ts`. PASS.
 - [ ] **Step 5:** Commit, message `ui: settle the terminal background once per process, answer or not`.
 
 ---
@@ -284,7 +320,7 @@ and add `resetSettle(): void { settled = false; }` to the existing `__test__` ob
 
 **Files:** `commands/sdm.ts` (`withProgress`), `commands/__tests__/sdm.test.ts`.
 
-- [ ] **Step 1: Failing test.** In `commands/__tests__/sdm.test.ts`, the test `a task that throws still clears its step` (line 102 at `658e704b9`) expects:
+- [ ] **Step 1: Failing test.** In `commands/__tests__/sdm.test.ts`, the test `a task that throws still clears its step` (`:139`) expects:
 
 ```ts
     expect(sent().at(-1)).toEqual({ t: "done", title: "Connecting to Acme QA", status: "failed", clear: true });
@@ -327,7 +363,7 @@ test("the label count reads right for every count", () => {
 });
 ```
 
-(`enrichmentBlocks` is already in `sdm.ts`'s `__test__`).
+(`enrichmentBlocks` is already in `sdm.ts`'s `__test__`.) It replaces `enrichment counts read as English for one connection and for many` (`commands/__tests__/sdm.test.ts:269-275`), which pins today's "0 of 1 connection have a label". In `enrichment shows the file and how many connections have a label` (`:263-267`), the two counted lines become `[not yet] Labels on 0 of 2 connections  the rest show their StrongDM names` and `[ok] Labels on all 2 connections`; its no-connections line stays.
 - [ ] **Step 2:** Run: FAIL.
 - [ ] **Step 3: Implement.**
 
@@ -351,7 +387,7 @@ function enrichmentBlocks(path: string, enriched: number, total: number): Block[
 - [ ] **Step 2:** Render four pages: width 100 and width 48, each dark (`RT_UI_BACKGROUND=dark`) and light (`RT_UI_BACKGROUND=light`).
 - [ ] **Step 3:** Screenshot the four with Fast Browser into `docs/design/output-layer/6i-renderer-{dark,light}.png` (100 columns) and `6i-renderer-narrow-{dark,light}.png` (48). Write down plainly what reads wrong: at 48 columns a stacked row's cells read as belonging to their row (the indent and header prefix make the grouping clear) and the next row's first cell is easy to find; at 100 nothing stacks; the column-0 command has its blank row; nothing is clipped. Fix in Tasks 1 or 2 and re-render.
 - [ ] **Step 4:** README rows for the two pairs: `| \`6i-renderer-dark.png\`, \`6i-renderer-light.png\` | at 100 columns: tables that fit, a command at column 0 with its gap, the label counts |` and `| \`6i-renderer-narrow-dark.png\`, \`6i-renderer-narrow-light.png\` | the same at 48 columns: tables stacked row by row, nothing clipped |`.
-- [ ] **Step 5:** AGENTS.md: append to the "Output layer" section: `A table rt-ui cannot fit without cutting a leading column stacks instead: each row's first cell on its own line, the other cells under it, each led by its column header. No value is ever clipped in a table; trees still clip a leading column to keep their branches aligned.`
+- [ ] **Step 5:** AGENTS.md: append to the "Output layer" section: `A table rt-ui cannot fit without cutting a leading column stacks instead: each row's first cell on its own line, the other cells under it, each led by its column header. On a pane 26 columns or wider no value is clipped; narrower than that, each stacked line is clipped to the pane. Trees still clip a leading column to keep their branches aligned.`
 - [ ] **Step 6:** Gates, one at a time: `bun run ui:build`, `bun run ui:test`, `bun run typecheck`, `bun run test`, `bun run test:e2e`, `bun run test:pty`, `bun run picker:check`, `bun run format:check`, `bun run check`. All pass (known flakes as in 6a; `TestTextValidatesPatternThenAccepts` is RT-413's).
 - [ ] **Step 7:** Commit, message `docs: renderer leftover renders, narrow and wide`.
 
@@ -369,7 +405,7 @@ function enrichmentBlocks(path: string, enriched: number, total: number): Block[
 
 ## Decisions this plan made
 
-1. **Stack, do not clip.** A narrow table's rows stack whenever `fitColumns` would cut a leading column, so a value is never lost; the alternatives (share the shrink across columns, or clip the widest as today) still cut a value. Trees keep clipping: their branch rails need aligned columns, and their leading cells are short labels.
+1. **Stack, do not clip.** A narrow table's rows stack whenever `fitColumns` would cut a leading column, so a value is not lost on any pane 26 columns or wider; the alternatives (share the shrink across columns, or clip the widest as today) still cut a value. Trees keep clipping: their branch rails need aligned columns, and their leading cells are short labels.
 2. **The stacked layout drops the header row and rule** and leads each later cell with its header instead, so the header stays next to the value it names.
 3. **`settleBackground` settles once per process** whatever happened, because a terminal that did not answer once will not answer a moment later; `rt.ui.background` set to `dark` or `light` skips it altogether, as today.
 
@@ -379,6 +415,6 @@ function enrichmentBlocks(path: string, enriched: number, total: number): Block[
 
 **Placeholders.** None. `<repo>` and `<scratchpad>` are the implementer's paths.
 
-**Type consistency.** `stackedTable(b, header, avail)`, `afterCopy`, `settled` / `resetSettle`, `withProgress`'s `thrown`, `enrichmentBlocks` match across tasks.
+**Type consistency.** `stackedTable(b, header, avail)`, `stackedLines(c, w)`, `afterCopy`, `claimSettle`, `withProgress`'s `thrown`, `enrichmentBlocks` match across tasks.
 
 **Review Focus.** Five lines, each pinned by a named test.

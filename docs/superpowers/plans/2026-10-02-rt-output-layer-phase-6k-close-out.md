@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Finish RT-369. With the raw-output allowlist empty on main, retire it: the guard fails on any raw print outside the output layer and the exemption list, `lib/ansi.ts`, the `lib/tui.ts` shim and `lib/tui/palette.ts` (with its test) are deleted, `exitUserError` loses the unused `verb` argument (phase 5 ruling 10), `healErrorClause` is deleted now that no caller remains, and AGENTS.md and the spec say the work is done.
+**Goal:** Finish RT-369. With the raw-output allowlist empty on main, retire it: the guard fails on any raw print outside the output layer and the exemption list, `lib/ansi.ts`, the `lib/tui.ts` shim and `lib/tui/palette.ts` (with its test) are deleted, `exitUserError` loses the unused `verb` argument (phase 5 ruling 10), `healErrorClause`, `missingRepoRefusal` and `ghostPathRefusal` (with `lib/repo.ts`'s re-export of the last two) are deleted now that no caller remains, and AGENTS.md and the spec say the work is done.
 
 **Architecture:** Deletions and one signature change, each guarded by the compiler or the guard test. Nothing a person sees changes; Task 7 proves it by rendering the shared fixture before and after and comparing bytes.
 
@@ -41,8 +41,9 @@
 - [ ] **Step 1:** `git fetch origin`; `git rebase origin/main`.
 - [ ] **Step 2:** Run `cat lib/__tests__/raw-output-allowlist.json`. Expected: `[]` (and a newline). Anything else: **stop**, report which files remain and which slice owns them (scoping section 1).
 - [ ] **Step 3:** Run `cat lib/__tests__/raw-output-exemptions.json`. Expected: exactly the three seams. Any other entry: stop and report.
-- [ ] **Step 4:** Run `grep -rn "healErrorClause" --include=*.ts commands lib`. Expected: only `lib/repo-index.ts` (the definition) and `lib/__tests__/repo-index.test.ts`. A caller elsewhere: stop and report (6g or 6h has not landed).
+- [ ] **Step 4:** Run `grep -rn "healErrorClause" --include=*.ts commands lib`. Expected: only `lib/repo-index.ts` (the definition) and `lib/__tests__/repo-index.test.ts`. A caller elsewhere: stop and report (6g or 6h has not landed). Then `grep -rn "missingRepoRefusal(\|ghostPathRefusal(" --include=*.ts commands lib`. Expected: only the definitions in `lib/repo-index.ts` and the two tests (`lib/__tests__/repo-index-missing.test.ts`, `lib/__tests__/cd-cache-read.test.ts`). A call in `commands/cd.ts` or `lib/pickers.ts`: stop and report (6f has not landed).
 - [ ] **Step 5:** Run `bun test lib/__tests__/no-raw-output.test.ts lib/__tests__/errors.test.ts lib/tui`. PASS, or stop.
+- [ ] **Step 6: Render the baseline.** Before any edit, render the shared fixture as Task 7 Step 1 describes, into `<scratchpad>/6k-dark-before.ansi` and `<scratchpad>/6k-light-before.ansi`. Task 7 compares against these bytes.
 
 ---
 
@@ -128,11 +129,11 @@ test("every exemption gives a reason, and the list is sorted with no duplicates"
 
 ### Task 3: Delete the color modules
 
-**Files:** delete `lib/ansi.ts`, `lib/tui.ts`, `lib/tui/palette.ts`, `lib/tui/__tests__/palette.test.ts`; modify `ui/internal/theme/theme.go` (header comment), `lib/explain-error.ts` (header comment), `e2e/tests/settings.test.ts:121` (comment).
+**Files:** delete `lib/ansi.ts`, `lib/tui.ts`, `lib/tui/palette.ts`, `lib/tui/__tests__/palette.test.ts`; modify `ui/internal/theme/theme.go` (header comment), `lib/explain-error.ts` (header comment), `e2e/tests/settings.test.ts:121` (comment), `test-timings.json` (the deleted test's entry).
 
-- [ ] **Step 1: Confirm nothing imports them.** Run `rg -n "lib/ansi|/ansi\.ts|lib/tui\.ts|/tui\.ts\"|tui/palette" --glob '*.ts' --glob '*.tsx' --glob '*.go' --glob '*.swift' --glob '!node_modules' --glob '!docs/**' .`. Expected: only the four files being deleted, `theme.go:1`, `lib/explain-error.ts:3` and `e2e/tests/settings.test.ts:121` (comments). Any import elsewhere: stop and report the file (a slice left one).
+- [ ] **Step 1: Confirm nothing imports them.** Run `rg -n "lib/ansi|/ansi\.ts|lib/tui\.ts|/tui\.ts\"|tui/palette" --glob '*.ts' --glob '*.tsx' --glob '*.go' --glob '*.swift' --glob '!node_modules' --glob '!docs/**' .`. Expected: only the four files being deleted, `theme.go:1`, `lib/explain-error.ts:3` and `e2e/tests/settings.test.ts:121` (comments). That pattern cannot see a relative import from inside `lib/tui/`, so also run `rg -n "palette\.ts" lib --glob '*.ts'`: expected, only `lib/tui/__tests__/palette.test.ts` (it imports `../palette.ts`, and goes with it). Any import elsewhere: stop and report the file (a slice left one).
 - [ ] **Step 2:** `git rm lib/ansi.ts`; `git rm lib/tui.ts`; `git rm lib/tui/palette.ts`; `git rm lib/tui/__tests__/palette.test.ts` (four commands).
-- [ ] **Step 3: Comments.** `ui/internal/theme/theme.go:1-2` becomes:
+- [ ] **Step 3: Comments and the timings file.** `test-timings.json` lists `lib/tui/__tests__/palette.test.ts` (`:657` at `658e704b9`; `grep -n "palette.test.ts" test-timings.json` finds it): delete that entry, keeping the JSON valid. `ui/internal/theme/theme.go:1-2` becomes:
 
 ```go
 // Package theme is the rt-ui token sheet. Every color and glyph rt-ui paints
@@ -171,13 +172,13 @@ and `exitFromDispatch`'s call becomes `exitUserError(err, process.argv.includes(
 
 ---
 
-### Task 5: Delete `healErrorClause`
+### Task 5: Delete `healErrorClause`, `missingRepoRefusal` and `ghostPathRefusal`
 
-**Files:** `lib/repo-index.ts:271-274`, `lib/__tests__/repo-index.test.ts:978-982` (the test that pins it; delete the whole `test(...)` block and the import name).
+**Files:** `lib/repo-index.ts` (`healErrorClause` at `:271-274`, `missingRepoRefusal` at `:1470`, `ghostPathRefusal` at `:1480`, and the comments at `:1052` and `:1478` that name them), `lib/repo.ts:17` (the re-export), `lib/__tests__/repo-index.test.ts:978-982`, `lib/__tests__/repo-index-missing.test.ts:146-151` (`the refusal names the repo, the gone path, and the fix`), `lib/__tests__/cd-cache-read.test.ts:146-153` (`describe("ghostPathRefusal")`), and any comment in `commands/cd.ts`, `commands/__tests__/cd.test.ts` or `commands/__tests__/cd-identity-match.test.ts` that still names them (shepherd ruling, review round 1: 6f stopped calling them and left the deletion here).
 
-- [ ] **Step 1:** Delete the function and its doc comment from `lib/repo-index.ts`, and its test and import from `lib/__tests__/repo-index.test.ts`.
-- [ ] **Step 2:** Run `grep -rn "healErrorClause" --include=*.ts .  --exclude-dir=node_modules --exclude-dir=docs`: no output. `bun run typecheck`: clean. `bun test lib/__tests__/repo-index.test.ts`: PASS.
-- [ ] **Step 3:** Commit, message `repo-index: delete healErrorClause, which no caller uses`.
+- [ ] **Step 1:** Delete the three functions and their doc comments from `lib/repo-index.ts`; drop `missingRepoRefusal` and `ghostPathRefusal` from `lib/repo.ts:17`'s export list; delete their tests and import names from the three test files above. A comment that names one of them is reworded to name what replaced it (`missingRepoFailure`, or "the gone-folder failure").
+- [ ] **Step 2:** Run `grep -rn "healErrorClause\|missingRepoRefusal\|ghostPathRefusal" --include=*.ts . --exclude-dir=node_modules --exclude-dir=docs`: no output. `bun run typecheck`: clean. `bun test lib/__tests__/repo-index.test.ts lib/__tests__/repo-index-missing.test.ts lib/__tests__/cd-cache-read.test.ts commands/__tests__/cd.test.ts`: PASS.
+- [ ] **Step 3:** Commit, message `repo-index: delete healErrorClause, missingRepoRefusal and ghostPathRefusal, which no caller uses`.
 
 ---
 
@@ -219,7 +220,7 @@ COLORTERM=truecolor TERM=xterm-256color RT_UI_BACKGROUND=dark ./ui/dist/rt-ui re
 COLORTERM=truecolor TERM=xterm-256color RT_UI_BACKGROUND=light ./ui/dist/rt-ui render --width 80 < <scratchpad>/fixture.ndjson > <scratchpad>/6k-light.ansi
 ```
 
-- [ ] **Step 2:** Turn both renders into pages with 5f2's `ansi-page.ts`, screenshot both with Fast Browser, and compare by eye to `docs/design/output-layer/fixture-dark.png` and `fixture-light.png`. Write down plainly any difference; there should be none. Do not commit these screenshots (nothing changed); attach them to the PR body as the evidence.
+- [ ] **Step 2:** Run `cmp <scratchpad>/6k-dark-before.ansi <scratchpad>/6k-dark.ansi` and `cmp <scratchpad>/6k-light-before.ansi <scratchpad>/6k-light.ansi` (Task 1 Step 6 rendered the before pair at the base). Expected: no output from either. Any difference: stop and report it. Then turn both renders into pages with 5f2's `ansi-page.ts` and screenshot both with Fast Browser, and look at them: write down plainly anything that reads wrong. Do not commit these screenshots (nothing changed); attach them to the PR body as the evidence.
 - [ ] **Step 3:** Gates, one at a time: `bun run ui:build`, `bun run ui:test`, `bun run typecheck`, `bun run test`, `bun run test:e2e`, `bun run test:pty`, `bun run picker:check`, `bun run format:check`, `bun run check`. All pass (known flakes as in 6a).
 
 ---
@@ -229,7 +230,7 @@ COLORTERM=truecolor TERM=xterm-256color RT_UI_BACKGROUND=light ./ui/dist/rt-ui r
 - [ ] **Step 1:** `git fetch origin`; `git rebase origin/main`. If a slice merged after Task 1 and re-added a raw line (impossible with the allowlist gone, unless it landed first), the guard says so: fix in the file named.
 - [ ] **Step 2:** The nine gates again.
 - [ ] **Step 3:** `git diff --shortstat origin/main...HEAD`; about 700 lines, mostly deletions.
-- [ ] **Step 4:** Push with `git_push`; body in `<scratchpad>/pr-body-6k.md` (framing: RT-369 is done; **Guard** (no allowlist, the exemptions that remain and why), **Deleted** (`lib/ansi.ts`, `lib/tui.ts`, `lib/tui/palette.ts`, `healErrorClause`), **errors** (`exitUserError`'s signature), **Docs**; the two fixture screenshots as evidence that nothing changed; gates; last line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`); `gh pr create --repo m4ttstack/mattstack --title "RT-369: output layer phase 6k, close-out" --body-file <scratchpad>/pr-body-6k.md`.
+- [ ] **Step 4:** Push with `git_push`; body in `<scratchpad>/pr-body-6k.md` (framing: RT-369 is done; **Guard** (no allowlist, the exemptions that remain and why), **Deleted** (`lib/ansi.ts`, `lib/tui.ts`, `lib/tui/palette.ts`, `healErrorClause`, `missingRepoRefusal`, `ghostPathRefusal`), **errors** (`exitUserError`'s signature), **Docs**; the two fixture screenshots as evidence that nothing changed; gates; last line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`); `gh pr create --repo m4ttstack/mattstack --title "RT-369: output layer phase 6k, close-out" --body-file <scratchpad>/pr-body-6k.md`.
 - [ ] **Step 5:** Report URL, gates, size and the fixture comparison. Do not merge.
 
 ---
@@ -242,7 +243,7 @@ COLORTERM=truecolor TERM=xterm-256color RT_UI_BACKGROUND=light ./ui/dist/rt-ui r
 
 ## Self-Review
 
-**Spec coverage.** "Guard": allowlist empty, then the color modules deleted (Tasks 2, 3). Phase 5 ruling 10 (Task 4). Scoping shared item 6 (Task 5). The spec and AGENTS.md (Task 6).
+**Spec coverage.** "Guard": allowlist empty, then the color modules deleted (Tasks 2, 3). Phase 5 ruling 10 (Task 4). Scoping shared item 6 and the shepherd's 6f ruling (Task 5). The spec and AGENTS.md (Task 6).
 
 **Placeholders.** None. `<scratchpad>` is the implementer's own path.
 

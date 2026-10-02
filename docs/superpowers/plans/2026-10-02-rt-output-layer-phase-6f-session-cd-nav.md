@@ -4,6 +4,8 @@
 
 **Goal:** `rt run`, the preflight and teardown lines of `rt runner` and `rt glitter`, and the non-rt-ui prints of `rt cd` and `rt nav` (with the paths of `lib/pickers.ts` and `commands/code.ts` they reach) leave the raw-output allowlist; `rt cd` stops erasing the person's typed command line; `rt nav` stops leaking editor and shell output into the folder its shell wrapper changes into; and `rt code` remembers an editor choice again (the `savePrefs` bug). Eight allowlist lines go. Nothing rt-ui draws (pickers, the navigator, prompts, the runner board, the glitter board) changes.
 
+**Depends on 6h merging first** (scoping, "6h merges before 6f"): 6h switches `missingRepoFailure` in `lib/repo.ts` to print `--repo <host/path>` (`repoLabelFull`) and teaches `--repo` to resolve it; `rt cd`'s missing-repo refusal goes through that failure. Task 1 stops if it is not on main.
+
 **Ruled (Matt, 2026-10-02; scoping document, Ruling 1):** `rt cd` and `rt nav` leave the allowlist by a narrow conversion of only their non-rt-ui prints. The PR waits for Matt's hand check of `rt cd` and `rt nav` in a real terminal after the release before it merges; every task can run before that.
 
 **Architecture:** One new layer export, `out.holdStdout()`, replaces the two hand-rolled `process.stdout.write` swaps: until released, writes to stdout go to stderr and human text follows them, so the shell wrapper's `$(...)` reads only the path `out.payload` writes after release. Every other print moves onto `out.print`, `out.note` or `out.fail`. Children of `rt nav` that used to inherit stdout get the terminal through stderr's descriptor instead. `rt run` keeps its JSON on stdout (`--resolve-only`, the seed) and draws its human lines on stderr after `payloadOnStdout()`.
@@ -18,7 +20,7 @@
 
 ## Global Constraints
 
-- Never use em dashes or en dashes anywhere. `missingRepoRefusal`, `ghostPathRefusal`, the shell-wrapper notes, `savePrefs`' warning, `rt run`'s lines and `rt runner`'s lines hold several; each is replaced.
+- Never use em dashes or en dashes anywhere. The two refusals `rt cd` printed, the shell-wrapper notes, `savePrefs`' warning, `rt run`'s lines and `rt runner`'s lines hold several; each is replaced (the two refusals by calling `missingRepoFailure` and a failure block; their old functions go in 6k).
 - Never write the phrase banned under the second heading of `~/.claude/rules/no-em-dashes.md`.
 - Comments state only a constraint the code cannot show.
 - `rt cd` and `rt nav`: stdout is exactly the chosen path and a newline, or empty; exit codes unchanged (0 on a path or an esc, 1 on a refusal). Pinned before any edit (Task 4).
@@ -28,7 +30,7 @@
 - Run `bun test` only from the repo root. Never run a built `rt` outside an isolated HOME. No test writes the real `~/.zshrc`: the cd harness's temp HOME only.
 - Git commands plain and alone from the worktree root. Never `git add -A`, `.` or `-u`.
 - Every commit message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-- Files this slice must not edit: every file another phase 6 slice owns; `lib/ui/**` except `holdStdout` in `lib/ui/out.ts`; `lib/repo-index.ts` except `missingRepoRefusal` and `ghostPathRefusal` (6k deletes `healErrorClause` there later; 6h does not touch the file).
+- Files this slice must not edit: every file another phase 6 slice owns; `lib/ui/**` except `holdStdout` in `lib/ui/out.ts` and its test in `lib/ui/__tests__/out.test.ts`; `lib/repo-index.ts` and `lib/repo.ts`. 6f stops calling `missingRepoRefusal` and `ghostPathRefusal`; 6k deletes them and `lib/repo.ts:17`'s re-export of them (shepherd ruling, review round 1).
 - UI validation is mandatory (Task 10). Matt also checks `rt cd` and `rt nav` by hand after the release; this PR waits for that check before merging (Ruling 1).
 
 ## Review Focus
@@ -50,7 +52,7 @@
 
 ## Copy table
 
-### `rt cd` (`commands/cd.ts`, `lib/pickers.ts`, `lib/repo-index.ts`)
+### `rt cd` (`commands/cd.ts`, `lib/pickers.ts`; the two refusals were `lib/repo-index.ts`'s)
 
 | Today (stderr) | After (stderr) |
 |---|---|
@@ -59,12 +61,12 @@
 | `Add this to your shell config manually:` + the function | `out.print(out.copy(SHELL_FUNCTION, "add this to your shell config"))` |
 | green `✓ Installed rt shell wrapper in <rc>` + `Restart your terminal or run: source <rc>` | `line("done", "Installed the rt shell function", <rc>)`, `callout("next", cmd("source <rc>"))` |
 | `\x1b[2A\x1b[0J` on exit 0 | removed |
-| `missingRepoRefusal`: `<label> is no longer at <path> -- run: rt repos locate <new-path> --repo <wire>` | `out.fail(missingRepoFailure(repo))` (the failure `lib/repo.ts` already builds for other callers: read it in Task 2 and confirm its `next` names a form `--repo` resolves; if it prints the wire identity, `missingRepoRefusal` is reworded instead, below) |
+| `missingRepoRefusal`: `<label> is no longer at <path> -- run: rt repos locate <new-path> --repo <wire>` | `out.fail(missingRepoFailure(repo))`: the failure `lib/repo.ts` builds for other callers, whose `next` 6h made `rt repos locate <new-path> --repo <host/path>` |
 | `ghostPathRefusal`: `<path> no longer exists (the cd cache may be stale) - run: rt repos prune` | `out.fail({ title: "That folder is gone", hint: <path>, why: "rt's list of folders was out of date.", next: cmd("rt repos prune") })` |
 | `lib/pickers.ts` `no known repos found -- run rt from inside a git repo first` (the `rt cd` path) | the same failure the other callers already get: `{ title: "rt does not know any repos yet", next: "Run rt once from inside a git repo, so it learns where that repo is" }` |
 | `lib/pickers.ts:416` `no worktree found matching branch: "<b>"` | `out.fail({ title: "No worktree has a branch starting with <b>", next: cmd("rt worktree list") })` |
 
-`missingRepoRefusal(r)` and `ghostPathRefusal(path)` in `lib/repo-index.ts`: once no caller remains (Task 5 removes the last two), delete both and their tests' cases (`lib/__tests__/repo-index-missing.test.ts:147`, `lib/__tests__/cd-cache-read.test.ts:146`), keeping the tests' other cases.
+`missingRepoRefusal(r)` and `ghostPathRefusal(path)` in `lib/repo-index.ts` lose their last callers in Task 5 but stay, with their tests and `lib/repo.ts`'s re-export, for 6k to delete.
 
 ### `rt nav` (`commands/nav.ts`, `commands/code.ts`)
 
@@ -87,7 +89,7 @@
 | green `✓ saved <kind> "<label>"` | `out.print(out.line("done", \`Saved the ${kind} ${label}\`))` |
 | yellow `⚠ not saved -- no repo identity for <repo>; pin one with \`rt settings set rt.repoIdentityOverrides\`` | `out.print(out.line("warn", \`The ${kind} was not saved\`, "rt cannot tell which repo this is")`, `out.callout("next", out.cmd("rt settings set rt.repoIdentityOverrides"))` |
 | `⚠ not saved -- <message>` | `line("warn", \`The ${kind} was not saved\`, <message>)` |
-| `  ↳ package: <label> (from cwd)` | `line("skipped", \`Package ${label}\`, "picked from where you are")` |
+| `  ↳ package: <label> (from cwd)` | `line("done", \`Package ${label}\`, "picked from where you are")` |
 | `No scripts found in <path>/package.json.` (exit 1) | `out.fail({ title: "This package has no scripts", hint: <package label> })` |
 | `No known repos. Run rt from inside a git repo to register it.` | `out.fail({ title: "rt does not know any repos yet", next: "Run rt once from inside a git repo, so it learns where that repo is" })` |
 | `No accessible worktrees for <repo>.` | `out.fail({ title: \`${repo} has no worktree rt can open\` })` |
@@ -112,7 +114,7 @@ Row 52 (`commands/code.ts:64`): `warn("code", \`could not save workspace prefs: 
 | File | Responsibility |
 |---|---|
 | `lib/ui/out.ts`, `lib/ui/__tests__/out.test.ts` (modify) | `holdStdout` |
-| `commands/cd.ts`, `commands/nav.ts`, `commands/code.ts`, `lib/pickers.ts`, `lib/repo-index.ts` (modify) | Ruling 1's conversion, the erase, `savePrefs` |
+| `commands/cd.ts`, `commands/nav.ts`, `commands/code.ts`, `lib/pickers.ts` (modify) | Ruling 1's conversion, the erase, `savePrefs` |
 | `commands/run.ts`, `commands/runner.ts`, `commands/glitter.ts`, `lib/runner/runner.ts` (modify) | session verbs |
 | `commands/__tests__/cd-nav-bytes.test.ts` (create) | stdout pins for `rt cd` and `rt nav` |
 | the tests named in Readers (modify) | |
@@ -123,7 +125,7 @@ Row 52 (`commands/code.ts:64`): `warn("code", \`could not save workspace prefs: 
 ### Task 1: Confirm the base
 
 - [ ] **Step 1:** `git fetch origin`; `git rebase origin/main`.
-- [ ] **Step 2:** Run each alone: `grep -n "export function clearScreen" lib/ui/screen.ts`; `grep -n "export function warn" lib/ui/warn.ts`; `grep -n "export function missingRepoFailure" lib/repo.ts`. One line each, or stop. `grep -c "commands/run.ts\|commands/runner.ts\|commands/glitter.ts\|lib/runner/runner.ts\|commands/cd.ts\|commands/nav.ts\|commands/code.ts\|lib/pickers.ts" lib/__tests__/raw-output-allowlist.json`: `8`, or stop.
+- [ ] **Step 2:** Run each alone: `grep -n "export function clearScreen" lib/ui/screen.ts`; `grep -n "export function warn" lib/ui/warn.ts`; `grep -n "export function missingRepoFailure" lib/repo.ts`. One line each, or stop. Then `grep -n "repoLabelFull" lib/repo.ts`: at least one hit inside `missingRepoFailure`. If none, **stop**: 6h is not on main; report "6h is not on main". `grep -c "commands/run.ts\|commands/runner.ts\|commands/glitter.ts\|lib/runner/runner.ts\|commands/cd.ts\|commands/nav.ts\|commands/code.ts\|lib/pickers.ts" lib/__tests__/raw-output-allowlist.json`: `8`, or stop.
 - [ ] **Step 3:** Run `bun test commands/__tests__/cd.test.ts commands/__tests__/cd-identity-match.test.ts commands/__tests__/nav.test.ts commands/__tests__/code-output.test.ts commands/__tests__/code-prefs.test.ts commands/__tests__/code-launch.test.ts commands/__tests__/run-report-save.test.ts commands/__tests__/run-abort-message.test.ts commands/__tests__/runner-command.test.ts lib/__tests__/pickers.test.ts lib/__tests__/repo-index-missing.test.ts lib/__tests__/cd-cache-read.test.ts`. PASS, or stop and report.
 
 ---
@@ -135,7 +137,7 @@ Row 52 (`commands/code.ts:64`): `warn("code", \`could not save workspace prefs: 
 **Interfaces:**
 - Produces: `holdStdout(): () => void`.
 
-- [ ] **Step 1: Read for the audit.** Read `missingRepoFailure` in `lib/repo.ts` and record in the ledger what its `next` prints. If it prints `rt repos locate <new-path> --repo <label>` with a label `--repo` resolves (`tryResolveRepoArg` in `lib/repo-arg.ts` resolves a label through `reverseLookupByName`), use it as the copy table says. If it prints the wire identity, note it: Task 5 then words `rt cd`'s failure itself with `repoLabel(repo.repoName)` in the command.
+- [ ] **Step 1: Read for the audit.** Read `missingRepoFailure` in `lib/repo.ts` and record in the ledger that its `next` prints `rt repos locate <new-path> --repo <host/path>` (6h's fix, checked in Task 1). `rt cd` uses it as it is.
 
 - [ ] **Step 2: Failing test** (append to `lib/ui/__tests__/out.test.ts`):
 
@@ -159,7 +161,7 @@ describe("holdStdout", () => {
 });
 ```
 
-- [ ] **Step 3:** Run: FAIL (`out.holdStdout is not a function`).
+- [ ] **Step 3:** Run: FAIL (`out.holdStdout is not a function`: `out` is a namespace import, so a missing member is `undefined` at the call, not a link error).
 - [ ] **Step 4: Implement** (after `payloadOnStdout` in `lib/ui/out.ts`):
 
 ```ts
@@ -224,7 +226,27 @@ function savePrefs(prefs: Prefs): void {
 
 (`warn` from `../lib/ui/warn.ts`; `out` is already imported by 5c.)
 
-- [ ] **Step 4:** Run `bun test commands/__tests__/code-prefs.test.ts commands/__tests__/code-output.test.ts`. PASS. (`code-output.test.ts:61` expects today's warning text with `next: rt settings set rt.workspacePrefs '{}' --scope machine`; change it to the row 52 copy, `next: rt settings check`.)
+The test this breaks is `code-prefs.test.ts:88-98` (`savePrefs warns and does not throw when the machine store is malformed`): it spies `console.warn` for `rt: could not save workspace prefs`. Rewrite its body onto the warning log:
+
+```ts
+    const logged: Array<{ module: string; message: string }> = [];
+    setWarningLog((module, message) => logged.push({ module, message }));
+    const path = machineSettingsPath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `{\n  "rt.other": { "x": 1 },\n  "rt.other": { "x": 2 }\n}\n`);
+    try {
+      expect(() => __test__.savePrefs({ editors: { myrepo: "cursor" }, workspaces: {} })).not.toThrow();
+      expect(logged).toHaveLength(1);
+      expect(logged[0]).toMatchObject({ module: "code" });
+      expect(logged[0]!.message).toStartWith("could not save workspace prefs: ");
+    } finally {
+      warnings.reset();
+    }
+```
+
+(`import { setWarningLog, __test__ as warnings } from "../../lib/ui/warn.ts";`.) `code-output.test.ts:61`'s `next: rt settings set rt.workspacePrefs '{}' --scope machine` belongs to the editor-failed failure, not this warning, and does not change here.
+
+- [ ] **Step 4:** Run `bun test commands/__tests__/code-prefs.test.ts commands/__tests__/code-output.test.ts`. PASS.
 - [ ] **Step 5:** Commit (`commands/code.ts`, the two tests), message `code: save editor prefs without an undefined field, so the choice is remembered; the warning goes through warn`.
 
 ---
@@ -245,8 +267,9 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { execFileSync } from "child_process";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
-import { __test__ as pickImplTest } from "../../lib/ui/pick.ts";
+import { __test__ as pickImplTest, type PickImpl } from "../../lib/ui/pick.ts";
 import { worktreePicker } from "../cd.ts";
 import { navigate } from "../nav.ts";
 
@@ -276,6 +299,27 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
   rmSync(scratch, { recursive: true, force: true });
 });
+
+/** The handle shape of `cd.test.ts`'s `installCancelPick`: a `select` with a value, or a cancel. */
+function installPick(value: string | null): void {
+  const impl: PickImpl = () => ({
+    update() {},
+    modal: async () => null,
+    result: Promise.resolve(
+      value === null
+        ? { t: "result", action: "cancel", value: null, query: "" }
+        : { t: "result", action: "select", value, query: "" },
+    ),
+  });
+  pickImplTest.setImpl(impl);
+}
+
+function gitRepo(name: string): string {
+  const dir = join(scratch, name);
+  mkdirSync(dir);
+  execFileSync("git", ["init", "-q", dir]);
+  return dir;
+}
 
 async function run(fn: () => Promise<void>): Promise<{ code: number | undefined; stdout: string; stderr: string }> {
   const outChunks: string[] = [];
@@ -308,10 +352,9 @@ async function run(fn: () => Promise<void>): Promise<{ code: number | undefined;
 
 describe("rt cd and rt nav stdout (frozen for the shell wrapper)", () => {
   test("a chosen worktree is the path and a newline on stdout, nothing else", async () => {
-    const wt = join(scratch, "sample-app");
-    mkdirSync(wt);
+    const wt = gitRepo("sample-app");
     setKvValue("repo-index", "sample-app", wt);
-    pickImplTest.setImpl(async () => ({ value: wt, key: "enter" }) as never);
+    installPick(wt);
     const r = await run(() => worktreePicker([]));
     expect(r.stdout).toBe(`${wt}\n`);
     expect(r.code).toBeUndefined();
@@ -326,14 +369,14 @@ describe("rt cd and rt nav stdout (frozen for the shell wrapper)", () => {
   });
 
   test("nav: esc prints nothing on stdout", async () => {
-    pickImplTest.setImpl(async () => null as never);
+    installPick(null);
     const r = await run(() => navigate([scratch]));
     expect(r.stdout).toBe("");
   });
 });
 ```
 
-The fake pick's result shape must match `lib/ui/pick.ts`'s `PickImpl` (read it; `cd.test.ts`'s `installCancelPick` shows the cancel shape). If the single-repo case above auto-selects without calling the pick, the first test still holds; if the worktree picker needs a second pick (packages), adjust the fake to return the worktree path for every call.
+`installPick` returns the same handle for every pick, so a second pick (a package step) gets the worktree path too. With one known repo `rt cd` auto-selects the repo and opens only the worktree picker; the repo is a real `git init` so it has a worktree to list.
 
 - [ ] **Step 2:** Run: PASS on today's code (stdout is the path; the refusal is on stderr). Twice more: PASS.
 - [ ] **Step 3:** Commit, message `cd, nav: pin stdout for the shell wrapper before the output layer touches them`.
@@ -342,35 +385,46 @@ The fake pick's result shape must match `lib/ui/pick.ts`'s `PickImpl` (read it; 
 
 ### Task 5: `rt cd`
 
-**Files:** `commands/cd.ts`, `lib/pickers.ts`, `lib/repo-index.ts`, `commands/__tests__/cd.test.ts`, `commands/__tests__/cd-identity-match.test.ts`, `lib/__tests__/pickers.test.ts`, `lib/__tests__/repo-index-missing.test.ts`, `lib/__tests__/cd-cache-read.test.ts`, the allowlist.
+**Files:** `commands/cd.ts`, `lib/pickers.ts`, `commands/__tests__/cd.test.ts`, `commands/__tests__/cd-identity-match.test.ts`, `commands/__tests__/cd-nav-bytes.test.ts`, `lib/__tests__/pickers.test.ts`, the allowlist.
 
 - [ ] **Step 1: Failing tests.** In `cd-nav-bytes.test.ts`, add:
 
 ```ts
   test("rt cd registers no exit-time erase", async () => {
     const before = process.listenerCount("exit");
-    pickImplTest.setImpl(async () => null as never);
+    setKvValue("repo-index", "sample-app", gitRepo("sample-app"));
+    installPick(null);
     await run(() => worktreePicker([]));
     expect(process.listenerCount("exit")).toBe(before);
   });
 
   test("the wrapper upgrade notes go to stderr and leave stdout empty", async () => {
     writeFileSync(join(home, ".zshrc"), 'rt() {\n  command rt cd\n}\n');
-    const wt = join(scratch, "sample-app");
-    mkdirSync(wt);
+    const wt = gitRepo("sample-app");
     setKvValue("repo-index", "sample-app", wt);
-    // The upgrade confirm is a prompt; answer it no through the prompt fake the
-    // repo uses for confirm (lib/rt-render.ts's confirm reads lib/ui/prompts.ts).
-    pickImplTest.setImpl(async () => ({ value: wt, key: "enter" }) as never);
-    const r = await run(() => worktreePicker([]));
-    expect(r.stdout).toBe("");
-    expect(r.stderr).toContain("Your rt shell function is out of date");
-    expect(r.stderr).toContain("add this to your shell config:");
-    expect(r.code).toBe(0);
+    installPick(wt);
+    process.env.RT_UI_BIN = FAKE_UI;
+    process.env.RT_UI_FAKE = JSON.stringify({ answer: { ok: false } });
+    gate.setInteractive(() => true);
+    spawnTest.setExit((code) => {
+      throw new Error(`exit ${code}`);
+    });
+    try {
+      const r = await run(() => worktreePicker([]));
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toContain("Your rt shell function is out of date");
+      expect(r.stderr).toContain("add this to your shell config:");
+      expect(r.code).toBe(0);
+    } finally {
+      delete process.env.RT_UI_BIN;
+      delete process.env.RT_UI_FAKE;
+      gate.setInteractive(undefined);
+      spawnTest.setExit(undefined);
+    }
   });
 ```
 
-For the second test, a declined confirm exits 0 after printing the function (today's behavior); make the confirm answer "no" with the fake `lib/ui/prompts.ts` offers (read it: `prompts.test.ts` shows how a test answers a confirm), and record the call in the ledger. In `cd.test.ts` and `cd-identity-match.test.ts`, change `toContain("rt repos locate")` assertions on `console.error` to read stderr through the same capture, and any `missingRepoRefusal` import to `missingRepoFailure`.
+The second test declines the confirm through the scripted rt-ui (`commands/__tests__/extension-output.test.ts` sets it up the same way); a declined confirm exits 0 after printing the function, as today. Its imports: `import { resolve } from "path";`, `import { __test__ as gate } from "../../lib/ui/gate.ts";`, `import { __test__ as spawnTest } from "../../lib/ui/spawn.ts";`, and `const FAKE_UI = resolve(import.meta.dir, "..", "..", "lib", "ui", "__tests__", "fake-rt-ui.ts");`. In `cd.test.ts` and `cd-identity-match.test.ts`, change `toContain("rt repos locate")` assertions on `console.error` to read stderr through the same capture.
 
 - [ ] **Step 2:** Run: FAIL (the exit listener is registered; the notes are yellow text).
 - [ ] **Step 3: Implement.**
@@ -412,11 +466,11 @@ function wrapperNotes(rcLabel: string, flags: { funcnest: boolean; preRehash: bo
 
 `lib/pickers.ts`: delete `legacyCd` and its two raw branches (every caller now gets the failures the others get); in `resolveWorktreeByBranch`, replace the `writer` lines with `out.fail({ title: \`No worktree has a branch starting with ${branch}\`, next: out.cmd("rt worktree list") }); process.exit(1);`. The `stderr` option stays on the signatures (the pickers still draw on stderr for `rt cd`).
 
-`lib/repo-index.ts`: delete `missingRepoRefusal` and `ghostPathRefusal` (no caller remains: `grep -rn "missingRepoRefusal\|ghostPathRefusal" --include=*.ts lib commands` prints only test files, whose cases for them are deleted) and drop them from `lib/repo.ts`'s re-export line.
+`lib/repo-index.ts` and `lib/repo.ts` are not edited: `grep -rn "missingRepoRefusal\|ghostPathRefusal" --include=*.ts commands lib` now prints only their definitions, `lib/repo.ts:17`'s re-export and their tests, which 6k deletes.
 
 Delete `commands/cd.ts` and `lib/pickers.ts` from the allowlist.
 
-- [ ] **Step 4:** Run the cd, pickers and repo-index test files, `cd-nav-bytes.test.ts`, and the guard. PASS; `grep -n "console\.\|process\.std\(out\|err\)\.write\|\\\\x1b" commands/cd.ts lib/pickers.ts` prints nothing.
+- [ ] **Step 4:** Run the cd and pickers test files, `lib/__tests__/repo-index-missing.test.ts`, `lib/__tests__/cd-cache-read.test.ts` (unchanged, still green), `cd-nav-bytes.test.ts`, and the guard. PASS; `grep -n "console\.\|process\.std\(out\|err\)\.write\|\\\\x1b" commands/cd.ts lib/pickers.ts` prints nothing.
 - [ ] **Step 5:** Commit, message `cd: notes and refusals on the layer, stdout held for the path, no erase of the typed command line`.
 
 ---
@@ -455,7 +509,65 @@ Delete `commands/cd.ts` and `lib/pickers.ts` from the allowlist.
 
 (`resultStep("enter", "nvim")` is the open-with sub-picker accepting its `nvim` row; if that picker's accept key is not `enter` in `pickOpenWith`, use the key it expects.)
 
-In `code-output.test.ts`, the test of `openDirectoryInEditor`'s no-editor path (5c's `the opener rt nav calls prints as it does today`) becomes `no editor under rt nav leaves stdout empty`: stdout `""`, stderr starting `rt could not find an editor it can open`, exit 1. Its opened and failed cases expect `[ok] Opened <dir> in <label>` and the failure title `<label> did not open`. In `code-launch.test.ts`, assert `launchEditor` spawns `/bin/sh` with `["-c", "<editor> \"$1\"", "sh", target]` and `stdio: ["inherit", 2, "inherit"]` (read the file's existing seam for the launcher and extend it).
+In `code-output.test.ts`, replace 5c's `the opener rt nav calls prints as it does today` with two tests (add `__test__` to the `../code.ts` import):
+
+```ts
+  test("the opener rt nav calls writes its line on stderr", async () => {
+    setSetting("rt.workspacePrefs", { editors: { [basename(folder)]: "true" } }, "machine");
+    const release = ui.holdStdout();
+    try {
+      await openDirectoryInEditor(folder);
+    } finally {
+      release();
+    }
+    expect(io.stdout()).toBe("");
+    expect(io.stderr()).toBe(`[ok] Opened ${basename(folder)} in true\n`);
+  });
+
+  test("no editor under rt nav leaves stdout empty", async () => {
+    __test__.setDetectEditors(() => []);
+    const origPath = process.env.PATH;
+    process.env.PATH = "";
+    const release = ui.holdStdout();
+    const exitSpy = spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit sentinel");
+    }) as never);
+    try {
+      await expect(openDirectoryInEditor(folder)).rejects.toThrow("process.exit sentinel");
+      expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toStartWith("rt could not find an editor it can open");
+    } finally {
+      release();
+      exitSpy.mockRestore();
+      process.env.PATH = origPath;
+      __test__.setDetectEditors(undefined);
+    }
+  });
+```
+
+The `setDetectEditors` seam keeps the test off whatever editors this Mac has (`detectInstalledEditors` runs `which` and reads `/Applications`); the empty `PATH` covers the `which` calls outside it. In `code-launch.test.ts` (it already has `recorder()` and the `dirs` cleanup), add, importing `__test__` from `../code.ts` and `existsSync` from `fs`:
+
+```ts
+describe("launchEditor", () => {
+  test("hands the target over as one literal argument", () => {
+    const editor = recorder();
+    const target = "/tmp/a b/it's \"q\" $HOME `id` [x]#!.txt";
+    expect(__test__.launchEditor(editor.command, target)).toBe(editor.command);
+    expect(editor.recorded()).toBe(target);
+  });
+
+  test("a target that looks like a command never runs", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-launch-"));
+    dirs.push(dir);
+    const marker = join(dir, "touched");
+    expect(__test__.launchEditor("true", `$(touch '${marker}')`)).toBe("true");
+    expect(existsSync(marker)).toBe(false);
+  });
+});
+```
+
+Both fail today: `execSync` splices the target into a double-quoted shell string, so the quote breaks the first and `$(...)` runs in the second. The `stdio` change (`["inherit", 2, "inherit"]`) is not observable from a test without a terminal; it is the one-line change the reviewer checks in the diff.
 
 - [ ] **Step 2:** Run: FAIL.
 - [ ] **Step 3: Implement** by the copy table. `navigate` uses `const release = out.holdStdout();` and `release(); out.payload(\`${path}\n\`);` in `cdAndExit`, with `release()` in the `finally`. The Quick Look lines and failure; the two `spawnSync` sites' `stdio`. In `code.ts`: delete `noEditorAsToday`; `openDirectoryInEditor` passes `noEditorFailure`; its result lines by the table; `launchEditor`:
@@ -470,7 +582,25 @@ function launchEditor(editor: string, target: string): string | null {
 }
 ```
 
-(`spawnSync` from `child_process`; remove `execSync` from the import if no use remains.) Remove the `lib/tui.ts` import. Delete `commands/nav.ts` and `commands/code.ts` from the allowlist.
+(`spawnSync` from `child_process`; `execSync` stays for the `which` probes.) Add the seam and export both for tests:
+
+```ts
+let detectOverride: (() => EditorOption[]) | undefined;
+
+function detectInstalledEditors(): EditorOption[] {
+  if (detectOverride) return detectOverride();
+  // ...today's body unchanged
+}
+
+export const __test__ = {
+  loadPrefs, savePrefs, savedEditor, editorLabelFor, launchEditor,
+  setDetectEditors(fn: (() => EditorOption[]) | undefined): void {
+    detectOverride = fn;
+  },
+};
+```
+
+Remove the `lib/tui.ts` import. Delete `commands/nav.ts` and `commands/code.ts` from the allowlist.
 
 - [ ] **Step 4:** Run `bun test commands/__tests__/nav.test.ts commands/__tests__/code-output.test.ts commands/__tests__/code-launch.test.ts commands/__tests__/code-prefs.test.ts commands/__tests__/cd-nav-bytes.test.ts lib/__tests__/no-raw-output.test.ts`. PASS; `grep -n "console\.\|process\.std\(out\|err\)\.write\|lib/tui" commands/nav.ts commands/code.ts` prints nothing.
 - [ ] **Step 5:** Commit, message `nav: Quick Look and editor lines on stderr, children write to the terminal, the editor target passed as an argument`.
@@ -481,10 +611,18 @@ function launchEditor(editor: string, target: string): string | null {
 
 **Files:** `commands/run.ts`, `commands/__tests__/run-report-save.test.ts`, `run-abort-message.test.ts`, and any `run-*.test.ts` that reads its lines, the allowlist.
 
+- [ ] **Step 0: Pin the JSON `commands/runner.ts` parses** (passes on today's code). Three existing tests capture `runCommand(["--resolve-only"])`'s stdout but parse it, so they would not see a change of spacing or a second line: `run-preset-launch.test.ts:231` (preset seed), `:271` (single-script `RunResolveResult`), and `run-queue-launch.test.ts:133` (queue seed). After each one's `expect(outs).toHaveLength(1);`, add:
+
+```ts
+  expect(outs[0]).toBe(`${JSON.stringify(JSON.parse(outs[0]!))}\n`);
+```
+
+That pins one compact JSON line with its key order and a newline. Run the two files: PASS. Commit (`run: pin the resolve-only and seed JSON bytes before the output layer touches them`).
+
 - [ ] **Step 1: Failing tests.** In `run-report-save.test.ts` (it tests `reportSave` through `__test__`), change the expectations to blocks through `renderPlain`: a save is `[ok] Saved the preset nightly\n`; a no-identity refusal is `[warning] The preset was not saved  rt cannot tell which repo this is\n  next: rt settings set rt.repoIdentityOverrides\n`; another error is `[warning] The preset was not saved  disk full\n`. Make `reportSave` return blocks (`reportSaveBlocks(kind, label, result): Block[]`) and print them, so the test reads the builder. In `run-abort-message.test.ts`, change the no-scripts, no-repos and no-worktrees messages to the copy table's titles.
 - [ ] **Step 2:** Run: FAIL.
 - [ ] **Step 3: Implement** by the copy table. At the top of `runCommand` and `runAgainCommand`, call `out.payloadOnStdout()`: stdout carries only the `--resolve-only` and seed JSON, which keep `process.stdout.write(JSON.stringify(x) + "\n")` rewritten as `out.json(x)` (the same bytes). Every `process.stderr.write` becomes the copy table's block; the two screen clears call `clearScreen()`. The `Running` line stays the last thing before the child takes the terminal, as today. Remove the `lib/tui.ts` import; delete `commands/run.ts` from the allowlist.
-- [ ] **Step 4:** Run `bun test commands/__tests__/run-*.test.ts commands/__tests__/runner-command.test.ts lib/__tests__/no-raw-output.test.ts`. PASS.
+- [ ] **Step 4:** Run `bun test commands/__tests__/run-*.test.ts commands/__tests__/runner-command.test.ts lib/__tests__/no-raw-output.test.ts`. PASS, Step 0's three byte checks included.
 - [ ] **Step 5:** Commit, message `run: result and running lines on the layer; the seed and resolve JSON unchanged`.
 
 ---
@@ -532,7 +670,7 @@ wrapper's pipe. Neither erases rows on exit.
 
 ### Task 11: Ship
 
-- [ ] **Step 1:** `git fetch origin`; `git rebase origin/main`; merge the allowlist, `AGENTS.md`, README and `lib/ui/out.ts` (6a's two exports, then `holdStdout`) by hand.
+- [ ] **Step 1:** `git fetch origin`; `git rebase origin/main`; merge the allowlist, `AGENTS.md`, README, `lib/ui/out.ts` (6a's two exports, then `holdStdout`) and `lib/ui/__tests__/out.test.ts` (6a's tests, then `holdStdout`'s) by hand.
 - [ ] **Step 2:** The eight gates again.
 - [ ] **Step 3:** `git diff --shortstat origin/main...HEAD`; about 1,900 lines.
 - [ ] **Step 4:** Push with `git_push`; body in `<scratchpad>/pr-body-6f.md` (framing; **cd and nav** (Matt's Ruling 1: the non-rt-ui prints only); **code** (`savePrefs`, the editor target as an argument); **run, runner, glitter**; the renders; gates; a line that the PR waits for Matt's hand check of `rt cd` and `rt nav`; last line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`); `gh pr create --repo m4ttstack/mattstack --title "RT-369: output layer phase 6f, session-cd-nav" --body-file <scratchpad>/pr-body-6f.md`.
@@ -546,12 +684,14 @@ wrapper's pipe. Neither erases rows on exit.
 2. **`rt runner`'s and `lib/runner/runner.ts`'s housekeeping lines are log only.** They fire around or under a live board; printing over it tears the board, and the person cannot act on them.
 3. **The editor target becomes `$1` in `launchEditor`**, as `spawnEditor` already does, in the same edit that redirects its stdout: the shell string spliced a path into quotes.
 4. **`lib/pickers.ts` drops its `legacyCd` branches**: every caller now gets the same failures.
+5. **`lib/repo-index.ts` and `lib/repo.ts` are left alone** (shepherd ruling, review round 1): 6f stops calling `missingRepoRefusal` and `ghostPathRefusal`; 6k deletes them and their re-export.
+6. **6h merges first** (shepherd ruling): `rt cd`'s missing-repo failure is 6h's `missingRepoFailure`, which prints a `--repo` value the command resolves; 6f adds no label fallback of its own.
 
 ## Self-Review
 
 **Spec coverage.** Rules 1 and 2 for `rt cd` and `rt nav`: Tasks 4 to 6. "Non-goals": `runner` and `glitter` preflight only (Task 8). The folded-in erase (Task 5), `savePrefs` (Task 3), `missingRepoRefusal` (Task 5), row 52 (Task 3). Eight allowlist lines (Tasks 5 to 8).
 
-**Placeholders.** Two tests lean on a named fake the implementer reads first (the prompt fake that answers the wrapper confirm; `code-launch.test.ts`'s launcher seam); each names the fake and every assertion.
+**Placeholders.** None: the wrapper confirm uses the scripted rt-ui named in Task 5, and the editor tests use the `__test__` seams Task 6 adds.
 
 **Type consistency.** `holdStdout(): () => void`, `wrapperNotes`, `reportSaveBlocks`, `launchEditor` match their uses.
 

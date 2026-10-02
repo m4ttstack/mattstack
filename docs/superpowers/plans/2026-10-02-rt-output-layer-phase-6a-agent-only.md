@@ -32,7 +32,7 @@
 
 ## Review Focus
 
-1. **An agent running `rt gate wait <id>` in Bash with a dead daemon.** Today it reads `rt gate: wait failed (...); retrying until reconnect...` once on stderr, then JSON on stdout. Both streams must be the same bytes after. Pinned in Task 3's fixture (the `gate-wait-*` entries) and by `e2e/tests/gate-answer.test.ts`, untouched.
+1. **An agent running `rt gate wait <id>` in Bash while the daemon drops.** Today it reads `rt gate: wait failed (...); retrying until reconnect...` once on stderr, then JSON on stdout. Both streams must be the same bytes after. Pinned in Task 3's fixture (`gate-wait-retry-then-answered`, which drives `waitForGate` with a `wait` that fails once) and by `e2e/tests/gate-answer.test.ts`, untouched.
 2. **Claude Code's WorktreeCreate hook reading `rt worktree claude-hook`'s stdout.** stdout must be the path and a newline, nothing else, and a refusal must leave stdout empty with exit 2. Pinned in Task 6 (`claude-hook writes only the path on stdout`, `a refusal leaves stdout empty and exits 2`).
 3. **`rt mcp tools --json` through a pipe.** The roster is larger than a pipe buffer and the CLI exits right after; it must arrive whole. Pinned by `commands/__tests__/no-mcp-tools-pipe.test.ts`, untouched, after Task 5 moves the write onto `out.jsonFlushed`.
 4. **An exempt file that gains a raw line.** A new `console.log` in `lib/daemon-logger.ts` must fail the guard, not ride the exemption. Pinned in Task 4 (`an exempt file holds exactly the raw lines its entry allows`).
@@ -253,9 +253,9 @@ import { dirname, join } from "path";
 
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { gateAnswer, gateClose, gateList, gatePark, gateSubscribe, gateUnsubscribe, gateWait, gateAsk } from "../gate.ts";
+import { gateAnswer, gateClose, gateList, gatePark, gateSubscribe, gateUnsubscribe, gateWait, gateAsk, waitForGate } from "../gate.ts";
 import { eventsEmit, eventsList, eventsTail, eventsWait } from "../events.ts";
-import { mcpToolsList } from "../mcp.ts";
+import { mcpToolsList, mcpToolsPayload } from "../mcp.ts";
 import { ciLeaseClaim, ciLeaseHeartbeat, ciLeaseRelease, ciLeaseShow } from "../ci.ts";
 import { runsFind } from "../runs-find.ts";
 import { runsRunStart, runsStageStart } from "../runs-write.ts";
@@ -337,7 +337,11 @@ describe("agent-only verbs (frozen bytes)", () => {
     await run("events-wait-bad-after", eventsWait, ["t.*", "--after", "x"]);
     await run("events-list-bad-limit", eventsList, ["--limit", "x"]);
     await run("events-tail-bad-after", eventsTail, ["--after", "x"]);
-    await run("mcp-tools-plain", mcpToolsList, []);
+    await run("gate-wait-retry-then-answered", async () => {
+      let calls = 0;
+      const wait = async () => (calls++ === 0 ? { ok: false, error: "socket closed" } : { ok: true, data: { status: "answered", row: { id: "g1" } } });
+      await waitForGate("g1", null, wait as never, async () => {});
+    }, []);
     await run("ci-claim-no-url", ciLeaseClaim, []);
     await run("ci-claim-no-url-json", ciLeaseClaim, ["--json"]);
     await run("ci-claim-bad-holder", ciLeaseClaim, ["https://gitlab.example.com/a/b/-/merge_requests/1", "--holder", "me"]);
@@ -357,22 +361,27 @@ describe("agent-only verbs (frozen bytes)", () => {
     }
     expect(got).toEqual(JSON.parse(readFileSync(FIXTURE, "utf8")));
   }, 60_000);
+
+  test("mcp tools lists every tool name, one per line, from the roster itself", async () => {
+    const r = await runVerb(mcpToolsList, []);
+    expect(r).toEqual({ code: 0, stdout: mcpToolsPayload().tools.map((t) => `${t.name}\n`).join(""), stderr: "" });
+  });
 });
 ```
 
-The names imported above are the exports at `658e704b9` (`grep -n "^export async function" commands/gate.ts commands/events.ts commands/ci.ts commands/runs-write.ts`). The CI lease store reads `MATTSTACK_ATTENDANTS_DIR` (`packages/rt-client/src/ci-lease.ts`, as `commands/__tests__/ci.test.ts` sets it), and `CLAUDE_CODE_SESSION_ID` names the lease owner, so both are fixed above. If main has renamed one, use main's name and note it in the ledger.
+The names imported above are the exports at `658e704b9` (`grep -n "^export async function" commands/gate.ts commands/events.ts commands/ci.ts commands/runs-write.ts`). `waitForGate(id, deadline, wait, sleep, sessionId?)` is exported for tests; the `gate-wait-retry-then-answered` entry drives it with a `wait` that fails once and a no-op sleep, which is the only way to reach the dead-daemon line without a daemon. The MCP roster is not frozen in the fixture (it grows with every tool); its plain path is checked against `mcpToolsPayload()` instead. The CI lease store reads `MATTSTACK_ATTENDANTS_DIR` (`packages/rt-client/src/ci-lease.ts`, as `commands/__tests__/ci.test.ts` sets it), and `CLAUDE_CODE_SESSION_ID` names the lease owner, so both are fixed above. If main has renamed one, use main's name and note it in the ledger.
 
 - [ ] **Step 2: Capture from the unconverted code, and read it**
 
 Run: `RT_UPDATE_AGENT_BYTES=1 bun test commands/__tests__/agent-verbs-bytes.test.ts`
-Expected: PASS; the fixture exists with 29 entries.
+Expected: PASS; the fixture exists with 28 entries.
 
 Read the fixture before trusting it:
 
 - `gate-wait-no-id`: code 1, stdout empty, stderr `rt gate: usage: rt gate wait <id> [--timeout <duration>]` and a newline.
 - `gate-ask-no-questions`: code 1, stdout one JSON line `{"ok":false,"error":"usage: rt gate ask ..."}`, stderr empty.
 - `events-emit-no-topic`: code 1, stderr starting `rt events: usage:`.
-- `mcp-tools-plain`: code 0, stdout one tool name per line.
+- `gate-wait-retry-then-answered`: code 0, stdout empty, stderr `rt gate: wait failed (socket closed); retrying until reconnect...` and a newline, once.
 - `ci-claim-no-url`: code 2, stderr the usage line; `ci-claim-no-url-json`: code 2, stdout `{"error":"usage: rt ci lease claim <mr-url>"}`.
 - `runs-find-no-session`: code 2, stdout one JSON line with `"ok":false`.
 - No entry holds a path under the temp HOME (they read `<home>`) or a timestamp. If one does, extend `stable` for it and capture again. Do not hand-edit the fixture.
@@ -408,7 +417,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - [ ] **Step 1: Count today's raw lines in the three seams**
 
 Run: `bun -e 'import { readFileSync } from "fs"; const RAW=[/\bconsole\.(log|error|warn|info)\s*\(/, /\bprocess\.std(out|err)\b(?!\.(isTTY|columns|rows|fd|on|once|off|removeListener)\b)/, /from\s+["'"'"'][^"'"'"']*\/(ansi|tui|tui\/palette)\.ts["'"'"']/, /\\x1b\[|\\u001b\[/]; for (const f of ["lib/cli-logger.ts","lib/daemon-logger.ts","lib/daemon/inject.ts"]) console.log(f, readFileSync(f,"utf8").split("\n").filter(l=>RAW.some(r=>r.test(l))).length);'`
-Expected: `lib/cli-logger.ts 1`, `lib/daemon-logger.ts 6`, `lib/daemon/inject.ts 1`. If a count differs, use the number printed in Step 2's JSON and note it in the ledger.
+Expected: `lib/cli-logger.ts 1`, `lib/daemon-logger.ts 6`, `lib/daemon/inject.ts 1`. The count is of matching lines, comments included: two of `lib/daemon-logger.ts`'s six are comments that name `process.stderr.write` (`:334`, `:379`), so editing those comments moves the count too. If a count differs, use the number printed in Step 2's JSON and note it in the ledger.
 
 - [ ] **Step 2: Create the exemptions file**
 
@@ -719,7 +728,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `out.*` builders, `out.diagnostic`, `warn` (`lib/ui/warn.ts`).
-- Produces: `hookStatusBlocks(s: ClaudeHookStatus): Block[]` and `hookResultBlocks(kind: "install" | "uninstall", changed: boolean, rtBin?: string): Block[]`, both exported for the renders.
+- Produces: `hookStatusBlocks(s: ClaudeHookStatus): Block[]` and `hookResultBlocks(kind: "install" | "uninstall", changed: boolean): Block[]`, both exported for the renders.
 
 Copy table:
 
@@ -740,6 +749,41 @@ Copy table:
 `--json` envelopes (`{ error }`, `{ installed, changed, rtBin }`, `{ installed: false, changed }`, the status object) are written by `out.json` with the same objects. `hook status --json`'s object is `skills/rt-worktree`'s reader and must not change: Task 3's fixture does not reach it (it reads the real settings path), so Step 1 pins it here.
 
 `claude-hook`'s three sites keep their bytes: `console.error("rt worktree claude-hook: unrecognized stdin payload")` becomes `out.diagnostic("rt worktree claude-hook: unrecognized stdin payload\n")`; the two `console.error` refusals likewise; `console.log(decision.path)` becomes `out.payload(\`${decision.path}\n\`)`.
+
+- [ ] **Step 0: Pin the hook verbs' `--json` replies first** (passes on today's code)
+
+`skills/rt-worktree` reads `hook status --json`. `claudeSettingsPath()` follows `process.env.HOME`, and `worktree-hook.test.ts`'s `describe("hookInstallCommand")` already points HOME at a temp dir, so the replies can be pinned there. Add, inside that `describe` (import `hookStatusCommand` and `hookUninstallCommand` beside `hookInstallCommand`, `spyOn` from `bun:test`, and `captureOut` from `../../lib/ui/__tests__/capture-out.ts`):
+
+```ts
+  test("the hook verbs' --json replies, pinned before the output layer", async () => {
+    const run = async (fn: () => Promise<void>): Promise<{ code: number; stdout: string }> => {
+      const io = captureOut({ console: true });
+      const exit = spyOn(process, "exit").mockImplementation(((c?: number) => {
+        throw new Error(`exit ${c ?? 0}`);
+      }) as unknown as typeof process.exit);
+      let code = 0;
+      try {
+        await fn();
+      } catch (err) {
+        const m = /^exit (\d+)$/.exec((err as Error).message);
+        if (!m) throw err;
+        code = Number(m[1]);
+      } finally {
+        exit.mockRestore();
+      }
+      const stdout = io.stdout();
+      io.restore();
+      return { code, stdout };
+    };
+    expect(await run(() => hookStatusCommand(["--json"], undefined))).toEqual({ code: 0, stdout: '{"installed":false}\n' });
+    expect(await run(() => hookInstallCommand(["--json"], undefined, { which: () => null }))).toEqual({ code: 1, stdout: '{"error":"rt-not-on-path"}\n' });
+    expect(await run(() => hookInstallCommand(["--json"], undefined, { which: () => "/x/rt" }))).toEqual({ code: 0, stdout: '{"installed":true,"changed":true,"rtBin":"/x/rt"}\n' });
+    expect(await run(() => hookStatusCommand(["--json"], undefined))).toEqual({ code: 0, stdout: '{"installed":true,"command":"/x/rt worktree claude-hook","binaryExists":false}\n' });
+    expect(await run(() => hookUninstallCommand(["--json"], undefined))).toEqual({ code: 0, stdout: '{"installed":false,"changed":true}\n' });
+  });
+```
+
+Run it on today's code: PASS. If a reply's key order differs, the expectation follows what today's code prints (read it from the failure) and the ledger notes it; Steps 3 and 5 must leave this test passing unchanged.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -766,12 +810,44 @@ describe("the hook verbs a person runs", () => {
 });
 ```
 
+Then, inside the existing `describe("hookInstallCommand")` (its temp HOME keeps the real `~/.claude/settings.json` out of reach; add `mkdirSync` and `writeFileSync` to the `fs` import if missing):
+
+```ts
+  test("the three hook failures read plainly on stderr", async () => {
+    const io = captureOut();
+    out.__test__.setHuman(() => false);
+    const exit = spyOn(process, "exit").mockImplementation(((c?: number) => {
+      throw new Error(`exit ${c ?? 0}`);
+    }) as unknown as typeof process.exit);
+    try {
+      await expect(hookInstallCommand([], undefined, { which: () => null })).rejects.toThrow("exit 1");
+      expect(io.stderr()).toStartWith("rt is not on your PATH\n");
+      expect(io.stdout()).toBe("");
+      await hookInstallCommand([], undefined, { which: () => "/x/rt" });
+      io.clear();
+      await hookStatusCommand([], undefined);
+      expect(io.stderr()).toStartWith("The worktree hook points at an rt that is gone\n");
+      io.clear();
+      writeFileSync(join(process.env.HOME!, ".claude", "settings.json"), "{");
+      await expect(hookUninstallCommand([], undefined)).rejects.toThrow("exit 1");
+      expect(io.stderr()).toStartWith("rt could not update Claude Code's settings\n");
+      expect(io.stdout()).toBe("");
+    } finally {
+      exit.mockRestore();
+      out.__test__.setHuman(undefined);
+      io.restore();
+    }
+  });
+```
+
+(`import * as out from "../../lib/ui/out.ts";` joins the imports; Step 0 already added `captureOut`, `spyOn`, `hookStatusCommand` and `hookUninstallCommand`.)
+
 The plain renderer writes a `kv` block as `key: value` (checked at `658e704b9`: `renderPlain([kv("runs", "y")])` is `runs: y`).
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `bun test commands/__tests__/worktree-hook.test.ts -t "a person runs"`
-Expected: FAIL, `hookStatusBlocks is not a function`.
+Run: `bun test commands/__tests__/worktree-hook.test.ts -t "a person runs|three hook failures"`
+Expected: FAIL: Bun reports `SyntaxError: Export named 'hookResultBlocks' not found in module` when the file loads (a missing named export fails at link time, so every test in the file stops until Step 3).
 
 - [ ] **Step 3: Implement**
 
@@ -1016,8 +1092,9 @@ The agent-only verbs the spec leaves unconverted (`gate`, `events`, `ci`,
 still write through the layer, with no change of bytes: stdout through
 `out.json`, `out.jsonFlushed` or `out.payload`, stderr through
 `out.diagnostic`, which is the stderr twin of `out.payload` and is for
-those verbs only. `commands/__tests__/fixtures/agent-verbs-bytes.json`
-pins them; never regenerate it to make a change pass. A file that must
+agent-facing verbs only (these, and the herd, pane and agent verbs).
+`commands/__tests__/fixtures/agent-verbs-bytes.json` pins them; never
+regenerate it to make a change pass. A file that must
 touch a stream directly (the loggers, an escape parser) goes on
 `lib/__tests__/raw-output-exemptions.json` with its reason and its exact
 count of raw lines, and the guard fails if that count moves.

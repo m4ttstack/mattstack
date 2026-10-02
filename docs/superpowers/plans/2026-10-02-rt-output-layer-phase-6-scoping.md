@@ -111,13 +111,13 @@ Every FOLD INTO PHASE 6 item from Matt's triage, with the file that holds it and
 | `failCannotAsk` says "more than one repo" when it means worktrees | `lib/repo.ts:45-52,312` | 6h |
 | Skills titles name paths and flags | `commands/skills-link.ts:75,79`, `commands/skills-expand.ts:32,48`, `lib/skills/init.ts:313,351` | 6g |
 | `skills init`'s multi-line compile failure puts `next` mid-list | `commands/skills-init.ts:69-79` | 6g |
-| `team members remove`'s `next` holds a sentence | `commands/team.ts:310` | 6h |
-| `forge-login-unknown` remedy reads in the wrong order | `lib/team/join.ts:621-625` | 6h |
-| "recognise" | `commands/team.ts:242`, `commands/home.ts:414,431` | 6h |
+| `team members remove`'s `next` holds a sentence | `commands/team.ts:313` | 6h |
+| `forge-login-unknown` remedy reads in the wrong order | `lib/team/join.ts:565-568` | 6h |
+| "recognise" | `commands/team.ts:245`, `commands/home.ts:414,431` | 6h |
 | "0 of 1 connection have a label" | `commands/sdm.ts:253-254` | 6i |
 | "pid NaN" hint | `commands/port.ts:136` | 6h |
 | `repos prune`'s duplicate row repeats the kept name three times | `commands/repos.ts:222-235` | 6h |
-| `missingRepoRefusal`: a long dash and the wire form | `lib/repo-index.ts:1470-1473` (only `rt cd`'s paths call it) | 6f |
+| `missingRepoRefusal`: a long dash and the wire form | `lib/repo-index.ts:1470-1473` (only `rt cd`'s paths call it): 6f routes `rt cd` through `missingRepoFailure` (`lib/repo.ts`), which 6h switches to `repoLabelFull`; 6k deletes `missingRepoRefusal`, `ghostPathRefusal` and their re-export | 6f, 6h, 6k |
 | `repos prune`'s `--repo <key>` next is the wire form | `commands/repos.ts:253`; `lib/repo-arg.ts` learns `host/path` | 6h |
 | Rebase conflict file lists sit flush left with no caption | `commands/git/rebase.ts:116-122`, `lib/rebase-escalation.ts` (`manualReport`, `:303`, `:333`, `:337`) | 6g |
 | `rt intercept run`'s passthrough notes keep an `rt-intercept:` prefix and a long dash | `lib/endpoint/run.ts:102,115,155` | 6d |
@@ -143,7 +143,7 @@ The one phrase for "not ours", used by every site in both slices: a sentence tha
 
 | Item | Where | Slice |
 |---|---|---|
-| Three daemon refusals carry no code: release by a non-holder, `--as` naming an identity another session holds, `--as` naming the human's or the herd's handle | `lib/daemon/handlers/chat.ts:1027-1033`, `lib/state/presence-store.ts:259-270`, `lib/daemon/handlers/types.ts:98-100` | 6j |
+| Three daemon refusals carry no code: release by a non-holder, `--as` naming an identity another session holds, `--as` naming the human's or the herd's handle | `lib/daemon/handlers/chat.ts:1043-1050`, `lib/state/presence-store.ts:259-270`, `lib/daemon/handlers/types.ts:98-100` | 6j |
 | `chat read` shows UTC with no zone on the human path | `commands/chat.ts:655` (the frozen line at `:516` stays UTC) | 6j |
 | `chat read` runs messages together | `commands/chat.ts:648-660` | 6j |
 
@@ -162,9 +162,9 @@ Each item has exactly one owner.
 | # | Item | Owner | What the others see |
 |---|---|---|---|
 | 1 | **Permanent exemptions.** A new `lib/__tests__/raw-output-exemptions.json`: `[{ "file": string, "reason": string, "lines": number }]`. The guard skips an exempt file only while its raw-line count is exactly `lines`, so an exemption never grows (or carries slack) without a reviewed edit, and the test fails if an exempt file is also on the allowlist. | 6a creates it and the three seam entries | 6k checks it holds only the three seams |
-| 2 | **Two exports in `lib/ui/out.ts`.** `out.jsonFlushed(value: unknown): Promise<void>` writes a `--json` envelope exactly as `out.json` does and resolves when the write has flushed (`rt mcp tools --json` writes a roster larger than a pipe buffer and exits right after). `out.diagnostic(text: string): void` writes stderr text byte for byte, never styled: the stderr twin of `out.payload`, for the agent-only verbs the spec leaves unconverted (`gate`, `events`, `ci`, `runs`, the herd worker verbs, `worktree claude-hook`), whose stderr an agent reads as it is. A person's failure still goes through `out.fail`. | 6a | 6b calls `diagnostic` for the herd worker verbs, `pane` and `agent`; nobody else |
+| 2 | **Two exports in `lib/ui/out.ts`.** `out.jsonFlushed(value: unknown, indent?: number): Promise<void>` writes a `--json` envelope exactly as `out.json(value, indent)` does and resolves when the write has flushed (`rt mcp tools --json` writes a roster larger than a pipe buffer and exits right after). `out.diagnostic(text: string): void` writes stderr text byte for byte, never styled: the stderr twin of `out.payload`, for the agent-only verbs the spec leaves unconverted (`gate`, `events`, `ci`, `runs`, the herd worker verbs, `worktree claude-hook`), whose stderr an agent reads as it is. A person's failure still goes through `out.fail`. | 6a | 6b calls `diagnostic` for the herd worker verbs, `pane` and `agent`; nobody else |
 | 3 | **`out.holdStdout(): () => void`** in `lib/ui/out.ts` (Ruling 1): until the returned release runs, writes to stdout go to stderr; the release restores stdout and returns nothing. It replaces the hand-rolled `process.stdout.write` swaps in `cd.ts` and `nav.ts`. | 6f | Nobody else calls it |
-| 4 | **Lib warnings.** 5a's warnings table already decided every phase 6 row (5a plan, "The warnings table", rows 1 to 5 and 24 to 39, marked P6). Rows 46 to 52 below are the ones 5a did not see. Each slice applies its rows. | 6d, 6e, 6a, 6f | |
+| 4 | **Lib warnings.** 5a's warnings table already decided every phase 6 row (5a plan, "The warnings table", rows 1 to 5 and 24 to 39, marked P6). Rows 46 to 52 below are the ones 5a did not see. Each slice applies its rows. A warning keeps any path in its message, as 5a's examples do: the daemon sets no warning log, so its stderr capture sees only the message (shepherd ruling, review round 1). | 6d, 6e, 6a, 6f | |
 | 5 | **The "not ours" phrase** (section 2). | 6g, 6h at their own sites | |
 | 6 | **`healErrorClause`.** 6g and 6h stop calling it; 6k deletes it and its test. | 6g, 6h, 6k | |
 | 7 | **`CommandResult` may carry `failure`.** `lib/daemon/handlers/types.ts`'s failure branch gains `failure?: { code: string; message: string }`, which `createHandleCommand` already passes through. | 6j | Additive; no other handler changes |
@@ -192,13 +192,13 @@ Eleven slices. Every slice also touches the shared files of cross-phase ruling 7
 | 6b | herd-pane-agent | `commands/herd.ts`, `pane.ts`, `agent.ts` | 3 | 1,400 |
 | 6c | daemon | `commands/daemon.ts` | 1 | 2,100 |
 | 6d | services | `commands/services.ts`, `apps.ts`, `flavor.ts`, `bg.ts`, `cron.ts`, `reconciler.ts`, `endpoint.ts`, `post-install.ts`; `lib/endpoint/config.ts`, `lib/endpoint/run.ts` | 9 | 1,700 |
-| 6e | state | `commands/state.ts`, `state-backup-init.ts`, `state-backup-status.ts`; `lib/state/backup-orchestrator.ts`, `backup-restore.ts`, `branch-cache.ts`, `db.ts`, `identity-migrate.ts`, `legacy-import.ts`; `lib/run-history.ts`; `lib/secrets/store.ts` | 12 | 1,600 |
-| 6f | session-cd-nav | `commands/run.ts`, `runner.ts`, `glitter.ts`, `cd.ts`, `nav.ts`, `code.ts`; `lib/runner/runner.ts`, `lib/pickers.ts`; `missingRepoRefusal` and `ghostPathRefusal` in `lib/repo-index.ts`; `out.holdStdout` in `lib/ui/out.ts` | 8 | 1,900 |
+| 6e | state | `commands/state.ts`, `state-backup-init.ts`, `state-backup-status.ts`; `lib/state/backup-orchestrator.ts`, `backup-restore.ts`, `branch-cache.ts`, `db.ts`, `identity-migrate.ts`, `legacy-import.ts`; `lib/run-history.ts`; `lib/secrets/store.ts` | 11 | 1,600 |
+| 6f | session-cd-nav | `commands/run.ts`, `runner.ts`, `glitter.ts`, `cd.ts`, `nav.ts`, `code.ts`; `lib/runner/runner.ts`, `lib/pickers.ts`; `out.holdStdout` in `lib/ui/out.ts` (it stops calling `missingRepoRefusal` and `ghostPathRefusal` but does not edit `lib/repo-index.ts` or `lib/repo.ts`) | 8 | 1,900 |
 | 6g | git-skills-fixes | `packages/git-core/src/stash.ts`, `types.ts`; `lib/mission/__tests__/driver.test.ts`; `commands/git/mutate.ts`, `shared.ts`, `rebase.ts`; `commands/sync.ts`; `lib/rebase-escalation.ts`; `lib/team/redact.ts`; `lib/git-backup.ts`, `lib/git-ops.ts`; `commands/skills-init.ts`, `skills-link.ts`, `skills-expand.ts`, `skills.ts`, `skills-sync.ts`; `lib/skills/init.ts`, `lib/skills/link.ts` | 0 | 1,700 |
 | 6h | copy-polish | `commands/settings-keys.ts`, `extension.ts`, `logins.ts`, `tools.ts`, `intercept.ts`, `worktree.ts`, `team.ts`, `home.ts`, `repos.ts`, `port.ts`; `lib/setup/validators/tools.ts`, `lib/setup/tools-install.ts`, `lib/setup/steps/index.ts`; `lib/worktree/dispose.ts`; `lib/repo.ts`, `lib/repo-arg.ts`; `lib/team/join.ts` | 0 | 1,500 |
 | 6i | renderer | `ui/internal/render/**`; `lib/ui/spawn.ts`; `commands/sdm.ts` | 0 | 900 |
 | 6j | chat-codes | `lib/daemon/handlers/types.ts`, `lib/daemon/handlers/chat.ts`, `lib/state/presence-store.ts`, `commands/chat.ts` | 0 | 800 |
-| 6k | close-out | deletes `lib/ansi.ts`, `lib/tui.ts`, `lib/tui/palette.ts` and its test; `lib/__tests__/no-raw-output.test.ts` and the allowlist JSON; `lib/errors.ts` and every `exitUserError` caller; `healErrorClause` in `lib/repo-index.ts`; `ui/internal/theme/theme.go`'s header comment; `e2e/tests/settings.test.ts:121`; the spec's status line | its own: none left | 700 |
+| 6k | close-out | deletes `lib/ansi.ts`, `lib/tui.ts`, `lib/tui/palette.ts` and its test; `lib/__tests__/no-raw-output.test.ts` and the allowlist JSON; `lib/errors.ts` and every `exitUserError` caller; `healErrorClause`, `missingRepoRefusal` and `ghostPathRefusal` in `lib/repo-index.ts` and their re-export in `lib/repo.ts:17`; `ui/internal/theme/theme.go`'s header comment; `e2e/tests/settings.test.ts:121`; the spec's status line | its own: none left | 700 |
 
 No slice passes 2,500 lines. 6c is the largest; its plan names a second cut (`status`/`track` first, the lifecycle verbs and `logs` second).
 
@@ -207,7 +207,8 @@ No slice passes 2,500 lines. 6c is the largest; its plan names a second cut (`st
 ## 5. Order and parallelism
 
 - **6a lands first.** It creates the exemption file and the shape of the agent-verb conversion 6b copies. Nothing else waits on it for code.
-- **6b to 6j run in parallel** once 6a's plan is approved. They share no source file. Two of them append exports to `lib/ui/out.ts` (6a `jsonFlushed` and `diagnostic`, 6f `holdStdout`): whoever merges second rebases by hand, as with the allowlist. 6b calls `out.diagnostic`, so its tasks that do wait for 6a on main.
+- **6b to 6j run in parallel** once 6a's plan is approved. They share no source file. Two of them append exports to `lib/ui/out.ts` and tests to `lib/ui/__tests__/out.test.ts` (6a `jsonFlushed` and `diagnostic`, 6f `holdStdout`): whoever merges second rebases both by hand, as with the allowlist. 6d and 6h both edit `commands/__tests__/intercept-output.test.ts` (6d the passthrough wording, 6h the left-alone line): the same hand rebase.
+- **6h merges before 6f.** 6f routes `rt cd`'s missing-repo refusal through `missingRepoFailure` in `lib/repo.ts`, which 6h fixes to print `--repo <host/path>` (`repoLabelFull`) and teaches `--repo` to resolve; 6f's Task 1 stops if that fix is not on main. 6b calls `out.diagnostic`, so its tasks that do wait for 6a on main.
 - **6f's PR waits for Matt's hand check** of `rt cd` and `rt nav` after the release before it merges (Ruling 1); its tasks can run before that.
 - **6k runs last,** after every other slice is on main. Its first task stops unless the allowlist is empty on `origin/main`.
 - PRs are titled `RT-369: output layer phase 6<letter>, <name>`.
