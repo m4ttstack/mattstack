@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from 'react';
@@ -29,8 +30,10 @@ import {
 import {
   BOARD_VIEWPORT,
   COLUMN_TOP,
+  extentFor,
   frameStage,
   headingDetail,
+  panFor,
 } from './layout/stageFraming';
 import { LAYOUT, type LayoutResult } from './layout/templateLayout';
 import type { TemplateView } from './model/templateModel';
@@ -143,27 +146,6 @@ function ColumnHeaders({ view }: { view: TemplateView }) {
   );
 }
 
-/** Frames the graph on the stage (the viewport, and how far it may travel);
-    false until the stage has a size. */
-function useStageFraming(onFramed: (contentTop: number) => void) {
-  const width = useStore(store => store.width);
-  const height = useStore(store => store.height);
-  const store = useStoreApi();
-  const { getNodes, getNodesBounds, setViewport } = useReactFlow();
-  return useCallback(() => {
-    if (!width || !height) return false;
-    const bounds = getNodesBounds(getNodes());
-    const framing = frameStage(
-      { width, height },
-      { right: bounds.x + bounds.width, bottom: bounds.y + bounds.height }
-    );
-    store.getState().setTranslateExtent(framing.extent);
-    void setViewport(framing.viewport);
-    onFramed(framing.contentTop);
-    return true;
-  }, [width, height, store, getNodes, getNodesBounds, setViewport, onFramed]);
-}
-
 /** Every node has its measured size. `useNodesInitialized` never turns true
     here: it reads sizes off the caller's nodes, and these are never written
     back, because the canvas takes no node changes. */
@@ -173,19 +155,103 @@ const allMeasured = (store: ReactFlowState) => {
   return store.nodeLookup.size > 0;
 };
 
+type StageShape = {
+  /** Node ids and positions: what a refit follows. */
+  geometry: string;
+  /** Stage px a drawer covers at the stage's right edge. */
+  cover: number;
+  /** The focus header's bottom in stage px. */
+  headerBottom: number;
+};
+
 /** The zoom controls, framing the graph once its nodes are measured and
-    again whenever the stage changes size. */
+    again whenever the stage or the graph's shape changes. */
 function ZoomControls({
+  shape: { geometry, cover, headerBottom },
   onFramed,
 }: {
+  shape: StageShape;
   onFramed: (contentTop: number) => void;
 }) {
-  const { zoomIn, zoomOut } = useReactFlow();
+  const {
+    zoomIn,
+    zoomOut,
+    getNodes,
+    getNodesBounds,
+    getViewport,
+    setViewport,
+  } = useReactFlow();
+  const store = useStoreApi();
+  const width = useStore(state => state.width);
+  const height = useStore(state => state.height);
   const measured = useStore(allMeasured);
-  const frame = useStageFraming(onFramed);
+  const frameKey = `${geometry}|${width}x${height}|${headerBottom}`;
+  const framed = useRef<{ key: string; y: number } | null>(null);
+  /** How far left of its drawerless place a drawer has slid the graph. */
+  const shift = useRef(0);
+
+  const graph = useCallback(() => {
+    const bounds = getNodesBounds(getNodes());
+    return { right: bounds.x + bounds.width, bottom: bounds.y + bounds.height };
+  }, [getNodes, getNodesBounds]);
+
+  const frame = useCallback(() => {
+    if (!width || !height) return;
+    const framing = frameStage({ width, height }, graph(), {
+      cover,
+      headerBottom,
+    });
+    store.getState().setTranslateExtent(framing.extent);
+    void setViewport(framing.viewport);
+    onFramed(framing.contentTop);
+    framed.current = { key: frameKey, y: framing.viewport.y };
+    shift.current =
+      framing.viewport.x - panFor(width, framing.viewport.zoom, 0);
+  }, [
+    width,
+    height,
+    graph,
+    cover,
+    headerBottom,
+    store,
+    setViewport,
+    onFramed,
+    frameKey,
+  ]);
+
+  // Nodes remeasure after every data refresh; a refit then would throw away
+  // the reader's scroll and zoom.
   useEffect(() => {
-    if (measured) frame();
-  }, [measured, frame]);
+    if (measured && framed.current?.key !== frameKey) frame();
+  }, [measured, frameKey, frame]);
+
+  // A drawer opening slides the graph left just far enough to clear it, and
+  // closing slides it back by the same amount, keeping the reader's zoom and
+  // scroll.
+  const panned = useRef(cover);
+  useEffect(() => {
+    if (panned.current === cover) return;
+    panned.current = cover;
+    if (!framed.current || !width || !height) return;
+    const viewport = getViewport();
+    const x =
+      cover > 0
+        ? Math.min(viewport.x, panFor(width, viewport.zoom, cover))
+        : viewport.x - shift.current;
+    shift.current = cover > 0 ? x - viewport.x : 0;
+    store
+      .getState()
+      .setTranslateExtent(
+        extentFor(
+          { width, height },
+          graph(),
+          { x, y: framed.current.y, zoom: viewport.zoom },
+          cover
+        )
+      );
+    void setViewport({ ...viewport, x });
+  }, [cover, width, height, graph, store, getViewport, setViewport]);
+
   return (
     <Controls
       position="bottom-left"
@@ -249,11 +315,17 @@ export default function TemplateCanvas({
   layout,
   view,
   height,
+  cover = 0,
+  headerBottom = 0,
   onSelect,
 }: {
   layout: LayoutResult;
   view: TemplateView;
   height: string;
+  /** Stage px a drawer covers at the stage's right edge. */
+  cover?: number;
+  /** The focus header's bottom in stage px. */
+  headerBottom?: number;
   onSelect: (select: string) => void;
 }) {
   const [url, patch] = useWiringUrl();
@@ -268,6 +340,13 @@ export default function TemplateCanvas({
         data: { name: parityName.edge(view, edge) } satisfies TemplateEdgeData,
       })),
     [layout, view]
+  );
+  const geometry = useMemo(
+    () =>
+      layout.nodes
+        .map(node => `${node.id}@${node.position.x},${node.position.y}`)
+        .join(' '),
+    [layout]
   );
   const state = useMemo<CanvasState>(
     () => ({
@@ -314,7 +393,10 @@ export default function TemplateCanvas({
             />
           </div>
           <ColumnHeaders view={view} />
-          <ZoomControls onFramed={setContentTop} />
+          <ZoomControls
+            shape={{ geometry, cover, headerBottom }}
+            onFramed={setContentTop}
+          />
         </ReactFlow>
       </Box>
     </CanvasContext.Provider>

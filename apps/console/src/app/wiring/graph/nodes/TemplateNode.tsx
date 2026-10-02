@@ -61,6 +61,8 @@ function RowButton({
   onSelect: (select: string) => void;
 }) {
   const links = !view.output;
+  // A placeholder row is already washed, so selecting it only rings it.
+  const marked = selected && row.kind === 'text';
   return (
     <UnstyledButton
       className={classes.row}
@@ -76,8 +78,8 @@ function RowButton({
           ff="monospace"
           fz={9}
           lh="normal"
-          fw={selected ? 700 : 400}
-          c={selected ? ACCENT : MUTED}
+          fw={marked ? 700 : 400}
+          c={marked ? ACCENT : MUTED}
           data-parity="ln"
           data-testid="row-gutter"
         >
@@ -102,7 +104,7 @@ function RowButton({
                 strokeWidth={ICON_STROKE}
                 name={selected ? 'panelRightOpen' : 'panelRight'}
                 size={12}
-                color={MUTED}
+                color={selected ? ACCENT : MUTED}
                 data-parity="open"
               />
             )}
@@ -142,7 +144,6 @@ function TemplateNodeComponent({
         variant="ground"
         radius={8}
         w={LAYOUT.templateW}
-        className={classes.node}
         data-parity={parityName.template(view)}
       >
         <Group

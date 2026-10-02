@@ -1,7 +1,13 @@
 import { lazy, Suspense, useCallback, useMemo } from 'react';
 import { Box, Text } from '@mattstack/app-kit/core';
+import { useElementSize } from '@mattstack/app-kit/hooks';
 
 import { useAnatomy, usePendingChanges } from '../useWiring';
+import {
+  DRAWER_WIDTH,
+  selectedContent,
+  SkillDrawer,
+} from './drawer/SkillDrawer';
 import { FocusHeader, kindOf, statusOf } from './FocusHeader';
 import classes from './graph.module.css';
 import { layoutTemplate } from './layout/templateLayout';
@@ -10,6 +16,10 @@ import { buildTemplateView } from './model/templateModel';
 import { useGraphFocus } from './useGraphFocus';
 
 const TemplateCanvas = lazy(() => import('./TemplateCanvas'));
+
+/** The focus header's offset from the stage's top: `.header` in
+    graph.module.css. */
+const HEADER_TOP = 20;
 
 /** The Graph tab's stage: the focused skill's header over its canvas. */
 export function GraphTab({ pack, height }: { pack: string; height: string }) {
@@ -47,6 +57,11 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
   }, [anatomy, composition, check, changes, step, workType]);
   const layout = useMemo(() => (view ? layoutTemplate(view) : null), [view]);
   const onSelect = useCallback((select: string) => patch({ select }), [patch]);
+  const drawerOpen = useMemo(
+    () => selectedContent(url, view, anatomy) !== null,
+    [url, view, anatomy]
+  );
+  const header = useElementSize();
 
   return (
     <Box
@@ -62,12 +77,22 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
             layout={layout}
             view={view}
             height={height}
+            cover={drawerOpen ? DRAWER_WIDTH : 0}
+            headerBottom={focused ? HEADER_TOP + header.height : 0}
             onSelect={onSelect}
           />
         </Suspense>
       )}
+      <SkillDrawer
+        pack={pack}
+        view={view}
+        anatomy={anatomy}
+        url={url}
+        setUrl={patch}
+      />
       {focused ? (
         <FocusHeader
+          ref={header.ref}
           title={focused.step !== null ? focused.label : focused.skill}
           kind={kindOf(focused, pipeline)}
           description={anatomy?.description ?? null}

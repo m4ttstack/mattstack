@@ -4,8 +4,10 @@ import { describe, expect, it } from 'vitest';
 import {
   BOARD_VIEWPORT,
   frameStage,
+  HEADER_GAP,
   headingDetail,
   MIN_FRAME_ZOOM,
+  panFor,
 } from '../layout/stageFraming';
 import { LAYOUT, layoutTemplate } from '../layout/templateLayout';
 import {
@@ -100,6 +102,65 @@ describe('frameStage', () => {
     expect(framing.viewport.zoom).toBe(MIN_FRAME_ZOOM);
     const [[minX], [maxX]] = framing.extent;
     expect(maxX - minX).toBeGreaterThan(600 / MIN_FRAME_ZOOM);
+  });
+});
+
+describe('frameStage under a drawer', () => {
+  it('pans the template clear of a drawer over the stage, as the drawer boards do', () => {
+    for (const right of [STEP_RIGHT, LINKS_RIGHT]) {
+      const framing = frameStage(
+        BOARD_STAGE,
+        { right, bottom: 653 },
+        { cover: 600 }
+      );
+
+      expect(framing.viewport).toEqual({ x: -110, y: 124, zoom: 1 });
+      const [[minX], [maxX]] = framing.extent;
+      expect(minX).toBe(0);
+      // The viewport sits inside its extent, so React Flow keeps the pan.
+      expect(maxX).toBeGreaterThanOrEqual(110 + BOARD_STAGE.width);
+    }
+  });
+
+  it('leaves a stage wide enough for the template and the drawer unpanned', () => {
+    const framing = frameStage(
+      { width: 2000, height: 952 },
+      { right: LINKS_RIGHT, bottom: 653 },
+      { cover: 600 }
+    );
+
+    expect(framing.viewport.x).toBe(0);
+  });
+
+  it('pans by the zoom the viewer is at', () => {
+    expect(panFor(1408, 1, 600)).toBe(-110);
+    expect(panFor(1408, 1, 0)).toBe(0);
+    expect(panFor(1100, 0.8, 600)).toBeCloseTo(1100 - 600 - 24 - 894 * 0.8);
+  });
+});
+
+describe('frameStage under the focus header', () => {
+  it('keeps the boards framing under a one-line description', () => {
+    const framing = frameStage(
+      BOARD_STAGE,
+      { right: STEP_RIGHT, bottom: 324 },
+      { headerBottom: 72 - HEADER_GAP }
+    );
+
+    expect(framing.viewport).toEqual(BOARD_VIEWPORT);
+    expect(framing.contentTop).toBe(72);
+  });
+
+  it('starts the column headings below a header that wraps', () => {
+    const framing = frameStage(
+      BOARD_STAGE,
+      { right: STEP_RIGHT, bottom: 324 },
+      { headerBottom: 90 }
+    );
+
+    expect(framing.contentTop).toBe(90 + HEADER_GAP);
+    expect(framing.viewport.y).toBe(90 + HEADER_GAP + 52);
+    expect(framing.extent[0][1]).toBe(-framing.viewport.y);
   });
 });
 

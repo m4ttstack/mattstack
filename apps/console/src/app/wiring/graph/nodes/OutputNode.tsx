@@ -31,7 +31,6 @@ function OutputNodeComponent({
         variant="ground"
         radius={8}
         w={LAYOUT.outputW}
-        className={`${classes.node} ${classes.output}`}
         data-selected={selected || undefined}
         data-parity={`output · ${output.title}`}
         data-testid="output-node"

@@ -1,0 +1,326 @@
+import { useMemo, useRef } from 'react';
+import {
+  Badge,
+  Box,
+  CloseButton,
+  Drawer,
+  SegmentedControl,
+  Tabs,
+  Text,
+} from '@mattstack/app-kit/core';
+import { useHotkeys } from '@mattstack/app-kit/hooks';
+import { Icon } from '@mattstack/app-kit/icons';
+
+import { useDrawerSurface } from '../../drawerSurface';
+import { useSkillSource, type SkillsAnatomy } from '../../useWiring';
+import {
+  drawerContent,
+  parseTarget,
+  type DrawerContent,
+  type DrawerTab,
+  type DrawerTarget,
+} from '../model/drawerContent';
+import type { TemplateView } from '../model/templateModel';
+import type { WiringUrl, WiringView } from '../useWiringUrl';
+import classes from './drawer.module.css';
+import { DrawerMenu } from './DrawerMenu';
+import { TextTab } from './TextTab';
+
+export const DRAWER_WIDTH = 600;
+
+const MUTED = 'var(--tk-text-3)';
+const BODY = 'var(--tk-text-1)';
+
+const VIEW_LABEL: Record<WiringView, string> = {
+  template: 'Template',
+  rendered: 'Rendered',
+};
+
+/** A skill's own file over its template, where the toggle says which face
+    it shows, takes the boards' compiled-skill layout: a range chip and a
+    source line, no kind badge and no tabs. */
+function layersOf(content: DrawerContent) {
+  return content.badge === null
+    ? { root: 'Drawer · compiled skill', chip: 'range', sentence: 'd' }
+    : { root: 'Drawer', chip: 'chip', sentence: 't' };
+}
+
+function tabLabel(tab: DrawerTab, usedBy: number | null): string {
+  switch (tab) {
+    case 'text':
+      return 'Text';
+    case 'used-by':
+      return usedBy === null ? 'Used by' : `Used by · ${usedBy}`;
+    case 'history':
+      return 'History';
+  }
+}
+
+/** The template row before or after the selected one, for the arrow keys. */
+function steppedRow(
+  target: DrawerTarget | null,
+  view: TemplateView | null,
+  step: -1 | 1
+): string | null {
+  if (!view || target?.kind !== 'row') return null;
+  const at = view.rows.findIndex(row => row.line === target.line);
+  const next = at === -1 ? undefined : view.rows[at + step];
+  return next ? `row:${next.line}` : null;
+}
+
+/** What the drawer shows for the URL's selection; null keeps it shut. */
+export function selectedContent(
+  url: WiringUrl,
+  view: TemplateView | null,
+  anatomy: SkillsAnatomy | undefined
+): DrawerContent | null {
+  const target = parseTarget(url.select);
+  return target && view && anatomy
+    ? drawerContent(target, view, anatomy, url.view)
+    : null;
+}
+
+/** Keeps the last value that was not null, so a closing drawer still shows
+    what it held while it slides away. */
+function useLastPresent<T>(value: T | null): T | null {
+  const last = useRef(value);
+  if (value !== null) last.current = value;
+  return value ?? last.current;
+}
+
+/**
+ * The compiled-skill drawer: whatever the URL's `select` names on the
+ * focused skill's canvas, read from its file. Closed when `select` names
+ * nothing the view holds.
+ */
+export function SkillDrawer({
+  pack,
+  view,
+  anatomy,
+  url,
+  setUrl,
+}: {
+  pack: string;
+  view: TemplateView | null;
+  anatomy: SkillsAnatomy | undefined;
+  url: WiringUrl;
+  setUrl: (patch: Partial<WiringUrl>) => void;
+}) {
+  const surface = useDrawerSurface();
+  const target = useMemo(() => parseTarget(url.select), [url.select]);
+  const current = useMemo(
+    () => selectedContent(url, view, anatomy),
+    [url, view, anatomy]
+  );
+  const content = useLastPresent(current);
+  const opened = current !== null;
+  const close = () => setUrl({ select: null, rebind: false });
+
+  useHotkeys(
+    opened
+      ? [
+          ['Escape', close],
+          [
+            'ArrowUp',
+            () => {
+              const select = steppedRow(target, view, -1);
+              if (select) setUrl({ select });
+            },
+          ],
+          [
+            'ArrowDown',
+            () => {
+              const select = steppedRow(target, view, 1);
+              if (select) setUrl({ select });
+            },
+          ],
+        ]
+      : []
+  );
+
+  const source = useSkillSource(pack, content?.filePath ?? null);
+  if (!content || !anatomy || !view) return null;
+
+  const layers = layersOf(content);
+  const tab: DrawerTab = content.tabs.includes(url.drawerTab)
+    ? url.drawerTab
+    : 'text';
+  const card =
+    target?.kind === 'input'
+      ? view.inputs.find(input => input.id === target.id)
+      : undefined;
+  const meta =
+    content.meta && card && source.data
+      ? `${content.meta} · ${source.data.lines} lines`
+      : content.meta;
+
+  return (
+    <Drawer
+      opened={opened}
+      onClose={close}
+      position="right"
+      size={DRAWER_WIDTH}
+      withOverlay={false}
+      lockScroll={false}
+      trapFocus={false}
+      closeOnEscape={false}
+      withCloseButton={false}
+      padding={0}
+      styles={surface}
+      classNames={{ body: classes.body }}
+      attributes={{
+        content: { 'data-parity': layers.root, 'data-testid': 'skill-drawer' },
+      }}
+    >
+      <Box
+        className={classes.header}
+        data-tabs={content.tabs.length > 1 || undefined}
+        data-parity="header"
+      >
+        <div className={classes.row}>
+          <Icon name="fileCode" size={16} color={MUTED} data-parity="i" />
+          <Text
+            ff="monospace"
+            fz={14}
+            lh="normal"
+            c={BODY}
+            truncate
+            data-parity="file"
+            data-testid="drawer-file"
+          >
+            {content.fileLabel}
+          </Text>
+          {content.badge && (
+            <Badge
+              variant="quiet"
+              classNames={{ root: classes.kind }}
+              data-parity="kind"
+              attributes={{ label: { 'data-parity': 'l' } }}
+            >
+              {content.badge}
+            </Badge>
+          )}
+          <span className={classes.spacer} />
+          {content.canToggle && tab === 'text' && (
+            <SegmentedControl
+              variant="quiet"
+              radius={7}
+              value={content.view}
+              onChange={value => setUrl({ view: value as WiringView })}
+              data={(['template', 'rendered'] as const).map(face => ({
+                value: face,
+                // The active label sits beside Mantine's indicator, not in it,
+                // so only the indicator stands for the board's active segment.
+                label:
+                  face === content.view ? (
+                    VIEW_LABEL[face]
+                  ) : (
+                    <span data-parity="l">{VIEW_LABEL[face]}</span>
+                  ),
+                disabled: face === 'rendered' && !anatomy.rendered.exists,
+              }))}
+              classNames={{
+                root: classes.segmented,
+                control: classes.segment,
+                label: classes.segmentLabel,
+              }}
+              attributes={{
+                indicator: {
+                  'data-parity': `seg · ${VIEW_LABEL[content.view]}`,
+                },
+              }}
+              data-parity="SegmentedControl"
+              data-testid="drawer-view"
+            />
+          )}
+          <DrawerMenu
+            pack={pack}
+            skill={anatomy.skill}
+            filePath={content.filePath}
+            renderedPath={
+              anatomy.rendered.exists ? anatomy.rendered.path : null
+            }
+          />
+          <CloseButton
+            onClick={close}
+            aria-label="Close"
+            className={classes.close}
+            icon={<Icon name="close" size={16} data-parity="close" />}
+          />
+        </div>
+        <div className={classes.row}>
+          {content.chip && (
+            <Badge
+              variant="wash"
+              color="accent"
+              classNames={{ root: classes.chip }}
+              data-parity={layers.chip}
+              attributes={{ label: { 'data-parity': 'l' } }}
+              data-testid="drawer-chip"
+            >
+              {content.chip}
+            </Badge>
+          )}
+          <Text
+            fz={12}
+            lh="normal"
+            c={MUTED}
+            className={classes.sentence}
+            data-parity={layers.sentence}
+            data-testid="drawer-sentence"
+          >
+            {content.sentence}
+          </Text>
+        </div>
+        {meta && (
+          <Text
+            ff="monospace"
+            fz={10}
+            lh="normal"
+            c={MUTED}
+            data-parity="src"
+            data-testid="drawer-meta"
+          >
+            {meta}
+          </Text>
+        )}
+        {content.tabs.length > 1 && (
+          <Tabs
+            value={tab}
+            onChange={value =>
+              value && setUrl({ drawerTab: value as DrawerTab })
+            }
+            color="accent"
+          >
+            <Tabs.List className={classes.tabs}>
+              {content.tabs.map(name => {
+                const label = tabLabel(name, card?.usedBy ?? null);
+                const active = name === tab;
+                return (
+                  <Tabs.Tab
+                    key={name}
+                    value={name}
+                    className={classes.tab}
+                    data-parity={active ? `tab · ${label}` : undefined}
+                  >
+                    <Text
+                      span
+                      fz={12}
+                      fw={500}
+                      lh="normal"
+                      c={active ? BODY : MUTED}
+                      data-parity="l"
+                    >
+                      {label}
+                    </Text>
+                  </Tabs.Tab>
+                );
+              })}
+            </Tabs.List>
+          </Tabs>
+        )}
+      </Box>
+      {tab === 'text' && <TextTab pack={pack} content={content} />}
+    </Drawer>
+  );
+}

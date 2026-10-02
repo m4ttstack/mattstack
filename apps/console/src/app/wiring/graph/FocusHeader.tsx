@@ -1,3 +1,4 @@
+import type { Ref } from 'react';
 import {
   Badge,
   Group,
@@ -77,12 +78,14 @@ export function statusOf(
 }
 
 export function FocusHeader({
+  ref,
   title,
   kind,
   description,
   loading,
   status,
 }: {
+  ref?: Ref<HTMLDivElement>;
   title: string;
   kind: string;
   description: string | null;
@@ -91,6 +94,7 @@ export function FocusHeader({
 }) {
   return (
     <Stack
+      ref={ref}
       gap={6}
       className={classes.header}
       data-parity="Focus header"

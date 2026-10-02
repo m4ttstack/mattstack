@@ -21,7 +21,6 @@ function InputCardNodeComponent({
     <div className={classes.shell}>
       <UnstyledButton
         className={classes.cardButton}
-        data-selected={select === `input:${id}` || undefined}
         data-testid="input-card"
         onClick={() => onSelect(`input:${id}`)}
       >
@@ -29,6 +28,7 @@ function InputCardNodeComponent({
           withBorder
           variant="ground"
           radius={7}
+          data-selected={select === `input:${id}` || undefined}
           w={LAYOUT.inputW}
           h={LAYOUT.cardH}
           className={classes.card}

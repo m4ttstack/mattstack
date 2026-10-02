@@ -13,11 +13,14 @@ import { useSchemeColors } from '@mattstack/app-kit/hooks';
  * different colours is a worse defect than either colour alone.
  */
 export function useDrawerSurface() {
-  const { bg, border } = useSchemeColors();
+  const { bg } = useSchemeColors();
   const surface = { background: bg.level2 };
+  // The kit border role itself: Mantine's default-border token, which the
+  // theme points at it, is reset a step lighter by Mantine's dark scheme.
+  const rule = '1px solid var(--tk-border)';
 
   return {
-    content: { ...surface, borderLeft: `1px solid ${border.default}` },
-    header: { ...surface, borderBottom: `1px solid ${border.default}` },
+    content: { ...surface, borderLeft: rule },
+    header: { ...surface, borderBottom: rule },
   };
 }

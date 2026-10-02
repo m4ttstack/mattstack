@@ -63,13 +63,14 @@ task, never left silent.
 - Modal frame and button sizes: the kit's `modals.confirm`.
 - Select chevron and dropdown shadow: Mantine `Select`.
 - Badge and Alert padding: Mantine defaults.
-- SegmentedControl track: Mantine `SegmentedControl`.
+- SegmentedControl active label: Mantine draws the active segment as an indicator beside the labels rather than around its own, so the app names the indicator `seg · <label>` and the active label has no layer to pair with the board's `seg · <label>/l`.
 - Focus list box: the list root sits inside `PageShell.Sidebar`, which paints the panel surface (`bg="var(--tk-panel)"`, which the Tokyo theme keeps because an explicit sidebar `bg` marks the rail `data-own-surface`) and the right border. The root itself paints neither, so it compares with no fill or stroke and is 215 wide inside the sidebar's 216. Its height follows console's one page-row height (`PAGE_ROW_HEIGHT`, 40px on every page) rather than the board's 44px Wiring bar, so the list is 4px taller and the bottom-pinned Unwired row sits 4px lower.
 - Unwired row rule: a Mantine `Divider` above the row, so the rule is its own element rather than the row's top border.
 - Needs attention switch: in the spec, missing from the boards. It sits above the Unwired rule, where it moves nothing the boards draw.
 - Stage height: the same 40px page row leaves the stage 952 tall against the board's 948, so the dotted background is 4px taller and the zoom controls, pinned to the bottom, sit 4px lower.
 - Edge layers: the board exports each edge's line as its own svg box, the line's box plus a pixel all round. The app draws the line as a React Flow SVG path, whose measured box is the line itself (no height when it runs straight). Both run between the same points, so only each edge layer's width and height differ.
 - Output share bar: the board sizes the segments by eye (8% drawn 23px wide, 58% drawn 181px); the app sizes each by its share of the rendered lines. The darker tone marks the selected part (drawer-include-row selects L140, gate-protocol), but template-plan draws gate-protocol darker with nothing selected. The app darkens only the part the selection names: its row, its card or the part itself.
+- Drawer text past the board's last line: the text-range and include-row boards stop drawing at L44 and L330 with room left for about four more lines. The app fills the drawer's height, so the rows under them (L45-48 and L331-335) have no layer to pair with.
 - Output links chips: the plan board's "Its text links to" row runs past the right edge of its output card. The app wraps the chips inside the card, so the card and its links section are taller and `dev-servers/SKILL.md` starts a second row.
 
 The Graph tab's dotted canvas sits on the page ground (`--tk-bg`), as the boards' `Stage` layer does. That is deliberate: the dotted canvas is the one surface exempt from the "never set `PageShell.Content` to `--tk-bg`" rule in `docs/apps/ui-authoring.md`, and a label on it uses the kit's quiet badge tones rather than a gray `light` one.

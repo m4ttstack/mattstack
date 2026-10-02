@@ -19,6 +19,20 @@ const RIGHT_ROOM = 24;
     buttons on a 32px margin. */
 const BOTTOM_ROOM = 136;
 
+/** Space between the focus header and the column headings under it. */
+export const HEADER_GAP = 6;
+
+/** The template's right edge with the handles on it, in layout units: what a
+    drawer over the stage's right edge leaves in view. */
+const TEMPLATE_RIGHT = LAYOUT.templateX + LAYOUT.templateW + 4;
+
+export type FramingOptions = {
+  /** Width of the stage's right edge a drawer covers, in stage px. */
+  cover?: number;
+  /** The focus header's bottom, in stage px. */
+  headerBottom?: number;
+};
+
 export type Framing = {
   viewport: Viewport;
   /** Where the viewport may travel, in layout units: the board's corner, and
@@ -29,30 +43,59 @@ export type Framing = {
   contentTop: number;
 };
 
+/** The viewport x that keeps the template clear of a drawer covering `cover`
+    px of the stage, never right of the boards' corner. */
+export function panFor(stageWidth: number, zoom: number, cover: number) {
+  return Math.min(0, stageWidth - cover - RIGHT_ROOM - TEMPLATE_RIGHT * zoom);
+}
+
+/** Where a viewport framed at `viewport` may travel: up to the framed top,
+    and far enough right to bring the graph out from under a drawer. */
+export function extentFor(
+  stage: { width: number; height: number },
+  graph: { right: number; bottom: number },
+  viewport: Viewport,
+  cover = 0
+): CoordinateExtent {
+  const { x, y, zoom } = viewport;
+  const top = -y / zoom;
+  return [
+    [0, top],
+    [
+      Math.max(
+        graph.right + (RIGHT_ROOM + cover) / zoom,
+        (stage.width - x) / zoom
+      ),
+      Math.max(graph.bottom + BOTTOM_ROOM / zoom, top + stage.height / zoom),
+    ],
+  ];
+}
+
 /**
  * The boards' framing when the graph fits the stage's width at zoom 1, else
  * the same corner zoomed out to fit that width, never below
- * `MIN_FRAME_ZOOM`. Height never shrinks the graph: a tall one scrolls.
+ * `MIN_FRAME_ZOOM`. Height never shrinks the graph: a tall one scrolls. A
+ * drawer over the stage pans the template clear of it, and a focus header
+ * taller than the boards' moves the graph down below it.
  */
 export function frameStage(
   stage: { width: number; height: number },
-  graph: { right: number; bottom: number }
+  graph: { right: number; bottom: number },
+  { cover = 0, headerBottom = 0 }: FramingOptions = {}
 ): Framing {
   const zoom = Math.min(
     1,
     Math.max(MIN_FRAME_ZOOM, (stage.width - RIGHT_ROOM) / graph.right)
   );
-  const top = -BOARD_VIEWPORT.y / zoom;
+  const y = Math.max(
+    BOARD_VIEWPORT.y,
+    headerBottom + HEADER_GAP - COLUMN_TOP * zoom
+  );
+  const viewport = { x: panFor(stage.width, zoom, cover), y, zoom };
   return {
-    viewport: { ...BOARD_VIEWPORT, zoom },
-    extent: [
-      [0, top],
-      [
-        Math.max(graph.right + RIGHT_ROOM / zoom, stage.width / zoom),
-        Math.max(graph.bottom + BOTTOM_ROOM / zoom, top + stage.height / zoom),
-      ],
-    ],
-    contentTop: BOARD_VIEWPORT.y + COLUMN_TOP * zoom,
+    viewport,
+    extent: extentFor(stage, graph, viewport, cover),
+    contentTop: y + COLUMN_TOP * zoom,
   };
 }
 

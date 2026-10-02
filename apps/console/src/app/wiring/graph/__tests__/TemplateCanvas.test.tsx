@@ -180,11 +180,11 @@ describe('TemplateCanvas: a step template', () => {
     expect(rowAt('L136')).not.toHaveAttribute('data-selected');
   });
 
-  it('marks a selected input card', () => {
+  it('marks a selected input card on its card, where its ring is drawn', () => {
     renderCanvas('stage-plan', 'input:include:gate-protocol');
     const selected = screen
       .getAllByTestId('input-card')
-      .filter(card => card.hasAttribute('data-selected'));
+      .filter(card => card.querySelector('[data-parity][data-selected]'));
     expect(selected.map(card => card.textContent)).toEqual([
       expect.stringContaining('gate-protocol/SKILL.md'),
     ]);

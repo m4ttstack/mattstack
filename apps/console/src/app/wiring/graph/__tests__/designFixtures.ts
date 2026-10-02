@@ -32,3 +32,17 @@ export function designFixture<K extends keyof DesignPayloads>(
     readFileSync(join(DESIGN_DIR, `${name}.json`), 'utf8')
   ) as DesignPayloads[K];
 }
+
+/** A file the design fixture serves, by the absolute `/fixture/...` path its
+    payloads name, in the source route's shape. */
+export function designSource(path: string) {
+  const content = readFileSync(
+    join(DESIGN_DIR, 'files', path.replace(/^\/fixture\//, '')),
+    'utf8'
+  );
+  return {
+    path,
+    content,
+    lines: content.replace(/\n$/, '').split('\n').length,
+  };
+}

@@ -16,13 +16,6 @@
   inset: 0 0 auto;
 }
 
-/* The board's node rule sits on the node's edge, over its contents. A full
-   width header or row therefore runs a pixel past each side, under the
-   Paper's border, and the Paper clips it back. */
-.node {
-  overflow: hidden;
-}
-
 /* React Flow turns pointer events off on a node it cannot select or drag;
    its rows and cards are buttons all the same. */
 .shell {
@@ -30,13 +23,16 @@
   pointer-events: auto;
 }
 
+/* The ground Paper's rule is an outline over its contents, and a selected
+   row's ring sits over that, as on the boards, so the node clips nothing:
+   its header and last row round their own corners. */
 .header {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: calc(100% + 2px);
-  margin: -1px -1px 0;
+  width: 100%;
   padding: 0 12px;
+  border-radius: 8px 8px 0 0;
   background-color: var(--tk-raised);
 }
 
@@ -48,7 +44,6 @@
   --gutter-min: 68.5px;
   display: grid;
   grid-template-columns: minmax(var(--gutter-min), max-content) minmax(0, 1fr);
-  margin: 0 -1px -1px;
 }
 
 .rows[data-view='step'] {
@@ -64,6 +59,10 @@
   text-align: start;
 }
 
+.row:last-child {
+  border-radius: 0 0 8px 8px;
+}
+
 .row[data-kind='placeholder'],
 .row[data-selected] {
   background-color: color-mix(
@@ -73,10 +72,14 @@
   );
 }
 
+/* Raised so its ring paints over the node's rule, which is drawn over the
+   node's rows. */
 .row[data-selected] {
-  border-top-color: transparent;
+  position: relative;
+  z-index: 1;
+  border-top: 0;
   outline: 1.5px solid var(--tk-fill-accent);
-  outline-offset: -1.5px;
+  outline-offset: -0.75px;
 }
 
 @media (hover: hover) {
@@ -103,7 +106,11 @@
   background-color: var(--tk-panel);
 }
 
-.row[data-selected] .gutter {
+.row:last-child .gutter {
+  border-bottom-left-radius: 8px;
+}
+
+.row[data-selected][data-kind='text'] .gutter {
   background-color: transparent;
 }
 
@@ -120,8 +127,10 @@
   min-width: 0;
 }
 
+/* Over a selected row, which is raised. */
 .handles {
   position: absolute;
+  z-index: 2;
   inset: 0;
   display: flex;
   flex-direction: column;
@@ -149,16 +158,11 @@
   border-radius: 7px;
 }
 
-.cardButton[data-selected] {
-  outline: 1.5px solid var(--tk-fill-accent);
-  outline-offset: -1.5px;
-}
-
 .card {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 11px;
+  padding: 0 12px;
 }
 
 .cardText {
@@ -185,11 +189,6 @@
   background-color: var(--tk-line-1);
 }
 
-.output[data-selected] {
-  outline: 1.5px solid var(--tk-fill-accent);
-  outline-offset: -1.5px;
-}
-
 .step {
   display: flex;
   flex-shrink: 0;
@@ -206,7 +205,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px 11px;
+  padding: 12px;
 }
 
 .part {
