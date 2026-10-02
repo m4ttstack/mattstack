@@ -1,7 +1,7 @@
 import { createTheme } from "@soribashi/core";
 import { useRef } from "react";
-import { describe, expect, it, vi } from "vitest";
-import { userEvent } from "vitest/browser";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { page, userEvent } from "vitest/browser";
 import { renderWithTheme } from "../../../test/test-utils.tsx";
 import { animationResolution } from "../../../test/keyframes.ts";
 import { tuiTheme } from "../../theme.ts";
@@ -473,5 +473,175 @@ describe("ContextMenu (browser)", () => {
     );
 
     await expect.element(screen.getByRole("menu", { name: "themed label" })).toBeVisible();
+  });
+});
+
+describe("ContextMenu.Sub (browser)", () => {
+  const menu = (x = 40, onClose = noop) => (
+    <ContextMenu x={x} y={40} ariaLabel="m" onClose={onClose}>
+      <ContextMenu.Item label="review" onClick={noop} />
+      <ContextMenu.Sub label="gitlab" ariaLabel="gitlab actions">
+        <ContextMenu.Item label="merge" onClick={noop} />
+        <ContextMenu.Item label="open in gitlab" onClick={noop} />
+      </ContextMenu.Sub>
+    </ContextMenu>
+  );
+
+  const submenuIn = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>(`[data-part="${CONTEXTMENU_PARTS.submenu}"]`);
+
+  // The default viewport is too narrow for a menu and its panel side by side,
+  // so the panel would clamp over its own row and intercept the row's clicks.
+  beforeEach(async () => {
+    await page.viewport(1000, 700);
+  });
+
+  it("opens its panel on hover and closes it when the pointer leaves", async () => {
+    const screen = await renderWithTheme(menu());
+    const row = screen.getByRole("menuitem", { name: "gitlab", exact: true });
+    await userEvent.hover(row);
+    await expect.element(screen.getByRole("menu", { name: "gitlab actions" })).toBeVisible();
+    await userEvent.hover(screen.getByRole("menuitem", { name: "review" }));
+    expect(submenuIn(screen.container)).toBeNull();
+  });
+
+  it("marks the row as a menu opener", async () => {
+    const screen = await renderWithTheme(menu());
+    const row = screen.getByRole("menuitem", { name: "gitlab", exact: true }).element();
+    expect(row.getAttribute("aria-haspopup")).toBe("menu");
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("a click opens the panel and a second click keeps it open", async () => {
+    const screen = await renderWithTheme(menu());
+    const row = screen.getByRole("menuitem", { name: "gitlab", exact: true });
+    await row.click();
+    await expect.element(screen.getByRole("menu", { name: "gitlab actions" })).toBeVisible();
+    await row.click();
+    expect(submenuIn(screen.container)).not.toBeNull();
+    expect(row.element().getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("Escape closes only the submenu, a second Escape closes the menu", async () => {
+    const onClose = vi.fn();
+    const screen = await renderWithTheme(menu(40, onClose));
+    await screen.getByRole("menuitem", { name: "gitlab", exact: true }).click();
+    await expect.element(screen.getByRole("menu", { name: "gitlab actions" })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    expect(submenuIn(screen.container)).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("ArrowRight opens and focuses the first item; ArrowLeft closes and refocuses the row", async () => {
+    const screen = await renderWithTheme(menu());
+    const row = screen.getByRole("menuitem", { name: "gitlab", exact: true }).element() as HTMLButtonElement;
+    row.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await expect.element(screen.getByRole("menuitem", { name: "merge" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowLeft}");
+    expect(submenuIn(screen.container)).toBeNull();
+    expect(document.activeElement).toBe(row);
+  });
+
+  it("Enter and Space on the row both open the panel and focus its first item", async () => {
+    for (const key of ["{Enter}", " "]) {
+      const screen = await renderWithTheme(menu());
+      const row = screen.getByRole("menuitem", { name: "gitlab", exact: true }).element() as HTMLButtonElement;
+      row.focus();
+      await userEvent.keyboard(key);
+      await expect.element(screen.getByRole("menuitem", { name: "merge" })).toHaveFocus();
+      await screen.unmount();
+    }
+  });
+
+  it("a mousedown inside the submenu does not close the menu", async () => {
+    const onClose = vi.fn();
+    const screen = await renderWithTheme(menu(40, onClose));
+    await screen.getByRole("menuitem", { name: "gitlab", exact: true }).click();
+    const merge = screen.getByRole("menuitem", { name: "merge" }).element();
+    merge.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("opens beside the row, to its right, when there is room", async () => {
+    const screen = await renderWithTheme(menu());
+    await settledBox(rootOf(screen.container));
+    const row = screen.getByRole("menuitem", { name: "gitlab", exact: true });
+    await row.click();
+    await expect.element(screen.getByRole("menu", { name: "gitlab actions" })).toBeVisible();
+    const box = submenuIn(screen.container)!.getBoundingClientRect();
+    const rowBox = row.element().getBoundingClientRect();
+    expect(Math.abs(box.left - rowBox.right)).toBeLessThan(1);
+    expect(Math.abs(box.top - rowBox.top)).toBeLessThan(1);
+  });
+
+  it("flips to the left of the row when there is no room on the right", async () => {
+    const screen = await renderWithTheme(menu(window.innerWidth));
+    await settledBox(rootOf(screen.container));
+    const row = screen.getByRole("menuitem", { name: "gitlab", exact: true });
+    await row.click();
+    await expect.element(screen.getByRole("menu", { name: "gitlab actions" })).toBeVisible();
+    const box = await settledBox(submenuIn(screen.container)!);
+    expect(box.right).toBeLessThanOrEqual(window.innerWidth - MARGIN + 0.5);
+    expect(box.left).toBeGreaterThanOrEqual(MARGIN - 0.5);
+    expect(Math.abs(box.right - row.element().getBoundingClientRect().left)).toBeLessThan(1);
+  });
+
+  it("stamps a stable data-part on the Sub, its panel, its chevron and a Row", async () => {
+    const screen = await renderWithTheme(
+      <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
+        <ContextMenu.Row aria-label="reactions">
+          <ContextMenu.Item label="a" onClick={noop} />
+        </ContextMenu.Row>
+        <ContextMenu.Sub label="gitlab" ariaLabel="gitlab actions" data-part="hijacked">
+          <ContextMenu.Item label="merge" onClick={noop} />
+        </ContextMenu.Sub>
+      </ContextMenu>,
+    );
+    await screen.getByRole("menuitem", { name: "gitlab", exact: true }).click();
+
+    for (const part of [
+      "contextmenu-sub",
+      "contextmenu-submenu",
+      "contextmenu-chevron",
+      "contextmenu-row",
+    ]) {
+      expect(partsIn(screen.container, part), part).toHaveLength(1);
+    }
+    expect(partsIn(screen.container, "hijacked")).toHaveLength(0);
+  });
+
+  it("a disabled Sub never opens", async () => {
+    const screen = await renderWithTheme(
+      <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
+        <ContextMenu.Sub label="gitlab" ariaLabel="gitlab actions" disabled>
+          <ContextMenu.Item label="merge" onClick={noop} />
+        </ContextMenu.Sub>
+      </ContextMenu>,
+    );
+    const row = screen.getByRole("menuitem", { name: "gitlab", exact: true }).element() as HTMLButtonElement;
+    row.click();
+    row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    expect(submenuIn(screen.container)).toBeNull();
+  });
+});
+
+describe("ContextMenu.Row (browser)", () => {
+  it("lays its items out on one line, as a labelled group", async () => {
+    const screen = await renderWithTheme(
+      <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
+        <ContextMenu.Row aria-label="slack reactions">
+          <ContextMenu.Item label="👀" aria-label="mark as looking" onClick={noop} />
+          <ContextMenu.Item label="💬" aria-label="mark as commented" onClick={noop} />
+        </ContextMenu.Row>
+      </ContextMenu>,
+    );
+    await expect.element(screen.getByRole("group", { name: "slack reactions" })).toBeVisible();
+    const a = screen.getByRole("menuitem", { name: "mark as looking" }).element().getBoundingClientRect();
+    const b = screen.getByRole("menuitem", { name: "mark as commented" }).element().getBoundingClientRect();
+    expect(Math.abs(a.top - b.top)).toBeLessThan(1);
+    expect(b.left).toBeGreaterThan(a.right - 1);
   });
 });

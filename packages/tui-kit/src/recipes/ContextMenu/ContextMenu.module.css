@@ -76,4 +76,43 @@
     border-top: 1px solid var(--border-soft);
     margin: var(--spacing-px4) var(--spacing-px2);
   }
+
+  /* The submenu's containing block: see `SubPanel` for why it is not fixed. */
+  .sub {
+    position: relative;
+  }
+
+  /* Same box as `.root`. `--sb-contextmenu-min-w` is set on the root and
+     reaches this panel by inheritance, since the panel is a DOM descendant. */
+  .submenu {
+    box-sizing: border-box;
+    position: absolute;
+    z-index: 1;
+    min-width: var(--sb-contextmenu-min-w);
+    padding: var(--spacing-px4);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-menu);
+  }
+
+  .chevron {
+    font-size: var(--font-size-px11);
+    color: var(--text-4);
+  }
+
+  .row {
+    display: flex;
+    gap: var(--spacing-px4);
+  }
+
+  .row > .item {
+    width: auto;
+    flex: 1;
+    justify-content: center;
+  }
+
+  .row > .item[aria-pressed="true"] {
+    background: var(--surface-wash-accent-16);
+  }
 }

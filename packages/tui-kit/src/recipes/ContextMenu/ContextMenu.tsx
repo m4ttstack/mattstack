@@ -10,7 +10,7 @@ import type {
   Ref,
   RefObject,
 } from "react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { defineCompound } from "../../builders.ts";
 import { useEscapeClose } from "../../hooks/index.ts";
 import classes from "./ContextMenu.module.css";
@@ -23,8 +23,19 @@ export const recipeCategory = 3 as const;
 /** The full declared slot set, NOT recoverable by unioning part names with
     CSS-module class keys: `hint` is a real style slot with no part, because a
     hint is a property OF an item and promoting it would let a call site render
-    one outside any item. */
-const CONTEXTMENU_SLOT_KEYS = ["root", "item", "label", "separator", "hint"] as const;
+    one outside any item. `submenu` and `chevron` are part-less for the same
+    reason: both belong to a `Sub`. */
+const CONTEXTMENU_SLOT_KEYS = [
+  "root",
+  "item",
+  "label",
+  "separator",
+  "hint",
+  "sub",
+  "submenu",
+  "chevron",
+  "row",
+] as const;
 
 type ContextMenuSlotKey = (typeof CONTEXTMENU_SLOT_KEYS)[number];
 
@@ -42,6 +53,10 @@ export const CONTEXTMENU_PARTS = {
   label: "contextmenu-label",
   separator: "contextmenu-separator",
   hint: "contextmenu-hint",
+  sub: "contextmenu-sub",
+  submenu: "contextmenu-submenu",
+  chevron: "contextmenu-chevron",
+  row: "contextmenu-row",
 } as const;
 
 /** Viewport keep-out for the clamped menu, in CSS pixels. A plain number, not a
@@ -130,6 +145,101 @@ type ContextMenuSeparatorProps_ = Omit<HTMLAttributes<HTMLDivElement>, "ref" | "
     DOM attribute surface — the opposite of what `OwnProps` means for its
     siblings. Prefer `ContextMenuSeparatorProps`. */
 export type ContextMenuSeparatorOwnProps = ContextMenuSeparatorProps_;
+
+/** The `Sub` part's own props: a row that opens a nested menu. */
+export interface ContextMenuSubOwnProps {
+  /** The row's leading text; a chevron follows it. */
+  label: ReactNode;
+  /** The nested menu's accessible name. */
+  ariaLabel: string;
+  /** Disables the row's `<button>`, and a disabled Sub never opens. */
+  disabled?: boolean;
+  /** The nested menu's items. */
+  children?: ReactNode;
+}
+
+type ContextMenuSubProps_ = ContextMenuSubOwnProps &
+  Omit<HTMLAttributes<HTMLDivElement>, "ref" | "children">;
+
+type ContextMenuRowProps_ = Omit<HTMLAttributes<HTMLDivElement>, "ref">;
+
+/** The open panel of a `Sub`. Mounted only while open, so its
+    `useEscapeClose` sits above the root's on the layer stack and Escape
+    closes this panel first.
+
+    Positioned `absolute` against the Sub's own box, NOT `fixed` like the
+    root: the root's entry animation puts a transform on it, which makes it
+    the containing block of any fixed descendant, so a fixed panel opened
+    during that animation would be offset by the root's own position and
+    stay there. The clamp works in viewport geometry, then converts to offsets
+    from the row, which sits at the origin of the Sub's box. */
+function SubPanel({
+  anchorRef,
+  onClose,
+  focusFirst,
+  styleProps,
+  label,
+  children,
+}: {
+  anchorRef: RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+  focusFirst: boolean;
+  styleProps: { className?: string; style?: CSSProperties };
+  label: string;
+  children?: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useEscapeClose(onClose);
+
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current;
+    const panel = panelRef.current;
+    if (!anchor || !panel) return;
+    const r = anchor.getBoundingClientRect();
+    const width = panel.offsetWidth;
+    const height = panel.offsetHeight;
+    const fitsRight = r.right + width + VIEWPORT_MARGIN <= window.innerWidth;
+    const top = Math.max(
+      VIEWPORT_MARGIN,
+      Math.min(r.top, window.innerHeight - height - VIEWPORT_MARGIN),
+    );
+    setPos({
+      left: fitsRight ? anchor.offsetWidth : Math.max(-width, VIEWPORT_MARGIN - r.left),
+      top: top - r.top,
+    });
+  }, [anchorRef]);
+
+  // Keyed on the committed `pos`: the panel is `visibility: hidden` until
+  // then, and a hidden subtree cannot take focus.
+  useLayoutEffect(() => {
+    if (pos && focusFirst)
+      panelRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+  }, [pos, focusFirst]);
+
+  const anchored: CSSProperties = pos
+    ? { left: pos.left, top: pos.top }
+    : { left: 0, top: 0, visibility: "hidden" };
+  return (
+    <div
+      ref={panelRef}
+      role="menu"
+      aria-label={label}
+      {...styleProps}
+      style={{ ...styleProps.style, ...anchored }}
+      data-part={CONTEXTMENU_PARTS.submenu}
+      onKeyDown={(e) => {
+        // Stopped so an outer Sub's panel does not close as well.
+        if (e.key === "ArrowLeft") {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 export const ContextMenu = defineCompound({
   name: "ContextMenu",
@@ -302,6 +412,84 @@ export const ContextMenu = defineCompound({
         />
       ),
     },
+    sub: {
+      render: ({ props, getStyles, ref }: Ctx<ContextMenuSubProps_>) => {
+        const { label, ariaLabel, disabled, children, ...rest } = stripFrameworkKeys(props);
+        // Hooks are legal here for the same reason as in the root's render.
+        const [open, setOpen] = useState<null | "pointer" | "keyboard">(null);
+        const buttonRef = useRef<HTMLButtonElement | null>(null);
+        const close = useCallback(() => {
+          setOpen(null);
+          buttonRef.current?.focus();
+        }, []);
+        return (
+          <div
+            ref={ref as Ref<HTMLDivElement>}
+            {...rest}
+            {...getStyles()}
+            data-part={CONTEXTMENU_PARTS.sub}
+            onMouseEnter={() => {
+              if (!disabled) setOpen((o) => o ?? "pointer");
+            }}
+            onMouseLeave={() => setOpen(null)}
+          >
+            <button
+              ref={buttonRef}
+              role="menuitem"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={open !== null}
+              disabled={disabled}
+              {...getStyles({ part: "item" })}
+              data-part={CONTEXTMENU_PARTS.item}
+              onClick={() => setOpen((o) => o ?? "pointer")}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowRight" || e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setOpen("keyboard");
+                }
+              }}
+            >
+              <span>{label}</span>
+              <span
+                {...getStyles({ part: "chevron" })}
+                data-part={CONTEXTMENU_PARTS.chevron}
+                aria-hidden="true"
+              >
+                ›
+              </span>
+            </button>
+            {open && (
+              <SubPanel
+                anchorRef={buttonRef}
+                onClose={close}
+                focusFirst={open === "keyboard"}
+                styleProps={getStyles({ part: "submenu" })}
+                label={ariaLabel}
+              >
+                {children}
+              </SubPanel>
+            )}
+          </div>
+        );
+      },
+    },
+    row: {
+      render: ({ props, getStyles, children, ref }: Ctx<ContextMenuRowProps_>) => {
+        const { children: _children, ...rest } = stripFrameworkKeys(props);
+        return (
+          <div
+            ref={ref as Ref<HTMLDivElement>}
+            role="group"
+            {...rest}
+            {...getStyles()}
+            data-part={CONTEXTMENU_PARTS.row}
+          >
+            {children}
+          </div>
+        );
+      },
+    },
   },
 });
 
@@ -313,8 +501,13 @@ export type ContextMenuItemProps = ComponentProps<typeof ContextMenu.Item>;
 export type ContextMenuLabelProps = ComponentProps<typeof ContextMenu.Label>;
 /** Everything a call site may pass to `<ContextMenu.Separator>`. */
 export type ContextMenuSeparatorProps = ComponentProps<typeof ContextMenu.Separator>;
+/** Everything a call site may pass to `<ContextMenu.Sub>`. */
+export type ContextMenuSubProps = ComponentProps<typeof ContextMenu.Sub>;
+/** Everything a call site may pass to `<ContextMenu.Row>`. */
+export type ContextMenuRowProps = ComponentProps<typeof ContextMenu.Row>;
 
 /** No-op `.extend({})` a consumer's `createTheme({ components })` starts from.
     Compound PARTS carry their own `.extend` too (registered as
-    `ContextMenuItem`/`ContextMenuLabel`/`ContextMenuSeparator`). */
+    `ContextMenuItem`/`ContextMenuLabel`/`ContextMenuSeparator`/`ContextMenuSub`/
+    `ContextMenuRow`). */
 export const contextMenuTheme = ContextMenu.extend({});
