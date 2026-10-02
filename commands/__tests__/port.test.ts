@@ -1,4 +1,4 @@
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import type { PortEntry } from "../../lib/port-scanner.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
@@ -25,7 +25,18 @@ function noDaemon(ports: PortEntry[]): void {
   mock.module("../../lib/port-scanner.ts", () => ({ ...realPortScanner, scanListeningPorts: async () => ports }));
 }
 
+let savedTTY: boolean | undefined;
+const setTTY = (value: boolean | undefined): void => {
+  Object.defineProperty(process.stdin, "isTTY", { value, configurable: true, writable: true });
+};
+
+beforeEach(() => {
+  savedTTY = process.stdin.isTTY;
+  setTTY(false);
+});
+
 afterEach(() => {
+  setTTY(savedTTY);
   mock.module("../../lib/daemon-client.ts", () => ({ ...realDaemonClient, daemonQuery: realDaemonQuery }));
   mock.module("../../lib/port-scanner.ts", () => ({ ...realPortScanner, scanListeningPorts: realScan }));
 });
