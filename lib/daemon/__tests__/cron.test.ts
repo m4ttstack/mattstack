@@ -23,6 +23,17 @@ describe("parseCronConfig", () => {
     expect(() => parseCronConfig({ triggers: [{ name: "t", event: "x", run: [] }] })).toThrow();
   });
 
+  test("rejects two triggers with the same name", () => {
+    expect(() =>
+      parseCronConfig({
+        triggers: [
+          { name: "t", event: "a", run: ["one"] },
+          { name: "t", event: "b", run: ["two"] },
+        ],
+      }),
+    ).toThrow('rt.cron has two triggers named "t"');
+  });
+
   test("undefined/empty input degrades to no triggers", () => {
     expect(parseCronConfig(undefined)).toEqual({ triggers: [] });
     expect(parseCronConfig({})).toEqual({ triggers: [] });
@@ -133,6 +144,23 @@ describe("startCron with the settings loader", () => {
 
     cron.onBroadcast("peer-inbox", null);
     await sleep(60);
+    expect(runs).toEqual([]);
+    cron.dispose();
+  });
+
+  test("a reload clears a removed trigger's timer, so re-adding the name does not revive the run", async () => {
+    store([peer(["old"], 60)]);
+    const runs: string[][] = [];
+    const cron = startCron(loadCronConfig, { log, now, runCommand: (argv) => runs.push(argv) });
+
+    cron.onBroadcast("peer-inbox", null);
+    store([]);
+    clock += CRON_RELOAD_AFTER_MS;
+    cron.onBroadcast("project-mrs", null);
+    store([peer(["back"], 60)]);
+    clock += CRON_RELOAD_AFTER_MS;
+    cron.onBroadcast("project-mrs", null);
+    await sleep(120);
     expect(runs).toEqual([]);
     cron.dispose();
   });
