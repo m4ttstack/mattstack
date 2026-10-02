@@ -301,7 +301,8 @@ empty table).
 A spinner that should leave nothing behind is `withTransientStep(label, task)`
 from `lib/ui/transient-step.ts`: the Go step draws it and a `done` event
 carrying `clear: true` erases it when the task settles. The flag rides `done`
-so a helper that predates it ends the step with a plain row; a source checkout
+so a helper that predates it ends the step with a plain row, on the neutral
+dot when the task threw (`status: "failed"` rides along); a source checkout
 runs the installed helper when `ui/dist/rt-ui` is missing or stale, so run
 `bun run ui:build` after pulling. It loads `lib/ui/spawn.ts` on first use, so
 a file the daemon also loads may import it; keep it that way.
@@ -372,8 +373,10 @@ after the failure breaks the tool's error.
 
 `lib/ui/steps.ts` prints nothing by hand: off a terminal a step's ending is
 `out.print(out.line("done" or "failed", ...))`, and a helper that dies costs
-one warning through `out.note` and a line in the CLI log. The runner has no
-`log()`; a line between steps is an `out.print` at the call site.
+one warning through `out.note` and a line in the CLI log. A step run with
+`failSilently` prints nothing off a terminal either; at a terminal it ends
+with `clear({ thrown: true })`, so its row is erased and the caller draws the
+failure. The runner has no `log()`; a line between steps is an `out.print` at the call site.
 
 A `print` seam on a command's deps (`TeamDeps`, `RegisterDeps`,
 `ReidentifyDeps`) carries the `--json` envelope line and nothing else; its

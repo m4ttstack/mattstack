@@ -77,8 +77,11 @@ export interface StepHandle {
   /** Resolves true when rt-ui painted the final line; false when it was dead (caller prints the line itself). A status ends the step in that state in place of done; a failing ending is `fail`. */
   done(title?: string, hint?: string, status?: Exclude<RenderStatus, "failed">): Promise<boolean>;
   fail(title?: string, hint?: string): Promise<boolean>;
-  /** Ends the step and erases its row and sub-lines, leaving nothing. Resolves true when rt-ui ended the step. */
-  clear(): Promise<boolean>;
+  /**
+   * Ends the step and erases its row and sub-lines, leaving nothing. Resolves true when rt-ui ended the step.
+   * `thrown` says the task failed: a helper that predates the flag then ends the row on the neutral dot, never a check.
+   */
+  clear(opts?: { thrown?: boolean }): Promise<boolean>;
 }
 
 export function openStep(title: string): StepHandle {
@@ -116,9 +119,10 @@ export function openStep(title: string): StepHandle {
     },
     done: (t, h, s) => finish("done", t, h, s),
     fail: (t, h) => finish("fail", t, h),
-    // The label rides along as the title: a helper that predates the flag
-    // paints it as a done row.
-    clear: () => finish("done", undefined, undefined, undefined, true),
+    // The label rides along as the title and a thrown task as the failed
+    // status: a helper that predates the flag paints a done row, on the
+    // neutral dot when the task threw.
+    clear: (opts) => finish("done", undefined, undefined, opts?.thrown ? "failed" : undefined, true),
   };
 }
 

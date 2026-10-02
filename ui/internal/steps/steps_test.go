@@ -308,6 +308,27 @@ func TestADoneWithoutTheFlagStillPaintsItsRow(t *testing.T) {
 	}
 }
 
+func TestAClearAfterAThrowLeavesNothingOnScreen(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"Pushing…"}`, `{"t":"sub","text":"writing objects"}`, `{"t":"done","title":"Pushing…","status":"failed","clear":true}`}
+	stdout, tty, exit := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	if exit != 0 || stdout != "" {
+		t.Fatalf("exit %d stdout %q", exit, stdout)
+	}
+	if screen := testutil.Screen(tty); strings.TrimSpace(screen) != "" {
+		t.Fatalf("a cleared step left text on screen: %q", screen)
+	}
+}
+
+// What a helper without the flag does with the same event: the neutral dot,
+// never the check a failed push must not show.
+func TestAThrownClearOnAHelperWithoutTheFlagEndsOnTheDot(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"Pushing…"}`, `{"t":"done","title":"Pushing…","status":"failed"}`}
+	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	if screen := testutil.Screen(tty); !strings.Contains(screen, "• Pushing…") || strings.Contains(screen, "✓") {
+		t.Fatalf("screen %q", screen)
+	}
+}
+
 func TestStepTonesComeFromTheStaticPalette(t *testing.T) {
 	lines := []string{hello, `{"t":"start","title":"connecting…"}`, `{"t":"sub","text":"asking the gateway"}`, `{"t":"fail","title":"Could not connect"}`}
 	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)

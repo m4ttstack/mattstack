@@ -77,7 +77,7 @@ export function createStepRunner(): StepRunner {
         return r;
       } catch (e) {
         if (opts?.failSilently) {
-          await step?.clear();
+          await step?.clear({ thrown: true });
           throw e;
         }
         const hint = opts?.errorHint ?? (e instanceof Error ? e.message : undefined);
