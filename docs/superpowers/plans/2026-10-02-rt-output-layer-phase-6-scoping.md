@@ -14,7 +14,7 @@ This is not a plan. It splits phase 6 into eleven slices, one PR each, so each s
 
 ## Standing rules every slice carries
 
-- `--json` keeps its shape: keys, structure, types and every value a program reads stay byte-identical. A human sentence inside an envelope may be reworded only where a person reads it on screen. **Any change to a `--json` shape needs Matt's yes, with its readers named** (Decision 2 is the only one phase 6 asks for).
+- `--json` keeps its shape: keys, structure, types and every value a program reads stay byte-identical. A human sentence inside an envelope may be reworded only where a person reads it on screen. **Any change to a `--json` shape needs Matt's yes, with its readers named.** Phase 6 has two, both ruled: Ruling 2 (`tag push`) and Ruling 3 (`state backup status`).
 - Exit codes never change, except where a slice states the change and Matt has said yes. Phase 6 has one: `rt settings extension` exits 1 when nothing was installed (slice 6h; Matt's triage, Form 1). RT-411 owns `rt sync all`'s exit code, not phase 6.
 - Refusals by policy draw `refused` (an `out.note` on stderr, same exit code); coral is only for a real failure.
 - Copy speaks plainly to "you", with no flags, paths, store names or ids in sentences; the command to run goes in a `next` callout. No em or en dashes anywhere. Clean-code comments only.
@@ -70,10 +70,10 @@ Columns: guard lines / seam lines; who reads stdout; how the file leaves the lis
 | `commands/runner.ts` | 9 / 0 | Matt (a session view) | preflight failures and reconcile notes only (spec non-goal: the view itself) | 6f |
 | `commands/glitter.ts` | 3 / 0 | Matt (a session view) | preflight failures only | 6f |
 | `lib/runner/runner.ts` | 2 / 0 | Matt | the two stderr notes | 6f |
-| `commands/cd.ts` | 24 / 0 | the `rt()` shell wrapper reads the path on stdout | **Decision 1** | 6f |
-| `commands/nav.ts` | 6 / 0 | the same wrapper | **Decision 1** | 6f |
-| `commands/code.ts` | 6 / 0 | `rt nav`'s ctrl-o; Matt | **Decision 1** (the `rt nav` paths 5c kept raw), plus the `savePrefs` bug | 6f |
-| `lib/pickers.ts` | 3 / 0 | `rt cd`'s refusals | **Decision 1** (the `rt cd` paths 5c kept raw) | 6f |
+| `commands/cd.ts` | 24 / 0 | the `rt()` shell wrapper reads the path on stdout | the non-rt-ui prints converted, stdout held for the path (Ruling 1) | 6f |
+| `commands/nav.ts` | 6 / 0 | the same wrapper | the same (Ruling 1) | 6f |
+| `commands/code.ts` | 6 / 0 | `rt nav`'s ctrl-o; Matt | the `rt nav` paths 5c kept raw, converted (Ruling 1), plus the `savePrefs` bug | 6f |
+| `lib/pickers.ts` | 3 / 0 | `rt cd`'s refusals | the `rt cd` paths 5c kept raw, converted (Ruling 1) | 6f |
 
 Totals: 419 guard lines and 25 seam lines. By kind: agent-only and seams 66 (6a), agent verbs with a human view 41 (6b), the daemon verb 104 (6c), service verbs 53 (6d), state 81 (6e), session verbs and `rt cd`/`rt nav` 73 (6f).
 
@@ -96,7 +96,7 @@ Every FOLD INTO PHASE 6 item from Matt's triage, with the file that holds it and
 | Item | Where | Fix direction | Slice |
 |---|---|---|---|
 | Shell strings | `lib/git-backup.ts:62,109,127`; `lib/git-ops.ts:15,28,43,57,115` | every `execSync(string)` becomes `execFileSync("git", argv)`; the interpolated ones (`git-backup.ts:109`, `git-ops.ts:43,57,115`) carry a branch or remote name a shell would read | 6g |
-| `rt git tag push --json` echoes a raw `--remote` token | `commands/git/mutate.ts:294` | **Decision 2** | 6g |
+| `rt git tag push --json` echoes a raw `--remote` token | `commands/git/mutate.ts:294` | `remote` carries `printable(remote)` (Ruling 2) | 6g |
 | `printable` misses query-string tokens | `commands/git/shared.ts:100-111` | a remote whose query carries a credential parameter prints as `REMOTE` | 6g |
 | `TOKEN_SHAPE_RE` duplicates `CREDENTIAL_TOKEN_RE` | `commands/git/shared.ts:89`, `lib/team/redact.ts:20` | export one `holdsCredentialToken` from `lib/team/redact.ts`; `printable` calls it | 6g |
 
@@ -153,6 +153,7 @@ The one phrase for "not ours", used by every site in both slices: a sentence tha
 |---|---|---|
 | `exitUserError`'s unused `verb` argument goes | phase 5 scoping, ruling 10 | 6k |
 | Delete `lib/ansi.ts`, `lib/tui.ts`, `lib/tui/palette.ts` and its test | spec "Guard" | 6k |
+| `state backup status --json` with nothing set up prints `{"configured":false}`, not a sentence | Matt, 2026-10-02 (Ruling 3) | 6e |
 
 ## 3. Shared work
 
@@ -160,9 +161,9 @@ Each item has exactly one owner.
 
 | # | Item | Owner | What the others see |
 |---|---|---|---|
-| 1 | **Permanent exemptions.** A new `lib/__tests__/raw-output-exemptions.json`: `[{ "file": string, "reason": string, "lines": number }]`. The guard skips an exempt file only while its raw-line count is exactly `lines`, so an exemption never grows (or carries slack) without a reviewed edit, and the test fails if an exempt file is also on the allowlist. | 6a creates it and the three seam entries | 6f appends entries only under Decision 1 option A. 6k checks it holds only seams |
+| 1 | **Permanent exemptions.** A new `lib/__tests__/raw-output-exemptions.json`: `[{ "file": string, "reason": string, "lines": number }]`. The guard skips an exempt file only while its raw-line count is exactly `lines`, so an exemption never grows (or carries slack) without a reviewed edit, and the test fails if an exempt file is also on the allowlist. | 6a creates it and the three seam entries | 6k checks it holds only the three seams |
 | 2 | **Two exports in `lib/ui/out.ts`.** `out.jsonFlushed(value: unknown): Promise<void>` writes a `--json` envelope exactly as `out.json` does and resolves when the write has flushed (`rt mcp tools --json` writes a roster larger than a pipe buffer and exits right after). `out.diagnostic(text: string): void` writes stderr text byte for byte, never styled: the stderr twin of `out.payload`, for the agent-only verbs the spec leaves unconverted (`gate`, `events`, `ci`, `runs`, the herd worker verbs, `worktree claude-hook`), whose stderr an agent reads as it is. A person's failure still goes through `out.fail`. | 6a | 6b calls `diagnostic` for the herd worker verbs, `pane` and `agent`; nobody else |
-| 3 | **`out.holdStdout(): () => void`** in `lib/ui/out.ts` (Decision 1 option B only): until the returned release runs, writes to stdout go to stderr; the release restores stdout and returns nothing. It replaces the hand-rolled `process.stdout.write` swaps in `cd.ts` and `nav.ts`. | 6f | Nobody else calls it |
+| 3 | **`out.holdStdout(): () => void`** in `lib/ui/out.ts` (Ruling 1): until the returned release runs, writes to stdout go to stderr; the release restores stdout and returns nothing. It replaces the hand-rolled `process.stdout.write` swaps in `cd.ts` and `nav.ts`. | 6f | Nobody else calls it |
 | 4 | **Lib warnings.** 5a's warnings table already decided every phase 6 row (5a plan, "The warnings table", rows 1 to 5 and 24 to 39, marked P6). Rows 46 to 52 below are the ones 5a did not see. Each slice applies its rows. | 6d, 6e, 6a, 6f | |
 | 5 | **The "not ours" phrase** (section 2). | 6g, 6h at their own sites | |
 | 6 | **`healErrorClause`.** 6g and 6h stop calling it; 6k deletes it and its test. | 6g, 6h, 6k | |
@@ -192,7 +193,7 @@ Eleven slices. Every slice also touches the shared files of cross-phase ruling 7
 | 6c | daemon | `commands/daemon.ts` | 1 | 2,100 |
 | 6d | services | `commands/services.ts`, `apps.ts`, `flavor.ts`, `bg.ts`, `cron.ts`, `reconciler.ts`, `endpoint.ts`, `post-install.ts`; `lib/endpoint/config.ts`, `lib/endpoint/run.ts` | 9 | 1,700 |
 | 6e | state | `commands/state.ts`, `state-backup-init.ts`, `state-backup-status.ts`; `lib/state/backup-orchestrator.ts`, `backup-restore.ts`, `branch-cache.ts`, `db.ts`, `identity-migrate.ts`, `legacy-import.ts`; `lib/run-history.ts`; `lib/secrets/store.ts` | 12 | 1,600 |
-| 6f | session-cd-nav | `commands/run.ts`, `runner.ts`, `glitter.ts`, `cd.ts`, `nav.ts`, `code.ts`; `lib/runner/runner.ts`, `lib/pickers.ts`; `missingRepoRefusal` and `ghostPathRefusal` in `lib/repo-index.ts`; `out.holdStdout` in `lib/ui/out.ts` (option B) | 8 | 1,900 (B), 900 (A) |
+| 6f | session-cd-nav | `commands/run.ts`, `runner.ts`, `glitter.ts`, `cd.ts`, `nav.ts`, `code.ts`; `lib/runner/runner.ts`, `lib/pickers.ts`; `missingRepoRefusal` and `ghostPathRefusal` in `lib/repo-index.ts`; `out.holdStdout` in `lib/ui/out.ts` | 8 | 1,900 |
 | 6g | git-skills-fixes | `packages/git-core/src/stash.ts`, `types.ts`; `lib/mission/__tests__/driver.test.ts`; `commands/git/mutate.ts`, `shared.ts`, `rebase.ts`; `commands/sync.ts`; `lib/rebase-escalation.ts`; `lib/team/redact.ts`; `lib/git-backup.ts`, `lib/git-ops.ts`; `commands/skills-init.ts`, `skills-link.ts`, `skills-expand.ts`, `skills.ts`, `skills-sync.ts`; `lib/skills/init.ts`, `lib/skills/link.ts` | 0 | 1,700 |
 | 6h | copy-polish | `commands/settings-keys.ts`, `extension.ts`, `logins.ts`, `tools.ts`, `intercept.ts`, `worktree.ts`, `team.ts`, `home.ts`, `repos.ts`, `port.ts`; `lib/setup/validators/tools.ts`, `lib/setup/tools-install.ts`, `lib/setup/steps/index.ts`; `lib/worktree/dispose.ts`; `lib/repo.ts`, `lib/repo-arg.ts`; `lib/team/join.ts` | 0 | 1,500 |
 | 6i | renderer | `ui/internal/render/**`; `lib/ui/spawn.ts`; `commands/sdm.ts` | 0 | 900 |
@@ -205,10 +206,9 @@ No slice passes 2,500 lines. 6c is the largest; its plan names a second cut (`st
 
 ## 5. Order and parallelism
 
-- **6a lands first.** It creates the exemption file (6f's option A appends to it) and the shape of the agent-verb conversion 6b copies. Nothing else waits on it for code.
+- **6a lands first.** It creates the exemption file and the shape of the agent-verb conversion 6b copies. Nothing else waits on it for code.
 - **6b to 6j run in parallel** once 6a's plan is approved. They share no source file. Two of them append exports to `lib/ui/out.ts` (6a `jsonFlushed` and `diagnostic`, 6f `holdStdout`): whoever merges second rebases by hand, as with the allowlist. 6b calls `out.diagnostic`, so its tasks that do wait for 6a on main.
-- **6f waits for Matt's answer to Decision 1** before Task 2. Its Task 1 stops if the answer is not in its plan's ledger.
-- **6g's Task for `tag push` waits for Matt's answer to Decision 2.** Every other 6g task can run.
+- **6f's PR waits for Matt's hand check** of `rt cd` and `rt nav` after the release before it merges (Ruling 1); its tasks can run before that.
 - **6k runs last,** after every other slice is on main. Its first task stops unless the allowlist is empty on `origin/main`.
 - PRs are titled `RT-369: output layer phase 6<letter>, <name>`.
 
@@ -228,30 +228,31 @@ No slice passes 2,500 lines. 6c is the largest; its plan names a second cut (`st
 | `daemon logs --no-open` | the tray (`LogViewerLaunch.swift`): the first non-empty line of stderr, else stdout, on an early exit | that first line reads well alone |
 | `daemon restart` | `skills/rt-build-dev-app` | exit code |
 | `cd`, `nav` | the `rt()` shell wrapper (`dir="$(rt cd ...)"`) | stdout is the path or empty; exit codes |
-| `git tag push --json` | nothing in this repo (no skill, MCP tool, tray model or script); only `commands/git/__tests__/mutate*.test.ts` | Decision 2 |
+| `git tag push --json` | nothing in this repo (no skill, MCP tool, tray model or script); only `commands/git/__tests__/mutate*.test.ts` | the envelope after Ruling 2 |
+| `state backup status --json` | nothing in this repo; only `commands/__tests__/state-backup-status.test.ts` (human path) | both shapes after Ruling 3 |
 | `chat *` | 5f2's fixture `commands/__tests__/fixtures/chat-bytes.json` | must pass unchanged |
 
-## Decision 1: how `rt cd` and `rt nav` leave the allowlist (for Matt)
+## Ruling 1: how `rt cd` and `rt nav` leave the allowlist (Matt, 2026-10-02: a narrow conversion)
 
 Matt ruled on 2026-10-01 that `rt cd` and `rt nav` are rt-ui session verbs and are not converted: the pickers and the navigator are rt-ui and stay exactly as they are. Four files still print raw on their paths: `commands/cd.ts` (24 lines: the stdout swap, nine shell-wrapper notes, two refusals, the exit-time erase), `commands/nav.ts` (6: the stdout swap, two Quick Look lines), and the paths 5c left byte-for-byte in `lib/pickers.ts` (3) and `commands/code.ts` (6). Matt also folded in the fix for `rt cd`'s two-row erase, which wipes the typed command line on every cached run.
 
-**Option A: an explicit, tested exemption.** The four files go on `raw-output-exemptions.json` with the reason "rt cd and rt nav are rt-ui session verbs; their raw lines are kept byte for byte (Matt, 2026-10-01)" and a pinned line count. The only edit is the erase fix (deleting the `\x1b[2A\x1b[0J` exit hook, which also lowers `cd.ts`'s count). About 900 lines with tests. What stays: the yellow escape-colored shell-wrapper notes, the `missingRepoRefusal` long dash and wire form, and two known bugs 5c recorded: under `rt nav`, "No supported editor CLI found" goes to stdout, so `dir="$(rt nav)"` takes it as the folder; and three children of `rt nav` inherit stdout.
+**Ruled (Matt, 2026-10-02): convert only the non-rt-ui prints.** Nothing rt-ui draws changes: no picker, prompt, navigator or step. What changes: the shell-wrapper install and upgrade notes become layer lines on stderr (a `warn` line and a `copy` block for the function to paste); the two refusals become `failure` blocks on stderr with plain copy and the command in `next`; the Quick Look lines move onto the layer; the `rt nav` paths in `code.ts` move their no-editor lines to stderr (fixing the `$dir` bug); the children of `rt nav` get stdout redirected to stderr; the hand-rolled stdout swaps become `out.holdStdout()`; the erase is deleted. stdout stays the path and nothing else, pinned before and after. The allowlist empties with only the three true seams exempt. About 1,900 lines with tests. 6f's PR waits for Matt's hand check of `rt cd` and `rt nav` after the release before it merges.
 
-**Option B: a narrow conversion of only the non-rt-ui prints.** Nothing rt-ui draws changes: no picker, prompt, navigator or step. What changes: the shell-wrapper install and upgrade notes become `out.note` lines on stderr (a `warn` line and a `copy` block for the function to paste); the two refusals become `failure` blocks on stderr with plain copy and the command in `next`; the Quick Look lines become `out.note`; the `rt nav` paths in `code.ts` move their no-editor lines to stderr (fixing the `$dir` bug); the children of `rt nav` get stdout redirected to stderr; the hand-rolled stdout swaps become `out.holdStdout()`; the erase is deleted. stdout stays the path and nothing else, pinned before and after. The allowlist empties with only true seams exempt. About 1,900 lines with tests.
+The option not taken was an explicit exemption of the four files with only the erase fixed; it would have kept the two `rt nav` stdout bugs and the old refusal copy.
 
-**Recommendation: B.** It keeps Matt's ruling (nothing rt-ui draws is touched), fixes the two `rt nav` stdout bugs that A would freeze into an exemption, and leaves no human text exempt from the layer, which is what "the allowlist is empty" is for. A is the smaller change if Matt wants `rt cd` and `rt nav` frozen until his hand check after the release; B's PR then waits for that check.
+## Ruling 2: `rt git tag push --json` names the remote through `printable` (Matt, 2026-10-02)
 
-## Decision 2: `rt git tag push --json` echoes a raw `--remote` (for Matt)
+`rt git tag push v1 --remote https://x:TOKEN@host/repo.git --json` wrote `{"ok":true,"name":"v1","remote":"https://x:TOKEN@host/repo.git"}` to stdout, so a token passed on the command line landed in whatever captured the output. The human line already printed `printable(remote)`.
 
-`rt git tag push v1 --remote https://x:TOKEN@host/repo.git --json` writes `{"ok":true,"name":"v1","remote":"https://x:TOKEN@host/repo.git"}` to stdout, so a token passed on the command line lands in whatever captured the output. The human line already prints `printable(remote)`.
+**Ruled (Matt, 2026-10-02):** `remote` carries `printable(remote)`. Same key, same type, same key order; the value differs only when the remote holds a credential, where it becomes the remote without its userinfo or the word `REMOTE`. 6g pins the envelope in a test.
 
-**Readers of the envelope:** none outside its own tests. Searched `skills/`, `plugins/`, `apps/`, `marketplace/`, `rt-tray/`, `lib/mcp/`, `scripts/` and `e2e/`: no caller parses `rt git tag push --json`, the verb is not agent-safe so `rt_verb` cannot run it, and the only assertions are in `commands/git/__tests__/mutate.test.ts` and `mutate-json.test.ts`.
+**Readers of the envelope: none.** Searched `skills/`, `plugins/`, `apps/`, `marketplace/`, `rt-tray/`, `lib/mcp/`, `scripts/` and `e2e/`: no caller parses `rt git tag push --json`, the verb is not agent-safe so `rt_verb` cannot run it, and the only assertions are in `commands/git/__tests__/mutate.test.ts` and `mutate-json.test.ts`.
 
-**Option 1: `remote` carries `printable(remote)`.** Same key, same type; the value differs only when the remote holds a credential, where it becomes the remote without its userinfo or the word `REMOTE`. Shape unchanged; one machine-read value changes, which is why it needs a yes.
-**Option 2: leave the envelope as it is.** The token keeps reaching stdout when someone passes one; 6g still fixes `printable` and the duplicated regex.
-**Option 3: drop `remote` from the envelope.** A key removed: a shape change, with no reader to justify it.
+## Ruling 3: `rt state backup status --json` with nothing set up prints JSON (Matt, 2026-10-02)
 
-**Recommendation: option 1.** It closes the leak with no structural change and no reader to break.
+Today `rt state backup status --json` on a Mac with no encrypted backup prints a plain sentence on stdout ("State backup is not configured", naming the init command), not JSON. **Ruled (Matt, 2026-10-02):** it prints `{"configured":false}`, the same `configured` key the set-up case's object leads with. 6e pins both shapes.
+
+**Readers: none.** `rt state backup status` is not agent-safe; no skill, plugin, MCP tool, tray model, VM script or e2e test runs it (searched `skills/`, `plugins/`, `apps/`, `marketplace/`, `rt-tray/`, `lib/mcp/`, `scripts/`, `e2e/`); its only test, `commands/__tests__/state-backup-status.test.ts`, reads the human path.
 
 ## Items not placed
 

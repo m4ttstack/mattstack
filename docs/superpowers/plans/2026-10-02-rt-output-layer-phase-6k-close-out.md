@@ -19,7 +19,7 @@
 - Never use em dashes or en dashes anywhere. Never write the phrase banned under the second heading of `~/.claude/rules/no-em-dashes.md`.
 - Comments state only a constraint the code cannot show.
 - No output changes: no `--json`, exit code, plain text or styled render changes. Task 7 is the proof.
-- The exemption list keeps only seams (scoping shared item 1): `lib/cli-logger.ts`, `lib/daemon-logger.ts`, `lib/daemon/inject.ts`, plus `commands/cd.ts`, `commands/nav.ts`, `commands/code.ts` and `lib/pickers.ts` only if Matt chose Decision 1 option A.
+- The exemption list keeps only seams (scoping shared item 1): `lib/cli-logger.ts`, `lib/daemon-logger.ts`, `lib/daemon/inject.ts`. `rt cd` and `rt nav` were converted (Matt's Ruling 1), so none of their files is exempt.
 - Run `bun test` only from the repo root; Go from `ui/`. Never run a built `rt` outside an isolated HOME.
 - Git commands plain and alone from the worktree root. Never `git add -A`, `.` or `-u`. Deleting a file: `git rm <path>`, one path per command.
 - Every commit message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
@@ -40,7 +40,7 @@
 
 - [ ] **Step 1:** `git fetch origin`; `git rebase origin/main`.
 - [ ] **Step 2:** Run `cat lib/__tests__/raw-output-allowlist.json`. Expected: `[]` (and a newline). Anything else: **stop**, report which files remain and which slice owns them (scoping section 1).
-- [ ] **Step 3:** Run `cat lib/__tests__/raw-output-exemptions.json`. Expected: the three seams, plus the four `rt cd`/`rt nav` files only if the ledger records Decision 1 option A. Any other entry: stop and report.
+- [ ] **Step 3:** Run `cat lib/__tests__/raw-output-exemptions.json`. Expected: exactly the three seams. Any other entry: stop and report.
 - [ ] **Step 4:** Run `grep -rn "healErrorClause" --include=*.ts commands lib`. Expected: only `lib/repo-index.ts` (the definition) and `lib/__tests__/repo-index.test.ts`. A caller elsewhere: stop and report (6g or 6h has not landed).
 - [ ] **Step 5:** Run `bun test lib/__tests__/no-raw-output.test.ts lib/__tests__/errors.test.ts lib/tui`. PASS, or stop.
 
@@ -201,7 +201,7 @@ count of raw lines; the guard fails if the count moves either way.
 
 and, in the same section, delete or reword any other sentence that names `raw-output-allowlist.json`, `lib/ansi.ts`, `lib/tui.ts` or `lib/tui/palette.ts` (`grep -n "allowlist\|lib/ansi\|lib/tui\|palette" AGENTS.md` lists them; the paragraphs earlier phases appended about converted verbs stay).
 
-- [ ] **Step 2: The spec.** Under the title line `Ticket: RT-369. Date: 2026-09-30.`, add a line: `Status: done. Every phase shipped; the raw-output allowlist is gone and the color modules are deleted (phase 6k).` In "Guard", after "The project is done when the allowlist is empty, ...", add: `Done in phase 6k; three logging and parsing seams remain on the exemption list.` (If Decision 1 option A was chosen, write "seven files remain on the exemption list: three seams and the four files of rt cd and rt nav".)
+- [ ] **Step 2: The spec.** Under the title line `Ticket: RT-369. Date: 2026-09-30.`, add a line: `Status: done. Every phase shipped; the raw-output allowlist is gone and the color modules are deleted (phase 6k).` In "Guard", after "The project is done when the allowlist is empty, ...", add: `Done in phase 6k; three logging and parsing seams remain on the exemption list.`
 - [ ] **Step 3:** Run `bun run format:check` and `bun run check` (the docs lints). PASS.
 - [ ] **Step 4:** Commit, message `docs: the output layer is done; AGENTS.md and the spec say so`.
 

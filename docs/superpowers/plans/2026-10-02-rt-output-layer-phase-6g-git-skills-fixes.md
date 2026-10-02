@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** The follow-ups Matt folded into phase 6 that live in the git and skills code: a conflicted `git stash pop` reported as kept by git-core itself; no shell strings in `lib/git-backup.ts` and `lib/git-ops.ts`; remotes carrying a credential in a query string printed as `REMOTE`, with one token detector instead of two; `rt git tag push --json` no longer echoing a raw token (Decision 2, only on Matt's yes); `rt skills init` keeping the daemon's `next` when a step throws; plain titles in `skills link`, `skills expand` and `skills init`; a missing Claude Code drawn the same way by `skills sync` and `skills init`; `skills surface apply` printing in one call; the rebase conflict file list under a caption; and the "rt did not make it" phrase at the two skills sites. No allowlist lines (these files left it in phase 5).
+**Goal:** The follow-ups Matt folded into phase 6 that live in the git and skills code: a conflicted `git stash pop` reported as kept by git-core itself; no shell strings in `lib/git-backup.ts` and `lib/git-ops.ts`; remotes carrying a credential in a query string printed as `REMOTE`, with one token detector instead of two; `rt git tag push --json` no longer echoing a raw token (Matt's Ruling 2: the envelope names the remote through `printable`); `rt skills init` keeping the daemon's `next` when a step throws; plain titles in `skills link`, `skills expand` and `skills init`; a missing Claude Code drawn the same way by `skills sync` and `skills init`; `skills surface apply` printing in one call; the rebase conflict file list under a caption; and the "rt did not make it" phrase at the two skills sites. No allowlist lines (these files left it in phase 5).
 
-**Architecture:** Each item is a small, test-first change in the file that owns it. Two touch shared shapes and say so: `GitClient.stashPop` returns `{ kept: boolean }` (one fake in `lib/mission/__tests__/driver.test.ts` follows), and the init outcome's failure branch gains optional `why` and `next` (not serialized into any `--json`). Nothing changes a `--json` shape except Decision 2's task, which waits for Matt.
+**Architecture:** Each item is a small, test-first change in the file that owns it. Two touch shared shapes and say so: `GitClient.stashPop` returns `{ kept: boolean }` (one fake in `lib/mission/__tests__/driver.test.ts` follows), and the init outcome's failure branch gains optional `why` and `next` (not serialized into any `--json`). Nothing changes a `--json` value except Task 4's, which Matt ruled (scoping, Ruling 2): `tag push --json`'s `remote` carries `printable(remote)`, same key, type and order.
 
 **Tech Stack:** Bun + TypeScript, `bun:test`, git sandboxes (`packages/git-core/test-support/sandbox.ts`), Fast Browser.
 
-**Spec:** `docs/superpowers/specs/2026-09-30-rt-output-layer-design.md` (RT-369), "Rules", "Copy style". **Scoping:** `docs/superpowers/plans/2026-10-02-rt-output-layer-phase-6-scoping.md`, section 2 (Form 1, Form 2, Form 3 rows for 6g), Decision 2, shared items 5 and 6. House style: the 5f2 chat plan.
+**Spec:** `docs/superpowers/specs/2026-09-30-rt-output-layer-design.md` (RT-369), "Rules", "Copy style". **Scoping:** `docs/superpowers/plans/2026-10-02-rt-output-layer-phase-6-scoping.md`, section 2 (Form 1, Form 2, Form 3 rows for 6g), Ruling 2, shared items 5 and 6. House style: the 5f2 chat plan.
 
 **Size:** about 1,700 changed lines. One PR.
 
@@ -18,7 +18,7 @@
 
 - Never use em dashes or en dashes anywhere. Never write the phrase banned under the second heading of `~/.claude/rules/no-em-dashes.md`.
 - Comments state only a constraint the code cannot show.
-- `--json` keeps its shape everywhere. The one exception is Task 4 (`rt git tag push --json`'s `remote` value), which runs only if the ledger records Matt's yes to Decision 2 option 1; otherwise Task 4 is skipped and the PR body says so.
+- `--json` keeps its shape everywhere. One value changes, by Matt's ruling (scoping, Ruling 2, 2026-10-02): `rt git tag push --json`'s `remote` becomes `printable(remote)`, with the same key, type and key order (Task 4).
 - Exit codes do not change.
 - Coral only for failures; a missing Claude Code is `needs-you` (something only the person can do), never coral and never `refused`.
 - Copy to "you", plainly; no paths or flags in titles; commands in a `next` callout. The phrase for something rt will not touch because it did not create it: **rt did not make it, so rt left it alone**, worded to fit (scoping section 2).
@@ -42,7 +42,7 @@
 |---|---|---|
 | `lib/mcp/git-tools.ts` (`branch_sync`) | `rt sync --json --no-agent`: exit code, envelope, the last three stderr lines when the envelope has no `error` | the conflict path is the bundle (exit 3), unchanged; the failure's stderr under `--json` goes through `compactFailure`, which drops details and keeps title, hint, why, next: the backup moves into `why`, so it now reaches that tail (Task 9 notes it) |
 | `plugins/mattstack/attachments/forge/rebase-worktree/SKILL.md:257` | quotes `rt sync refused (exit 4): ...` | exit 4 is the stack refusal, untouched |
-| `rt git tag push --json` | nothing in the repo (scoping, Decision 2) | Task 4 only on Matt's yes |
+| `rt git tag push --json` | nothing reads it: no skill, plugin, MCP tool, tray model, script or e2e test parses it, the verb is not agent-safe so `rt_verb` cannot run it, and only `commands/git/__tests__/mutate*.test.ts` assert it (scoping, Ruling 2) | `remote` is `printable(remote)`; pinned in Task 4 |
 | `skills/rt-*`, `plugins/mattstack` | `rt skills init --json`, `rt skills sync --json` | envelopes unchanged |
 
 ## File Structure
@@ -53,7 +53,7 @@
 | `commands/git/mutate.ts`, `commands/git/__tests__/mutate.test.ts`; `lib/mission/__tests__/driver.test.ts` | the caller and the one fake | 1 |
 | `lib/git-backup.ts`, `lib/git-ops.ts`, `lib/__tests__/git-ops.test.ts`, `commands/git/__tests__/backup.test.ts` | argv, never a shell | 2 |
 | `lib/team/redact.ts`, `commands/git/shared.ts`, `commands/git/__tests__/shared.test.ts`, `lib/team/__tests__/redact.test.ts` | one token detector; query credentials | 3 |
-| `commands/git/mutate.ts` (tag push) | Decision 2 | 4 |
+| `commands/git/mutate.ts` (tag push) | Ruling 2 | 4 |
 | `lib/skills/init.ts`, `commands/skills-init.ts`, `lib/skills/__tests__/init.test.ts`, `commands/__tests__/skills-init.test.ts` | `why`/`next` kept; titles; compile failure; the repo-list failure | 5, 6 |
 | `commands/skills-link.ts`, `lib/skills/link.ts`, `commands/skills-expand.ts` and their tests | titles; the "not ours" phrase | 7 |
 | `commands/skills-sync.ts`, `commands/skills.ts` and their tests | missing Claude; surface apply in one call | 8 |
@@ -266,10 +266,11 @@ export function holdsCredentialToken(text: string): boolean {
 
 ---
 
-### Task 4: `rt git tag push --json` (Decision 2; only on Matt's yes)
+### Task 4: `rt git tag push --json` names the remote through `printable` (Matt's Ruling 2)
 
-- [ ] **Step 1:** Read the ledger. If it does not record Matt's yes to Decision 2 option 1, skip this task and put "Decision 2 not taken: `tag push --json` still echoes `--remote`" in the PR body's Follow-up.
-- [ ] **Step 2: Failing test** (append to `commands/git/__tests__/mutate-json.test.ts`):
+Matt ruled this on 2026-10-02 (scoping, Ruling 2). Nothing reads the envelope (the Readers table above), so the change breaks no caller; the test pins the whole envelope, bytes and key order included.
+
+- [ ] **Step 1: Failing test** (append to `commands/git/__tests__/mutate-json.test.ts`):
 
 ```ts
 import { tagPushEnvelope } from "../mutate.ts";
@@ -280,11 +281,13 @@ test("tag push --json names the remote as printable shows it", () => {
   expect(tagPushEnvelope("v1", credentialed)).toEqual({ ok: true, name: "v1", remote: printable(credentialed) });
   expect(JSON.stringify(tagPushEnvelope("v1", credentialed))).not.toContain("secret");
   expect(tagPushEnvelope("v1", "origin")).toEqual({ ok: true, name: "v1", remote: "origin" });
+  expect(JSON.stringify(tagPushEnvelope("v1", "origin"))).toBe('{"ok":true,"name":"v1","remote":"origin"}');
+  expect(JSON.stringify(tagPushEnvelope("v1", credentialed))).toBe(`{"ok":true,"name":"v1","remote":${JSON.stringify(printable(credentialed))}}`);
 });
 ```
 
-- [ ] **Step 3:** Run: FAIL (`tagPushEnvelope` is not exported).
-- [ ] **Step 4:** In `commands/git/mutate.ts`:
+- [ ] **Step 2:** Run: FAIL (`tagPushEnvelope` is not exported).
+- [ ] **Step 3:** In `commands/git/mutate.ts`:
 
 ```ts
 export function tagPushEnvelope(name: string, remote: string): { ok: true; name: string; remote: string } {
@@ -294,7 +297,8 @@ export function tagPushEnvelope(name: string, remote: string): { ok: true; name:
 
 and in `tagPushCommand`, `if (json) out.json(tagPushEnvelope(name, remote));`. The key order (`ok`, `name`, `remote`) is today's.
 
-- [ ] **Step 5:** Run the file: PASS. Commit, message `git tag push: --json names the remote without its credential (Matt, Decision 2)`.
+- [ ] **Step 4:** Run the file: PASS.
+- [ ] **Step 5:** Commit, message `git tag push: --json names the remote without its credential (Matt's ruling)`.
 
 ---
 
@@ -528,8 +532,8 @@ it is worded the same everywhere: rt did not make it, so rt left it alone.
 - [ ] **Step 1:** `git fetch origin`; `git rebase origin/main`; merge `AGENTS.md` and the README by hand.
 - [ ] **Step 2:** The eight gates again.
 - [ ] **Step 3:** `git diff --shortstat origin/main...HEAD`; about 1,700 lines.
-- [ ] **Step 4:** Push with `git_push`; body in `<scratchpad>/pr-body-6g.md` (framing; **git** (stash, argv, tokens, Decision 2 taken or not), **skills**, **rebase**; renders; gates; last line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`); `gh pr create --repo m4ttstack/mattstack --title "RT-369: output layer phase 6g, git-skills-fixes" --body-file <scratchpad>/pr-body-6g.md`.
-- [ ] **Step 5:** Report URL, gates, size, renders, and whether Task 4 ran. Do not merge.
+- [ ] **Step 4:** Push with `git_push`; body in `<scratchpad>/pr-body-6g.md` (framing; **git** (stash, argv, tokens, `tag push --json` per Matt's ruling, with its no-readers finding), **skills**, **rebase**; renders; gates; last line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`); `gh pr create --repo m4ttstack/mattstack --title "RT-369: output layer phase 6g, git-skills-fixes" --body-file <scratchpad>/pr-body-6g.md`.
+- [ ] **Step 5:** Report URL, gates, size, renders. Do not merge.
 
 ---
 
@@ -543,7 +547,7 @@ it is worded the same everywhere: rt did not make it, so rt left it alone.
 
 ## Self-Review
 
-**Spec coverage.** Every 6g row of the scoping document's section 2: stash (1), shell strings (2), tokens (3), Decision 2 (4), skills init (5, 6), titles and the phrase (7), Claude and surface apply (8), rebase lists (9), `healErrorClause` (5, 10).
+**Spec coverage.** Every 6g row of the scoping document's section 2: stash (1), shell strings (2), tokens (3), Ruling 2 (4), skills init (5, 6), titles and the phrase (7), Claude and surface apply (8), rebase lists (9), `healErrorClause` (5, 10).
 
 **Placeholders.** Tests name the file's own helpers to reuse (`seeded`, `tempRepo`, `makeRepo`, `fakeDeps`, the sync deps builder); each states every assertion.
 

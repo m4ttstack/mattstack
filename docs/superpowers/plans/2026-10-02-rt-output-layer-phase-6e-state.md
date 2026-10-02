@@ -19,7 +19,7 @@
 - Never use em dashes or en dashes anywhere. Several lib warnings hold one today; the new log messages carry none.
 - Never write the phrase banned under the second heading of `~/.claude/rules/no-em-dashes.md`.
 - Comments state only a constraint the code cannot show.
-- `--json` keeps its shape, byte for byte: `state backup --json` (all four shapes: `--local`, the full backup, the two local fallbacks), `state restore --json`, `state restore --from-backup --json`, `state backup status --json`. One oddity is kept as it is: `state backup status --json` on a Mac with no backup set up prints a plain sentence, not JSON; it stays that sentence (pinned in Task 3; a shape change needs Matt's yes and is out of scope).
+- `--json` keeps its shape, byte for byte: `state backup --json` (all four shapes: `--local`, the full backup, the two local fallbacks), `state restore --json`, `state restore --from-backup --json`, `state backup status --json`. One shape changes, by Matt's ruling (scoping, Ruling 3, 2026-10-02): `state backup status --json` on a Mac with no backup set up printed a plain sentence, not JSON; it now prints `{"configured":false}`. Nothing reads it (Readers below). Task 3 pins today's output first, and Task 6 makes the ruled change against that pin.
 - Exit codes do not change (`state backup` with no backup set up exits 1; a restore with errors sets exit code 1; every `fail` exits 1).
 - Human text on stdout; failures on stderr through `out.fail`; a refusal by policy (restore while the daemon runs) is a `refused` note.
 - Copy to "you" and "this Mac", plainly; no paths, store names (`state.db`, `recipients.txt`, `.gitattributes`) or flags in sentences; commands in a `next` callout. A path may sit in a hint or a `kv` value where it is the thing the person asked about (the restored copy).
@@ -46,6 +46,7 @@
 | the daemon's backup sweep (`lib/daemon/*`) | calls `runFullBackup` and `pruneOldBackups` in `lib/state/backup-orchestrator.ts`, not the verb | row 46 is log only; the daemon's stderr capture keeps the line |
 | `commands/__tests__/state-backup*.test.ts`, `state-restore-from-backup.test.ts` | the verbs' text and JSON | moved onto the capture; human expectations updated |
 | `lib/state/__tests__/*.test.ts`, `lib/__tests__/run-history.test.ts` | spy `console.warn` | read `setWarningLog` instead |
+| `rt state backup status --json` | nothing: the verb is not agent-safe, and no skill, plugin, MCP tool, tray model, VM script or e2e test runs it (searched `skills/`, `plugins/`, `apps/`, `marketplace/`, `rt-tray/`, `lib/mcp/`, `scripts/`, `e2e/`); its one test reads the human path | the not-set-up case becomes `{"configured":false}` (Matt's Ruling 3); the set-up envelope is unchanged |
 
 ## Copy table
 
@@ -92,7 +93,7 @@
 
 | Today | After |
 |---|---|
-| `State backup is not configured. Run \`rt state backup init\` to set up.` | print `line("off", "Encrypted backup is not set up")`, `callout("next", cmd("rt state backup init"))`; under `--json` the old sentence, unchanged (see Global Constraints) |
+| `State backup is not configured. Run \`rt state backup init\` to set up.` | print `line("off", "Encrypted backup is not set up")`, `callout("next", cmd("rt state backup init"))`; under `--json`, `{"configured":false}` (Matt's Ruling 3) |
 | `State backup: configured, <n> recipient(s)` + `Sweep: every 4 hours` + `Push: <x>` + `LFS: <y>` | `line("done", "Encrypted backup is set up", "<n> key(s) can decrypt it")`, then a `kv` run: `backups` `every 4 hours`, `pushed` `<push words>`, `Git LFS` `<lfs words>`; push "synced" as `up to date`, "<n> commit(s) ahead" as `<n> not pushed yet`, "no remote tracking ref" as `no remote`; LFS "filter active" as `on`, "filter not configured" as `off`, "git-lfs not found" as `not installed` |
 | `  <app>: <n> backup(s), <k>K total, latest: <file>` / `  <app>: no backups` | `table` of `[strong(app), "<n> backup(s)", formatBytes(total), dim("latest <stamp>")]` or `[strong(app), dim("no backups")]` |
 
@@ -199,13 +200,22 @@ test("state restore <copy> --json is one line: ok, restored, from", async () => 
   expect(Object.keys(JSON.parse(io.stdout()))).toEqual(["ok", "restored", "from"]);
 });
 
-test("state backup status --json with nothing set up prints its sentence, unchanged", async () => {
+test("state backup status --json with nothing set up prints its sentence today", async () => {
   await stateBackupStatus(["--json"], {});
   expect(io.stdout()).toBe("State backup is not configured. Run `rt state backup init` to set up.\n");
 });
+
+test("state backup status --json when set up is one line: configured, recipients, apps", async () => {
+  mkdirSync(join(process.env.HOME!, ".mattstack", "user", "state-backups"), { recursive: true });
+  writeFileSync(join(process.env.HOME!, ".mattstack", "user", "state-backups", "recipients.txt"), "age1key1\nage1key2\n");
+  await stateBackupStatus(["--json"], {});
+  const parsed = JSON.parse(io.stdout());
+  expect(Object.keys(parsed)).toEqual(["configured", "recipients", "apps"]);
+  expect(parsed).toMatchObject({ configured: true, recipients: 2 });
+});
 ```
 
-(`stateRestore` with `--force` skips the daemon check, so no daemon is needed; check `listStateBackups` returns names newest first, and adjust the pick if not.)
+(`stateRestore` with `--force` skips the daemon check, so no daemon is needed; check `listStateBackups` returns names newest first, and adjust the pick if not. The set-up status case writes `recipients.txt` where `commands/__tests__/state-backup-status.test.ts` writes it; add `mkdirSync`, `writeFileSync` and `join` to the imports. The first status test pins today's sentence so that Task 6's ruled change is a deliberate edit of a pinned line.)
 
 - [ ] **Step 2:** Run: PASS on today's code, twice more: PASS.
 - [ ] **Step 3:** Commit, message `state: pin the --json output before the output layer touches it`.
@@ -358,11 +368,19 @@ Delete `commands/state-backup-init.ts` from the allowlist.
 
 ### Task 6: `rt state backup status` and the state warnings
 
-**Files:** `commands/state-backup-status.ts`, `commands/__tests__/state-backup-status.test.ts`, `lib/state/db.ts`, `identity-migrate.ts`, `legacy-import.ts`, `branch-cache.ts`, `backup-orchestrator.ts`, `backup-restore.ts`, their tests, the allowlist.
+**Files:** `commands/state-backup-status.ts`, `commands/__tests__/state-backup-status.test.ts`, `commands/__tests__/state-json.test.ts`, `lib/state/db.ts`, `identity-migrate.ts`, `legacy-import.ts`, `branch-cache.ts`, `backup-orchestrator.ts`, `backup-restore.ts`, their tests, the allowlist.
 
 - [ ] **Step 1: Failing tests.**
 
-In `state-backup-status.test.ts` (moved onto the capture), the configured case expects stdout to start `[ok] Encrypted backup is set up  2 keys can decrypt it\n` and to contain `backups: every 4 hours`; the not-configured human case expects `[off] Encrypted backup is not set up\n  next: rt state backup init\n`.
+In `state-backup-status.test.ts` (moved onto the capture), the configured case expects stdout to start `[ok] Encrypted backup is set up  2 keys can decrypt it\n` and to contain `backups: every 4 hours`; the not-configured human case expects `[off] Encrypted backup is not set up\n  next: rt state backup init\n`. In `commands/__tests__/state-json.test.ts`, Matt's Ruling 3 replaces the first status test:
+
+```ts
+test("state backup status --json with nothing set up is {configured:false} (Matt's ruling)", async () => {
+  await stateBackupStatus(["--json"], {});
+  expect(io.stdout()).toBe('{"configured":false}\n');
+  expect(io.stderr()).toBe("");
+});
+```
 
 In `lib/state/__tests__/db.test.ts`, replace the `console.warn` spy at line 505 with:
 
@@ -438,7 +456,7 @@ function formatBytes(n: number): string {
 }
 ```
 
-The not-configured branch: `if (json) { out.payload("State backup is not configured. Run \`rt state backup init\` to set up.\n"); return; } out.print(out.line("off", "Encrypted backup is not set up"), out.callout("next", out.cmd("rt state backup init"))); return;`. The `--json` envelope through `out.json`. The human ending:
+The not-configured branch: `if (json) { out.json({ configured: false }); return; } out.print(out.line("off", "Encrypted backup is not set up"), out.callout("next", out.cmd("rt state backup init"))); return;`. The `--json` envelope through `out.json`. The human ending:
 
 ```ts
   const pushed = /^(\d+) commit\(s\) ahead$/.exec(pushState);
@@ -471,8 +489,8 @@ warn("state", `git lfs prune warned: ${stderr.slice(0, 200)}`);
 
 Delete from the allowlist: `commands/state-backup-status.ts`, `lib/state/backup-orchestrator.ts`, `lib/state/backup-restore.ts`, `lib/state/branch-cache.ts`, `lib/state/db.ts`, `lib/state/identity-migrate.ts`, `lib/state/legacy-import.ts`.
 
-- [ ] **Step 4:** Run `bun test commands/__tests__/state-backup-status.test.ts lib/state lib/__tests__/no-raw-output.test.ts lib/__tests__/no-eager-tui.test.ts lib/__tests__/no-daemon-sync-exec.test.ts`. PASS, including `lib/state/__tests__/barrel.test.ts`.
-- [ ] **Step 5:** Commit, message `state backup status as states; lib/state warnings through warn (5a rows 24 to 38, rows 46 to 48)`.
+- [ ] **Step 4:** Run `bun test commands/__tests__/state-backup-status.test.ts commands/__tests__/state-json.test.ts lib/state lib/__tests__/no-raw-output.test.ts lib/__tests__/no-eager-tui.test.ts lib/__tests__/no-daemon-sync-exec.test.ts`. PASS, including `lib/state/__tests__/barrel.test.ts`.
+- [ ] **Step 5:** Commit, message `state backup status as states, and JSON when nothing is set up (Matt's ruling); lib/state warnings through warn (5a rows 24 to 38, rows 46 to 48)`.
 
 ---
 
@@ -545,7 +563,7 @@ process. The daemon sets no warning log, so it still files the plain
 
 ## Decisions this plan made
 
-1. **`state backup status --json` keeps printing a sentence when nothing is set up.** It is the frozen output today; turning it into JSON is a shape change that needs Matt's yes. Named here so Matt can rule on it later.
+1. **`state backup status --json` with nothing set up prints `{"configured":false}`** (Matt's Ruling 3, 2026-10-02): it printed a sentence; the object leads with the same `configured` key as the set-up case, and nothing reads it.
 2. **`state backup init` uses the step runner, and a stage that ends with a caveat ends `done` with a hint** plus a `warn` line after, because `lib/ui/steps.ts`'s runner has no warn or skipped ending and that file is not this slice's.
 3. **Restore while the daemon runs is a refusal,** exit 1 as today: the data is shared, and `--force` overrides it.
 4. **Rows 47 and 48 share one shown line,** since `warn` shows a title and hint once per process.

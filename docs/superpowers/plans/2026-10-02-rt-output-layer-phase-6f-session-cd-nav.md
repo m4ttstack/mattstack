@@ -4,15 +4,15 @@
 
 **Goal:** `rt run`, the preflight and teardown lines of `rt runner` and `rt glitter`, and the non-rt-ui prints of `rt cd` and `rt nav` (with the paths of `lib/pickers.ts` and `commands/code.ts` they reach) leave the raw-output allowlist; `rt cd` stops erasing the person's typed command line; `rt nav` stops leaking editor and shell output into the folder its shell wrapper changes into; and `rt code` remembers an editor choice again (the `savePrefs` bug). Eight allowlist lines go. Nothing rt-ui draws (pickers, the navigator, prompts, the runner board, the glitter board) changes.
 
-**This plan waits on Matt's Decision 1** (scoping document, "Decision 1"). It is written for option B (a narrow conversion of only the non-rt-ui prints), which the scoping document recommends. If Matt chooses option A (an explicit, tested exemption), run Tasks 1 to 4 and 8 to 11 unchanged, replace Tasks 5 to 7 with the "Option A" section at the end, and skip Task 2 Step 2's `holdStdout`. Task 1 stops if the ledger does not record Matt's answer.
+**Ruled (Matt, 2026-10-02; scoping document, Ruling 1):** `rt cd` and `rt nav` leave the allowlist by a narrow conversion of only their non-rt-ui prints. The PR waits for Matt's hand check of `rt cd` and `rt nav` in a real terminal after the release before it merges; every task can run before that.
 
 **Architecture:** One new layer export, `out.holdStdout()`, replaces the two hand-rolled `process.stdout.write` swaps: until released, writes to stdout go to stderr and human text follows them, so the shell wrapper's `$(...)` reads only the path `out.payload` writes after release. Every other print moves onto `out.print`, `out.note` or `out.fail`. Children of `rt nav` that used to inherit stdout get the terminal through stderr's descriptor instead. `rt run` keeps its JSON on stdout (`--resolve-only`, the seed) and draws its human lines on stderr after `payloadOnStdout()`.
 
 **Tech Stack:** Bun + TypeScript, `bun:test` (the cd and nav harnesses with `lib/ui/pick.ts`'s fake pick), the e2e suite, Fast Browser.
 
-**Spec:** `docs/superpowers/specs/2026-09-30-rt-output-layer-design.md` (RT-369): "Rules" 1 (the `rt cd` and `rt nav` path is a payload), 2 (their human text goes to stderr), "Non-goals" (`rt runner` and `rt glitter`: only their preflight errors). **Scoping:** `docs/superpowers/plans/2026-10-02-rt-output-layer-phase-6-scoping.md`, 6f, Decision 1, shared item 3, warnings row 52. 5c's record of the bugs: `docs/superpowers/plans/2026-10-01-rt-output-layer-phase-5c-worktree-nav.md`, "Rulings"/"Findings" (the two-row erase; the no-editor lines on stdout; three children inheriting fd 1). House style: the 5f2 chat plan.
+**Spec:** `docs/superpowers/specs/2026-09-30-rt-output-layer-design.md` (RT-369): "Rules" 1 (the `rt cd` and `rt nav` path is a payload), 2 (their human text goes to stderr), "Non-goals" (`rt runner` and `rt glitter`: only their preflight errors). **Scoping:** `docs/superpowers/plans/2026-10-02-rt-output-layer-phase-6-scoping.md`, 6f, Ruling 1, shared item 3, warnings row 52. 5c's record of the bugs: `docs/superpowers/plans/2026-10-01-rt-output-layer-phase-5c-worktree-nav.md`, "Rulings"/"Findings" (the two-row erase; the no-editor lines on stdout; three children inheriting fd 1). House style: the 5f2 chat plan.
 
-**Size:** about 1,900 changed lines (option B). One PR.
+**Size:** about 1,900 changed lines. One PR.
 
 **What was run while writing this plan:** nothing was compiled except one probe: `setSetting("rt.workspacePrefs", { editors: { a: "code" }, workspaces: {}, defaultEditor: undefined }, "machine")` under a temp HOME throws `Instances of "undefined" type are not supported.`, and the same object without the `undefined` key saves. That is the `savePrefs` bug (Task 3). Written against `origin/main` at `658e704b9`.
 
@@ -28,8 +28,8 @@
 - Run `bun test` only from the repo root. Never run a built `rt` outside an isolated HOME. No test writes the real `~/.zshrc`: the cd harness's temp HOME only.
 - Git commands plain and alone from the worktree root. Never `git add -A`, `.` or `-u`.
 - Every commit message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-- Files this slice must not edit: every file another phase 6 slice owns; `lib/ui/**` except `holdStdout` in `lib/ui/out.ts` (option B); `lib/repo-index.ts` except `missingRepoRefusal` and `ghostPathRefusal` (6k deletes `healErrorClause` there later; 6h does not touch the file).
-- UI validation is mandatory (Task 10). Matt also checks `rt cd` and `rt nav` by hand after the release; this PR waits for that check before merging (Decision 1, option B).
+- Files this slice must not edit: every file another phase 6 slice owns; `lib/ui/**` except `holdStdout` in `lib/ui/out.ts`; `lib/repo-index.ts` except `missingRepoRefusal` and `ghostPathRefusal` (6k deletes `healErrorClause` there later; 6h does not touch the file).
+- UI validation is mandatory (Task 10). Matt also checks `rt cd` and `rt nav` by hand after the release; this PR waits for that check before merging (Ruling 1).
 
 ## Review Focus
 
@@ -111,8 +111,8 @@ Row 52 (`commands/code.ts:64`): `warn("code", \`could not save workspace prefs: 
 
 | File | Responsibility |
 |---|---|
-| `lib/ui/out.ts`, `lib/ui/__tests__/out.test.ts` (modify) | `holdStdout` (option B) |
-| `commands/cd.ts`, `commands/nav.ts`, `commands/code.ts`, `lib/pickers.ts`, `lib/repo-index.ts` (modify) | Decision 1's work, the erase, `savePrefs` |
+| `lib/ui/out.ts`, `lib/ui/__tests__/out.test.ts` (modify) | `holdStdout` |
+| `commands/cd.ts`, `commands/nav.ts`, `commands/code.ts`, `lib/pickers.ts`, `lib/repo-index.ts` (modify) | Ruling 1's conversion, the erase, `savePrefs` |
 | `commands/run.ts`, `commands/runner.ts`, `commands/glitter.ts`, `lib/runner/runner.ts` (modify) | session verbs |
 | `commands/__tests__/cd-nav-bytes.test.ts` (create) | stdout pins for `rt cd` and `rt nav` |
 | the tests named in Readers (modify) | |
@@ -120,16 +120,15 @@ Row 52 (`commands/code.ts:64`): `warn("code", \`could not save workspace prefs: 
 
 ---
 
-### Task 1: Confirm the base and the decision
+### Task 1: Confirm the base
 
 - [ ] **Step 1:** `git fetch origin`; `git rebase origin/main`.
-- [ ] **Step 2:** Read the task ledger. If it does not record Matt's answer to Decision 1 (A or B), **stop**: report "6f waits on Decision 1" and do not start Task 2.
-- [ ] **Step 3:** Run each alone: `grep -n "export function clearScreen" lib/ui/screen.ts`; `grep -n "export function warn" lib/ui/warn.ts`; `grep -n "export function missingRepoFailure" lib/repo.ts`. One line each, or stop. `grep -c "commands/run.ts\|commands/runner.ts\|commands/glitter.ts\|lib/runner/runner.ts\|commands/cd.ts\|commands/nav.ts\|commands/code.ts\|lib/pickers.ts" lib/__tests__/raw-output-allowlist.json`: `8`, or stop.
-- [ ] **Step 4:** Run `bun test commands/__tests__/cd.test.ts commands/__tests__/cd-identity-match.test.ts commands/__tests__/nav.test.ts commands/__tests__/code-output.test.ts commands/__tests__/code-prefs.test.ts commands/__tests__/code-launch.test.ts commands/__tests__/run-report-save.test.ts commands/__tests__/run-abort-message.test.ts commands/__tests__/runner-command.test.ts lib/__tests__/pickers.test.ts lib/__tests__/repo-index-missing.test.ts lib/__tests__/cd-cache-read.test.ts`. PASS, or stop and report.
+- [ ] **Step 2:** Run each alone: `grep -n "export function clearScreen" lib/ui/screen.ts`; `grep -n "export function warn" lib/ui/warn.ts`; `grep -n "export function missingRepoFailure" lib/repo.ts`. One line each, or stop. `grep -c "commands/run.ts\|commands/runner.ts\|commands/glitter.ts\|lib/runner/runner.ts\|commands/cd.ts\|commands/nav.ts\|commands/code.ts\|lib/pickers.ts" lib/__tests__/raw-output-allowlist.json`: `8`, or stop.
+- [ ] **Step 3:** Run `bun test commands/__tests__/cd.test.ts commands/__tests__/cd-identity-match.test.ts commands/__tests__/nav.test.ts commands/__tests__/code-output.test.ts commands/__tests__/code-prefs.test.ts commands/__tests__/code-launch.test.ts commands/__tests__/run-report-save.test.ts commands/__tests__/run-abort-message.test.ts commands/__tests__/runner-command.test.ts lib/__tests__/pickers.test.ts lib/__tests__/repo-index-missing.test.ts lib/__tests__/cd-cache-read.test.ts`. PASS, or stop and report.
 
 ---
 
-### Task 2: `out.holdStdout` (option B), and the audit
+### Task 2: `out.holdStdout`, and the audit
 
 **Files:** `lib/ui/out.ts`, `lib/ui/__tests__/out.test.ts`.
 
@@ -341,7 +340,7 @@ The fake pick's result shape must match `lib/ui/pick.ts`'s `PickImpl` (read it; 
 
 ---
 
-### Task 5: `rt cd` (option B)
+### Task 5: `rt cd`
 
 **Files:** `commands/cd.ts`, `lib/pickers.ts`, `lib/repo-index.ts`, `commands/__tests__/cd.test.ts`, `commands/__tests__/cd-identity-match.test.ts`, `lib/__tests__/pickers.test.ts`, `lib/__tests__/repo-index-missing.test.ts`, `lib/__tests__/cd-cache-read.test.ts`, the allowlist.
 
@@ -422,7 +421,7 @@ Delete `commands/cd.ts` and `lib/pickers.ts` from the allowlist.
 
 ---
 
-### Task 6: `rt nav` and the editor opener (option B)
+### Task 6: `rt nav` and the editor opener
 
 **Files:** `commands/nav.ts`, `commands/code.ts`, `commands/__tests__/nav.test.ts`, `commands/__tests__/code-output.test.ts`, `commands/__tests__/code-launch.test.ts`, the allowlist.
 
@@ -535,40 +534,22 @@ wrapper's pipe. Neither erases rows on exit.
 
 - [ ] **Step 1:** `git fetch origin`; `git rebase origin/main`; merge the allowlist, `AGENTS.md`, README and `lib/ui/out.ts` (6a's two exports, then `holdStdout`) by hand.
 - [ ] **Step 2:** The eight gates again.
-- [ ] **Step 3:** `git diff --shortstat origin/main...HEAD`; about 1,900 lines (option B).
-- [ ] **Step 4:** Push with `git_push`; body in `<scratchpad>/pr-body-6f.md` (framing; **cd and nav** with Decision 1's option named; **code** (`savePrefs`, the editor target as an argument); **run, runner, glitter**; the renders; gates; a line that the PR waits for Matt's hand check of `rt cd` and `rt nav`; last line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`); `gh pr create --repo m4ttstack/mattstack --title "RT-369: output layer phase 6f, session-cd-nav" --body-file <scratchpad>/pr-body-6f.md`.
+- [ ] **Step 3:** `git diff --shortstat origin/main...HEAD`; about 1,900 lines.
+- [ ] **Step 4:** Push with `git_push`; body in `<scratchpad>/pr-body-6f.md` (framing; **cd and nav** (Matt's Ruling 1: the non-rt-ui prints only); **code** (`savePrefs`, the editor target as an argument); **run, runner, glitter**; the renders; gates; a line that the PR waits for Matt's hand check of `rt cd` and `rt nav`; last line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`); `gh pr create --repo m4ttstack/mattstack --title "RT-369: output layer phase 6f, session-cd-nav" --body-file <scratchpad>/pr-body-6f.md`.
 - [ ] **Step 5:** Report URL, gates, size, renders. Do not merge.
 
 ---
 
-## Option A (if Matt chooses the exemption)
-
-Replace Tasks 5 to 7's `rt cd` and `rt nav` work with these two tasks; Tasks 3 (`savePrefs`), 7 (`rt run`) and 8 (`runner`, `glitter`) run as written.
-
-### Task 5A: Fix the erase, then exempt the four files
-
-**Files:** `commands/cd.ts`, `lib/__tests__/raw-output-exemptions.json`, `lib/__tests__/raw-output-allowlist.json`, `commands/__tests__/cd-nav-bytes.test.ts`.
-
-- [ ] **Step 1: Failing test:** `rt cd registers no exit-time erase` (Task 5 Step 1's first test).
-- [ ] **Step 2:** Run: FAIL.
-- [ ] **Step 3:** Delete the `process.once("exit", ...)` erase hook and its comment in `commands/cd.ts`. Nothing else in the file changes.
-- [ ] **Step 4:** Count each file's raw lines with Task 4 Step 1 of 6a's one-liner (pointed at `commands/cd.ts`, `commands/nav.ts`, `commands/code.ts`, `lib/pickers.ts`). Add four entries to `lib/__tests__/raw-output-exemptions.json`, sorted by `file`, each with its count and the reason `rt cd and rt nav are rt-ui session verbs; their raw lines are kept byte for byte (Matt, 2026-10-01)` (for `code.ts` and `pickers.ts`: `the paths rt cd and rt nav reach keep their bytes (Matt, 2026-10-01)`). Delete the four files from the allowlist.
-- [ ] **Step 5:** Run `bun test lib/__tests__/no-raw-output.test.ts commands/__tests__/cd-nav-bytes.test.ts commands/__tests__/cd.test.ts`. PASS. Commit, message `cd: no erase of the typed command line; cd, nav and the paths they reach go on the exemption list`.
-
-### Task 6A: The `rt nav` stdout bugs stay, named
-
-No code. Report that option A leaves the two bugs 5c recorded (the no-editor lines on stdout under `rt nav`, and three children inheriting stdout) and `missingRepoRefusal`'s long dash and wire form, and that `savePrefs` (Task 3) is fixed regardless.
-
 ## Decisions this plan made
 
-1. **Option B is the written path,** per the scoping document's recommendation; option A is a two-task substitute.
+1. **The narrow conversion is ruled** (Matt, 2026-10-02, scoping Ruling 1); the exemption it replaced would have kept the two `rt nav` stdout bugs.
 2. **`rt runner`'s and `lib/runner/runner.ts`'s housekeeping lines are log only.** They fire around or under a live board; printing over it tears the board, and the person cannot act on them.
 3. **The editor target becomes `$1` in `launchEditor`**, as `spawnEditor` already does, in the same edit that redirects its stdout: the shell string spliced a path into quotes.
-4. **`lib/pickers.ts` drops its `legacyCd` branches** under option B: every caller now gets the same failures.
+4. **`lib/pickers.ts` drops its `legacyCd` branches**: every caller now gets the same failures.
 
 ## Self-Review
 
-**Spec coverage.** Rules 1 and 2 for `rt cd` and `rt nav`: Tasks 4 to 6. "Non-goals": `runner` and `glitter` preflight only (Task 8). The folded-in erase (Task 5 / 5A), `savePrefs` (Task 3), `missingRepoRefusal` (Task 5), row 52 (Task 3). Eight allowlist lines (Tasks 5 to 8, or 5A).
+**Spec coverage.** Rules 1 and 2 for `rt cd` and `rt nav`: Tasks 4 to 6. "Non-goals": `runner` and `glitter` preflight only (Task 8). The folded-in erase (Task 5), `savePrefs` (Task 3), `missingRepoRefusal` (Task 5), row 52 (Task 3). Eight allowlist lines (Tasks 5 to 8).
 
 **Placeholders.** Two tests lean on a named fake the implementer reads first (the prompt fake that answers the wrapper confirm; `code-launch.test.ts`'s launcher seam); each names the fake and every assertion.
 
