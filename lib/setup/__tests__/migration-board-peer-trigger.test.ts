@@ -11,6 +11,7 @@ import type { ApplyContext } from "../apply.ts";
 import { fakeProbes } from "./fakes.ts";
 
 type Trigger = { name: string; event?: string; run: string[]; debounceMs?: number };
+const ctxWith = (p: ApplyContext["p"]): ApplyContext => ({ p }) as Partial<ApplyContext> as ApplyContext;
 const triggers = () => getSetting<{ triggers: Trigger[] }>("rt.cron").value?.triggers ?? [];
 
 describe("2026-10-01-board-peer-trigger", () => {
@@ -28,8 +29,8 @@ describe("2026-10-01-board-peer-trigger", () => {
     script = join(checkout, "bin", "triage.ts");
     writeFileSync(script, "// triage");
     updateRepoIndex("board", checkout);
-    resolvable = { p: fakeProbes({ home, files: { [script]: "// triage" } }) } as ApplyContext;
-    unresolvable = { p: fakeProbes({ home, env: { PATH: "" } }) } as ApplyContext;
+    resolvable = ctxWith(fakeProbes({ home, files: { [script]: "// triage" } }));
+    unresolvable = ctxWith(fakeProbes({ home, env: { PATH: "" } }));
   });
 
   afterEach(() => {
