@@ -119,6 +119,8 @@ describe("collectFacts", () => {
     const rec = { ...tree("delta3"), disposal: "job" as const, owner: "herd:h1", heldReason: "herd h1 is active" };
     const held = await collectFacts(repoName, repo, rec, { ...deps(merged("delta3")), jobTreeHold: () => "herd h1 is active" });
     expect(held.hold).toEqual({ kind: "herd", detail: "herd h1 is active" });
+    const owned = await collectFacts(repoName, repo, { ...rec, owner: "alex" }, { ...deps(merged("delta3")), jobTreeHold: () => "job tree owned by alex" });
+    expect(owned.hold).toEqual({ kind: "owner", detail: "job tree owned by alex" });
   });
 });
 

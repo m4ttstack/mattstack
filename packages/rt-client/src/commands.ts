@@ -573,7 +573,7 @@ export interface WorktreeAdoptData {
   refused: Array<{ tree: string; reason: string; detail?: string }>;
 }
 
-export interface TriageHold { kind: "process" | "orphan-stopping" | "herd" | "run"; detail: string }
+export interface TriageHold { kind: "process" | "orphan-stopping" | "herd" | "owner" | "run"; detail: string }
 export interface TriageRow {
   repo: string; tree: string; path: string; branch: string | null;
   mr: { iid: number; state: "opened" | "merged" | "closed"; title: string; at: string | null; url: string | null } | null;

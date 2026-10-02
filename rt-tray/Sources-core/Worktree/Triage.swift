@@ -213,7 +213,7 @@ public enum TriageConfirm {
 
     public static func releaseMessage(_ row: TriageRow) -> String {
         let why = row.hold.map { "It's held because \($0.detail.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: #"\.$"#, with: "", options: .regularExpression)). " } ?? ""
-        return why + "Releasing lets cleanup go ahead, with its usual checks: it still waits for anything running inside to stop."
+        return why + "Releasing hands it to the usual cleanup, which still waits for anything running inside to stop."
     }
 }
 

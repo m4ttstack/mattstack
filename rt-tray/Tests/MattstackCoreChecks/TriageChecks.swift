@@ -120,7 +120,7 @@ let triageChecks: [Check] = [
         let huan = try JSONDecoder().decode(TriageRow.self, from: Data(herdJSON.utf8))
         c.expectEqual(TriageConfirm.releaseTitle(huan), "Release huan from its herd?")
         c.expectEqual(TriageConfirm.releaseMessage(huan),
-                      "It's held because herd h1 is active. Releasing lets cleanup go ahead, with its usual checks: it still waits for anything running inside to stop.")
+                      "It's held because herd h1 is active. Releasing hands it to the usual cleanup, which still waits for anything running inside to stop.")
     },
     Check("a remove footer names the trash path when the daemon returns one") { c in
         c.expectEqual(TriageStatusLine.action(tree: "daisy", outcome: .done, done: TriageStatusLine.removed(trash: "/p/.worktrees/.trash-daisy")).text,

@@ -332,7 +332,7 @@ export function createWorktreeTriageHandlers(
       if (!row.actions.includes("release")) return fail("not-held");
       let released = false;
       const written = patchTree(r.repo, r.rec.path, (t) => {
-        if (t.branch !== r.rec.branch || t.state !== r.rec.state) return;
+        if (t.branch !== r.rec.branch || t.state !== r.rec.state || t.claimedAt !== r.rec.claimedAt || t.owner !== r.rec.owner) return;
         t.releasedAt = new Date().toISOString();
         delete t.heldReason;
         released = true;

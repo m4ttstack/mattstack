@@ -61,7 +61,7 @@ function holdOf(rec: TreeRecord, deps: TriageDeps): TriageHold | null {
   // reads as the herd's, never as a process the panel could stop.
   if (rec.disposal === "job") {
     const h = deps.jobTreeHold(rec);
-    if (h) return { kind: "herd", detail: h };
+    if (h) return { kind: rec.owner?.startsWith("herd:") ? "herd" : "owner", detail: h };
   }
   if (rec.heldReason) {
     return rec.heldReason.startsWith("stopped stale orphan")
