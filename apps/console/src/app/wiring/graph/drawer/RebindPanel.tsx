@@ -15,9 +15,10 @@ import {
 import { Icon } from '@mattstack/app-kit/icons';
 import { modals } from '@mattstack/app-kit/modals';
 import { notifications } from '@mattstack/app-kit/notifications';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { suffixOf, type SkillsComposition } from '../../outline';
-import { useSkillsApply } from '../../useWiring';
+import { guardedWrite, useSkillsApply } from '../../useWiring';
 import { ButtonLabel } from '../ButtonLabel';
 import { stepLabel } from '../model/focusModel';
 import classes from './drawer.module.css';
@@ -62,6 +63,7 @@ export function RebindPanel({
   onDone: () => void;
 }) {
   const { bind, writing } = useSkillsApply(pack);
+  const queryClient = useQueryClient();
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -98,19 +100,20 @@ export function RebindPanel({
       title: `Rebind the ${slot} slot?`,
       message: `${step} will use ${suffixOf(fill)} ${was}. Nothing is shared until you sync.`,
       labels: { confirm: 'Apply' },
-      onConfirm: () => {
-        bind
-          .mutateAsync({ verb: skill, slot, fill })
-          .then(result => {
-            if (!result.ok) {
-              notifications.error(result.error ?? 'rt skills bind failed');
-              return;
-            }
-            notifications.success(`Rebound ${slot} to ${suffixOf(fill)}`);
-            if (mounted.current) onDone();
-          })
-          .catch((error: Error) => notifications.error(error.message));
-      },
+      onConfirm: () =>
+        guardedWrite(queryClient, pack, () => {
+          bind
+            .mutateAsync({ verb: skill, slot, fill })
+            .then(result => {
+              if (!result.ok) {
+                notifications.error(result.error ?? 'rt skills bind failed');
+                return;
+              }
+              notifications.success(`Rebound ${slot} to ${suffixOf(fill)}`);
+              if (mounted.current) onDone();
+            })
+            .catch((error: Error) => notifications.error(error.message));
+        }),
     });
   };
 

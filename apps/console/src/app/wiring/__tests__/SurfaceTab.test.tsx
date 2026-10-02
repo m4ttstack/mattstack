@@ -1,6 +1,7 @@
+import { notifications } from '@mattstack/app-kit/notifications';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -87,6 +88,7 @@ function stagedDelta(rows: { name: string; status: string }[]) {
 }
 
 afterEach(() => {
+  act(() => notifications.clean());
   vi.clearAllMocks();
 });
 
@@ -227,6 +229,24 @@ describe('SurfaceTab: pressing Apply', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled()
     );
+  });
+
+  it('refuses an Apply clicked before the screen caught up with another write to the pack', async () => {
+    const { queryClient } = renderSurfaceTab();
+    await screen.findByTestId('surface-row-watch-ci');
+    await userEvent.click(screen.getByRole('switch', { name: /^watch-ci$/ }));
+    const apply = screen.getByRole('button', { name: 'Apply' });
+    expect(apply).toBeEnabled();
+
+    holdWrite(queryClient, 'demo');
+    fireEvent.click(apply);
+
+    expect(
+      await screen.findByText(
+        'Another change to demo is still being written. Try again once it finishes.'
+      )
+    ).toBeInTheDocument();
+    expect(surfaceApplyPost).not.toHaveBeenCalled();
   });
 
   it('shows the error when the apply mutation fails outright', async () => {

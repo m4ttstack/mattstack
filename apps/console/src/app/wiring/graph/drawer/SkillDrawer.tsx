@@ -16,10 +16,12 @@ import { useHotkeys } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import { modals, useModals } from '@mattstack/app-kit/modals';
 import { notifications } from '@mattstack/app-kit/notifications';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { useDrawerSurface } from '../../drawerSurface';
 import type { SkillsCheck, SkillsComposition } from '../../outline';
 import {
+  guardedWrite,
   useSkillsApply,
   useSkillSource,
   type SkillsAnatomy,
@@ -92,6 +94,7 @@ function steppedRow(
     Results come from the promise, which settles after an unmount too. */
 function usePublicSwitch(pack: string) {
   const { surfaceApply, writing } = useSkillsApply(pack);
+  const queryClient = useQueryClient();
   const toggle = (skill: string, toPublic: boolean) => {
     if (writing) return;
     const next = toPublic ? 'public' : 'internal';
@@ -102,23 +105,24 @@ function usePublicSwitch(pack: string) {
         ? `${skill} is compiled into skills/${skill}/, so it runs as a skill of its own. Nothing is shared until you sync.`
         : `skills/${skill}/ stops being compiled and is removed, so ${skill} no longer runs as a skill of its own. Nothing is shared until you sync.`,
       labels: { confirm: `Make ${next}` },
-      onConfirm: () => {
-        surfaceApply
-          .mutateAsync(
-            toPublic
-              ? { toPublic: [skill], toInternal: [] }
-              : { toPublic: [], toInternal: [skill] }
-          )
-          .then(result => {
-            const failed = result.steps.find(step => !step.ok);
-            if (failed) {
-              notifications.error(failed.error ?? 'rt skills surface failed');
-              return;
-            }
-            notifications.success(`${skill} is ${next}`);
-          })
-          .catch((error: Error) => notifications.error(error.message));
-      },
+      onConfirm: () =>
+        guardedWrite(queryClient, pack, () => {
+          surfaceApply
+            .mutateAsync(
+              toPublic
+                ? { toPublic: [skill], toInternal: [] }
+                : { toPublic: [], toInternal: [skill] }
+            )
+            .then(result => {
+              const failed = result.steps.find(step => !step.ok);
+              if (failed) {
+                notifications.error(failed.error ?? 'rt skills surface failed');
+                return;
+              }
+              notifications.success(`${skill} is ${next}`);
+            })
+            .catch((error: Error) => notifications.error(error.message));
+        }),
     });
   };
   return { toggle, writing };

@@ -18,11 +18,13 @@ import {
 } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { useEditorHref } from '../editorHref';
 import { suffixOf } from './outline';
 import type { SkillsSurfaceRow } from './useWiring';
 import {
+  guardedWrite,
   useCompositionSnapshot,
   useSkillsApply,
   useSurface,
@@ -304,6 +306,7 @@ export function SurfaceTab({ pack }: SurfaceTabProps) {
   const { bg, text, border } = useSchemeColors();
   const surfaceQuery = useSurface(pack);
   const { surfaceApply, writing } = useSkillsApply(pack);
+  const queryClient = useQueryClient();
   // Memoized so the `?? []` fallback isn't a fresh array reference on every
   // render -- `useSurfaceStaging` and the memos below key off this identity.
   const rows = useMemo(
@@ -502,7 +505,11 @@ export function SurfaceTab({ pack }: SurfaceTabProps) {
               size="xs"
               disabled={staged.size === 0 || writing}
               loading={surfaceApply.isPending}
-              onClick={() => surfaceApply.mutate(delta)}
+              onClick={() =>
+                guardedWrite(queryClient, pack, () =>
+                  surfaceApply.mutate(delta)
+                )
+              }
             >
               Apply
             </Button>

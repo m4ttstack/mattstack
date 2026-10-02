@@ -426,6 +426,27 @@ describe('RebindPanel', () => {
     );
   });
 
+  it('refuses a confirmed bind when another write to the pack started while the confirm was open', async () => {
+    const { queryClient } = renderAtWithClient(REBIND);
+    const root = await pickStrict();
+    await userEvent.click(within(root).getByRole('button', { name: 'Apply' }));
+    const confirm = await dialog();
+    act(() => {
+      holdWrite(queryClient, 'acme');
+    });
+
+    await userEvent.click(
+      within(confirm).getByRole('button', { name: 'Apply' })
+    );
+
+    expect(
+      await screen.findByText(
+        'Another change to acme is still being written. Try again once it finishes.'
+      )
+    ).toBeInTheDocument();
+    expect(bindPost).not.toHaveBeenCalled();
+  });
+
   it('picks a fill from the keyboard', async () => {
     renderAt(REBIND);
     const root = await panel();
@@ -577,6 +598,31 @@ describe('the public switch', () => {
       })
     );
     expect(await screen.findByText('work is internal')).toBeInTheDocument();
+  });
+
+  it('refuses a confirmed switch when another write to the pack started while the confirm was open', async () => {
+    const { queryClient } = renderAtWithClient(
+      '?tab=graph&focus=pipeline:feature&select=row:1'
+    );
+    const drawer = await screen.findByTestId('skill-drawer');
+    await userEvent.click(
+      await within(drawer).findByRole('switch', { name: 'public' })
+    );
+    const confirm = await dialog();
+    act(() => {
+      holdWrite(queryClient, 'acme');
+    });
+
+    await userEvent.click(
+      within(confirm).getByRole('button', { name: 'Make internal' })
+    );
+
+    expect(
+      await screen.findByText(
+        'Another change to acme is still being written. Try again once it finishes.'
+      )
+    ).toBeInTheDocument();
+    expect(surfaceApplyPost).not.toHaveBeenCalled();
   });
 
   it('writes nothing when its confirm is cancelled', async () => {

@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { notifications } from '@mattstack/app-kit/notifications';
 import {
   useIsMutating,
   useMutation,
@@ -359,15 +360,27 @@ export function useSkillsWriting(pack: string): boolean {
   return useIsMutating({ mutationKey: skillsWriteKey(pack) }) > 0;
 }
 
-/** The same lock read once, for a confirm that runs a write when it is
-    answered rather than when it opened. */
-export function isSkillsWriting(queryClient: QueryClient, pack: string) {
+function isSkillsWriting(queryClient: QueryClient, pack: string) {
   return queryClient.isMutating({ mutationKey: skillsWriteKey(pack) }) > 0;
 }
 
-/** What a write refused for the lock says, wherever it was refused. */
-export const writeBusyMessage = (pack: string) =>
-  `Another change to ${pack} is still being written. Try again once it finishes.`;
+/** Runs `write` only if no write to the pack is in flight at this moment,
+    else refuses with a toast. Every confirm calls it when it is answered,
+    not when it opened: a confirm can stay up while a write started elsewhere
+    on the page, or one that outlived its own screen, takes the lock. */
+export function guardedWrite(
+  queryClient: QueryClient,
+  pack: string,
+  write: () => void
+): void {
+  if (isSkillsWriting(queryClient, pack)) {
+    notifications.error(
+      `Another change to ${pack} is still being written. Try again once it finishes.`
+    );
+    return;
+  }
+  write();
+}
 
 /** The one client mutation surface for both skills writes -- the surface
     roster's Apply and Rebind's Apply both go through this, so there is one

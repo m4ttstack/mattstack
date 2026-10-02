@@ -10,16 +10,14 @@ import type { MantineColor } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 import { modals } from '@mattstack/app-kit/modals';
-import { notifications } from '@mattstack/app-kit/notifications';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { SOFT_RULE } from './softRule';
 import {
-  isSkillsWriting,
+  guardedWrite,
   syncRefusal,
   useSkillsSync,
   useSkillsWriting,
-  writeBusyMessage,
   type SkillsInstalled,
   type SkillsSyncReport,
 } from './useWiring';
@@ -173,11 +171,8 @@ export function InstalledCachesBar({
                 title: `Sync ${pack}?`,
                 message: `Pulls the engine and pack checkouts, and may bump, compile, commit, push, and update the installed plugins for ${pack}. Refuses safely on dirty trees or content drift.`,
                 labels: { confirm: 'Run sync', cancel: 'Cancel' },
-                onConfirm: () => {
-                  if (isSkillsWriting(queryClient, pack))
-                    notifications.error(writeBusyMessage(pack));
-                  else sync.mutate();
-                },
+                onConfirm: () =>
+                  guardedWrite(queryClient, pack, () => sync.mutate()),
               })
             }
             disabled={writing}

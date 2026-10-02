@@ -15,14 +15,13 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import {
   fetchPendingChanges,
-  isSkillsWriting,
+  guardedWrite,
   syncRefusal,
   useCompositionSnapshot,
   useDiscardChanges,
   usePendingChanges,
   useSkillsSync,
   useSkillsWriting,
-  writeBusyMessage,
   type SkillsChanges,
 } from '../useWiring';
 import { ButtonLabel } from './ButtonLabel';
@@ -131,35 +130,28 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
       write: () => void,
       refuse?: (fresh: SkillsChanges) => string | null
     ) =>
-    () => {
-      void (async () => {
-        if (isSkillsWriting(queryClient, pack)) {
-          notifications.error(writeBusyMessage(pack));
-          return;
-        }
-        let fresh: SkillsChanges;
-        try {
-          fresh = await fetchPendingChanges(queryClient, pack);
-        } catch (error) {
-          notifications.error((error as Error).message);
-          return;
-        }
-        if (!sameChanges(listed, fresh)) {
-          notifications.error(CHANGED);
-          return;
-        }
-        const reason = refuse?.(fresh);
-        if (reason) {
-          notifications.error(reason);
-          return;
-        }
-        if (isSkillsWriting(queryClient, pack)) {
-          notifications.error(writeBusyMessage(pack));
-          return;
-        }
-        write();
-      })();
-    };
+    () =>
+      guardedWrite(queryClient, pack, () => {
+        void (async () => {
+          let fresh: SkillsChanges;
+          try {
+            fresh = await fetchPendingChanges(queryClient, pack);
+          } catch (error) {
+            notifications.error((error as Error).message);
+            return;
+          }
+          if (!sameChanges(listed, fresh)) {
+            notifications.error(CHANGED);
+            return;
+          }
+          const reason = refuse?.(fresh);
+          if (reason) {
+            notifications.error(reason);
+            return;
+          }
+          guardedWrite(queryClient, pack, write);
+        })();
+      });
 
   // Reported from the promise, which settles whether or not the banner is
   // still mounted; a `mutate` callback is dropped once it unmounts.
