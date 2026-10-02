@@ -19,6 +19,16 @@
   of calling `watchMR`, which throws there.
 - `channelFromCodeownerSection(section)` reads the Slack channel a CODEOWNERS
   section name carries (`Acme - #pod-acme` gives `pod-acme`), or null.
+- `NoteMutator` draft notes, for submitting a GitLab review as one unit:
+  `createDraftNote(projectId, mrIid, body, { position?,
+  inReplyToDiscussionId?, resolveDiscussion? })`, `listDraftNotes`,
+  `deleteDraftNote`, `publishDraftNotes(projectId, mrIid, { note,
+  reviewerState, timeoutMs? })`, and `fetchReviewerStates`, with the
+  `DraftNote` and `ReviewerState` types. A positioned draft GitLab cannot
+  anchor comes back with `line_code: null`, and publishing drops it without
+  an error, so check it after each create.
+- A non-2xx response from those methods throws an error carrying the HTTP
+  `status` (typed `HttpStatusError`); the message is unchanged.
 
 ### Patch Changes
 
@@ -44,6 +54,9 @@
   `GLANCE_HARNESS_GITLAB_SANDBOX` (`group/project!iid`); each mutating step
   refuses, sending no request, while its variable is unset, and any refusal
   makes the run exit non-zero.
+- `publishDraftNotes` gives up after 90 seconds (`timeoutMs` overrides it);
+  the other draft-note calls, `fetchReviewerStates` and `fetchDiffRefs` give
+  up after 15 seconds.
 
 ## 0.27.0
 
