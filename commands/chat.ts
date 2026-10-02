@@ -630,6 +630,15 @@ function roomsBlocks(rooms: RoomSummary[]): Block[] {
   return [out.table(directs.length > 0 ? [...channels, { group: DIRECT_SECTION_LABEL }, ...directs] : channels)];
 }
 
+// rt-ui draws a paragraph flush at the author row's column, so an unindented
+// body line could pass as another author's row.
+function indentBody(body: string): string {
+  return body
+    .split(/\r\n|\r|\n/)
+    .map((l) => (l === "" ? l : `  ${l}`))
+    .join("\n");
+}
+
 function readBlocks(rooms: { room: string; messages: ChatMessage[] }[], full: boolean, headingFor: (room: string) => string): Block[] {
   if (rooms.length === 0) return [out.line("skipped", "Nothing unread")];
   return rooms.map((r) =>
@@ -638,7 +647,7 @@ function readBlocks(rooms: { room: string; messages: ChatMessage[] }[], full: bo
       undefined,
       ...r.messages.flatMap((m) => [
         out.table([[out.strong(m.name ?? m.handle), out.dim(new Date(m.postedAt).toISOString().slice(11, 16))]]),
-        out.paragraph(full ? m.body : truncate(m.body, 200)),
+        out.paragraph(indentBody(full ? m.body : truncate(m.body, 200))),
       ]),
     ),
   );
