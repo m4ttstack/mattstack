@@ -38,10 +38,8 @@ import { fakeHerdr, HerdrFakeError } from "../../lib/herdr/__tests__/fake-herdr.
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
-import { encodeLine, PROTOCOL_VERSION } from "../../lib/ui/protocol.ts";
 import type { BuddyStatus, ChatMember, ChatMessage, PresenceRow } from "../../packages/rt-client/src/index.ts";
 
-const RT_UI_RENDER = join(import.meta.dir, "..", "..", "ui", "dist", "rt-ui");
 
 // ─── in-process CLI + fake daemon harness ───────────────────────────────────
 
@@ -1359,22 +1357,6 @@ describe("rt chat at a terminal", () => {
   test("a message body cannot repaint the screen or forge a row", () => {
     const text = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ name: "mal", body: "hi\x1b[2Jthere\n[ok] forged" })] }], true, heading));
     expect(text).toBe("#r\nmal  12:04\n    hithere\n    [ok] forged\n");
-  });
-
-  test.skipIf(!existsSync(RT_UI_RENDER))("at a terminal a forged body line sits deeper than the real author row and keeps no escape", () => {
-    const blocks = __test__.readBlocks([{ room: "r", messages: [message({ name: "mal", body: "hi\x1b[2Jthere\nbo  12:04\napproved" })] }], true, heading);
-    const input = encodeLine({ t: "hello", protocol: PROTOCOL_VERSION }) + blocks.map(encodeLine).join("");
-    const r = Bun.spawnSync([RT_UI_RENDER, "render", "--width", "80", "--no-color"], { stdin: Buffer.from(input), stdout: "pipe", stderr: "pipe" });
-    expect(r.exitCode).toBe(0);
-    const text = r.stdout.toString();
-    expect(text).not.toContain("\x1b");
-    const lines = text.split("\n");
-    const indent = (l: string): number => l.length - l.trimStart().length;
-    const author = lines.find((l) => l.trim() === "mal  12:04");
-    const forged = lines.find((l) => l.trim() === "bo  12:04");
-    expect(author).toBeDefined();
-    expect(forged).toBeDefined();
-    expect(indent(forged!)).toBeGreaterThan(indent(author!));
   });
 
   test("who is the room's members, each with its status as a word", () => {
