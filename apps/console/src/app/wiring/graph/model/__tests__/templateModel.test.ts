@@ -346,10 +346,22 @@ describe('slot states', () => {
       step: 2,
     });
     const row = view.rows.find(r => r.line === 136);
-    expect(row).toMatchObject({ state: 'referenced' });
+    expect(row).toMatchObject({ state: 'referenced', fill: 'plan-policy' });
     expect(view.inputs.find(c => c.id === 'slot:domain')).toMatchObject({
       state: 'referenced',
       subtitle: 'referenced: the rendered text links to it',
+      subtitleTone: 'dimmed',
+    });
+  });
+
+  it('names the fill a bound slot row is filled from, and none for an include', () => {
+    const view = planView();
+    expect(view.rows.find(r => r.line === 136)).toMatchObject({
+      fill: 'plan-policy',
+      resolveError: null,
+    });
+    expect(view.rows.find(r => r.line === 140)).toMatchObject({
+      fill: null,
     });
   });
 
@@ -408,12 +420,16 @@ describe('slot states', () => {
       changes: undefined,
       step: null,
     });
-    expect(view.rows[1]).toMatchObject({ state: 'required-unbound' });
+    expect(view.rows[1]).toMatchObject({
+      state: 'required-unbound',
+      fill: null,
+    });
     expect(view.inputs).toEqual([
       expect.objectContaining({
         id: 'slot:changelog',
         title: 'changelog slot',
         subtitle: 'required, nothing bound',
+        subtitleTone: 'warn',
         path: null,
         state: 'required-unbound',
       }),
@@ -456,10 +472,14 @@ describe('slot states', () => {
       changes: undefined,
       step: null,
     });
-    expect(view.rows[1]).toMatchObject({ state: 'resolve-error' });
+    expect(view.rows[1]).toMatchObject({
+      state: 'resolve-error',
+      resolveError: 'no fill provides changelog-style@1',
+    });
     expect(view.inputs[0]).toMatchObject({
       state: 'resolve-error',
       subtitle: 'no fill provides changelog-style@1',
+      subtitleTone: 'bad',
     });
   });
 
@@ -480,6 +500,7 @@ describe('slot states', () => {
     expect(view.inputs.find(c => c.id === 'slot:domain')).toMatchObject({
       title: 'plan-policy/SKILL.md',
       subtitle: 'no fill named acme:plan-policy in this pack',
+      subtitleTone: 'warn',
       state: 'no-matching-fill',
     });
   });

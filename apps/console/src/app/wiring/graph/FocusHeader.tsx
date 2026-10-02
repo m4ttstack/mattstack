@@ -1,5 +1,6 @@
 import type { Ref } from 'react';
 import {
+  Alert,
   Badge,
   Group,
   Skeleton,
@@ -83,6 +84,7 @@ export function FocusHeader({
   description,
   loading,
   status,
+  checkError = null,
 }: {
   ref?: Ref<HTMLDivElement>;
   title: string;
@@ -90,6 +92,9 @@ export function FocusHeader({
   description: string | null;
   loading: boolean;
   status: HeaderStatus | null;
+  /** Why `rt skills check` failed; the status it would have given is then
+      unknown, so none is drawn. */
+  checkError?: string | null;
 }) {
   return (
     <Stack
@@ -115,7 +120,7 @@ export function FocusHeader({
             {kind}
           </Badge>
         </Group>
-        {status && (
+        {status && checkError === null && (
           <Badge
             variant={status.tone === 'warn' ? 'hue-outline' : 'quiet-outline'}
             color={status.tone === 'warn' ? 'warn' : undefined}
@@ -142,6 +147,17 @@ export function FocusHeader({
         </Text>
       ) : (
         loading && <Skeleton height={16} width={420} />
+      )}
+      {checkError !== null && (
+        <Alert
+          variant="light"
+          color="warn"
+          icon={<Icon name="warning" size={14} />}
+          classNames={{ root: classes.statusAlert }}
+          data-testid="status-unavailable"
+        >
+          <Text size="xs">Status unavailable: {checkError}</Text>
+        </Alert>
       )}
     </Stack>
   );

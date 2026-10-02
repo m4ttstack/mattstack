@@ -50,6 +50,10 @@ export type TemplateRow =
       name: string | null;
       /** A slot's contract; null for every other placeholder. */
       contract: string | null;
+      /** What a slot is filled from, by name; null when nothing fills it. */
+      fill: string | null;
+      /** rt's message for a slot it could not resolve. */
+      resolveError: string | null;
     };
 
 export type InputCard = {
@@ -59,7 +63,7 @@ export type InputCard = {
   subtitle: string;
   icon: 'fileText' | 'cpu';
   path: string | null;
-  subtitleTone: 'dimmed' | 'accent';
+  subtitleTone: 'dimmed' | 'accent' | 'warn' | 'bad';
   state: RowState;
   /** Skills in this pack that paste this partial in, or bind this fill. */
   usedBy: number;
@@ -404,6 +408,8 @@ export function buildTemplateView(input: {
       state,
       name: part.name,
       contract: facts?.contract ?? null,
+      fill: part.kind === 'slot' && part.source ? partLabel(part) : null,
+      resolveError: facts?.resolveError ?? null,
     });
 
     if (part.kind === 'verb.path') {
@@ -507,7 +513,7 @@ function cardFace(
   const file = {
     icon: 'fileText' as const,
     path: part.source?.path ?? null,
-    subtitleTone: 'dimmed' as const,
+    subtitleTone: 'dimmed' as InputCard['subtitleTone'],
   };
   const sourceTitle = part.source
     ? fileLabelOf(part.source.path)
@@ -526,14 +532,25 @@ function cardFace(
   const slotTitle = `${part.name} slot`;
   switch (state) {
     case 'required-unbound':
-      return { ...file, title: slotTitle, subtitle: 'required, nothing bound' };
+      return {
+        ...file,
+        title: slotTitle,
+        subtitle: 'required, nothing bound',
+        subtitleTone: 'warn',
+      };
     case 'resolve-error':
-      return { ...file, title: slotTitle, subtitle: facts?.resolveError ?? '' };
+      return {
+        ...file,
+        title: slotTitle,
+        subtitle: facts?.resolveError ?? '',
+        subtitleTone: 'bad',
+      };
     case 'no-matching-fill':
       return {
         ...file,
         title: `${suffixOf(facts?.boundTo ?? '')}/SKILL.md`,
         subtitle: `no fill named ${facts?.boundTo} in this pack`,
+        subtitleTone: 'warn',
       };
     case 'referenced':
       return {

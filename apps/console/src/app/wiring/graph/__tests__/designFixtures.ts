@@ -12,6 +12,7 @@ type DesignPayloads = {
   'anatomy.work': SkillsAnatomy;
   'anatomy.stage-plan': SkillsAnatomy;
   'anatomy.stage-plan.unsynced': SkillsAnatomy;
+  'anatomy.release-notes': SkillsAnatomy;
   'changes.clean': SkillsChanges;
   'changes.unsynced': SkillsChanges;
 };

@@ -56,6 +56,22 @@
   overflow: hidden;
 }
 
+/* The stage's own middle, wherever the canvas would have been. */
+.canvasError {
+  position: absolute;
+  inset: 0;
+  padding: 24px;
+}
+
+.canvasErrorAlert {
+  max-width: 480px;
+}
+
+/* As wide as what it says, not the header. */
+.statusAlert {
+  align-self: flex-start;
+}
+
 /* Over the canvas, which stays draggable and clickable through it. */
 .header {
   position: absolute;

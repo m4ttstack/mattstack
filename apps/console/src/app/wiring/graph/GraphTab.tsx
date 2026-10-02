@@ -1,5 +1,13 @@
 import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
-import { Box, Text } from '@mattstack/app-kit/core';
+import {
+  Alert,
+  Box,
+  Button,
+  Center,
+  Stack,
+  Text,
+} from '@mattstack/app-kit/core';
+import { Icon } from '@mattstack/app-kit/icons';
 
 import { useAnatomy, usePendingChanges } from '../useWiring';
 import {
@@ -80,6 +88,29 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
       bg="var(--tk-bg)"
       data-parity="Stage"
     >
+      {focused && anatomyQuery.isError && (
+        <Center className={classes.canvasError}>
+          <Alert
+            variant="light"
+            color="bad"
+            title="This skill failed to load"
+            icon={<Icon name="warning" size={16} />}
+            classNames={{ root: classes.canvasErrorAlert }}
+            data-testid="canvas-error"
+          >
+            <Stack gap="xs" align="flex-start">
+              <Text size="sm">{(anatomyQuery.error as Error).message}</Text>
+              <Button
+                variant="default"
+                loading={anatomyQuery.isFetching}
+                onClick={() => void anatomyQuery.refetch()}
+              >
+                Retry
+              </Button>
+            </Stack>
+          </Alert>
+        </Center>
+      )}
       {view && layout && (
         <Suspense fallback={null}>
           <TemplateCanvas
@@ -112,6 +143,9 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
           description={anatomy?.description ?? null}
           loading={anatomyQuery.isPending}
           status={statusOf(view, anatomy)}
+          checkError={
+            checkQuery.isError ? (checkQuery.error as Error).message : null
+          }
         />
       ) : (
         groups &&

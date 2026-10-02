@@ -286,6 +286,12 @@
   margin-block: -2px;
 }
 
+/* rt's message keeps its own line breaks: the paths it searched. */
+.errorText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* The board leaves a pixel more under the buttons than over the title. */
 .rebind {
   display: flex;

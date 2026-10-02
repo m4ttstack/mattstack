@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Badge,
   Box,
   Button,
@@ -379,10 +380,23 @@ export function SkillDrawer({
               className={classes.change}
               onClick={() => setUrl({ rebind: true })}
             >
-              Change
+              {slot.bound ? 'Change' : 'Bind'}
             </Button>
           )}
         </div>
+        {content.error && (
+          <Alert variant="light" color="bad">
+            <Text
+              ff="monospace"
+              fz={11}
+              lh="normal"
+              className={classes.errorText}
+              data-testid="drawer-error"
+            >
+              {content.error}
+            </Text>
+          </Alert>
+        )}
         {meta && (
           <Text
             ff="monospace"

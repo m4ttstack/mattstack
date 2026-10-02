@@ -24,21 +24,35 @@ import { ACCENT, BODY, ICON_STROKE, MUTED, useCanvas } from './canvasContext';
 import classes from './nodes.module.css';
 import { parityName } from './parity';
 
-/** The tag a row's state earns. A card says the same in its subtitle, so a
-    card shows only `unsynced`. */
-const STATE_TAGS: Partial<Record<RowState, { label: string; color: string }>> =
-  {
-    unsynced: { label: 'unsynced', color: 'warn' },
-    'required-unbound': { label: 'required, nothing bound', color: 'warn' },
-    'resolve-error': { label: 'resolve error', color: 'bad' },
-  };
+type Tag = { label: string; color?: 'warn' | 'bad' };
 
-export function StateTag({ state }: { state: RowState }) {
-  const tag = STATE_TAGS[state];
+/** The tag a placeholder row's state earns: a hue where it needs attention,
+    quiet where it only says how the slot is filled. A card says the same in
+    its subtitle, so a card shows only `unsynced`. */
+export function tagOf(state: RowState, fill: string | null): Tag | null {
+  switch (state) {
+    case 'unsynced':
+      return { label: 'unsynced', color: 'warn' };
+    case 'required-unbound':
+      return { label: 'required, nothing bound', color: 'warn' };
+    case 'no-matching-fill':
+      return { label: 'no matching fill', color: 'warn' };
+    case 'resolve-error':
+      return { label: 'resolve error', color: 'bad' };
+    case 'optional-unbound':
+      return { label: 'optional, nothing bound' };
+    case 'referenced':
+      return { label: fill ? `links to ${fill}` : 'links to its fill' };
+    case 'ok':
+      return null;
+  }
+}
+
+export function StateTag({ tag }: { tag: Tag | null }) {
   if (!tag) return null;
   return (
     <Badge
-      variant="tint"
+      variant={tag.color ? 'tint' : 'quiet'}
       color={tag.color}
       classNames={{ root: classes.tag }}
       data-parity={`tag · ${tag.label}`}
@@ -121,7 +135,7 @@ function RowButton({
             >
               {row.code}
             </Text>
-            <StateTag state={row.state} />
+            <StateTag tag={tagOf(row.state, row.fill)} />
           </>
         )}
       </Box>

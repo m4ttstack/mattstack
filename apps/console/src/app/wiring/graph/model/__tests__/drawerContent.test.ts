@@ -192,8 +192,10 @@ describe('a slot row (drawer-rebind)', () => {
     expect(content?.slot).toEqual({
       name: 'domain',
       contract: 'plan-domain@1',
+      bound: true,
     });
     expect(content?.view).toBe('rendered');
+    expect(content?.error).toBeNull();
   });
 
   it('names the new fill once rebound here', () => {
@@ -210,6 +212,73 @@ describe('a slot row (drawer-rebind)', () => {
     ).toBe(
       'The domain slot. This pack fills it with plan-policy-strict: 64 lines.'
     );
+  });
+});
+
+describe('a slot nothing fills', () => {
+  const releaseNotes: SkillsAnatomy = {
+    ...anatomyPlan,
+    skill: 'release-notes',
+    kind: 'verb',
+    parts: [
+      {
+        kind: 'slot',
+        name: 'changelog',
+        templateLines: [22, 22],
+        renderedLines: null,
+        mode: null,
+        source: null,
+        target: null,
+        changed: false,
+      },
+    ],
+    links: [],
+  };
+  const viewWith = (slot: Record<string, unknown>) =>
+    buildTemplateView({
+      anatomy: releaseNotes,
+      composition: {
+        ...composition,
+        verbs: composition.verbs.map(verb =>
+          verb.name === 'release-notes'
+            ? { ...verb, slots: verb.slots.map(s => ({ ...s, ...slot })) }
+            : verb
+        ),
+      },
+      check,
+      changes: undefined,
+      step: null,
+    });
+  const open = (view: ReturnType<typeof viewWith>, select: string) =>
+    drawerContent(parseTarget(select)!, view, releaseNotes, null);
+
+  it('offers to bind a slot nothing is bound to, from its row and its card', () => {
+    const view = viewWith({});
+    for (const select of ['row:22', 'input:slot:changelog'])
+      expect(open(view, select)).toMatchObject({
+        sentence:
+          'The changelog slot. It is required, and nothing is bound to it.',
+        slot: {
+          name: 'changelog',
+          contract: 'changelog-style@1',
+          bound: false,
+        },
+        error: null,
+      });
+  });
+
+  it("carries rt's whole message for a slot it could not resolve", () => {
+    const message =
+      'loadAttachment: slot "changelog": binding "acme:changelog-style" not found; searched:\n/a\n/b';
+    const view = viewWith({
+      boundTo: 'acme:changelog-style',
+      resolveError: message,
+    });
+    expect(open(view, 'row:22')).toMatchObject({
+      sentence: 'The changelog slot. rt could not resolve it.',
+      slot: { name: 'changelog', bound: true },
+      error: message,
+    });
   });
 });
 
@@ -263,7 +332,8 @@ describe('an input card (drawer-input-card)', () => {
       badge: 'pack text',
       sentence: 'Written by acme. 1 skill in this pack uses it.',
       meta: 'acme 0.8.14',
-      slot: { name: 'domain', contract: 'plan-domain@1' },
+      slot: { name: 'domain', contract: 'plan-domain@1', bound: true },
+      error: null,
     });
   });
 
@@ -403,12 +473,12 @@ describe('a step never compiled', () => {
   const open = (select: string, requested: 'template' | 'rendered' | null) =>
     drawerContent(parseTarget(select)!, view, neverCompiled, requested);
 
-  it('opens its output on the template, with nothing to toggle to', () => {
+  it('opens its output on the template, its toggle showing there is no rendered file', () => {
     expect(open('output', null)).toMatchObject({
       filePath: anatomyPlan.template.path,
       view: 'template',
       badge: null,
-      canToggle: false,
+      canToggle: true,
       sentence: 'Never compiled.',
     });
   });
@@ -418,7 +488,7 @@ describe('a step never compiled', () => {
       expect(open('row:140', requested)).toMatchObject({
         filePath: anatomyPlan.template.path,
         view: 'template',
-        canToggle: false,
+        canToggle: true,
         bands: [],
       });
     }

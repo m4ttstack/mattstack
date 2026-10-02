@@ -73,8 +73,11 @@ function OutputNodeComponent({
             lh="normal"
             c={MUTED}
             data-parity="lines"
+            data-testid="output-lines"
           >
-            {output.lines} lines
+            {output.status === 'never-compiled'
+              ? 'never compiled'
+              : `${output.lines} lines`}
           </Text>
           <StatusDot tone={STATUS_TONE[output.status]} data-parity="status" />
         </UnstyledButton>

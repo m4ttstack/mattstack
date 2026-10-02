@@ -63,8 +63,12 @@ export type DrawerContent = {
   /** Only in the Rendered view, where each pasted part gets one. */
   bands: DrawerBand[];
   tabs: DrawerTab[];
-  slot: { name: string; contract: string | null } | null;
+  /** `bound` is whether anything is bound to the slot, even a fill rt
+      cannot find. */
+  slot: { name: string; contract: string | null; bound: boolean } | null;
   usedBy: DrawerUsedBy | null;
+  /** rt's message for a slot it could not resolve, whole. */
+  error: string | null;
 };
 
 type AnatomyPart = SkillsAnatomy['parts'][number];
@@ -175,7 +179,7 @@ function fileFace(
         badge: null,
         meta: ownerMeta(anatomy.template, anatomy.pack),
         tabs: ['text'],
-        canToggle: anatomy.rendered.exists,
+        canToggle: true,
         view: shown,
       }
     : {
@@ -184,7 +188,7 @@ function fileFace(
         badge: 'rendered',
         meta: null,
         tabs: ['text', 'history'],
-        canToggle: anatomy.rendered.exists,
+        canToggle: true,
         view: shown,
       };
 }
@@ -243,10 +247,15 @@ function rowContent(
     bands: shown === 'rendered' ? bandsOf(anatomy, partKey(part)) : [],
     slot:
       row.kind === 'placeholder' && part.kind === 'slot'
-        ? { name: part.name ?? '', contract: row.contract }
+        ? { name: part.name ?? '', contract: row.contract, bound: isBound(row) }
         : null,
     usedBy: null,
+    error: row.kind === 'placeholder' ? row.resolveError : null,
   };
+}
+
+function isBound(row: PlaceholderRow): boolean {
+  return row.state !== 'required-unbound' && row.state !== 'optional-unbound';
 }
 
 function rowSentence(
@@ -343,12 +352,13 @@ function inputContent(
     tabs: ['text', 'used-by', 'history'],
     slot:
       part.kind === 'slot'
-        ? { name: part.name ?? '', contract: row.contract }
+        ? { name: part.name ?? '', contract: row.contract, bound: true }
         : null,
     usedBy:
       part.kind === 'include'
         ? { kind: 'include', name: part.name ?? '', plugin }
         : { kind: 'fill', name: source.ref, plugin },
+    error: null,
   };
 }
 
@@ -391,6 +401,7 @@ function outputContent(
     highlight: NO_HIGHLIGHT,
     slot: null,
     usedBy: null,
+    error: null,
   };
 
   if (partId === null) {
@@ -445,5 +456,6 @@ function linkContent(
     tabs: ['text'],
     slot: null,
     usedBy: null,
+    error: null,
   };
 }

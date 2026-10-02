@@ -173,6 +173,19 @@
   min-width: 0;
 }
 
+/* A card's action is the card's sibling, not its child (a button cannot hold
+   a button), laid over the card's end; the card leaves it that room. */
+.card[data-action] {
+  padding-inline-end: 76px;
+}
+
+.cardAction {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+}
+
 .step {
   display: flex;
   flex-shrink: 0;
