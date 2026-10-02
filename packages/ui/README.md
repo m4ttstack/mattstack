@@ -139,8 +139,8 @@ hue's fill, the label in its text step). A ground card marked
 `data-attention` rings in the warn fill; a selection ring wins over it.
 
 `CodeLines` can take `variant="wash"`: the highlighted range in the thin
-accent wash with accent line numbers and body text, the text outside it
-muted, and a muted band ruled in the soft line step. Its `classNames` size
+accent wash with accent line numbers, every line in body text but the
+`mutedPattern` ones, and a muted band ruled in the soft line step. Its `classNames` size
 each part of a row (gutter, number cell, number, code), and `rowAttributes`
 puts data attributes on each part from what that row shows, including
 whether it is in the viewport. Every row is as wide as the longest line, so
