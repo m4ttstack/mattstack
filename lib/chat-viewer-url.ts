@@ -16,7 +16,7 @@ export function chatViewerUrl(base: string | undefined, room: string, messageId?
 /** `chat.viewerUrl`, or undefined when unset; the CLI's "posted → link" and
     the daemon's desk notification both go through here. The link is
     decoration on a post that has already succeeded, so an unreadable setting
-    is reported and dropped rather than allowed to fail the post. */
+    is logged and dropped rather than allowed to fail the post. */
 export function readChatViewerUrlSetting(read: () => { value?: unknown } = () => getSetting<string>("chat.viewerUrl")): string | undefined {
   try {
     const resolved = read();

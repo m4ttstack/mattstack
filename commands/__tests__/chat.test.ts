@@ -1623,6 +1623,7 @@ describe("rt chat stdout off a terminal (frozen for agents)", () => {
       // fixture holds no glyph an editor or a formatter could rewrite.
       const ascii = JSON.stringify(got, null, 2).replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
       writeFileSync(BYTES_FIXTURE, ascii + "\n");
+      throw new Error(`${BYTES_FIXTURE} was rewritten. Only capture it from code whose stdout is meant to change, then rerun without RT_UPDATE_CHAT_BYTES.`);
     }
     expect(got).toEqual(JSON.parse(readFileSync(BYTES_FIXTURE, "utf8")));
   }, 60_000);

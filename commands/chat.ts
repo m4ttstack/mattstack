@@ -765,9 +765,9 @@ async function resolveBody(words: string[], args: string[], usage: string): Prom
     try {
       text = normalizeBody(readFileSync(file, "utf8"));
     } catch {
-      fail({ title: "That file could not be read", why: file });
+      fail({ title: "That file could not be read", hint: file });
     }
-    if (!text) fail({ title: "That file is empty", why: file });
+    if (!text) fail({ title: "That file is empty", hint: file });
     return text;
   }
   const wantsStdin = (words.length === 1 && words[0] === "-") || (words.length === 0 && !process.stdin.isTTY);
