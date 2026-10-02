@@ -31,23 +31,29 @@ export type StageShape = {
  * the stage or the graph's shape changes; slides it clear of a drawer and
  * back. Runs inside React Flow.
  */
-export function useStageFraming(
-  { geometry, cover, headerBottom }: StageShape,
-  onFramed: (contentTop: number) => void
-): void {
+export function useStageFraming({
+  geometry,
+  cover,
+  headerBottom,
+}: StageShape): void {
   const { getNodes, getNodesBounds, getViewport, setViewport } = useReactFlow();
   const store = useStoreApi();
   const width = useStore(state => state.width);
   const height = useStore(state => state.height);
   const measured = useStore(allMeasured);
   const frameKey = `${geometry}|${width}x${height}|${headerBottom}`;
-  const framed = useRef<{ key: string; y: number } | null>(null);
+  const framed = useRef<string | null>(null);
   /** How far left of the boards' corner a drawer has slid the graph. */
   const shift = useRef(0);
 
   const graph = useCallback(() => {
     const bounds = getNodesBounds(getNodes());
-    return { right: bounds.x + bounds.width, bottom: bounds.y + bounds.height };
+    return {
+      left: bounds.x,
+      top: bounds.y,
+      right: bounds.x + bounds.width,
+      bottom: bounds.y + bounds.height,
+    };
   }, [getNodes, getNodesBounds]);
 
   const frame = useCallback(() => {
@@ -58,25 +64,14 @@ export function useStageFraming(
     });
     store.getState().setTranslateExtent(framing.extent);
     void setViewport(framing.viewport);
-    onFramed(framing.contentTop);
-    framed.current = { key: frameKey, y: framing.viewport.y };
+    framed.current = frameKey;
     shift.current = framing.viewport.x;
-  }, [
-    width,
-    height,
-    graph,
-    cover,
-    headerBottom,
-    store,
-    setViewport,
-    onFramed,
-    frameKey,
-  ]);
+  }, [width, height, graph, cover, headerBottom, store, setViewport, frameKey]);
 
   // Nodes remeasure after every data refresh; a refit then would throw away
   // the reader's scroll and zoom.
   useEffect(() => {
-    if (measured && framed.current?.key !== frameKey) frame();
+    if (measured && framed.current !== frameKey) frame();
   }, [measured, frameKey, frame]);
 
   // A drawer opening slides the graph left just far enough to clear it, and
@@ -93,16 +88,21 @@ export function useStageFraming(
         ? Math.min(viewport.x, panFor(width, viewport.zoom, cover))
         : viewport.x - shift.current;
     shift.current = cover > 0 ? x - viewport.x : 0;
-    store
-      .getState()
-      .setTranslateExtent(
-        extentFor(
-          { width, height },
-          graph(),
-          { x, y: framed.current.y, zoom: viewport.zoom },
-          cover
-        )
-      );
+    store.getState().setTranslateExtent(
+      extentFor({ width, height }, graph(), viewport.zoom, {
+        cover,
+        headerBottom,
+      })
+    );
     void setViewport({ ...viewport, x });
-  }, [cover, width, height, graph, store, getViewport, setViewport]);
+  }, [
+    cover,
+    headerBottom,
+    width,
+    height,
+    graph,
+    store,
+    getViewport,
+    setViewport,
+  ]);
 }

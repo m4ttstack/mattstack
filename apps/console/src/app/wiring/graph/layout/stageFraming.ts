@@ -15,20 +15,26 @@ export const MIN_FRAME_ZOOM = 0.7;
 
 /** Room right of the graph. */
 const RIGHT_ROOM = 24;
-/** Room under the graph's last row: the zoom controls' corner, 96px of
-    buttons on a 32px margin. */
-const BOTTOM_ROOM = 136;
 
 /** Space between the focus header and the column headings under it. */
 export const HEADER_GAP = 18;
 
-/** Stage px a drag may move the graph past its framing on every side, so
-    the canvas drags even when the whole graph is in view. */
-export const PAN_SLACK = 160;
+/** Stage px of the graph a drag always leaves in view, on whichever side it
+    is dragged off. */
+export const KEEP_IN_VIEW = 160;
 
 /** The template's right edge with the handles on it, in layout units: what a
     drawer over the stage's right edge leaves in view. */
 const TEMPLATE_RIGHT = LAYOUT.templateX + LAYOUT.templateW + 4;
+
+/** The graph's bounds in layout units; left and top default to the
+    layout's origin. */
+export type GraphBounds = {
+  left?: number;
+  top?: number;
+  right: number;
+  bottom: number;
+};
 
 export type FramingOptions = {
   /** Width of the stage's right edge a drawer covers, in stage px. */
@@ -39,13 +45,8 @@ export type FramingOptions = {
 
 export type Framing = {
   viewport: Viewport;
-  /** Where the viewport may travel, in layout units: the board's corner and
-      the graph's width and height plus their room, and the drag room past
-      them. */
+  /** Where the viewport may travel, in layout units. */
   extent: CoordinateExtent;
-  /** The stage y the framed graph starts at, the column headings' top.
-      Content that scrolls above it would run under the focus header. */
-  contentTop: number;
 };
 
 /** The viewport x that keeps the template clear of a drawer covering `cover`
@@ -56,28 +57,20 @@ export function panFor(stageWidth: number, zoom: number, cover: number) {
   return Math.min(0, stageWidth - cover - RIGHT_ROOM - TEMPLATE_RIGHT * zoom);
 }
 
-/** Where a viewport framed at `viewport` may travel: the framed top, far
-    enough right to bring the graph out from under a drawer, and the drag
-    room past both on every side. */
+/** Where the viewport may travel at `zoom`, in layout units: a drag carries
+    the graph off any side of what the reader can see (the stage left of a
+    drawer, under the focus header) until only `KEEP_IN_VIEW` of it is left
+    on it. */
 export function extentFor(
   stage: { width: number; height: number },
-  graph: { right: number; bottom: number },
-  viewport: Viewport,
-  cover = 0
+  { left = 0, top = 0, right, bottom }: GraphBounds,
+  zoom: number,
+  { cover = 0, headerBottom = 0 }: FramingOptions = {}
 ): CoordinateExtent {
-  const { x, y, zoom } = viewport;
-  const top = -y / zoom;
-  const slack = PAN_SLACK / zoom;
+  const seen = (px: number) => (px - KEEP_IN_VIEW) / zoom;
   return [
-    [-slack, top - slack],
-    [
-      Math.max(
-        graph.right + (RIGHT_ROOM + cover) / zoom,
-        (stage.width - x) / zoom
-      ) + slack,
-      Math.max(graph.bottom + BOTTOM_ROOM / zoom, top + stage.height / zoom) +
-        slack,
-    ],
+    [left - seen(stage.width - cover), top - seen(stage.height)],
+    [right + seen(stage.width), bottom + seen(stage.height - headerBottom)],
   ];
 }
 
@@ -90,7 +83,7 @@ export function extentFor(
  */
 export function frameStage(
   stage: { width: number; height: number },
-  graph: { right: number; bottom: number },
+  graph: GraphBounds,
   { cover = 0, headerBottom = 0 }: FramingOptions = {}
 ): Framing {
   const zoom = Math.min(
@@ -104,8 +97,7 @@ export function frameStage(
   const viewport = { x: panFor(stage.width, zoom, cover), y, zoom };
   return {
     viewport,
-    extent: extentFor(stage, graph, viewport, cover),
-    contentTop: y + COLUMN_TOP * zoom,
+    extent: extentFor(stage, graph, zoom, { cover, headerBottom }),
   };
 }
 

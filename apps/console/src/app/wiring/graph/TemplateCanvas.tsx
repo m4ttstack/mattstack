@@ -1,6 +1,6 @@
 import '@xyflow/react/dist/base.css';
 
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, type CSSProperties } from 'react';
 import { Box, Text, useComputedColorScheme } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import {
@@ -136,15 +136,9 @@ function ColumnHeaders({ view }: { view: TemplateView }) {
 
 /** The zoom controls, framing the graph once its nodes are measured and
     again whenever the stage or the graph's shape changes. */
-function ZoomControls({
-  shape,
-  onFramed,
-}: {
-  shape: StageShape;
-  onFramed: (contentTop: number) => void;
-}) {
+function ZoomControls({ shape }: { shape: StageShape }) {
   const { zoomIn, zoomOut } = useReactFlow();
-  useStageFraming(shape, onFramed);
+  useStageFraming(shape);
 
   return (
     <Controls
@@ -210,9 +204,6 @@ export default function TemplateCanvas({
 }) {
   const [url, patch] = useWiringUrl();
   const scheme = useComputedColorScheme('light');
-  const [contentTop, setContentTop] = useState(
-    BOARD_VIEWPORT.y + COLUMN_TOP * BOARD_VIEWPORT.zoom
-  );
   const edges = useMemo(
     () =>
       layout.edges.map(edge => ({
@@ -241,12 +232,7 @@ export default function TemplateCanvas({
 
   return (
     <CanvasContext.Provider value={state}>
-      <Box
-        className={classes.canvas}
-        h={height}
-        style={{ '--content-top': `${contentTop}px` } as CSSProperties}
-        data-testid="template-canvas"
-      >
+      <Box className={classes.canvas} h={height} data-testid="template-canvas">
         <ReactFlow
           nodes={layout.nodes}
           edges={edges}
@@ -274,10 +260,7 @@ export default function TemplateCanvas({
             />
           </div>
           <ColumnHeaders view={view} />
-          <ZoomControls
-            shape={{ geometry, cover, headerBottom }}
-            onFramed={setContentTop}
-          />
+          <ZoomControls shape={{ geometry, cover, headerBottom }} />
         </ReactFlow>
       </Box>
     </CanvasContext.Provider>
