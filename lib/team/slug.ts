@@ -10,7 +10,7 @@ export function slugify(name: string): string {
     .slice(0, MAX_LENGTH)
     .replace(/-+$/, "");
   if (!slug) {
-    throw new UserActionableError("bad-team-name", `not a usable team name: ${JSON.stringify(name)}`);
+    throw new UserActionableError("bad-team-name", `${JSON.stringify(name)} cannot be a team name`, {}, { why: "A team name needs at least one letter or number." });
   }
   return slug;
 }

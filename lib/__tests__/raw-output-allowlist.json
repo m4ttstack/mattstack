@@ -36,7 +36,6 @@
   "commands/state-backup-status.ts",
   "commands/state.ts",
   "commands/sync.ts",
-  "commands/team.ts",
   "commands/worktree-hook.ts",
   "lib/chat-viewer-url.ts",
   "lib/cli-logger.ts",
@@ -60,8 +59,5 @@
   "lib/state/branch-cache.ts",
   "lib/state/db.ts",
   "lib/state/identity-migrate.ts",
-  "lib/state/legacy-import.ts",
-  "lib/team/invite.ts",
-  "lib/team/join.ts",
-  "lib/team/members.ts"
+  "lib/state/legacy-import.ts"
 ]

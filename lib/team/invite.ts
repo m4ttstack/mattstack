@@ -14,6 +14,7 @@ import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { teamSettingsPath } from "../rt-paths.ts";
 import { createRealSecretsExecSeam, readSecret } from "../secrets/store.ts";
 import { readStore } from "../settings/stores.ts";
+import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import { UserActionableError } from "../errors.ts";
 import type { InvitePointer } from "../setup/intent.ts";
 import type { Probes } from "../setup/probes.ts";
@@ -26,6 +27,7 @@ import { readTeamLocal } from "./team-local.ts";
 import { encodeCode, generateId, generateKey, seal } from "./invite-crypto.ts";
 import { readInviteRecords, upsertInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
+import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 
 export const INVITE_TTL_DAYS = 7;
 
@@ -55,7 +57,9 @@ export function joinLinkBase(env: Record<string, string | undefined>): string {
   const override = env.RT_JOIN_BASE_URL;
   if (!override) return DEFAULT_JOIN_BASE_URL;
   if (!isSafeJoinBase(override)) {
-    throw new UserActionableError("invalid-join-base", `RT_JOIN_BASE_URL must be an https url, or http on loopback: got ${override}`);
+    throw new UserActionableError("invalid-join-base", "The join link address rt was given must be https, or http on this Mac only", {}, {
+      log: `RT_JOIN_BASE_URL must be an https url, or http on loopback: got ${redactCredentials(override)}`,
+    });
   }
   return override;
 }
@@ -116,7 +120,8 @@ export interface MintInviteSeams {
   forgeToken: typeof storedForgeToken;
   /** A secret from the operator's LOCAL rt domain (the switchboard admin token lives there, not in team secrets a not-yet-synced invitee could never read anyway). */
   readLocalSecret: (key: string) => Promise<string | null>;
-  warn: (message: string) => void;
+  /** `message` is the log text; `shown` is what a person reads, and a warning without it shows its message. */
+  warn: (message: string, shown?: ShownWarning) => void;
 }
 
 /** Degrades to `undefined` on a resolver-layer throw rather than taking the mint down with it — mirrors team-settings.ts's own default reader. */
@@ -134,9 +139,8 @@ function defaultReadTeamStore(slug: string): Record<string, unknown> {
   return readStore(teamSettingsPath(slug)).global;
 }
 
-/** stderr only, so a `--json` command's stdout envelope stays uncorrupted — mirrors team-settings.ts's own default warn. */
-function defaultWarn(message: string): void {
-  console.error(message);
+function defaultWarn(message: string, shown?: ShownWarning): void {
+  warnLine("team", message, { show: shown ?? { title: message } });
 }
 
 export function realMintInviteSeams(): MintInviteSeams {
@@ -170,10 +174,9 @@ function addToRoster(seams: MintInviteSeams, slug: string, handle: string): void
 
 function assertValidHandle(handle: string): void {
   if (!HANDLE_PATTERN.test(handle)) {
-    throw new UserActionableError(
-      "invalid-handle",
-      `"${handle}" doesn't look like a forge username — letters, digits, ".", "_", "-" only, starting with a letter or digit`,
-    );
+    throw new UserActionableError("invalid-handle", `"${handle}" does not look like a forge username`, {}, {
+      why: "A username uses letters, digits, dots, dashes and underscores, and starts with a letter or digit.",
+    });
   }
 }
 
@@ -199,7 +202,7 @@ async function resolveForgeAccess(
     return {
       access: "skipped",
       manualSteps: [
-        `Let mattstack grant it: run \`rt team manage-membership on --team ${slug}\`, then invite ${handle} again`,
+        `Let mattstack give ${handle} access, then invite them again: rt team manage-membership on --team ${slug}`,
         ...membershipSteps(remote, handle),
       ],
     };
@@ -210,7 +213,7 @@ async function resolveForgeAccess(
     access: "skipped",
     manualSteps: [
       ...membershipSteps(remote, handle),
-      `Ask whoever administers ${remote} to give ${handle} read access. mattstack did not create this repo, so your admin decides.`,
+      `Ask whoever runs the team repo to give ${handle} read access. mattstack did not create it, so they decide.`,
     ],
   };
 }
@@ -220,7 +223,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
 
   const snapshot = readTeamSnapshot(p, opts.slug, { read: seams.read, warn: seams.warn });
   if (!snapshot.remote) {
-    throw new UserActionableError("no-team-remote", `team "${opts.slug}" has no git remote configured yet — run \`rt team create\` or \`rt team publish\` first`);
+    throw new UserActionableError("no-team-remote", `The ${opts.slug} team has no repo yet`, {}, { next: "rt team publish --remote <url>" });
   }
   const remote = snapshot.remote;
   const forge = snapshot.integrations.forge ?? forgeFromRemote(remote) ?? undefined;
@@ -277,9 +280,14 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
       embedFailure = err instanceof Error ? err.message : String(err);
     }
     if (embedFailure) {
-      peeringWarning = `board peering was not embedded in this invite (${embedFailure}); after they join, re-invite their board from the board's members panel`;
-      if (opts.requirePeering) throw new UserActionableError("peering-not-embedded", `refusing to mint: ${peeringWarning}`);
-      seams.warn(peeringWarning);
+      peeringWarning = "This invite will not connect their board. After they join, invite their board again from the board's members panel.";
+      if (opts.requirePeering) {
+        throw new UserActionableError("peering-not-embedded", "rt did not make the invite, because it could not connect their board", {}, {
+          why: "It could not register their board with the team's switchboard.",
+          log: embedFailure,
+        });
+      }
+      seams.warn(`board peering: ${embedFailure}`, { title: "This invite will not connect their board", hint: "invite their board again from the board's members panel after they join" });
     }
   }
   const peering: InviteResult["peering"] = !switchboardUrl ? "none" : pointer.switchboard ? "embedded" : "missing";
@@ -293,7 +301,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   const expiresAt = new Date(opts.now.getTime() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const created = await relay.create(ciphertext, expiresAt, idHex);
   if (created.id !== idHex) {
-    throw new UserActionableError("relay-id-mismatch", "the invite relay did not honor the requested invite id — this invite cannot be safely opened");
+    throw new UserActionableError("relay-id-mismatch", "rt could not make a safe invite", {}, { why: "The invite service changed the invite's id. Try again." });
   }
 
   const code = encodeCode(created.id, key);
@@ -307,10 +315,9 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
       expiresAt,
     });
   } catch (err) {
-    throw new UserActionableError(
-      "invite-record-write-failed",
-      `minted invite ${created.id} (code ${code}) but could not save its local record, so it cannot be revoked or synced automatically — write the code down now: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    throw new UserActionableError("invite-record-write-failed", `rt made the invite but could not save its record. Write its code down now: ${code}`, {}, {
+      why: `Without the record rt cannot cancel the invite or add the member later. Saving it failed: ${err instanceof Error ? err.message : String(err)}.`,
+    });
   }
 
   // Repo membership is a precondition, not something rt provisions (MAT-387):
@@ -328,6 +335,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
     } catch (err) {
       seams.warn(
         `rt team invite: minted a new invite for "${opts.handle}", but could not revoke the previous one (id ${priorRecord.id}) — ${err instanceof Error ? err.message : String(err)}; it will simply expire on its own.`,
+        { title: `The earlier invite for ${opts.handle} is still live`, hint: "it stops working when it expires" },
       );
     }
   }

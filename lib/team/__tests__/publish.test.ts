@@ -134,8 +134,11 @@ describe("publishTeam", () => {
     expect(thrown).toBeInstanceOf(UserActionableError);
     const err = thrown as UserActionableError;
     expect(err.code).toBe("push-denied");
-    expect(err.message).not.toContain("SECRET");
-    expect(err.message).not.toContain("https://");
+    const log = err.log ?? "";
+    expect(log).toContain("Authentication failed");
+    expect(log).not.toContain("SECRET");
+    expect(log).not.toContain("https://");
+    expect(err.message).toBe("The forge would not let rt push to the team repo");
   });
 
   test("non-fast-forward rejection (existing EMPTY-repo contract violated) is a typed remote-not-empty error", async () => {
@@ -157,7 +160,7 @@ describe("publishTeam", () => {
     expect(thrown).toBeInstanceOf(UserActionableError);
     const err = thrown as UserActionableError;
     expect(err.code).toBe("remote-not-empty");
-    expect(err.message).toContain("EMPTY");
+    expect(err.why).toBe("rt starts a team in an empty repo.");
   });
 
   test("every other push failure is still a typed, redacted error — never a plain Error crash", async () => {
@@ -180,7 +183,8 @@ describe("publishTeam", () => {
     expect(thrown).toBeInstanceOf(UserActionableError);
     const err = thrown as UserActionableError;
     expect(err.code).toBe("push-failed");
-    expect(err.message).not.toContain("SECRET");
+    expect(err.log ?? "").toStartWith("git push -u origin main failed");
+    expect(err.log).not.toContain("SECRET");
   });
 
   test("a failed remote add is also a typed, redacted error", async () => {
@@ -200,7 +204,8 @@ describe("publishTeam", () => {
     expect(thrown).toBeInstanceOf(UserActionableError);
     const err = thrown as UserActionableError;
     expect(err.code).toBe("git-remote-failed");
-    expect(err.message).not.toContain("SECRET");
+    expect(err.log ?? "").toStartWith("git remote add origin failed");
+    expect(err.log).not.toContain("SECRET");
   });
 
   test("a credential-bearing remote is stripped of userinfo before it reaches the returned result (the JSON envelope's source)", async () => {

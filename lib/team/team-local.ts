@@ -91,10 +91,7 @@ export function writeTeamLocal(
 /** The one refusal every owner-shaped team verb raises on a joined machine, so the wording cannot drift between them. */
 export function assertNotJoined(p: Pick<Probes, "readFile" | "home">, slug: string): void {
   if (!readTeamLocal(p, slug).joinedByRt) return;
-  throw new UserActionableError(
-    "team-pull-only",
-    `this machine joined "${slug}" by invite, so its clone is pull-only. Ask the team's owner to make this change. Member-proposed changes are tracked in MAT-415.`,
-  );
+  throw new UserActionableError("team-pull-only", `This Mac joined the ${slug} team by invite, so its copy is pull-only.`, {}, { why: "Ask the team's owner to make this change." });
 }
 
 /** Merges one field without clobbering the rest — callers set `createdByRt` and the operator sets the permission, at different times. */

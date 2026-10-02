@@ -37,7 +37,7 @@ function base32Decode(str: string): Uint8Array {
   for (const char of str) {
     const idx = CROCKFORD_ALPHABET.indexOf(char);
     if (idx === -1) {
-      throw new UserActionableError("invite-malformed", "invite code contains a character outside the Crockford alphabet");
+      throw new UserActionableError("invite-malformed", "That invite code has a character no invite code uses", {}, { why: "Check it for a typo, or paste the whole link." });
     }
     value = (value << 5) | idx;
     bits += 5;
@@ -122,7 +122,7 @@ function bufferSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
 /** The invite id doubles as AES-GCM's AAD, so it must be well-formed before it ever reaches WebCrypto. */
 function parseIdHex(idHex: string): Uint8Array {
   if (!ID_HEX_PATTERN.test(idHex)) {
-    throw new UserActionableError("invite-malformed", "invite id must be 32 lowercase hex characters");
+    throw new UserActionableError("invite-malformed", "rt could not read that invite", {}, { log: "invite id must be 32 lowercase hex characters" });
   }
   return hexToBytes(idHex);
 }
@@ -130,12 +130,12 @@ function parseIdHex(idHex: string): Uint8Array {
 async function importAesKey(key: Uint8Array): Promise<CryptoKey> {
   // A 16/24-byte key imports fine and silently downgrades to AES-128/192-GCM; pin the 32-byte contract.
   if (key.length !== KEY_BYTES) {
-    throw new UserActionableError("invite-unreadable", "invite key must be 32 bytes");
+    throw new UserActionableError("invite-unreadable", "rt could not read that invite", {}, { log: "invite key must be 32 bytes" });
   }
   try {
     return await crypto.subtle.importKey("raw", bufferSource(key), "AES-GCM", false, ["encrypt", "decrypt"]);
   } catch {
-    throw new UserActionableError("invite-unreadable", "invite key is unreadable");
+    throw new UserActionableError("invite-unreadable", "rt could not read that invite", {}, { log: "invite key is unreadable" });
   }
 }
 
@@ -156,7 +156,7 @@ export function generateId(): string {
  */
 export async function sealBytes(plaintext: Uint8Array, key: Uint8Array, iv: Uint8Array, aad: Uint8Array): Promise<string> {
   if (iv.length !== IV_BYTES) {
-    throw new UserActionableError("invite-unreadable", "invite IV must be 12 bytes");
+    throw new UserActionableError("invite-unreadable", "rt could not read that invite", {}, { log: "invite IV must be 12 bytes" });
   }
   const cryptoKey = await importAesKey(key);
   const ct = new Uint8Array(
@@ -276,7 +276,7 @@ export function decodeCode(code: string): { idHex: string; key: Uint8Array } {
   const normalized = normalizeCode(code);
   // 16 id bytes + 32 key bytes, base32-encoded without padding, is always 77 chars.
   if (normalized.length !== CODE_LENGTH) {
-    throw new UserActionableError("invite-malformed", "invite code is the wrong length");
+    throw new UserActionableError("invite-malformed", "That invite code is the wrong length", {}, { why: "Check that you pasted all of it." });
   }
   const bytes = base32Decode(normalized);
   const idBytes = bytes.slice(0, INVITE_ID_BYTES);

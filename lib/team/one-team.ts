@@ -14,5 +14,5 @@ function otherTeamZones(p: Probes, slug: string): string[] {
 export function assertOnlyTeam(p: Probes, slug: string): void {
   const others = otherTeamZones(p, slug);
   if (others.length === 0) return;
-  throw new UserActionableError("team-already-set-up", `this machine is set up for team ${others.join(", ")}; ${ONE_TEAM_RULE}`);
+  throw new UserActionableError("team-already-set-up", `This Mac is already set up for the ${others.join(", ")} team, and ${ONE_TEAM_RULE}`);
 }

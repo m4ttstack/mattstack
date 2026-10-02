@@ -4,6 +4,9 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { teamStatus, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { SettingsReader } from "../../lib/setup/team-settings.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { setWarningLog, __test__ as warnTest } from "../../lib/ui/warn.ts";
 
 const HOME = "/home/x";
 const SLUG = "acme";
@@ -151,9 +154,14 @@ describe("teamStatus", () => {
         ? { ok: true, data: [{ slug: SLUG, lastPullAt: 900_000, lastPushAt: 0, lastPullSkipped: null, conflicted: null, pullOnly: true }] }
         : null;
 
-    await teamStatus(["--team", SLUG], {}, deps);
-
-    expect(deps.lines[0]).toContain("pull-only");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamStatus(["--team", SLUG], {}, deps);
+      expect(io.stdout()).toContain("sync: ok\n  this copy only pulls, it never pushes\n");
+    } finally {
+      io.restore();
+    }
   });
 
   test("no board.title -> name falls back to the slug", async () => {
@@ -191,8 +199,15 @@ describe("teamStatus", () => {
     expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [] });
 
     const text = baseDeps();
-    await teamStatus([], {}, text);
-    expect(text.lines[0]).toBe("rt team status: no team (Just me)");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamStatus([], {}, text);
+      expect(io.stdout()).toBe("[off] No team on this Mac  just you\n");
+      expect(text.lines).toEqual([]);
+    } finally {
+      io.restore();
+    }
   });
 
   test("two local teams and no --team -> still exits 2 with ambiguous-team, never solo", async () => {
@@ -230,10 +245,39 @@ describe("teamStatus", () => {
       read: { "board.members": [null, "matt", { username: { evil: 1 } }, { username: "alice" }, {}] },
     });
 
-    await teamStatus(["--team", SLUG, "--json"], {}, deps);
+    const io = captureOut();
+    warnTest.reset();
+    setWarningLog(() => {});
+    try {
+      await teamStatus(["--team", SLUG, "--json"], {}, deps);
+    } finally {
+      warnTest.reset();
+      io.restore();
+    }
 
     const body = JSON.parse(deps.lines[0]!);
     expect(body.members).toEqual([{ username: "alice" }]);
+  });
+
+  test("a malformed roster entry warns on stderr and leaves the envelope alone", async () => {
+    const deps = clonedDeps({
+      exec: async () => ({ code: 0, stdout: "", stderr: "" }),
+      read: { "board.members": [null, "matt", { username: { evil: 1 } }, { username: "alice" }, {}] },
+    });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    warnTest.reset();
+    setWarningLog(() => {});
+    try {
+      await teamStatus(["--team", SLUG, "--json"], {}, deps);
+      expect(deps.lines).toHaveLength(1);
+      expect(JSON.parse(deps.lines[0]!).members).toEqual([{ username: "alice" }]);
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe("[warning] Some team members could not be read  4 left out\n");
+    } finally {
+      warnTest.reset();
+      io.restore();
+    }
   });
 
   test("human mode names the team and remote", async () => {
@@ -242,9 +286,16 @@ describe("teamStatus", () => {
       read: { "board.title": "Acme Team" },
     });
 
-    await teamStatus(["--team", SLUG], {}, deps);
-
-    expect(deps.lines[0]).toContain("Acme Team");
-    expect(deps.lines[0]).toContain("widgets.git");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamStatus(["--team", SLUG], {}, deps);
+      expect(io.lines()[0]).toBe(`Acme Team (${SLUG})`);
+      expect(io.stdout()).toContain("widgets.git");
+      expect(io.stdout()).toContain("last push: 2026-08-21T10:00:00+00:00\n");
+      expect(io.stdout()).toContain("sync: unknown\n");
+    } finally {
+      io.restore();
+    }
   });
 });

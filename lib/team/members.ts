@@ -35,10 +35,12 @@ import type { Probes } from "../setup/probes.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
 import { revokeRead, type RevokeAccess } from "./forge.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
+import { scrub } from "./redact.ts";
 import { assertNotJoined, readTeamLocal } from "./team-local.ts";
 import { openReply } from "./invite-crypto.ts";
 import { readInviteRecords, removeInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
+import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 
 const BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const AGE_HRP = "age";
@@ -119,7 +121,7 @@ async function readOwnPublicKeyIfPresent(secrets: SecretsSeams): Promise<string 
   if (!("key" in existing)) return null;
   const derived = await secrets.ageKeySeam.run(["age-keygen", "-y"], { input: existing.key, sensitive: true });
   if (derived.code !== 0) {
-    throw new Error(`age-keygen -y: could not derive the public key from the stored private key\n${derived.stderr}`);
+    throw new MembersKeyError("rt could not read this Mac's secrets key", `age-keygen -y: could not derive the public key from the stored private key\n${derived.stderr}`);
   }
   return derived.stdout.trim();
 }
@@ -167,16 +169,16 @@ export interface MembersSeams {
   readTeamLocal: typeof readTeamLocal;
   /** The forge token rt holds for the team remote's host, or null. */
   forgeToken: typeof storedForgeToken;
-  warn: (message: string) => void;
+  /** `message` is the log text; `shown` is what a person reads, and a warning without it shows its message. */
+  warn: (message: string, shown?: ShownWarning) => void;
 }
 
 function defaultReadTeamStore(slug: string): Record<string, unknown> {
   return readStore(teamSettingsPath(slug)).global;
 }
 
-/** stderr only, so a `--json` command's stdout envelope stays uncorrupted. */
-function defaultWarn(message: string): void {
-  console.error(message);
+function defaultWarn(message: string, shown?: ShownWarning): void {
+  warnLine("team", message, { show: shown ?? { title: message } });
 }
 
 export function realMembersSeams(): MembersSeams {
@@ -206,15 +208,23 @@ export interface MembersSyncResult {
  * carries forward what a bare rethrow would otherwise lose from the report.
  */
 export class MembersSyncAbortedError extends Error {
+  readonly detail: string;
   constructor(
     public readonly added: string[],
     public readonly pending: string[],
     causeMessage: string,
   ) {
-    super(
-      `rt team members sync: aborted after adding ${added.length} key(s)${added.length ? ` (${added.join(", ")})` : ""}` +
-        `${pending.length ? `, ${pending.length} still pending (${pending.join(", ")})` : ""} — ${causeMessage}`,
-    );
+    super(`rt stopped syncing members partway, after adding ${added.length} ${added.length === 1 ? "key" : "keys"}`);
+    this.detail = scrub(`added ${added.length ? added.join(", ") : "none"}; pending ${pending.length ? pending.join(", ") : "none"}; ${causeMessage}`);
+  }
+}
+
+/** A keychain read that failed inside a members verb; `detail` is the tool's own output, for the log only. */
+export class MembersKeyError extends Error {
+  readonly detail: string;
+  constructor(message: string, detail: string) {
+    super(message);
+    this.detail = scrub(detail);
   }
 }
 
@@ -269,6 +279,7 @@ export async function membersSync(
       } catch (err) {
         seams.warn(
           `rt team members sync: the reply for "${handle}" could not be used (${err instanceof Error ? err.message : String(err)}) — leaving the invite in place to retry`,
+          { title: `The reply from ${handle} could not be used`, hint: "their invite stays open to try again" },
         );
         pending.push(handle);
         continue;
@@ -277,6 +288,7 @@ export async function membersSync(
       if (readTeamRecipients(slug, secrets).includes(agePublicKey)) {
         seams.warn(
           `rt team members sync: the reply for "${handle}" claims an age key that is already a recipient (a key belongs to exactly one handle) — treating as suspect and leaving the invite in place; investigate before re-syncing`,
+          { title: `The reply from ${handle} repeats a key the team already has`, hint: "treated as suspect; look into it before syncing again" },
         );
         pending.push(handle);
         continue;
@@ -288,7 +300,7 @@ export async function membersSync(
         // Lost a race against a concurrent sync, or the duplicate check above
         // was somehow stale — either way, nothing was actually added, so this
         // must not be reported as a success.
-        seams.warn(`rt team members sync: "${handle}"'s key turned out to already be a recipient — leaving the invite in place`);
+        seams.warn(`rt team members sync: "${handle}"'s key turned out to already be a recipient — leaving the invite in place`, { title: `${handle} was already added`, hint: "their invite stays open" });
         pending.push(handle);
         continue;
       }
@@ -318,8 +330,7 @@ export interface MembersRemoveResult {
   residueNote: string;
 }
 
-const RESIDUE_NOTE =
-  "Removed members keep any secrets they already decrypted; rotate the values themselves with `rt secrets rotate --team <slug> <domain> <key>`.";
+const RESIDUE_NOTE = "Removed members keep any secrets they already opened. Rotate those values to shut them out.";
 
 /**
  * Revokes forge read access, drops the roster entry, and re-encrypts every
@@ -350,10 +361,11 @@ export async function membersRemove(
   assertNotJoined(p, slug);
 
   if (agePublicKey !== undefined && !isValidAgePublicKey(agePublicKey)) {
-    throw new UserActionableError(
-      "invalid-age-key",
-      `"${agePublicKey}" is not a well-formed age1 recipient (bech32 checksum failed) — pass the exact key from \`rt team status\` or the roster`,
-    );
+    throw new UserActionableError("invalid-age-key", "That is not a valid age key", {}, {
+      why: "Copy the exact key from the team roster.",
+      next: "rt team status",
+      log: "the --key value is not a well-formed age1 recipient (bech32 checksum failed); pass the exact key from `rt team status` or the roster",
+    });
   }
 
   const boardRoster = readRoster(seams, slug, "board.members");
@@ -374,11 +386,9 @@ export async function membersRemove(
   if (keysToRemove.length > 0) {
     const ownerPublicKey = await readOwnPublicKeyIfPresent(secrets);
     if (ownerPublicKey !== null && keysToRemove.includes(ownerPublicKey)) {
-      throw new UserActionableError(
-        "own-key-removal-refused",
-        `refusing to remove "${handle}" — the key on record for them is this machine's OWN age key, so removing it would lock this operator out of every team secret. ` +
-          `If "${handle}" genuinely echoed your key back in their invite reply, fix the roster by hand (it never should have been recorded as theirs) rather than removing it here.`,
-      );
+      throw new UserActionableError("own-key-removal-refused", `rt will not remove ${handle}: the key on record for them is this Mac's own key`, {}, {
+        why: `Removing it would lock you out of every team secret. If ${handle}'s invite reply echoed your key back, fix the roster by hand instead.`,
+      });
     }
   }
 
@@ -398,7 +408,7 @@ export async function membersRemove(
           manualSteps:
             remote === null
               ? ([] as string[])
-              : [`"${handle}" still has access to ${remote} — remove them there too; mattstack does not manage membership on this repo`],
+              : [`${handle} can still see the team repo. Remove them there too: mattstack does not manage who can see this repo.`],
         };
 
   // Each key is removed on its own contents (a store can carry either roster

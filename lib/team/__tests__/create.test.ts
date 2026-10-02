@@ -253,7 +253,7 @@ describe("createTeam", () => {
       createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false }, new FakeAgeKeySeam()),
     ).rejects.toMatchObject({
       code: "team-already-set-up",
-      message: "this machine is set up for team globex; mattstack supports one team per machine today",
+      message: "This Mac is already set up for the globex team, and mattstack supports one team per machine today",
     });
 
     expect(p.exists(join("/home/x", ".mattstack", "teams", "acme"))).toBe(false);
@@ -305,6 +305,20 @@ describe("createTeam", () => {
       expect(initCalls).toBe(2);
       const ghCalls = p.calls.exec.filter((c) => c[0] === "gh");
       expect(ghCalls).toHaveLength(1); // never re-created the already-existing gh repo
+    });
+
+    test("a failed git step keeps git's output, URLs stripped, in the log and out of the message", async () => {
+      const p = gitAwareFakeProbes("/home/x", (argv) =>
+        argv[0] === "git" && argv[1] === "init" ? { code: 128, stdout: "", stderr: "fatal: could not reach https://x-access-token:SECRET@github.com/o/r.git" } : undefined,
+      );
+
+      const err = await createTeam(p, { name: "Acme", remote: "https://github.com/o/r.git", others: false }, new FakeAgeKeySeam()).catch((e: unknown) => e);
+
+      expect(err).toMatchObject({ code: "git-init-failed", message: "rt could not start the team repo" });
+      const log = (err as UserActionableError).log ?? "";
+      expect(log).toStartWith("git init -b main failed (exit 128): fatal: could not reach");
+      expect(log).not.toContain("SECRET");
+      expect(log).not.toContain("https://");
     });
 
     test("never returns remote:'' — an incomplete zone is always a typed error, not a silent success", async () => {
