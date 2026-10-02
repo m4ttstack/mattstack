@@ -15,6 +15,7 @@ import compositionUnsynced from './composition.unsynced.json';
 import { fixtureMode, fixtureRt, type FixtureScenario } from './fixtureRt';
 import history from './history.json';
 import packs from './packs.json';
+import { scenarioOf, SCENARIOS } from './scenarios';
 import sync from './sync.json';
 
 const pack = (verb: string, ...rest: string[]) => [
@@ -26,7 +27,7 @@ const pack = (verb: string, ...rest: string[]) => [
   '--json',
 ];
 
-const expected: Record<FixtureScenario, [string[], unknown][]> = {
+const expected: Record<'clean' | 'unsynced', [string[], unknown][]> = {
   clean: [
     [['skills', 'packs', '--json'], packs],
     [pack('composition'), composition],
@@ -70,12 +71,207 @@ describe('fixtureMode', () => {
         CONSOLE_FIXTURE_SCENARIO: 'unsynced',
       })
     ).toBe('unsynced');
-    expect(
+  });
+
+  it('accepts every state scenario and refuses one it does not know', () => {
+    for (const scenario of SCENARIOS)
+      expect(
+        fixtureMode({
+          CONSOLE_FIXTURE: 'design',
+          CONSOLE_FIXTURE_SCENARIO: scenario,
+        })
+      ).toBe(scenario);
+    expect(() =>
       fixtureMode({
         CONSOLE_FIXTURE: 'design',
         CONSOLE_FIXTURE_SCENARIO: 'other',
       })
-    ).toBe('clean');
+    ).toThrow(/CONSOLE_FIXTURE_SCENARIO "other".*referenced/);
+  });
+});
+
+describe('the state scenarios', () => {
+  type Part = (typeof anatomyPlan.parts)[number];
+  type Anatomy = Omit<typeof anatomyPlan, 'parts'> & { parts: Part[] };
+
+  const json = async <T>(scenario: FixtureScenario, argv: string[]) =>
+    JSON.parse((await fixtureRt(scenario).runRt(argv)).stdout) as T;
+  const anatomyOf = (scenario: FixtureScenario, skill: string) =>
+    json<Anatomy>(scenario, pack('anatomy', '--skill', skill));
+  const compositionOf = (scenario: FixtureScenario) =>
+    json<typeof composition>(scenario, pack('composition'));
+  const lines = async (scenario: FixtureScenario, path: string) =>
+    (await fixtureRt(scenario).readPackFile(path))
+      .replace(/\n$/, '')
+      .split('\n');
+  const domainOf = (anatomy: Anatomy) =>
+    anatomy.parts.find(part => part.name === 'domain')!;
+  const rangesOf = (anatomy: Anatomy) =>
+    anatomy.parts.map(part => [part.name, part.renderedLines]);
+  const lastPartsOf = (anatomy: Anatomy) =>
+    rangesOf(anatomy)
+      .filter(([name]) => name !== null)
+      .slice(-2);
+  const planBinding = (c: typeof composition) =>
+    c.binders.find(b => b.ref === 'mattstack:stage-plan')!.slots;
+  const planSlot = (c: typeof composition) =>
+    c.targets.find(t => t.name === 'stage-plan')!.slots[0];
+
+  it('serves the subject of every scenario, or fails it', async () => {
+    for (const scenario of SCENARIOS) {
+      const { subject } = scenarioOf(scenario);
+      const result = await fixtureRt(scenario).runRt(
+        pack('anatomy', '--skill', subject)
+      );
+      if (scenario === 'anatomy-failed') {
+        expect(result.code).toBe(1);
+        expect(result.stdout).toBe('');
+        expect(result.stderr).toContain('stage-plan');
+      } else {
+        expect(JSON.parse(result.stdout)).toMatchObject({ skill: subject });
+      }
+    }
+  });
+
+  it('referenced: the domain slot renders as one line naming its fill', async () => {
+    const anatomy = await anatomyOf('referenced', 'stage-plan');
+    expect(domainOf(anatomy)).toMatchObject({
+      mode: 'reference',
+      renderedLines: [223, 223],
+      source: domainOf(anatomyPlan).source,
+    });
+    expect(anatomy.rendered.lines).toBe(701);
+    expect(lastPartsOf(anatomy)).toEqual([
+      ['gate-protocol', [224, 673]],
+      ['wrap-up-form', [674, 701]],
+    ]);
+    const text = await lines('referenced', anatomy.rendered.path);
+    expect(text).toHaveLength(701);
+    expect(text[222]).toBe(
+      'Slot domain is bound to `acme:plan-policy` (acme:plan-policy@0.8.14) -- invoke that skill when this flow needs it.'
+    );
+    expect(text[223]).toContain('part: include:gate-protocol');
+    expect(await compositionOf('referenced')).toEqual(composition);
+  });
+
+  it.each([
+    'required-unbound',
+    'optional-unbound',
+    'no-matching-fill',
+  ] as const)('%s: the domain slot renders nothing', async scenario => {
+    const anatomy = await anatomyOf(scenario, 'stage-plan');
+    expect(domainOf(anatomy)).toMatchObject({
+      source: null,
+      renderedLines: null,
+    });
+    expect(anatomy.rendered.lines).toBe(700);
+    expect(lastPartsOf(anatomy)).toEqual([
+      ['gate-protocol', [223, 672]],
+      ['wrap-up-form', [673, 700]],
+    ]);
+    const text = await lines(scenario, anatomy.rendered.path);
+    expect(text).toHaveLength(700);
+    expect(text[222]).toContain('part: include:gate-protocol');
+    expect(text.join('\n')).not.toContain('plan-policy');
+  });
+
+  it('required-unbound: nothing binds the required domain slot', async () => {
+    const c = await compositionOf('required-unbound');
+    expect(planBinding(c)).toEqual([]);
+    expect(planSlot(c)).toMatchObject({ name: 'domain', required: true });
+  });
+
+  it('optional-unbound: nothing binds the domain slot, which is optional', async () => {
+    const c = await compositionOf('optional-unbound');
+    expect(planBinding(c)).toEqual([]);
+    expect(planSlot(c)).toMatchObject({ name: 'domain', required: false });
+  });
+
+  it('no-matching-fill: the domain slot names a fill the pack lacks', async () => {
+    const c = await compositionOf('no-matching-fill');
+    expect(planBinding(c)).toEqual([
+      { name: 'domain', boundTo: 'acme:plan-policy-v1', layer: 'pack' },
+    ]);
+    expect(c.fills.map(f => f.binding)).not.toContain('acme:plan-policy-v1');
+  });
+
+  it("resolve-error: release-notes carries rt's message for its changelog slot", async () => {
+    const c = await compositionOf('resolve-error');
+    const slot = c.verbs.find(v => v.name === 'release-notes')!.slots[0]!;
+    expect(slot).toMatchObject({
+      name: 'changelog',
+      boundTo: 'acme:changelog-style',
+      layer: 'pack',
+    });
+    expect((slot as { resolveError?: string }).resolveError).toMatch(
+      /^loadAttachment: slot "changelog": binding "acme:changelog-style" not found; searched:\n/
+    );
+    const anatomy = await anatomyOf('resolve-error', 'release-notes');
+    const template = await fixtureRt('resolve-error').readPackFile(
+      anatomy.template.path
+    );
+    expect(template.split('\n')[21]).toBe('{{slot:changelog}}');
+    expect(await lines('resolve-error', anatomy.rendered.path)).toHaveLength(
+      anatomy.rendered.lines
+    );
+  });
+
+  it("legacy: every part comes from the rendered file's markers", async () => {
+    const anatomy = await anatomyOf('legacy', 'stage-plan');
+    expect(anatomy.parts.every(part => part.templateLines === null)).toBe(true);
+    expect(rangesOf(anatomy)).toEqual([
+      [null, [12, 48]],
+      ['execution-strategy', [49, 197]],
+      ['gate-protocol', [303, 749]],
+      ['wrap-up-form', [753, 780]],
+    ]);
+  });
+
+  it('never-compiled: no rendered file, and check says so', async () => {
+    const anatomy = await anatomyOf('never-compiled', 'stage-plan');
+    expect(anatomy).toMatchObject({
+      status: 'never-compiled',
+      rendered: { exists: false, lines: 0 },
+      links: [],
+    });
+    expect(anatomy.template.builtVersion).toBeNull();
+    expect(anatomy.parts.every(part => part.renderedLines === null)).toBe(true);
+    const report = await json<typeof check>('never-compiled', pack('check'));
+    expect(report.verbs.find(v => v.name === 'stage-plan')!.status).toBe(
+      'never-compiled'
+    );
+    const { readPackFile, realpath } = fixtureRt('never-compiled');
+    await expect(readPackFile(anatomy.rendered.path)).rejects.toThrow();
+    await expect(realpath(anatomy.rendered.path)).rejects.toThrow();
+    await expect(readPackFile(anatomy.template.path)).resolves.toContain(
+      '{{slot:domain}}'
+    );
+  });
+
+  it.each([
+    ['check-failed', pack('check')],
+    ['changes-failed', pack('changes')],
+  ] as const)(
+    '%s: rt answers with an error and no report',
+    async (scenario, argv) => {
+      const result = await fixtureRt(scenario).runRt([...argv]);
+      expect(result.code).toBeGreaterThan(0);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).not.toBe('');
+    }
+  );
+
+  it('leaves every other answer as clean has it', async () => {
+    for (const scenario of SCENARIOS) {
+      if (scenario === 'unsynced') continue;
+      const { runRt } = fixtureRt(scenario);
+      const work = await runRt(pack('anatomy', '--skill', 'work'));
+      expect(JSON.parse(work.stdout)).toEqual(anatomyWork);
+      if (!['check-failed', 'never-compiled'].includes(scenario)) {
+        const report = await runRt(pack('check'));
+        expect(JSON.parse(report.stdout)).toEqual(check);
+      }
+    }
   });
 });
 

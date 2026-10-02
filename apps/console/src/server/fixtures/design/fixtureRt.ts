@@ -3,7 +3,8 @@
  * pack the console design boards were drawn with, so the Graph tab can be
  * compared with the boards without rt, git or a real pack on the machine.
  * `CONSOLE_FIXTURE_SCENARIO=unsynced` serves the pack after a rebind that has
- * not been synced yet.
+ * not been synced yet; `scenarios.ts` lists the others, each a state no board
+ * draws.
  *
  * Files the routes read live under `files/`, at their path below `/fixture`.
  * Everything is read at call time, so nothing here is bundled into the app.
@@ -16,8 +17,16 @@ import type { RunGit } from '../../git-bin';
 import { GIT_LOG_FORMAT, type GitCommit } from '../../gitLog';
 import type { RunRt } from '../../rt-bin';
 import type { ReadPackFile } from '../../skills';
+import {
+  isFailure,
+  isScenario,
+  scenarioOf,
+  SCENARIOS,
+  type Failure,
+  type FixtureScenario,
+} from './scenarios';
 
-export type FixtureScenario = 'clean' | 'unsynced';
+export type { FixtureScenario } from './scenarios';
 
 export interface FixtureRt {
   runRt: RunRt;
@@ -48,17 +57,31 @@ interface History {
   diffs: Record<string, string>;
 }
 
+/** Throws on a scenario it does not know, so a mistyped one never serves
+    `clean` in its place. */
 export function fixtureMode(
   env: Record<string, string | undefined>
 ): FixtureScenario | null {
   if (env.CONSOLE_FIXTURE !== 'design') return null;
-  return env.CONSOLE_FIXTURE_SCENARIO === 'unsynced' ? 'unsynced' : 'clean';
+  const scenario = env.CONSOLE_FIXTURE_SCENARIO || 'clean';
+  if (!isScenario(scenario)) {
+    throw new Error(
+      `CONSOLE_FIXTURE_SCENARIO "${scenario}" is not a design fixture scenario; use one of ${SCENARIOS.join(', ')}`
+    );
+  }
+  return scenario;
 }
 
 const answer = (stdout: string, code = 0): RunResult => ({
   code,
   stdout,
   stderr: '',
+});
+
+const fail = ({ code, stderr }: Failure): RunResult => ({
+  code,
+  stdout: '',
+  stderr,
 });
 
 const refuse = (argv: string[]): RunResult => ({
@@ -125,8 +148,19 @@ function formatLog(commits: GitCommit[]): string {
     .join('\n');
 }
 
+/** A payload file as it is, or parsed, edited and printed again. */
+async function payload<T>(
+  name: string,
+  edit: ((value: T) => T) | undefined
+): Promise<string> {
+  if (!edit) return readJsonText(name);
+  return JSON.stringify(edit(await readJson<T>(name)), null, 2);
+}
+
 export function fixtureRt(scenario: FixtureScenario): FixtureRt {
-  const changesFile = `changes.${scenario}.json`;
+  const def = scenarioOf(scenario);
+  const unsynced = scenario === 'unsynced';
+  const changesFile = `changes.${unsynced ? 'unsynced' : 'clean'}.json`;
   const pendingFiles = async () =>
     (await readJson<{ files: PendingFile[] }>(changesFile)).files;
 
@@ -143,23 +177,26 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
     switch (verb) {
       case 'composition':
         return answer(
-          await readJsonText(
-            scenario === 'unsynced'
-              ? 'composition.unsynced.json'
-              : 'composition.json'
+          await payload(
+            unsynced ? 'composition.unsynced.json' : 'composition.json',
+            def.composition
           )
         );
       case 'check':
+        if (isFailure(def.check)) return fail(def.check);
         // rt exits 1 whenever any skill has drifted, with the report still on stdout.
-        return answer(await readJsonText('check.json'), 1);
+        return answer(await payload('check.json', def.check), 1);
       case 'anatomy': {
         const skill = flagValue(argv, '--skill');
+        const own = skill ? def.anatomy?.[skill] : undefined;
+        if (isFailure(own)) return fail(own);
+        if (own) return answer(await payload(own.file, own.edit));
         if (!skill || !SKILLS_WITH_ANATOMY.has(skill)) return refuse(argv);
-        const variant =
-          scenario === 'unsynced' && skill === 'stage-plan' ? '.unsynced' : '';
+        const variant = unsynced && skill === 'stage-plan' ? '.unsynced' : '';
         return answer(await readJsonText(`anatomy.${skill}${variant}.json`));
       }
       case 'changes':
+        if (def.changes) return fail(def.changes);
         return answer(await readJsonText(changesFile));
       case 'discard':
         return answer(
@@ -230,10 +267,17 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
     }
   };
 
-  const readPackFile: ReadPackFile = async path =>
-    readFile(onDisk(path), 'utf8');
+  const edits = def.files ?? {};
+  const absent = (path: string) => edits[posix.normalize(path)] === null;
+
+  const readPackFile: ReadPackFile = async path => {
+    if (absent(path)) throw notFound(path);
+    const text = await readFile(onDisk(path), 'utf8');
+    return edits[posix.normalize(path)]?.(text) ?? text;
+  };
 
   const realpath = async (path: string) => {
+    if (absent(path)) throw notFound(path);
     await stat(onDisk(path));
     return posix.normalize(path);
   };
