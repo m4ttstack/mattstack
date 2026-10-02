@@ -105,6 +105,28 @@ describe('SettingRow disclosure', () => {
     expect(screen.queryByRole('radio', { name: "Where it's set" })).toBeNull();
   });
 
+  it('hovering a closed row reads its layers ahead, once', async () => {
+    renderWithProviders(
+      <SettingRow def={scalar()} store={store()} subhead={null} query="" />
+    );
+    await userEvent.hover(screen.getByText('What it does.'));
+    await waitFor(() => expect(explainGet).toHaveBeenCalledTimes(1));
+    expect(explainGet).toHaveBeenCalledWith(
+      '/api/settings/explain/board.agent.model'
+    );
+    await userEvent.unhover(screen.getByText('What it does.'));
+    await userEvent.hover(screen.getByText('What it does.'));
+    expect(explainGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('focusing a closed row’s chevron reads its layers ahead', async () => {
+    renderWithProviders(
+      <SettingRow def={scalar()} store={store()} subhead={null} query="" />
+    );
+    screen.getByRole('button', { name: 'open board.agent.model' }).focus();
+    await waitFor(() => expect(explainGet).toHaveBeenCalledTimes(1));
+  });
+
   it('a double-click on the key name toggles the row once', async () => {
     renderWithProviders(
       <SettingRow def={scalar()} store={store()} subhead={null} query="" />

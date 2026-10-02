@@ -1199,7 +1199,6 @@
               "name": "Row agent.claude.yolo",
               "width": "fill_container",
               "fill": "$hover",
-              "cornerRadius": 6,
               "stroke": "$border-soft",
               "gap": 24,
               "padding": 12,

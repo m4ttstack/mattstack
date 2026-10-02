@@ -38,7 +38,7 @@ import { RepoReach } from './RepoReach';
 import { SaveStatus, useRowParts, ValueContent, WriteError } from './rowParts';
 import { ScopeBadge } from './ScopeBadge';
 import classes from './SettingRow.module.css';
-import { useSettingsRepo } from './useConsoleSettings';
+import { prefetchKeyExplain, useSettingsRepo } from './useConsoleSettings';
 import { useRowSave } from './useRowSave';
 import {
   APPROVAL_KEY,
@@ -182,6 +182,10 @@ export function SettingRow({
 
   const toggle = () =>
     setOpen(isOpen ? null : { tab: parts.body ? 'value' : 'where', fix: null });
+  const warmPanel = () => {
+    if (!isOpen) void prefetchKeyExplain(def, repo);
+  };
+
   const onHeader = (e: MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     // A portalled dropdown's clicks reach here through the React tree.
@@ -212,6 +216,8 @@ export function SettingRow({
         wrap="nowrap"
         className={classes.header}
         onClick={onHeader}
+        onPointerEnter={warmPanel}
+        onFocus={warmPanel}
       >
         <Stack gap={4} className={classes.text}>
           <Group gap={8} wrap="nowrap">

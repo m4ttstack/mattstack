@@ -729,9 +729,9 @@ describe('composite rows', () => {
     ];
     let release: () => void = () => {};
     const moved = new Promise<void>(r => (release = r));
-    let calls = 0;
+    let moving = false;
     vi.stubGlobal('fetch', async () => {
-      const rows = calls++ === 0 ? machineRows : (await moved, teamRows);
+      const rows = moving ? (await moved, teamRows) : machineRows;
       return { ok: true, status: 200, json: async () => ({ def: {}, rows }) };
     });
     const s = store();
@@ -754,6 +754,7 @@ describe('composite rows', () => {
     await waitFor(() =>
       expect(screen.getByLabelText('rt.homeSnapshot.debounceSec')).toBeEnabled()
     );
+    moving = true;
     rerender(<SettingRow def={at('team')} store={s} subhead={null} query="" />);
     expect(screen.getByLabelText('rt.homeSnapshot.debounceSec')).toBeDisabled();
     release();

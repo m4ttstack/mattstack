@@ -4,9 +4,16 @@ import {
   installJsdomPolyfills,
   installTestTimeBudget,
 } from '@mattstack/app-kit/test-utils';
+import { afterEach } from 'vitest';
+
+import { resetExplainCache } from './src/app/settings/useConsoleSettings';
 
 installJsdomPolyfills();
 installTestTimeBudget();
+
+// The settings explain reads are cached per module, so one test's stubbed
+// rows would otherwise seed the next test's first render.
+afterEach(() => resetExplainCache());
 
 // jsdom ships `window.scrollTo` only as a "not implemented" stub that logs a
 // noisy jsdomError. The app's router scrolls to the top on every route
