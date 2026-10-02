@@ -16,12 +16,17 @@ export const MIN_FRAME_ZOOM = 0.7;
 /** Room right of the graph. */
 const RIGHT_ROOM = 24;
 
-/** Space between the focus header and the column headings under it. */
+/** Least space between the focus header and the column headings under it. */
 export const HEADER_GAP = 18;
 
-/** Stage px of the graph a drag always leaves in view, on whichever side it
-    is dragged off. */
-export const KEEP_IN_VIEW = 160;
+/** Most space a framing leaves there: half of what the graph does not fill,
+    up to this. */
+export const HEADER_ROOM = 120;
+
+/** The share of the graph a drag can carry past an edge of what the reader
+    can see. A graph that fits keeps the rest in view; a bigger one scrolls
+    to its far edge and then this share of its size past it. */
+export const OFF_STAGE_SHARE = 0.12;
 
 /** The template's right edge with the handles on it, in layout units: what a
     drawer over the stage's right edge leaves in view. */
@@ -57,29 +62,45 @@ export function panFor(stageWidth: number, zoom: number, cover: number) {
   return Math.min(0, stageWidth - cover - RIGHT_ROOM - TEMPLATE_RIGHT * zoom);
 }
 
-/** Where the viewport may travel at `zoom`, in layout units: a drag carries
-    the graph off any side of what the reader can see (the stage left of a
-    drawer, under the focus header) until only `KEEP_IN_VIEW` of it is left
-    on it. */
+/** Where the viewport may travel at `zoom`, in layout units, holding the
+    graph to what the reader can see (the stage left of a drawer, under the
+    focus header) by `OFF_STAGE_SHARE`. */
 export function extentFor(
   stage: { width: number; height: number },
   { left = 0, top = 0, right, bottom }: GraphBounds,
   zoom: number,
   { cover = 0, headerBottom = 0 }: FramingOptions = {}
 ): CoordinateExtent {
-  const seen = (px: number) => (px - KEEP_IN_VIEW) / zoom;
+  const width = right - left;
+  const height = bottom - top;
+  // Stage px the graph is short of the visible width or height: positive
+  // room it may cross, negative overflow it may scroll through.
+  const spareX = stage.width - cover - width * zoom;
+  const spareY = stage.height - headerBottom - height * zoom;
   return [
-    [left - seen(stage.width - cover), top - seen(stage.height)],
-    [right + seen(stage.width), bottom + seen(stage.height - headerBottom)],
+    [
+      left - Math.max(spareX, 0) / zoom - OFF_STAGE_SHARE * width,
+      top -
+        (headerBottom + Math.max(spareY, 0)) / zoom -
+        OFF_STAGE_SHARE * height,
+    ],
+    [
+      left +
+        (stage.width - Math.min(spareX, 0)) / zoom +
+        OFF_STAGE_SHARE * width,
+      top +
+        (stage.height - headerBottom - Math.min(spareY, 0)) / zoom +
+        OFF_STAGE_SHARE * height,
+    ],
   ];
 }
 
 /**
- * The boards' framing when the graph fits the stage's width at zoom 1, else
- * the same corner zoomed out to fit that width, never below
- * `MIN_FRAME_ZOOM`. Height never shrinks the graph: a tall one scrolls. A
- * drawer over the stage pans the template clear of it, and a focus header
- * taller than the boards' moves the graph down below it.
+ * Zoom 1 when the graph fits the stage's width, else zoomed out to fit it,
+ * never below `MIN_FRAME_ZOOM`; height never shrinks the graph, so a tall one
+ * scrolls. A graph that fits sits centred across the stage, its headings
+ * half the spare height under the focus header (between `HEADER_GAP` and
+ * `HEADER_ROOM`). A drawer over the stage pans the template clear of it.
  */
 export function frameStage(
   stage: { width: number; height: number },
@@ -90,11 +111,16 @@ export function frameStage(
     1,
     Math.max(MIN_FRAME_ZOOM, (stage.width - RIGHT_ROOM) / graph.right)
   );
-  const y = Math.max(
-    BOARD_VIEWPORT.y,
-    headerBottom + HEADER_GAP - COLUMN_TOP * zoom
-  );
-  const viewport = { x: panFor(stage.width, zoom, cover), y, zoom };
+  const left = graph.left ?? 0;
+  const spareHeight =
+    stage.height - headerBottom - (graph.bottom - COLUMN_TOP) * zoom;
+  const gap = Math.min(HEADER_ROOM, Math.max(HEADER_GAP, spareHeight / 2));
+  const centred = (stage.width - (graph.right - left) * zoom) / 2 - left * zoom;
+  const viewport = {
+    x: cover > 0 ? panFor(stage.width, zoom, cover) : Math.max(0, centred),
+    y: headerBottom + gap - COLUMN_TOP * zoom,
+    zoom,
+  };
   return {
     viewport,
     extent: extentFor(stage, graph, zoom, { cover, headerBottom }),

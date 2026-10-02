@@ -3,13 +3,13 @@ import type { Viewport } from '@xyflow/react';
 import { describe, expect, it } from 'vitest';
 
 import {
-  BOARD_VIEWPORT,
   COLUMN_TOP,
   frameStage,
   HEADER_GAP,
+  HEADER_ROOM,
   headingDetail,
-  KEEP_IN_VIEW,
   MIN_FRAME_ZOOM,
+  OFF_STAGE_SHARE,
   panFor,
 } from '../layout/stageFraming';
 import { LAYOUT, layoutTemplate } from '../layout/templateLayout';
@@ -24,6 +24,21 @@ import { designFixture } from './designFixtures';
 /** The stage y the column headings start at. */
 const headingsTop = ({ viewport }: { viewport: Viewport }) =>
   viewport.y + COLUMN_TOP * viewport.zoom;
+
+/** Where a drag to each limit leaves the graph's left and top edges, in
+    stage px, for a graph whose bounds start at the layout's origin. */
+function limits(
+  { extent, viewport: { zoom } }: { extent: number[][]; viewport: Viewport },
+  stage: { width: number; height: number }
+) {
+  const [[minX, minY], [maxX, maxY]] = extent;
+  return {
+    leftmost: stage.width - maxX * zoom,
+    rightmost: -minX * zoom,
+    highest: stage.height - maxY * zoom,
+    lowest: -minY * zoom,
+  };
+}
 
 /** The design boards' stage, 1408 wide, at the app's page-row height. */
 const BOARD_STAGE = { width: 1408, height: 952 };
@@ -58,26 +73,26 @@ function placeholderView(count: number): TemplateView {
 }
 
 describe('frameStage', () => {
-  it('keeps the boards framing for both board views', () => {
+  it('centres a graph that fits, HEADER_ROOM under the top when there is room', () => {
     for (const [right, bottom] of [
       [STEP_RIGHT, 324],
       [LINKS_RIGHT, 653],
     ] as const) {
       const framing = frameStage(BOARD_STAGE, { right, bottom });
-      expect(framing.viewport).toEqual(BOARD_VIEWPORT);
-      expect(headingsTop(framing)).toBe(72);
-      // A drag carries the graph until only KEEP_IN_VIEW of it is left on
-      // the stage, the same distance each way.
-      expect(framing.extent).toEqual([
-        [
-          -(BOARD_STAGE.width - KEEP_IN_VIEW),
-          -(BOARD_STAGE.height - KEEP_IN_VIEW),
-        ],
-        [
-          right + BOARD_STAGE.width - KEEP_IN_VIEW,
-          bottom + BOARD_STAGE.height - KEEP_IN_VIEW,
-        ],
-      ]);
+      expect(framing.viewport.zoom).toBe(1);
+      expect(framing.viewport.x).toBeCloseTo((BOARD_STAGE.width - right) / 2);
+      expect(headingsTop(framing)).toBe(HEADER_ROOM);
+      // The graph fits, so a drag can carry only OFF_STAGE_SHARE of it off
+      // any edge of the stage.
+      const at = limits(framing, BOARD_STAGE);
+      expect(at.leftmost).toBeCloseTo(-OFF_STAGE_SHARE * right);
+      expect(at.rightmost + right).toBeCloseTo(
+        BOARD_STAGE.width + OFF_STAGE_SHARE * right
+      );
+      expect(at.highest).toBeCloseTo(-OFF_STAGE_SHARE * bottom);
+      expect(at.lowest + bottom).toBeCloseTo(
+        BOARD_STAGE.height + OFF_STAGE_SHARE * bottom
+      );
     }
   });
 
@@ -90,11 +105,16 @@ describe('frameStage', () => {
       bottom: layout.height,
     });
 
-    expect(framing.viewport).toEqual(BOARD_VIEWPORT);
-    // Scrolled to its end, KEEP_IN_VIEW of the graph is still on the stage.
-    expect(framing.extent[1][1]).toBe(
-      layout.height + BOARD_STAGE.height - KEEP_IN_VIEW
+    expect(framing.viewport.zoom).toBe(1);
+    // No room to spare, so the headings start HEADER_GAP down.
+    expect(headingsTop(framing)).toBe(HEADER_GAP);
+    // Taller than the stage, it scrolls to either end and then only
+    // OFF_STAGE_SHARE of its height past it.
+    const at = limits(framing, BOARD_STAGE);
+    expect(at.highest + layout.height).toBeCloseTo(
+      BOARD_STAGE.height - OFF_STAGE_SHARE * layout.height
     );
+    expect(at.lowest).toBeCloseTo(OFF_STAGE_SHARE * layout.height);
   });
 
   it('zooms a wide graph out to the stage width on a narrow stage', () => {
@@ -103,23 +123,22 @@ describe('frameStage', () => {
       { right: STEP_RIGHT, bottom: 324 }
     );
 
-    expect(framing.viewport.x).toBe(0);
-    expect(framing.viewport.y).toBe(124);
-    expect(framing.viewport.zoom).toBeCloseTo((1008 - 24) / STEP_RIGHT, 5);
-    expect(headingsTop(framing)).toBeCloseTo(124 - 52 * framing.viewport.zoom);
+    const zoom = framing.viewport.zoom;
+    expect(zoom).toBeCloseTo((1008 - 24) / STEP_RIGHT, 5);
+    expect(framing.viewport.x).toBeCloseTo((1008 - STEP_RIGHT * zoom) / 2);
+    expect(headingsTop(framing)).toBe(HEADER_ROOM);
   });
 
-  it('measures the drag room in stage px at any zoom', () => {
+  it('scrolls a graph wider than the stage to either end, then only its share past it', () => {
     const framing = frameStage(
       { width: 600, height: 712 },
       { right: STEP_RIGHT, bottom: 324 }
     );
 
-    const zoom = framing.viewport.zoom;
-    expect(framing.extent[0][0]).toBeCloseTo(-(600 - KEEP_IN_VIEW) / zoom);
-    expect(framing.extent[1][0]).toBeCloseTo(
-      STEP_RIGHT + (600 - KEEP_IN_VIEW) / zoom
-    );
+    const width = STEP_RIGHT * framing.viewport.zoom;
+    const at = limits(framing, { width: 600, height: 712 });
+    expect(at.leftmost + width).toBeCloseTo(600 - OFF_STAGE_SHARE * width);
+    expect(at.rightmost).toBeCloseTo(OFF_STAGE_SHARE * width);
   });
 
   it('never frames below a readable zoom, and leaves the rest to scroll', () => {
@@ -145,12 +164,18 @@ describe('frameStage under a drawer', () => {
         { cover: 600 }
       );
 
-      expect(framing.viewport).toEqual({ x: -110, y: 124, zoom: 1 });
-      const [[minX], [maxX]] = framing.extent;
-      // Dragged right, the graph stops KEEP_IN_VIEW short of the drawer.
-      expect(minX).toBe(-(BOARD_STAGE.width - 600 - KEEP_IN_VIEW));
-      // The viewport sits inside its extent, so React Flow keeps the pan.
-      expect(maxX).toBeGreaterThanOrEqual(110 + BOARD_STAGE.width);
+      expect(framing.viewport.x).toBe(-110);
+      expect(framing.viewport.zoom).toBe(1);
+      // Wider than the stage left of the drawer, the graph scrolls to its
+      // right edge there and then only its share past it.
+      const at = limits(framing, BOARD_STAGE);
+      expect(at.leftmost + right).toBeCloseTo(
+        BOARD_STAGE.width - 600 - OFF_STAGE_SHARE * right
+      );
+      expect(at.rightmost).toBeCloseTo(OFF_STAGE_SHARE * right);
+      // The framed viewport sits inside its extent, so React Flow keeps it.
+      expect(at.leftmost).toBeLessThanOrEqual(-110);
+      expect(at.rightmost).toBeGreaterThanOrEqual(-110);
     }
   });
 
@@ -173,15 +198,24 @@ describe('frameStage under a drawer', () => {
 });
 
 describe('frameStage under the focus header', () => {
-  it('keeps the boards framing under a one-line description', () => {
+  it('keeps HEADER_GAP under the header when the stage has no room to spare', () => {
     const framing = frameStage(
-      BOARD_STAGE,
+      { width: 1408, height: 500 },
       { right: STEP_RIGHT, bottom: 324 },
-      { headerBottom: 72 - HEADER_GAP }
+      { headerBottom: 90 }
     );
 
-    expect(framing.viewport).toEqual(BOARD_VIEWPORT);
-    expect(headingsTop(framing)).toBe(72);
+    expect(headingsTop(framing)).toBe(90 + HEADER_GAP);
+  });
+
+  it('starts the headings half the spare room below the header, up to HEADER_ROOM', () => {
+    const framing = frameStage(
+      { width: 1408, height: 700 },
+      { right: STEP_RIGHT, bottom: 324 },
+      { headerBottom: 90 }
+    );
+
+    expect(headingsTop(framing)).toBe(90 + (700 - 90 - (324 + 52)) / 2);
   });
 
   it('starts the column headings below a header that wraps', () => {
@@ -191,11 +225,11 @@ describe('frameStage under the focus header', () => {
       { headerBottom: 90 }
     );
 
-    expect(headingsTop(framing)).toBe(90 + HEADER_GAP);
-    expect(framing.viewport.y).toBe(90 + HEADER_GAP + 52);
-    // Dragged up, the graph stops KEEP_IN_VIEW below the header.
-    expect(framing.extent[1][1]).toBe(
-      324 + BOARD_STAGE.height - 90 - KEEP_IN_VIEW
+    expect(headingsTop(framing)).toBe(90 + HEADER_ROOM);
+    expect(framing.viewport.y).toBe(90 + HEADER_ROOM + 52);
+    // Dragged up, only its share of the graph goes under the header.
+    expect(limits(framing, BOARD_STAGE).highest).toBeCloseTo(
+      90 - OFF_STAGE_SHARE * 324
     );
   });
 });
