@@ -462,7 +462,7 @@ describe("teamInvite", () => {
       await teamInvite(["--handle", "zaphod"], {}, deps);
       const text = io.stdout();
       expect(text).toContain("mattstack://join/");
-      expect(text).toContain("[needs you] Give zaphod read access to the team repo yourself  forge access: skipped\n");
+      expect(text).toContain("[needs you] zaphod cannot see the team repo yet  forge access: skipped\n");
       expect(text).toContain("Ask whoever runs the team repo");
     } finally {
       io.restore();
@@ -619,6 +619,8 @@ describe("teamPull", () => {
       ["rebased", "2 commits replayed", "[ok] Pulled the acme team  2 commits replayed\n"],
       ["conflict", "settings.team.jsonc", "[needs you] The acme team has changes that clash with yours  settings.team.jsonc\n"],
       ["skipped", "pull not enabled for this repo", "[skipped] Skipped pulling the acme team  pull not enabled for this repo\n"],
+      ["diverged-oddly", null, "[warning] The acme team pull ended in a way rt does not recognise  outcome: diverged-oddly\n"],
+      ["diverged-oddly", "3 files", "[warning] The acme team pull ended in a way rt does not recognise  outcome: diverged-oddly, 3 files\n"],
     ];
     const io = captureOut();
     ui.__test__.setHuman(() => false);

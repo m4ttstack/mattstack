@@ -234,8 +234,13 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
       return;
     }
     const outcome = res.data.outcome;
-    const copy = PULL_COPY[outcome] ?? { status: "warn" as const, title: (s: string) => `The ${s} team pull ended as ${outcome}` };
-    out.print(out.line(copy.status, copy.title(slug), res.data.detail ?? undefined));
+    const copy = PULL_COPY[outcome];
+    if (copy) {
+      out.print(out.line(copy.status, copy.title(slug), res.data.detail ?? undefined));
+    } else {
+      const hint = res.data.detail ? `outcome: ${outcome}, ${res.data.detail}` : `outcome: ${outcome}`;
+      out.print(out.line("warn", `The ${slug} team pull ended in a way rt does not recognise`, hint));
+    }
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, "team pull", deps);
     throw err;
@@ -270,7 +275,7 @@ export async function teamPublish(args: string[], _ctx: CommandContext = {}, dep
 export function inviteBlocks(handle: string, result: InviteResult): Block[] {
   const blocks: Block[] = [out.copy(result.link, "invite link"), out.copy(result.pasteBlock, "message to send")];
   if (result.forgeAccess !== "granted") {
-    blocks.push(out.line("needs-you", `Give ${handle} read access to the team repo yourself`, `forge access: ${result.forgeAccess}`));
+    blocks.push(out.line("needs-you", `${handle} cannot see the team repo yet`, `forge access: ${result.forgeAccess}`));
     if (result.manualSteps.length > 0) blocks.push(out.callout("fix", ...result.manualSteps));
   }
   return blocks;
@@ -302,8 +307,7 @@ export function membersRemoveBlocks(handle: string, slug: string, result: Member
       ? out.line("done", `Removed ${handle} from the team`, `forge access: ${result.forgeAccess}`)
       : out.line("skipped", `${handle} was not on the team list`, `forge access: ${result.forgeAccess}`),
     ...(result.manualSteps.length > 0 ? [out.callout("fix", ...result.manualSteps)] : []),
-    out.callout("note", result.residueNote),
-    out.callout("next", out.cmd(`rt secrets rotate --team ${slug} <domain> <key>`)),
+    out.callout("next", result.residueNote, out.cmd(`rt secrets rotate --team ${slug} <domain> <key>`)),
   ];
 }
 

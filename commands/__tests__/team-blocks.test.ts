@@ -23,8 +23,17 @@ test("an invite is two copy blocks: the link, then the message to send, neither 
 
 test("an invite rt could not grant access for says who has to, with every manual step", () => {
   const text = renderPlain(inviteBlocks("zaphod", invite({ forgeAccess: "skipped", manualSteps: ["Add zaphod at https://forge.example.test/acme/team/members", "Ask whoever runs the team repo to give zaphod read access."] })));
-  expect(text).toContain("[needs you] Give zaphod read access to the team repo yourself  forge access: skipped\n");
+  expect(text).toContain("[needs you] zaphod cannot see the team repo yet  forge access: skipped\n");
   expect(text).toContain("  fix: Add zaphod at https://forge.example.test/acme/team/members\n       Ask whoever runs the team repo to give zaphod read access.\n");
+});
+
+test("an invite GitHub is still waiting on the invitee to accept reads as not yet visible, with the accept step", () => {
+  const text = renderPlain(
+    inviteBlocks("zaphod", invite({ forgeAccess: "manual", manualSteps: ["zaphod has to accept GitHub's invite to the repo, on github.com/acme/team/invitations or by email"] })),
+  );
+  expect(text).toContain("[needs you] zaphod cannot see the team repo yet  forge access: manual\n");
+  expect(text).toContain("  fix: zaphod has to accept GitHub's invite to the repo, on github.com/acme/team/invitations or by email\n");
+  expect(text).not.toContain("yourself");
 });
 
 const join = (extra: Partial<JoinResult> = {}): JoinResult => ({
@@ -62,7 +71,7 @@ test("members sync says what was added, who is still pending and what was locked
   expect(renderPlain(membersSyncBlocks({ added: [], addedHandles: [], pending: [], reencrypted: [] }))).toBe("[skipped] No new keys to add\n");
 });
 
-test("members remove names the member, what is left to do by hand, the note about old secrets, and the command that rotates them", () => {
+test("members remove names the member, what is left to do by hand, and a next step that says why to rotate and how", () => {
   const text = renderPlain(
     membersRemoveBlocks("alice", "acme", {
       forgeAccess: "skipped",
@@ -75,10 +84,10 @@ test("members remove names the member, what is left to do by hand, the note abou
   expect(text).toBe(
     "[ok] Removed alice from the team  forge access: skipped\n" +
       "  fix: alice can still see the team repo. Remove them there too: mattstack does not manage who can see this repo.\n" +
-      "  note: Removed members keep any secrets they already opened. Rotate those values to shut them out.\n" +
-      "  next: rt secrets rotate --team acme <domain> <key>\n",
+      "  next: Removed members keep any secrets they already opened. Rotate those values to shut them out.\n" +
+      "        rt secrets rotate --team acme <domain> <key>\n",
   );
   expect(renderPlain(membersRemoveBlocks("alice", "acme", { forgeAccess: "revoked", manualSteps: [], reencrypted: [], rosterRemoved: false, residueNote: "n" }))).toBe(
-    "[skipped] alice was not on the team list  forge access: revoked\n  note: n\n  next: rt secrets rotate --team acme <domain> <key>\n",
+    "[skipped] alice was not on the team list  forge access: revoked\n  next: n\n        rt secrets rotate --team acme <domain> <key>\n",
   );
 });
