@@ -268,6 +268,15 @@ describe("what a reset prints", () => {
     expect(io.lines().at(-1)).toBe(`[ok] ${hostile} already matches origin/${hostile}`);
   });
 
+  test("a failed fetch ends its step bare, and git's own words print once, in the failure", async () => {
+    const { local } = makeFixture();
+    execFileSync("git", ["remote", "set-url", "origin", join(tmpRoot, "gone.git")], { cwd: local, stdio: "pipe" });
+    expect(await exitCodeOf(() => originCommand([], ctxFor(local)))).toBe(1);
+    expect(io.stdout()).toBe("[failed] Could not fetch from origin\n");
+    expect(io.stderr()).toStartWith("Could not fetch from origin\n  Command failed: git fetch origin\n");
+    expect(io.stderr().split("Command failed").length - 1).toBe(1);
+  });
+
   test("reset soft says the edits are kept", async () => {
     const { local } = makeFixture();
     writeFileSync(join(local, "f1.txt"), "edited");

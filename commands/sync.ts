@@ -215,6 +215,7 @@ export async function syncBranch(
       await steps.run("Fetching from origin…", () => gitAsync(["fetch", "origin"], cwd), {
         done: "Fetched from origin",
         error: "Could not fetch from origin",
+        errorHint: "",
       });
     } catch (err) {
       return {
@@ -309,7 +310,7 @@ export async function syncBranch(
       } else {
         await steps.run("Pushing…", () =>
           gitAsync(pushArgs, cwd),
-          { done: "Pushed", error: "Could not push" },
+          { done: "Pushed", error: "Could not push", errorHint: "" },
         );
       }
       pushed = true;

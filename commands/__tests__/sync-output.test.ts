@@ -246,6 +246,26 @@ describe("what a sync prints on the way", () => {
     expect(git(clone, "rev-parse", `origin/${hostile}`)).toBe(git(clone, "rev-parse", "HEAD"));
   });
 
+  test("a failed fetch ends its step bare, and git's own words print once, in the failure", async () => {
+    const clone = staleClone();
+    git(clone, "remote", "set-url", "origin", join(root, "gone.git"));
+    const result = await syncBranch(clone, { stackRunners: forgeDown, strictStackCheck: false });
+    expect(reportSync(result, false)).toBe(1);
+    expect(io.lines().at(-1)).toBe("[failed] Could not fetch from origin");
+    expect(io.stderr()).toStartWith("Could not fetch from origin\n  Command failed: git fetch origin\n");
+    expect((io.stdout() + io.stderr()).split("Command failed").length - 1).toBe(1);
+  });
+
+  test("a failed push ends its step bare, and git's own words print once, in the failure", async () => {
+    const clone = staleClone();
+    writeFileSync(join(clone, ".git", "hooks", "pre-push"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const result = await syncBranch(clone, { stackRunners: forgeDown, strictStackCheck: false });
+    expect(reportSync(result, false)).toBe(1);
+    expect(io.lines().at(-1)).toBe("[failed] Could not push");
+    expect(io.stderr()).toStartWith("Could not push feature\n  Command failed: git push --force-with-lease origin feature\n");
+    expect((io.stdout() + io.stderr()).split("failed to push some refs").length - 1).toBe(1);
+  });
+
   test("quiet prints nothing on either stream", async () => {
     const clone = staleClone();
     await syncBranch(clone, { dryRun: true, quiet: true, stackRunners: forgeDown, strictStackCheck: false });

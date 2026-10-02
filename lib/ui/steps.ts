@@ -85,7 +85,7 @@ export function createStepRunner(): StepRunner {
 export async function withSpinner<T>(
   label: string,
   task: () => Promise<T>,
-  opts?: { doneLabel?: string; failLabel?: string },
+  opts?: { doneLabel?: string; failLabel?: string; errorHint?: string },
 ): Promise<T> {
-  return createStepRunner().run(label, task, { done: opts?.doneLabel, error: opts?.failLabel });
+  return createStepRunner().run(label, task, { done: opts?.doneLabel, error: opts?.failLabel, errorHint: opts?.errorHint });
 }
