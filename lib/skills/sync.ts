@@ -286,14 +286,14 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
         pending = packRelative(parsePorcelain(packStatus.stdout), prefix.stdout.trim());
         const outside = pending.flatMap(outOfScopeSides);
         if (outside.length > 0) {
-          return refused(`pack checkout at ${pack.dir} has changes outside the pack: ${outside.join(", ")}; commit or stash those and re-run`);
+          return refused(`The pack checkout at ${pack.dir} has changes outside the pack: ${outside.join(", ")}. Commit or stash those, then run this again`);
         }
       }
     } else if (opts.commitPending && packInTree) {
       const packStatus = await deps.run("git", ["--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all", "--", "."], { cwd: pack.dir });
       if (packStatus.code !== 0) return failed(`git status failed in ${pack.dir}: ${packStatus.stderr.trim()}`);
       if (packStatus.stdout.trim() !== "") {
-        return refused(`pack is in-tree at ${pack.dir} and has changes that are not synced; sync never commits inside the shared checkout, so commit them in a pull request to the monorepo`);
+        return refused(`The ${pack.name} pack is in the shared checkout at ${pack.dir} and has changes that are not synced. rt never commits there: commit them in a pull request to the monorepo`);
       }
     }
 

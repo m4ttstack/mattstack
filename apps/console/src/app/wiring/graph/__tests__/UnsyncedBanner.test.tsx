@@ -105,7 +105,7 @@ const REFUSED = {
       name: 'guards',
       status: 'refused',
       detail:
-        'pack checkout at /fixture/packs/acme has changes outside the pack: README.md; commit or stash those and re-run',
+        'The pack checkout at /fixture/packs/acme has changes outside the pack: README.md. Commit or stash those, then run this again',
     },
   ],
   warnings: [],

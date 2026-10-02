@@ -1255,7 +1255,7 @@ describe("commit-pending", () => {
 
     const guards = report.steps.find((s) => s.name === "guards")!;
     expect(guards.status).toBe("refused");
-    expect(guards.detail).toContain("outside the pack: README.md;");
+    expect(guards.detail).toContain("outside the pack: README.md.");
     expect(world.calls.some((c) => c.cmd === "git" && ["add", "commit"].includes(c.args[0]!))).toBe(false);
   });
 
@@ -1401,7 +1401,7 @@ describe("commit-pending", () => {
 
     const guards = report.steps.find((s) => s.name === "guards")!;
     expect(guards.status).toBe("refused");
-    expect(guards.detail).toContain("in-tree");
+    expect(guards.detail).toContain("is in the shared checkout at");
     expect(world.calls.some((c) => c.cmd === "git" && ["add", "commit", "push", "pull"].includes(c.args[0]!))).toBe(false);
   });
 
@@ -1511,7 +1511,7 @@ describe("commit-pending against real git", () => {
     const report = await syncPack(pack, engine, realGitDeps(root, pack, engine, world), { commitPending: true });
 
     expect(report.steps.find((s) => s.name === "guards")).toMatchObject({ status: "refused" });
-    expect(report.steps[0]!.detail).toContain("outside the pack: ../../package.json;");
+    expect(report.steps[0]!.detail).toContain("outside the pack: ../../package.json.");
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
 
@@ -1524,7 +1524,7 @@ describe("commit-pending against real git", () => {
     const report = await syncPack(pack, engine, realGitDeps(root, pack, engine, world), { commitPending: true });
 
     expect(report.steps[0]).toMatchObject({ name: "guards", status: "refused" });
-    expect(report.steps[0]!.detail).toContain("outside the pack: README.md;");
+    expect(report.steps[0]!.detail).toContain("outside the pack: README.md.");
     expect(mustGit(root, "rev-list", "--count", "HEAD").trim()).toBe("1");
     expect(mustGit(root, "status", "--porcelain")).toBe("R  README.md -> pack/README.md\n");
     expect(remoteLog(remote)).toEqual(["base"]);

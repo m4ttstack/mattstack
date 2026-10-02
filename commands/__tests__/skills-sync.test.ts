@@ -209,6 +209,19 @@ describe("syncBlocks", () => {
     expect(renderPlain(syncBlocks(report({})))).toBe("[ok] Already current\n");
   });
 
+  test("staging pending pack edits has its own plain title", () => {
+    const text = renderPlain(syncBlocks(report({ steps: [{ name: "commit-pending", status: "ran", detail: "staged 2 files" }] })));
+    expect(text).toContain("[ok] Stage your pack edits  staged 2 files");
+    expect(text).not.toContain("commit-pending");
+  });
+
+  test("changes outside the pack refuse the sync as policy, never as a failure", () => {
+    const detail = "The pack checkout at /z/packs/acme has changes outside the pack: README.md. Commit or stash those, then run this again";
+    const refused = report({ ok: false, steps: [{ name: "guards", status: "refused", detail }] });
+    expect(renderPlain(syncRefusal(refused)!)).toBe(`[refused] rt did not sync acme  it stopped at: Safety checks\n  why: ${detail}\n`);
+    expect(syncFailure(refused)).toBeNull();
+  });
+
   test("a refusal is not a failure: the steps before it on stdout, then a refused note", () => {
     const refused = report({
       ok: false,
