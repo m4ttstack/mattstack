@@ -62,8 +62,9 @@ func Resolve(in Inputs) Background {
 	}
 	// rt sends auto only when a person is at a terminal nothing else is
 	// reading. Unset means a test, a pipe or a script, and that terminal
-	// belongs to someone who did not ask to be queried.
-	if setting == "auto" && in.Query != nil {
+	// belongs to someone who did not ask to be queried. rt's test preload
+	// sets RT_UI_NO_TERMINAL_QUERY so no test run can ask either.
+	if setting == "auto" && in.Query != nil && in.Getenv("RT_UI_NO_TERMINAL_QUERY") == "" {
 		if c, ok := in.Query(); ok {
 			return Of(c)
 		}
@@ -83,7 +84,7 @@ func Detect() Background {
 		detected = Resolve(Inputs{
 			Getenv:   os.Getenv,
 			ReadFile: os.ReadFile,
-			Query:    QueryTerminal,
+			Query:    func() (color.Color, bool) { return QueryTerminal(os.Getenv("RT_UI_BACKGROUND_RUN")) },
 			MacOS:    runtime.GOOS == "darwin",
 		})
 	})

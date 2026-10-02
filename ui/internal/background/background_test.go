@@ -106,6 +106,13 @@ func TestOnlyAnExplicitAutoAsksTheTerminal(t *testing.T) {
 	}
 }
 
+func TestATestRunNeverAsksTheTerminal(t *testing.T) {
+	w := &world{env: map[string]string{"RT_UI_BACKGROUND": "auto", "RT_UI_NO_TERMINAL_QUERY": "1"}, answer: darkColor}
+	if got := Resolve(w.inputs()); got != Unknown || w.asked != 0 {
+		t.Fatalf("got %v, asked %d times", got, w.asked)
+	}
+}
+
 func TestUnknownFromRtIsFinal(t *testing.T) {
 	w := ghosttyWorld(map[string]string{"/h/.config/ghostty/config": "background = #000000\n"})
 	w.noQuery = false

@@ -25,6 +25,13 @@ const hello = `{"t":"hello","protocol":1}`
 // reply is written once a DA1 query shows up, and later 700 ms in.
 func shell(t *testing.T, script, typed, reply, later string) string {
 	t.Helper()
+	return shellAfter(t, script, typed, reply, later, 0)
+}
+
+// shellAfter is shell with the reply held back by delay, a terminal with
+// some latency.
+func shellAfter(t *testing.T, script, typed, reply, later string, delay time.Duration) string {
+	t.Helper()
 	ptmx, pts, err := pty.Open()
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +66,7 @@ func shell(t *testing.T, script, typed, reply, later string) string {
 			mu.Unlock()
 			if ask {
 				answered = true
-				io.WriteString(ptmx, reply)
+				time.AfterFunc(delay, func() { io.WriteString(ptmx, reply) })
 			}
 			if err != nil {
 				return
@@ -119,5 +126,18 @@ func TestOverlappingProbesLeaveTheTerminalCooked(t *testing.T) {
 	}
 	if !strings.Contains(out, "icanon") {
 		t.Fatalf("no stty output: %q", out)
+	}
+}
+
+func TestAStepAndARenderInOneRunDrawTheSameSet(t *testing.T) {
+	steps := `printf '%s\n' "$HELLO" '{"t":"start","title":"working"}' '{"t":"sub","text":"one"}' '{"t":"done","title":"worked"}' | RT_UI_BACKGROUND=auto RT_UI_BACKGROUND_RUN=run-1 "$BIN" steps`
+	render := `printf '%s\n' "$HELLO" '{"t":"line","status":"done","title":"x"}' | RT_UI_BACKGROUND=auto RT_UI_BACKGROUND_RUN=run-1 "$BIN" render > "$HOME/render.out"`
+	script := steps + " & sleep 0.02; " + render + `; wait; cat "$HOME/render.out"`
+	out := shellAfter(t, script, "", "\x1b]11;rgb:1a1a/1b1b/2626\x1b\\\x1b[?62;22c", "", 120*time.Millisecond)
+	if n := strings.Count(out, "\x1b]11;?"); n != 1 {
+		t.Fatalf("the terminal was asked %d times: %q", n, out)
+	}
+	if strings.Contains(out, "18;171;86") || strings.Count(out, "98;230;168") < 2 {
+		t.Fatalf("the step and the render disagree: %q", out)
 	}
 }
