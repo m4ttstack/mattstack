@@ -671,7 +671,7 @@ function buddiesBlocks(buddies: Array<PresenceRow & { status: BuddyStatus }>): B
   for (const status of BUDDY_SECTIONS) {
     for (const b of buddies.filter((x) => x.status === status)) {
       const word = status === "offline" ? `offline, ${relativeAgo(b.signedOutAt ?? b.lastSeenAt)} ago` : buddyStatusWord(b);
-      rows.push([out.strong(b.name ?? b.handle), { text: word, role: STATUS_ROLE[status] }, out.dim(present([buddyDeets(b), b.statusText], " · "))]);
+      rows.push([out.strong(b.name ?? b.handle), { text: word, role: STATUS_ROLE[status] }, out.dim(present([buddyDeets(b), b.statusText && truncate(b.statusText, 60)], " · "))]);
     }
   }
   return [out.table(rows)];

@@ -1412,6 +1412,14 @@ describe("rt chat at a terminal", () => {
     expect(renderPlain(__test__.buddiesBlocks([]))).toBe("[skipped] Nobody is signed in\n");
   });
 
+  test("buddies cuts a long away message at 60 characters so it cannot wrap into a row of its own", () => {
+    const now = Date.now();
+    const away = `brb${" ".repeat(70)}fred  listening`;
+    const text = renderPlain(__test__.buddiesBlocks([{ sessionId: "s", handle: "ana.1", baseHandle: "ana", name: "ana", signedInAt: now, lastSeenAt: now, status: "live", statusText: away }]));
+    expect(text).toBe(cols(["ana", "listening", `${away.slice(0, 59)}…`], [3, 9]) + "\n");
+    expect(text).not.toContain("fred");
+  });
+
   test("sign-in is one done line, with the rest of today's line as its hint", () => {
     expect(renderPlain(__test__.signInBlocks("signed in as remy · sample-app · main · joined #sample-app (3 members)"))).toBe(
       "[ok] Signed in as remy  sample-app · main · joined #sample-app (3 members)\n",
