@@ -9,6 +9,7 @@ import { linkPath } from "../../lib/deps/links.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { depsLink, depsReconcile, depsResolve, depsUnlink } from "../deps.ts";
+import { toolsInstall } from "../tools.ts";
 
 const LOCK = {
   schema: 1,
@@ -22,36 +23,23 @@ const LOCK = {
   ],
 };
 
-/**
- * Mocks process.exit to throw a sentinel so the real test process never
- * dies, and reads the spies' recorded calls before mockRestore() (bun's
- * mockRestore() clears .mock.calls). Matches commands/__tests__/runs.test.ts.
- */
+/** Mocks process.exit to throw a sentinel so the real test process never dies, and reads console calls and stream writes through one capture. */
 async function runCapturingExit(fn: () => Promise<void>): Promise<{ exitCode: number | undefined; logs: string[]; errors: string[]; stderr: string }> {
-  const logs: string[] = [];
-  const errors: string[] = [];
-  const io = captureOut();
+  const io = captureOut({ console: true });
   ui.__test__.setHuman(() => false);
   const exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit sentinel");
   });
-  const logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-    logs.push(args.map(String).join(" "));
-  });
-  const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-    errors.push(args.map(String).join(" "));
-  });
+  const read = () => ({ logs: io.lines(), errors: io.errLines(), stderr: io.stderr() });
   try {
     await fn();
-    return { exitCode: undefined, logs, errors, stderr: io.stderr() };
+    return { exitCode: undefined, ...read() };
   } catch {
     const exitCode = exitSpy.mock.calls.at(-1)?.[0] as number | undefined;
-    return { exitCode, logs, errors, stderr: io.stderr() };
+    return { exitCode, ...read() };
   } finally {
     io.restore();
     exitSpy.mockRestore();
-    logSpy.mockRestore();
-    errorSpy.mockRestore();
   }
 }
 
@@ -174,5 +162,57 @@ describe("rt deps commands", () => {
     const active = await runCapturingExit(() => depsReconcile(["--json"], {}, p));
     const body = JSON.parse(active.logs[0]!);
     expect(body.removed).toEqual(["gh"]);
+  });
+
+  describe("what the app reads, pinned before the conversion", () => {
+    test("deps link --json, linked: the envelope's keys, exit 0", async () => {
+      const { exitCode, logs, stderr } = await runCapturingExit(() => depsLink(["gh", "--json"], {}, bundleProbe()));
+      expect(exitCode).toBeUndefined();
+      expect(logs).toHaveLength(1);
+      const body = JSON.parse(logs[0]!);
+      expect(Object.keys(body)).toEqual(["contract", "at", "ok", "path", "state"]);
+      expect(body).toMatchObject({ contract: 1, ok: true, path: linkPath(home, "gh"), state: "linked" });
+      expect(stderr).toBe("");
+    });
+
+    test("deps unlink --json: removed, then a file rt did not make, exit 0 both times", async () => {
+      const p = bundleProbe();
+      await runCapturingExit(() => depsLink(["gh"], {}, p));
+      const removed = await runCapturingExit(() => depsUnlink(["gh", "--json"], {}, p));
+      expect(removed.exitCode).toBeUndefined();
+      const body = JSON.parse(removed.logs[0]!);
+      expect(Object.keys(body)).toEqual(["contract", "at", "removed"]);
+      expect(body.removed).toBe(true);
+
+      p.writeFile(linkPath(home, "deck"), "#!/bin/sh\necho not ours\n");
+      const untouched = await runCapturingExit(() => depsUnlink(["deck", "--json"], {}, p));
+      expect(untouched.exitCode).toBeUndefined();
+      expect(untouched.logs).toHaveLength(1);
+      expect(JSON.parse(untouched.logs[0]!).removed).toBe(false);
+      expect(untouched.stderr).toBe("");
+    });
+
+    test("tools install of a bundled tool --json, linked: the envelope's keys, exit 0", async () => {
+      const { exitCode, logs, stderr } = await runCapturingExit(() => toolsInstall(["gh", "--json"], {}, bundleProbe()));
+      expect(exitCode).toBeUndefined();
+      expect(logs).toHaveLength(1);
+      const body = JSON.parse(logs[0]!);
+      expect(Object.keys(body)).toEqual(["contract", "at", "via", "ok", "detail"]);
+      expect(body).toMatchObject({ contract: 1, via: "bundled-link", ok: true, detail: `linked at ${linkPath(home, "gh")}` });
+      expect(stderr).toBe("");
+    });
+
+    test("tools install of a bundled tool --json, refused: the envelope, the detail alone on stderr, exit 1", async () => {
+      const path = linkPath(home, "gh");
+      const p = bundleProbe({ files: { [path]: "#!/bin/sh\necho unrelated\n" } });
+      const { exitCode, logs, stderr } = await runCapturingExit(() => toolsInstall(["gh", "--json"], {}, p));
+      expect(exitCode).toBe(1);
+      expect(logs).toHaveLength(1);
+      const body = JSON.parse(logs[0]!);
+      expect(Object.keys(body)).toEqual(["contract", "at", "via", "ok", "detail"]);
+      expect(body).toMatchObject({ contract: 1, via: "bundled-link", ok: false });
+      expect(body.detail).toContain(path);
+      expect(stderr).toBe(`${body.detail}\n`);
+    });
   });
 });
