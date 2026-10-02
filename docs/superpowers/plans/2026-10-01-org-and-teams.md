@@ -8,7 +8,7 @@
 
 **Tech Stack:** Bun and TypeScript (rt, rt-client, settings-kit), jsonc-parser, zod (schema lock), React and Mantine (console, board, boxscore), Swift and SwiftUI (rt-tray), `bun:test`, vitest for the apps.
 
-**Spec:** `docs/superpowers/specs/2026-10-01-org-and-teams-design.md` (at `bab9e93a6`). Read it before any task; section numbers below refer to it.
+**Spec:** `docs/superpowers/specs/2026-10-01-org-and-teams-design.md` (at `9c40c409d`). Read it before any task; section numbers below refer to it.
 
 ## Global Constraints
 
@@ -7375,7 +7375,7 @@ export async function recordForgeIdentity(
 export function cloneOrigin(p: Pick<Probes, "readFile" | "home">, slug: string): string | null;
 ```
 
-A pull that could not finish depends on the run. In a full Install `org.pull` ends `partial`, never `failed`: a failed step stops the Install (`runApplyWith` in `lib/setup/apply.ts`), and a pull that did not happen is no reason to (the clone was just made, or team sync is off, or the network is down). In an update run it ends `failed`: nothing stops an update run, and only `needs-you` and `failed` items raise the after-update notification (`updateNotification` in `lib/setup/update.ts`), which a member whose Mac is still on the old layout needs to see.
+`org.pull` never ends `failed`, in either kind of run. A pull that could not finish is `partial` with the reason. In a full Install a failed step stops the Install (`runApplyWith` in `lib/setup/apply.ts`), and a pull that did not happen is no reason to (the clone was just made, or team sync is off, or the network is down). In an update run only `needs-you` and `failed` items raise the after-update notification (`updateNotification` in `lib/setup/update.ts`), and a stuck pull is most often a Mac that was offline when the app launched: no reason to notify. A real conflict already reaches the member through the `team.sync` row, which `verify` reports at the end of the same run.
 
 Whenever a username is known, `recordForgeIdentity` also finishes a create whose roles were deferred (`claimPendingAdmin`, Task 25), so an org cannot be left with no admin because its creator finished setup while `team.create` was still partial.
 
@@ -7436,11 +7436,11 @@ describe("org.pull", () => {
     expect(await pullWith(async () => ({ ok: false, error: "daemon threw" }))).toMatchObject({ state: "partial", detail: "acme was not pulled: daemon threw" });
   });
 
-  test("in an update run the same trouble is a failed item, so the member is told", async () => {
-    const p = fakeProbes({ home: HOME, dirs: TEAMS_DIR, files, daemon: async () => ({ ok: true, data: { outcome: "conflict", detail: "mattstack/org/settings.org.jsonc" } }) });
+  test("an update run gets the same partial: being offline at launch is no reason to notify", async () => {
+    const p = fakeProbes({ home: HOME, dirs: TEAMS_DIR, files, daemon: async () => ({ ok: true, data: { outcome: "skipped", detail: "fetch failed: could not resolve host" } }) });
     expect(await orgPullStep.run(makeCtx(p, { update: true }).ctx)).toEqual({
-      state: "failed",
-      detail: "acme was not pulled: mattstack/org/settings.org.jsonc",
+      state: "partial",
+      detail: "acme was not pulled: fetch failed: could not resolve host",
       remedy: "Run rt team status to see what is in the way",
     });
   });
@@ -7718,10 +7718,10 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
     // The daemon answers no-team while team sync is off or its engine for a clone made a moment ago has not started.
     if (!res.ok && res.failure?.code === "no-team") return { state: "skipped", detail: `Team sync has not started for ${slug} yet, so it is pulled once it does` };
     const stuck = !res.ok || !res.data ? (res.error ?? "the daemon gave no reason") : res.data.outcome === "conflict" || res.data.outcome === "skipped" ? (res.data.detail ?? res.data.outcome) : null;
-    // A failed step stops a full Install, and a pull that did not happen is no
-    // reason to. Nothing stops an update run, and there only a failed item
-    // reaches the member as a notification.
-    if (stuck !== null) return { state: ctx.update ? "failed" : "partial", detail: `${slug} was not pulled: ${stuck}`, remedy: "Run rt team status to see what is in the way" };
+    // Never `failed`: that stops a full Install and raises the after-update
+    // notification, and the usual cause is a Mac that is offline. A real
+    // conflict is the team.sync row's to report.
+    if (stuck !== null) return { state: "partial", detail: `${slug} was not pulled: ${stuck}`, remedy: "Run rt team status to see what is in the way" };
     notes.push(res.data!.outcome === "up-to-date" ? `${slug} is already up to date` : `Pulled ${slug}`);
   }
   ctx.reloadTeam?.();
