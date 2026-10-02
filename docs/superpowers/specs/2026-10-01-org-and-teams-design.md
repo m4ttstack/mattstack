@@ -50,10 +50,15 @@ The words change meaning, so every API that takes a slug says which one.
   (`~/.mattstack/rt/teams/<org>.json`, `lib/team/team-local.ts`) and the
   invite pointer stay keyed by the org slug.
 - **Team name**: a folder name under `mattstack/teams/`, matching
-  `[a-z][a-z0-9-]*`. `SetSettingOpts.team`, settings-kit's `team` parameter
-  and the `--team` flag of `rt team` and `rt skills` verbs name a team
-  folder. A write at `org` scope takes no name: there is one org per Mac.
-  settings-kit's `/defs` reply carries both `org` and `activeTeam`.
+  `[a-z][a-z0-9-]*`. `SetSettingOpts.team` and settings-kit's `team`
+  parameter name a team folder. A write at `org` scope takes no name: there
+  is one org per Mac. settings-kit's `/defs` reply carries both `org` and
+  `activeTeam`.
+- **`--team`**: the org-level verbs that take `--team <clone slug>` today
+  (`rt team publish`, `manage-membership`, `members sync`, `members remove`,
+  `status` and `pull`) drop the flag, since there is one org per Mac. `--team`
+  survives only where it names team folders: `rt team invite`,
+  `rt team members set` and `rt skills init`.
 - **Pack name**: a team's pack is named after its team folder, so pack
   names are unique across the org's one marketplace. The base pack is named
   `<org>-base` unless the admin names it otherwise.
@@ -96,7 +101,10 @@ the team folder), on the host in `board.gitlabHost`, else the forge host in
 `board.projects`, so every team's pack claims the shared repo; a team that
 works in its own repo sets `board.projects` in its folder. Materialize,
 `rt skills init`, `chooseZone` and the stale-file sweep read the claim this
-way, and `initPack` writes a new claim to the team folder's `board.projects`.
+way. `board.projects` replaces across layers, so `initPack` writes a new
+claim as the team's resolved list plus the new repo into the team folder,
+never the new repo alone (which would drop the org's shared repo for that
+team).
 
 ## 3. Settings layers
 
@@ -137,16 +145,22 @@ reads `org` and skips `team`.
 ### Who you are
 
 The write guard and the active team both need the member's forge username,
-and the resolver is synchronous and daemon-free. So the username is stored:
-`rt team join`, `rt team create` and the update-safe setup step that already
-checks forge login write `forgeUsername` into the machine-local record
+and the resolver is synchronous and daemon-free. So the username is stored as
+`forgeUsername` in the machine-local record
 (`~/.mattstack/rt/teams/<org>.json`), using whichever provider the org's
-forge is (GitHub or GitLab).
+forge is (GitHub or GitLab). `rt team join` and `rt team create` write it, and
+a new update-safe setup step, `team.identity`, writes it only while it is
+absent (and is added to the set pinned in
+`lib/setup/__tests__/update-safe.test.ts`).
 
-When it is absent (an org with no forge, or the CLI signed out at join): the
-active team comes from `mattstack.activeTeam` alone, every org and team write
-is refused with "rt can't tell who you are", and setup shows a `team.identity`
-row whose action signs in and rewrites the record.
+An org whose host is no recognized forge (`forgeFromHost` returns null)
+records `$USER`, the same fallback `lib/team/invite.ts` already uses, so its
+creator is still its admin under that name.
+
+When the forge is recognized but the CLI is signed out, so no username can be
+recorded: the active team comes from `mattstack.activeTeam` alone, every org
+and team write is refused with "rt can't tell who you are", and setup shows a
+`team.identity` row whose action signs in and reruns the step.
 
 ### Membership and the active team
 
@@ -214,9 +228,15 @@ means no active team, or a team with no pack.
   holds one pack; the one-team-pack-per-zone refusal in `lib/skills/init.ts`
   becomes one per team folder. `rt skills init` targets the active team, or
   `--team <name>` for a team the caller owns.
+- `rt team add` scaffolds the full pack file set (`renderPackFiles`), so the
+  marketplace entry never points at a folder without a `plugin.json`.
+  `rt skills init` on a pack that has never compiled carries on with the
+  claim, materialize, compile and install instead of refusing with
+  `pack-exists`; a pack that has compiled output is still never changed.
 - The org base pack lives at `mattstack/org/packs/<base>/` with
   `"base": true`. It holds fills and attachments only and is never
-  installed.
+  installed. Nothing in this work creates it: the admin adds the folder by
+  hand when the org first needs shared fills.
 - A team pack names its base with a bare name: `"extends": "acme-base"`,
   found in the org folder. The `<plugin>@<marketplace>` form is removed (the
   live pack uses no `extends` today).
@@ -226,7 +246,8 @@ means no active team, or a team with no pack.
 - Pack discovery for compile, check, bind and materialize looks in team
   folders and the org folder.
 - A team gets an org-defined verb (for example `watch-ci`) by listing it in
-  its own roster and compiling: with no team fill for a slot, the org's fill
+  its pack's verb roster (`pack/stubs.jsonc`, not `mattstack.roster`) and
+  compiling: with no team fill for a slot, the org's fill
   lands. A team can override any slot with its own fill. The compiled verb is
   the team's (`widgets:watch-ci`), internal stages stay internal, and an org
   change reaches a team at its next recompile.
@@ -278,7 +299,7 @@ who bypasses rt.
 Forge access is not rt's job. An invite keeps granting read only on a repo
 rt created, and nothing on any other repo. An owner's push needs write access
 the admin grants on the forge; when an owner's sync push is refused, setup
-shows a `needs-you` row telling them to ask the admin. A repo whose branch
+shows a `needs-you` row, `team.push-access`, telling them to ask the admin. A repo whose branch
 protection blocks direct pushes must let its admins and owners through.
 
 ## 6. Secrets
@@ -295,7 +316,8 @@ protection blocks direct pushes must let its admins and owners through.
 ## 7. Verbs, joining and setup
 
 - `rt team create` makes the new layout: the org folder, the creator as org
-  admin, and a first team folder with the creator as its owner.
+  admin, and a first team folder with the creator as its owner, named by
+  `--team <name>` (default: the org slug).
 - `rt team add <team> --owner <username>` (admin): creates the team folder,
   its settings file and pack skeleton, the marketplace entry, and the owners
   in `mattstack.org`. Changing owners later is an admin settings edit of
@@ -308,14 +330,15 @@ protection blocks direct pushes must let its admins and owners through.
 - `rt team use <team>` writes `mattstack.activeTeam`, refuses a team the
   roster does not list you on, then runs the update-safe plugins and
   materialize steps for the new team and restarts the board and boxscore
-  through deck. The daemon and the CLI read settings on every call and need
-  nothing.
+  through deck. The previous team's pack is disabled, not removed, so
+  switching back is quick. The daemon and the CLI read settings on every call
+  and need nothing.
 - The one-org-per-Mac rule stays: `assertOnlyTeam` (`lib/team/one-team.ts`)
   and the `team.one-per-machine` row keep refusing a second clone.
 - Setup rows, all `needs-you`, none required or finish-gated: `team.choose`
   (several teams, none chosen; action `rt team use`), `team.none` (no team
-  lists you), `team.identity` (no stored username), and the owner push row
-  in section 5.
+  lists you), `team.identity` (no stored username), and `team.push-access`
+  (section 5).
 - Setup's team reads (`OrgRef`, `readTeamSnapshot`, `composePlan`, the
   connect verbs) read the org layer plus the active team.
 - The switchboard mechanics are unchanged; its URL and tokens come from the
