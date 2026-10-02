@@ -74,6 +74,11 @@ export function paragraph(text: string): Block {
   return { t: "paragraph", text };
 }
 
+/** One empty row, on purpose: under the breadcrumb, between `sync all`'s branches. */
+export function blank(): Block {
+  return { t: "blank" };
+}
+
 export function copy(text: string, caption?: string): Block {
   return compact({ t: "copy", text, caption });
 }

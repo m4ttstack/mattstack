@@ -612,3 +612,16 @@ func TestAnExcerptPrintedWithAFailureSitsUnderIt(t *testing.T) {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
 }
+
+func TestABlankBlockPrintsOneEmptyRow(t *testing.T) {
+	blank := protocol.Block{T: "blank"}
+	if got := plain(protocol.Block{T: "section", Title: "rt › show"}, blank); got != "  rt › show\n\n" {
+		t.Fatalf("under a section: %q", got)
+	}
+	if got := plain(blank); got != "\n" {
+		t.Fatalf("alone: %q", got)
+	}
+	if got := plain(protocol.Block{T: "line", Status: "done", Title: "a"}, blank, protocol.Block{T: "line", Status: "done", Title: "b"}); got != "  ✓ a\n\n  ✓ b\n" {
+		t.Fatalf("between lines: %q", got)
+	}
+}

@@ -79,6 +79,7 @@ Ruled 2026-10-01: "frozen" means the shape. Keys, structure, types, exit codes a
 | `section` | title, optional subtitle, nested blocks | `setup status`, `runs show`, `sync all`, `worktree each` |
 | `summary` | status, title, counts | `setup apply`, `verify`, `release preflight` |
 | `paragraph` | prose, wrapped to the terminal (capped at 76 columns) | `skills audit`, the `secrets` note, `home` messages |
+| `blank` | nothing: one empty row | the breadcrumb header, `sync all` between branches |
 | `copy` | optional caption, literal text; never wrapped, never restyled inside | `team invite`, long commands |
 | `verbatim` | optional caption, literal lines, dim | log excerpts, JSON values, captured child output |
 | `changes` | rows of `+` or `-` with a name and hint | `skills surface`, `skills expand` |
@@ -129,7 +130,7 @@ The glyphs avoid Nerd Font code points and heavy filled shapes, which rendered b
 5. **Sub-lines clear on success.** Lines streamed under a running step vanish when it resolves and stay when it fails. At most the last five show at once, so a long stream never scrolls out of reach of the erase. They are always in the log.
 6. **Hints align.** Consecutive `line` blocks in one call pad their titles to a common width, and consecutive `kv` blocks pad their keys the same way. A `kv` run does not align with the `line` rows beside it.
 7. **Rails.** Callouts use the thick `▌` bar in the label's color. `copy` and `verbatim` use a thin `│` rail in the `StaticRule` tone.
-8. **Spacing.** One blank line before a `section` unless it is the first block; one before a `summary`. Blocks never print trailing blank lines.
+8. **Spacing.** One blank line before a `section` unless it is the first block; one before a `summary`. Blocks never print trailing blank lines, except `blank`, whose one job is an empty row.
 9. **Removed is not failed.** The `-` in a `changes` block is dim. Deleted lines in a `diff` keep the mission view's coral tint.
 
 ## Steps

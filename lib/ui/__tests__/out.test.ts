@@ -303,3 +303,9 @@ test("a failure that is the first thing on stderr drops its tag, and a reset mak
   out.fail({ title: "The rebase stopped" });
   expect(stderr.join("")).toBe("The rebase stopped\n");
 });
+
+test("a helper that rejects the blank block still prints the breadcrumb plain", () => {
+  process.env.RT_UI_FAKE = JSON.stringify({ record, exit: 2 });
+  out.note(out.section("rt › show", undefined), out.blank());
+  expect(stderr.join("")).toBe("rt › show\n\n");
+});

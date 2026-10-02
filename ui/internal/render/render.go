@@ -94,6 +94,8 @@ func (r *renderer) block(b protocol.Block) {
 		r.changes(b)
 	case "paragraph":
 		r.paragraph(b)
+	case "blank":
+		r.emit("")
 	case "copy":
 		r.copy(b)
 	case "verbatim":

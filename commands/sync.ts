@@ -350,7 +350,7 @@ export function branchEnding(s: SyncSummary): Block[] {
 }
 
 /** Printed alone before a heading: in the same render call as the section, the styled renderer would add a second gap. */
-export const BRANCH_GAP: Block = out.table([[""]]);
+export const BRANCH_GAP: Block = out.blank();
 
 export function syncAllBlocks(summaries: SyncSummary[]): Block[] {
   const refused = summaries.filter((s) => s.refusal || s.refused);
