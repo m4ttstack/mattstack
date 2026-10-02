@@ -160,7 +160,7 @@ are settled in the plan.
 | Required, unbound | Warn card "required, nothing bound" with Rebind | Warn row |
 | No matching fill | Warn card naming the missing fill | Warn row |
 | Resolve error | Error card with rt's message | Error row |
-| Referenced, not inlined | Card marked "referenced": the rendered text holds a path, not the body | Row says "links to" instead of "pasted"; the drawer shows the rendered path line |
+| Referenced, not inlined | Card marked "referenced": the rendered text names the fill by its binding (rt writes "Slot domain is bound to `acme:plan-policy` ..."), not by a path, and holds none of its body | Row says "links to" instead of "pasted"; the output's "Its text links to" lists the fill by name beside the path links and opens its slot row; the drawer shows the rendered line that names the binding |
 
 ## Status
 
@@ -206,7 +206,8 @@ New from rt (`rt skills composition --json` and `check`):
   file it resolved to (most of this is already in the compiled files' `part:`
   markers; variables and `verb.path` lines are not marked today)
 - the links found in each rendered body (`../../attachments/*/SKILL.md`,
-  vendored `parts/` files)
+  vendored `parts/` files); a referenced slot names its fill by binding,
+  not by path, so the console adds those from the slot's own part
 - per source file, whether its content changed since the build
 
 New in console's server:

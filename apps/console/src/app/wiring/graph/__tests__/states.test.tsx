@@ -270,6 +270,7 @@ describe('slot states', () => {
       .getByText('Bind')
       .closest('button')!;
     expect(bind).toHaveAttribute('data-variant', 'card-outline');
+    expect(bind).toHaveAttribute('data-size', 'compact-sm');
     fireEvent.click(bind);
     await waitFor(() => {
       expect(params().get('select')).toBe('row:136');
@@ -293,7 +294,8 @@ describe('slot states', () => {
     expect(tag).toHaveAttribute('data-variant', 'tint');
     expect(tag.getAttribute('style')).toContain('var(--tk-text-warn)');
 
-    const card = await cardTitled('plan-policy-v1/SKILL.md');
+    const card = await cardTitled('domain slot');
+    expect(card.querySelector('svg')).toHaveClass('lucide-file-x');
     expect(
       within(card).getByText('no fill named acme:plan-policy-v1 in this pack')
     ).toHaveStyle({ color: 'var(--tk-text-warn-small)' });
@@ -322,8 +324,9 @@ describe('slot states', () => {
     expect(tag.getAttribute('style')).toContain('var(--tk-text-bad)');
 
     const card = await cardTitled('changelog slot');
+    expect(card.querySelector('svg')).toHaveClass('lucide-file-x');
     const subtitle = within(card).getByText(
-      /^loadAttachment: slot "changelog"/
+      /^binding "acme:changelog-style" not found; searched:/
     );
     expect(subtitle).toHaveStyle({ color: 'var(--tk-text-bad-small)' });
     expect(paperOf(card)).toHaveAttribute('data-attention', 'bad');
@@ -336,6 +339,10 @@ describe('slot states', () => {
     expect(within(drawer).getByTestId('drawer-error').textContent).toBe(
       CHANGELOG_ERROR
     );
+
+    fireEvent.click(await rowAt('L22'));
+    await waitFor(() => expect(params().get('select')).toBe('row:22'));
+    expect(within(drawer).getByText('Change')).toBeInTheDocument();
   });
 
   it('referenced: the card says so, the row links to its fill, and the drawer opens on the rendered line', async () => {
@@ -363,6 +370,15 @@ describe('slot states', () => {
       'data-variant',
       'quiet'
     );
+    const links = screen.getAllByTestId('output-link');
+    expect(links.map(link => link.textContent)).toEqual([
+      'gates/SKILL.md',
+      'evidence/SKILL.md',
+      'dev-servers/SKILL.md',
+      'plan-policy',
+    ]);
+    fireEvent.click(links[3]!);
+    await waitFor(() => expect(params().get('select')).toBe('row:136'));
 
     fireEvent.click(row);
     const drawer = await screen.findByTestId('skill-drawer');
@@ -531,15 +547,42 @@ describe('canvas errors', () => {
     expect(await screen.findByTestId('template-node')).toBeInTheDocument();
   });
 
+  it('a check that fails to refresh keeps the statuses it already gave, without the alert', async () => {
+    serve();
+    const queryClient = renderAt('?tab=graph&focus=stage-plan');
+    const header = await screen.findByTestId('focus-header');
+    expect(await within(header).findByTestId('focus-status')).toHaveTextContent(
+      'in sync with installed mattstack 0.30.4'
+    );
+
+    checkGet.mockResolvedValue(failed('rt skills check: timed out'));
+    await queryClient
+      .refetchQueries({ queryKey: ['skills', 'check'] })
+      .catch(() => undefined);
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryState(['skills', 'check', 'acme'])?.status
+      ).toBe('error')
+    );
+    expect(within(header).queryByTestId('status-unavailable')).toBeNull();
+    expect(within(header).getByTestId('focus-status')).toHaveTextContent(
+      'in sync with installed mattstack 0.30.4'
+    );
+  });
+
   it('a failed changes poll shows nothing', async () => {
     serve();
     changesGet.mockResolvedValue(
       failed('rt skills changes: /fixture/packs/acme is not a git checkout')
     );
-    renderAt('?tab=graph&focus=stage-plan');
+    const queryClient = renderAt('?tab=graph&focus=stage-plan');
 
     await screen.findByTestId('template-node');
-    await waitFor(() => expect(changesGet).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryState(['skills', 'changes', 'acme'])?.status
+      ).toBe('error')
+    );
     expect(screen.queryByText(/unsynced change/)).toBeNull();
     expect(screen.queryByText(/not a git checkout/)).toBeNull();
   });

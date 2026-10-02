@@ -31,7 +31,7 @@ function InputCardNodeComponent({
 }: NodeProps<Node<InputNodeData, 'input'>>) {
   const { view, select, onSelect, onBind } = useCanvas();
   const name = parityName.input(view, card);
-  const file = card.icon === 'fileText';
+  const file = card.icon !== 'cpu';
   const row = view.rows.find(candidate => candidate.id === card.rowId);
   const bindable = card.state === 'required-unbound' && row !== undefined;
 
@@ -92,8 +92,7 @@ function InputCardNodeComponent({
       {bindable && (
         <Button
           variant="card-outline"
-          size="xs"
-          radius={6}
+          size="compact-sm"
           className={classes.cardAction}
           onClick={() => onBind(row.line)}
         >

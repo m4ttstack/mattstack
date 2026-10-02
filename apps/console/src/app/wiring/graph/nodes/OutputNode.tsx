@@ -135,7 +135,7 @@ function OutputNodeComponent({
                 <div className={classes.chips}>
                   {output.links.map(link => (
                     <Badge
-                      key={link.path}
+                      key={link.select}
                       component="button"
                       variant="panel-outline"
                       classNames={{
@@ -154,7 +154,7 @@ function OutputNodeComponent({
                       data-parity={`link · ${parityName.outputLink(link)}`}
                       attributes={{ label: { 'data-parity': 'l' } }}
                       data-testid="output-link"
-                      onClick={() => onSelect(`link:${link.path}`)}
+                      onClick={() => onSelect(link.select)}
                     >
                       {link.label}
                     </Badge>

@@ -144,7 +144,9 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
           loading={anatomyQuery.isPending}
           status={statusOf(view, anatomy)}
           checkError={
-            checkQuery.isError ? (checkQuery.error as Error).message : null
+            checkQuery.isError && !check
+              ? (checkQuery.error as Error).message
+              : null
           }
         />
       ) : (

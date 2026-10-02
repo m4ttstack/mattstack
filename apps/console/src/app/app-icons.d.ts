@@ -3,6 +3,7 @@ declare module '@mattstack/app-kit/icons' {
     workflow: true;
     layoutDashboard: true;
     fileText: true;
+    fileX: true;
     fileCode: true;
     cpu: true;
     circleDot: true;

@@ -52,6 +52,8 @@ export type TemplateRow =
       contract: string | null;
       /** What a slot is filled from, by name; null when nothing fills it. */
       fill: string | null;
+      /** The binding a slot names, found or not; null when nothing is bound. */
+      boundTo: string | null;
       /** rt's message for a slot it could not resolve. */
       resolveError: string | null;
     };
@@ -61,7 +63,8 @@ export type InputCard = {
   rowId: string;
   title: string;
   subtitle: string;
-  icon: 'fileText' | 'cpu';
+  /** `fileX` for a slot whose binding names no file rt could find. */
+  icon: 'fileText' | 'cpu' | 'fileX';
   path: string | null;
   subtitleTone: 'dimmed' | 'accent' | 'warn' | 'bad';
   state: RowState;
@@ -92,9 +95,13 @@ export type OutputPart = {
 
 export type OutputLink = {
   label: string;
-  path: string;
+  /** The path the rendered text names; null for a fill it names by its
+      binding instead, as a referenced slot renders. */
+  path: string | null;
   /** The compile target the link resolves to, when it is one. */
   skill: string | null;
+  /** What choosing the link selects: the linked file, or the slot row. */
+  select: string;
 };
 
 export type OutputCard = {
@@ -409,6 +416,7 @@ export function buildTemplateView(input: {
       name: part.name,
       contract: facts?.contract ?? null,
       fill: part.kind === 'slot' && part.source ? partLabel(part) : null,
+      boundTo: facts?.boundTo ?? null,
       resolveError: facts?.resolveError ?? null,
     });
 
@@ -459,6 +467,7 @@ export function buildTemplateView(input: {
         : outputCard(
             anatomy,
             composition,
+            rows,
             checkRows.get(anatomy.skill),
             pendingSkill,
             step,
@@ -541,14 +550,16 @@ function cardFace(
     case 'resolve-error':
       return {
         ...file,
+        icon: 'fileX',
         title: slotTitle,
-        subtitle: facts?.resolveError ?? '',
+        subtitle: causeOf(facts?.resolveError ?? '', part.name ?? ''),
         subtitleTone: 'bad',
       };
     case 'no-matching-fill':
       return {
         ...file,
-        title: `${suffixOf(facts?.boundTo ?? '')}/SKILL.md`,
+        icon: 'fileX',
+        title: slotTitle,
         subtitle: `no fill named ${facts?.boundTo} in this pack`,
         subtitleTone: 'warn',
       };
@@ -573,6 +584,16 @@ function cardFace(
         title: sourceTitle,
         subtitle: `${plugin} default${pickedBy(facts?.layer ?? null)}`,
       };
+}
+
+/** rt's message without the `<step>: slot "<name>": ` it opens with, which
+    the card's title already says. */
+function causeOf(message: string, slot: string): string {
+  const marker = `: slot "${slot}": `;
+  const at = message.indexOf(marker);
+  return at > 0 && !/\s/.test(message.slice(0, at))
+    ? message.slice(at + marker.length)
+    : message;
 }
 
 /** Who chose a default fill, for the layers rt names a chooser for. */
@@ -643,6 +664,7 @@ function templateMeta(anatomy: SkillsAnatomy, links: boolean): string {
 function outputCard(
   anatomy: SkillsAnatomy,
   composition: SkillsComposition,
+  rows: readonly TemplateRow[],
   row: CheckRow | undefined,
   pending: boolean,
   step: number | null,
@@ -664,7 +686,7 @@ function outputCard(
     status,
     reason: status === 'stale' ? staleReason(row?.staleBecause) : null,
     parts: built ? outputParts(anatomy, textNoun) : [],
-    links: built ? outputLinks(anatomy, composition) : [],
+    links: built ? outputLinks(anatomy, composition, rows) : [],
   };
 }
 
@@ -708,17 +730,42 @@ function outputParts(anatomy: SkillsAnatomy, textNoun: TextNoun): OutputPart[] {
   ];
 }
 
+/** What the rendered text links to, in the order it reads: the paths it
+    names, and the fills a referenced slot names by their binding. */
 function outputLinks(
   anatomy: SkillsAnatomy,
-  composition: SkillsComposition
+  composition: SkillsComposition,
+  rows: readonly TemplateRow[]
 ): OutputLink[] {
   const targetByPath = new Map(
     (composition.targets ?? []).map(t => [t.artifactPath, t.name] as const)
   );
-  return anatomy.links.map(link => ({
-    label: fileLabelOf(link.path),
-    path: link.path,
-    skill:
-      targetByPath.get(resolveFrom(anatomy.rendered.path, link.path)) ?? null,
+  const byPath = anatomy.links.map(link => ({
+    line: link.line,
+    link: {
+      label: fileLabelOf(link.path),
+      path: link.path,
+      skill:
+        targetByPath.get(resolveFrom(anatomy.rendered.path, link.path)) ?? null,
+      select: `link:${link.path}`,
+    } satisfies OutputLink,
   }));
+  const byBinding = rows.flatMap(row =>
+    row.kind === 'placeholder' && row.state === 'referenced' && row.fill
+      ? [
+          {
+            line: row.renderedLines?.[0] ?? 0,
+            link: {
+              label: row.fill,
+              path: null,
+              skill: null,
+              select: `row:${row.line}`,
+            } satisfies OutputLink,
+          },
+        ]
+      : []
+  );
+  return [...byPath, ...byBinding]
+    .sort((a, b) => a.line - b.line)
+    .map(({ link }) => link);
 }

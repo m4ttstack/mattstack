@@ -285,16 +285,19 @@ describe('the plan step template', () => {
         label: 'gates/SKILL.md',
         path: '../../attachments/gates/SKILL.md',
         skill: null,
+        select: 'link:../../attachments/gates/SKILL.md',
       },
       {
         label: 'evidence/SKILL.md',
         path: '../../attachments/evidence/SKILL.md',
         skill: null,
+        select: 'link:../../attachments/evidence/SKILL.md',
       },
       {
         label: 'dev-servers/SKILL.md',
         path: '../../attachments/dev-servers/SKILL.md',
         skill: null,
+        select: 'link:../../attachments/dev-servers/SKILL.md',
       },
     ]);
   });
@@ -352,6 +355,39 @@ describe('slot states', () => {
       subtitle: 'referenced: the rendered text links to it',
       subtitleTone: 'dimmed',
     });
+  });
+
+  it('lists a fill the rendered text names by its binding among what it links to, in rendered order', () => {
+    const view = buildTemplateView({
+      anatomy: withPart(anatomyPlan, 'domain', {
+        mode: 'reference',
+        renderedLines: [223, 223],
+      }),
+      composition,
+      check,
+      changes: undefined,
+      step: 2,
+    });
+    expect(
+      view.output!.links.map(link => [link.label, link.path, link.select])
+    ).toEqual([
+      [
+        'gates/SKILL.md',
+        '../../attachments/gates/SKILL.md',
+        'link:../../attachments/gates/SKILL.md',
+      ],
+      [
+        'evidence/SKILL.md',
+        '../../attachments/evidence/SKILL.md',
+        'link:../../attachments/evidence/SKILL.md',
+      ],
+      [
+        'dev-servers/SKILL.md',
+        '../../attachments/dev-servers/SKILL.md',
+        'link:../../attachments/dev-servers/SKILL.md',
+      ],
+      ['plan-policy', null, 'row:136'],
+    ]);
   });
 
   it('names the fill a bound slot row is filled from, and none for an include', () => {
@@ -475,12 +511,46 @@ describe('slot states', () => {
     expect(view.rows[1]).toMatchObject({
       state: 'resolve-error',
       resolveError: 'no fill provides changelog-style@1',
+      boundTo: null,
     });
     expect(view.inputs[0]).toMatchObject({
       state: 'resolve-error',
       subtitle: 'no fill provides changelog-style@1',
       subtitleTone: 'bad',
     });
+  });
+
+  it("keeps rt's whole message on the row and its cause on the card", () => {
+    const message =
+      'loadAttachment: slot "changelog": binding "acme:changelog-style" not found; searched:\n/a';
+    const view = buildTemplateView({
+      anatomy: releaseNotesAnatomy,
+      composition: {
+        ...composition,
+        verbs: composition.verbs.map(verb =>
+          verb.name === 'release-notes'
+            ? {
+                ...verb,
+                slots: verb.slots.map(slot => ({
+                  ...slot,
+                  boundTo: 'acme:changelog-style',
+                  resolveError: message,
+                })),
+              }
+            : verb
+        ),
+      },
+      check,
+      changes: undefined,
+      step: null,
+    });
+    expect(view.rows[1]).toMatchObject({
+      resolveError: message,
+      boundTo: 'acme:changelog-style',
+    });
+    expect(view.inputs[0]!.subtitle).toBe(
+      'binding "acme:changelog-style" not found; searched:\n/a'
+    );
   });
 
   it('names the fill a slot is bound to when that fill is missing', () => {
@@ -498,7 +568,9 @@ describe('slot states', () => {
       state: 'no-matching-fill',
     });
     expect(view.inputs.find(c => c.id === 'slot:domain')).toMatchObject({
-      title: 'plan-policy/SKILL.md',
+      title: 'domain slot',
+      icon: 'fileX',
+      path: null,
       subtitle: 'no fill named acme:plan-policy in this pack',
       subtitleTone: 'warn',
       state: 'no-matching-fill',

@@ -26,7 +26,8 @@ export const parityName = {
       ? folderFile(card.title)
       : card.title,
   link: (card: LinkCard) => stepLabel(card.skill),
-  outputLink: (link: OutputLink) => folderFile(link.label),
+  outputLink: (link: OutputLink) =>
+    link.path === null ? link.label : folderFile(link.label),
   edge: (view: TemplateView, edge: Edge) => {
     if (edge.sourceHandle === 'out') return 'render';
     const link = view.links.find(card => card.id === edge.target);

@@ -63,8 +63,8 @@ export type DrawerContent = {
   /** Only in the Rendered view, where each pasted part gets one. */
   bands: DrawerBand[];
   tabs: DrawerTab[];
-  /** `bound` is whether anything is bound to the slot, even a fill rt
-      cannot find. */
+  /** `bound` is whether the slot names a binding (its `boundTo`, which the
+      rebind panel reads too), even one rt cannot find. */
   slot: { name: string; contract: string | null; bound: boolean } | null;
   usedBy: DrawerUsedBy | null;
   /** rt's message for a slot it could not resolve, whole. */
@@ -247,15 +247,15 @@ function rowContent(
     bands: shown === 'rendered' ? bandsOf(anatomy, partKey(part)) : [],
     slot:
       row.kind === 'placeholder' && part.kind === 'slot'
-        ? { name: part.name ?? '', contract: row.contract, bound: isBound(row) }
+        ? {
+            name: part.name ?? '',
+            contract: row.contract,
+            bound: row.boundTo !== null,
+          }
         : null,
     usedBy: null,
     error: row.kind === 'placeholder' ? row.resolveError : null,
   };
-}
-
-function isBound(row: PlaceholderRow): boolean {
-  return row.state !== 'required-unbound' && row.state !== 'optional-unbound';
 }
 
 function rowSentence(
