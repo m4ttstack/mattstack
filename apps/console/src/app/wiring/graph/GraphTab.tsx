@@ -4,6 +4,7 @@ import {
   Box,
   Button,
   Center,
+  Code,
   Stack,
   Text,
 } from '@mattstack/app-kit/core';
@@ -38,6 +39,20 @@ function useBottomInStage() {
     return () => observer.disconnect();
   }, []);
   return { ref, bottom };
+}
+
+/** rt's failure text with the command it suggests (its `next:` line) set
+    apart, so the command reads as one to run. */
+function FailureText({ message }: { message: string }) {
+  const [said, next] = message.split(/\n\s*next:\s*/);
+  return (
+    <>
+      <Text size="sm" data-testid="canvas-error-message">
+        {said}
+      </Text>
+      {next && <Code data-testid="canvas-error-next">{next.trim()}</Code>}
+    </>
+  );
 }
 
 /** The Graph tab's stage: the focused skill's header over its canvas. */
@@ -101,9 +116,11 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
             data-testid="canvas-error"
           >
             <Stack gap="xs" align="flex-start">
-              <Text size="sm">{(anatomyQuery.error as Error).message}</Text>
+              <FailureText message={(anatomyQuery.error as Error).message} />
               <Button
-                variant="default"
+                variant="light"
+                color="bad"
+                size="compact-sm"
                 loading={anatomyQuery.isFetching}
                 onClick={() => void anatomyQuery.refetch()}
               >
