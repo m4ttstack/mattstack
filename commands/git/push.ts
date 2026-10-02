@@ -12,7 +12,7 @@
  * misdirect the push.
  */
 
-import { execSync, spawnSync } from "child_process";
+import { execFileSync, spawnSync } from "child_process";
 import * as out from "../../lib/ui/out.ts";
 import { getCurrentBranch } from "../../lib/git-ops.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
@@ -46,8 +46,8 @@ function getUpstreamConfig(branch: string, cwd: string): UpstreamConfig | null {
 }
 
 function setUpstreamConfig(branch: string, remote: string, cwd: string): void {
-  execSync(`git config branch.${branch}.remote ${remote}`, { cwd, stdio: "pipe" });
-  execSync(`git config branch.${branch}.merge refs/heads/${branch}`, { cwd, stdio: "pipe" });
+  execFileSync("git", ["config", `branch.${branch}.remote`, remote], { cwd, stdio: "pipe" });
+  execFileSync("git", ["config", `branch.${branch}.merge`, `refs/heads/${branch}`], { cwd, stdio: "pipe" });
 }
 
 function labelUpstream(u: UpstreamConfig | null): string {

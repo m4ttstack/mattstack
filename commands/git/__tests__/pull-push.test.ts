@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as out from "../../../lib/ui/out.ts";
@@ -91,4 +91,14 @@ test("off a terminal a diverged branch fails with the command to run, exit 1", a
       "  next: rt git push force\n",
   );
   expect(io.stdout()).toBe("");
+});
+
+test("a branch name holding shell syntax is written to config as it is, and nothing runs", async () => {
+  const hostile = "feat$(touch${IFS}pwned)";
+  git(repo, "checkout", "-qb", hostile);
+  await upstreamCommand([], ctxFor(repo));
+  expect(existsSync(join(repo, "pwned"))).toBe(false);
+  expect(existsSync(join(process.cwd(), "pwned"))).toBe(false);
+  expect(git(repo, "config", "--get", `branch.${hostile}.remote`)).toBe("origin");
+  expect(git(repo, "config", "--get", `branch.${hostile}.merge`)).toBe(`refs/heads/${hostile}`);
 });
