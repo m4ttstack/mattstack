@@ -12,7 +12,7 @@ function position(ahead: number | null, behind: number | null): string[] {
 }
 
 export function statusBlocks(snap: RepoSnapshot): Block[] {
-  const head = snap.detached ? "detached HEAD" : (snap.branch ?? "no commits yet");
+  const head = snap.detached || !snap.branch ? "detached HEAD" : snap.branch;
   const notes = [snap.upstream ? `tracking ${snap.upstream}` : "", ...position(snap.ahead, snap.behind)].filter(Boolean).join(", ");
   const headRow: out.CellInput[] = notes ? [out.key(head), out.dim(notes)] : [out.key(head)];
   if (snap.clean) return [out.table([headRow]), out.line("done", "Nothing to commit")];

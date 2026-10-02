@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { execFileSync } from "child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -37,10 +38,9 @@ test("status names the branch, where it stands, and each changed file", () => {
   );
 });
 
-test("a clean tree, a detached HEAD and a repo with no commit each say so", () => {
+test("a clean tree and a detached HEAD each say so", () => {
   expect(renderPlain(statusBlocks(snap({})))).toBe("main\n[ok] Nothing to commit\n");
   expect(renderPlain(statusBlocks(snap({ branch: null, detached: true })))).toBe("detached HEAD\n[ok] Nothing to commit\n");
-  expect(renderPlain(statusBlocks(snap({ branch: null })))).toBe("no commits yet\n[ok] Nothing to commit\n");
 });
 
 test("log lists short sha, day and subject, and says when there is nothing", () => {
@@ -121,6 +121,13 @@ test("status prints on stdout and leaves stderr empty", async () => {
   await inDir(repo, () => statusCommand([]));
   expect(io.stdout()).toBe("main\nFILE   CHANGE    STAGED\na.txt  modified  no\n");
   expect(io.stderr()).toBe("");
+});
+
+test("status in a repo with no commits names its unborn branch", async () => {
+  const empty = join(root, "empty");
+  execFileSync("git", ["init", "-q", "-b", "main", empty], { stdio: "pipe" });
+  await inDir(empty, () => statusCommand([]));
+  expect(io.stdout()).toBe("main\n[ok] Nothing to commit\n");
 });
 
 test("diff with no path off a terminal asks which file, on stderr, exit 1", async () => {
