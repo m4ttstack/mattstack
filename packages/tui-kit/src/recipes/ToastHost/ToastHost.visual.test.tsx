@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
-import { page } from "vitest/browser";
-import { renderWithTheme } from "../../../test/test-utils.tsx";
-import type { Toast } from "../../hooks/index.ts";
-import { ToastHost } from "./ToastHost.tsx";
+import type { ReactNode } from 'react';
+import { describe, expect, it } from 'vitest';
+import { page } from 'vitest/browser';
+
+import { renderWithTheme } from '../../../test/test-utils.tsx';
+import type { Toast } from '../../hooks/index.ts';
+import { ToastHost } from './ToastHost.tsx';
 
 /**
  * Visual tier for the ToastHost recipe.
@@ -16,11 +17,11 @@ import { ToastHost } from "./ToastHost.tsx";
  *.
  */
 
-const NO_MOTION_CLASS = "toasthost-visual-no-motion";
+const NO_MOTION_CLASS = 'toasthost-visual-no-motion';
 
 function installNoMotionStyle() {
   if (document.getElementById(NO_MOTION_CLASS)) return;
-  const style = document.createElement("style");
+  const style = document.createElement('style');
   style.id = NO_MOTION_CLASS;
   style.textContent = `.${NO_MOTION_CLASS}, .${NO_MOTION_CLASS} * {
     animation: none !important;
@@ -34,12 +35,12 @@ async function renderFixture(ui: ReactNode, { dark = false } = {}) {
   await page.viewport(700, 400);
   installNoMotionStyle();
 
-  const container = document.createElement("div");
+  const container = document.createElement('div');
   container.classList.add(NO_MOTION_CLASS);
   // ToastHost's own `position: fixed` anchors to the VIEWPORT, not this
   // container, so the container itself carries no positioning of its own —
   // it exists only to scope the no-motion class and hold the dark flag.
-  if (dark) container.classList.add("dark");
+  if (dark) container.classList.add('dark');
   document.body.appendChild(container);
 
   const screen = await renderWithTheme(ui, { container });
@@ -48,25 +49,31 @@ async function renderFixture(ui: ReactNode, { dark = false } = {}) {
 }
 
 const TOASTS: Toast[] = [
-  { id: 1, text: "posted to slack" },
-  { id: 2, text: "copied" },
-  { id: 3, text: "re-review requested from bob, carol" },
+  { id: 1, text: 'posted to slack' },
+  { id: 2, text: 'copied' },
+  { id: 3, text: 're-review requested from bob, carol' },
 ];
 
-describe("ToastHost (visual)", () => {
-  it("the toast stack matches its baseline in light mode", async () => {
+describe('ToastHost (visual)', () => {
+  it('the toast stack matches its baseline in light mode', async () => {
     const screen = await renderFixture(<ToastHost toasts={TOASTS} />);
 
     // `position: fixed` means the host paints at the VIEWPORT's own
     // bottom-right rather than flowing inside `container` -- a locator
     // screenshot still resolves the element's own (fixed) layout box
     // correctly, so this captures exactly the stack, nothing more.
-    await expect(screen.getByRole("status")).toMatchScreenshot("toasthost-stack-light");
+    await expect(screen.getByRole('status')).toMatchScreenshot(
+      'toasthost-stack-light'
+    );
   });
 
-  it("the toast stack matches its baseline in dark mode", async () => {
-    const screen = await renderFixture(<ToastHost toasts={TOASTS} />, { dark: true });
+  it('the toast stack matches its baseline in dark mode', async () => {
+    const screen = await renderFixture(<ToastHost toasts={TOASTS} />, {
+      dark: true,
+    });
 
-    await expect(screen.getByRole("status")).toMatchScreenshot("toasthost-stack-dark");
+    await expect(screen.getByRole('status')).toMatchScreenshot(
+      'toasthost-stack-dark'
+    );
   });
 });

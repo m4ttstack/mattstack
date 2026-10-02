@@ -2,7 +2,7 @@
    ToastHost.module.css, keyed on the public `data-part`: see
    docs/decisions.md, "Keyframes live outside the CSS module". */
 @layer soribashi.recipes {
-  [data-part="toasthost-toast"] {
+  [data-part='toasthost-toast'] {
     animation: toasthost-in 220ms ease-out;
   }
 
@@ -17,11 +17,14 @@
     }
   }
 
-  [data-part="toasthost-toast"] {
+  [data-part='toasthost-toast'] {
     transition: border-left-color 200ms ease-out;
   }
 
-  [data-part="toasthost-toast"][data-state="done"] [data-part="toasthost-status"] {
+  [data-part='toasthost-toast'][data-state='done']
+    [data-part='toasthost-status'],
+  [data-part='toasthost-toast'][data-state='failed']
+    [data-part='toasthost-status'] {
     animation: toasthost-check 220ms ease-out;
   }
 

@@ -15,33 +15,33 @@
  * that name would collide here.
  */
 
-export { Alert, ALERT_PARTS, alertTheme } from "./recipes/Alert/Alert.tsx";
-export type { AlertOwnProps, AlertProps } from "./recipes/Alert/Alert.tsx";
+export { Alert, ALERT_PARTS, alertTheme } from './recipes/Alert/Alert.tsx';
+export type { AlertOwnProps, AlertProps } from './recipes/Alert/Alert.tsx';
 
-export { Badge, BADGE_PARTS, badgeTheme } from "./recipes/Badge/Badge.tsx";
-export type { BadgeOwnProps, BadgeProps } from "./recipes/Badge/Badge.tsx";
+export { Badge, BADGE_PARTS, badgeTheme } from './recipes/Badge/Badge.tsx';
+export type { BadgeOwnProps, BadgeProps } from './recipes/Badge/Badge.tsx';
 
-export { Button, BUTTON_PARTS, buttonTheme } from "./recipes/Button/Button.tsx";
-export type { ButtonOwnProps, ButtonProps } from "./recipes/Button/Button.tsx";
+export { Button, BUTTON_PARTS, buttonTheme } from './recipes/Button/Button.tsx';
+export type { ButtonOwnProps, ButtonProps } from './recipes/Button/Button.tsx';
 
-export { Chip, CHIP_PARTS, chipTheme } from "./recipes/Chip/Chip.tsx";
-export type { ChipOwnProps, ChipProps } from "./recipes/Chip/Chip.tsx";
+export { Chip, CHIP_PARTS, chipTheme } from './recipes/Chip/Chip.tsx';
+export type { ChipOwnProps, ChipProps } from './recipes/Chip/Chip.tsx';
 
 export {
   CONFIRMDIALOG_PARTS,
   ConfirmDialog,
   confirmDialogTheme,
-} from "./recipes/ConfirmDialog/ConfirmDialog.tsx";
+} from './recipes/ConfirmDialog/ConfirmDialog.tsx';
 export type {
   ConfirmDialogOwnProps,
   ConfirmDialogProps,
-} from "./recipes/ConfirmDialog/ConfirmDialog.tsx";
+} from './recipes/ConfirmDialog/ConfirmDialog.tsx';
 
 export {
   CONTEXTMENU_PARTS,
   ContextMenu,
   contextMenuTheme,
-} from "./recipes/ContextMenu/ContextMenu.tsx";
+} from './recipes/ContextMenu/ContextMenu.tsx';
 export type {
   ContextMenuItemOwnProps,
   ContextMenuItemProps,
@@ -55,13 +55,23 @@ export type {
   ContextMenuRowProps,
   ContextMenuSubOwnProps,
   ContextMenuSubProps,
-} from "./recipes/ContextMenu/ContextMenu.tsx";
+} from './recipes/ContextMenu/ContextMenu.tsx';
 
-export { CopyButton, copyButtonTheme } from "./recipes/CopyButton/CopyButton.tsx";
-export type { CopyButtonOwnProps, CopyButtonProps } from "./recipes/CopyButton/CopyButton.tsx";
+export {
+  CopyButton,
+  copyButtonTheme,
+} from './recipes/CopyButton/CopyButton.tsx';
+export type {
+  CopyButtonOwnProps,
+  CopyButtonProps,
+} from './recipes/CopyButton/CopyButton.tsx';
 
-export { DRAWER_PARTS, Drawer, drawerTheme } from "./recipes/Drawer/Drawer.tsx";
-export type { DrawerOwnProps, DrawerProps, DrawerScreen } from "./recipes/Drawer/Drawer.tsx";
+export { DRAWER_PARTS, Drawer, drawerTheme } from './recipes/Drawer/Drawer.tsx';
+export type {
+  DrawerOwnProps,
+  DrawerProps,
+  DrawerScreen,
+} from './recipes/Drawer/Drawer.tsx';
 
 export {
   FIELD_PARTS,
@@ -71,7 +81,7 @@ export {
   textAreaTheme,
   TextField,
   textFieldTheme,
-} from "./recipes/Field/Field.tsx";
+} from './recipes/Field/Field.tsx';
 export type {
   RadioGroupOwnProps,
   RadioGroupProps,
@@ -79,16 +89,23 @@ export type {
   TextAreaProps,
   TextFieldOwnProps,
   TextFieldProps,
-} from "./recipes/Field/Field.tsx";
+} from './recipes/Field/Field.tsx';
 
-export { CHECK_ICON, COPY_ICON, Icon, ICONS, iconTheme } from "./recipes/Icon/Icon.tsx";
-export type { IconOwnProps, IconProps } from "./recipes/Icon/Icon.tsx";
+export {
+  CHECK_ICON,
+  COPY_ICON,
+  CROSS_ICON,
+  Icon,
+  ICONS,
+  iconTheme,
+} from './recipes/Icon/Icon.tsx';
+export type { IconOwnProps, IconProps } from './recipes/Icon/Icon.tsx';
 
 export {
   LISTGROUP_PARTS,
   ListGroup,
   listGroupTheme,
-} from "./recipes/ListGroup/ListGroup.tsx";
+} from './recipes/ListGroup/ListGroup.tsx';
 export type {
   ListGroupActionProps,
   ListGroupFactProps,
@@ -97,26 +114,29 @@ export type {
   ListGroupOwnProps,
   ListGroupProps,
   ListGroupToggleProps,
-} from "./recipes/ListGroup/ListGroup.tsx";
+} from './recipes/ListGroup/ListGroup.tsx';
 
-export { Markdown, markdownTheme } from "./recipes/Markdown/Markdown.tsx";
-export type { MarkdownOwnProps, MarkdownProps } from "./recipes/Markdown/Markdown.tsx";
+export { Markdown, markdownTheme } from './recipes/Markdown/Markdown.tsx';
+export type {
+  MarkdownOwnProps,
+  MarkdownProps,
+} from './recipes/Markdown/Markdown.tsx';
 
-export { MODAL_PARTS, Modal, modalTheme } from "./recipes/Modal/Modal.tsx";
-export type { ModalOwnProps, ModalProps } from "./recipes/Modal/Modal.tsx";
+export { MODAL_PARTS, Modal, modalTheme } from './recipes/Modal/Modal.tsx';
+export type { ModalOwnProps, ModalProps } from './recipes/Modal/Modal.tsx';
 
-export { Panel, PANEL_PARTS, panelTheme } from "./recipes/Panel/Panel.tsx";
-export type { PanelOwnProps, PanelProps } from "./recipes/Panel/Panel.tsx";
+export { Panel, PANEL_PARTS, panelTheme } from './recipes/Panel/Panel.tsx';
+export type { PanelOwnProps, PanelProps } from './recipes/Panel/Panel.tsx';
 
 export {
   ScrollPane,
   SCROLLPANE_PARTS,
   scrollPaneTheme,
-} from "./recipes/ScrollPane/ScrollPane.tsx";
+} from './recipes/ScrollPane/ScrollPane.tsx';
 export type {
   ScrollPaneOwnProps,
   ScrollPaneProps,
-} from "./recipes/ScrollPane/ScrollPane.tsx";
+} from './recipes/ScrollPane/ScrollPane.tsx';
 
 export {
   LabeledSeg,
@@ -124,41 +144,80 @@ export {
   SEGMENTED_PARTS,
   Segmented,
   segmentedTheme,
-} from "./recipes/Segmented/Segmented.tsx";
+} from './recipes/Segmented/Segmented.tsx';
 export type {
   LabeledSegOwnProps,
   LabeledSegProps,
   SegmentedOwnProps,
   SegmentedProps,
-} from "./recipes/Segmented/Segmented.tsx";
+} from './recipes/Segmented/Segmented.tsx';
 
-export { SelectBox, selectBoxTheme } from "./recipes/SelectBox/SelectBox.tsx";
-export type { SelectBoxOwnProps, SelectBoxProps } from "./recipes/SelectBox/SelectBox.tsx";
+export { SelectBox, selectBoxTheme } from './recipes/SelectBox/SelectBox.tsx';
+export type {
+  SelectBoxOwnProps,
+  SelectBoxProps,
+} from './recipes/SelectBox/SelectBox.tsx';
 
-export { SIDEDRAWER_PARTS, SideDrawer, sideDrawerTheme } from "./recipes/SideDrawer/SideDrawer.tsx";
+export {
+  SIDEDRAWER_PARTS,
+  SideDrawer,
+  sideDrawerTheme,
+} from './recipes/SideDrawer/SideDrawer.tsx';
 export type {
   SideDrawerOwnProps,
   SideDrawerProps,
   SideDrawerSide,
-} from "./recipes/SideDrawer/SideDrawer.tsx";
+} from './recipes/SideDrawer/SideDrawer.tsx';
 
-export { Spinner, SPINNER_PARTS, spinnerTheme } from "./recipes/Spinner/Spinner.tsx";
-export type { SpinnerOwnProps, SpinnerProps } from "./recipes/Spinner/Spinner.tsx";
+export {
+  Spinner,
+  SPINNER_PARTS,
+  spinnerTheme,
+} from './recipes/Spinner/Spinner.tsx';
+export type {
+  SpinnerOwnProps,
+  SpinnerProps,
+} from './recipes/Spinner/Spinner.tsx';
 
-export { STATUSDOT_PARTS, StatusDot, statusDotTheme } from "./recipes/StatusDot/StatusDot.tsx";
-export type { StatusDotOwnProps, StatusDotProps } from "./recipes/StatusDot/StatusDot.tsx";
+export {
+  STATUSDOT_PARTS,
+  StatusDot,
+  statusDotTheme,
+} from './recipes/StatusDot/StatusDot.tsx';
+export type {
+  StatusDotOwnProps,
+  StatusDotProps,
+} from './recipes/StatusDot/StatusDot.tsx';
 
-export { SWITCH_PARTS, Switch, switchTheme } from "./recipes/Switch/Switch.tsx";
-export type { SwitchOwnProps, SwitchProps } from "./recipes/Switch/Switch.tsx";
+export { SWITCH_PARTS, Switch, switchTheme } from './recipes/Switch/Switch.tsx';
+export type { SwitchOwnProps, SwitchProps } from './recipes/Switch/Switch.tsx';
 
-export { Table, TABLE_PARTS, tableTheme } from "./recipes/Table/Table.tsx";
-export type { TableCellOwnProps, TableOwnProps, TableProps } from "./recipes/Table/Table.tsx";
+export { Table, TABLE_PARTS, tableTheme } from './recipes/Table/Table.tsx';
+export type {
+  TableCellOwnProps,
+  TableOwnProps,
+  TableProps,
+} from './recipes/Table/Table.tsx';
 
-export { TOASTHOST_PARTS, ToastHost, toastHostTheme } from "./recipes/ToastHost/ToastHost.tsx";
-export type { ToastHostOwnProps, ToastHostProps } from "./recipes/ToastHost/ToastHost.tsx";
+export {
+  TOASTHOST_PARTS,
+  ToastHost,
+  toastHostTheme,
+} from './recipes/ToastHost/ToastHost.tsx';
+export type {
+  ToastHostOwnProps,
+  ToastHostProps,
+} from './recipes/ToastHost/ToastHost.tsx';
 
-export { Tooltip, TOOLTIP_PARTS, tooltipTheme } from "./recipes/Tooltip/Tooltip.tsx";
-export type { TooltipOwnProps, TooltipProps } from "./recipes/Tooltip/Tooltip.tsx";
+export {
+  Tooltip,
+  TOOLTIP_PARTS,
+  tooltipTheme,
+} from './recipes/Tooltip/Tooltip.tsx';
+export type {
+  TooltipOwnProps,
+  TooltipProps,
+} from './recipes/Tooltip/Tooltip.tsx';
 
 export {
   acquireScrollLock,
@@ -170,13 +229,17 @@ export {
   useEscapeClose,
   useRevealOnChange,
   useToasts,
-} from "./hooks/index.ts";
-export type { OverflowTarget, Toast, ToastHandle } from "./hooks/index.ts";
+} from './hooks/index.ts';
+export type { OverflowTarget, Toast, ToastHandle } from './hooks/index.ts';
 
-export { tuiTheme } from "./theme.ts";
+export { tuiTheme } from './theme.ts';
 
 // `tuiTheme`'s companions: `registerTheme(tuiTheme)` at module scope,
 // `<SoribashiProvider theme={tuiTheme}>` around the tree, or both at once via
 // `TuiKitProvider`. Reached through `./provider.tsx` rather than
 // `@soribashi/core` for the module-identity reason that file records.
-export { registerTheme, SoribashiProvider, TuiKitProvider } from "./provider.tsx";
+export {
+  registerTheme,
+  SoribashiProvider,
+  TuiKitProvider,
+} from './provider.tsx';

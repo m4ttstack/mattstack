@@ -45,11 +45,19 @@
     color: var(--fill-accent);
   }
 
-  .toast[data-state="done"] {
+  .toast[data-state='done'] {
     border-left-color: var(--fill-ok);
   }
 
-  .toast[data-state="done"] .status {
+  .toast[data-state='done'] .status {
     color: var(--text-ok);
+  }
+
+  .toast[data-state='failed'] {
+    border-left-color: var(--fill-bad);
+  }
+
+  .toast[data-state='failed'] .status {
+    color: var(--text-bad);
   }
 }
