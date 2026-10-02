@@ -1735,33 +1735,142 @@ describe("commit-pending against real git", () => {
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
 
-  test("a file staged between the pending commit and the version commit refuses the version commit and pushes nothing", async () => {
+  /** Stages `rel` with `text` the moment rt's pending commit lands, as another process might; `first` runs before the stage. */
+  function stageAfterPendingCommit(deps: SyncDeps, root: string, rel: string, text: (now: string | null) => string, first?: () => void): void {
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) => {
+      const res = await run(cmd, args, opts);
+      if (cmd === "git" && args[0] === "commit" && args.includes("skills: acme pending changes")) {
+        first?.();
+        const path = join(root, rel);
+        writeFileSync(path, text(existsSync(path) ? readFileSync(path, "utf8") : null));
+        mustGit(root, "add", rel);
+      }
+      return res;
+    };
+  }
+
+  test("a file staged between the pending commit and the version commit refuses, undoes rt's own commit and leaves the pack edits staged", async () => {
     const { root, remote, pack } = realPackRepo("");
     const engine = fixturePack("beacon", "local", "2.0.0");
     writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
     const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
     const deps = realGitDeps(root, pack, engine, world);
     deps.compilePack = rebuildingCompile(pack);
-    const run = deps.run;
-    deps.run = async (cmd, args, opts) => {
-      const res = await run(cmd, args, opts);
-      if (cmd === "git" && args[0] === "commit" && args.includes("skills: acme pending changes")) {
-        writeFileSync(join(pack.dir, "skills", "keep", "slipped-in.md"), "staged by someone else\n");
-        mustGit(root, "add", "skills/keep/slipped-in.md");
-      }
-      return res;
-    };
+    stageAfterPendingCommit(deps, root, "skills/keep/slipped-in.md", () => "staged by someone else\n");
 
     const report = await syncPack(pack, engine, deps, { commitPending: true });
 
     expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
     expect(report.steps.at(-1)!.detail).toContain("skills/keep/slipped-in.md");
-    expect(report.steps.at(-1)!.detail).toContain("put the version and the rebuilt skills back");
+    expect(report.steps.at(-1)!.detail).toContain("put the version and the rebuilt skills back, so your pack edits are still staged, not committed");
     expect(world.calls.some((c) => c.cmd === "git" && c.args[0] === "push")).toBe(false);
-    expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["skills: acme pending changes", "base"]);
+    expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["base"]);
     expect(remoteLog(remote)).toEqual(["base"]);
     expectBuildPutBack(pack);
-    expect(mustGit(root, "status", "--porcelain")).toBe("A  skills/keep/slipped-in.md\n");
+    expect(mustGit(root, "status", "--porcelain")).toBe("M  pack/skills.jsonc\nA  skills/keep/slipped-in.md\n");
+
+    mustGit(root, "rm", "-q", "--cached", "skills/keep/slipped-in.md");
+    rmSync(join(pack.dir, "skills", "keep", "slipped-in.md"));
+    const again: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+    const next = realGitDeps(root, pack, engine, again);
+    next.compilePack = rebuildingCompile(pack);
+
+    const retry = await syncPack(pack, engine, next, { commitPending: true, expect: await changesSignature(pack.dir) });
+
+    expect(retry.ok).toBe(true);
+    expect(remoteLog(remote)).toEqual(["skills sync: acme v1.0.1", "skills: acme pending changes", "base"]);
+    expect(mustGit(root, "show", "--name-only", "--format=", "HEAD~1").trim()).toBe("pack/skills.jsonc");
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("rt leaves its own commit in place, and names it, once HEAD has moved past it", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    let rtCommit = "";
+    stageAfterPendingCommit(deps, root, "skills/keep/slipped-in.md", () => "staged by someone else\n", () => {
+      rtCommit = mustGit(root, "rev-parse", "HEAD").trim();
+      mustGit(root, "commit", "-q", "--allow-empty", "-m", "someone else");
+    });
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(report.steps.at(-1)!.detail).toContain(rtCommit.slice(0, 12));
+    expect(report.steps.at(-1)!.detail).toContain("not pushed");
+    expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["someone else", "skills: acme pending changes", "base"]);
+    expect(remoteLog(remote)).toEqual(["base"]);
+    expect(readVersion(pack.dir)).toBe("1.0.0");
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a manifest another process edits and stages before the version commit is left as found and named", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = rebuildingCompile(pack);
+    stageAfterPendingCommit(deps, root, ".claude-plugin/plugin.json", (now) => JSON.stringify({ ...JSON.parse(now!), description: "edited elsewhere" }, null, 2) + "\n");
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    const detail = report.steps.at(-1)!.detail;
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(detail).toContain("except .claude-plugin/plugin.json, which it left as it found");
+    const manifest = JSON.parse(readFileSync(join(pack.dir, ".claude-plugin", "plugin.json"), "utf8"));
+    expect(manifest).toMatchObject({ version: "1.0.1", description: "edited elsewhere" });
+    expect(mustGit(root, "show", ":.claude-plugin/plugin.json")).toContain("edited elsewhere");
+    expect(readFileSync(join(pack.dir, "skills", "keep", "SKILL.md"), "utf8")).toBe("keep\n");
+    expect(existsSync(join(pack.dir, "attachments", "fresh"))).toBe(false);
+    expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["base"]);
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("rt's own version staging that it could not take back is named as still in the index", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    stageAfterPendingCommit(deps, root, "skills/keep/slipped-in.md", () => "staged by someone else\n");
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) =>
+      cmd === "git" && args[0] === "reset" && args[1] === "-q" ? { code: 128, stdout: "", stderr: "fatal: Unable to create '.git/index.lock': File exists." } : run(cmd, args, opts);
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    const detail = report.steps.at(-1)!.detail;
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(detail).toContain("still in the index");
+    expect(detail).toContain("index.lock");
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a bump another process stages along with everything else before the pending commit is left as found and named", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = rebuildingCompile(pack);
+    const checkPack = deps.checkPack;
+    deps.checkPack = async (name) => {
+      const answer = await checkPack(name);
+      if (world.calls.filter((c) => c.cmd === "checkPack").length === 2) mustGit(root, "add", "-A");
+      return answer;
+    };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    const detail = report.steps.at(-1)!.detail;
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(detail).toContain("left what it built as it found it (.claude-plugin/plugin.json");
+    expect(detail).not.toContain("put the version and the rebuilt skills back");
+    expect(readVersion(pack.dir)).toBe("1.0.1");
+    expect(mustGit(root, "rev-list", "--count", "HEAD").trim()).toBe("1");
+    expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
 
   test("a clean pack inside a larger repo commits its rebuilt skills, read from the pack", async () => {
