@@ -56,7 +56,11 @@ import {
 } from '../src/triage/memory-store.ts';
 import { boardMrLink, notifyEscalation } from '../src/triage/notify.ts';
 import { runNudgePass } from '../src/triage/nudge.ts';
-import { claimCronWaiting, triageShouldRun } from '../src/triage/peer-pass.ts';
+import {
+  claimCronWaiting,
+  needsOwnMrs,
+  triageShouldRun,
+} from '../src/triage/peer-pass.ts';
 import { collectProjectPRs } from '../src/triage/projects.ts';
 import {
   numericPipelineId,
@@ -64,6 +68,18 @@ import {
   runTriage,
 } from '../src/triage/run.ts';
 import { triageOwns } from '../src/triage/seat.ts';
+
+// A peer pass is only useful on a paired board. Checked before the claim so an
+// unpaired or unconfigured machine exits quietly without queueing behind a
+// full pass.
+async function peerPreflight(): Promise<boolean> {
+  try {
+    const cfg = loadConfig();
+    return !!cfg.switchboard.url && !!(await loadSwitchboardToken());
+  } catch {
+    return false;
+  }
+}
 
 // Decide whether to run BEFORE taking the lock, because process.exit() skips
 // finally blocks and would strand the lock file. Three switches: board.triage
@@ -86,6 +102,8 @@ if (
 // One run at a time: a slow run plus a fresh trigger must not interleave
 // dispatches. A stale claim (crashed run) is reclaimed. A peer pass waits for
 // a held claim; a full pass yields to it.
+if (peerMode && !(await peerPreflight())) process.exit(0);
+
 const lockToken = peerMode
   ? await claimCronWaiting({ tryClaim: tryClaimCron })
   : tryClaimCron(Date.now());
@@ -134,14 +152,19 @@ try {
   // Throw rather than process.exit(1) on a resolution failure: an exit here
   // would skip the finally block and strand the lock until the stale window
   // reclaims it.
-  const username = await resolveDispatchIdentity(memory, async () => {
-    const token = await loadGitLabToken();
-    if (!token)
+  let username = '';
+  const resolveUsername = async (): Promise<string> => {
+    const resolved = await resolveDispatchIdentity(memory, async () => {
+      const token = await loadGitLabToken();
+      if (!token)
+        throw new Error('triage: no gitlab token available for identity');
+      return new GitLabProvider(boardConfig.gitlabHost, token).validateToken();
+    });
+    if (!resolved)
       throw new Error('triage: no gitlab token available for identity');
-    return new GitLabProvider(boardConfig.gitlabHost, token).validateToken();
-  });
-  if (!username)
-    throw new Error('triage: no gitlab token available for identity');
+    return resolved;
+  };
+  if (!peerMode) username = await resolveUsername();
 
   // SCOPE (review fix 1): triage's MR scope is deliberately the BOARD's
   // visibility scope -- buildBoard applies the member, own-draft, stale-window,
@@ -250,49 +273,65 @@ try {
         client,
         boardMaterializeDeps(line => console.error(line))
       );
-    const ownUrls = new Set((await fetchOwnMrs()).map(m => m.mrUrl));
-    const nudgeResult = await runNudgePass({
-      readNudges,
-      markNudgeHandled: (id, r, reason) => markNudgeHandled(id, r, reason),
-      readReviewStates,
-      readRespondStates,
-      isOwnMr: mrUrl => ownUrls.has(mrUrl),
-      launchAsk: (mrUrl, iid, kind) =>
-        kind === 'respond'
-          ? launchRespondAsk(mrUrl, iid, {
-              cwd: boardConfig.respondCwd || boardConfig.reviewCwd,
-              repo: repoForMrUrl(mrUrl),
-              workspaceLabel: boardConfig.respondsWorkspace,
-              skill: resolveLaunchSkill(
-                'respond',
-                mrUrl,
-                boardConfig,
-                launchPack
-              ),
-              pack: launchPack ?? undefined,
-              ...loadAgentSettings(),
-            })
-          : launchReReview(mrUrl, iid, {
-              reReview: kind !== 'review',
-              cwd: boardConfig.reviewCwd,
-              repo: repoForMrUrl(mrUrl),
-              workspaceLabel: boardConfig.reviewsWorkspace,
-              forTab: tab => reviewLaunchForTab(boardConfig, mrUrl, tab),
-              ...loadAgentSettings(),
-              claudeCommand: boardConfig.claudeCommand,
-            }),
-      publishOutcome: (to, payload) =>
-        enqueueOutbox(makeEnvelope(to, 'nudge-outcome', payload)),
-      memory,
-      cfg: { ...triage, enabled: peerAsks.enabled },
-      appendAudit,
-      notify,
-      now: () => Date.now(),
-    });
-    await drainOutbox(d => client.publish(d));
-    console.log(
-      `nudges: dispatched ${nudgeResult.dispatched}, rejected ${nudgeResult.rejected}, expired ${nudgeResult.expired}, skipped ${nudgeResult.skipped}`
-    );
+    let ownUrls = new Set<string>();
+    let nudgeReady = true;
+    if (!peerMode || needsOwnMrs(readNudges())) {
+      try {
+        if (peerMode) username = await resolveUsername();
+        ownUrls = new Set((await fetchOwnMrs()).map(m => m.mrUrl));
+      } catch (err) {
+        if (!peerMode) throw err;
+        // An empty set would reject a pending respond ask as not-your-mr.
+        nudgeReady = false;
+        console.error(
+          `peer pass: own MRs unavailable, respond asks wait (${err instanceof Error ? err.message : String(err)})`
+        );
+      }
+    }
+    if (nudgeReady) {
+      const nudgeResult = await runNudgePass({
+        readNudges,
+        markNudgeHandled: (id, r, reason) => markNudgeHandled(id, r, reason),
+        readReviewStates,
+        readRespondStates,
+        isOwnMr: mrUrl => ownUrls.has(mrUrl),
+        launchAsk: (mrUrl, iid, kind) =>
+          kind === 'respond'
+            ? launchRespondAsk(mrUrl, iid, {
+                cwd: boardConfig.respondCwd || boardConfig.reviewCwd,
+                repo: repoForMrUrl(mrUrl),
+                workspaceLabel: boardConfig.respondsWorkspace,
+                skill: resolveLaunchSkill(
+                  'respond',
+                  mrUrl,
+                  boardConfig,
+                  launchPack
+                ),
+                pack: launchPack ?? undefined,
+                ...loadAgentSettings(),
+              })
+            : launchReReview(mrUrl, iid, {
+                reReview: kind !== 'review',
+                cwd: boardConfig.reviewCwd,
+                repo: repoForMrUrl(mrUrl),
+                workspaceLabel: boardConfig.reviewsWorkspace,
+                forTab: tab => reviewLaunchForTab(boardConfig, mrUrl, tab),
+                ...loadAgentSettings(),
+                claudeCommand: boardConfig.claudeCommand,
+              }),
+        publishOutcome: (to, payload) =>
+          enqueueOutbox(makeEnvelope(to, 'nudge-outcome', payload)),
+        memory,
+        cfg: { ...triage, enabled: peerAsks.enabled },
+        appendAudit,
+        notify,
+        now: () => Date.now(),
+      });
+      await drainOutbox(d => client.publish(d));
+      console.log(
+        `nudges: dispatched ${nudgeResult.dispatched}, rejected ${nudgeResult.rejected}, expired ${nudgeResult.expired}, skipped ${nudgeResult.skipped}`
+      );
+    }
   }
 
   // The latch pass writes to GitLab, so without a token there is nothing it

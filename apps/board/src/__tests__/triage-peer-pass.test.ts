@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { claimCronWaiting, triageShouldRun } from '../triage/peer-pass.ts';
+import {
+  claimCronWaiting,
+  needsOwnMrs,
+  triageShouldRun,
+} from '../triage/peer-pass.ts';
 
 describe('triageShouldRun', () => {
   const off = { triage: false, reReview: false, peerAsks: false };
@@ -57,5 +61,23 @@ describe('claimCronWaiting', () => {
     });
     expect(token).toBe(false);
     expect(t).toBe(120_000);
+  });
+});
+
+describe('needsOwnMrs', () => {
+  test('a pending respond ask needs the own-MR set', () => {
+    expect(needsOwnMrs([{ kind: 'respond' }])).toBe(true);
+  });
+
+  test('review and re-review asks do not', () => {
+    expect(needsOwnMrs([{ kind: 'review' }, { kind: 're-review' }, {}])).toBe(
+      false
+    );
+  });
+
+  test('a handled respond ask does not', () => {
+    expect(
+      needsOwnMrs([{ kind: 'respond', handled: { at: 1, result: 'launched' } }])
+    ).toBe(false);
   });
 });

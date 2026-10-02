@@ -30,3 +30,11 @@ export async function claimCronWaiting(opts: {
     await sleep(opts.pollMs ?? CLAIM_POLL_MS);
   }
 }
+
+/** Only a respond ask checks authorship, so the board and GitLab fetch behind
+    it is skipped unless an unhandled one is waiting. */
+export function needsOwnMrs(
+  nudges: readonly { kind?: string; handled?: unknown }[]
+): boolean {
+  return nudges.some(n => n.kind === 'respond' && !n.handled);
+}
