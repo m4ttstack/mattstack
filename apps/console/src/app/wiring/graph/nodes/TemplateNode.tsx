@@ -38,7 +38,7 @@ export function StateTag({ state }: { state: RowState }) {
   if (!tag) return null;
   return (
     <Badge
-      variant="wash"
+      variant="tint"
       color={tag.color}
       classNames={{ root: classes.tag }}
       data-parity={`tag · ${tag.label}`}

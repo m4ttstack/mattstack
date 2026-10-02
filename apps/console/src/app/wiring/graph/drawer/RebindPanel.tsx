@@ -18,6 +18,7 @@ import { notifications } from '@mattstack/app-kit/notifications';
 
 import { suffixOf, type SkillsComposition } from '../../outline';
 import { useSkillsApply } from '../../useWiring';
+import { ButtonLabel } from '../ButtonLabel';
 import { stepLabel } from '../model/focusModel';
 import classes from './drawer.module.css';
 import { rebindChoices } from './rebind';
@@ -26,15 +27,6 @@ const MUTED = 'var(--tk-text-3)';
 const BODY = 'var(--tk-text-1)';
 
 const BUTTON = { root: classes.panelButton };
-
-/** A Button's label is as tall as the button; its text is the board's layer. */
-function ButtonLabel({ children }: { children: string }) {
-  return (
-    <Text span fz={12} fw={500} lh="normal" data-parity="l">
-      {children}
-    </Text>
-  );
-}
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (

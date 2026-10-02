@@ -29,6 +29,7 @@ function InputCardNodeComponent({
           variant="ground"
           radius={7}
           data-selected={select === `input:${id}` || undefined}
+          data-attention={card.state === 'unsynced' || undefined}
           w={LAYOUT.inputW}
           h={LAYOUT.cardH}
           className={classes.card}

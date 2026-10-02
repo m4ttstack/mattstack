@@ -18,6 +18,7 @@ import { useEditorHref } from '../editorHref';
 import { CommandProvenance } from '../runs/CommandProvenance';
 import { GraphSidebar } from './graph/FocusList';
 import { GraphTab } from './graph/GraphTab';
+import { UnsyncedBanner, useUnsyncedBanner } from './graph/UnsyncedBanner';
 import { useWiringUrl, type WiringTab } from './graph/useWiringUrl';
 import { HealthTab } from './HealthTab';
 import { SurfaceTab } from './SurfaceTab';
@@ -43,7 +44,11 @@ export function WiringMap() {
   const packDir = packs.find(p => p.name === pack)?.dir ?? null;
 
   const snapshot = useCompositionSnapshot(pack);
+  const unsynced = useUnsyncedBanner(pack);
   const showTab = (tab: WiringTab) => patch({ tab });
+  const notch = pack
+    ? { content: <UnsyncedBanner pack={pack} />, opened: unsynced }
+    : undefined;
 
   // No pack means nothing for a tab to show yet -- the same gate the pack
   // picker and Surface action already used.
@@ -160,11 +165,15 @@ export function WiringMap() {
       )}
       <PageShell.Main>
         {graphPack ? (
-          <PageShell.Content bg="var(--tk-bg)" contentContainer={false}>
+          <PageShell.Content
+            bg="var(--tk-bg)"
+            contentContainer={false}
+            topNotch={notch}
+          >
             {height => <GraphTab pack={graphPack} height={height} />}
           </PageShell.Content>
         ) : (
-          <PageShell.Content>
+          <PageShell.Content topNotch={notch}>
             {packsQuery.isError ? (
               <GenericError
                 title="Couldn't load skills packs"

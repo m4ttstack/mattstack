@@ -421,6 +421,20 @@ export type SkillsSyncReport = InferResponseType<
   200
 >;
 
+/** Why a sync stopped: the step that refused or failed (a `guards` refusal
+    names the files that stopped it), or rt's own error. Null for a sync that
+    ran through. */
+export function syncRefusal(
+  report: SkillsSyncReport | undefined
+): string | null {
+  if (!report || report.ok) return null;
+  if (typeof report.error === 'string') return report.error;
+  const stopped = report.steps?.find(
+    step => step.status === 'refused' || step.status === 'failed'
+  );
+  return stopped?.detail ?? 'sync stopped without a reason';
+}
+
 /** Invalidation happens on settle, not only on success: sync mutates
     checkouts and installed caches even when the chain ends in a refusal
     (it may have pulled, bumped, and compiled first) -- the client mirror

@@ -15,6 +15,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { SOFT_RULE } from './SlotRow';
 import {
   isSkillsWriting,
+  syncRefusal,
   useSkillsSync,
   useSkillsWriting,
   type SkillsInstalled,
@@ -49,15 +50,6 @@ const STATE_COLOR: Record<BarState, MantineColor> = {
   update: 'accent',
   'in-sync': 'ok',
 };
-
-function refusalDetailOf(report: SkillsSyncReport | undefined): string | null {
-  if (!report || report.ok) return null;
-  if (typeof report.error === 'string') return report.error;
-  const stopped = report.steps?.find(
-    step => step.status === 'refused' || step.status === 'failed'
-  );
-  return stopped?.detail ?? 'sync stopped without a reason';
-}
 
 function versionsLine(
   installed: SkillsInstalled | null | undefined,
@@ -106,7 +98,7 @@ export function InstalledCachesBar({
           ? 'update'
           : 'in-sync';
 
-  const refusal = state === 'refused' ? refusalDetailOf(report) : null;
+  const refusal = state === 'refused' ? syncRefusal(report) : null;
   const versions = versionsLine(installed, report);
   const showRestart = state === 'synced' && report?.restartNeeded === true;
   const stepTone = (status: string) =>

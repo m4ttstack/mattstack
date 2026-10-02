@@ -117,7 +117,7 @@ export function FocusHeader({
         </Group>
         {status && (
           <Badge
-            variant={status.tone === 'warn' ? 'outline' : 'quiet-outline'}
+            variant={status.tone === 'warn' ? 'hue-outline' : 'quiet-outline'}
             color={status.tone === 'warn' ? 'warn' : undefined}
             classNames={{ root: classes.statusPill, section: classes.pillIcon }}
             leftSection={

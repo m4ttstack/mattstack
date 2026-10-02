@@ -545,6 +545,38 @@ describe('Graph tab: the focus header', () => {
     );
   });
 
+  it('marks the unsynced edit in the warn tones the boards draw', async () => {
+    mockDesignPack({ changes: designFixture('changes.unsynced') });
+    compositionGet.mockResolvedValue(ok(designFixture('composition.unsynced')));
+    anatomyGet.mockImplementation(() =>
+      Promise.resolve(ok(designFixture('anatomy.stage-plan.unsynced')))
+    );
+    renderAt('?tab=graph&focus=stage-plan');
+    const header = await screen.findByTestId('focus-header');
+
+    expect(await within(header).findByTestId('focus-status')).toHaveAttribute(
+      'data-variant',
+      'hue-outline'
+    );
+    const tags = await screen.findAllByText('unsynced');
+    expect(tags.length).toBeGreaterThan(0);
+    for (const tag of tags)
+      expect(tag.closest('[data-variant]')).toHaveAttribute(
+        'data-variant',
+        'tint'
+      );
+    const cards = screen.getAllByTestId('input-card');
+    const strict = cards.find(card =>
+      card.textContent?.includes('plan-policy-strict')
+    )!;
+    expect(strict.querySelector('[data-attention]')).not.toBeNull();
+    expect(
+      cards
+        .filter(card => card !== strict)
+        .some(card => card.querySelector('[data-attention]'))
+    ).toBe(false);
+  });
+
   it('names a stale skill and why', async () => {
     mockDesignPack();
     const stale = designFixture('anatomy.stage-plan');
