@@ -1,0 +1,347 @@
+:where([data-mantine-color-scheme='light']) .canvas {
+  --wash: 10%;
+  --wash-hover: 14%;
+  --row-hover: var(--mantine-color-gray-1);
+}
+
+:where([data-mantine-color-scheme='dark']) .canvas {
+  --wash: 20%;
+  --wash-hover: 26%;
+  --row-hover: var(--mantine-color-dark-5);
+}
+
+/* The layout's `input` and `output` node types share their names with
+   React Flow's own, whose stylesheet borders them. */
+.canvas {
+  --xy-node-border: none;
+  --xy-node-border-selected: none;
+  --xy-node-color: inherit;
+  position: absolute;
+  inset: 0 0 auto;
+}
+
+/* The board's node rule sits on the node's edge, over its contents. A full
+   width header or row therefore runs a pixel past each side, under the
+   Paper's border, and the Paper clips it back. */
+.node {
+  overflow: hidden;
+}
+
+/* React Flow turns pointer events off on a node it cannot select or drag;
+   its rows and cards are buttons all the same. */
+.shell {
+  position: relative;
+  pointer-events: auto;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% + 2px);
+  margin: -1px -1px 0;
+  padding: 0 12px;
+  background-color: var(--tk-raised);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.rows {
+  --gutter-min: 68.5px;
+  display: grid;
+  grid-template-columns: minmax(var(--gutter-min), max-content) minmax(0, 1fr);
+  margin: 0 -1px -1px;
+}
+
+.rows[data-view='step'] {
+  --gutter-min: 64.5px;
+}
+
+.row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: stretch;
+  border-top: 1px solid var(--tk-line-3);
+  text-align: start;
+}
+
+.row[data-kind='placeholder'],
+.row[data-selected] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--wash),
+    transparent
+  );
+}
+
+.row[data-selected] {
+  border-top-color: transparent;
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: -1.5px;
+}
+
+@media (hover: hover) {
+  .row:hover {
+    background-color: var(--row-hover);
+  }
+
+  .row[data-kind='placeholder']:hover,
+  .row[data-selected]:hover {
+    background-color: color-mix(
+      in srgb,
+      var(--tk-fill-accent) var(--wash-hover),
+      transparent
+    );
+  }
+}
+
+.gutter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 10px;
+  border-right: 1px solid var(--tk-line-3);
+  background-color: var(--tk-panel);
+}
+
+.row[data-selected] .gutter {
+  background-color: transparent;
+}
+
+.body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 24px 0 12px;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.handles {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.slot {
+  position: relative;
+  flex: none;
+}
+
+.handle:global(.react-flow__handle) {
+  width: 8px;
+  height: 8px;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  border: 1.5px solid var(--tk-line-1);
+  border-radius: 50%;
+  background-color: var(--tk-card);
+}
+
+.cardButton {
+  display: block;
+  border-radius: 7px;
+}
+
+.cardButton[data-selected] {
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: -1.5px;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 11px;
+}
+
+.cardText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--tk-dot-ok);
+}
+
+.dot[data-tone='warn'] {
+  background-color: var(--tk-dot-warn);
+}
+
+.dot[data-tone='quiet'] {
+  background-color: var(--tk-line-1);
+}
+
+.output[data-selected] {
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: -1.5px;
+}
+
+.step {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--tk-line-1);
+  border-radius: 50%;
+  background-color: var(--tk-card);
+}
+
+.outputBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 11px;
+}
+
+.part {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: start;
+}
+
+.links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--tk-line-3);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+/* Badge always draws a 1px border, so its padding is a pixel short of the
+   board's to keep the label where the board puts it. */
+.chip {
+  --badge-height: 19px;
+  --badge-padding-x: 6px;
+  --badge-fz: 10px;
+  --badge-lh: normal;
+  --badge-radius: 5px;
+  font-family: var(--mantine-font-family-monospace);
+  font-weight: 400;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.chipIcon[data-position='left'] {
+  margin-inline-end: 4px;
+}
+
+.tag {
+  --badge-height: 17px;
+  --badge-padding-x: 6px;
+  --badge-fz: 10px;
+  --badge-lh: normal;
+  flex-shrink: 0;
+  letter-spacing: 0;
+}
+
+.edgeLine {
+  fill: none;
+  stroke: var(--tk-line-1);
+  stroke-width: 1.25;
+}
+
+.edgeMarker {
+  fill: var(--tk-line-1);
+}
+
+.edgeLabel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(var(--label-x), var(--label-y)) translate(-50%, -50%);
+  padding: 1px 6px;
+  border: 1px solid var(--tk-line-3);
+  border-radius: 5px;
+  background-color: var(--tk-bg);
+  pointer-events: none;
+}
+
+:global(.react-flow__panel).columns {
+  margin: 0;
+  pointer-events: none;
+}
+
+.column {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: nowrap;
+  transform: translate(var(--column-x), var(--column-y));
+}
+
+.columnTitle {
+  letter-spacing: 0.8px;
+}
+
+.dots {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+:global(.react-flow__panel).zoomPanel {
+  margin: 0 0 32px 24px;
+}
+
+.zoom {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 7px;
+  outline: 1px solid var(--tk-border);
+  outline-offset: -1px;
+  background-color: var(--tk-card);
+}
+
+.zoomButton:global(.react-flow__controls-button) {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--tk-line-3);
+  background: transparent;
+  color: var(--tk-text-3);
+  cursor: pointer;
+}
+
+.zoomButton:global(.react-flow__controls-button):last-child {
+  border-bottom: 0;
+}
+
+.zoomButton:global(.react-flow__controls-button) svg {
+  width: auto;
+  max-width: none;
+  max-height: none;
+  fill: none;
+}

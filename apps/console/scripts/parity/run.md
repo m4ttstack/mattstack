@@ -21,6 +21,9 @@ them, each board names its content roots in `boards.ts`:
 | `unsynced-confirm`                                                           | `Focus list`, `Stage`, `Focus header`, `Banner · unsynced`, `Modal · sync changes` |
 
 `Focus header` sits inside `Stage` and is also compared as its own root.
+Inside `Stage` the design keys straight through it, since its frame paints
+nothing, and the compare keys through the app's copy the same way, so its
+layers carry the same keys in both roots.
 `Focus list` is the content of the kit's `PageShell.Sidebar`, and it is
 compared.
 
@@ -69,7 +72,9 @@ correspond to visible design layers, nested the same way. Layer names are the
 `data-pencil-name` values in the export (`line 288`, `placeholder · L140`,
 `input · gate-protocol.md`, `seg · Rendered`). To see the design keys for a
 board, run step 3 with `designOnly: true` and read
-`<stem>.<scheme>.design.json` through `visibleOnly` from `compare.ts`.
+`<stem>.<scheme>.design.json` through `visibleOnly` from `compare.ts`. Keys
+compare with en and em dashes read as hyphens: board layer names can carry
+them (the template rows' line ranges do), and app code never writes one.
 
 ## Ports
 

@@ -9,6 +9,10 @@ declare module '@mattstack/app-kit/icons' {
     replace: true;
     arrowUpRight: true;
     squareTerminal: true;
+    minus: true;
+    fitView: true;
+    panelRight: true;
+    panelRightOpen: true;
   }
 }
 export {};

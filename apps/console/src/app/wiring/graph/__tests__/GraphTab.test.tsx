@@ -2,7 +2,7 @@ import '../../../icons';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -590,6 +590,43 @@ describe('Graph tab: the focus header', () => {
       within(header).getByText('feature pipeline · 8 stages')
     ).toBeInTheDocument();
     expect(params().get('focus')).toBeNull();
+  });
+});
+
+describe('Graph tab: the canvas', () => {
+  it('draws the focused skill and writes a clicked row into the URL', async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&focus=stage-plan');
+
+    const canvas = await screen.findByTestId('template-canvas');
+    const row = within(canvas)
+      .getAllByTestId('template-row')
+      .find(candidate => candidate.textContent?.startsWith('L140'));
+    expect(row).toBeDefined();
+    // A click, not a pointer sequence: React Flow's pan handler reads the
+    // `MouseEvent.view` that jsdom's synthetic pointer events leave null.
+    fireEvent.click(row!);
+
+    await waitFor(() => expect(params().get('select')).toBe('row:140'));
+    expect(params().get('focus')).toBe('stage-plan');
+  });
+
+  it('opens a linked step from the pipeline canvas', async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&focus=pipeline:feature');
+
+    const canvas = await screen.findByTestId('template-canvas');
+    const plan = within(canvas)
+      .getAllByTestId('link-card')
+      .find(card => card.textContent?.includes('stage-plan/SKILL.md'));
+    fireEvent.click(plan!);
+
+    await waitFor(() => expect(params().get('focus')).toBe('stage-plan'));
+    expect(
+      await within(await screen.findByTestId('template-canvas')).findByTestId(
+        'output-node'
+      )
+    ).toBeInTheDocument();
   });
 });
 
