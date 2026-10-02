@@ -131,7 +131,7 @@ describe("useToasts", () => {
     expect(hook.current.toasts).toEqual([]);
   });
 
-  it("a pending toast whose work never answers leaves after 30s, and a late settle is ignored", () => {
+  it("a pending toast whose work never answers leaves after 30s, and a late result still shows", () => {
     const hook = renderUseToasts();
     let handle!: ReturnType<typeof hook.current.startToast>;
     act(() => {
@@ -142,8 +142,25 @@ describe("useToasts", () => {
     });
     expect(hook.current.toasts).toEqual([]);
     act(() => {
-      handle.done("late");
+      handle.fail("couldn't merge !1 (502)");
+    });
+    expect(hook.current.toasts).toEqual([{ id: 2, text: "couldn't merge !1 (502)" }]);
+    act(() => {
+      vi.advanceTimersByTime(3500);
     });
     expect(hook.current.toasts).toEqual([]);
+  });
+
+  it("a second settle is ignored", () => {
+    const hook = renderUseToasts();
+    let handle!: ReturnType<typeof hook.current.startToast>;
+    act(() => {
+      handle = hook.current.startToast("merging !1…");
+    });
+    act(() => {
+      handle.done("merge accepted !1");
+      handle.fail("couldn't merge !1");
+    });
+    expect(hook.current.toasts).toEqual([{ id: 1, text: "merge accepted !1", state: "done" }]);
   });
 });

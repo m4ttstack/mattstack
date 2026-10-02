@@ -100,7 +100,8 @@ interface ToastHandle {
 
 const TOAST_MS = 3500;
 const DONE_MS = 2000;
-/** A pending toast whose work never answers still leaves. */
+/** A pending toast whose work never answers still leaves; a result that
+    arrives later shows as a fresh toast. */
 const PENDING_MS = 30000;
 
 /** Transient toast queue: each addToast() call appends one with a fresh id and
@@ -127,19 +128,29 @@ function useToasts(): {
   );
   const startToast = useCallback(
     (text: string): ToastHandle => {
-      const id = ++toastId.current;
+      let id = ++toastId.current;
       setToasts((t) => [...t, { id, text, state: "pending" }]);
-      let timer: ReturnType<typeof setTimeout> | undefined = expire(id, PENDING_MS);
-      const settle = (next: Toast, ms: number) => {
-        if (timer === undefined) return;
+      let settled = false;
+      let shown = true;
+      const timer = setTimeout(() => {
+        shown = false;
+        setToasts((t) => t.filter((x) => x.id !== id));
+      }, PENDING_MS);
+      const settle = (next: Omit<Toast, "id">, ms: number) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
-        timer = undefined;
-        setToasts((t) => t.map((x) => (x.id === id ? next : x)));
+        if (shown) {
+          setToasts((t) => t.map((x) => (x.id === id ? { id, ...next } : x)));
+        } else {
+          id = ++toastId.current;
+          setToasts((t) => [...t, { id, ...next }]);
+        }
         expire(id, ms);
       };
       return {
-        done: (doneText) => settle({ id, text: doneText, state: "done" }, DONE_MS),
-        fail: (failText) => settle({ id, text: failText }, TOAST_MS),
+        done: (doneText) => settle({ text: doneText, state: "done" }, DONE_MS),
+        fail: (failText) => settle({ text: failText }, TOAST_MS),
       };
     },
     [expire],

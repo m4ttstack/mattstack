@@ -79,8 +79,6 @@ export async function runLaunchFlow(
     );
     return result;
   }
-  // The server never sets `focused` on a resume response today, so resume
-  // only ever takes the started branch.
   if (intent === 'focus') {
     if (result.body?.focused)
       deps.addToast(`focused ${deps.noun} tab for ${mrRef(mr)}`);
