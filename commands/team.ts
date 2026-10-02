@@ -431,10 +431,8 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
     }
     out.print(...joinBlocks(result));
   } catch (err) {
-    // A distinct code (not the exit code) is what keeps a locked keychain
-    // from reading as a dead invite (R-T18-b) — the exit code itself must
-    // still be 2, matching every other user-actionable failure, or the
-    // app's envelope decoder (exit 2 only) never sees this message at all.
+    // The exit code must stay 2: the app's envelope decoder reads no other
+    // code, so a different one would hide this message.
     if (err instanceof JoinKeyExchangeError) {
       const failure = new UserActionableError("age-key-unavailable", err.message, {}, {
         why: "Check that your keychain is unlocked.",

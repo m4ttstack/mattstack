@@ -453,7 +453,7 @@ async function peerBoard(
     if (err instanceof UserActionableError) logFailureDetail(err);
     seams.warn(`board peering: could not register this board (${errorText(err)})`, {
       title: "rt could not register your board with the team's switchboard",
-      hint: errorText(err).split("\n")[0],
+      hint: errorText(err).split("\n")[0] || undefined,
       ...(err instanceof UserActionableError && err.next ? { next: out.cmd(err.next) } : {}),
     });
     return reinvite;
@@ -618,7 +618,7 @@ export async function joinRedeem(
   const handle = forge ? await seams.forgeLogin(p, forge.provider, forge.host, loginToken) : null;
   if (!handle) {
     const cli = forge?.provider === "gitlab" ? "glab" : "gh";
-    throw new UserActionableError("forge-login-unknown", `rt could not tell who you are on ${cli === "glab" ? "GitLab" : "GitHub"}. The invite has not been used yet.`, {}, {
+    throw new UserActionableError("forge-login-unknown", `rt could not tell who you are on ${cli === "glab" ? "GitLab" : "GitHub"}. The invite has not been used yet. Sign in with ${cli} auth login, then join again.`, {}, {
       why: `Sign in to the ${cli} command line tool, then join again.`,
       next: `${cli} auth login`,
       log: `the team is cloned at ${dir}`,
