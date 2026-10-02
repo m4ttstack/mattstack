@@ -94,7 +94,7 @@ describe("reposRegister", () => {
     execSync("git remote add origin git@gitlab.com:group/canonical.git", { cwd: repoPath, stdio: "pipe" });
     const deps = testDeps();
 
-    await reposRegister([repoPath], {}, deps);
+    await human(() => reposRegister([repoPath], {}, deps));
 
     const keys = Object.keys(loadRepoIndex());
     expect(keys).toContain("remote:gitlab.com%2Fgroup%2Fcanonical");
@@ -106,7 +106,7 @@ describe("reposRegister", () => {
     const identity = serializeIdentity(await deriveRepoIdentity(repoPath));
     const deps = testDeps();
 
-    await reposRegister([repoPath, "--track", "poll", "--caches", "branches,project-mrs"], {}, deps);
+    await human(() => reposRegister([repoPath, "--track", "poll", "--caches", "branches,project-mrs"], {}, deps));
 
     const tracking = loadRepoTracking();
     expect(tracking[identity]).toEqual({ mode: "poll", caches: ["branches", "project-mrs"] });
@@ -117,7 +117,7 @@ describe("reposRegister", () => {
     const identity = serializeIdentity(await deriveRepoIdentity(repoPath));
     const deps = testDeps();
 
-    await reposRegister([repoPath, "--track", "live"], {}, deps);
+    await human(() => reposRegister([repoPath, "--track", "live"], {}, deps));
 
     const tracking = loadRepoTracking();
     expect(tracking[identity]).toEqual({ mode: "live", caches: ["branches"] });
@@ -268,7 +268,7 @@ describe("reposRegister", () => {
     const badPath = realpathSync(mkdtempSync(join(home, "notarepo-")));
     const deps = testDeps();
 
-    const code = await runExpectingProcessExit(() => reposRegister([goodPath, badPath, "--track", "live"], {}, deps));
+    const { code } = await human(() => reposRegister([goodPath, badPath, "--track", "live"], {}, deps));
 
     expect(code).toBe(2);
     // Neither the index nor the tracking grant for the good path was written —

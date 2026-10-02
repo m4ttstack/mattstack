@@ -116,7 +116,7 @@ function refuse(refusal: LocateRefusalCode, message: string): LocateRefusal {
   return { refusal, message };
 }
 
-/** A refusal crosses the daemon socket as `<code>: <message>` (`lib/daemon/handlers/repos.ts`, and this file's dispatcher the same way); null when `error` is not one. */
+/** A refusal crosses the daemon socket as `<code>: <message>` (`lib/daemon/handlers/repos.ts`, and `repo-locate-dispatch.ts` the same way); null when `error` is not one. */
 export function parseRefusalText(error: string): LocateRefusal | null {
   const at = error.indexOf(": ");
   const code = error.slice(0, at);
@@ -198,10 +198,10 @@ export async function planLocate(opts: { newPath: string; repo?: string }): Prom
 
   const named: RepoIndexEntry | null = opts.repo ? entries.find((e) => e.repoName === opts.repo) ?? null : null;
   if (opts.repo && !named) {
-    return refuse("nothing-lost", `rt does not know a repo called ${opts.repo}`);
+    return refuse("nothing-lost", `rt does not know a repo called ${repoLabel(opts.repo)}`);
   }
   if (named && existsSync(named.path)) {
-    return refuse("old-path-exists", `${opts.repo} is still at ${named.path}, so this folder is a second copy, not a move`);
+    return refuse("old-path-exists", `${repoLabel(named.repoName)} is still at ${named.path}, so this folder is a second copy, not a move`);
   }
 
   const identityRow = entries.find((e) => e.repoName === identity) ?? null;
@@ -229,7 +229,7 @@ export async function planLocate(opts: { newPath: string; repo?: string }): Prom
   if (named && canon(named.path) !== canon(identityRow.path)) {
     return refuse(
       "identity-mismatch",
-      `${newPath} holds ${repoLabel(identity)}, but the repo you named is ${named.repoName}. rt matches a move by what a repo is, not by its name.`,
+      `${newPath} holds ${repoLabel(identity)}, but the repo you named is ${repoLabel(named.repoName)}. rt matches a move by what a repo is, not by its name.`,
     );
   }
 

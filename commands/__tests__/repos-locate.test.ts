@@ -123,7 +123,7 @@ describe("reposLocate", () => {
     const { identity, to } = await movedRepo("delta");
     const deps = testDeps();
 
-    await reposLocate([to, "--repo", identity], {}, deps);
+    await human(() => reposLocate([to, "--repo", identity], {}, deps));
 
     expect(loadRepoIndex()[identity]).toBe(to);
   });
