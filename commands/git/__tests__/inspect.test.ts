@@ -133,7 +133,7 @@ test("diff with no path off a terminal asks which file, on stderr, exit 1", asyn
 test("log with a value flag and nothing after it asks for the value, not git", async () => {
   const repo = makeRepo(root);
   expect(await exitCodeOf(() => inDir(repo, () => logCommand(["--max"])))).toBe(1);
-  expect(io.stderr()).toBe("That option needs a value after it\n  next: rt git log [--max <n>] [--file <path>] [--json]\n");
+  expect(io.stderr()).toBe("--max needs a value after it\n  next: rt git log [--max <n>] [--file <path>] [--json]\n");
   expect(io.stdout()).toBe("");
 });
 

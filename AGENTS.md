@@ -328,9 +328,8 @@ message)` keeps git's own message as the `--json` error and prints it under a
 plain title for a person, `failUsage` does the same for a usage string, and
 both exit 1. A refusal by policy (the ownership guard, an undo rt will not
 do, the uncommitted-changes guard) is never a failure: `refuseWith` prints a
-`refused` note on stderr and keeps the `--json` error and exit code,
-`refusalNote` returns the note's blocks, and `drawFailure(failure, refused)`
-draws them only when `refused` is true, else a coral failure.
+`refused` note on stderr and keeps the `--json` error and exit code, and
+`refusalNote` returns the note's blocks.
 
 ## The TypeScript CLI is UI-free
 

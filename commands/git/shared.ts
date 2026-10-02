@@ -36,23 +36,13 @@ export function refuseWith(json: boolean, error: string, ...blocks: Block[]): ne
   process.exit(1);
 }
 
-/** `flagValue`'s own message stays the --json error; lib/cli-args.ts is shared beyond this slice. */
+/** `flagValue`'s own message stays the --json error: lib/cli-args.ts has other callers. */
 export function readFlag(json: boolean, args: string[], flag: string, usage: string): string | undefined {
   try {
     return flagValue(args, flag);
   } catch (err) {
-    return failWith(json, errText(err), usageFailure("That option needs a value after it", usage));
+    return failWith(json, errText(err), usageFailure(`${flag} needs a value after it`, usage));
   }
-}
-
-/** The two members a result object spreads in when it ends in a failure a person will read. */
-export function asError(failure: out.FailureInput): { error: string; failure: out.FailureInput } {
-  return { error: failure.title, failure };
-}
-
-/** A refusal a result carries: `refused` tells the caller to draw a note, never a failure. */
-export function asRefusal(failure: out.FailureInput): { error: string; failure: out.FailureInput; refused: true } {
-  return { error: failure.title, failure, refused: true };
 }
 
 /** A refusal carries no `details`: those are for what went wrong, and here nothing did. */
@@ -64,19 +54,10 @@ export function refusalNote(f: out.FailureInput): Block[] {
   ];
 }
 
-export function drawFailure(f: out.FailureInput, refused?: boolean): void {
-  if (refused) out.note(...refusalNote(f));
-  else out.fail(f);
-}
-
 export const NOT_ON_A_BRANCH: out.FailureInput = { title: "You are not on a branch", why: "This needs a branch, and HEAD is detached right now." };
 
 export function uncommittedChanges(why: string): out.FailureInput {
   return { title: "You have uncommitted changes", why, next: ["Commit them, or set them aside with ", out.cmd("rt git stash push")] };
-}
-
-export function plural(n: number, one: string, many = `${one}s`): string {
-  return `${n} ${n === 1 ? one : many}`;
 }
 
 export function errText(err: unknown): string {

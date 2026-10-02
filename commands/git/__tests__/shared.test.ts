@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as out from "../../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
-import { asError, asRefusal, drawFailure, errText, failPlain, failUsage, failWith, NOT_ON_A_BRANCH, plural, readFlag, refuseWith, uncommittedChanges } from "../shared.ts";
+import { errText, failPlain, failUsage, failWith, readFlag, refuseWith } from "../shared.ts";
 import { exitCodeOf, trapExit } from "./helpers.ts";
 
 let io: CapturedOut;
@@ -74,29 +74,10 @@ test("readFlag returns the value, and a flag with nothing after it is a usage fa
   expect(io.stdout()).toBe('{"ok":false,"error":"--max requires a value"}\n');
   io.clear();
   expect(await exitCodeOf(async () => readFlag(false, ["--max"], "--max", usage))).toBe(1);
-  expect(io.stderr()).toBe("That option needs a value after it\n  next: rt git log [--max <n>] [--file <path>] [--json]\n");
+  expect(io.stderr()).toBe("--max needs a value after it\n  next: rt git log [--max <n>] [--file <path>] [--json]\n");
 });
 
-test("drawFailure draws a refusal as a note and anything else as a failure", () => {
-  drawFailure(NOT_ON_A_BRANCH);
-  drawFailure(uncommittedChanges("A pull could overwrite them."), true);
-  expect(io.stderr()).toBe(
-    "You are not on a branch\n  why: This needs a branch, and HEAD is detached right now.\n" +
-      "[refused] You have uncommitted changes\n  why: A pull could overwrite them.\n  next: Commit them, or set them aside with rt git stash push\n",
-  );
-  expect(io.stdout()).toBe("");
-});
-
-test("asError and asRefusal carry the title as the error string; only a refusal is marked", () => {
-  expect(asError(NOT_ON_A_BRANCH)).toEqual({ error: "You are not on a branch", failure: NOT_ON_A_BRANCH });
-  const dirty = uncommittedChanges("A pull could overwrite them.");
-  expect(asRefusal(dirty)).toEqual({ error: "You have uncommitted changes", failure: dirty, refused: true });
-});
-
-test("plural and errText", () => {
-  expect(plural(1, "file")).toBe("1 file");
-  expect(plural(2, "file")).toBe("2 files");
-  expect(plural(3, "branch", "branches")).toBe("3 branches");
+test("errText", () => {
   expect(errText(new Error("boom"))).toBe("boom");
   expect(errText("plain")).toBe("plain");
 });

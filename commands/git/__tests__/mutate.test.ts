@@ -81,7 +81,7 @@ test("stash pop says the stash left the list", async () => {
 
 test("a value flag with nothing after it asks for the value", async () => {
   expect(await exitCodeOf(() => inDir(repo, () => stashPushCommand(["--message"])))).toBe(1);
-  expect(io.stderr()).toBe("That option needs a value after it\n  next: rt git stash push [--message <m>] [--include-untracked] [--json]\n");
+  expect(io.stderr()).toBe("--message needs a value after it\n  next: rt git stash push [--message <m>] [--include-untracked] [--json]\n");
   expect(io.stdout()).toBe("");
 });
 
