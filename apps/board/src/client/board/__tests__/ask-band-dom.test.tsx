@@ -120,10 +120,10 @@ test('the open trail closes on an outside click (Escape is the kit menu own)', a
   expect(document.querySelector('.tui-ask-trail')).toBeNull();
 });
 
-test('a running ask shows the spinner and no action', async () => {
+test('a running ask shows the spinner and offers dismiss', async () => {
   await render(mrWith({ display: 'launched', resolvedAt: NOW }), ctx());
   expect(container.querySelector('[data-part="spinner"]')).not.toBeNull();
-  expect(buttons()).toEqual([]);
+  expect(buttons()).toEqual(['Dismiss']);
 });
 
 test('done offers dismiss only, and it calls the dismiss handler', async () => {

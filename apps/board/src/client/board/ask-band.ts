@@ -118,6 +118,7 @@ export function askBandModel(
           tone: 'work',
           icon: 'loader',
           label: RUNNING[kind],
+          actions: ['dismiss'],
         },
         {
           name: 'Started',

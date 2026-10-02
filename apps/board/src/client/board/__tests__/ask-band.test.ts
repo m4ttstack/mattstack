@@ -72,7 +72,7 @@ describe('askBandModel', () => {
     expect(askBandModel(sent({})).label).toBe('re-review requested');
   });
 
-  test('confirmed and launched read as running, work tone, no action', () => {
+  test('confirmed and launched read as running, work tone, dismissable', () => {
     for (const display of ['confirmed', 'launched'] as const) {
       const m = askBandModel(
         sent({ display, kind: 'review', resolvedAt: NOW - 12 * MIN })
@@ -82,7 +82,7 @@ describe('askBandModel', () => {
         icon: 'loader',
         label: 'reviewing',
       });
-      expect(m.actions).toEqual([]);
+      expect(m.actions).toEqual(['dismiss']);
     }
     expect(askBandModel(sent({ display: 'launched' })).label).toBe(
       're-reviewing'
