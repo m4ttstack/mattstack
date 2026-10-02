@@ -122,6 +122,11 @@ export async function loadBoardSecrets(readSecretFn: ReadSecretFn = defaultReadS
   return out;
 }
 
+/** The board's relay token, as `rt team join` stores it. */
+export function readSwitchboardToken(readSecretFn: ReadSecretFn = defaultReadSecret): Promise<string | null> {
+  return readSecretFn("rt", "switchboardToken");
+}
+
 const SECRETS_KEY: Record<ForgeSlug, "gitlabToken" | "githubToken"> = {
   gitlab: "gitlabToken",
   github: "githubToken",
