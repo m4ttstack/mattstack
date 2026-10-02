@@ -8,6 +8,8 @@ import { setSetting } from "../../settings/write.ts";
 import { runCapture } from "../../subprocess.ts";
 import { clearIdentityMemo, serializeIdentity } from "../../settings/identity.ts";
 import { updateRepoIndex } from "../../repo-index.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
+import { __test__ as warnTest } from "../../ui/warn.ts";
 import { closeStateDb } from "../../state/db.ts";
 import {
   loadRepoTracking, loadMachineRepoTracking, loadMachineRepoTrackingRaw, grants, saveRepoTracking,
@@ -106,18 +108,19 @@ describe("loadRepoTracking through the settings resolver", () => {
       "rt.repoTracking": { version: 2, repos: { a: { mode: "live", caches: ["branches"] } } },
     });
 
-    const warnings: string[] = [];
-    const orig = console.warn;
-    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); };
+    warnTest.reset();
+    const io = captureOut();
     let t: ReturnType<typeof loadRepoTracking>;
+    let stderr: string;
     try {
       t = loadRepoTracking();
+      stderr = io.stderr();
     } finally {
-      console.warn = orig;
+      io.restore();
     }
 
     expect(t.a).toEqual({ mode: "live", caches: ["branches"] });
-    expect(warnings.some((w) => w.includes("store the repos map, not the versioned envelope"))).toBe(true);
+    expect(stderr).toContain("store the repos map, not the versioned envelope");
   });
 });
 
@@ -179,18 +182,19 @@ describe("loadRepoTracking merges mattstack.tracking team intent", () => {
       repos: { "gitlab.com/acme/bar": { caches: ["${repoRoot}"] } },
     }, "team", { team: "acme" });
 
-    const warnings: string[] = [];
-    const orig = console.warn;
-    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); };
+    warnTest.reset();
+    const io = captureOut();
     let t: ReturnType<typeof loadRepoTracking>;
+    let stderr: string;
     try {
       t = loadRepoTracking({ identityMap: { "gitlab.com/acme/bar": BAR } });
+      stderr = io.stderr();
     } finally {
-      console.warn = orig;
+      io.restore();
     }
 
     expect(t).toEqual({ [FOO]: { mode: "live", caches: ["branches"] } });
-    expect(warnings.some((w) => w.includes("mattstack.tracking could not be resolved"))).toBe(true);
+    expect(stderr).toContain("rt: mattstack.tracking could not be resolved");
   });
 
   test("unknown cache names are dropped from team intent; an empty result drops the entry", () => {

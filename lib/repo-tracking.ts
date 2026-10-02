@@ -39,6 +39,8 @@ import { machineSettingsPath } from "../packages/rt-client/src/settings/paths.ts
 import { deriveRepoIdentity, parseIdentity, serializeIdentity } from "./settings/identity.ts";
 import type { StoreReport } from "./state/reidentify.ts";
 import { isDeepStrictEqual } from "util";
+import * as out from "./ui/out.ts";
+import { warn } from "./ui/warn.ts";
 
 export const CACHE_KINDS = ["branches", "project-mrs", "discussions"] as const;
 export type CacheKind = (typeof CACHE_KINDS)[number];
@@ -139,10 +141,12 @@ function loadTeamTracking(): Record<string, unknown> {
   try {
     raw = getSetting<unknown>("mattstack.tracking").value;
   } catch (err) {
-    const message = `rt: mattstack.tracking could not be resolved (${err instanceof Error ? err.message : err}) — team tracking intent contributes nothing`;
+    const message = `mattstack.tracking could not be resolved (${err instanceof Error ? err.message : err}), team tracking intent contributes nothing`;
     if (message !== lastTeamTrackingWarning) {
       lastTeamTrackingWarning = message;
-      console.warn(message);
+      warn("repo-tracking", message, {
+        show: { title: "The team's repo tracking setting could not be read", hint: "only your own tracking applies", next: out.cmd("rt settings check") },
+      });
     }
     return {};
   }
@@ -170,7 +174,9 @@ function readMachineTracking(): MachineTrackingRead {
   try {
     return resolveMachineTracking();
   } catch (err) {
-    console.warn(`rt: rt.repoTracking could not be resolved (${err instanceof Error ? err.message : err}) — tracking nothing`);
+    warn("repo-tracking", `rt.repoTracking could not be resolved (${err instanceof Error ? err.message : err}), tracking nothing`, {
+      show: { title: "Your repo tracking setting could not be read", hint: "no repo is tracked until it is fixed", next: out.cmd("rt settings check") },
+    });
     return { out: {}, rawIdentities: new Set(), raw: {} };
   }
 }
@@ -178,15 +184,17 @@ function readMachineTracking(): MachineTrackingRead {
 /** `readMachineTracking` without the fallback: a resolve failure throws. */
 function resolveMachineTracking(): MachineTrackingRead {
   const rawValue = getSetting<unknown>("rt.repoTracking").value;
-  const out: RepoTracking = {};
+  const tracking: RepoTracking = {};
   const rawIdentities = new Set<string>();
   const raw: Record<string, unknown> = {};
   if (rawValue && typeof rawValue === "object" && !Array.isArray(rawValue)) {
     let repos = rawValue as Record<string, unknown>;
     if (isVersionedEnvelope(repos)) {
-      console.warn(
-        "rt: rt.repoTracking holds a versioned {version, repos} envelope — store the repos map, not the versioned envelope " +
+      warn(
+        "repo-tracking",
+        "rt.repoTracking holds a versioned {version, repos} envelope, store the repos map, not the versioned envelope " +
         "(e.g. `rt settings set rt.repoTracking` with just the inner repos object); using the inner repos map for now.",
+        { show: { title: "Your repo tracking setting is in an old shape", hint: "rt is reading the repos inside it for now", next: out.cmd("rt settings get rt.repoTracking") } },
       );
       repos = repos.repos;
     }
@@ -194,10 +202,10 @@ function resolveMachineTracking(): MachineTrackingRead {
       rawIdentities.add(key);
       raw[key] = value;
       const entry = normalizeEntry(value);
-      if (entry) out[key] = entry;
+      if (entry) tracking[key] = entry;
     }
   }
-  return { out, rawIdentities, raw };
+  return { out: tracking, rawIdentities, raw };
 }
 
 /**
@@ -364,12 +372,12 @@ export async function rekeyRepoTrackingSettings(
   for (const name of legacy) {
     const identity = await resolve(name);
     if (identity === null) {
-      console.warn(`rt: could not re-key rt.repoTracking/${name} to an identity — leaving it in place`);
+      warn("repo-tracking", `could not re-key rt.repoTracking/${name} to an identity, leaving it in place`, { context: { name } });
       report.retained.push(name);
       continue;
     }
     if (Object.prototype.hasOwnProperty.call(next, identity)) {
-      console.warn(`rt: rt.repoTracking/${identity} already exists; leaving legacy ${name} in place`);
+      warn("repo-tracking", `rt.repoTracking/${identity} already exists; leaving legacy ${name} in place`, { context: { name, identity } });
       report.retained.push(name);
       continue;
     }
@@ -394,7 +402,7 @@ export async function rekeyRepoTrackingSettings(
     if (landed) {
       report.migrated.push(name);
     } else {
-      console.warn(`rt: rt.repoTracking re-key of ${name} → ${identity} did not persist — leaving it`);
+      warn("repo-tracking", `rt.repoTracking re-key of ${name} to ${identity} did not persist, leaving it`, { context: { name, identity } });
       report.retained.push(name);
     }
   }

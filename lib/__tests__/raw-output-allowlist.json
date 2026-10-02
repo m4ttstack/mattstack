@@ -33,8 +33,6 @@
   "lib/daemon/inject.ts",
   "lib/endpoint/config.ts",
   "lib/pickers.ts",
-  "lib/repo-index.ts",
-  "lib/repo-tracking.ts",
   "lib/run-history.ts",
   "lib/runner/runner.ts",
   "lib/secrets/store.ts",
