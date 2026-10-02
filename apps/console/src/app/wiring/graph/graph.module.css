@@ -64,12 +64,14 @@
   overflow: hidden;
 }
 
+/* Over the canvas, which stays draggable and clickable through it. */
 .header {
   position: absolute;
   top: 20px;
   left: 24px;
   right: 24px;
   z-index: 1;
+  pointer-events: none;
 }
 
 /* Badge always draws a 1px border, so each padding is a pixel short of the

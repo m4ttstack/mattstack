@@ -4,7 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
+  useState,
   type CSSProperties,
 } from 'react';
 import { Box, Text, useComputedColorScheme } from '@mattstack/app-kit/core';
@@ -15,19 +15,31 @@ import {
   ControlButton,
   Controls,
   Panel,
+  PanOnScrollMode,
   ReactFlow,
   useReactFlow,
   useStore,
+  useStoreApi,
   useViewport,
   type EdgeTypes,
   type NodeTypes,
   type ReactFlowState,
-  type Viewport,
 } from '@xyflow/react';
 
+import {
+  BOARD_VIEWPORT,
+  COLUMN_TOP,
+  frameStage,
+  headingDetail,
+} from './layout/stageFraming';
 import { LAYOUT, type LayoutResult } from './layout/templateLayout';
 import type { TemplateView } from './model/templateModel';
-import { CanvasContext, MUTED, type CanvasState } from './nodes/canvasContext';
+import {
+  CanvasContext,
+  ICON_STROKE,
+  MUTED,
+  type CanvasState,
+} from './nodes/canvasContext';
 import { InputCardNode } from './nodes/InputCardNode';
 import { LinkCardNode } from './nodes/LinkCardNode';
 import classes from './nodes/nodes.module.css';
@@ -46,13 +58,6 @@ const NODE_TYPES: NodeTypes = {
 
 const EDGE_TYPES: EdgeTypes = { default: TemplateEdge };
 
-/** The boards' framing: the layout's origin sits 124px down the stage at
-    zoom 1, under the focus header and the column headings. */
-const BOARD_VIEWPORT: Viewport = { x: 0, y: 124, zoom: 1 };
-const COLUMN_TOP = -52;
-const EDGE_ROOM = 24;
-/** The zoom controls' corner: 96px of buttons on a 32px margin. */
-const CONTROLS_ROOM = 136;
 const MIN_ZOOM = 0.25;
 
 type Column = { x: number; title: string; sub: string };
@@ -97,62 +102,66 @@ function columnsOf(view: TemplateView): Column[] {
     and zooms but never scaled with it. */
 function ColumnHeaders({ view }: { view: TemplateView }) {
   const { x, y, zoom } = useViewport();
+  const detail = headingDetail(zoom);
   return (
     <Panel
       position="top-left"
       className={classes.columns}
       data-testid="column-headers"
     >
-      {columnsOf(view).map(column => (
-        <div
-          key={column.title}
-          className={classes.column}
-          style={
-            {
-              '--column-x': `${x + column.x * zoom}px`,
-              '--column-y': `${y + COLUMN_TOP * zoom}px`,
-            } as CSSProperties
-          }
-        >
-          <Text
-            fz={10}
-            fw={500}
-            lh="normal"
-            tt="uppercase"
-            c={MUTED}
-            className={classes.columnTitle}
-            data-parity="t"
+      {detail !== 'none' &&
+        columnsOf(view).map(column => (
+          <div
+            key={column.title}
+            className={classes.column}
+            style={
+              {
+                '--column-x': `${x + column.x * zoom}px`,
+                '--column-y': `${y + COLUMN_TOP * zoom}px`,
+              } as CSSProperties
+            }
           >
-            {column.title}
-          </Text>
-          <Text fz={11} lh="normal" c={MUTED} data-parity="s">
-            {column.sub}
-          </Text>
-        </div>
-      ))}
+            <Text
+              fz={10}
+              fw={500}
+              lh="normal"
+              tt="uppercase"
+              c={MUTED}
+              className={classes.columnTitle}
+              data-parity="t"
+            >
+              {column.title}
+            </Text>
+            {detail === 'full' && (
+              <Text fz={11} lh="normal" c={MUTED} data-parity="s">
+                {column.sub}
+              </Text>
+            )}
+          </div>
+        ))}
     </Panel>
   );
 }
 
-/**
- * The boards' framing when the graph fits the stage at zoom 1; otherwise the
- * same corner, zoomed out until it fits. False until the stage has a size.
- */
-function useStageFraming(): () => boolean {
+/** Frames the graph on the stage (the viewport, and how far it may travel);
+    false until the stage has a size. */
+function useStageFraming(onFramed: (contentTop: number) => void) {
   const width = useStore(store => store.width);
   const height = useStore(store => store.height);
+  const store = useStoreApi();
   const { getNodes, getNodesBounds, setViewport } = useReactFlow();
   return useCallback(() => {
     if (!width || !height) return false;
     const bounds = getNodesBounds(getNodes());
-    const zoom = Math.min(
-      1,
-      (width - EDGE_ROOM) / (bounds.x + bounds.width),
-      (height - BOARD_VIEWPORT.y - CONTROLS_ROOM) / (bounds.y + bounds.height)
+    const framing = frameStage(
+      { width, height },
+      { right: bounds.x + bounds.width, bottom: bounds.y + bounds.height }
     );
-    void setViewport({ ...BOARD_VIEWPORT, zoom: Math.max(zoom, MIN_ZOOM) });
+    store.getState().setTranslateExtent(framing.extent);
+    void setViewport(framing.viewport);
+    onFramed(framing.contentTop);
     return true;
-  }, [width, height, getNodes, getNodesBounds, setViewport]);
+  }, [width, height, store, getNodes, getNodesBounds, setViewport, onFramed]);
 }
 
 /** Every node has its measured size. `useNodesInitialized` never turns true
@@ -164,20 +173,19 @@ const allMeasured = (store: ReactFlowState) => {
   return store.nodeLookup.size > 0;
 };
 
-/** Frames the graph once its nodes have their measured sizes. */
-function FrameOnLoad() {
-  const measured = useStore(allMeasured);
-  const frame = useStageFraming();
-  const framed = useRef(false);
-  useEffect(() => {
-    if (!framed.current && measured) framed.current = frame();
-  }, [measured, frame]);
-  return null;
-}
-
-function ZoomControls() {
+/** The zoom controls, framing the graph once its nodes are measured and
+    again whenever the stage changes size. */
+function ZoomControls({
+  onFramed,
+}: {
+  onFramed: (contentTop: number) => void;
+}) {
   const { zoomIn, zoomOut } = useReactFlow();
-  const frame = useStageFraming();
+  const measured = useStore(allMeasured);
+  const frame = useStageFraming(onFramed);
+  useEffect(() => {
+    if (measured) frame();
+  }, [measured, frame]);
   return (
     <Controls
       position="bottom-left"
@@ -195,7 +203,13 @@ function ZoomControls() {
           aria-label="Zoom in"
           data-parity="ctl · plus"
         >
-          <Icon name="plus" size={14} color={MUTED} data-parity="i" />
+          <Icon
+            strokeWidth={ICON_STROKE}
+            name="plus"
+            size={14}
+            color={MUTED}
+            data-parity="i"
+          />
         </ControlButton>
         <ControlButton
           className={classes.zoomButton}
@@ -204,7 +218,13 @@ function ZoomControls() {
           aria-label="Zoom out"
           data-parity="ctl · minus"
         >
-          <Icon name="minus" size={14} color={MUTED} data-parity="i" />
+          <Icon
+            strokeWidth={ICON_STROKE}
+            name="minus"
+            size={14}
+            color={MUTED}
+            data-parity="i"
+          />
         </ControlButton>
         <ControlButton
           className={classes.zoomButton}
@@ -212,7 +232,13 @@ function ZoomControls() {
           title="Fit to the stage"
           aria-label="Fit to the stage"
         >
-          <Icon name="fitView" size={14} color={MUTED} data-parity="i" />
+          <Icon
+            strokeWidth={ICON_STROKE}
+            name="fitView"
+            size={14}
+            color={MUTED}
+            data-parity="i"
+          />
         </ControlButton>
       </div>
     </Controls>
@@ -232,6 +258,9 @@ export default function TemplateCanvas({
 }) {
   const [url, patch] = useWiringUrl();
   const scheme = useComputedColorScheme('light');
+  const [contentTop, setContentTop] = useState(
+    BOARD_VIEWPORT.y + COLUMN_TOP * BOARD_VIEWPORT.zoom
+  );
   const edges = useMemo(
     () =>
       layout.edges.map(edge => ({
@@ -252,7 +281,12 @@ export default function TemplateCanvas({
 
   return (
     <CanvasContext.Provider value={state}>
-      <Box className={classes.canvas} h={height} data-testid="template-canvas">
+      <Box
+        className={classes.canvas}
+        h={height}
+        style={{ '--content-top': `${contentTop}px` } as CSSProperties}
+        data-testid="template-canvas"
+      >
         <ReactFlow
           nodes={layout.nodes}
           edges={edges}
@@ -260,6 +294,8 @@ export default function TemplateCanvas({
           edgeTypes={EDGE_TYPES}
           defaultViewport={BOARD_VIEWPORT}
           minZoom={MIN_ZOOM}
+          panOnScroll
+          panOnScrollMode={PanOnScrollMode.Vertical}
           nodesDraggable={false}
           nodesConnectable={false}
           nodesFocusable={false}
@@ -278,8 +314,7 @@ export default function TemplateCanvas({
             />
           </div>
           <ColumnHeaders view={view} />
-          <ZoomControls />
-          <FrameOnLoad />
+          <ZoomControls onFramed={setContentTop} />
         </ReactFlow>
       </Box>
     </CanvasContext.Provider>

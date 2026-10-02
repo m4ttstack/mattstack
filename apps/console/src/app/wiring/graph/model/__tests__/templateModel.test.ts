@@ -4,7 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { designFixture } from '../../__tests__/designFixtures';
 import type { SkillsCheck, SkillsComposition } from '../../../outline';
 import type { SkillsAnatomy } from '../../../useWiring';
-import { buildTemplateView, type TemplateRow } from '../templateModel';
+import {
+  buildTemplateView,
+  selectedPartId,
+  type TemplateRow,
+} from '../templateModel';
 
 const anatomyWork = designFixture('anatomy.work');
 const anatomyPlan = designFixture('anatomy.stage-plan');
@@ -847,5 +851,27 @@ describe('card ids', () => {
     const rowIds = new Set(view.rows.map(row => row.id));
     expect(cards.every(card => rowIds.has(card.rowId))).toBe(true);
     expect(new Set(cards.map(card => card.rowId)).size).toBe(cards.length);
+  });
+});
+
+describe('the output part a selection names', () => {
+  it('reads a pasting row, its card or the part itself', () => {
+    const view = planView();
+    expect(selectedPartId(view, 'row:140')).toBe('include:gate-protocol');
+    expect(selectedPartId(view, 'row:136')).toBe('slot:domain');
+    expect(selectedPartId(view, 'input:include:gate-protocol')).toBe(
+      'include:gate-protocol'
+    );
+    expect(selectedPartId(view, 'output:slot:domain')).toBe('slot:domain');
+  });
+
+  it('names no part for text, variables, the whole output or nothing', () => {
+    const view = planView();
+    for (const select of [null, 'row:1', 'row:16', 'output', 'link:x/y.md'])
+      expect(selectedPartId(view, select)).toBeNull();
+  });
+
+  it('names no part on a view with no output', () => {
+    expect(selectedPartId(workView(), 'row:246')).toBeNull();
   });
 });

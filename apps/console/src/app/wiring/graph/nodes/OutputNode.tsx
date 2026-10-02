@@ -11,7 +11,8 @@ import { Icon } from '@mattstack/app-kit/icons';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import { LAYOUT, type OutputNodeData } from '../layout/templateLayout';
-import { ACCENT, BODY, MUTED, useCanvas } from './canvasContext';
+import { selectedPartId } from '../model/templateModel';
+import { ACCENT, BODY, ICON_STROKE, MUTED, useCanvas } from './canvasContext';
 import { STATUS_TONE } from './LinkCardNode';
 import classes from './nodes.module.css';
 import { parityName } from './parity';
@@ -19,8 +20,9 @@ import { parityName } from './parity';
 function OutputNodeComponent({
   data: { output },
 }: NodeProps<Node<OutputNodeData, 'output'>>) {
-  const { select, onSelect } = useCanvas();
+  const { view, select, onSelect } = useCanvas();
   const selected = select === 'output' || select?.startsWith('output:');
+  const activePart = selectedPartId(view, select);
 
   return (
     <div className={classes.shell}>
@@ -89,8 +91,9 @@ function OutputNodeComponent({
               {output.parts.map(part => (
                 <Progress.Section
                   key={part.id}
-                  value={part.share}
-                  color={part.own ? 'accent' : 'var(--tk-line-2)'}
+                  value={(part.lines / output.lines) * 100}
+                  color={part.own ? 'accent' : 'gray'}
+                  data-active={part.id === activePart || undefined}
                   data-parity={`seg · ${part.label}`}
                 />
               ))}
@@ -142,6 +145,7 @@ function OutputNodeComponent({
                       }}
                       leftSection={
                         <Icon
+                          strokeWidth={ICON_STROKE}
                           name="arrowUpRight"
                           size={10}
                           color={MUTED}

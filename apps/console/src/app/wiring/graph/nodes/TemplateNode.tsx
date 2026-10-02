@@ -20,7 +20,7 @@ import type {
   TemplateRow,
   TemplateView,
 } from '../model/templateModel';
-import { ACCENT, BODY, MUTED, useCanvas } from './canvasContext';
+import { ACCENT, BODY, ICON_STROKE, MUTED, useCanvas } from './canvasContext';
 import classes from './nodes.module.css';
 import { parityName } from './parity';
 
@@ -99,6 +99,7 @@ function RowButton({
             </Text>
             {links && (
               <Icon
+                strokeWidth={ICON_STROKE}
                 name={selected ? 'panelRightOpen' : 'panelRight'}
                 size={12}
                 color={MUTED}
@@ -150,7 +151,13 @@ function TemplateNodeComponent({
           gap={8}
           data-parity="header"
         >
-          <Icon name="fileCode" size={14} color={MUTED} data-parity="i" />
+          <Icon
+            strokeWidth={ICON_STROKE}
+            name="fileCode"
+            size={14}
+            color={MUTED}
+            data-parity="i"
+          />
           <Text ff="monospace" fz={12} lh="normal" c={BODY} data-parity="file">
             {view.templateFile}
           </Text>

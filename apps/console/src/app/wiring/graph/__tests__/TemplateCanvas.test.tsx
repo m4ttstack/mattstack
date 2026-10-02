@@ -191,6 +191,28 @@ describe('TemplateCanvas: a step template', () => {
   });
 });
 
+describe('TemplateCanvas: the share bar', () => {
+  const activeSegments = () =>
+    [...document.querySelectorAll('[data-parity^="seg · "]')]
+      .filter(segment => segment.hasAttribute('data-active'))
+      .map(segment => segment.getAttribute('data-parity'));
+
+  it('marks no part with nothing selected', () => {
+    renderCanvas('stage-plan');
+    expect(activeSegments()).toEqual([]);
+  });
+
+  it('marks the part a selected row pastes in', () => {
+    renderCanvas('stage-plan', 'row:140');
+    expect(activeSegments()).toEqual(['seg · gate-protocol']);
+  });
+
+  it('marks a selected part', () => {
+    renderCanvas('stage-plan', 'output:slot:domain');
+    expect(activeSegments()).toEqual(['seg · plan-policy']);
+  });
+});
+
 describe('TemplateCanvas: a pipeline that links its steps', () => {
   it('draws a link card per step it runs, and no output', () => {
     renderCanvas('work');

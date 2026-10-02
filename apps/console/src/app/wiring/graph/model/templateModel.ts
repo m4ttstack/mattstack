@@ -430,6 +430,33 @@ export function buildTemplateView(input: {
   };
 }
 
+/**
+ * The output part a canvas selection names, or null: the part itself
+ * (`output:<part>`), or the include or slot row or card that pastes it in.
+ * A repeated card's `@<row>` suffix names the same part.
+ */
+export function selectedPartId(
+  view: TemplateView,
+  select: string | null
+): string | null {
+  if (!select || !view.output) return null;
+  const [kind, ...rest] = select.split(':');
+  const ref = rest.join(':');
+  let id: string | null = null;
+  if (kind === 'output' || kind === 'input') id = ref.split('@')[0] ?? null;
+  if (kind === 'row') {
+    const row = view.rows.find(candidate => `row:${candidate.line}` === select);
+    if (
+      row?.kind === 'placeholder' &&
+      (row.placeholder === 'include' || row.placeholder === 'slot')
+    )
+      id = `${row.placeholder}:${row.name ?? ''}`;
+  }
+  return view.output.parts.some(part => part.id === id && !part.own)
+    ? id
+    : null;
+}
+
 function cardFace(
   part: AnatomyPart,
   state: RowState,

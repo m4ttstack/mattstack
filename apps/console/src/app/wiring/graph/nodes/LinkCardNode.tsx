@@ -5,7 +5,7 @@ import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import { LAYOUT, type LinkNodeData } from '../layout/templateLayout';
 import type { SkillStatus } from '../model/templateModel';
-import { BODY, MUTED, useCanvas } from './canvasContext';
+import { BODY, ICON_STROKE, MUTED, useCanvas } from './canvasContext';
 import classes from './nodes.module.css';
 import { parityName } from './parity';
 
@@ -43,7 +43,13 @@ function LinkCardNodeComponent({
           className={classes.card}
           data-parity={`link · ${name}`}
         >
-          <Icon name="fileText" size={14} color={MUTED} data-parity="i" />
+          <Icon
+            strokeWidth={ICON_STROKE}
+            name="fileText"
+            size={14}
+            color={MUTED}
+            data-parity="i"
+          />
           <div className={classes.cardText}>
             <Text
               ff="monospace"
@@ -67,7 +73,13 @@ function LinkCardNodeComponent({
             </Text>
           </div>
           <span className={classes.dot} data-tone={tone} data-parity="status" />
-          <Icon name="chevronRight" size={13} color={MUTED} data-parity="go" />
+          <Icon
+            strokeWidth={ICON_STROKE}
+            name="chevronRight"
+            size={13}
+            color={MUTED}
+            data-parity="go"
+          />
         </Paper>
       </UnstyledButton>
       <Handle

@@ -23,3 +23,7 @@ export function useCanvas(): CanvasState {
 export const MUTED = 'var(--tk-text-3)';
 export const BODY = 'var(--tk-text-1)';
 export const ACCENT = 'var(--tk-text-accent)';
+
+/** The canvas draws its icons at lucide's own stroke, a step heavier than
+    the kit's 1.5, so 12-14px glyphs hold beside 12px text. */
+export const ICON_STROKE = 2;

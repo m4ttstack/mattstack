@@ -4,7 +4,7 @@ import { Icon } from '@mattstack/app-kit/icons';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import { LAYOUT, type InputNodeData } from '../layout/templateLayout';
-import { ACCENT, BODY, MUTED, useCanvas } from './canvasContext';
+import { ACCENT, BODY, ICON_STROKE, MUTED, useCanvas } from './canvasContext';
 import classes from './nodes.module.css';
 import { parityName } from './parity';
 import { StateTag } from './TemplateNode';
@@ -34,7 +34,13 @@ function InputCardNodeComponent({
           className={classes.card}
           data-parity={`input · ${name}`}
         >
-          <Icon name={card.icon} size={14} color={MUTED} data-parity="i" />
+          <Icon
+            strokeWidth={ICON_STROKE}
+            name={card.icon}
+            size={14}
+            color={MUTED}
+            data-parity="i"
+          />
           <div className={classes.cardText}>
             <Text
               ff={file ? 'monospace' : undefined}

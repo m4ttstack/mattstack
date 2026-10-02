@@ -1,12 +1,8 @@
 :where([data-mantine-color-scheme='light']) .canvas {
-  --wash: 10%;
-  --wash-hover: 14%;
   --row-hover: var(--mantine-color-gray-1);
 }
 
 :where([data-mantine-color-scheme='dark']) .canvas {
-  --wash: 20%;
-  --wash-hover: 26%;
   --row-hover: var(--mantine-color-dark-5);
 }
 
@@ -72,7 +68,7 @@
 .row[data-selected] {
   background-color: color-mix(
     in srgb,
-    var(--tk-fill-accent) var(--wash),
+    var(--tk-fill-accent) var(--ui-wash),
     transparent
   );
 }
@@ -92,7 +88,7 @@
   .row[data-selected]:hover {
     background-color: color-mix(
       in srgb,
-      var(--tk-fill-accent) var(--wash-hover),
+      var(--tk-fill-accent) var(--ui-wash-hover),
       transparent
     );
   }
@@ -285,8 +281,16 @@
 }
 
 :global(.react-flow__panel).columns {
+  inset: 0;
   margin: 0;
   pointer-events: none;
+}
+
+/* Content scrolled up stops at the column headings' framed top
+   (`--content-top`), so it never runs under the focus header. */
+.canvas :global(.react-flow__renderer),
+:global(.react-flow__panel).columns {
+  clip-path: inset(var(--content-top) 0 0 0);
 }
 
 .column {
