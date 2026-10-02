@@ -4,11 +4,25 @@ import { ScrollArea } from '@mantine/core';
 import type { ScrollAreaAutosizeProps } from '@mantine/core';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
+/** The first and last index of the items inside the viewport, overscan
+    excluded. */
+export interface VirtualListWindow {
+  first: number;
+  last: number;
+}
+
 export interface VirtualListProps<T = unknown> {
   /** Items to render. Only the ones currently in view (plus overscan) are mounted. */
   items: T[];
-  /** Renders a single item. Receives the item and its absolute index in `items`. */
-  renderRow: (item: T, index: number) => ReactNode;
+  /**
+   * Renders a single item. Receives the item, its absolute index in `items`,
+   * and the items inside the viewport (`null` until the list has a size).
+   */
+  renderRow: (
+    item: T,
+    index: number,
+    visible: VirtualListWindow | null
+  ) => ReactNode;
   /**
    * Estimated size (height, in px) of a row, used before it's actually
    * measured. Can vary per index. @default () => 45
@@ -71,6 +85,11 @@ export function VirtualList<T>({
   }, [virtualizer, scrollToIndex, hasItems]);
 
   const virtualRows = virtualizer.getVirtualItems();
+  // Read after getVirtualItems, which recomputes the range for this render.
+  const range = virtualizer.range;
+  const visible = range
+    ? { first: range.startIndex, last: range.endIndex }
+    : null;
 
   return (
     <ScrollArea.Autosize
@@ -103,7 +122,7 @@ export function VirtualList<T>({
               data-index={virtualRow.index}
               ref={virtualizer.measureElement}
             >
-              {renderRow(items[virtualRow.index], virtualRow.index)}
+              {renderRow(items[virtualRow.index], virtualRow.index, visible)}
             </div>
           ))}
         </div>

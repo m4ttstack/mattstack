@@ -117,7 +117,10 @@ export type {
   HybridMenuProps,
 } from './hybrid-menu/HybridMenu';
 export { VirtualList } from './virtual-list/VirtualList';
-export type { VirtualListProps } from './virtual-list/VirtualList';
+export type {
+  VirtualListProps,
+  VirtualListWindow,
+} from './virtual-list/VirtualList';
 export {
   VirtualTable,
   VirtualTableHeader,
@@ -130,7 +133,13 @@ export type {
   VirtualTableShellProps,
 } from './virtual-table/VirtualTable';
 export { CodeLines } from './code-lines/CodeLines';
-export type { CodeLinesBand, CodeLinesProps } from './code-lines/CodeLines';
+export type {
+  CodeLinesBand,
+  CodeLinesPart,
+  CodeLinesProps,
+  CodeLinesRowAttributes,
+  CodeLinesRowState,
+} from './code-lines/CodeLines';
 export { RangePicker } from './range-picker/RangePicker';
 export type {
   RangePickerPreset,

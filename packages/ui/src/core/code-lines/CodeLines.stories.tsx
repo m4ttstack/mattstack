@@ -72,6 +72,32 @@ export const Banded: Story = {
   },
 };
 
+export const Wash: Story = {
+  args: {
+    lines: [
+      '## Notes',
+      '',
+      '<!-- part: include:release-checklist source=acme:release-checklist -->',
+      '# Release checklist',
+      '',
+      'Confirm the changelog names every package that changed.',
+      'Run `{{verb.path:build}}` once more on a clean tree.',
+      '',
+      '## Steps',
+    ],
+    firstLine: 40,
+    height: 200,
+    variant: 'wash',
+    highlight: [42, 47],
+    tintPattern: /\{\{[^}]+\}\}/,
+    mutedPattern: /^<!--/,
+    bands: [
+      { from: 30, to: 41, label: 'acme-release', tone: 'muted' },
+      { from: 42, to: 47, label: 'release-checklist', tone: 'accent' },
+    ],
+  },
+};
+
 export const OffsetNumbers: Story = {
   args: { lines: sample.slice(11), firstLine: 412, height: 240 },
 };

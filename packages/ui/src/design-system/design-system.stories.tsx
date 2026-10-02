@@ -1,10 +1,12 @@
 import {
+  ActionIcon,
   Badge,
   Box,
   Group,
   NavLink,
   Paper,
   Progress,
+  SegmentedControl,
   Stack,
   Switch,
   Text,
@@ -12,6 +14,7 @@ import {
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
+import { Icon } from '@mattstack/app-kit/icons';
 
 const meta = {
   title: 'Design System/Theme',
@@ -88,6 +91,9 @@ function CanvasSurfaces() {
           <Paper withBorder variant="ground" p="xs">
             Paper ground
           </Paper>
+          <Paper withBorder variant="ground" p="xs" data-selected>
+            selected
+          </Paper>
         </Group>
         <Paper withBorder variant="ground" p="sm">
           <Stack gap="sm">
@@ -115,6 +121,17 @@ function PanelTones() {
         <NavLink label="light, active (Mantine)" color="accent" active />
         <Switch variant="contrast" label="contrast switch, off" />
         <Switch label="default switch, off" />
+        <Group gap="sm">
+          <ActionIcon variant="soft-outline" radius={6} aria-label="More">
+            <Icon name="moreHorizontal" size={15} />
+          </ActionIcon>
+          <Text size="sm">soft-outline control</Text>
+        </Group>
+        <SegmentedControl
+          variant="quiet"
+          data={['Template', 'Rendered']}
+          defaultValue="Template"
+        />
       </Stack>
     </Box>
   );
@@ -140,6 +157,6 @@ export const CanvasSurfacesStory: Story = {
 };
 
 export const PanelTonesStory: Story = {
-  name: 'Wash row and contrast switch',
+  name: 'Panel tones: wash row, contrast switch, soft-outline control, quiet segmented',
   render: () => <PanelTones />,
 };

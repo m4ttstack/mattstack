@@ -74,7 +74,18 @@ describe('quiet tones', () => {
     expect(result.border).toContain('solid var(--tk-line-3)');
   });
 
-  it.each(['quiet', 'quiet-outline', 'panel-outline'])(
+  it('soft-outline is no fill with a muted glyph and a soft rule', () => {
+    const result = variantColorResolver({
+      color: 'accent',
+      theme,
+      variant: 'soft-outline',
+    });
+    expect(result.background).toBe('transparent');
+    expect(result.color).toBe('var(--tk-text-3)');
+    expect(result.border).toContain('solid var(--tk-line-3)');
+  });
+
+  it.each(['quiet', 'quiet-outline', 'panel-outline', 'soft-outline'])(
     '%s ignores the colour, so the primary default changes nothing',
     variant => {
       const plain = variantColorResolver({ color: 'accent', theme, variant });

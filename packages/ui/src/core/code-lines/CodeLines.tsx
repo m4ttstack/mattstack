@@ -1,4 +1,4 @@
-import { Text } from '@mantine/core';
+import type { CSSProperties } from 'react';
 
 import { VirtualList } from '../virtual-list/VirtualList';
 import classes from './CodeLines.module.css';
@@ -13,11 +13,34 @@ export type CodeLinesBand = {
   from: number;
   /** Last line number of the band, inclusive. */
   to: number;
-  /** Shown in the gutter on the band's first row. */
+  /** Shown in the gutter on the band's first row in view. */
   label: string;
   /** `accent` marks the band the viewer is looking at. @default 'muted' */
   tone?: 'accent' | 'muted';
 };
+
+/** The elements of one row: the band gutter and its label, the line number
+    in its cell, and the code. */
+export type CodeLinesPart =
+  'row' | 'gutter' | 'gutterLabel' | 'numberCell' | 'number' | 'code';
+
+/** What a row shows, as `rowAttributes` receives it. */
+export interface CodeLinesRowState {
+  line: number;
+  text: string;
+  highlighted: boolean;
+  tinted: boolean;
+  muted: boolean;
+  band: CodeLinesBand | null;
+  /** The row carries its band's label. */
+  labelled: boolean;
+  /** The row is inside the viewport, not one of the rows mounted around it. */
+  inView: boolean;
+}
+
+export type CodeLinesRowAttributes = Partial<
+  Record<CodeLinesPart, { [key: `data-${string}`]: string | undefined }>
+>;
 
 export interface CodeLinesProps {
   lines: string[];
@@ -29,6 +52,9 @@ export interface CodeLinesProps {
   bands?: CodeLinesBand[];
   /** Lines matching this render in accent text. */
   tintPattern?: RegExp;
+  /** Lines matching this read muted, inside the highlight too (a compiler's
+      marker lines, say). */
+  mutedPattern?: RegExp;
   /** Viewport height in px. */
   height: number;
   /**
@@ -37,7 +63,23 @@ export interface CodeLinesProps {
    * Template/Rendered toggle, say).
    */
   scrollTo?: number | null;
+  /**
+   * `wash`: the highlight is a thin accent wash, with its line numbers in
+   * accent and its text in the body colour; text outside it reads muted, and
+   * a muted band draws its rule in the soft line step.
+   * @default 'default'
+   */
+  variant?: 'default' | 'wash';
+  /** Classes for each part of every row, for dimensions (column widths,
+      padding, type size). */
+  classNames?: Partial<Record<CodeLinesPart, string>>;
+  /** Data attributes for each part of a row, from what that row shows: a hook
+      for tests and tooling that address rows. */
+  rowAttributes?: (row: CodeLinesRowState) => CodeLinesRowAttributes;
 }
+
+const cx = (...names: (string | undefined)[]) =>
+  names.filter(Boolean).join(' ');
 
 /**
  * Line-numbered monospace text in a fixed-height viewport, with an optional
@@ -51,11 +93,15 @@ export function CodeLines({
   highlight = null,
   bands,
   tintPattern,
+  mutedPattern,
   height,
   scrollTo = null,
+  variant = 'default',
+  classNames,
+  rowAttributes,
 }: CodeLinesProps) {
   const hasGutter = bands !== undefined && bands.length > 0;
-  const numberWidth = `${String(firstLine + lines.length - 1).length}ch`;
+  const digits = String(firstLine + lines.length - 1).length;
 
   return (
     <VirtualList
@@ -65,66 +111,78 @@ export function CodeLines({
       maxHeight={height}
       minHeight={height}
       scrollToIndex={scrollTo === null ? null : scrollTo - firstLine}
-      renderRow={(line, index) => {
+      scrollAreaProps={{
+        className: classes.root,
+        mod: { variant },
+        style: { '--code-lines-digits': `${digits}ch` } as CSSProperties,
+      }}
+      renderRow={(line, index, visible) => {
         const lineNumber = firstLine + index;
-        const band = bands?.find(
-          b => lineNumber >= b.from && lineNumber <= b.to
-        );
-        const highlighted =
-          highlight !== null &&
-          lineNumber >= highlight[0] &&
-          lineNumber <= highlight[1];
-        // `search` ignores `lastIndex`, so a global or sticky pattern gives
-        // the same answer on every row.
-        const tinted =
-          tintPattern !== undefined && line.search(tintPattern) >= 0;
+        const firstInView = firstLine + (visible?.first ?? 0);
+        const band =
+          bands?.find(b => lineNumber >= b.from && lineNumber <= b.to) ?? null;
+        const state: CodeLinesRowState = {
+          line: lineNumber,
+          text: line,
+          highlighted:
+            highlight !== null &&
+            lineNumber >= highlight[0] &&
+            lineNumber <= highlight[1],
+          // `search` ignores `lastIndex`, so a global or sticky pattern gives
+          // the same answer on every row.
+          tinted: tintPattern !== undefined && line.search(tintPattern) >= 0,
+          muted: mutedPattern !== undefined && line.search(mutedPattern) >= 0,
+          band,
+          labelled:
+            band !== null && lineNumber === Math.max(band.from, firstInView),
+          inView:
+            visible !== null && index >= visible.first && index <= visible.last,
+        };
+        const attributes = rowAttributes?.(state) ?? {};
 
         return (
           <div
-            className={classes.row}
+            {...attributes.row}
+            className={cx(classes.row, classNames?.row)}
             data-line={lineNumber}
-            data-highlighted={highlighted || undefined}
+            data-highlighted={state.highlighted || undefined}
           >
             {hasGutter && (
               <div
-                className={classes.gutter}
+                {...attributes.gutter}
+                className={cx(classes.gutter, classNames?.gutter)}
                 data-gutter
-                data-tone={band && (band.tone ?? 'muted')}
+                data-tone={band ? (band.tone ?? 'muted') : undefined}
               >
-                {band && lineNumber === Math.max(band.from, firstLine) && (
-                  <Text
-                    component="span"
-                    ff="monospace"
-                    size="xs"
-                    truncate
-                    c={band.tone === 'accent' ? 'accent' : undefined}
-                    className={classes.gutterLabel}
+                {band && state.labelled && (
+                  <span
+                    {...attributes.gutterLabel}
+                    className={cx(classes.gutterLabel, classNames?.gutterLabel)}
                   >
                     {band.label}
-                  </Text>
+                  </span>
                 )}
               </div>
             )}
-            <Text
-              component="span"
-              ff="monospace"
-              size="xs"
-              ta="right"
-              miw={numberWidth}
-              className={classes.number}
+            <div
+              {...attributes.numberCell}
+              className={cx(classes.numberCell, classNames?.numberCell)}
             >
-              {lineNumber}
-            </Text>
-            <Text
-              component="span"
-              ff="monospace"
-              size="xs"
-              c={tinted ? 'accent' : undefined}
-              className={classes.code}
-              data-tinted={tinted || undefined}
+              <span
+                {...attributes.number}
+                className={cx(classes.number, classNames?.number)}
+              >
+                {lineNumber}
+              </span>
+            </div>
+            <span
+              {...attributes.code}
+              className={cx(classes.code, classNames?.code)}
+              data-tinted={state.tinted || undefined}
+              data-muted={state.muted || undefined}
             >
               {line}
-            </Text>
+            </span>
           </div>
         );
       }}

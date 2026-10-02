@@ -93,11 +93,15 @@ A `Badge` that sits on the page ground (`--tk-bg`) takes one of the kit's
 opt-in quiet tones, `variant="quiet"` (raised fill) or
 `variant="quiet-outline"` (card fill with the kit border); Mantine's gray
 `light` fill is the ground itself there. A chip inside a card can take
-`variant="panel-outline"` (panel fill, soft rule, body label).
+`variant="panel-outline"` (panel fill, soft rule, body label), and a control
+that takes the surface it sits on, such as an `ActionIcon` in a drawer
+header, `variant="soft-outline"` (no fill, soft rule, muted glyph).
 
 A `Paper` on the page ground (a card on a dotted canvas) can take
 `variant="ground"`: the card surface in both schemes and, with `withBorder`,
-a rule in the kit border rather than Mantine's lighter separator gray. A
+a rule in the kit border rather than Mantine's lighter separator gray, drawn
+as an outline inside the edge so it sits over a full-width header or row. A
+ground card marked `data-selected` rings in the accent instead. A
 `Progress` that splits a whole into parts can take `variant="segmented"`: no
 track, a gap between the sections that shows the surface beneath, `gray`
 parts in the soft line step, and the part marked `data-active` in the strong
@@ -106,7 +110,16 @@ one.
 On a panel surface, a selected `NavLink` can take `variant="wash"` (a thin
 wash of its kit hue behind a label in that hue), and a `Switch` can take
 `variant="contrast"` (an off track that holds against the panel in both
-schemes).
+schemes). A `SegmentedControl` there can take `variant="quiet"`: a raised
+track, the active segment a card ruled in the soft line step with no shadow,
+and muted labels until active.
+
+`CodeLines` can take `variant="wash"`: the highlighted range in the thin
+accent wash with accent line numbers and body text, the text outside it
+muted, and a muted band ruled in the soft line step. Its `classNames` size
+each part of a row (gutter, number cell, number, code), and `rowAttributes`
+puts data attributes on each part from what that row shows, including
+whether it is in the viewport.
 
 An app that registers its own icon adds a `declare module
 '@mattstack/app-kit/icons' { interface AppIcons { hash: true } }` block in

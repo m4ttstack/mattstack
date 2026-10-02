@@ -100,6 +100,15 @@ export const baseTheme = /* @__PURE__ */ createTheme({
     Card: { defaultProps: flatSurfaceProps },
     // `variant="segmented"`: parts with gaps between them (see the CSS module).
     Progress: { classNames: { root: classes.progressRoot } },
+    // `variant="quiet"`: a raised track and a ruled card segment (see the CSS
+    // module).
+    SegmentedControl: {
+      classNames: {
+        root: classes.segmentedRoot,
+        indicator: classes.segmentedIndicator,
+        label: classes.segmentedLabel,
+      },
+    },
     Button: {
       defaultProps: { fw: 500 },
       classNames: { root: classes.buttonRoot },

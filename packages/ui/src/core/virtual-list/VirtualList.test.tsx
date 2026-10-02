@@ -91,3 +91,24 @@ describe('VirtualList scrollToIndex', () => {
     expect(screen.queryByText('row 0')).toBeNull();
   });
 });
+
+describe('VirtualList visible window', () => {
+  test('tells each row which items are in the viewport, overscan excluded', () => {
+    const seen = new Map<number, { first: number; last: number } | null>();
+    renderWithProviders(
+      <VirtualList
+        items={items}
+        estimateSize={() => ROW_HEIGHT}
+        maxHeight={VIEWPORT_HEIGHT}
+        scrollToIndex={500}
+        renderRow={(item, index, visible) => {
+          seen.set(index, visible);
+          return <div>{item}</div>;
+        }}
+      />
+    );
+
+    expect(seen.has(480)).toBe(true);
+    expect(seen.get(500)).toEqual({ first: 500, last: 509 });
+  });
+});

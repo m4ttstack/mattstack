@@ -8,6 +8,7 @@ import {
   MantineThemeProvider,
   Paper,
   Progress,
+  SegmentedControl,
   Switch,
   Text,
 } from '@mantine/core';
@@ -125,6 +126,29 @@ describe('ground paper', () => {
   });
 });
 
+describe('ground paper rule', () => {
+  const css = readFileSync(
+    path.resolve(import.meta.dirname, 'component-styles.module.css'),
+    'utf-8'
+  );
+  const rule = (selector: string) =>
+    css.match(new RegExp(`${selector}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+
+  it('rules a bordered ground card with an outline over its contents', () => {
+    const bordered = rule(
+      "\\.paperRoot\\[data-variant='ground'\\]\\[data-with-border\\]"
+    );
+    expect(bordered).toContain('border-width: 0');
+    expect(bordered).toContain('outline: 1px solid var(--tk-border)');
+  });
+
+  it('rings a selected ground card in the accent', () => {
+    expect(
+      rule("\\.paperRoot\\[data-variant='ground'\\]\\[data-selected\\]")
+    ).toContain('outline: 1.5px solid var(--tk-fill-accent)');
+  });
+});
+
 describe('segmented progress', () => {
   it('carries the kit class the segmented rules key on, and marks the active part', () => {
     const { container } = render(
@@ -159,5 +183,42 @@ describe('segmented progress tones', () => {
     expect(
       rule("\\.progressRoot\\[data-variant='segmented'\\] > \\[data-active\\]")
     ).toContain('background-color: var(--tk-line-1)');
+  });
+});
+
+describe('quiet segmented control', () => {
+  it('carries the kit classes the quiet rules key on', () => {
+    const { container } = render(
+      <MantineProvider theme={theme}>
+        <SegmentedControl variant="quiet" data={['Template', 'Rendered']} />
+      </MantineProvider>
+    );
+    const root = container.querySelector(`.${classes.segmentedRoot}`);
+    expect(root).toHaveAttribute('data-variant', 'quiet');
+    expect(root?.querySelectorAll(`.${classes.segmentedLabel}`)).toHaveLength(
+      2
+    );
+  });
+
+  it('draws a raised track, a ruled card indicator and muted labels', () => {
+    const css = readFileSync(
+      path.resolve(import.meta.dirname, 'component-styles.module.css'),
+      'utf-8'
+    );
+    const rule = (selector: string) =>
+      css.match(new RegExp(`${selector}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+    const root = "\\.segmentedRoot\\[data-variant='quiet'\\]";
+
+    expect(rule(root)).toContain('background-color: var(--tk-raised)');
+    expect(rule(root)).toContain('--sc-color: var(--tk-card)');
+    expect(rule(`${root} \\.segmentedIndicator`)).toContain(
+      'outline: 1px solid var(--tk-line-3)'
+    );
+    expect(rule(`${root} \\.segmentedLabel`)).toContain(
+      'color: var(--tk-text-3)'
+    );
+    expect(rule(`${root} \\.segmentedLabel\\[data-active\\]`)).toContain(
+      'color: var(--tk-text-1)'
+    );
   });
 });

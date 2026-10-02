@@ -218,4 +218,152 @@ describe('CodeLines', () => {
     ) as HTMLElement;
     expect(viewport.scrollTop).toBe(400 * ROW_HEIGHT);
   });
+
+  test('labels a band at its first row in view when the band starts above the viewport', () => {
+    const lines = Array.from({ length: 2000 }, (_, i) => `line ${i + 1}`);
+    renderWithProviders(
+      <CodeLines
+        lines={lines}
+        bands={[{ from: 1, to: 1500, label: 'gate-protocol' }]}
+        height={VIEWPORT_HEIGHT}
+        scrollTo={1000}
+      />
+    );
+
+    expect(screen.getAllByText('gate-protocol')).toHaveLength(1);
+    expect(
+      screen
+        .getByText('gate-protocol')
+        .closest('[data-line]')
+        ?.getAttribute('data-line')
+    ).toBe('1000');
+  });
+
+  test('marks lines matching mutedPattern', () => {
+    renderWithProviders(
+      <CodeLines
+        lines={['<!-- part: include:gate -->', '# Gate']}
+        highlight={[1, 2]}
+        mutedPattern={/^<!--/}
+        height={VIEWPORT_HEIGHT}
+      />
+    );
+
+    expect(
+      screen.getByText('<!-- part: include:gate -->').hasAttribute('data-muted')
+    ).toBe(true);
+    expect(screen.getByText('# Gate').hasAttribute('data-muted')).toBe(false);
+  });
+
+  test('adds a class to each part of a row through classNames', () => {
+    renderWithProviders(
+      <CodeLines
+        lines={['alpha']}
+        bands={[{ from: 1, to: 1, label: 'gate-protocol' }]}
+        classNames={{
+          row: 'r',
+          gutter: 'g',
+          gutterLabel: 'gl',
+          numberCell: 'nc',
+          number: 'n',
+          code: 'c',
+        }}
+        height={VIEWPORT_HEIGHT}
+      />
+    );
+
+    const line = row('alpha');
+    expect(line.classList.contains('r')).toBe(true);
+    expect(line.querySelector('[data-gutter]')?.classList.contains('g')).toBe(
+      true
+    );
+    expect(screen.getByText('gate-protocol').classList.contains('gl')).toBe(
+      true
+    );
+    expect(screen.getByText('1').classList.contains('n')).toBe(true);
+    expect(screen.getByText('1').parentElement?.classList.contains('nc')).toBe(
+      true
+    );
+    expect(screen.getByText('alpha').classList.contains('c')).toBe(true);
+  });
+
+  test('gives each part the attributes rowAttributes returns for its row', () => {
+    renderWithProviders(
+      <CodeLines
+        lines={['alpha', 'bravo {{x}}']}
+        highlight={[1, 1]}
+        tintPattern={/\{\{[^}]+\}\}/}
+        bands={[{ from: 1, to: 2, label: 'gate-protocol', tone: 'accent' }]}
+        rowAttributes={state => ({
+          row: { 'data-state': JSON.stringify(state) },
+          gutter: { 'data-part': 'band' },
+          gutterLabel: { 'data-part': 'label' },
+          numberCell: { 'data-part': 'cell' },
+          number: { 'data-part': 'number' },
+          code: { 'data-part': 'code' },
+        })}
+        height={VIEWPORT_HEIGHT}
+      />
+    );
+
+    const state = (text: string) =>
+      JSON.parse(row(text).getAttribute('data-state') ?? 'null');
+    expect(state('alpha')).toEqual({
+      line: 1,
+      text: 'alpha',
+      highlighted: true,
+      tinted: false,
+      muted: false,
+      band: { from: 1, to: 2, label: 'gate-protocol', tone: 'accent' },
+      labelled: true,
+      inView: true,
+    });
+    expect(state('bravo {{x}}')).toMatchObject({
+      line: 2,
+      highlighted: false,
+      tinted: true,
+      labelled: false,
+    });
+    expect(screen.getByText('alpha').getAttribute('data-part')).toBe('code');
+    expect(screen.getByText('gate-protocol').getAttribute('data-part')).toBe(
+      'label'
+    );
+    expect(screen.getByText('2').getAttribute('data-part')).toBe('number');
+    expect(screen.getByText('2').parentElement?.getAttribute('data-part')).toBe(
+      'cell'
+    );
+    expect(
+      row('alpha').querySelector('[data-gutter]')?.getAttribute('data-part')
+    ).toBe('band');
+  });
+
+  test('tells rowAttributes which rows are in the viewport', () => {
+    const lines = Array.from({ length: 2000 }, (_, i) => `line ${i + 1}`);
+    renderWithProviders(
+      <CodeLines
+        lines={lines}
+        rowAttributes={state => ({
+          row: { 'data-in-view': String(state.inView) },
+        })}
+        height={VIEWPORT_HEIGHT}
+        scrollTo={1000}
+      />
+    );
+
+    const inView = (text: string) => row(text).getAttribute('data-in-view');
+    expect(inView('line 990')).toBe('false');
+    expect(inView('line 1000')).toBe('true');
+    expect(inView('line 1009')).toBe('true');
+    expect(inView('line 1020')).toBe('false');
+  });
+
+  test('puts its variant on the root', () => {
+    const { container } = renderWithProviders(
+      <CodeLines lines={['alpha']} variant="wash" height={VIEWPORT_HEIGHT} />
+    );
+
+    expect(
+      container.querySelector('[data-variant="wash"]')?.contains(row('alpha'))
+    ).toBe(true);
+  });
 });

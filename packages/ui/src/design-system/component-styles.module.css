@@ -64,15 +64,24 @@
 
 /* Paper's `variant="ground"`: a card on the page ground (--tk-bg). It takes
    the card surface in both schemes (Mantine's body surface is the panel in
-   dark) and, bordered, the kit border, a step stronger than Mantine's
-   separator gray, so it holds against the ground. Mantine scopes its border
-   colour under the scheme attribute, hence the third selector. */
+   dark) and, bordered, a rule in the kit border, a step stronger than
+   Mantine's separator gray, so it holds against the ground. The rule is an
+   outline inside the edge, not a border: it draws over the card's contents,
+   so a full-width header or row keeps the card's whole width and nothing
+   clips it. A card marked `data-selected` rings in the accent instead. */
 .paperRoot[data-variant='ground'] {
   background-color: var(--tk-card);
 }
 
 .paperRoot[data-variant='ground'][data-with-border] {
-  --paper-border-color: var(--tk-border);
+  border-width: 0;
+  outline: 1px solid var(--tk-border);
+  outline-offset: -1px;
+}
+
+.paperRoot[data-variant='ground'][data-selected] {
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: -0.75px;
 }
 
 /* Progress's `variant="segmented"`: a bar of parts that sum to the whole,
@@ -87,4 +96,42 @@
 
 .progressRoot[data-variant='segmented'] > [data-active] {
   background-color: var(--tk-line-1);
+}
+
+/* SegmentedControl's `variant="quiet"`: a raised track with the active
+   segment as a card ruled in the soft line step and no shadow, labels muted
+   until active. Mantine sets the indicator's shadow inline, hence the
+   property rather than its variable. */
+.segmentedRoot[data-variant='quiet'] {
+  --sc-color: var(--tk-card);
+  background-color: var(--tk-raised);
+}
+
+.segmentedRoot[data-variant='quiet'] .segmentedIndicator {
+  outline: 1px solid var(--tk-line-3);
+  outline-offset: -1px;
+  box-shadow: none;
+}
+
+.segmentedRoot[data-variant='quiet'] .segmentedLabel {
+  color: var(--tk-text-3);
+}
+
+.segmentedRoot[data-variant='quiet'] .segmentedLabel[data-active] {
+  color: var(--tk-text-1);
+}
+
+.segmentedRoot[data-variant='quiet'] .segmentedLabel[data-disabled] {
+  color: var(--mantine-color-disabled-color);
+}
+
+@media (hover: hover) {
+  .segmentedRoot[data-variant='quiet']
+    .segmentedLabel:not(
+      [data-active],
+      [data-disabled],
+      [data-read-only]
+    ):hover {
+    color: var(--tk-text-1);
+  }
 }
