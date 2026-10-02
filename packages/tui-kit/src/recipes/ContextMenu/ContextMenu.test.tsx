@@ -217,7 +217,7 @@ describe("ContextMenu (browser)", () => {
     ["light", false],
     ["dark", true],
   ])(
-    "a disabled item reads clearly in %s mode: muted at full opacity, not-allowed, never washed",
+    "a disabled item reads as unavailable in %s mode: a dim label, a legible italic hint, not-allowed, never washed",
     async (_scheme, dark) => {
       const container = document.createElement("div");
       if (dark) container.classList.add("dark");
@@ -226,20 +226,30 @@ describe("ContextMenu (browser)", () => {
         <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
           <ContextMenu.Item label="review" onClick={noop} />
           <ContextMenu.Item label="merge" hint="needs approval" disabled onClick={noop} />
+          <ContextMenu.Sub label="gitlab" ariaLabel="gitlab actions" disabled>
+            <ContextMenu.Item label="rebase" onClick={noop} />
+          </ContextMenu.Sub>
         </ContextMenu>,
         { container },
       );
       const root = rootOf(screen.container);
       const item = screen.getByRole("menuitem", { name: "merge" }).element() as HTMLButtonElement;
       const hint = partsIn(screen.container, CONTEXTMENU_PARTS.hint)[0] as HTMLElement;
+      const live = screen.getByRole("menuitem", { name: "review" }).element();
+      const sub = screen.getByRole("menuitem", { name: "gitlab", exact: true }).element();
       const card = toHex(getComputedStyle(root).backgroundColor);
+      const blockedInk = toHex(getComputedStyle(item).color);
+      const liveInk = toHex(getComputedStyle(live).color);
+      const label = contrastRatio(blockedInk, card);
 
       expect(getComputedStyle(item).opacity).toBe("1");
       expect(getComputedStyle(item).cursor).toBe("not-allowed");
-      expect(contrastRatio(toHex(getComputedStyle(item).color), card)).toBeGreaterThanOrEqual(4.5);
+      expect(label).toBeGreaterThanOrEqual(3);
+      expect(label).toBeLessThan(4.5);
+      expect(contrastRatio(blockedInk, liveInk)).toBeGreaterThanOrEqual(2);
       expect(contrastRatio(toHex(getComputedStyle(hint).color), card)).toBeGreaterThanOrEqual(4.5);
-      const live = screen.getByRole("menuitem", { name: "review" }).element();
-      expect(getComputedStyle(item).color).not.toBe(getComputedStyle(live).color);
+      expect(getComputedStyle(hint).fontStyle).toBe("italic");
+      expect(toHex(getComputedStyle(sub).color)).toBe(blockedInk);
 
       const idle = getComputedStyle(item).backgroundColor;
       await screen.getByRole("menuitem", { name: "merge" }).hover();

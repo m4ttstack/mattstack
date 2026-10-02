@@ -69,12 +69,13 @@
     background: var(--surface-wash-accent-16);
   }
 
-  /* No opacity: it fades the label and its hint together, which drops a
-     disabled row below a readable contrast on the card. The muted token
-     alone keeps it legible and still distinct from a live row's --text-1. */
+  /* No opacity: it would fade the hint with the label. The label and its
+     glyphs take --muted, about 3:1 on the card (a disabled control is exempt
+     from the text bar) and several times dimmer than a live --text-1 label;
+     the hint keeps --text-4 so the reason stays legible, set in italic. */
   .item:disabled,
   .item[data-disabled] {
-    color: var(--text-muted-on-card);
+    color: var(--muted);
     cursor: not-allowed;
   }
 
@@ -82,6 +83,15 @@
     font-family: var(--font-sans);
     font-size: var(--font-size-px10);
     color: var(--text-4);
+  }
+
+  .item:disabled .hint,
+  .item[data-disabled] .hint {
+    font-style: italic;
+  }
+
+  .item[data-disabled] .chevron {
+    color: inherit;
   }
 
   .separator {
