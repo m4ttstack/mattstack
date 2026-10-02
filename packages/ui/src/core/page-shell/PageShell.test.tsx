@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState } from 'react';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 
 import {
@@ -798,7 +798,10 @@ test('a sidebar bg is its own surface', () => {
 /** Runs `body` with every measured element reporting `height` px: jsdom
     does no layout, and Mantine's useElementSize reads a ResizeObserver
     whose callback it defers through requestAnimationFrame. */
-function withMeasuredHeight(height: number, body: () => void) {
+async function withMeasuredHeight(
+  height: number,
+  body: () => void | Promise<void>
+) {
   const realRaf = window.requestAnimationFrame;
   const realCaf = window.cancelAnimationFrame;
   const realResizeObserver = window.ResizeObserver;
@@ -827,7 +830,7 @@ function withMeasuredHeight(height: number, body: () => void) {
     disconnect() {}
   } as unknown as typeof ResizeObserver;
   try {
-    body();
+    await body();
   } finally {
     window.ResizeObserver = realResizeObserver;
     window.requestAnimationFrame = realRaf;
@@ -873,8 +876,8 @@ test('a root topNotch in compound mode docks full width between the tab bar and 
   ).toBeTruthy();
 });
 
-test('a docked topNotch takes its measured height from both the content and the sidebar', () => {
-  withMeasuredHeight(54, () => {
+test('a docked topNotch takes its measured height from both the content and the sidebar', async () => {
+  await withMeasuredHeight(54, () => {
     renderWithProviders(<NotchedShell notch={{ opened: true }} />);
 
     expect(screen.getByText(/^content:/).textContent).toContain('- 54px');
@@ -882,8 +885,8 @@ test('a docked topNotch takes its measured height from both the content and the 
   });
 });
 
-test('a closed docked topNotch takes nothing from either height', () => {
-  withMeasuredHeight(54, () => {
+test('a closed docked topNotch takes nothing from either height', async () => {
+  await withMeasuredHeight(54, () => {
     renderWithProviders(<NotchedShell notch={{ opened: false }} />);
 
     expect(screen.getByText(/^content:/).textContent).not.toContain('px');
@@ -891,8 +894,8 @@ test('a closed docked topNotch takes nothing from either height', () => {
   });
 });
 
-test('a compound shell with no root topNotch keeps its heights as they were', () => {
-  withMeasuredHeight(54, () => {
+test('a compound shell with no root topNotch keeps its heights as they were', async () => {
+  await withMeasuredHeight(54, () => {
     const { unmount } = renderWithProviders(<NotchedShell />);
     const content = screen.getByText(/^content:/).textContent;
     const sidebar = screen.getByText(/^sidebar:/).textContent;
@@ -902,6 +905,36 @@ test('a compound shell with no root topNotch keeps its heights as they were', ()
     expect(content).not.toContain('px');
     expect(screen.getByText(/^content:/).textContent).toBe(content);
     expect(screen.getByText(/^sidebar:/).textContent).toBe(sidebar);
+  });
+});
+
+test('a closing docked topNotch keeps its height in the shell until it has slid out', async () => {
+  await withMeasuredHeight(54, async () => {
+    const { rerender } = renderWithProviders(
+      <NotchedShell notch={{ opened: true }} />
+    );
+    expect(screen.getByText(/^content:/).textContent).toContain('- 54px');
+
+    rerender(<NotchedShell notch={{ opened: false }} />);
+
+    expect(screen.getByText(/^content:/).textContent).toContain('- 54px');
+    expect(screen.getByText(/^sidebar:/).textContent).toContain('- 54px');
+    expect(screen.getByText('banner')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText(/^content:/).textContent).not.toContain('px')
+    );
+    expect(screen.getByText(/^sidebar:/).textContent).not.toContain('px');
+  });
+});
+
+test('an opening docked topNotch takes its height at once', async () => {
+  await withMeasuredHeight(54, () => {
+    const { rerender } = renderWithProviders(
+      <NotchedShell notch={{ opened: false }} />
+    );
+    rerender(<NotchedShell notch={{ opened: true }} />);
+
+    expect(screen.getByText(/^content:/).textContent).toContain('- 54px');
   });
 });
 
