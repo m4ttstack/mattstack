@@ -240,7 +240,7 @@ describe("reposLocate", () => {
 
     const { code, stderr } = await human(() => reposLocate([repo], {}, testDeps()));
     expect(code).toBe(2);
-    expect(stderr).toBe(`[refused] ${sentence}\n  next: rt repos register ${repo}\n`);
+    expect(stderr).toBe(`[refused] ${sentence}.\n  next: rt repos register ${repo}\n`);
 
     const deps = testDeps();
     expect(await runExpectingProcessExit(() => reposLocate([repo, "--json"], {}, deps))).toBe(2);

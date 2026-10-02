@@ -125,7 +125,7 @@ describe("repo locate", () => {
     expect(isRefusal(out) && plainWords(out.message)).toBe(true);
     expect(isRefusal(out) && out.message).toEndWith(`instead: rt repos register ${repo}`);
     expect(isRefusal(out) && splitRefusalNext(out.message)).toEqual({
-      sentence: `${repo} has no remote, so rt knows a repo like this by its folder, and moving it makes it a new repo. Register the new folder instead`,
+      sentence: `${repo} has no remote, so rt knows a repo like this by its folder, and moving it makes it a new repo. Register the new folder instead.`,
       next: `rt repos register ${repo}`,
     });
   });
@@ -525,7 +525,7 @@ test("a refusal sent as its code and message reads back; any other error does no
 test("a command joined to a refusal reads back apart from its sentence", () => {
   const message = refusalWithNext("Register the new folder instead", "rt repos register /a/b");
   expect(message).toBe("Register the new folder instead: rt repos register /a/b");
-  expect(splitRefusalNext(message)).toEqual({ sentence: "Register the new folder instead", next: "rt repos register /a/b" });
+  expect(splitRefusalNext(message)).toEqual({ sentence: "Register the new folder instead.", next: "rt repos register /a/b" });
   expect(splitRefusalNext("widgets is still at /x, so this folder is a second copy, not a move")).toEqual({
     sentence: "widgets is still at /x, so this folder is a second copy, not a move",
   });

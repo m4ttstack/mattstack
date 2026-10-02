@@ -131,11 +131,11 @@ function shellArg(value: string): string {
   return SHELL_SAFE.test(value) ? value : shellQuote(value);
 }
 
-/** `refusalWithNext` read back for a person: the sentence alone, and the command apart. */
+/** `refusalWithNext` read back for a person: the sentence alone, ending in a full stop, and the command apart. */
 export function splitRefusalNext(message: string): { sentence: string; next?: string } {
   const at = message.lastIndexOf(`${NEXT_JOIN}rt `);
   if (at < 0) return { sentence: message };
-  return { sentence: message.slice(0, at), next: message.slice(at + NEXT_JOIN.length) };
+  return { sentence: `${message.slice(0, at)}.`, next: message.slice(at + NEXT_JOIN.length) };
 }
 
 /** A refusal crosses the daemon socket as `<code>: <message>` (`lib/daemon/handlers/repos.ts`, and `repo-locate-dispatch.ts` the same way); null when `error` is not one. */
