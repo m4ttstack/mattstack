@@ -17,7 +17,6 @@
   "commands/glitter.ts",
   "commands/herd.ts",
   "commands/home.ts",
-  "commands/hooks.ts",
   "commands/intercept.ts",
   "commands/mcp.ts",
   "commands/nav.ts",
