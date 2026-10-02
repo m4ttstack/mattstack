@@ -289,7 +289,8 @@
       "slots": [
         {
           "name": "tiering",
-          "boundTo": "mattstack:model-tiering"
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack"
         }
       ]
     },
@@ -300,7 +301,8 @@
       "slots": [
         {
           "name": "domain",
-          "boundTo": "acme:plan-policy-strict"
+          "boundTo": "acme:plan-policy-strict",
+          "layer": "pack"
         }
       ]
     },
@@ -311,11 +313,13 @@
       "slots": [
         {
           "name": "tiering",
-          "boundTo": "mattstack:model-tiering"
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack"
         },
         {
           "name": "domain",
-          "boundTo": "acme:plan-policy-lite"
+          "boundTo": "acme:plan-policy-lite",
+          "layer": "pack"
         }
       ]
     },
@@ -326,7 +330,8 @@
       "slots": [
         {
           "name": "tiering",
-          "boundTo": "mattstack:model-tiering"
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack"
         }
       ]
     },
@@ -337,7 +342,8 @@
       "slots": [
         {
           "name": "tiering",
-          "boundTo": "mattstack:model-tiering"
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack"
         }
       ]
     },
@@ -348,7 +354,8 @@
       "slots": [
         {
           "name": "tiering",
-          "boundTo": "mattstack:model-tiering"
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack"
         }
       ]
     },
@@ -359,7 +366,8 @@
       "slots": [
         {
           "name": "tiering",
-          "boundTo": "mattstack:model-tiering"
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack"
         }
       ]
     },
@@ -370,7 +378,8 @@
       "slots": [
         {
           "name": "tiering",
-          "boundTo": "mattstack:model-tiering"
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack"
         }
       ]
     },
@@ -381,7 +390,8 @@
       "slots": [
         {
           "name": "tiering",
-          "boundTo": "mattstack:model-tiering"
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack"
         }
       ]
     },
@@ -392,7 +402,8 @@
       "slots": [
         {
           "name": "tiering",
-          "boundTo": "mattstack:model-tiering"
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack"
         }
       ]
     },
@@ -403,7 +414,8 @@
       "slots": [
         {
           "name": "tiering",
-          "boundTo": "mattstack:model-tiering"
+          "boundTo": "mattstack:model-tiering",
+          "layer": "pack"
         }
       ]
     }
@@ -489,6 +501,13 @@
           "line": 250
         }
       ],
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false
+        }
+      ],
       "engineError": null
     },
     {
@@ -507,6 +526,18 @@
           "kind": "slot",
           "arg": "domain",
           "line": 52
+        }
+      ],
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false
+        },
+        {
+          "name": "domain",
+          "contract": "plan-domain@1",
+          "required": false
         }
       ],
       "engineError": null
@@ -529,6 +560,13 @@
           "line": 786
         }
       ],
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false
+        }
+      ],
       "engineError": null
     },
     {
@@ -547,6 +585,13 @@
           "kind": "include",
           "arg": "gate-protocol",
           "line": 442
+        }
+      ],
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false
         }
       ],
       "engineError": null
@@ -569,6 +614,13 @@
           "line": 1376
         }
       ],
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false
+        }
+      ],
       "engineError": null
     },
     {
@@ -587,6 +639,13 @@
           "kind": "include",
           "arg": "gate-protocol",
           "line": 712
+        }
+      ],
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false
         }
       ],
       "engineError": null
@@ -609,6 +668,13 @@
           "line": 804
         }
       ],
+      "slots": [
+        {
+          "name": "tiering",
+          "contract": "model-tiering@1",
+          "required": false
+        }
+      ],
       "engineError": null
     },
     {
@@ -624,6 +690,7 @@
           "line": 271
         }
       ],
+      "slots": [],
       "engineError": null
     },
     {
@@ -639,6 +706,7 @@
           "line": 416
         }
       ],
+      "slots": [],
       "engineError": null
     },
     {
@@ -654,6 +722,7 @@
           "line": 451
         }
       ],
+      "slots": [],
       "engineError": null
     },
     {
@@ -669,6 +738,13 @@
           "line": 22
         }
       ],
+      "slots": [
+        {
+          "name": "changelog",
+          "contract": "changelog-style@1",
+          "required": true
+        }
+      ],
       "engineError": null
     },
     {
@@ -678,6 +754,7 @@
       "artifactPath": "/fixture/packs/acme/skills/standup/SKILL.md",
       "templatePath": "/fixture/mattstack/skills/standup/SKILL.md",
       "placeholders": [],
+      "slots": [],
       "engineError": null
     },
     {
@@ -698,6 +775,7 @@
           "line": 154
         }
       ],
+      "slots": [],
       "engineError": null
     },
     {
@@ -733,6 +811,13 @@
           "line": 144
         }
       ],
+      "slots": [
+        {
+          "name": "domain",
+          "contract": "plan-domain@1",
+          "required": true
+        }
+      ],
       "engineError": null
     },
     {
@@ -748,6 +833,7 @@
           "line": 14
         }
       ],
+      "slots": [],
       "engineError": null
     },
     {
@@ -768,6 +854,7 @@
           "line": 268
         }
       ],
+      "slots": [],
       "engineError": null
     },
     {
@@ -783,6 +870,7 @@
           "line": 14
         }
       ],
+      "slots": [],
       "engineError": null
     },
     {
@@ -798,6 +886,7 @@
           "line": 14
         }
       ],
+      "slots": [],
       "engineError": null
     },
     {
@@ -818,6 +907,7 @@
           "line": 435
         }
       ],
+      "slots": [],
       "engineError": null
     },
     {
@@ -838,6 +928,7 @@
           "line": 499
         }
       ],
+      "slots": [],
       "engineError": null
     }
   ]

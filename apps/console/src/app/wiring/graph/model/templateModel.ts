@@ -121,7 +121,7 @@ type AnatomyPart = SkillsAnatomy['parts'][number];
 type DriftCause = SkillsAnatomy['staleBecause'][number];
 type CheckRow = SkillsCheck['verbs'][number];
 
-type SlotFacts = {
+export type SlotFacts = {
   contract: string | null;
   required: boolean | null;
   boundTo: string | null;
@@ -232,15 +232,22 @@ function variableTitle(name: string): string {
   return name;
 }
 
-function slotFactsFor(
-  anatomy: SkillsAnatomy,
-  composition: SkillsComposition
+/**
+ * What the payload says about each of a skill's slots. A roster verb states
+ * them all; anything else has the slots its template declares and the
+ * binder's bindings, and a binding the template does not declare is known
+ * only by the contract its fill provides.
+ */
+export function slotFactsOf(
+  composition: SkillsComposition,
+  skill: string,
+  ref: string
 ): Map<string, SlotFacts> {
   const facts = new Map<string, SlotFacts>();
   const provides = new Map(
     composition.fills.map(fill => [fill.binding, fill.provides] as const)
   );
-  const verb = composition.verbs.find(v => v.name === anatomy.skill);
+  const verb = composition.verbs.find(v => v.name === skill);
   for (const slot of verb?.slots ?? []) {
     facts.set(slot.name, {
       contract: slot.contract,
@@ -250,7 +257,20 @@ function slotFactsFor(
       layer: slot.layer ?? null,
     });
   }
-  const binder = composition.binders.find(b => b.ref === anatomy.template.ref);
+  const binder = composition.binders.find(b => b.ref === ref);
+  const bound = new Map(binder?.slots.map(slot => [slot.name, slot]));
+  const target = composition.targets?.find(t => t.name === skill);
+  for (const slot of target?.slots ?? []) {
+    if (facts.has(slot.name)) continue;
+    const binding = bound.get(slot.name);
+    facts.set(slot.name, {
+      contract: slot.contract,
+      required: slot.required,
+      boundTo: binding?.boundTo ?? null,
+      resolveError: null,
+      layer: binding?.layer ?? null,
+    });
+  }
   for (const slot of binder?.slots ?? []) {
     if (facts.has(slot.name)) continue;
     facts.set(slot.name, {
@@ -258,7 +278,7 @@ function slotFactsFor(
       required: null,
       boundTo: slot.boundTo,
       resolveError: null,
-      layer: null,
+      layer: slot.layer ?? null,
     });
   }
   return facts;
@@ -314,7 +334,11 @@ export function buildTemplateView(input: {
   const stepOf = stepNumbers(composition, input.workType ?? null);
   const pack = anatomy.pack;
   const textNoun = textNounOf(anatomy);
-  const slotFacts = slotFactsFor(anatomy, composition);
+  const slotFacts = slotFactsOf(
+    composition,
+    anatomy.skill,
+    anatomy.template.ref
+  );
   const { includeUses, fillUses } = usageCounts(composition);
   const checkRows = new Map<string, CheckRow>(
     (check?.verbs ?? []).map(row => [row.name, row] as const)

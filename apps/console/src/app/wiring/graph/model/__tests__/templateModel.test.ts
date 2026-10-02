@@ -797,6 +797,56 @@ describe('who picked a default fill', () => {
   });
 });
 
+describe("a stage's slot facts", () => {
+  const planWith = (
+    binderSlots: SkillsComposition['binders'][number]['slots'],
+    domain: Partial<Part>
+  ) =>
+    buildTemplateView({
+      anatomy: withPart(anatomyPlan, 'domain', domain),
+      composition: {
+        ...composition,
+        binders: composition.binders.map(binder =>
+          binder.ref === 'mattstack:stage-plan'
+            ? { ...binder, slots: binderSlots }
+            : binder
+        ),
+      },
+      check,
+      changes: undefined,
+      step: 2,
+    }).inputs.find(card => card.id === 'slot:domain');
+
+  it('reads required from the slots the template declares', () => {
+    expect(planWith([], { source: null })).toMatchObject({
+      state: 'required-unbound',
+      subtitle: 'required, nothing bound',
+    });
+  });
+
+  it("names who picked a default fill from the binder's layer", () => {
+    const source = {
+      ref: 'mattstack:plan-default',
+      path: '/fixture/mattstack/attachments/plan-default/SKILL.md',
+      version: '0.30.4',
+      builtVersion: '0.30.4',
+      lines: 12,
+    };
+    expect(
+      planWith(
+        [
+          {
+            name: 'domain',
+            boundTo: 'mattstack:plan-default',
+            layer: 'override',
+          },
+        ],
+        { source }
+      )?.subtitle
+    ).toBe('mattstack default · picked by your override');
+  });
+});
+
 describe('card ids', () => {
   const repeated = () => {
     const part = (kind: Part['kind'], name: string) =>

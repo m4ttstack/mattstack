@@ -1694,6 +1694,64 @@ describe('skills bind route', () => {
     });
   });
 
+  it('binds a pipeline stage by the slots its template declares', async () => {
+    const stageComposition = () => ({
+      ...bindComposition(),
+      targets: [
+        {
+          name: 'stage-plan',
+          kind: 'stage',
+          public: false,
+          artifactPath: '/p/attachments/stage-plan/SKILL.md',
+          templatePath: '/s/stage-plan/SKILL.md',
+          placeholders: [{ kind: 'slot', arg: 'domain', line: 20 }],
+          slots: [
+            { name: 'domain', contract: 'watch-ci-domain@1', required: true },
+          ],
+          engineError: null,
+        },
+      ],
+    });
+    const rt = fakeRtHandler(argv => {
+      if (isComposition(argv)) {
+        return {
+          code: 0,
+          stdout: JSON.stringify(stageComposition()),
+          stderr: '',
+        };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const ghostSlot = await postBind(app, {
+      pack: 'demo',
+      verb: 'stage-plan',
+      slot: 'ghost-slot',
+      fill: 'demo:watch-ci-domain-v2',
+    });
+    expect(ghostSlot.status).toBe(400);
+    expect(rt.calls.some(isBind)).toBe(false);
+
+    const res = await postBind(app, {
+      pack: 'demo',
+      verb: 'stage-plan',
+      slot: 'domain',
+      fill: 'demo:watch-ci-domain-v2',
+    });
+
+    expect(res.status).toBe(200);
+    expect(rt.calls.find(isBind)).toEqual([
+      'skills',
+      'bind',
+      'stage-plan',
+      'domain',
+      'demo:watch-ci-domain-v2',
+      '--pack',
+      'demo',
+    ]);
+  });
+
   it('surfaces a non-zero rt exit as 502, carrying rt own stderr -- never a false success', async () => {
     const rt = fakeRtHandler(argv => {
       if (isComposition(argv)) {

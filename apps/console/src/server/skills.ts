@@ -49,7 +49,8 @@ interface SkillsCompositionBinder {
   ref: string;
   verb: string | null;
   kind: 'verb' | 'stage' | 'skill' | 'external';
-  slots: { name: string; boundTo: string }[];
+  /** `layer` is optional because an rt older than the field answers without it. */
+  slots: { name: string; boundTo: string; layer?: string | null }[];
 }
 interface SkillsCompositionFill {
   binding: string;
@@ -67,6 +68,9 @@ interface SkillsCompositionTarget {
   artifactPath: string;
   templatePath: string | null;
   placeholders: { kind: string; arg: string | null; line: number }[];
+  /** The slots the template declares. Optional because an rt older than the
+      field answers without it. */
+  slots?: { name: string; contract: string; required: boolean }[];
   engineError: string | null;
 }
 interface SkillsCompositionResponse {
@@ -985,10 +989,17 @@ export function mountSkills(
         // names reaches an argv -- a name that is not really this pack's is
         // rejected here, never handed to a spawn.
         const verbEntry = composition.verbs.find(v => v.name === verb);
-        if (!verbEntry) {
-          return c.json({ error: `"${verb}" is not in ${pack}'s roster` }, 400);
+        const stageEntry = composition.targets?.find(
+          t => t.kind === 'stage' && t.name === verb
+        );
+        if (!verbEntry && !stageEntry) {
+          return c.json(
+            { error: `"${verb}" is neither in ${pack}'s roster nor a stage` },
+            400
+          );
         }
-        const slotEntry = verbEntry.slots.find(s => s.name === slot);
+        const declared = verbEntry?.slots ?? stageEntry?.slots ?? [];
+        const slotEntry = declared.find(s => s.name === slot);
         if (!slotEntry) {
           return c.json({ error: `"${slot}" is not a slot on "${verb}"` }, 400);
         }
