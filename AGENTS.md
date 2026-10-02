@@ -311,6 +311,18 @@ through `textwrap.SpansWith` with `WordsOnly`. `rt-ui render` reads
 `COLORFGBG` and paints the diff with pale tints on a light background; with no
 `COLORFGBG` it keeps the dark tints.
 
+A verb that prints a report builds it in a pure function that returns blocks
+(`checkBlocks`, `syncBlocks`, `linkBlocks` in `commands/skills*.ts`) and prints
+it with one `out.print`; the tests pin that function through `renderPlain`,
+so no test needs a console spy. A pack author's compile diagnostics (the
+`lib/skills` errors that name a file, a slot and a line) keep their exact
+words, because they also sit inside `--json` values: a `SkillsUsageError`'s
+`message` never changes for the sake of the screen, and wording meant for a
+person goes in its `shown` failure. Any other sentence a person reads takes
+plain copy even when an envelope carries it, with the envelope's keys and
+machine-read values kept. A refusal by policy is `out.note` with a
+`refused` line, never `out.fail`.
+
 ## The TypeScript CLI is UI-free
 
 The rt TS CLI (`commands/`, `lib/`, `cli.ts`, `scripts/`) is pure Bun/TypeScript

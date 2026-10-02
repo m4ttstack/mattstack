@@ -114,6 +114,7 @@ describe("reconcileSkillLinks", () => {
     const result = reconcileSkillLinks({ skillsDir, claudeSkillsDir: claudeDir });
     const byKind = result.actions.map((a) => a.kind).sort();
     expect(byKind).toEqual(["create", "skip"]);
+    expect(result.actions.find((a) => a.kind === "skip")?.detail).toMatch(/^another skill already has this name: /);
   });
 });
 
@@ -185,6 +186,7 @@ describe(".skillsignore", () => {
 
     const result = reconcileSkillLinks({ skillsDir, claudeSkillsDir: claudeDir, ignore: ["rt-release"] });
     expect(result.actions.find((a) => a.name === "rt:release")?.kind).toBe("prune");
+    expect(result.actions.find((a) => a.name === "rt:release")?.detail).toMatch(/^\.skillsignore lists it now: /);
     expect(existsSync(join(claudeDir, "rt:release"))).toBe(false);
     expect(lstatSync(join(claudeDir, "rt:chat")).isSymbolicLink()).toBe(true);
   });

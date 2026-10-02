@@ -22,6 +22,9 @@ import { checkPack, compilePackAll } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 import { materializeSkills, packVerdict, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 
 /**
@@ -80,40 +83,88 @@ export function manifestTarget(args: string[]): { manifest?: string; repo?: stri
 }
 
 export function syncMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[] } {
-  if (r.skipped) return { ok: true, detail: `skipped: ${r.reason}`, warnings: [] };
+  if (r.skipped) return { ok: true, detail: `nothing was written: ${r.reason}`, warnings: [] };
   const warnings = r.repos.flatMap((row) => (row.pruneWarnings ?? []).map((w) => `${row.name}: ${w}`));
   const verdict = packVerdict(r.repos, pack);
   if (verdict.failures.length > 0) return { ok: false, detail: verdict.failures.join("; "), warnings };
-  const others = verdict.warnings.length > 0 ? `; other packs failed: ${verdict.warnings.join("; ")}` : "";
-  return { ok: true, detail: `materialized ${verdict.written} ${pack} pack file${verdict.written === 1 ? "" : "s"}${others}`, warnings };
+  const others = verdict.warnings.length > 0 ? `; these other packs did not: ${verdict.warnings.join("; ")}` : "";
+  return { ok: true, detail: `wrote ${verdict.written} ${pack} bindings file${verdict.written === 1 ? "" : "s"}${others}`, warnings };
 }
 
-function stepLine(step: SyncStep): string {
-  switch (step.status) {
-    case "ran": return `${step.name}: ran (${step.detail})`;
-    case "skipped": return `${step.name}: skipped (${step.detail})`;
-    case "refused": return `${step.name}: refused: ${step.detail}`;
-    case "failed": return `${step.name}: failed: ${step.detail}`;
-  }
-}
+const STEP_TITLE: Record<string, string> = {
+  guards: "Safety checks",
+  "pull-engine": "Pull the engine",
+  "pull-pack": "Pull the pack",
+  "update-engine": "Update the installed engine",
+  materialize: "Rebuild the bindings files",
+  check: "Check for drift",
+  bump: "Bump the pack's version",
+  compile: "Recompile",
+  recheck: "Check again",
+  "commit-push": "Commit and push",
+  "update-pack": "Update the installed pack",
+  "verify-installed": "Verify the installed copy",
+  "cswap-sweep": "Check each account's plugin link",
+};
 
-function renderHuman(report: SyncReport): void {
-  for (const step of report.steps) console.log(stepLine(step));
+const STEP_STATUS: Record<SyncStep["status"], RenderStatus> = { ran: "done", skipped: "skipped", refused: "refused", failed: "failed" };
 
+/** The command that clears a refusal, for the steps whose refusal one command clears. */
+const STEP_NEXT: Record<string, (pack: string) => string> = { check: (pack) => `rt skills check --pack ${pack}` };
+
+const stepTitle = (step: SyncStep): string => STEP_TITLE[step.name] ?? step.name;
+
+const stops = (step: SyncStep): boolean => step.status === "refused" || step.status === "failed";
+
+/** What a person reads on stdout: the steps up to the one that stopped the run, then a summary only when none did. */
+export function syncBlocks(report: SyncReport): Block[] {
+  const stop = report.steps.findIndex(stops);
+  const shown = stop === -1 ? report.steps : report.steps.slice(0, stop);
+  const blocks: Block[] = shown.map((step) => out.line(STEP_STATUS[step.status], stepTitle(step), step.detail));
   const { engine, pack } = report.versions;
-  if (engine.before !== engine.after) console.log(`engine: ${engine.before ?? "unknown"} -> ${engine.after ?? "unknown"}`);
-  if (pack.installedBefore !== pack.installedAfter) console.log(`pack: ${pack.installedBefore ?? "unknown"} -> ${pack.installedAfter ?? "unknown"}`);
+  if (engine.before !== engine.after) blocks.push(out.kv("Engine", `${engine.before ?? "unknown"} -> ${engine.after ?? "unknown"}`));
+  if (pack.installedBefore !== pack.installedAfter) blocks.push(out.kv("Installed pack", `${pack.installedBefore ?? "unknown"} -> ${pack.installedAfter ?? "unknown"}`));
+  for (const warning of report.warnings) blocks.push(out.line("warn", warning));
+  if (stop !== -1) return blocks;
+  if (report.restartNeeded) blocks.push(out.summary("done", "Synced"), out.callout("next", ["Run ", out.cmd("/reload-plugins"), " in any Claude session that is already running"]));
+  else blocks.push(out.summary("done", "Already current"));
+  return blocks;
+}
 
-  for (const warning of report.warnings) console.log(`warning: ${warning}`);
+/**
+ * lib/skills/sync.ts marks these steps `refused` only when a command they ran
+ * failed (git pull, claude plugin update or marketplace update, the compile),
+ * so a person reads them as failures. --json keeps the status sync gave them.
+ */
+const REFUSED_ON_FAILED_COMMAND: ReadonlySet<string> = new Set(["pull-engine", "pull-pack", "update-engine", "compile"]);
 
-  const refusal = report.steps.find((s) => s.status === "refused" || s.status === "failed");
-  if (refusal) {
-    console.log(`${refusal.status === "refused" ? "refused" : "failed"}: ${refusal.detail}`);
-  } else if (report.restartNeeded) {
-    console.log("synced; run /reload-plugins in running Claude sessions to pick up the new caches");
-  } else {
-    console.log("already current");
-  }
+const isPolicyRefusal = (step: SyncStep): boolean => step.status === "refused" && !REFUSED_ON_FAILED_COMMAND.has(step.name);
+
+const textLines = (text: string): string[] => text.split(/\r\n|\r|\n/);
+
+/** A title is one line, so a multi-line message leads with its first line and the rest go below it. */
+function plainFailure(message: string): out.FailureInput {
+  const [title = "", ...rest] = textLines(message);
+  return rest.length > 0 ? { title, details: rest.join("\n") } : { title };
+}
+
+/** A policy refusal, for out.note: rt declining by rule, never a failure. */
+export function syncRefusal(report: SyncReport): Block[] | null {
+  const refused = report.steps.find(isPolicyRefusal);
+  if (!refused) return null;
+  const next = STEP_NEXT[refused.name];
+  return [
+    out.line("refused", `rt did not sync ${report.pack}`, `it stopped at: ${stepTitle(refused)}`),
+    out.callout("why", ...textLines(refused.detail)),
+    ...(next ? [out.callout("next", out.cmd(next(report.pack)))] : []),
+  ];
+}
+
+export function syncFailure(report: SyncReport): out.FailureInput | null {
+  const failed = report.steps.find((s) => s.status === "failed" || (s.status === "refused" && !isPolicyRefusal(s)));
+  if (!failed) return null;
+  const [why = "", ...rest] = textLines(failed.detail);
+  return { title: `The sync stopped at: ${stepTitle(failed)}`, why, ...(rest.length > 0 ? { details: rest.join("\n") } : {}) };
 }
 
 export async function skillsSync(args: string[]): Promise<void> {
@@ -121,22 +172,25 @@ export async function skillsSync(args: string[]): Promise<void> {
   const packFlag = flagValue(args, "--pack");
   const target = manifestTarget(args);
 
-  const fail = (error: string): never => {
-    if (json) console.log(JSON.stringify({ ok: false, error }));
-    else console.error(`rt skills sync: ${error}`);
+  const fail = (error: string, shown?: out.FailureInput): never => {
+    if (json) out.json({ ok: false, error });
+    else out.fail(shown ?? plainFailure(error));
     process.exit(1);
   };
 
   const packs = discoverPacks();
-  if (packs.length === 0) fail("no packs discovered (no directory marketplace plugin carries a surface.jsonc); pass --pack <name>");
+  if (packs.length === 0) {
+    fail("no packs discovered (no directory marketplace plugin carries a surface.jsonc); pass --pack <name>", {
+      title: "No packs found",
+      why: "A pack is a plugin from a directory marketplace that has a surface file.",
+    });
+  }
 
   const pack = packFlag ? packs.find((p) => p.name === packFlag) : packs.length === 1 ? packs[0] : undefined;
   if (!pack) {
-    fail(
-      packFlag
-        ? `no pack named "${packFlag}" (discovered: ${packs.map((p) => p.name).join(", ")})`
-        : `which pack? pass --pack <name> (discovered: ${packs.map((p) => p.name).join(", ")})`,
-    );
+    const names = packs.map((p) => p.name).join(", ");
+    if (packFlag) fail(`no pack named "${packFlag}" (discovered: ${names})`, { title: `No pack is called ${packFlag}`, next: out.cmd("rt skills packs"), details: `Packs here: ${names}` });
+    else fail(`which pack? pass --pack <name> (discovered: ${names})`, usageFailure("Which pack?", "rt skills sync --pack <name>", `There is more than one: ${names}.`));
   }
   const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
   const deps: SyncDeps = {
@@ -160,7 +214,10 @@ export async function skillsSync(args: string[]): Promise<void> {
   const needsInstalled = !packs.some((p) => p.name === "mattstack") && pack!.name !== "mattstack";
   const engineResult = deriveEngine(packs, pack!, needsInstalled ? await installedPlugins(deps) : []);
   if ("error" in engineResult) {
-    fail(engineResult.error);
+    fail(engineResult.error, {
+      title: `rt could not find the mattstack plugin that ${pack!.name} is built on`,
+      why: "Install the mattstack plugin, then run this again.",
+    });
     return;
   }
   const engine = engineResult.engine;
@@ -173,7 +230,15 @@ export async function skillsSync(args: string[]): Promise<void> {
     return;
   }
 
-  if (json) console.log(JSON.stringify(report));
-  else renderHuman(report);
+  if (json) {
+    out.json(report);
+  } else {
+    const blocks = syncBlocks(report);
+    if (blocks.length > 0) out.print(...blocks);
+    const refusal = syncRefusal(report);
+    if (refusal) out.note(...refusal);
+    const failure = syncFailure(report);
+    if (failure) out.fail(failure);
+  }
   if (!report.ok) process.exitCode = 1;
 }
