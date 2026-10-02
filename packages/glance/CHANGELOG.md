@@ -55,8 +55,8 @@
   refuses, sending no request, while its variable is unset, and any refusal
   makes the run exit non-zero.
 - `publishDraftNotes` gives up after 90 seconds (`timeoutMs` overrides it);
-  the other draft-note calls, `fetchReviewerStates` and `fetchDiffRefs` give
-  up after 15 seconds.
+  the other draft-note calls, `fetchReviewerStates`, and `fetchDiffRefs` each
+  give up after 15 seconds.
 
 ## 0.27.0
 
