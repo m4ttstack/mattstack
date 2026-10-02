@@ -114,6 +114,7 @@ export const baseTheme = /* @__PURE__ */ createTheme({
     ScrollArea: { defaultProps: { type: 'auto' } },
     // The whole switch is a click target; the cursor should say so.
     Switch: {
+      classNames: { root: classes.switchRoot, track: classes.switchTrack },
       styles: {
         label: { cursor: 'pointer' },
         track: { cursor: 'pointer' },

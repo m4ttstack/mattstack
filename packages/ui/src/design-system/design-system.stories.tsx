@@ -1,4 +1,13 @@
-import { Badge, Box, Group, Paper, Stack, Text } from '@mantine/core';
+import {
+  Badge,
+  Box,
+  Group,
+  NavLink,
+  Paper,
+  Stack,
+  Switch,
+  Text,
+} from '@mantine/core';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
@@ -66,6 +75,20 @@ function QuietBadges() {
   );
 }
 
+function PanelTones() {
+  return (
+    <Box bg="var(--tk-panel)" p="lg" w={260}>
+      <Stack gap="sm">
+        <Text size="sm">On a panel surface (--tk-panel)</Text>
+        <NavLink label="wash, active" variant="wash" color="accent" active />
+        <NavLink label="light, active (Mantine)" color="accent" active />
+        <Switch variant="contrast" label="contrast switch, off" />
+        <Switch label="default switch, off" />
+      </Stack>
+    </Box>
+  );
+}
+
 export const BgLevels: Story = {
   render: () => <BackgroundLevels />,
 };
@@ -78,4 +101,9 @@ export const TextTokensStory: Story = {
 export const QuietBadgeTones: Story = {
   name: 'Quiet badge tones',
   render: () => <QuietBadges />,
+};
+
+export const PanelTonesStory: Story = {
+  name: 'Wash row and contrast switch',
+  render: () => <PanelTones />,
 };

@@ -72,3 +72,30 @@ describe('quiet tones', () => {
     }
   );
 });
+
+describe('wash tone', () => {
+  it('washes a kit hue behind a label in that hue', () => {
+    const result = variantColorResolver({
+      color: 'accent',
+      theme,
+      variant: 'wash',
+    });
+    expect(result.background).toContain('var(--tk-fill-accent) 10%');
+    expect(result.background).toContain('var(--tk-fill-accent) 20%');
+    expect(result.color).toBe('var(--tk-text-accent)');
+  });
+
+  it('a colour outside the kit hues falls back to the light variant', () => {
+    const wash = variantColorResolver({
+      color: 'gray',
+      theme,
+      variant: 'wash',
+    });
+    const light = variantColorResolver({
+      color: 'gray',
+      theme,
+      variant: 'light',
+    });
+    expect(wash).toEqual(light);
+  });
+});

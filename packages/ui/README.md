@@ -94,6 +94,11 @@ opt-in quiet tones, `variant="quiet"` (raised fill) or
 `variant="quiet-outline"` (card fill with the kit border); Mantine's gray
 `light` fill is the ground itself there.
 
+On a panel surface, a selected `NavLink` can take `variant="wash"` (a thin
+wash of its kit hue behind a label in that hue), and a `Switch` can take
+`variant="contrast"` (an off track that holds against the panel in both
+schemes).
+
 An app that registers its own icon adds a `declare module
 '@mattstack/app-kit/icons' { interface AppIcons { hash: true } }` block in
 a `.d.ts` file that does NOT share a basename with a sibling `.ts` file in

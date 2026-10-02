@@ -244,8 +244,6 @@ function WithRootTabBarTitleAndActionsDemo() {
 
   return (
     <Box h="100vh">
-      {/* Opt-in through `tabBar`: the root-level row spans the sidebar and
-          still carries the page title and actions. */}
       <PageShell
         tabBarHeight={40}
         sidebarWidth={216}

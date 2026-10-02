@@ -4,6 +4,7 @@ import {
   createTheme,
   MantineProvider,
   MantineThemeProvider,
+  Switch,
   Text,
 } from '@mantine/core';
 import { render, screen } from '@testing-library/react';
@@ -78,5 +79,18 @@ describe('disabled default-variant controls', () => {
     expect(icon).toHaveAttribute('data-variant', 'default');
     expect(button).toHaveClass(classes.buttonRoot!);
     expect(button).toHaveAttribute('data-variant', 'default');
+  });
+});
+
+describe('contrast switch', () => {
+  it('carries the kit classes the contrast off-track rule keys on', () => {
+    const { container } = render(
+      <MantineProvider theme={theme}>
+        <Switch variant="contrast" label="Needs attention" />
+      </MantineProvider>
+    );
+    const root = container.querySelector(`.${classes.switchRoot}`);
+    expect(root).toHaveAttribute('data-variant', 'contrast');
+    expect(root!.querySelector(`.${classes.switchTrack}`)).not.toBeNull();
   });
 });

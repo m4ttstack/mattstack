@@ -52,3 +52,12 @@
   color: var(--button-color);
   opacity: 0.5;
 }
+
+/* Switch's `variant="contrast"`: the off track takes the first line step so it
+   holds against a panel surface in both schemes. Mantine puts the variant on
+   the root only, and its checked and disabled rules still win. */
+.switchRoot[data-variant='contrast']
+  input:not(:checked):not(:disabled)
+  + .switchTrack {
+  --switch-bg: var(--tk-line-1);
+}

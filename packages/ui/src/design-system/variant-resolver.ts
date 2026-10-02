@@ -38,6 +38,24 @@ const QUIET_TONES = new Map<string, VariantColorResolverResult>([
   ],
 ]);
 
+/** A kit hue at the given strengths in light and dark, over transparent. */
+const washOf = (hue: string, light: number, dark: number) =>
+  `light-dark(color-mix(in srgb, var(--tk-fill-${hue}) ${light}%, transparent), color-mix(in srgb, var(--tk-fill-${hue}) ${dark}%, transparent))`;
+
+/**
+ * Opt-in `wash` tone for a selected row: a thin wash of a kit hue behind a
+ * label in that hue's text step. A colour outside the kit hues reads as the
+ * `light` variant.
+ */
+function wash(hue: string): VariantColorResolverResult {
+  return {
+    background: washOf(hue, 10, 20),
+    hover: washOf(hue, 14, 26),
+    color: `var(--tk-text-${hue})`,
+    border: `${rem(1)} solid transparent`,
+  };
+}
+
 /**
  * Mantine 9's variant-color hook. Starts from Mantine's `defaultVariantColorsResolver`
  * and overrides only the cases the kit cares about.
@@ -48,11 +66,18 @@ const QUIET_TONES = new Map<string, VariantColorResolverResult>([
  * hue, the label reads the per-hue `--tk-on-fill-<hue>` token instead of
  * Mantine's white/black pick.
  *
- * It also answers the kit's own `quiet` and `quiet-outline` tones above.
+ * It also answers the kit's own `quiet`, `quiet-outline` and `wash` tones
+ * above.
  */
 export const variantColorResolver: VariantColorsResolver = input => {
   const quiet = input.variant ? QUIET_TONES.get(input.variant) : undefined;
   if (quiet) return quiet;
+
+  if (input.variant === 'wash') {
+    return typeof input.color === 'string' && ON_FILL_HUES.has(input.color)
+      ? wash(input.color)
+      : defaultVariantColorsResolver({ ...input, variant: 'light' });
+  }
 
   const base = defaultVariantColorsResolver(input);
 

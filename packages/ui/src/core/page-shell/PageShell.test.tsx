@@ -598,7 +598,7 @@ test('the root tab bar carries tabBar title and actions above the sidebar, full 
   ).toBeTruthy();
 });
 
-test('tabBar keeps the root tab bar and its title while there are no tabs yet', () => {
+test('tabBar keeps the root tab bar and its title, with no empty tablist, while there are no tabs yet', () => {
   renderWithProviders(
     <PageShell tabs={[]} tabBar={{ title: 'Wiring' }}>
       <div>content body</div>
@@ -608,7 +608,7 @@ test('tabBar keeps the root tab bar and its title while there are no tabs yet', 
   expect(
     screen.getByRole('heading', { level: 2, name: 'Wiring' })
   ).toBeTruthy();
-  expect(screen.getByRole('tablist', { name: 'Page tabs' })).toBeTruthy();
+  expect(screen.queryByRole('tablist')).toBeNull();
 });
 
 test('the sidebar subtracts a root tab bar that carries a title from its height', () => {
