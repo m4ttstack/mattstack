@@ -64,7 +64,7 @@ describe("rt intercept, read by a person", () => {
     { command: "vite", repo: "example.com/acme/gadgets", installed: false, current: false },
   ];
 
-  // staleIntercepts()'s own wording (lib/endpoint/shim.ts), not this slice's to change.
+  // staleIntercepts()'s own wording (lib/endpoint/shim.ts).
   const staleReason = "/Users/sample/.mattstack/user/settings.jsonc newer than the cached intercept rules";
 
   test("status: a shim that is not installed yet is pending, never coral", () => {

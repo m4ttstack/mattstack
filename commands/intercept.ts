@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * rt intercept: generic command interception CLI verbs (RT-28 Task 7).
+ * rt intercept: generic command interception CLI verbs.
  *
  *   rt intercept run <command> -- [args...]   hidden verb the shim execs
  *   rt intercept status [--json]              shim + rule health + cache staleness
@@ -57,11 +57,11 @@ async function gitRemote(toplevel: string): Promise<string | null> {
 
 /**
  * Reads just the first 512 bytes of `path` and checks for the generated-shim
- * marker (always on line 2, well inside that window — see
+ * marker (always on line 2, well inside that window, see
  * `renderInterceptShim`). Deliberately a raw partial read, not
  * `readFileSync`, so this stays cheap even against a large real binary: a
  * few bytes off disk, never the whole file. Any read failure (permission,
- * ENOENT between stat and here, a directory) is treated as "not a shim" —
+ * ENOENT between stat and here, a directory) is treated as "not a shim":
  * this is a guard against recursion, not a correctness gate on resolution.
  */
 function looksLikeGeneratedShim(path: string): boolean {

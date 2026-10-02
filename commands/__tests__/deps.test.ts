@@ -150,7 +150,7 @@ describe("rt deps commands", () => {
     expect(untouched.stderr).toBe("[refused] deck is not a link rt made  left as it is\n");
   });
 
-  test("depsReconcile reports nothing to reconcile, then reports an auto-unlink once a user copy appears", async () => {
+  test("depsReconcile reports nothing to tidy, then reports an auto-unlink once a user copy appears", async () => {
     const p = bundleProbe();
     await runCapturingExit(() => depsLink(["gh"], {}, p));
 

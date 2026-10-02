@@ -291,7 +291,6 @@ function setHooksPath(repoRoot: string, dataDir: string): void {
       stdio: "pipe",
     });
   } catch {
-    // Fall back to direct file edit if git CLI unavailable
     out.print(out.line("warn", "Git was not pointed at rt's hook folder", "your choice will not take effect"));
   }
 }
