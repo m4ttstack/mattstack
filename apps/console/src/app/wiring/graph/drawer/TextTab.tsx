@@ -10,7 +10,7 @@ import {
 import { useElementSize } from '@mattstack/app-kit/hooks';
 
 import { useSkillSource } from '../../useWiring';
-import type { DrawerContent } from '../model/drawerContent';
+import { withHeader, type DrawerContent } from '../model/drawerContent';
 import classes from './drawer.module.css';
 
 const PLACEHOLDER = /\{\{[^}]+\}\}/;
@@ -77,7 +77,10 @@ export function TextTab({
     [source.data]
   );
   const highlight = content.highlight[content.view];
-  const bands = beneathPanel ? [] : content.bands;
+  const bands = useMemo(
+    () => (beneathPanel || !lines ? [] : withHeader(content.bands, lines)),
+    [beneathPanel, lines, content.bands]
+  );
   const banded = bands.length > 0;
 
   return (
