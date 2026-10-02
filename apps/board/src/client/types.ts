@@ -197,6 +197,9 @@ export interface BoardData {
   fetchError: string | null;
   local: boolean;
   slackEnabled: boolean;
+  /** Whether auto-doctor (triage) is on for this board; absent on older
+      servers. */
+  triageEnabled?: boolean;
   /** The rt repos whose Code Owner section names carry Slack channels;
       absent on older servers. */
   ownerSlackRepos?: string[];

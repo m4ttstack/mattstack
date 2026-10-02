@@ -1237,6 +1237,7 @@ export function Board() {
   const actionEnv: ActionEnv = {
     local: data.local,
     slackEnabled: data.slackEnabled,
+    triageEnabled: data.triageEnabled,
     ownerSlackRepos: data.ownerSlackRepos,
     self: seat,
     roster: data.members.map(m => m.username),

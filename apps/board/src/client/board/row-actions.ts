@@ -95,6 +95,8 @@ export interface RowAction extends MenuEntry {
 export interface ActionEnv {
   local: boolean;
   slackEnabled: boolean;
+  /** Auto-doctor on for this board; undefined = unknown. */
+  triageEnabled?: boolean;
   /** The rt repos (as stamped on a row's `rtRepo`) whose Code Owner section
       names carry Slack channels; absent means none. */
   ownerSlackRepos?: string[];

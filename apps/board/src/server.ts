@@ -1492,6 +1492,7 @@ const httpServer = Bun.serve({
               !peering.current() &&
               switchboardToken.missing(),
             slackEnabled: !!slackToken,
+            triageEnabled: triageEnabled(),
             ownerSlackRepos: slackToken
               ? config.projects
                   .filter(p => codeownerSlackOn(config, p))
