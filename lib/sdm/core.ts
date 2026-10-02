@@ -90,7 +90,7 @@ export function resourceNeedsAccessRequest(catalogOutput: string, resource: stri
 
 const NOT_AUTHENTICATED: SdmHealth = {
   status: "not-authenticated",
-  message: "StrongDM CLI is not authenticated: run `sdm login` and try again.",
+  message: "Your StrongDM login has expired, or this Mac has not logged in yet.",
 };
 
 export function interpretSdmStatus(
@@ -99,13 +99,13 @@ export function interpretSdmStatus(
   output: string,
 ): SdmHealth {
   if (spawnErrorCode === "ENOENT") {
-    return { status: "not-installed", message: `StrongDM CLI not found. Install it from ${SDM_INSTALL_URL}.` };
+    return { status: "not-installed", message: `The StrongDM CLI is not installed. Install it from ${SDM_INSTALL_URL}.` };
   }
   if (spawnErrorCode === "ETIMEDOUT") {
-    return { status: "error", message: "StrongDM CLI did not respond in time." };
+    return { status: "error", message: "StrongDM did not answer in time." };
   }
   if (spawnErrorCode) {
-    return { status: "error", message: `Error running sdm (${spawnErrorCode}).` };
+    return { status: "error", message: `The StrongDM CLI could not start (${spawnErrorCode}).` };
   }
   const lower = output.toLowerCase();
   const loggedOutText =
@@ -114,7 +114,7 @@ export function interpretSdmStatus(
     if (loggedOutText || /\blog ?in\b/.test(lower)) return NOT_AUTHENTICATED;
     return {
       status: "error",
-      message: output.trim().slice(0, 200) || `sdm status exited with code ${exitCode}.`,
+      message: output.trim().slice(0, 200) || `The StrongDM CLI stopped with exit code ${exitCode}.`,
     };
   }
   // A logged-out CLI can exit 0 with a banner; the table header is the
@@ -178,6 +178,31 @@ export function sdmEnv(): NodeJS.ProcessEnv {
   return { ...process.env, PATH: `${extra}:${process.env.PATH ?? ""}` };
 }
 
+/**
+ * Whole lines from one child stream. A pipe chunk can end mid-line, and so
+ * mid auth token, so a line is handed on only once its newline arrives;
+ * flush() hands on the unterminated rest when the stream ends.
+ */
+function lineReader(onLine: (line: string) => void): { push(chunk: string): void; flush(): void } {
+  let rest = "";
+  const emit = (line: string): void => {
+    const trimmed = line.trim();
+    if (trimmed) onLine(trimmed);
+  };
+  return {
+    push(chunk) {
+      const parts = (rest + chunk).split("\n");
+      rest = parts.pop() ?? "";
+      for (const part of parts) emit(part);
+    },
+    flush() {
+      const last = rest;
+      rest = "";
+      emit(last);
+    },
+  };
+}
+
 export interface RunSdmResult {
   ok: boolean;
   output: string;
@@ -211,6 +236,7 @@ export function runSdmCommand(
           proc.kill(9); // SIGKILL
           // Safeguard: if process doesn't exit within 1s, force settle
           killTimer = setTimeout(() => {
+            flush();
             settle({
               ok: false,
               output,
@@ -222,30 +248,40 @@ export function runSdmCommand(
         }, opts.timeoutMs)
       : null;
     let output = "";
-    const handle = (d: Buffer) => {
-      const s = String(d);
-      output += s;
-      for (const line of s.split("\n")) if (line.trim()) onLine(line.trim());
+    const readers = [lineReader(onLine), lineReader(onLine)] as const;
+    const flush = () => {
+      for (const r of readers) r.flush();
     };
-    proc.stdout?.on("data", handle);
-    proc.stderr?.on("data", handle);
-    proc.on("error", err =>
+    // A multi-byte character can straddle two chunks; the stream's own decoder holds its first bytes back.
+    proc.stdout?.setEncoding("utf8");
+    proc.stderr?.setEncoding("utf8");
+    proc.stdout?.on("data", (d: string) => {
+      output += d;
+      readers[0].push(d);
+    });
+    proc.stderr?.on("data", (d: string) => {
+      output += d;
+      readers[1].push(d);
+    });
+    proc.on("error", err => {
+      flush();
       settle({
         ok: false,
         output,
         spawnErrorCode: (err as NodeJS.ErrnoException).code ?? "EUNKNOWN",
         exitCode: null,
-      }),
-    );
-    proc.on("close", code =>
+      });
+    });
+    proc.on("close", code => {
+      flush();
       settle({
         ok: code === 0 && !timedOut,
         output,
         timedOut,
         spawnErrorCode: timedOut ? "ETIMEDOUT" : null,
         exitCode: code,
-      }),
-    );
+      });
+    });
   });
 }
 
@@ -323,7 +359,7 @@ export async function requestAccess(
     { timeoutMs: SDM_ACCESS_TIMEOUT_MS },
   );
   if (!r.ok) {
-    return { ok: false, error: `Access request failed: ${r.output.trim() || "unknown error"}`, code: classifySdmFailure(r.output) };
+    return { ok: false, error: r.output.trim() || "StrongDM gave no reason.", code: classifySdmFailure(r.output) };
   }
   invalidateSdmSnapshotCache();
   invalidateSdmCatalogCache();
@@ -359,7 +395,7 @@ export async function connectResourceWith(
     r = await attempt();
   }
   if (!r.ok && !r.output.includes("already connected")) {
-    return { ok: false, error: `Connect failed: ${r.output.trim() || "unknown error"}`, code: classifySdmFailure(r.output) };
+    return { ok: false, error: r.output.trim() || "StrongDM gave no reason.", code: classifySdmFailure(r.output) };
   }
   invalidateSdmSnapshotCache();
   return { ok: true };
@@ -407,7 +443,7 @@ export function runSdmLoginInteractive(
       const code = (err as NodeJS.ErrnoException).code ?? "EUNKNOWN";
       settle({
         ok: false,
-        output: code === "ENOENT" ? `StrongDM CLI not found. Install it from ${SDM_INSTALL_URL}.` : `Error running sdm (${code}).`,
+        output: code === "ENOENT" ? `The StrongDM CLI is not installed. Install it from ${SDM_INSTALL_URL}.` : `The StrongDM CLI could not start (${code}).`,
         spawnErrorCode: code,
         exitCode: null,
       });
@@ -434,10 +470,10 @@ export async function loginSdmWith(
   if (result.timedOut) {
     return {
       ok: false,
-      error: "Login timed out. Complete the SAML flow in your browser, or run `sdm login` in a terminal.",
+      error: "The login timed out before your browser finished it.",
     };
   }
-  return { ok: false, error: `Login failed: ${result.output.trim() || "the sdm CLI reported the details above"}` };
+  return { ok: false, error: result.output.trim() || "StrongDM printed the reason above." };
 }
 
 /** Run `sdm login` interactively in the user's terminal; sdm opens the browser for SAML. */
@@ -469,7 +505,8 @@ export interface LoginUrlCapture {
  * dedicated profile instead); SDM_EMAIL skips the email prompt and a piped
  * newline accepts the App Domain default. urlPromise resolves when sdm prints
  * the auth URL; donePromise resolves when sdm exits (after the browser reaches
- * auth/complete). Nothing here logs the URL or email.
+ * auth/complete). The auth url's token is redacted by the caller's onLine;
+ * nothing else this prints is secret.
  */
 export function startLoginCapture(
   email: string | null,
@@ -499,31 +536,40 @@ export function startLoginCapture(
   let urlSeen = false;
   let output = "";
 
-  const handle = (d: Buffer) => {
-    const s = String(d);
-    output += s;
-    for (const line of s.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      onLine(trimmed);
-      if (!urlSeen) {
-        const u = AUTH_URL_RE.exec(trimmed)?.[1];
-        if (u) {
-          urlSeen = true;
-          resolveUrl(u);
-        }
+  const handleLine = (line: string) => {
+    onLine(line);
+    if (!urlSeen) {
+      const u = AUTH_URL_RE.exec(line)?.[1];
+      if (u) {
+        urlSeen = true;
+        resolveUrl(u);
       }
     }
   };
-  proc.stdout?.on("data", handle);
-  proc.stderr?.on("data", handle);
+  const readers = [lineReader(handleLine), lineReader(handleLine)] as const;
+  const flush = () => {
+    for (const r of readers) r.flush();
+  };
+  // A multi-byte character can straddle two chunks; the stream's own decoder holds its first bytes back.
+  proc.stdout?.setEncoding("utf8");
+  proc.stderr?.setEncoding("utf8");
+  proc.stdout?.on("data", (d: string) => {
+    output += d;
+    readers[0].push(d);
+  });
+  proc.stderr?.on("data", (d: string) => {
+    output += d;
+    readers[1].push(d);
+  });
 
   const donePromise = new Promise<RunSdmResult>(resolve => {
     proc.on("error", err => {
+      flush();
       if (!urlSeen) rejectUrl(err as Error);
       resolve({ ok: false, output: String(err), spawnErrorCode: (err as NodeJS.ErrnoException).code ?? "EUNKNOWN", exitCode: null });
     });
     proc.on("close", code => {
+      flush();
       rmSync(shimDir, { recursive: true, force: true });
       if (!urlSeen) rejectUrl(new Error("sdm login exited before printing an auth URL"));
       resolve({ ok: code === 0, output, spawnErrorCode: null, exitCode: code });

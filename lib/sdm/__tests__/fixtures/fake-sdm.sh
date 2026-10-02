@@ -4,10 +4,12 @@
 #   fail    -> prints error text to stderr, exit 1
 #   sleep   -> sleeps 5s (for timeout tests)
 #   status  -> prints a healthy status table, exit 0
+#   split-utf8 -> writes one two-byte character across two pipe chunks, exit 0
 case "$1" in
   ok) echo "line one"; echo "line two"; exit 0 ;;
   fail) echo "boom: access denied to resource" >&2; exit 1 ;;
   sleep) sleep 5; exit 0 ;;
   status) printf "DATASOURCE  STATUS  ADDRESS\nexample-shared-dev  connected  127.0.0.1:15432\n"; exit 0 ;;
+  split-utf8) printf 'caf\xc3'; sleep 0.3; printf '\xa9 ready\n'; exit 0 ;;
   *) exit 64 ;;
 esac

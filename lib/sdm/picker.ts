@@ -18,25 +18,24 @@ export const TIER_LABELS: Record<string, string> = {
 
 const TIER_ORDER = ["development", "qa", "staging", "production"];
 
-const TIER_COLOR: Record<string, string> = {
-  development: "\x1b[32m",
-  qa: "\x1b[35m",
-  staging: "\x1b[33m",
-  production: "\x1b[31m",
+const TIER_TONE: Record<string, string> = {
+  development: "mint",
+  qa: "pink",
+  staging: "peach",
+  production: "coral",
 };
 
 const MAX_RECENT_ROWS = 3;
 
-// Bright blue for a live tunnel, distinct from the tier palette (green/magenta/
-// yellow/red), so a connected row pops. Applied as the whole-row color.
-const CONNECTED_COLOR = "\x1b[94m";
+// Distinct from every tier tone, so a live tunnel reads as its own state.
+const CONNECTED_TONE = "blue";
 
 /**
  * Left gutter marks connection state at a glance: a filled dot = a live tunnel
  * right now, a check = standing access (connect with no access request),
  * blank = on-demand (connecting will prompt for an access request). Kept as
- * plain text (no inline ANSI) so the picker's column alignment stays correct;
- * the blue comes from the row color.
+ * plain text so the picker's column alignment stays correct; the row's tone
+ * carries the state.
  */
 function row(
   key: string, label: string, sdmResource: string, tier: string | undefined,
@@ -47,7 +46,7 @@ function row(
     value: key,
     label: `${gutter}${label}`,
     hint: tier ? `${sdmResource}  ${tier}` : sdmResource,
-    color: connected ? CONNECTED_COLOR : (tier ? TIER_COLOR[tier] : undefined),
+    tone: connected ? CONNECTED_TONE : (tier ? TIER_TONE[tier] : undefined),
   };
 }
 

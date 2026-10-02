@@ -1,10 +1,12 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { enrichmentCmd, enrichmentSkeleton } from "../../../commands/sdm.ts";
 import { enrichmentPath, stripJsonc } from "../enrichment.ts";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, realpathSync } from "fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join, dirname } from "path";
 import { teamSettingsPath } from "../../rt-paths.ts";
+import * as out from "../../ui/out.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
 
 function writeStore(file: string, obj: unknown): void {
   mkdirSync(dirname(file), { recursive: true });
@@ -36,31 +38,44 @@ describe("enrichmentSkeleton", () => {
 });
 
 describe("enrichmentCmd init: scaffold refusal when the team store owns rt.sdmEnrichment", () => {
-  let originalLog: typeof console.log;
-  let logs: string[];
+  let io: ReturnType<typeof captureOut>;
 
   beforeEach(() => {
     // Store-owned returns before ever reaching the network scan, so this
-    // needs no daemon/StrongDM stubbing — just an isolated HOME.
+    // needs no daemon or StrongDM stubbing, just an isolated HOME.
     process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "enr-cmd-home-")));
-    logs = [];
-    originalLog = console.log;
-    console.log = (...args: unknown[]) => { logs.push(args.join(" ")); };
+    io = captureOut();
+    io.reset();
+    out.__test__.setHuman(() => false);
   });
 
   afterEach(() => {
-    console.log = originalLog;
+    io.restore();
   });
 
-  test("prints a note naming the file it would otherwise write, and never scaffolds it", async () => {
+  test("says the team already labels them, names the file it would otherwise write, and never scaffolds it", async () => {
     writeStore(teamSettingsPath("acme"), { "rt.sdmEnrichment": { "res-a": { label: "A" } } });
     const path = enrichmentPath();
 
     await enrichmentCmd(["init"]);
 
     expect(existsSync(path)).toBe(false);
-    const output = logs.join("\n");
-    expect(output).toContain(path);
-    expect(output).toContain("team store");
+    expect(io.stdout()).toBe(`[skipped] Your team's settings already label these connections  rt did not create a labels file\nfile: ${path}\n`);
+    expect(io.stderr()).toBe("");
+  });
+
+  test("an existing labels file is a refusal on stderr, never a failure, and the file is left alone", async () => {
+    const path = enrichmentPath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, "{ \"mine\": {} }\n");
+    try {
+      await enrichmentCmd(["init"]);
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe(`[refused] Your labels file already exists\nfile: ${path}\n`);
+      expect(process.exitCode).toBe(1);
+      expect(readFileSync(path, "utf8")).toBe("{ \"mine\": {} }\n");
+    } finally {
+      process.exitCode = 0;
+    }
   });
 });

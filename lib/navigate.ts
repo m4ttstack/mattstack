@@ -14,8 +14,8 @@ export interface NavOption {
   value: string;
   label: string;
   hint?: string;
-  /** Optional ANSI SGR color escape (e.g. "\x1b[36m") applied to label + hint. */
-  color?: string;
+  /** A picker tone for the row, by name (PickSegment's tone vocabulary). */
+  tone?: string;
   /** Marks this option as a visual separator. The cursor skips over it and selecting it re-shows the picker. */
   separator?: boolean;
 }

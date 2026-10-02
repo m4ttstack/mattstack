@@ -1,9 +1,12 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { loadEnrichment, stripJsonc } from "../enrichment.ts";
 import { mkdtempSync, writeFileSync, mkdirSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join, dirname } from "path";
 import { teamSettingsPath } from "../../rt-paths.ts";
+import * as out from "../../ui/out.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
+import { setWarningLog, __test__ as warnings } from "../../ui/warn.ts";
 
 function writeStore(file: string, obj: unknown): void {
   mkdirSync(dirname(file), { recursive: true });
@@ -52,5 +55,59 @@ describe("loadEnrichment", () => {
     writeStore(teamSettingsPath("acme"), { "rt.sdmEnrichment": ["nope"] });
 
     expect(loadEnrichment(p)).toEqual({ "acme-db-qa": { label: "from file" } });
+  });
+});
+
+describe("enrichment warnings", () => {
+  let logged: Array<{ module: string; message: string; context: Record<string, unknown> }>;
+  let io: ReturnType<typeof captureOut>;
+
+  beforeEach(() => {
+    process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "enr-warn-home-")));
+    warnings.reset();
+    logged = [];
+    setWarningLog((module, message, context) => logged.push({ module, message, context }));
+    io = captureOut();
+    out.__test__.setHuman(() => false);
+  });
+  afterEach(() => {
+    io.restore();
+    warnings.reset();
+  });
+
+  test("a file that will not parse is logged with its path and shown once, without the path", () => {
+    const dir = mkdtempSync(join(tmpdir(), "enr-warn-"));
+    const p = join(dir, "e.jsonc");
+    writeFileSync(p, "{ not json");
+
+    expect(loadEnrichment(p)).toEqual({});
+    expect(loadEnrichment(p)).toEqual({});
+
+    expect(logged).toHaveLength(2);
+    expect(logged[0]!.module).toBe("sdm");
+    expect(logged[0]!.message.startsWith(`failed to parse ${p}, ignoring enrichment file: `)).toBe(true);
+    expect(logged[0]!.context).toMatchObject({ path: p });
+    expect(io.stderr()).toBe("[warning] Your sdm enrichment file could not be read  rt is ignoring it\n");
+    expect(io.stdout()).toBe("");
+  });
+
+  test("a setting the store cannot resolve is logged and shown with the command that finds it", () => {
+    writeStore(teamSettingsPath("acme"), { "rt.sdmEnrichment": { "acme-db-qa": { label: "${team:../x}" } } });
+
+    expect(loadEnrichment(join(tmpdir(), "no-such-enrichment.jsonc"))).toEqual({});
+
+    expect(logged[0]!.module).toBe("sdm");
+    expect(logged[0]!.message.startsWith('ignoring "rt.sdmEnrichment" -- ')).toBe(true);
+    const shown = io.stderr();
+    expect(shown.startsWith("[warning] Your sdm enrichment setting is being ignored  ")).toBe(true);
+    expect(shown.endsWith("\n  next: rt settings check\n")).toBe(true);
+    expect(shown.split("\n")).toHaveLength(3);
+    expect(io.stdout()).toBe("");
+  });
+
+  test("a missing file is no warning at all", () => {
+    expect(loadEnrichment(join(tmpdir(), "no-such-enrichment.jsonc"))).toEqual({});
+    expect(logged).toEqual([]);
+    expect(io.stderr()).toBe("");
   });
 });

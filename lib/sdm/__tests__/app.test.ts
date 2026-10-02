@@ -68,7 +68,7 @@ describe("ensureSdmApp", () => {
     });
     const r = await ensureSdmApp(() => {}, deps);
     expect(r.ok).toBe(false);
-    expect(r.error).toContain("launch");
+    expect(r.error).toBe("macOS could not open the StrongDM app.");
   });
 
   test("app never becomes ready: times out with a clear error", async () => {
@@ -78,6 +78,6 @@ describe("ensureSdmApp", () => {
     });
     const r = await ensureSdmApp(() => {}, deps);
     expect(r.ok).toBe(false);
-    expect(r.error).toContain("did not become ready");
+    expect(r.error).toBe("The StrongDM app opened but was not ready after 15 seconds.");
   });
 });
