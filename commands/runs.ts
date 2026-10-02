@@ -252,5 +252,5 @@ export async function runsAbandon(args: string[]): Promise<void> {
   const res = await daemonQuery("runs:abandon", { runId, repo, reason });
   if (!res) fail(NO_DAEMON);
   if (!res.ok) fail({ title: "Could not abandon that run", why: res.error });
-  out.print(out.line("done", `Marked ${runId} abandoned`));
+  out.print(out.line("done", "Marked the run abandoned", runId));
 }

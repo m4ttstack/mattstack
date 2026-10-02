@@ -382,7 +382,7 @@ describe("rt runs --repo identity resolution", () => {
     installFakeDaemon({ ok: true, data: {} });
     const done = await runExpectingCleanExit(() => runsAbandon(["20260821-010101-aaaa"]));
     expect(done.exitCode).toBeUndefined();
-    expect(done.logs).toEqual(["[ok] Marked 20260821-010101-aaaa abandoned"]);
+    expect(done.logs).toEqual(["[ok] Marked the run abandoned  20260821-010101-aaaa"]);
   });
 
   // Regression: an ambiguous selector must never fall through to the
