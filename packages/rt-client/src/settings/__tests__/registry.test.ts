@@ -9,6 +9,7 @@ import { readFileSync } from "fs";
 import { allDefs, getDef, isMigrated, isRetiredKey, validateValue, type SettingDef } from "../registry-machinery.ts";
 import type { JsonSchema } from "../schema.ts";
 import { SCHEMAS } from "../registry-schemas.ts";
+import { checkSchema } from "../schema.ts";
 import { chainProblem } from "../migrate.ts";
 import { MIGRATION_STEPS, RENAMES } from "../migrations/index.ts";
 
@@ -73,7 +74,7 @@ describe("settings/registry", () => {
     test("rt.logRetentionDays is a machine+user number, default 14 (a fresh key, not a latch port)", () => {
       const def = getDef("rt.logRetentionDays");
 
-      expect(def?.scopes.sort()).toEqual(["machine", "user"]);
+      expect([...def!.scopes].sort()).toEqual(["machine", "user"]);
       expect(def?.type).toBe("number");
       expect(def?.merge).toBe("replace");
       expect(def?.default).toBe(14);
@@ -108,7 +109,7 @@ describe("settings/registry", () => {
       const def = getDef("skills.writingStyle");
       expect(def).toBeDefined();
       expect(def!.type).toBe("string");
-      expect(def!.scopes).toEqual(["user", "team"]);
+      expect(def!.scopes).toEqual(["user", "team", "org"]);
       expect(def!.merge).toBe("replace");
       expect(def!.default).toBeUndefined();
     });
@@ -136,7 +137,7 @@ describe("settings/registry", () => {
     test("rt.worktreeApp is a team+user+machine field-bag object defaulting to off", () => {
       const def = getDef("rt.worktreeApp");
 
-      expect(def?.scopes).toEqual(["team", "user", "machine"]);
+      expect(def?.scopes).toEqual(["team", "org", "user", "machine"]);
       expect(def?.type).toBe("object");
       expect(def?.merge).toBe("deep");
       expect(def?.default).toEqual({ enabled: false, killProcesses: true });
@@ -145,7 +146,7 @@ describe("settings/registry", () => {
     test("rt.sdmEnrichment is a TEAM-ONLY map with no default (ownership latch, employer-resource invariant)", () => {
       const def = getDef("rt.sdmEnrichment");
 
-      expect(def?.scopes).toEqual(["team"]);
+      expect(def?.scopes).toEqual(["team", "org"]);
       expect(def?.type).toBe("object");
       expect(def?.merge).toBe("replace");
       expect(def?.default).toBeUndefined();
@@ -154,7 +155,7 @@ describe("settings/registry", () => {
     test("board.reReview is a user+team gate defaulting enabled (a fresh key, not a latch port)", () => {
       const def = getDef("board.reReview");
 
-      expect(def?.scopes.sort()).toEqual(["team", "user"]);
+      expect([...def!.scopes].sort()).toEqual(["org", "team", "user"]);
       expect(def?.type).toBe("object");
       expect(def?.merge).toBe("deep");
       expect(def?.default).toEqual({ enabled: true });
@@ -170,7 +171,7 @@ describe("settings/registry", () => {
     test("repoScoped keys allow all three scopes", () => {
       for (const def of allDefs()) {
         if (!def.repoScoped) continue;
-        expect(def.scopes.sort()).toEqual(["machine", "team", "user"]);
+        expect([...def.scopes].sort()).toEqual(["machine", "org", "team", "user"]);
       }
     });
 
@@ -275,7 +276,7 @@ describe("settings/registry", () => {
     test("rt.hooks is a repo-scoped field-bag object with no default (ownership latch, per-hook-name fields too)", () => {
       const def = getDef("rt.hooks");
       expect(def?.repoScoped, "rt.hooks should be repoScoped:true").toBe(true);
-      expect(def?.scopes.sort()).toEqual(["machine", "team", "user"]);
+      expect([...def!.scopes].sort()).toEqual(["machine", "org", "team", "user"]);
       expect(def?.type).toBe("object");
       expect(def?.merge).toBe("deep");
       expect(def?.default).toBeUndefined();
@@ -311,6 +312,8 @@ describe("settings/registry", () => {
         "mattstack.appPath",
         "setup.waived",
         "mattstack.roster",
+        "mattstack.org",
+        "mattstack.activeTeam",
         "claude.marketplaces",
         "claude.plugins",
         "deck.apps",
@@ -389,7 +392,7 @@ describe("settings/registry", () => {
         "herd.watchdog.midRunTrustAccept",
         "panes.relocationAutoAccept",
       ];
-      expect(suiteKeys).toHaveLength(82);
+      expect(suiteKeys).toHaveLength(84);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
@@ -438,12 +441,12 @@ describe("settings/registry", () => {
       // The ruling this pins: board.members stays team-only array/replace —
       // widening it to user scope would let a personal store shadow the
       // whole team roster instead of just hiding entries from it.
-      expect(members?.scopes).toEqual(["team"]);
+      expect(members?.scopes).toEqual(["team", "org"]);
     });
 
     test("scope spot-checks: deck.access is user-only, board.gitlabHost is team-only, gitq.forges is user-only, mattstack.appPath is machine-only", () => {
       expect(getDef("deck.access")?.scopes).toEqual(["user"]);
-      expect(getDef("board.gitlabHost")?.scopes).toEqual(["team"]);
+      expect(getDef("board.gitlabHost")?.scopes).toEqual(["team", "org"]);
       expect(getDef("gitq.forges")?.scopes).toEqual(["user"]);
       expect(getDef("mattstack.appPath")?.scopes).toEqual(["machine"]);
     });
@@ -451,7 +454,7 @@ describe("settings/registry", () => {
     test("claude.marketplaces and claude.plugins are user+team arrays with replace merge", () => {
       for (const key of ["claude.marketplaces", "claude.plugins"]) {
         const def = getDef(key)!;
-        expect(def.scopes.sort()).toEqual(["team", "user"]);
+        expect([...def.scopes].sort()).toEqual(["org", "team", "user"]);
         expect(def.type).toBe("array");
         expect(def.merge).toBe("replace");
       }
@@ -578,5 +581,41 @@ describe("migrations in the registry", () => {
       expect(getDef(old)).toBeUndefined();
       expect(isRetiredKey(old)).toBe(false);
     }
+  });
+});
+
+describe("org scope", () => {
+  test("every key a team may set, the org may set too", () => {
+    for (const def of allDefs()) {
+      if (def.scopes.includes("team")) expect(def.scopes).toContain("org");
+    }
+  });
+
+  test("a key's first scope is unchanged, so the apps keep grouping it where they did", () => {
+    expect(getDef("board.title")?.scopes).toEqual(["team", "org"]);
+    expect(getDef("rt.roles")?.scopes).toEqual(["user", "team", "org", "machine"]);
+    expect(getDef("claude.plugins")?.scopes).toEqual(["user", "team", "org"]);
+  });
+
+  test("the roster and the roles are org only", () => {
+    expect(getDef("mattstack.roster")?.scopes).toEqual(["org"]);
+    expect(getDef("mattstack.org")?.scopes).toEqual(["org"]);
+  });
+
+  test("the active team is a user setting", () => {
+    expect(getDef("mattstack.activeTeam")?.scopes).toEqual(["user"]);
+    expect(getDef("mattstack.activeTeam")?.type).toBe("string");
+  });
+
+  test("a roster entry may carry teams", () => {
+    const def = getDef("mattstack.roster")!;
+    expect(checkSchema(def, [{ username: "dev1", teams: ["widgets"] }], { layer: false })).toEqual([]);
+    expect(checkSchema(def, [{ username: "dev1", teams: "widgets" }], { layer: false }).length).toBeGreaterThan(0);
+  });
+
+  test("roles need admins and teams with owners", () => {
+    const def = getDef("mattstack.org")!;
+    expect(checkSchema(def, { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, { layer: false })).toEqual([]);
+    expect(checkSchema(def, { admins: "dev1", teams: {} }, { layer: false }).length).toBeGreaterThan(0);
   });
 });
