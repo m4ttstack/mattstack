@@ -163,6 +163,10 @@ been closed`), open one with `browser_tabs` `{ "action": "new", "url":
 }
 ```
 
+Fast Browser loads a `filename` only from under `~/.fast-browser/output` or the
+session's working directory, so a run from a worktree first copies
+`scripts/parity/run.js` under `~/.fast-browser/output/` and passes that path.
+
 It sets a `1680 x 1040` viewport and the scheme, opens the design export,
 corrects it, and collects every root. Then it opens the app, sets the scheme
 in localStorage, loads the board's route, disables transitions and
