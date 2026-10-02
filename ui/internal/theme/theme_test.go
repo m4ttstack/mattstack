@@ -165,10 +165,59 @@ func TestLightDiffTintsArePaleAndKeepTheirHue(t *testing.T) {
 	}
 }
 
+func TestStaticTonesReadOnALightAndADarkBackground(t *testing.T) {
+	for name, c := range map[string]struct {
+		tone color.Color
+		min  float64
+	}{
+		"StaticMint":  {StaticMint, 3.5},
+		"StaticCoral": {StaticCoral, 3.5},
+		"StaticPeach": {StaticPeach, 3.5},
+		"StaticCyan":  {StaticCyan, 3.5},
+		"StaticLav":   {StaticLav, 4},
+		"StaticQuiet": {StaticQuiet, 4},
+	} {
+		for ground, bg := range map[string]color.Color{"light": paper, "dark": Bg} {
+			if got := contrast(relLuminance(c.tone), relLuminance(bg)); got < c.min {
+				t.Errorf("%s on a %s background is %.2f:1, under %.1f:1", name, ground, got, c.min)
+			}
+		}
+	}
+}
+
+func TestStaticPeachIsNotMistakenForStaticCoral(t *testing.T) {
+	d := math.Abs(hue(StaticPeach) - hue(StaticCoral))
+	if d = math.Min(d, 360-d); d < 25 {
+		t.Fatalf("peach and coral sit %.0f degrees apart: a warning would read as a failure", d)
+	}
+}
+
+func hue(c color.Color) float64 {
+	r, g, b, _ := c.RGBA()
+	rf, gf, bf := float64(r>>8)/255, float64(g>>8)/255, float64(b>>8)/255
+	hi, lo := math.Max(rf, math.Max(gf, bf)), math.Min(rf, math.Min(gf, bf))
+	if hi == lo {
+		return 0
+	}
+	var h float64
+	switch hi {
+	case rf:
+		h = math.Mod((gf-bf)/(hi-lo), 6)
+	case gf:
+		h = (bf-rf)/(hi-lo) + 2
+	default:
+		h = (rf-gf)/(hi-lo) + 4
+	}
+	if h *= 60; h < 0 {
+		h += 360
+	}
+	return h
+}
+
 func TestStaticRuleReadsOnDarkAndOnLight(t *testing.T) {
 	rule := relLuminance(StaticRule)
-	if c := contrast(rule, relLuminance(Bg)); c < 3 {
-		t.Fatalf("StaticRule on a dark background is %.2f:1, under 3:1", c)
+	if c := contrast(rule, relLuminance(Bg)); c < 3.5 {
+		t.Fatalf("StaticRule on a dark background is %.2f:1, under 3.5:1", c)
 	}
 	if c := contrast(rule, relLuminance(lipgloss.Color("#FFFFFF"))); c < 4.5 {
 		t.Fatalf("StaticRule on a light background is %.2f:1, under 4.5:1", c)

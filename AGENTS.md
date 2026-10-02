@@ -209,7 +209,11 @@ Five rules cost the most when broken:
   the theme lives in `ui/internal/theme` and nowhere else.
 - **Body text takes the terminal's own foreground.** Only accents (glyphs,
   callout labels, keys, hints, rails) use theme colors, so output reads on a
-  light terminal as well as a dark one. Never give body text a fixed color.
+  light terminal as well as a dark one. Those accents come from the `Static*`
+  tones in `ui/internal/theme`, one palette for both backgrounds; a new accent
+  for static output is a new `Static*` tone that passes
+  `TestStaticTonesReadOnALightAndADarkBackground`, never a branch on the
+  background. Never give body text a fixed color.
 
 Plain output collapses newlines and tabs in single-line fields (titles,
 hints, cells, labels) to a space and indents paragraph lines two spaces, so

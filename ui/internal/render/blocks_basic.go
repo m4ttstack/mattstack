@@ -69,11 +69,11 @@ func (r *renderer) lineRun(run []protocol.Block) {
 func calloutColor(label string) color.Color {
 	switch label {
 	case "next", "fix":
-		return theme.Peach
+		return theme.StaticPeach
 	case "why":
-		return theme.Dimmer
+		return theme.StaticQuiet
 	}
-	return theme.Lav
+	return theme.StaticLav
 }
 
 func (r *renderer) callout(b protocol.Block) {
@@ -128,7 +128,7 @@ func (r *renderer) summary(b protocol.Block) {
 }
 
 func (r *renderer) banner(b protocol.Block) {
-	s := indent + fg(theme.Coral).Bold(true).Render(theme.GlyphBar+" "+Clean(b.Label)) + " " + strongStyle.Render(Clean(b.Subject))
+	s := indent + fg(theme.StaticCoral).Bold(true).Render(theme.GlyphBar+" "+Clean(b.Label)) + " " + strongStyle.Render(Clean(b.Subject))
 	if b.Hint != "" {
 		s += "  " + faintStyle.Render(Clean(b.Hint))
 	}
@@ -157,10 +157,10 @@ func (r *renderer) failure(b protocol.Block) {
 		}
 	}
 	if b.Why != "" {
-		r.calloutLines(theme.Dimmer, "why", []protocol.Cell{{{Text: b.Why}}})
+		r.calloutLines(theme.StaticQuiet, "why", []protocol.Cell{{{Text: b.Why}}})
 	}
 	if len(b.Next) > 0 {
-		r.calloutLines(theme.Peach, "next", []protocol.Cell{b.Next})
+		r.calloutLines(theme.StaticPeach, "next", []protocol.Cell{b.Next})
 	}
 	if b.Details != "" {
 		r.gap()

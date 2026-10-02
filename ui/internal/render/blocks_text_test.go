@@ -11,6 +11,8 @@ import (
 	"rt-ui/internal/render"
 )
 
+const missionCoral = "255;121;121"
+
 func TestParagraphWrapsToTheTerminalAndKeepsItsOwnLineBreaks(t *testing.T) {
 	b := protocol.Block{T: "paragraph", Text: "one two three four five six seven eight nine ten\nsecond"}
 	got := ansi.Strip(render.Render([]protocol.Block{b}, render.Options{Width: 30}))
@@ -130,7 +132,7 @@ func TestDiffMarksAddedAndRemovedLines(t *testing.T) {
 	if got := plain(b); got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
-	if !strings.Contains(styled(b), coral) {
+	if !strings.Contains(styled(b), missionCoral) {
 		t.Fatal("a deleted diff line should keep the coral tint")
 	}
 }
@@ -176,7 +178,7 @@ func TestDiffTintsFollowTheBackground(t *testing.T) {
 			t.Fatalf("light render has no dark ink on a pale tint %s: %q", want, light)
 		}
 	}
-	if strings.Contains(light, coral) {
+	if strings.Contains(light, missionCoral) {
 		t.Fatalf("light render kept coral text, which washes out on the pale tint: %q", light)
 	}
 }

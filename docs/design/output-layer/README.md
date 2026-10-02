@@ -92,3 +92,11 @@ the ANSI output on each background.
 - `chat-dark.png`, `chat-light.png`: what a person sees from `rt chat`: rooms, read, who, buddies, sign-in, help, a failure, the two policy refusals and the sign-out warning. Off a terminal these verbs print their older plain text, unchanged.
 
 What reads wrong: there is no blank line between one message and the next author, so a long thread reads dense. A wrapped body line now hangs under its own indent, so it cannot land at the author column. `read` times are UTC with no zone, as the plain text always printed them.
+
+## Phase 5g: renderer
+
+One palette for both backgrounds: static output takes the `Static*` tones in `ui/internal/theme`, each of which reads on a white and on a dark terminal, so the light pages no longer differ from the dark ones except in the diff tints (still chosen from `COLORFGBG`). `fixture-*.png` and `statuses-*.png` above were regenerated in the new palette; every other page above this section predates it.
+
+| File | What it shows |
+|---|---|
+| `5g-palette-dark.png`, `5g-palette-light.png` | every status, every callout label, chat's listening, idle and offline rows, sdm's connection words, a kv key, a tree, a link, the summary, the banner, a failure with its excerpt, and a changes block, at 100 columns |

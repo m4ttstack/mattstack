@@ -89,7 +89,7 @@ func (r *renderer) changes(b protocol.Block) {
 		}
 	}
 	for _, c := range b.Changes {
-		mark := fg(theme.Mint).Render("+")
+		mark := fg(theme.StaticMint).Render("+")
 		if c.Op == "-" {
 			mark = dimStyle.Render("-")
 		}

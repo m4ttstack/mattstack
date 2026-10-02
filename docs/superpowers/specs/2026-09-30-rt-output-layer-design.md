@@ -118,6 +118,7 @@ The glyphs avoid Nerd Font code points and heavy filled shapes, which rendered b
 - **Lavender:** setting keys, branch names and the `tip` label.
 - **Bold:** a command to run. The callout label carries the color; the command does not.
 - **Dim and faint:** hints, sources, captions, rails.
+- **One palette for both backgrounds.** Ruled 2026-10-01 (Matt). Static output (`rt-ui render` and the steps verb) draws these roles with the `Static*` tones in `ui/internal/theme`, each of which reads on a white and on a dark terminal, because rt-ui cannot ask which one it is on. Dim and faint share one tone there, since no second gray reads on both. The app views (pickers, mission, the board) paint their own background and keep their own palette.
 
 ## Rules
 
@@ -127,7 +128,7 @@ The glyphs avoid Nerd Font code points and heavy filled shapes, which rendered b
 4. **One spinner.** The Go step is the spinner. `lib/tui/inline-spinner.ts` and the `\r` line in `lib/enrich.ts` move onto it in phase 5, with the verbs that use them.
 5. **Sub-lines clear on success.** Lines streamed under a running step vanish when it resolves and stay when it fails. At most the last five show at once, so a long stream never scrolls out of reach of the erase. They are always in the log.
 6. **Hints align.** Consecutive `line` blocks in one call pad their titles to a common width.
-7. **Rails.** Callouts use the thick `▌` bar in the label's color. `copy` and `verbatim` use a thin `│` rail in the theme's `Panel` tone.
+7. **Rails.** Callouts use the thick `▌` bar in the label's color. `copy` and `verbatim` use a thin `│` rail in the `StaticRule` tone.
 8. **Spacing.** One blank line before a `section` unless it is the first block; one before a `summary`. Blocks never print trailing blank lines.
 9. **Removed is not failed.** The `-` in a `changes` block is dim. Deleted lines in a `diff` keep the mission view's coral tint.
 

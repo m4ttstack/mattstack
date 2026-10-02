@@ -50,7 +50,7 @@ var (
 	TextSoft = lipgloss.Color("#D2CDEB")
 	Dim      = lipgloss.Color("#B4ADD1")
 	Dimmer   = lipgloss.Color("#9992B5")
-	Faint    = lipgloss.Color("#7F78A0")
+	Faint    = lipgloss.Color("#77729A")
 
 	// Keybar roles. The help bar reads as key (accent) · label (text) ·
 	// group (lav), the same grammar cswap's footer uses, rather than
@@ -171,15 +171,23 @@ var (
 	DiffDelGutterBg = blendToward(Coral, Bg, diffGutterBlend)
 )
 
-// Static output lands on the terminal's own background, which rt-ui never
-// paints and cannot ask about. The light tints are the diff tints for a
-// terminal that says its background is light, and StaticRule is one tone
-// that reads as a quiet line on a dark background and on a light one.
+// Static output (rt-ui render and the steps verb) lands on the terminal's own
+// background, which rt-ui never paints and cannot ask about, so it has one
+// palette for both: every Static tone clears 3.5:1 on white and on Bg, and
+// the two text tones, StaticLav and StaticQuiet, clear 4:1. The light tints
+// are the diff tints for a terminal that says its background is light.
 var (
 	paper          = lipgloss.Color("#FFFFFF")
 	DiffAddBgLight = blendToward(Mint, paper, diffTintBlend)
 	DiffDelBgLight = blendToward(Coral, paper, diffTintBlend)
-	StaticRule     = lipgloss.Color("#655E88")
+
+	StaticMint  = lipgloss.Color("#1A9461")
+	StaticCoral = lipgloss.Color("#E0484E")
+	StaticPeach = lipgloss.Color("#C4700F")
+	StaticLav   = lipgloss.Color("#8A63D2")
+	StaticCyan  = lipgloss.Color("#2E86DE")
+	StaticQuiet = lipgloss.Color("#77729A")
+	StaticRule  = lipgloss.Color("#736D96")
 )
 
 func Hex(c color.Color) string {

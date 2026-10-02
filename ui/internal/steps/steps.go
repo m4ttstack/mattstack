@@ -35,14 +35,14 @@ const frameEvery = theme.SpinnerInterval
 const maxSubs = 5
 
 var (
-	spinStyle = lipgloss.NewStyle().Foreground(theme.Mint)
+	spinStyle = lipgloss.NewStyle().Foreground(theme.StaticMint)
 	textStyle = lipgloss.NewStyle()
-	hintStyle = lipgloss.NewStyle().Foreground(theme.Faint)
-	subStyle  = lipgloss.NewStyle().Foreground(theme.Dimmer)
-	railGlyph = lipgloss.NewStyle().Foreground(theme.Panel).Render("│")
+	hintStyle = lipgloss.NewStyle().Foreground(theme.StaticQuiet)
+	subStyle  = lipgloss.NewStyle().Foreground(theme.StaticQuiet)
+	railGlyph = lipgloss.NewStyle().Foreground(theme.StaticRule).Render("│")
 	okGlyph   = render.Glyph("done")
 	badGlyph  = render.Glyph("failed")
-	infoGlyph = lipgloss.NewStyle().Foreground(theme.Faint).Render("•")
+	infoGlyph = lipgloss.NewStyle().Foreground(theme.StaticQuiet).Render("•")
 )
 
 func logGlyph(level string) string {

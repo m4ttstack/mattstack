@@ -24,32 +24,33 @@ type statusDef struct {
 // Glyphs avoid Nerd Font code points and filled shapes: they must read in
 // any terminal font, at the same weight as ✓ and ✗.
 var statuses = map[string]statusDef{
-	"done":      {theme.GlyphDone, theme.Mint},
-	"failed":    {theme.GlyphCrashed, theme.Coral},
-	"needs-you": {"◆", theme.Peach},
-	"pending":   {"◌", theme.Dim},
-	"stale":     {"↻", theme.Peach},
-	"refused":   {"⊘", theme.Dim},
-	"off":       {theme.GlyphStopped, theme.Dim},
-	"skipped":   {"-", theme.Faint},
-	"running":   {theme.GlyphRunning, theme.Mint},
-	"warn":      {"!", theme.Peach},
+	"done":      {theme.GlyphDone, theme.StaticMint},
+	"failed":    {theme.GlyphCrashed, theme.StaticCoral},
+	"needs-you": {"◆", theme.StaticPeach},
+	"pending":   {"◌", theme.StaticQuiet},
+	"stale":     {"↻", theme.StaticPeach},
+	"refused":   {"⊘", theme.StaticQuiet},
+	"off":       {theme.GlyphStopped, theme.StaticQuiet},
+	"skipped":   {"-", theme.StaticQuiet},
+	"running":   {theme.GlyphRunning, theme.StaticMint},
+	"warn":      {"!", theme.StaticPeach},
 }
 
 func fg(c color.Color) lipgloss.Style { return lipgloss.NewStyle().Foreground(c) }
 
 // Body text, titles and commands set no color: they take the terminal's own
-// foreground, so they read on a light background as well as a dark one.
+// foreground, so they read on a light background as well as a dark one. Dim
+// and faint are one tone: no second gray reads on both backgrounds.
 var (
 	textStyle    = lipgloss.NewStyle()
 	strongStyle  = lipgloss.NewStyle().Bold(true)
 	commandStyle = lipgloss.NewStyle().Bold(true)
-	dimStyle     = fg(theme.Dimmer)
-	faintStyle   = fg(theme.Faint)
-	keyStyle     = fg(theme.Lav)
-	linkStyle    = fg(theme.Cyan).Underline(true)
+	dimStyle     = fg(theme.StaticQuiet)
+	faintStyle   = dimStyle
+	keyStyle     = fg(theme.StaticLav)
+	linkStyle    = fg(theme.StaticCyan).Underline(true)
 	ruleStyle    = fg(theme.StaticRule)
-	railStyle    = fg(theme.Panel)
+	railStyle    = fg(theme.StaticRule)
 )
 
 // Glyph is the styled glyph for a status; an unknown status gets a dim dot.

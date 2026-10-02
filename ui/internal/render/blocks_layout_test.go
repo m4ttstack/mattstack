@@ -124,7 +124,7 @@ func TestUnknownOpsAndAbsentFieldsDoNotPanic(t *testing.T) {
 }
 
 func TestTableRuleAndTreeBranchesUseTheStaticRuleTone(t *testing.T) {
-	const staticRule = "38;2;101;94;136"
+	const staticRule = "38;2;115;109;150"
 	table := styled(protocol.Block{T: "table", Headers: []string{"KEY"}, Rows: []protocol.TableRow{cells("a")}})
 	if !strings.Contains(table, "\x1b["+staticRule+"m───") {
 		t.Fatalf("table rule tone: %q", table)

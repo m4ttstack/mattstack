@@ -13,7 +13,7 @@ import (
 	"rt-ui/internal/render"
 )
 
-const coral = "255;121;121"
+const coral = "224;72;78"
 
 func styled(bs ...protocol.Block) string {
 	return render.Render(bs, render.Options{Width: 80})
@@ -372,7 +372,7 @@ func TestATitleTooWideForAHintColumnTakesItsHintBelow(t *testing.T) {
 
 func TestAWrappedHintKeepsItsFaintToneOnEveryRow(t *testing.T) {
 	out := render.Render([]protocol.Block{{T: "line", Status: "off", Title: "pre-push", Hint: "you turned this one off last week and it stays off"}}, render.Options{Width: 40})
-	const faint = "38;2;127;120;160"
+	const faint = "38;2;119;114;154"
 	for i, row := range rows(out) {
 		if !strings.Contains(row, faint) {
 			t.Fatalf("row %d lost the hint tone: %q", i, row)
@@ -427,5 +427,49 @@ func TestCleanStripsBidiControlsAndZeroWidthCharacters(t *testing.T) {
 		if got := render.Clean(runes(c.Codepoints)); got != runes(c.Clean) {
 			t.Errorf("%s: got %q want %q", c.Name, got, runes(c.Clean))
 		}
+	}
+}
+
+func TestEveryStatusGlyphUsesAStaticTone(t *testing.T) {
+	want := map[string]string{
+		"done": "26;148;97", "running": "26;148;97", "failed": "224;72;78",
+		"needs-you": "196;112;15", "stale": "196;112;15", "warn": "196;112;15",
+		"pending": "119;114;154", "refused": "119;114;154", "off": "119;114;154", "skipped": "119;114;154",
+	}
+	for status, rgb := range want {
+		if g := render.Glyph(status); !strings.Contains(g, "38;2;"+rgb+"m") {
+			t.Errorf("%s glyph %q, want tone %s", status, g, rgb)
+		}
+	}
+}
+
+func TestKeysLabelsAndRailsUseStaticTones(t *testing.T) {
+	for _, c := range []struct {
+		block protocol.Block
+		tone  string
+	}{
+		{protocol.Block{T: "kv", Key: "rt.worktreeApp", Value: "true"}, "38;2;138;99;210m"},
+		{protocol.Block{T: "callout", Label: "next", Body: []protocol.Cell{cmd("rt setup status")}}, "38;2;196;112;15m"},
+		{protocol.Block{T: "callout", Label: "why", Body: []protocol.Cell{text("x")}}, "38;2;119;114;154m"},
+		{protocol.Block{T: "verbatim", Lines: []string{"x"}}, "38;2;115;109;150m│"},
+		{protocol.Block{T: "banner", Label: "PRODUCTION", Subject: "db"}, "38;2;224;72;78m"},
+	} {
+		if out := styled(c.block); !strings.Contains(out, c.tone) {
+			t.Errorf("%s: no %q in %q", c.block.T, c.tone, out)
+		}
+	}
+}
+
+func TestAccentsDoNotChangeWithTheBackground(t *testing.T) {
+	bs := []protocol.Block{
+		{T: "line", Status: "needs-you", Title: "Slack", Hint: "not connected"},
+		{T: "callout", Label: "next", Body: []protocol.Cell{cmd("rt setup slack connect")}},
+		{T: "kv", Key: "rt.worktreeApp", Value: "true", Source: "from team example"},
+		{T: "failure", Title: "x", Why: "y"},
+		{T: "verbatim", Caption: "value", Lines: []string{"{}"}},
+	}
+	dark := render.Render(bs, render.Options{Width: 80})
+	if light := render.Render(bs, render.Options{Width: 80, Light: true}); light != dark {
+		t.Fatalf("one palette for both backgrounds, but the light render differs:\n%q\n%q", dark, light)
 	}
 }

@@ -161,7 +161,7 @@ func TestDoneWithAStatusEndsInThatStatusNotAFailure(t *testing.T) {
 	if exit != 0 || !strings.Contains(tty, "◆") || !strings.Contains(tty, "Slack") {
 		t.Fatalf("exit %d tty %q", exit, tty)
 	}
-	if strings.Contains(tty, "✓") || strings.Contains(tty, "✗") || strings.Contains(tty, "255;121;121") {
+	if strings.Contains(tty, "✓") || strings.Contains(tty, "✗") || strings.Contains(tty, "224;72;78") {
 		t.Fatalf("a needs-you ending was painted as done or as a failure: %q", tty)
 	}
 }
@@ -172,7 +172,7 @@ func TestDoneWithTheFailedStatusIsNotPaintedAsAFailure(t *testing.T) {
 	if exit != 0 || !strings.Contains(tty, "•") || !strings.Contains(tty, "synced") {
 		t.Fatalf("exit %d tty %q", exit, tty)
 	}
-	if strings.Contains(tty, "✗") || strings.Contains(tty, "255;121;121") {
+	if strings.Contains(tty, "✗") || strings.Contains(tty, "224;72;78") {
 		t.Fatalf("done painted the coral cross: %q", tty)
 	}
 }
@@ -183,7 +183,7 @@ func TestDoneWithAnUnknownStatusGetsTheDimDot(t *testing.T) {
 	if exit != 0 || !strings.Contains(tty, "•") || !strings.Contains(tty, "synced") {
 		t.Fatalf("exit %d tty %q", exit, tty)
 	}
-	if strings.Contains(tty, "✗") || strings.Contains(tty, "255;121;121") {
+	if strings.Contains(tty, "✗") || strings.Contains(tty, "224;72;78") {
 		t.Fatalf("done painted the coral cross: %q", tty)
 	}
 }
@@ -305,5 +305,15 @@ func TestADoneWithoutTheFlagStillPaintsItsRow(t *testing.T) {
 	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
 	if !strings.Contains(testutil.Screen(tty), "✓ scanning ports…") {
 		t.Fatalf("screen %q", testutil.Screen(tty))
+	}
+}
+
+func TestStepTonesComeFromTheStaticPalette(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"connecting…"}`, `{"t":"sub","text":"asking the gateway"}`, `{"t":"fail","title":"Could not connect"}`}
+	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	for _, tone := range []string{"38;2;115;109;150m│", "38;2;119;114;154m", "38;2;224;72;78m"} {
+		if !strings.Contains(tty, tone) {
+			t.Fatalf("missing %q in %q", tone, tty)
+		}
 	}
 }
