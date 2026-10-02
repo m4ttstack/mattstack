@@ -118,7 +118,7 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
             <Stack gap="xs" align="flex-start">
               <FailureText message={(anatomyQuery.error as Error).message} />
               <Button
-                variant="light"
+                variant="outline"
                 color="bad"
                 size="compact-sm"
                 loading={anatomyQuery.isFetching}
