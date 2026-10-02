@@ -334,6 +334,7 @@ describe("settings/registry", () => {
         "board.hiddenMembers",
         "board.triage",
         "board.reReview",
+        "board.peerAsks",
         "board.codeowners",
         "board.agent.account",
         "board.agent.model",
@@ -387,7 +388,7 @@ describe("settings/registry", () => {
         "herd.watchdog.midRunTrustAccept",
         "panes.relocationAutoAccept",
       ];
-      expect(suiteKeys).toHaveLength(80);
+      expect(suiteKeys).toHaveLength(81);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

@@ -32,8 +32,9 @@ export interface ReviewStatePayload {
   status: string;
   outcome?: string;
   updatedAt: number;
-  /** On a respond-state: the inbound ask this report answers, echoed back so
-      the asker retires by identity instead of comparing two boards' clocks. */
+  /** On a respond-state or review-state: the inbound ask this report answers,
+      echoed back so the asker retires by identity instead of comparing two
+      boards' clocks. */
   nudgeId?: string;
 }
 

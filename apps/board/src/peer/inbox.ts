@@ -63,8 +63,9 @@ export function materializeEnvelope(
       deps.resolveSentNudge(p.mrUrl, { result: 'confirmed', at: now }, e.from);
     }
     // The review ended: keep the ask on the row with its result, so the
-    // asker can read it and dismiss or retry. Guarded on the report's own
-    // updatedAt so a redelivered pre-nudge report cannot finish an ask sent
+    // asker can read it and dismiss or retry. A report echoing its ask's id
+    // finishes only that ask; one without falls back to the report's own
+    // updatedAt, so a redelivered pre-nudge report cannot finish an ask sent
     // after it.
     if (p.status === 'done' || p.status === 'error') {
       deps.finishSentNudge(
@@ -75,7 +76,7 @@ export function materializeEnvelope(
           at: now,
         },
         p.updatedAt,
-        undefined,
+        p.nudgeId,
         e.from
       );
     }
@@ -117,6 +118,7 @@ export function materializeEnvelope(
       from: e.from,
       note: p.note,
       receivedAt: e.receivedAt,
+      materializedAt: now,
       // Absence means re-review, so rows written before kinds existed keep
       // their meaning; only the newer ask flavors are marked.
       ...(e.type === 'review-request'

@@ -125,7 +125,7 @@ export function plainReason(reason: string, cfg: TriageConfig): string {
     case 'cooldown':
       return `Last run was under ${cfg.cooldownMinutes} minutes ago`;
     case 'disabled':
-      return 'Auto re-review is off';
+      return 'Automatic asks are off';
     case 'already-handled':
       return 'Already handled';
     case 'not-your-mr':

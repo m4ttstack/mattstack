@@ -587,7 +587,7 @@ describe('plainReason', () => {
     expect(plainReason('cooldown', cfg)).toBe(
       'Last run was under 30 minutes ago'
     );
-    expect(plainReason('disabled', cfg)).toBe('Auto re-review is off');
+    expect(plainReason('disabled', cfg)).toBe('Automatic asks are off');
     expect(plainReason('already-handled', cfg)).toBe('Already handled');
     expect(plainReason('not-your-mr', cfg)).toBe("It isn't your MR");
   });

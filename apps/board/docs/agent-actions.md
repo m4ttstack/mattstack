@@ -153,9 +153,12 @@ layers into each repo's per-pack file:
 ## Reviewer-side automation
 
 `bun run triage` is a one-shot pass meant for a cron entry (rt cron or a plain
-crontab line, either works). It does three jobs behind two switches: the
-auto-doctor and nudge jobs are off unless `triage.enabled` is `true`; the
-latch job is on unless the `board.reReview` setting turns it off.
+crontab line, either works). It does three jobs behind three switches: the
+auto-doctor job is off unless `triage.enabled` is `true`; the nudge job is on
+unless `board.peerAsks` turns it off; the latch job is on unless the
+`board.reReview` setting turns it off. `bun run triage --peer` is the nudge
+job alone: rt's `board-peer` trigger runs it the moment the daemon hears from
+the relay that an ask arrived, so an ask starts in seconds.
 
 **Auto-doctor.** It looks for mechanical breakage on the board identity's own
 MRs and dispatches a doctor pane at the configured `tier`. Which repairs it is
@@ -173,8 +176,9 @@ The two branch-writing classes (`mechanicalLint`, `codeFix`) are additionally
 gated to the board identity's own MRs at dispatch time, whatever their toggles
 say.
 
-**Nudge handling.** An incoming review or re-review ask from a peer board is
-picked up and dispatched automatically, if every guardrail clears:
+**Nudge handling.** An incoming review, re-review or reply ask from a peer
+board is picked up and dispatched as soon as it arrives, if `board.peerAsks`
+is on (the default) and every guardrail clears:
 
 - For a re-review ask: the reviewer's prior review on that MR is `done` with a
   `comment` outcome. For a first-look ask ("request review from"): the

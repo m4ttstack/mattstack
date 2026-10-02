@@ -205,6 +205,7 @@ export const SCHEMAS = {
     }).optional(),
   }),
   "board.reReview": z.looseObject({ enabled: z.boolean().optional() }),
+  "board.peerAsks": z.looseObject({ enabled: z.boolean().optional() }),
   "board.codeowners": z.looseObject({
     slack: z.looseObject({ fromSectionName: z.boolean().optional() }).optional(),
   }),

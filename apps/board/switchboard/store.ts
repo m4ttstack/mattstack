@@ -228,6 +228,17 @@ export class SwitchboardStore {
       }));
   }
 
+  /** Newest unacked `received_at` for this board strictly after `since`, or
+      null when nothing newer is waiting. */
+  newestAfter(username: string, since: number): number | null {
+    const row = this.db
+      .query<{ newest: number | null }, [string, number]>(
+        `SELECT MAX(received_at) AS newest FROM envelopes WHERE recipient = ? AND received_at > ?`
+      )
+      .get(username, since);
+    return row?.newest ?? null;
+  }
+
   ack(username: string, ids: string[]): number {
     const del = this.db.prepare(
       `DELETE FROM envelopes WHERE recipient = ? AND id = ?`

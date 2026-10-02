@@ -312,6 +312,11 @@ export const EXAMPLES: Record<string, Example> = {
     bad: [{ value: { enabled: "no" }, path: ["enabled"] }],
     layer: [{ enabled: true }],
   },
+  "board.peerAsks": {
+    good: [{}, { enabled: false }],
+    bad: [{ value: { enabled: "no" }, path: ["enabled"] }],
+    layer: [{ enabled: true }],
+  },
   "board.codeowners": {
     good: [{}, { slack: {} }, { slack: { fromSectionName: true } }],
     bad: [

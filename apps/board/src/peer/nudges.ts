@@ -13,6 +13,9 @@ export interface NudgeState {
   from: string;
   note?: string;
   receivedAt: number;
+  /** This board's own clock when the ask was materialized, comparable with
+      ReviewState.runStartedAt where the relay's receivedAt is not. */
+  materializedAt?: number;
   kind?: AskKind;
   handled?: { at: number; result: NudgeResult; reason?: string };
 }
