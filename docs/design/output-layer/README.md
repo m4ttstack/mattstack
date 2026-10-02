@@ -30,12 +30,12 @@ on a dark and a light terminal background.
 | `release-dark.png`, `release-light.png` | `rt release` at 100 columns: preflight rows (with a verify row still propagating) and summary, update-machine legs stopped by a refused leg and by a failed checksum, and `apps` progress (a step, the notes, a no at the notes prompt, the watch, the approval stop, a fast path refusal, nothing to release, a dry run that only checks a publish again) |
 | `repos-dark.png`, `repos-light.png` | `rt repos` at 100 columns: the status tree, register, prune (a gone folder, a duplicate, a kept row), a locate plan, three refused locates (a second copy, the wrong repo, a repo with no remote and its register command), nothing missing, a locate with no terminal and the folders it could be, an unknown repo, a reidentify report and a refused one, a usage failure and a setting warning |
 
-The light pages are rendered with `COLORFGBG=0;15`, which is how a light
-terminal that reports its background gets the pale diff tints. A light
-terminal that does not set `COLORFGBG` still gets the dark diff bands:
-`rt-ui render` writes to a pipe and never opens the terminal, so it cannot ask.
-The rail beside a `copy` or `verbatim` block keeps the `Panel` tone and is
-faint on dark.
+The light pages above the phase 5g section were rendered with
+`COLORFGBG=0;15`, which is how a light terminal that reports its background
+gets the pale diff tints. Since phase 5g `rt-ui render` also asks the terminal
+and reads Ghostty's config (see below). A `copy` block has no rail: its text
+prints at column 0. The rail beside a `verbatim` block takes the `StaticRule`
+tone.
 
 Still wrong at the time of these renders: the last column of a table or a
 tree, and a callout that holds a command, never wrap, so at 48 columns those
@@ -96,11 +96,12 @@ What reads wrong: there is no blank line between one message and the next author
 
 ## Phase 5g: renderer
 
-One palette for both backgrounds: static output takes the `Static*` tones in `ui/internal/theme`, each of which reads on a white and on a dark terminal, so the light pages no longer differ from the dark ones except in the diff tints (still chosen from `COLORFGBG`). `fixture-*.png` and `statuses-*.png` above were regenerated in the new palette; every other page above this section predates it.
+Two accent tones, chosen by the terminal's background: static output takes `theme.StaticDark` (the app's own mint, peach and lavender) on a background that resolves dark and `theme.StaticLight` on one that resolves light or cannot be determined. Body text keeps the terminal's foreground in both. The dark pages here render with `RT_UI_BACKGROUND=dark` and the light pages with `RT_UI_BACKGROUND=light`, so the setting is what decides. `fixture-*.png`, `statuses-*.png` and `5g-palette-*.png` were regenerated the same way; every other page, in this section and above it, predates the two tones.
 
 | File | What it shows |
 |---|---|
 | `5g-palette-dark.png`, `5g-palette-light.png` | every status, every callout label, chat's listening, idle and offline rows, sdm's connection words, a kv key, a tree, a link, the summary, the banner, a failure with its excerpt, and a changes block, at 100 columns |
+| `5g-palette-unknown.png` | the same set with `RT_UI_BACKGROUND=auto` and nothing answering: the light set, shown on the dark page |
 | `5g-wrap-dark.png`, `5g-wrap-light.png` | 60 columns: backup refs in a hint column a longer title narrowed (whole on the row below), an excerpt that wraps at its words, a stack line that hangs under its indent and breaks its path at a slash, and a token with no separator, cut inside the pane |
 | `5g-narrow-dark.png`, `5g-narrow-light.png` | 48 columns: a settings table whose values wrap in their column, a branch table whose long name is clipped so the state keeps its room, a tree whose last column wraps under its branch, a diff whose long added line wraps inside its band, and a CJK cell wrapped by display width |
 | `5g-callouts-dark.png`, `5g-callouts-light.png` | 60 columns: a `next` whose command ends its sentence (the command on its own row), a three-row `note` doing the same, two-command rows that wrap without splitting a command, and a failure's command-only `next` |
@@ -108,3 +109,5 @@ One palette for both backgrounds: static output takes the `Static*` tones in `ui
 | `5g-kv-dark.png`, `5g-kv-light.png` | 100 columns: the `rt deps resolve` rows, a link's From and To, intercept's `Rules` after its lines, a setting with its source, and a long value wrapping in its column |
 | `5g-breadcrumb-dark.png`, `5g-breadcrumb-light.png` | the breadcrumb header with its `blank` row, then two sections, the second after `sync all`'s branch gap |
 | `5g-copy-dark.png`, `5g-copy-light.png` | `rt team invite`'s link and message and `rt git pull`'s dry-run command as `copy` blocks: caption at the body column, text at column 0 with no rail, so a drag-select pastes clean |
+
+What reads wrong in the palette pages: on dark, the lively mint, peach and lavender make the shared coral (the `✗` glyph, the `PRODUCTION` banner) and cyan (`the docs`) look dull and dark beside them, and the dark peach `#FFB77A` reads apricot, so `next`, `fix` and the `◆` glyph carry less urgency than the light set's orange. On light, mint words (`listening`, `connected`, `standing access`) sit at 3:1 and read lighter than the body text, though still clearly. The unknown page (the light set on dark) is sober but reads fine.
