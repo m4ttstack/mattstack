@@ -156,7 +156,7 @@ async function runPush(
       if (process.stdin.isTTY) {
         const { select } = await import("../../lib/rt-render.ts");
         const choice = await select({
-          message: `local has diverged from ${remote}/${branch} (likely after a rebase) — force push?`,
+          message: `${branch} and ${remote}/${branch} have diverged, usually after a rebase or an amend. Force push?`,
           options: [
             { value: "force", label: "Force push with --force-with-lease" },
             { value: "cancel", label: "Cancel" },
