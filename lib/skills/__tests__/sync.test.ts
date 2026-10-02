@@ -59,8 +59,6 @@ type World = {
   prefix?: Record<string, string>;
   /** Git subcommands that fail, keyed by subcommand name. */
   gitFail?: Record<string, string>;
-  /** What `git ls-files -z` prints in a dir: the paths the index holds. */
-  lsFiles?: Record<string, string>;
 };
 
 /**
@@ -139,7 +137,6 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       const failure = world.gitFail?.[args[0]!];
       if (failure) return { code: 1, stdout: "", stderr: failure };
       if (args[0] === "rev-parse" && args[1] === "--show-prefix") return { code: 0, stdout: `${world.prefix?.[cwd] ?? ""}\n`, stderr: "" };
-      if (args[0] === "ls-files") return { code: 0, stdout: world.lsFiles?.[cwd] ?? "", stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     }
 
@@ -1202,7 +1199,7 @@ describe("commit-pending", () => {
       .map((c) => (c.cmd === "checkPack" ? "check" : c.args[0] === "commit" ? `commit ${c.args[2]}` : c.args.join(" ")));
     expect(order).toEqual([
       "pull --ff-only",
-      "add -- pack",
+      "add -- :(literal)pack/skills.jsonc",
       "check",
       "check",
       "commit skills: acme changes from console",
@@ -1212,13 +1209,12 @@ describe("commit-pending", () => {
     ]);
   });
 
-  test("stages only the pack roots that hold pending files, deletions included", async () => {
+  test("stages by literal path only the pending files whose worktree side differs, deletions included", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");
     const world: World = {
       calls: [],
-      gitStatus: { [pack.dir]: " D attachments/old/SKILL.md\n?? skills/new/SKILL.md\n M surface.jsonc\nD  pack/gone.jsonc\n" },
-      lsFiles: { [pack.dir]: "attachments/old/SKILL.md\0surface.jsonc\0" },
+      gitStatus: { [pack.dir]: " D attachments/old/SKILL.md\n?? skills/new/SKILL.md\n M surface.jsonc\nD  pack/gone.jsonc\nM  pack/staged.jsonc\n?? skills/vanished/SKILL.md\n" },
       installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
       drift: [true, false],
     };
@@ -1226,8 +1222,14 @@ describe("commit-pending", () => {
 
     const report = await syncPack(pack, engine, makeDeps(pack, engine, world), { commitPending: true });
 
-    expect(byName(report.steps)["commit-pending"]).toMatchObject({ status: "ran", detail: "staged 4 files" });
-    expect(gitIn(world.calls, pack.dir).find((c) => c.args[0] === "add")!.args).toEqual(["add", "--", "skills", "attachments", "surface.jsonc"]);
+    expect(byName(report.steps)["commit-pending"]).toMatchObject({ status: "ran", detail: "staged 6 files" });
+    expect(gitIn(world.calls, pack.dir).find((c) => c.args[0] === "add")!.args).toEqual([
+      "add",
+      "--",
+      ":(literal)attachments/old/SKILL.md",
+      ":(literal)skills/new/SKILL.md",
+      ":(literal)surface.jsonc",
+    ]);
   });
 
   test("refuses when the pack has edits outside its scope, naming every one", async () => {
@@ -1276,7 +1278,7 @@ describe("commit-pending", () => {
     expect(guards.detail).not.toContain("pack/skills.jsonc");
   });
 
-  test("a pack inside a larger repo stages its own roots by pack-relative path", async () => {
+  test("a pack inside a larger repo stages its own files by pack-relative path", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");
     const world: World = {
@@ -1291,7 +1293,7 @@ describe("commit-pending", () => {
     const report = await syncPack(pack, engine, makeDeps(pack, engine, world), { commitPending: true });
 
     expect(report.ok).toBe(true);
-    expect(gitIn(world.calls, pack.dir).find((c) => c.args[0] === "add")!.args).toEqual(["add", "--", "pack"]);
+    expect(gitIn(world.calls, pack.dir).find((c) => c.args[0] === "add")!.args).toEqual(["add", "--", ":(literal)pack/skills.jsonc"]);
   });
 
   test("a clean pack skips the step and syncs as usual", async () => {
@@ -1548,6 +1550,50 @@ describe("commit-pending against real git", () => {
     expect(mustGit(root, "rev-list", "--count", "HEAD").trim()).toBe("1");
     expect(mustGit(root, "status", "--porcelain")).toBe("M  pack/skills.jsonc\n");
     expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a file that lands under a pack root after the pending read is left out of every commit", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) => {
+      if (cmd === "git" && args[0] === "pull") writeFileSync(join(pack.dir, "pack", "late.jsonc"), "{}\n");
+      return run(cmd, args, opts);
+    };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    expect(report.ok).toBe(true);
+    expect(remoteLog(remote)).toHaveLength(3);
+    expect(mustGit(root, "show", "--name-only", "--format=", "HEAD~1").trim()).toBe("pack/skills.jsonc");
+    expect(mustGit(root, "log", "--format=", "--name-only", "origin/main").split("\n")).not.toContain("pack/late.jsonc");
+    expect(mustGit(root, "status", "--porcelain")).toBe("?? pack/late.jsonc\n");
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a staged rename commits, its destination's later edit included, without naming the source to git add", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    mustGit(root, "mv", "attachments/old/SKILL.md", "attachments/old/RENAMED.md");
+    mustGit(root, "mv", "pack/skills.jsonc", "pack/renamed.jsonc");
+    writeFileSync(join(pack.dir, "pack", "renamed.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+
+    const report = await syncPack(pack, engine, realGitDeps(root, pack, engine, world), { commitPending: true });
+
+    expect(report.ok).toBe(true);
+    expect(remoteLog(remote)).toHaveLength(3);
+    const tree = mustGit(root, "ls-tree", "-r", "--name-only", "HEAD~1").trim().split("\n");
+    expect(tree).toContain("attachments/old/RENAMED.md");
+    expect(tree).toContain("pack/renamed.jsonc");
+    expect(tree).not.toContain("attachments/old/SKILL.md");
+    expect(tree).not.toContain("pack/skills.jsonc");
+    expect(mustGit(root, "show", "HEAD~1:pack/renamed.jsonc")).toBe('{ "bindings": {} }\n');
+    expect(mustGit(root, "status", "--porcelain")).toBe("");
+    const adds = world.calls.filter((c) => c.cmd === "git" && c.args[0] === "add").map((c) => c.args);
+    expect(adds[0]).toEqual(["add", "--", ":(literal)pack/renamed.jsonc"]);
   }, REAL_GIT_TIMEOUT_MS);
 
   test("a materialize failure after staging leaves no new commit and the edit still pending", async () => {

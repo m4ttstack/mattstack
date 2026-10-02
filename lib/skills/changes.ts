@@ -43,28 +43,45 @@ function unquotePath(raw: string): string {
   return new TextDecoder().decode(new Uint8Array(bytes));
 }
 
-export function parsePorcelain(stdout: string): PendingFile[] {
+/** A porcelain entry with git's own two columns kept: `xy[0]` is the index against HEAD, `xy[1]` the worktree against the index. */
+export type PorcelainEntry = PendingFile & { xy: string };
+
+export function parsePorcelainEntries(stdout: string): PorcelainEntry[] {
   return stdout.split("\n").filter((l) => l.length > 3).map((l) => {
     const xy = l.slice(0, 2);
     const rest = l.slice(3);
     const arrow = /[RC]/.test(xy) ? rest.indexOf(" -> ") : -1;
-    if (arrow < 0) return { path: unquotePath(rest), status: xy.trim() };
-    return { path: unquotePath(rest.slice(arrow + 4)), status: xy.trim(), from: unquotePath(rest.slice(0, arrow)) };
+    if (arrow < 0) return { path: unquotePath(rest), status: xy.trim(), xy };
+    return { path: unquotePath(rest.slice(arrow + 4)), status: xy.trim(), from: unquotePath(rest.slice(0, arrow)), xy };
   });
 }
 
-function withFrom(f: PendingFile, path: string, map: (p: string) => string): PendingFile {
+export function parsePorcelain(stdout: string): PendingFile[] {
+  return parsePorcelainEntries(stdout).map(({ xy: _xy, ...f }) => f);
+}
+
+/**
+ * The entries whose worktree side still differs from the index, untracked
+ * files included. An entry staged in full is left out, so a later edit to it
+ * is not swept in; a staged rename's source is never among them, since git
+ * add fails on a path gone from both disk and index.
+ */
+export function needsStaging(entries: PorcelainEntry[]): PorcelainEntry[] {
+  return entries.filter((e) => e.xy[1] !== " ");
+}
+
+function withFrom<T extends PendingFile>(f: T, path: string, map: (p: string) => string): T {
   return f.from === undefined ? { ...f, path } : { ...f, path, from: map(f.from) };
 }
 
 /** Porcelain prints repo-root paths; a pack that lives in a subdirectory of its repo needs them relative to the pack. */
-export function relativeToPrefix(files: PendingFile[], prefix: string): PendingFile[] {
+export function relativeToPrefix<T extends PendingFile>(files: T[], prefix: string): T[] {
   if (prefix === "") return files;
   return files.filter((f) => f.path.startsWith(prefix)).map((f) => withFrom(f, f.path.slice(prefix.length), (p) => posix.relative(prefix, p)));
 }
 
 /** Unlike relativeToPrefix, keeps a repo file beside the pack, spelled as a path that climbs out of it, so it can never pass inScope. */
-export function packRelative(files: PendingFile[], prefix: string): PendingFile[] {
+export function packRelative<T extends PendingFile>(files: T[], prefix: string): T[] {
   if (prefix === "") return files;
   const rel = (p: string) => posix.relative(prefix, p);
   return files.map((f) => withFrom(f, rel(f.path), rel));
@@ -89,15 +106,6 @@ export function outOfScopeSides(f: PendingFile): string[] {
 
 export function fullyInScope(f: PendingFile): boolean {
   return outOfScopeSides(f).length === 0;
-}
-
-/** The pack roots, in scope order, that hold at least one of these pack-relative paths. */
-export function rootsOf(paths: string[]): string[] {
-  return PACK_SCOPE.filter((root) => paths.some((p) => isUnder(root, p)));
-}
-
-export function pendingRoots(files: PendingFile[]): string[] {
-  return rootsOf(files.flatMap(sides));
 }
 
 export function literalPathspecs(files: PendingFile[]): string[] {

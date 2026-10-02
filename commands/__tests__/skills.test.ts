@@ -2773,7 +2773,7 @@ describe("skillsDiscard --json", () => {
       packDir,
       discarded: [
         { path: "pack/skills.jsonc", status: "M" },
-        { path: "attachments/x/", status: "??" },
+        { path: "attachments/x/SKILL.md", status: "??" },
       ],
     });
     expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_BEFORE);
@@ -2823,7 +2823,7 @@ describe("skillsDiscard --json", () => {
 
     expect(d.discarded).toEqual([
       { path: "pack/skills.jsonc", status: "M" },
-      { path: "skills/", status: "??" },
+      { path: "skills/new/SKILL.md", status: "??" },
     ]);
     expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_BEFORE);
     expect(porcelain(repoRoot)).toBe(" M packs/acme/README.md\n?? pack/skills.jsonc\n?? unrelated.txt\n");
@@ -2916,6 +2916,32 @@ describe("skillsDiscard guards", () => {
     await discardWith({ interactive: () => true, confirm: async () => true }, ["--pack", "acme", "--pack-dir", packDir]);
 
     expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_BEFORE);
+  });
+
+  test("a file that lands under a pack root while the person confirms is never deleted", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "attachments", "x", "SKILL.md"), "new skill\n");
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const lateBeside = join(packDir, "attachments", "x", "late.md");
+    const lateElsewhere = join(packDir, "attachments", "y", "late.md");
+
+    await discardWith(
+      {
+        interactive: () => true,
+        confirm: async () => {
+          writeFile(lateBeside, "late\n");
+          writeFile(lateElsewhere, "late\n");
+          return true;
+        },
+      },
+      ["--pack", "acme", "--pack-dir", packDir],
+    );
+
+    expect(existsSync(join(packDir, "attachments", "x", "SKILL.md"))).toBe(false);
+    expect(readFileSync(lateBeside, "utf8")).toBe("late\n");
+    expect(readFileSync(lateElsewhere, "utf8")).toBe("late\n");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_BEFORE);
+    expect(porcelain(packDir)).toBe("?? attachments/x/late.md\n?? attachments/y/late.md\n");
   });
 
   test("--json never prompts, even at a terminal", async () => {

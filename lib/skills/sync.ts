@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from "fs";
 import { join, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
-import { outOfScopeSides, packRelative, parsePorcelain, pendingRoots, rootsOf, type PendingFile } from "./changes.ts";
+import { needsStaging, outOfScopeSides, packRelative, parsePorcelainEntries, type PorcelainEntry } from "./changes.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 
@@ -226,7 +226,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   let bumpAfter: string | null = null;
   let drift = false;
   let branchNote = "";
-  let pending: PendingFile[] = [];
+  let pending: PorcelainEntry[] = [];
   let published = false;
 
   const finish = (): SyncReport => ({
@@ -283,7 +283,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
         // in the commit.
         const prefix = await deps.run("git", ["rev-parse", "--show-prefix"], { cwd: pack.dir });
         if (prefix.code !== 0) return failed(`git rev-parse --show-prefix failed in ${pack.dir}: ${prefix.stderr.trim()}`);
-        pending = packRelative(parsePorcelain(packStatus.stdout), prefix.stdout.trim());
+        pending = packRelative(parsePorcelainEntries(packStatus.stdout), prefix.stdout.trim());
         const outside = pending.flatMap(outOfScopeSides);
         if (outside.length > 0) {
           return refused(`The pack checkout at ${pack.dir} has changes outside the pack: ${outside.join(", ")}. Commit or stash those, then run this again`);
@@ -368,14 +368,11 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (opts.commitPending) {
     const commitPending = await tryStep(async () => {
       if (pending.length === 0) return skipped("nothing waiting to commit");
-      const indexed = await deps.run("git", ["ls-files", "-z", "--", ...pendingRoots(pending)], { cwd: pack.dir });
-      if (indexed.code !== 0) return failed(`git ls-files failed: ${indexed.stderr.trim()}`);
-      // A root gone from both disk and index holds only deletions git has
-      // already staged, and naming it would fail the add.
-      const inIndex = new Set(rootsOf(indexed.stdout.split("\0").filter(Boolean)));
-      const roots = pendingRoots(pending).filter((r) => existsSync(join(pack.dir, r)) || inIndex.has(r));
-      if (roots.length > 0) {
-        const add = await deps.run("git", ["add", "--", ...roots], { cwd: pack.dir });
+      // Only the paths the guard read, by literal name: anything that landed
+      // under a pack root since then was never listed to whoever asked for this.
+      const toStage = needsStaging(pending).filter((f) => f.status !== "??" || pathExists(join(pack.dir, f.path)));
+      if (toStage.length > 0) {
+        const add = await deps.run("git", ["add", "--", ...toStage.map((f) => `:(literal)${f.path}`)], { cwd: pack.dir });
         if (add.code !== 0) return failed(`git add failed: ${add.stderr.trim()}`);
       }
       published = true;

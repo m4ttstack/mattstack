@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bindingChanges, describeGitFailure, fullyInScope, inScope, isNotARepo, literalPathspecs, outOfScopeSides, packRelative, parseCleanDryRun, parsePorcelain, pendingRoots, relativeToPrefix, surfaceChanges } from "../changes.ts";
+import { bindingChanges, describeGitFailure, fullyInScope, inScope, isNotARepo, literalPathspecs, needsStaging, outOfScopeSides, packRelative, parseCleanDryRun, parsePorcelain, parsePorcelainEntries, relativeToPrefix, surfaceChanges } from "../changes.ts";
 
 describe("parsePorcelain", () => {
   test("reads status and path, including renames and untracked", () => {
@@ -143,18 +143,32 @@ describe("packRelative", () => {
   });
 });
 
-describe("pendingRoots", () => {
-  test("names each pack root holding a pending file, in scope order", () => {
-    expect(pendingRoots([
-      { path: "attachments/old/SKILL.md", status: "D" },
-      { path: "pack/skills.jsonc", status: "M" },
-      { path: "surface.jsonc", status: "M" },
-      { path: "pack/surface.jsonc", status: "M" },
-    ])).toEqual(["pack", "attachments", "surface.jsonc"]);
+describe("needsStaging", () => {
+  const entries = parsePorcelainEntries(
+    " M pack/a.jsonc\nM  pack/b.jsonc\nMM pack/c.jsonc\n D pack/d.jsonc\nD  pack/e.jsonc\n?? skills/f/SKILL.md\nR  skills/g/SKILL.md -> skills/h/SKILL.md\nRM skills/i/SKILL.md -> skills/j/SKILL.md\nAD pack/k.jsonc\n",
+  );
+
+  test("keeps both of git's columns beside the trimmed status", () => {
+    expect(entries.map((e) => e.xy)).toEqual([" M", "M ", "MM", " D", "D ", "??", "R ", "RM", "AD"]);
+    expect(entries.map((e) => e.status)).toEqual(["M", "M", "MM", "D", "D", "??", "R", "RM", "AD"]);
   });
 
-  test("ignores files outside the scope", () => {
-    expect(pendingRoots([{ path: "README.md", status: "M" }, { path: "packaging/x", status: "??" }])).toEqual([]);
+  test("picks the entries whose worktree side differs from the index, untracked files included", () => {
+    expect(needsStaging(entries).map((e) => e.path)).toEqual(["pack/a.jsonc", "pack/c.jsonc", "pack/d.jsonc", "skills/f/SKILL.md", "skills/j/SKILL.md", "pack/k.jsonc"]);
+  });
+
+  test("a staged rename's source is never among the paths to stage", () => {
+    const paths = needsStaging(entries).map((e) => e.path);
+    expect(paths).not.toContain("skills/g/SKILL.md");
+    expect(paths).not.toContain("skills/i/SKILL.md");
+  });
+
+  test("parsePorcelain drops the columns, so the --json shape is unchanged", () => {
+    expect(parsePorcelain(" M pack/a.jsonc\n")).toEqual([{ path: "pack/a.jsonc", status: "M" }]);
+  });
+
+  test("packRelative keeps the columns", () => {
+    expect(packRelative(parsePorcelainEntries(" M packs/acme/pack/a.jsonc\n"), "packs/acme/")).toEqual([{ path: "pack/a.jsonc", status: "M", xy: " M" }]);
   });
 });
 
@@ -195,11 +209,10 @@ describe("rename sources", () => {
     expect(outOfScopeSides({ path: "README.md", status: "R", from: "pack/README.md" })).toEqual(["README.md"]);
   });
 
-  test("a rename inside the scope is fully in scope and holds both roots", () => {
+  test("a rename inside the scope is fully in scope", () => {
     const flip = { path: "attachments/x/SKILL.md", status: "R", from: "skills/x/SKILL.md" };
     expect(outOfScopeSides(flip)).toEqual([]);
     expect(fullyInScope(flip)).toBe(true);
-    expect(pendingRoots([flip])).toEqual(["skills", "attachments"]);
   });
 });
 
