@@ -126,6 +126,9 @@ export type TemplateView = {
   links: LinkCard[];
   output: OutputCard | null;
   textNoun: TextNoun;
+  /** The app that owns the skill (`board` for `board:doctor`), when it is
+      not this pack's own and the view shows only the slots the pack fills. */
+  app?: string;
 };
 
 type AnatomyPart = SkillsAnatomy['parts'][number];
@@ -594,6 +597,106 @@ function causeOf(message: string, slot: string): string {
   return at > 0 && !/\s/.test(message.slice(0, at))
     ? message.slice(at + marker.length)
     : message;
+}
+
+/**
+ * A skill another app owns, such as the board's `board:doctor`, which this
+ * pack only fills: rt has no anatomy for it, so the view is the slots the
+ * pack's binders fill and a card per fill. The anatomy is a stand-in that
+ * carries the pack and the skill's description, with no file of its own.
+ */
+export function appSkillView(
+  composition: SkillsComposition,
+  ref: string,
+  pack: string
+): { view: TemplateView; anatomy: SkillsAnatomy } | null {
+  const binder = composition.binders.find(
+    b => b.ref === ref && b.kind === 'external'
+  );
+  if (!binder) return null;
+  const app = pluginOf(ref);
+  const fills = new Map(composition.fills.map(fill => [fill.binding, fill]));
+  const rows: TemplateRow[] = [];
+  const inputs: InputCard[] = [];
+  binder.slots.forEach((slot, index) => {
+    const id = String(index + 1);
+    const fill = fills.get(slot.boundTo);
+    const state: RowState = fill ? 'ok' : 'no-matching-fill';
+    rows.push({
+      id,
+      line: index + 1,
+      kind: 'placeholder',
+      placeholder: 'slot',
+      gutter: 'slot',
+      code: `{{slot:${slot.name}}}`,
+      templateLine: null,
+      renderedLines: null,
+      state,
+      name: slot.name,
+      contract: fill?.provides ?? null,
+      fill: slot.boundTo,
+      boundTo: slot.boundTo,
+      resolveError: null,
+    });
+    const plugin = pluginOf(slot.boundTo);
+    inputs.push({
+      id: `slot:${slot.name}`,
+      rowId: id,
+      state,
+      usedBy: composition.binders.filter(other =>
+        other.slots.some(s => s.boundTo === slot.boundTo)
+      ).length,
+      ...(fill
+        ? {
+            title: fileLabelOf(fill.sourcePath),
+            icon: 'fileText' as const,
+            path: fill.sourcePath,
+            ...(plugin === pack
+              ? {
+                  subtitle: `written by ${pack}`,
+                  subtitleTone: 'accent' as const,
+                }
+              : {
+                  subtitle: `${plugin} default${pickedBy(slot.layer ?? null)}`,
+                  subtitleTone: 'dimmed' as const,
+                }),
+          }
+        : {
+            title: `${slot.name} slot`,
+            icon: 'fileX' as const,
+            path: null,
+            subtitle: `no fill named ${slot.boundTo} in this pack`,
+            subtitleTone: 'warn' as const,
+          }),
+    });
+  });
+  const slots = countOf(binder.slots.length, 'slot', 'slots');
+  return {
+    view: {
+      skill: ref,
+      templateFile: ref,
+      templateMeta: `${app} app · ${slots}`,
+      rows,
+      inputs,
+      links: [],
+      output: null,
+      textNoun: 'verb',
+      app,
+    },
+    anatomy: {
+      pack,
+      skill: ref,
+      kind: 'verb',
+      public: false,
+      description: `Lives in the ${app} app. ${pack} fills its ${slots}.`,
+      template: { ref, path: '', version: '', builtVersion: null, lines: 0 },
+      rendered: { path: '', exists: false, lines: 0 },
+      status: 'in-sync',
+      staleBecause: [],
+      parts: [],
+      links: [],
+    },
+  };
 }
 
 /** Who chose a default fill, for the layers rt names a chooser for. */

@@ -490,6 +490,26 @@ describe('engines and builds', () => {
   });
 });
 
+describe('a skill another app owns', () => {
+  it('draws the slots this pack fills, asking rt for no anatomy', async () => {
+    serve();
+    renderAt('?tab=graph&focus=board:doctor');
+
+    const template = await screen.findByTestId('template-node');
+    expect(template).toHaveTextContent('board:doctor');
+    expect(template).toHaveTextContent('{{slot:tiering}}');
+    expect(screen.getByTestId('focus-header')).toHaveTextContent(
+      'Lives in the board app. acme fills its 1 slot.'
+    );
+    expect(screen.queryByTestId('canvas-error')).toBeNull();
+    expect(anatomyGet).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: expect.objectContaining({ skill: 'board:doctor' }),
+      })
+    );
+  });
+});
+
 describe('canvas errors', () => {
   it('a skill that fails to load gets a centred error with Retry', async () => {
     serve();

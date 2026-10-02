@@ -21,7 +21,7 @@ import { FocusHeader, kindOf, statusOf } from './FocusHeader';
 import classes from './graph.module.css';
 import { layoutTemplate } from './layout/templateLayout';
 import { workTypeOf } from './model/focusModel';
-import { buildTemplateView } from './model/templateModel';
+import { appSkillView, buildTemplateView } from './model/templateModel';
 import { useGraphFocus } from './useGraphFocus';
 
 const TemplateCanvas = lazy(() => import('./TemplateCanvas'));
@@ -66,17 +66,30 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
     focused,
     pipeline,
   } = useGraphFocus(pack);
-  const anatomyQuery = useAnatomy(pack, focused?.skill ?? null);
+  const composition = compositionQuery.data;
+  const appSkill = useMemo(
+    () =>
+      focused &&
+      composition &&
+      groups?.board.some(item => item.key === focused.key)
+        ? appSkillView(composition, focused.skill, pack)
+        : null,
+    [focused, composition, groups, pack]
+  );
+  const anatomyQuery = useAnatomy(
+    pack,
+    appSkill ? null : (focused?.skill ?? null)
+  );
   const changesQuery = usePendingChanges(pack);
 
-  const composition = compositionQuery.data;
-  const anatomy = anatomyQuery.data;
+  const anatomy = appSkill?.anatomy ?? anatomyQuery.data;
   const check = checkQuery.data;
   const changes = changesQuery.data;
   const workType = pipeline ? workTypeOf(pipeline.key) : null;
   const step = focused?.step ?? null;
 
   const view = useMemo(() => {
+    if (appSkill) return appSkill.view;
     if (!anatomy || !composition) return null;
     const known =
       workType !== null && Object.hasOwn(composition.pipelines ?? {}, workType);
@@ -88,7 +101,7 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
       step,
       workType: known ? workType : null,
     });
-  }, [anatomy, composition, check, changes, step, workType]);
+  }, [appSkill, anatomy, composition, check, changes, step, workType]);
   const layout = useMemo(() => (view ? layoutTemplate(view) : null), [view]);
   const onSelect = useCallback((select: string) => patch({ select }), [patch]);
   const drawerOpen = useMemo(

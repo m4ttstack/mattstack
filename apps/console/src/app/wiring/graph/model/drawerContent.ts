@@ -112,6 +112,7 @@ export function drawerContent(
   anatomy: SkillsAnatomy,
   requestedView: WiringView | null
 ): DrawerContent | null {
+  if (view.app) return appFillContent(target, view, anatomy.pack);
   switch (target.kind) {
     case 'row': {
       const row = view.rows.find(r => r.line === target.line);
@@ -417,6 +418,42 @@ function inputContent(
       part.kind === 'include'
         ? { kind: 'include', name: part.name ?? '', plugin }
         : { kind: 'fill', name: source.ref, plugin },
+    error: null,
+  };
+}
+
+/** A skill another app owns has no file of its own here, so a slot row and
+    its card both open the fill this pack binds into that slot. */
+function appFillContent(
+  target: DrawerTarget,
+  view: TemplateView,
+  pack: string
+): DrawerContent | null {
+  const row = view.rows.find(r =>
+    target.kind === 'row'
+      ? r.line === target.line
+      : target.kind === 'input' &&
+        view.inputs.some(c => c.id === target.id && c.rowId === r.id)
+  );
+  const card = row && view.inputs.find(c => c.rowId === row.id);
+  if (!card?.path || row?.kind !== 'placeholder' || !row.boundTo) return null;
+  const plugin = pluginOf(row.boundTo);
+  const own = plugin === pack;
+  return {
+    filePath: card.path,
+    fileLabel: card.title,
+    badge: own ? 'pack text' : 'partial',
+    meta: own ? pack : `${plugin} · installed copy, read only`,
+    canToggle: false,
+    view: 'template',
+    chip: null,
+    dot: null,
+    sentence: `${own ? `Written by ${pack}` : `A ${plugin} default`}. ${view.skill} reads it through its ${row.name} slot.`,
+    highlight: NO_HIGHLIGHT,
+    bands: [],
+    tabs: ['text', 'used-by'],
+    slot: null,
+    usedBy: { kind: 'fill', name: row.boundTo, plugin },
     error: null,
   };
 }
