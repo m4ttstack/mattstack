@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { HERDR_UNAVAILABLE, herdrRequest } from "../../herdr/client.ts";
@@ -53,7 +54,7 @@ const CSWAP_EXEC = async (argv: [string, ...string[]]) =>
 
 function harness(
   handler: FakeHerdrHandler,
-  extra: { repoIndex?: Record<string, string>; now?: () => number; registryDeps?: RegistryDeps } = {},
+  extra: { repoIndex?: Record<string, string>; now?: () => number; registryDeps?: RegistryDeps; claudeRegistryRoots?: string[] } = {},
 ) {
   const { sock, seen, stop } = fakeHerdr(handler);
   stops.push(stop);
@@ -61,9 +62,28 @@ function harness(
   const herdr: typeof herdrRequest = (method, params, opts) => herdrRequest(method, params, { ...opts, sockPath: sock });
   const exec = CSWAP_EXEC;
   const chat = createChatHandlers({ db, emitEvent: () => 0 });
-  const pane = createPaneHandlers({ db, repoIndex: () => extra.repoIndex ?? {}, herdr, exec, now: extra.now ?? Date.now, registryDeps: extra.registryDeps });
+  const pane = createPaneHandlers({ db, repoIndex: () => extra.repoIndex ?? {}, herdr, exec, now: extra.now ?? Date.now, registryDeps: extra.registryDeps, claudeRegistryRoots: extra.claudeRegistryRoots });
   return { db, seen, chat, pane };
 }
+
+test("pane:list reads a pane's session from its foreground Claude process when herdr has none", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pane-creg-"));
+  writeFileSync(join(root, "4242.json"), JSON.stringify({ pid: 4242, sessionId: "sess-from-pid" }));
+  const { pane } = harness(
+    (method, params) => {
+      if (method === "session.snapshot") return SNAPSHOT;
+      if (method === "pane.process_info" && (params as { pane_id?: string }).pane_id === "w1:p2") {
+        return { process_info: { pane_id: "w1:p2", shell_pid: 1, foreground_process_group_id: 4242, foreground_processes: [] } };
+      }
+      return new HerdrFakeError("invalid_request", method);
+    },
+    { claudeRegistryRoots: [root] },
+  );
+  const res = await pane["pane:list"]({});
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data.panes.find((p) => p.paneId === "w1:p2")?.sessionId).toBe("sess-from-pid");
+  expect(res.data.panes.find((p) => p.paneId === "w1:p1")?.sessionId).toBe("sess-signed");
+});
 
 test("pane:list lists only claude panes, joined to presence by session id, with rooms", async () => {
   const { chat, pane } = harness(

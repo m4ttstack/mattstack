@@ -59,6 +59,7 @@ import { injectIntoPane, herdrError } from "../inject.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import type { HerdrSnapshot } from "./pane.ts";
 import { resolveInbox, inboxAlive } from "../../claude-registry.ts";
+import { withProcessSession } from "../pane-process-session.ts";
 import { deliverToInbox, deliveryLabel, renderDeliveries, replySteer, senderHints, wrapCrossSession, type HintSender } from "../inbox.ts";
 import { repoForCwd, branchForCwd } from "../../repo-for-cwd.ts";
 import { deriveRoomForCwdAsync } from "../../chat-room.ts";
@@ -727,6 +728,18 @@ function findPaneSession(snapshot: HerdrSnapshot, paneId: string): { sessionId: 
   return { sessionId: pane.agent_session.value, cwd: pane.foreground_cwd ?? pane.cwd };
 }
 
+async function findPaneSessionOrProcess(
+  herdr: typeof herdrRequest,
+  snapshot: HerdrSnapshot,
+  paneId: string,
+  sockPath: string | undefined,
+  registryRoots: string[] | undefined,
+): Promise<{ sessionId: string; cwd?: string } | null> {
+  const pane = snapshot.panes.find((p) => p.pane_id === paneId);
+  if (!pane) return null;
+  return findPaneSession({ ...snapshot, panes: [await withProcessSession(herdr, pane, sockPath, registryRoots)] }, paneId);
+}
+
 // Mirrors pane.ts's REGISTER_BUDGET_MS/REGISTER_POLL_MS wait: a few seconds
 // at a short poll, bounded by wall-clock rather than an attempt count.
 const PANE_SESSION_BUDGET_MS = 3000;
@@ -752,12 +765,13 @@ async function findPaneSessionRetrying(
   budgetMs: number,
   pollMs: number,
   sockPath?: string,
+  registryRoots?: string[],
 ): Promise<{ ok: true; session: { sessionId: string; cwd?: string } } | { ok: false; error: string }> {
   const deadline = Date.now() + budgetMs;
   for (;;) {
     const snap = await herdr<{ snapshot: HerdrSnapshot }>("session.snapshot", {}, { sockPath });
     if (!snap.ok) return herdrError(snap);
-    const resolved = findPaneSession(snap.result.snapshot, paneId);
+    const resolved = await findPaneSessionOrProcess(herdr, snap.result.snapshot, paneId, sockPath, registryRoots);
     if (resolved) return { ok: true, session: resolved };
     if (Date.now() >= deadline) return { ok: false, error: `chat: no Claude session found for pane "${paneId}"` };
     await Bun.sleep(pollMs);
@@ -860,6 +874,8 @@ export function createChatHandlers(opts: {
   /** `findPaneSessionRetrying`'s wall-clock budget/poll; overridable so a test whose fake herdr never resolves does not have to wait out the real production budget. */
   paneSessionBudgetMs?: number;
   paneSessionPollMs?: number;
+  /** Claude Code session registry roots for the pane-process fallback; claude-registry.ts's own roots by default. */
+  claudeRegistryRoots?: string[];
   /** Request logger; wired from ctx.log by command-router.ts. */
   log?: Logger;
   /** deliverPost's single-retry delay; overridable so a test doesn't pay the real ~300ms. */
@@ -882,6 +898,7 @@ export function createChatHandlers(opts: {
   const exec = opts.exec ?? runCapture;
   const paneSessionBudgetMs = opts.paneSessionBudgetMs ?? PANE_SESSION_BUDGET_MS;
   const paneSessionPollMs = opts.paneSessionPollMs ?? PANE_SESSION_POLL_MS;
+  const claudeRegistryRoots = opts.claudeRegistryRoots;
   const retryDelayMs = opts.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   // One chain map per handler instance (one daemon, one db): shared across
   // every chat:post/chat:dm call so deliverSerialized actually serializes.
@@ -1140,7 +1157,7 @@ export function createChatHandlers(opts: {
       if (viaPane) {
         if (!pane) return { ok: false, error: "chat: sign-in --pane requires a pane id" };
         const { paneId: paneRef, sockPath } = resolvePaneRef(pane);
-        const resolved = await findPaneSessionRetrying(herdr, paneRef, paneSessionBudgetMs, paneSessionPollMs, sockPath);
+        const resolved = await findPaneSessionRetrying(herdr, paneRef, paneSessionBudgetMs, paneSessionPollMs, sockPath, claudeRegistryRoots);
         if (!resolved.ok) return resolved;
         sessionId = resolved.session.sessionId;
         if (signInCwd === undefined) signInCwd = resolved.session.cwd;
@@ -1255,7 +1272,7 @@ export function createChatHandlers(opts: {
         const { paneId: paneRef, sockPath } = resolvePaneRef(payload.pane);
         const snap = await herdr<{ snapshot: HerdrSnapshot }>("session.snapshot", {}, { sockPath });
         if (!snap.ok) return herdrError(snap);
-        const resolved = findPaneSession(snap.result.snapshot, paneRef);
+        const resolved = await findPaneSessionOrProcess(herdr, snap.result.snapshot, paneRef, sockPath, claudeRegistryRoots);
         if (!resolved) return { ok: false, error: `chat: no Claude session found for pane "${payload.pane}"` };
         sessionId = resolved.sessionId;
       }

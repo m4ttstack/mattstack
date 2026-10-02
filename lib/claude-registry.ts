@@ -63,6 +63,18 @@ export function resolveAllInboxes(opts?: { roots?: string[] }): Map<string, Inbo
   return map;
 }
 
+/** The session a running Claude process is on, read from its own `<pid>.json`. */
+export function sessionForPid(pid: number, opts?: { roots?: string[] }): string | null {
+  for (const root of opts?.roots ?? registryRoots()) {
+    let parsed: unknown;
+    try { parsed = JSON.parse(readFileSync(join(root, `${pid}.json`), "utf8")); } catch { continue; }
+    if (typeof parsed !== "object" || parsed === null) continue;
+    const entry = parsed as Record<string, unknown>;
+    if (entry.pid === pid && typeof entry.sessionId === "string") return entry.sessionId;
+  }
+  return null;
+}
+
 export function resolveInbox(sessionId: string, opts?: { roots?: string[] }): InboxBinding | null {
   return resolveAllInboxes(opts).get(sessionId) ?? null;
 }
