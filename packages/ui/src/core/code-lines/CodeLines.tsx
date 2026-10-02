@@ -80,6 +80,9 @@ export interface CodeLinesProps {
   /** When the scrollbars show, as Mantine's ScrollArea `type`.
       @default 'auto' */
   scrollbarType?: ScrollAreaProps['type'];
+  /** Break long lines at the viewport's width instead of scrolling
+      sideways. @default false */
+  wrap?: boolean;
 }
 
 const TAB = ' '.repeat(8);
@@ -106,6 +109,7 @@ export function CodeLines({
   classNames,
   rowAttributes,
   scrollbarType = 'auto',
+  wrap = false,
 }: CodeLinesProps) {
   const hasGutter = bands !== undefined && bands.length > 0;
   const digits = String(firstLine + lines.length - 1).length;
@@ -130,7 +134,7 @@ export function CodeLines({
       scrollToIndex={scrollTo === null ? null : scrollTo - firstLine}
       scrollAreaProps={{
         className: classes.root,
-        mod: { variant },
+        mod: { variant, wrap },
         type: scrollbarType,
         style: {
           '--code-lines-digits': `${digits}ch`,

@@ -60,12 +60,15 @@ export function TextTab({
   pack,
   content,
   beneathPanel = false,
+  wrap = false,
 }: {
   pack: string;
   content: DrawerContent;
   /** Under a panel that edits it: dimmed, unbanded, and opened at its
       range. */
   beneathPanel?: boolean;
+  /** Break long lines at the drawer's width. */
+  wrap?: boolean;
 }) {
   const source = useSkillSource(pack, content.filePath);
   const { ref, height } = useElementSize();
@@ -104,6 +107,7 @@ export function TextTab({
             classNames={CODE_CLASSES}
             scrollbarType="hover"
             rowAttributes={parityLayers}
+            wrap={wrap}
           />
         ) : (
           <Skeleton height={16} mx={18} width="60%" />

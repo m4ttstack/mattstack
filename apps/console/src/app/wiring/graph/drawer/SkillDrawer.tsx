@@ -47,6 +47,7 @@ import { RebindPanel } from './RebindPanel';
 import { TextTab } from './TextTab';
 import { UsedByTab } from './UsedByTab';
 import { useDrawerMode } from './useDrawerMode';
+import { useDrawerWrap } from './useDrawerWrap';
 
 export const DRAWER_WIDTH = 600;
 
@@ -181,6 +182,7 @@ export function SkillDrawer({
 }) {
   const surface = useDrawerSurface();
   const [mode, setMode] = useDrawerMode();
+  const [wrap, setWrap] = useDrawerWrap();
   const target = useMemo(() => parseTarget(url.select), [url.select]);
   const current = useMemo(
     () => selectedContent(url, view, anatomy),
@@ -320,6 +322,22 @@ export function SkillDrawer({
               data-parity="SegmentedControl"
               data-testid="drawer-view"
             />
+          )}
+          {tab === 'text' && (
+            <Tooltip label="Wrap lines">
+              <ActionIcon
+                variant={wrap ? 'light' : 'soft-outline'}
+                color={wrap ? 'accent' : undefined}
+                radius={6}
+                className={classes.more}
+                aria-label="Wrap lines"
+                aria-pressed={wrap}
+                onClick={() => setWrap(!wrap)}
+                data-testid="drawer-wrap"
+              >
+                <Icon name="wrapText" size={14} />
+              </ActionIcon>
+            </Tooltip>
           )}
           <Tooltip label={full ? 'Back to the side panel' : 'Open full screen'}>
             <ActionIcon
@@ -463,7 +481,12 @@ export function SkillDrawer({
         />
       )}
       {tab === 'text' && (
-        <TextTab pack={pack} content={content} beneathPanel={rebinding} />
+        <TextTab
+          pack={pack}
+          content={content}
+          beneathPanel={rebinding}
+          wrap={wrap}
+        />
       )}
       {tab === 'used-by' && content.usedBy && composition && groups && (
         <UsedByTab

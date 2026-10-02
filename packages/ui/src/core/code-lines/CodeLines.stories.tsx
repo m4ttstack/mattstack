@@ -99,6 +99,10 @@ export const Wash: Story = {
   },
 };
 
+export const Wrapped: Story = {
+  args: { ...Wash.args, wrap: true },
+};
+
 export const OffsetNumbers: Story = {
   args: { lines: sample.slice(11), firstLine: 412, height: 240 },
 };

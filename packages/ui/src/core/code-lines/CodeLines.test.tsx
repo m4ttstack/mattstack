@@ -44,6 +44,18 @@ describe('CodeLines', () => {
     expect(screen.getByText('42')).toBeTruthy();
   });
 
+  test('wraps long lines only when asked', () => {
+    const { container, rerender } = renderWithProviders(
+      <CodeLines lines={['alpha', 'bravo']} height={VIEWPORT_HEIGHT} />
+    );
+    expect(container.querySelector('[data-wrap]')).toBeNull();
+
+    rerender(
+      <CodeLines lines={['alpha', 'bravo']} height={VIEWPORT_HEIGHT} wrap />
+    );
+    expect(container.querySelector('[data-wrap]')).not.toBeNull();
+  });
+
   test('numbers lines from 1 by default', () => {
     renderWithProviders(
       <CodeLines lines={['alpha', 'bravo']} height={VIEWPORT_HEIGHT} />
