@@ -162,11 +162,12 @@ function renderAt(search: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return renderWithProviders(
+  renderWithProviders(
     <QueryClientProvider client={queryClient}>
       <WiringMap />
     </QueryClientProvider>
   );
+  return queryClient;
 }
 
 const params = () => new URLSearchParams(window.location.search);
@@ -490,6 +491,25 @@ describe('canvas errors', () => {
 
     fireEvent.click(within(error).getByRole('button', { name: 'Retry' }));
     expect(await screen.findByTestId('template-node')).toBeInTheDocument();
+    expect(screen.queryByTestId('canvas-error')).toBeNull();
+  });
+
+  it('a skill that fails to reload keeps the canvas it already drew', async () => {
+    serve();
+    const queryClient = renderAt('?tab=graph&focus=stage-plan');
+    await screen.findByTestId('template-node');
+
+    anatomyGet.mockResolvedValue(failed('rt skills anatomy: timed out'));
+    await queryClient
+      .refetchQueries({ queryKey: ['skills', 'anatomy'] })
+      .catch(() => undefined);
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryState(['skills', 'anatomy', 'acme', 'stage-plan'])
+          ?.status
+      ).toBe('error')
+    );
+    expect(screen.getByTestId('template-node')).toBeInTheDocument();
     expect(screen.queryByTestId('canvas-error')).toBeNull();
   });
 

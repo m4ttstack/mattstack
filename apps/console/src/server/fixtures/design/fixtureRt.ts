@@ -148,7 +148,8 @@ function formatLog(commits: GitCommit[]): string {
     .join('\n');
 }
 
-/** A payload file as it is, or parsed, edited and printed again. */
+/** Unedited, a payload is the file's own bytes, so `clean` and `unsynced`
+    answer exactly what they did before scenarios could edit one. */
 async function payload<T>(
   name: string,
   edit: ((value: T) => T) | undefined

@@ -48,7 +48,7 @@ interface Part {
   changed: boolean;
 }
 
-export interface Anatomy {
+interface Anatomy {
   skill: string;
   status: string;
   template: { builtVersion: string | null };
@@ -109,14 +109,13 @@ const CHANGELOG_ERROR = [
 export const isFailure = (value: unknown): value is Failure =>
   typeof value === 'object' && value !== null && 'stderr' in value;
 
-/** Replaces lines `from`..`to` (1-based) of a file with `lines`. */
+/** `from` and `to` are 1-based and inclusive, as a rendered range is. */
 function spliceLines(text: string, [from, to]: Range, lines: string[]): string {
   const all = text.split('\n');
   all.splice(from - 1, to - from + 1, ...lines);
   return all.join('\n');
 }
 
-/** Moves every part placed after `line` by `by` lines. */
 function shiftAfter(parts: Part[], line: number, by: number): Part[] {
   return parts.map(part =>
     part.renderedLines && part.renderedLines[0] > line

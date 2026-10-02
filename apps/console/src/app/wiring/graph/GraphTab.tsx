@@ -88,7 +88,7 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
       bg="var(--tk-bg)"
       data-parity="Stage"
     >
-      {focused && anatomyQuery.isError && (
+      {focused && anatomyQuery.isError && !anatomy && (
         <Center className={classes.canvasError}>
           <Alert
             variant="light"
