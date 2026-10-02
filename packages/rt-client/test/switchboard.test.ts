@@ -17,6 +17,10 @@ describe("switchboardUrl", () => {
     expect(switchboardUrl({ RT_SWITCHBOARD_URL: "https://relay.example.test/" })).toBe("https://relay.example.test");
   });
 
+  test("trims surrounding whitespace from an accepted override", () => {
+    expect(switchboardUrl({ RT_SWITCHBOARD_URL: " https://relay.example.test/ \n" })).toBe("https://relay.example.test");
+  });
+
   test("honours plain http only on this machine", () => {
     const { warn, seen } = collector();
     for (const url of ["http://localhost:7940", "http://127.0.0.1:7940", "http://[::1]:7940"]) {
