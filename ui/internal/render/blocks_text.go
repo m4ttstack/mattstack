@@ -98,7 +98,8 @@ func (r *renderer) diff(b protocol.Block) {
 	del := lipgloss.NewStyle().Foreground(theme.Coral).Background(theme.DiffDelBg)
 	if r.light {
 		// Mint and coral text wash out on a pale tint. The ink is fixed, not
-		// the terminal's own, so the row reads even when COLORFGBG is wrong.
+		// the terminal's own, so the row reads even when the resolved
+		// background is wrong.
 		add = lipgloss.NewStyle().Foreground(theme.Bg).Background(theme.DiffAddBgLight)
 		del = lipgloss.NewStyle().Foreground(theme.Bg).Background(theme.DiffDelBgLight)
 	}

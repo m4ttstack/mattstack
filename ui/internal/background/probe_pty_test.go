@@ -38,7 +38,9 @@ func shellAfter(t *testing.T, script, typed, reply, later string, delay time.Dur
 	}
 	defer ptmx.Close()
 	cmd := exec.Command("/bin/sh", "-c", script)
-	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "TERM=xterm-256color", "COLORTERM=truecolor", "BIN=" + testutil.Binary(t), "HELLO=" + hello}
+	// A private TMPDIR keeps each test's lock file, and the answer it holds,
+	// from outliving the test.
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "TMPDIR=" + t.TempDir(), "TERM=xterm-256color", "COLORTERM=truecolor", "BIN=" + testutil.Binary(t), "HELLO=" + hello}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = pts, pts, pts
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	if err := cmd.Start(); err != nil {
@@ -139,5 +141,16 @@ func TestAStepAndARenderInOneRunDrawTheSameSet(t *testing.T) {
 	}
 	if strings.Contains(out, "18;171;86") || strings.Count(out, "98;230;168") < 2 {
 		t.Fatalf("the step and the render disagree: %q", out)
+	}
+}
+
+func TestAStepUnderNoColorNeverAsksTheTerminal(t *testing.T) {
+	steps := `printf '%s\n' "$HELLO" '{"t":"start","title":"working"}' '{"t":"done","title":"worked"}' | NO_COLOR=1 RT_UI_BACKGROUND=auto "$BIN" steps`
+	out := shell(t, steps, "", "\x1b]11;rgb:1a1a/1b1b/2626\x1b\\\x1b[?62;22c", "")
+	if strings.Contains(out, "\x1b]11;?") {
+		t.Fatalf("a NO_COLOR step asked the terminal: %q", out)
+	}
+	if !strings.Contains(out, "worked") {
+		t.Fatalf("out %q", out)
 	}
 }

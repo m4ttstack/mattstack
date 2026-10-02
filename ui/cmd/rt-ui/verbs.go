@@ -183,7 +183,7 @@ func runSteps() int {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(signals)
-	if steps.Run(events, signals, term, render.Tones(background.Detect())) == steps.Signalled {
+	if steps.Run(events, signals, term, render.Tones(backgroundFor(colorprofile.Env(os.Environ())))) == steps.Signalled {
 		return ExitCancel
 	}
 	return ExitOK
@@ -316,11 +316,8 @@ func runRender(args []string) int {
 	if noColor {
 		profile = colorprofile.NoTTY
 	}
-	bg := background.Unknown
 	colored := profile != colorprofile.NoTTY && profile != colorprofile.Ascii
-	if colored {
-		bg = background.Detect()
-	}
+	bg := backgroundFor(profile)
 	w := &colorprofile.Writer{Forward: os.Stdout, Profile: profile}
 	if _, err := w.WriteString(render.Render(blocks, render.Options{Width: width, Background: bg})); err != nil {
 		return ExitInternal
@@ -331,4 +328,13 @@ func runRender(args []string) int {
 		fmt.Fprintf(os.Stderr, "background=%s\n", bg)
 	}
 	return ExitOK
+}
+
+// backgroundFor resolves the background only when there are colors to pick,
+// so a NO_COLOR run never asks the terminal.
+func backgroundFor(profile colorprofile.Profile) background.Background {
+	if profile == colorprofile.NoTTY || profile == colorprofile.Ascii {
+		return background.Unknown
+	}
+	return background.Detect()
 }

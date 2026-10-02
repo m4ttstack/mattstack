@@ -78,7 +78,9 @@ func TestNoAnswerIsSharedToo(t *testing.T) {
 func TestAProbeWaitsForTheOneInFlightAndTakesItsAnswer(t *testing.T) {
 	lock := filepath.Join(t.TempDir(), "bg.lock")
 	holder := &probeCount{answer: color.RGBA{0x1a, 0x1b, 0x26, 0xff}}
+	holding := make(chan struct{})
 	slow := func() (color.Color, bool) {
+		close(holding)
 		time.Sleep(80 * time.Millisecond)
 		return holder.probe()
 	}
@@ -87,7 +89,7 @@ func TestAProbeWaitsForTheOneInFlightAndTakesItsAnswer(t *testing.T) {
 		defer close(done)
 		shared(lock, "run-1", 200*time.Millisecond, slow)
 	}()
-	time.Sleep(20 * time.Millisecond)
+	<-holding
 	waiter := &probeCount{answer: color.White}
 	c, ok := shared(lock, "run-1", 200*time.Millisecond, waiter.probe)
 	<-done
