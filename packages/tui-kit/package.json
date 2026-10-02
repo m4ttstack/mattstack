@@ -53,6 +53,7 @@
     "dev:workshop": "cd workshop && bunx vite"
   },
   "dependencies": {
+    "@base-ui/react": "catalog:",
     "@soribashi/core": "^0.4.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"

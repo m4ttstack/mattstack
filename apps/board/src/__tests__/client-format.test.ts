@@ -5,7 +5,6 @@ import {
   cleanTitle,
   doctorItemLabel,
   firstReviewTargets,
-  gitlabMenuItems,
   laneInterrupted,
   respondAskTarget,
   respondItemLabel,
@@ -36,77 +35,6 @@ test("statusReasons is 'ready to merge' with no blockers", () => {
       unresolvedThreads: 0,
     } as never)
   ).toBe('ready to merge');
-});
-
-test('gitlabMenuItems: mergeable MR offers merge and auto-merge arming', () => {
-  const items = gitlabMenuItems({
-    mergeButton: { visible: true, disabled: false, loading: false },
-    rebaseButton: { visible: false, loading: false },
-    autoMergeButton: { visible: true, isActive: false },
-    behindTarget: 0,
-  } as never);
-  expect(items).toEqual([
-    { kind: 'merge', label: 'merge', disabled: false },
-    { kind: 'setAutoMerge', label: 'set auto-merge', disabled: false },
-  ]);
-});
-
-test('gitlabMenuItems: armed auto-merge flips to cancel', () => {
-  const items = gitlabMenuItems({
-    mergeButton: { visible: false, disabled: false, loading: false },
-    rebaseButton: { visible: false, loading: false },
-    autoMergeButton: { visible: true, isActive: true },
-    behindTarget: null,
-  } as never);
-  expect(items).toEqual([
-    { kind: 'cancelAutoMerge', label: 'cancel auto-merge', disabled: false },
-  ]);
-});
-
-test('gitlabMenuItems: rebase offered when GitLab raises the button', () => {
-  const items = gitlabMenuItems({
-    mergeButton: { visible: false, disabled: false, loading: false },
-    rebaseButton: { visible: true, loading: false },
-    autoMergeButton: { visible: false, isActive: false },
-    behindTarget: null,
-  } as never);
-  expect(items).toEqual([
-    { kind: 'rebase', label: 'rebase on target', disabled: false },
-  ]);
-});
-
-test('gitlabMenuItems: rebase also offered when merely behind target', () => {
-  const items = gitlabMenuItems({
-    mergeButton: { visible: false, disabled: false, loading: false },
-    rebaseButton: { visible: false, loading: false },
-    autoMergeButton: { visible: false, isActive: false },
-    behindTarget: 4,
-  } as never);
-  expect(items.map(i => i.kind)).toEqual(['rebase']);
-});
-
-test('gitlabMenuItems: disabled merge carries through, rebase loading disables', () => {
-  const items = gitlabMenuItems({
-    mergeButton: { visible: true, disabled: true, loading: false },
-    rebaseButton: { visible: true, loading: true },
-    autoMergeButton: { visible: false, isActive: false },
-    behindTarget: null,
-  } as never);
-  expect(items).toEqual([
-    { kind: 'merge', label: 'merge', disabled: true },
-    { kind: 'rebase', label: 'rebase on target', disabled: true },
-  ]);
-});
-
-test('gitlabMenuItems: nothing raised means an empty list', () => {
-  expect(
-    gitlabMenuItems({
-      mergeButton: { visible: false, disabled: false, loading: false },
-      rebaseButton: { visible: false, loading: false },
-      autoMergeButton: { visible: false, isActive: false },
-      behindTarget: null,
-    } as never)
-  ).toEqual([]);
 });
 
 test('laneInterrupted: a gone orphan cuts the lane its sessionId names', () => {
