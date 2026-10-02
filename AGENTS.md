@@ -613,12 +613,15 @@ the invite; `rt team join` stores it under the rt secrets scope, writes no URL
 setting, and refuses a pointer from an older rt whose URL is not
 `switchboardUrl()`. The board refuses a pasted invite on any other origin.
 The `account.board-peering` row applies on a Mac in a team (created or
-joined) whose team runs a board (`board.projects` is set), never on a Just
-Me Mac, and never on a team creator's Mac that lacks the switchboard admin
-token (it has no way to peer from there): `needs-you` when neither the board's `.env` nor rt's
-`switchboardToken` holds a token (with the re-invite remedy, or, on a Mac
-that created one of its teams, the steps to invite its own board from the
-board's members panel), `error` with a re-check when
+joined) that runs a board (the team's `board.projects`, or the board's
+legacy `config.json`, tracks projects). It never shows on a Just Me Mac,
+nor on a creator's Mac that lacks the switchboard admin token (in rt's
+secrets, the environment or the board's `.env`) and joined no other team,
+since nothing there can peer it. It reads `needs-you` when neither the
+board's `.env` nor rt's `switchboardToken` holds a token (with the
+re-invite remedy, or, on a creator's Mac holding the admin token, the steps
+to invite its own board from the board's members panel, which `verify`'s
+note names too), `error` with a re-check when
 `<url>/healthz` (no auth header; `/health` is not a route) does not answer
 200, `ready` otherwise. It is never required or finish-gated (only the owner
 can fix it), but `verify` reports it, so `rt setup update` notifies. The

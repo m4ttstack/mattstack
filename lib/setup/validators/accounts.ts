@@ -26,7 +26,7 @@ import type { PackRequirements } from "../requirements.ts";
 import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
-import { boardPeering } from "../../team/board-token.ts";
+import { boardEnvHas, boardPeering } from "../../team/board-token.ts";
 import { slackSecretWait, slackWaitRowDetail, type SlackSecretWait } from "../team-slack-secret.ts";
 
 /** Reads user-scope secrets: the real implementation goes through lib/secrets/store.readSecret (null on NoAgeKeyError) plus staged values (staging.ts) — that wiring is a later task's job; validators only depend on this narrow shape. */
@@ -247,7 +247,7 @@ const BOARD_PEERING_BASE = {
   optionalNote: "Your board does not peer until the team's owner re-invites it.",
 };
 
-const SELF_INVITE_STEPS: Action = {
+export const SELF_INVITE_STEPS: Action = {
   type: "steps",
   label: "Show steps…",
   steps: [
@@ -258,17 +258,19 @@ const SELF_INVITE_STEPS: Action = {
   ],
 };
 
-async function boardPeeringRow(p: Probes, secrets: SecretPresence): Promise<Row | null> {
-  const peering = await boardPeering(p, (domain, key) => secrets.has(domain, key));
+async function boardPeeringRow(p: Probes, secrets: SecretPresence, team: TeamSnapshot): Promise<Row | null> {
+  const peering = await boardPeering(p, (domain, key) => secrets.has(domain, key), team.boardProjects === true);
   if (peering.kind === "not-applicable") return null;
   if (peering.kind === "unpeered") {
     const unpeered = `This Mac is in ${peering.teams.join(", ")}, but its board has no switchboard token, so it cannot peer.`;
     const created = peering.teams.filter((slug) => readTeamLocal(p, slug).createdByRt);
+    const joinedSome = peering.teams.some((slug) => !readTeamLocal(p, slug).createdByRt);
     // The board token is one per Mac, not per team, so creating any one team here is enough to self-invite.
-    if (created.length > 0) {
-      // Without the admin token the owner has no way to peer from here, so the row would only nag.
-      const canSelfInvite = Boolean(p.env.SWITCHBOARD_ADMIN_TOKEN) || (await secrets.has("rt", "switchboardAdminToken")) !== null;
-      if (!canSelfInvite) return null;
+    const canSelfInvite =
+      created.length > 0 && (Boolean(p.env.SWITCHBOARD_ADMIN_TOKEN) || boardEnvHas(p, "SWITCHBOARD_ADMIN_TOKEN") || (await secrets.has("rt", "switchboardAdminToken")) !== null);
+    // A creator without the admin token, and no other team's owner to ask, has no way to peer from here.
+    if (!canSelfInvite && !joinedSome) return null;
+    if (canSelfInvite) {
       return row({
         ...BOARD_PEERING_BASE,
         optionalNote: "Your board does not peer until you invite it from the board's members panel.",
@@ -293,9 +295,9 @@ async function boardPeeringRow(p: Probes, secrets: SecretPresence): Promise<Row 
 }
 
 /** Same contract as accountRowForSafe: a throw fails only this row, never the rest of the group. */
-async function boardPeeringRowSafe(p: Probes, secrets: SecretPresence): Promise<Row | null> {
+async function boardPeeringRowSafe(p: Probes, secrets: SecretPresence, team: TeamSnapshot): Promise<Row | null> {
   try {
-    return await boardPeeringRow(p, secrets);
+    return await boardPeeringRow(p, secrets, team);
   } catch (err) {
     return row({ ...BOARD_PEERING_BASE, status: "error", detail: err instanceof Error ? err.message : String(err), action: ACCOUNT_RECHECK_ACTION });
   }
@@ -467,7 +469,7 @@ export async function accountRows(
     if (entry.id === "slack" && slackAppNeeded) rows.push(slackAppRow(slackAppRequired));
     rows.push(idRows[i]!);
   });
-  const peering = solo ? null : await boardPeeringRowSafe(p, secrets);
+  const peering = solo ? null : await boardPeeringRowSafe(p, secrets, team);
   if (peering) rows.push(peering);
   return rows;
 }

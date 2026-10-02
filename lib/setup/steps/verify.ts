@@ -9,7 +9,7 @@ import { composePlan } from "../plan.ts";
 import { isTeamSyncFirstPullPending, ONE_TEAM_ROW_ID } from "../validators/rt-health.ts";
 import { rowsToChecks } from "../../../commands/verify.ts";
 import type { Row } from "../contract.ts";
-import { BOARD_PEERING_ROW_ID } from "../validators/accounts.ts";
+import { BOARD_PEERING_ROW_ID, SELF_INVITE_STEPS } from "../validators/accounts.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { toFailedOutcome } from "./step-utils.ts";
@@ -19,6 +19,7 @@ type CheckResult = ReturnType<typeof rowsToChecks>[number];
 type MemberTask = { verb: "connect" | "install"; label: string };
 
 const UNPEERED_NOTE = "Board not peered: ask the team owner to re-invite you";
+const SELF_INVITE_NOTE = "Board not peered: invite your own board from its members panel";
 const SEVERAL_TEAMS_NOTE = "More than one team on this Mac: open Setup status";
 
 /**
@@ -43,6 +44,7 @@ export function leftForMemberIn(rows: Row[]): (name: string) => boolean {
 
 export function outcomeFromChecks(checks: CheckResult[], rows: Row[] = []): StepOutcome {
   const byId = new Map(rows.map((r) => [r.id, r]));
+  const peeringRow = byId.get(BOARD_PEERING_ROW_ID);
   const tasks: MemberTask[] = [];
   const failures: CheckResult[] = [];
   for (const c of checks) {
@@ -56,8 +58,8 @@ export function outcomeFromChecks(checks: CheckResult[], rows: Row[] = []): Step
       .map((verb) => [verb, tasks.filter((t) => t.verb === verb).map((t) => t.label)] as const)
       .filter(([, labels]) => labels.length > 0)
       .map(([verb, labels]) => `To ${verb}: ${labels.join(", ")}`),
-    // Not required, so it never fails a check, but only the member can chase the owner for the token.
-    ...(byId.get(BOARD_PEERING_ROW_ID)?.status === "needs-you" ? [UNPEERED_NOTE] : []),
+    // Not required, so it never fails a check, but only the person at this Mac can fetch the token.
+    ...(peeringRow?.status === "needs-you" ? [JSON.stringify(peeringRow.action) === JSON.stringify(SELF_INVITE_STEPS) ? SELF_INVITE_NOTE : UNPEERED_NOTE] : []),
     // Not required either, and nothing else tells a Mac that already has two zones.
     ...(byId.get(ONE_TEAM_ROW_ID)?.status === "needs-you" ? [SEVERAL_TEAMS_NOTE] : []),
   ].join(". ");

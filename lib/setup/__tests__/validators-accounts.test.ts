@@ -1,6 +1,5 @@
-import { afterEach, beforeEach, describe, test, expect } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { accountRows, type SecretPresence } from "../validators/accounts.ts";
-import { __test__ as boardToken } from "../../team/board-token.ts";
 import { fakeProbes, ok } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
@@ -473,9 +472,6 @@ describe("accountRows — account.linear declared / not declared", () => {
 });
 
 describe("accountRows: account.board-peering", () => {
-  beforeEach(() => boardToken.setRunsBoard(() => true));
-  afterEach(() => boardToken.reset());
-
   const HOME = "/fake-home";
   const TEAMS = `${HOME}/.mattstack/teams`;
   const reachable = async (url: string) => (url === `${SWITCHBOARD_URL}/healthz` ? { status: 200, body: "", headers: {} } : { status: 0, body: "", headers: {} });
@@ -490,7 +486,8 @@ describe("accountRows: account.board-peering", () => {
     return fakeProbes({ home: HOME, files, dirs: { [TEAMS]: Object.keys(teams) }, fetch: opts.fetch ?? reachable, env: opts.env ?? {} });
   }
 
-  const rowsFor = (p: ReturnType<typeof fakeProbes>, secrets: SecretPresence = fakeSecrets()) => accountRows(p, baseTeam(), [], secrets, null);
+  const rowsFor = (p: ReturnType<typeof fakeProbes>, secrets: SecretPresence = fakeSecrets(), team: TeamSnapshot = baseTeam({ boardProjects: true })) =>
+    accountRows(p, team, [], secrets, null);
   const peeringRow = async (p: ReturnType<typeof fakeProbes>, secrets?: SecretPresence) => pickRow(rowsFor(p, secrets), "account.board-peering");
   const withToken = fakeSecrets({ "rt.switchboardToken": "tok-1" });
   const withAdmin = fakeSecrets({ "rt.switchboardAdminToken": "admin-1" });
@@ -607,19 +604,30 @@ describe("accountRows: account.board-peering", () => {
     expect(rows.find((r) => r.id === "account.board-peering")).toBeUndefined();
   });
 
+  test("the admin token in the board's own .env counts for the creator's Mac", async () => {
+    const r = await peeringRow(machine({ acme: { joinedByRt: false } }, { extra: { [`${HOME}/.mattstack/board/.env`]: "SWITCHBOARD_ADMIN_TOKEN=admin-1\n" } }));
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toContain("You created acme on this Mac");
+  });
+
+  test("a creator without the admin token who also joined another team keeps the re-invite remedy", async () => {
+    const r = await peeringRow(machine({ acme: { joinedByRt: false }, beta: { joinedByRt: true } }));
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toContain("invite you again");
+  });
+
   test("the admin token in the environment counts for the creator's Mac", async () => {
     const r = await peeringRow(machine({ acme: { joinedByRt: false } }, { env: { SWITCHBOARD_ADMIN_TOKEN: "admin-1" } }));
     expect(r.status).toBe("needs-you");
   });
 
   test("a team that runs no board gets no row", async () => {
-    boardToken.setRunsBoard(() => false);
-    const rows = await rowsFor(machine({ acme: { joinedByRt: true } }));
+    const rows = await rowsFor(machine({ acme: { joinedByRt: true } }), fakeSecrets(), baseTeam());
     expect(rows.find((r) => r.id === "account.board-peering")).toBeUndefined();
   });
 
   test("a Just Me Mac gets no row", async () => {
-    const rows = await accountRows(machine({ acme: { joinedByRt: true } }), baseTeam(), [], fakeSecrets(), null, {}, true);
+    const rows = await accountRows(machine({ acme: { joinedByRt: true } }), baseTeam({ boardProjects: true }), [], fakeSecrets(), null, {}, true);
     expect(rows.find((r) => r.id === "account.board-peering")).toBeUndefined();
   });
 

@@ -1,9 +1,8 @@
-import { afterEach, beforeEach, describe, expect, onTestFinished, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { basename, dirname, join } from "path";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
-import { __test__ as boardTokenTest } from "../../team/board-token.ts";
 import { teamSettingsPath, userSettingsPath } from "../../rt-paths.ts";
 import { updateRepoIndex } from "../../repo-index.ts";
 import { setSetting } from "../../settings/write.ts";
@@ -1853,8 +1852,6 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       });
 
       test("an unpeered joined board blocks neither Install nor Finish, yet verify reports it and the update notification counts it", async () => {
-        boardTokenTest.setRunsBoard(() => true);
-        onTestFinished(() => boardTokenTest.reset());
         const teams = "/fake-home/.mattstack/teams";
         const p = fakeProbes({
           fetch: async () => ({ status: 200, body: "", headers: {} }),
@@ -1864,7 +1861,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
             "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true }),
           },
         });
-        const team: TeamSnapshot = { slug: "acme", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
+        const team: TeamSnapshot = { slug: "acme", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null, boardProjects: true };
         const rows = await accountRows(p, team, [], { has: async () => null }, null);
         expect(rows.find((r) => r.id === "account.board-peering")?.status).toBe("needs-you");
 
@@ -1878,6 +1875,23 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(updateNotification("1.2.3", [{ id: "verify", state: outcome.state, detail: (outcome as { detail: string }).detail }])?.message).toBe(
           "verify: Board not peered: ask the team owner to re-invite you",
         );
+      });
+
+      test("on the team creator's Mac, verify points at inviting your own board", async () => {
+        const teams = "/fake-home/.mattstack/teams";
+        const p = fakeProbes({
+          fetch: async () => ({ status: 200, body: "", headers: {} }),
+          dirs: { [teams]: ["acme"] },
+          files: {
+            [`${teams}/acme/mattstack/settings.team.jsonc`]: "{}",
+            "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ createdByRt: true, joinedByRt: false }),
+          },
+        });
+        const team: TeamSnapshot = { slug: "acme", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null, boardProjects: true };
+        const secrets = { has: async (domain: string, key: string) => (domain === "rt" && key === "switchboardAdminToken" ? "admin-1" : null) };
+        const rows = await accountRows(p, team, [], secrets, null);
+        const plan = finalizePlan({ slug: "acme", name: "acme", mode: "none" }, [{ id: "accounts", title: "Accounts", rows }]);
+        expect(outcomeFromChecks(rowsToChecks(plan, { ci: false }), rows)).toEqual({ state: "needs-you", detail: "Board not peered: invite your own board from its members panel" });
       });
 
       test("an unpeered board sits beside other member tasks in verify's summary", () => {

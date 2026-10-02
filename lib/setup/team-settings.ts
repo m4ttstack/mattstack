@@ -37,6 +37,8 @@ export interface TeamSnapshot {
   marketplaces: string[];
   plugins: string[];
   remote: string | null;
+  /** The team's board tracks at least one project, which is what makes a board worth peering. */
+  boardProjects?: boolean;
 }
 
 /** Reads one registered setting key, degrading to `undefined` on a resolver-layer throw rather than taking the whole plan down with it. Injectable so tests never touch the real resolver/disk. */
@@ -90,6 +92,7 @@ export function readTeamSnapshot(p: Probes, slug: string, opts: { read?: Setting
   const tracking = read<{ repos?: Record<string, unknown> }>("mattstack.tracking");
   const marketplaces = read<unknown>("claude.marketplaces");
   const plugins = read<unknown>("claude.plugins");
+  const boardProjects = read<unknown>("board.projects");
 
   const gitConfig = p.readFile(join(p.home, ".mattstack", "teams", slug, ".git", "config"));
   const remote = gitConfig !== null ? parseOriginUrl(gitConfig) : null;
@@ -101,6 +104,7 @@ export function readTeamSnapshot(p: Probes, slug: string, opts: { read?: Setting
     marketplaces: Array.isArray(marketplaces) ? (marketplaces as string[]) : [],
     plugins: Array.isArray(plugins) ? (plugins as string[]) : [],
     remote,
+    boardProjects: Array.isArray(boardProjects) && boardProjects.length > 0,
   };
 }
 
