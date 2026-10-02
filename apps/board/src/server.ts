@@ -3773,7 +3773,7 @@ const GATE_SWEEP_MS = 60_000;
 // triage/doctor-scoped and unused elsewhere); the console lines below are the
 // courtesy notify -- the facility's own `gate/parked` event, relayed back
 // through ingestRelayFrame, is what actually patches the cache and nudges
-// SSE clients. Built fresh per sweep rather than at module level.
+// SSE clients.
 function sweepActionIo(): ExecuteSweepActionIo {
   return {
     gatePark,
@@ -3788,8 +3788,7 @@ function sweepActionIo(): ExecuteSweepActionIo {
   };
 }
 
-// Reopen io per domain (the operator "resume review/response" path), built
-// fresh per call, like sweepActionIo.
+// Reopen io per domain (the operator "resume review/response" path).
 function reviewReopenIo(): ReopenIo {
   return {
     resumeAgentPane,
@@ -3818,8 +3817,6 @@ function respondReopenIo(): ReopenIo {
   };
 }
 
-// One KindResumeIo per resumable gate kind, built fresh per sweep/resume
-// call rather than at module level, like sweepActionIo.
 function reviewResumeIo(): KindResumeIo {
   return {
     readState: mrUrl => readReviewStates().get(mrUrl),
