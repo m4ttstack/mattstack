@@ -171,8 +171,8 @@ entry does not have to get both calls right in two different scopes itself.
 Modal and SideDrawer are category-2 transient overlays, which the authoring
 skill pairs with `defineCompound`. They use `defineComponent` anyway. The
 pairing exists because in soribashi a transient overlay wraps Base UI parts
-whose open/close lifecycle Base UI owns; this kit has no `@base-ui/react`
-dependency and none planned, the markup is mr-board's own, and the lifecycle is
+whose open/close lifecycle Base UI owns; here only ContextMenu composes Base UI
+(see the next section), the markup is mr-board's own, and the lifecycle is
 the caller's `{open && <Modal/>}` conditional plus `useEscapeClose` /
 `useBodyScrollLock`. The real test for a compound is composability, not slot
 count — nobody imports a `Modal.Overlay` or a `SideDrawer.Panel`, and inventing
@@ -184,6 +184,32 @@ and in what order. Two consequences apply there and nowhere else in the kit —
 `defineCompound` never calls `autoVars` (no automatic fallback at all), and its
 `getStyles` takes an options object (`getStyles({ part: 'hint' })`), never the
 bare-string form.
+
+## ContextMenu composes Base UI Menu
+
+ContextMenu is the one recipe built on `@base-ui/react` (`Menu`). Submenus
+are why. Pointer travel from a row into its flyout, arrow-key focus between
+items, typeahead, focus return, flipping a flyout that does not fit, and the
+menu ARIA are each easy to get subtly wrong by hand, and Base UI already gets
+them right. The public API did not change: the caller still mounts the menu
+at a point and owns `onClose`.
+
+Base UI is driven, not trusted, in four places:
+
+- The menu is controlled and always open while mounted. Every item has
+  `closeOnClick={false}`, so only the caller closes it.
+- Base UI's Escape is cancelled. The root and each open submenu join the
+  kit's layer stack (`useEscapeClose`), so one Escape closes one layer
+  whatever order the two `document` listeners run in. A menu over a drawer
+  never takes the drawer with it.
+- Base UI's outside press (a capture-phase `pointerdown`) is cancelled. The
+  recipe's own bubble-phase `mousedown` closes it, so a trigger that stops
+  that mousedown can still act as a toggle.
+- The portal lands in a wrapper the recipe renders in place, not `<body>`, so
+  a scoped `.dark` or theme wrapper still reaches the menu and its submenus.
+
+The other overlays (Modal, SideDrawer, Tooltip) stay hand-rolled. Nothing
+they do needs what Base UI adds.
 
 ## Why the intent resolver is hand-written
 
