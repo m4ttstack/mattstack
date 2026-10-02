@@ -1,9 +1,6 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 
-import type { getSetting, setSetting } from '@mattstack/rt-client';
+import type { getSetting } from '@mattstack/rt-client';
 import { switchboardUrl } from '@mattstack/rt-client';
 import {
   daemonRepoField,
@@ -14,7 +11,6 @@ import {
 } from '../config.ts';
 
 type GetSettingFn = typeof getSetting;
-type SetSettingFn = typeof setSetting;
 
 /** A resolve stand-in returning `values[key]` (or undefined for an absent
     key), matching getSetting's shape without touching any real store --

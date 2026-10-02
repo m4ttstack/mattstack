@@ -96,7 +96,7 @@ export function startPeerWaker(deps: PeerWakerDeps): PeerWakerHandle {
       } catch {
         base = null;
       }
-      // The token and cursor belong to one relay: a newly declared relay
+      // The token and cursor belong to one relay: a relay whose URL changed
       // must neither receive the old token nor inherit the old cursor.
       if (base && base !== boundBase) {
         boundBase = base;

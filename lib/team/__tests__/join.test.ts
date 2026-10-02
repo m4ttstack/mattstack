@@ -689,7 +689,7 @@ describe("joinRedeem", () => {
     expect(readTeamLocal(p, POINTER.team).joinedByRt).toBe(true);
   });
 
-  test("switchboard url + a readable admin token → peering applied: POSTs /boards, stores the returned board token as the local switchboardToken secret", async () => {
+  test("no pointer token + a readable admin token → peering applied: POSTs /boards, stores the returned board token as the local switchboardToken secret", async () => {
     const fetchCalls: { url: string; init?: Parameters<Probes["fetch"]>[1] }[] = [];
     const p = redeemProbes({
       fetch: async (url, init) => {
@@ -886,7 +886,7 @@ describe("joinRedeem", () => {
   describe("a join never burns an invite whose board token has nowhere to go", () => {
     const EMBEDDED = { ...POINTER, switchboard: { url: SB, token: "tok-emb" } };
 
-    test("a declared switchboard with no personal secrets store yet refuses before redeeming, names rt home init, and keeps the intent", async () => {
+    test("an embedded board token with no personal secrets store yet refuses before redeeming, names rt home init, and keeps the intent", async () => {
       const p = redeemProbes();
       const relay = fakeRelay({ fetch: relayServing(EMBEDDED) });
       const { seams, calls } = baseJoinRedeemSeams({ localStoreReady: async () => false });
