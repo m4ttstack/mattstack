@@ -79,8 +79,10 @@ export interface MaterializeResult {
   stderr: string;
   /** Captured stdout — non-empty only for `RT_OWN_STEP_KINDS` steps, and printed even on `ok: true`: `rt daemon install` writes operator-critical approval guidance to stdout on a clean exit. */
   stdout: string;
-  /** An informational note to show even on `ok: true` — e.g. `boardSetup`'s manual-run command. Never a failure message (that's `stderr`). */
+  /** An informational note to show even on `ok: true`. Never a failure message (that's `stderr`). */
   note: string;
+  /** A command a person must run by hand because it asks questions, such as `boardSetup`'s. */
+  runYourself?: string;
 }
 
 /**
@@ -152,7 +154,7 @@ async function runStep(step: MaterializeStep, seam: MaterializeExecSeam, rtBin: 
         note: "",
       };
     case "boardSetup":
-      return { step, ok: true, stderr: "", stdout: "", note: `Run this yourself, it asks questions: ${boardSetupCommand(step.repoPath)}` };
+      return { step, ok: true, stderr: "", stdout: "", note: "", runYourself: boardSetupCommand(step.repoPath) };
   }
 }
 

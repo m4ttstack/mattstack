@@ -361,7 +361,7 @@ export function createRealMachineProfilePickerSeam(): MachineProfilePickerSeam {
   };
 }
 
-export type EnsureHomeAgeKeyResult = { ok: true } | { ok: false; failure: out.FailureInput };
+export type EnsureHomeAgeKeyResult = { ok: true } | { ok: false; failure: out.FailureInput; after?: Block[] };
 
 /**
  * The sole mint site: `key export` (lib/home/age-key.ts:keyExport) refuses
@@ -427,10 +427,10 @@ async function ensureHomeAgeKey(
       ok: false,
       failure: {
         title: "This Mac's key does not match your secrets",
-        why: `They are locked to ${truncateKey(existingRecipient ?? "a key rt does not recognise")}, and this Mac holds ${truncateKey(publicKey)}. rt will not change which key they are locked to by itself.`,
+        why: `They are locked to ${existingRecipient === null ? "a key rt does not recognise" : truncateKey(existingRecipient)}, but this Mac holds ${truncateKey(publicKey)}, and rt will not change that lock by itself.`,
         next: out.cmd("rt home key import --force"),
-        details: "To change the key on purpose is a deliberate ceremony: rewrite the recipient in your home repo by hand, then save each secret again with rt secrets set.",
       },
+      after: [out.callout("note", "To change the key on purpose, rewrite the recipient in your home repo by hand, then save each secret again with rt secrets set.")],
     };
   }
 
@@ -587,6 +587,7 @@ async function runRefreshSteps(steps: MaterializeStep[], exec: MaterializeExecSe
     // A sub-line clears when its step ends done, and this guidance must outlive the step.
     const detail = [result.ok ? "" : result.stderr, result.stdout, result.note].filter((text) => text !== "").flatMap((text) => text.split("\n"));
     if (detail.length > 0) out.print(out.verbatim(detail));
+    if (result.runYourself) out.print(out.callout("next", ["Run this yourself, it asks questions: ", out.cmd(result.runYourself)]));
     if (!result.ok && RT_OWN_STEP_KINDS.has(step.kind)) rtOwnFailed = true;
   }
   return rtOwnFailed;
@@ -835,7 +836,7 @@ export async function homeInit(args: string[], _ctx: CommandContext = {}, seams:
   // failed mint would tell the operator init worked while `rt secrets set`
   // still has no key or creation rule to encrypt against.
   const ageKeyResult = await ensureHomeAgeKey(ageKeySeam, sopsYamlSeam);
-  if (!ageKeyResult.ok) failInit(ageKeyResult.failure);
+  if (!ageKeyResult.ok) failInit(ageKeyResult.failure, ...(ageKeyResult.after ?? []));
 
   if (plan.blocked === "skills-symlink-real-file") {
     refuse(
@@ -992,7 +993,7 @@ export async function homeKeyImport(
     }
     refuse(
       "This Mac already has a secrets key",
-      out.callout("why", `Its recipient is ${truncateKey(result.existingPublicKey)}.`),
+      out.callout("why", `Its recipient is ${truncateKey(result.existingPublicKey)}, and rt replaces it only when you ask.`),
       out.callout("next", out.cmd("rt home key import --force")),
     );
   }
@@ -1007,7 +1008,7 @@ export async function homeKeyImport(
   if (existingRecipient !== null && existingRecipient !== publicKey) {
     out.fail({
       title: "That key cannot open the secrets in your home repo",
-      why: `It is ${truncateKey(publicKey)}, and they are locked to ${truncateKey(existingRecipient)}. The key you just imported is stored now, so import the right one over it.`,
+      why: `The key you just imported (${truncateKey(publicKey)}) is stored now, but they are locked to ${truncateKey(existingRecipient)}, so import the right one over it.`,
       next: out.cmd("rt home key import --force"),
     });
     process.exit(2);

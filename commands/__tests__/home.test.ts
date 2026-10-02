@@ -323,8 +323,9 @@ describe("homeInit", () => {
     expect(errors.some((e) => e.includes("age1stale"))).toBe(true);
     expect(errors.some((e) => e.includes(FAKE_PUBLIC_KEY.slice(0, 12)))).toBe(true);
     expect(errors.some((e) => e.includes("rt home key import --force"))).toBe(true);
-    expect(errors.some((e) => e.includes("deliberate ceremony"))).toBe(true);
-    expect(errors.some((e) => e.includes("rt secrets set"))).toBe(true);
+    expect(errors).toContain("  note: To change the key on purpose, rewrite the recipient in your home repo by hand, then save each secret again with rt secrets set.");
+    expect(errors).toContain(`  why: They are locked to age1stale…, but this Mac holds ${FAKE_PUBLIC_KEY.slice(0, 12)}…, and rt will not change that lock by itself.`);
+    expect(errors.some((e) => e.includes("…."))).toBe(false);
   });
 
   test("fully provisioned, key ALREADY in the keychain, recipient matches: no-op", async () => {
@@ -1147,7 +1148,8 @@ describe("homeInit", () => {
       // boardSetup never spawns — mr-board's setup prompts interactively — it only prints the manual command, once.
       expect(logs.some((l) => l.includes("Set up mr-board"))).toBe(true);
       const manualCommandLines = logs.filter((l) => l.includes("/repos/mr-board") && l.includes("scripts/setup.ts"));
-      expect(manualCommandLines).toHaveLength(1);
+      expect(manualCommandLines).toEqual(['  next: Run this yourself, it asks questions: cd "/repos/mr-board" && bun run scripts/setup.ts']);
+      expect(logs[logs.indexOf(manualCommandLines[0]!) - 1]).toBe("[needs you] Set up mr-board  you run this one yourself");
     });
 
     test("deck on PATH but already healthy: deck setup never spawns (it restarts the live proxy) — reported as skipped instead", async () => {
@@ -2134,7 +2136,7 @@ describe("homeKeyImport", () => {
     const { exitCode, errors } = await runImport([], seam);
     expect(exitCode).toBe(1);
     expect(errors[0]).toBe("[refused] This Mac already has a secrets key");
-    expect(errors[1]).toStartWith(`  why: Its recipient is ${OTHER_PUBLIC_KEY.slice(0, 12)}`);
+    expect(errors[1]).toBe(`  why: Its recipient is ${OTHER_PUBLIC_KEY.slice(0, 12)}…, and rt replaces it only when you ask.`);
     expect(errors[2]).toBe("  next: rt home key import --force");
   });
 
@@ -2160,6 +2162,7 @@ describe("homeKeyImport", () => {
     expect(errors.some((e) => e.includes(OTHER_PUBLIC_KEY.slice(0, 12)))).toBe(true);
     // The wrong key is already stored, so a plain retry hits the exists-refusal — the message must say so.
     expect(errors.some((e) => e.includes("rt home key import --force"))).toBe(true);
+    expect(errors.some((e) => e.includes("…."))).toBe(false);
   });
 
   test("imported key's recipient matches an existing .sops.yaml: succeeds, no mismatch warning", async () => {

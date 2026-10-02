@@ -194,7 +194,7 @@ describe("runMaterialize", () => {
     });
   });
 
-  test("boardSetup is always report-only and ok, with the manual command in `note` (not `stderr`)", async () => {
+  test("boardSetup is always report-only and ok, with the command a person runs by hand (not `stderr`)", async () => {
     const seam = new FakeExecSeam();
     const [result] = await runMaterialize([{ kind: "boardSetup", repoPath: "/repos/mr-board" }], seam);
     expect(result).toEqual({
@@ -202,7 +202,8 @@ describe("runMaterialize", () => {
       ok: true,
       stderr: "",
       stdout: "",
-      note: 'Run this yourself, it asks questions: cd "/repos/mr-board" && bun run scripts/setup.ts',
+      note: "",
+      runYourself: 'cd "/repos/mr-board" && bun run scripts/setup.ts',
     });
   });
 
