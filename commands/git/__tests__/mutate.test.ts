@@ -6,7 +6,7 @@ import { join } from "path";
 import * as out from "../../../lib/ui/out.ts";
 import { renderPlain } from "../../../lib/ui/out-plain.ts";
 import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
-import { amendCommand, stashApplyCommand, stashBlocks, stashDropCommand, stashPopCommand, stashPushCommand, tagBlocks, tagCreateCommand, tagDeleteCommand, undoCommand, UNDO_REFUSED } from "../mutate.ts";
+import { amendCommand, stashApplyCommand, stashBlocks, stashDropCommand, stashPopCommand, stashPushCommand, tagBlocks, tagCreateCommand, tagDeleteCommand, tagPushCommand, undoCommand, UNDO_REFUSED } from "../mutate.ts";
 import { exitCodeOf, git, inDir, makeRepo, trapExit } from "./helpers.ts";
 
 test("the stash list names each stash by its number, its branch and its message", () => {
@@ -125,6 +125,21 @@ test("tag create and delete say what happened; a missing name asks for one", asy
   expect(io.stdout()).toBe("[ok] Created tag v0.0.1-sample\n[ok] Deleted tag v0.0.1-sample  on this Mac only\n");
   expect(await exitCodeOf(() => inDir(repo, () => tagCreateCommand([])))).toBe(1);
   expect(io.stderr()).toBe("What should the tag be called?\n  next: rt git tag create <name> [--message <m>] [--at <sha>] [--push] [--json]\n");
+});
+
+test("a tag pushed to a --remote URL with a token never prints the token, and --json keeps the value", async () => {
+  const secret = ["tok", "123"].join("");
+  const url = `https://user:${secret}@example.test/x.git`;
+  const bare = join(root, "bare.git");
+  execFileSync("git", ["init", "-q", "--bare", bare], { stdio: "pipe" });
+  git(repo, "config", `url.${bare}.insteadOf`, url);
+  git(repo, "tag", "v0.0.2-sample");
+  await inDir(repo, () => tagPushCommand(["v0.0.2-sample", "--remote", url]));
+  expect(io.stdout()).toContain("Pushed tag v0.0.2-sample");
+  expect(io.stdout() + io.stderr()).not.toContain(secret);
+  io.clear();
+  await inDir(repo, () => tagPushCommand(["v0.0.2-sample", "--remote", url, "--json"]));
+  expect(io.stdout()).toBe(JSON.stringify({ ok: true, name: "v0.0.2-sample", remote: url }) + "\n");
 });
 
 test("a tag git will not delete fails with a plain title over git's words", async () => {
