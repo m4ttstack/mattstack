@@ -33,9 +33,10 @@ import { CONTEXTMENU_PARTS, ContextMenu } from "./ContextMenu.tsx";
  *     `userEvent.keyboard`, a real key event to the focused element, which
  *     bubbles to the `document` listener `useEscapeClose` installs.
  *  3. A DISABLED ITEM IS CLICKED PROGRAMMATICALLY (`el.click()`). Playwright's
- *     actionability check makes a driver click on an `aria-disabled` control
- *     hang until it times out. `HTMLElement.click()` still dispatches a real
- *     click, which is what the item's own guard has to swallow.
+ *     actionability check makes a driver click on a disabled control hang
+ *     until it times out; `HTMLElement.click()` on a disabled form control is
+ *     a defined no-op (the activation behaviour returns early), which is
+ *     exactly the browser behaviour the `disabled` prop is claiming.
  *  4. THE LAYER STACK IS MODULE-GLOBAL (src/hooks/layers.ts).
  *     vitest-browser-react's per-test cleanup unmounts every tree, which pops
  *     the registration, so no test resets it by hand.
