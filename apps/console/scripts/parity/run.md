@@ -8,9 +8,9 @@ in `docs/apps/design/console/README.md`.
 ## What is compared
 
 The board's content, not the chrome around it. The rail, app bar, PageShell
-tab bar, Drawer frame, Modal frame and Select dropdown are the kit's and
-Mantine's own (see "Kit chrome is not compared" in the design README). Inside
-them, each board names its content roots in `boards.ts`:
+tab bar, Drawer frame and Modal frame are the kit's and Mantine's own (see
+"Kit chrome is not compared" in the design README). Inside them, each board
+names its content roots in `boards.ts`:
 
 | Board                                                                        | Roots                                                                              |
 | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |

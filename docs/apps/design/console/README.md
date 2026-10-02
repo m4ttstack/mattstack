@@ -36,7 +36,7 @@ Each slug is drawn in a light and a dark frame. Routes are on the Wiring page
 | `drawer-include-row` | `Drawer · include row · rendered · light` | `dXMWN` | `Z5jhtb` | `/wiring?tab=graph&focus=stage-plan&select=row:140` | |
 | `drawer-input-card` | `Drawer · input card · used by · light` | `JG4X2` | `S30e79` | `/wiring?tab=graph&focus=stage-plan&select=input:include:gate-protocol&drawerTab=used-by` | |
 | `drawer-history` | `Drawer · output · history · light` | `vS78O` | `MlMLL` | `/wiring?tab=graph&focus=stage-plan&select=output&drawerTab=history` | |
-| `drawer-rebind` | `Drawer · slot row · rebind · light` | `arHq7` | `yyN81` | `/wiring?tab=graph&focus=stage-plan&select=row:136&rebind=1` | open the Select, pick `plan-policy-strict` |
+| `drawer-rebind` | `Drawer · slot row · rebind · light` | `arHq7` | `yyN81` | `/wiring?tab=graph&focus=stage-plan&select=row:136&rebind=1` | open the picker, pick `plan-policy-strict` |
 | `unsynced-banner` | `Unsynced · banner after rebind · light` | `S9Mvq` | `sNfzF` | `/wiring?tab=graph&focus=stage-plan` | scenario `unsynced` |
 | `unsynced-confirm` | `Unsynced · sync confirm · light` | `dkOZg` | `V9BST` | `/wiring?tab=graph&focus=stage-plan` | scenario `unsynced`, click "Sync changes" |
 
@@ -47,10 +47,12 @@ and `png` at `scale: 1` into `renders/`, renamed to the slug pattern.
 
 ## Kit chrome is not compared
 
-The rail, app bar, PageShell tab bar, Drawer frame, Modal frame and Select
-dropdown are the kit's and Mantine's own, so a parity run compares the
-content inside them and never the frame around it. The boards draw that
-chrome only so each content layer sits where it will in the app.
+The rail, app bar, PageShell tab bar, Drawer frame and Modal frame are the
+kit's and Mantine's own, so a parity run compares the content inside them
+and never the frame around it. The boards draw that chrome only so each
+content layer sits where it will in the app. The rebind picker is not chrome:
+its list of files sits inside the panel, as drawer-rebind draws it, so the
+list and its rows are compared with the rest of the drawer.
 
 ## Board-fix list
 
@@ -61,7 +63,6 @@ task, never left silent.
 
 - Drawer shadow and border: Mantine `Drawer`. Its 1px border sits inside the drawer's 600, so the drawer's content is 599 wide where the boards draw it 599.5 to 600. Text set against the right edge of drawer-rebind's options (each row's `s`) sits 1px left.
 - Modal frame and button sizes: the kit's `modals.confirm`.
-- Select chevron and dropdown shadow: Mantine `Select`.
 - Badge and Alert padding: Mantine defaults.
 - SegmentedControl active label: Mantine draws the active segment as an indicator beside the labels rather than around its own, so the app names the indicator `seg · <label>` and the active label has no layer to pair with the board's `seg · <label>/l`.
 - Focus list box: the list root sits inside `PageShell.Sidebar`, which paints the panel surface (`bg="var(--tk-panel)"`, which the Tokyo theme keeps because an explicit sidebar `bg` marks the rail `data-own-surface`) and the right border. The root itself paints neither, so it compares with no fill or stroke and is 215 wide inside the sidebar's 216. Its height follows console's one page-row height (`PAGE_ROW_HEIGHT`, 40px on every page) rather than the board's 44px Wiring bar, so the list is 4px taller and the bottom-pinned Unwired row sits 4px lower.
