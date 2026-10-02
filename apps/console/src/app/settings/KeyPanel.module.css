@@ -1,0 +1,98 @@
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.caption {
+  margin-bottom: 8px;
+}
+
+.line {
+  --scope-w: 88px;
+  border-radius: var(--mantine-radius-md);
+}
+
+.line + .line {
+  margin-top: 2px;
+}
+
+:where([data-mantine-color-scheme='light']) .line {
+  --row-hover: var(--mantine-color-gray-1);
+}
+
+:where([data-mantine-color-scheme='dark']) .line {
+  --row-hover: var(--mantine-color-dark-5);
+}
+
+.actions {
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+}
+
+@media (hover: hover) {
+  .line:hover {
+    background-color: var(--row-hover);
+  }
+  .line:hover .actions {
+    width: auto;
+    overflow: visible;
+    opacity: 1;
+  }
+}
+
+.line:focus-within {
+  background-color: var(--row-hover);
+}
+
+.line:focus-within .actions,
+.line[data-editing] .actions,
+.actions:has([data-expanded]) {
+  width: auto;
+  overflow: visible;
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .actions {
+    width: auto;
+    overflow: visible;
+    opacity: 1;
+  }
+}
+
+.scope {
+  flex: none;
+  display: flex;
+  align-items: center;
+  width: var(--scope-w);
+}
+
+.value {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Lines up under the value: the line's 8px padding, the column, the 12px gap. */
+.sub {
+  padding: 0 8px 8px calc(8px + var(--scope-w) + 12px);
+}
+
+.reposHead {
+  padding: 22px 8px 6px;
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+.repo {
+  padding-block: 10px;
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+.repoHead {
+  padding: 0 8px 4px;
+}
+
+.repoNote {
+  padding: 2px 8px 0;
+}

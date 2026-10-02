@@ -59,6 +59,7 @@ const store = () => ({
   set: vi.fn(async () => null as string | null),
   unset: vi.fn(async () => null as string | null),
   move: vi.fn(async () => null as string | null),
+  prune: vi.fn(async () => null as string | null),
 });
 
 beforeEach(() =>
@@ -74,9 +75,12 @@ async function open(value: unknown[], s = store()) {
   renderWithProviders(
     <SettingRow def={bridges(value)} store={s} subhead={null} query="" />
   );
-  // The row's summary toggle ("1 bridge", "2 bridges"); the row menu's
-  // button also carries aria-expanded, so match by name.
-  await userEvent.click(screen.getByRole('button', { name: /^\d+ bridges?$/ }));
+  await userEvent.click(
+    screen.getByRole('button', { name: 'open rt.notify.eventBridges' })
+  );
+  await screen.findByRole('radiogroup', {
+    name: 'rt.notify.eventBridges panel',
+  });
   return s;
 }
 

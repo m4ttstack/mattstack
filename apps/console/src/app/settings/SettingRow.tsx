@@ -1,45 +1,65 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import {
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react';
 import {
   ActionIcon,
   Box,
-  Button,
   Collapse,
   Group,
   Highlight,
   Stack,
   Text,
+  Tooltip,
   type TextProps,
 } from '@mattstack/app-kit/core';
-import { useSchemeColors } from '@mattstack/app-kit/hooks';
+import {
+  useReducedMotion,
+  useSchemeColors,
+  useUncontrolled,
+} from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
-import {
-  formatValue,
-  rowKind,
-  SHAPES,
-  summarize,
-} from '@mattstack/settings-kit/shapes';
 
-import { compositeParts } from './CompositeControls';
 import { IssueLines } from './IssueLines';
 import type { WireIssue } from './issues';
+import {
+  KeyPanel,
+  notifying,
+  whereDraws,
+  type PanelStore,
+  type PanelTab,
+} from './KeyPanel';
 import { RepoReach } from './RepoReach';
-import { RowMenu, SLOT } from './RowMenu';
-import { ScalarControl } from './ScalarControl';
+import { SaveStatus, useRowParts, ValueContent, WriteError } from './rowParts';
 import { ScopeBadge } from './ScopeBadge';
+import classes from './SettingRow.module.css';
 import { useSettingsRepo } from './useConsoleSettings';
-import { useRowSave, type RowStore } from './useRowSave';
+import { useRowSave } from './useRowSave';
 import {
   APPROVAL_KEY,
   badgeScope,
+  ESCAPE_OWNERS,
   firstSentence,
-  isEditable,
-  rungBase,
-  rungOf,
+  ROW_CONTROLS,
   sourceText,
   splitKey,
   type StoreScope,
 } from './view';
+
+/** The panel's collapse, in ms. The open card's frame
+    (SettingRow.module.css) reads it as `--row-motion`, so both move
+    together. */
+export const ROW_MOTION_MS = 200;
+
+export interface RowOpen {
+  tab: PanelTab;
+  fix: string | null;
+}
 
 function Marked({
   text,
@@ -62,139 +82,138 @@ function Marked({
   );
 }
 
+const sameOpen = (a: RowOpen | null, b: RowOpen | null) =>
+  a?.tab === b?.tab && a?.fix === b?.fix;
+
+/** The open state the panel draws: the live one while open, the last one
+    while the panel collapses, and null once `settle` ends the collapse (at
+    once when `instant`). `opening` counts openings, so each one mounts a
+    fresh panel, even one that lands before the last collapse ends. */
+function usePanelOpen(open: RowOpen | null, instant: boolean) {
+  const isOpen = open !== null;
+  const [kept, setKept] = useState(open);
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  const [opening, setOpening] = useState(0);
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) setOpening(n => n + 1);
+  }
+  if (isOpen ? !sameOpen(open, kept) : instant && kept !== null) setKept(open);
+  return {
+    shown: open ?? kept,
+    opening,
+    settle: () => {
+      if (!isOpen) setKept(null);
+    },
+  };
+}
+
+/** Whether a text selection reaches into `el`: the click that ends a drag
+    select fires on the header like any other. */
+function selectingIn(el: HTMLElement): boolean {
+  const sel = window.getSelection();
+  return Boolean(
+    sel &&
+    !sel.isCollapsed &&
+    (el.contains(sel.anchorNode) || el.contains(sel.focusNode))
+  );
+}
+
 export function SettingRow({
   def,
   store,
   subhead,
   query,
   suggestions,
-  onExplain,
   onFix,
-  fullDescription = false,
-  hideIssue,
+  open: openProp,
+  defaultOpen = null,
+  onOpenChange,
+  onPickRepo,
 }: {
   def: SettingDefWire;
-  store: RowStore;
+  store: PanelStore;
   subhead: StoreScope | null;
   query: string;
   suggestions?: string[];
-  onExplain?: (key: string) => void;
   onFix?: (key: string, issue: WireIssue | null) => void;
-  fullDescription?: boolean;
-  hideIssue?: (issue: WireIssue) => boolean;
+  open?: RowOpen | null;
+  defaultOpen?: RowOpen | null;
+  onOpenChange?: (next: RowOpen | null) => void;
+  onPickRepo?: (repo: string) => void;
 }) {
   const { text } = useSchemeColors();
-  const row = useRowSave(store, def);
-  const [open, setOpen] = useState(false);
-  const [asJson, setAsJson] = useState(false);
-  // A collapsed row starts fresh: a JSON draft forced open from the row
-  // menu must not resurface JSON mode on the next ordinary expand.
-  useEffect(() => {
-    if (!open) setAsJson(false);
-  }, [open]);
-  const kind = rowKind(def);
+  const repo = useSettingsRepo();
+  const [writes, setWrites] = useState(0);
+  const header = useMemo(
+    () => notifying(store, () => setWrites(n => n + 1)),
+    [store]
+  );
+  const row = useRowSave(header, def);
+  const [open, setOpen] = useUncontrolled<RowOpen | null>({
+    value: openProp,
+    defaultValue: defaultOpen,
+    finalValue: null,
+    onChange: onOpenChange,
+  });
+  const isOpen = open !== null;
+  const reduceMotion = useReducedMotion();
+  const { shown, opening, settle } = usePanelOpen(open, reduceMotion);
+  // JSON mode belongs to the opening it was chosen in: it holds while that
+  // panel collapses, and the next opening starts in the form.
+  const [jsonIn, setJsonIn] = useState<number | null>(null);
+  const asJson = jsonIn === opening && shown !== null;
+  const setAsJson = (on: boolean) => setJsonIn(on ? opening : null);
+  const parts = useRowParts(def, row, { suggestions, asJson, setAsJson });
+  const chevron = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
   const [ns, name] = splitKey(def.key);
   const badge = badgeScope(def, subhead);
-  const isComposite = def.type === 'object' || def.type === 'array';
-  // With no repo picked, every write here would be a global one, which a
-  // repo-only key refuses; the repo reach beside the name says where it is set.
-  const repo = useSettingsRepo();
-  const perRepo = def.repoOnly === true && repo === null;
   // A global source label ("unset", "default") says nothing about a key
   // that only lives in repo sections; the repo reach carries it instead.
-  const plain = perRepo ? null : sourceText(def);
+  const plain = parts.perRepo ? null : sourceText(def);
+  const onWhere = shown?.tab === 'where';
+  const drawnBelow = onWhere
+    ? (issue: WireIssue) => whereDraws(def, issue, repo)
+    : undefined;
+  // The winning layer's own line shows its rejected value on Where it's set.
+  const rejected =
+    def.issues === undefined && !onWhere ? def.effective.invalid : undefined;
 
-  let control: ReactNode;
-  let body: ReactNode = null;
-  if (perRepo) {
-    control = (
-      <Text fz={12} c={text.muted}>
-        set per repo
-      </Text>
-    );
-  } else if (def.key === APPROVAL_KEY) {
-    const hash =
-      typeof def.effective.value === 'string' ? def.effective.value : null;
-    const at = rungBase(def.effective.scope) ? def.effective.scope : null;
-    control = (
-      <Group gap={8} wrap="nowrap">
-        {hash && (
-          <Text fz={12} ff="monospace" c={text.muted}>
-            {hash.slice(0, 12)}
-          </Text>
-        )}
-        {hash && at && def.writable && (
-          <Button
-            size="compact-xs"
-            variant="default"
-            onClick={() => void row.clear(at)}
-          >
-            Revoke
-          </Button>
-        )}
-      </Group>
-    );
-  } else if (kind === 'scalar' || kind === 'enum') {
-    control = (
-      <ScalarControl
-        def={def}
-        writeScope={rungOf(row.target.scope, row.target.repo ?? null)}
-        onSave={v => void row.save(v)}
-        suggestions={suggestions}
-      />
-    );
-  } else if (kind === 'external') {
-    const shape = SHAPES[def.key];
-    const owner = shape?.kind === 'external' ? shape.app : 'another app';
-    control = (
-      <Text fz={12} c={text.muted}>
-        {def.effective.value === undefined
-          ? `edited in ${owner}`
-          : `${summarize(def)} · edited in ${owner}`}
-      </Text>
-    );
-  } else if (
-    kind === 'readonly' &&
-    def.type !== 'object' &&
-    def.type !== 'array'
-  ) {
-    // An unset or rejected value is already said by the source text or the
-    // error line; the control repeats nothing.
-    const shown = def.secret
-      ? def.effective.scope === null
-        ? null
-        : '•••'
-      : def.effective.value === undefined
-        ? null
-        : formatValue(def.effective.value);
-    control =
-      shown === null ? null : (
-        <Text fz={12} c={text.muted} ff="monospace">
-          {shown}
-        </Text>
-      );
-  } else {
-    const composite = compositeParts(
-      def,
-      kind,
-      row,
-      open,
-      () => setOpen(o => !o),
-      asJson,
-      () => setAsJson(false),
-      () => setAsJson(true)
-    );
-    control = composite.control;
-    body = composite.body;
-  }
+  const toggle = () =>
+    setOpen(isOpen ? null : { tab: parts.body ? 'value' : 'where', fix: null });
+  const onHeader = (e: MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    // A portalled dropdown's clicks reach here through the React tree.
+    if (!e.currentTarget.contains(target)) return;
+    if (target.closest(ROW_CONTROLS)) return;
+    // A double-click selects a word; its first click already toggled.
+    if (e.detail > 1 || selectingIn(e.currentTarget)) return;
+    toggle();
+  };
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!isOpen || e.key !== 'Escape' || e.defaultPrevented) return;
+    if ((e.target as HTMLElement).closest(ESCAPE_OWNERS)) return;
+    e.preventDefault();
+    setOpen(null);
+    chevron.current?.focus();
+  };
 
   return (
     <Box
       data-key={def.key}
-      style={{ borderBottom: '1px solid var(--tk-border-soft)' }}
+      style={{ '--row-motion': `${ROW_MOTION_MS}ms` }}
+      className={classes.item}
+      mod={{ open: isOpen }}
+      onKeyDown={onKey}
     >
-      <Group gap={24} wrap="nowrap" py={12}>
-        <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
+      <Group
+        gap={24}
+        wrap="nowrap"
+        className={classes.header}
+        onClick={onHeader}
+      >
+        <Stack gap={4} className={classes.text}>
           <Group gap={8} wrap="nowrap">
             <Text fz={14} lh="18px" ff="monospace" span>
               <Text span inherit c={text.muted}>
@@ -205,7 +224,7 @@ export function SettingRow({
             {badge ? (
               <ScopeBadge scope={badge} />
             ) : plain ? (
-              <Text fz={12} c={text.muted}>
+              <Text fz={12} lh="15px" c={text.muted}>
                 {plain}
               </Text>
             ) : null}
@@ -224,88 +243,79 @@ export function SettingRow({
             </Text>
           ) : (
             <Marked
-              text={
-                fullDescription
-                  ? def.description
-                  : firstSentence(def.description)
-              }
+              text={firstSentence(def.description)}
               query={query}
               fz={12}
               lh="15px"
               c={text.muted}
-              lineClamp={fullDescription ? undefined : 1}
+              lineClamp={1}
             />
           )}
         </Stack>
-        <Group w={260} gap={8} wrap="nowrap" style={{ flex: 'none' }}>
-          {control}
-          {row.status === 'saving' && (
-            <Text fz={12} c={text.muted}>
-              saving…
-            </Text>
-          )}
-          {row.status === 'saved' && (
-            <Group gap={4} wrap="nowrap">
-              <Text fz={12} c="var(--tk-text-ok-small)">
-                saved
-              </Text>
-              <Icons.check size={12} color="var(--tk-text-ok-vivid)" />
-            </Group>
-          )}
+        <Group w={260} gap={8} wrap="nowrap" className={classes.control}>
+          {parts.control}
+          <SaveStatus row={row} />
         </Group>
-        <Group gap={4} wrap="nowrap" style={{ flex: 'none' }}>
-          {perRepo ? (
-            <Box w={SLOT} />
-          ) : (
-            <RowMenu
-              def={def}
-              row={row}
-              onEditJson={
-                isComposite &&
-                isEditable(def) &&
-                def.writable &&
-                def.effective.invalid === undefined
-                  ? () => {
-                      setAsJson(true);
-                      setOpen(true);
-                    }
-                  : undefined
-              }
-            />
-          )}
-          {onExplain && (
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              c={text.muted}
-              aria-label={`explain ${def.key}`}
-              onClick={() => onExplain(def.key)}
-            >
-              <Icons.chevronRight size={16} />
-            </ActionIcon>
-          )}
-        </Group>
+        <Tooltip label={isOpen ? 'Close' : 'Open'}>
+          <ActionIcon
+            ref={chevron}
+            variant="subtle"
+            color="gray"
+            aria-expanded={isOpen}
+            // Under reduced motion a closed collapse renders nothing.
+            aria-controls={isOpen || !reduceMotion ? panelId : undefined}
+            aria-label={`${isOpen ? 'close' : 'open'} ${def.key}`}
+            onClick={toggle}
+          >
+            {isOpen ? (
+              <Icons.chevronUp size={16} />
+            ) : (
+              <Icons.chevronDown size={16} />
+            )}
+          </ActionIcon>
+        </Tooltip>
       </Group>
-      {(row.error || (def.effective.invalid && def.issues === undefined)) && (
-        <Stack gap={4} pb={12}>
-          {row.error && (
+      {(row.error || rejected) && (
+        <Stack gap={4} pb={12} className={classes.inset}>
+          <WriteError row={row} />
+          {rejected && (
             <Text fz={12} ff="monospace" c="var(--tk-text-bad-small)">
-              {row.error}
-            </Text>
-          )}
-          {def.effective.invalid && def.issues === undefined && (
-            <Text fz={12} ff="monospace" c="var(--tk-text-bad-small)">
-              stored value rejected: {def.effective.invalid}
+              stored value rejected: {rejected}
             </Text>
           )}
         </Stack>
       )}
-      <IssueLines
-        def={def}
-        onFix={onFix && (issue => onFix(def.key, issue))}
-        hide={hideIssue}
-      />
-      {body && <Collapse expanded={open}>{body}</Collapse>}
+      <Box className={classes.inset}>
+        <IssueLines
+          def={def}
+          onFix={onFix && (issue => onFix(def.key, issue))}
+          hide={drawnBelow}
+        />
+      </Box>
+      <Collapse
+        expanded={isOpen}
+        keepMounted={false}
+        transitionDuration={reduceMotion ? 0 : ROW_MOTION_MS}
+        onTransitionEnd={settle}
+        id={panelId}
+        role="region"
+        aria-label={`${def.key} settings`}
+      >
+        {shown && (
+          <Box key={opening} className={classes.panel}>
+            <KeyPanel
+              def={def}
+              store={store}
+              tab={shown.tab}
+              onTab={tab => setOpen({ tab, fix: null })}
+              value={<ValueContent def={def} parts={parts} />}
+              fix={shown.fix}
+              externalWrites={writes}
+              onPickRepo={onPickRepo}
+            />
+          </Box>
+        )}
+      </Collapse>
     </Box>
   );
 }

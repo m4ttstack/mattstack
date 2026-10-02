@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from 'react';
 import type {
   ExplainRowWire,
   SettingDefWire,
@@ -33,6 +34,14 @@ export const NO_FILTER: ViewFilter = {
   needsFixing: false,
   scope: 'any',
 };
+
+export type Provider = 'claude' | 'codex';
+
+/** The agent provider an `agent.<provider>.*` key belongs to. */
+export function providerOf(key: string | undefined): Provider | null {
+  const m = /^agent\.(claude|codex)\./.exec(key ?? '');
+  return m ? (m[1] as Provider) : null;
+}
 
 export function needsFixing(def: SettingDefWire): boolean {
   return (def.issues?.length ?? 0) > 0 || (def.mergedIssues?.length ?? 0) > 0;
@@ -163,16 +172,21 @@ export function isEditable(def: SettingDefWire): boolean {
   return EDITOR_KINDS.has(editorKind(def));
 }
 
+/** `keep` (the open row) passes the chips and the scope filter, which its
+    own writes can stop it matching; the query reads only key and
+    description, so it still applies. */
 export function applyFilter(
   defs: SettingDefWire[],
-  f: ViewFilter
+  f: ViewFilter,
+  keep: string | null = null
 ): SettingDefWire[] {
   return filterDefs(defs, f.query).filter(
     d =>
-      (!f.changedOnly || isSet(d)) &&
-      (!f.editableOnly || isEditable(d)) &&
-      (!f.needsFixing || needsFixing(d)) &&
-      (f.scope === 'any' || rungBase(d.effective.scope) === f.scope)
+      d.key === keep ||
+      ((!f.changedOnly || isSet(d)) &&
+        (!f.editableOnly || isEditable(d)) &&
+        (!f.needsFixing || needsFixing(d)) &&
+        (f.scope === 'any' || rungBase(d.effective.scope) === f.scope))
   );
 }
 
@@ -192,8 +206,12 @@ function rowRank(d: SettingDefWire): number {
 /** Every group with at least one registered key, in GROUPS order, with
     unknown first segments after them. Empty-after-filter sections are kept
     so the index can show zeros. */
-export function buildSections(all: SettingDefWire[], f: ViewFilter): Section[] {
-  const shownKeys = new Set(applyFilter(all, f).map(d => d.key));
+export function buildSections(
+  all: SettingDefWire[],
+  f: ViewFilter,
+  keep: string | null = null
+): Section[] {
+  const shownKeys = new Set(applyFilter(all, f, keep).map(d => d.key));
   const byGroup = new Map<string, { group: Group; defs: SettingDefWire[] }>();
   for (const d of all) {
     const group = groupOf(d.key);
@@ -272,4 +290,48 @@ export function leafWrite(
 ): Record<string, unknown> {
   const own = rows.find(r => r.scope === target && r.present)?.value;
   return setLeaf(own, path, value);
+}
+
+/** A click that starts inside one of these belongs to the control it hit,
+    never to the row around it. Options and listboxes render in a portal but
+    still bubble through React to the row. */
+export const ROW_CONTROLS =
+  'input, textarea, select, button, a, label, [role="switch"], [role="combobox"], [role="listbox"], [role="option"], [role="menu"], [role="menuitem"], [contenteditable="true"]';
+
+/** Escape here abandons an edit or closes a menu, never the row or modal
+    around it. A radio or checkbox (the tab bar, a switch) has no Escape of
+    its own; inside an open editor, `cancelOnEscape` has already taken it. */
+export const ESCAPE_OWNERS =
+  'input:not([type=radio]):not([type=checkbox]), textarea, select, [contenteditable="true"], [role="menu"], [role="listbox"]';
+
+/** An editor root's keydown: Escape anywhere inside abandons the edit and
+    is marked handled, so the row or modal around it stays open. An open
+    menu, listbox or combobox dropdown takes that Escape first. */
+export function cancelOnEscape(cancel: () => void) {
+  return (e: KeyboardEvent<HTMLElement>) => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('[role="menu"], [role="listbox"]')) return;
+    // A Select/Autocomplete target closes its own dropdown on Escape without
+    // stopping the event; its aria-expanded is still "true" here since that
+    // close hasn't re-rendered yet.
+    if (target.getAttribute('aria-expanded') === 'true') return;
+    e.preventDefault();
+    cancel();
+  };
+}
+
+/** Where the value in effect may move. settings-kit moves global layers
+    only, and a move re-sets the value at its target, which would reject a
+    value rt already refused. */
+export function moveTargets(def: SettingDefWire): StoreScope[] {
+  const from = def.effective.scope;
+  const base = rungBase(from);
+  const stored =
+    def.key !== APPROVAL_KEY &&
+    Boolean(def.writable && base && def.scopes.includes(base));
+  if (!stored || def.effective.invalid !== undefined || isRung(from)) return [];
+  return (def.scopes as StoreScope[]).filter(
+    s => s !== from && isStoreScope(s)
+  );
 }

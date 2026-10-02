@@ -14,8 +14,10 @@ import {
   isRung,
   layerLabel,
   leafWrite,
+  moveTargets,
   needsFixing,
   NO_FILTER,
+  providerOf,
   rungBase,
   rungOf,
   sourceText,
@@ -89,6 +91,25 @@ describe('applyFilter', () => {
       applyFilter(defs, { ...NO_FILTER, scope: 'machine' }).map(d => d.key)
     ).toEqual(['rt.runsPruneDays']);
   });
+  it('a kept key passes the chips and the scope filter', () => {
+    const chips = [
+      { changedOnly: true },
+      { editableOnly: true },
+      { needsFixing: true },
+      { scope: 'team' as const },
+    ];
+    for (const chip of chips)
+      expect(
+        applyFilter(defs, { ...NO_FILTER, ...chip }, 'rt.cron').map(d => d.key)
+      ).toContain('rt.cron');
+  });
+  it('a kept key still answers to the query', () => {
+    expect(
+      applyFilter(defs, { ...NO_FILTER, query: 'prune' }, 'rt.cron').map(
+        d => d.key
+      )
+    ).toEqual(['rt.runsPruneDays']);
+  });
 });
 
 describe('buildSections', () => {
@@ -144,6 +165,18 @@ describe('buildSections', () => {
       'rt.daemonPath',
       'rt.logVerbose',
       'rt.homeSnapshot',
+    ]);
+  });
+
+  it('shows and counts a kept key the filter would hide', () => {
+    const [daemon] = buildSections(
+      [def('rt.logLevel'), def('rt.daemonPath')],
+      { ...NO_FILTER, changedOnly: true },
+      'rt.daemonPath'
+    );
+    expect(daemon!.shown).toBe(1);
+    expect(daemon!.subsections[0]!.defs.map(d => d.key)).toEqual([
+      'rt.daemonPath',
     ]);
   });
 
@@ -308,6 +341,19 @@ describe('layer rungs and write targets', () => {
   });
 });
 
+describe('providerOf', () => {
+  it('names the provider an agent.<provider>.* key belongs to', () => {
+    expect(providerOf('agent.claude.model')).toBe('claude');
+    expect(providerOf('agent.codex.effort')).toBe('codex');
+  });
+  it('is null for any other key, and for no key', () => {
+    expect(providerOf('agent.provider')).toBeNull();
+    expect(providerOf('agent.gemini.model')).toBeNull();
+    expect(providerOf('board.agent.claude.model')).toBeNull();
+    expect(providerOf(undefined)).toBeNull();
+  });
+});
+
 describe('needs fixing', () => {
   const broken = def('rt.notify.eventBridges', {
     type: 'array',
@@ -342,5 +388,47 @@ describe('needs fixing', () => {
         needsFixing: true,
       }).map(d => d.key)
     ).toEqual(['rt.notify.eventBridges', 'rt.homeSnapshot']);
+  });
+});
+
+describe('moveTargets', () => {
+  const base = {
+    key: 'board.agent.model',
+    type: 'string',
+    scopes: ['team', 'user', 'machine'],
+    merge: 'replace',
+    secret: false,
+    teamLocked: false,
+    repoScoped: false,
+    writable: true,
+    description: '',
+    hasDefault: false,
+    defaultValue: null,
+    storeVersion: 1,
+  } as const;
+  it('offers the other allowed store layers', () => {
+    expect(
+      moveTargets({
+        ...base,
+        scopes: [...base.scopes],
+        effective: { scope: 'user', file: '/u', value: 'x' },
+      })
+    ).toEqual(['team', 'machine']);
+  });
+  it('offers only the layers the key allows', () => {
+    expect(
+      moveTargets({
+        ...base,
+        scopes: ['user', 'machine'],
+        effective: { scope: 'machine', file: '/m', value: 'x' },
+      })
+    ).toEqual(['user']);
+  });
+  it('offers nothing for a rejected value, a repo rung, or nothing stored', () => {
+    const at = (effective: SettingDefWire['effective']) =>
+      moveTargets({ ...base, scopes: [...base.scopes], effective });
+    expect(at({ scope: 'user', file: '/u', invalid: 'bad' })).toEqual([]);
+    expect(at({ scope: 'machine.repo', file: '/m', value: 'x' })).toEqual([]);
+    expect(at({ scope: null, file: null })).toEqual([]);
   });
 });
