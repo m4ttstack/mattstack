@@ -477,9 +477,11 @@ export function rowActions(
         }
       )
     );
+    // An armed auto-merge stays cancellable on a draft, where glance hides
+    // the button: GitLab's cancel checks only that auto-merge is on.
     const autoMerge = mrx.autoMergeButton;
     gitlab.push(
-      autoMerge.visible && autoMerge.isActive
+      autoMerge.isActive
         ? item(
             'gitlab',
             'cancelAutoMerge',

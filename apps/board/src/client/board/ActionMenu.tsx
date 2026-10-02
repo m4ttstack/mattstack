@@ -326,17 +326,22 @@ function ActionMenu({
     <>
       {reactions.length > 0 && (
         <ContextMenu.Row aria-label="slack reactions">
-          {reactions.map(e => (
-            <ContextMenu.Item
-              key={e.key}
-              label={e.glyph ? glyphNode(e.glyph) : e.label}
-              aria-label={e.label}
-              title={e.label}
-              trailing={trailingOf(e)}
-              disabled={pending.includes(e.key)}
-              onClick={click(e)}
-            />
-          ))}
+          {reactions.map(e => {
+            const name = e.blocked
+              ? `${e.label} (${e.blocked.trim() || 'blocked'})`
+              : e.label;
+            return (
+              <ContextMenu.Item
+                key={e.key}
+                label={e.glyph ? glyphNode(e.glyph) : e.label}
+                aria-label={name}
+                title={name}
+                trailing={trailingOf(e)}
+                disabled={!!e.blocked || pending.includes(e.key)}
+                onClick={click(e)}
+              />
+            );
+          })}
         </ContextMenu.Row>
       )}
       {top.filter(e => !isReaction(e)).map(renderItem)}

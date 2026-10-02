@@ -149,6 +149,33 @@ test('a draft blocks merge and auto-merge, and offers mark ready', () => {
   expect(by.rebase?.blocked).toBe('up to date');
 });
 
+test('a draft with auto-merge armed offers cancel auto-merge, unblocked', () => {
+  const armedDraft = mrx(1418, {
+    isDraft: true,
+    mergeButton: { visible: false, disabled: false, loading: false },
+    autoMergeButton: { visible: false, isActive: true },
+  });
+  const by = Object.fromEntries(
+    rowActions(armedDraft, actionEnvOf(ownEnv, armedDraft)).map(a => [
+      a.key,
+      a,
+    ])
+  );
+  expect(by.setAutoMerge).toBeUndefined();
+  expect(by.cancelAutoMerge).toBeDefined();
+  expect(by.cancelAutoMerge?.blocked).toBeUndefined();
+  expect(by.merge?.blocked).toBe('draft');
+
+  const armed = mrx(1419, {
+    autoMergeButton: { visible: true, isActive: true },
+  });
+  const bulk = bulkActions(
+    [armed, armedDraft],
+    actionEnvOf(ownEnv, armed)
+  ).find(e => e.key === 'cancelAutoMerge');
+  expect(bulk?.targets.map(t => t.iid)).toEqual([1419, 1418]);
+});
+
 test('a running merge and rebase say so', () => {
   const mr = mrx(1418, {
     mergeButton: { visible: true, disabled: true, loading: true },

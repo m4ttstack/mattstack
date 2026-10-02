@@ -78,6 +78,36 @@ test('the reaction row toggles a mark and keeps the menu open', async () => {
   expect(harness.closed).toBe(false);
 });
 
+test('a blocked reaction is disabled, names its reason, and does not run', async () => {
+  const reaction = (key: string, label: string, blocked?: string): MenuEntry => ({
+    key,
+    section: 'top',
+    label,
+    glyph: null,
+    blocked,
+  });
+  await openActionMenu([
+    reaction('react-eyes', 'mark as looking', 'no thread'),
+    reaction('react-speech_balloon', 'mark as commented', ' '),
+    reaction('react-white_check_mark', 'mark as approved'),
+  ]);
+  const toggles = [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      '[data-part="contextmenu-row"] [role="menuitem"]'
+    ),
+  ].map(el => [el.disabled, el.getAttribute('aria-label'), el.title]);
+  expect(toggles).toEqual([
+    [true, 'mark as looking (no thread)', 'mark as looking (no thread)'],
+    [true, 'mark as commented (blocked)', 'mark as commented (blocked)'],
+    [false, 'mark as approved', 'mark as approved'],
+  ]);
+  await clickItem('mark as looking');
+  await clickItem('mark as commented');
+  expect(harness.effects).toEqual([]);
+  await clickItem('mark as approved');
+  expect(harness.effects.map(e => e.effect)).toEqual(['react-white_check_mark']);
+});
+
 test('a blocked row in a flyout shows its reason and does not run', async () => {
   await openMenu(ownIdle, ownEnv);
   await openSub('slack');
