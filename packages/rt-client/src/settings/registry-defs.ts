@@ -332,7 +332,7 @@ export const REGISTRY: readonly SettingDef[] = [
     type: "object",
     scopes: ["team"],
     merge: "deep",
-    description: "Team-wide external integration config (forge/slack/linear/switchboard) the installer provisions; client secrets never live here.",
+    description: "Team-wide external integration config (forge/slack/linear) the installer provisions; client secrets never live here.",
   },
   {
     key: "mattstack.tracking",
