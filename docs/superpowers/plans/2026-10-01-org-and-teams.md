@@ -8371,6 +8371,8 @@ Three guards, each from the spec's section 9:
 - A `--write` that throws partway puts the clone back exactly as it started (the start is clean, so a hard reset and a clean of the paths rt manages restore it).
 - A store or manifest that does not parse is refused: the plan would otherwise split what it could read and delete the original.
 
+- `--write` refuses unless this Mac's recorded forge username is the `--admin` it was given. The conversion writes `--admin` as the org's only admin; a Mac recorded as someone else, or as nobody, would own nothing afterwards, and the publish that follows would be refused. Before the conversion there is no `mattstack.org` to read a role from, so the record is the only thing to check.
+
 `scripts/` is not in the app bundle, so the script runs from a checkout of this repo at the release tag the admin's app is on.
 
 - [ ] **Step 1: Write the failing tests**
@@ -8831,7 +8833,7 @@ Expected: PASS.
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
-import { getSetting } from "../packages/rt-client/src/index.ts";
+import { getSetting, readForgeUsername, sameUser } from "../packages/rt-client/src/index.ts";
 import { planConversion, type ConvertInput } from "./lib/convert-team-repo.ts";
 
 function flag(args: string[], name: string): string | undefined {
@@ -8898,6 +8900,21 @@ if (getSetting<{ enabled?: boolean }>("rt.teamSnapshot").value?.enabled !== fals
   );
   process.exit(2);
 }
+// The plan makes --admin the org's only admin. A Mac recorded as anyone else
+// would own nothing once it is written, and could not publish it.
+const recorded = readForgeUsername(basename(clone));
+if (recorded === null || !sameUser(recorded, admin)) {
+  process.stderr.write(
+    [
+      recorded === null
+        ? "This Mac has no recorded forge username, so it would not be the org's admin after the conversion and could not publish it."
+        : `This Mac is recorded as ${recorded}, not ${admin}, so it would not be the org's admin after the conversion and could not publish it.`,
+      recorded === null ? "Record it: rt setup apply --only team.identity" : `Pass --admin ${recorded}, or run this on ${admin}'s Mac.`,
+      "",
+    ].join("\n"),
+  );
+  process.exit(2);
+}
 if (git("status", "--porcelain").trim() !== "") {
   process.stderr.write("The clone has uncommitted changes. Commit or discard them first.\n");
   process.exit(1);
@@ -8951,6 +8968,19 @@ describe("the wrapper", () => {
     writeFileSync(machineSettingsPath(), JSON.stringify({ "rt.teamSnapshot": { enabled: false } }));
   }
 
+  /** The machine-local record `team.identity` writes for the clone named acme. */
+  function recordedAs(username: string): void {
+    const file = join(home, ".mattstack", "rt", "teams", "acme.json");
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify({ forgeUsername: username }));
+  }
+
+  /** Everything a real run needs in place: team sync off, and this Mac recorded as the admin. */
+  function ready(): void {
+    teamSyncOff();
+    recordedAs("dev1");
+  }
+
   function tempClone(extra: Record<string, string> = {}): string {
     const dir = join(mkdtempSync(join(tmpdir(), "rt-convert-")), "acme");
     const input = oldClone();
@@ -8989,8 +9019,26 @@ describe("the wrapper", () => {
     expect(execFileSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" }).trim()).toBe("");
   });
 
-  test("a write that fails partway puts the clone back exactly as it was", () => {
+  test("--write refuses on a Mac that is not recorded as the admin, since it could not publish the result", () => {
     teamSyncOff();
+    const dir = tempClone();
+    const nobody = runScript(dir, "--write", "--roster-confirmed");
+    expect(nobody.exitCode).toBe(2);
+    expect(nobody.stderr.toString()).toContain("This Mac has no recorded forge username");
+    expect(nobody.stderr.toString()).toContain("rt setup apply --only team.identity");
+
+    recordedAs("dev2");
+    const other = runScript(dir, "--write", "--roster-confirmed");
+    expect(other.exitCode).toBe(2);
+    expect(other.stderr.toString()).toContain("This Mac is recorded as dev2, not dev1");
+    expect(existsSync(join(dir, "mattstack", "org"))).toBe(false);
+
+    recordedAs("DEV1");
+    expect(runScript(dir, "--write", "--roster-confirmed").exitCode).toBe(0);
+  });
+
+  test("a write that fails partway puts the clone back exactly as it was", () => {
+    ready();
     // A tracked file where the base pack's new folder has to go: the secrets and
     // the team pack move first, then this move throws.
     const dir = tempClone({ "mattstack/org/packs": "in the way" });
@@ -9016,7 +9064,7 @@ describe("the wrapper", () => {
   });
 
   test("--write converts in one commit, and a second run refuses", () => {
-    teamSyncOff();
+    ready();
     const dir = tempClone();
     expect(runScript(dir, "--write", "--roster-confirmed").exitCode).toBe(0);
     expect(existsSync(join(dir, "mattstack", "org", "settings.org.jsonc"))).toBe(true);
@@ -9033,7 +9081,7 @@ describe("the wrapper", () => {
   });
 
   test("the converted clone reads as an org with the team's zone", () => {
-    teamSyncOff();
+    ready();
     const dir = tempClone();
     runScript(dir, "--write", "--roster-confirmed");
     const fs: InitFs = { exists: existsSync, readFile: (p) => (existsSync(p) ? readFileSync(p, "utf8") : null), writeFile: () => {}, mkdirp: () => {}, readDir: (p) => (existsSync(p) ? readdirSync(p) : []) };
@@ -9829,11 +9877,13 @@ Nothing merges to `main` until all five PRs are reviewed and green against their
 3. Rebase `org-teams-1-resolver` on `main` one last time, run `bun run test:all`, `bun run check` and `swift run mattstack-checks`, then merge PR 1 to `main` as one squash commit. `main` goes from the old layout to the new one in that single commit.
 4. Cut one release of its own for this change (the `rt:release` skill), separate from any release already in flight.
 5. On the admin's Mac, once it runs that release, from a checkout of this repo at the release tag (`scripts/` is not in the app bundle):
-   1. Read the split: `bun scripts/convert-team-repo-to-org.ts ~/.mattstack/teams/<org> --admin <forge username>`.
-   2. Turn team sync off, so the clone's sync engine cannot commit or push the conversion while it is being reviewed: `rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine`, then `rt daemon restart` (a running daemon notices the change only on its next rescan). If `rt settings get rt.teamSnapshot` showed other fields set on this Mac, keep them in the JSON.
-   3. Convert: the same command with `--write --roster-confirmed`. It refuses while team sync is on, and puts the clone back if it fails partway.
-   4. Review `git -C ~/.mattstack/teams/<org> show`, then `rt team publish`.
-   5. Turn team sync back on: `rt settings set rt.teamSnapshot '{"enabled": true}' --scope machine`, then `rt daemon restart`.
+   1. Confirm this Mac knows who it is: `rt setup apply --only team.identity` (the release's update run should already have recorded it, through the step's fallback to a clone found by its `.git`; this run then says "Already recorded"). The username it reports is the `--admin` to pass below. No role can be read yet: `mattstack.org` does not exist until the conversion writes it.
+   2. Read the split: `bun scripts/convert-team-repo-to-org.ts ~/.mattstack/teams/<org> --admin <forge username>`.
+   3. Turn team sync off, so the clone's sync engine cannot commit or push the conversion while it is being reviewed: `rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine`, then `rt daemon restart` (a running daemon notices the change only on its next rescan). If `rt settings get rt.teamSnapshot` showed other fields set on this Mac, keep them in the JSON.
+   4. Convert: the same command with `--write --roster-confirmed`. It refuses while team sync is on, refuses unless this Mac is recorded as that admin, and puts the clone back if it fails partway.
+   5. Review `git -C ~/.mattstack/teams/<org> show`, and confirm `rt team status --json` now reports `"role": "admin"`. Anything else means the publish would be refused: stop and fix the record or the `mattstack.org` setting first.
+   6. `rt team publish`.
+   7. Turn team sync back on: `rt settings set rt.teamSnapshot '{"enabled": true}' --scope machine`, then `rt daemon restart`.
 6. Members update the app. Their launch-time `rt setup update` runs the migration, `org.pull`, `team.identity`, `plugins.install` and `skills.materialize`, in that order.
 
 Step 5 runs on a live org repo and step 3 moves `main`: both need the operator's go-ahead at the time, whatever was approved earlier.
