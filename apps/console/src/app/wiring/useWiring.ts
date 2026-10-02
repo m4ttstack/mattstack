@@ -356,16 +356,31 @@ function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
   }
 }
 
+/** Every write to a pack (bind, surface apply, sync, discard) runs under
+    this key, so one count says whether any of them is in flight. */
+export const skillsWriteKey = (pack: string) => ['skills', 'write', pack];
+
+/** True while any write to the pack is in flight, from any caller, mounted
+    or not: the lock a second write waits on. */
+export function useSkillsWriting(pack: string): boolean {
+  return useIsMutating({ mutationKey: skillsWriteKey(pack) }) > 0;
+}
+
+/** The same lock read once, for a confirm that runs a write when it is
+    answered rather than when it opened. */
+export function isSkillsWriting(queryClient: QueryClient, pack: string) {
+  return queryClient.isMutating({ mutationKey: skillsWriteKey(pack) }) > 0;
+}
+
 /** The one client mutation surface for both skills writes -- the surface
     roster's Apply and Rebind's Apply both go through this, so there is one
-    place that invalidates the pack's cache on success rather than two that
-    could drift apart. `writing` counts every write to the pack in flight
-    from any caller, mounted or not, so a second write can wait for the
-    first. */
+    place that invalidates the pack's cache rather than two that could drift
+    apart. Swept on settle: the server drops its own cache whatever the
+    outcome, since a write that failed or was killed may have written. */
 export function useSkillsApply(pack: string) {
   const queryClient = useQueryClient();
-  const onSuccess = () => invalidateSkillsQueries(queryClient, pack);
-  const mutationKey = ['skills', 'write', pack];
+  const onSettled = () => invalidateSkillsQueries(queryClient, pack);
+  const mutationKey = skillsWriteKey(pack);
 
   const surfaceApply = useMutation({
     mutationKey,
@@ -376,7 +391,7 @@ export function useSkillsApply(pack: string) {
         { pack, ...delta }
       );
     },
-    onSuccess,
+    onSettled,
   });
 
   const bind = useMutation({
@@ -388,10 +403,10 @@ export function useSkillsApply(pack: string) {
         ...write,
       });
     },
-    onSuccess,
+    onSettled,
   });
 
-  const writing = useIsMutating({ mutationKey }) > 0;
+  const writing = useSkillsWriting(pack);
 
   return { surfaceApply, bind, writing };
 }
@@ -413,6 +428,7 @@ export type SkillsSyncReport = InferResponseType<
 export function useSkillsSync(pack: string) {
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: skillsWriteKey(pack),
     mutationFn: (options: { commitPending?: boolean } | void) =>
       postSkillsWrite<SkillsSyncReport>(client.api.skills.sync.$post, {
         pack,
@@ -429,6 +445,7 @@ export function useSkillsSync(pack: string) {
 export function useDiscardChanges(pack: string) {
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: skillsWriteKey(pack),
     mutationFn: async (): Promise<SkillsDiscardReport> => {
       const res = await client.api.skills.discard.$post({ json: { pack } });
       return readOrThrow<SkillsDiscardReport>(res, 'skills discard');

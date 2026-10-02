@@ -1,6 +1,6 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { screen, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -21,6 +21,7 @@ vi.mock('../../api', () => ({
 }));
 
 const { HealthTab } = await import('../HealthTab');
+const { holdWrite } = await import('./writeLock');
 
 function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json };
@@ -154,11 +155,12 @@ function renderHealthTab(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return renderWithProviders(
+  const view = renderWithProviders(
     <QueryClientProvider client={queryClient}>
       <HealthTab pack="demo" onOpenSkill={onOpenSkill} />
     </QueryClientProvider>
   );
+  return Object.assign(view, { queryClient });
 }
 
 afterEach(() => {
@@ -318,6 +320,23 @@ describe('HealthTab: installed caches bar', () => {
     expect(bar).toHaveTextContent('0.5.2 installed');
     expect(bar).toHaveTextContent('0.5.3 source');
     expect(screen.getByTestId('installed-caches-sync')).toBeEnabled();
+  });
+
+  it('holds Sync while another write to the pack is in flight', async () => {
+    const { queryClient } = renderHealthTab(
+      undefined,
+      ALL_IN_SYNC_COMPOSITION,
+      LAG_CHECK
+    );
+    expect(await screen.findByTestId('installed-caches-sync')).toBeEnabled();
+
+    act(() => {
+      holdWrite(queryClient, 'demo');
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('installed-caches-sync')).toBeDisabled()
+    );
   });
 
   it('shows "recompile needed" on the bar when check reports drift', async () => {

@@ -36,6 +36,7 @@ const {
   useSkillSource,
   useSkillsApply,
   useSkillsSync,
+  useSkillsWriting,
 } = await import('./useWiring');
 
 function reply(body: unknown, status = 200) {
@@ -259,6 +260,79 @@ describe('invalidation after a write', () => {
     expect(keys).toContainEqual(['skills', 'changes', 'acme']);
     expect(keys).toContainEqual(['skills', 'source', 'acme']);
   });
+
+  it.each([
+    ['a bind', 'bind', () => bindPost],
+    ['a surface apply', 'surfaceApply', () => surfaceApplyPost],
+  ] as const)(
+    'sweeps the pack when %s fails, since it may have written',
+    async (_, which, post) => {
+      post().mockResolvedValue(reply({ error: 'rt is not installed' }, 503));
+      const { invalidate, Wrap } = harness();
+      const { result } = renderHook(() => useSkillsApply('acme'), {
+        wrapper: Wrap,
+      });
+
+      act(() => {
+        if (which === 'bind')
+          result.current.bind.mutate({ verb: 'v', slot: 's', fill: 'f' });
+        else
+          result.current.surfaceApply.mutate({
+            toPublic: ['v'],
+            toInternal: [],
+          });
+      });
+
+      await waitFor(() => expect(result.current[which].isError).toBe(true));
+      expect(invalidatedKeys(invalidate)).toContainEqual([
+        'skills',
+        'changes',
+        'acme',
+      ]);
+    }
+  );
+});
+
+describe('the per-pack write lock', () => {
+  function heldReply() {
+    let answer!: (body: unknown) => void;
+    const promise = new Promise(resolve => {
+      answer = body => resolve(reply(body));
+    });
+    return { promise, answer };
+  }
+
+  it.each([
+    ['sync', () => syncPost, (pack: string) => useSkillsSync(pack)],
+    ['discard', () => discardPost, (pack: string) => useDiscardChanges(pack)],
+  ] as const)(
+    'counts a %s in flight as a write to its pack, and only its pack',
+    async (_, post, useWrite) => {
+      const held = heldReply();
+      post().mockReturnValue(held.promise);
+      const { Wrap } = harness();
+      const { result } = renderHook(
+        () => ({
+          write: useWrite('acme'),
+          acme: useSkillsWriting('acme'),
+          globex: useSkillsWriting('globex'),
+          apply: useSkillsApply('acme'),
+        }),
+        { wrapper: Wrap }
+      );
+
+      act(() => {
+        result.current.write.mutate(undefined as never);
+      });
+
+      await waitFor(() => expect(result.current.acme).toBe(true));
+      expect(result.current.apply.writing).toBe(true);
+      expect(result.current.globex).toBe(false);
+
+      act(() => held.answer({ pack: 'acme', ok: true, discarded: [] }));
+      await waitFor(() => expect(result.current.acme).toBe(false));
+    }
+  );
 });
 
 describe('useSkillsSync', () => {

@@ -201,7 +201,7 @@ export function SkillDetailPanel({
 }: SkillDetailPanelProps) {
   const { bg, text, border } = useSchemeColors();
   const editorHref = useEditorHref();
-  const { bind, surfaceApply } = useSkillsApply(pack);
+  const { bind, surfaceApply, writing } = useSkillsApply(pack);
   const [tab, setTab] = useState<string | null>('slots');
   const [activeRebind, setActiveRebind] = useState<string | null>(null);
   // The fill the Used-by tab answers for. Defaults to the entry's first bound
@@ -244,7 +244,7 @@ export function SkillDetailPanel({
   };
 
   const toggleSurface = () => {
-    if (!entry.verb) return;
+    if (!entry.verb || writing) return;
     const verb = entry.verb;
     surfaceApply.mutate(
       entry.invocable
@@ -297,7 +297,7 @@ export function SkillDetailPanel({
             <Switch
               size="sm"
               checked={entry.invocable}
-              disabled={!entry.verb || surfaceApply.isPending}
+              disabled={!entry.verb || writing}
               onChange={toggleSurface}
               aria-label={`make ${entry.label} public or internal`}
               data-testid="surface-switch"
@@ -403,7 +403,7 @@ export function SkillDetailPanel({
                           verb={entry.verb}
                           slot={slot.name}
                           composition={composition}
-                          applying={bind.isPending}
+                          applying={writing}
                           applyError={bindError}
                           onApply={fill =>
                             bind.mutate(

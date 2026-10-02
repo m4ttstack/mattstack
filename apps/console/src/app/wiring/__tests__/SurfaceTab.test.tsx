@@ -1,6 +1,6 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -25,6 +25,7 @@ vi.mock('../../api', () => ({
 }));
 
 const { SurfaceTab } = await import('../SurfaceTab');
+const { holdWrite } = await import('./writeLock');
 
 function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json };
@@ -58,11 +59,12 @@ function renderSurfaceTab(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return renderWithProviders(
+  const view = renderWithProviders(
     <QueryClientProvider client={queryClient}>
       <SurfaceTab pack="demo" />
     </QueryClientProvider>
   );
+  return Object.assign(view, { queryClient });
 }
 
 /** Same read-the-rendered-switches approach the old `SurfaceRoster` suite
@@ -205,6 +207,26 @@ describe('SurfaceTab: pressing Apply', () => {
     ).not.toBeChecked();
     expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
     expect(surfaceApplyPost).not.toHaveBeenCalled();
+  });
+
+  it('holds Apply while another write to the pack is in flight', async () => {
+    const { queryClient } = renderSurfaceTab();
+    await screen.findByTestId('surface-row-watch-ci');
+    await userEvent.click(screen.getByRole('switch', { name: /^watch-ci$/ }));
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled();
+
+    let end!: () => void;
+    act(() => {
+      end = holdWrite(queryClient, 'demo');
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled()
+    );
+
+    await act(async () => end());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled()
+    );
   });
 
   it('shows the error when the apply mutation fails outright', async () => {

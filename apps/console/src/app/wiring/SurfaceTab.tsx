@@ -303,7 +303,7 @@ export interface SurfaceTabProps {
 export function SurfaceTab({ pack }: SurfaceTabProps) {
   const { bg, text, border } = useSchemeColors();
   const surfaceQuery = useSurface(pack);
-  const { surfaceApply } = useSkillsApply(pack);
+  const { surfaceApply, writing } = useSkillsApply(pack);
   // Memoized so the `?? []` fallback isn't a fresh array reference on every
   // render -- `useSurfaceStaging` and the memos below key off this identity.
   const rows = useMemo(
@@ -493,14 +493,14 @@ export function SurfaceTab({ pack }: SurfaceTabProps) {
             <Button
               size="xs"
               variant="default"
-              disabled={staged.size === 0 || surfaceApply.isPending}
+              disabled={staged.size === 0 || writing}
               onClick={discard}
             >
               Discard
             </Button>
             <Button
               size="xs"
-              disabled={staged.size === 0 || surfaceApply.isPending}
+              disabled={staged.size === 0 || writing}
               loading={surfaceApply.isPending}
               onClick={() => surfaceApply.mutate(delta)}
             >

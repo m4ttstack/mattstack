@@ -1,6 +1,6 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -30,6 +30,7 @@ vi.mock('../../api', () => ({
 
 const { SkillDetailPanel } = await import('../SkillDetailPanel');
 const { buildSpine } = await import('../outline');
+const { holdWrite } = await import('./writeLock');
 
 function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json };
@@ -111,7 +112,7 @@ function renderPanel(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return renderWithProviders(
+  const view = renderWithProviders(
     <QueryClientProvider client={queryClient}>
       <SkillDetailPanel
         pack="demo"
@@ -125,6 +126,7 @@ function renderPanel(
       />
     </QueryClientProvider>
   );
+  return Object.assign(view, { queryClient });
 }
 
 afterEach(() => {
@@ -209,6 +211,29 @@ describe('SkillDetailPanel', () => {
         fill: 'other:watch-ci-domain',
       },
     });
+  });
+});
+
+describe('SkillDetailPanel: one write at a time', () => {
+  it('holds the switch and Apply while another write to the pack is in flight', async () => {
+    const user = userEvent.setup();
+    const { queryClient } = renderPanel();
+    const card = screen.getByTestId('slot-card-domain');
+    await user.click(within(card).getByTestId('rebind-slot'));
+    const rebind = await within(card).findByTestId('rebind');
+    await user.click(within(rebind).getByRole('button', { name: 'Rebind' }));
+    expect(screen.getByTestId('surface-switch')).toBeEnabled();
+
+    act(() => {
+      holdWrite(queryClient, 'demo');
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('surface-switch')).toBeDisabled()
+    );
+    expect(
+      within(rebind).getByRole('button', { name: 'Apply' })
+    ).toBeDisabled();
   });
 });
 
