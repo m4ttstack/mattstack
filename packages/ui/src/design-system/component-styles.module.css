@@ -80,10 +80,15 @@
 }
 
 /* A ground card that needs attention (an edit not shared yet) rings in the
-   warn fill; a selection's ring, below, wins over it. */
+   warn fill, or in the bad fill with `data-attention="bad"` (something
+   failed); a selection's ring, below, wins over either. */
 .paperRoot[data-variant='ground'][data-attention] {
   outline: 1px solid var(--tk-fill-warn);
   outline-offset: -1px;
+}
+
+.paperRoot[data-variant='ground'][data-attention='bad'] {
+  outline-color: var(--tk-fill-bad);
 }
 
 .paperRoot[data-variant='ground'][data-selected] {

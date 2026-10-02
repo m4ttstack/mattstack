@@ -159,6 +159,15 @@ describe('ground paper rule', () => {
       css.indexOf("[data-variant='ground'][data-selected]")
     );
   });
+
+  it('rings a ground card whose attention is bad in the bad fill, still under a selection ring', () => {
+    const bad =
+      "\\.paperRoot\\[data-variant='ground'\\]\\[data-attention='bad'\\]";
+    expect(rule(bad)).toContain('outline-color: var(--tk-fill-bad)');
+    expect(css.indexOf("[data-attention='bad']")).toBeLessThan(
+      css.indexOf("[data-variant='ground'][data-selected]")
+    );
+  });
 });
 
 describe('segmented progress', () => {

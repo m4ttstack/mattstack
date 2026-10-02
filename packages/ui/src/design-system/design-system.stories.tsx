@@ -227,6 +227,9 @@ function AttentionTones() {
           >
             needs attention, selected
           </Paper>
+          <Paper withBorder variant="ground" p="xs" data-attention="bad">
+            failed
+          </Paper>
         </Group>
       </Stack>
     </Box>
