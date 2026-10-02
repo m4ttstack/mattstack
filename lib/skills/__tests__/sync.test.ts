@@ -2153,21 +2153,21 @@ describe("commit-pending against real git", () => {
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
 
-  const locked = "fatal: Unable to create '.git/index.lock': File exists.";
-  const corrupt = "fatal: index file corrupt";
+  const indexLocked = "fatal: Unable to create '.git/index.lock': File exists.";
+  const indexCorrupt = "fatal: index file corrupt";
   test.each<[string, () => (cmd: string, args: string[]) => boolean, string, (dir: string) => string]>([
-    ["git write-tree before the pending commit", () => (cmd, args) => cmd === "git" && args[0] === "write-tree", locked, () => `git write-tree failed: ${locked}`],
-    ["the pending git commit", () => (cmd, args) => cmd === "git" && args[0] === "commit" && args.includes("skills: acme pending changes"), locked, () => `git commit failed: ${locked}`],
-    ["index check before the pending commit", () => (cmd, args) => cmd === "git" && args[0] === "diff" && args[1] === "--cached", corrupt, (dir) => `git diff --cached failed in ${dir}: ${corrupt}.`],
-    ["git ls-files before the version add", () => (cmd, args) => cmd === "git" && args[0] === "ls-files" && args.includes("--ignored"), corrupt, (dir) => `git ls-files failed in ${dir}: ${corrupt}.`],
+    ["git write-tree before the pending commit", () => (cmd, args) => cmd === "git" && args[0] === "write-tree", indexLocked, () => `git write-tree failed: ${indexLocked}`],
+    ["the pending git commit", () => (cmd, args) => cmd === "git" && args[0] === "commit" && args.includes("skills: acme pending changes"), indexLocked, () => `git commit failed: ${indexLocked}`],
+    ["index check before the pending commit", () => (cmd, args) => cmd === "git" && args[0] === "diff" && args[1] === "--cached", indexCorrupt, (dir) => `git diff --cached failed in ${dir}: ${indexCorrupt}.`],
+    ["git ls-files before the version add", () => (cmd, args) => cmd === "git" && args[0] === "ls-files" && args.includes("--ignored"), indexCorrupt, (dir) => `git ls-files failed in ${dir}: ${indexCorrupt}.`],
     [
       "index check after the version add",
       () => {
         let checks = 0;
         return (cmd, args) => cmd === "git" && args[0] === "diff" && args[1] === "--cached" && ++checks === 2;
       },
-      corrupt,
-      (dir) => `git diff --cached failed in ${dir}: ${corrupt}.`,
+      indexCorrupt,
+      (dir) => `git diff --cached failed in ${dir}: ${indexCorrupt}.`,
     ],
   ])("a failing %s puts the build back and leaves the pack edits staged", async (_label, failing, stderr, lead) => {
     const { root, remote, pack } = realPackRepo("");
