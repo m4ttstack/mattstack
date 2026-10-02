@@ -29,6 +29,17 @@ export function triageTrigger(run: string[]): TriageTrigger {
   return { name: "board-triage", event: "project-mrs", run, debounceMs: 5000 };
 }
 
+export interface PeerTrigger extends CronTrigger {
+  name: "board-peer";
+  event: "peer-inbox";
+  debounceMs: 300;
+}
+
+/** `triageRun` is the resolved triage invocation; the peer pass is the same entry with `--peer`. */
+export function peerTrigger(triageRun: string[]): PeerTrigger {
+  return { name: "board-peer", event: "peer-inbox", run: [...triageRun, "--peer"], debounceMs: 300 };
+}
+
 export type BoardTriageResolution =
   | { kind: "checkout"; run: string[] }
   /** No registered checkout carries `bin/triage.ts`, but board resolves (bundled or a user copy) — `<exec> triage` runs a one-shot pass (board main ecb43e9+; exit 0 = ran or disabled, non-zero = real failure). */

@@ -54,6 +54,8 @@ import { isValidHostname, isValidHttpsUrl } from "./setup/host-validate.ts";
 import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "./setup/team-settings.ts";
 import { createRealAgeKeySeam } from "./home/age-key.ts";
 import { readSecret, createRealSecretsExecSeam, type SecretsSeams } from "./secrets/store.ts";
+import { startPeerWaker } from "./daemon/peer-waker.ts";
+import { readSwitchboardToken } from "./daemon/handlers/secrets.ts";
 
 import { SystemProcessScanner } from "./daemon/system-process-scanner.ts";
 
@@ -358,6 +360,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
   };
   let hooksGuard: ReturnType<typeof createHooksGuard>;
   let cron: ReturnType<typeof startCron>;
+  let peerWaker: ReturnType<typeof startPeerWaker> | undefined;
   let worktreeReconciler: ReturnType<typeof createWorktreeReconciler>;
   let refreshCache: () => Promise<void>;
   // Set in phase 6 ("background-subsystems"), read in phase 7 ("handlers")
@@ -1107,13 +1110,21 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         ));
 
         // Cron trigger layer (mechanism-only): sees every broadcast frame.
-        cron = startCron(loadCronConfig(log), { log });
+        cron = startCron(loadCronConfig, { log });
         eventsBus.onBroadcast((type, data) => cron.onBroadcast(type, data));
         eventsBus.onBroadcast((type, data) => {
           if (type !== "worktree:disposed") return;
           const d = data as { repo?: string; path?: string };
           if (d?.repo && d?.path) releaseEndpointsForWorktree({ log }, d.repo, d.path);
         });
+        const peerWakerLog = loggerHandle.childLogger("peer-waker");
+        peerWaker = startPeerWaker({
+          log: peerWakerLog,
+          emit,
+          readUrl: () => getSetting<string>("board.switchboardUrl").value,
+          readToken: () => readSwitchboardToken(),
+        });
+        peerWaker.done.catch((err) => peerWakerLog.warn({ err }, "peer waker stopped unexpectedly"));
 
         // Worktree lifecycle reconciler. Kicked detached off the tail of every
         // cache refresh; `emit` (not bare broadcast) so reconciler events also
@@ -1224,6 +1235,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         teamSnapshots?.stop();
         for (const h of sweepHandles) h.stop();
         cron?.dispose();
+        peerWaker?.stop();
         hooksGuard?.closeAll();
       },
     },

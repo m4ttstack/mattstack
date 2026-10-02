@@ -23,6 +23,8 @@ import { latchGateway } from '../src/latch/gateway.ts';
 import { packForLaunch, resolveLaunchSkill } from '../src/manifest-bindings.ts';
 import { makeSwitchboardClient } from '../src/peer/client.ts';
 import { makeEnvelope } from '../src/peer/envelope.ts';
+import { runPeerTick } from '../src/peer/inbox.ts';
+import { boardMaterializeDeps } from '../src/peer/materialize-deps.ts';
 import { markNudgeHandled, readNudges } from '../src/peer/nudges.ts';
 import { drainOutbox, enqueueOutbox } from '../src/peer/outbox.ts';
 import { readRespondStates } from '../src/respond-state.ts';
@@ -39,10 +41,15 @@ import {
 } from '../src/review-state.ts';
 import { createBoardAttendants } from '../src/triage/attendant.ts';
 import { appendAudit } from '../src/triage/audit.ts';
-import { loadReReviewConfig, loadTriageConfig } from '../src/triage/config.ts';
+import {
+  loadPeerAsksConfig,
+  loadReReviewConfig,
+  loadTriageConfig,
+} from '../src/triage/config.ts';
 import type { OwnMrFacts } from '../src/triage/edge.ts';
 import { runLatchPass, type LatchMrFacts } from '../src/triage/latch.ts';
 import {
+  CRON_CLAIM_STALE_MS,
   readMemory,
   releaseCron,
   tryClaimCron,
@@ -50,6 +57,11 @@ import {
 } from '../src/triage/memory-store.ts';
 import { boardMrLink, notifyEscalation } from '../src/triage/notify.ts';
 import { runNudgePass } from '../src/triage/nudge.ts';
+import {
+  claimCronWaiting,
+  needsOwnMrs,
+  triageShouldRun,
+} from '../src/triage/peer-pass.ts';
 import { collectProjectPRs } from '../src/triage/projects.ts';
 import {
   numericPipelineId,
@@ -58,17 +70,46 @@ import {
 } from '../src/triage/run.ts';
 import { triageOwns } from '../src/triage/seat.ts';
 
-// Fully disabled is the common cron-invoked case: decide it BEFORE taking the
-// lock, because process.exit() skips finally blocks and would strand the lock
-// file. Two switches: board.triage gates the doctor/nudge sweeps, board.reReview
-// gates the latch pass, and either one alone is reason to run.
+// A peer pass is only useful on a paired board. Checked before the claim so an
+// unpaired or unconfigured machine exits quietly without queueing behind a
+// full pass.
+async function peerPreflight(): Promise<boolean> {
+  try {
+    const cfg = loadConfig();
+    return !!cfg.switchboard.url && !!(await loadSwitchboardToken());
+  } catch {
+    return false;
+  }
+}
+
+// Decide whether to run BEFORE taking the lock, because process.exit() skips
+// finally blocks and would strand the lock file. Three switches: board.triage
+// gates the doctor sweep, board.reReview the latch pass, board.peerAsks the
+// automatic nudge pass. A full run needs any one of them; --peer (the
+// board-peer cron trigger) needs board.peerAsks.
+const peerMode = process.argv.includes('--peer');
 const triage = loadTriageConfig();
 const reReview = loadReReviewConfig();
-if (!triage.enabled && !reReview.enabled) process.exit(0);
+const peerAsks = loadPeerAsksConfig();
+if (
+  !triageShouldRun(peerMode, {
+    triage: triage.enabled,
+    reReview: reReview.enabled,
+    peerAsks: peerAsks.enabled,
+  })
+)
+  process.exit(0);
 
-// One run at a time: cron debounces, but a slow run + a fresh trigger must
-// not interleave dispatches. A stale claim (crashed run) is reclaimed.
-const lockToken = tryClaimCron(Date.now());
+// One run at a time: a slow run plus a fresh trigger must not interleave
+// dispatches. A stale claim (crashed run) is reclaimed. Both passes wait for a
+// held claim: a full pass that exits behind a short peer pass would leave its
+// doctor and latch work for the next MR change.
+if (peerMode && !(await peerPreflight())) process.exit(0);
+
+const lockToken = await claimCronWaiting({
+  tryClaim: tryClaimCron,
+  maxWaitMs: peerMode ? CRON_CLAIM_STALE_MS : 30_000,
+});
 if (lockToken === false) {
   process.exit(0);
 }
@@ -114,14 +155,19 @@ try {
   // Throw rather than process.exit(1) on a resolution failure: an exit here
   // would skip the finally block and strand the lock until the stale window
   // reclaims it.
-  const username = await resolveDispatchIdentity(memory, async () => {
-    const token = await loadGitLabToken();
-    if (!token)
+  let username = '';
+  const resolveUsername = async (): Promise<string> => {
+    const resolved = await resolveDispatchIdentity(memory, async () => {
+      const token = await loadGitLabToken();
+      if (!token)
+        throw new Error('triage: no gitlab token available for identity');
+      return new GitLabProvider(boardConfig.gitlabHost, token).validateToken();
+    });
+    if (!resolved)
       throw new Error('triage: no gitlab token available for identity');
-    return new GitLabProvider(boardConfig.gitlabHost, token).validateToken();
-  });
-  if (!username)
-    throw new Error('triage: no gitlab token available for identity');
+    return resolved;
+  };
+  if (!peerMode) username = await resolveUsername();
 
   // SCOPE (review fix 1): triage's MR scope is deliberately the BOARD's
   // visibility scope -- buildBoard applies the member, own-draft, stale-window,
@@ -190,32 +236,34 @@ try {
       }));
   };
 
-  const result = await runTriage({
-    triage,
-    doctorCwd: boardConfig.doctorCwd || boardConfig.reviewCwd,
-    doctorsWorkspace: boardConfig.doctorsWorkspace,
-    ...loadAgentSettings(),
-    repoForMr: repoForMrUrl,
-    // Same resolved identity fetchOwnMrs just filtered by (MAT-351 re-check).
-    identity: username,
-    fetchOwnMrs,
-    readDoctorStates,
-    launchDoctor,
-    pack: launchPack ?? undefined,
-    writeDoctorState,
-    doctorFilePath: mrUrl => doctorFilePath(mrUrl),
-    appendAudit,
-    notify,
-    memory,
-    writeMemory,
-    readFreshMemory: readMemory,
-    sendPaneText,
-    now: () => Date.now(),
-    attendants: createBoardAttendants(),
-  });
-  console.log(
-    `triage: dispatched ${result.dispatched}, escalated ${result.escalated}, skipped ${result.skipped}`
-  );
+  if (!peerMode) {
+    const result = await runTriage({
+      triage,
+      doctorCwd: boardConfig.doctorCwd || boardConfig.reviewCwd,
+      doctorsWorkspace: boardConfig.doctorsWorkspace,
+      ...loadAgentSettings(),
+      repoForMr: repoForMrUrl,
+      // Same resolved identity fetchOwnMrs just filtered by (MAT-351 re-check).
+      identity: username,
+      fetchOwnMrs,
+      readDoctorStates,
+      launchDoctor,
+      pack: launchPack ?? undefined,
+      writeDoctorState,
+      doctorFilePath: mrUrl => doctorFilePath(mrUrl),
+      appendAudit,
+      notify,
+      memory,
+      writeMemory,
+      readFreshMemory: readMemory,
+      sendPaneText,
+      now: () => Date.now(),
+      attendants: createBoardAttendants(),
+    });
+    console.log(
+      `triage: dispatched ${result.dispatched}, escalated ${result.escalated}, skipped ${result.skipped}`
+    );
+  }
 
   const switchboardToken = await loadSwitchboardToken();
   if (boardConfig.switchboard.url && switchboardToken) {
@@ -223,49 +271,70 @@ try {
       boardConfig.switchboard.url,
       switchboardToken
     );
-    const ownUrls = new Set((await fetchOwnMrs()).map(m => m.mrUrl));
-    const nudgeResult = await runNudgePass({
-      readNudges,
-      markNudgeHandled: (id, r, reason) => markNudgeHandled(id, r, reason),
-      readReviewStates,
-      readRespondStates,
-      isOwnMr: mrUrl => ownUrls.has(mrUrl),
-      launchAsk: (mrUrl, iid, kind) =>
-        kind === 'respond'
-          ? launchRespondAsk(mrUrl, iid, {
-              cwd: boardConfig.respondCwd || boardConfig.reviewCwd,
-              repo: repoForMrUrl(mrUrl),
-              workspaceLabel: boardConfig.respondsWorkspace,
-              skill: resolveLaunchSkill(
-                'respond',
-                mrUrl,
-                boardConfig,
-                launchPack
-              ),
-              pack: launchPack ?? undefined,
-              ...loadAgentSettings(),
-            })
-          : launchReReview(mrUrl, iid, {
-              reReview: kind !== 'review',
-              cwd: boardConfig.reviewCwd,
-              repo: repoForMrUrl(mrUrl),
-              workspaceLabel: boardConfig.reviewsWorkspace,
-              forTab: tab => reviewLaunchForTab(boardConfig, mrUrl, tab),
-              ...loadAgentSettings(),
-              claudeCommand: boardConfig.claudeCommand,
-            }),
-      publishOutcome: (to, payload) =>
-        enqueueOutbox(makeEnvelope(to, 'nudge-outcome', payload)),
-      memory,
-      cfg: triage,
-      appendAudit,
-      notify,
-      now: () => Date.now(),
-    });
-    await drainOutbox(d => client.publish(d));
-    console.log(
-      `nudges: dispatched ${nudgeResult.dispatched}, rejected ${nudgeResult.rejected}, expired ${nudgeResult.expired}, skipped ${nudgeResult.skipped}`
-    );
+    if (peerMode)
+      await runPeerTick(
+        client,
+        boardMaterializeDeps(line => console.error(line))
+      );
+    let ownUrls = new Set<string>();
+    let nudgeReady = true;
+    if (!peerMode || needsOwnMrs(readNudges())) {
+      try {
+        if (peerMode) username = await resolveUsername();
+        ownUrls = new Set((await fetchOwnMrs()).map(m => m.mrUrl));
+      } catch (err) {
+        if (!peerMode) throw err;
+        // An empty set would reject a pending respond ask as not-your-mr.
+        nudgeReady = false;
+        console.error(
+          `peer pass: own MRs unavailable, respond asks wait (${err instanceof Error ? err.message : String(err)})`
+        );
+      }
+    }
+    if (nudgeReady) {
+      const nudgeResult = await runNudgePass({
+        readNudges,
+        markNudgeHandled: (id, r, reason) => markNudgeHandled(id, r, reason),
+        readReviewStates,
+        readRespondStates,
+        isOwnMr: mrUrl => ownUrls.has(mrUrl),
+        launchAsk: (mrUrl, iid, kind) =>
+          kind === 'respond'
+            ? launchRespondAsk(mrUrl, iid, {
+                cwd: boardConfig.respondCwd || boardConfig.reviewCwd,
+                repo: repoForMrUrl(mrUrl),
+                workspaceLabel: boardConfig.respondsWorkspace,
+                skill: resolveLaunchSkill(
+                  'respond',
+                  mrUrl,
+                  boardConfig,
+                  launchPack
+                ),
+                pack: launchPack ?? undefined,
+                ...loadAgentSettings(),
+              })
+            : launchReReview(mrUrl, iid, {
+                reReview: kind !== 'review',
+                cwd: boardConfig.reviewCwd,
+                repo: repoForMrUrl(mrUrl),
+                workspaceLabel: boardConfig.reviewsWorkspace,
+                forTab: tab => reviewLaunchForTab(boardConfig, mrUrl, tab),
+                ...loadAgentSettings(),
+                claudeCommand: boardConfig.claudeCommand,
+              }),
+        publishOutcome: (to, payload) =>
+          enqueueOutbox(makeEnvelope(to, 'nudge-outcome', payload)),
+        memory,
+        cfg: { ...triage, enabled: peerAsks.enabled },
+        appendAudit,
+        notify,
+        now: () => Date.now(),
+      });
+      await drainOutbox(d => client.publish(d));
+      console.log(
+        `nudges: dispatched ${nudgeResult.dispatched}, rejected ${nudgeResult.rejected}, expired ${nudgeResult.expired}, skipped ${nudgeResult.skipped}`
+      );
+    }
   }
 
   // The latch pass writes to GitLab, so without a token there is nothing it
@@ -273,7 +342,7 @@ try {
   // memory, and this one runs whether or not a switchboard is configured, so
   // the persist below sits outside that block.
   const latchToken = await loadGitLabToken();
-  if (latchToken && reReview.enabled) {
+  if (!peerMode && latchToken && reReview.enabled) {
     try {
       const latchResult = await runLatchPass({
         readReviewStates,

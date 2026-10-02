@@ -193,6 +193,7 @@ import {
   parseMrActionBody,
   runMrAction,
 } from './mr-action.ts';
+import { askIdForRun } from './peer/ask-echo.ts';
 import {
   makeSwitchboardClient,
   type SwitchboardClient,
@@ -205,20 +206,17 @@ import {
   type ReReviewRequestPayload,
   type ReviewStatePayload,
 } from './peer/envelope.ts';
-import { type MaterializeDeps } from './peer/inbox.ts';
+import { boardMaterializeDeps } from './peer/materialize-deps.ts';
 import {
   dismissSentNudge,
-  finishSentNudge,
   pendingNudgesByMr,
   pruneFinishedSentNudges,
   pruneNudges,
   pruneSentNudges,
   readNudges,
   readSentNudges,
-  resolveSentNudge,
   reviewerDisplayName,
   sentNudgeView,
-  writeNudge,
   writeSentNudge,
   type PendingNudge,
   type SentNudgeView,
@@ -234,12 +232,12 @@ import {
   attachPeerReviews,
   prunePeerReviews,
   readPeerReviews,
-  writePeerReview,
   type PeerReviewState,
 } from './peer/peer-reviews.ts';
 import {
   makePeering,
   startPeeringWhenTokenLoads,
+  tickOnPeerInbox,
   tokenMissingNotice,
 } from './peer/runtime.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
@@ -315,7 +313,11 @@ import {
   type ThreadWriteResult,
   type ThreadWriteSend,
 } from './thread-write.ts';
-import { loadReReviewConfig, loadTriageConfig } from './triage/config.ts';
+import {
+  loadPeerAsksConfig,
+  loadReReviewConfig,
+  loadTriageConfig,
+} from './triage/config.ts';
 import {
   attachStandDown,
   readMemory,
@@ -492,16 +494,7 @@ async function fetchReconcilerView(): Promise<ReconcilerView> {
 // either, peering stays unstarted and every peer feature (publish, poll,
 // /nudge) is off, leaving the board exactly as it was. The runtime is startable
 // later at runtime too, so joining a switchboard needs no restart.
-const peerDeps: Omit<MaterializeDeps, 'reportAuth'> = {
-  writePeerReview,
-  writeNudge,
-  // Adapters: the store takes its db before the nudge id and the sender.
-  resolveSentNudge: (mrUrl, resolution, from) =>
-    resolveSentNudge(mrUrl, resolution, undefined, from),
-  finishSentNudge: (mrUrl, finish, ifSentBefore, nudgeId, from) =>
-    finishSentNudge(mrUrl, finish, ifSentBefore, undefined, nudgeId, from),
-  log: line => console.error(line),
-};
+const peerDeps = boardMaterializeDeps(line => console.error(line));
 const peering = makePeering({
   makeClient: makeSwitchboardClient,
   deps: peerDeps,
@@ -538,11 +531,11 @@ interface PeerAttachments {
   nudges?: PendingNudge[];
 }
 
-/** A config that fails to parse also stops the triage pass, so its asks
-    wait for a click like triage being off. */
-function triageEnabled(): boolean {
+/** Automatic asks off, or a settings read that fails, leaves inbound asks
+    waiting for a click. */
+function peerAsksEnabled(): boolean {
   try {
-    return loadTriageConfig().enabled;
+    return loadPeerAsksConfig().enabled;
   } catch {
     return false;
   }
@@ -556,7 +549,7 @@ function attachPeerState<T extends { webUrl?: string | null }>(
   now: number = Date.now()
 ): Array<T & PeerAttachments> {
   const sent = readSentNudges();
-  const inbound = pendingNudgesByMr(readNudges(), triageEnabled());
+  const inbound = pendingNudgesByMr(readNudges(), peerAsksEnabled());
   return attachPeerReviews(mrs, readPeerReviews()).map(mr => {
     if (!mr.webUrl) return mr;
     const s = sent.get(mr.webUrl);
@@ -1928,6 +1921,7 @@ const httpServer = Bun.serve({
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
           status: 'queued',
+          runStartedAt: Date.now(),
           boardTabId: tabId ?? '',
           noPack: !launchPack(tabId),
         });
@@ -4042,6 +4036,13 @@ async function handleAgentSignal(
       canonicalUsername(authorUsername) !==
         canonicalUsername(config.defaultMember)
     ) {
+      const askId = askIdForRun(
+        readNudges(),
+        signal.mrUrl,
+        authorUsername,
+        readReviewStates().get(signal.mrUrl)?.runStartedAt,
+        emittedAt
+      );
       enqueueOutbox(
         makeEnvelope(authorUsername, 'review-state', {
           mrUrl: signal.mrUrl,
@@ -4049,6 +4050,7 @@ async function handleAgentSignal(
           status: signal.status,
           outcome: signal.outcome,
           updatedAt: emittedAt,
+          ...(askId ? { nudgeId: askId } : {}),
         } satisfies ReviewStatePayload)
       );
       kickOutbox(pc);
@@ -4277,6 +4279,7 @@ let relayTimer: ReturnType<typeof setTimeout> | undefined;
 const stopRelay = FIXTURE_DIR
   ? () => {}
   : subscribe((type, data) => {
+      tickOnPeerInbox(type, writer, peering.tickNow);
       // The daemon sends mr:status on every socket open, so this is the
       // reconnect signal; it also fires on connection-state changes, which
       // only costs an extra idempotent resync.

@@ -17,7 +17,7 @@ import { setSetting } from "../../settings/write.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import type { StepId } from "../contract.ts";
-import { installCronTrigger, resolveBoardTriage, triageTrigger } from "../cron-install.ts";
+import { installCronTrigger, peerTrigger, resolveBoardTriage, triageTrigger } from "../cron-install.ts";
 import { linkBundledSkills } from "../skills-link-bundled.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import { isBasePack, isPackDir } from "../../skills/init.ts";
@@ -262,12 +262,15 @@ export const boardKeysStep: StepDef = {
 
 // ─── cron.triage ─────────────────────────────────────────────────────────────
 
-async function cronTriageRun(ctx: ApplyContext): Promise<StepOutcome> {
-  const def = getDef("board.reReview");
-  if (!def) return { state: "skipped", detail: "The board's re-review hook is not registered" };
+function hookOn(key: "board.reReview" | "board.peerAsks"): boolean {
+  if (!getDef(key)) return false;
+  return getSetting<{ enabled?: boolean }>(key).value?.enabled === true;
+}
 
-  const enabled = getSetting<{ enabled?: boolean }>("board.reReview").value?.enabled === true;
-  if (!enabled) return { state: "skipped", detail: "The board's re-review hook is off" };
+async function cronTriageRun(ctx: ApplyContext): Promise<StepOutcome> {
+  const reReview = hookOn("board.reReview");
+  const peerAsks = hookOn("board.peerAsks");
+  if (!reReview && !peerAsks) return { state: "skipped", detail: "The board's re-review and peer ask hooks are off" };
 
   const board = resolveTool(ctx.p, "board").exec;
   const resolution = resolveBoardTriage(ctx.p, getKnownRepos(), board);
@@ -276,7 +279,8 @@ async function cronTriageRun(ctx: ApplyContext): Promise<StepOutcome> {
     return { state: "skipped", detail: "The board binary was not found. Run rt deps resolve board first" };
   }
 
-  installCronTrigger(triageTrigger(resolution.run));
+  if (reReview) installCronTrigger(triageTrigger(resolution.run));
+  if (peerAsks) installCronTrigger(peerTrigger(resolution.run));
   return { state: "done", detail: "Installed the board triage skill" };
 }
 

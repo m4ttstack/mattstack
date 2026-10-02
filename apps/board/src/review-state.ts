@@ -7,6 +7,7 @@ import {
   insertAgentState,
   mintHandle,
   pruneStates,
+  readByHandle,
   readPrunedStates,
   readReport,
   readStates,
@@ -54,6 +55,11 @@ export interface ReviewState {
       live event fires again. `released` can never stand in for this: it
       stays false forever for the board's unattended gates. */
   resumedGateId?: string;
+  /** When the current run began. A write that moves the lane from nothing,
+      done or error into queued or reviewing stamps it, and every launch
+      writes it outright, since a relaunch over a stale queued or reviewing
+      lane is a new run too. */
+  runStartedAt?: number;
   /** Stamp of the last operator reopen of a finished pane ("resume review"),
       written with the SAME clock value the write's updatedAt gets. While
       reopenedAt >= updatedAt the done+tabId shape is a deliberately reopened
@@ -134,45 +140,58 @@ export function readReviewReport(
   return readReport('review', mrUrl, db);
 }
 
+const RUN_STARTS: ReadonlySet<ReviewStatus> = new Set(['queued', 'reviewing']);
+
 /** Read-merge-write a review row. First write stamps startedAt; every write
-    stamps updatedAt. Tries updateByHandle first; when no row exists it
-    requires `patch.mrUrl` and `patch.iid` to insert a fresh row, else there
-    is no identity to key the row by and the caller is doing something wrong. */
+    stamps updatedAt; a write that moves the lane into queued or reviewing from
+    nothing, done or error stamps runStartedAt unless the patch carries one.
+    Tries updateByHandle first; when no row exists it requires `patch.mrUrl`
+    and `patch.iid` to insert a fresh row, else there is no identity to key
+    the row by and the caller is doing something wrong. */
 export function writeReviewState(
   handle: string,
   patch: Partial<ReviewState> & { status: ReviewStatus },
   now: number = Date.now(),
   db: Database = getStateDb()
 ): ReviewState {
-  const updated = updateByHandle(handle, patch, now, db);
+  const prev = readByHandle(handle, db) as ReviewState | null;
+  const startsRun =
+    RUN_STARTS.has(patch.status) &&
+    (!prev || prev.status === 'done' || prev.status === 'error');
+  const stamped =
+    startsRun && patch.runStartedAt === undefined
+      ? { ...patch, runStartedAt: now }
+      : patch;
+  const updated = updateByHandle(handle, stamped, now, db);
   if (updated) return updated as ReviewState;
-  if (patch.mrUrl === undefined || patch.iid === undefined) {
+  if (stamped.mrUrl === undefined || stamped.iid === undefined) {
     throw new Error(
       `review state write with no prior row and no identity: ${handle}`
     );
   }
   const next: ReviewState = {
-    mrUrl: patch.mrUrl,
-    iid: patch.iid,
-    status: patch.status,
-    message: patch.message,
-    tabId: patch.tabId,
-    boardTabId: patch.boardTabId,
-    workspaceId: patch.workspaceId,
-    outcome: patch.outcome,
-    sessionId: patch.sessionId,
-    agentId: patch.agentId,
-    paneId: patch.paneId,
-    gateId: patch.gateId,
-    gateKind: patch.gateKind,
-    resumedGateId: patch.resumedGateId,
-    reopenedAt: patch.reopenedAt,
-    dismissedAt: patch.dismissedAt,
-    noPack: patch.noPack,
+    mrUrl: stamped.mrUrl,
+    iid: stamped.iid,
+    status: stamped.status,
+    message: stamped.message,
+    tabId: stamped.tabId,
+    boardTabId: stamped.boardTabId,
+    workspaceId: stamped.workspaceId,
+    outcome: stamped.outcome,
+    sessionId: stamped.sessionId,
+    agentId: stamped.agentId,
+    paneId: stamped.paneId,
+    gateId: stamped.gateId,
+    gateKind: stamped.gateKind,
+    resumedGateId: stamped.resumedGateId,
+    reopenedAt: stamped.reopenedAt,
+    dismissedAt: stamped.dismissedAt,
+    noPack: stamped.noPack,
+    runStartedAt: stamped.runStartedAt,
     startedAt: now,
     updatedAt: now,
   };
-  insertAgentState('review', patch.mrUrl, patch.iid, next, handle, db);
+  insertAgentState('review', stamped.mrUrl, stamped.iid, next, handle, db);
   return next;
 }
 
