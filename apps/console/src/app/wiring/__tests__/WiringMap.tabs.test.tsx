@@ -249,3 +249,30 @@ describe('WiringMap: top-level tabs', () => {
     expect(screen.queryByTestId('health-tab')).not.toBeInTheDocument();
   });
 });
+
+describe('WiringMap: a pack the URL names', () => {
+  it('says so when no pack has that name, and which pack it shows instead', async () => {
+    mockHappyPath();
+    window.history.pushState(null, '', '/wiring?pack=globex');
+    renderWiring();
+
+    expect(
+      await screen.findByText('No pack named globex; showing demo.')
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('pack-name')).toHaveTextContent('demo');
+  });
+
+  it('says nothing for a pack that exists, or when the URL names none', async () => {
+    mockHappyPath();
+    window.history.pushState(null, '', '/wiring?pack=demo');
+    const { unmount } = renderWiring();
+    await screen.findByTestId('pack-name');
+    expect(screen.queryByTestId('missing-pack')).toBeNull();
+    unmount();
+
+    window.history.pushState(null, '', '/wiring');
+    renderWiring();
+    await screen.findByTestId('pack-name');
+    expect(screen.queryByTestId('missing-pack')).toBeNull();
+  });
+});

@@ -7,6 +7,7 @@ import {
   PageShell,
   Select,
   Skeleton,
+  Stack,
   Text,
 } from '@mattstack/app-kit/core';
 import type { PageShellTab } from '@mattstack/app-kit/core';
@@ -18,6 +19,7 @@ import { useEditorHref } from '../editorHref';
 import { CommandProvenance } from '../runs/CommandProvenance';
 import { GraphSidebar } from './graph/FocusList';
 import { GraphTab } from './graph/GraphTab';
+import { MissingPackNotice } from './graph/MissingPackNotice';
 import { UnsyncedBanner, useUnsyncedBanner } from './graph/UnsyncedBanner';
 import { useWiringUrl, type WiringTab } from './graph/useWiringUrl';
 import { HealthTab } from './HealthTab';
@@ -42,12 +44,24 @@ export function WiringMap() {
     ? url.pack
     : (packs[0]?.name ?? null);
   const packDir = packs.find(p => p.name === pack)?.dir ?? null;
+  const missing =
+    url.pack !== null && pack !== null && pack !== url.pack ? url.pack : null;
 
   const snapshot = useCompositionSnapshot(pack);
   const unsynced = useUnsyncedBanner(pack);
   const showTab = (tab: WiringTab) => patch({ tab });
   const notch = pack
-    ? { content: <UnsyncedBanner key={pack} pack={pack} />, opened: unsynced }
+    ? {
+        content: (
+          <Stack gap={0} w="100%">
+            {missing !== null && (
+              <MissingPackNotice asked={missing} shown={pack} />
+            )}
+            <UnsyncedBanner key={pack} pack={pack} />
+          </Stack>
+        ),
+        opened: unsynced || missing !== null,
+      }
     : undefined;
 
   // No pack means nothing for a tab to show yet -- the same gate the pack
