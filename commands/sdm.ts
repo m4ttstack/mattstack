@@ -111,8 +111,14 @@ async function withProgress<T>(label: string, draw: boolean, task: (onLine: (lin
   }
 }
 
-function excerpt(tail: string[]): Block[] {
-  return tail.length > 0 ? [out.verbatim(tail.map(redact))] : [];
+/** The child's last lines under a failure, leaving out the one its why already shows. */
+function excerpt(tail: string[], shown?: string): Block[] {
+  const rest = tail.map(redact).filter((line) => line !== shown);
+  return rest.length > 0 ? [out.verbatim(rest, "what StrongDM printed")] : [];
+}
+
+function lastLine(text: string): string {
+  return text.split("\n").map((line) => line.trim()).filter(Boolean).at(-1) ?? text.trim();
 }
 
 // ── What each outcome reads as ───────────────────────────────────────────────
@@ -166,7 +172,7 @@ function connectFailure(target: GuidedTarget, result: FailedConnect): out.Failur
   const next = result.next ?? (result.stage === "login" ? "rt sdm login" : undefined);
   return {
     title: STAGE_TITLE[result.stage](target.label),
-    why: result.error,
+    why: redact(lastLine(result.error)),
     next: next ? out.cmd(next) : result.hint,
   };
 }
@@ -234,7 +240,8 @@ function refreshBlocks(count: number, error?: string): Block[] {
 function enrichmentBlocks(path: string, enriched: number, total: number): Block[] {
   if (total === 0) return [out.kv("labels file", path), out.line("skipped", "StrongDM shows no connections to label")];
   const all = enriched === total;
-  return [out.kv("labels file", path), out.line(all ? "done" : "pending", `${enriched} of ${total} connections have a label`, all ? undefined : "the rest show their StrongDM names")];
+  const counted = total === 1 ? "connection has" : "connections have";
+  return [out.kv("labels file", path), out.line(all ? "done" : "pending", `${enriched} of ${total} ${counted} a label`, all ? undefined : "the rest show their StrongDM names")];
 }
 
 // ── Guided flow wiring (real prompts, real sdm) ──────────────────────────────
@@ -298,9 +305,9 @@ async function guidedConnect(
   }
   const { select, textInput, confirm } = await import("../lib/rt-render.ts");
   let tail: string[] = [];
-  const streamed = async <T>(label: string, task: (onLine: (line: string) => void) => Promise<T>): Promise<T> => {
+  const streamed = async <T extends { ok: boolean }>(label: string, task: (onLine: (line: string) => void) => Promise<T>): Promise<T> => {
     const r = await withProgress(label, !opts.json, task);
-    tail = r.tail;
+    tail = r.value.ok ? [] : r.tail;
     return r.value;
   };
   const result = await runGuidedConnect(target, opts, {
@@ -318,7 +325,7 @@ async function guidedConnect(
     },
     login: async () => {
       const r = await sdmBrowserLogin("Logging in to StrongDM");
-      tail = r.tail;
+      tail = r.ok ? [] : r.tail;
       return { ok: r.ok, error: r.error };
     },
     promptDuration: async def => {
@@ -360,7 +367,8 @@ async function guidedConnect(
     process.exitCode = 1;
     return;
   }
-  out.fail(connectFailure(target, result), ...excerpt(tail));
+  const failure = connectFailure(target, result);
+  out.fail(failure, ...excerpt(tail, failure.why));
   process.exitCode = 1;
 }
 
@@ -566,8 +574,6 @@ export async function loginCmd(args: string[]): Promise<void> {
   }
   if (outcome.outcome === "needs-manual") {
     if (!process.stdin.isTTY) {
-      // With no terminal the terminal login cannot run, so this names the
-      // command for the person instead of claiming a fallback.
       out.fail(manualLoginFailure(redact(outcome.reason)));
       process.exitCode = 1;
       return;
@@ -576,7 +582,8 @@ export async function loginCmd(args: string[]): Promise<void> {
     await runManualLogin();
     return;
   }
-  out.fail(loginFailure(redact(outcome.error), visible), ...excerpt(login.tail), ...loginTip(visible));
+  const failure = loginFailure(redact(outcome.error), visible);
+  out.fail(failure, ...excerpt(login.tail, failure.why), ...loginTip(visible));
   process.exitCode = 1;
 }
 
@@ -613,11 +620,11 @@ export async function enrichmentCmd(rest: string[]): Promise<void> {
   const path = enrichmentPath();
   if (rest[0] === "init") {
     if (probeEnrichmentStore() !== undefined) {
-      out.print(out.line("skipped", "Your team's settings already label these connections"), out.callout("note", ["rt would otherwise create ", out.strong(path)]));
+      out.print(out.line("skipped", "Your team's settings already label these connections", "rt did not create a labels file"), out.kv("file", path));
       return;
     }
     if (existsSync(path)) {
-      out.fail({ title: "Your labels file already exists", why: `It is at ${path}.` });
+      out.note(out.line("refused", "Your labels file already exists"), out.kv("file", path));
       process.exitCode = 1;
       return;
     }

@@ -17,6 +17,10 @@ const realApp = await import("../../lib/sdm/app.ts");
 const realEnsureSdmApp = realApp.ensureSdmApp;
 const realBrowserLogin = await import("../../lib/sdm/browser-login.ts");
 const realRunBrowserLogin = realBrowserLogin.runBrowserLogin;
+const realCore = await import("../../lib/sdm/core.ts");
+const realConnectResource = realCore.connectResource;
+const realFlow = await import("../../lib/sdm/flow.ts");
+const realRunGuidedConnect = realFlow.runGuidedConnect;
 
 const FAKE = resolve(import.meta.dir, "..", "..", "lib", "ui", "__tests__", "fake-rt-ui.ts");
 const target: GuidedTarget = { key: "demo:q", label: "Acme QA", sdmResource: "example-q", tier: "qa", db: { database: "acme", schema: "app" } };
@@ -262,6 +266,19 @@ describe("sdm blocks", () => {
     expect(renderPlain(__test__.enrichmentBlocks("/x/enrichment.jsonc", 2, 2))).toBe("labels file: /x/enrichment.jsonc\n[ok] 2 of 2 connections have a label\n");
     expect(renderPlain(__test__.enrichmentBlocks("/x/enrichment.jsonc", 0, 0))).toBe("labels file: /x/enrichment.jsonc\n[skipped] StrongDM shows no connections to label\n");
   });
+
+  test("enrichment counts read as English for one connection and for many", () => {
+    const counted = (enriched: number, total: number): string => renderPlain(__test__.enrichmentBlocks("/x/e.jsonc", enriched, total)).split("\n")[1]!;
+    expect(counted(1, 1)).toBe("[ok] 1 of 1 connection has a label");
+    expect(counted(1, 3)).toBe("[not yet] 1 of 3 connections have a label  the rest show their StrongDM names");
+    expect(counted(0, 1)).toBe("[not yet] 0 of 1 connection has a label  the rest show their StrongDM names");
+  });
+
+  test("a failed connect's why is the last line StrongDM printed, never the whole output squashed", () => {
+    expect(failed(__test__.connectFailure(target, { outcome: "failed", stage: "connect", error: "dialing gateway\n\nerror: no route to gateway\n" }))).toBe(
+      "Could not connect to Acme QA\n  why: error: no route to gateway\n",
+    );
+  });
 });
 
 describe("sdm verbs", () => {
@@ -307,10 +324,57 @@ describe("sdm verbs", () => {
     expect(process.exitCode).toBe(1);
   });
 
-  test("a failure's excerpt is the last five child lines, indented", () => {
+  test("a failure's excerpt is the last five child lines, indented under a caption", () => {
     out.fail(__test__.connectFailure(target, { outcome: "failed", stage: "connect", error: "exit 1" }), ...__test__.excerpt(["dialing", "\x1b[2J[ok] forged", "gave up"]));
-    expect(io.stderr()).toBe("Could not connect to Acme QA\n  why: exit 1\n  dialing\n  [ok] forged\n  gave up\n");
+    expect(io.stderr()).toBe("Could not connect to Acme QA\n  why: exit 1\nwhat StrongDM printed:\n  dialing\n  [ok] forged\n  gave up\n");
     expect(__test__.excerpt([])).toEqual([]);
+  });
+
+  test("the excerpt leaves out the line the why already shows, and is dropped when nothing else is left", () => {
+    expect(renderPlain(__test__.excerpt(["dialing", "error: refused"], "error: refused"))).toBe("what StrongDM printed:\n  dialing\n");
+    expect(__test__.excerpt(["error: refused"], "error: refused")).toEqual([]);
+  });
+
+  describe("a connect that fails", () => {
+    const fakeConnect = (lines: string[], result: { ok: boolean; error?: string }): void => {
+      mock.module("../../lib/sdm/core.ts", () => ({
+        ...realCore,
+        connectResource: async (_resource: string, onLine: (line: string) => void) => {
+          for (const l of lines) onLine(l);
+          return result;
+        },
+      }));
+    };
+    const fakeFlow = (after: (connected: { ok: boolean; error?: string }) => unknown): void => {
+      mock.module("../../lib/sdm/flow.ts", () => ({
+        ...realFlow,
+        runGuidedConnect: async (t: GuidedTarget, _opts: unknown, deps: { connect: (r: string) => Promise<{ ok: boolean; error?: string }> }) => after(await deps.connect(t.sdmResource)),
+      }));
+    };
+    afterEach(() => {
+      mock.module("../../lib/sdm/core.ts", () => ({ ...realCore, connectResource: realConnectResource }));
+      mock.module("../../lib/sdm/flow.ts", () => ({ ...realFlow, runGuidedConnect: realRunGuidedConnect }));
+    });
+
+    test("prints StrongDM's output once: the last line as the why, the rest under a caption", async () => {
+      const printed = ["dialing gateway", "gateway refused the tunnel", "error: no route to gateway"];
+      fakeConnect(printed, { ok: false, error: printed.slice(1).join("\n") });
+      fakeFlow((c) => ({ outcome: "failed", stage: "connect", error: c.error }));
+      await __test__.guidedConnect(target, { interactive: false });
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe(
+        "Could not connect to Acme QA\n  why: error: no route to gateway\nwhat StrongDM printed:\n  dialing gateway\n  gateway refused the tunnel\n",
+      );
+      expect(process.exitCode).toBe(1);
+    });
+
+    test("a test query that fails after a good connect shows none of the connect's lines", async () => {
+      fakeConnect(["tunnel up on 127.0.0.1:15432"], { ok: true });
+      fakeFlow(() => ({ outcome: "failed", stage: "verify", error: "The tunnel did not answer: timeout" }));
+      await __test__.guidedConnect(target, { interactive: false });
+      expect(io.stderr()).toBe("Acme QA did not come up\n  why: The tunnel did not answer: timeout\n");
+      expect(process.exitCode).toBe(1);
+    });
   });
 
   test("a failed browser login never shows the auth url's token, in the why or anywhere on stderr", async () => {
@@ -339,6 +403,6 @@ describe("sdm verbs", () => {
   });
 
   test("a failure's excerpt never shows an auth url's token", () => {
-    expect(renderPlain(__test__.excerpt(["https://sdm.example/auth-confirm-native/tok789secret"]))).toBe("  https://sdm.example/auth-confirm-native/<redacted>\n");
+    expect(renderPlain(__test__.excerpt(["https://sdm.example/auth-confirm-native/tok789secret"]))).toBe("what StrongDM printed:\n  https://sdm.example/auth-confirm-native/<redacted>\n");
   });
 });

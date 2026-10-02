@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { enrichmentCmd, enrichmentSkeleton } from "../../../commands/sdm.ts";
 import { enrichmentPath, stripJsonc } from "../enrichment.ts";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, realpathSync } from "fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join, dirname } from "path";
 import { teamSettingsPath } from "../../rt-paths.ts";
@@ -60,7 +60,22 @@ describe("enrichmentCmd init: scaffold refusal when the team store owns rt.sdmEn
     await enrichmentCmd(["init"]);
 
     expect(existsSync(path)).toBe(false);
-    expect(io.stdout()).toBe(`[skipped] Your team's settings already label these connections\n  note: rt would otherwise create ${path}\n`);
+    expect(io.stdout()).toBe(`[skipped] Your team's settings already label these connections  rt did not create a labels file\nfile: ${path}\n`);
     expect(io.stderr()).toBe("");
+  });
+
+  test("an existing labels file is a refusal on stderr, never a failure, and the file is left alone", async () => {
+    const path = enrichmentPath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, "{ \"mine\": {} }\n");
+    try {
+      await enrichmentCmd(["init"]);
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe(`[refused] Your labels file already exists\nfile: ${path}\n`);
+      expect(process.exitCode).toBe(1);
+      expect(readFileSync(path, "utf8")).toBe("{ \"mine\": {} }\n");
+    } finally {
+      process.exitCode = 0;
+    }
   });
 });
