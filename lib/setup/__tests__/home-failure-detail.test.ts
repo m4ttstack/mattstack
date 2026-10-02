@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { failureDetail, homeInitRemedy } from "../steps/home.ts";
+import { INIT_STEP_FAILED } from "../../home/init-exec.ts";
+import { failureDetail, homeInitDoneDetail, homeInitRemedy } from "../steps/home.ts";
 
 describe("failureDetail", () => {
   // The exact shape that reached CI: bun's crash frame arrived first and the
@@ -28,16 +29,41 @@ describe("failureDetail", () => {
     expect(failureDetail("   \n  \n")).toBe("");
   });
 
-  // The exact shape that reached CI second: `rt home init` prints a
-  // `failed at step "X":` header line and the real error on the next line;
-  // matching the header alone dropped the payload entirely.
-  test("a header line ending in a colon carries the next line with it", () => {
-    const stderr = ['rt home init: failed at step "commitInitialUserRepo":', "fatal: empty ident name not allowed"].join("\n");
-    expect(failureDetail(stderr)).toBe('rt home init: failed at step "commitInitialUserRepo": fatal: empty ident name not allowed');
+  // rt home init leads with the failed step's title and puts what the child
+  // said under "what it said:"; the title alone hides the cause.
+  test("a home init failure title carries the line under it that names the error", () => {
+    const stderr = [INIT_STEP_FAILED.commitInitialUserRepo, "what it said:", "  fatal: empty ident name not allowed"].join("\n");
+    expect(failureDetail(stderr)).toBe(`${INIT_STEP_FAILED.commitInitialUserRepo}: fatal: empty ident name not allowed`);
   });
 
-  test("a header line with no following line still reports itself", () => {
-    expect(failureDetail('rt home init: failed at step "cloneUserRepo":')).toBe('rt home init: failed at step "cloneUserRepo":');
+  test("a home init failure title with no error word under it carries the first line it said", () => {
+    const stderr = [INIT_STEP_FAILED.cloneUserRepo, "what it said:", "  remote: Repository not found."].join("\n");
+    expect(failureDetail(stderr)).toBe(`${INIT_STEP_FAILED.cloneUserRepo}: remote: Repository not found.`);
+  });
+
+  test("a home init failure title with nothing under it still reports itself", () => {
+    expect(failureDetail(INIT_STEP_FAILED.cloneUserRepo)).toBe(INIT_STEP_FAILED.cloneUserRepo);
+  });
+
+  // out.fail tags its title when something already reached stderr in the same process.
+  test("a tagged home init failure title after an unrelated line is still found", () => {
+    const stderr = [
+      "[warn] rt could not read one of your settings",
+      `[failed] ${INIT_STEP_FAILED.cloneUserRepo}`,
+      "what it said:",
+      "  remote: Permission denied",
+    ].join("\n");
+    expect(failureDetail(stderr)).toBe(`${INIT_STEP_FAILED.cloneUserRepo}: remote: Permission denied`);
+  });
+
+  test("rt's own why and next lines are guidance, not the error", () => {
+    const stderr = ["rt could not refresh one of its own pieces", "  why: The step marked failed above is one rt needs.", "  next: rt home init"].join("\n");
+    expect(failureDetail(stderr)).toBe("rt could not refresh one of its own pieces");
+  });
+
+  test("a refusal reads without its plain tag", () => {
+    const stderr = ["[refused] Your home folder is set up, apart from your skills link", "  why: /x/skills.jsonc is a real file, and rt will not overwrite it."].join("\n");
+    expect(failureDetail(stderr)).toBe("Your home folder is set up, apart from your skills link");
   });
 });
 
@@ -66,5 +92,32 @@ describe("homeInitRemedy: missing executable", () => {
 
   test("a genuine auth failure still gets the auth remedy", () => {
     expect(homeInitRemedy('fatal: could not read Username for \'https://github.com\'')).toContain("gh auth login");
+  });
+});
+
+describe("homeInitDoneDetail", () => {
+  test("the done detail is home init's ending line without its tag", () => {
+    expect(homeInitDoneDetail("[ok] Clone your home repo  https://forge.example.test/sample/home.git\n[ok] This Mac is set up  /fake-home/.mattstack\n")).toBe(
+      "This Mac is set up  /fake-home/.mattstack",
+    );
+  });
+});
+
+describe("homeInitRemedy: the clone step", () => {
+  test("a bare permission denial under the clone title is auth-shaped, and the same denial under another step is not", () => {
+    const auth = homeInitRemedy("fatal: Authentication failed for 'https://forge.example.test/sample/home.git/'");
+    expect(homeInitRemedy([INIT_STEP_FAILED.cloneUserRepo, "what it said:", "  remote: Permission denied"].join("\n"))).toBe(auth);
+    expect(homeInitRemedy([INIT_STEP_FAILED.initUserRepo, "what it said:", "  fatal: cannot mkdir user: Permission denied"].join("\n"))).not.toBe(auth);
+  });
+
+  test("a tagged clone title after an unrelated line is still the clone step", () => {
+    const auth = homeInitRemedy("fatal: Authentication failed for 'https://forge.example.test/sample/home.git/'");
+    const stderr = [
+      "[warn] rt could not read one of your settings",
+      `[failed] ${INIT_STEP_FAILED.cloneUserRepo}`,
+      "what it said:",
+      "  remote: Permission denied",
+    ].join("\n");
+    expect(homeInitRemedy(stderr)).toBe(auth);
   });
 });

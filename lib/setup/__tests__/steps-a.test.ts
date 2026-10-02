@@ -27,6 +27,7 @@ import { stageSecret, stagingDir } from "../staging.ts";
 import { readStagedRepoRoot, stageRepoRoot } from "../repo-root.ts";
 import { fakeProbes } from "./fakes.ts";
 
+import { INIT_STEP_FAILED } from "../../home/init-exec.ts";
 import { homeInitStep, homeRestoreStep } from "../steps/home.ts";
 import { outcomeFromJoin, outcomeFromJoinError, teamCreateStep, teamJoinStep } from "../steps/team.ts";
 import { JoinPeeringStoreError, type JoinResult } from "../../team/join.ts";
@@ -192,18 +193,18 @@ describe("home.init", () => {
     expect(p.calls.exec).toEqual([]);
   });
 
-  test("missing clone -> runs `rt home init`; success reports the last stdout line", async () => {
+  test("missing clone -> runs `rt home init`; the done detail is home init's ending line without its tag", async () => {
     const p = fakeProbes({
       home: "/fake-home",
       runRt: async (args) => {
         expect(args).toEqual(["home", "init"]);
-        return ok("rt home init: step one\nrt home init: /fake-home/.mattstack is provisioned.");
+        return ok("[ok] Clone your home repo  https://forge.example.test/sample/home.git\n[ok] This Mac is set up  /fake-home/.mattstack");
       },
     });
     const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamAbsent()) });
 
     const outcome = await homeInitStep.run(ctx);
-    expect(outcome).toEqual({ state: "done", detail: "rt home init: /fake-home/.mattstack is provisioned." });
+    expect(outcome).toEqual({ state: "done", detail: "This Mac is set up  /fake-home/.mattstack" });
   });
 
   test("`rt home init` failure -> failed, remedy points at gh auth login", async () => {
@@ -220,7 +221,7 @@ describe("home.init", () => {
   test("a local-only `git init` failure contacts no host — `gh auth login` is reserved for auth-shaped stderr", async () => {
     const p = fakeProbes({
       home: "/fake-home",
-      runRt: async () => ({ code: 1, stdout: "", stderr: 'rt home init: failed at step "commitInitialUserRepo":\nfatal: empty ident name not allowed' }),
+      runRt: async () => ({ code: 1, stdout: "", stderr: `${INIT_STEP_FAILED.commitInitialUserRepo}\nwhat it said:\n  fatal: empty ident name not allowed` }),
     });
     const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamAbsent()) });
 
@@ -231,7 +232,7 @@ describe("home.init", () => {
   test("a LOCAL permission failure is not an auth failure — `gh auth login` fixes nothing about a directory rt cannot write", async () => {
     const p = fakeProbes({
       home: "/fake-home",
-      runRt: async () => ({ code: 1, stdout: "", stderr: 'rt home init: failed at step "initUserRepo":\nfatal: cannot mkdir user: Permission denied' }),
+      runRt: async () => ({ code: 1, stdout: "", stderr: `${INIT_STEP_FAILED.initUserRepo}\nwhat it said:\n  fatal: cannot mkdir user: Permission denied` }),
     });
     const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamAbsent()) });
 
@@ -253,12 +254,13 @@ describe("home.init", () => {
   test("a bare permission denial from the clone step IS auth-shaped — only that step ever contacts a host", async () => {
     const p = fakeProbes({
       home: "/fake-home",
-      runRt: async () => ({ code: 1, stdout: "", stderr: 'rt home init: failed at step "cloneUserRepo":\nremote: Permission denied' }),
+      runRt: async () => ({ code: 1, stdout: "", stderr: `${INIT_STEP_FAILED.cloneUserRepo}\nwhat it said:\n  remote: Permission denied` }),
     });
     const { ctx } = makeCtx(p, { secrets: fakeSecrets(fakeAgeKeySeamAbsent()) });
 
     const outcome = await homeInitStep.run(ctx);
     expect(outcome).toMatchObject({ state: "failed", remedy: "Run gh auth login, then Retry" });
+    expect(outcome).toMatchObject({ detail: `${INIT_STEP_FAILED.cloneUserRepo}: remote: Permission denied` });
   });
 
   test("idempotent re-run: a repo already cloned by a prior partial run reports done again without re-running init", async () => {
