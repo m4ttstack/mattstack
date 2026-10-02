@@ -338,7 +338,10 @@ refusal, and the caller draws it with `drawFailure`, so `sync` and
 `git rebase` show one block for one cause on stderr, and `sync all` writes
 each branch's ending to stderr under its heading, with one blank row between
 branches. Their progress lines go to stdout through `out.print` and stop
-under `quiet`.
+under `quiet`, all but one: the fetch step `rebaseOnto` and `resetToOrigin`
+run without `skipFetch` still draws under `quiet` (on stderr under a payload
+verb, so `rt git rebase --json` shows it). `syncBranch` fetches once itself,
+gated, and passes `skipFetch`, so a quiet sync prints no progress at all.
 
 `rt sync --json` and `rt git rebase --json` call `out.payloadOnStdout()`
 first, so stdout is the conflict bundle or the stack refusal and nothing
