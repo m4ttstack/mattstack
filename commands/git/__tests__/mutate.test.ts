@@ -135,7 +135,7 @@ test("a tag pushed to a --remote URL with a token never prints the token, and --
   git(repo, "config", `url.${bare}.insteadOf`, url);
   git(repo, "tag", "v0.0.2-sample");
   await inDir(repo, () => tagPushCommand(["v0.0.2-sample", "--remote", url]));
-  expect(io.stdout()).toContain("Pushed tag v0.0.2-sample");
+  expect(io.stdout()).toBe("[ok] Pushed tag v0.0.2-sample  to https://example.test/x.git\n");
   expect(io.stdout() + io.stderr()).not.toContain(secret);
   io.clear();
   await inDir(repo, () => tagPushCommand(["v0.0.2-sample", "--remote", url, "--json"]));

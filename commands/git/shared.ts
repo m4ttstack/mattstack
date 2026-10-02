@@ -2,7 +2,7 @@ import { flagValue } from "../../lib/cli-args.ts";
 import * as out from "../../lib/ui/out.ts";
 import type { Block } from "../../lib/ui/protocol.ts";
 import { usageFailure } from "../../lib/ui/usage.ts";
-import { withoutUrls } from "../../lib/team/redact.ts";
+import { hasUrlCredentials } from "../../lib/team/redact.ts";
 
 /**
  * The one exit for a git verb that cannot go on. Under --json the envelope
@@ -85,8 +85,10 @@ export function errText(err: unknown): string {
 }
 
 const SCHEME_USERINFO_RE = /^([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/i;
+const TOKEN_SHAPE_RE = /\b(?:ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|glpat-|xox[abpsr]-|sk-ant-)[A-Za-z0-9_-]+/;
 
-/** The only way a remote name or URL reaches the screen: userinfo of any scheme and token shapes are dropped. The argv given to git stays the real value. */
+/** The only way a remote name or URL reaches the screen. A clean remote prints as given so a printed command stays runnable; credential userinfo is dropped, and a token shape that survives anywhere turns the whole value into `REMOTE`. The argv given to git stays the real value. */
 export function printable(remote: string): string {
-  return withoutUrls(remote).replace(SCHEME_USERINFO_RE, "$1");
+  const shown = hasUrlCredentials(remote) ? remote.replace(SCHEME_USERINFO_RE, "$1") : remote;
+  return TOKEN_SHAPE_RE.test(shown) ? "REMOTE" : shown;
 }
