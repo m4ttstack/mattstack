@@ -128,22 +128,27 @@ export function useRowParts(
 }
 
 /** The Value tab: a composite's editor, or the full description and the
-    same control the header shows (the only control inside the modal). */
+    same control the header shows (the only control inside the modal). A
+    host that already shows the description passes `describe={false}`. */
 export function ValueContent({
   def,
   parts,
+  describe = true,
 }: {
   def: SettingDefWire;
   parts: RowParts;
+  describe?: boolean;
 }) {
   const { text } = useSchemeColors();
   if (parts.body) return <>{parts.body}</>;
   return (
     <Stack gap={10} px={8}>
       {parts.toolbar}
-      <Text fz={12} c={text.muted}>
-        {def.description}
-      </Text>
+      {describe && (
+        <Text fz={12} c={text.muted}>
+          {def.description}
+        </Text>
+      )}
       <Group gap={8} wrap="nowrap">
         {parts.control}
       </Group>

@@ -174,6 +174,17 @@ describe('ExplainModal', () => {
     ).toBeInTheDocument();
   });
 
+  it('the Value tab leaves the description to the header', async () => {
+    explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
+    renderModal(store());
+
+    await userEvent.click(await screen.findByRole('radio', { name: 'Value' }));
+    expect(
+      await screen.findByRole('textbox', { name: KEY })
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(DEF.description)).toHaveLength(1);
+  });
+
   it('shows a refused write from the Value tab', async () => {
     explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
     const s = store({ set: vi.fn(async () => 'store is read-only') });

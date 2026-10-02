@@ -104,7 +104,7 @@ function Detail({
       onTab={setTab}
       value={
         <Stack gap={10}>
-          <ValueContent def={def} parts={parts} />
+          <ValueContent def={def} parts={parts} describe={false} />
           <WriteState row={row} />
         </Stack>
       }

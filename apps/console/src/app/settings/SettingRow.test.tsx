@@ -276,6 +276,23 @@ describe('SettingRow disclosure', () => {
     ).toHaveFocus();
   });
 
+  it('a scalar row’s Value tab shows the full description', async () => {
+    renderWithProviders(
+      <SettingRow
+        def={scalar()}
+        store={store()}
+        subhead={null}
+        query=""
+        defaultOpen={{ tab: 'value', fix: null }}
+      />
+    );
+    expect(
+      await screen.findByText(
+        'What it does. A second sentence nobody needs here.'
+      )
+    ).toBeInTheDocument();
+  });
+
   it('a refused write keeps the row open and shows the refusal', async () => {
     const s = { ...store(), set: vi.fn(async () => 'store is read-only') };
     renderWithProviders(
