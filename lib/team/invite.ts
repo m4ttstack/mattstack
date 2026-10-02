@@ -104,7 +104,7 @@ export interface MintInviteOpts {
   slug: string;
   handle: string;
   now: Date;
-  /** Refuse, before anything is minted, an invite this Mac tried and failed to give a board token. */
+  /** Refuse, before anything is minted, an invite that will carry no board token, including on a Mac with no admin token. */
   requirePeering?: boolean;
 }
 
@@ -254,6 +254,11 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
     adminToken = await seams.readLocalSecret("switchboardAdminToken");
   } catch (err) {
     embedFailure = err instanceof Error ? err.message : String(err);
+  }
+  if (!adminToken && !embedFailure && opts.requirePeering) {
+    throw new UserActionableError("peering-not-embedded", "rt did not make the invite, because it could not connect their board", {}, {
+      why: "This Mac holds no switchboard admin token, so it cannot register their board.",
+    });
   }
   if (adminToken) {
     try {

@@ -480,12 +480,19 @@ describe("mintInvite", () => {
       expect(writeCalls).toEqual([]);
     });
 
-    test("requirePeering is satisfied by a Mac with no admin token", async () => {
-      const { seams } = baseSeams();
+    test("requirePeering refuses a Mac with no admin token before anything reaches the relay or the roster", async () => {
+      const { seams, writeCalls } = baseSeams();
+      const relay = fakeRelayClient();
+      const p = probesWithRemote(REMOTE);
 
-      const result = await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW, requirePeering: true }, seams);
+      const caught = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW, requirePeering: true }, seams).catch((err: unknown) => err);
 
-      expect(result.peering).toBe("none");
+      expect(caught).toBeInstanceOf(UserActionableError);
+      expect((caught as UserActionableError).code).toBe("peering-not-embedded");
+      expect((caught as UserActionableError).why).toContain("switchboard admin token");
+      expect(relay.createCalls).toEqual([]);
+      expect(writeCalls).toEqual([]);
+      expect(p.calls.fetch).toEqual([]);
     });
   });
 
