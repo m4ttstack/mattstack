@@ -336,7 +336,9 @@ protection blocks direct pushes must let its admins and owners through.
 
 - `rt team create` makes the new layout: the org folder, the creator as org
   admin, and a first team folder with the creator as its owner, named by
-  `--team <name>` (default: the org slug). It also writes the creator's
+  `--first-team <name>` (default: the org slug, or `team-<slug>` when the
+  slug does not start with a letter). It is not `--team`, which names the
+  clone on every org-level verb. It also writes the creator's
   roster entry with that team (today create adds the creator to no roster,
   which would leave them on no team), and records `forgeUsername`.
 - `rt team add <team> --owner <username>` (admin): creates the team folder,
@@ -358,7 +360,8 @@ protection blocks direct pushes must let its admins and owners through.
   enabled (a team pack otherwise stays team-authored: installed, never
   auto-enabled), and the previous team's pack is disabled, not removed. The
   daemon and the CLI read settings on every call and need nothing.
-- `rt team status --json` gains `role`, `activeTeam` and `teams`. Existing
+- `rt team status --json` gains `role`, `activeTeam`, `teams` (the member's
+  own) and `orgTeams` (every team folder, for the Invite picker). Existing
   fields keep their shape.
 - The one-org-per-Mac rule stays: `assertOnlyTeam` (`lib/team/one-team.ts`)
   and the `team.one-per-machine` row keep refusing a second clone.
@@ -474,8 +477,8 @@ member-joined alert and the menu bar need no change. Settings › Team does,
 since it was written for one team per repo (`Sources/Settings/TeamPane.swift`,
 `Sources-core/Settings/TeamSettingsModel.swift`):
 
-- It decodes the new `team status --json` fields `role`, `activeTeam` and
-  `teams` as optionals, so an older rt keeps working with a newer app and the
+- It decodes the new `team status --json` fields `role`, `activeTeam`,
+  `teams` and `orgTeams` as optionals, so an older rt keeps working with a newer app and the
   reverse.
 - The Team section shows the org name and a "Your team" row. When the roster
   lists the member on more than one team, that row is a picker that runs
