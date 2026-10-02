@@ -7,7 +7,6 @@ import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as cliLogger from "../../lib/cli-logger.ts";
 import { closeStateDb } from "../../lib/state/index.ts";
-import { teamSettingsPath } from "../../lib/rt-paths.ts";
 import { runInterception } from "../../lib/endpoint/run.ts";
 import {
   installBlocks,
@@ -20,6 +19,7 @@ import {
   statusBlocks,
   uninstallBlocks,
 } from "../intercept.ts";
+import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 
 const origHome = process.env.HOME;
 let home: string;
@@ -206,7 +206,7 @@ describe("rt intercept, read by a person", () => {
 
   describe("the trace test matches what the shim's core actually says", () => {
     function writeRepoRoles(identity: string, roles: unknown): void {
-      const path = teamSettingsPath("acme");
+      const path = sharedStorePath("acme");
       mkdirSync(join(path, ".."), { recursive: true });
       writeFileSync(path, JSON.stringify({ repos: { [identity]: { "rt.roles": roles } } }));
     }

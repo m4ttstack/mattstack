@@ -12,11 +12,12 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { machineSettingsPath, teamLocalPath, teamSettingsPath, teamsDir, userSettingsPath } from "../paths.ts";
+import { machineSettingsPath, teamLocalPath, teamsDir, userSettingsPath } from "../paths.ts";
 import { setSetting, setSettingsNoticeSink, unsetSetting, type SettingsNotice } from "../write.ts";
 import * as isolation from "../../test-isolation.ts";
 import { withSchema } from "./with-schema.ts";
 import { suspendRepoOnly } from "./without-repo-only.ts";
+import { sharedStorePath } from "../../../test/org-fixture.ts";
 
 const IDENTITY = "gitlab.com/acme/acme-dev";
 const TEAM = "acme";
@@ -52,7 +53,7 @@ describe("settings/write", () => {
   }
 
   function seedTeam(name: string): void {
-    write(teamSettingsPath(name), `// ${name} team store\n{}\n`);
+    write(sharedStorePath(name), `// ${name} team store\n{}\n`);
   }
 
   function readUser(): string {
@@ -64,7 +65,7 @@ describe("settings/write", () => {
   }
 
   function readTeam(name: string): string {
-    return readFileSync(teamSettingsPath(name), "utf8");
+    return readFileSync(sharedStorePath(name), "utf8");
   }
 
   // ─── creating an absent store file ─────────────────────────────────────────
@@ -234,7 +235,7 @@ describe("settings/write", () => {
         /team/i,
       );
       // and it must not have silently created one
-      expect(() => readFileSync(teamSettingsPath(TEAM), "utf8")).toThrow();
+      expect(() => readFileSync(sharedStorePath(TEAM), "utf8")).toThrow();
     });
 
     test("refuses a team write with an explicit opts.team whose store is missing", () => {
@@ -537,7 +538,7 @@ describe("settings/write: joined-team guard", () => {
   // machine-local record (a seed of the record alone would refuse with
   // "team store does not exist" before the guard is ever reached).
   function seedTeamStore(team: string): void {
-    const path = teamSettingsPath(team);
+    const path = sharedStorePath(team);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, `// ${team} team store\n{}\n`);
   }
@@ -692,7 +693,7 @@ describe("settings/unset", () => {
 
   test("ambiguous team selection still refuses", () => {
     for (const t of [TEAM, OTHER_TEAM]) {
-      const p = teamSettingsPath(t);
+      const p = sharedStorePath(t);
       mkdirSync(dirname(p), { recursive: true });
       writeFileSync(p, `{}\n`);
     }
@@ -741,7 +742,7 @@ describe("settings/write: test-run guard", () => {
   });
 
   test("refuses a team write and leaves the team store untouched", () => {
-    const store = teamSettingsPath(TEAM);
+    const store = sharedStorePath(TEAM);
     mkdirSync(dirname(store), { recursive: true });
     writeFileSync(store, "// acme team store\n{}\n");
     actAsAccountHome(home);

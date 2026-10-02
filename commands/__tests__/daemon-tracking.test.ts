@@ -24,12 +24,13 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse as parseJsonc } from "jsonc-parser";
-import { machineSettingsPath, teamSettingsPath } from "../../lib/rt-paths.ts";
+import { machineSettingsPath } from "../../lib/rt-paths.ts";
 import { getSetting } from "../../lib/settings/resolve.ts";
 import { serializeIdentity } from "../../lib/settings/identity.ts";
 import { deleteKvValue, getKvValue, setKvValue } from "../../lib/state/index.ts";
 import { DAEMON_SOCK_PATH } from "../../lib/daemon-config.ts";
 import { manageTracking, trackListBlocks } from "../daemon.ts";
+import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 
 const REPO_NAME = "rt-rider-cli-wiring-repo";
 const TEAM_NAME = "rt-rider-cli-wiring-team";
@@ -81,7 +82,7 @@ describe("manageTracking off-branch (CLI wiring)", () => {
     ui.__test__.setHuman(() => false);
 
     priorRepoIndexEntry = getKvValue<string | null>(REPO_INDEX_NS, SERIALIZED, null);
-    priorTeamStore = readOrNull(teamSettingsPath(TEAM_NAME));
+    priorTeamStore = readOrNull(sharedStorePath(TEAM_NAME));
     priorMachineStore = readOrNull(machineSettingsPath());
 
     // A real git repo with a fake-but-normalizable remote — identity derives
@@ -97,7 +98,7 @@ describe("manageTracking off-branch (CLI wiring)", () => {
     // Team intent still declares this repo — mattstack.tracking's VALUE has
     // its own "repos" field (identity → intent); it is not the store file's
     // top-level repo-section sharding (that's for repo-scoped setting keys).
-    const teamStore = teamSettingsPath(TEAM_NAME);
+    const teamStore = sharedStorePath(TEAM_NAME);
     mkdirSync(dirname(teamStore), { recursive: true });
     writeFileSync(teamStore, JSON.stringify({
       "mattstack.tracking": { repos: { [IDENTITY]: { caches: ["branches"] } } },
@@ -119,7 +120,7 @@ describe("manageTracking off-branch (CLI wiring)", () => {
     rmSync(repoPath, { recursive: true, force: true });
     if (priorRepoIndexEntry === null) deleteKvValue(REPO_INDEX_NS, SERIALIZED);
     else setKvValue(REPO_INDEX_NS, SERIALIZED, priorRepoIndexEntry);
-    restore(teamSettingsPath(TEAM_NAME), priorTeamStore);
+    restore(sharedStorePath(TEAM_NAME), priorTeamStore);
     restore(machineSettingsPath(), priorMachineStore);
   });
 
@@ -184,7 +185,7 @@ describe("manageTracking off-branch (CLI wiring)", () => {
   });
 
   test("off on a repo the team no longer names deletes outright", async () => {
-    writeFileSync(teamSettingsPath(TEAM_NAME), JSON.stringify({ "mattstack.tracking": { repos: {} } }));
+    writeFileSync(sharedStorePath(TEAM_NAME), JSON.stringify({ "mattstack.tracking": { repos: {} } }));
 
     await manageTracking([REPO_NAME, "off"]);
 

@@ -9,12 +9,13 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { teamSettingsPath, userSettingsPath } from "../paths.ts";
+import { userSettingsPath } from "../paths.ts";
 import { getDef, type MigrationStep, type SettingDef } from "../registry-machinery.ts";
 import { valueHash } from "../migrate.ts";
 import { renameProperty } from "../migrations/helpers.ts";
 import { explainSetting, getSetting, listSettings, listUnregisteredSettings, mergedValueWith, repoSectionsFor } from "../resolve.ts";
 import { withMigration } from "./with-migration.ts";
+import { sharedStorePath } from "../../../test/org-fixture.ts";
 
 const IDENTITY = "gitlab.example.com/acme/app";
 const TEAM = "acme";
@@ -59,7 +60,7 @@ describe("settings/resolve over versioned store names", () => {
     writeFileSync(file, JSON.stringify(obj, null, 2));
   }
   const writeUser = (obj: unknown) => write(userSettingsPath(), obj);
-  const writeTeam = (name: string, obj: unknown) => write(teamSettingsPath(name), obj);
+  const writeTeam = (name: string, obj: unknown) => write(sharedStorePath(name), obj);
   const userRow = (key: string) => explainSetting(key).find((r) => r.scope === "user")!;
 
   test("a store holding only the old name reads in the new shape, and explain shows both", () => {

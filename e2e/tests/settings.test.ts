@@ -31,7 +31,8 @@ import { execFileSync } from "child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "fs";
 import { join } from "path";
 import { createTestHome, RT_BINARY } from "../harness.ts";
-import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "../../lib/rt-paths.ts";
+import { machineSettingsPath, userSettingsPath } from "../../lib/rt-paths.ts";
+import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 
 // ─── Shared helpers (mirroring e2e/tests/endpoint.test.ts) ───────────────────
 
@@ -341,7 +342,7 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
 
     withHome(home, () => {
       userStore = userSettingsPath();
-      teamStore = teamSettingsPath(TEAM);
+      teamStore = sharedStorePath(TEAM);
       machineStore = machineSettingsPath();
     });
 
