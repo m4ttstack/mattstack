@@ -300,6 +300,7 @@ export function RebindPanel({
           size="xs"
           radius={6}
           classNames={BUTTON}
+          disabled={bind.isPending}
           onClick={onDone}
           data-parity="button · Cancel"
         >
