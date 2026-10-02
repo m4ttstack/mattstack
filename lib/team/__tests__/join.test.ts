@@ -209,7 +209,7 @@ describe("joinDryRun", () => {
 
     expect(result.access).toBe("deferred");
     expect(result.intent).toBe("written");
-    expect(result.message).toContain("next screen");
+    expect(result.message).toContain("once Apple's Command Line Tools are installed");
     expect(readIntent(p)?.mode).toBe("join");
     expect(seen.some((argv) => argv[0] === "git")).toBe(false);
   });
@@ -224,7 +224,7 @@ describe("joinDryRun", () => {
       team: { slug: "acme", name: "Acme", owner: "matt" },
       access: "ok",
       peering: "idle",
-      message: "Joining Acme (owner matt)",
+      message: "Joining Acme, owned by matt.",
       intent: "written",
     });
 
@@ -257,7 +257,8 @@ describe("joinDryRun", () => {
     }
     expect(caught).toBeInstanceOf(UserActionableError);
     expect((caught as UserActionableError).code).toBe("invite-unknown");
-    expect((caught as UserActionableError).message).toBe("invite not recognized or expired: ask the team owner for a new one");
+    expect((caught as UserActionableError).message).toBe("That invite has expired or is not one rt knows");
+    expect((caught as UserActionableError).why).toBe("Ask the team's owner for a new one.");
   });
 
   test("an undecodable blob (wrong key/id) also maps to invite-unknown", async () => {
@@ -304,7 +305,7 @@ describe("joinDryRun", () => {
     const result = await joinDryRun(p, relay.client, CODE);
 
     expect(result.access).toBe("denied");
-    expect(result.message).toContain("ask matt or your org admin");
+    expect(result.message).toContain("Ask matt or your org admin for read access.");
     expect(result.message).not.toContain("widgets.git/'");
     expect(result.message).not.toContain("fatal:");
   });
@@ -325,7 +326,7 @@ describe("joinDryRun", () => {
     const result = await joinDryRun(p, relay.client, CODE);
     expect(result.access).toBe("no-account");
     expect(result.intent).toBe("written");
-    expect(result.message).toContain("next screen");
+    expect(result.message).toContain("account so rt can reach the team repo.");
     expect(readIntent(p)?.mode).toBe("join");
   });
 
@@ -335,7 +336,7 @@ describe("joinDryRun", () => {
 
     const result = await joinDryRun(p, relay.client, CODE);
     expect(result.access).toBe("unreachable");
-    expect(result.message).toContain("re-checks it");
+    expect(result.message).toContain("It checks again when you join.");
   });
 
   test("uses GIT_TERMINAL_PROMPT=0, --exit-code against the pointer's remote, and offers the forge token", async () => {
@@ -456,7 +457,7 @@ describe("joinDryRun", () => {
     const r = await joinDryRun(p, relayWith(POINTER), CODE);
     expect(r.access).toBe("denied");
     expect(r.intent).toBe("written");
-    expect(r.message).toContain("ask matt");
+    expect(r.message).toContain("Ask matt or your org admin for read access.");
     expect(readIntent(p)?.mode).toBe("join");
   });
 
@@ -882,7 +883,7 @@ describe("joinRedeem", () => {
     expect(calls.userSettingWrites).toEqual([]);
     expect(warnings.some((w) => w.includes("http://switchboard.lan:8787") && w.includes("https"))).toBe(true);
     expect(result.message).toContain("must be https");
-    expect(result.message).not.toContain("re-invite");
+    expect(result.message).not.toContain("invite your board again");
   });
 
   test("a failing board.switchboardUrl write -> peering:unavailable, join still ok: a token the board cannot find a URL for peers nothing", async () => {
@@ -904,7 +905,7 @@ describe("joinRedeem", () => {
     expect(result.peering).toBe("unavailable");
     expect(warnings.some((w) => w.includes("board.switchboardUrl") && w.includes("store is malformed"))).toBe(true);
     expect(result.message).toContain(`rt settings set board.switchboardUrl '"https://sb.test"' --scope machine`);
-    expect(result.message).not.toContain("re-invite");
+    expect(result.message).not.toContain("invite your board again");
   });
 
   test("an embedded token with no team-declared switchboard url is refused: nothing to aim it at, nothing stored", async () => {
@@ -992,7 +993,7 @@ describe("joinRedeem", () => {
     expect(result.peering).toBe("unavailable");
     expect(result.access).toBe("ok");
     expect(calls.secretWrites).toEqual([]);
-    expect(result.message).toContain("re-invite");
+    expect(result.message).toContain("invite your board again");
   });
 
   test("a minted board token that cannot be stored stops the join before the reply, keeping the intent so a plain rerun finishes it", async () => {
@@ -1011,8 +1012,8 @@ describe("joinRedeem", () => {
     const caught = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams).catch((err: unknown) => err);
 
     expect(caught).toBeInstanceOf(JoinPeeringStoreError);
-    expect((caught as Error).message).toContain("keychain locked");
-    expect((caught as Error).message).toContain("run `rt team join` again");
+    expect((caught as JoinPeeringStoreError).detail).toBe("keychain locked");
+    expect((caught as Error).message).toContain("Join again to finish; you do not need a new code.");
     expect(relay.callOrder).toEqual(["fetch", "redeem"]);
     expect(p.calls.removed).not.toContain(intentPath(HOME));
   });
@@ -1030,8 +1031,8 @@ describe("joinRedeem", () => {
 
       expect(caught).toBeInstanceOf(UserActionableError);
       expect((caught as UserActionableError).code).toBe("secrets-store-not-ready");
-      expect((caught as Error).message).toContain("rt home init");
-      expect((caught as Error).message).toContain("no new code needed");
+      expect((caught as UserActionableError).next).toBe("rt home init");
+      expect((caught as Error).message).toContain("you do not need a new code");
       expect((caught as Error).message).not.toContain("has not been used");
       expect(relay.redeemCalls).toEqual([]);
       expect(calls.secretWrites).toEqual([]);
@@ -1106,11 +1107,31 @@ describe("joinRedeem", () => {
       const caught = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams).catch((err: unknown) => err);
 
       expect(caught).toBeInstanceOf(JoinPeeringStoreError);
-      expect((caught as Error).message).toContain("sops: no matching creation rules");
-      expect((caught as Error).message).toContain("no new code needed");
+      expect((caught as JoinPeeringStoreError).detail).toBe("sops: no matching creation rules");
+      expect((caught as Error).message).toContain("you do not need a new code");
       expect(relay.replyCalls).toEqual([]);
       expect(p.calls.removed).not.toContain(intentPath(HOME));
       expect(readIntent(p)?.join?.pointer.switchboard?.token).toBe("tok-emb");
+    });
+
+    test("a store failure that quotes the board token never carries it into the log detail", async () => {
+      const p = redeemProbes();
+      const relay = fakeRelay({ fetch: relayServing(EMBEDDED) });
+      const secretKey = `AGE-SECRET-KEY-1${"Q".repeat(58)}`;
+      const { seams } = baseJoinRedeemSeams({
+        read: fakeRead(DECLARED),
+        writeLocalSecret: async () => {
+          throw new Error(`sops: rejected tok-emb and ${secretKey}`);
+        },
+      });
+
+      const caught = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams).catch((err: unknown) => err);
+
+      expect(caught).toBeInstanceOf(JoinPeeringStoreError);
+      const detail = (caught as JoinPeeringStoreError).detail ?? "";
+      expect(detail).not.toContain("tok-emb");
+      expect(detail).not.toContain(secretKey);
+      expect(detail).toBe("sops: rejected <token> and AGE-SECRET-KEY-1<redacted>");
     });
 
     test("rerunning after the store is fixed resumes from the intent: stores the sealed token, posts the reply, clears the intent", async () => {
@@ -1149,8 +1170,8 @@ describe("joinRedeem", () => {
 
       expect(result.access).toBe("ok");
       expect(result.peering).toBe("unavailable");
-      expect(result.peeringFix).toContain("rt team invite --handle zaphod");
-      expect(result.peeringFix).toContain("or ask them to re-invite your board from the board's members panel");
+      expect(result.peeringFix).toContain("Ask matt to invite zaphod again");
+      expect(result.peeringFix).toContain("or ask them to invite your board again from the board's members panel");
       expect(result.message).toContain(result.peeringFix!);
     });
 
@@ -1240,8 +1261,22 @@ describe("joinRedeem", () => {
     const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
 
     expect(result.access).toBe("denied");
-    expect(result.message).toBe("you don't have access yet: ask matt to grant you access to Acme");
+    expect(result.message).toBe("Ask matt to let you into Acme, since you don't have access yet.");
     expect(relay.redeemCalls).toHaveLength(0);
+  });
+
+  test("the join messages keep the two phrases phase 3 reads", async () => {
+    const denied = await joinRedeem(
+      redeemProbes({ exec: () => ({ code: 128, stdout: "", stderr: "fatal: Authentication failed" }) }),
+      fakeRelay().client,
+      () => NO_SECRETS,
+      { code: CODE },
+      baseJoinRedeemSeams().seams,
+    );
+    expect(denied.message).toContain("you don't have access yet");
+
+    const joined = await joinRedeem(redeemProbes(), fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+    expect(joined.message).toStartWith("Joined Acme");
   });
 
   test("a failed clone attempt clears joinedByRt back to false, not asserting membership in a team never cloned", async () => {
@@ -1263,7 +1298,7 @@ describe("joinRedeem", () => {
       const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
       expect(result.access).toBe("unreachable");
       expect(result.message).not.toContain("network");
-      expect(result.message).toContain("already exists");
+      expect(result.message).toContain("already there and is not empty");
     });
 
     test("disk full reports a disk message, not a network one", async () => {
@@ -1282,7 +1317,7 @@ describe("joinRedeem", () => {
       const { seams } = baseJoinRedeemSeams();
 
       const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
-      expect(result.message).toContain("git is not installed");
+      expect(result.message).toContain("This Mac cannot run git");
       expect(result.message).not.toContain("check your network");
     });
 
@@ -1309,7 +1344,8 @@ describe("joinRedeem", () => {
     }
     expect(caught).toBeInstanceOf(UserActionableError);
     expect((caught as UserActionableError).code).toBe("invite-unknown");
-    expect((caught as UserActionableError).message).toBe("this invite was already used: ask matt for a new one");
+    expect((caught as UserActionableError).message).toBe("That invite was already used");
+    expect((caught as UserActionableError).why).toBe("Ask matt for a new one.");
   });
 
   test("resuming after a crash: the team is already cloned, redeem reports 'already' — that is NOT an error", async () => {
@@ -1552,8 +1588,9 @@ describe("joinRedeem", () => {
     expect(caught).toBeInstanceOf(JoinKeyExchangeError);
     expect(caught).not.toBeInstanceOf(UserActionableError);
     const message = (caught as Error).message;
-    expect(message).toContain("redeemed the invite");
-    expect(message).toContain("run `rt team join` again");
+    expect(message).toContain("You joined Acme");
+    expect(message).toContain("Join again to finish; you do not need a new code.");
+    expect((caught as JoinKeyExchangeError).detail).toBeDefined();
     // The clone and the redeem really did happen — this is a reportable half-state, not a rollback.
     expect(p.calls.exec).toContainEqual(["git", "clone", REMOTE, TEAM_DIR]);
     expect(relay.redeemCalls).toEqual([ID_HEX]);
@@ -1575,6 +1612,7 @@ describe("joinRedeem", () => {
     expect((caught as UserActionableError).code).toBe("forge-login-unknown");
     expect((caught as UserActionableError).message).not.toContain("localdev");
     expect((caught as UserActionableError).message).toContain("has not been used yet");
+    expect((caught as UserActionableError).next).toBe("gh auth login");
     // The team WAS cloned (identity resolution needs the just-cloned settings), but
     // relay.redeem must never have run — the invite is still valid for a retry.
     expect(p.calls.exec).toContainEqual(["git", "clone", REMOTE, TEAM_DIR]);
@@ -1670,7 +1708,7 @@ describe("joinRedeem's relay failure reports what it actually persisted", () => 
 
 describe("one team per machine", () => {
   const TEAMS_DIR = pathJoin(HOME, ".mattstack", "teams");
-  const REFUSAL = "this machine is set up for team globex; mattstack supports one team per machine today";
+  const REFUSAL = "This Mac is already set up for the globex team, and mattstack supports one team per machine today";
 
   function zone(slug: string): { dirs: Record<string, string[]>; files: Record<string, string> } {
     return {

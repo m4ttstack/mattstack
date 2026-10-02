@@ -109,7 +109,7 @@ describe("teamCreate", () => {
     expect(code).toBe(2);
     const body = JSON.parse(deps.lines[0]!);
     expect(body.error.code).toBe("team-already-set-up");
-    expect(body.error.message).toBe("this machine is set up for team globex; mattstack supports one team per machine today");
+    expect(body.error.message).toBe("This Mac is already set up for the globex team, and mattstack supports one team per machine today");
   });
 
   test("missing name, --json: exits 2 with the usage envelope, not a plain-text line", async () => {
@@ -291,7 +291,7 @@ describe("teamInvite", () => {
     expect(parsed.forgeAccess).toBe("skipped");
     // Not-created branch: the two forge web-UI steps, plus the admin sentence.
     expect(parsed.manualSteps).toHaveLength(3);
-    expect((parsed.manualSteps as string[]).at(-1)).toContain("Ask whoever administers");
+    expect((parsed.manualSteps as string[]).at(-1)).toContain("Ask whoever runs the team repo");
     expect(parsed.pasteBlock).toBe(pasteBlock(parsed.code, { link: parsed.link, teamName: "Acme Team" }));
   });
 
@@ -315,7 +315,7 @@ describe("teamInvite", () => {
 
       const parsed = JSON.parse(deps.lines[0]!);
       expect(parsed.peering).toBe("missing");
-      expect(parsed.peeringWarning).toContain("board peering was not embedded");
+      expect(parsed.peeringWarning).toContain("This invite will not connect their board");
       expect(typeof parsed.code).toBe("string");
     });
 
@@ -408,7 +408,7 @@ describe("teamInvite", () => {
     const rest = deps.lines.slice(1).join("\n");
     expect(rest).toContain("mattstack://join/");
     expect(rest).toContain("forge access is skipped");
-    expect(rest).toContain("Ask whoever administers");
+    expect(rest).toContain("Ask whoever runs the team repo");
     expect(rest).toContain("zaphod");
   });
 });

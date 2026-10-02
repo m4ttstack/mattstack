@@ -55,15 +55,15 @@ function reasonLeadStep(reason: FailureReason, handle: string, cli: "gh" | "glab
   const forgeName = cli === "gh" ? "GitHub" : "GitLab";
   switch (reason) {
     case "not-installed":
-      return `Install the ${forgeName} CLI (\`${cli}\`), then run \`${cli} auth login\``;
+      return `Install the ${forgeName} command line tool, then sign in: ${cli} auth login`;
     case "not-authenticated":
-      return `Run \`${cli} auth login\`, then retry \`rt team invite\``;
+      return `Sign in, then invite them again: ${cli} auth login`;
     case "org-policy":
-      return "Authorize the CLI's token for this organization's SAML/SSO enforcement, then retry";
+      return "Let the command line tool's token through your organization's single sign-on, then try again";
     case "unknown-handle":
-      return `Check that "${handle}" is a real ${forgeName} username — it was not found`;
+      return `Check that "${handle}" is a real ${forgeName} username: it was not found`;
     case "insufficient-permission":
-      return "The CLI's token lacks permission for this repo — check its scopes with an admin";
+      return "The command line tool's token cannot change who can see this repo. Ask an admin to check its scopes.";
     case "other":
       return null;
   }
@@ -135,7 +135,7 @@ export async function grantRead(p: Probes, remote: string, handle: string, token
       if (result.stdout.trim().length > 0) {
         return {
           access: "manual",
-          manualSteps: [`${handle} must accept the pending GitHub collaboration invite (see github.com/${owner}/${repo}/invitations, or their email)`],
+          manualSteps: [`${handle} has to accept GitHub's invite to the repo, on github.com/${owner}/${repo}/invitations or by email`],
         };
       }
       return { access: "granted", manualSteps: [] };

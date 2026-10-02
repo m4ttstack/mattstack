@@ -24,6 +24,12 @@ export function withoutUrls(message: string): string {
   return message.replace(URL_RE, "<remote>").replace(SSH_REMOTE_RE, "<remote>").replace(CREDENTIAL_TOKEN_RE, "<redacted>");
 }
 
+/** A store or keychain error can quote what it was handed; neither a token nor an age secret key may reach the CLI log. */
+export function scrub(text: string, secret?: string): string {
+  const keyless = text.replace(/AGE-SECRET-KEY-1[0-9A-Z]+/g, "AGE-SECRET-KEY-1<redacted>");
+  return secret ? keyless.split(secret).join("<token>") : keyless;
+}
+
 /** `user:password@` on any scheme, or any userinfo at all on http(s): a bare token as the username (`https://ghp_x@github.com/...`) is how forges take a token. An ssh username (`ssh://git@host/...`) is not a secret. */
 const CREDENTIALED_URL_RE = /^(?:[a-z][a-z0-9+.-]*:\/\/[^\s/@]+:[^\s/@]+@|https?:\/\/[^\s/@]+@)/i;
 

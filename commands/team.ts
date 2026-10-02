@@ -35,7 +35,7 @@ import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
-import { membersRemove, membersSync, preferredRoster, teamRemote } from "../lib/team/members.ts";
+import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, preferredRoster, teamRemote } from "../lib/team/members.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient, inviteRelayUrl } from "../lib/team/relay-client.ts";
@@ -155,16 +155,16 @@ export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps
 }
 
 /** `--team` omitted falls back to the one locally-cloned team, mirroring `rt settings set --scope team`'s own resolution (packages/rt-client/src/settings/write.ts's `resolveStorePath`). */
-function resolveTeamSlug(args: string[]): string {
+function resolveTeamSlug(args: string[], verb: string): string {
   const explicit = flagValue(args, "--team");
   if (explicit) return explicit;
 
   const teams = listTeams();
   if (teams.length === 0) {
-    throw new UserActionableError("no-team", "no local team store found — run `rt team create` first, or pass --team");
+    throw new UserActionableError("no-team", "This Mac has no team yet", {}, { next: "rt team create" });
   }
   if (teams.length > 1) {
-    throw new UserActionableError("ambiguous-team", `multiple local team stores found (${teams.join(", ")}) — pass --team to choose one`);
+    throw new UserActionableError("ambiguous-team", `This Mac has more than one team: ${teams.join(", ")}`, {}, { next: `rt ${verb} --team <slug>` });
   }
   return teams[0]!;
 }
@@ -174,7 +174,7 @@ const PULL_TIMEOUT_MS = 180_000;
 export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
   try {
-    const slug = resolveTeamSlug(args);
+    const slug = resolveTeamSlug(args, "team pull");
     const call = deps.daemon ?? daemonQuery;
     // A pull is a network fetch plus a rebase; the client default (2s, sized
     // for status reads) aborts mid-pull and reports an unreachable daemon for
@@ -183,10 +183,10 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
       | { ok: boolean; data?: { outcome: string; detail: string | null }; error?: string; failure?: { code: string; message: string } }
       | null;
     if (!res) {
-      throw new UserActionableError(
-        "daemon-unreachable",
-        `rt daemon is not reachable... start it with \`rt daemon start\`, or pull by hand with git in ~/.mattstack/teams/${slug}`,
-      );
+      throw new UserActionableError("daemon-unreachable", "The rt daemon is not running", {}, {
+        why: "It pulls team changes for you. You can also pull with git in the team's folder.",
+        next: "rt daemon start",
+      });
     }
     if (!res.ok || !res.data) {
       throw new UserActionableError(res.failure?.code ?? "team-pull-failed", res.failure?.message ?? res.error ?? "team pull failed");
@@ -207,7 +207,7 @@ export async function teamPublish(args: string[], _ctx: CommandContext = {}, dep
   const remote = flagValue(args, "--remote") ?? null;
 
   try {
-    const slug = resolveTeamSlug(args);
+    const slug = resolveTeamSlug(args, "team publish");
     const target = remote ?? teamRemote(deps.probes, slug);
     const token = target ? await (deps.forgeToken ?? storedForgeToken)(deps.probes, target) : null;
     const result = await publishTeam(deps.probes, slug, remote, { token, tokenRemote: target });
@@ -231,14 +231,13 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
   }
 
   try {
-    const slug = resolveTeamSlug(args);
+    const slug = resolveTeamSlug(args, "team invite");
 
     const local = readTeamLocal(deps.probes, slug);
     if (local.joinedByRt) {
-      throw new UserActionableError(
-        "team-pull-only",
-        `this machine joined "${slug}" by invite, so its clone is pull-only and cannot add members or write team settings. Ask the team's owner to invite ${handle}. Member-proposed changes are tracked in MAT-415.`,
-      );
+      throw new UserActionableError("team-pull-only", `This Mac joined the ${slug} team by invite, so its copy is pull-only and cannot invite anyone.`, {}, {
+        why: `Ask the team's owner to invite ${handle}.`,
+      });
     }
 
     // Asked here, not inside mintInvite: the mint POSTs to the relay before it
@@ -287,13 +286,12 @@ export async function teamManageMembership(args: string[], _ctx: CommandContext 
   }
 
   try {
-    const slug = resolveTeamSlug(args);
+    const slug = resolveTeamSlug(args, "team manage-membership");
     const before = readTeamLocal(deps.probes, slug);
     if (state === "on" && !before.createdByRt) {
-      throw new UserActionableError(
-        "not-rt-created",
-        `mattstack did not create the repo behind "${slug}", so it will not administer membership there. Whoever administers that repo grants access.`,
-      );
+      throw new UserActionableError("not-rt-created", `mattstack did not create the ${slug} team's repo, so it will not manage who can see it`, {}, {
+        why: "Whoever runs that repo gives people access.",
+      });
     }
 
     const record = state === undefined ? before : updateTeamLocal(deps.probes, slug, { rtMayManageMembership: state === "on" });
@@ -320,7 +318,10 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
 
   try {
     if (extra.length > 0) {
-      throw new UserActionableError("code-on-argv", "pass the invite code on stdin, never as an argument");
+      throw new UserActionableError("code-on-argv", "rt never takes an invite code as an argument", {}, {
+        why: "It would land in your shell history. Run the join on its own and paste the code when it asks.",
+        next: "rt team join",
+      });
     }
 
     const code = await (deps.readCode ?? defaultReadCode)(json);
@@ -352,10 +353,20 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
     // still be 2, matching every other user-actionable failure, or the
     // app's envelope decoder (exit 2 only) never sees this message at all.
     if (err instanceof JoinKeyExchangeError) {
-      return exitUserError(new UserActionableError("age-key-unavailable", err.message), json, "team join", deps.print);
+      const failure = new UserActionableError("age-key-unavailable", err.message, {}, {
+        why: "Check that your keychain is unlocked.",
+        next: "rt team join",
+        ...(err.detail ? { log: err.detail } : {}),
+      });
+      return exitUserError(failure, json, "team join", deps.print);
     }
     if (err instanceof JoinPeeringStoreError) {
-      return exitUserError(new UserActionableError("peering-store-failed", err.message), json, "team join", deps.print);
+      const failure = new UserActionableError("peering-store-failed", err.message, {}, {
+        why: "Set up this Mac's secrets if they are not, then join again.",
+        next: "rt home init",
+        ...(err.detail ? { log: err.detail } : {}),
+      });
+      return exitUserError(failure, json, "team join", deps.print);
     }
     if (err instanceof UserActionableError) exitUserError(err, json, "team join", deps.print);
     throw err;
@@ -365,6 +376,13 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
 /** A non-UserActionableError from the members path (a rollback error from addTeamRecipient/removeTeamRecipient, a keychain failure) already carries a complete, human-readable explanation in its own message — the user can act on it (retry, unlock), so it gets its own code and the same exit-2 envelope every other actionable failure uses, rather than falling through to a raw stack trace or an envelope the app's decoder can't reach at exit 1. */
 function reportMembersError(err: unknown, deps: TeamDeps, json: boolean, verb: string): never {
   if (err instanceof UserActionableError) exitUserError(err, json, verb, deps.print);
+  if (err instanceof MembersSyncAbortedError) {
+    const failure = new UserActionableError("members-error", err.message, {}, { why: "The keys it already added stay. Run the sync again.", next: "rt team members sync", log: err.detail });
+    return exitUserError(failure, json, verb, deps.print);
+  }
+  if (err instanceof MembersKeyError) {
+    return exitUserError(new UserActionableError("members-error", err.message, {}, { why: "Check that your keychain is unlocked, then try again.", log: err.detail }), json, verb, deps.print);
+  }
   const message = err instanceof Error ? err.message : String(err);
   return exitUserError(new UserActionableError("members-error", message), json, verb, deps.print);
 }
@@ -373,7 +391,7 @@ export async function teamMembersSync(args: string[], _ctx: CommandContext = {},
   const json = args.includes("--json");
 
   try {
-    const slug = resolveTeamSlug(args);
+    const slug = resolveTeamSlug(args, "team members sync");
     const relay = createRelayClient(deps.probes.fetch, inviteRelayUrl(deps.probes.env));
     const secrets = createRealTeamSecretsSeams(slug);
     const result = await membersSync(deps.probes, relay, secrets, slug);
@@ -393,7 +411,7 @@ export async function teamMembersSync(args: string[], _ctx: CommandContext = {},
 /** Removable roster handles for the resolved team, from the same preferred-roster source `membersRemove` reads. Empty on an unresolved or ambiguous team or any read failure, so the picker falls through to the usage error an omitted handle always got. */
 function rosterHandles(args: string[]): string[] {
   try {
-    const members = preferredRoster(readStore(teamSettingsPath(resolveTeamSlug(args))).global);
+    const members = preferredRoster(readStore(teamSettingsPath(resolveTeamSlug(args, "team members remove"))).global);
     if (!Array.isArray(members)) return [];
     return members
       .filter((m): m is { username: string } => m !== null && typeof m === "object" && typeof (m as { username?: unknown }).username === "string")
@@ -425,7 +443,7 @@ export async function teamMembersRemove(args: string[], _ctx: CommandContext = {
   }
 
   try {
-    const slug = resolveTeamSlug(args);
+    const slug = resolveTeamSlug(args, `team members remove ${handle}`);
     const secrets = createRealTeamSecretsSeams(slug);
     const result = await membersRemove(deps.probes, secrets, slug, handle, key);
 
@@ -523,10 +541,10 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
       return;
     }
 
-    const slug = resolveTeamSlug(args);
+    const slug = resolveTeamSlug(args, "team status");
     const dir = join(deps.probes.home, ".mattstack", "teams", slug);
     if (!deps.probes.exists(dir)) {
-      throw new UserActionableError("no-team", `team "${slug}" is not cloned locally at ${dir} — run \`rt team join\` or \`rt team create\` first`);
+      throw new UserActionableError("no-team", `The ${slug} team is not on this Mac`, {}, { next: "rt team join" });
     }
 
     const read = deps.statusRead ?? defaultStatusRead();

@@ -521,7 +521,8 @@ describe("membersSync", () => {
     // Nothing landed before the failing add — the owner's own bootstrap add had no domain file to re-encrypt yet.
     expect(err.added).toEqual([]);
     expect(err.pending).toEqual([]);
-    expect(err.message).toContain("aborted after adding 0 key(s)");
+    expect(err.message).toBe("rt stopped syncing members partway, after adding 0 keys");
+    expect(err.detail).toStartWith("added none; pending none; ");
   });
 
   test("membersSync refuses on a joined clone", async () => {
@@ -563,8 +564,8 @@ describe("membersRemove", () => {
 
     expect(revokeCalls).toEqual([]);
     expect(result.forgeAccess).toBe("skipped");
-    expect(result.manualSteps.join(" ")).toContain("still has access");
-    expect(result.manualSteps.join(" ")).toContain(remote);
+    expect(result.manualSteps.join(" ")).toContain("can still see the team repo");
+    expect(result.manualSteps[0]).toStartWith("alice ");
     // The rest of the removal still happens — declining to administer someone
     // else's repo must not leave the member half-removed locally.
     expect(result.rosterRemoved).toBe(true);
@@ -595,7 +596,7 @@ describe("membersRemove", () => {
 
     expect(revokeCalls).toEqual([]);
     expect(result.forgeAccess).toBe("skipped");
-    expect(result.manualSteps.join(" ")).toContain("still has access");
+    expect(result.manualSteps.join(" ")).toContain("can still see the team repo");
   });
 
   test("divergent keys across the two rosters are BOTH revoked: no stale recipient survives the removal", async () => {
@@ -669,7 +670,7 @@ describe("membersRemove", () => {
     expect(execSeam.calls.some((c) => c.cmd[0] === "sops" && c.cmd[1] === "updatekeys")).toBe(true);
     expect(readTeamRecipients(SLUG, secrets)).toEqual([OWNER_PUBLIC_KEY]);
     expect(result.residueNote.length).toBeGreaterThan(0);
-    expect(result.residueNote).toContain("rotate the values themselves");
+    expect(result.residueNote).toContain("Rotate those values to shut them out.");
   });
 
   test("strips the handle from mattstack.roster as well as board.members", async () => {
@@ -767,7 +768,7 @@ describe("membersRemove", () => {
 
     expect(result.reencrypted).toEqual([]);
     expect(execSeam.calls.filter((c) => c.cmd[1] === "updatekeys")).toEqual([]);
-    expect(result.residueNote).toContain("rotate the values themselves");
+    expect(result.residueNote).toContain("Rotate those values to shut them out.");
   });
 
   test("a machine with no local age key yet removes cleanly, without minting one — the own-key guard skips the comparison rather than provisioning a keychain item", async () => {
