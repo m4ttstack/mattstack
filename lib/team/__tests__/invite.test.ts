@@ -7,6 +7,7 @@ import { decodeCode, open } from "../invite-crypto.ts";
 import { readInviteRecords } from "../invite-records.ts";
 import { INVITE_TTL_DAYS, joinLink, joinLinkBase, mintInvite, pasteBlock, type MintInviteSeams } from "../invite.ts";
 import type { RelayClient } from "../relay-client.ts";
+import { SWITCHBOARD_URL } from "../../../packages/rt-client/src/switchboard.ts";
 import type { setSetting } from "../../settings/write.ts";
 
 const SLUG = "acme";
@@ -331,7 +332,7 @@ describe("mintInvite", () => {
     expect(pointer.name).toBe(SLUG);
   });
 
-  test("a team with a switchboard: mint registers the member's board and seals url+token into the pointer", async () => {
+  test("an admin token on this Mac: mint registers the member's board on the built-in switchboard and seals only the token", async () => {
     const fetchCalls: { url: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }[] = [];
     const p = fakeProbes({
       home: HOME,
@@ -341,52 +342,55 @@ describe("mintInvite", () => {
         return { status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-9" }), headers: {} };
       },
     });
-    const { seams } = baseSeams({
-      read: fakeRead({
-        "mattstack.integrations": { forge: { host: "github.com", provider: "github" }, switchboard: { url: "https://sb.test" } },
-        "board.title": "Acme Team",
-      }),
-      readLocalSecret: async () => "admin-1",
-    });
+    const { seams } = baseSeams({ readLocalSecret: async () => "admin-1" });
     const relay = fakeRelayClient();
 
     const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
 
     expect(fetchCalls).toHaveLength(1);
-    expect(fetchCalls[0]!.url).toBe("https://sb.test/boards");
+    expect(fetchCalls[0]!.url).toBe(`${SWITCHBOARD_URL}/boards`);
     expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-1");
     expect(JSON.parse(fetchCalls[0]!.init?.body ?? "{}")).toEqual({ username: "zaphod" });
     const { idHex, key } = decodeCode(result.code);
     const pointer = await open(relay.createCalls[0]!.ciphertext, key, idHex);
-    expect(pointer.switchboard).toEqual({ url: "https://sb.test", token: "tok-9" });
+    expect(pointer.switchboard).toEqual({ token: "tok-9" });
   });
 
-  test("no readable admin token: the mint still succeeds, the pointer carries no switchboard, and the warn names board peering", async () => {
-    const p = probesWithRemote(REMOTE);
-    const { seams, warnings } = baseSeams({
-      read: fakeRead({
-        "mattstack.integrations": { forge: { host: "github.com", provider: "github" }, switchboard: { url: "https://sb.test" } },
-      }),
-      readLocalSecret: async () => null,
+  test("RT_SWITCHBOARD_URL steers the register to the override", async () => {
+    const urls: string[] = [];
+    const p = fakeProbes({
+      home: HOME,
+      env: { RT_SWITCHBOARD_URL: "http://127.0.0.1:7940" },
+      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE) },
+      fetch: async (url) => {
+        urls.push(url);
+        return { status: 201, body: JSON.stringify({ token: "tok-9" }), headers: {} };
+      },
     });
+    const { seams } = baseSeams({ readLocalSecret: async () => "admin-1" });
+
+    await mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+
+    expect(urls).toEqual(["http://127.0.0.1:7940/boards"]);
+  });
+
+  test("no admin token on this Mac: no register, no warning, and the pointer carries no switchboard", async () => {
+    const p = probesWithRemote(REMOTE);
+    const { seams, warnings } = baseSeams({ readLocalSecret: async () => null });
     const relay = fakeRelayClient();
 
     const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
 
-    expect(result.code).toBeTruthy();
     expect(p.calls.fetch).toHaveLength(0);
     const { idHex, key } = decodeCode(result.code);
     const pointer = await open(relay.createCalls[0]!.ciphertext, key, idHex);
     expect(pointer.switchboard).toBeUndefined();
-    expect(warnings.some((w) => w.includes("board peering"))).toBe(true);
+    expect(warnings).toEqual([]);
   });
 
   test("a throwing readLocalSecret stays inside optional peering: the mint still succeeds, warned", async () => {
     const p = probesWithRemote(REMOTE);
     const { seams, warnings } = baseSeams({
-      read: fakeRead({
-        "mattstack.integrations": { forge: { host: "github.com", provider: "github" }, switchboard: { url: "https://sb.test" } },
-      }),
       readLocalSecret: async () => {
         throw new Error("keychain sulking");
       },
@@ -396,10 +400,11 @@ describe("mintInvite", () => {
     const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
 
     expect(result.code).toBeTruthy();
+    expect(result.peering).toBe("missing");
     const { idHex, key } = decodeCode(result.code);
     const pointer = await open(relay.createCalls[0]!.ciphertext, key, idHex);
     expect(pointer.switchboard).toBeUndefined();
-    expect(warnings.some((w) => w.includes("board peering"))).toBe(true);
+    expect(warnings).toContain("board peering: keychain sulking");
   });
 
   test("a failing switchboard register: the mint still succeeds without a sealed token, warned", async () => {
@@ -408,12 +413,7 @@ describe("mintInvite", () => {
       files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE) },
       fetch: async () => ({ status: 500, body: "", headers: {} }),
     });
-    const { seams, warnings } = baseSeams({
-      read: fakeRead({
-        "mattstack.integrations": { forge: { host: "github.com", provider: "github" }, switchboard: { url: "https://sb.test" } },
-      }),
-      readLocalSecret: async () => "admin-1",
-    });
+    const { seams, warnings } = baseSeams({ readLocalSecret: async () => "admin-1" });
     const relay = fakeRelayClient();
 
     const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
@@ -422,29 +422,33 @@ describe("mintInvite", () => {
     const { idHex, key } = decodeCode(result.code);
     const pointer = await open(relay.createCalls[0]!.ciphertext, key, idHex);
     expect(pointer.switchboard).toBeUndefined();
-    expect(warnings.some((w) => w.includes("board peering"))).toBe(true);
+    expect(warnings).toContain("board peering: the switchboard register answered 500");
   });
 
   describe("the result says whether board peering rode the invite", () => {
-    const WITH_SWITCHBOARD = {
-      "mattstack.integrations": { forge: { host: "github.com", provider: "github" }, switchboard: { url: "https://sb.test" } },
-    };
-
-    test("an embedded board token reports peering embedded, with no warning", async () => {
-      const p = fakeProbes({
+    const registered = () =>
+      fakeProbes({
         home: HOME,
         files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE) },
         fetch: async () => ({ status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-9" }), headers: {} }),
       });
-      const { seams } = baseSeams({ read: fakeRead(WITH_SWITCHBOARD), readLocalSecret: async () => "admin-1" });
+    const refused = () =>
+      fakeProbes({
+        home: HOME,
+        files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE) },
+        fetch: async () => ({ status: 401, body: "", headers: {} }),
+      });
 
-      const result = await mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    test("an embedded board token reports peering embedded, with no warning", async () => {
+      const { seams } = baseSeams({ readLocalSecret: async () => "admin-1" });
+
+      const result = await mintInvite(registered(), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
 
       expect(result.peering).toBe("embedded");
       expect(result.peeringWarning).toBeUndefined();
     });
 
-    test("a team with no switchboard reports peering none", async () => {
+    test("no admin token reports peering none", async () => {
       const { seams } = baseSeams();
 
       const result = await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
@@ -454,29 +458,29 @@ describe("mintInvite", () => {
     });
 
     test("a token that could not be minted reports peering missing, and the reason goes to the warning's log text", async () => {
-      const { seams, warnings } = baseSeams({ read: fakeRead(WITH_SWITCHBOARD), readLocalSecret: async () => null });
+      const { seams, warnings } = baseSeams({ readLocalSecret: async () => "admin-1" });
 
-      const result = await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+      const result = await mintInvite(refused(), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
 
       expect(result.peering).toBe("missing");
       expect(result.peeringWarning).toBe("This invite will not connect their board. After they join, invite their board again from the board's members panel.");
-      expect(warnings).toContain("board peering: no readable switchboardAdminToken secret in the local rt domain");
+      expect(warnings).toContain("board peering: the switchboard register answered 401");
     });
 
     test("requirePeering refuses a missing token before anything reaches the relay or the roster", async () => {
-      const { seams, writeCalls } = baseSeams({ read: fakeRead(WITH_SWITCHBOARD), readLocalSecret: async () => null });
+      const { seams, writeCalls } = baseSeams({ readLocalSecret: async () => "admin-1" });
       const relay = fakeRelayClient();
 
-      const caught = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "zaphod", now: NOW, requirePeering: true }, seams).catch((err: unknown) => err);
+      const caught = await mintInvite(refused(), relay.client, { slug: SLUG, handle: "zaphod", now: NOW, requirePeering: true }, seams).catch((err: unknown) => err);
 
       expect(caught).toBeInstanceOf(UserActionableError);
       expect((caught as UserActionableError).code).toBe("peering-not-embedded");
-      expect((caught as UserActionableError).log).toContain("no readable switchboardAdminToken");
+      expect((caught as UserActionableError).log).toContain("the switchboard register answered 401");
       expect(relay.createCalls).toEqual([]);
       expect(writeCalls).toEqual([]);
     });
 
-    test("requirePeering is satisfied by a team with no switchboard", async () => {
+    test("requirePeering is satisfied by a Mac with no admin token", async () => {
       const { seams } = baseSeams();
 
       const result = await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW, requirePeering: true }, seams);

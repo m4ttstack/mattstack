@@ -36,7 +36,7 @@ import { createRealProbes, readStdinJson, type Probes } from "../lib/setup/probe
 import { readTeamSnapshot, stripUserinfo, type SettingsReader } from "../lib/setup/team-settings.ts";
 import { createTeam } from "../lib/team/create.ts";
 import { extractInviteCode } from "../lib/team/invite-crypto.ts";
-import { mintInvite, type InviteResult } from "../lib/team/invite.ts";
+import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeams } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
 import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, preferredRoster, teamRemote, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
@@ -58,6 +58,8 @@ export interface TeamDeps {
   readCode?: (json: boolean) => Promise<string>;
   /** Overrides `joinRedeem`'s `read`/`readTeamSecret`/`forgeLogin`/`warn` seams — real by default, so a test never has to rely on the isolated test HOME happening to lack a switchboard config. */
   joinRedeemSeams?: Partial<JoinRedeemSeams>;
+  /** Overrides `mintInvite`'s seams; real by default. */
+  mintInviteSeams?: Partial<MintInviteSeams>;
   /** Overrides `teamStatus`'s `board.title`/`board.members` reads — real by default, so a test never has to seed a real settings store just to check envelope shape. */
   statusRead?: SettingsReader;
   /** The forge token rt holds for a remote's host — real store by default. */
@@ -342,7 +344,12 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
     }
 
     const relay = createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env));
-    const result = await mintInvite(deps.probes, relay, { slug, handle, now: deps.probes.now(), requirePeering: args.includes("--require-peering") });
+    const result = await mintInvite(
+      deps.probes,
+      relay,
+      { slug, handle, now: deps.probes.now(), requirePeering: args.includes("--require-peering") },
+      { ...realMintInviteSeams(), ...deps.mintInviteSeams },
+    );
 
     if (json) {
       deps.print(JSON.stringify(envelope(result)));

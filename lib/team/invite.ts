@@ -27,6 +27,7 @@ import { readTeamLocal } from "./team-local.ts";
 import { encodeCode, generateId, generateKey, seal } from "./invite-crypto.ts";
 import { readInviteRecords, upsertInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
+import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 
 export const INVITE_TTL_DAYS = 7;
@@ -93,7 +94,7 @@ export interface InviteResult {
   pasteBlock: string;
   forgeAccess: ForgeAccess;
   manualSteps: string[];
-  /** "none" when the team declares no switchboard; "missing" means the joiner's board will not peer from this invite. */
+  /** "none" when this Mac holds no switchboard admin token; "missing" means the joiner's board will not peer from this invite. */
   peering: "embedded" | "missing" | "none";
   /** Present exactly when `peering` is "missing": the reason and the repair, the same sentence the mint warns on stderr. */
   peeringWarning?: string;
@@ -103,7 +104,7 @@ export interface MintInviteOpts {
   slug: string;
   handle: string;
   now: Date;
-  /** Refuse, before anything is minted, an invite for a switchboard team that would carry no board token. */
+  /** Refuse, before anything is minted, an invite this Mac tried and failed to give a board token. */
   requirePeering?: boolean;
 }
 
@@ -246,51 +247,51 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   // token must be minted HERE, where the admin token is readable, and sealed
   // into the pointer. Every failure degrades to an invite without peering
   // plus a warning; the board panel's re-invite remains the repair.
-  const switchboardUrl = snapshot.integrations.switchboard?.url;
   let peeringWarning: string | undefined;
-  if (switchboardUrl) {
-    let embedFailure: string | null = null;
+  let embedFailure: string | null = null;
+  let adminToken: string | null = null;
+  try {
+    adminToken = await seams.readLocalSecret("switchboardAdminToken");
+  } catch (err) {
+    embedFailure = err instanceof Error ? err.message : String(err);
+  }
+  if (adminToken) {
     try {
-      const adminToken = await seams.readLocalSecret("switchboardAdminToken");
-      if (!adminToken) {
-        embedFailure = "no readable switchboardAdminToken secret in the local rt domain";
+      const res = await p.fetch(`${switchboardUrl(p.env)}/boards`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ username: opts.handle }),
+      });
+      if (res.status < 200 || res.status >= 300) {
+        embedFailure = `the switchboard register answered ${res.status}`;
       } else {
-        const res = await p.fetch(`${switchboardUrl}/boards`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
-          body: JSON.stringify({ username: opts.handle }),
-        });
-        if (res.status < 200 || res.status >= 300) {
-          embedFailure = `the switchboard register answered ${res.status}`;
+        let boardToken: unknown;
+        try {
+          boardToken = (JSON.parse(res.body) as { token?: unknown })?.token;
+        } catch {
+          /* an unparsable register reply reads as no token */
+        }
+        if (typeof boardToken === "string" && boardToken) {
+          pointer.switchboard = { token: boardToken };
         } else {
-          let boardToken: unknown;
-          try {
-            boardToken = (JSON.parse(res.body) as { token?: unknown })?.token;
-          } catch {
-            /* an unparsable register reply reads as no token */
-          }
-          if (typeof boardToken === "string" && boardToken) {
-            pointer.switchboard = { url: switchboardUrl, token: boardToken };
-          } else {
-            embedFailure = "the switchboard register returned no token";
-          }
+          embedFailure = "the switchboard register returned no token";
         }
       }
     } catch (err) {
       embedFailure = err instanceof Error ? err.message : String(err);
     }
-    if (embedFailure) {
-      peeringWarning = "This invite will not connect their board. After they join, invite their board again from the board's members panel.";
-      if (opts.requirePeering) {
-        throw new UserActionableError("peering-not-embedded", "rt did not make the invite, because it could not connect their board", {}, {
-          why: "It could not register their board with the team's switchboard.",
-          log: embedFailure,
-        });
-      }
-      seams.warn(`board peering: ${embedFailure}`, { title: "This invite will not connect their board", hint: "invite their board again from the board's members panel after they join" });
-    }
   }
-  const peering: InviteResult["peering"] = !switchboardUrl ? "none" : pointer.switchboard ? "embedded" : "missing";
+  if (embedFailure) {
+    peeringWarning = "This invite will not connect their board. After they join, invite their board again from the board's members panel.";
+    if (opts.requirePeering) {
+      throw new UserActionableError("peering-not-embedded", "rt did not make the invite, because it could not connect their board", {}, {
+        why: "It could not register their board with the switchboard.",
+        log: embedFailure,
+      });
+    }
+    seams.warn(`board peering: ${embedFailure}`, { title: "This invite will not connect their board", hint: "invite their board again from the board's members panel after they join" });
+  }
+  const peering: InviteResult["peering"] = pointer.switchboard ? "embedded" : embedFailure ? "missing" : "none";
 
   // Captured before this handle's new record is minted — replace-on-mint's revoke of THIS value runs last, after the new invite is safely live (finding: create-before-destroy).
   const priorRecord = readInviteRecords(p, opts.slug)[opts.handle];

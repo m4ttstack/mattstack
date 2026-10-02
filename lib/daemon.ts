@@ -1122,7 +1122,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         peerWaker = startPeerWaker({
           log: peerWakerLog,
           emit,
-          readUrl: () => getSetting<string>("board.switchboardUrl").value,
+          readUrl: () => switchboardUrl(),
           readToken: () => readSwitchboardToken(),
         });
         peerWaker.done.catch((err) => peerWakerLog.warn({ err }, "peer waker stopped unexpectedly"));
