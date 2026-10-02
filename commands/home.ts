@@ -41,7 +41,6 @@ import { bold, dim, green, red, reset, yellow } from "../lib/ansi.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
-import { refusalNote } from "./git/shared.ts";
 import { isSafeMachineKeySegment, machineKey, mattstackHome } from "../lib/rt-paths.ts";
 import { resolveInitialMachineKey } from "../lib/home/machine-id.ts";
 import {
@@ -816,7 +815,7 @@ export async function homeInit(args: string[], _ctx: CommandContext = {}, seams:
 
 /** rt declining by policy rather than failing: a refused line on stderr, never a failure block; `home` exits 1 either way. */
 function refuse(title: string, ...callouts: Block[]): never {
-  out.note(...refusalNote({ title }), ...callouts);
+  out.note(out.line("refused", title), ...callouts);
   process.exit(1);
 }
 
