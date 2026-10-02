@@ -109,6 +109,20 @@ describe("ContextMenu (browser)", () => {
     expect(name).toBe("contextmenu-in");
   });
 
+  it("adds no height to the page it opens in (a grid parent's row gap is not fed by the menu's guards)", async () => {
+    const screen = await renderWithTheme(
+      <div data-testid="host" style={{ display: "grid", rowGap: 20 }}>
+        <div style={{ height: 100 }} />
+        <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
+          <ContextMenu.Item label="one" onClick={noop} />
+        </ContextMenu>
+      </div>,
+    );
+    await expect.element(screen.getByRole("menu")).toBeVisible();
+    const host = screen.container.querySelector<HTMLElement>('[data-testid="host"]')!;
+    expect(host.getBoundingClientRect().height).toBe(100);
+  });
+
   it("an item fires its onClick, and does NOT close the menu by itself", async () => {
     // mr-board's Slack-mark items stay open so several marks can be set in one
     // visit; closing is the CALLER's decision (RowMenu's own `run()` helper).

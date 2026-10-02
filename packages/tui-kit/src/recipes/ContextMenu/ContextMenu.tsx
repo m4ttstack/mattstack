@@ -326,9 +326,14 @@ export const ContextMenu = defineCompound({
 
         // The menu and every submenu portal into this in-place wrapper, not
         // `<body>`, so a scoped `.dark` or theme wrapper around the caller
-        // still reaches them.
+        // still reaches them. It is out of flow rather than `display:
+        // contents`: Base UI's guard spans and portal div would otherwise
+        // become items of a grid or flex parent and add its row gap.
         return (
-          <div ref={setWrapper} style={{ display: "contents" }}>
+          <div
+            ref={setWrapper}
+            style={{ position: "fixed", top: 0, left: 0, width: 0, height: 0 }}
+          >
             <Menu.Root
               open
               triggerId={triggerId}
