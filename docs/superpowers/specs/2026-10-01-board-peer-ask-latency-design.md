@@ -113,8 +113,9 @@ background subsystems.
 - The `cron.triage` setup step installs `board-triage` while
   `board.reReview` is on (unchanged) and `board-peer` while
   `board.peerAsks` is on, each independently.
-- A dated `MigrationDef` installs `board-peer` on machines that already have
-  `board-triage`, reusing its `run` prefix, when `board.peerAsks` is on.
+- A dated `MigrationDef` installs `board-peer` when `board.peerAsks` is on,
+  resolving the board invocation the way the `cron.triage` step does, and
+  skips a machine where board cannot be found.
 - The daemon's cron layer re-reads `rt.cron` on a broadcast once its last
   read is 30s old, so a trigger the migration writes after the daemon boots
   arms without a restart.

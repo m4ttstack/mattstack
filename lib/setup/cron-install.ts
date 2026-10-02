@@ -91,10 +91,6 @@ function readTriggers(getter: typeof getSetting): CronTrigger[] {
   return getter<CronConfigValue>("rt.cron").value?.triggers ?? [];
 }
 
-export function findCronTrigger(name: string, deps: InstallCronTriggerDeps = realInstallCronTriggerDeps()): CronTrigger | undefined {
-  return readTriggers(deps.getSetting).find((t) => t.name === name);
-}
-
 /** Replaces any existing trigger of the same name and writes the whole list back to the machine store. */
 export function installCronTrigger(
   trigger: CronTrigger,
