@@ -101,7 +101,12 @@ A `Paper` on the page ground (a card on a dotted canvas) can take
 `variant="ground"`: the card surface in both schemes and, with `withBorder`,
 a rule in the kit border rather than Mantine's lighter separator gray, drawn
 as an outline inside the edge so it sits over a full-width header or row. A
-ground card marked `data-selected` rings in the accent instead. A
+ground card marked `data-selected` rings in the accent instead. Inside a
+card, a `Paper` can take `variant="soft-outline"` (no fill of its own, so the
+card shows through, under a soft rule) or `variant="panel-outline"` (the
+panel surface under the same rule, for a note), and a `Table` can take
+`variant="soft"`: its rules in the soft line step, its header row on the
+panel, and its own `Paper` a soft-outline card. A
 `Progress` that splits a whole into parts can take `variant="segmented"`: no
 track, a gap between the sections that shows the surface beneath, `gray`
 parts in the soft line step, and the part marked `data-active` in the strong

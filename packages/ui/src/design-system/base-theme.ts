@@ -92,12 +92,16 @@ export const baseTheme = /* @__PURE__ */ createTheme({
   },
   variantColorResolver,
   components: themeComponents({
-    // `variant="ground"`: a card on the page ground (see the CSS module).
+    // `variant="ground"`: a card on the page ground; `soft-outline` and
+    // `panel-outline`: a ruled card inside another surface (see the CSS
+    // module).
     Paper: {
       defaultProps: flatSurfaceProps,
       classNames: { root: classes.paperRoot },
     },
     Card: { defaultProps: flatSurfaceProps },
+    // `variant="soft"`: a table inside a card (see the CSS module).
+    Table: { classNames: { table: classes.tableRoot } },
     // `variant="segmented"`: parts with gaps between them (see the CSS module).
     Progress: { classNames: { root: classes.progressRoot } },
     // `variant="quiet"`: a raised track and a ruled card segment (see the CSS

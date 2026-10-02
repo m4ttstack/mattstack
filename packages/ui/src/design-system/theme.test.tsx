@@ -15,6 +15,7 @@ import {
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
+import { Table } from '@mattstack/app-kit/core';
 import { appTheme, baseTheme, theme } from '@mattstack/app-kit/design-system';
 import classes from './component-styles.module.css';
 
@@ -219,6 +220,84 @@ describe('quiet segmented control', () => {
     );
     expect(rule(`${root} \\.segmentedLabel\\[data-active\\]`)).toContain(
       'color: var(--tk-text-1)'
+    );
+  });
+});
+
+describe('outline papers', () => {
+  const css = readFileSync(
+    path.resolve(import.meta.dirname, 'component-styles.module.css'),
+    'utf-8'
+  );
+  const rule = (selector: string) =>
+    css.match(new RegExp(`${selector}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+
+  it('carry the kit class the outline rules key on', () => {
+    const { container } = render(
+      <MantineProvider theme={theme}>
+        <Paper variant="soft-outline">soft</Paper>
+        <Paper variant="panel-outline">panel</Paper>
+      </MantineProvider>
+    );
+    expect(
+      [...container.querySelectorAll(`.${classes.paperRoot}`)].map(root =>
+        root.getAttribute('data-variant')
+      )
+    ).toEqual(['soft-outline', 'panel-outline']);
+  });
+
+  it('rule both in the soft line step inside the edge', () => {
+    for (const variant of ['soft-outline', 'panel-outline']) {
+      const block = rule(`\\.paperRoot\\[data-variant='${variant}'\\]`);
+      expect(block).toContain('outline: 1px solid var(--tk-line-3)');
+      expect(block).toContain('outline-offset: -1px');
+    }
+  });
+
+  it('leave a soft-outline card on the surface it sits on, and fill a panel-outline one with the panel', () => {
+    expect(rule("\\.paperRoot\\[data-variant='soft-outline'\\]")).toContain(
+      'background-color: transparent'
+    );
+    expect(rule("\\.paperRoot\\[data-variant='panel-outline'\\]")).toContain(
+      'background-color: var(--tk-panel)'
+    );
+  });
+});
+
+describe('soft table', () => {
+  const css = readFileSync(
+    path.resolve(import.meta.dirname, 'component-styles.module.css'),
+    'utf-8'
+  );
+  const rule = (selector: string) =>
+    css.match(new RegExp(`${selector}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+  const root = "\\.tableRoot\\[data-variant='soft'\\]";
+
+  it('carries the kit class the soft rules key on', () => {
+    const { container } = render(
+      <MantineProvider theme={theme}>
+        <Table variant="soft" noPaper>
+          <Table.Tbody>
+            <Table.Tr>
+              <Table.Td>cell</Table.Td>
+            </Table.Tr>
+          </Table.Tbody>
+        </Table>
+      </MantineProvider>
+    );
+    expect(container.querySelector(`.${classes.tableRoot}`)).toHaveAttribute(
+      'data-variant',
+      'soft'
+    );
+  });
+
+  it('rules in the soft line step, the header on the panel, each body row ruled above', () => {
+    expect(rule(root)).toContain('--table-border-color: var(--tk-line-3)');
+    expect(rule(`${root} > thead`)).toContain(
+      'background-color: var(--tk-panel)'
+    );
+    expect(rule(`${root} > tbody > tr`)).toContain(
+      'border-top: 1px solid var(--table-border-color)'
     );
   });
 });

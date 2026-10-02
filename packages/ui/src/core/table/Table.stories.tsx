@@ -1,3 +1,4 @@
+import { Box } from '@mantine/core';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
 import { Table } from './Table';
@@ -74,5 +75,16 @@ export const BorderedAndShadowed: Story = {
     <Table withTableBorder shadow>
       <DemoRows />
     </Table>
+  ),
+};
+
+export const Soft: Story = {
+  name: 'variant="soft" (inside a card)',
+  render: () => (
+    <Box bg="var(--tk-card)" p="lg">
+      <Table variant="soft" radius={7}>
+        <DemoRows />
+      </Table>
+    </Box>
   ),
 };

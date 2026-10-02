@@ -137,6 +137,25 @@ function PanelTones() {
   );
 }
 
+function CardTones() {
+  return (
+    <Box bg="var(--tk-card)" p="lg" w={420}>
+      <Stack gap="sm">
+        <Text size="sm">Inside a card (--tk-card)</Text>
+        <Paper withBorder p="xs">
+          Paper withBorder (Mantine)
+        </Paper>
+        <Paper variant="soft-outline" p="xs">
+          Paper soft-outline: the card shows through
+        </Paper>
+        <Paper variant="panel-outline" p="xs">
+          Paper panel-outline: a note on the panel
+        </Paper>
+      </Stack>
+    </Box>
+  );
+}
+
 export const BgLevels: Story = {
   render: () => <BackgroundLevels />,
 };
@@ -159,4 +178,9 @@ export const CanvasSurfacesStory: Story = {
 export const PanelTonesStory: Story = {
   name: 'Panel tones: wash row, contrast switch, soft-outline control, quiet segmented',
   render: () => <PanelTones />,
+};
+
+export const CardTonesStory: Story = {
+  name: 'Card tones: soft-outline and panel-outline paper',
+  render: () => <CardTones />,
 };

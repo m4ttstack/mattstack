@@ -84,6 +84,46 @@
   outline-offset: -0.75px;
 }
 
+/* Paper's `variant="soft-outline"` and `variant="panel-outline"`: a card
+   inside another surface, ruled in the soft line step. A soft-outline card
+   has no fill of its own, so it takes the surface it sits on; a
+   panel-outline card sits on the panel. As on a ground card, the rule is an
+   outline inside the edge. */
+.paperRoot[data-variant='soft-outline'] {
+  border-width: 0;
+  outline: 1px solid var(--tk-line-3);
+  outline-offset: -1px;
+  background-color: transparent;
+}
+
+.paperRoot[data-variant='panel-outline'] {
+  border-width: 0;
+  outline: 1px solid var(--tk-line-3);
+  outline-offset: -1px;
+  background-color: var(--tk-panel);
+}
+
+/* Table's `variant="soft"`: a table inside a card. Its rules take the soft
+   line step and its header row the panel surface. Each body row draws its
+   rule above it, so the header carries none and the last row ends on the
+   wrapper's own rule. */
+.tableRoot[data-variant='soft'] {
+  --table-border-color: var(--tk-line-3);
+}
+
+.tableRoot[data-variant='soft'] > thead {
+  background-color: var(--tk-panel);
+}
+
+.tableRoot[data-variant='soft'] > thead > tr {
+  border-bottom: 0;
+}
+
+.tableRoot[data-variant='soft'] > tbody > tr {
+  border-top: 1px solid var(--table-border-color);
+  border-bottom: 0;
+}
+
 /* Progress's `variant="segmented"`: a bar of parts that sum to the whole,
    with no track behind them, so the gaps between the parts show whatever
    surface the bar sits on. A `gray` part takes the soft line step, and the
