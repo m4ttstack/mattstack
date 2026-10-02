@@ -227,7 +227,8 @@ is its last segment (`["Commit them, or set them aside with ", out.cmd("rt git
 stash push")]`) prints its sentence on the label row and the command on the
 row under it, so end the sentence where the command starts; any other row
 wraps at its spaces and never splits a command. Off a terminal the row stays
-one line.
+one line. Consecutive `kv` blocks in one `out.print` share a key column, so
+print a group of them in one call.
 
 `out.print` writes plain text to stdout under `--json` too, so a verb whose
 `--json` branch can still print a note (a repo whose identity cannot derive,

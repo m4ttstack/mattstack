@@ -193,14 +193,41 @@ func withCommandSpaces(rows []protocol.Cell, from, to string) []protocol.Cell {
 	return out
 }
 
-func (r *renderer) kv(b protocol.Block) {
-	s := indent + keyStyle.Render(Clean(b.Key))
-	if b.Value != "" {
-		s += "  " + strongStyle.Render(Clean(b.Value))
+// kvRun pads a run of kv keys to one width so the values line up. A key too
+// wide to leave its value a column worth wrapping into stays out of the
+// alignment and takes its value on the row below.
+func (r *renderer) kvRun(run []protocol.Block) {
+	textW := r.width - len(indent)
+	keyCap := textW - 2 - minWrap
+	w := 0
+	for _, b := range run {
+		if kw := lipgloss.Width(Clean(b.Key)); b.Value != "" && kw <= keyCap {
+			w = max(w, kw)
+		}
 	}
-	r.emit(s)
-	if b.Source != "" {
-		r.emit(indent + "  " + faintStyle.Render(Clean(b.Source)))
+	for _, b := range run {
+		key := keyStyle.Render(Clean(b.Key))
+		value := protocol.Cell{{Text: b.Value, Role: "strong"}}
+		switch {
+		case b.Value == "":
+			r.emit(indent + key)
+		case lipgloss.Width(key) <= keyCap:
+			for i, row := range wrapCell(value, textW-w-2) {
+				if i == 0 {
+					r.emit(indent + pad(key, w) + "  " + cell(row))
+					continue
+				}
+				r.emit(indent + strings.Repeat(" ", w+2) + cell(row))
+			}
+		default:
+			r.emit(indent + key)
+			for _, row := range wrapCell(value, textW-2) {
+				r.emit(indent + "  " + cell(row))
+			}
+		}
+		if b.Source != "" {
+			r.emit(indent + "  " + faintStyle.Render(Clean(b.Source)))
+		}
 	}
 }
 

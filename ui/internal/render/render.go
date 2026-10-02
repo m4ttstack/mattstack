@@ -1,6 +1,7 @@
 package render
 
 import (
+	"slices"
 	"strings"
 
 	"rt-ui/internal/protocol"
@@ -48,25 +49,35 @@ func (r *renderer) gap() {
 
 func (r *renderer) blocks(bs []protocol.Block) {
 	for i := 0; i < len(bs); i++ {
-		if bs[i].T != "line" {
+		switch bs[i].T {
+		case "line":
+			j := runEnd(bs, i, "line", "callout")
+			r.lineRun(bs[i:j])
+			i = j - 1
+		case "kv":
+			j := runEnd(bs, i, "kv")
+			r.kvRun(bs[i:j])
+			i = j - 1
+		default:
 			r.block(bs[i])
-			continue
 		}
-		j := i
-		for j < len(bs) && (bs[j].T == "line" || bs[j].T == "callout") {
-			j++
-		}
-		r.lineRun(bs[i:j])
-		i = j - 1
 	}
+}
+
+// runEnd returns the index just past the run of blocks from i whose types
+// are all in types.
+func runEnd(bs []protocol.Block, i int, types ...string) int {
+	j := i
+	for j < len(bs) && slices.Contains(types, bs[j].T) {
+		j++
+	}
+	return j
 }
 
 func (r *renderer) block(b protocol.Block) {
 	switch b.T {
 	case "callout":
 		r.callout(b)
-	case "kv":
-		r.kv(b)
 	case "summary":
 		r.summary(b)
 	case "banner":

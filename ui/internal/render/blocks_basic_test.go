@@ -76,6 +76,50 @@ func TestKvPrintsSourceOnItsOwnLineIndentedUnderTheKey(t *testing.T) {
 	}
 }
 
+func TestConsecutiveKvRowsShareAKeyColumn(t *testing.T) {
+	got := plain(
+		protocol.Block{T: "kv", Key: "usage", Value: "rt chat <verb>"},
+		protocol.Block{T: "kv", Key: "repo", Value: "sample-app"},
+		protocol.Block{T: "kv", Key: "from", Value: "~/code/sample-app"},
+	)
+	want := "  usage  rt chat <verb>\n  repo   sample-app\n  from   ~/code/sample-app\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestAKvSourceStaysUnderItsKeyInsideARun(t *testing.T) {
+	got := plain(
+		protocol.Block{T: "kv", Key: "rt.worktreeApp", Value: "true", Source: "from team example"},
+		protocol.Block{T: "kv", Key: "rt.x", Value: "false"},
+	)
+	want := "  rt.worktreeApp  true\n    from team example\n  rt.x            false\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestAKvValueWrapsInsideItsColumn(t *testing.T) {
+	got := plainAt(40, protocol.Block{T: "kv", Key: "Rules", Value: "the saved rules are behind your settings file and need a refresh"})
+	want := "  Rules  the saved rules are behind your\n" +
+		strings.Repeat(" ", 9) + "settings file and need a\n" +
+		strings.Repeat(" ", 9) + "refresh\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+	checkWidth(t, got, 40)
+}
+
+func TestAKvRunDoesNotAlignWithTheLinesBesideIt(t *testing.T) {
+	got := plain(
+		protocol.Block{T: "line", Status: "done", Title: "Installed", Hint: "pnpm"},
+		protocol.Block{T: "kv", Key: "Rules", Value: "3"},
+	)
+	if want := "  ✓ Installed  pnpm\n  Rules  3\n"; got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
 func TestKvWithoutAValuePrintsOnlyTheKey(t *testing.T) {
 	if got := plain(protocol.Block{T: "kv", Key: "rt.notifications"}); got != "  rt.notifications\n" {
 		t.Fatalf("got %q", got)
