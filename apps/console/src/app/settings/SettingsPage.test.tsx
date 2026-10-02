@@ -217,8 +217,13 @@ describe('SettingsPage', () => {
       within(row).getByRole('button', { name: 'close board.agent.model' })
     );
     expect(
-      within(row).queryByText('Weakest first. The last layer set wins.')
-    ).toBeNull();
+      within(row).getByRole('button', { name: 'open board.agent.model' })
+    ).toHaveAttribute('aria-expanded', 'false');
+    await waitFor(() =>
+      expect(
+        within(row).queryByText('Weakest first. The last layer set wins.')
+      ).toBeNull()
+    );
   });
 
   it('lists groups in the index with their counts and renders sections', async () => {

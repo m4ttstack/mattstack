@@ -74,6 +74,21 @@ function Marked({
   );
 }
 
+/** The last open state, kept while the panel collapses so it closes with
+    its content. `opening` counts openings: each one mounts a fresh panel,
+    even one that lands before the last collapse ends. */
+function useLastOpen(open: RowOpen | null) {
+  const last = useRef(open);
+  const [opening, setOpening] = useState(0);
+  const [wasOpen, setWasOpen] = useState(open !== null);
+  if ((open !== null) !== wasOpen) {
+    setWasOpen(open !== null);
+    if (open !== null) setOpening(n => n + 1);
+  }
+  if (open !== null) last.current = open;
+  return { shown: last.current, opening };
+}
+
 /** Whether a text selection reaches into `el`: the click that ends a drag
     select fires on the header like any other. */
 function selectingIn(el: HTMLElement): boolean {
@@ -123,6 +138,7 @@ export function SettingRow({
     onChange: onOpenChange,
   });
   const isOpen = open !== null;
+  const { shown, opening } = useLastOpen(open);
   const [asJson, setAsJson] = useState(false);
   // A closed row starts fresh: JSON mode chosen in one opening must not
   // resurface on the next.
@@ -257,19 +273,20 @@ export function SettingRow({
       </Box>
       <Collapse
         expanded={isOpen}
+        keepMounted={false}
         id={panelId}
         role="region"
         aria-label={`${def.key} settings`}
       >
-        {open && (
-          <Box className={classes.panel}>
+        {shown && (
+          <Box key={opening} className={classes.panel}>
             <KeyPanel
               def={def}
               store={store}
-              tab={open.tab}
+              tab={shown.tab}
               onTab={tab => setOpen({ tab, fix: null })}
               value={<ValueContent def={def} parts={parts} />}
-              fix={open.fix}
+              fix={shown.fix}
               externalWrites={writes}
               onPickRepo={onPickRepo}
             />

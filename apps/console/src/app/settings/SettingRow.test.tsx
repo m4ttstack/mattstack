@@ -337,6 +337,68 @@ describe('SettingRow disclosure', () => {
       screen.getByRole('button', { name: 'open board.agent.model' })
     ).toHaveAttribute('aria-expanded', 'false');
   });
+
+  describe('while the panel collapses', () => {
+    // With no animation frames the collapse never leaves its exit, as a
+    // browser is mid-animation.
+    beforeEach(() => {
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0);
+      explains([
+        { scope: 'default', file: null, present: false },
+        { scope: 'user', file: '/u', present: true, value: 'm-1' },
+        { scope: 'machine', file: '/m', present: false },
+      ]);
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    const openRow = () =>
+      renderRow(
+        <SettingRow
+          def={scalar()}
+          store={store()}
+          subhead={null}
+          query=""
+          defaultOpen={{ tab: 'where', fix: null }}
+        />
+      );
+
+    it('closing keeps the last tab drawn', async () => {
+      openRow();
+      await screen.findByTestId('layer-user');
+      await userEvent.click(
+        screen.getByRole('button', { name: 'close board.agent.model' })
+      );
+      expect(
+        screen.getByRole('button', { name: 'open board.agent.model' })
+      ).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getByTestId('layer-user')).toBeInTheDocument();
+    });
+
+    it('reopening starts a fresh panel', async () => {
+      openRow();
+      await userEvent.click(
+        await screen.findByRole('button', {
+          name: 'set board.agent.model at user',
+        })
+      );
+      await userEvent.click(
+        screen.getByRole('button', { name: 'close board.agent.model' })
+      );
+      await userEvent.click(
+        screen.getByRole('button', { name: 'open board.agent.model' })
+      );
+      expect(
+        await screen.findByRole('button', {
+          name: 'set board.agent.model at user',
+        })
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', {
+          name: 'cancel editing board.agent.model at user',
+        })
+      ).toBeNull();
+    });
+  });
 });
 
 describe('SettingRow', () => {
