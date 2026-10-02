@@ -17,7 +17,11 @@ import { useToasts } from "@mattstack/tui-kit/hooks";
  */
 
 export function ToastHosts() {
-  const { toasts, addToast } = useToasts();
+  const { toasts, addToast, startToast } = useToasts();
+  const track = (pending: string, settled: string, ok: boolean) => {
+    const toast = startToast(pending);
+    setTimeout(() => (ok ? toast.done(settled) : toast.fail(settled)), 1500);
+  };
 
   return (
     <div>
@@ -44,6 +48,27 @@ export function ToastHosts() {
           onClick={() => addToast("re-review requested from bob, carol")}
         >
           re-review requested
+        </button>
+      </div>
+
+      <h2 style={{ marginTop: "2rem" }}>track work</h2>
+      <p>
+        <code>startToast</code> opens a toast with a spinner; its handle settles
+        that same toast. <code>done</code> swaps in a check and leaves after
+        2s, <code>fail</code> swaps in plain text and leaves after 3.5s.
+      </p>
+      <div style={{ display: "flex", gap: "0.6rem", marginTop: "1rem" }}>
+        <button
+          type="button"
+          onClick={() => track("merging !42…", "merge accepted !42", true)}
+        >
+          merge (succeeds)
+        </button>
+        <button
+          type="button"
+          onClick={() => track("rebasing !42…", "couldn't rebase !42 (409)", false)}
+        >
+          rebase (fails)
         </button>
       </div>
 
