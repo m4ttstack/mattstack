@@ -50,8 +50,6 @@
   "lib/home/age-key.ts",
   "lib/navigate.ts",
   "lib/pickers.ts",
-  "lib/plugin-api.ts",
-  "lib/plugins.ts",
   "lib/prompt-secret.ts",
   "lib/rebase-escalation.ts",
   "lib/repo-index.ts",

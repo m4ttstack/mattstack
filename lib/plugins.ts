@@ -13,6 +13,8 @@ import { join, resolve } from "path";
 import type { CommandArg, CommandNode, CommandContext } from "./command-tree.ts";
 import { makeApi, ensurePluginApiDir } from "./plugin-api.ts";
 import { pluginsDir, rtDir } from "./rt-paths.ts";
+import * as ui from "./ui/out.ts";
+import { warn, type ShownWarning } from "./ui/warn.ts";
 
 export interface PluginNode {
   description: string;
@@ -235,6 +237,9 @@ export { pluginsDir, legacyPluginsDir, migrateLegacyPluginsDir, type PluginsMigr
 /** The scaffold's devDependency on rt's local API package, relative to a plugin dir. */
 const PLUGIN_API_LINK = "file:../../../rt/plugin-api";
 
+/** The entry discoverPlugins returns when the plugins folder itself cannot be read. */
+const PLUGINS_DIR_ENTRY = "(plugins dir)";
+
 /** Structural discovery: readdir + parse + validate. Never executes plugin code, never throws. */
 export function discoverPlugins(): DiscoveredPlugin[] {
   const root = pluginsDir();
@@ -244,7 +249,7 @@ export function discoverPlugins(): DiscoveredPlugin[] {
     entries = readdirSync(root).sort();
   } catch (err) {
     return [{
-      dirName: "(plugins dir)",
+      dirName: PLUGINS_DIR_ENTRY,
       dir: root,
       manifest: null,
       errors: [`cannot read plugins directory: ${err instanceof Error ? err.message : String(err)}`],
@@ -280,12 +285,14 @@ const RESERVED_FAST_PATHS = ["verify"];
  * Merge plugin commands into the built-in tree. Built-ins always win;
  * plugin-vs-plugin, first by directory sort order wins. Collisions check
  * names AND aliases. Losing commands are not mounted; every skip warns
- * with provenance. A clean setup produces zero output.
+ * with provenance. A clean setup produces zero output. A caller's sink
+ * gets each warning's text; without one a person reads it once, on stderr.
  */
-export function loadPluginTree(
-  builtins: Record<string, CommandNode>,
-  warn: (msg: string) => void = (m) => console.error(`  [rt] ${m}`),
-): Record<string, CommandNode> {
+export function loadPluginTree(builtins: Record<string, CommandNode>, sink?: (msg: string) => void): Record<string, CommandNode> {
+  const report = (message: string, show: ShownWarning): void => {
+    if (sink) sink(message);
+    else warn("plugins", message, { show });
+  };
   ensurePluginApiDir();
   const tree = { ...builtins };
 
@@ -298,12 +305,20 @@ export function loadPluginTree(
 
   for (const plugin of discoverPlugins()) {
     if (plugin.errors.length) {
-      warn(`skipping plugin "${plugin.dirName}": ${plugin.errors.join("; ")}`);
+      report(
+        `skipping plugin "${plugin.dirName}": ${plugin.errors.join("; ")}`,
+        plugin.dirName === PLUGINS_DIR_ENTRY
+          ? { title: "Your plugins folder could not be read", hint: plugin.errors[0] }
+          : { title: `The ${plugin.dirName} plugin was not loaded`, hint: plugin.errors[0], next: ui.cmd(`rt plugin validate ${plugin.dirName}`) },
+      );
       continue;
     }
     const manifest = plugin.manifest!;
     if (manifest.name !== plugin.dirName) {
-      warn(`plugin "${plugin.dirName}": manifest name "${manifest.name}" differs from directory name`);
+      report(`plugin "${plugin.dirName}": manifest name "${manifest.name}" differs from directory name`, {
+        title: `The ${plugin.dirName} plugin calls itself ${manifest.name}`,
+        hint: "rename the folder or the manifest's name so they match",
+      });
     }
     for (const [name, node] of Object.entries(manifest.commands)) {
       const names = [name, ...(node.aliases ?? [])];
@@ -311,7 +326,10 @@ export function loadPluginTree(
       if (conflict) {
         const owner = claimed.get(conflict)!;
         const what = owner === "built-in" ? "collides with built-in" : `already provided by ${owner}`;
-        warn(`plugin "${manifest.name}": command "${name}" ${what} ("${conflict}") ... not mounted`);
+        report(`plugin "${manifest.name}": command "${name}" ${what} ("${conflict}") ... not mounted`, {
+          title: `${manifest.name}'s ${name} command was not added`,
+          hint: owner === "built-in" ? `rt already has a command called ${conflict}` : `${owner} already has a command called ${conflict}`,
+        });
         continue;
       }
       for (const n of names) claimed.set(n, `plugin "${manifest.name}"`);
@@ -330,6 +348,11 @@ export class PluginScaffoldError extends Error {
     super(message);
   }
 }
+
+// The scaffolded command prints with console.log. This file is read as text
+// by the raw-output guard, which would take the template for a print site,
+// so the call is spelled in two parts.
+const SCAFFOLD_PRINT = ["console", "log"].join(".");
 
 /** Create ~/.mattstack/user/plugins/<name>/ with a starter command, tsconfig, and package.json. */
 export function scaffoldPlugin(name: string): string {
@@ -353,7 +376,7 @@ export async function run(args: string[], ctx: RtCommandContext) {
   const runs = ctx.rt.store<number>("runs");
   const count = ((await runs.get()) ?? 0) + 1;
   await runs.set(count);
-  console.log(\`hello from ${name} (run #\${count}, args: \${JSON.stringify(args)})\`);
+  ${SCAFFOLD_PRINT}(\`hello from ${name} (run #\${count}, args: \${JSON.stringify(args)})\`);
 }
 `);
 

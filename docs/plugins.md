@@ -167,8 +167,8 @@ Plugin code runs in-process with rt's privileges. This is personal tooling for y
 
 | Symptom | Cause |
 |---|---|
-| `skipping plugin "x": plugin.json is unreadable or not valid JSON` | broken manifest; fix the JSON, rt is unaffected meanwhile |
-| `skipping plugin "x": <node>: unknown field "modle"` | manifest typo; unknown fields are rejected by design |
+| `The x plugin was not loaded  plugin.json is unreadable or not valid JSON` | broken manifest; fix the JSON, rt is unaffected meanwhile |
+| `The x plugin was not loaded  <node>: unknown field "modle"` | manifest typo; unknown fields are rejected by design |
 | `plugin x: ./cmd.ts does not export "run"` | export the function the manifest names (`fn`, default `run`) |
 | command missing from `rt --help` | collision (see the warning) or `hidden: true` |
 | `rt plugin validate` fails on a module | it dry-imports your file; top-level errors surface here before you hit them at runtime |
