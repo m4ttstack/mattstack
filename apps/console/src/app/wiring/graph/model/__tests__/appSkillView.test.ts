@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { designFixture } from '../../__tests__/designFixtures';
-import { drawerContent, parseTarget } from '../drawerContent';
+import { drawerContent, highlightOf, parseTarget } from '../drawerContent';
 import { appSkillView } from '../templateModel';
 
 const composition = designFixture('composition');
@@ -100,6 +100,31 @@ describe('appSkillView', () => {
       sentence:
         'board:doctor declares its tiering slot here and reads it when it runs; acme fills it with mattstack:model-tiering.',
     });
+  });
+
+  it('highlights the line where the installed skill declares the slot', () => {
+    const installed = {
+      ...composition,
+      binders: composition.binders.map(binder =>
+        binder.ref === 'board:doctor'
+          ? { ...binder, skillFile: '/claude/skills/board:doctor/SKILL.md' }
+          : binder
+      ),
+    };
+    const { view, anatomy } = appSkillView(installed, 'board:doctor', 'acme')!;
+    const content = drawerContent(parseTarget('row:1')!, view, anatomy, null)!;
+    const lines = [
+      '---',
+      'name: board:doctor',
+      'metadata:',
+      '  slots: "tiering,other"',
+      '  slot-other: "required x@1"',
+      '  slot-tiering: "required model-tiering@1 -- picks the model"',
+      '---',
+    ];
+
+    expect(highlightOf(content, lines)).toEqual([6, 6]);
+    expect(highlightOf(content, ['---', 'no declaration', '---'])).toBeNull();
   });
 
   it('opens the fill from a slot row when the skill is not installed', () => {
