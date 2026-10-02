@@ -106,7 +106,7 @@ the board (not the relay) reads it: the `SWITCHBOARD_ADMIN_TOKEN` env var, or
 `switchboardAdminToken` in the rt daemon's secrets (`rt secrets set rt
 switchboardAdminToken`) on the machine running your own board.
 
-With both set, open settings ("team members") locally and each roster member
+With the admin token in place, open settings ("team members") locally and each roster member
 gets an **invite** button. Anyone already peered shows **peered** with a
 **re-invite** button instead, and a free-text row at the bottom invites handles
 that are not on your roster at all. Either action mints a one-time invite link
