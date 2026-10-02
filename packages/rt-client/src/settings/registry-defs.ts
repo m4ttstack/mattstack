@@ -118,7 +118,7 @@ export const REGISTRY: readonly SettingDef[] = [
     scopes: ["machine"],
     merge: "deep",
     migrated: true,
-    description: "Scheduled rt job definitions and their cron expressions. Restart the daemon to apply changes.",
+    description: "Commands the daemon runs when a matching event is broadcast, each on its own debounce. The daemon picks up a change within 30 seconds of its next event.",
   },
   {
     key: "rt.repoTracking",

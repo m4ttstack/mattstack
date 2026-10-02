@@ -70,11 +70,11 @@ export async function cronInstall(args: string[], _ctx: CommandContext = {}): Pr
   installCronTrigger(trigger);
 
   if (json) {
-    console.log(JSON.stringify(envelope({ installed: trigger, restartRequired: true })));
+    console.log(JSON.stringify(envelope({ installed: trigger, restartRequired: false })));
     return;
   }
   console.log(`rt cron install: installed "${trigger.name}"`);
-  console.log("restart the daemon to apply: rt daemon restart");
+  console.log("the daemon arms it within 30 seconds of its next event (rt daemon restart arms it now)");
 }
 
 export async function cronRemove(args: string[], _ctx: CommandContext = {}): Promise<void> {
@@ -84,9 +84,9 @@ export async function cronRemove(args: string[], _ctx: CommandContext = {}): Pro
   const result = removeCronTrigger(name);
 
   if (json) {
-    console.log(JSON.stringify(envelope({ removed: result.removed, name, restartRequired: result.removed })));
+    console.log(JSON.stringify(envelope({ removed: result.removed, name, restartRequired: false })));
     return;
   }
   console.log(result.removed ? `rt cron remove: removed "${name}"` : `rt cron remove: "${name}" was not installed`);
-  if (result.removed) console.log("restart the daemon to apply: rt daemon restart");
+  if (result.removed) console.log("the daemon drops it within 30 seconds of its next event (rt daemon restart drops it now)");
 }

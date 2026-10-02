@@ -42,6 +42,12 @@ export function parseCronConfig(value: unknown): CronConfig {
     }
     return { name: o.name, event: o.event, repoName: o.repoName as string | undefined, run: o.run as string[], debounceMs: o.debounceMs as number | undefined };
   });
+  // Debounce timers and the fire-time lookup are keyed by name alone.
+  const seen = new Set<string>();
+  for (const t of triggers) {
+    if (seen.has(t.name)) throw new Error(`rt.cron has two triggers named "${t.name}"`);
+    seen.add(t.name);
+  }
   return { triggers };
 }
 
