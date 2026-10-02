@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { designFixture } from '../../__tests__/designFixtures';
 import type { SkillsAnatomy } from '../../../useWiring';
-import { drawerContent, parseTarget } from '../drawerContent';
+import { drawerContent, parseTarget, withHeader } from '../drawerContent';
 import { buildTemplateView } from '../templateModel';
 
 const anatomyWork = designFixture('anatomy.work');
@@ -160,22 +160,16 @@ describe('an include row (drawer-include-row)', () => {
     ]);
   });
 
-  it('bands the lines above the step text as the header', () => {
-    const headed: SkillsAnatomy = {
-      ...anatomyPlan,
-      parts: anatomyPlan.parts.map((part, index) =>
-        index === 0 ? { ...part, renderedLines: [14, 15] } : part
-      ),
-    };
-    const bands = drawerContent(
-      parseTarget('row:140')!,
-      planView,
-      headed,
-      null
-    )?.bands;
-    expect(bands?.slice(0, 2)).toEqual([
-      { from: 1, to: 13, label: 'header', tone: 'muted' },
-      { from: 14, to: 48, label: 'step text', tone: 'muted' },
+  it('fills the gaps between pasted parts of a stale build with its own text', () => {
+    const bands = work('row:246', 'rendered')!.bands;
+    expect(
+      bands
+        .filter(band => band.label === 'orchestrator text')
+        .map(band => [band.from, band.to])
+    ).toEqual([
+      [1, 248],
+      [341, 343],
+      [794, 796],
     ]);
   });
 
@@ -616,5 +610,33 @@ describe('two includes on one template line', () => {
     ).toBe(
       'beta is pasted here: 6 lines, 50% of what the agent reads in this step.'
     );
+  });
+});
+
+describe('withHeader', () => {
+  const lines = [
+    '---',
+    'name: x',
+    '---',
+    '',
+    '<!-- compiled by rt skills compile -->',
+    '',
+    '<!-- part: step source=acme:x -->',
+    '# x',
+  ];
+
+  it('bands every line above the first part marker as the header', () => {
+    expect(
+      withHeader([{ from: 1, to: 8, label: 'step text', tone: 'muted' }], lines)
+    ).toEqual([
+      { from: 1, to: 6, label: 'header', tone: 'muted' },
+      { from: 7, to: 8, label: 'step text', tone: 'muted' },
+    ]);
+  });
+
+  it('leaves a file with no bands, or no marker, as it is', () => {
+    expect(withHeader([], lines)).toEqual([]);
+    const band = { from: 1, to: 2, label: 'step text', tone: 'muted' } as const;
+    expect(withHeader([band], ['a', 'b'])).toEqual([band]);
   });
 });

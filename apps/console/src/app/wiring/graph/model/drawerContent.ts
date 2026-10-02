@@ -203,8 +203,9 @@ function chipOf(part: AnatomyPart): string | null {
 }
 
 /** The file's own text bands as one run wherever its parts' lines touch,
-    the lines above it as the header, and each pasted part by name. Lines no
-    part accounts for (a fill that changed since the build) get no band. */
+    and each pasted part by name. A stale build places no own text, so there
+    every gap between its pasted parts is its own text. Lines no part
+    accounts for in a current build (a fill that changed since) get none. */
 function bandsOf(
   anatomy: SkillsAnatomy,
   selected: string | null
@@ -225,20 +226,29 @@ function bandsOf(
         ]
       : []
   );
-  const ownRanges = anatomy.parts
-    .flatMap(part =>
-      !isPasted(part) && part.renderedLines ? [part.renderedLines] : []
-    )
-    .sort((a, b) => a[0] - b[0]);
-  if (!anatomy.parts.some(p => p.kind === 'text' && p.renderedLines))
-    return pasted;
-
+  const placed = anatomy.parts.some(p => p.kind === 'text' && p.renderedLines);
+  const total = anatomy.rendered.lines;
   const runs: LineRange[] = [];
-  for (const [from, to] of ownRanges) {
-    const last = runs[runs.length - 1];
-    if (last && from <= last[1] + 1) last[1] = Math.max(last[1], to);
-    else runs.push([from, to]);
+  if (placed) {
+    const ownRanges = anatomy.parts
+      .flatMap(part =>
+        !isPasted(part) && part.renderedLines ? [part.renderedLines] : []
+      )
+      .sort((a, b) => a[0] - b[0]);
+    for (const [from, to] of ownRanges) {
+      const last = runs[runs.length - 1];
+      if (last && from <= last[1] + 1) last[1] = Math.max(last[1], to);
+      else runs.push([from, to]);
+    }
+  } else if (anatomy.status === 'stale' && total !== null) {
+    let next = 1;
+    const sorted = [...pasted].sort((a, b) => a.from - b.from);
+    for (const band of [...sorted, { from: total + 1, to: total }]) {
+      if (band.from > next) runs.push([next, band.from - 1]);
+      next = Math.max(next, band.to + 1);
+    }
   }
+
   const chosen = anatomy.parts.find(part => partKey(part) === selected);
   const chosenOwn = chosen && !isPasted(chosen) ? chosen.renderedLines : null;
   const own = `${textNounOf(anatomy)} text`;
@@ -250,12 +260,24 @@ function bandsOf(
       chosenOwn !== null && chosenOwn[0] >= from && chosenOwn[1] <= to
     ),
   }));
-  const firstOwn = runs[0][0];
-  const header: DrawerBand[] =
-    firstOwn > 1
-      ? [{ from: 1, to: firstOwn - 1, label: 'header', tone: 'muted' }]
-      : [];
-  return [...header, ...ownBands, ...pasted].sort((a, b) => a.from - b.from);
+  return [...ownBands, ...pasted].sort((a, b) => a.from - b.from);
+}
+
+const PART_MARKER = /^<!-- part:/;
+
+/** A compiled file's header (its frontmatter and the compiler's note) is
+    every line above its first part marker; it takes its own band, ahead of
+    whatever band reached up into it. */
+export function withHeader(bands: DrawerBand[], lines: string[]): DrawerBand[] {
+  const marker = lines.findIndex(line => PART_MARKER.test(line));
+  if (bands.length === 0 || marker <= 0) return bands;
+  const first = marker + 1;
+  return [
+    { from: 1, to: marker, label: 'header', tone: 'muted' },
+    ...bands.flatMap(band =>
+      band.to < first ? [] : [{ ...band, from: Math.max(band.from, first) }]
+    ),
+  ];
 }
 
 function rowContent(

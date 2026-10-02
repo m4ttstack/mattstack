@@ -206,6 +206,7 @@ describe('SkillDrawer', () => {
     // Opened a little above the range, so the part before it shows too.
     expect(lineRow(text, 288)).not.toBeNull();
     expect(lineRow(text, 303)).toHaveAttribute('data-highlighted');
+    expect(within(text).getAllByText('header')).toHaveLength(1);
     expect(within(text).getAllByText('plan-policy')).toHaveLength(1);
     expect(within(text).getAllByText('gate-protocol')).toHaveLength(1);
     expect(lineRow(text, 303)!.querySelector('[data-gutter]')).toHaveAttribute(
