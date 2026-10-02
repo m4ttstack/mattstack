@@ -247,11 +247,34 @@ const BOARD_PEERING_BASE = {
   optionalNote: "Your board does not peer until the team's owner re-invites it.",
 };
 
+const SELF_INVITE_STEPS: Action = {
+  type: "steps",
+  label: "Show steps…",
+  steps: [
+    "Open your board's team members panel",
+    "Invite your own username there. The invite row shows only when this Mac holds the switchboard admin token",
+    "Paste that invite into the panel's join row",
+    "Re-check this row",
+  ],
+};
+
 async function boardPeeringRow(p: Probes, secrets: SecretPresence): Promise<Row | null> {
   const peering = await boardPeering(p, (domain, key) => secrets.has(domain, key));
   if (peering.kind === "not-applicable") return null;
   if (peering.kind === "unpeered") {
-    return row({ ...BOARD_PEERING_BASE, status: "needs-you", detail: `This Mac is in ${peering.teams.join(", ")}, but its board has no switchboard token, so it cannot peer. Ask ${REINVITE}`, action: REINVITE_STEPS });
+    const unpeered = `This Mac is in ${peering.teams.join(", ")}, but its board has no switchboard token, so it cannot peer.`;
+    const created = peering.teams.filter((slug) => readTeamLocal(p, slug).createdByRt);
+    // The board token is one per Mac, not per team, so creating any one team here is enough to self-invite.
+    if (created.length > 0) {
+      return row({
+        ...BOARD_PEERING_BASE,
+        optionalNote: "Your board does not peer until you invite it from the board's members panel.",
+        status: "needs-you",
+        detail: `${unpeered} You created ${created.join(", ")} on this Mac, so you can invite your own board from the board's members panel.`,
+        action: SELF_INVITE_STEPS,
+      });
+    }
+    return row({ ...BOARD_PEERING_BASE, status: "needs-you", detail: `${unpeered} Ask ${REINVITE}`, action: REINVITE_STEPS });
   }
   if (peering.kind === "unreadable") {
     return row({ ...BOARD_PEERING_BASE, status: "error", detail: `Could not read your secrets store to check the board's switchboard token (${peering.error})`, action: ACCOUNT_RECHECK_ACTION });

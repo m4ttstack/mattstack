@@ -613,8 +613,10 @@ the invite; `rt team join` stores it under the rt secrets scope, writes no URL
 setting, and refuses a pointer from an older rt whose URL is not
 `switchboardUrl()`. The board refuses a pasted invite on any other origin.
 The `account.board-peering` row applies on every Mac in a team, created or
-joined: `needs-you` with the re-invite remedy when neither the board's `.env`
-nor rt's `switchboardToken` holds a token, `error` with a re-check when
+joined: `needs-you` when neither the board's `.env` nor rt's
+`switchboardToken` holds a token (with the re-invite remedy, or, on a Mac
+that created one of its teams, the steps to invite its own board from the
+board's members panel), `error` with a re-check when
 `<url>/healthz` (no auth header; `/health` is not a route) does not answer
 200, `ready` otherwise. It is never required or finish-gated (only the owner
 can fix it), but `verify` reports it, so `rt setup update` notifies. The

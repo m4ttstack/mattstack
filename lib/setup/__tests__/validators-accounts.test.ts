@@ -576,6 +576,27 @@ describe("accountRows: account.board-peering", () => {
     expect(r.detail).toContain("acme");
   });
 
+  test("on the Mac that created the team, the row points at inviting your own board, never at asking the owner", async () => {
+    const r = await peeringRow(machine({ acme: { joinedByRt: false } }));
+    expect(r.status).toBe("needs-you");
+    expect(r.required).toBe(false);
+    expect(r.finishGated).toBeUndefined();
+    expect(r.detail).toContain("You created acme on this Mac");
+    expect(r.detail).not.toContain("invite you again");
+    expect(r.optionalNote).not.toContain("owner");
+    expect(r.optionalNote?.toLowerCase().startsWith("works without")).toBe(false);
+    expect(r.action).toEqual({
+      type: "steps",
+      label: "Show steps…",
+      steps: [
+        "Open your board's team members panel",
+        "Invite your own username there. The invite row shows only when this Mac holds the switchboard admin token",
+        "Paste that invite into the panel's join row",
+        "Re-check this row",
+      ],
+    });
+  });
+
   test("every team on the Mac is named, not only the active one", async () => {
     const r = await peeringRow(machine({ acme: { joinedByRt: false }, beta: { joinedByRt: true } }));
     expect(r.status).toBe("needs-you");
