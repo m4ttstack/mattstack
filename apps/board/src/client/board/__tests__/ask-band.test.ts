@@ -150,6 +150,16 @@ describe('askBandModel', () => {
     });
   });
 
+  test("names the teammate by the roster's first name when it has one", () => {
+    const m = askBandModel(
+      sent({ reviewer: 'ghop2', reviewerName: 'Grace Hopper' })
+    );
+    expect(m.name).toBe('Grace');
+    expect(m.who).toBe("Grace's agent");
+    expect(m.title).toBe('Re-review from Grace');
+    expect(askBandModel(sent({ reviewer: 'ghop2' })).name).toBe('Ghop2');
+  });
+
   test('the trail titles the ask and names the teammate', () => {
     expect(askBandModel(sent({ kind: 'respond' })).title).toBe(
       'Response from Grace'

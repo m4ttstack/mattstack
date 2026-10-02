@@ -131,6 +131,8 @@ export interface SentNudgeInfo {
     | 'done'
     | 'failed';
   reviewer: string;
+  /** The roster's name for the reviewer, when the roster has one. */
+  reviewerName?: string;
   /** The peer's own words: why a rejection, or what a failed run hit. */
   reason?: string;
   sentAt?: number;

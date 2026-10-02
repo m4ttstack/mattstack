@@ -317,6 +317,7 @@ export function pruneSentNudges(
 export interface SentNudgeView {
   display: SentNudgeDisplay;
   reviewer: string;
+  reviewerName?: string;
   kind?: AskKind;
   sentAt: number;
   reason?: string;

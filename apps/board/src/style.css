@@ -4736,7 +4736,8 @@ a.tui-id-card-ref:focus-visible {
 .tui-ask {
   --ask-fill: var(--text-4);
   --ask-text: var(--text-2);
-  --ask-mix: 6%;
+  --ask-mix: 9%;
+  --ask-base: var(--chrome);
   grid-column: 2;
   display: flex;
   align-items: center;
@@ -4747,28 +4748,36 @@ a.tui-id-card-ref:focus-visible {
   font-size: 0.76rem;
   line-height: 20px;
   color: var(--ask-text);
-  background: color-mix(in srgb, var(--ask-fill) var(--ask-mix), var(--card));
+  background: color-mix(
+    in srgb,
+    var(--ask-fill) var(--ask-mix),
+    var(--ask-base)
+  );
   border: 1px solid color-mix(in srgb, var(--ask-fill) 40%, transparent);
   border-radius: 6px;
 }
 .tui-ask[data-ask-tone='work'] {
   --ask-fill: var(--fill-accent);
   --ask-mix: 15%;
+  --ask-base: var(--card);
   --ask-text: var(--text-accent-small);
 }
 .tui-ask[data-ask-tone='ok'] {
   --ask-fill: var(--fill-ok);
   --ask-mix: 15%;
+  --ask-base: var(--card);
   --ask-text: var(--text-ok-small);
 }
 .tui-ask[data-ask-tone='bad'] {
   --ask-fill: var(--fill-bad);
   --ask-mix: 15%;
+  --ask-base: var(--card);
   --ask-text: var(--text-bad-small);
 }
 .tui-ask[data-ask-tone='warn'] {
   --ask-fill: var(--fill-warn);
   --ask-mix: 15%;
+  --ask-base: var(--card);
   --ask-text: var(--text-warn-small);
 }
 .tui-ask-where,

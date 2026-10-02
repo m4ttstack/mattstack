@@ -558,7 +558,13 @@ function attachPeerState<T extends { webUrl?: string | null }>(
   return attachPeerReviews(mrs, readPeerReviews()).map(mr => {
     if (!mr.webUrl) return mr;
     const s = sent.get(mr.webUrl);
-    const sentNudge = s ? sentNudgeView(s, now) : null;
+    const view = s ? sentNudgeView(s, now) : null;
+    const reviewerName =
+      memberNames.get(s?.reviewer ?? '') ??
+      config.members.find(m => m.username === s?.reviewer)?.name;
+    const sentNudge = view
+      ? { ...view, ...(reviewerName ? { reviewerName } : {}) }
+      : null;
     const nudges = inbound.get(mr.webUrl);
     if (!sentNudge && !nudges) return mr;
     return {

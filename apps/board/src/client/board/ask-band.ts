@@ -63,7 +63,8 @@ const capitalize = (s: string): string =>
 
 export function askBandModel(sent: SentNudgeInfo): AskBand {
   const kind: Kind = sent.kind ?? 're-review';
-  const name = capitalize(sent.reviewer);
+  const name =
+    sent.reviewerName?.trim().split(/\s+/)[0] || capitalize(sent.reviewer);
   const requested: AskStep = {
     name: 'Requested',
     detail: 'you',
