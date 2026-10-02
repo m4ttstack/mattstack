@@ -98,11 +98,14 @@ export function FocusHeader({
     >
       <Group gap={10} justify="space-between">
         <Group gap={10}>
-          <Title order={3} c="var(--tk-text-1)" data-parity="title">
-            {title}
+          <Title order={3} fz={20} lh="normal">
+            <Text span inherit c="var(--tk-text-1)" data-parity="title">
+              {title}
+            </Text>
           </Title>
           <Badge
-            variant="default"
+            variant="quiet"
+            classNames={{ root: classes.pill }}
             data-parity="badge"
             attributes={{ label: { 'data-parity': 'l' } }}
           >
@@ -111,8 +114,9 @@ export function FocusHeader({
         </Group>
         {status && (
           <Badge
-            variant={status.tone === 'warn' ? 'outline' : 'default'}
+            variant={status.tone === 'warn' ? 'outline' : 'quiet-outline'}
             color={status.tone === 'warn' ? 'warn' : undefined}
+            classNames={{ root: classes.statusPill, section: classes.pillIcon }}
             leftSection={
               <Icon
                 name={status.icon}
@@ -130,7 +134,7 @@ export function FocusHeader({
         )}
       </Group>
       {description ? (
-        <Text size="lg" lh="normal" c={MUTED} data-parity="desc">
+        <Text fz={13} lh="normal" c={MUTED} data-parity="desc">
           {description}
         </Text>
       ) : (

@@ -71,3 +71,29 @@
   right: 24px;
   z-index: 1;
 }
+
+/* Badge always draws a 1px border, so each padding is a pixel short of the
+   board's to keep the label where the board puts it. */
+.pill {
+  --badge-height: 17px;
+  --badge-padding-x: 7px;
+  --badge-fz: 11px;
+  --badge-lh: normal;
+  letter-spacing: 0;
+}
+
+.statusPill {
+  --badge-height: 19px;
+  --badge-padding-x: 8px;
+  --badge-fz: 11px;
+  --badge-lh: normal;
+  letter-spacing: 0;
+}
+
+.pillIcon[data-position='left'] {
+  margin-inline-end: 6px;
+}
+
+.stepNumber {
+  font-variant-numeric: tabular-nums;
+}

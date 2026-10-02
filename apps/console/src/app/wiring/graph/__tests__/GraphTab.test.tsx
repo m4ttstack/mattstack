@@ -256,6 +256,42 @@ describe('Graph tab: the focus list', () => {
     ).toBeInTheDocument();
   });
 
+  it('focuses and unfolds a pipeline on the first click, and folds it on the next', async () => {
+    mockDesignPack();
+    const user = userEvent.setup();
+    renderAt('?tab=graph&focus=shepherdr');
+    const list = await focusList();
+    const pipeline = within(list).getByTestId('focus-pipeline:feature');
+
+    await user.click(pipeline);
+    expect(params().get('focus')).toBe('pipeline:feature');
+    expect(
+      await within(list).findByTestId('focus-stage-plan')
+    ).toBeInTheDocument();
+
+    await user.click(pipeline);
+    await waitFor(() =>
+      expect(
+        within(list).queryByTestId('focus-stage-plan')
+      ).not.toBeInTheDocument()
+    );
+    expect(params().get('focus')).toBe('pipeline:feature');
+  });
+
+  it('keeps a pipeline open when it takes focus back from one of its steps', async () => {
+    mockDesignPack();
+    const user = userEvent.setup();
+    renderAt('?tab=graph&focus=stage-plan');
+    const list = await focusList();
+
+    await user.click(within(list).getByTestId('focus-pipeline:feature'));
+    // Past the fold's collapse, so a closing row would be gone by now.
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    expect(params().get('focus')).toBe('pipeline:feature');
+    expect(within(list).getByTestId('focus-stage-plan')).toBeInTheDocument();
+  });
+
   it('focuses an on-demand verb', async () => {
     mockDesignPack();
     const user = userEvent.setup();
@@ -320,6 +356,90 @@ describe('Graph tab: the focus list', () => {
 
     await user.click(toggle);
     expect(params().get('attention')).toBeNull();
+  });
+
+  it('counts only the flagged unwired verbs under the filter', async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&attention=1');
+    const list = await focusList();
+
+    await waitFor(() =>
+      expect(within(list).getByTestId('focus-unwired')).toHaveTextContent(
+        'Unwired1'
+      )
+    );
+  });
+
+  it('keeps the filtered list loading until check answers', async () => {
+    mockDesignPack();
+    checkGet.mockReturnValue(new Promise(() => {}));
+    renderAt('?tab=graph&attention=1');
+
+    const list = await screen.findByTestId('focus-list');
+    await waitFor(() => expect(compositionGet).toHaveBeenCalled());
+    expect(within(list).getByTestId('focus-list-loading')).toBeInTheDocument();
+    expect(
+      within(list).queryByTestId('focus-pipeline:feature')
+    ).not.toBeInTheDocument();
+  });
+
+  it('warns that no row can state its drift when check fails', async () => {
+    mockDesignPack();
+    checkGet.mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({ error: 'rt skills check: pack not found' }),
+    });
+    renderAt('?tab=graph');
+    const list = await focusList();
+
+    expect(
+      await within(list).findByText(
+        'rt skills check failed, so no row below can state its drift: rt skills check: pack not found'
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('says "not measured" rather than "nothing wrong" when the filter empties the list and check never answered', async () => {
+    mockDesignPack();
+    const composition = designFixture('composition');
+    composition.verbs = composition.verbs.filter(
+      verb => verb.name !== 'release-notes'
+    );
+    compositionGet.mockResolvedValue(ok(composition));
+    checkGet.mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({ error: 'rt skills check: pack not found' }),
+    });
+    renderAt('?tab=graph&attention=1');
+    const list = await focusList();
+
+    const empty = await within(list).findByTestId('attention-empty');
+    expect(empty).toHaveTextContent('Not measured');
+    expect(empty).not.toHaveTextContent('Nothing needs attention');
+  });
+
+  it('states a clean filtered list as measured', async () => {
+    mockDesignPack();
+    const composition = designFixture('composition');
+    composition.verbs = composition.verbs.filter(
+      verb => verb.name !== 'release-notes'
+    );
+    compositionGet.mockResolvedValue(ok(composition));
+    const check = designFixture('check');
+    for (const verb of check.verbs) {
+      verb.status = 'in-sync';
+      verb.staleBecause = [];
+    }
+    checkGet.mockResolvedValue(ok(check));
+    renderAt('?tab=graph&attention=1');
+    const list = await focusList();
+
+    const empty = await within(list).findByTestId('attention-empty');
+    expect(empty).toHaveTextContent(
+      `Nothing needs attention: rt skills check compared ${check.verbs.length} roster verbs and none differed.`
+    );
   });
 
   it('says so when the pack declares no pipeline', async () => {
@@ -451,6 +571,18 @@ describe('Graph tab: the focus header', () => {
       within(header).getByText('feature pipeline · 8 stages')
     ).toBeInTheDocument();
     expect(params().get('focus')).toBeNull();
+  });
+});
+
+describe('Graph tab: an unknown focus', () => {
+  it('says the pack has nothing by that name', async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&focus=nope');
+
+    expect(await screen.findByTestId('focus-missing')).toHaveTextContent(
+      'Nothing named nope is in this pack.'
+    );
+    expect(screen.queryByTestId('focus-header')).not.toBeInTheDocument();
   });
 });
 

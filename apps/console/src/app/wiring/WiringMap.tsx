@@ -95,11 +95,63 @@ export function WiringMap() {
 
   const graphPack = url.tab === 'graph' ? pack : null;
 
+  const actions = (
+    <>
+      <Box visibleFrom="lg">
+        <CommandProvenance
+          command="rt skills composition"
+          asOf={snapshot.dataUpdatedAt || undefined}
+        />
+      </Box>
+      {packDir && (
+        <Button
+          size="xs"
+          variant="default"
+          component="a"
+          href={editorHref(packDir)}
+          leftSection={<Icons.package size={14} />}
+          data-testid="open-pack"
+        >
+          Open pack
+        </Button>
+      )}
+      {packs.length > 1 && pack && (
+        <Select
+          size="xs"
+          w={168}
+          data={packs.map(p => ({ value: p.name, label: p.name }))}
+          value={pack}
+          onChange={value => patch({ pack: value })}
+          data-testid="pack-select"
+        />
+      )}
+      {packs.length === 1 && pack && (
+        <Group gap={6} wrap="nowrap">
+          <Text size="xs" c={text.dimmed}>
+            pack
+          </Text>
+          <Text
+            size="sm"
+            fw={500}
+            maw={168}
+            truncate
+            title={pack}
+            data-testid="pack-name"
+          >
+            {pack}
+          </Text>
+        </Group>
+      )}
+    </>
+  );
+
   return (
     <PageShell
       tabBarHeight={PAGE_ROW_HEIGHT}
       sidebarWidth={216}
       drawerStateKey="console-wiring-focus"
+      tabs={tabs}
+      tabBar={{ title: 'Wiring', actions }}
     >
       {graphPack && (
         <PageShell.Sidebar hideCollapseButton>
@@ -107,59 +159,6 @@ export function WiringMap() {
         </PageShell.Sidebar>
       )}
       <PageShell.Main>
-        <PageShell.TabBar
-          title="Wiring"
-          tabs={tabs}
-          actions={
-            <>
-              <Box visibleFrom="lg">
-                <CommandProvenance
-                  command="rt skills composition"
-                  asOf={snapshot.dataUpdatedAt || undefined}
-                />
-              </Box>
-              {packDir && (
-                <Button
-                  size="xs"
-                  variant="default"
-                  component="a"
-                  href={editorHref(packDir)}
-                  leftSection={<Icons.package size={14} />}
-                  data-testid="open-pack"
-                >
-                  Open pack
-                </Button>
-              )}
-              {packs.length > 1 && pack && (
-                <Select
-                  size="xs"
-                  w={168}
-                  data={packs.map(p => ({ value: p.name, label: p.name }))}
-                  value={pack}
-                  onChange={value => patch({ pack: value })}
-                  data-testid="pack-select"
-                />
-              )}
-              {packs.length === 1 && pack && (
-                <Group gap={6} wrap="nowrap">
-                  <Text size="xs" c={text.dimmed}>
-                    pack
-                  </Text>
-                  <Text
-                    size="sm"
-                    fw={500}
-                    maw={168}
-                    truncate
-                    title={pack}
-                    data-testid="pack-name"
-                  >
-                    {pack}
-                  </Text>
-                </Group>
-              )}
-            </>
-          }
-        />
         {graphPack ? (
           <PageShell.Content bg="var(--tk-bg)" contentContainer={false}>
             {height => <GraphTab pack={graphPack} height={height} />}

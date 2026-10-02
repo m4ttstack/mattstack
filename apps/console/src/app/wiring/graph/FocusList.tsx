@@ -14,6 +14,7 @@ import {
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import type { SkillsCheck } from '../outline';
 import classes from './graph.module.css';
 import {
   onlyAttention,
@@ -36,7 +37,6 @@ const ROW = { root: classes.item, section: classes.section };
 const STEP_ROW = { root: classes.step, section: classes.section };
 const PIPELINE_ROW = { ...ROW, children: classes.children };
 const UNWIRED_ROW = { root: classes.unwired, section: classes.section };
-const LABEL = { label: { 'data-parity': 'l' } };
 
 function AttentionDot() {
   return (
@@ -52,10 +52,10 @@ function GroupLabel({ children }: { children: ReactNode }) {
   return (
     <Box className={classes.group}>
       <Text
-        size="xs"
+        fz={10}
         fw={500}
         lh="normal"
-        lts="0.08em"
+        lts="0.8px"
         tt="uppercase"
         c={MUTED}
         data-parity="l"
@@ -63,6 +63,32 @@ function GroupLabel({ children }: { children: ReactNode }) {
         {children}
       </Text>
     </Box>
+  );
+}
+
+/** An active row takes the NavLink's own active colour; a resting one names
+    its text role. */
+function RowLabel({
+  text,
+  size,
+  active,
+  rest,
+}: {
+  text: string;
+  size: number;
+  active: boolean;
+  rest: string;
+}) {
+  return (
+    <Text
+      span
+      fz={size}
+      fw={active ? 500 : 400}
+      c={active ? undefined : rest}
+      data-parity="l"
+    >
+      {text}
+    </Text>
   );
 }
 
@@ -87,9 +113,9 @@ function ItemRow({
       type="button"
       color="accent"
       active={active}
-      fw={active ? 500 : 400}
-      c={active ? undefined : BODY}
-      label={item.label}
+      label={
+        <RowLabel text={item.label} size={13} active={active} rest={BODY} />
+      }
       leftSection={
         <Icon
           name={item.icon}
@@ -100,7 +126,6 @@ function ItemRow({
       }
       rightSection={item.attention ? <AttentionDot /> : undefined}
       classNames={ROW}
-      attributes={LABEL}
       data-parity={rowLayer(active, item.label)}
       data-testid={`focus-${item.key}`}
       onClick={() => onFocus(item.key)}
@@ -124,17 +149,23 @@ function StepRow({
       type="button"
       color="accent"
       active={active}
-      fw={active ? 500 : 400}
-      c={active ? undefined : MUTED}
-      label={item.label}
+      label={
+        <RowLabel text={item.label} size={12} active={active} rest={MUTED} />
+      }
       leftSection={
-        <Text span size="xs" lh="normal" fw={400} data-parity="n">
+        <Text
+          span
+          fz={10}
+          lh="normal"
+          c={active ? undefined : MUTED}
+          className={classes.stepNumber}
+          data-parity="n"
+        >
           {item.step}
         </Text>
       }
       rightSection={item.attention ? <AttentionDot /> : undefined}
       classNames={STEP_ROW}
-      attributes={LABEL}
       data-parity={rowLayer(active, `stage · ${item.label}`)}
       data-testid={`focus-${item.key}`}
       onClick={() => onFocus(item.key)}
@@ -142,6 +173,11 @@ function StepRow({
   );
 }
 
+/**
+ * Open while one of its steps has focus. The first click on a pipeline that
+ * is not in focus focuses it and opens it; once in focus, a click folds and
+ * unfolds it.
+ */
 function PipelineRow({
   item,
   activeKey,
@@ -160,9 +196,9 @@ function PipelineRow({
       type="button"
       color="accent"
       active={active}
-      fw={active ? 500 : 400}
-      c={active ? undefined : BODY}
-      label={item.label}
+      label={
+        <RowLabel text={item.label} size={13} active={active} rest={BODY} />
+      }
       leftSection={
         <Icon
           name={item.icon}
@@ -173,22 +209,27 @@ function PipelineRow({
       }
       rightSection={
         <Group gap={8}>
-          <Text span size="xs" lh="normal" fw={400} c={MUTED} data-parity="sub">
+          <Text span fz={11} lh="normal" c={MUTED} data-parity="sub">
             {item.children.length}
           </Text>
           {item.attention && <AttentionDot />}
         </Group>
       }
       opened={onStep || unfolded}
-      onChange={setUnfolded}
       keepMounted={false}
       childrenOffset={0}
       disableRightSectionRotation
       classNames={PIPELINE_ROW}
-      attributes={LABEL}
       data-parity={rowLayer(active, item.label)}
       data-testid={`focus-${item.key}`}
-      onClick={() => onFocus(item.key)}
+      onClick={() => {
+        if (active) {
+          setUnfolded(open => !open);
+          return;
+        }
+        setUnfolded(true);
+        onFocus(item.key);
+      }}
     >
       {item.children.map(step => (
         <StepRow
@@ -219,14 +260,17 @@ function UnwiredRow({
       <NavLink
         component="button"
         type="button"
-        c={MUTED}
-        label="Unwired"
-        leftSection={<Icon name="eyeOff" size={15} data-parity="i" />}
+        label={
+          <RowLabel text="Unwired" size={12} active={false} rest={MUTED} />
+        }
+        leftSection={
+          <Icon name="eyeOff" size={15} color={MUTED} data-parity="i" />
+        }
         rightSection={
           <Group gap={8}>
             <Text
               span
-              size="xs"
+              fz={11}
               lh="normal"
               c={unwired.attention ? 'warn' : MUTED}
               data-parity="n"
@@ -242,7 +286,6 @@ function UnwiredRow({
         childrenOffset={0}
         disableRightSectionRotation
         classNames={UNWIRED_ROW}
-        attributes={LABEL}
         data-testid="focus-unwired"
       >
         {unwired.items.map(item => (
@@ -271,7 +314,7 @@ function FocusGroupsList({
     <>
       <GroupLabel>Pipeline</GroupLabel>
       {groups.empty && (
-        <Text size="xs" c={MUTED} className={classes.notice}>
+        <Text fz={12} c={MUTED} className={classes.notice}>
           {PIPELINE_NOTICE[groups.empty]}
         </Text>
       )}
@@ -305,11 +348,42 @@ function FocusGroupsList({
   );
 }
 
+const isEmpty = (groups: FocusGroups) =>
+  groups.pipelines.length === 0 &&
+  groups.onDemand.length === 0 &&
+  groups.board.length === 0 &&
+  groups.unwired.count === 0;
+
+/** An empty filtered list is a claim about a measurement, so it says which
+    one it rests on: none, nothing to compare, or a clean compare. */
+function AttentionEmpty({ check }: { check: SkillsCheck | undefined }) {
+  const compared = check?.verbs.length ?? null;
+  const line =
+    compared === null
+      ? 'Not measured: rt skills check did not answer, so this list is empty, not clean.'
+      : compared === 0
+        ? 'Nothing to check: rt skills check found no roster verbs to compare.'
+        : `Nothing needs attention: rt skills check compared ${compared} roster ${compared === 1 ? 'verb' : 'verbs'} and none differed.`;
+  return (
+    <Text
+      fz={12}
+      c={MUTED}
+      className={classes.notice}
+      data-testid="attention-empty"
+    >
+      {line}
+    </Text>
+  );
+}
+
 /** The Graph tab's focus list, rendered as `PageShell.Sidebar` content. */
 export function GraphSidebar({ pack }: { pack: string }) {
-  const { url, patch, compositionQuery, groups, focused } = useGraphFocus(pack);
+  const { url, patch, compositionQuery, checkQuery, groups, focused } =
+    useGraphFocus(pack);
   const onFocus = (key: string) => patch({ focus: key });
   const shown = groups && url.attention ? onlyAttention(groups) : groups;
+  // The filter reads drift from check, so it waits for check to answer.
+  const loading = !shown || (url.attention && checkQuery.isPending);
 
   return (
     <Stack
@@ -335,7 +409,7 @@ export function GraphSidebar({ pack }: { pack: string }) {
             </Button>
           </Stack>
         </Alert>
-      ) : !shown ? (
+      ) : loading ? (
         <Stack gap={2} data-testid="focus-list-loading">
           {[0, 1, 2, 3, 4, 5].map(i => (
             <Skeleton key={i} height={32} />
@@ -343,11 +417,28 @@ export function GraphSidebar({ pack }: { pack: string }) {
         </Stack>
       ) : (
         <>
-          <FocusGroupsList
-            groups={shown}
-            activeKey={focused?.key ?? null}
-            onFocus={onFocus}
-          />
+          {checkQuery.isError && (
+            <Alert
+              variant="light"
+              color="warn"
+              icon={<Icon name="warning" size={14} />}
+              data-testid="check-error"
+            >
+              <Text size="xs">
+                rt skills check failed, so no row below can state its drift:{' '}
+                {(checkQuery.error as Error).message}
+              </Text>
+            </Alert>
+          )}
+          {url.attention && isEmpty(shown) ? (
+            <AttentionEmpty check={checkQuery.data} />
+          ) : (
+            <FocusGroupsList
+              groups={shown}
+              activeKey={focused?.key ?? null}
+              onFocus={onFocus}
+            />
+          )}
           <Box className={classes.spacer} />
           <Switch
             label="Needs attention"

@@ -189,8 +189,11 @@ describe('onlyAttention', () => {
   it('keeps review and unwired, and drops the board group', () => {
     expect(labels(filtered.onDemand)).toEqual(['review']);
     expect(filtered.board).toEqual([]);
-    expect(filtered.unwired.count).toBe(6);
     expect(labels(filtered.unwired.items)).toEqual(['release-notes']);
+  });
+
+  it('counts only the unwired verbs it kept', () => {
+    expect(filtered.unwired.count).toBe(1);
   });
 
   it('hides unwired when nothing in it needs attention', () => {
