@@ -143,6 +143,13 @@ reads `org` and skips `team`.
   ids at the org and the channel at the team.
 - `explainSetting` and the console's settings page name the org layer and
   the team layer separately.
+- Every gate that treats team-authored values as untrusted treats `org` and
+  `org.repo` the same way. The worktree ready-ladder approval
+  (`readyLadderOwner` in `lib/worktree/config.ts`) is the one that matters
+  most: a shared repo's ready steps sit at the org, and without this they
+  would run on every member's Mac unapproved. The same holds for
+  `rt settings migrate --prune`, which must not touch the org store without
+  being told to.
 - `board.defaultPack` and `board.members` move to `RETIRED_KEYS`
   (`registry-machinery.ts`) in PR 2, so a leftover value can still be unset.
 
@@ -393,9 +400,18 @@ join or solo.
 The team screen runs `rt team create <name>`, as today. The name becomes the
 org slug and the first team's name; the wizard keeps its one name field. The
 creator is admin, owner of that team, and on the roster, and `forgeUsername`
-is recorded (create already uses the CLI's own sign-in for
-`gh repo create`; with `--remote`, `forgeLogin` uses the rt-held token, else
-the `$USER` fallback).
+is recorded. All four are written under the creator's forge login, never a
+guess:
+
+- With `gh repo create`, create already uses the CLI's own sign-in, so the
+  login is known at the team screen.
+- With `--remote` on a recognized forge, the token is connected later, on the
+  checklist. The team screen's create then records no username and writes no
+  admin, owner or roster entry; Install's `team.create` rerun, which runs
+  after the checklist's forge connect, resolves the login and writes them.
+  A local account name written instead would not match the forge login a
+  later restore records, and the creator would lose admin.
+- Only a host that is no recognized forge uses the `$USER` fallback.
 
 ### Join
 
@@ -417,6 +433,14 @@ The team screen runs `rt team join --dry-run` on the pasted code; Install's
   `mattstack.activeTeam` to the pointer's first team, so the active team is
   known before `plugins.install` runs and the first Install installs the
   right team pack.
+- The roster entry the invite wrote must be in the clone, or the active team
+  ignores the setting and the joiner lands on no team. So `rt team invite`
+  publishes its roster commit before it returns the invite, instead of
+  leaving it to the sync engine's debounce. After cloning, join checks that
+  the roster lists the pointer's `username`; if not, it pulls once more, and
+  if the entry is still missing it stops with "Your admin's roster change
+  has not reached the org repo yet; try again in a minute", keeping the
+  intent so a rerun resumes.
 - Secrets follow today's flow: the inviter's Mac gets the member-joined alert
   and its confirm runs `members sync`. Only admins invite, so the Mac that
   gets the alert is an admin's and the sync is allowed. Until then the joiner
@@ -498,6 +522,16 @@ showing Invite to members (who get rt's refusal) and offering no team picker.
 There is one team repo today, so a one-off script under `scripts/` converts
 it in one commit; no shipped verb and no reader for the old layout.
 
+The clone's sync engine stages and pushes `mattstack/`, `.sops.yaml` and
+`.claude-plugin/` on its own (a debounced commit, and a janitor that pushes
+unpushed commits), so it would push a half-converted tree or skip the
+admin's review. The script refuses unless team sync is off on that Mac
+(`rt.teamSnapshot.enabled` false, machine scope), restores the clean start
+if it throws partway, and refuses a store it cannot parse. The admin turns
+team sync off before running it and back on after `rt team publish`. The
+script runs from a checkout at the release tag, since `scripts/` is not in
+the app bundle.
+
 1. Split `mattstack/settings.team.jsonc` into `org/settings.org.jsonc` and
    `teams/<team>/settings.team.jsonc` by the table in section 3. The script
    prints the split for review before writing.
@@ -541,9 +575,9 @@ then land top down (PR 5 into PR 4, and so on down to PR 1), and PR 1 merges
 to main as one commit, so main moves from the old layout to the new one in a
 single step and is never half converted. The stack rebases on main as main
 moves, not once at the end. A release follows the merge at once, then the
-conversion, then members update. The Mac app change in PR 5 is tested with a
-dev app built from the stack branch in a scratch tree, never in the shared
-checkout.
+conversion, then members update. The Mac app change in PR 5 is checked through a
+debug snapshot mode, never by launching a second app bundle, and never by
+building in the shared checkout.
 
 1. Names, layout and resolver: the renames in section 1, the paths, the
    `org` scope, the `add` merge with per-item provenance, `mattstack.org`,
@@ -595,9 +629,11 @@ checkout.
   gets its role back from the roster after `team.identity`.
 - The Mac app: a `PlanModels` decode test with the new rows, the Done screen
   listing `team.none`, `TeamSettingsModel` decoding `team status --json` with
-  and without the new fields, and the Team pane rendered in the dev app in
-  light and dark for an admin with two teams, an owner and a member,
-  screenshotted and looked at.
+  and without the new fields, and the Team pane rendered for an admin with
+  two teams, an owner and a member, in light and dark, through a debug
+  snapshot mode like the checklist's (`ChecklistRowSnapshot.swift`), never
+  by launching a second app bundle (its launchd agents are per user and
+  would replace the live app's), screenshotted and looked at.
 - The board and boxscore rendered in Fast Browser in both schemes, showing the
   active team's roster.
 - Docs: `docs/settings-architecture.md` (scopes, the `add` merge),
