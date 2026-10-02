@@ -134,3 +134,58 @@ func TestTableRuleAndTreeBranchesUseTheStaticRuleTone(t *testing.T) {
 		t.Fatalf("tree branch tone: %q", tree)
 	}
 }
+
+func TestATableLastColumnWrapsInsideItsColumnOnANarrowPane(t *testing.T) {
+	got := plainAt(40, protocol.Block{T: "table", Headers: []string{"KEY", "VALUE"}, Rows: []protocol.TableRow{
+		cells("rt.worktreeApp", "a value that is long enough to wrap twice"),
+	}})
+	want := fmt.Sprintf("  %-14s  %s\n", "KEY", "VALUE") +
+		"  " + strings.Repeat("─", 38) + "\n" +
+		fmt.Sprintf("  %-14s  %s\n", "rt.worktreeApp", "a value that is long") +
+		strings.Repeat(" ", 18) + "enough to wrap twice\n"
+	if got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+	checkWidth(t, got, 40)
+}
+
+func TestATableClipsALeadingColumnWhenTheLastHasNoRoom(t *testing.T) {
+	got := plainAt(30, protocol.Block{T: "table", Rows: []protocol.TableRow{cells("feature/a-very-long-branch-name", "ok")}})
+	if got != "  feature/a-very-long-bra…  ok\n" {
+		t.Fatalf("got %q", got)
+	}
+	checkWidth(t, got, 30)
+}
+
+func TestATableOnTheNarrowestPaneStaysInsideIt(t *testing.T) {
+	got := plainAt(20, protocol.Block{T: "table", Headers: []string{"BRANCH", "REPO", "STATE"}, Rows: []protocol.TableRow{
+		{Group: "a group label that is much wider than the pane"},
+		cells("feature/billing-export", "sample-app", "open, waiting on review"),
+	}})
+	checkWidth(t, got, 20)
+	if !strings.Contains(got, "…") {
+		t.Fatalf("nothing was clipped:\n%s", got)
+	}
+}
+
+func TestAWideCharacterCellWrapsByDisplayWidth(t *testing.T) {
+	got := plainAt(30, protocol.Block{T: "table", Rows: []protocol.TableRow{cells("名前", "日本語の 説明文が ここに 入ります とても 長い")}})
+	checkWidth(t, got, 30)
+	if len(rows(got)) < 2 || strings.Join(strings.Fields(got), "") != "名前日本語の説明文がここに入りますとても長い" {
+		t.Fatalf("the wide cell did not wrap whole:\n%s", got)
+	}
+}
+
+func TestATreeLastColumnWrapsUnderItsBranch(t *testing.T) {
+	got := plainAt(40, protocol.Block{T: "tree", Root: text("rt.worktreeApp"), Children: [][]protocol.Cell{
+		{text("user"), text("a value that is long enough to wrap twice")},
+		{text("team"), text("short")},
+	}})
+	want := "  rt.worktreeApp\n" +
+		"  ├── user  a value that is long enough\n" +
+		"  │" + strings.Repeat(" ", 9) + "to wrap twice\n" +
+		"  ╰── team  short\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}

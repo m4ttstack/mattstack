@@ -57,7 +57,8 @@ settings"), so the stale doppler hint and the settings-file reason wrap to a
 second line. On light, the `pending` and `off` glyphs (the dotted and hollow
 circles) and the purple `kv` keys are faint. The settings, errors
 and setup pages predate the hint wrap, the words-only wrap and the
-`StaticRule` tone, and show the older drawing.
+`StaticRule` tone, and show the older drawing. Phase 5g fixed the last column and the callout command; see
+`5g-narrow-*.png` and `5g-callouts-*.png`.
 
 In the sync renders, the conflicted files under the paused line sit under a
 dim `files` caption on a rail, listed once (the manual report no longer
@@ -101,3 +102,4 @@ One palette for both backgrounds: static output takes the `Static*` tones in `ui
 |---|---|
 | `5g-palette-dark.png`, `5g-palette-light.png` | every status, every callout label, chat's listening, idle and offline rows, sdm's connection words, a kv key, a tree, a link, the summary, the banner, a failure with its excerpt, and a changes block, at 100 columns |
 | `5g-wrap-dark.png`, `5g-wrap-light.png` | 60 columns: backup refs in a hint column a longer title narrowed (whole on the row below), an excerpt that wraps at its words, a stack line that hangs under its indent and breaks its path at a slash, and a token with no separator, cut inside the pane |
+| `5g-narrow-dark.png`, `5g-narrow-light.png` | 48 columns: a settings table whose values wrap in their column, a branch table whose long name is clipped so the state keeps its room, a tree whose last column wraps under its branch, a diff whose long added line wraps inside its band, and a CJK cell wrapped by display width |

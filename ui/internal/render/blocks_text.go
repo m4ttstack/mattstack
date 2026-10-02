@@ -99,23 +99,49 @@ func (r *renderer) diff(b protocol.Block) {
 		add = lipgloss.NewStyle().Foreground(theme.Bg).Background(theme.DiffAddBgLight)
 		del = lipgloss.NewStyle().Foreground(theme.Bg).Background(theme.DiffDelBgLight)
 	}
+	avail := r.width - len(indent)
 	for _, h := range b.Hunks {
 		r.emit(indent + keyStyle.Render(Clean(h.Header)))
 		w := 0
 		for _, l := range h.Lines {
 			w = max(w, lipgloss.Width(cleanCode(l.Text)))
 		}
-		w += 3
+		w = min(w+3, avail)
 		for _, l := range h.Lines {
-			t := cleanCode(l.Text)
+			sign, band := "   ", textStyle
 			switch l.Kind {
 			case "add":
-				r.emit(indent + add.Render(pad(" + "+t, w)))
+				sign, band = " + ", add
 			case "del":
-				r.emit(indent + del.Render(pad(" - "+t, w)))
-			default:
-				r.emit(indent + textStyle.Render("   "+t))
+				sign, band = " - ", del
+			}
+			for i, row := range diffRows(cleanCode(l.Text), w-3) {
+				s := sign
+				if i > 0 {
+					s = "   "
+				}
+				if l.Kind == "add" || l.Kind == "del" {
+					r.emit(indent + band.Render(pad(s+row, w)))
+				} else {
+					r.emit(indent + band.Render(s+row))
+				}
 			}
 		}
 	}
+}
+
+// diffRows wraps a line of code as the mission diff does, at spaces and
+// hyphens, so a band never runs past the pane.
+func diffRows(s string, w int) []string {
+	if w < minWrap {
+		return []string{s}
+	}
+	same := func(t string) string { return t }
+	with := func(_, t string) string { return t }
+	rows := textwrap.Spans([]string{s}, w, same, with)
+	out := make([]string, len(rows))
+	for i, row := range rows {
+		out[i] = strings.Join(row, "")
+	}
+	return out
 }

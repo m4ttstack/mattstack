@@ -181,19 +181,3 @@ func pad(s string, w int) string {
 	}
 	return s
 }
-
-// joinCells pads every cell but the last to its column width.
-func joinCells(cells []string, widths []int) string {
-	var b strings.Builder
-	for i, c := range cells {
-		if i > 0 {
-			b.WriteString("  ")
-		}
-		if i == len(cells)-1 {
-			b.WriteString(c)
-		} else {
-			b.WriteString(pad(c, widths[i]))
-		}
-	}
-	return b.String()
-}

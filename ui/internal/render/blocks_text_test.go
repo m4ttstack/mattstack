@@ -210,3 +210,19 @@ func TestDiffTintsFollowTheBackground(t *testing.T) {
 		t.Fatalf("light render kept coral text, which washes out on the pale tint: %q", light)
 	}
 }
+
+func TestALongDiffLineWrapsInsideThePane(t *testing.T) {
+	long := "next(alpha, beta, gamma, delta, epsilon, zeta);"
+	got := plainAt(30, protocol.Block{T: "diff", Hunks: []protocol.DiffHunk{{Header: "@@ -1 +1 @@", Lines: []protocol.DiffLine{
+		{Kind: "del", Text: "old();"},
+		{Kind: "add", Text: long},
+	}}}})
+	checkWidth(t, got, 30)
+	rs := rows(got)
+	if len(rs) < 4 || !strings.HasPrefix(rs[2], "   + next(") || !strings.HasPrefix(rs[3], "     ") {
+		t.Fatalf("the added line did not wrap under its sign:\n%s", got)
+	}
+	if noSpace(strings.Join(rs[2:], "")) != "+"+noSpace(long) {
+		t.Fatalf("the added line lost text:\n%s", got)
+	}
+}
