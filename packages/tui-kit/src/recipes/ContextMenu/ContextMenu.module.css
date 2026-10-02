@@ -63,17 +63,19 @@
     outline: none;
   }
 
-  .item[data-highlighted]:not([data-disabled]),
+  .item[data-highlighted]:not([data-disabled], :disabled),
   .item[data-disabled]:focus-visible,
   .item[data-popup-open] {
     background: var(--surface-wash-accent-16);
   }
 
+  /* No opacity: it fades the label and its hint together, which drops a
+     disabled row below a readable contrast on the card. The muted token
+     alone keeps it legible and still distinct from a live row's --text-1. */
   .item:disabled,
   .item[data-disabled] {
-    color: var(--text-3);
-    opacity: 0.45;
-    cursor: default;
+    color: var(--text-muted-on-card);
+    cursor: not-allowed;
   }
 
   .hint {

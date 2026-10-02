@@ -1,3 +1,4 @@
+import { contrastRatio } from "@mattstack/tokens/color-math";
 import { createTheme } from "@soribashi/core";
 import { useRef, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,6 +56,13 @@ function rootOf(container: HTMLElement): HTMLElement {
     test can never make one of these rows pass or fail by accident. */
 function partsIn(container: HTMLElement, part: string): NodeListOf<HTMLElement> {
   return container.querySelectorAll<HTMLElement>(`[data-part="${part}"]`);
+}
+
+/** A computed `rgb(...)` colour as the hex `contrastRatio` reads. Opaque
+    colours only: an alpha channel is dropped, not composited. */
+function toHex(rgb: string): string {
+  const [r, g, b] = (rgb.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+  return `#${[r, g, b].map((c) => Math.round(c ?? 0).toString(16).padStart(2, "0")).join("")}`;
 }
 
 /** The viewport margin the recipe clamps to, as a literal — reading it out of
@@ -204,6 +212,41 @@ describe("ContextMenu (browser)", () => {
     await userEvent.keyboard("{ArrowDown}");
     await expect.element(screen.getByRole("menuitem", { name: "open in gitlab" })).toHaveFocus();
   });
+
+  it.each([
+    ["light", false],
+    ["dark", true],
+  ])(
+    "a disabled item reads clearly in %s mode: muted at full opacity, not-allowed, never washed",
+    async (_scheme, dark) => {
+      const container = document.createElement("div");
+      if (dark) container.classList.add("dark");
+      document.body.appendChild(container);
+      const screen = await renderWithTheme(
+        <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
+          <ContextMenu.Item label="review" onClick={noop} />
+          <ContextMenu.Item label="merge" hint="needs approval" disabled onClick={noop} />
+        </ContextMenu>,
+        { container },
+      );
+      const root = rootOf(screen.container);
+      const item = screen.getByRole("menuitem", { name: "merge" }).element() as HTMLButtonElement;
+      const hint = partsIn(screen.container, CONTEXTMENU_PARTS.hint)[0] as HTMLElement;
+      const card = toHex(getComputedStyle(root).backgroundColor);
+
+      expect(getComputedStyle(item).opacity).toBe("1");
+      expect(getComputedStyle(item).cursor).toBe("not-allowed");
+      expect(contrastRatio(toHex(getComputedStyle(item).color), card)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(toHex(getComputedStyle(hint).color), card)).toBeGreaterThanOrEqual(4.5);
+      const live = screen.getByRole("menuitem", { name: "review" }).element();
+      expect(getComputedStyle(item).color).not.toBe(getComputedStyle(live).color);
+
+      const idle = getComputedStyle(item).backgroundColor;
+      await screen.getByRole("menuitem", { name: "merge" }).hover();
+      expect(getComputedStyle(item).backgroundColor).toBe(idle);
+      container.remove();
+    },
+  );
 
   it("renders `hint` as its own slot, and lets `trailing` replace it", async () => {
     // RowMenu's two item shapes: a plain right-hand hint ("herdr", "gitlab",
