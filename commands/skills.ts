@@ -45,7 +45,7 @@ import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsi
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
-import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, relativeToPrefix, SIGNATURE_RE, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
+import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
@@ -1818,13 +1818,13 @@ async function signedChanges(packDir: string, team: string, inScope: PendingFile
 }
 
 /**
- * Every pending file, pack-relative, whether or not it is in the pack's scope.
- * By default only the pack's own directory is read. `wholeRepo` reads the rest
- * of the repo too, spelling those paths as ones that climb out of the pack:
- * a status limited to the pack directory cannot pair a rename whose source
- * lies outside it, and shows the destination as a plain add.
+ * Every pending file with a side inside the pack, pack-relative, whether or
+ * not it is in the pack's scope. The status covers the whole repo, because one
+ * limited to the pack directory cannot pair a rename whose source lies outside
+ * it and shows the destination as a plain add; the other side of such a
+ * rename is spelled as a path that climbs out of the pack.
  */
-async function readPackPending(packDir: string, team: string, opts: { wholeRepo?: boolean } = {}): Promise<PendingFile[]> {
+async function readPackPending(packDir: string, team: string): Promise<PendingFile[]> {
   const prefixRes = await runGit(packDir, ["rev-parse", "--show-prefix"]);
   if (prefixRes.exitCode !== 0) {
     if (isNotARepo(prefixRes)) {
@@ -1836,12 +1836,9 @@ async function readPackPending(packDir: string, team: string, opts: { wholeRepo?
     }
     throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(prefixRes)}`);
   }
-  const limit = opts.wholeRepo ? [] : ["--", "."];
-  const statusRes = await runGit(packDir, ["status", "--porcelain=v1", "--untracked-files=all", ...limit]);
+  const statusRes = await runGit(packDir, ["status", "--porcelain=v1", "--untracked-files=all"]);
   if (statusRes.exitCode !== 0) throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(statusRes)}`);
-  const files = parsePorcelain(statusRes.stdout);
-  const prefix = prefixRes.stdout.trim();
-  return opts.wholeRepo ? packRelative(files, prefix) : relativeToPrefix(files, prefix);
+  return packRelative(parsePorcelain(statusRes.stdout), prefixRes.stdout.trim()).filter(touchesPack);
 }
 
 function shownPath(f: PendingFile): string {
@@ -1985,7 +1982,7 @@ export async function skillsDiscard(args: string[], io: DiscardIo = REAL_DISCARD
       });
     }
 
-    const pending = (await readPackPending(packDir, team, { wholeRepo: true })).filter(fullyInScope);
+    const pending = (await readPackPending(packDir, team)).filter(fullyInScope);
     if (expect !== null && (await signedChanges(packDir, team, pending)).signature !== expect) {
       throw new SkillsUsageError(`pack ${team} changed since its pending changes were shown, so nothing was thrown away`, {
         title: `The ${team} pack changed since its changes were shown`,

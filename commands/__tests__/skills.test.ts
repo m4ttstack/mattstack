@@ -2745,6 +2745,24 @@ describe("skillsChanges --json", () => {
     expect(c.bindings).toEqual([{ engineRef: "mattstack:stage-plan", slot: "domain", from: "acme:plan-policy", to: "acme:plan-policy-strict" }]);
   });
 
+  test("a rename into a subdirectory pack from elsewhere in its repo is outside the scope, and discard signs it the same way", async () => {
+    const { repoRoot, packDir } = makeCommittedPack("packs/acme");
+    writeFile(join(repoRoot, "NOTES.md"), "notes\n");
+    commitAll(repoRoot);
+    git(repoRoot, "mv", "NOTES.md", "packs/acme/pack/NOTES.md");
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(c.files).toEqual([{ path: "pack/skills.jsonc", status: "M", hash: blobId(packDir, "pack/skills.jsonc") }]);
+    expect(c.outsideScope).toEqual([{ path: "pack/NOTES.md", status: "R", from: "../../NOTES.md" }]);
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir, "--expect", c.signature]);
+
+    expect(d.discarded).toEqual([{ path: "pack/skills.jsonc", status: "M" }]);
+    expect(porcelain(repoRoot)).toBe("R  NOTES.md -> packs/acme/pack/NOTES.md\n");
+  });
+
   test("a bindings file that is new since HEAD lists every binding as added", async () => {
     const { packDir } = makeCommittedPack();
     rmSync(join(packDir, "pack", "skills.jsonc"));

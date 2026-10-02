@@ -82,13 +82,11 @@ function withFrom<T extends PendingFile>(f: T, path: string, map: (p: string) =>
   return f.from === undefined ? { ...f, path } : { ...f, path, from: map(f.from) };
 }
 
-/** Porcelain prints repo-root paths; a pack that lives in a subdirectory of its repo needs them relative to the pack. */
-export function relativeToPrefix<T extends PendingFile>(files: T[], prefix: string): T[] {
-  if (prefix === "") return files;
-  return files.filter((f) => f.path.startsWith(prefix)).map((f) => withFrom(f, f.path.slice(prefix.length), (p) => posix.relative(prefix, p)));
-}
-
-/** Unlike relativeToPrefix, keeps a repo file beside the pack, spelled as a path that climbs out of it, so it can never pass inScope. */
+/**
+ * Porcelain prints repo-root paths; a pack in a subdirectory of its repo needs
+ * them relative to the pack. A repo file beside the pack is kept, spelled as a
+ * path that climbs out of it, so it can never pass inScope.
+ */
 export function packRelative<T extends PendingFile>(files: T[], prefix: string): T[] {
   if (prefix === "") return files;
   const rel = (p: string) => posix.relative(prefix, p);
@@ -110,6 +108,11 @@ function sides(f: PendingFile): string[] {
 /** A rename counts against the scope on either side: the deletion of its source travels in the same commit as its destination. */
 export function outOfScopeSides(f: PendingFile): string[] {
   return sides(f).filter((p) => !inScope(p));
+}
+
+/** Whether either side of an entry, spelled from the pack, lies inside it; a repo file elsewhere climbs out with `../`. */
+export function touchesPack(f: PendingFile): boolean {
+  return sides(f).some((p) => p !== ".." && !p.startsWith("../"));
 }
 
 export function fullyInScope(f: PendingFile): boolean {

@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmdirSync, rmSync, writeFileSync } from "fs";
 import { join, posix, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
-import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, relativeToPrefix, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
+import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 
@@ -292,13 +292,13 @@ function shownPath(f: PendingFile): string {
   return f.from === undefined ? f.path : `${f.from} -> ${f.path}`;
 }
 
-/** Every pending file in the pack directory, pack-relative, read the way `rt skills changes` reads them. */
+/** Every pending file that touches the pack, pack-relative, read the way `rt skills changes` reads them. */
 async function readPackDirPending(deps: SyncDeps, dir: string): Promise<PendingFile[]> {
-  const status = await deps.run("git", ["--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all", "--", "."], { cwd: dir });
+  const status = await deps.run("git", ["--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all"], { cwd: dir });
   if (status.code !== 0) throw new Error(`git status failed in ${dir}: ${status.stderr.trim()}`);
   const prefix = await deps.run("git", ["rev-parse", "--show-prefix"], { cwd: dir });
   if (prefix.code !== 0) throw new Error(`git rev-parse --show-prefix failed in ${dir}: ${prefix.stderr.trim()}`);
-  return relativeToPrefix(parsePorcelain(status.stdout), prefix.stdout.trim());
+  return packRelative(parsePorcelain(status.stdout), prefix.stdout.trim()).filter(touchesPack);
 }
 
 function changedSinceShown(pack: string): Outcome {

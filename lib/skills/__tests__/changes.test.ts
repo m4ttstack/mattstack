@@ -3,7 +3,7 @@ import { execFileSync } from "child_process";
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { bindingChanges, describeGitFailure, fullyInScope, inScope, isNotARepo, literalPathspecs, needsStaging, outOfScopeSides, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, parsePorcelainEntries, pendingSignature, relativeToPrefix, surfaceChanges, withHashes, type HashedFile } from "../changes.ts";
+import { bindingChanges, describeGitFailure, fullyInScope, inScope, isNotARepo, literalPathspecs, needsStaging, outOfScopeSides, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, parsePorcelainEntries, pendingSignature, surfaceChanges, touchesPack, withHashes, type HashedFile } from "../changes.ts";
 
 describe("parsePorcelain", () => {
   test("reads status and path, including renames and untracked", () => {
@@ -51,15 +51,17 @@ describe("parsePorcelain arrows", () => {
   });
 });
 
-describe("relativeToPrefix", () => {
-  const files = [{ path: "packs/acme/pack/skills.jsonc", status: "M" }, { path: "packs/other/x.md", status: "M" }];
-
-  test("strips the pack prefix and drops paths outside it", () => {
-    expect(relativeToPrefix(files, "packs/acme/")).toEqual([{ path: "pack/skills.jsonc", status: "M" }]);
+describe("touchesPack", () => {
+  test("keeps an entry with a side in the pack and drops one wholly elsewhere in the repo", () => {
+    const files = packRelative([{ path: "packs/acme/pack/skills.jsonc", status: "M" }, { path: "packs/other/x.md", status: "M" }, { path: "packs/acme/pack/b.md", status: "R", from: "NOTES.md" }], "packs/acme/");
+    expect(files.filter(touchesPack)).toEqual([
+      { path: "pack/skills.jsonc", status: "M" },
+      { path: "pack/b.md", status: "R", from: "../../NOTES.md" },
+    ]);
   });
 
-  test("an empty prefix leaves the paths alone", () => {
-    expect(relativeToPrefix(files, "")).toEqual(files);
+  test("a rename out of the pack still touches it", () => {
+    expect(touchesPack({ path: "../../NOTES.md", status: "R", from: "pack/NOTES.md" })).toBe(true);
   });
 });
 
@@ -197,8 +199,8 @@ describe("rename sources", () => {
     ]);
   });
 
-  test("relativeToPrefix carries the source of a rename into the pack's terms", () => {
-    expect(relativeToPrefix([{ path: "packs/acme/pack/b.md", status: "R", from: "packs/acme/a.md" }], "packs/acme/")).toEqual([
+  test("packRelative carries a rename inside a subdirectory pack into the pack's terms", () => {
+    expect(packRelative([{ path: "packs/acme/pack/b.md", status: "R", from: "packs/acme/a.md" }], "packs/acme/")).toEqual([
       { path: "pack/b.md", status: "R", from: "a.md" },
     ]);
   });
