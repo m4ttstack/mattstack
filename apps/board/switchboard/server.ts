@@ -253,12 +253,12 @@ if (import.meta.main) {
   const store = new SwitchboardStore(db);
   const teamInvites = new TeamInviteStore(db);
   const port = process.env.PORT !== undefined ? Number(process.env.PORT) : 7940;
-  // Bun closes a request idle for idleTimeout seconds (default 10), which
-  // would cut every /inbox/wait held up to MAX_WAIT_SECONDS.
   setInterval(() => {
     store.prune(Date.now(), ENVELOPE_TTL_MS);
     teamInvites.prune(Date.now());
   }, 60 * 60_000);
+  // Bun closes a request idle for idleTimeout seconds (default 10), which
+  // would cut every /inbox/wait held up to MAX_WAIT_SECONDS.
   const server = Bun.serve({
     port,
     idleTimeout: MAX_WAIT_SECONDS + 15,

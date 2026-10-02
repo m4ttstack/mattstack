@@ -90,13 +90,14 @@ relay, one process, one SQLite file. To deploy it to
 
 ### Push
 
-Boards no longer wait a minute for asks. The rt daemon on each Mac holds a
-long-poll on the relay (`GET /inbox/wait?since=<cursor>&timeout=25`), which
-returns the moment mail lands for that board without consuming it. The daemon
-then broadcasts `peer-inbox`: the board pulls its inbox on that event, and
-rt's `board-peer` cron trigger runs `board triage --peer` to start the agent.
-The board's own 60s poll stays as the fallback, so a daemon or relay that is
-down only costs speed.
+Asks reach a board in seconds rather than on its 60s poll. The rt daemon on
+each Mac holds a long-poll on the relay
+(`GET /inbox/wait?since=<cursor>&timeout=25`), which returns the moment mail
+lands for that board without consuming it. The daemon then broadcasts
+`peer-inbox`: the board pulls its inbox on that event, and rt's `board-peer`
+cron trigger runs `board triage --peer` to start the agent. The board's own
+60s poll stays as the fallback, so a daemon or relay that is down only costs
+speed.
 
 Deploy the relay before shipping a release that carries the waker; the relay
 change is additive and older boards keep polling.

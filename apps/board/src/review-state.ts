@@ -55,8 +55,10 @@ export interface ReviewState {
       live event fires again. `released` can never stand in for this: it
       stays false forever for the board's unattended gates. */
   resumedGateId?: string;
-  /** When the current run began: stamped by the write that moves the lane
-      from nothing, done or error into queued or reviewing. */
+  /** When the current run began. A write that moves the lane from nothing,
+      done or error into queued or reviewing stamps it, and every launch
+      writes it outright, since a relaunch over a stale queued or reviewing
+      lane is a new run too. */
   runStartedAt?: number;
   /** Stamp of the last operator reopen of a finished pane ("resume review"),
       written with the SAME clock value the write's updatedAt gets. While
@@ -142,9 +144,10 @@ const RUN_STARTS: ReadonlySet<ReviewStatus> = new Set(['queued', 'reviewing']);
 
 /** Read-merge-write a review row. First write stamps startedAt; every write
     stamps updatedAt; a write that moves the lane into queued or reviewing from
-    nothing, done or error stamps runStartedAt unless the patch carries one. Tries updateByHandle first; when no row exists it
-    requires `patch.mrUrl` and `patch.iid` to insert a fresh row, else there
-    is no identity to key the row by and the caller is doing something wrong. */
+    nothing, done or error stamps runStartedAt unless the patch carries one.
+    Tries updateByHandle first; when no row exists it requires `patch.mrUrl`
+    and `patch.iid` to insert a fresh row, else there is no identity to key
+    the row by and the caller is doing something wrong. */
 export function writeReviewState(
   handle: string,
   patch: Partial<ReviewState> & { status: ReviewStatus },
