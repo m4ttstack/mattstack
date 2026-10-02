@@ -85,4 +85,4 @@ the ANSI output on each background.
 
 - `chat-dark.png`, `chat-light.png`: what a person sees from `rt chat`: rooms, read, who, buddies, sign-in, help, a failure, the two policy refusals and the sign-out warning. Off a terminal these verbs print their older plain text, unchanged.
 
-What reads wrong: in `read` the styled body sits flush under its name and time row, so one message's last line runs straight into the next author's row with no gap (the plain renderer indents a paragraph two spaces; rt-ui does not). On dark, the `idle` and `offline` words in `who` and `buddies` are drawn near the body foreground, so they are not visibly quieter than `listening`; on light they are dimmed.
+What reads wrong: a message's body is indented under its name and time, but there is no blank line between one message and the next author, so a long thread reads dense. On dark, the `idle` and `offline` words in `who` and `buddies` are drawn near the body foreground, so they are not visibly quieter than `listening`; on light they are dimmed. Times in `read` are UTC with no zone, as the plain text always printed them.
