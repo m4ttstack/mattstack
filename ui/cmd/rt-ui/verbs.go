@@ -259,7 +259,7 @@ func viewFor(name string) func(*session.Emitter) session.View {
 // from the environment, not from stdout, because rt pipes this output and
 // writes it to the terminal itself.
 func runRender(args []string) int {
-	width, noColor := 80, false
+	width, noColor, reportBackground := 80, false, false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--width":
@@ -271,6 +271,8 @@ func runRender(args []string) int {
 			}
 		case "--no-color":
 			noColor = true
+		case "--report-background":
+			reportBackground = true
 		}
 	}
 
@@ -315,12 +317,18 @@ func runRender(args []string) int {
 		profile = colorprofile.NoTTY
 	}
 	bg := background.Unknown
-	if profile != colorprofile.NoTTY && profile != colorprofile.Ascii {
+	colored := profile != colorprofile.NoTTY && profile != colorprofile.Ascii
+	if colored {
 		bg = background.Detect()
 	}
 	w := &colorprofile.Writer{Forward: os.Stdout, Profile: profile}
 	if _, err := w.WriteString(render.Render(blocks, render.Options{Width: width, Background: bg})); err != nil {
 		return ExitInternal
+	}
+	// rt passes the word back on its next spawns, so one rt command asks
+	// the terminal at most once.
+	if reportBackground && colored {
+		fmt.Fprintf(os.Stderr, "background=%s\n", bg)
 	}
 	return ExitOK
 }

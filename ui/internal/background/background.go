@@ -41,28 +41,34 @@ type Inputs struct {
 	MacOS    bool
 }
 
-// Resolve walks the chain: the setting rt hands over, the terminal's own
-// answer, COLORFGBG, then Ghostty's configured background.
+// Resolve walks the chain: the word rt hands over (dark, light, auto, or
+// unknown once rt has resolved auto), then COLORFGBG, Ghostty's configured
+// background, and last the terminal's own answer.
 func Resolve(in Inputs) Background {
-	switch in.Getenv("RT_UI_BACKGROUND") {
+	setting := in.Getenv("RT_UI_BACKGROUND")
+	switch setting {
 	case "dark":
 		return Dark
 	case "light":
 		return Light
-	case "auto":
-		// rt sets the variable on every spawn and spawns the helper only for
-		// a person at a terminal. Unset means a test or a script started it,
-		// and that terminal belongs to someone who did not ask to be queried.
-		if in.Query != nil {
-			if c, ok := in.Query(); ok {
-				return Of(c)
-			}
-		}
+	case "unknown":
+		return Unknown
 	}
 	if b := FromColorfgbg(in.Getenv("COLORFGBG")); b != Unknown {
 		return b
 	}
-	return ghostty(in)
+	if b := ghostty(in); b != Unknown {
+		return b
+	}
+	// rt sends auto only when a person is at a terminal nothing else is
+	// reading. Unset means a test, a pipe or a script, and that terminal
+	// belongs to someone who did not ask to be queried.
+	if setting == "auto" && in.Query != nil {
+		if c, ok := in.Query(); ok {
+			return Of(c)
+		}
+	}
+	return Unknown
 }
 
 var (
@@ -218,32 +224,47 @@ func configValue(data []byte, key string) (string, bool) {
 
 // TTY is the terminal the query runs on.
 type TTY interface {
-	// Raw turns off echo and line buffering; the restore it returns also
-	// discards any input still pending.
+	// Pending counts the input bytes waiting to be read.
+	Pending() (int, error)
+	// Raw turns off echo and line buffering; the restore it returns keeps
+	// any unread input.
 	Raw() (restore func(), err error)
 	Write(p []byte) (int, error)
 	// ReadTimeout waits at most d for input; (0, nil) means it timed out.
 	ReadTimeout(p []byte, d time.Duration) (int, error)
 }
 
-// queryCap only matters for a terminal that answers neither query: every
-// terminal answers DA1, and the reply to it is what ends the wait.
-const queryCap = 150 * time.Millisecond
+// queryCap bounds a terminal that answers neither query. It also cuts off a
+// link slower than itself: those replies then arrive after the mode is
+// restored, echo on screen and reach the shell as input, which is why
+// rt.ui.background set to dark or light skips the query. 250 ms clears a
+// typical ssh round trip.
+const queryCap = 250 * time.Millisecond
 
 const queryBytes = "\x1b]11;?\x1b\\\x1b[c"
 
+// query never runs over input someone already typed: in raw mode it would be
+// read here and lost. Canonical mode only counts whole lines, so a partial
+// line is checked for again once the mode is raw.
 func query(t TTY, limit time.Duration, now func() time.Time) (color.Color, bool) {
+	if n, err := t.Pending(); err != nil || n > 0 {
+		return nil, false
+	}
 	restore, err := t.Raw()
 	if err != nil {
 		return nil, false
 	}
 	defer restore()
-	if _, err := t.Write([]byte(queryBytes)); err != nil {
+	if n, err := t.Pending(); err != nil || n > 0 {
+		return nil, false
+	}
+	if n, err := t.Write([]byte(queryBytes)); err != nil || n != len(queryBytes) {
 		return nil, false
 	}
 	deadline := now().Add(limit)
 	var got []byte
-	buf := make([]byte, 256)
+	// One byte at a time, so a key typed after the DA1 reply stays unread.
+	buf := make([]byte, 1)
 	for {
 		left := deadline.Sub(now())
 		if left <= 0 {

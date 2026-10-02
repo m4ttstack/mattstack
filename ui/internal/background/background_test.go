@@ -3,6 +3,7 @@ package background
 import (
 	"errors"
 	"image/color"
+	"io"
 	"io/fs"
 	"testing"
 	"time"
@@ -58,18 +59,39 @@ func TestTheSettingWinsAndNothingIsProbed(t *testing.T) {
 	}
 }
 
-func TestAutoAsksTheTerminalFirst(t *testing.T) {
+func TestAutoAsksTheTerminalOnlyWhenTheCheapStepsSayNothing(t *testing.T) {
 	for name, c := range map[string]struct {
 		answer color.Color
 		want   Background
 	}{"dark": {darkColor, Dark}, "light": {lightColor, Light}} {
-		w := &world{env: map[string]string{"RT_UI_BACKGROUND": "auto", "COLORFGBG": "0;15"}, answer: c.answer}
-		if c.want == Light {
-			w.env["COLORFGBG"] = "15;0"
-		}
+		w := &world{env: map[string]string{"RT_UI_BACKGROUND": "auto"}, answer: c.answer}
 		if got := Resolve(w.inputs()); got != c.want || w.asked != 1 {
 			t.Errorf("%s: got %v, asked %d times", name, got, w.asked)
 		}
+	}
+}
+
+func TestColorfgbgOrGhosttyDecideBeforeTheTerminalIsAsked(t *testing.T) {
+	w := &world{env: map[string]string{"RT_UI_BACKGROUND": "auto", "COLORFGBG": "0;15"}, answer: darkColor}
+	if got := Resolve(w.inputs()); got != Light || w.asked != 0 {
+		t.Fatalf("COLORFGBG: got %v, asked %d times", got, w.asked)
+	}
+	w = ghosttyWorld(map[string]string{"/h/.config/ghostty/config": "background = #000000\n"})
+	w.noQuery = false
+	w.answer = lightColor
+	w.env["RT_UI_BACKGROUND"] = "auto"
+	if got := Resolve(w.inputs()); got != Dark || w.asked != 0 {
+		t.Fatalf("Ghostty: got %v, asked %d times", got, w.asked)
+	}
+}
+
+func TestAGhosttyThatSaysNothingStillAsksTheTerminal(t *testing.T) {
+	w := ghosttyWorld(map[string]string{"/h/.config/ghostty/config": "theme = light:Day,dark:Night\n"})
+	w.noQuery = false
+	w.answer = darkColor
+	w.env["RT_UI_BACKGROUND"] = "auto"
+	if got := Resolve(w.inputs()); got != Dark || w.asked != 1 {
+		t.Fatalf("got %v, asked %d times", got, w.asked)
 	}
 }
 
@@ -84,9 +106,20 @@ func TestOnlyAnExplicitAutoAsksTheTerminal(t *testing.T) {
 	}
 }
 
-func TestATerminalWithNoAnswerFallsThroughToColorfgbg(t *testing.T) {
-	w := &world{env: map[string]string{"RT_UI_BACKGROUND": "auto", "COLORFGBG": "0;15"}}
-	if got := Resolve(w.inputs()); got != Light || w.asked != 1 {
+func TestUnknownFromRtIsFinal(t *testing.T) {
+	w := ghosttyWorld(map[string]string{"/h/.config/ghostty/config": "background = #000000\n"})
+	w.noQuery = false
+	w.answer = darkColor
+	w.env["RT_UI_BACKGROUND"] = "unknown"
+	w.env["COLORFGBG"] = "15;0"
+	if got := Resolve(w.inputs()); got != Unknown || w.asked != 0 {
+		t.Fatalf("got %v, asked %d times", got, w.asked)
+	}
+}
+
+func TestATerminalWithNoAnswerFallsThroughToUnknown(t *testing.T) {
+	w := &world{env: map[string]string{"RT_UI_BACKGROUND": "auto"}}
+	if got := Resolve(w.inputs()); got != Unknown || w.asked != 1 {
 		t.Fatalf("got %v, asked %d times", got, w.asked)
 	}
 }
@@ -252,15 +285,26 @@ func TestParseReply(t *testing.T) {
 }
 
 type fakeTTY struct {
-	rawErr   error
-	writeErr error
-	chunks   []string
-	readErr  error
-	wrote    string
-	raw      bool
-	restored int
-	clock    time.Time
-	waits    []time.Duration
+	rawErr        error
+	writeErr      error
+	short         bool
+	pendingBefore int
+	pendingRaw    int
+	input         string
+	arrivals      []string
+	readErr       error
+	wrote         string
+	raw           bool
+	restored      int
+	clock         time.Time
+	waits         []time.Duration
+}
+
+func (f *fakeTTY) Pending() (int, error) {
+	if f.raw {
+		return f.pendingRaw, nil
+	}
+	return f.pendingBefore, nil
 }
 
 func (f *fakeTTY) Raw() (func(), error) {
@@ -275,30 +319,38 @@ func (f *fakeTTY) Write(p []byte) (int, error) {
 	if f.writeErr != nil {
 		return 0, f.writeErr
 	}
+	if f.short {
+		p = p[:len(p)/2]
+	}
 	f.wrote += string(p)
 	return len(p), nil
 }
 
+// ReadTimeout hands out what has arrived; each later arrival lands when the
+// input runs dry, a millisecond on.
 func (f *fakeTTY) ReadTimeout(p []byte, d time.Duration) (int, error) {
 	f.waits = append(f.waits, d)
-	if len(f.chunks) == 0 {
+	if f.input == "" && len(f.arrivals) > 0 {
+		f.input, f.arrivals = f.arrivals[0], f.arrivals[1:]
+		f.clock = f.clock.Add(time.Millisecond)
+	}
+	if f.input == "" {
 		if f.readErr != nil {
 			return 0, f.readErr
 		}
 		f.clock = f.clock.Add(d)
 		return 0, nil
 	}
-	n := copy(p, f.chunks[0])
-	f.chunks = f.chunks[1:]
-	f.clock = f.clock.Add(time.Millisecond)
+	n := copy(p, f.input)
+	f.input = f.input[n:]
 	return n, nil
 }
 
 func (f *fakeTTY) now() time.Time { return f.clock }
 
 func TestQueryReadsTheColorAndRestoresTheTerminal(t *testing.T) {
-	f := &fakeTTY{chunks: []string{"\x1b]11;rgb:1a1a/", "1b1b/2626\x1b\\\x1b[?6", "2;22c"}}
-	c, ok := query(f, 150*time.Millisecond, f.now)
+	f := &fakeTTY{arrivals: []string{"\x1b]11;rgb:1a1a/", "1b1b/2626\x1b\\\x1b[?6", "2;22c"}}
+	c, ok := query(f, queryCap, f.now)
 	if !ok || Of(c) != Dark {
 		t.Fatalf("got %v %v", c, ok)
 	}
@@ -310,46 +362,72 @@ func TestQueryReadsTheColorAndRestoresTheTerminal(t *testing.T) {
 	}
 }
 
+func TestQueryLeavesInputAfterTheRepliesUnread(t *testing.T) {
+	f := &fakeTTY{arrivals: []string{"\x1b]11;rgb:ffff/ffff/ffff\x07\x1b[?62;22clater\n"}}
+	if c, ok := query(f, queryCap, f.now); !ok || Of(c) != Light {
+		t.Fatalf("got %v %v", c, ok)
+	}
+	if f.input != "later\n" {
+		t.Fatalf("left %q unread, want the keys typed after the replies", f.input)
+	}
+}
+
 func TestQueryStopsAtDA1(t *testing.T) {
-	f := &fakeTTY{chunks: []string{"\x1b[?62;22c", "\x1b]11;rgb:ffff/ffff/ffff\x07"}}
-	if _, ok := query(f, 150*time.Millisecond, f.now); ok {
+	f := &fakeTTY{arrivals: []string{"\x1b[?62;22c", "\x1b]11;rgb:ffff/ffff/ffff\x07"}}
+	if _, ok := query(f, queryCap, f.now); ok {
 		t.Fatal("an OSC 11 reply after DA1 was taken")
 	}
-	if len(f.waits) != 1 || f.restored != 1 || f.raw {
-		t.Fatalf("waits %d restored %d raw %v", len(f.waits), f.restored, f.raw)
+	if len(f.arrivals) != 1 || f.restored != 1 || f.raw {
+		t.Fatalf("arrivals left %d restored %d raw %v", len(f.arrivals), f.restored, f.raw)
 	}
 }
 
 func TestQueryGivesUpAtTheCap(t *testing.T) {
 	f := &fakeTTY{}
-	if _, ok := query(f, 150*time.Millisecond, f.now); ok {
+	if _, ok := query(f, queryCap, f.now); ok {
 		t.Fatal("silence gave a color")
 	}
 	var total time.Duration
 	for _, d := range f.waits {
 		total += d
 	}
-	if total != 150*time.Millisecond || f.restored != 1 || f.raw {
+	if total != queryCap || f.restored != 1 || f.raw {
 		t.Fatalf("waited %v restored %d raw %v", total, f.restored, f.raw)
+	}
+}
+
+func TestQuerySkipsWhenInputIsPending(t *testing.T) {
+	f := &fakeTTY{pendingBefore: 10}
+	if _, ok := query(f, queryCap, f.now); ok || f.wrote != "" || f.restored != 0 || f.raw {
+		t.Fatalf("a whole typed line: wrote %q restored %d raw %v", f.wrote, f.restored, f.raw)
+	}
+	f = &fakeTTY{pendingRaw: 4}
+	if _, ok := query(f, queryCap, f.now); ok || f.wrote != "" || f.restored != 1 || f.raw {
+		t.Fatalf("a partial line: wrote %q restored %d raw %v", f.wrote, f.restored, f.raw)
 	}
 }
 
 func TestQueryRestoresOnEveryFailure(t *testing.T) {
 	boom := errors.New("boom")
 	for name, f := range map[string]*fakeTTY{
-		"write":   {writeErr: boom},
-		"read":    {readErr: boom},
-		"garbled": {chunks: []string{"\x1b]11;nonsense\x07\x1b[?6c"}},
+		"write":         {writeErr: boom},
+		"partial write": {short: true},
+		"read":          {readErr: boom},
+		"hangup":        {readErr: io.EOF},
+		"garbled":       {arrivals: []string{"\x1b]11;nonsense\x07\x1b[?6c"}},
 	} {
-		if _, ok := query(f, 150*time.Millisecond, f.now); ok {
+		if _, ok := query(f, queryCap, f.now); ok {
 			t.Errorf("%s: gave a color", name)
 		}
 		if f.raw || f.restored != 1 {
 			t.Errorf("%s: raw %v restored %d", name, f.raw, f.restored)
 		}
+		if f.readErr != nil && len(f.waits) != 1 {
+			t.Errorf("%s: kept reading after the error: %d waits", name, len(f.waits))
+		}
 	}
 	f := &fakeTTY{rawErr: boom}
-	if _, ok := query(f, 150*time.Millisecond, f.now); ok || f.wrote != "" {
+	if _, ok := query(f, queryCap, f.now); ok || f.wrote != "" {
 		t.Fatalf("raw mode failed but the query went out: %q", f.wrote)
 	}
 }
