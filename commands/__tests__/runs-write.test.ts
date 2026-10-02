@@ -4,6 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { DAEMON_SOCK_PATH } from "../../lib/daemon-config.ts";
+import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { runWriteVerb } from "../runs-write.ts";
 import { runsList } from "../runs.ts";
 
@@ -249,14 +251,17 @@ describe("RT_RUN_DB fallback", () => {
 describe("rt runs positional rejection", () => {
   test("a positional that is not a subcommand is a usage error, exit 2, before any daemon call", async () => {
     const exitSpy = spyOn(process, "exit").mockImplementation((() => { throw new Error("exit"); }) as never);
-    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const io = captureOut();
+    out.__test__.setHuman(() => false);
     try {
       await expect(runsList(["stage-start", "--stage", "plan"])).rejects.toThrow("exit");
       expect(exitSpy).toHaveBeenCalledWith(2);
-      expect(String(errSpy.mock.calls[0]?.[0])).toContain("unknown subcommand");
+      const stderr = io.errLines().join("\n");
+      expect(stderr.startsWith("rt runs has no command called stage-start")).toBe(true);
+      expect(stderr).toContain("next: rt runs --help");
     } finally {
       exitSpy.mockRestore();
-      errSpy.mockRestore();
+      io.restore();
     }
   });
 });
