@@ -91,8 +91,12 @@ describe('wash tone', () => {
       theme,
       variant: 'wash',
     });
-    expect(result.background).toContain('var(--tk-fill-accent) 10%');
-    expect(result.background).toContain('var(--tk-fill-accent) 20%');
+    expect(result.background).toBe(
+      'color-mix(in srgb, var(--tk-fill-accent) var(--ui-wash), transparent)'
+    );
+    expect(result.hover).toBe(
+      'color-mix(in srgb, var(--tk-fill-accent) var(--ui-wash-hover), transparent)'
+    );
     expect(result.color).toBe('var(--tk-text-accent)');
   });
 

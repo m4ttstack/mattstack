@@ -77,8 +77,14 @@
 
 /* Progress's `variant="segmented"`: a bar of parts that sum to the whole,
    with no track behind them, so the gaps between the parts show whatever
-   surface the bar sits on. */
+   surface the bar sits on. A `gray` part takes the soft line step, and the
+   part marked `data-active` the strong one. */
 .progressRoot[data-variant='segmented'] {
+  --mantine-color-gray-filled: var(--tk-line-2);
   gap: 2px;
   background-color: transparent;
+}
+
+.progressRoot[data-variant='segmented'] > [data-active] {
+  background-color: var(--tk-line-1);
 }

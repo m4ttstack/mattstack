@@ -172,3 +172,14 @@ test('both scheme blocks define the same var names', () => {
   // other scheme inherited -- the most common way these drift.
   expect(light).toEqual(dark);
 });
+
+test('both scheme blocks set the wash strengths the kit and apps share', () => {
+  const strengths = SCHEMES.map(scheme => {
+    const defined = declarations(schemeBlock(scheme));
+    return [defined.get('--ui-wash'), defined.get('--ui-wash-hover')];
+  });
+  expect(strengths).toEqual([
+    ['10%', '14%'],
+    ['20%', '26%'],
+  ]);
+});

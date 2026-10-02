@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   ActionIcon,
   Button,
@@ -124,18 +126,38 @@ describe('ground paper', () => {
 });
 
 describe('segmented progress', () => {
-  it('carries the kit class the segmented rule keys on', () => {
+  it('carries the kit class the segmented rules key on, and marks the active part', () => {
     const { container } = render(
       <MantineProvider theme={theme}>
         <Progress.Root variant="segmented">
-          <Progress.Section value={40} />
-          <Progress.Section value={60} />
+          <Progress.Section value={40} color="gray" />
+          <Progress.Section value={60} color="gray" data-active />
         </Progress.Root>
       </MantineProvider>
     );
-    expect(container.querySelector(`.${classes.progressRoot}`)).toHaveAttribute(
-      'data-variant',
-      'segmented'
+    const root = container.querySelector(`.${classes.progressRoot}`);
+    expect(root).toHaveAttribute('data-variant', 'segmented');
+    expect(
+      [...root!.children].map(section => section.hasAttribute('data-active'))
+    ).toEqual([false, true]);
+  });
+});
+
+describe('segmented progress tones', () => {
+  // jsdom applies no CSS module, so the tone contract is read off the sheet.
+  const css = readFileSync(
+    path.resolve(import.meta.dirname, 'component-styles.module.css'),
+    'utf-8'
+  );
+  const rule = (selector: string) =>
+    css.match(new RegExp(`${selector}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+
+  it('gives gray parts the soft line and an active part the strong one', () => {
+    expect(rule("\\.progressRoot\\[data-variant='segmented'\\]")).toContain(
+      '--mantine-color-gray-filled: var(--tk-line-2)'
     );
+    expect(
+      rule("\\.progressRoot\\[data-variant='segmented'\\] > \\[data-active\\]")
+    ).toContain('background-color: var(--tk-line-1)');
   });
 });

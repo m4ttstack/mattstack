@@ -48,9 +48,10 @@ const QUIET_TONES = new Map<string, VariantColorResolverResult>([
   ],
 ]);
 
-/** A kit hue at the given strengths in light and dark, over transparent. */
-const washOf = (hue: string, light: number, dark: number) =>
-  `light-dark(color-mix(in srgb, var(--tk-fill-${hue}) ${light}%, transparent), color-mix(in srgb, var(--tk-fill-${hue}) ${dark}%, transparent))`;
+/** A kit hue mixed over transparent at a strength scheme-vars.css sets per
+    scheme. */
+const washOf = (hue: string, strength: string) =>
+  `color-mix(in srgb, var(--tk-fill-${hue}) var(${strength}), transparent)`;
 
 /**
  * Opt-in `wash` tone for a selected row: a thin wash of a kit hue behind a
@@ -59,8 +60,8 @@ const washOf = (hue: string, light: number, dark: number) =>
  */
 function wash(hue: string): VariantColorResolverResult {
   return {
-    background: washOf(hue, 10, 20),
-    hover: washOf(hue, 14, 26),
+    background: washOf(hue, '--ui-wash'),
+    hover: washOf(hue, '--ui-wash-hover'),
     color: `var(--tk-text-${hue})`,
     border: `${rem(1)} solid transparent`,
   };

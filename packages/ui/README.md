@@ -99,7 +99,9 @@ A `Paper` on the page ground (a card on a dotted canvas) can take
 `variant="ground"`: the card surface in both schemes and, with `withBorder`,
 a rule in the kit border rather than Mantine's lighter separator gray. A
 `Progress` that splits a whole into parts can take `variant="segmented"`: no
-track, and a gap between the sections that shows the surface beneath.
+track, a gap between the sections that shows the surface beneath, `gray`
+parts in the soft line step, and the part marked `data-active` in the strong
+one.
 
 On a panel surface, a selected `NavLink` can take `variant="wash"` (a thin
 wash of its kit hue behind a label in that hue), and a `Switch` can take

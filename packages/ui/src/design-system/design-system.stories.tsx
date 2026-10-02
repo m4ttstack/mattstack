@@ -71,6 +71,16 @@ function QuietBadges() {
           <Badge variant="quiet">quiet</Badge>
           <Badge variant="quiet-outline">quiet-outline</Badge>
         </Group>
+      </Stack>
+    </Box>
+  );
+}
+
+function CanvasSurfaces() {
+  return (
+    <Box bg="var(--tk-bg)" p="lg" w={420}>
+      <Stack gap="sm">
+        <Text size="sm">Cards on the page ground (--tk-bg)</Text>
         <Group gap="sm">
           <Paper withBorder p="xs">
             Paper withBorder
@@ -79,15 +89,18 @@ function QuietBadges() {
             Paper ground
           </Paper>
         </Group>
-        <Text size="sm">Inside a card (--tk-card)</Text>
-        <Stack gap="sm" bg="var(--tk-card)" p="sm">
-          <Badge variant="panel-outline">panel-outline</Badge>
-          <Progress.Root variant="segmented" size={8}>
-            <Progress.Section value={20} color="accent" />
-            <Progress.Section value={30} color="gray" />
-            <Progress.Section value={50} color="gray" />
-          </Progress.Root>
-        </Stack>
+        <Paper withBorder variant="ground" p="sm">
+          <Stack gap="sm">
+            <Text size="sm">Inside a ground card</Text>
+            <Badge variant="panel-outline">panel-outline</Badge>
+            <Progress.Root variant="segmented" size={8}>
+              <Progress.Section value={20} color="accent" />
+              <Progress.Section value={30} color="gray" />
+              <Progress.Section value={35} color="gray" data-active />
+              <Progress.Section value={15} color="gray" />
+            </Progress.Root>
+          </Stack>
+        </Paper>
       </Stack>
     </Box>
   );
@@ -119,6 +132,11 @@ export const TextTokensStory: Story = {
 export const QuietBadgeTones: Story = {
   name: 'Quiet badge tones',
   render: () => <QuietBadges />,
+};
+
+export const CanvasSurfacesStory: Story = {
+  name: 'Canvas surfaces: ground paper, panel chip, segmented bar',
+  render: () => <CanvasSurfaces />,
 };
 
 export const PanelTonesStory: Story = {
