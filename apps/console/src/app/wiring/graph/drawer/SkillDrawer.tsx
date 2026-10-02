@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Badge,
   Box,
@@ -12,6 +12,7 @@ import { useHotkeys } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 
 import { useDrawerSurface } from '../../drawerSurface';
+import type { SkillsCheck, SkillsComposition } from '../../outline';
 import { useSkillSource, type SkillsAnatomy } from '../../useWiring';
 import {
   drawerContent,
@@ -20,11 +21,14 @@ import {
   type DrawerTab,
   type DrawerTarget,
 } from '../model/drawerContent';
+import type { FocusGroups, FocusItem } from '../model/focusModel';
 import type { TemplateView } from '../model/templateModel';
 import type { WiringUrl, WiringView } from '../useWiringUrl';
 import classes from './drawer.module.css';
 import { DrawerMenu } from './DrawerMenu';
+import { HistoryTab } from './HistoryTab';
 import { TextTab } from './TextTab';
+import { UsedByTab } from './UsedByTab';
 
 export const DRAWER_WIDTH = 600;
 
@@ -99,12 +103,21 @@ export function SkillDrawer({
   pack,
   view,
   anatomy,
+  composition,
+  check,
+  groups,
+  pipeline,
   url,
   setUrl,
 }: {
   pack: string;
   view: TemplateView | null;
   anatomy: SkillsAnatomy | undefined;
+  composition: SkillsComposition | undefined;
+  check: SkillsCheck | undefined;
+  groups: FocusGroups | null;
+  /** The pipeline the focused skill runs in, or leads. */
+  pipeline: FocusItem | null;
   url: WiringUrl;
   setUrl: (patch: Partial<WiringUrl>) => void;
 }) {
@@ -118,6 +131,11 @@ export function SkillDrawer({
   const opened = current !== null;
   const close = () => setUrl({ select: null, rebind: false });
   const [menuOpened, setMenuOpened] = useState(false);
+  // A drawer shut by any route (Back, a new focus) unmounts the menu without
+  // telling it, so it would come back open with the drawer's keys still off.
+  useEffect(() => {
+    if (!opened) setMenuOpened(false);
+  }, [opened]);
 
   const step = (by: -1 | 1) => {
     const select = steppedRow(target, view, by);
@@ -248,6 +266,14 @@ export function SkillDrawer({
           />
         </div>
         <div className={classes.row}>
+          {content.dot && (
+            <Box
+              className={classes.dot}
+              data-tone={content.dot}
+              data-parity="dot"
+              data-testid="drawer-dot"
+            />
+          )}
           {content.chip && (
             <Badge
               variant="wash"
@@ -320,6 +346,28 @@ export function SkillDrawer({
         )}
       </Box>
       {tab === 'text' && <TextTab pack={pack} content={content} />}
+      {tab === 'used-by' && content.usedBy && composition && groups && (
+        <UsedByTab
+          pack={pack}
+          skill={anatomy.skill}
+          usedBy={content.usedBy}
+          composition={composition}
+          groups={groups}
+          onFocus={focus => setUrl({ focus })}
+        />
+      )}
+      {tab === 'history' && composition && (
+        <HistoryTab
+          pack={pack}
+          anatomy={anatomy}
+          composition={composition}
+          check={check}
+          pipeline={pipeline}
+          onOpen={focus =>
+            setUrl({ focus, select: 'output', drawerTab: 'history' })
+          }
+        />
+      )}
     </Drawer>
   );
 }

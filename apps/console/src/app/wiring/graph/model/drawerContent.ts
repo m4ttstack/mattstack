@@ -28,6 +28,16 @@ export type DrawerTarget =
 
 export type DrawerBadge = 'partial' | 'pack text' | 'rendered';
 
+/** What the Used by tab lists the sites of: a partial by its include name,
+    or a fill by its binding, with the plugin that owns its file. */
+export type DrawerUsedBy = {
+  kind: 'include' | 'fill';
+  name: string;
+  plugin: string;
+};
+
+export type DrawerDot = 'ok' | 'warn' | 'bad';
+
 export type DrawerBand = {
   from: number;
   to: number;
@@ -47,12 +57,15 @@ export type DrawerContent = {
   canToggle: boolean;
   view: WiringView;
   chip: string | null;
+  /** The output's status beside its sentence; null everywhere else. */
+  dot: DrawerDot | null;
   sentence: string;
   highlight: { template: LineRange | null; rendered: LineRange | null };
   /** Only in the Rendered view, where each pasted part gets one. */
   bands: DrawerBand[];
   tabs: DrawerTab[];
   slot: { name: string; contract: string | null } | null;
+  usedBy: DrawerUsedBy | null;
 };
 
 type AnatomyPart = SkillsAnatomy['parts'][number];
@@ -225,6 +238,7 @@ function rowContent(
   return {
     ...fileFace(shown, view, anatomy),
     chip: chipOf(part),
+    dot: null,
     sentence: rowSentence(row, part, view, anatomy),
     highlight: { template: part.templateLines, rendered: part.renderedLines },
     bands: shown === 'rendered' ? bandsOf(anatomy, partKey(part)) : [],
@@ -232,6 +246,7 @@ function rowContent(
       row.kind === 'placeholder' && part.kind === 'slot'
         ? { name: part.name ?? '', contract: row.contract }
         : null,
+    usedBy: null,
   };
 }
 
@@ -322,6 +337,7 @@ function inputContent(
     canToggle: false,
     view: 'template',
     chip: null,
+    dot: null,
     sentence,
     highlight: NO_HIGHLIGHT,
     bands: [],
@@ -330,8 +346,22 @@ function inputContent(
       part.kind === 'slot'
         ? { name: part.name ?? '', contract: row.contract }
         : null,
+    usedBy:
+      part.kind === 'include'
+        ? { kind: 'include', name: part.name ?? '', plugin }
+        : { kind: 'fill', name: source.ref, plugin },
   };
 }
+
+/** `unknown` is check saying nothing, so it gets no dot rather than a
+    healthy one. */
+const OUTPUT_DOT: Record<OutputCard['status'], DrawerDot | null> = {
+  'in-sync': 'ok',
+  stale: 'warn',
+  unsynced: 'warn',
+  'never-compiled': 'bad',
+  unknown: null,
+};
 
 function outputSentence(output: OutputCard, anatomy: SkillsAnatomy): string {
   switch (output.status) {
@@ -368,13 +398,16 @@ function outputContent(
   const whole = {
     ...fileFace(shown, view, anatomy),
     chip: null,
+    dot: null,
     highlight: NO_HIGHLIGHT,
     slot: null,
+    usedBy: null,
   };
 
   if (partId === null) {
     return {
       ...whole,
+      dot: OUTPUT_DOT[output.status],
       sentence: outputSentence(output, anatomy),
       bands: shown === 'rendered' ? bandsOf(anatomy, null) : [],
     };
@@ -416,10 +449,12 @@ function linkContent(
     canToggle: false,
     view: link.skill ? 'rendered' : 'template',
     chip: null,
+    dot: null,
     sentence: `${owner} text links to it at line ${at.line}.`,
     highlight: NO_HIGHLIGHT,
     bands: [],
     tabs: ['text'],
     slot: null,
+    usedBy: null,
   };
 }

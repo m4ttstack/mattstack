@@ -5,9 +5,16 @@ import {
   stubVirtualLayout,
 } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { navigate } from 'wouter/use-browser-location';
 
 import { designFixture, designSource } from './designFixtures';
 
@@ -278,6 +285,26 @@ describe('SkillDrawer', () => {
     expect(params().get('select')).toBe('row:140');
     expect(screen.getByTestId('skill-drawer')).toBeInTheDocument();
 
+    await user.keyboard('{ArrowDown}');
+    await waitFor(() => expect(params().get('select')).toBe('row:141'));
+  });
+
+  it('shuts its menu whenever it closes, so it reopens with its keys', async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&focus=stage-plan&select=row:140');
+    const user = userEvent.setup();
+
+    await user.click(within(await drawer()).getByTestId('drawer-menu'));
+    await screen.findByRole('menu');
+
+    act(() => navigate('/wiring?tab=graph&focus=stage-plan'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('skill-drawer')).toBeNull()
+    );
+    act(() => navigate('/wiring?tab=graph&focus=stage-plan&select=row:140'));
+    await drawer();
+
+    expect(screen.queryByRole('menu')).toBeNull();
     await user.keyboard('{ArrowDown}');
     await waitFor(() => expect(params().get('select')).toBe('row:141'));
   });

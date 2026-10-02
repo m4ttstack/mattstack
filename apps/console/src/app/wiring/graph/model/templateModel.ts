@@ -118,7 +118,7 @@ export type TemplateView = {
 };
 
 type AnatomyPart = SkillsAnatomy['parts'][number];
-type DriftCause = SkillsAnatomy['staleBecause'][number];
+export type DriftCause = SkillsAnatomy['staleBecause'][number];
 type CheckRow = SkillsCheck['verbs'][number];
 
 type SlotFacts = {
@@ -131,19 +131,35 @@ type SlotFacts = {
 
 const OWN_TEXT_ID = 'text';
 
-const STALE_REASONS: [DriftCause, string][] = [
-  ['source', 'its template changed'],
-  ['include', 'a pasted file changed'],
-  ['fill', 'its pack text changed'],
-  ['frontmatter', 'its header changed'],
-  ['structure', 'its files changed'],
-  ['vendored', 'its files changed'],
+/** In the order a reader would fix them. */
+const STALE_CAUSES: readonly DriftCause[] = [
+  'source',
+  'include',
+  'fill',
+  'frontmatter',
+  'structure',
+  'vendored',
 ];
 
-/** The first cause in the order a reader would fix them; null for an rt that
-    names none. */
+const STALE_REASONS: Record<DriftCause, string> = {
+  source: 'its template changed',
+  include: 'a pasted file changed',
+  fill: 'its pack text changed',
+  frontmatter: 'its header changed',
+  structure: 'its files changed',
+  vendored: 'its files changed',
+};
+
+/** The first cause a reader would fix; null for an rt that names none. */
+export function staleCause(
+  causes: readonly DriftCause[] | undefined
+): DriftCause | null {
+  return STALE_CAUSES.find(cause => causes?.includes(cause)) ?? null;
+}
+
 function staleReason(causes: readonly DriftCause[] | undefined): string | null {
-  return STALE_REASONS.find(([cause]) => causes?.includes(cause))?.[1] ?? null;
+  const cause = staleCause(causes);
+  return cause ? STALE_REASONS[cause] : null;
 }
 
 export const spanOf = ([from, to]: LineRange) => to - from + 1;

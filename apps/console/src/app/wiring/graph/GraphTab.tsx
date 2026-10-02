@@ -97,6 +97,10 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
         pack={pack}
         view={view}
         anatomy={anatomy}
+        composition={composition}
+        check={check}
+        groups={groups}
+        pipeline={pipeline}
         url={url}
         setUrl={patch}
       />
