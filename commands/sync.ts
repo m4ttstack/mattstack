@@ -18,7 +18,7 @@
  *   rt sync --no-agent       never offer agent escalation (abort on conflict, as before)
  */
 
-import { exec, execSync, spawnSync } from "child_process";
+import { execFile, execFileSync, spawnSync } from "child_process";
 import * as out from "../lib/ui/out.ts";
 import { getCurrentBranch, getRemoteDefaultBranch, hasUncommittedChanges } from "../lib/git-ops.ts";
 import { loadSyncConfig } from "../lib/sync-config.ts";
@@ -58,8 +58,8 @@ export interface SyncSummary {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function git(args: string, cwd: string): string {
-  return execSync(`git ${args}`, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+function git(args: string[], cwd: string): string {
+  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
 }
 
 /**
@@ -76,9 +76,9 @@ function ensureOriginRemote(cwd: string): boolean {
 }
 
 /** Non-blocking git command, so a spinner can animate. */
-function gitAsync(args: string, cwd: string): Promise<string> {
+function gitAsync(args: string[], cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    exec(`git ${args}`, { cwd, encoding: "utf8" }, (err, stdout) => {
+    execFile("git", args, { cwd, encoding: "utf8" }, (err, stdout) => {
       if (err) reject(err);
       else resolve((stdout ?? "").trim());
     });
@@ -91,17 +91,17 @@ function gitAsync(args: string, cwd: string): Promise<string> {
 function hasDivergedFromRemote(branch: string, cwd: string): boolean {
   const remoteBranch = `origin/${branch}`;
   try {
-    git(`rev-parse --verify ${remoteBranch}`, cwd);
+    git(["rev-parse", "--verify", remoteBranch], cwd);
   } catch {
     return false; // remote branch doesn't exist — not diverged
   }
 
-  const localSha = git("rev-parse HEAD", cwd);
-  const remoteSha = git(`rev-parse ${remoteBranch}`, cwd);
+  const localSha = git(["rev-parse", "HEAD"], cwd);
+  const remoteSha = git(["rev-parse", remoteBranch], cwd);
 
   if (localSha === remoteSha) return false; // identical
 
-  const mergeBase = git(`merge-base HEAD ${remoteBranch}`, cwd);
+  const mergeBase = git(["merge-base", "HEAD", remoteBranch], cwd);
   // Diverged if merge-base is neither the local nor the remote SHA
   // (i.e. both sides have commits beyond the common ancestor)
   return mergeBase !== localSha && mergeBase !== remoteSha;
@@ -206,13 +206,13 @@ export async function syncBranch(
   // 1. Fetch once (rebase/reset will skip their own fetch)
   if (opts.quiet) {
     try {
-      await gitAsync("fetch origin", cwd);
+      await gitAsync(["fetch", "origin"], cwd);
     } catch (err) {
       return { branch, worktree: cwd, resetResult: null, rebaseResult: null, pushed: false, ...asError({ title: "Could not fetch from origin", details: errText(err) }) };
     }
   } else {
     try {
-      await steps.run("Fetching from origin…", () => gitAsync("fetch origin", cwd), {
+      await steps.run("Fetching from origin…", () => gitAsync(["fetch", "origin"], cwd), {
         done: "Fetched from origin",
         error: "Could not fetch from origin",
       });
@@ -302,19 +302,20 @@ export async function syncBranch(
   let pushed = false;
   let pushFailure: out.FailureInput | undefined;
   if (needsPush && !opts.dryRun) {
+    const pushArgs = ["push", "--force-with-lease", "origin", branch];
     try {
       if (opts.quiet) {
-        await gitAsync(`push --force-with-lease origin ${branch}`, cwd);
+        await gitAsync(pushArgs, cwd);
       } else {
         await steps.run("Pushing…", () =>
-          gitAsync(`push --force-with-lease origin ${branch}`, cwd),
+          gitAsync(pushArgs, cwd),
           { done: "Pushed", error: "Could not push" },
         );
       }
       pushed = true;
-      syncLog.cmd(`push --force-with-lease origin ${branch}`, cwd, 0, "", "");
+      syncLog.cmd(pushArgs, cwd, 0, "", "");
     } catch (err: any) {
-      syncLog.cmd(`push --force-with-lease origin ${branch}`, cwd, 1, "", String(err));
+      syncLog.cmd(pushArgs, cwd, 1, "", String(err));
       // The step already painted its failed line; the summary must still
       // count this branch as failed, never as synced.
       pushFailure = { title: `Could not push ${branch}`, details: errText(err) };

@@ -19,7 +19,7 @@
  *   rebaseOnto(cwd, opts) → RebaseResult
  */
 
-import { execSync, spawnSync } from "child_process";
+import { execFileSync, spawnSync } from "child_process";
 import { getRemoteDefaultBranch, getCurrentBranch, hasUncommittedChanges } from "../../lib/git-ops.ts";
 import { createBackup } from "../../lib/git-backup.ts";
 import { syncLog } from "../../lib/sync-log.ts";
@@ -84,10 +84,10 @@ export interface RebaseOptions {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function git(args: string, cwd: string): string {
+function git(args: string[], cwd: string): string {
   let stdout = "";
   try {
-    stdout = execSync(`git ${args}`, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    stdout = execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
     syncLog.cmd(args, cwd, 0, stdout, "");
     return stdout;
   } catch (err: any) {
@@ -96,14 +96,13 @@ function git(args: string, cwd: string): string {
   }
 }
 
-function gitSafe(args: string, cwd: string): { ok: boolean; stdout: string } {
-  const argArr = args.split(" ");
-  const result = spawnSync("git", argArr, {
+function gitSafe(args: string[], cwd: string): { ok: boolean; stdout: string } {
+  const result = spawnSync("git", args, {
     cwd,
     encoding: "utf8",
     stdio: "pipe",
   });
-  syncLog.cmd(argArr, cwd, result.status, result.stdout ?? "", result.stderr ?? "");
+  syncLog.cmd(args, cwd, result.status, result.stdout ?? "", result.stderr ?? "");
   return { ok: result.status === 0, stdout: (result.stdout ?? "").trim() };
 }
 
@@ -127,7 +126,7 @@ export function conflictFailure(result: Pick<RebaseResult, "unresolvedFiles" | "
  */
 function getConflictedFiles(cwd: string): string[] {
   try {
-    const stdout = git("diff --name-only --diff-filter=U", cwd);
+    const stdout = git(["diff", "--name-only", "--diff-filter=U"], cwd);
     return stdout.split("\n").filter((f) => f.trim());
   } catch {
     return [];
@@ -139,7 +138,7 @@ function getConflictedFiles(cwd: string): string[] {
  */
 function commitsBehind(target: string, cwd: string): number {
   try {
-    const count = git(`rev-list --count HEAD..${target}`, cwd);
+    const count = git(["rev-list", "--count", `HEAD..${target}`], cwd);
     return parseInt(count, 10) || 0;
   } catch {
     return 0;
@@ -187,13 +186,13 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
   // 1. Fetch (unless caller already did)
   if (!opts.skipFetch) {
     const { withSpinner } = await import("../../lib/rt-render.ts");
-    const { exec } = await import("child_process");
-    const gitAsync = (args: string) =>
+    const { execFile } = await import("child_process");
+    const gitAsync = (args: string[]) =>
       new Promise<void>((resolve, reject) => {
-        exec(`git ${args}`, { cwd }, (err) => (err ? reject(err) : resolve()));
+        execFile("git", args, { cwd }, (err) => (err ? reject(err) : resolve()));
       });
     try {
-      await withSpinner("Fetching from origin…", () => gitAsync("fetch origin"), {
+      await withSpinner("Fetching from origin…", () => gitAsync(["fetch", "origin"]), {
         doneLabel: "Fetched from origin",
         failLabel: "Could not fetch from origin",
       });
@@ -341,7 +340,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
       }
       // If continue failed but no conflicts, something else is wrong
       if (getConflictedFiles(cwd).length === 0) {
-        git("rebase --abort", cwd);
+        git(["rebase", "--abort"], cwd);
         return {
           status: "error",
           branch,
@@ -380,7 +379,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
           rebaseInProgress: true,
         };
       }
-      git("rebase --abort", cwd);
+      git(["rebase", "--abort"], cwd);
       return {
         status: "conflict",
         branch,
@@ -402,14 +401,14 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
       for (const { file, rule } of matched) {
         const strategy = rule.strategy ?? "ours";
         const flag = strategy === "theirs" ? "--theirs" : "--ours";
-        git(`checkout ${flag} -- "${file}"`, cwd);
-        git(`add "${file}"`, cwd);
+        git(["checkout", flag, "--", file], cwd);
+        git(["add", "--", file], cwd);
         allResolvedFiles.push(file);
         triggeredRules.add(rule);
         say(quiet, out.line("done", `Resolved ${file} for you`, `rule: ${strategy}`));
       }
     } catch (err) {
-      git("rebase --abort", cwd);
+      git(["rebase", "--abort"], cwd);
       return {
         status: "error",
         branch,
@@ -489,12 +488,12 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
 
   // 9. Auto-commit regenerated files if any changed
   if (postResolveSteps.length > 0) {
-    const { ok: hasDiff } = gitSafe("diff --quiet", cwd);
+    const { ok: hasDiff } = gitSafe(["diff", "--quiet"], cwd);
     if (!hasDiff) {
       // Tracked files only: an untracked file is never staged here.
-      git("add -u", cwd);
+      git(["add", "-u"], cwd);
       const stepNames = postResolveSteps.join(", ");
-      git(`commit -m "chore: regenerate files after rebase (${stepNames})"`, cwd);
+      git(["commit", "-m", `chore: regenerate files after rebase (${stepNames})`], cwd);
       say(quiet, out.line("done", "Committed the regenerated files"));
     }
   }
@@ -591,7 +590,7 @@ export async function ontoCommand(
     if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
       const cwd = ctx.identity!.repoRoot;
       const current = getCurrentBranch(cwd);
-      const branches = git("for-each-ref --format=%(refname:short) refs/heads", cwd)
+      const branches = git(["for-each-ref", "--format=%(refname:short)", "refs/heads"], cwd)
         .split("\n")
         .map((b) => b.trim())
         .filter((b) => b && b !== current);

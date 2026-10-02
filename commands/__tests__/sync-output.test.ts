@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as out from "../../lib/ui/out.ts";
@@ -231,6 +231,19 @@ describe("what a sync prints on the way", () => {
       "[skipped] Would rebase feature onto origin/main  1 commit behind",
     ]);
     expect(io.stderr()).toBe("");
+  });
+
+  test("a branch name holding shell syntax is fetched, rebased and pushed as it is, and nothing runs", async () => {
+    const hostile = "feat$(touch${IFS}pwned)";
+    const clone = staleClone();
+    git(clone, "checkout", "-qb", hostile);
+    git(clone, "push", "-q", "-u", "origin", hostile);
+    const result = await syncBranch(clone, { quiet: true, stackRunners: forgeDown, strictStackCheck: false });
+    expect(existsSync(join(clone, "pwned"))).toBe(false);
+    expect(existsSync(join(process.cwd(), "pwned"))).toBe(false);
+    expect(result.error).toBeUndefined();
+    expect(result.pushed).toBe(true);
+    expect(git(clone, "rev-parse", `origin/${hostile}`)).toBe(git(clone, "rev-parse", "HEAD"));
   });
 
   test("quiet prints nothing on either stream", async () => {

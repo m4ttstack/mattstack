@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { execSync } from "child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { execFileSync, execSync } from "child_process";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -233,6 +233,39 @@ describe("what a reset prints", () => {
     expect(await exitCodeOf(() => originCommand([], ctxFor(local)))).toBe(1);
     expect(io.stderr()).toBe("[refused] You have uncommitted changes\n  why: Matching origin throws away local changes.\n  next: Commit them, or set them aside with rt git stash push\n");
     expect(io.stdout()).toBe("");
+  });
+
+  test("a branch name holding shell syntax reaches git as it is through a fetch, a patch-id compare and a cherry-pick, and nothing runs", async () => {
+    const hostile = "feat$(touch${IFS}pwned)";
+    const { origin, local } = makeFixture();
+    const argv = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, stdio: "pipe" });
+    argv(local, "checkout", "-qb", hostile);
+    argv(local, "push", "-q", "-u", "origin", hostile);
+    const helper = join(tmpRoot, "hostile-helper");
+    argv(tmpRoot, "clone", "-q", origin, helper);
+    argv(helper, "checkout", "-q", hostile);
+    argv(helper, "commit", "-q", "--amend", "-m", "feature 2 (reworded)");
+    argv(helper, "push", "-qf", "origin", hostile);
+    commit(local, "f3.txt", "f3", "feature 3 local only");
+
+    const result = await resetToOrigin({ cwd: local, quiet: true, autoConfirm: true });
+
+    expect(existsSync(join(local, "pwned"))).toBe(false);
+    expect(existsSync(join(process.cwd(), "pwned"))).toBe(false);
+    expect(result.status).toBe("cherry-picked");
+    expect(result.branch).toBe(hostile);
+    expect(sh(`git log -1 --format=%s`, local)).toBe("feature 3 local only");
+  });
+
+  test("reset origin on a branch name holding shell syntax says it already matches, and nothing runs", async () => {
+    const hostile = "feat$(touch${IFS}pwned)";
+    const { local } = makeFixture();
+    execFileSync("git", ["checkout", "-qb", hostile], { cwd: local, stdio: "pipe" });
+    execFileSync("git", ["push", "-q", "-u", "origin", hostile], { cwd: local, stdio: "pipe" });
+    expect(await exitCodeOf(() => originCommand([], ctxFor(local)))).toBeNull();
+    expect(existsSync(join(local, "pwned"))).toBe(false);
+    expect(existsSync(join(process.cwd(), "pwned"))).toBe(false);
+    expect(io.lines().at(-1)).toBe(`[ok] ${hostile} already matches origin/${hostile}`);
   });
 
   test("reset soft says the edits are kept", async () => {
