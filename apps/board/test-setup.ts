@@ -103,4 +103,7 @@ process.env.BOARD_APP_ROOT = mkdtempSync(join(runTmp, 'mr-board-test-root-'));
  */
 GlobalRegistrator.register({ url: 'http://localhost/' });
 await import('react-dom/client');
+// Base UI (under tui-kit's ContextMenu) fixes useLayoutEffect versus a no-op
+// when its module loads, by whether `document` exists.
+await import('@mattstack/tui-kit');
 await GlobalRegistrator.unregister();
