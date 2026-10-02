@@ -8,7 +8,7 @@
 
 **Tech Stack:** Bun and TypeScript (rt, rt-client, settings-kit), jsonc-parser, zod (schema lock), React and Mantine (console, board, boxscore), Swift and SwiftUI (rt-tray), `bun:test`, vitest for the apps.
 
-**Spec:** `docs/superpowers/specs/2026-10-01-org-and-teams-design.md` (at `4c4be8321`). Read it before any task; section numbers below refer to it.
+**Spec:** `docs/superpowers/specs/2026-10-01-org-and-teams-design.md` (at `bab9e93a6`). Read it before any task; section numbers below refer to it.
 
 ## Global Constraints
 
@@ -27,6 +27,10 @@
 - Skill files (`skills/**`, `plugins/mattstack/**`) are edited only with `superpowers:writing-skills` and `mattstack:editing-skills` loaded, and a change under `plugins/mattstack` bumps `plugins/mattstack/.claude-plugin/plugin.json`.
 - We share worktrees. Commit only the files a task names, by path. Never `git add -A`, never `git commit -a`. Push with the `git_push` tool.
 - No `SCHEMA_VERSION` change: nothing here touches `state.db`.
+- `lib/__tests__/no-settings-bypass.test.ts` pins, per file, how many times source reaches for a store path, a raw store reader or a per-rung reader. A task that adds, moves or removes such a use updates that file's allowlist entry (count and reason) in the same commit; the failure message names the file and the count it found.
+- The in-memory `fakeProbes` (`lib/setup/__tests__/fakes.ts`) knows a directory only when it is seeded in `dirs`: `exists()` and `readDir()` do not infer folders from seeded files. A test whose code lists or probes a folder seeds it.
+- Every `--json` envelope is flat (`envelope()` in `lib/setup/contract.ts` spreads the body beside `contract` and `at`): a test reads `JSON.parse(line).team`, never `.data.team`.
+- One e2e file runs as `bun test --preload ./e2e/setup.ts --timeout 60000 e2e/tests/<file>` (the preload builds `dist/rt` when it is stale). `bun run test:e2e` runs the whole directory.
 - Names (spec section 1): the clone folder under `~/.mattstack/teams/` is the **org slug**; a **team** is a folder under `mattstack/teams/` matching `^[a-z][a-z0-9-]*$`; a team's pack carries the team's name.
 
 ## Branch stack
@@ -314,7 +318,9 @@ describe("org scope", () => {
 });
 ```
 
-Add `checkSchema` (from `../schema.ts`) and `allDefs`, `getDef` (from `../registry-machinery.ts`) to the imports if the file lacks them. The file also pins the full key list in registry order (near line 300): add `"mattstack.org"` and `"mattstack.activeTeam"` to that list directly after `"mattstack.roster"`.
+Add `checkSchema` (from `../schema.ts`) and `allDefs`, `getDef` (from `../registry-machinery.ts`) to the imports if the file lacks them.
+
+Four older tests in this file call `def.scopes.sort()` in place (near lines 157, 173, 278 and 452), which reorders the live def and would break the first-scope test above depending on run order. Change each to `[...def.scopes].sort()` and update what they expect now that `org` is derived: `["org", "team", "user"]` for `board.reReview` and the two `claude.*` keys, `["machine", "org", "team", "user"]` for the repo-scoped keys and `rt.hooks`, and the scope spot-check's `board.gitlabHost` becomes `["team", "org"]`. The file also pins the full key list in registry order (near line 300): add `"mattstack.org"` and `"mattstack.activeTeam"` to that list directly after `"mattstack.roster"`.
 
 - [ ] **Step 2: Run them to see them fail**
 
@@ -439,7 +445,7 @@ git commit -m "settings registry: org scope, add merge mode, mattstack.org and m
 
 **Interfaces:**
 - Consumes: Task 1 paths, Task 3 registry keys.
-- Produces, from `stores.ts`: `TEAM_NAME_RE: RegExp`, `listOrgs(): string[]`, `currentOrg(): string | null`, `listTeamFolders(org: string): string[]`, `sharedStoreFiles(): string[]`.
+- Produces, from `stores.ts`: `TEAM_NAME_RE: RegExp`, `listOrgs(): string[]`, `currentOrg(): string | null`, `listTeamFolders(org: string): string[]`, `sharedStoreFiles(): string[]`, `parseStoreText(file: string, raw: string): StoreFile` (`readStore`'s parse step, for a caller that already holds the text).
 - Produces, from `team-local-read.ts`: `readForgeUsername(org: string): string | null`.
 - Produces, from `active-team.ts`:
 
@@ -643,6 +649,29 @@ export function sharedStoreFiles(): string[] {
 }
 ```
 
+Also split the parse out of `readStore`, so code that reads through `Probes` (Tasks 17 and 20) gets the same `StoreFile` from text it already holds:
+
+```ts
+/** `readStore`'s parse step, for a caller that already holds the file's text. Never throws. */
+export function parseStoreText(file: string, raw: string): StoreFile {
+  if (raw.trim() === "") return EMPTY_STORE(file, true);
+  const errors: ParseError[] = [];
+  const root = parse(raw, errors, { allowTrailingComma: true });
+  if (errors.length > 0 || root === undefined || typeof root !== "object" || Array.isArray(root)) {
+    console.warn(`rt: malformed settings store ${file}, ignoring (treating as empty)`);
+    return EMPTY_STORE(file, true);
+  }
+  const { repos, ...global } = root as Record<string, unknown>;
+  const reposIsValid = repos !== undefined && typeof repos === "object" && repos !== null && !Array.isArray(repos);
+  if (repos !== undefined && !reposIsValid) {
+    console.warn(`rt: malformed "repos" section in settings store ${file}, ignoring repo sections (global keys still apply)`);
+  }
+  return { global, repos: reposIsValid ? (repos as Record<string, Record<string, unknown>>) : {}, file, exists: true };
+}
+```
+
+and `readStore` ends with `return parseStoreText(file, raw);` in place of the lines it now duplicates.
+
 Add to `stores.test.ts`, in its `describe` (it already repoints HOME per test):
 
 ```ts
@@ -655,6 +684,12 @@ describe("org listing", () => {
     writeFileSync(join(teamsDir(), "old-layout", "mattstack", "settings.team.jsonc"), "{}");
     expect(listOrgs()).toEqual(["acme"]);
     expect(currentOrg()).toBe("acme");
+  });
+
+  test("parseStoreText gives the same store readStore does", () => {
+    const text = `// header\n{ "board.title": "Acme", "repos": { "gitlab.example.com/acme/widgets": { "rt.roles": {} } } }`;
+    expect(parseStoreText("/x/settings.org.jsonc", text)).toEqual({ global: { "board.title": "Acme" }, repos: { "gitlab.example.com/acme/widgets": { "rt.roles": {} } }, file: "/x/settings.org.jsonc", exists: true });
+    expect(parseStoreText("/x/s.jsonc", "{ not json").global).toEqual({});
   });
 
   test("team folders are plain lowercase names, sorted", () => {
@@ -858,7 +893,7 @@ export { readForgeUsername } from "./settings/team-local-read.ts";
 and extend the stores export line:
 
 ```ts
-export { readStore, listTeams, listOrgs, currentOrg, listTeamFolders, sharedStoreFiles, TEAM_NAME_RE } from "./settings/stores.ts";
+export { readStore, parseStoreText, listTeams, listOrgs, currentOrg, listTeamFolders, sharedStoreFiles, TEAM_NAME_RE } from "./settings/stores.ts";
 ```
 
 Add to `packages/rt-client/test/index-surface.test.ts`, inside its `describe`:
@@ -903,8 +938,11 @@ This is the switch. After it, `getSetting` reads the org store and the active te
 - Modify: `packages/rt-client/src/settings/migrate-stores.ts`
 - Modify: `packages/rt-client/src/index.ts`
 - Modify: `packages/rt-client/test/org-fixture.ts`
+- Modify (every gate that treats team-authored values as untrusted): `lib/worktree/config.ts` (`inspectReadyGate`), `commands/settings-keys.ts` (`migratePrune`, `SCOPE_WORDS`), `lib/skills/writing-style.ts` (the source label)
+- Modify (readers and writers of the old store path): `lib/team/board-token.ts` (`declaresHttpsSwitchboard`), `lib/variations.ts` (line 92), `extensions/vscode/rt-context/src/branchNaming.ts` (line 65)
+- Modify: `lib/__tests__/no-settings-bypass.test.ts` (the rules and the allowlist)
 - Modify (callers of the removed names): `commands/team.ts`, `commands/setup.ts`, `commands/tools.ts`, `commands/verify.ts`, `lib/endpoint/shim.ts`, `lib/repo-reidentify.ts`, `lib/setup/plan.ts`, `lib/team/invite.ts`, `lib/team/members.ts`, `packages/settings-kit/src/server.ts`
-- Test: `packages/rt-client/src/settings/__tests__/resolve.test.ts`, `write.test.ts`, `validate-write.test.ts`, `stores.test.ts`, `paths.test.ts`, `migrate-stores.test.ts`, `check.test.ts`, `lib/__tests__/rt-paths.test.ts`, `lib/__tests__/settings-paths-parity.test.ts`
+- Test: `packages/rt-client/src/settings/__tests__/resolve.test.ts`, `write.test.ts`, `validate-write.test.ts`, `stores.test.ts`, `paths.test.ts`, `migrate-stores.test.ts`, `check.test.ts`, `lib/__tests__/rt-paths.test.ts`, `lib/__tests__/settings-paths-parity.test.ts`, `lib/worktree/__tests__/ready-approval.test.ts`, `commands/__tests__/settings-migrate.test.ts`, `lib/team/__tests__/board-token.test.ts`, `packages/settings-kit/src/__tests__/server.test.ts`, and the board's server tests under `apps/board/src/__tests__/`
 
 **Interfaces:**
 - Consumes: Task 1 paths, Task 3 scopes, Task 4 `activeTeamFrom`, `listOrgs`, `currentOrg`, `listTeamFolders`, `sharedStoreFiles`, `TEAM_NAME_RE`.
@@ -924,6 +962,9 @@ export interface ResolveOpts {
   /** Read as this team folder instead of the active team; null reads the org layer alone. */
   team?: string | null;
 }
+
+/** A layer other people author: the org's or a team's, global or per repo. Every gate that distrusts team-authored values asks this. */
+export function isSharedScope(scope: Scope): boolean; // org, org.repo, team, team.repo
 
 // write.ts
 export interface SetSettingOpts {
@@ -955,7 +996,7 @@ const TEAM = "widgets";
   };
 ```
 
-`seedOrg` rewrites the org store, so a test that needs both layers passes the org values through `seedOrg({ settings: ... })` rather than calling `writeOrg` first. Every existing call `writeTeam(TEAM, obj)` in the file is a shared-layer seed: change it to `writeOrg(obj)` and change the scope it asserts from `"team"` to `"org"` (and `"team.repo"` to `"org.repo"`), with `teamSettingsPath(TEAM)` in expectations becoming `orgSettingsPath(ORG)`.
+`seedOrg` rewrites the org store, so a test that needs both layers passes the org values through `seedOrg({ settings: ... })` rather than calling `writeOrg` first. Every existing call `writeTeam(TEAM, obj)` in the file is a shared-layer seed: change it to `writeOrg(obj)` and change the scope it asserts from `"team"` to `"org"` (and `"team.repo"` to `"org.repo"`). After Task 2's codemod the file's expectations and its `writeTeam` helper spell the path `sharedStorePath(TEAM)`; those become `orgSettingsPath(ORG)`.
 
 Replace the `scope precedence` ladder with the nine-rung one:
 
@@ -1144,12 +1185,61 @@ In `packages/rt-client/src/settings/__tests__/write.test.ts`, replace the team-s
 
 Keep the file's existing joined-clone test (`refuseIfJoined`) but seed it with `seedOrg` plus a record `{ joinedByRt: true, forgeUsername: "dev1" }` written to `teamLocalPath("acme")`, and assert both an org write and a team write refuse. Task 21 replaces that gate.
 
-- [ ] **Step 3: Run both files to see them fail**
+- [ ] **Step 3: Write the failing trust-gate tests**
 
-Run: `bun test packages/rt-client/src/settings/__tests__/resolve.test.ts packages/rt-client/src/settings/__tests__/write.test.ts`
+An org value is written by other people, exactly like a team value, so every gate that holds back team-authored values has to hold back org-authored ones. Three gates exist.
+
+`lib/worktree/__tests__/ready-approval.test.ts` (after Task 2 its `teamReady` helper seeds through `sharedStorePath("acme")`, which this task turns into the org store, so its existing "held" tests are already the org case). Add the team-folder case and name the org case:
+
+```ts
+  test("a ready ladder the org authors is held until you approve it", async () => {
+    teamReady([{ run: "echo org" }]);
+    const cfg = loadWorktreeRepoConfig(IDENTITY, repoPath);
+    const gate = await evaluateReadyGate(cfg, "ready-gate", repoPath);
+    expect(gate.held).toBe(true);
+    expect(gate.steps).toEqual([]);
+  });
+
+  test("a ready ladder a team folder authors is held too", async () => {
+    seedOrg({
+      org: "acme",
+      username: "dev1",
+      roster: [{ username: "dev1", teams: ["widgets"] }],
+      teams: { widgets: { repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 1, ready: [{ run: "echo team" }] } } } } },
+    });
+    const cfg = loadWorktreeRepoConfig(IDENTITY, repoPath);
+    expect((await evaluateReadyGate(cfg, "ready-gate", repoPath)).held).toBe(true);
+  });
+```
+
+(match `loadWorktreeRepoConfig`'s real argument order from the file's other tests; import `seedOrg` from `../../../packages/rt-client/test/org-fixture.ts`.)
+
+`commands/__tests__/settings-migrate.test.ts`, replacing the test near line 172 (`TEAM` there is the clone slug; the store it seeds is now the org store):
+
+```ts
+  test("--prune leaves the org store alone without --team, and prunes it with --team", async () => {
+    await withMigrationAsync("rt.roles", ROLES_BUMP, async () => {
+      write(orgSettingsPath(TEAM), { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } }, "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
+      await settingsMigrate(["--prune", "--yes"], noPrompt);
+      expect((read(orgSettingsPath(TEAM)).repos as Record<string, Record<string, unknown>>)[IDENTITY]!["rt.roles"]).toBeDefined();
+      expect(process.exitCode).toBe(1);
+      process.exitCode = 0;
+      await settingsMigrate(["--prune", "--team", "--yes"], noPrompt);
+      expect(read(orgSettingsPath(TEAM))).toEqual({ repos: { [IDENTITY]: { "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
+    });
+  });
+```
+
+`lib/skills/__tests__/writing-style.test.ts`: add a case that `skills.writingStyle` set in the org store resolves with `source: "team"` (the label reads "team default"), seeded the way that file seeds its team case.
+
+`lib/team/__tests__/board-token.test.ts`: its fixture near line 16 writes the switchboard declaration to `teams/<slug>/mattstack/settings.team.jsonc`; write it to `teams/<slug>/mattstack/org/settings.org.jsonc`, so the existing "unpeered" and "peered" cases keep meaning what they say.
+
+- [ ] **Step 4: Run them to see them fail**
+
+Run: `bun test packages/rt-client/src/settings/__tests__/resolve.test.ts packages/rt-client/src/settings/__tests__/write.test.ts lib/worktree/__tests__/ready-approval.test.ts commands/__tests__/settings-migrate.test.ts lib/team/__tests__/board-token.test.ts`
 Expected: FAIL (type errors on `teamSettingsPath(ORG, TEAM)` and missing `seedOrg`).
 
-- [ ] **Step 4: Change `teamSettingsPath` in both path modules**
+- [ ] **Step 5: Change `teamSettingsPath` in both path modules**
 
 In `lib/rt-paths.ts` and in `packages/rt-client/src/settings/paths.ts`, replace the function and its doc comment:
 
@@ -1164,7 +1254,7 @@ In rt-client's `paths.ts`, `teamLocalPath(team)` keeps its body; rename its para
 
 Update the three path tests to the new shape: in `paths.test.ts` and `rt-paths.test.ts` the expectation becomes `<home>/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc` for `teamSettingsPath("acme", "widgets")`; in the parity test the line becomes `expect(clientPaths.teamSettingsPath("acme", "widgets")).toBe(rtPaths.teamSettingsPath("acme", "widgets"));`.
 
-- [ ] **Step 5: Finish the fixture**
+- [ ] **Step 6: Finish the fixture**
 
 Replace `packages/rt-client/test/org-fixture.ts` with:
 
@@ -1213,7 +1303,7 @@ export function seedOrg(opts: SeedOrg = {}): { org: string; orgStore: string; te
 }
 ```
 
-- [ ] **Step 6: Rewrite the store reading in `resolve.ts`**
+- [ ] **Step 7: Rewrite the store reading in `resolve.ts`**
 
 Imports:
 
@@ -1416,11 +1506,19 @@ function baseScope(scope: Scope): SettingScope | null {
 }
 ```
 
+```ts
+export function isSharedScope(scope: Scope): boolean {
+  return scope === "org" || scope === "org.repo" || scope === "team" || scope === "team.repo";
+}
+```
+
 and in `validateForScope`:
 
 ```ts
   const shared = scope !== "default" && scope !== "machine" && scope !== "machine.repo";
 ```
+
+Export `isSharedScope` from `packages/rt-client/src/index.ts` on the resolve export line.
 
 In `getSetting`, `listSettings` and `explainSetting`, change `readStores()` to `readStores({ team: opts.team })`.
 
@@ -1438,11 +1536,11 @@ In the private `listUnregistered(stores, opts)`, replace the two `for (const sto
 
 Update the file's header comment: the ladder line reads `default < org < team < user < org.repo < team.repo < user.repo < machine < machine.repo`, and the sentence about overlaying every cloned team goes.
 
-- [ ] **Step 7: Remove `listTeams`**
+- [ ] **Step 8: Remove `listTeams`**
 
 Delete `listTeams` from `stores.ts` (its body is now `listOrgs`), drop it from the `index.ts` export line, and drop `teamSettingsPath` from `stores.ts`'s import if it is no longer used there. In `stores.test.ts`, delete the `listTeams` tests whose behavior the Task 4 `org listing` tests already cover, and port the dangling-symlink and unreadable-entry tests to `listOrgs` by changing the seeded file to `mattstack/org/settings.org.jsonc`.
 
-- [ ] **Step 8: Rewrite the store targeting in `write.ts`**
+- [ ] **Step 9: Rewrite the store targeting in `write.ts`**
 
 Imports:
 
@@ -1517,7 +1615,7 @@ Replace the shared-store half of `shareTip` (everything after the `if (scope ===
 
 Update the module's header comment: the "Team selection" section now says a team write lands in `opts.team` or the active team, an org write takes no name, and neither store is ever created by a write.
 
-- [ ] **Step 9: Carry the team view through `validate-write.ts`**
+- [ ] **Step 10: Carry the team view through `validate-write.ts`**
 
 Change the `before` read so a team write is compared in the same view it was merged in:
 
@@ -1526,7 +1624,7 @@ Change the `before` read so a team write is compared in the same view it was mer
     const before = currentMergedValue(def, { repoIdentity, expand: false, ...view });
 ```
 
-- [ ] **Step 10: Walk the new stores in `migrate-stores.ts`**
+- [ ] **Step 11: Walk the new stores in `migrate-stores.ts`**
 
 ```ts
 import { machineSettingsPath, orgSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
@@ -1566,7 +1664,7 @@ export function storeSections(): StoreSection[] {
 
 Every team folder is walked, not only the active one: `rt settings check` and `rt settings migrate` are about the clone, not about this member's view.
 
-- [ ] **Step 11: Fix the callers of the removed names**
+- [ ] **Step 12: Fix the callers of the removed names**
 
 Run `bunx tsc --noEmit` and fix each error with these rules:
 
@@ -1576,14 +1674,21 @@ Run `bunx tsc --noEmit` and fix each error with these rules:
 | `commands/team.ts` line 497 | `readStore(teamSettingsPath(slug))` becomes `readStore(orgSettingsPath(slug))` |
 | `commands/setup.ts`, `commands/tools.ts`, `commands/verify.ts`, `lib/setup/plan.ts` | `listTeams` becomes `listOrgs` (the `teams:` field name on `PlanInputs` stays until Task 9) |
 | `lib/endpoint/shim.ts` `interceptSourceFiles` | `return [userSettingsPath(), machineSettingsPath(), ...sharedStoreFiles()];` |
-| `lib/repo-reidentify.ts` | `teamsOrRefusal()` returns `sharedStoreFiles()` (keep its unreadable-dir refusal); the loop becomes `for (const file of files) add(\`settings:shared:${file}\`, () => settingsReport(\`shared:${basename(file)}\`, file, from.raw, to.raw, dryRun));` |
+| `lib/repo-reidentify.ts` | `teamsOrRefusal()` returns `sharedStoreFiles()` (keep its unreadable-dir refusal); the loop becomes `for (const file of files) add(\`settings:${sharedLabel(file)}\`, () => settingsReport(sharedLabel(file), file, from.raw, to.raw, dryRun));` with `const sharedLabel = (file: string) => \`shared:${relative(teamsDir(), file)}\`;` (two team folders' stores share a basename, so the label is the path under the teams folder) |
 | `lib/team/invite.ts`, `lib/team/members.ts` | `defaultReadTeamStore(slug)` reads `readStore(orgSettingsPath(slug)).global`; every `writeSetting(key, value, "team", { team: slug })` becomes `writeSetting(key, value, "org")` |
 | `commands/settings-keys.ts` `SCOPE_WORDS` | add `org: "the org's settings"` and `"org.repo": "the org's settings for this repo"` (the record is keyed by every resolver scope) |
-| `packages/settings-kit/src/server.ts` | `RtSettingsApi.listTeams` becomes `listOrgs: typeof listOrgs`; the `/defs` reply keeps `team` for now: `const orgs = rt.listOrgs(); ... team: orgs.length === 1 ? orgs[0] : null` (Task 8 replaces it) |
+| `packages/settings-kit/src/server.ts` | `RtSettingsApi.listTeams` becomes `listOrgs: typeof listOrgs`; the `/defs` reply keeps `team` for now: `const orgs = rt.listOrgs(); ... team: orgs.length === 1 ? orgs[0] : null` (Task 8 replaces it). In `server.test.ts`, the "defs names the machine's one team" test overrides `listTeams`; it overrides `listOrgs` instead |
+| `lib/worktree/config.ts` `inspectReadyGate` | `const teamOwned = owner !== null && isSharedScope(owner);` (import `isSharedScope` beside `SCOPE_ORDER`); the comments on `ReadyGateInfo.teamOwned` and above `evaluateReadyGate` say "org or team authored" |
+| `commands/settings-keys.ts` `migratePrune` | the guard's condition becomes `(n.scope === "team" \|\| n.scope === "org") && !o.team`, and its reason is built as `n.scope + " store: pass --team to prune it"` |
+| `lib/skills/writing-style.ts` line 88 | `source: isSharedScope(scope) ? "team" : "user"` |
+| `lib/team/board-token.ts` `declaresHttpsSwitchboard` | reads `join(p.home, ".mattstack", "teams", slug, "mattstack", "org", "settings.org.jsonc")`; its comment says "the org's own store" |
+| `lib/variations.ts` line 92 | `setSetting("rt.variations", all, "org", { repoIdentity })`: a shared repo's section sits at the org (spec section 3) |
+| `apps/boxscore/scripts/import-legacy-settings.ts` | the planned `mattstack.roster` write takes scope `'org'` (widen `PlannedWrite`'s scope type), and the closing message says "org and team writes landed in the local org clone" |
+| `extensions/vscode/rt-context/src/branchNaming.ts` line 65 | the legacy import writes `"org"`; reword the comment above it ("the org.repo store rung", and "one org per Mac" for the refusal it describes) |
 
 `lib/team/invite.ts` and `members.ts` still write `board.members` beside `mattstack.roster`; both now land in the org store. Task 18 removes the first.
 
-- [ ] **Step 12: Move the remaining tests onto the new layout**
+- [ ] **Step 13: Move the remaining tests onto the new layout**
 
 Run: `bun run test`
 
@@ -1591,27 +1696,33 @@ Fix what fails with these rules, and nothing else:
 
 1. An expectation of `scope: "team"` (or `"team.repo"`) for a value seeded through `sharedStorePath` becomes `"org"` (or `"org.repo"`).
 2. A test that seeds a clone by hand (`mkdirSync(join(teams, "acme", "mattstack"))` plus `settings.team.jsonc`) to make `listOrgs` or `discoverTeams` see it writes `mattstack/org/settings.org.jsonc` instead. `lib/setup/team-settings.ts` `discoverTeams` itself changes in Task 9; for this step change only its path literal to `join(dir, name, "mattstack", "org", "settings.org.jsonc")`.
-3. A message assertion that quoted the old copy takes the new copy from Step 8.
+3. A message assertion that quoted the old copy takes the new copy from the `write.ts` step above.
 4. `extensions/vscode/rt-context/src/__tests__/branchNaming.test.ts` builds the path by hand: change its helper to `join(home, '.mattstack', 'teams', team, 'mattstack', 'org', 'settings.org.jsonc')`.
-5. `e2e/tests/settings.test.ts` seeds through `sharedStorePath` already; update its `explain` expectations for the extra `org` rung. Run it with `bun run test:e2e -- e2e/tests/settings.test.ts`.
+5. `e2e/tests/settings.test.ts` seeds through `sharedStorePath` already; update its `explain` expectations for the extra `org` rung. Run it with `bun test --preload ./e2e/setup.ts --timeout 60000 e2e/tests/settings.test.ts`.
 
-If a failing test does not fit one of the five rules, stop and read it: it is testing behavior this task changed on purpose (team selection, multi-team overlay) and belongs with the tests rewritten in Steps 1 and 2, or it points at a caller Step 11 missed.
+6. A test that writes the shared layer through `setSetting(key, value, "team", ...)` with no team name or with `{ team: "<clone slug>" }` (for example `lib/worktree/__tests__/dispose.test.ts:219`, `lib/daemon/__tests__/repo-tracking.test.ts:432`, `lib/__tests__/variations.test.ts:66`) writes `"org"` and drops the `team` option. Find them with `rg -n 'setSetting\([^)]*"team"' lib commands packages e2e -g '*.test.ts'`.
+7. The board's server tests seed `teams/testteam/mattstack/settings.team.jsonc` by hand (`apps/board/src/__tests__/server-roster-route.test.ts:18`, `server-dismiss.test.ts:16`, `settings-live-reload.test.ts:14` and about fourteen more; find them with `rg -ln "settings.team.jsonc" apps/board/src`). Each seeds `teams/testteam/mattstack/org/settings.org.jsonc` instead. Run `bun run board:test`.
+8. `lib/__tests__/no-settings-bypass.test.ts`: add `orgSettingsPath: "store path helper"` to `IDENTIFIER_RULES`, widen the first `STORE_FILE_TEXT` pattern to `/settings\.(?:user|team|org|local)\.jsonc/`, then update each allowlist entry the run reports (this task changes the counts for `lib/team/invite.ts`, `lib/team/members.ts`, `commands/team.ts`, `lib/endpoint/shim.ts`, `lib/repo-reidentify.ts`, `lib/setup/team-settings.ts`, `lib/team/board-token.ts` and `lib/worktree/config.ts`), rewording a reason that still says "merges every team store".
 
-- [ ] **Step 13: Verify**
+If a failing test does not fit one of these rules, stop and read it: it is testing behavior this task changed on purpose (team selection, multi-team overlay) and belongs with the tests rewritten in Steps 1 to 3, or it points at a caller the table above missed.
+
+- [ ] **Step 14: Verify**
 
 ```bash
 (cd packages/rt-client && bun run build)
 bunx tsc --noEmit
 bun run test
+bun run board:test
+bun run check
 ```
 
 Expected: all green.
 
-- [ ] **Step 14: Commit**
+- [ ] **Step 15: Commit**
 
 ```bash
 git status --short
-git add packages/rt-client/src packages/rt-client/test/org-fixture.ts lib/rt-paths.ts lib/endpoint/shim.ts lib/repo-reidentify.ts lib/setup/plan.ts lib/setup/team-settings.ts lib/team/invite.ts lib/team/members.ts commands/team.ts commands/setup.ts commands/tools.ts commands/verify.ts packages/settings-kit/src/server.ts extensions/vscode/rt-context/src/__tests__/branchNaming.test.ts e2e/tests/settings.test.ts
+git add packages/rt-client/src packages/rt-client/test/org-fixture.ts lib/rt-paths.ts lib/endpoint/shim.ts lib/repo-reidentify.ts lib/setup/plan.ts lib/setup/team-settings.ts lib/team/invite.ts lib/team/members.ts commands/team.ts commands/setup.ts commands/tools.ts commands/verify.ts commands/settings-keys.ts lib/worktree/config.ts lib/skills/writing-style.ts lib/team/board-token.ts lib/variations.ts apps/boxscore/scripts/import-legacy-settings.ts extensions/vscode/rt-context/src/branchNaming.ts lib/__tests__/no-settings-bypass.test.ts packages/settings-kit/src/server.ts extensions/vscode/rt-context/src/__tests__/branchNaming.test.ts e2e/tests/settings.test.ts
 git add $(git diff --name-only -- '*.test.ts')
 git commit -m "settings: the resolver and the write path read the org store and the active team's store"
 ```
@@ -1626,7 +1737,7 @@ Check `git status --short` shows nothing of yours left unstaged and nothing stag
 - Modify: `packages/rt-client/src/index.ts` (export `ItemSource`)
 - Modify: `lib/setup/steps/plugins.ts` (`computePlugins`, `isTeamAuthored`)
 - Modify: `docs/settings-architecture.md` (the merge section)
-- Test: `packages/rt-client/src/settings/__tests__/resolve.test.ts`, `lib/setup/__tests__/steps-c.test.ts` (its `plugins.install` describe)
+- Test: `packages/rt-client/src/settings/__tests__/resolve.test.ts`, `packages/rt-client/src/settings/__tests__/registry.test.ts`, `lib/setup/__tests__/steps-c.test.ts` (its `plugins.install` describe)
 
 **Interfaces:**
 - Produces:
@@ -1787,6 +1898,8 @@ In `registry-defs.ts`, set `merge: "add"` on `claude.marketplaces` and `claude.p
     description: "Claude Code plugins to install, in order. The org's, the team's and your own lists add up; a plugin from the org or a team is installed but left for you to enable.",
 ```
 
+`registry.test.ts` has a test named "claude.marketplaces and claude.plugins are user+team arrays with replace merge" (near line 448). Rename it to "... add up across layers" and change its `expect(def.merge).toBe("replace")` to `"add"`.
+
 - [ ] **Step 5: Run the resolver tests**
 
 Run: `bun test packages/rt-client/src/settings`
@@ -1839,14 +1952,12 @@ Expected: FAIL (`computePlugins` is not exported, then the split is all-or-nothi
 
 - [ ] **Step 8: Split per item in `plugins.ts`**
 
-Replace `isTeamAuthored` and the head of `computePlugins`:
+Replace `isTeamAuthored` and the head of `computePlugins` (import `isSharedScope` and `type Provenance` from `../../settings/resolve.ts`):
 
 ```ts
-const SHARED_SCOPES: ReadonlySet<string> = new Set(["org", "org.repo", "team", "team.repo"]);
-
 /** An item is the org's or a team's only when no layer of your own lists it too. */
-function sharedOnly(sources: { scope: string }[]): boolean {
-  return sources.length > 0 && sources.every((s) => SHARED_SCOPES.has(s.scope));
+function sharedOnly(sources: Provenance[]): boolean {
+  return sources.length > 0 && sources.every((s) => isSharedScope(s.scope));
 }
 
 export function computePlugins(ctx: ApplyContext, teamMarketplace: TeamMarketplaceFile | null): ComputedPlugins {
@@ -1894,7 +2005,7 @@ In `docs/settings-architecture.md`, in the section that describes `replace` and 
 ```bash
 (cd packages/rt-client && bun run build)
 bunx tsc --noEmit
-git add packages/rt-client/src/settings/resolve.ts packages/rt-client/src/settings/registry-defs.ts packages/rt-client/src/index.ts packages/rt-client/src/settings/__tests__/resolve.test.ts lib/setup/steps/plugins.ts docs/settings-architecture.md
+git add packages/rt-client/src/settings/resolve.ts packages/rt-client/src/settings/registry-defs.ts packages/rt-client/src/index.ts packages/rt-client/src/settings/__tests__/resolve.test.ts packages/rt-client/src/settings/__tests__/registry.test.ts lib/setup/steps/plugins.ts docs/settings-architecture.md
 git add $(git diff --name-only -- 'lib/setup/__tests__/*.test.ts')
 git commit -m "settings: add merge for list keys, with per-item provenance for the plugin trust split"
 ```
@@ -2009,11 +2120,13 @@ Run: `bun test commands/__tests__/settings-json-frozen.test.ts commands/__tests_
 
 - [ ] **Step 5: Run, regenerate docs, commit**
 
+The reworded `--scope` and `--team` hints name fewer store files, so `lib/__tests__/no-settings-bypass.test.ts` reports a new count for `lib/command-tree-def.ts` (6 today, 4 if the hints read as above): set the allowlist entry to the count the failure prints.
+
 ```bash
 bun test commands/__tests__
 bun run docs:gen
 git status --short
-git add commands/settings-keys.ts lib/command-tree-def.ts commands/__tests__/settings-set.test.ts commands/__tests__/settings-json-frozen.test.ts commands/__tests__/settings-explain.test.ts
+git add commands/settings-keys.ts lib/command-tree-def.ts lib/__tests__/no-settings-bypass.test.ts commands/__tests__/settings-set.test.ts commands/__tests__/settings-json-frozen.test.ts commands/__tests__/settings-explain.test.ts
 git add $(git diff --name-only -- docs)
 git commit -m "rt settings: the org scope, and --team names a team folder"
 ```
@@ -2024,7 +2137,7 @@ git commit -m "rt settings: the org scope, and --team names a team folder"
 - Modify: `packages/settings-kit/src/server.ts` (`RtSettingsApi`, the `/defs` reply, `effectiveFromRows`)
 - Modify: `apps/console/src/app/settings/useConsoleSettings.ts`, `view.ts`, `SettingsSection.tsx`, `SettingsPage.tsx`, `ExplainModal.tsx`
 - Modify: `apps/board/src/client/board/config-shapes.ts` (`SCOPE_ORDER`), `apps/board/src/config.ts` (the roster write near line 992)
-- Test: `packages/settings-kit/src/__tests__/server.test.ts`, `apps/console/src/app/settings/view.test.ts`, `apps/console/src/server/settings-kit-mount.test.ts`, `apps/board/src/__tests__/server-roster-route.test.ts`
+- Test: `packages/settings-kit/src/__tests__/server.test.ts`, `apps/console/src/app/settings/view.test.ts`, `apps/console/src/server/settings-kit-mount.test.ts`, `apps/board/src/__tests__/config-store-latch.test.ts`
 
 **Interfaces:**
 - Consumes: Task 4 `activeTeam`, `listOrgs`; Task 6 `merge: "add"`.
@@ -2032,50 +2145,46 @@ git commit -m "rt settings: the org scope, and --team names a team folder"
 
 - [ ] **Step 1: Write the failing server tests**
 
-In `packages/settings-kit/src/__tests__/server.test.ts`, the fake `rt` object the tests pass through `opts.rt` gains `listOrgs` and `activeTeam` in place of `listTeams`. Add:
+`packages/settings-kit/src/__tests__/server.test.ts` builds requests with its own `get(path)` and `post(path, body)` helpers and runs them through `handle(req, { rt: {...} })`, which overlays the file's fake `RT` object; `setCalls` records what reached `setSetting`. Replace the "defs names the machine's one team, and null with none or several" test with:
 
 ```ts
-  test("/defs names the org and the active team", async () => {
-    const res = await settingsHandler(new Request("http://localhost/api/settings/defs"), {
-      rt: { ...fakeRt, listOrgs: () => ["acme"], activeTeam: () => ({ org: "acme", team: "widgets", reason: "first-team", username: "dev1", listedOn: ["widgets"] }) },
-    });
-    const body = (await res!.json()) as { org: string | null; activeTeam: string | null; team?: unknown };
+  test("defs names the org and the active team, and nulls with no org", async () => {
+    const active = { org: "acme", team: "widgets", reason: "first-team" as const, username: "dev1", listedOn: ["widgets"] };
+    const one = await handle(get("/api/settings/defs"), { rt: { listOrgs: () => ["acme"], activeTeam: () => active } });
+    const body = (await one!.json()) as Record<string, unknown>;
     expect(body.org).toBe("acme");
     expect(body.activeTeam).toBe("widgets");
     expect("team" in body).toBe(false);
-  });
 
-  test("/defs on a Mac with no org answers nulls", async () => {
-    const res = await settingsHandler(new Request("http://localhost/api/settings/defs"), {
-      rt: { ...fakeRt, listOrgs: () => [], activeTeam: () => ({ org: null, team: null, reason: "no-org", username: null, listedOn: [] }) },
+    const none = await handle(get("/api/settings/defs"), {
+      rt: { listOrgs: () => [], activeTeam: () => ({ org: null, team: null, reason: "no-org" as const, username: null, listedOn: [] }) },
     });
-    const body = (await res!.json()) as { org: string | null; activeTeam: string | null };
-    expect(body).toMatchObject({ org: null, activeTeam: null });
+    expect(await none!.json()).toMatchObject({ org: null, activeTeam: null });
   });
+```
 
+Add `listOrgs: () => []` and `activeTeam: () => ({ org: null, team: null, reason: "no-org", username: null, listedOn: [] })` to the file's `RT` object (in place of `listTeams`), give `board.slack` in `DEFS` the scopes `["team", "org"]`, and add:
+
+```ts
   test("an add key's effective value is every live layer's list, weakest first, without duplicates", () => {
-    const def = { key: "claude.plugins", type: "array", scopes: ["user", "team", "org"], merge: "add", description: "" } as SettingDef;
-    const rows: ExplainRow[] = [
+    const def = { key: "claude.plugins", type: "array", scopes: ["user", "team", "org"], merge: "add", description: "" } as never;
+    const rows = [
       { scope: "default", file: null, present: false },
       { scope: "org", file: "/o", present: true, value: ["a@acme", "b@acme"] },
       { scope: "team", file: "/t", present: true, value: ["b@acme", "c@acme"] },
       { scope: "user", file: "/u", present: true, value: ["d@x"] },
-    ];
+    ] as never;
     expect(effectiveFromRows(def, rows)).toEqual({ scope: "user", file: "/u", value: ["a@acme", "b@acme", "c@acme", "d@x"] });
   });
 
-  test("a set at org scope reaches setSetting with no team", async () => {
-    const calls: unknown[][] = [];
-    const res = await settingsHandler(
-      new Request("http://localhost/api/settings/set", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "board.gitlabHost", scope: "org", value: "gitlab.example.com" }) }),
-      { rt: { ...fakeRt, setSetting: (...args: unknown[]) => { calls.push(args); } } },
-    );
+  test("a set at org scope reaches setSetting with the org scope and no team", async () => {
+    const res = await handle(post("/api/settings/set", { key: "board.slack", scope: "org", value: { webhookUrl: "https://hooks.example.com/x" } }), { allowComposite: true });
     expect(res!.status).toBe(200);
-    expect(calls).toEqual([["board.gitlabHost", "gitlab.example.com", "org", {}]]);
+    expect(setCalls.at(-1)).toEqual(["board.slack", { webhookUrl: "https://hooks.example.com/x" }, "org", {}]);
   });
 ```
 
-(`fakeRt` stands for the fake API object that file already builds; reuse its name.)
+The first fails today because the reply has `team` and no `org`; the second because `effectiveFromRows` takes the strongest layer for an array. The third is a pin, not a red test: it passes as soon as the fixture lists `org`, and it holds the handler to handing `org` through with no team name.
 
 - [ ] **Step 2: Run to see them fail**
 
@@ -2289,21 +2398,15 @@ In `apps/board/src/config.ts`, the roster writer (`saveRosterMembers`, near line
     write(owner.key, value, owner.key === 'mattstack.roster' ? 'org' : 'team');
 ```
 
-Add to `apps/board/src/__tests__/server-roster-route.test.ts` (`saveRosterMembers(next, path, resolve, write)`; reuse the file's temp `config.json` path and its `fakeResolve`):
+`apps/board/src/__tests__/config-store-latch.test.ts` holds the roster-write tests and their helpers (a temp `config.json` path and `fakeResolve`). Its assertion near line 527 expects the roster write at scope `'team'`; it now expects `'org'`:
 
 ```ts
-  test('the suite roster is written at org scope', () => {
-    const writes: unknown[][] = [];
-    saveRosterMembers(
-      [{ username: 'dev1' }],
-      configPath,
-      fakeResolve({ 'mattstack.roster': [] }),
-      (...args: unknown[]) => { writes.push(args); }
-    );
-    expect(writes[0]![0]).toBe('mattstack.roster');
-    expect(writes[0]![2]).toBe('org');
-  });
+    expect(calls).toEqual([
+      { key: 'mattstack.roster', value: next, scope: 'org' },
+    ]);
 ```
+
+The same file's "a write to mattstack.roster strips hidden" test asserts the scope the same way; it becomes `'org'` too. `fakeWrite` there runs `validateWrite` with the scope, so a `'team'` write of the roster now fails the test by itself.
 
 Run: `bun run board:typecheck && bun run board:test`
 Expected: PASS.
@@ -2338,7 +2441,7 @@ Stop the server and remove `$RT_SCRATCH_HOME` when done.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add packages/settings-kit/src/server.ts packages/settings-kit/src/__tests__/server.test.ts apps/console/src/app/settings apps/console/src/server/settings-kit-mount.test.ts apps/board/src/client/board/config-shapes.ts apps/board/src/config.ts apps/board/src/__tests__/server-roster-route.test.ts
+git add packages/settings-kit/src/server.ts packages/settings-kit/src/__tests__/server.test.ts apps/console/src/app/settings apps/console/src/server/settings-kit-mount.test.ts apps/board/src/client/board/config-shapes.ts apps/board/src/config.ts apps/board/src/__tests__/config-store-latch.test.ts
 git commit -m "settings-kit, console and board: name the org layer apart from the team layer"
 ```
 
@@ -2366,7 +2469,7 @@ In `lib/setup/plan.ts`, rename the `teams` field of `PlanInputs` to `orgs` (and 
 
 In `lib/setup/team-settings.ts`, reword `discoverOrgs`' doc comment: "Every org clone's slug: subdirectories of `<home>/.mattstack/teams` that hold `mattstack/org/settings.org.jsonc`." Keep the sentence about `Probes` and the ambient HOME.
 
-The switchboard seams (`lib/team/join.ts`, `lib/team/board-token.ts`, `lib/setup/validators/accounts.ts`, `lib/setup/validators/access.ts`) read the switchboard URL through `readTeamSnapshot`, which resolves `mattstack.integrations`; after Task 5 that value comes from the org layer with no change to those four files. Their tests in the run below are the check.
+The switchboard seams change together (`AGENTS.md`, "Switchboard and `rt team join`"). Three of them (`lib/team/join.ts`, `lib/setup/validators/accounts.ts`, `lib/setup/validators/access.ts`) read the switchboard URL through `readTeamSnapshot`, which resolves `mattstack.integrations`, so after Task 5 that value comes from the org layer with no change to those files. The fourth, `lib/team/board-token.ts`, reads the store by path, and Task 5 already moved that read to the org store. Their tests in the run below are the check: a peering row that reports "no switchboard" for an org that declares one means one of the four still reads the old path.
 
 - [ ] **Step 2: Verify nothing else moved**
 
@@ -2529,10 +2632,10 @@ bash -n rt-tray/vm/run/host/team-rebase.sh
 bunx tsc --noEmit
 ```
 
-Expected: PASS. A setup test that created a team and then looked for `mattstack/settings.team.jsonc` looks for the org store instead.
+Expected: PASS. A setup test that created a team and then looked for `mattstack/settings.team.jsonc` looks for the org store instead. `lib/__tests__/no-settings-bypass.test.ts` reports new counts for `lib/team/create.ts` (2 today, 1 once the scaffold writes through the path helpers) and `lib/team/join.ts`: set each allowlist entry to the count the failure prints and reword its reason to name the org store.
 
 ```bash
-git add lib/team/create.ts lib/team/join.ts lib/team/__tests__/create.test.ts rt-tray/vm/run/host/team-rebase.sh
+git add lib/team/create.ts lib/team/join.ts lib/team/__tests__/create.test.ts rt-tray/vm/run/host/team-rebase.sh lib/__tests__/no-settings-bypass.test.ts
 git add $(git diff --name-only -- '*.test.ts')
 git commit -m "rt team create: scaffold the org layout with one team folder"
 ```
@@ -2544,7 +2647,8 @@ git commit -m "rt team create: scaffold the org layout with one team folder"
 - Modify: `lib/skills/materialize.ts` (`claimingPacksIn`, the over-claim message)
 - Modify: `commands/skills.ts` (`packRootDir`, `resolvePack`'s fallback, `findDefaultManifest`'s zone filter)
 - Modify: `commands/skills-init.ts` (the real `declareClaim` dep; `createZone` returns the team)
-- Modify: `lib/setup/steps/skills.ts` (`teamPacks`)
+- Modify: `lib/setup/steps/skills.ts` (`teamPacks`), `apps/console/src/server/effectiveInputs.ts` (a comment)
+- Modify: `lib/__tests__/no-settings-bypass.test.ts` (the `lib/skills/init.ts` entry: the zone reader now calls `readSection` and names two store files; set the count the failure prints and reword the reason to "reads each team folder's own claim and host; getSetting resolves only the active team")
 - Test: `lib/skills/__tests__/init.test.ts`, `lib/skills/__tests__/materialize.test.ts`, `commands/__tests__/skills-init.test.ts`, `commands/__tests__/skills.test.ts`, `commands/__tests__/skills-bind.test.ts`
 
 **Interfaces:**
@@ -2859,7 +2963,17 @@ In `resolvePack`, the hand-installed fallback becomes:
     );
 ```
 
-In `findDefaultManifest`, the zone filter becomes `.filter((z) => z.team === team && existsSync(packDirOf(z)))`, and "its team zone declares no forge host" reads "its team declares no forge host".
+In `findDefaultManifest`, the zone filter becomes `.filter((z) => z.team === team && existsSync(packDirOf(z)))`, and "its team zone declares no forge host" reads "its team declares no forge host". The same function decides whether a pack directory is a team pack by its path shape (near line 478); a team pack now sits at `<repo>/mattstack/teams/<team>/packs/<team>`:
+
+```ts
+  // Team packs sit at <repo>/mattstack/teams/<team>/packs/<team>; that path
+  // shape survives worktrees, unlike the clone's location, and a team pack's
+  // pack/skills.jsonc is a merge fragment, never its manifest.
+  const parts = resolvePath(packDir).split(sep);
+  const teamShaped = parts.at(-2) === "packs" && parts.at(-4) === "teams" && parts.at(-5) === "mattstack";
+```
+
+`apps/console/src/server/effectiveInputs.ts` line 220 has a comment naming the old pack path; reword it to `teams/<org>/mattstack/teams/<team>/packs/<team>` (the code under it resolves the pack through discovery and needs no change).
 
 `lib/setup/steps/skills.ts`, `teamPacks` walks every team folder of the org:
 
@@ -2888,7 +3002,7 @@ Each failure is a fixture that wrote the old zone. The rule: a fixture that wrot
 ```bash
 bunx tsc --noEmit
 bun run test
-git add lib/skills/init.ts lib/skills/materialize.ts commands/skills.ts commands/skills-init.ts lib/setup/steps/skills.ts
+git add lib/skills/init.ts lib/skills/materialize.ts commands/skills.ts commands/skills-init.ts lib/setup/steps/skills.ts apps/console/src/server/effectiveInputs.ts lib/__tests__/no-settings-bypass.test.ts
 git add $(git diff --name-only -- '*.test.ts')
 git commit -m "skills: zones are team folders, and a pack's claim is the team's board.projects"
 ```
@@ -2948,7 +3062,7 @@ The `rg` must print only lines that were already there before your edit (compare
 bun run test
 bunx tsc --noEmit
 bun run check
-bun run test:e2e -- e2e/tests/settings.test.ts
+bun test --preload ./e2e/setup.ts --timeout 60000 e2e/tests/settings.test.ts
 ```
 
 All green, then open PR 1 from `org-teams-1-resolver` against `main` (it stays open until the whole stack lands; see Landing). Its body names the two deliberate contract changes: the `org` rows in `rt settings explain --json` and `list --json`, and the `/defs` reply's `org` and `activeTeam` fields replacing `team`.
@@ -3116,7 +3230,7 @@ git commit -m "skills: discover packs in team folders and the org folder"
 - Modify: `lib/setup/skills-materialize.ts` (the `deps` object)
 - Modify: `lib/skills/sources.ts` (`PluginRoots`, `orgBasePackRoots`, `loadAttachment`)
 - Modify: `commands/skills.ts` (`resolve`: add the base roots)
-- Test: `lib/skills/__tests__/materialize.test.ts`, `lib/skills/__tests__/sources.test.ts`
+- Test: `lib/skills/__tests__/materialize.test.ts`, `lib/skills/__tests__/sources.test.ts`, `commands/__tests__/skills.test.ts`
 
 **Interfaces:**
 - Produces:
@@ -3331,7 +3445,7 @@ In `commands/skills.ts` `resolve`, after the line that computes `invocable`:
 
 ```ts
   // After the invocable roster: a base pack is never installed, so nothing in it is invocable.
-  if (fullRoster.length > 0 && !flags.mattstackDir) {
+  if (fullRoster.length > 0) {
     for (const base of orgBasePackRoots(mattstackRoot)) {
       pluginRoots.byName[base.name] = { dir: base.dir, version: base.version };
       (pluginRoots.folderOnly ??= new Set()).add(base.name);
@@ -3339,14 +3453,47 @@ In `commands/skills.ts` `resolve`, after the line that computes `invocable`:
   }
 ```
 
-and import `orgBasePackRoots` beside the other `sources.ts` imports.
+and import `orgBasePackRoots` beside the other `sources.ts` imports. The roots are read under `mattstackRoot` whether it is the real home or a `--mattstack-dir`, so a compile test can reach them; a directory with no `teams/` folder yields none.
 
-- [ ] **Step 6: Run and commit**
+- [ ] **Step 6: A compile through a base pack's fill**
+
+`commands/__tests__/skills.test.ts` calls `materializeRepo` with `claudeHome` in its "two packs bound to one repo" test (near line 582): drop that argument (Task 11 already moved the test's fixture to the org layout). Then add, beside it:
+
+```ts
+  test("a team pack compiles a fill that lives in the org base pack", async () => {
+    const mattstackDir = makeMattstackDir();
+    const orgDir = join(mattstackDir, "teams", "acme", "mattstack");
+    const baseDir = join(orgDir, "org", "packs", "acme-base");
+    const packDir = join(orgDir, "teams", "widgets", "packs", "widgets");
+    writeFile(join(orgDir, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
+    writeFile(join(orgDir, "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }));
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
+    writeFile(join(orgDir, "teams", "widgets", "settings.team.jsonc"), "{}");
+    writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
+    writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+
+    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: join(mattstackDir, "plugins", "mattstack") }, "https://gitlab.example.com/acme/widgets.git");
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs).toMatchObject([{ pack: "widgets", ok: true, layers: ["default", "base:acme-base", "pack"] }]);
+
+    const { errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
+    expect(errors).toEqual([]);
+    expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toContain("acme-base:watch-ci-domain");
+    expect(existsSync(join(baseDir, "skills"))).toBe(false);
+  });
+```
+
+It fails before Step 5 with the loader's "unknown plugin acme-base" error, and passes once `resolve` adds the base roots. Add `existsSync` to the file's `fs` import if it lacks it.
+
+- [ ] **Step 7: Run and commit**
 
 ```bash
 bun test lib/skills lib/setup commands/__tests__/skills.test.ts
 bunx tsc --noEmit
-git add lib/skills/materialize.ts lib/skills/sources.ts lib/setup/skills-materialize.ts commands/skills.ts lib/skills/__tests__/materialize.test.ts lib/skills/__tests__/sources.test.ts
+git add lib/skills/materialize.ts lib/skills/sources.ts lib/setup/skills-materialize.ts commands/skills.ts lib/skills/__tests__/materialize.test.ts lib/skills/__tests__/sources.test.ts commands/__tests__/skills.test.ts
 git commit -m "skills: a team pack extends the org base pack by bare name, read from the org folder"
 ```
 
@@ -3667,24 +3814,83 @@ git commit -m "rt skills init: one pack per team folder, --team, and carry on a 
 ### Task 17: A Mac installs only its active team's pack
 
 **Files:**
+- Create: `lib/team/active-team.ts` (the `Probes`-seamed twin of rt-client's `activeTeam`)
 - Modify: `lib/setup/pack-cache.ts` (`readServedPacks`, `convergePackCache`)
-- Modify: `lib/setup/steps/plugins.ts` (`computePlugins`)
+- Modify: `lib/setup/steps/plugins.ts` (`computePlugins`), `lib/setup/apply.ts` (`ApplyContext.activeTeam`)
 - Modify: `lib/setup/validators/tools.ts` (`toolRows`)
-- Test: `lib/setup/__tests__/pack.test.ts`, `lib/setup/__tests__/steps-c.test.ts`, `lib/setup/__tests__/validators-tools.test.ts`
+- Modify: `lib/setup/requirements.ts` (`readPackRequirements`)
+- Test: `lib/team/__tests__/active-team.test.ts` (new), `lib/setup/__tests__/pack.test.ts`, `lib/setup/__tests__/pack-cache-converge.test.ts`, `lib/setup/__tests__/steps-c.test.ts`, `lib/setup/__tests__/validators-tools.test.ts`, `lib/setup/__tests__/requirements.test.ts`
 
 **Interfaces:**
-- Consumes: `activeTeam` (rt-client).
+- Consumes: `decideActiveTeam`, `rosterFrom`, `type ActiveTeam` (Task 4), `parseStoreText`, `TEAM_NAME_RE` (Task 4), `readTeamLocal`.
 - Produces:
 
 ```ts
+// lib/team/active-team.ts
+/** The active team as rt-client's activeTeam() decides it, read through Probes so setup and daemon code never touches the ambient HOME. */
+export function activeTeamFor(p: Pick<Probes, "readFile" | "readDir" | "home">, org: string): ActiveTeam;
+
+// lib/setup/pack-cache.ts
 export function readServedPacks(p: Pick<Probes, "readFile" | "home">, slug: string, opts?: { only?: string | null }): ServedPacks;
 // `only` unset: every entry. A string: that pack alone. null: none (this Mac has no active team).
 export async function convergePackCache(p: Probes, slug: string, log: Logger, opts?: { now?: () => number; activeTeam?: () => string | null }): Promise<ConvergeResult>;
+
+// lib/setup/apply.ts, on ApplyContext
+/** Test seam: the active team's name. Production reads it from the org's roster through `p`. */
+activeTeam?: () => string | null;
+
+// lib/setup/requirements.ts
+/** The active team's pack requirements; [] when this Mac has no active team or the pack declares none. */
+export function readPackRequirements(p: Pick<Probes, "readDir" | "readFile" | "exists" | "home">, org: string, team?: string | null): PackRequirements[];
 ```
+
+Every default goes through `activeTeamFor(p, slug)`, never rt-client's `activeTeam()`: this code runs under fake `Probes` in tests, and a context built from fake probes must not read the ambient HOME.
 
 - [ ] **Step 1: Write the failing tests**
 
-In `lib/setup/__tests__/pack.test.ts` (it builds a fake `Probes` over a `files` map; reuse its helper):
+```ts
+// lib/team/__tests__/active-team.test.ts
+import { describe, expect, test } from "bun:test";
+import { fakeProbes } from "../../setup/__tests__/fakes.ts";
+import { activeTeamFor } from "../active-team.ts";
+import { teamLocalPath } from "../team-local.ts";
+
+const HOME = "/h";
+const ROOT = `${HOME}/.mattstack/teams/acme`;
+const roster = [{ username: "dev1", teams: ["widgets"] }, { username: "dev2", teams: ["widgets", "gadgets"] }];
+
+function probes(opts: { username?: string; setting?: string; folders?: string[] }) {
+  return fakeProbes({
+    home: HOME,
+    dirs: { [`${ROOT}/mattstack/teams`]: opts.folders ?? [] },
+    files: {
+      [`${ROOT}/mattstack/org/settings.org.jsonc`]: `// org\n${JSON.stringify({ "mattstack.roster": roster })}`,
+      ...(opts.username ? { [teamLocalPath(HOME, "acme")]: JSON.stringify({ forgeUsername: opts.username }) } : {}),
+      ...(opts.setting ? { [`${HOME}/.mattstack/user/settings.user.jsonc`]: JSON.stringify({ "mattstack.activeTeam": opts.setting }) } : {}),
+    },
+  });
+}
+
+describe("activeTeamFor", () => {
+  test("your first team, unless the user setting names another one you are on", () => {
+    expect(activeTeamFor(probes({ username: "dev2" }), "acme")).toEqual({ org: "acme", team: "widgets", reason: "first-team", username: "dev2", listedOn: ["widgets", "gadgets"] });
+    expect(activeTeamFor(probes({ username: "dev2", setting: "gadgets" }), "acme")).toMatchObject({ team: "gadgets", reason: "chosen" });
+  });
+  test("no team lists you: none", () => {
+    expect(activeTeamFor(probes({ username: "stranger" }), "acme")).toMatchObject({ team: null, reason: "no-team" });
+  });
+  test("no stored username: the setting alone, and only for a team folder that exists", () => {
+    expect(activeTeamFor(probes({ setting: "widgets", folders: ["widgets"] }), "acme")).toMatchObject({ team: "widgets", reason: "setting-only" });
+    expect(activeTeamFor(probes({ setting: "widgets" }), "acme")).toMatchObject({ team: null, reason: "identity" });
+    expect(activeTeamFor(probes({}), "acme")).toMatchObject({ team: null, reason: "identity" });
+  });
+  test("a missing org store reads as no roster", () => {
+    expect(activeTeamFor(fakeProbes({ home: HOME, files: { [teamLocalPath(HOME, "acme")]: JSON.stringify({ forgeUsername: "dev1" }) } }), "acme")).toMatchObject({ team: null, reason: "no-team" });
+  });
+});
+```
+
+In `lib/setup/__tests__/pack.test.ts`:
 
 ```ts
   describe("readServedPacks filter", () => {
@@ -3706,27 +3912,87 @@ In `lib/setup/__tests__/pack.test.ts` (it builds a fake `Probes` over a `files` 
   });
 ```
 
-In `lib/setup/__tests__/steps-c.test.ts`, inside the `trust split per item` describe Task 6 added (it already points HOME at a scratch dir and builds `ctx`):
+In `lib/setup/__tests__/steps-c.test.ts`, inside `describe("plugins.install", ...)`:
 
 ```ts
     test("only the active team's marketplace entry is team-authored; another team's pack is not installed", () => {
-      seedOrg({ org: "acme", username: "dev1", roster: [{ username: "dev1", teams: ["widgets"] }], teams: { widgets: {}, gadgets: {} } });
+      const { ctx } = makeCtx(fakeProbes({ home: "/h" }), { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "widgets" });
       const market = { name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] };
       expect(computePlugins(ctx, market).teamAuthored).toEqual(["widgets@acme"]);
     });
 
     test("a Mac with no active team installs no team pack", () => {
-      seedOrg({ org: "acme", username: "stranger", roster: [{ username: "dev1", teams: ["widgets"] }], teams: { widgets: {} } });
+      const { ctx } = makeCtx(fakeProbes({ home: "/h" }), { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => null });
       expect(computePlugins(ctx, { name: "acme", plugins: [{ name: "widgets" }] }).teamAuthored).toEqual([]);
     });
+
+    test("with no seam the active team comes from the org's roster through probes", () => {
+      const p = fakeProbes({
+        home: "/h",
+        files: {
+          "/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["gadgets"] }] }),
+          "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }),
+        },
+      });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      expect(computePlugins(ctx, { name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] }).teamAuthored).toEqual(["gadgets@acme"]);
+    });
+```
+
+In `lib/setup/__tests__/requirements.test.ts`:
+
+```ts
+  describe("the active team's pack", () => {
+    const REQ = JSON.stringify({ tools: [{ name: "jq", why: "parses json" }], integrations: [] });
+    const files = {
+      "/h/.mattstack/teams/acme/mattstack/teams/widgets/packs/widgets/requirements.jsonc": REQ,
+      "/h/.mattstack/teams/acme/mattstack/teams/gadgets/packs/gadgets/requirements.jsonc": JSON.stringify({ tools: [{ name: "yq", why: "parses yaml" }], integrations: [] }),
+    };
+    test("reads only the named team's pack", () => {
+      const reqs = readPackRequirements(fakeProbes({ home: "/h", files }), "acme", "widgets");
+      expect(reqs.map((r) => [r.pack, r.tools.map((t) => t.name)])).toEqual([["widgets", ["jq"]]]);
+    });
+    test("no active team, or a pack with no requirements file, is no requirements", () => {
+      expect(readPackRequirements(fakeProbes({ home: "/h", files }), "acme", null)).toEqual([]);
+      expect(readPackRequirements(fakeProbes({ home: "/h", files }), "acme", "sprockets")).toEqual([]);
+    });
+  });
 ```
 
 - [ ] **Step 2: Run to see them fail**
 
-Run: `bun test lib/setup/__tests__/pack.test.ts lib/setup/__tests__/steps-c.test.ts`
+Run: `bun test lib/team/__tests__/active-team.test.ts lib/setup/__tests__/pack.test.ts lib/setup/__tests__/steps-c.test.ts lib/setup/__tests__/requirements.test.ts`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 3: Implement the probes twin**
+
+```ts
+// lib/team/active-team.ts
+import { join } from "path";
+import { decideActiveTeam, rosterFrom, type ActiveTeam } from "../../packages/rt-client/src/settings/active-team.ts";
+import { parseStoreText, TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
+import type { Probes } from "../setup/probes.ts";
+import { readTeamLocal } from "./team-local.ts";
+
+/** The active team as rt-client's activeTeam() decides it, read through Probes so setup and daemon code never touches the ambient HOME. */
+export function activeTeamFor(p: Pick<Probes, "readFile" | "readDir" | "home">, org: string): ActiveTeam {
+  const orgFile = join(p.home, ".mattstack", "teams", org, "mattstack", "org", "settings.org.jsonc");
+  const userFile = join(p.home, ".mattstack", "user", "settings.user.jsonc");
+  const orgRaw = p.readFile(orgFile);
+  const userRaw = p.readFile(userFile);
+  const setting = userRaw === null ? undefined : parseStoreText(userFile, userRaw).global["mattstack.activeTeam"];
+  const username = readTeamLocal(p, org).forgeUsername ?? null;
+  const decision = decideActiveTeam({
+    username,
+    roster: orgRaw === null ? [] : rosterFrom(parseStoreText(orgFile, orgRaw)),
+    setting: typeof setting === "string" ? setting : undefined,
+    teamFolders: () => p.readDir(join(p.home, ".mattstack", "teams", org, "mattstack", "teams")).filter((name) => TEAM_NAME_RE.test(name)),
+  });
+  return { org, username, ...decision };
+}
+```
+
+- [ ] **Step 4: Filter what is served, installed and required**
 
 `lib/setup/pack-cache.ts`:
 
@@ -3743,41 +4009,71 @@ and inside the entry loop, after the name check:
 In `convergePackCache`, add `activeTeam?: () => string | null` to its opts and read the filtered list:
 
 ```ts
-  const team = (opts.activeTeam ?? (() => activeTeam().team))();
+  const team = (opts.activeTeam ?? (() => activeTeamFor(p, slug).team))();
   const servedPacks = readServedPacks(p, slug, { only: team });
 ```
 
-with `import { activeTeam } from "../../packages/rt-client/src/settings/active-team.ts";`. Add to the function's doc comment: "Only the active team's pack is converged; a Mac on no team converges none."
+Add to the function's doc comment: "Only the active team's pack is converged; a Mac on no team converges none."
+
+`lib/setup/apply.ts`: add the `activeTeam` seam to `ApplyContext` as in the Interfaces block.
 
 `lib/setup/steps/plugins.ts`, in `computePlugins`, the marketplace half becomes:
 
 ```ts
   const marketplaceName = teamMarketplace?.name ?? ctx.team.slug;
-  const active = activeTeam().team;
+  const active = ctx.activeTeam ? ctx.activeTeam() : ctx.team.slug ? activeTeamFor(ctx.p, ctx.team.slug).team : null;
   const teamPlugins = (teamMarketplace?.plugins ?? [])
     .map((plugin) => plugin.name)
     .filter((name): name is string => typeof name === "string" && name.length > 0 && name === active)
     .map((name) => `${name}@${marketplaceName}`);
 ```
 
-(same import). Update the comment on `ComputedPlugins.teamAuthored` to say "the active team's entry in the org's marketplace.json".
+Update the comment on `ComputedPlugins.teamAuthored` to say "the active team's entry in the org's marketplace.json".
 
 `lib/setup/validators/tools.ts`, in `toolRows`:
 
 ```ts
-  const served = opts.teamSlug ? readServedPacks(p, opts.teamSlug, { only: opts.activeTeam === undefined ? activeTeam().team : opts.activeTeam }) : { packs: [], error: null };
+  const only = opts.activeTeam !== undefined ? opts.activeTeam : opts.teamSlug ? activeTeamFor(p, opts.teamSlug).team : null;
+  const served = opts.teamSlug ? readServedPacks(p, opts.teamSlug, { only }) : { packs: [], error: null };
 ```
 
-with `activeTeam?: string | null` added to its `opts` type (a test injects it; the real caller leaves it out). In `lib/setup/__tests__/validators-tools.test.ts`, the tests that expect a pack row per marketplace entry pass `activeTeam: "<that pack's name>"`, and add one asserting that with two entries and `activeTeam: "widgets"` only `pack.widgets` gets a row.
+with `activeTeam?: string | null` added to its `opts` type.
 
-- [ ] **Step 4: Run and commit**
+`lib/setup/requirements.ts`: a pack's requirements file now sits at `teams/<org>/mattstack/teams/<team>/packs/<team>/requirements.jsonc`, six segments below the clone root, past the old finder's depth of four; and only the active team's pack is this Mac's. Replace the recursive finder with a direct read:
+
+```ts
+/** teams/<org>/mattstack/teams/<team>/packs/<team>/requirements.jsonc: the active team's pack, the only one this Mac installs. */
+export function readPackRequirements(p: Pick<Probes, "readDir" | "readFile" | "exists" | "home">, org: string, team: string | null = activeTeamFor(p, org).team): PackRequirements[] {
+  if (team === null) return [];
+  const file = join(p.home, ".mattstack", "teams", org, "mattstack", "teams", team, "packs", team, REQUIREMENTS_FILE);
+  if (!p.exists(file)) return [];
+  const text = p.readFile(file);
+  // A file that is there but cannot be read is reported, never skipped.
+  if (text === null) return [{ pack: team, tools: [], integrations: [], error: `could not read ${file}` }];
+  return [parseRequirements(team, text)];
+}
+```
+
+and delete `findRequirementsFiles`, `MAX_DEPTH` and `SKIP_DIRS`. Reword the file's header comment to the new path. Its callers (`createApplyContext` and `reloadTeam` in `lib/setup/apply.ts`, `composePlan` in `lib/setup/plan.ts`, and `commands/tools.ts`) keep calling it with the org slug alone.
+
+- [ ] **Step 5: Give the existing tests an active team**
+
+With no org seeded, the default active team is none, so every existing test that expected a team pack to be installed, converged or listed now needs one named:
+
+- `lib/setup/__tests__/pack-cache-converge.test.ts`: each of its sixteen `convergePackCache(p, "acme", log)` calls passes `{ activeTeam: () => "<the pack that test serves>" }` (merged with `now` where the test already passes it). Add one test: two served packs, `activeTeam: () => "widgets"`, and only `widgets@...` is installed; and one with `activeTeam: () => null` that converges nothing.
+- `lib/setup/__tests__/steps-c.test.ts`: the `plugins.install` tests that seed a team marketplace and expect its pack (about eleven, for example lines 288 to 330) build their context with `activeTeam: () => "<that pack's name>"`.
+- `lib/setup/__tests__/validators-tools.test.ts`: tests that expect a pack row pass `activeTeam: "<that pack's name>"`; add one asserting that with two entries and `activeTeam: "widgets"` only `pack.widgets` gets a row.
+- `lib/setup/__tests__/requirements.test.ts`: the older tests seed `teams/<slug>/mattstack/packs/<pack>/requirements.jsonc`; they seed `teams/<slug>/mattstack/teams/<pack>/packs/<pack>/requirements.jsonc` and pass the team name as the third argument. Keep "an unreadable file yields one error entry naming the file" on the new path, and delete the tests of the recursive finder's depth and skip rules.
+- Anything in `commands/__tests__/setup-*.test.ts` that asserted a pack row or a `plugin install <pack>@...` call: give its probes the org store and the record (`mattstack.roster` listing a username on the team, and `rt/teams/<org>.json` with that `forgeUsername`), which is what a real Mac has.
+
+- [ ] **Step 6: Run and commit**
 
 ```bash
-bun test lib/setup lib/daemon/__tests__
+bun test lib/setup lib/team lib/daemon/__tests__ commands/__tests__
 bunx tsc --noEmit
-git add lib/setup/pack-cache.ts lib/setup/steps/plugins.ts lib/setup/validators/tools.ts
-git add $(git diff --name-only -- 'lib/setup/__tests__/*.test.ts')
-git commit -m "setup: install and converge only the active team's pack"
+git add lib/team/active-team.ts lib/team/__tests__/active-team.test.ts lib/setup/pack-cache.ts lib/setup/apply.ts lib/setup/steps/plugins.ts lib/setup/validators/tools.ts lib/setup/requirements.ts
+git add $(git diff --name-only -- '*.test.ts')
+git commit -m "setup: install, converge and require only the active team's pack"
 ```
 
 ### Task 18: Retire `board.defaultPack` and `board.members`; the board and boxscore read the active team
@@ -3789,9 +4085,10 @@ git commit -m "setup: install and converge only the active team's pack"
 - Modify: `lib/setup/steps/skills.ts` (delete `seedDefaultPack`, `teamPacks` and both call sites)
 - Modify: `lib/team/invite.ts`, `lib/team/members.ts`, `commands/team.ts` (drop the `board.members` dual write and fallback)
 - Modify: `apps/board/src/config.ts`, `apps/board/src/manifest-bindings.ts`, `apps/board/src/review-launch.ts`, `apps/board/src/client/board/StatusLine.tsx`, `apps/board/src/client/board/ConfigModal.tsx`, `apps/board/src/client/board/config-shapes.ts`, `apps/board/docs/configuration.md`, `apps/board/docs/agent-actions.md`
-- Modify: `apps/boxscore/src/server/config/index.ts`
+- Modify: `apps/boxscore/src/server/config/index.ts`, `apps/boxscore/scripts/import-legacy-settings.ts`
+- Modify: `apps/board/src/unconfigured.ts` (line 25), `lib/team/create.ts` (the comment near line 64)
 - Modify: `packages/settings-kit/src/shapes.ts` (drop the `board.members` shape), `packages/settings-kit/README.md`
-- Test: `packages/rt-client/src/settings/__tests__/active-team.test.ts`, `registry.test.ts`, `apps/board/src/__tests__/config.test.ts`, `manifest-bindings.test.ts`, `config-store-latch.test.ts`, `server-roster-route.test.ts`, `apps/boxscore` config tests, `lib/setup/__tests__/steps-b.test.ts`, `lib/team/__tests__/invite.test.ts`, `members.test.ts`
+- Test: `packages/rt-client/src/settings/__tests__/active-team.test.ts`, `registry.test.ts`, `apps/board/src/__tests__/config.test.ts`, `manifest-bindings.test.ts`, `config-store-latch.test.ts`, `apps/boxscore` config tests, `lib/setup/__tests__/steps-b.test.ts`, `lib/team/__tests__/invite.test.ts`, `members.test.ts`
 
 **Interfaces:**
 - Produces, from rt-client:
@@ -3978,38 +4275,54 @@ function addToRoster(seams: MintInviteSeams, slug: string, handle: string): void
 
 `apps/board/src/config.ts`:
 
-- Import `activeTeam`, `activeTeamPack`, `activeTeamRoster`, `mergeTeamRoster` from `@mattstack/rt-client`, and add one seam object the tests replace, so no loader signature changes:
+- Import `activeTeam`, `activeTeamPack`, `mergeTeamRoster` from `@mattstack/rt-client`, and add one seam object the tests replace, so no loader signature changes:
 
 ```ts
 /** What this Mac's active team contributes to the board's config. Tests replace the fields; production reads rt-client. */
 export const teamView: {
   pack: () => string | null;
-  roster: () => Member[];
   team: () => string | null;
 } = {
   pack: activeTeamPack,
-  roster: () => activeTeamRoster() as Member[],
   team: () => activeTeam().team,
 };
 ```
+
+The roster is not on the seam: it comes from the injected resolver, like every other store value, and only the team's name comes from the seam.
 
 - Rename `BoardConfig.defaultPack` to `teamPack` with the doc comment `/** The active team's pack; a launch from a tab that names no pack uses it. "" when this Mac has no team pack. */`.
 - In `parseConfig`, delete the `defaultPack` type check and its field; `teamPack: ''` is the parsed default (the legacy `config.json` field is no longer read).
 - `ROSTER_KEYS` becomes `['mattstack.roster'] as const`, and `rosterFromStore` answers the active team's members when the store owns the roster:
 
 ```ts
+type StoredMember = Member & { teams?: string[] };
+
+/** The roster the store owns, narrowed to the active team. A Mac on no team,
+    and a team nobody is listed on, see everyone: an empty member list fails
+    parseConfig's required-field check and would take the whole board down. */
 function rosterFromStore(
   resolve: GetSettingFn
-): { key: RosterStoreKey; members: Member[] } | null {
-  if (storeValue<Member[]>('mattstack.roster', resolve) === undefined) return null;
-  return { key: 'mattstack.roster', members: teamView.roster() };
+): { key: RosterStoreKey; members: Member[]; team: string | null } | null {
+  const all = storeValue<StoredMember[]>('mattstack.roster', resolve);
+  if (all === undefined) return null;
+  const team = teamView.team();
+  const onTeam = team === null ? [] : all.filter(m => (m.teams ?? []).includes(team));
+  // `team` is the team the list is narrowed to, null when it is everyone: a
+  // save from the everyone view must never put the whole org on one team.
+  return onTeam.length > 0
+    ? { key: 'mattstack.roster', members: onTeam, team }
+    : { key: 'mattstack.roster', members: all, team: null };
 }
 ```
 
-- In `withBoardStoreFallback`, the `defaultPack:` lines become:
+- In `withBoardStoreFallback`, delete the `defaultPack:` lines from `merged`, and set the pack after the round trip (`parseConfig` rebuilds the object and would discard a value set before it):
 
 ```ts
-    teamPack: teamView.pack() ?? '',
+  const parsed = parseConfig(
+    JSON.stringify(merged),
+    'a board.* team settings-store value'
+  );
+  return { ...parsed, teamPack: teamView.pack() ?? '' };
 ```
 
 - `saveRosterMembers` merges before it writes, so a save from one team's view cannot drop another team's members. Its store branch becomes:
@@ -4018,7 +4331,7 @@ function rosterFromStore(
   if (owner) {
     const edited = next.map(({ hidden: _hidden, ...rest }) => rest);
     const full = storeValue<Member[]>('mattstack.roster', resolve) ?? [];
-    write('mattstack.roster', mergeTeamRoster(full, teamView.team(), edited), 'org');
+    write('mattstack.roster', mergeTeamRoster(full, owner.team, edited), 'org');
   } else {
 ```
 
@@ -4042,7 +4355,6 @@ Tests. Each board test file that loads config sets the seam in `beforeEach` and 
 const realView = { ...teamView };
 beforeEach(() => {
   teamView.pack = () => null;
-  teamView.roster = () => [];
   teamView.team = () => null;
 });
 afterEach(() => {
@@ -4061,44 +4373,71 @@ afterEach(() => {
 `manifest-bindings.test.ts` renames the field in its fixtures. `config-store-latch.test.ts` replaces "board.defaultPack reads from the store" with (use the file's existing way of loading config through `fakeResolve`):
 
 ```ts
-  test('the team pack comes from the active team, never from a setting', () => {
+  const twoTeams = [
+    { username: 'dev1', teams: ['widgets'] },
+    { username: 'dev3', teams: ['gadgets'] },
+  ];
+
+  test('the team pack comes from the active team, never from a setting, and survives the store round trip', () => {
     teamView.pack = () => 'widgets';
-    const cfg = loadConfigFrom(configPath, fakeResolve({ 'board.defaultPack': 'gadgets' }));
+    const cfg = loadConfigFrom(
+      tmpConfig(),
+      fakeResolve({ 'board.title': 'Acme', 'board.defaultPack': 'gadgets' })
+    );
+    expect(cfg.title).toBe('Acme');
     expect(cfg.teamPack).toBe('widgets');
   });
 
-  test('the roster is the active team\'s members', () => {
-    teamView.roster = () => [{ username: 'dev1' }];
-    const cfg = loadConfigFrom(
-      configPath,
-      fakeResolve({ 'mattstack.roster': [{ username: 'dev1', teams: ['widgets'] }, { username: 'dev3', teams: ['gadgets'] }] })
+  test("the roster is the active team's members", () => {
+    teamView.team = () => 'widgets';
+    const cfg = loadConfigFrom(tmpConfig(), fakeResolve({ 'mattstack.roster': twoTeams }));
+    expect(cfg.members.map(m => m.username)).toEqual(['dev1']);
+  });
+
+  test('a Mac on no team, and a team nobody is listed on, see the whole roster instead of failing to load', () => {
+    const everyone = loadConfigFrom(tmpConfig(), fakeResolve({ 'mattstack.roster': twoTeams }));
+    expect(everyone.members.map(m => m.username)).toEqual(['dev1', 'dev3']);
+    teamView.team = () => 'sprockets';
+    const empty = loadConfigFrom(tmpConfig(), fakeResolve({ 'mattstack.roster': twoTeams }));
+    expect(empty.members.map(m => m.username)).toEqual(['dev1', 'dev3']);
+  });
+
+  test('a save from the everyone view replaces the roster as edited and puts nobody on a team', () => {
+    teamView.team = () => 'sprockets';
+    const calls: Array<{ key: string; value: unknown; scope: string }> = [];
+    saveRosterMembers(twoTeams, tmpConfig(), fakeResolve({ 'mattstack.roster': twoTeams }), fakeWrite(calls));
+    expect(calls[0]!.value).toEqual(twoTeams);
+  });
+
+  test("saving from one team's view writes the org roster, keeps the other team's members, and reloads", () => {
+    teamView.team = () => 'widgets';
+    const calls: Array<{ key: string; value: unknown; scope: string }> = [];
+    const cfg = saveRosterMembers(
+      [{ username: 'dev1' }, { username: 'dev4' }],
+      tmpConfig(),
+      fakeResolve({ 'mattstack.roster': twoTeams }),
+      fakeWrite(calls)
     );
+    expect(calls).toEqual([
+      {
+        key: 'mattstack.roster',
+        value: [
+          { username: 'dev1', teams: ['widgets'] },
+          { username: 'dev3', teams: ['gadgets'] },
+          { username: 'dev4', teams: ['widgets'] },
+        ],
+        scope: 'org',
+      },
+    ]);
     expect(cfg.members.map(m => m.username)).toEqual(['dev1']);
   });
 ```
 
-(`configPath` is the temp `config.json` that file already writes for its other tests.) `server-roster-route.test.ts` replaces the Task 8 org-scope test with one that also pins the merge:
-
-```ts
-  test('saving from one team\'s view writes the org roster and keeps the other team\'s members', () => {
-    teamView.team = () => 'widgets';
-    const writes: unknown[][] = [];
-    const full = [{ username: 'dev1', teams: ['widgets'] }, { username: 'dev3', teams: ['gadgets'] }];
-    saveRosterMembers(
-      [{ username: 'dev1' }, { username: 'dev4' }],
-      configPath,
-      fakeResolve({ 'mattstack.roster': full }),
-      (...args: unknown[]) => { writes.push(args); }
-    );
-    expect(writes[0]).toEqual([
-      'mattstack.roster',
-      [{ username: 'dev1', teams: ['widgets'] }, { username: 'dev3', teams: ['gadgets'] }, { username: 'dev4', teams: ['widgets'] }],
-      'org',
-    ]);
-  });
-```
+(`tmpConfig`, `fakeResolve` and `fakeWrite` are that file's own helpers; the reload reads the fake resolver's unchanged roster, which is why the last line still sees `dev1` alone.) In the same file, delete the tests whose point was `board.members` as a roster source or write target; a test that seeded `board.members` beside `mattstack.roster` drops that seed and keeps its Task 8 scope assertion.
 
 Update `apps/board/docs/configuration.md` (the `defaultPack` row goes; the pack rule reads "the tab's `pack`, else your active team's pack") and `apps/board/docs/agent-actions.md` lines 91 to 96 the same way.
+
+`apps/board/src/unconfigured.ts` line 25 tells people to set `board.members`; the sentence becomes: "join a team that has them, or set `board.gitlabHost` and `board.projects` with `rt settings` and add yourself with `rt team members`" (keep the `<code>` markup the line uses). In `lib/team/create.ts`, the comment near line 64 says "`board.projects`/`board.members` are deliberately NOT written"; it names `board.projects` alone.
 
 - [ ] **Step 6: boxscore reads the active team's roster**
 
@@ -4121,6 +4460,15 @@ function teamRoster(): RosterEntry[] {
 
 and in `readSettings`: `const roster = teamRoster();`. Tests that injected `mattstack.roster` through the setting reader inject it through `__setRosterReader` instead; add one asserting `users` holds only the injected team's members.
 
+`apps/boxscore/scripts/import-legacy-settings.ts` line 151 reads `board.members` through `getSetting`, which throws for a retired key. The script merges the legacy users into whatever roster exists, so it reads the roster itself:
+
+```ts
+  const existing =
+    getSetting<RosterEntry[] | undefined>('mattstack.roster').value ?? [];
+```
+
+and passes `existing` where it passed `board` (rename the local; `mergeRoster`'s first parameter name follows).
+
 - [ ] **Step 7: Run everything**
 
 ```bash
@@ -4133,7 +4481,7 @@ bun run console:test
 rg -n "board\.defaultPack|board\.members|defaultPack" --glob '!docs/**' --glob '!**/dist/**' --glob '!**/node_modules/**' .
 ```
 
-Expected: all green; the `rg` prints only `RETIRED_KEYS`, the breaking-changes entry, the registry test, the "legacy defaultPack is ignored" board test, and `plugins/mattstack/README.md` (Task 19 fixes that one).
+Expected: all green. The `rg` still prints, and only prints: `RETIRED_KEYS` and the breaking-changes entry; the registry test that pins both keys as retired; the two board tests that pass a legacy `defaultPack` on purpose; `lib/setup/migrations/` once Task 36 exists (not yet); `packages/rt-client/src/settings/schema.lock.json` must not appear; and the plugin files Task 19 fixes (`plugins/mattstack/README.md`). Anything else is a reader this task missed: fix it here.
 
 - [ ] **Step 8: Look at the board and boxscore, both schemes**
 
@@ -4149,7 +4497,7 @@ The board polls a forge; with no token it shows its own empty state, which is fi
 
 ```bash
 git status --short
-git add packages/rt-client/src packages/settings-kit/src/shapes.ts packages/settings-kit/README.md lib/setup/steps/skills.ts lib/team/invite.ts lib/team/members.ts commands/team.ts apps/board/src apps/board/docs/configuration.md apps/board/docs/agent-actions.md apps/boxscore/src/server/config
+git add packages/rt-client/src packages/settings-kit/src/shapes.ts packages/settings-kit/README.md lib/setup/steps/skills.ts lib/team/invite.ts lib/team/members.ts commands/team.ts apps/board/src apps/board/docs/configuration.md apps/board/docs/agent-actions.md apps/boxscore/src/server/config apps/boxscore/scripts/import-legacy-settings.ts lib/team/create.ts
 git add $(git diff --name-only -- '*.test.ts' '*.test.tsx')
 git commit -m "retire board.defaultPack and board.members: the board and boxscore read the active team's pack and roster"
 ```
@@ -4157,7 +4505,7 @@ git commit -m "retire board.defaultPack and board.members: the board and boxscor
 ### Task 19: The pack skills and docs
 
 **Files:**
-- Modify: `plugins/mattstack/plugin/skills/creating-a-pack/SKILL.md`, `plugins/mattstack/plugin/skills/extending-a-pack/SKILL.md`, `plugins/mattstack/docs/your-first-pack.md`, `plugins/mattstack/README.md`, `plugins/mattstack/attachments/parameterized-skills/references/convention.md`
+- Modify: `plugins/mattstack/plugin/skills/creating-a-pack/SKILL.md`, `plugins/mattstack/plugin/skills/extending-a-pack/SKILL.md`, `plugins/mattstack/docs/your-first-pack.md`, `plugins/mattstack/README.md`, `plugins/mattstack/attachments/parameterized-skills/references/convention.md`, `plugins/mattstack/plugin/skills/editing-skills/SKILL.md`
 - Modify: `plugins/mattstack/.claude-plugin/plugin.json` (version bump)
 
 - [ ] **Step 1: Load the skill-writing skills**
@@ -4174,6 +4522,8 @@ Invoke `superpowers:writing-skills` and `mattstack:editing-skills` and follow th
 6. Known drift: bindings follow the base at once on every Mac; compiled fills follow at the team owner's next `rt skills compile`.
 7. `plugins/mattstack/README.md` line 128: "`MATTSTACK_PACK` set from the tab's `pack`, else your active team's pack".
 8. `convention.md` line 360: drop the sentence that names `merge-manifests.sh` as the way to regenerate bindings if it describes `team.jsonc`; keep the wrapper's own description.
+
+9. `editing-skills/SKILL.md`, "The two estates" table (near line 32): the team pack's source is `~/.mattstack/teams/acme/mattstack/teams/widgets/packs/widgets/skills/<name>/` (hand-authored) or `.../packs/widgets/attachments/<fill>/` (fills), its manifest `.../packs/widgets/.claude-plugin/plugin.json`, and the column heading reads "Team pack (widgets, in the acme org)". Keep the table's width formatting.
 
 Placeholders only (`acme`, `widgets`, `gadgets`, `acme-base`).
 
@@ -4210,12 +4560,12 @@ Branch `org-teams-3-writes`, based on `org-teams-2-packs`.
 
 **Files:**
 - Create: `packages/rt-client/src/settings/org-roles.ts`
-- Modify: `packages/rt-client/src/settings/stores.ts` (extract `parseStoreText`), `packages/rt-client/src/index.ts`
+- Modify: `packages/rt-client/src/index.ts`
 - Create: `lib/team/roles.ts`
 - Test: `packages/rt-client/src/settings/__tests__/org-roles.test.ts` (new), `lib/team/__tests__/roles.test.ts` (new)
 
 **Interfaces:**
-- Consumes: `OrgRoles`, `rolesFrom`, `readOrgRoles`, `sameUser` (Task 4), `readForgeUsername` (Task 4).
+- Consumes: `OrgRoles`, `rolesFrom`, `readOrgRoles`, `sameUser`, `readForgeUsername`, `parseStoreText` (Task 4).
 - Produces, from rt-client:
 
 ```ts
@@ -4226,7 +4576,6 @@ export function ownedRoots(role: OrgRole): string[];            // clone-relativ
 export function mayWritePath(role: OrgRole, relPath: string): boolean;
 export function writeRefusalFor(role: OrgRole, roles: OrgRoles, relPath: string): { message: string; why: string } | null;
 export function currentRole(org: string): OrgRole;              // from disk: stored username plus mattstack.org
-export function parseStoreText(file: string, raw: string): StoreFile; // stores.ts
 ```
 
 - Produces, from `lib/team/roles.ts` (the `Probes`-seamed twin the setup and team code uses):
@@ -4391,29 +4740,6 @@ Expected: FAIL, modules not found.
 
 - [ ] **Step 3: Implement**
 
-In `stores.ts`, split the parse out of `readStore` so a caller that already holds the text (a `Probes` read) gets the same `StoreFile`:
-
-```ts
-/** `readStore`'s parse step, for a caller that already holds the file's text. Never throws. */
-export function parseStoreText(file: string, raw: string): StoreFile {
-  if (raw.trim() === "") return EMPTY_STORE(file, true);
-  const errors: ParseError[] = [];
-  const root = parse(raw, errors, { allowTrailingComma: true });
-  if (errors.length > 0 || root === undefined || typeof root !== "object" || Array.isArray(root)) {
-    console.warn(`rt: malformed settings store ${file}, ignoring (treating as empty)`);
-    return EMPTY_STORE(file, true);
-  }
-  const { repos, ...global } = root as Record<string, unknown>;
-  const reposIsValid = repos !== undefined && typeof repos === "object" && repos !== null && !Array.isArray(repos);
-  if (repos !== undefined && !reposIsValid) {
-    console.warn(`rt: malformed "repos" section in settings store ${file}, ignoring repo sections (global keys still apply)`);
-  }
-  return { global, repos: reposIsValid ? (repos as Record<string, Record<string, unknown>>) : {}, file, exists: true };
-}
-```
-
-and `readStore` ends with `return parseStoreText(file, raw);` in place of the lines it now duplicates.
-
 ```ts
 // packages/rt-client/src/settings/org-roles.ts
 /**
@@ -4502,8 +4828,6 @@ export { currentRole, mayWritePath, ORG_MANAGED_ROOTS, ownedRoots, roleOf, write
 export type { OrgRole } from "./settings/org-roles.ts";
 ```
 
-and add `parseStoreText` to the stores export line.
-
 ```ts
 // lib/team/roles.ts
 import { join } from "path";
@@ -4536,10 +4860,10 @@ export function assertMayWrite(p: Reads, org: string, relPath: string): void {
 - [ ] **Step 4: Run and commit**
 
 ```bash
-bun test packages/rt-client/src/settings/__tests__/org-roles.test.ts packages/rt-client/src/settings/__tests__/stores.test.ts lib/team/__tests__/roles.test.ts
+bun test packages/rt-client/src/settings/__tests__/org-roles.test.ts lib/team/__tests__/roles.test.ts
 (cd packages/rt-client && bun run build)
 bunx tsc --noEmit
-git add packages/rt-client/src/settings/org-roles.ts packages/rt-client/src/settings/stores.ts packages/rt-client/src/index.ts packages/rt-client/src/settings/__tests__/org-roles.test.ts lib/team/roles.ts lib/team/__tests__/roles.test.ts
+git add packages/rt-client/src/settings/org-roles.ts packages/rt-client/src/index.ts packages/rt-client/src/settings/__tests__/org-roles.test.ts lib/team/roles.ts lib/team/__tests__/roles.test.ts
 git commit -m "roles: org admin, team owner and member, and what each may write"
 ```
 
@@ -4547,7 +4871,7 @@ git commit -m "roles: org admin, team owner and member, and what each may write"
 
 **Files:**
 - Modify: `packages/rt-client/src/settings/write.ts` (replace `refuseIfJoined`)
-- Test: `packages/rt-client/src/settings/__tests__/write.test.ts`, `packages/settings-kit/src/__tests__/server.test.ts`
+- Test: `packages/rt-client/src/settings/__tests__/write.test.ts`
 
 **Interfaces:**
 - Consumes: Task 20 `currentRole`, `writeRefusalFor`, `readOrgRoles`.
@@ -4614,18 +4938,7 @@ In `write.test.ts`, replace the joined-clone test from Task 5 with:
 
 (`mkdirSync(dirname(userSettingsPath()), { recursive: true })` before the `writeFileSync` if the directory is not there yet.)
 
-In `packages/settings-kit/src/__tests__/server.test.ts`:
-
-```ts
-  test("a write rt refuses for the caller's role comes back as an error, never a crash", async () => {
-    const res = await settingsHandler(
-      new Request("http://localhost/api/settings/set", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "board.gitlabHost", scope: "org", value: "x" }) }),
-      { rt: { ...fakeRt, setSetting: () => { throw new Error("rt: The org's shared files belong to its admins. Ask dev1 (an org admin) to make this change."); } } },
-    );
-    expect(res!.status).toBeGreaterThanOrEqual(400);
-    expect(((await res!.json()) as { error: string }).error).toContain("belong to its admins");
-  });
-```
+settings-kit needs no new test: `server.test.ts` already pins that a throw from `setSetting` or `unsetSetting` answers 400 with rt's own message ("a setSetting refusal answers 400 with rt's own message"), and the refusal here is such a throw.
 
 - [ ] **Step 2: Run to see them fail**
 
@@ -4665,10 +4978,10 @@ bun test packages/rt-client/src/settings packages/settings-kit
 bun run test
 ```
 
-A test elsewhere that wrote a shared setting through `setSetting` now needs a role: seed it with `seedOrg({ ..., username: "dev1", roles: { admins: ["dev1"], teams: {} } })`. That includes the `org and team stores` describe in `write.test.ts` (Task 5) and the `org and team scopes` describe in `commands/__tests__/settings-set.test.ts` (Task 7): give their `seedOrg` calls that `roles` value. `lib/team/invite.ts` and `members.ts` tests inject `writeSetting`, so they are unaffected.
+A test elsewhere that wrote a shared setting through `setSetting` now needs a role: seed it with `seedOrg({ ..., username: "dev1", roles: { admins: ["dev1"], teams: {} } })`. That includes the `org and team stores` describe in `write.test.ts` (Task 5) and the `org and team scopes` describe in `commands/__tests__/settings-set.test.ts` (Task 7): give their `seedOrg` calls that `roles` value. `lib/team/invite.ts` and `members.ts` tests inject `writeSetting`, so they are unaffected. The rule-6 tests from Task 5 (`dispose.test.ts`, `repo-tracking.test.ts`, `variations.test.ts` and the rest that write `"org"`) need the same role: where they seed through `seedOrg`, add `username` and `roles`; where they only call `setSetting(..., "org", ...)` against a bare clone, seed the org first with `seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } })`.
 
 ```bash
-git add packages/rt-client/src/settings/write.ts packages/rt-client/src/settings/__tests__/write.test.ts packages/settings-kit/src/__tests__/server.test.ts
+git add packages/rt-client/src/settings/write.ts packages/rt-client/src/settings/__tests__/write.test.ts
 git add $(git diff --name-only -- '*.test.ts')
 git commit -m "settings: a shared store is written only by a role that owns it"
 ```
@@ -4678,12 +4991,13 @@ git commit -m "settings: a shared store is written only by a role that owns it"
 **Files:**
 - Modify: `lib/team/team-local.ts` (delete `assertNotJoined`)
 - Modify: `lib/team/publish.ts`, `lib/team/members.ts`, `lib/secrets/team-store.ts` (call `assertMayWrite`)
-- Modify: `commands/skills.ts` (bind and compile), `lib/skills/init.ts` and `commands/skills-init.ts` (init), `commands/skills-sync.ts` and `lib/skills/sync.ts` (skip the recompile for a member)
-- Test: `lib/team/__tests__/publish.test.ts`, `members.test.ts`, `lib/secrets/__tests__/team-store.test.ts`, `commands/__tests__/skills-bind.test.ts`, `commands/__tests__/skills.test.ts`, `lib/skills/__tests__/init.test.ts`, `lib/skills/__tests__/sync.test.ts`
+- Modify: `commands/skills.ts` (bind, compile and surface), `lib/skills/init.ts` and `commands/skills-init.ts` (init), `commands/skills-sync.ts` and `lib/skills/sync.ts` (a member's sync writes nothing into the pack)
+- Modify: `lib/repo-reidentify.ts` (a shared store's repo section moves only on a Mac whose role owns that file)
+- Test: `lib/team/__tests__/publish.test.ts`, `members.test.ts`, `lib/secrets/__tests__/team-store.test.ts`, `commands/__tests__/skills-bind.test.ts`, `commands/__tests__/skills.test.ts`, `commands/__tests__/skills-surface.test.ts`, `lib/skills/__tests__/init.test.ts`, `lib/skills/__tests__/sync.test.ts`, `lib/__tests__/repo-reidentify.test.ts`
 
 **Interfaces:**
 - Consumes: Task 20 `assertMayWrite`, `roleFor`, `mayWritePath`.
-- Produces: `publishTeam` needs any owned root (an admin or an owner); `membersSync`, `membersRemove`, `writeTeamSecret`, `reencryptTeamSecrets` need the admin (`.sops.yaml`); `rt skills bind` and `compile` need the pack's directory; `initPack` needs the team folder, and the marketplace file only when it has to add an entry. `InitDeps` gains `mayWrite(zone: ZoneInfo, relPath: string): { message: string; why: string } | null`. `SyncDeps` gains `mayCompile(packName: string): boolean`.
+- Produces: `publishTeam` needs any owned root (an admin or an owner); `membersSync`, `membersRemove`, `writeTeamSecret`, `reencryptTeamSecrets` need the admin (`.sops.yaml`); `rt skills bind`, `compile` (when it writes) and `surface set|apply` (when they write) need the pack's directory; `rt repo reidentify` moves a shared store's section only where the role owns the file, and reports the rest as refused; `initPack` needs the team folder, and the marketplace file only when it has to add an entry. `InitDeps` gains `mayWrite(zone: ZoneInfo, relPath: string): { message: string; why: string } | null`. `SyncDeps` gains `mayCompile(packName: string): boolean`; when it answers false for a drifted pack, sync skips bump, compile, recheck and commit-push, so nothing in the clone changes.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -4739,15 +5053,78 @@ git commit -m "settings: a shared store is written only by a role that owns it"
 `lib/skills/__tests__/sync.test.ts`:
 
 ```ts
-  test("a member's sync skips the recompile without failing when the pack drifted", async () => {
-    const report = await syncPack(pack, depsWith({ checkPack: async () => ({ drift: true, lintHits: 0, strict: false }), mayCompile: () => false, compilePack: async () => { throw new Error("must not compile"); } }));
-    const compile = report.steps.find((s) => s.name === "compile");
-    expect(compile).toMatchObject({ status: "skipped", detail: "This pack is out of date, but only its team's owners recompile it" });
+  const NOT_YOURS = "This pack is out of date, but only its team's owners recompile it";
+
+  test("a member's sync of a drifted pack writes nothing into it, and still updates a lagging install", async () => {
+    const pack = fixturePack("acme", "local", "0.5.2");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps: SyncDeps = {
+      ...makeDeps(pack, engine, { calls, installed: { [pluginId(pack)]: "0.5.1", [pluginId(engine)]: "2.0.0" }, drift: [true] }),
+      mayCompile: () => false,
+      compilePack: async () => { throw new Error("a member must not compile"); },
+    };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(readVersion(pack.dir)).toBe("0.5.2");
+    const byName = Object.fromEntries(report.steps.map((s) => [s.name, s]));
+    for (const name of ["bump", "compile", "recheck", "commit-push"]) {
+      expect(byName[name]).toMatchObject({ status: "skipped", detail: NOT_YOURS });
+    }
+    expect(byName["update-pack"]!.status).toBe("ran");
+    expect(calls.some((c) => c.cmd === "git" && ["add", "commit", "push"].includes(c.args[0]!))).toBe(false);
+    expect(report.ok).toBe(true);
+  });
+
+  test("with the install already current, a member's sync of a drifted pack changes nothing at all", async () => {
+    const pack = fixturePack("acme", "local", "0.5.2");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps: SyncDeps = {
+      ...makeDeps(pack, engine, { calls, installed: { [pluginId(pack)]: "0.5.2", [pluginId(engine)]: "2.0.0" }, drift: [true] }),
+      mayCompile: () => false,
+    };
+    const report = await syncPack(pack, engine, deps);
+    const byName = Object.fromEntries(report.steps.map((s) => [s.name, s]));
+    expect(byName["update-pack"]).toMatchObject({ status: "skipped", detail: "the installed copy already matches the source" });
+    expect(readVersion(pack.dir)).toBe("0.5.2");
     expect(report.ok).toBe(true);
   });
 ```
 
-(`syncPack`, `pack` and `depsWith` stand for that file's existing entry point and fixtures; the step name is whatever the file's existing compile-step tests assert.)
+`makeDeps` gains `mayCompile: () => true` in the object it returns, so the file's other tests keep their meaning. The `drift` fixture holds one answer on purpose: a second `checkPack` call (the recheck) would throw "ran out of configured drift answers".
+
+`commands/__tests__/skills-surface.test.ts`: add a test that seeds an org through `seedOrg` with roles, records a member's username, runs `skillsSurface(["set", "<a hand-authored skill>", "--internal", "--pack-dir", <the team pack in the clone>])` and expects exit 2, stderr starting `The widgets team's files belong to its owners`, and the skill's folder still under `skills/`.
+
+`lib/__tests__/repo-reidentify.test.ts` (seed the way that file's settings-store cases do, with `seedOrg`):
+
+```ts
+  test("a member's reidentify leaves the shared stores alone and says who can move them", async () => {
+    seedOrg({
+      org: "acme",
+      username: "dev4",
+      roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } },
+      roster: [{ username: "dev4", teams: ["widgets"] }],
+      settings: { repos: { "gitlab.example.com/acme/widgets": { "rt.roles": { web: { devHook: "./dev.sh" } } } } },
+      teams: { widgets: {} },
+    });
+    const report = await reidentify("gitlab.example.com/acme/widgets", "gitlab.example.com/acme/gadgets");
+    if ("error" in report) throw new Error(report.error);
+    const shared = report.stores.find((s) => s.store === "settings:shared:acme/mattstack/org/settings.org.jsonc");
+    expect(shared).toEqual({ store: "settings:shared:acme/mattstack/org/settings.org.jsonc", status: "refused", count: 1, detail: "The org's shared files belong to its admins. Ask dev1 (an org admin) to make this change." });
+    expect(readStore(orgSettingsPath("acme")).repos["gitlab.example.com/acme/widgets"]).toBeDefined();
+  });
+
+  test("an admin's reidentify moves the org store's section", async () => {
+    seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} }, settings: { repos: { "gitlab.example.com/acme/widgets": { "rt.roles": {} } } }, teams: { widgets: {} } });
+    const report = await reidentify("gitlab.example.com/acme/widgets", "gitlab.example.com/acme/gadgets");
+    if ("error" in report) throw new Error(report.error);
+    expect(report.stores.find((s) => s.store.startsWith("settings:shared:"))).toMatchObject({ status: "moved" });
+  });
+```
+
+(`seedOrg`'s `settings` option is the org store's body, as Task 5 defined it; if that file's other tests open the state db through a helper, call `reidentify` inside the same helper.)
 
 `commands/__tests__/skills-bind.test.ts`: add a test that seeds an org through `seedOrg` with roles, records a member's username, runs `bind` against the team pack, and expects exit 2 with stderr starting `The widgets team's files belong to its owners` and the fragment file unchanged.
 
@@ -4771,9 +5148,12 @@ Expected: FAIL.
 
 - [ ] **Step 4: Implement the skills guards**
 
-`commands/skills.ts`: one helper, called by `bind` and `compile` after the pack is resolved and before anything is written:
+`commands/skills.ts`: one helper and one error class:
 
 ```ts
+/** A refusal by policy: drawn as a refused note on stderr, exit 2, never a failure. */
+export class SkillsRefusal extends SkillsUsageError {}
+
 /** A pack inside the org clone is written only by a role that owns its folder; a pack anywhere else (a checkout, --pack-dir) is the caller's own. */
 function refuseUnlessPackOwned(packDir: string): void {
   const org = currentOrg();
@@ -4781,13 +5161,47 @@ function refuseUnlessPackOwned(packDir: string): void {
   const rel = relativePath(canonicalPath(orgDir(org)), canonicalPath(packDir));
   if (rel === "" || rel.startsWith("..") || isAbsolutePath(rel)) return;
   const refusal = writeRefusalFor(currentRole(org), readOrgRoles(org), rel.split(sep).join("/"));
-  if (refusal) {
-    throw new SkillsUsageError(`${refusal.message}. ${refusal.why}`, { title: refusal.message, why: refusal.why });
-  }
+  if (refusal) throw new SkillsRefusal(`${refusal.message}. ${refusal.why}`, { title: refusal.message, why: refusal.why });
 }
 ```
 
-Use the file's existing `canonicalPath`, `relativePath`, `isAbsolutePath` and `sep` (the `isUnder` helper near line 405 already uses them). Draw the refusal as a `refused` note, not a failure: where `bind` and `compile` render a `SkillsUsageError`, route this one through `out.note(out.line("refused", ...), out.callout("why", ...))` with exit code 2, the way `initRefusalBlocks` does for a policy refusal.
+Use the file's existing `canonicalPath`, `relativePath`, `isAbsolutePath` and `sep` (the `isUnder` helper near line 405 already uses them). In `withCleanErrors`, ahead of the `SkillsUsageError` branch:
+
+```ts
+    if (err instanceof SkillsRefusal) {
+      const shown = skillsFailure(err);
+      out.note(out.line("refused", shown.title), ...(shown.why ? [out.callout("why", shown.why)] : []));
+      process.exit(2);
+    }
+```
+
+Call `refuseUnlessPackOwned` at every place the command writes into a pack:
+
+| Site | Call |
+|---|---|
+| `performCompile`, first line | `if (write) refuseUnlessPackOwned(resolved.packDir);` This covers `rt skills compile`, and `compilePackAll` for sync, init and the surface recompile |
+| `skillsBind`, after `resolve(...)` | `if (!bindFlags.dryRun) refuseUnlessPackOwned(resolved.packDir);` before `applyBind` |
+| `runApply` and `runSet` (`rt skills surface`), after `resolveSurfacePaths(flags)` | `if (!flags.dryRun) refuseUnlessPackOwned(packDir);` before any move or `surface.jsonc` write |
+
+`compilePackAll` returns its errors instead of throwing: wrap its `performCompile` call so a `SkillsRefusal` becomes `{ ok: false, errors: [err.message] }` (rethrow anything else). A `--json` caller of `compile`, `bind` or `surface` gets the refusal as that verb's existing error envelope with the message `<message>. <why>`, exit 2.
+
+`lib/repo-reidentify.ts`: the shared-store loop from Task 5 calls a guarded report:
+
+```ts
+/** A shared store's repo section moves only on a Mac whose role owns that file; anywhere else the clone would carry an edit it can never push. */
+function sharedSettingsReport(file: string, from: string, to: string, dryRun: boolean): StoreReport {
+  const label = sharedLabel(file);
+  const org = currentOrg();
+  const refusal = org === null ? null : writeRefusalFor(currentRole(org), readOrgRoles(org), relative(orgDir(org), file).split(sep).join("/"));
+  if (refusal === null) return settingsReport(label, file, from, to, dryRun);
+  const store = `settings:${label}`;
+  return Object.prototype.hasOwnProperty.call(readStore(file).repos, from)
+    ? { store, status: "refused", count: 1, detail: `${refusal.message}. ${refusal.why}` }
+    : { store, status: "none", count: 0 };
+}
+```
+
+and the loop body becomes `add(\`settings:${sharedLabel(file)}\`, () => sharedSettingsReport(file, from.raw, to.raw, dryRun));`. Update that file's `no-settings-bypass` allowlist count for the added `readStore`.
 
 `lib/skills/init.ts`: add `"not-yours"` to `InitRefusalCode` and `POLICY_REFUSALS`, add the `mayWrite` dep, and check before the write block (after `packIsCompiled`):
 
@@ -4806,11 +5220,28 @@ Use the file's existing `canonicalPath`, `relativePath`, `isAbsolutePath` and `s
     mayWrite: (zone, relPath) => writeRefusalFor(currentRole(zone.org), readOrgRoles(zone.org), relPath),
 ```
 
-`lib/skills/sync.ts`: `SyncDeps` gains `mayCompile(packName: string): boolean;`. In the step that recompiles on drift, before calling `deps.compilePack`:
+`lib/skills/sync.ts`: `SyncDeps` gains `mayCompile(packName: string): boolean;`. Directly after the `noOp` return:
 
 ```ts
-    if (!deps.mayCompile(pack.name)) return skipped("This pack is out of date, but only its team's owners recompile it");
+  // A Mac whose role does not own the pack writes nothing into it: a bump
+  // with no compile would leave a dirty manifest that blocks its own pulls.
+  const mine = !drift || deps.mayCompile(pack.name);
+  const NOT_YOURS = "This pack is out of date, but only its team's owners recompile it";
 ```
+
+and each of the `bump`, `compile`, `recheck` and `commit-push` steps starts with:
+
+```ts
+    if (!mine) return skipped(NOT_YOURS);
+```
+
+(ahead of the `!drift` line; in `bump` that also puts it ahead of the shared-checkout refusal). `update-pack` starts with:
+
+```ts
+    if (!mine && installedPackBefore === packSourceVersion) return skipped("the installed copy already matches the source");
+```
+
+and the comment above it gains that case: a member's drifted pack reaches it with nothing to update when the install is current.
 
 `commands/skills-sync.ts` supplies it: true when the pack's directory is outside the org clone or `mayWritePath(currentRole(org), <clone-relative pack dir>)` holds.
 
@@ -4819,7 +5250,7 @@ Use the file's existing `canonicalPath`, `relativePath`, `isAbsolutePath` and `s
 ```bash
 bunx tsc --noEmit
 bun run test
-git add lib/team/team-local.ts lib/team/publish.ts lib/team/members.ts lib/secrets/team-store.ts commands/skills.ts commands/skills-init.ts commands/skills-sync.ts lib/skills/init.ts lib/skills/sync.ts
+git add lib/team/team-local.ts lib/team/publish.ts lib/team/members.ts lib/secrets/team-store.ts commands/skills.ts commands/skills-init.ts commands/skills-sync.ts lib/skills/init.ts lib/skills/sync.ts lib/repo-reidentify.ts lib/__tests__/no-settings-bypass.test.ts
 git add $(git diff --name-only -- '*.test.ts')
 git commit -m "team verbs, secrets and skills: writes are refused outside what your role owns"
 ```
@@ -4930,32 +5361,37 @@ export function teamSnapshotSpec(slug: string, repoDir: string, opts: { /* exist
 
 - [ ] **Step 1: Write the failing tests**
 
-`lib/daemon/__tests__/team-snapshots.test.ts` (it starts the supervisor with a fake `start` and fake `probes`; reuse its fixture builders):
+`lib/daemon/__tests__/team-snapshots.test.ts`: replace the whole `describe("pull-only mode", ...)` block (four tests that derive the mode from `joinedByRt`) with the block below. The file's `harness()` puts clones at `h.root/<slug>` and gives the supervisor fake probes whose home is `h.root`, so the roles the supervisor reads live in those probes at the path `roleFor` builds from that home:
 
 ```ts
-  describe("role decides the mode", () => {
-    const orgStore = (home: string) => `${home}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`;
-    const roles = JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } });
+  describe("the role decides the mode", () => {
+    const ROLES = { "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } };
 
-    async function specFor(username: string | null) {
-      const specs: SnapshotSpec[] = [];
-      const handle = startWith({
-        files: { [orgStore(HOME)]: roles, ...(username ? { [teamLocalPath(HOME, "acme")]: JSON.stringify({ forgeUsername: username, joinedByRt: true }) } : {}) },
-        start: (spec) => { specs.push(spec); return fakeHandle(); },
-      });
-      await handle.ready;
-      handle.stop();
-      return specs[0]!;
+    function orgWith(h: ReturnType<typeof harness>, username: string | null): void {
+      clone(h.root, "acme");
+      h.deps.probes.writeFile(join(h.root, ".mattstack", "teams", "acme", "mattstack", "org", "settings.org.jsonc"), JSON.stringify(ROLES));
+      if (username) writeTeamLocal(h.deps.probes, "acme", { createdByRt: false, joinedByRt: true, rtMayManageMembership: false, forgeUsername: username });
     }
 
-    test("an admin pushes everything rt manages", async () => {
+    async function specFor(username: string | null): Promise<SnapshotSpec> {
+      const h = harness();
+      orgWith(h, username);
+      const handle = startTeamSnapshots(h.deps);
+      await handle.ready;
+      const spec = h.startedSpecs().find((s) => s.id === "team:acme")!;
+      handle.stop();
+      h.cleanup();
+      return spec;
+    }
+
+    test("an admin pushes everything rt manages, even on a Mac that joined by invite", async () => {
       const spec = await specFor("dev1");
       expect(spec.pullOnly).toBe(false);
       expect(spec.scope!(".claude-plugin/marketplace.json")).toBe(true);
       expect(spec.scope!("mattstack/teams/gadgets/settings.team.jsonc")).toBe(true);
     });
 
-    test("an owner pushes only their team folder, even on a Mac that joined by invite", async () => {
+    test("an owner pushes only their team folder, and the engine still watches the rest", async () => {
       const spec = await specFor("dev2");
       expect(spec.pullOnly).toBe(false);
       expect(spec.scope!("mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
@@ -4963,33 +5399,53 @@ export function teamSnapshotSpec(slug: string, repoDir: string, opts: { /* exist
       expect(spec.watch!("mattstack/org/settings.org.jsonc")).toBe(true);
     });
 
-    test("a member and an unidentified Mac only pull", async () => {
+    test("a member only pulls, and so does a Mac rt cannot identify yet", async () => {
       expect((await specFor("dev9")).pullOnly).toBe(true);
       expect((await specFor(null)).pullOnly).toBe(true);
+    });
+
+    test("a role that changes under a running daemon restarts the instance in the new mode", async () => {
+      const h = harness();
+      orgWith(h, "dev9");
+      const handle = startTeamSnapshots(h.deps);
+      await handle.ready;
+      expect(h.startedSpecs().at(-1)?.pullOnly).toBe(true);
+
+      writeTeamLocal(h.deps.probes, "acme", { createdByRt: false, joinedByRt: true, rtMayManageMembership: false, forgeUsername: "dev2" });
+      await handle.rescan();
+
+      expect(h.startedSpecs().at(-1)?.pullOnly).toBe(false);
+      expect(h.stoppedIds()).toContain("team:acme");
+      handle.stop();
+      h.cleanup();
     });
   });
 ```
 
-(`startWith`, `fakeHandle` and `HOME` stand for the file's existing helpers; a clone needs its `.git` entry and origin config in `files` as the other tests seed them.)
+The old block's "a clone with no record at all keeps pushing" is gone on purpose: an unidentified Mac owns nothing, so it only pulls until `team.identity` (or a forge connect) records who it is. Any other test in the file that asserts `pullOnly` falsy for a bare `clone(h.root, ...)` now seeds an admin with `orgWith(h, "dev1")`. `TeamLocalRecord` gained `forgeUsername` in Task 4.
 
-`lib/setup/__tests__/validators-rt-health.test.ts`:
+`lib/setup/__tests__/validators-rt-health.test.ts`, inside `describe("teamSyncRow", ...)` (it has `const now = () => 1_000_000`):
 
 ```ts
-  test("team.sync names a hand edit this Mac may not push", async () => {
-    const entry = { ...healthyEntry("acme"), pullOnly: true, unownedDirty: ["mattstack/org/settings.org.jsonc"] };
-    const row = await teamSyncRow(["acme"], async () => [entry], () => NOW, 300);
-    expect(row).toMatchObject({ status: "needs-you" });
-    expect(row!.detail).toBe("acme: changed on this Mac but not yours to push: mattstack/org/settings.org.jsonc. Undo the change, or ask who owns it to make it");
+  const inSync = { slug: "acme", lastPullAt: 900_000, lastPushError: null, conflicted: null };
+
+  test("a hand edit this Mac may not push is named", async () => {
+    const entry = { ...inSync, pullOnly: true, unownedDirty: ["mattstack/org/settings.org.jsonc"] };
+    const row = await teamSyncRow(["acme"], async () => [entry as never], now, 300);
+    expect(row?.status).toBe("needs-you");
+    expect(row?.detail).toBe("acme: changed on this Mac but not yours to push: mattstack/org/settings.org.jsonc. Undo the change, or ask who owns it to make it");
   });
 
-  test("the same edit named as the reason a pull stopped", async () => {
-    const entry = { ...healthyEntry("acme"), pullOnly: true, lastPullSkipped: "error: Your local changes would be overwritten", unownedDirty: ["mattstack/org/settings.org.jsonc"] };
-    const row = await teamSyncRow(["acme"], async () => [entry], () => NOW, 300);
-    expect(row!.detail).toBe("acme: a pull stopped on a change that is not yours to push: mattstack/org/settings.org.jsonc. Undo the change, then pull again");
+  test("the same edit is named as the reason a pull stopped", async () => {
+    const entry = { ...inSync, pullOnly: true, lastPullSkipped: "error: Your local changes would be overwritten", unownedDirty: ["mattstack/org/settings.org.jsonc"] };
+    const row = await teamSyncRow(["acme"], async () => [entry as never], now, 300);
+    expect(row?.detail).toBe("acme: a pull stopped on a change that is not yours to push: mattstack/org/settings.org.jsonc. Undo the change, then pull again");
+  });
+
+  test("an entry from a daemon that predates the field reads as nothing stray", async () => {
+    expect((await teamSyncRow(["acme"], async () => [inSync as never], now, 300))?.status).toBe("ready");
   });
 ```
-
-(`healthyEntry` and `NOW` stand for that file's existing builders of an in-sync `TeamSnapshotEntry`; add `unownedDirty: []` to its default.)
 
 - [ ] **Step 2: Run to see them fail**
 
@@ -5080,60 +5536,104 @@ git commit -m "team sync: push and stage only what this Mac's role owns, and nam
 
 ### Task 25: `rt team create` makes the creator admin, owner and roster member
 
+The creator's roles are written under their forge login, never a guess (spec section 8, Create). With `--create-repo` the forge CLI is already signed in, so the login is known at once. With `--remote` on a recognized forge the token is connected later, on the checklist: create then writes no username, admin, owner or roster entry, and Install's `team.create` rerun writes them. Only a host that is no recognized forge uses `$USER`.
+
 **Files:**
-- Modify: `lib/team/create.ts` (`CreateTeamOpts`, `scaffoldFiles`, `createTeam`)
-- Modify: `lib/setup/intent.ts` (`SetupIntent.team.team?`), `lib/setup/steps/team.ts` (`resolveCreateOpts`)
+- Modify: `lib/team/create.ts` (`CreateTeamOpts`, `CreateTeamResult`, `createTeam`, new `withCreator`)
+- Modify: `lib/setup/intent.ts` (`SetupIntent.team.firstTeam?`), `lib/setup/steps/team.ts` (`resolveCreateOpts`, `teamCreateRun`)
 - Modify: `commands/team.ts` (`teamCreate`), `lib/command-tree-def.ts` (the `team create` args)
-- Test: `lib/team/__tests__/create.test.ts`, `commands/__tests__/team.test.ts`
+- Test: `lib/team/__tests__/create.test.ts`, `commands/__tests__/team.test.ts`, `lib/setup/__tests__/steps-a.test.ts`
 
 **Interfaces:**
-- Consumes: `TEAM_NAME_RE`, `forgeLogin` (`lib/team/forge.ts`), `storedForgeToken`, `updateTeamLocal`.
+- Consumes: `TEAM_NAME_RE`, `forgeLogin` (`lib/team/forge.ts`), `storedForgeToken`, `forgeFromRemote`, `readTeamLocal`, `updateTeamLocal`.
 - Produces:
 
 ```ts
 export interface CreateTeamOpts { name: string; remote: string | null; createRepoOwner?: string; others: boolean; /** The first team folder's name; the org slug (or team-<slug>) when left out. */ firstTeam?: string }
 export interface CreateTeamSeams { forgeLogin: typeof forgeLogin; forgeToken: typeof storedForgeToken }
-export function scaffoldFiles(slug: string, name: string, remote: string, recipients?: string[], team?: string, creator?: { username: string; agePublicKey?: string }): Record<string, string>;
+export interface CreateTeamResult { slug: string; team: string; name: string; remote: string; dir: string; created: boolean; gitDeferred?: true; /** The creator's forge login is not known yet, so the org names no admin; a later run writes it. */ rolesDeferred?: true }
+/** The org store's text with `creator` as admin, the first team's owner and the first roster member. Unchanged when the store already names an admin. */
+export function withCreator(storeText: string, team: string, creator: { username: string; agePublicKey?: string }): string;
 export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam?: AgeKeySeam, seams?: CreateTeamSeams): Promise<CreateTeamResult>;
 ```
+
+`scaffoldFiles` keeps the signature Task 10 gave it: the creator is written by `withCreator` after the scaffold, in one code path for a first run and a rerun.
 
 `rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]`. The flag is `--first-team` because `--team` names the clone on every org-level `rt team` verb.
 
 - [ ] **Step 1: Write the failing tests**
 
-In `lib/team/__tests__/create.test.ts`:
+In `lib/team/__tests__/create.test.ts` (import `withCreator` from `../create.ts` and `readTeamLocal` from `../team-local.ts`):
 
 ```ts
 describe("the creator", () => {
   const seams = { forgeLogin: async () => "dev1", forgeToken: async () => null };
+  const unknown = { forgeLogin: async () => null, forgeToken: async () => null };
+  const ORG_STORE = `${HOME}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`;
+  const GITHUB = { name: "Acme", remote: "https://github.com/acme/repo.git", others: false };
+  const orgStore = (p: ReturnType<typeof gitAwareFakeProbes>) => parseSettingsBody(p.readFile(ORG_STORE)!);
 
-  test("is the org's admin, the first team's owner, and on the roster with that team", () => {
-    const files = scaffoldFiles("acme", "Acme", "https://github.com/acme/repo.git", [FAKE_PUBLIC_KEY], "widgets", { username: "dev1", agePublicKey: FAKE_PUBLIC_KEY });
-    const org = parseSettingsBody(files["mattstack/org/settings.org.jsonc"]!);
+  test("withCreator makes them the org's admin, the first team's owner, and the first roster member, and keeps the header", () => {
+    const before = scaffoldFiles("acme", "Acme", "https://github.com/acme/repo.git", [FAKE_PUBLIC_KEY], "widgets")["mattstack/org/settings.org.jsonc"]!;
+    const after = withCreator(before, "widgets", { username: "dev1", agePublicKey: FAKE_PUBLIC_KEY });
+    expect(after.split("\n")[0]).toBe(before.split("\n")[0]!);
+    const org = parseSettingsBody(after);
     expect(org["mattstack.org"]).toEqual({ admins: ["dev1"], teams: { widgets: { owners: ["dev1"] } } });
     expect(org["mattstack.roster"]).toEqual([{ username: "dev1", agePublicKey: FAKE_PUBLIC_KEY, teams: ["widgets"] }]);
   });
 
-  test("createTeam records the forge login as this Mac's username", async () => {
-    const p = gitAwareFakeProbes(HOME);
-    const result = await createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false }, new FakeAgeKeySeam(), seams);
-    expect(result.team).toBe("acme");
-    expect(readTeamLocal(p, "acme").forgeUsername).toBe("dev1");
-    const org = parseSettingsBody(p.readFile(`${HOME}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`)!);
-    expect((org["mattstack.org"] as { admins: string[] }).admins).toEqual(["dev1"]);
+  test("withCreator never replaces an admin the store already names", () => {
+    const once = withCreator(`{ "board.title": "Acme" }`, "widgets", { username: "dev1" });
+    expect(withCreator(once, "widgets", { username: "someone-else" })).toBe(once);
   });
 
-  test("--first-team names the first team folder", async () => {
+  test("a create whose forge login is known records it and writes the roles", async () => {
     const p = gitAwareFakeProbes(HOME);
-    const result = await createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false, firstTeam: "widgets" }, new FakeAgeKeySeam(), seams);
+    const result = await createTeam(p, GITHUB, new FakeAgeKeySeam(), seams);
+    expect(result.team).toBe("acme");
+    expect(result.rolesDeferred).toBeUndefined();
+    expect(readTeamLocal(p, "acme").forgeUsername).toBe("dev1");
+    expect(orgStore(p)["mattstack.org"]).toEqual({ admins: ["dev1"], teams: { acme: { owners: ["dev1"] } } });
+    expect(orgStore(p)["mattstack.roster"]).toEqual([{ username: "dev1", agePublicKey: FAKE_PUBLIC_KEY, teams: ["acme"] }]);
+  });
+
+  test("--first-team names the first team folder and its owner entry", async () => {
+    const p = gitAwareFakeProbes(HOME);
+    const result = await createTeam(p, { ...GITHUB, firstTeam: "widgets" }, new FakeAgeKeySeam(), seams);
     expect(result.team).toBe("widgets");
     expect(p.exists(`${HOME}/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc`)).toBe(true);
+    expect((orgStore(p)["mattstack.org"] as { teams: object }).teams).toEqual({ widgets: { owners: ["dev1"] } });
   });
 
   test("a first team name that is not a folder name is refused before anything is written", async () => {
     const p = gitAwareFakeProbes(HOME);
-    await expect(createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false, firstTeam: "Widgets!" }, new FakeAgeKeySeam(), seams)).rejects.toMatchObject({ code: "bad-team-name" });
+    await expect(createTeam(p, { ...GITHUB, firstTeam: "Widgets!" }, new FakeAgeKeySeam(), seams)).rejects.toMatchObject({ code: "bad-team-name" });
     expect(p.exists(`${HOME}/.mattstack/teams/acme`)).toBe(false);
+  });
+
+  test("on a recognized forge whose login is not known yet, create writes no username, admin, owner or roster entry, and never falls back to $USER", async () => {
+    const p = gitAwareFakeProbes(HOME);
+    p.env.USER = "localdev";
+    const result = await createTeam(p, GITHUB, new FakeAgeKeySeam(), unknown);
+    expect(result.rolesDeferred).toBe(true);
+    expect(readTeamLocal(p, "acme").forgeUsername).toBeUndefined();
+    expect("mattstack.org" in orgStore(p)).toBe(false);
+    expect("mattstack.roster" in orgStore(p)).toBe(false);
+  });
+
+  test("the rerun after the forge connects writes the roles, records the username and commits the change", async () => {
+    const commits: string[] = [];
+    const p = gitAwareFakeProbes(HOME, (argv) => {
+      if (argv[0] === "git" && argv[1] === "commit") commits.push(argv[argv.indexOf("-m") + 1]!);
+      return null;
+    });
+    await createTeam(p, { ...GITHUB, firstTeam: "widgets" }, new FakeAgeKeySeam(), unknown);
+    const second = await createTeam(p, { ...GITHUB, firstTeam: "widgets" }, new FakeAgeKeySeam(), seams);
+    expect(second).toMatchObject({ created: false, team: "widgets" });
+    expect(second.rolesDeferred).toBeUndefined();
+    expect(readTeamLocal(p, "acme").forgeUsername).toBe("dev1");
+    expect(orgStore(p)["mattstack.org"]).toEqual({ admins: ["dev1"], teams: { widgets: { owners: ["dev1"] } } });
+    expect(commits).toEqual(["team: scaffold acme", "team: dev1 is the acme org's admin"]);
   });
 
   test("an org on no recognized forge records $USER, so its creator is still its admin", async () => {
@@ -5142,43 +5642,70 @@ describe("the creator", () => {
     const never = { forgeLogin: async () => { throw new Error("must not ask a forge"); }, forgeToken: async () => null };
     await createTeam(p, { name: "Acme", remote: "https://git.example.com/acme/repo.git", others: false }, new FakeAgeKeySeam(), never);
     expect(readTeamLocal(p, "acme").forgeUsername).toBe("localdev");
-  });
-
-  test("a recognized forge whose login cannot be read falls back to $USER", async () => {
-    const p = gitAwareFakeProbes(HOME);
-    p.env.USER = "localdev";
-    await createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false }, new FakeAgeKeySeam(), { forgeLogin: async () => null, forgeToken: async () => null });
-    expect(readTeamLocal(p, "acme").forgeUsername).toBe("localdev");
+    expect((orgStore(p)["mattstack.org"] as { admins: string[] }).admins).toEqual(["localdev"]);
   });
 
   test("a second run keeps the roles and the username it already wrote", async () => {
     const p = gitAwareFakeProbes(HOME);
-    await createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false }, new FakeAgeKeySeam(), seams);
-    await createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false }, new FakeAgeKeySeam(), { forgeLogin: async () => "someone-else", forgeToken: async () => null });
+    await createTeam(p, GITHUB, new FakeAgeKeySeam(), seams);
+    await createTeam(p, GITHUB, new FakeAgeKeySeam(), { forgeLogin: async () => "someone-else", forgeToken: async () => null });
     expect(readTeamLocal(p, "acme").forgeUsername).toBe("dev1");
+    expect((orgStore(p)["mattstack.org"] as { admins: string[] }).admins).toEqual(["dev1"]);
   });
 });
 ```
 
-(`p.env` must be writable on the fake; if `fakeProbes` freezes it, pass `env: { USER: "localdev" }` to `fakeProbes` through `gitAwareFakeProbes` instead. Import `readTeamLocal` from `../team-local.ts`.) The existing `createTeam` tests pass a fourth argument `seams` or rely on the default; give `gitAwareFakeProbes`-based tests the stub seams so none of them reaches a real `gh`.
+`gitAwareFakeProbes`' `intercept` returns an exec result to override or a falsy value to fall through; match its declared `Intercept` type (return `undefined` if it does not admit `null`). If `fakeProbes` freezes `env`, pass `env: { USER: "localdev" }` through `gitAwareFakeProbes` instead of assigning. Every other `createTeam` call in the file passes `seams` as its fourth argument so none reaches a real `gh`.
+
+In `lib/setup/__tests__/steps-a.test.ts`, beside the existing `team.create` tests (use the file's `makeCtx` and the create intent those tests build):
+
+```ts
+  test("team.create writes the creator's roles under the forge login the run resolves", async () => {
+    const remote = "https://github.com/acme/mattstack-team-personal.git";
+    const p = fakeProbes({ home: "/fake-home", env: { RT_TEAM_REMOTE: remote }, exec: gitExecFor(remote) });
+    const { ctx } = makeCtx(p, { teamOfOne: true, intent: null, team: { slug: "", name: "", mode: "none" } });
+
+    expect((await teamCreateStep.run(ctx)).state).toBe("done");
+    expect(readTeamLocal(p, "personal").forgeUsername).toBe("alice");
+    const org = JSON.parse(p.readFile("/fake-home/.mattstack/teams/personal/mattstack/org/settings.org.jsonc")!.split("\n").filter((l) => !l.startsWith("//")).join("\n"));
+    expect(org["mattstack.org"].admins).toEqual(["alice"]);
+  });
+
+  test("with no forge login yet, team.create ends partial and does not push", async () => {
+    const remote = "https://github.com/acme/mattstack-team-personal.git";
+    const pushes: string[][] = [];
+    const base = gitExecFor(remote);
+    const p = fakeProbes({
+      home: "/fake-home",
+      env: { RT_TEAM_REMOTE: remote, USER: "localdev" },
+      exec: async (argv, opts) => {
+        if (argv[0] === "gh") return { code: 1, stdout: "", stderr: "not logged in" };
+        if (argv[0] === "git" && argv[1] === "push") pushes.push(argv);
+        return base(argv, opts);
+      },
+    });
+    const { ctx } = makeCtx(p, { teamOfOne: true, intent: null, team: { slug: "", name: "", mode: "none" } });
+
+    expect(await teamCreateStep.run(ctx)).toEqual({
+      state: "partial",
+      detail: "The org is created, but rt could not read your forge login, so it has no admin yet",
+      remedy: "Connect your forge account in Setup, then Retry",
+    });
+    expect(pushes).toEqual([]);
+    expect(readTeamLocal(p, "personal").forgeUsername).toBeUndefined();
+  });
+```
+
+(`gitExecFor` already answers `gh api` with the login `alice`, so the file's existing `team.create` tests keep ending `done`. Import `readTeamLocal` from `../../team/team-local.ts`.)
 
 - [ ] **Step 2: Run to see them fail**
 
-Run: `bun test lib/team/__tests__/create.test.ts`
+Run: `bun test lib/team/__tests__/create.test.ts lib/setup/__tests__/steps-a.test.ts`
 Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-In `scaffoldFiles`, add the `creator` parameter and, after the `board.gitlabHost` line:
-
-```ts
-  if (creator) {
-    orgSettings["mattstack.org"] = { admins: [creator.username], teams: { [team]: { owners: [creator.username] } } };
-    orgSettings["mattstack.roster"] = [{ username: creator.username, ...(creator.agePublicKey ? { agePublicKey: creator.agePublicKey } : {}), teams: [team] }];
-  }
-```
-
-In `create.ts`:
+In `create.ts` (`jsonc-parser`'s `applyEdits`, `modify` and `parse` join the imports):
 
 ```ts
 export interface CreateTeamSeams {
@@ -5188,11 +5715,30 @@ export interface CreateTeamSeams {
 
 const REAL_SEAMS: CreateTeamSeams = { forgeLogin, forgeToken: storedForgeToken };
 
-/** The forge login when the org's host is a forge rt knows and it answers; else the local account name, the same fallback an invite's owner field uses. */
-async function creatorUsername(p: Probes, remote: string, seams: CreateTeamSeams): Promise<string | null> {
+const JSONC_EDIT = { formattingOptions: { insertSpaces: true, tabSize: 2 } };
+
+export function withCreator(storeText: string, team: string, creator: { username: string; agePublicKey?: string }): string {
+  const current = parse(storeText, [], { allowTrailingComma: true }) as Record<string, unknown> | undefined;
+  const admins = (current?.["mattstack.org"] as { admins?: unknown } | undefined)?.admins;
+  if (Array.isArray(admins) && admins.length > 0) return storeText;
+  const roles = { admins: [creator.username], teams: { [team]: { owners: [creator.username] } } };
+  const entry = { username: creator.username, ...(creator.agePublicKey ? { agePublicKey: creator.agePublicKey } : {}), teams: [team] };
+  const withRoles = applyEdits(storeText, modify(storeText, ["mattstack.org"], roles, JSONC_EDIT));
+  return applyEdits(withRoles, modify(withRoles, ["mattstack.roster"], [entry], JSONC_EDIT));
+}
+
+/**
+ * The creator's username, or null when it cannot be known yet. A recognized
+ * forge answers with its login or not at all: a local account name written
+ * in its place would not match the login a later restore records, and the
+ * creator would lose admin. Only a host that is no forge rt knows uses $USER.
+ */
+async function creatorUsername(p: Probes, slug: string, remote: string, seams: CreateTeamSeams): Promise<string | null> {
+  const recorded = readTeamLocal(p, slug).forgeUsername;
+  if (recorded) return recorded;
   const forge = forgeFromRemote(remote);
-  const login = forge ? await seams.forgeLogin(p, forge.provider, forge.host, await seams.forgeToken(p, remote)) : null;
-  return login ?? p.env.USER ?? null;
+  if (!forge) return p.env.USER ?? null;
+  return seams.forgeLogin(p, forge.provider, forge.host, await seams.forgeToken(p, remote));
 }
 ```
 
@@ -5207,23 +5753,59 @@ In `createTeam` (new fourth parameter `seams: CreateTeamSeams = REAL_SEAMS`):
   }
 ```
 
-- After `const remote = ...` is resolved and before `p.mkdirp(dir)`:
+- One helper inside `createTeam`, used by the first run and by a rerun:
 
 ```ts
-  const recorded = readTeamLocal(p, slug).forgeUsername;
-  const username = recorded ?? (await creatorUsername(p, remote, seams));
-  if (username === null) {
-    throw new UserActionableError("forge-login-unknown", "rt can't tell who you are, so it cannot make you this org's admin", {}, { why: "Sign in to your forge's command line tool, then create the org again." });
-  }
+  const orgStorePath = join(dir, "mattstack", "org", "settings.org.jsonc");
+  /** Writes the creator into an org store that names no admin yet. Answers whether the file changed, and whether the roles are still waiting on a login. */
+  const recordCreator = async (remote: string): Promise<{ changed: boolean; deferred: boolean; username: string | null }> => {
+    const before = p.readFile(orgStorePath);
+    if (before === null) return { changed: false, deferred: false, username: null };
+    const username = await creatorUsername(p, slug, remote, seams);
+    if (username === null) {
+      const named = withCreator(before, team, { username: "x" }) === before;
+      return { changed: false, deferred: !named, username: null };
+    }
+    const { publicKey } = await ensureAgeKey(ageKeySeam);
+    const after = withCreator(before, team, { username, agePublicKey: publicKey });
+    if (after !== before) p.writeFile(orgStorePath, after);
+    if (!readTeamLocal(p, slug).forgeUsername) updateTeamLocal(p, slug, { forgeUsername: username });
+    return { changed: after !== before, deferred: false, username };
+  };
 ```
 
-- `writeScaffold` passes the creator: `scaffoldFiles(slug, opts.name, remote, [publicKey], team, { username, agePublicKey: publicKey })`.
-- After the scaffold is written (in both the git-deferred branch and the normal path): `if (!recorded) updateTeamLocal(p, slug, { forgeUsername: username });`.
+- The already-set-up branch (`originConfigured !== null && scaffolded`) records the creator before it returns, and commits the one file when it changed:
+
+```ts
+    const creator = await recordCreator(originConfigured);
+    if (creator.changed) {
+      const add = await p.exec(["git", "add", "--", "mattstack/org/settings.org.jsonc"], { cwd: dir });
+      if (add.code !== 0) throw gitStepError("git-add-failed", "git add", add);
+      const commit = await p.exec(["git", "commit", "-m", `team: ${creator.username} is the ${slug} org's admin`], { cwd: dir });
+      if (commit.code !== 0) throw gitStepError("git-commit-failed", "git commit", commit);
+    }
+    // ... the existing writeIntent(...), with firstTeam: team added to its team object
+    return { slug, team, name: opts.name, remote: stripUserinfo(originConfigured), dir, created: false, ...(creator.deferred ? { rolesDeferred: true as const } : {}) };
+```
+
+- In the build path, `writeScaffold()` is followed by `const creator = await recordCreator(remote);` in both places it is called (the git-deferred branch and the normal path, where it sits before `git add -A` so the scaffold commit carries the roles). Both returns gain `team` and `...(creator.deferred ? { rolesDeferred: true as const } : {})`.
+- `scaffoldFiles` is called with the first team: `scaffoldFiles(slug, opts.name, remote, [publicKey], team)`.
 - `recordIntent` and the early-return intent carry the first team: `team: { slug, name: opts.name, remote, others: opts.others, firstTeam: team }`.
 
-`lib/setup/intent.ts`: `team?: { slug: string; name: string; remote: string; others: boolean; firstTeam?: string };`. `lib/setup/steps/team.ts` `resolveCreateOpts`: the intent branch returns `{ name: intentTeam.name, remote: intentTeam.remote || null, createRepoOwner, others: intentTeam.others, ...(intentTeam.firstTeam ? { firstTeam: intentTeam.firstTeam } : {}) }`.
+`lib/setup/intent.ts`: `team?: { slug: string; name: string; remote: string; others: boolean; firstTeam?: string };`.
 
-`commands/team.ts` `teamCreate`: read `const firstTeam = flagValue(args, "--first-team");`, add `"--first-team"` to the `positional(args, [...])` value-flag list, pass `firstTeam` in the opts, and the usage string becomes `rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]`. The human line reads `Created the ${result.slug} org` / `The ${result.slug} org is already set up`. Add a test in `commands/__tests__/team.test.ts`: `teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git", "--first-team", "widgets", "--json"], {}, deps)` prints an envelope whose `data.team` is `"widgets"`, and `"widgets"` is not mistaken for the name positional.
+`lib/setup/steps/team.ts`: `resolveCreateOpts`' intent branch returns `{ name: intentTeam.name, remote: intentTeam.remote || null, createRepoOwner, others: intentTeam.others, ...(intentTeam.firstTeam ? { firstTeam: intentTeam.firstTeam } : {}) }`. `teamCreateRun` gives create the run's own forge token, as `teamJoinRun` does for join:
+
+```ts
+    created = await createTeam(ctx.p, opts, ctx.secrets.ageKeySeam, {
+      forgeLogin,
+      forgeToken: (_p, remote) => forgeTokenFor(ctx, remote),
+    });
+```
+
+When `created.rolesDeferred` is set, the step ends `{ state: "partial", detail: "The org is created, but rt could not read your forge login, so it has no admin yet", remedy: "Connect your forge account in Setup, then Retry" }` instead of publishing: a publish would be refused, since nobody owns the clone yet.
+
+`commands/team.ts` `teamCreate`: read `const firstTeam = flagValue(args, "--first-team");`, add `"--first-team"` to the `positional(args, [...])` value-flag list, pass `firstTeam` in the opts, and the usage string becomes `rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]`. The human line reads `Created the ${result.slug} org` / `The ${result.slug} org is already set up`; when `result.rolesDeferred` is set, add `out.callout("next", "Connect your forge account in Setup so rt can make you this org's admin")`. Add a test in `commands/__tests__/team.test.ts`: `teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git", "--first-team", "widgets", "--json"], {}, deps)` prints a flat envelope whose `team` is `"widgets"`, and `"widgets"` is not mistaken for the name positional.
 
 `lib/command-tree-def.ts`, `team create`: description `"Start an org for your team, with its first team inside"`, the `Name` hint `"The org's display name; its folder name is made from it"`, and a new arg `{ name: "First team", flag: "--first-team", type: "text", placeholder: "widgets", hint: "The first team's name; the org's own name when left out" }`.
 
@@ -5235,7 +5817,7 @@ bunx tsc --noEmit
 bun run docs:gen
 git add lib/team/create.ts lib/setup/intent.ts lib/setup/steps/team.ts commands/team.ts lib/command-tree-def.ts
 git add $(git diff --name-only -- '*.test.ts' docs)
-git commit -m "rt team create: the creator is the org's admin, the first team's owner and on its roster"
+git commit -m "rt team create: the creator is the org's admin, the first team's owner and on its roster, under their forge login"
 ```
 
 ### Task 26: `rt team add`
@@ -5279,6 +5861,8 @@ const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev1"] } } };
 function world(username = "dev1") {
   const p = fakeProbes({
     home: HOME,
+    // The fake knows a folder only when it is listed here; it does not infer one from the files under it.
+    dirs: { [`${ROOT}/mattstack/teams`]: ["widgets"], [`${ROOT}/mattstack/teams/widgets`]: ["settings.team.jsonc"] },
     files: {
       [`${ROOT}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
       [`${ROOT}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": roles }),
@@ -5485,9 +6069,11 @@ git commit -m "rt team add: an admin adds a team folder, its pack skeleton, its 
 
 **Files:**
 - Modify: `lib/setup/intent.ts` (`InvitePointer`)
-- Modify: `lib/team/invite.ts` (`MintInviteOpts`, `mintInvite`, `addToRoster`)
+- Modify: `lib/team/invite-crypto.ts` (`assertInvitePointerShape` admits both pointer versions)
+- Modify: `lib/team/invite.ts` (`MintInviteOpts`, `MintInviteSeams.publishRoster`, `mintInvite`, `addToRoster`)
+- Modify: `lib/team/members.ts` (`withRosterKey`, `withoutMember`: usernames compare without case)
 - Modify: `commands/team.ts` (`teamInvite`), `lib/command-tree-def.ts` (the `team invite` args)
-- Test: `lib/team/__tests__/invite.test.ts`, `commands/__tests__/team.test.ts`
+- Test: `lib/team/__tests__/invite.test.ts`, `lib/team/__tests__/invite-crypto.test.ts`, `lib/team/__tests__/members.test.ts`, `commands/__tests__/team.test.ts`
 
 **Interfaces:**
 - Produces:
@@ -5509,13 +6095,57 @@ export interface InvitePointer {
 }
 export const INVITE_POINTER_VERSION = 2;
 export interface MintInviteOpts { slug: string; handle: string; teams: string[]; now: Date; requirePeering?: boolean }
+// MintInviteSeams gains:
+/** Commits the org store and pushes it now. The invite is made only after this returns. */
+publishRoster: (p: Probes, slug: string, handle: string, remote: string, token: string | null) => Promise<void>;
+
+// lib/team/members.ts
+export function withRosterKey(roster: RosterMember[], handle: string, agePublicKey: string): RosterMember[];
+export function withoutMember(roster: RosterMember[], handle: string): { roster: RosterMember[]; removed: RosterMember | null };
 ```
+
+The invite is useless until the invitee's roster entry is in the org repo: join clones the repo, and a clone without the entry puts the joiner on no team. So `mintInvite` writes the entry and pushes it first, and makes the invite only once the push succeeded (spec section 8, Join).
 
 `rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]`. With no `--teams`, the inviter's active team.
 
 - [ ] **Step 1: Write the failing tests**
 
-In `lib/team/__tests__/invite.test.ts` (every existing `mintInvite` call gains `teams: ["widgets"]`; `baseSeams`' `readTeamStore` default becomes `() => ({ "mattstack.roster": [] })`):
+In `lib/team/__tests__/invite-crypto.test.ts`, beside the existing `seal`/`open` round-trip tests (use the key and id helpers those tests use):
+
+```ts
+  test("open admits a version 1 and a version 2 pointer: which versions join accepts is validatePointer's call", async () => {
+    const key = generateKey();
+    const idHex = generateId();
+    const base = { team: "acme", name: "Acme", remote: "https://github.com/acme/org.git", owner: "dev1", forge: "github.com", createdAt: "2026-10-01T00:00:00.000Z" };
+    for (const pointer of [{ v: 1, ...base }, { v: 2, ...base, username: "zaphod", teams: ["widgets"] }]) {
+      expect(await open(await seal(pointer as never, key, idHex), key, idHex)).toMatchObject({ v: pointer.v, team: "acme" });
+    }
+    await expect(open(await seal({ v: 3, ...base } as never, key, idHex), key, idHex)).rejects.toMatchObject({ code: "invite-unreadable" });
+  });
+```
+
+Without this, every new invite fails to open: `fetchPointer` maps the shape error to `invite-unknown`, and Task 28's `invite-outdated` is never reached.
+
+In `lib/team/__tests__/members.test.ts` (pure functions, no harness):
+
+```ts
+describe("roster edits compare usernames without case", () => {
+  const roster = [{ username: "Zaphod", name: "Z", teams: ["widgets"] }, { username: "trillian" }];
+
+  test("recording a key for a member already listed in another case updates that entry", () => {
+    expect(withRosterKey(roster, "zaphod", "age1zzz")).toEqual([{ username: "Zaphod", name: "Z", teams: ["widgets"], agePublicKey: "age1zzz" }, { username: "trillian" }]);
+  });
+  test("recording a key for someone new adds an entry", () => {
+    expect(withRosterKey(roster, "ford", "age1fff").at(-1)).toEqual({ username: "ford", agePublicKey: "age1fff" });
+  });
+  test("removing finds the member in any case and hands back what it removed", () => {
+    expect(withoutMember(roster, "ZAPHOD")).toEqual({ roster: [{ username: "trillian" }], removed: roster[0] });
+    expect(withoutMember(roster, "ford")).toEqual({ roster, removed: null });
+  });
+});
+```
+
+In `lib/team/__tests__/invite.test.ts` (every existing `mintInvite` call gains `teams: ["widgets"]`; `baseSeams`' `readTeamStore` default becomes `() => ({ "mattstack.roster": [] })`, and it gains `publishRoster: async () => {}`):
 
 ```ts
   describe("teams", () => {
@@ -5549,6 +6179,40 @@ In `lib/team/__tests__/invite.test.ts` (every existing `mintInvite` call gains `
       expect(relay.createCalls).toEqual([]);
     });
 
+    test("the roster entry is written and pushed before the invite exists", async () => {
+      const relay = fakeRelayClient();
+      const order: string[] = [];
+      const { seams } = baseSeams({
+        writeSetting: (() => { order.push("roster"); }) as unknown as MintInviteSeams["writeSetting"],
+        publishRoster: async (_p, slug, handle) => { order.push(`publish ${slug} ${handle}, invites so far: ${relay.createCalls.length}`); },
+      });
+      await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
+      expect(order).toEqual(["roster", "publish acme zaphod, invites so far: 0"]);
+      expect(relay.createCalls.length).toBe(1);
+    });
+
+    test("a re-invite whose entry needs no change still pushes: an earlier write may never have left this Mac", async () => {
+      let pushed = 0;
+      const { seams, writeCalls } = baseSeams({
+        readTeamStore: () => ({ "mattstack.roster": [{ username: "zaphod", teams: ["widgets"] }] }),
+        publishRoster: async () => { pushed++; },
+      });
+      await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
+      expect(writeCalls).toEqual([]);
+      expect(pushed).toBe(1);
+    });
+
+    test("a push that fails makes no invite, and says what to do", async () => {
+      const relay = fakeRelayClient();
+      const { seams } = baseSeams({ publishRoster: async () => { throw new UserActionableError("push-denied", "The org repo refused the push"); } });
+      await expect(mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams)).rejects.toMatchObject({
+        code: "roster-not-published",
+        message: "rt could not push zaphod's roster entry, so it made no invite",
+        why: "The org repo refused the push",
+      });
+      expect(relay.createCalls).toEqual([]);
+    });
+
     test("a team with no folder in the org is refused", async () => {
       const relay = fakeRelayClient();
       const { seams } = baseSeams();
@@ -5561,29 +6225,53 @@ In `lib/team/__tests__/invite.test.ts` (every existing `mintInvite` call gains `
 
 `probesWithRemote(REMOTE)` in the other tests gains the `widgets` (and where used, `gadgets`) team settings file through its `extraFiles` argument; the simplest change is to add both files to `probesWithRemote`'s own default file map.
 
-In `commands/__tests__/team.test.ts`:
+In `commands/__tests__/team.test.ts`, inside the describe that holds `inviteDeps` (it has `home`, `teamDir` and `GIT_CONFIG`). The verb gains a `mintInvite` seam on `TeamDeps`, so these tests check what the verb decides without minting:
 
 ```ts
-  describe("team invite", () => {
-    test("only an org admin invites; an owner is told so", async () => {
-      // seed an org on disk with roles { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } and a record for dev2
-      await expect(teamInvite(["--handle", "zaphod", "--json"], {}, depsFor("dev2"))).rejects.toThrow("__exit_2");
-      expect(JSON.parse(printed[0]!)).toMatchObject({ ok: false, error: { code: "team-pull-only", message: "Only an org admin invites" } });
+  describe("who may invite, and to which team", () => {
+    const MINTED = { code: "C", expiresAt: "2026-01-08T00:00:00.000Z", pasteBlock: "x", forgeAccess: "skipped", manualSteps: [], link: "l", peering: "none" } as unknown as InviteResult;
+
+    function orgDeps(username: string, minted: MintInviteOpts[]): TeamDeps & { lines: string[]; exitCodes: number[] } {
+      const probes = fakeProbes({
+        home,
+        files: {
+          [join(teamDir, ".git", "config")]: GIT_CONFIG,
+          [join(teamDir, "mattstack", "org", "settings.org.jsonc")]: JSON.stringify({
+            "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } },
+            "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }, { username: "dev2", teams: ["widgets"] }],
+          }),
+          [teamLocalPath(home, "acme")]: JSON.stringify({ forgeUsername: username }),
+        },
+      });
+      return baseDeps({ probes, mintInvite: async (_p, _relay, opts) => { minted.push(opts); return MINTED; } });
+    }
+
+    test("only an org admin invites; an owner is told who can", async () => {
+      const minted: MintInviteOpts[] = [];
+      const deps = orgDeps("dev2", minted);
+      const code = await runExpectingProcessExit(() => teamInvite(["--handle", "zaphod", "--team", "acme", "--json"], {}, deps));
+      expect(code).toBe(2);
+      expect(JSON.parse(deps.lines[0]!).error).toMatchObject({ code: "team-pull-only", message: "Only an org admin invites" });
+      expect(minted).toEqual([]);
     });
 
     test("with no --teams the invite is for the inviter's own team, so the app's Invite button needs no new flag", async () => {
-      await teamInvite(["--handle", "zaphod", "--json"], {}, depsFor("dev1"));
-      expect(mintedOpts[0]).toMatchObject({ handle: "zaphod", teams: ["widgets"] });
+      const minted: MintInviteOpts[] = [];
+      await teamInvite(["--handle", "zaphod", "--team", "acme", "--json"], {}, orgDeps("dev1", minted));
+      expect(minted[0]).toMatchObject({ slug: "acme", handle: "zaphod", teams: ["widgets"] });
     });
 
     test("--teams names the team folders, in order", async () => {
-      await teamInvite(["--handle", "zaphod", "--teams", "gadgets,widgets", "--json"], {}, depsFor("dev1"));
-      expect(mintedOpts[0]!.teams).toEqual(["gadgets", "widgets"]);
+      const minted: MintInviteOpts[] = [];
+      await teamInvite(["--handle", "zaphod", "--team", "acme", "--teams", "gadgets,widgets", "--json"], {}, orgDeps("dev1", minted));
+      expect(minted[0]!.teams).toEqual(["gadgets", "widgets"]);
     });
   });
 ```
 
-(`depsFor`, `printed` and `mintedOpts` stand for the harness that file already has for `teamInvite`: a `TeamDeps` with fake probes over a seeded HOME, a `print` recorder, and a `mintInvite` seam. If `teamInvite` calls `mintInvite` directly today, add `mintInvite?: typeof mintInvite` to `TeamDeps` so the test records the opts; the error envelope's exact shape is whatever `exitUserError` prints for the other `team-pull-only` test in the file.)
+Import `type InviteResult`, `type MintInviteOpts` from `../../lib/team/invite.ts` and `teamLocalPath` from `../../lib/team/team-local.ts`. The two tests that pinned the joined-clone refusal ("a joined machine refuses before the relay is ever touched" and "human mode: a pull-only clone refuses to invite, as a refused line") are replaced by the owner test above; keep a human-mode twin of it that expects stderr `[refused] Only an org admin invites\n  why: Ask dev1 to invite zaphod.\n`.
+
+The file's other invite tests run the real mint through `inviteDeps`. Its fake probes gain what an admin's Mac has: the org store above (roles and roster), the record with `forgeUsername: "dev1"`, `mattstack/teams/widgets/settings.team.jsonc` holding `{}`, and `dirs: { [teamDir]: [] }` so the publish step finds the clone. The real mint writes the roster through `setSetting`, which reads the role from disk, so `inviteDeps` also calls `seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} }, roster: [{ username: "dev1", teams: ["widgets"] }], teams: { widgets: {} } })` under the test's HOME first. `ghExec()` already answers every git command with success, which is all the roster push needs.
 
 - [ ] **Step 2: Run to see them fail**
 
@@ -5613,6 +6301,42 @@ Expected: FAIL.
 ```
 
 - The pointer literal: `v: INVITE_POINTER_VERSION, ..., username: opts.handle, teams,`.
+- Move the roster write from after `resolveForgeAccess` to directly before `const key = generateKey();`, and push it there:
+
+```ts
+  // The entry is in the org repo before the invite exists: a joiner whose
+  // clone lacks it lands on no team, and the sync engine's debounce is no
+  // promise the push happened.
+  addToRoster(seams, opts.slug, opts.handle, teams);
+  try {
+    await seams.publishRoster(p, opts.slug, opts.handle, remote, token);
+  } catch (err) {
+    throw new UserActionableError("roster-not-published", `rt could not push ${opts.handle}'s roster entry, so it made no invite`, {}, {
+      why: err instanceof Error ? err.message : String(err),
+      next: "rt team pull",
+    });
+  }
+```
+
+- `realMintInviteSeams()` supplies the push:
+
+```ts
+    publishRoster: async (p, slug, handle, remote, token) => {
+      const dir = join(p.home, ".mattstack", "teams", slug);
+      const file = "mattstack/org/settings.org.jsonc";
+      const add = await p.exec(["git", "add", "--", file], { cwd: dir });
+      if (add.code !== 0) throw new UserActionableError("git-add-failed", "rt could not stage the roster change", {}, { log: add.stderr });
+      const commit = await p.exec(["git", "commit", "-m", `team: invite ${handle}`, "--", file], { cwd: dir });
+      // "nothing to commit" is fine: the sync engine committed it first, or the entry was already there.
+      if (commit.code !== 0 && !/nothing to commit|no changes added/i.test(`${commit.stdout}\n${commit.stderr}`)) {
+        throw new UserActionableError("git-commit-failed", "rt could not commit the roster change", {}, { log: commit.stderr });
+      }
+      await publishTeam(p, slug, null, { token, tokenRemote: remote });
+    },
+```
+
+Import `publishTeam` from `./publish.ts`. The seam takes the probes as its first argument, like `forgeToken` and `grantRead`, so `realMintInviteSeams()` keeps taking none.
+
 - `addToRoster(seams, opts.slug, opts.handle, teams)`:
 
 ```ts
@@ -5634,6 +6358,26 @@ function addToRoster(seams: MintInviteSeams, slug: string, handle: string, teams
 
 Import `sameUser` from rt-client's `active-team.ts`, `TEAM_NAME_RE` from `../settings/stores.ts`, `join` from `path`.
 
+`lib/team/invite-crypto.ts`, `assertInvitePointerShape`: `p.v === 1` becomes `(p.v === 1 || p.v === 2)`. The shape check only says "this is an invite pointer"; `validatePointer` in `join.ts` decides which version a join accepts and what a refusal says.
+
+`lib/team/members.ts`: the roster edits become two exported pure functions, and `recordRosterKey` and `membersRemove` call them (Task 18 already reduced both to the one `mattstack.roster` key):
+
+```ts
+/** `handle`'s entry with this key, matched without case (forge usernames are case-insensitive); a new entry when nobody matches. */
+export function withRosterKey(roster: RosterMember[], handle: string, agePublicKey: string): RosterMember[] {
+  return roster.some((m) => sameUser(m.username, handle))
+    ? roster.map((m) => (sameUser(m.username, handle) ? { ...m, agePublicKey } : m))
+    : [...roster, { username: handle, agePublicKey }];
+}
+
+export function withoutMember(roster: RosterMember[], handle: string): { roster: RosterMember[]; removed: RosterMember | null } {
+  const removed = roster.find((m) => sameUser(m.username, handle)) ?? null;
+  return { roster: removed ? roster.filter((m) => m !== removed) : roster, removed };
+}
+```
+
+`recordRosterKey` writes `withRosterKey(readRoster(seams, slug), handle, agePublicKey)`; `membersRemove` takes its roster entry (the one whose `agePublicKey` it un-shares) and the list it writes from `withoutMember(...)`, replacing both `m.username === handle` comparisons near lines 156 and 157 and the ones in `membersRemove`.
+
 `commands/team.ts` `teamInvite`: replace the `local.joinedByRt` refusal with the admin check, and resolve the teams:
 
 ```ts
@@ -5644,11 +6388,11 @@ Import `sameUser` from rt-client's `active-team.ts`, `TEAM_NAME_RE` from `../set
       });
     }
     const named = (flagValue(args, "--teams") ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "");
-    const own = (deps.activeTeam ?? (() => activeTeam().team))();
+    const own = activeTeamFor(deps.probes, slug).team;
     const teams = named.length > 0 ? named : own ? [own] : [];
 ```
 
-and pass `teams` to the mint. `TeamDeps` gains `activeTeam?: () => string | null` and `mintInvite?: typeof mintInvite`. The usage string becomes `rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]`.
+and pass `teams` to the mint, called as `(deps.mintInvite ?? mintInvite)(deps.probes, relay, { slug, handle, teams, now: deps.probes.now(), requirePeering: args.includes("--require-peering") })`. `TeamDeps` gains `mintInvite?: typeof mintInvite`. The active team is read through the probes (`activeTeamFor`, Task 17), like the role. The usage string becomes `rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]`.
 
 `lib/command-tree-def.ts`, `team invite`: description `"Invite someone to your org and put them on a team"`; add `{ name: "Teams", flag: "--teams", type: "text", placeholder: "widgets", hint: "The teams to put them on, comma separated; your own team when left out" }`; the `Team` arg's hint becomes `"Which org clone; leave out, since a Mac holds one"`. Give the other org-level verbs' `Team` args (`publish`, `manage-membership`, `members sync`, `members remove`, `status`, `pull`) that same hint: the flag keeps its meaning (the clone's slug) because the Mac app passes it.
 
@@ -5658,7 +6402,7 @@ and pass `teams` to the mint. `TeamDeps` gains `activeTeam?: () => string | null
 bun test lib/team commands/__tests__/team.test.ts
 bunx tsc --noEmit
 bun run docs:gen
-git add lib/setup/intent.ts lib/team/invite.ts commands/team.ts lib/command-tree-def.ts
+git add lib/setup/intent.ts lib/team/invite.ts lib/team/invite-crypto.ts lib/team/members.ts commands/team.ts lib/command-tree-def.ts
 git add $(git diff --name-only -- '*.test.ts' docs)
 git commit -m "rt team invite: admin only, --teams, and a pointer that names the invitee and their teams"
 ```
@@ -5676,18 +6420,32 @@ git commit -m "rt team invite: admin only, --teams, and a pointer that names the
 
 **Interfaces:**
 - Consumes: Task 27 `InvitePointer`, `INVITE_POINTER_VERSION`; `sameUser`; `updateTeamLocal`.
-- Produces: `JoinResult` gains `teams: string[]` (the pointer's teams; `[]` when no pointer was read). Error codes: `invite-outdated` (a pointer from before version 2), `invite-login-mismatch` (the signed-in login is not the invited one; raised before the invite is redeemed).
+- Produces: `JoinResult` gains `teams: string[]` (the pointer's teams; `[]` when no pointer was read). Error codes: `invite-outdated` (a pointer from before version 2), `invite-login-mismatch` (the signed-in login is not the invited one), `roster-not-ready` (the clone's roster does not list the invitee, even after one more pull). All three are raised before the invite is redeemed, and `roster-not-ready` keeps the intent so a rerun resumes.
+- Produces, from `lib/setup/plan.ts`: `pendingJoinTeam(intent: SetupIntent | null, orgs: string[]): string | null | undefined`.
+
+The Mac app shows a refused dry run as the error's message alone (`RtUserError` carries only `code` and `message`), so a message a person has to act on carries its remedy in the sentence itself.
 
 - [ ] **Step 1: Write the failing tests**
 
-In `lib/team/__tests__/join.test.ts` (`POINTER` is already `v: 2, username: "zaphod", teams: ["widgets"]` from Task 27; `baseJoinRedeemSeams`' `forgeLogin` answers `"zaphod"`):
+In `lib/team/__tests__/join.test.ts` (`POINTER` is already `v: 2, username: "zaphod", teams: ["widgets"]` from Task 27; `baseJoinRedeemSeams`' `forgeLogin` answers `"zaphod"`). The file's `redeemProbes` fakes the clone with an exec that writes nothing, so it now seeds what a real clone would bring, merged under whatever a test passes:
+
+```ts
+  const ORG_STORE = `${TEAM_DIR}/mattstack/org/settings.org.jsonc`;
+  const rosterWith = (...usernames: string[]) => JSON.stringify({ "mattstack.roster": usernames.map((username) => ({ username, teams: ["widgets"] })) });
+
+  function redeemProbes(overrides: Parameters<typeof fakeProbes>[0] = {}): ReturnType<typeof fakeProbes> {
+    return fakeProbes({ home: HOME, now: NOW, exec: () => ({ code: 0, stdout: "", stderr: "" }), ...overrides, files: { [ORG_STORE]: rosterWith("zaphod"), ...(overrides.files ?? {}) } });
+  }
+```
 
 ```ts
   describe("pointer version", () => {
     test("an invite made before teams is refused: ask for a new one", async () => {
       const old = { ...POINTER, v: 1 } as unknown as InvitePointer;
       const p = fakeProbes({ home: HOME, now: NOW });
-      await expect(joinDryRun(p, relayWith(old), CODE)).rejects.toMatchObject({ code: "invite-outdated", message: "That invite was made by an older mattstack", why: "Ask for a new invite." });
+      await expect(joinDryRun(p, relayWith(old), CODE)).rejects.toMatchObject({ code: "invite-outdated", message: "That invite was made by an older mattstack. Ask for a new invite." });
+      expect(readIntent(p)).toBeNull();
+      expect(p.exists(TEAM_DIR)).toBe(false);
     });
 
     test("a pointer whose username or teams are not what they claim is malformed", async () => {
@@ -5740,7 +6498,47 @@ In `lib/team/__tests__/join.test.ts` (`POINTER` is already `v: 2, username: "zap
   });
 ```
 
-(`redeemProbes()` is the file's existing probes builder for a successful clone.)
+```ts
+  describe("the roster entry has to be in the clone", () => {
+    test("a clone whose roster lacks the invitee pulls once, and joins when the pull brings the entry", async () => {
+      const p = redeemProbes({
+        files: { [ORG_STORE]: rosterWith() },
+        exec: (argv) => {
+          if (argv[0] === "git" && argv.includes("pull")) p.writeFile(ORG_STORE, rosterWith("zaphod"));
+          return { code: 0, stdout: "", stderr: "" };
+        },
+      });
+      const { seams, calls } = baseJoinRedeemSeams();
+      const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+      expect(result.access).toBe("ok");
+      expect(calls.userSettingWrites).toContainEqual({ key: "mattstack.activeTeam", value: "widgets" });
+    });
+
+    test("still missing after the pull: refused before the invite is used, with the intent kept so a rerun resumes", async () => {
+      const p = redeemProbes({ files: { [ORG_STORE]: rosterWith("trillian") } });
+      const relay = fakeRelay();
+      const { seams, calls } = baseJoinRedeemSeams();
+      await expect(joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams)).rejects.toMatchObject({
+        code: "roster-not-ready",
+        message: "Your admin's roster change has not reached the org repo yet; try again in a minute",
+      });
+      expect(p.calls.exec.filter((argv) => argv[0] === "git" && argv.includes("pull")).length).toBe(1);
+      expect(relay.redeemCalls).toEqual([]);
+      expect(readIntent(p)?.mode).toBe("join");
+      expect(readTeamLocal(p, "acme").forgeUsername).toBeUndefined();
+      expect(calls.userSettingWrites).toEqual([]);
+    });
+
+    test("the invitee is found whatever the case of the roster entry", async () => {
+      const p = redeemProbes({ files: { [ORG_STORE]: rosterWith("Zaphod") } });
+      const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+      expect(result.access).toBe("ok");
+      expect(p.calls.exec.some((argv) => argv.includes("pull"))).toBe(false);
+    });
+  });
+```
+
+(`readIntent` comes from `../../setup/intent.ts`. The mismatch test above gains `expect(readIntent(p)?.mode).toBe("join");` too: a refused login keeps the invite and the intent.)
 
 In `lib/setup/__tests__/steps-a.test.ts`, beside the other `outcomeFromJoinError` tests:
 
@@ -5748,6 +6546,11 @@ In `lib/setup/__tests__/steps-a.test.ts`, beside the other `outcomeFromJoinError
   test("a login mismatch is a failed step whose detail names both logins and whose remedy is the fix", () => {
     const err = new UserActionableError("invite-login-mismatch", "This invite is for zaphod; you're signed in as trillian.", {}, { why: "Ask for an invite for trillian, or connect zaphod's token." });
     expect(outcomeFromJoinError(err)).toEqual({ state: "failed", detail: "This invite is for zaphod; you're signed in as trillian.", remedy: "Ask for an invite for trillian, or connect zaphod's token." });
+  });
+
+  test("a roster that has not arrived is a failed step that says no new code is needed", () => {
+    const err = new UserActionableError("roster-not-ready", "Your admin's roster change has not reached the org repo yet; try again in a minute");
+    expect(outcomeFromJoinError(err)).toEqual({ state: "failed", detail: "Your admin's roster change has not reached the org repo yet; try again in a minute", remedy: "Retry in a minute. You do not need a new code" });
   });
 ```
 
@@ -5762,7 +6565,7 @@ Expected: FAIL.
 
 ```ts
   if ((pointer as { v?: unknown }).v !== INVITE_POINTER_VERSION) {
-    throw new UserActionableError("invite-outdated", "That invite was made by an older mattstack", {}, { why: "Ask for a new invite." });
+    throw new UserActionableError("invite-outdated", "That invite was made by an older mattstack. Ask for a new invite.");
   }
 ```
 
@@ -5779,7 +6582,35 @@ and after the remote check:
 
 `JoinResult` gains `teams: string[]`. Every place that builds one from a pointer adds `teams: pointer.teams`; `NO_TEAM` results add `teams: []`. The cleanest way is in `teamRefFrom`'s callers: `{ team: teamRefFrom(pointer), teams: pointer.teams, ... }`, and in `unreachableResult` / `deniedResult` a `teams` parameter defaulting to `[]`.
 
-In `joinRedeem`, directly after the `if (!handle) { throw ... }` block:
+In `joinRedeem`, directly after the clone branch (the `if (existingOrigin !== null) { ... } else { ... }` block), before the snapshot is read:
+
+```ts
+  // The invite's roster entry has to be in this clone, or the active team
+  // ignores the setting written below and the joiner lands on no team. The
+  // inviter pushes it before the invite exists; one pull covers a clone that
+  // predates the push (a resumed join, a re-join).
+  if (!rosterLists(p, pointer.team, pointer.username)) {
+    const pull = gitWithToken(["pull", "--ff-only"], token, GIT_ENV, { remote: pointer.remote });
+    await p.exec(pull.argv, { cwd: dir, env: pull.env });
+    if (!rosterLists(p, pointer.team, pointer.username)) {
+      throw new UserActionableError("roster-not-ready", "Your admin's roster change has not reached the org repo yet; try again in a minute", {}, { log: `mattstack.roster in ${dir} does not list ${pointer.username}` });
+    }
+  }
+```
+
+with, beside the file's other helpers:
+
+```ts
+function rosterLists(p: Pick<Probes, "readFile" | "home">, org: string, username: string): boolean {
+  const file = join(p.home, ".mattstack", "teams", org, "mattstack", "org", "settings.org.jsonc");
+  const raw = p.readFile(file);
+  return raw !== null && rosterFrom(parseStoreText(file, raw)).some((entry) => sameUser(entry.username, username));
+}
+```
+
+(`rosterFrom` and `sameUser` from rt-client's `active-team.ts`, `parseStoreText` from its `stores.ts`.) The intent written at the top of `joinRedeem` is left in place by the throw, which is what lets a bare rerun resume.
+
+Then, directly after the `if (!handle) { throw ... }` block:
 
 ```ts
   if (!sameUser(handle, pointer.username)) {
@@ -5797,24 +6628,52 @@ and directly after the `relay.redeem` block succeeds (before `peerBoard`):
   seams.writeUserSetting("mattstack.activeTeam", pointer.teams[0]!);
 ```
 
-`lib/setup/steps/team.ts` needs no change for the mismatch (`outcomeFromJoinError` already maps a `UserActionableError`'s `why` to the remedy through `remedyFrom`); the new test pins it.
+`lib/setup/steps/team.ts` needs no change for the mismatch (`outcomeFromJoinError` already maps a `UserActionableError`'s `why` to the remedy through `remedyFrom`); the new test pins it. For the roster case add, beside the `secrets-store-not-ready` branch:
+
+```ts
+  if (err instanceof UserActionableError && err.code === "roster-not-ready") {
+    return { state: "failed", detail: err.message, remedy: "Retry in a minute. You do not need a new code" };
+  }
+```
 
 `commands/team.ts` `joinBlocks`: when `result.teams.length > 0`, add `out.kv("teams", result.teams.join(", "))` under the status line.
 
-`lib/setup/plan.ts`: where `composePlan` calls `toolRows(...)`, pass the active team, taken from the pointer while the clone does not exist yet:
+`lib/setup/plan.ts`: the clone does not exist before Install, so the pre-Install plan takes the active team from the pointer. One exported pure function decides it, so a test can hold it without a marketplace on disk:
 
 ```ts
-    activeTeam: intent?.mode === "join" && intent.join && !inputs.orgs.includes(intent.join.pointer.team) ? (intent.join.pointer.teams[0] ?? null) : undefined,
+/** The team whose pack the plan lists before the org is cloned: a join's pointer names it, since no settings can yet. Undefined once the clone exists: read it from there. */
+export function pendingJoinTeam(intent: SetupIntent | null, orgs: string[]): string | null | undefined {
+  const pointer = intent?.mode === "join" ? intent.join?.pointer : undefined;
+  if (!pointer || orgs.includes(pointer.team)) return undefined;
+  return pointer.teams[0] ?? null;
+}
 ```
 
-Add to `lib/setup/__tests__/plan.test.ts` a case with a join intent whose pointer has `teams: ["gadgets"]`, no clone, and a spy on the `toolRows` opts (or assert through the plan that no pack row for another team appears), expecting `activeTeam: "gadgets"`.
+and where `composePlan` calls `toolRows(...)`, its opts gain `activeTeam: pendingJoinTeam(intent, i.orgs)` (Task 17 gave `toolRows` the option; `undefined` means "read the clone").
+
+Add to `lib/setup/__tests__/plan.test.ts` (its `joinIntent()` builder gains `v: 2, username: "zaphod", teams: ["gadgets", "widgets"]` on the pointer):
+
+```ts
+  describe("pendingJoinTeam", () => {
+    test("a join with no clone yet takes the pointer's first team", () => {
+      expect(pendingJoinTeam(joinIntent(), [])).toBe("gadgets");
+    });
+    test("once the org is cloned, the clone decides", () => {
+      expect(pendingJoinTeam(joinIntent(), [joinIntent().join!.pointer.team])).toBeUndefined();
+    });
+    test("no intent, or a create intent, has no pending team", () => {
+      expect(pendingJoinTeam(null, [])).toBeUndefined();
+      expect(pendingJoinTeam(createIntent(), [])).toBeUndefined();
+    });
+  });
+```
 
 - [ ] **Step 4: Run and commit**
 
 ```bash
 bun test lib/team lib/setup commands/__tests__/team-join.test.ts commands/__tests__/team.test.ts
 bunx tsc --noEmit
-git add lib/team/join.ts lib/team/invite.ts lib/setup/plan.ts commands/team.ts
+git add lib/team/join.ts lib/team/invite.ts lib/setup/plan.ts lib/setup/steps/team.ts commands/team.ts
 git add $(git diff --name-only -- '*.test.ts')
 git commit -m "rt team join: refuse an old or mismatched invite, record who you are, start on your first team"
 ```
@@ -5981,14 +6840,14 @@ git commit -m "rt team members set: an admin changes which teams someone is on"
 - Test: `lib/team/__tests__/use.test.ts` (new), `commands/__tests__/team.test.ts`
 
 **Interfaces:**
-- Consumes: `ActiveTeam` (Task 4), `setupPackFlow` (`lib/setup/pack.ts`), `claudeConfigDirs` (`lib/setup/tools-install.ts`), `resolveTool`.
+- Consumes: `ActiveTeam` (Task 4), `installPlugins` (`lib/setup/steps/plugins.ts`), `materializeSkills` (`lib/setup/skills-materialize.ts`), `claudeConfigDirs` (`lib/setup/tools-install.ts`), `resolveTool`, `bundledToolPath` (`lib/deps/resolve.ts`).
 - Produces:
 
 ```ts
 export interface UseTeamSeams {
   activeTeam: () => ActiveTeam;
   writeUserSetting: (key: string, value: unknown) => void;
-  /** Installs the new team's pack and rewrites the bindings: the same flow `rt setup pack` runs. */
+  /** Installs the new team's pack the way an update run does (it never re-enables a plugin the member turned off), then rewrites the bindings. `ok` is whether the plugins step did not fail. */
   installPack: () => Promise<{ ok: boolean; detail: string }>;
   /** `claude plugin enable|disable <id>` in every Claude config folder; false when claude refused. */
   setPackEnabled: (pluginId: string, enabled: boolean) => Promise<boolean>;
@@ -6170,12 +7029,34 @@ export async function teamUse(args: string[], _ctx: CommandContext = {}, deps: T
 
 - `activeTeam`: rt-client's `activeTeam`.
 - `writeUserSetting`: `(key, value) => setSetting(key, value, "user")`.
-- `installPack`: build an `ApplyContext` exactly as `setupPack` does in `commands/setup.ts` (`createApplyContext({ probes, emit: () => {}, secrets, relay, secretPresence, flags: applyFlags(["--non-interactive"]), needOpts })` with `realApplyDeps()`), then `const r = await setupPackFlow(ctx); return { ok: r.ok, detail: r.detail };`. Export what `setupPack` needs from `commands/setup.ts` if it is not exported (`realApplyDeps`, `applyFlags`) rather than copying it.
+- `installPack`: an update-mode plugins install, then the bindings. Not `setupPackFlow`: that also checks the pipeline's stage bindings, and an unbound stage in a team's pack is no reason to leave the pack the member just asked for switched off. And not a full-install context: without `update`, the plugins step re-enables every trusted plugin the member disabled.
+
+```ts
+    installPack: async () => {
+      const { realApplyDeps } = await import("./setup.ts");
+      const apply = realApplyDeps();
+      const ctx = await createApplyContext({
+        probes: deps.probes,
+        emit: () => {},
+        secrets: apply.secrets,
+        relay: apply.relay,
+        secretPresence: apply.secretPresence,
+        flags: { nonInteractive: true, teamOfOne: false, ci: false, update: true },
+        needOpts: apply.needOpts,
+      });
+      const plugins = await installPlugins(ctx);
+      if (plugins.state === "failed") return { ok: false, detail: plugins.detail };
+      await materializeSkills(ctx.p, {});
+      return { ok: true, detail: plugins.detail };
+    },
+```
+
+Every side effect of this verb sits behind `UseTeamSeams`, and no test below the seam runs it: the compiled binary would find the machine's real `claude` on PATH and the installed app's real `deck` (`bundledToolPath` resolves `/Applications`, whatever HOME is). Task 34 drives the real seams over fake `exec`; the e2e suite never runs this verb (Task 37 says how it switches teams instead).
 - `setPackEnabled`: for each `dir` of `claudeConfigDirs(deps.probes, [])`, `deps.probes.exec([...claude.exec, "plugin", enabled ? "enable" : "disable", id], { env: { CLAUDE_CONFIG_DIR: dir }, timeoutMs: PACK_EXEC_TIMEOUT_MS })`; success is exit 0 or an "already enabled" / "already disabled" stderr; return false when `resolveTool(deps.probes, "claude").exec` is null.
 - `marketplace`: `readServedPacks`' marketplace name: parse `<clone>/.claude-plugin/marketplace.json`'s `name`, falling back to the org slug.
-- `restartApp`: `deps.probes.exec([bundleDeck(false), "restart", app])` with exit code 0 as success (`bundleDeck` is what `lib/release/update-machine.ts` resolves the deck CLI with; import it from the same module that file does).
+- `restartApp`: `const deck = (deps.deckPath ?? ((probes) => bundledToolPath(probes, "deck")))(deps.probes);` (the installed app's own deck, as `deckManagedRun` in `lib/setup/steps/deck.ts` resolves it; never `update-machine.ts`'s private `bundleDeck`, which is the dev app's). `deck === null` answers false; else `(await deps.probes.exec([deck, "restart", app])).code === 0`.
 
-Add `"not-on-team"` to `REFUSAL_CODES` (it is a refusal by policy, drawn as a `refused` note) and `useTeamSeams?: UseTeamSeams` to `TeamDeps`.
+Add `"not-on-team"` to `REFUSAL_CODES` (it is a refusal by policy, drawn as a `refused` note), and to `TeamDeps`: `useTeamSeams?: UseTeamSeams` and `/** Test seam: where the installed app's deck is. A test cannot resolve the real bundle. */ deckPath?: (p: Probes) => string | null`.
 
 `lib/command-tree-def.ts`:
 
@@ -6192,7 +7073,7 @@ Add `"not-on-team"` to `REFUSAL_CODES` (it is a refusal by policy, drawn as a `r
       },
 ```
 
-In `commands/__tests__/team.test.ts`, add: `teamUse(["gadgets", "--json"], {}, depsWithUseSeams)` prints an envelope whose `data` equals the `UseTeamResult`; `teamUse(["--json"], ...)` with no team exits 2 with the usage title "Which team do you want to work as?"; a `not-on-team` refusal without `--json` writes `[refused] The roster does not list you on the sprockets team` to stderr and exits 2.
+In `commands/__tests__/team.test.ts`, add (with `useTeamSeams` on the file's deps builder set to recording fakes shaped like `world()` in `use.test.ts`): `teamUse(["gadgets", "--json"], {}, deps)` prints a flat envelope (`const { contract, at, ...body } = JSON.parse(line)`) whose `body` equals the `UseTeamResult`; `teamUse(["--json"], ...)` with no team exits 2 with the usage title "Which team do you want to work as?"; a `not-on-team` refusal without `--json` writes `[refused] The roster does not list you on the sprockets team` to stderr and exits 2.
 
 - [ ] **Step 4: Run and commit**
 
@@ -6200,7 +7081,7 @@ In `commands/__tests__/team.test.ts`, add: `teamUse(["gadgets", "--json"], {}, d
 bun test lib/team/__tests__/use.test.ts commands/__tests__/team.test.ts lib/__tests__/picker-conformance.test.ts
 bun run picker:check && bun run docs:gen
 bunx tsc --noEmit
-git add lib/team/use.ts lib/team/__tests__/use.test.ts commands/team.ts commands/setup.ts lib/command-tree-def.ts
+git add lib/team/use.ts lib/team/__tests__/use.test.ts commands/team.ts lib/command-tree-def.ts
 git add $(git diff --name-only -- '*.test.ts' docs)
 git commit -m "rt team use: switch your active team, install and enable its pack, restart the apps"
 ```
@@ -6212,73 +7093,107 @@ git commit -m "rt team use: switch your active team, install and enable its pack
 - Test: `commands/__tests__/team-status.test.ts`
 
 **Interfaces:**
-- Produces: the envelope's `data` gains `role: "admin" | "owner" | "member" | "unknown"`, `activeTeam: string | null`, `teams: string[]` (the teams the roster lists you on, first team first), and `orgTeams: string[]` (every team folder in the org, so the Mac app can offer a team picker to an admin). Every existing field keeps its name and shape. The solo envelope gains `role: null, activeTeam: null, teams: [], orgTeams: []`.
+- Consumes: `roleFor` (Task 20), `activeTeamFor` (Task 17), `TEAM_NAME_RE`.
+- Produces: the flat envelope gains `role: "admin" | "owner" | "member" | "unknown"`, `activeTeam: string | null`, `teams: string[]` (the teams the roster lists you on, first team first), and `orgTeams: string[]` (every team folder in the org, so the Mac app can offer a team picker to an admin). Every existing field keeps its name and shape. The solo envelope gains `role: null, activeTeam: null, teams: [], orgTeams: []`.
+
+Everything new is read through `deps.probes` and the `statusRead` seam, never rt-client's disk readers: this verb's tests run over fake probes at a home that does not exist.
 
 - [ ] **Step 1: Write the failing tests**
 
-In `commands/__tests__/team-status.test.ts` (it seeds a clone on disk under a temp HOME and calls `teamStatus(["--json"], {}, deps)`):
+In `commands/__tests__/team-status.test.ts`, beside `clonedDeps` (the file's fake probes know a folder only when `dirs` lists it):
 
 ```ts
   describe("role and teams", () => {
-    function seed(username: string) {
-      seedOrg({
-        org: "acme",
-        username,
-        roster: [{ username: "dev1", teams: ["widgets"] }, { username: "dev2", teams: ["gadgets", "widgets"] }],
-        roles: { admins: ["dev1"], teams: { gadgets: { owners: ["dev2"] } } },
-        teams: { widgets: { "board.title": "Widgets" }, gadgets: { "board.title": "Gadgets" } },
+    const ORG_STORE = join(TEAM_DIR, "mattstack", "org", "settings.org.jsonc");
+    const roster = [{ username: "dev1", teams: ["widgets"] }, { username: "dev2", teams: ["gadgets", "widgets"] }, { username: "dev3", teams: ["gadgets"] }];
+    const roles = { admins: ["dev1"], teams: { gadgets: { owners: ["dev2"] } } };
+
+    function depsFor(username: string | null): TeamDeps & { lines: string[] } {
+      return baseDeps({
+        probes: fakeProbes({
+          home: HOME,
+          dirs: { [TEAM_DIR]: [], [join(TEAM_DIR, "mattstack", "teams")]: ["widgets", "gadgets", ".DS_Store"] },
+          files: {
+            [join(TEAM_DIR, ".git", "config")]: GIT_CONFIG,
+            [ORG_STORE]: JSON.stringify({ "mattstack.roster": roster, "mattstack.org": roles }),
+            ...(username ? { [join(HOME, ".mattstack", "rt", "teams", `${SLUG}.json`)]: JSON.stringify({ forgeUsername: username }) } : {}),
+          },
+        }),
+        statusRead: fakeRead({ "board.title": "Acme Team", "mattstack.roster": roster }),
+        daemon: async () => null,
       });
     }
 
-    test("an admin on one team", async () => {
-      seed("dev1");
-      const data = await statusData();
-      expect(data).toMatchObject({ slug: "acme", role: "admin", activeTeam: "widgets", teams: ["widgets"], orgTeams: ["gadgets", "widgets"] });
+    async function status(username: string | null): Promise<Record<string, unknown>> {
+      const deps = depsFor(username);
+      await teamStatus(["--team", SLUG, "--json"], {}, deps);
+      const { at: _at, ...body } = JSON.parse(deps.lines[0]!);
+      return body;
+    }
+
+    test("an admin on one team sees their team's members and every team in the org", async () => {
+      expect(await status("dev1")).toMatchObject({
+        slug: "acme",
+        role: "admin",
+        activeTeam: "widgets",
+        teams: ["widgets"],
+        orgTeams: ["gadgets", "widgets"],
+        members: [{ username: "dev1" }, { username: "dev2" }],
+      });
     });
 
     test("an owner on two teams starts on the first in their roster entry", async () => {
-      seed("dev2");
-      expect(await statusData()).toMatchObject({ role: "owner", activeTeam: "gadgets", teams: ["gadgets", "widgets"] });
+      expect(await status("dev2")).toMatchObject({ role: "owner", activeTeam: "gadgets", teams: ["gadgets", "widgets"], members: [{ username: "dev2" }, { username: "dev3" }] });
     });
 
-    test("members are the active team's, and someone on no team sees the whole org", async () => {
-      seed("dev1");
-      expect((await statusData()).members).toEqual([{ username: "dev1" }, { username: "dev2" }]);
-      seed("stranger");
-      expect(await statusData()).toMatchObject({ role: "member", activeTeam: null, teams: [] });
+    test("someone on no team is a member with no active team and sees the whole org", async () => {
+      expect(await status("stranger")).toMatchObject({ role: "member", activeTeam: null, teams: [], members: [{ username: "dev1" }, { username: "dev2" }, { username: "dev3" }] });
+    });
+
+    test("a Mac rt cannot identify reports an unknown role", async () => {
+      expect(await status(null)).toMatchObject({ role: "unknown", activeTeam: null, teams: [] });
     });
 
     test("the existing fields keep their shape", async () => {
-      seed("dev1");
-      const data = await statusData();
-      for (const key of ["slug", "name", "remote", "lastPush", "members", "lastPull", "lastPushAt", "lastPullSkipped", "conflicted", "pullOnly"]) expect(key in data).toBe(true);
+      const body = await status("dev1");
+      for (const key of ["contract", "slug", "name", "remote", "lastPush", "members", "lastPull", "lastPushAt", "lastPullSkipped", "conflicted", "pullOnly"]) expect(key in body).toBe(true);
     });
   });
 ```
 
-(`statusData()` is a small helper in the test: run `teamStatus(["--json"], {}, deps)` with the file's fake daemon and return `JSON.parse(printed).data`. The clone needs a `.git/config` with an origin as the file's other tests seed it.)
+The file's first test pins the exact envelope with `toEqual`: add `role: "unknown", activeTeam: null, teams: [], orgTeams: []` to what it expects (its probes hold no record and no team folders), and change its roster seed from `board.members` to `mattstack.roster`. The solo-envelope test gains `role: null, activeTeam: null, teams: [], orgTeams: []`.
 
 - [ ] **Step 2: Run to see them fail, then implement**
 
-Run: `bun test commands/__tests__/team-status.test.ts -t "role and teams"`
+Run: `bun test commands/__tests__/team-status.test.ts`
 Expected: FAIL.
 
 In `teamStatus`:
 
 - The solo result: `{ mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[], role: null, activeTeam: null, teams: [] as never[], orgTeams: [] as never[] }`.
-- After the members are read:
+- Replace the members read:
 
 ```ts
-    const active = (deps.activeTeam ? { ...activeTeam(), team: deps.activeTeam() } : activeTeam());
+    const active = activeTeamFor(deps.probes, slug);
     const role = roleFor(deps.probes, slug).kind;
-    const orgTeams = listTeamFolders(slug);
+    const orgTeams = deps.probes.readDir(join(dir, "mattstack", "teams")).filter((name) => TEAM_NAME_RE.test(name)).sort();
+    const rosterValue = read<unknown>("mattstack.roster");
+    const everyone = Array.isArray(rosterValue) ? rosterValue : [];
+    const onTeam = active.team === null
+      ? everyone
+      : everyone.filter((m) => Array.isArray((m as { teams?: unknown } | null)?.teams) && (m as { teams: unknown[] }).teams.includes(active.team));
+    const members = toRosterMembers(onTeam, (skipped) =>
+      warn("team", `skipped ${skipped} malformed mattstack.roster entr${skipped === 1 ? "y" : "ies"} (missing or non-string username)`, {
+        show: { title: "Some team members could not be read", hint: `${skipped} left out` },
+      }),
+    );
 ```
 
-and `members` comes from `activeTeamRoster()` mapped to `{ username }` (in place of the raw `mattstack.roster` read), keeping `toRosterMembers` as the shape guard.
+(Task 18 already removed the `board.members` fallback from this read.)
 - `const result = { slug, name, remote, lastPush, members, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };`
 - The human section gains two rows after `members`: `out.kv("your team", active.team ?? "none")` and `out.kv("your role", role === "admin" ? "org admin" : role === "owner" ? "team owner" : role === "member" ? "member" : "unknown")`; its title stays the org's display name.
 
-`name` should stay the org-level display: `board.title` is a team value now, so read the org's name as `read<string>("board.title", { team: null })` where the reader allows opts, else fall back to the slug. With the default `SettingsReader` taking only a key, add an optional second parameter to the local `defaultStatusRead` (`(key, opts) => getSetting(key, opts).value`) and call it with `{ team: null }` for the title.
+`name` stays what `read<string>("board.title")` resolves to (the active team's title, else the org's, else the slug): the Mac app shows it as the pane's heading, and a member thinks of "their team" by that name.
 
 - [ ] **Step 3: Run and commit**
 
@@ -6295,7 +7210,8 @@ git commit -m "rt team status: report your role, your active team and your teams
 - Create: `lib/setup/steps/org.ts` (`orgPullStep`, `teamIdentityStep`)
 - Modify: `lib/setup/steps/index.ts` (`STEPS`), `lib/setup/apply.ts` (`reloadTeam`)
 - Modify: `lib/setup/steps/skills.ts` (nothing to seed any more; confirm Task 18 left no `board.defaultPack` write)
-- Test: `lib/setup/__tests__/steps-org.test.ts` (new), `lib/setup/__tests__/update-safe.test.ts`, `lib/setup/__tests__/apply.test.ts`, `commands/__tests__/setup-copy.test.ts` (snapshot)
+- Modify: `commands/setup.ts` (`connectCredential` records the username after a forge connect; `ConnectDeps.forgeLogin`)
+- Test: `lib/setup/__tests__/steps-org.test.ts` (new), `lib/setup/__tests__/update-safe.test.ts`, `lib/setup/__tests__/apply.test.ts`, `lib/setup/__tests__/contract.test.ts` (the pinned `STEP_IDS`), `commands/__tests__/setup-connect.test.ts`, `commands/__tests__/setup-copy.test.ts` (snapshot)
 
 **Interfaces:**
 - Consumes: `forgeLogin`, `resolveForge` (`lib/setup/steps/forge-identity.ts`), `readTeamLocal`, `updateTeamLocal`, `forgeFromRemote`.
@@ -6306,7 +7222,17 @@ export const orgPullStep: StepDef;       // id "org.pull", title "Pull your org"
 export const teamIdentityStep: StepDef;  // id "team.identity", title "Record who you are"
 /** Clone folders under ~/.mattstack/teams that are git repos, whatever layout they hold. */
 export function cloneSlugs(p: Pick<Probes, "readDir" | "exists" | "home">): string[];
+/** Records this Mac's forge username for the org while none is stored. The team.identity step and the forge connect both call it, so connecting the account clears the row at once. */
+export async function recordForgeIdentity(
+  p: Probes,
+  slug: string,
+  forge: { provider: "github" | "gitlab"; host: string } | null,
+  token: string | null,
+  login?: typeof forgeLogin,
+): Promise<{ username: string | null; outcome: "already" | "recorded" | "unknown" }>;
 ```
+
+`org.pull` never ends `failed`. A full Install stops at a failed step (`runApplyWith` in `lib/setup/apply.ts`), and a pull that could not run is no reason to stop an Install: the clone was just made, or team sync is off, or the network is down. Trouble is `skipped` or `partial` with the reason; an update run reports a `partial` item the same way it reports a failed one.
 
 `org.pull` lists clones by their `.git`, never through `discoverOrgs`: on a member's first update after the conversion the clone still holds the old layout, so `discoverOrgs` sees nothing, and the pull is exactly what brings the new layout in.
 
@@ -6322,12 +7248,15 @@ import { fakeProbes } from "./fakes.ts";
 const HOME = "/h";
 const CLONE = `${HOME}/.mattstack/teams/acme`;
 const gitConfig = (remote: string) => `[remote "origin"]\n\turl = ${remote}\n`;
+// The fake lists a folder only when `dirs` names it; it does not infer one from the files under it.
+const TEAMS_DIR = { [`${HOME}/.mattstack/teams`]: ["acme", "notes"] };
 
 describe("org.pull", () => {
   test("pulls every clone that is a git repo, even one still on the old layout", async () => {
     const pulled: string[] = [];
     const p = fakeProbes({
       home: HOME,
+      dirs: TEAMS_DIR,
       files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git"), [`${CLONE}/mattstack/settings.team.jsonc`]: "{}", [`${HOME}/.mattstack/teams/notes/readme.md`]: "x" },
       daemon: async (cmd, payload) => { pulled.push(`${cmd} ${(payload as { slug: string }).slug}`); return { ok: true, data: { outcome: "fast-forwarded", detail: null } }; },
     });
@@ -6339,17 +7268,31 @@ describe("org.pull", () => {
     expect(reloaded).toBe(1);
   });
 
-  test("no clone is a skip; a stopped daemon is a skip that says so; a failed pull is a failed item", async () => {
+  const files = { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") };
+  const pullWith = (daemon: Parameters<typeof fakeProbes>[0]["daemon"]) => orgPullStep.run(makeCtx(fakeProbes({ home: HOME, dirs: TEAMS_DIR, files, daemon })).ctx);
+
+  test("no clone is a skip, and a stopped daemon is a skip that says so", async () => {
     expect(await orgPullStep.run(makeCtx(fakeProbes({ home: HOME })).ctx)).toEqual({ state: "skipped", detail: "No org on this Mac" });
-    const files = { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") };
-    expect(await orgPullStep.run(makeCtx(fakeProbes({ home: HOME, files, daemon: async () => null })).ctx)).toEqual({ state: "skipped", detail: "The rt daemon is not running, so the org is pulled once it is" });
-    const failing = fakeProbes({ home: HOME, files, daemon: async () => ({ ok: false, error: "fetch failed" }) });
-    expect(await orgPullStep.run(makeCtx(failing).ctx)).toMatchObject({ state: "failed", detail: "acme could not be pulled: fetch failed" });
+    expect(await pullWith(async () => null)).toEqual({ state: "skipped", detail: "The rt daemon is not running, so the org is pulled once it is" });
+  });
+
+  test("team sync that is off, or has not started for this clone yet, is a skip: Install must not stop on it", async () => {
+    const noTeam = async () => ({ ok: false, error: "no team", failure: { code: "no-team", message: "The acme team is not syncing on this Mac" } });
+    expect(await pullWith(noTeam)).toEqual({ state: "skipped", detail: "Team sync has not started for acme yet, so it is pulled once it does" });
+  });
+
+  test("a pull that could not finish is partial with the reason, never failed", async () => {
+    expect(await pullWith(async () => ({ ok: true, data: { outcome: "skipped", detail: "fetch failed: could not resolve host" } }))).toEqual({
+      state: "partial",
+      detail: "acme was not pulled: fetch failed: could not resolve host",
+      remedy: "Run rt team status to see what is in the way",
+    });
+    expect(await pullWith(async () => ({ ok: true, data: { outcome: "conflict", detail: "mattstack/org/settings.org.jsonc" } }))).toMatchObject({ state: "partial", detail: "acme was not pulled: mattstack/org/settings.org.jsonc" });
+    expect(await pullWith(async () => ({ ok: false, error: "daemon threw" }))).toMatchObject({ state: "partial", detail: "acme was not pulled: daemon threw" });
   });
 
   test("an up-to-date clone is done and says so", async () => {
-    const p = fakeProbes({ home: HOME, files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") }, daemon: async () => ({ ok: true, data: { outcome: "up-to-date", detail: null } }) });
-    expect(await orgPullStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "acme is already up to date" });
+    expect(await pullWith(async () => ({ ok: true, data: { outcome: "up-to-date", detail: null } }))).toEqual({ state: "done", detail: "acme is already up to date" });
   });
 });
 
@@ -6383,7 +7326,7 @@ describe("team.identity", () => {
   });
 
   test("a clone still on the old layout is identified too, so its admin can push the conversion", async () => {
-    const p = fakeProbes({ home: HOME, files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git"), [`${CLONE}/mattstack/settings.team.jsonc`]: "{}" } });
+    const p = fakeProbes({ home: HOME, dirs: TEAMS_DIR, files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git"), [`${CLONE}/mattstack/settings.team.jsonc`]: "{}" } });
     const { ctx } = makeCtx(p, { identity: { login: async () => "dev1" } });
     expect(await teamIdentityStep.run(ctx)).toEqual({ state: "done", detail: "You are dev1" });
     expect(readTeamLocal(p, "acme").forgeUsername).toBe("dev1");
@@ -6396,6 +7339,65 @@ describe("team.identity", () => {
 ```
 
 `makeCtx(p, overrides)` is the context builder each `steps-*.test.ts` file defines for itself; copy the one from `lib/setup/__tests__/steps-c.test.ts` (with its `fakeSecrets` and `fakeRelay` constants) into this file. `fakeProbes` already takes `daemon`. The `identity` override is the seam Step 3 adds.
+
+In `lib/setup/__tests__/contract.test.ts`, the `STEP_IDS` test pins every id in order: rename it "matches the contract's 28 ids in order" and insert `"org.pull",` and `"team.identity",` after `"team.join",` in its list.
+
+In `commands/__tests__/setup-connect.test.ts`, inside `describe("integrationConnect: forge token scopes", ...)` (it has `gitlabWithScopes` and `baseDeps`):
+
+```ts
+  test("connecting the org's forge records who you are, so the team.identity row clears without waiting for an update run", async () => {
+    const probes = fakeProbes({
+      fetch: gitlabWithScopes(["api", "read_user"]),
+      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      files: { "/fake-home/.mattstack/teams/acme/.git/config": `[remote "origin"]\n\turl = https://gitlab.com/acme/org.git\n` },
+    });
+    const asked: unknown[][] = [];
+    const deps = baseDeps({
+      probes,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", remote: "https://gitlab.com/acme/org.git", integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }),
+      forgeLogin: async (...args: unknown[]) => { asked.push(args.slice(1)); return "dev2"; },
+    });
+
+    await integrationConnect("gitlab", ["--json"], deps);
+
+    expect((JSON.parse(deps.lines[0]!) as { status: string }).status).toBe("ready");
+    expect(asked).toEqual([["gitlab", "gitlab.com", "glpat-x"]]);
+    expect(readTeamLocal(probes, "acme").forgeUsername).toBe("dev2");
+  });
+
+  test("a connect never replaces a stored username, and a different forge than the org's records nothing", async () => {
+    const stored = fakeProbes({
+      fetch: gitlabWithScopes(["api", "read_user"]),
+      files: { "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }) },
+    });
+    const deps = baseDeps({
+      probes: stored,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }),
+      forgeLogin: neverCalled("forgeLogin"),
+    });
+    await integrationConnect("gitlab", ["--json"], deps);
+    expect(readTeamLocal(stored, "acme").forgeUsername).toBe("dev1");
+
+    const github = baseDeps({
+      probes: fakeProbes({ fetch: gitlabWithScopes(["api", "read_user"]) }),
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", integrations: { forge: { host: "github.com", provider: "github" } } }),
+      forgeLogin: neverCalled("forgeLogin"),
+    });
+    await integrationConnect("gitlab", ["--json"], github);
+    expect(readTeamLocal(github.probes, "acme").forgeUsername).toBeUndefined();
+  });
+```
+
+(the staging write a not-yet-ready store triggers goes through the probes, as the file's other scope tests show; if `slackTeamSnapshot()` has no `remote`, the spread values above supply what `connectCredential` reads. Import `readTeamLocal` from `../../lib/team/team-local.ts`.)
 
 In `lib/setup/__tests__/update-safe.test.ts`, the pinned list starts with the two new ids:
 
@@ -6464,10 +7466,17 @@ import { toFailedOutcome } from "./step-utils.ts";
 
 const PULL_TIMEOUT_MS = 180_000;
 
+interface PullReply {
+  ok: boolean;
+  data?: { outcome: string; detail: string | null };
+  error?: string;
+  failure?: { code: string; message: string };
+}
+
 /** Listed by `.git`, never by layout: a clone that has not pulled the org layout yet still has to be pulled. */
 export function cloneSlugs(p: Pick<Probes, "readDir" | "exists" | "home">): string[] {
   const teams = join(p.home, ".mattstack", "teams");
-  return p.readDir(teams).filter((name) => p.exists(join(teams, name, ".git"))).sort();
+  return p.readDir(teams).filter((name) => p.exists(join(teams, name, ".git", "config"))).sort();
 }
 
 async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
@@ -6475,12 +7484,14 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
   if (slugs.length === 0) return { state: "skipped", detail: "No org on this Mac" };
   const notes: string[] = [];
   for (const slug of slugs) {
-    const res = (await ctx.p.daemon("team:pull", { slug }, PULL_TIMEOUT_MS)) as { ok: boolean; data?: { outcome: string; detail: string | null }; error?: string } | null;
+    const res = (await ctx.p.daemon("team:pull", { slug }, PULL_TIMEOUT_MS)) as PullReply | null;
     if (res === null) return { state: "skipped", detail: "The rt daemon is not running, so the org is pulled once it is" };
-    if (!res.ok || !res.data) return { state: "failed", detail: `${slug} could not be pulled: ${res.error ?? "the daemon gave no reason"}` };
-    const { outcome, detail } = res.data;
-    if (outcome === "conflict" || outcome === "skipped") return { state: "failed", detail: `${slug} could not be pulled: ${detail ?? outcome}`, remedy: "Run rt team status to see what is in the way" };
-    notes.push(outcome === "up-to-date" ? `${slug} is already up to date` : `Pulled ${slug}`);
+    // The daemon answers no-team while team sync is off or its engine for a clone made a moment ago has not started.
+    if (!res.ok && res.failure?.code === "no-team") return { state: "skipped", detail: `Team sync has not started for ${slug} yet, so it is pulled once it does` };
+    const stuck = !res.ok || !res.data ? (res.error ?? "the daemon gave no reason") : res.data.outcome === "conflict" || res.data.outcome === "skipped" ? (res.data.detail ?? res.data.outcome) : null;
+    // Never `failed`: a failed step stops a full Install, and a pull that did not happen is no reason to.
+    if (stuck !== null) return { state: "partial", detail: `${slug} was not pulled: ${stuck}`, remedy: "Run rt team status to see what is in the way" };
+    notes.push(res.data!.outcome === "up-to-date" ? `${slug} is already up to date` : `Pulled ${slug}`);
   }
   ctx.reloadTeam?.();
   return { state: "done", detail: notes.join("; ") };
@@ -6494,28 +7505,37 @@ function remoteOf(ctx: ApplyContext, slug: string): string | null {
   return raw === null ? null : parseOriginUrl(raw);
 }
 
+export async function recordForgeIdentity(
+  p: Probes,
+  slug: string,
+  forge: { provider: "github" | "gitlab"; host: string } | null,
+  token: string | null,
+  login: typeof forgeLogin = identitySeams.login,
+): Promise<{ username: string | null; outcome: "already" | "recorded" | "unknown" }> {
+  const stored = readTeamLocal(p, slug).forgeUsername;
+  if (stored) return { username: stored, outcome: "already" };
+  // Only an org on no forge rt knows falls back to the local account name.
+  const username = forge ? await login(p, forge.provider, forge.host, token) : (p.env.USER ?? null);
+  if (!username) return { username: null, outcome: "unknown" };
+  updateTeamLocal(p, slug, { forgeUsername: username });
+  return { username, outcome: "recorded" };
+}
+
 async function teamIdentityRun(ctx: ApplyContext): Promise<StepOutcome> {
   // The last fallback is a clone that has not been converted yet: the admin's Mac
   // must know who it is before the conversion, or it could not push the result.
   const slug = ctx.team.slug || discoverOrgs(ctx.p)[0] || cloneSlugs(ctx.p)[0] || "";
   if (slug === "") return { state: "skipped", detail: "No org on this Mac" };
-  if (readTeamLocal(ctx.p, slug).forgeUsername) return { state: "skipped", detail: "Already recorded" };
 
   const remote = remoteOf(ctx, slug);
   const declared = ctx.snapshot?.integrations.forge ?? (remote ? forgeFromRemote(remote) : null);
-  if (!declared) {
-    const local = ctx.p.env.USER;
-    if (!local) return { state: "needs-you", detail: "rt can't tell who you are, and this org is on no forge it knows" };
-    updateTeamLocal(ctx.p, slug, { forgeUsername: local });
-    return { state: "done", detail: `You are ${local}` };
-  }
-
-  const forge = await resolveForge(ctx);
-  const login = await (ctx.identity?.login ?? identitySeams.login)(ctx.p, declared.provider, declared.host, forge?.token ?? null);
+  const token = declared && !readTeamLocal(ctx.p, slug).forgeUsername ? ((await resolveForge(ctx))?.token ?? null) : null;
+  const result = await recordForgeIdentity(ctx.p, slug, declared, token, ctx.identity?.login);
+  if (result.outcome === "already") return { state: "skipped", detail: "Already recorded" };
+  if (result.outcome === "recorded") return { state: "done", detail: `You are ${result.username}` };
+  if (!declared) return { state: "needs-you", detail: "rt can't tell who you are, and this org is on no forge it knows" };
   const name = declared.provider === "gitlab" ? "GitLab" : "GitHub";
-  if (!login) return { state: "needs-you", detail: `rt can't tell who you are on ${name}. Connect your ${name} account in Setup` };
-  updateTeamLocal(ctx.p, slug, { forgeUsername: login });
-  return { state: "done", detail: `You are ${login}` };
+  return { state: "needs-you", detail: `rt can't tell who you are on ${name}. Connect your ${name} account in Setup` };
 }
 
 const safe = (run: (ctx: ApplyContext) => Promise<StepOutcome>) => async (ctx: ApplyContext): Promise<StepOutcome> => {
@@ -6549,6 +7569,23 @@ export const teamIdentityStep: StepDef = {
 
 `lib/setup/steps/index.ts`: import both steps and insert `orgPullStep, teamIdentityStep,` after `teamJoinStep,` in `STEPS`.
 
+`commands/setup.ts`, `connectCredential`: the `team.identity` row's action is the forge connect, and `rt setup update` runs once per app version, so the connect itself has to record the username or the row never clears. After the credential is stored (after the `storeCredential` block, before the result is printed):
+
+```ts
+  if (id === "github" || id === "gitlab") {
+    const team = snapshotFor(deps);
+    const slug = team.slug || cloneSlugs(deps.probes)[0] || "";
+    const orgForge = team.integrations.forge ?? (team.remote ? forgeFromRemote(team.remote) : null);
+    // Only the org's own forge says who you are in the org, and the token goes only to the host it was just validated against.
+    if (slug !== "" && orgForge?.provider === id) {
+      const host = id === "github" ? "github.com" : (ctx.host ?? "gitlab.com");
+      await recordForgeIdentity(deps.probes, slug, { provider: id, host }, value, deps.forgeLogin);
+    }
+  }
+```
+
+with `forgeLogin?: typeof forgeLogin` on `ConnectDeps` (a test seam; production leaves it out and `recordForgeIdentity` uses the real lookup). A lookup that answers nothing records nothing and changes no output: the row stays, as it should.
+
 `lib/setup/apply.ts`, `reloadTeam`:
 
 ```ts
@@ -6571,9 +7608,9 @@ The plan event now lists two more steps. Read the diff, confirm it is exactly th
 - [ ] **Step 5: Run and commit**
 
 ```bash
-bun test lib/setup commands/__tests__/setup-apply.test.ts commands/__tests__/setup-copy.test.ts
+bun test lib/setup commands/__tests__/setup-apply.test.ts commands/__tests__/setup-connect.test.ts commands/__tests__/setup-copy.test.ts
 bunx tsc --noEmit
-git add lib/setup/contract.ts lib/setup/steps/org.ts lib/setup/steps/index.ts lib/setup/apply.ts lib/setup/__tests__/steps-org.test.ts
+git add lib/setup/contract.ts lib/setup/steps/org.ts lib/setup/steps/index.ts lib/setup/apply.ts commands/setup.ts lib/setup/__tests__/steps-org.test.ts
 git add $(git diff --name-only -- '*.test.ts' '*.snap' lib/setup/__tests__/fakes.ts)
 git commit -m "setup: org.pull and team.identity open every update run and follow a join or restore"
 ```
@@ -6581,20 +7618,16 @@ git commit -m "setup: org.pull and team.identity open every update run and follo
 ### Task 33: Setup rows for no team, no identity and no push access; token scopes follow the role
 
 **Files:**
-- Modify: `lib/team/roles.ts` (`activeTeamFor`)
 - Create: `lib/setup/validators/org.ts` (`orgRows`)
 - Modify: `lib/setup/plan.ts` (add the rows to the `accounts` group)
 - Modify: `lib/setup/token-create.ts` (`forgeRole`), `lib/setup/validators/accounts.ts`, `commands/setup.ts` (its two callers)
-- Test: `lib/setup/__tests__/validators-org.test.ts` (new), `lib/setup/__tests__/token-create.test.ts`, `lib/team/__tests__/roles.test.ts`
+- Test: `lib/setup/__tests__/validators-org.test.ts` (new), `lib/setup/__tests__/token-create.test.ts`, `commands/__tests__/setup-connect.test.ts`
 
 **Interfaces:**
-- Consumes: `decideActiveTeam`, `rosterFrom` (Task 4), `roleFor`, `rolesFor` (Task 20), `tokenField`, `tokenCreateLink` (`token-create.ts`), `TeamSnapshotEntry.lastPushError`.
+- Consumes: `activeTeamFor` (Task 17, `lib/team/active-team.ts`), `roleFor`, `rolesFor` (Task 20), `tokenField`, `tokenCreateLink` (`token-create.ts`), `TeamSnapshotEntry.lastPushError`.
 - Produces:
 
 ```ts
-// lib/team/roles.ts
-export function activeTeamFor(p: Pick<Probes, "readFile" | "readDir" | "home">, org: string): ActiveTeam; // the Probes-seamed twin of rt-client's activeTeam()
-
 // lib/setup/token-create.ts
 export function forgeRole(input: { intentMode: string | null; role: OrgRole["kind"] | null; hasTeam: boolean }): ForgeRole;
 
@@ -6607,7 +7640,7 @@ Rows, all `kind: "access"`, `required: false`, never finish-gated, emitted only 
 
 | Row | When | Action |
 |---|---|---|
-| `team.identity` | no stored username | the forge `connect` with the token field for this role; `steps` when the org is on no forge rt knows |
+| `team.identity` | no stored username | the forge `connect` with the token field for this role (Task 32 made that connect record the username, so the row clears as soon as it succeeds); `steps` when the org is on no forge rt knows |
 | `team.none` | a username is stored and the roster lists it on no team | `steps` (so the Mac app lists it on Done) |
 | `team.push-access` | this Mac's role owns something and the last sync push was refused | the forge `connect` with owner scopes prefilled; `steps` when no forge |
 
@@ -6708,34 +7741,23 @@ In `lib/setup/__tests__/token-create.test.ts`, replace the `forgeRole` cases:
   });
 ```
 
-In `lib/team/__tests__/roles.test.ts`, add `activeTeamFor` cases mirroring the rt-client table: first team; the user store's `mattstack.activeTeam` naming a listed team (`${HOME}/.mattstack/user/settings.user.jsonc`); no team; no username with and without a setting that names an existing team folder.
+In `commands/__tests__/setup-connect.test.ts`, the test "no intent (after Install): the owner of a team rt did not join is held to the owner's scopes" decided the role from `joinedByRt`. It now decides from this Mac's role: give its probes the org store and the record of an admin,
+
+```ts
+      files: {
+        "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+        "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }),
+      },
+```
+
+set `slug: "acme"` on its snapshot, and rename it "no intent (after Install): an org admin is held to the owner's scopes". Add its mirror: the same probes with `forgeUsername: "dev9"` (a member) are held to the member's scopes, whatever `joinedByRt` says.
 
 - [ ] **Step 2: Run to see them fail**
 
-Run: `bun test lib/setup/__tests__/validators-org.test.ts lib/setup/__tests__/token-create.test.ts lib/team/__tests__/roles.test.ts`
+Run: `bun test lib/setup/__tests__/validators-org.test.ts lib/setup/__tests__/token-create.test.ts commands/__tests__/setup-connect.test.ts`
 Expected: FAIL.
 
 - [ ] **Step 3: Implement**
-
-`lib/team/roles.ts` (its rt-client imports gain `decideActiveTeam`, `rosterFrom`, `type ActiveTeam` from `active-team.ts` and `TEAM_NAME_RE` from `stores.ts`):
-
-```ts
-export function activeTeamFor(p: Pick<Probes, "readFile" | "readDir" | "home">, org: string): ActiveTeam {
-  const orgFile = join(p.home, ".mattstack", "teams", org, "mattstack", "org", "settings.org.jsonc");
-  const userFile = join(p.home, ".mattstack", "user", "settings.user.jsonc");
-  const orgRaw = p.readFile(orgFile);
-  const userRaw = p.readFile(userFile);
-  const setting = userRaw === null ? undefined : parseStoreText(userFile, userRaw).global["mattstack.activeTeam"];
-  const username = readTeamLocal(p, org).forgeUsername ?? null;
-  const decision = decideActiveTeam({
-    username,
-    roster: orgRaw === null ? [] : rosterFrom(parseStoreText(orgFile, orgRaw)),
-    setting: typeof setting === "string" ? setting : undefined,
-    teamFolders: () => p.readDir(join(p.home, ".mattstack", "teams", org, "mattstack", "teams")).filter((name) => TEAM_NAME_RE.test(name)),
-  });
-  return { org, username, ...decision };
-}
-```
 
 `lib/setup/token-create.ts`:
 
@@ -6757,7 +7779,8 @@ Its two callers pass `role: team.slug ? roleFor(p, team.slug).kind : null` in pl
 // lib/setup/validators/org.ts
 import type { TeamSnapshotEntry } from "../../daemon/team-snapshots.ts";
 import { ownedRoots } from "../../../packages/rt-client/src/settings/org-roles.ts";
-import { activeTeamFor, roleFor, rolesFor } from "../../team/roles.ts";
+import { activeTeamFor } from "../../team/active-team.ts";
+import { roleFor, rolesFor } from "../../team/roles.ts";
 import { row, type Action, type Row } from "../contract.ts";
 import type { Probes } from "../probes.ts";
 import { tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
@@ -6848,9 +7871,9 @@ export async function orgRows(
 - [ ] **Step 4: Run, update the copy snapshot if it changed, commit**
 
 ```bash
-bun test lib/setup lib/team commands/__tests__/setup-copy.test.ts commands/__tests__/setup-plan.test.ts
+bun test lib/setup lib/team commands/__tests__/setup-copy.test.ts commands/__tests__/setup-plan.test.ts commands/__tests__/setup-connect.test.ts
 bunx tsc --noEmit
-git add lib/team/roles.ts lib/setup/validators/org.ts lib/setup/validators/accounts.ts lib/setup/validators/rt-health.ts lib/setup/token-create.ts lib/setup/plan.ts commands/setup.ts lib/setup/__tests__/validators-org.test.ts
+git add lib/setup/validators/org.ts lib/setup/validators/accounts.ts lib/setup/validators/rt-health.ts lib/setup/token-create.ts lib/setup/plan.ts commands/setup.ts lib/setup/__tests__/validators-org.test.ts
 git add $(git diff --name-only -- '*.test.ts' '*.snap')
 git commit -m "setup: rows for no team, no identity and no push access, and token scopes that follow your role"
 ```
@@ -6859,80 +7882,431 @@ git commit -m "setup: rows for no team, no identity and no push access, and toke
 
 **Files:**
 - Create: `commands/__tests__/onboarding-org.test.ts`
+- Modify: `commands/__tests__/team-join.test.ts` (one exit-code test)
+- Modify: `AGENTS.md`
 - Modify: `docs/home-repo.md` or the setup docs only if a step's wording there is now wrong (check with `rg -n "team create|team join" docs/*.md`)
 
-No production code. Each scenario runs the same verb functions the app spawns, in-process, against real files under a scratch HOME (the test preload already isolates HOME), with the forge, the relay, `claude` and the daemon faked through the seams those verbs already take (`TeamDeps`, `ApplyDeps`). Build on the harness in `commands/__tests__/setup-apply.test.ts` (its fake `ApplyDeps`, relay and exec recorder) and `commands/__tests__/team-join.test.ts` (its relay that serves a sealed pointer).
+No production code. Every scenario runs the real setup steps through `runApplyWith` or `runUpdateWith`, and the real team functions, against real files under a scratch HOME. Only the outside world is faked, in one place: `exec` (git, the forge CLI, `claude`, deck), the daemon, the tray, `fetch` and the relay. A `git clone` is faked by copying a fixture tree, because `isAllowedRemote` refuses a `file://` remote.
 
-- [ ] **Step 1: Write the scenarios**
+- [ ] **Step 1: Write the harness**
+
+```ts
+// commands/__tests__/onboarding-org.test.ts
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { basename, dirname, join } from "path";
+import { activeTeam, currentRole, readForgeUsername, readStore, setSetting } from "../../packages/rt-client/src/index.ts";
+import { orgSettingsPath, userSettingsPath } from "../../lib/rt-paths.ts";
+import type { SecretsSeams } from "../../lib/secrets/store.ts";
+import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type StepDef } from "../../lib/setup/apply.ts";
+import type { ApplyEvent } from "../../lib/setup/contract.ts";
+import { readIntent } from "../../lib/setup/intent.ts";
+import type { MigrationDef } from "../../lib/setup/migrations/index.ts";
+import { composePlan } from "../../lib/setup/plan.ts";
+import { createRealProbes, type Probes } from "../../lib/setup/probes.ts";
+import { orgPullStep, recordForgeIdentity, teamIdentityStep } from "../../lib/setup/steps/org.ts";
+import { pluginsInstallStep } from "../../lib/setup/steps/plugins.ts";
+import { teamCreateStep, teamJoinStep } from "../../lib/setup/steps/team.ts";
+import { orgRows } from "../../lib/setup/validators/org.ts";
+import { createTeam } from "../../lib/team/create.ts";
+import { encodeCode, seal } from "../../lib/team/invite-crypto.ts";
+import { joinDryRun } from "../../lib/team/join.ts";
+import type { RelayClient } from "../../lib/team/relay-client.ts";
+import { updateTeamLocal } from "../../lib/team/team-local.ts";
+import type { InvitePointer } from "../../lib/setup/intent.ts";
+import { teamUse, type TeamDeps } from "../team.ts";
+
+const REMOTE = "https://github.com/acme/org.git";
+const GITHUB = { provider: "github" as const, host: "github.com" };
+const NOW = new Date("2026-10-01T00:00:00.000Z");
+const ID_HEX = "0102030405060708090a0b0c0d0e0f10";
+const KEY = new Uint8Array(32).fill(7);
+const CODE = encodeCode(ID_HEX, KEY);
+const FAKE_PUBLIC_KEY = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
+const DECK = "/Applications/mattstack.app/Contents/Helpers/deck";
+const ok = (stdout = "") => ({ code: 0, stdout, stderr: "" });
+const origin = (remote: string) => `[remote "origin"]\n\turl = ${remote}\n`;
+
+const POINTER: InvitePointer = {
+  v: 2, team: "acme", name: "Acme", remote: REMOTE, owner: "dev1", forge: "github.com",
+  createdAt: "2026-10-01T00:00:00.000Z", username: "dev2", teams: ["gadgets", "widgets"],
+};
+
+/** The keychain holds a key and age-keygen derives its public half; the sops side does nothing. */
+const SECRETS: SecretsSeams = {
+  ageKeySeam: {
+    run: async (cmd) => {
+      if (cmd[1] === "find-generic-password") return { code: 0, stdout: "AGE-SECRET-KEY-1QQQ\n", stderr: "" };
+      if (cmd[0] === "age-keygen" && cmd[1] === "-y") return { code: 0, stdout: `${FAKE_PUBLIC_KEY}\n`, stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  },
+  execSeam: {
+    run: async () => ({ code: 0, stdout: "", stderr: "" }),
+    fileExists: () => false, statFile: () => null, readFile: () => "", writeFile: () => {},
+    ensureDir: () => {}, chmod: () => {}, fsyncAndRename: () => {}, removeFile: () => {},
+  },
+};
+
+const ORIG_HOME = process.env.HOME;
+let home: string;
+let scratch: string[];
+let execCalls: string[][];
+/** What the forge CLI answers; null is "not signed in". */
+let login: string | null;
+/** The tree a faked `git clone` copies into place. */
+let remoteTree: string | null;
+let daemon: Probes["daemon"];
+let redeemCalls: string[];
+
+beforeEach(() => {
+  home = realpathSync(mkdtempSync(join(tmpdir(), "rt-onboarding-")));
+  process.env.HOME = home;
+  scratch = [home];
+  execCalls = [];
+  login = "dev1";
+  remoteTree = null;
+  daemon = async () => null;
+  redeemCalls = [];
+  mkdirSync(join(home, "bin"), { recursive: true });
+  writeFileSync(join(home, "bin", "claude"), "#!/bin/sh\n", { mode: 0o755 });
+});
+
+afterEach(() => {
+  process.env.HOME = ORIG_HOME;
+  for (const dir of scratch) rmSync(dir, { recursive: true, force: true });
+});
+
+/** Real files, fake outside world. Nothing under /Applications exists, so a developer's installed app never leaks in. */
+function probes(): Probes {
+  const real = createRealProbes();
+  return {
+    ...real,
+    home,
+    env: { HOME: home, PATH: join(home, "bin"), USER: "localdev" },
+    now: () => NOW,
+    exists: (path) => !path.startsWith("/Applications/") && real.exists(path),
+    exec: async (argv, opts) => {
+      execCalls.push(argv);
+      const bin = basename(argv[0]!);
+      if (bin === "gh") return login === null ? { code: 1, stdout: "", stderr: "not logged in" } : ok(JSON.stringify({ login }));
+      if (bin === "git" && argv.includes("clone")) {
+        const dir = argv.at(-1)!;
+        if (remoteTree === null) return { code: 128, stdout: "", stderr: "fatal: repository not found" };
+        cpSync(remoteTree, dir, { recursive: true });
+        mkdirSync(join(dir, ".git"), { recursive: true });
+        writeFileSync(join(dir, ".git", "config"), origin(REMOTE));
+        return ok();
+      }
+      if (bin === "git" && argv[1] === "init" && opts?.cwd) mkdirSync(join(opts.cwd, ".git"), { recursive: true });
+      if (bin === "git" && argv[1] === "remote" && argv[2] === "add" && opts?.cwd) writeFileSync(join(opts.cwd, ".git", "config"), origin(argv[4]!));
+      if (bin === "claude" && argv[2] === "list") return ok("[]");
+      return ok();
+    },
+    daemon: (cmd, payload, timeoutMs) => daemon(cmd, payload, timeoutMs),
+    tray: async () => ({ status: 0, json: null }),
+    fetch: async () => ({ status: 0, body: "", headers: {} }),
+  };
+}
+
+function relayServing(pointer: InvitePointer): RelayClient {
+  return {
+    create: async () => { throw new Error("create is not used by join"); },
+    fetch: async () => ({ ciphertext: await seal(pointer, KEY, ID_HEX) }),
+    redeem: async (id) => { redeemCalls.push(id); return "redeemed"; },
+    reply: async () => {},
+    readReply: async () => { throw new Error("readReply is not used by join"); },
+    delete: async () => { throw new Error("delete is not used by join"); },
+  };
+}
+
+const NO_RELAY = relayServing(POINTER);
+
+async function context(p: Probes, events: ApplyEvent[], opts: { relay?: RelayClient; update?: true } = {}): Promise<ApplyContext> {
+  return createApplyContext({
+    probes: p,
+    emit: (event) => { events.push(event); },
+    secrets: SECRETS,
+    teamSecrets: () => SECRETS,
+    relay: opts.relay ?? NO_RELAY,
+    secretPresence: { has: async () => null },
+    flags: { nonInteractive: true, teamOfOne: false, ci: false, ...(opts.update ? { update: true as const } : {}) },
+  });
+}
+
+/** The last thing a step said: its final state, detail and remedy. */
+function settled(events: ApplyEvent[], id: string): { state: string; detail?: string; remedy?: string } | undefined {
+  const steps = events.filter((e): e is Extract<ApplyEvent, { event: "step" }> => e.event === "step" && e.id === id && e.state !== "running");
+  const last = steps.at(-1);
+  return last ? { state: last.state, ...(last.detail !== undefined ? { detail: last.detail } : {}), ...(last.remedy !== undefined ? { remedy: last.remedy } : {}) } : undefined;
+}
+
+/** An org repo's working tree with two teams, each with a pack and a marketplace entry. */
+function orgTree(roster: { username: string; teams: string[] }[]): string {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-onboarding-org-")));
+  scratch.push(dir);
+  const write = (rel: string, value: unknown) => {
+    const file = join(dir, rel);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+  };
+  write("mattstack/mattstack.jsonc", { role: "org", org: "acme" });
+  write("mattstack/org/settings.org.jsonc", {
+    "mattstack.integrations": { forge: GITHUB },
+    "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev1"] }, gadgets: { owners: ["dev1"] } } },
+    "mattstack.roster": roster,
+  });
+  for (const team of ["widgets", "gadgets"]) {
+    write(`mattstack/teams/${team}/settings.team.jsonc`, { "board.title": team });
+    write(`mattstack/teams/${team}/packs/${team}/.claude-plugin/plugin.json`, { name: team, version: "0.1.0" });
+    write(`mattstack/teams/${team}/packs/${team}/pack/skills.jsonc`, {});
+  }
+  write(".claude-plugin/marketplace.json", {
+    name: "acme",
+    owner: { name: "Acme" },
+    plugins: ["widgets", "gadgets"].map((team) => ({ name: team, source: `./mattstack/teams/${team}/packs/${team}` })),
+  });
+  return dir;
+}
+
+/** Puts an org clone on this Mac without a join: the state a restored or already-joined Mac is in. */
+function cloneHere(tree: string): string {
+  const dir = join(home, ".mattstack", "teams", "acme");
+  cpSync(tree, dir, { recursive: true });
+  mkdirSync(join(dir, ".git"), { recursive: true });
+  writeFileSync(join(dir, ".git", "config"), origin(REMOTE));
+  return dir;
+}
+
+const packInstalls = () => execCalls.filter((a) => basename(a[0]!) === "claude" && a[1] === "plugin" && a[2] === "install").map((a) => a.at(-1)!).filter((id) => id.endsWith("@acme"));
+const activeTeamSetting = () => readStore(userSettingsPath()).global["mattstack.activeTeam"];
+```
+
+- [ ] **Step 2: Write the scenarios**
 
 ```ts
 describe("onboarding in an org", () => {
-  test("create: the creator ends up admin, owner, on the roster, with the first team active", async () => {
-    // rt team create Acme --remote https://github.com/acme/org.git   (forge login faked as "dev1")
-    // rt setup plan --json ; rt setup apply
-    // expect: mattstack.org = { admins: ["dev1"], teams: { acme: { owners: ["dev1"] } } }
-    //         mattstack.roster = [{ username: "dev1", agePublicKey: <key>, teams: ["acme"] }]
-    //         readForgeUsername("acme") === "dev1"
-    //         activeTeam() -> { team: "acme", reason: "first-team" }
-    //         currentRole("acme") -> { kind: "admin" }
-    //         the plan has no team.none and no team.identity row
+  test("create: roles wait for the forge login, then the creator is admin, owner and on the roster with the first team active", async () => {
+    const p = probes();
+    login = null; // the team screen: --remote on a recognized forge, before the checklist connects it
+    const first = await createTeam(p, { name: "Acme", remote: REMOTE, others: false }, SECRETS.ageKeySeam);
+    expect(first.rolesDeferred).toBe(true);
+    expect(readForgeUsername("acme")).toBeNull();
+
+    login = "dev1"; // Install, after the forge connect
+    const events: ApplyEvent[] = [];
+    const result = await runApplyWith([teamCreateStep, orgPullStep, teamIdentityStep], await context(p, events));
+    expect(result).toEqual({ ok: true });
+
+    const org = readStore(orgSettingsPath("acme")).global;
+    expect(org["mattstack.org"]).toEqual({ admins: ["dev1"], teams: { acme: { owners: ["dev1"] } } });
+    expect(org["mattstack.roster"]).toEqual([{ username: "dev1", agePublicKey: FAKE_PUBLIC_KEY, teams: ["acme"] }]);
+    expect(readForgeUsername("acme")).toBe("dev1");
+    expect(activeTeam()).toMatchObject({ org: "acme", team: "acme", reason: "first-team" });
+    expect(currentRole("acme")).toEqual({ kind: "admin" });
+    expect(settled(events, "team.identity")).toEqual({ state: "skipped", detail: "Already recorded" });
+    expect(settled(events, "org.pull")?.state).not.toBe("failed");
+
+    const plan = await composePlan({ p, secrets: { has: async () => null }, ci: false, mode: "status", orgs: ["acme"] });
+    const ids = plan.groups.flatMap((g) => g.rows.map((r) => r.id));
+    for (const id of ["team.none", "team.identity", "team.push-access"]) expect(ids).not.toContain(id);
   });
 
-  test("join: the dry run shows the pointer's teams before any clone, and Install lands only the first team's pack", async () => {
-    // an org clone on a second scratch dir acts as the remote: two teams (widgets, gadgets), each with a pack skeleton and a marketplace entry
-    // pointer: { v: 2, team: "acme", username: "dev2", teams: ["gadgets", "widgets"], ... }
-    // rt team join --dry-run --json  -> data.teams === ["gadgets", "widgets"], and ~/.mattstack/teams/acme does not exist
-    // rt setup apply (forge login faked as "dev2")
-    // expect: readForgeUsername("acme") === "dev2"; getSetting("mattstack.activeTeam").value === "gadgets"
-    //         the claude recorder saw `plugin install gadgets@acme` and never `plugin install widgets@acme`
-    //         a bindings file exists for both packs under ~/.mattstack/repos/<slug>/packs/
+  test("join dry run: the teams come from the pointer, and nothing is cloned", async () => {
+    const p = probes();
+    const result = await joinDryRun(p, relayServing(POINTER), CODE);
+    expect(result.teams).toEqual(["gadgets", "widgets"]);
+    expect(existsSync(join(home, ".mattstack", "teams", "acme"))).toBe(false);
+    expect(readIntent(p)?.mode).toBe("join");
   });
 
-  test("join refuses a mismatched login at Install, naming both logins, and leaves the invite unspent", async () => {
-    // same pointer, forge login faked as "trillian"
-    // the team.join step event is { state: "failed", detail: "This invite is for dev2; you're signed in as trillian.", remedy: "Ask for an invite for trillian, or connect dev2's token." }
-    // relay.redeemCalls is empty
+  test("join: Install records who you are, starts you on the invite's first team, and installs that team's pack alone", async () => {
+    const p = probes();
+    login = "dev2";
+    remoteTree = orgTree([{ username: "dev1", teams: ["widgets"] }, { username: "dev2", teams: ["gadgets", "widgets"] }]);
+    const relay = relayServing(POINTER);
+    await joinDryRun(p, relay, CODE);
+
+    const events: ApplyEvent[] = [];
+    const result = await runApplyWith([teamJoinStep, orgPullStep, teamIdentityStep, pluginsInstallStep], await context(p, events, { relay }));
+    expect(result).toEqual({ ok: true });
+
+    expect(readForgeUsername("acme")).toBe("dev2");
+    expect(activeTeamSetting()).toBe("gadgets");
+    expect(activeTeam()).toMatchObject({ team: "gadgets", reason: "chosen" });
+    expect(packInstalls()).toEqual(["gadgets@acme"]);
+    expect(redeemCalls).toEqual([ID_HEX]);
   });
 
-  test("join refuses a pointer from before teams", async () => {
-    // pointer with v: 1 -> rt team join --dry-run --json exits 2 with error.code "invite-outdated"
+  test("join: a clone whose roster does not list the invitee stops before the invite is used, and a rerun resumes", async () => {
+    const p = probes();
+    login = "dev2";
+    remoteTree = orgTree([{ username: "dev1", teams: ["widgets"] }]);
+    const relay = relayServing(POINTER);
+    await joinDryRun(p, relay, CODE);
+
+    const events: ApplyEvent[] = [];
+    const result = await runApplyWith([teamJoinStep, pluginsInstallStep], await context(p, events, { relay }));
+    expect(result).toEqual({ ok: false, failedStep: "team.join" });
+    expect(settled(events, "team.join")).toEqual({
+      state: "failed",
+      detail: "Your admin's roster change has not reached the org repo yet; try again in a minute",
+      remedy: "Retry in a minute. You do not need a new code",
+    });
+    expect(redeemCalls).toEqual([]);
+    expect(readIntent(p)?.mode).toBe("join");
+    expect(activeTeamSetting()).toBeUndefined();
+    expect(packInstalls()).toEqual([]);
   });
 
-  test("a member the admin adds to a second team keeps their first team", async () => {
-    // dev2 on ["gadgets"], active team gadgets; the roster changes to ["gadgets", "widgets"] (as a pull would bring it)
-    // activeTeam().team is still "gadgets"; after `rt team use widgets --json` it is "widgets"
+  test("join: a different forge login is refused at Install, naming both, with the invite unspent and nothing recorded", async () => {
+    const p = probes();
+    login = "trillian";
+    remoteTree = orgTree([{ username: "dev2", teams: ["gadgets", "widgets"] }]);
+    const relay = relayServing(POINTER);
+    await joinDryRun(p, relay, CODE);
+
+    const events: ApplyEvent[] = [];
+    const result = await runApplyWith([teamJoinStep, pluginsInstallStep], await context(p, events, { relay }));
+    expect(result).toEqual({ ok: false, failedStep: "team.join" });
+    expect(settled(events, "team.join")).toEqual({
+      state: "failed",
+      detail: "This invite is for dev2; you're signed in as trillian.",
+      remedy: "Ask for an invite for trillian, or connect dev2's token.",
+    });
+    expect(redeemCalls).toEqual([]);
+    expect(readForgeUsername("acme")).toBeNull();
+    expect(activeTeamSetting()).toBeUndefined();
+    expect(readIntent(p)?.mode).toBe("join");
   });
 
-  test("the update run orders the migration, org.pull, team.identity, plugins.install and skills.materialize", async () => {
-    // rt setup update --json with a recorder on the step events
-    // expect the event ids, in order, to start with: "migration.2026-10-01-unset-board-default-pack" (once Task 36 lands; until then assert from "org.pull"),
-    //   "org.pull", "team.identity", ... and "plugins.install" before "verify"
+  test("join: an invite from before teams is refused, leaving no intent and no clone", async () => {
+    const p = probes();
+    const old = { ...POINTER, v: 1 } as unknown as InvitePointer;
+    await expect(joinDryRun(p, relayServing(old), CODE)).rejects.toMatchObject({
+      code: "invite-outdated",
+      message: "That invite was made by an older mattstack. Ask for a new invite.",
+    });
+    expect(readIntent(p)).toBeNull();
+    expect(existsSync(join(home, ".mattstack", "teams", "acme"))).toBe(false);
+  });
+
+  test("a second team: your first team holds until you switch, and the switch turns the packs over and restarts the apps", async () => {
+    const p = probes();
+    const dir = cloneHere(orgTree([{ username: "dev2", teams: ["gadgets"] }]));
+    updateTeamLocal(p, "acme", { forgeUsername: "dev2" });
+    expect(activeTeam()).toMatchObject({ team: "gadgets", listedOn: ["gadgets"] });
+
+    // What a pull brings once the admin runs `rt team members set dev2 --teams gadgets,widgets`.
+    const store = join(dir, "mattstack", "org", "settings.org.jsonc");
+    const org = JSON.parse(p.readFile(store)!) as Record<string, unknown>;
+    writeFileSync(store, JSON.stringify({ ...org, "mattstack.roster": [{ username: "dev2", teams: ["gadgets", "widgets"] }] }));
+    expect(activeTeam()).toMatchObject({ team: "gadgets", listedOn: ["gadgets", "widgets"] });
+
+    const lines: string[] = [];
+    const deps: TeamDeps = { probes: p, print: (line) => { lines.push(line); }, deckPath: () => DECK };
+    await teamUse(["widgets", "--json"], {}, deps);
+
+    const { contract: _contract, at: _at, ...body } = JSON.parse(lines[0]!);
+    expect(body).toMatchObject({ team: "widgets", previous: "gadgets", disabled: "gadgets@acme", restarted: ["board", "boxscore"] });
+    expect(activeTeamSetting()).toBe("widgets");
+    const claude = execCalls.filter((a) => basename(a[0]!) === "claude").map((a) => a.slice(1).join(" "));
+    expect(claude).toContain("plugin enable widgets@acme");
+    expect(claude).toContain("plugin disable gadgets@acme");
+    expect(execCalls).toContainEqual([DECK, "restart", "board"]);
+    expect(execCalls).toContainEqual([DECK, "restart", "boxscore"]);
+  });
+
+  test("the update run from the old layout: the migration, then the pull that brings the org layout, then identity, then the install against what the pull brought", async () => {
+    const p = probes();
+    const dir = join(home, ".mattstack", "teams", "acme");
+    mkdirSync(join(dir, ".git"), { recursive: true });
+    writeFileSync(join(dir, ".git", "config"), origin(REMOTE));
+    mkdirSync(join(dir, "mattstack"), { recursive: true });
+    writeFileSync(join(dir, "mattstack", "settings.team.jsonc"), JSON.stringify({ "board.title": "Acme" }));
+
+    const converted = orgTree([{ username: "dev2", teams: ["gadgets", "widgets"] }]);
+    login = "dev2";
+    daemon = async (cmd) => {
+      if (cmd !== "team:pull") return null;
+      rmSync(join(dir, "mattstack"), { recursive: true, force: true });
+      cpSync(converted, dir, { recursive: true });
+      return { ok: true, data: { outcome: "fast-forwarded", detail: null } };
+    };
+
+    const ran: string[] = [];
+    const migration: MigrationDef = { id: "2026-10-01-example", title: "Example", run: async () => { ran.push("migration"); return { state: "done", detail: "" }; } };
+    const verify: StepDef = { id: "verify", title: "Verify", kind: "rt", updateSafe: true, applies: () => true, run: async () => ({ state: "done", detail: "" }) };
+
+    const events: ApplyEvent[] = [];
+    await runUpdateWith([orgPullStep, teamIdentityStep, pluginsInstallStep, verify], [migration], await context(p, events, { update: true }));
+
+    const order = events.filter((e) => e.event === "step" && e.state === "running").map((e) => (e as { id: string }).id);
+    expect(order).toEqual(["migration.2026-10-01-example", "org.pull", "team.identity", "plugins.install", "verify"]);
+    expect(settled(events, "org.pull")).toEqual({ state: "done", detail: "Pulled acme" });
+    expect(settled(events, "team.identity")).toEqual({ state: "done", detail: "You are dev2" });
+    expect(settled(events, "plugins.install")?.state).not.toBe("failed");
+    // The marketplace file did not exist before the pull, so this install can only have read the reloaded org.
+    expect(packInstalls()).toEqual(["gadgets@acme"]);
   });
 
   test("restore: a Mac with no machine-local record gets its role back from the roster", async () => {
-    // seed an org clone whose roles name dev1 as admin; no ~/.mattstack/rt/teams/acme.json
-    // run the team.identity step through rt setup apply --only team.identity (forge login faked as "dev1")
-    // expect: currentRole("acme") -> { kind: "admin" }, and a team-scope setSetting now succeeds
+    const p = probes();
+    cloneHere(orgTree([{ username: "dev1", teams: ["widgets"] }]));
+    expect(readForgeUsername("acme")).toBeNull();
+    expect(() => setSetting("board.gitlabHost", "gitlab.example.com", "org")).toThrow("rt can't tell who you are");
+
+    login = "dev1";
+    const events: ApplyEvent[] = [];
+    await runApplyWith([teamIdentityStep], await context(p, events));
+    expect(settled(events, "team.identity")).toEqual({ state: "done", detail: "You are dev1" });
+    expect(currentRole("acme")).toEqual({ kind: "admin" });
+    setSetting("board.gitlabHost", "gitlab.example.com", "org");
+    expect(readStore(orgSettingsPath("acme")).global["board.gitlabHost"]).toBe("gitlab.example.com");
+  });
+
+  test("restore with no forge token: the row says so, and it clears once the forge is connected", async () => {
+    const p = probes();
+    cloneHere(orgTree([{ username: "dev1", teams: ["widgets"] }]));
+    login = null;
+    const events: ApplyEvent[] = [];
+    await runApplyWith([teamIdentityStep], await context(p, events));
+    expect(settled(events, "team.identity")).toEqual({ state: "needs-you", detail: "rt can't tell who you are on GitHub. Connect your GitHub account in Setup" });
+
+    const noStatus = async () => [];
+    expect((await orgRows(p, "acme", { forge: GITHUB, readStatus: noStatus })).map((r) => r.id)).toEqual(["team.identity"]);
+
+    // What the forge connect does once the token validates (its wiring is pinned in setup-connect.test.ts).
+    await recordForgeIdentity(p, "acme", GITHUB, "token", async () => "dev1");
+    expect(await orgRows(p, "acme", { forge: GITHUB, readStatus: noStatus })).toEqual([]);
+    expect(currentRole("acme")).toEqual({ kind: "admin" });
   });
 });
 ```
 
-Write each test body out against the two harnesses named above; the comments are the assertions each must make, not optional notes. Use only placeholder names.
+Three things the harness leans on, each one line to change if the code names it differently:
 
-- [ ] **Step 2: Run them**
+- `TeamDeps.deckPath?: (p: Probes) => string | null` (Task 30's `restartApp` resolves deck through it; the default is `(p) => bundledToolPath(p, "deck")`). The bundled path cannot be resolved in a test: it needs a real app bundle and its `deps.lock`, which is why the harness also hides `/Applications`. Add the seam to Task 30's code if it is not there yet.
+- The create scenario's plan check names the three rows this work adds. The plan still carries the rows every org has (`team.sync` and the like); those are not what "no team rows" means here.
+- `composePlan`'s input is `orgs` after Task 9. If a scenario fails on a `claude` answer the fake does not give, add that answer to the one `exec` function, the way `lib/setup/__tests__/steps-c.test.ts`'s `plugins.install` tests script it.
 
-Run: `bun test commands/__tests__/onboarding-org.test.ts`
+In `commands/__tests__/team-join.test.ts`, with that file's own harness (its relay that serves a sealed pointer and its exit capture), add one test: a version 1 pointer makes `teamJoin([CODE, "--dry-run", "--json"], ...)` exit 2 with the error code `invite-outdated`, the message "That invite was made by an older mattstack. Ask for a new invite.", and no intent file.
+
+- [ ] **Step 3: Run them**
+
+Run: `bun test commands/__tests__/onboarding-org.test.ts commands/__tests__/team-join.test.ts`
 Expected: PASS. A failure here is a real gap between two tasks (for example join recording the username but the plan still showing `team.identity`); fix it in the task that owns the code and say so in the commit.
 
-- [ ] **Step 3: Bring `AGENTS.md` up to date**
+- [ ] **Step 4: Bring `AGENTS.md` up to date**
 
 `AGENTS.md` is the contract other agents read, so it has to describe the code as it now is. Three edits, current mechanics only:
 
 1. Under "Settings architecture", add one paragraph: shared settings live in an org clone (`~/.mattstack/teams/<org>/`) as an org store plus one store per team folder; the resolver reads the org layer and the active team's layer (`activeTeam()` in rt-client); a shared write is refused unless this Mac's role owns the file (`packages/rt-client/src/settings/org-roles.ts`, `lib/team/roles.ts`). Point at `docs/settings-architecture.md` and the spec.
 2. Under "Setup after an update", say the update run is pending migrations, then `org.pull` and `team.identity`, then the other update-safe steps, then `verify`.
-3. Under "Switchboard and `rt team join`", say join refuses an invite whose `username` is not the signed-in forge login, records `forgeUsername`, and sets `mattstack.activeTeam` to the invite's first team.
+3. Under "Switchboard and `rt team join`", say join refuses an invite whose `username` is not the signed-in forge login, checks the cloned roster lists that username, records `forgeUsername`, and sets `mattstack.activeTeam` to the invite's first team; and that `rt team invite` pushes the roster entry before it makes the invite.
 
-- [ ] **Step 4: PR 3 gate**
+- [ ] **Step 5: PR 3 gate**
 
 ```bash
 bun run test
@@ -6940,7 +8314,7 @@ bunx tsc --noEmit
 bun run check
 bun run picker:check
 bun run test:all
-git add commands/__tests__/onboarding-org.test.ts AGENTS.md
+git add commands/__tests__/onboarding-org.test.ts commands/__tests__/team-join.test.ts AGENTS.md
 git commit -m "tests and docs: onboarding through create, join, a second team, the update run and restore"
 ```
 
@@ -6991,6 +8365,14 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
 
 `bun scripts/convert-team-repo-to-org.ts <clone-dir> --admin <username> [--team <name>] [--team-repo <identity>]... [--write --roster-confirmed]`. Without `--write` it only prints. It never pushes.
 
+Three guards, each from the spec's section 9:
+
+- `--write` refuses unless team sync is off on this Mac (`rt.teamSnapshot.enabled` is `false`). The clone's sync engine stages and pushes `mattstack/`, `.sops.yaml` and `.claude-plugin/` by itself (a debounced commit, and a janitor that pushes unpushed commits), so with it on, a half-converted tree could be pushed, and "review the commit, then publish" would be no gate at all.
+- A `--write` that throws partway puts the clone back exactly as it started (the start is clean, so a hard reset and a clean of the paths rt manages restore it).
+- A store or manifest that does not parse is refused: the plan would otherwise split what it could read and delete the original.
+
+`scripts/` is not in the app bundle, so the script runs from a checkout of this repo at the release tag the admin's app is on.
+
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
@@ -7016,7 +8398,7 @@ function oldClone(overrides: Partial<ConvertInput["files"]> = {}): ConvertInput 
         "board.ticketPrefixes": ["WID"],
         "board.botUsernames": ["acme-bot"],
         "board.slack": { appId: "A1", clientId: "C1", callbackPort: 1455, channel: "#widgets", singleTemplate: "{title}" },
-        "board.members": [{ username: "dev1", name: "Dev One" }, { username: "dev3", hidden: true }],
+        "board.members": [{ username: "dev1", name: "Dev One" }, { username: "DEV2", name: "Dev Two", agePublicKey: "age1bbb" }, { username: "dev3", hidden: true }],
         "board.reReview": { enabled: true },
         "boxscore.projects": ["acme/widgets"],
         "boxscore.botPatterns": ["bot$"],
@@ -7089,12 +8471,12 @@ describe("planConversion", () => {
     expect(Object.keys(settings(plan.writes["mattstack/teams/widgets/settings.team.jsonc"]!).repos)).toEqual([OWN]);
   });
 
-  test("the roster moves to the org with teams, gains board.members names it lacked and the admin, and board.members goes", () => {
+  test("the roster moves to the org with teams, takes what only board.members knew, gains the admin, and board.members goes", () => {
     const plan = run(oldClone(), { admin: "dev9" });
     const org = settings(plan.writes["mattstack/org/settings.org.jsonc"]!);
     expect(org["mattstack.roster"]).toEqual([
       { username: "dev1", name: "Dev One", agePublicKey: "age1aaa", teams: ["widgets"] },
-      { username: "dev2", teams: ["widgets"] },
+      { username: "dev2", name: "Dev Two", agePublicKey: "age1bbb", teams: ["widgets"] },
       { username: "dev3", teams: ["widgets"] },
       { username: "dev9", teams: ["widgets"] },
     ]);
@@ -7130,6 +8512,48 @@ describe("planConversion", () => {
     expect(plan.deletes.sort()).toEqual(["mattstack/settings.team.jsonc", "mattstack/team.jsonc"]);
   });
 
+  test("a member board.members hid is named in the report: hiding does not carry over to the roster", () => {
+    expect(run().report).toContain("board.members hid dev3; the roster has no hidden flag, so dev3 shows in the apps until someone hides them there");
+  });
+
+  test("a roster entry keeps its own value where board.members disagrees", () => {
+    const files = oldClone().files;
+    const store = settings(files["mattstack/settings.team.jsonc"]!);
+    store["board.members"] = [{ username: "dev1", name: "Someone Else", agePublicKey: "age1zzz" }];
+    const org = settings(run(oldClone({ "mattstack/settings.team.jsonc": JSON.stringify(store) })).writes["mattstack/org/settings.org.jsonc"]!);
+    expect(org["mattstack.roster"][0]).toEqual({ username: "dev1", name: "Dev One", agePublicKey: "age1aaa", teams: ["widgets"] });
+  });
+
+  test("a team named after the org, beside <org>-base: each stored path goes to its own new home", () => {
+    const base = oldClone();
+    const store = settings(base.files["mattstack/settings.team.jsonc"]!);
+    store.repos[SHARED]["rt.roles"] = {
+      dev: { hook: "${team:acme}/mattstack/packs/acme/hooks/dev.sh" },
+      ci: { hook: "${team:acme}/mattstack/packs/acme-base/hooks/ci.sh" },
+      bare: { hook: "${team:acme}/mattstack/packs/acme" },
+    };
+    const files = Object.fromEntries(Object.entries(base.files).filter(([rel]) => !rel.startsWith("mattstack/packs/widgets/")));
+    const input = {
+      packs: ["acme", "acme-base"],
+      hasSecrets: true,
+      files: {
+        ...files,
+        "mattstack/settings.team.jsonc": JSON.stringify(store),
+        "mattstack/packs/acme/.claude-plugin/plugin.json": JSON.stringify({ name: "acme", version: "1.0.0" }),
+        "mattstack/packs/acme/pack/skills.jsonc": "{}",
+      },
+    };
+    const roles = settings(planConversion(input, { org: "acme", admin: "dev1" }).writes["mattstack/org/settings.org.jsonc"]!).repos[SHARED]["rt.roles"];
+    expect(roles.dev.hook).toBe("${team:acme}/mattstack/teams/acme/packs/acme/hooks/dev.sh");
+    expect(roles.ci.hook).toBe("${team:acme}/mattstack/org/packs/acme-base/hooks/ci.sh");
+    expect(roles.bare.hook).toBe("${team:acme}/mattstack/teams/acme/packs/acme");
+  });
+
+  test("a store or manifest that does not parse is refused by name, and nothing is planned", () => {
+    expect(() => run(oldClone({ "mattstack/settings.team.jsonc": `{ "board.title": "Widgets", ` }))).toThrow("mattstack/settings.team.jsonc is not valid JSONC");
+    expect(() => run(oldClone({ ".claude-plugin/marketplace.json": "[]" }))).toThrow(".claude-plugin/marketplace.json is not a JSON object");
+  });
+
   test("a clone that is already converted is refused and nothing is planned", () => {
     const converted = oldClone({ "mattstack/mattstack.jsonc": JSON.stringify({ role: "org", org: "acme" }) });
     expect(() => run(converted)).toThrow("This clone already has the org layout");
@@ -7163,7 +8587,7 @@ Expected: FAIL, module not found.
  * delete. No shipped rt code reads the old layout.
  */
 
-import { parse } from "jsonc-parser";
+import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
 export interface ConvertInput {
   files: Record<string, string>;
@@ -7203,9 +8627,19 @@ const SLACK_ORG_FIELDS = new Set(["appId", "clientId", "callbackPort"]);
 const ORG_HEADER = "// mattstack org settings, shared by every team. JSONC: comments and trailing commas are fine.\n";
 const TEAM_HEADER = "// mattstack team settings. JSONC: comments and trailing commas are fine.\n";
 
-function obj(text: string | undefined): Json {
-  const value: unknown = text === undefined ? undefined : parse(text, [], { allowTrailingComma: true });
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Json) : {};
+/** The file's object, `{}` when the file is absent. A file that is there but does not parse stops the conversion: splitting what could be read and deleting the original would lose the rest. */
+function objOf(files: Record<string, string>, rel: string): Json {
+  const text = files[rel];
+  if (text === undefined) return {};
+  const errors: ParseError[] = [];
+  const value: unknown = parse(text, errors, { allowTrailingComma: true });
+  if (errors.length > 0) throw new Error(`${rel} is not valid JSONC (${printParseErrorCode(errors[0]!.error)} at offset ${errors[0]!.offset}); fix it before converting`);
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(`${rel} is not a JSON object; fix it before converting`);
+  return value as Json;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function sameUser(a: string, b: string): boolean {
@@ -7222,8 +8656,10 @@ function rewritePaths(value: unknown, swaps: [string, string][], note: (from: st
   if (typeof value === "string") {
     let out = value;
     for (const [from, to] of swaps) {
-      if (out.includes(from)) {
-        const next = out.split(from).join(to);
+      // A folder name, not a prefix: `packs/acme` must not match inside `packs/acme-base`.
+      const whole = new RegExp(`${escapeRegExp(from)}(?![A-Za-z0-9._-])`, "g");
+      const next = out.replace(whole, () => to);
+      if (next !== out) {
         note(out, next);
         out = next;
       }
@@ -7238,11 +8674,11 @@ function rewritePaths(value: unknown, swaps: [string, string][], note: (from: st
 }
 
 export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertPlan {
-  const marker = obj(input.files["mattstack/mattstack.jsonc"]);
+  const marker = objOf(input.files, "mattstack/mattstack.jsonc");
   if (marker.role === "org") throw new Error("This clone already has the org layout; there is nothing to convert");
   if (marker.role !== "team") throw new Error("This is not a mattstack team repo (mattstack/mattstack.jsonc does not say role: team)");
 
-  const isBase = (pack: string) => obj(input.files[`mattstack/packs/${pack}/pack/skills.jsonc`]).base === true;
+  const isBase = (pack: string) => objOf(input.files, `mattstack/packs/${pack}/pack/skills.jsonc`).base === true;
   const teamPacks = input.packs.filter((pack) => !isBase(pack));
   if (teamPacks.length !== 1) throw new Error(`The script converts one team, so it needs exactly one team pack; found ${teamPacks.length} (${teamPacks.join(", ") || "none"})`);
   const pack = teamPacks[0]!;
@@ -7250,8 +8686,8 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
   const team = pack;
 
   const report: string[] = [];
-  const old = obj(input.files["mattstack/settings.team.jsonc"]);
-  const shim = obj(input.files["mattstack/team.jsonc"]);
+  const old = objOf(input.files, "mattstack/settings.team.jsonc");
+  const shim = objOf(input.files, "mattstack/team.jsonc");
   const { repos: oldRepos, $migrated: oldBaselines, ...global } = old as Json & { repos?: Json; $migrated?: Json };
 
   if (global["board.projects"] === undefined && Array.isArray(shim.projects)) {
@@ -7263,7 +8699,8 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
     report.push("board.gitlabHost was only in team.jsonc; copied to the org");
   }
 
-  const marketName = typeof obj(input.files[".claude-plugin/marketplace.json"]).name === "string" ? (obj(input.files[".claude-plugin/marketplace.json"]).name as string) : opts.org;
+  const market = objOf(input.files, ".claude-plugin/marketplace.json");
+  const marketName = typeof market.name === "string" ? market.name : opts.org;
   const ownPlugin = `${pack}@${marketName}`;
 
   const org: Json = {};
@@ -7291,9 +8728,13 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
   const roster: Json[] = (Array.isArray(global["mattstack.roster"]) ? (global["mattstack.roster"] as Json[]) : []).map((entry) => ({ ...entry, teams: [team] }));
   const has = (username: string) => roster.some((entry) => typeof entry.username === "string" && sameUser(entry.username, username));
   for (const member of Array.isArray(global["board.members"]) ? (global["board.members"] as Json[]) : []) {
-    if (typeof member.username !== "string" || has(member.username)) continue;
-    const { hidden: _hidden, ...rest } = member;
-    roster.push({ ...rest, teams: [team] });
+    if (typeof member.username !== "string") continue;
+    const { hidden, username, ...rest } = member;
+    if (hidden === true) report.push(`board.members hid ${username}; the roster has no hidden flag, so ${username} shows in the apps until someone hides them there`);
+    const at = roster.findIndex((entry) => typeof entry.username === "string" && sameUser(entry.username, username as string));
+    // board.members sometimes carries a name or a key the roster entry lacks; the roster's own value wins where both have one.
+    if (at === -1) roster.push({ username, ...rest, teams: [team] });
+    else roster[at] = { ...rest, ...roster[at] };
   }
   if (!has(opts.admin)) roster.push({ username: opts.admin, teams: [team] });
   org["mattstack.roster"] = roster;
@@ -7356,10 +8797,9 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
   moves.push([`mattstack/packs/${pack}`, packTo]);
   for (const base of input.packs.filter(isBase)) moves.push([`mattstack/packs/${base}`, `mattstack/org/packs/${base}`]);
 
-  const manifest = obj(input.files[`mattstack/packs/${pack}/.claude-plugin/plugin.json`]);
+  const manifest = objOf(input.files, `mattstack/packs/${pack}/.claude-plugin/plugin.json`);
   writes[`${packTo}/.claude-plugin/plugin.json`] = `${JSON.stringify({ ...manifest, version: bumpPatch(manifest.version) }, null, 2)}\n`;
 
-  const market = obj(input.files[".claude-plugin/marketplace.json"]);
   const plugins = (Array.isArray(market.plugins) ? (market.plugins as Json[]) : []).map((entry) => (entry.name === pack ? { ...entry, source: `./${packTo}` } : entry));
   writes[".claude-plugin/marketplace.json"] = `${JSON.stringify({ ...market, plugins }, null, 2)}\n`;
 
@@ -7383,12 +8823,15 @@ Expected: PASS.
  *     [--team <name>] [--team-repo <identity>]... [--write --roster-confirmed]
  *
  * Prints what the conversion would do. With --write it applies the plan in
- * the clone and makes one commit; it never pushes.
+ * the clone and makes one commit; it never pushes. Run it from a checkout of
+ * this repo at the release tag the admin's app is on: scripts/ is not in the
+ * app bundle.
  */
 
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
+import { getSetting } from "../packages/rt-client/src/index.ts";
 import { planConversion, type ConvertInput } from "./lib/convert-team-repo.ts";
 
 function flag(args: string[], name: string): string | undefined {
@@ -7440,23 +8883,47 @@ if (!args.includes("--roster-confirmed")) {
   process.stderr.write(`Confirm that each of these is that member's forge username, then add --roster-confirmed: ${plan.rosterUsernames.join(", ")}\n`);
   process.exit(2);
 }
+// The clone's sync engine commits and pushes what rt manages without asking.
+// With it on, a half-converted tree could be pushed, and the review below
+// would be no gate.
+if (getSetting<{ enabled?: boolean }>("rt.teamSnapshot").value?.enabled !== false) {
+  process.stderr.write(
+    [
+      "Team sync is on for this Mac, and it would commit and push the conversion while you are still reviewing it.",
+      "Turn it off: rt settings set rt.teamSnapshot '{\"enabled\": false}' --scope machine",
+      "Then: rt daemon restart",
+      "Turn it back on after rt team publish.",
+      "",
+    ].join("\n"),
+  );
+  process.exit(2);
+}
 if (git("status", "--porcelain").trim() !== "") {
   process.stderr.write("The clone has uncommitted changes. Commit or discard them first.\n");
   process.exit(1);
 }
 
-for (const [from, to] of plan.moves) {
-  mkdirSync(dirname(join(clone, to)), { recursive: true });
-  git("mv", from, to);
+const start = git("rev-parse", "HEAD").trim();
+try {
+  for (const [from, to] of plan.moves) {
+    mkdirSync(dirname(join(clone, to)), { recursive: true });
+    git("mv", from, to);
+  }
+  for (const rel of plan.deletes) git("rm", "-q", rel);
+  for (const [rel, text] of Object.entries(plan.writes)) {
+    mkdirSync(dirname(join(clone, rel)), { recursive: true });
+    writeFileSync(join(clone, rel), text);
+  }
+  git("add", "--", ...Object.keys(plan.writes));
+  git("commit", "-q", "-m", "org: convert to the org layout");
+} catch (err) {
+  // The start was clean, so everything now untracked under what rt manages is this run's own.
+  git("reset", "-q", "--hard", start);
+  git("clean", "-fdq", "--", "mattstack", ".claude-plugin");
+  process.stderr.write(`The conversion stopped partway, and the clone is back as it was: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.exit(1);
 }
-for (const rel of plan.deletes) git("rm", "-q", rel);
-for (const [rel, text] of Object.entries(plan.writes)) {
-  mkdirSync(dirname(join(clone, rel)), { recursive: true });
-  writeFileSync(join(clone, rel), text);
-}
-git("add", "--", ...Object.keys(plan.writes));
-git("commit", "-q", "-m", "org: convert to the org layout");
-process.stdout.write(`Converted ${clone} in one commit. Review it with git show, then push it with rt team publish.\n`);
+process.stdout.write(`Converted ${clone} in one commit. Review it with git show, push it with rt team publish, then turn team sync back on.\n`);
 ```
 
 The moves run before the writes, so the bumped `plugin.json` lands on the moved file.
@@ -7467,10 +8934,27 @@ Add to `scripts/__tests__/convert-team-repo.test.ts`:
 
 ```ts
 describe("the wrapper", () => {
-  function tempClone(): string {
+  const origHome = process.env.HOME;
+  let home: string;
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-convert-home-")));
+    process.env.HOME = home;
+  });
+  afterEach(() => {
+    process.env.HOME = origHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  /** What `rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine` leaves on disk. */
+  function teamSyncOff(): void {
+    mkdirSync(dirname(machineSettingsPath()), { recursive: true });
+    writeFileSync(machineSettingsPath(), JSON.stringify({ "rt.teamSnapshot": { enabled: false } }));
+  }
+
+  function tempClone(extra: Record<string, string> = {}): string {
     const dir = join(mkdtempSync(join(tmpdir(), "rt-convert-")), "acme");
     const input = oldClone();
-    for (const [rel, text] of Object.entries(input.files)) {
+    for (const [rel, text] of Object.entries({ ...input.files, ...extra })) {
       mkdirSync(dirname(join(dir, rel)), { recursive: true });
       writeFileSync(join(dir, rel), text);
     }
@@ -7495,7 +8979,35 @@ describe("the wrapper", () => {
     expect(existsSync(join(dir, "mattstack", "settings.team.jsonc"))).toBe(true);
   });
 
+  test("--write refuses while team sync is on, says how to turn it off, and changes nothing", () => {
+    const dir = tempClone();
+    const out = runScript(dir, "--write", "--roster-confirmed");
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr.toString()).toContain("Team sync is on for this Mac");
+    expect(out.stderr.toString()).toContain(`rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine`);
+    expect(existsSync(join(dir, "mattstack", "org"))).toBe(false);
+    expect(execFileSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" }).trim()).toBe("");
+  });
+
+  test("a write that fails partway puts the clone back exactly as it was", () => {
+    teamSyncOff();
+    // A tracked file where the base pack's new folder has to go: the secrets and
+    // the team pack move first, then this move throws.
+    const dir = tempClone({ "mattstack/org/packs": "in the way" });
+    const out = runScript(dir, "--write", "--roster-confirmed");
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr.toString()).toContain("the clone is back as it was");
+    expect(execFileSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" }).trim()).toBe("");
+    expect(execFileSync("git", ["-C", dir, "rev-list", "--count", "HEAD"], { encoding: "utf8" }).trim()).toBe("1");
+    expect(existsSync(join(dir, "mattstack", "settings.team.jsonc"))).toBe(true);
+    expect(existsSync(join(dir, "mattstack", "secrets", "rt.json"))).toBe(true);
+    expect(existsSync(join(dir, "mattstack", "packs", "widgets", "pack", "skills.jsonc"))).toBe(true);
+    expect(existsSync(join(dir, "mattstack", "org", "secrets"))).toBe(false);
+    expect(existsSync(join(dir, "mattstack", "teams"))).toBe(false);
+  });
+
   test("--write without --roster-confirmed names the usernames and changes nothing", () => {
+    teamSyncOff();
     const dir = tempClone();
     const out = runScript(dir, "--write");
     expect(out.exitCode).toBe(2);
@@ -7504,6 +9016,7 @@ describe("the wrapper", () => {
   });
 
   test("--write converts in one commit, and a second run refuses", () => {
+    teamSyncOff();
     const dir = tempClone();
     expect(runScript(dir, "--write", "--roster-confirmed").exitCode).toBe(0);
     expect(existsSync(join(dir, "mattstack", "org", "settings.org.jsonc"))).toBe(true);
@@ -7520,6 +9033,7 @@ describe("the wrapper", () => {
   });
 
   test("the converted clone reads as an org with the team's zone", () => {
+    teamSyncOff();
     const dir = tempClone();
     runScript(dir, "--write", "--roster-confirmed");
     const fs: InitFs = { exists: existsSync, readFile: (p) => (existsSync(p) ? readFileSync(p, "utf8") : null), writeFile: () => {}, mkdirp: () => {}, readDir: (p) => (existsSync(p) ? readdirSync(p) : []) };
@@ -7529,7 +9043,7 @@ describe("the wrapper", () => {
 });
 ```
 
-with imports for `execFileSync`, the `fs`, `os`, `path` names used, `childEnv` from `../../lib/subprocess.ts`, and `readZonesFrom`, `type InitFs` from `../../lib/skills/init.ts`.
+with imports for `execFileSync`, the `fs`, `os`, `path` names used, `beforeEach` and `afterEach`, `machineSettingsPath` from `../../lib/rt-paths.ts`, `childEnv` from `../../lib/subprocess.ts` (it hands the child this process's environment, so the script reads the scratch HOME set above), and `readZonesFrom`, `type InitFs` from `../../lib/skills/init.ts`. In the partial-failure test the in-the-way path is listed in `packs`' sibling tree only; it is not under `mattstack/packs`, so the plan itself is unchanged.
 
 Run: `bun test scripts/__tests__/convert-team-repo.test.ts`
 Expected: PASS.
@@ -7621,11 +9135,11 @@ export const MIGRATIONS: MigrationDef[] = [
 
 ```bash
 bun test lib/setup/__tests__/migrations.test.ts lib/setup/__tests__/update-safe.test.ts commands/__tests__/onboarding-org.test.ts
-git add lib/setup/migrations/index.ts lib/setup/__tests__/migrations.test.ts
+git add lib/setup/migrations/index.ts lib/setup/__tests__/migrations.test.ts commands/__tests__/onboarding-org.test.ts
 git commit -m "setup: a migration that removes the old board.defaultPack setting"
 ```
 
-Tighten the update-order assertion in `commands/__tests__/onboarding-org.test.ts` now that the migration exists: the event ids start with `migration.2026-10-01-unset-board-default-pack`, then `org.pull`, then `team.identity`. Stage that file with this commit.
+In `commands/__tests__/onboarding-org.test.ts`, the update-run scenario now passes the real `MIGRATIONS` (imported from `../../lib/setup/migrations/index.ts`) in place of its stand-in migration, and the order it expects starts with `migration.2026-10-01-unset-board-default-pack`, then `org.pull`, `team.identity`, `plugins.install`, `verify`. Stage that file with this commit.
 
 ### Task 37: End to end with two teams, and the PR 4 gate
 
@@ -7634,6 +9148,10 @@ Tighten the update-order assertion in `commands/__tests__/onboarding-org.test.ts
 - Modify: `test-timings.json` only if the Timings workflow regenerates it (never by hand)
 
 Runs the compiled binary under an isolated HOME (`createTestHome`, `rt` from `e2e/harness.ts`). No daemon is needed: every verb here reads and writes files.
+
+`rt team use` is not run here. The compiled binary would run whatever `claude` is on the machine's PATH and the installed app's own `deck` (both are resolved outside HOME), so its side effects are tested in process, behind its seams (Tasks 30 and 34). This file switches teams the way that verb does underneath, by writing `mattstack.activeTeam`, and checks what the resolver then reads.
+
+Every `--json` reply is flat: `rt settings get --json` prints `{ ok, key, value, provenance, migrated }`, `rt settings explain --json` prints `{ ok, key, rows, currentStore }`, and `rt team status --json` prints its fields beside `contract` and `at`.
 
 - [ ] **Step 1: Write the test**
 
@@ -7659,7 +9177,7 @@ function identifyAs(username: string): void {
 async function get(key: string, extra: string[] = []): Promise<unknown> {
   const out = await rt(["settings", "get", key, "--json", ...extra], { home });
   expect(out.exitCode).toBe(0);
-  return (JSON.parse(out.stdout) as { data: { value: unknown } }).data.value;
+  return (JSON.parse(out.stdout) as { value: unknown }).value;
 }
 
 beforeAll(() => {
@@ -7695,15 +9213,20 @@ describe("an org with two teams", () => {
     expect(await get("claude.plugins")).toEqual(["acme-tools@acme"]);
   });
 
-  test("a member on both starts on their first team and switches with rt team use", async () => {
+  test("a member on both starts on their first team, and the active team setting switches them", async () => {
     identifyAs("dev3");
     expect(await get("board.title")).toBe("Widgets");
-    const use = await rt(["team", "use", "gadgets", "--json"], { home });
-    expect(use.exitCode).toBe(0);
-    expect((JSON.parse(use.stdout) as { data: { team: string; previous: string } }).data).toMatchObject({ team: "gadgets", previous: "widgets" });
+
+    const chosen = await rt(["settings", "set", "mattstack.activeTeam", '"gadgets"', "--scope", "user"], { home });
+    expect(chosen.exitCode).toBe(0);
     expect(await get("board.title")).toBe("Gadgets");
-    const refused = await rt(["team", "use", "sprockets", "--json"], { home });
-    expect(refused.exitCode).toBe(2);
+    const status = JSON.parse((await rt(["team", "status", "--json"], { home })).stdout) as Record<string, unknown>;
+    expect(status).toMatchObject({ activeTeam: "gadgets", teams: ["widgets", "gadgets"] });
+
+    // A team the roster does not list them on is ignored: they are back on their first team.
+    expect((await rt(["settings", "set", "mattstack.activeTeam", '"sprockets"', "--scope", "user"], { home })).exitCode).toBe(0);
+    expect(await get("board.title")).toBe("Widgets");
+    expect((await rt(["settings", "unset", "mattstack.activeTeam", "--scope", "user"], { home })).exitCode).toBe(0);
   });
 
   test("an owner writes their own team and is refused another team and the org; a member writes nothing shared", async () => {
@@ -7721,28 +9244,27 @@ describe("an org with two teams", () => {
   test("explain names the org layer and the team layer apart", async () => {
     identifyAs("dev1");
     const out = await rt(["settings", "explain", "board.title", "--json"], { home });
-    const rows = (JSON.parse(out.stdout) as { data: { rows: { scope: string; present: boolean }[] } }).data.rows;
+    const rows = (JSON.parse(out.stdout) as { rows: { scope: string; present: boolean }[] }).rows;
     expect(rows.filter((r) => r.present).map((r) => r.scope)).toEqual(["org", "team"]);
   });
 
   test("status reports the role and the teams", async () => {
     identifyAs("dev1");
     const out = await rt(["team", "status", "--json"], { home });
-    expect((JSON.parse(out.stdout) as { data: Record<string, unknown> }).data).toMatchObject({ role: "admin", activeTeam: "widgets", teams: ["widgets"], orgTeams: ["gadgets", "widgets"] });
+    expect(JSON.parse(out.stdout) as Record<string, unknown>).toMatchObject({ contract: 1, slug: "acme", role: "admin", activeTeam: "widgets", teams: ["widgets"], orgTeams: ["gadgets", "widgets"] });
   });
 });
 ```
 
-Match the envelope paths (`data.value`, `data.rows`) to what `rt settings get --json` and `rt settings explain --json` really print (the frozen-JSON tests show the shapes), and adjust the two `JSON.parse` casts if they differ. `rt team status` shells out to `git log` in the clone; the seeded clone is not a git repo, so `lastPush` is `null`, which the test does not assert.
+`rt team status` shells out to `git log` in the clone; the seeded clone is not a git repo, so `lastPush` is `null`, which the test does not assert. `rt team status` with no `--team` resolves the Mac's one org, so the seeded marker and org store are all it needs.
 
-- [ ] **Step 2: Build the binary and run the e2e suite**
+- [ ] **Step 2: Run this file against the compiled binary**
 
 ```bash
-bun run build
-bun run test:e2e -- e2e/tests/org-teams.test.ts
+bun test --preload ./e2e/setup.ts --timeout 60000 e2e/tests/org-teams.test.ts
 ```
 
-Expected: PASS. (`bun run build` is whatever script produces `dist/rt`, which the e2e harness runs; `package.json` names it.)
+Expected: PASS. The preload (`e2e/setup.ts`) builds `dist/rt` when it is missing or stale; there is no separate build script to run. (`bun run test:e2e` runs the whole `e2e/tests/` directory, whatever follows it.)
 
 - [ ] **Step 3: PR 4 gate**
 
@@ -7760,13 +9282,13 @@ Open PR 4 from `org-teams-4-conversion` against `org-teams-3-writes`.
 ---
 ## PR 5: The Mac app's Team pane
 
-Branch `org-teams-5-app`, based on `org-teams-4-conversion`. Swift only. Read `rt:build-dev-app` before Task 40: the dev app is built in a scratch tree, never in the shared checkout, and a blessed bundle is never rebuilt or re-signed in place.
+Branch `org-teams-5-app`, based on `org-teams-4-conversion`. Swift only. Nothing in this PR builds, launches, re-signs or replaces an app bundle: the pane is checked through `mattstack-checks` and a debug snapshot mode. Launching a second bundle, even under another HOME, would register its login item and launchd agents over the live dev app's.
 
 ### Task 38: The model decodes the new status fields and drives the new verbs
 
 **Files:**
 - Modify: `rt-tray/Sources-core/Settings/TeamSettingsModel.swift`
-- Test: `rt-tray/Tests/MattstackCoreChecks/SettingsChecks.swift`, `rt-tray/Tests/MattstackCoreChecks/PlanModelsChecks.swift`
+- Test: `rt-tray/Tests/MattstackCoreChecks/SettingsChecks.swift`, `rt-tray/Tests/MattstackCoreChecks/PlanModelsChecks.swift`, `rt-tray/Tests/MattstackCoreChecks/ReadinessModelChecks.swift`
 
 **Interfaces:**
 - Consumes: Task 31's `team status --json` fields; Task 30's `rt team use <team> --json`; Task 27's `rt team invite --teams`.
@@ -7780,11 +9302,16 @@ public struct TeamSettingsInfo {
     public var teams: [String]?     // the teams the roster lists you on
     public var orgTeams: [String]?  // every team in the org
 }
-extension TeamSettingsModel {
+extension TeamSettingsInfo {
     public var isAdmin: Bool { get }             // role == "admin", or role is nil (an older rt: keep showing Invite)
     public var myTeams: [String] { get }
     public var canSwitchTeam: Bool { get }       // myTeams.count > 1
     public var inviteTeamChoices: [String] { get } // orgTeams when the org has more than one team, else []
+}
+extension TeamSettingsModel {
+    public var isAdmin: Bool { get }             // info?.isAdmin ?? true
+    public var canSwitchTeam: Bool { get }
+    public var inviteTeamChoices: [String] { get }
     public func useTeam(_ team: String) async
     public func mintInvite(handle: String, team: String?) async
 }
@@ -7889,6 +9416,30 @@ Add to `planModelsChecks` in `PlanModelsChecks.swift`:
     },
 ```
 
+Add to `readinessModelChecks` in `ReadinessModelChecks.swift`, beside the other `outstandingManualRows` checks. `DoneActions.route` only says what a row's action opens; which rows the Done screen lists at all is this property's rule, so the new rows are pinned here too:
+
+```swift
+    Check("outstandingManualRows lists team.none, whose action is steps, and not the two org rows whose action is a connect") { c in
+        let connect = RowAction(type: .connect, label: "Connect", integration: "github")
+        let rows = [
+            PlanRow(id: "team.none", kind: .access, title: "Your team", why: "w", required: false, status: .needsYou,
+                    detail: "No team lists dev9 yet, so you only get the org's shared settings",
+                    action: RowAction(type: .steps, label: "Show steps…", steps: ["Ask an org admin (dev1) to put dev9 on a team: rt team members set dev9 --teams <team>", "Then run: rt team pull"]),
+                    recheck: .onActivate),
+            PlanRow(id: "team.identity", kind: .access, title: "Who you are", why: "w", required: false, status: .needsYou, action: connect, recheck: .onActivate),
+            PlanRow(id: "team.push-access", kind: .access, title: "Push access", why: "w", required: false, status: .needsYou, action: connect, recheck: .onActivate),
+        ]
+        let plan = Plan(at: "t", team: TeamInfo(slug: "acme", name: "Acme", mode: .join),
+                        groups: [PlanGroup(id: "accounts", title: "Accounts", rows: rows)],
+                        canInstall: true, requiredMissing: [], finishBlockedBy: [])
+        let m = await MainActor.run { ReadinessModel(plans: FakePlans([plan]), permissions: FakePermissions(), ticker: FakeTicker()) }
+        await m.load()
+        await MainActor.run { c.expectEqual(m.outstandingManualRows.map(\.id), ["team.none"]) }
+    },
+```
+
+(`RowAction`'s memberwise init takes `integration:` the way the file's connect fixtures pass it; match its parameter order. This check passes on today's `outstandingManualRows`: it holds the rule for the new rows, it does not drive a change.)
+
 - [ ] **Step 2: Run to see them fail**
 
 Run: `cd rt-tray && swift run mattstack-checks`
@@ -7896,17 +9447,27 @@ Expected: a compile failure on `role`, `useTeam` and the two-argument `mintInvit
 
 - [ ] **Step 3: Implement**
 
-In `TeamSettingsModel.swift`, add the four optional fields to `TeamSettingsInfo` (all `var ...: T?`, so `Codable` synthesis reads a missing key as nil) and to the model:
+In `TeamSettingsModel.swift`, add the four optional fields to `TeamSettingsInfo` (all `var ...: T?`, so `Codable` synthesis reads a missing key as nil). What the pane derives from them lives on the struct, so a view can ask without a model (Task 39's `TeamPaneForm`, Task 40's snapshots):
 
 ```swift
+extension TeamSettingsInfo {
     /// An rt that reports no role predates orgs; the pane keeps what it showed then.
-    public var isAdmin: Bool { info?.role == nil || info?.role == "admin" }
-    public var myTeams: [String] { info?.teams ?? [] }
+    public var isAdmin: Bool { role == nil || role == "admin" }
+    public var myTeams: [String] { teams ?? [] }
     public var canSwitchTeam: Bool { myTeams.count > 1 }
     public var inviteTeamChoices: [String] {
-        guard let all = info?.orgTeams, all.count > 1 else { return [] }
+        guard let all = orgTeams, all.count > 1 else { return [] }
         return all
     }
+}
+```
+
+and on the model:
+
+```swift
+    public var isAdmin: Bool { info?.isAdmin ?? true }
+    public var canSwitchTeam: Bool { info?.canSwitchTeam ?? false }
+    public var inviteTeamChoices: [String] { info?.inviteTeamChoices ?? [] }
 
     public func useTeam(_ team: String) async {
         struct Switched: Decodable { var team: String }
@@ -7928,11 +9489,13 @@ Run: `cd rt-tray && swift run mattstack-checks`
 Expected: every check passes.
 
 ```bash
-git add rt-tray/Sources-core/Settings/TeamSettingsModel.swift rt-tray/Tests/MattstackCoreChecks/SettingsChecks.swift rt-tray/Tests/MattstackCoreChecks/PlanModelsChecks.swift
+git add rt-tray/Sources-core/Settings/TeamSettingsModel.swift rt-tray/Tests/MattstackCoreChecks/SettingsChecks.swift rt-tray/Tests/MattstackCoreChecks/PlanModelsChecks.swift rt-tray/Tests/MattstackCoreChecks/ReadinessModelChecks.swift
 git commit -m "tray: the team settings model reads your role and teams, switches teams, and invites to a team"
 ```
 
 ### Task 39: The Team pane
+
+The pane is split in two so it can be drawn without a model: `TeamPane` owns the model and the actions, and `TeamPaneForm` is a plain view over values. Task 40's snapshot mode renders `TeamPaneForm` from fixtures, with no rt, no socket and no launchd.
 
 **Files:**
 - Modify: `rt-tray/Sources/Settings/TeamPane.swift`
@@ -7947,88 +9510,175 @@ In `AccessibilityIDs.swift`, beside the other `settingsTeam...` constants:
     static let settingsTeamInviteTeam = "settings.team.inviteTeam"
 ```
 
-- [ ] **Step 2: Rework the non-solo branch of the pane**
+- [ ] **Step 2: Rewrite the pane**
 
-Add state for the invite's team:
+Replace the body of `rt-tray/Sources/Settings/TeamPane.swift` with:
 
 ```swift
+import SwiftUI
+import MattstackCore
+
+struct TeamPane: View {
+    let env: SettingsEnvironment
+    @ObservedObject private var model: TeamSettingsModel
+    init(env: SettingsEnvironment) { self.env = env; self.model = env.team }
+
+    var body: some View {
+        TeamPaneForm(
+            info: model.info,
+            invite: model.invite,
+            error: model.error,
+            maskedRemote: model.maskedRemote,
+            onCreateTeam: env.onCreateTeam,
+            onJoin: env.onJoinAnotherTeam,
+            onUseTeam: { team in Task { await model.useTeam(team) } },
+            onInvite: { handle, team in Task { await model.mintInvite(handle: handle, team: team) } }
+        )
+        .task { await model.load() }
+    }
+}
+
+/// The pane as a function of what rt reported. It holds no model, so a
+/// snapshot can draw it from fixtures.
+struct TeamPaneForm: View {
+    let info: TeamSettingsInfo?
+    let invite: InviteResult?
+    let error: String?
+    let maskedRemote: String
+    let onCreateTeam: () -> Void
+    let onJoin: () -> Void
+    let onUseTeam: (String) -> Void
+    let onInvite: (_ handle: String, _ team: String?) -> Void
+
+    @State private var handle = ""
     @State private var inviteTeam = ""
-```
 
-Replace the `Section("Team")`, `Section("Members with access")`, `Section("Invite")` and the trailing rejoin section of the non-solo branch with:
+    private var isAdmin: Bool { info?.isAdmin ?? true }
+    private var teamChoices: [String] { info?.inviteTeamChoices ?? [] }
+    private var trimmedHandle: String { handle.trimmingCharacters(in: .whitespaces) }
+    /// The team an invite is for: the picked one, else your own. Nil sends no --teams, and rt uses your active team.
+    private var inviteTarget: String? {
+        if teamChoices.isEmpty { return nil }
+        return inviteTeam.isEmpty ? info?.activeTeam : inviteTeam
+    }
 
-```swift
-                Section("Org") {
-                    // the existing `LabeledContent("Name")` row stays here, unchanged
-                    LabeledContent("Your team") {
-                        if model.canSwitchTeam {
-                            Picker("Your team", selection: Binding(
-                                get: { model.info?.activeTeam ?? "" },
-                                set: { team in Task { await model.useTeam(team) } })) {
-                                ForEach(model.myTeams, id: \.self) { Text($0).tag($0) }
-                            }
-                            .labelsHidden()
-                            .accessibilityIdentifier(AXID.settingsTeamYourTeam)
-                        } else {
-                            Text(model.info?.activeTeam ?? "None yet").accessibilityIdentifier(AXID.settingsTeamYourTeam)
-                        }
+    var body: some View {
+        Form {
+            if info?.mode == "solo" {
+                Section("Team") {
+                    Text("You're set up as Just me: no team repo, no forge account.")
+                    HStack {
+                        Button("Create a team…", action: onCreateTeam).accessibilityIdentifier(AXID.settingsTeamCreate)
+                        Button("Join a team…", action: onJoin).accessibilityIdentifier(AXID.settingsTeamJoinAnother)
                     }
+                }
+            } else {
+                Section("Org") {
+                    LabeledContent("Name") { Text(info?.name ?? "\u{2014}") }
+                    LabeledContent("Your team") { yourTeam }
                     LabeledContent("Remote") {
-                        HStack { Text(model.maskedRemote).textSelection(.enabled)
-                            // Copies the masked form, never `model.info?.remote`,
+                        HStack { Text(maskedRemote).textSelection(.enabled)
+                            // Copies the masked form, never `info?.remote`,
                             // since an HTTPS remote can carry a token in its userinfo.
-                            Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(model.maskedRemote, forType: .string) } label: { Image(systemName: "doc.on.doc") }
+                            Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(maskedRemote, forType: .string) } label: { Image(systemName: "doc.on.doc") }
                                 .buttonStyle(.borderless)
                                 .accessibilityIdentifier(AXID.settingsTeamCopyRemote) }
                     }
-                    LabeledContent("Backup") { Text(model.info?.lastPush.map { "last push \($0)" } ?? "no push recorded") }
+                    LabeledContent("Backup") { Text(info?.lastPush.map { "last push \($0)" } ?? "no push recorded") }
                 }
-                Section(model.info?.activeTeam.map { "Members of \($0)" } ?? "Members") {
-                    if let m = model.info?.members, !m.isEmpty { ForEach(m, id: \.username) { Text($0.username) } }
+                Section(info?.activeTeam.map { "Members of \($0)" } ?? "Members") {
+                    if let m = info?.members, !m.isEmpty { ForEach(m, id: \.username) { Text($0.username) } }
                     else { Text("Not visible with the current token.").foregroundStyle(.secondary) }
                 }
-                if model.isAdmin {
-                    Section("Invite") {
-                        if !model.inviteTeamChoices.isEmpty {
-                            Picker("Team", selection: $inviteTeam) {
-                                ForEach(model.inviteTeamChoices, id: \.self) { Text($0).tag($0) }
-                            }
-                            .accessibilityIdentifier(AXID.settingsTeamInviteTeam)
-                        }
-                        HStack {
-                            TextField("Forge handle", text: $handle, prompt: Text("teammate's GitHub/GitLab handle")).accessibilityIdentifier(AXID.settingsTeamInviteHandle)
-                            Button("Invite…") {
-                                let picked = model.inviteTeamChoices.isEmpty ? nil : inviteTeam
-                                Task { await model.mintInvite(handle: handle.trimmingCharacters(in: .whitespaces), team: picked) }
-                            }
-                            .disabled(handle.trimmingCharacters(in: .whitespaces).isEmpty)
-                            .accessibilityIdentifier(AXID.settingsTeamInvite)
-                        }
-                        // keep the existing `if let inv = model.invite { ... }` block here, unchanged
-                    }
-                }
+                if isAdmin { inviteSection }
                 Section {
-                    Button("Rejoin this org…", action: env.onJoinAnotherTeam).accessibilityIdentifier(AXID.settingsTeamJoinAnother)
+                    Button("Rejoin this org…", action: onJoin).accessibilityIdentifier(AXID.settingsTeamJoinAnother)
                     Text("Use a new invite from your org admin. This Mac holds one org.").font(.caption).foregroundStyle(.secondary)
                 }
-```
-
-The invite result block (`if let inv = model.invite { ... }`) moves inside the admin-only section as it is. Default the invite's team once status has loaded: after `.task { await model.load() }` add
-
-```swift
-        .onChange(of: model.info?.activeTeam) { _, team in
+            }
+            if let e = error { Text(e).font(.caption).foregroundStyle(.red) }
+        }
+        .formStyle(.grouped)
+        // `initial: true` because status is often loaded before this pane
+        // appears (the Apps pane loads it first), and a plain onChange would
+        // never fire for a value that does not change again.
+        .onChange(of: info?.activeTeam, initial: true) { _, team in
             if inviteTeam.isEmpty, let team { inviteTeam = team }
         }
+    }
+
+    @ViewBuilder private var yourTeam: some View {
+        if info?.canSwitchTeam == true {
+            Picker("Your team", selection: Binding(get: { info?.activeTeam ?? "" }, set: onUseTeam)) {
+                ForEach(info?.myTeams ?? [], id: \.self) { Text($0).tag($0) }
+            }
+            .labelsHidden()
+            .accessibilityIdentifier(AXID.settingsTeamYourTeam)
+        } else {
+            Text(info?.activeTeam ?? "None yet").accessibilityIdentifier(AXID.settingsTeamYourTeam)
+        }
+    }
+
+    private var inviteSection: some View {
+        Section("Invite") {
+            if !teamChoices.isEmpty {
+                Picker("Team", selection: $inviteTeam) {
+                    ForEach(teamChoices, id: \.self) { Text($0).tag($0) }
+                }
+                .accessibilityIdentifier(AXID.settingsTeamInviteTeam)
+            }
+            HStack {
+                TextField("Forge handle", text: $handle, prompt: Text("teammate's GitHub/GitLab handle")).accessibilityIdentifier(AXID.settingsTeamInviteHandle)
+                Button("Invite…") { onInvite(trimmedHandle, inviteTarget) }
+                    // With a team picker on screen, an invite with no team would be sent as `--teams ""`.
+                    .disabled(trimmedHandle.isEmpty || (!teamChoices.isEmpty && (inviteTarget ?? "").isEmpty))
+                    .accessibilityIdentifier(AXID.settingsTeamInvite)
+            }
+            if let inv = invite { inviteResult(inv) }
+        }
+    }
+
+    private func inviteResult(_ inv: InviteResult) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let link = inv.link {
+                HStack {
+                    Button("Copy invite link") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(link, forType: .string) }
+                        .accessibilityIdentifier(AXID.settingsTeamCopyLink)
+                    Button("Share…") { share(link) }
+                        .accessibilityIdentifier(AXID.settingsTeamShareInvite)
+                }
+                Text(link).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            }
+            Text(inv.pasteBlock).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            HStack {
+                Button("Copy paste block") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(inv.pasteBlock, forType: .string) }
+                    .accessibilityIdentifier(AXID.settingsTeamCopyPaste)
+                Text("expires \(inv.expiresAt) · forge access: \(inv.forgeAccess)").font(.caption).foregroundStyle(.secondary)
+            }
+            if let steps = inv.manualSteps, !steps.isEmpty { ForEach(steps, id: \.self) { Text("• \($0)").font(.caption) } }
+            if let warning = inv.peeringWarning {
+                Label { Text(warning) } icon: { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+                    .font(.caption)
+                    .accessibilityIdentifier(AXID.settingsTeamInvitePeeringWarning)
+            }
+        }
+    }
+
+    /// The picker is how the link reaches Messages, Mail or AirDrop without rt
+    /// ever handling a recipient.
+    private func share(_ link: String) {
+        guard let view = NSApp.keyWindow?.contentView else { return }
+        NSSharingServicePicker(items: [link]).show(relativeTo: .zero, of: view, preferredEdge: .minY)
+    }
+}
 ```
 
-(use the single-argument `onChange` form if the project's deployment target predates the two-argument one; the other `onChange` calls in `rt-tray/Sources` show which).
-
-The solo branch's copy stays as it is: "Create a team…" and "Join a team…" still open the wizard, and creating a team makes an org with that team in it.
+The invite result block, the remote row and the share helper are the code that was there, moved as they were. The placeholder for a missing name is the same character the pane shows today, written as an escape (`"\u{2014}"`). The solo branch's copy stays: "Create a team…" and "Join a team…" still open the wizard, and creating a team makes an org with that team in it. The target is macOS 14, which has the two-parameter `onChange(of:initial:)`.
 
 - [ ] **Step 3: Build**
 
 Run: `cd rt-tray && swift build`
-Expected: builds clean.
+Expected: builds clean. If the build stops on a missing vendored dependency, run `scripts/fetch-deps.sh arm64` in this worktree first, never in the shared checkout.
 
 - [ ] **Step 4: Commit**
 
@@ -8037,36 +9687,136 @@ git add rt-tray/Sources/Settings/TeamPane.swift rt-tray/Sources/AccessibilityIDs
 git commit -m "tray: the Team pane shows your org and team, lets you switch teams, and shows Invite to admins"
 ```
 
-### Task 40: Look at the pane in a dev app built from the stack
+### Task 40: Look at the pane, for three people, in both appearances
 
-The pane is UI, so it is not done until it has been looked at in both appearances for three people.
+The pane is UI, so it is not done until it has been looked at. It is looked at through a debug snapshot mode, the way the setup checklist's rows are (`rt-tray/Sources/Setup/ChecklistRowSnapshot.swift`). No app bundle is launched for this, ever: a second bundle would register its own login item and launchd agents, whose labels are per user and not per HOME, and so would replace the live dev app's daemon and deck agents.
 
-- [ ] **Step 1: Build a dev app in a scratch tree**
+**Files:**
+- Create: `rt-tray/Sources/SnapshotRenderer.swift`
+- Create: `rt-tray/Sources/Settings/TeamPaneSnapshot.swift`
+- Modify: `rt-tray/Sources/Setup/ChecklistRowSnapshot.swift` (use the shared renderer)
+- Modify: `rt-tray/Sources/main.swift`
 
-Follow the `rt:build-dev-app` skill with the tip of `org-teams-5-app` checked out in a scratch tree (`scripts/fetch-deps.sh arm64`, `bun install --frozen-lockfile`, `bun scripts/build-apps.ts`, `rt-tray/build.sh dev`). Do not build in the shared checkout's `rt-tray/`, and do not replace `/Applications/mattstack-dev.app` for this check: launch the scratch build's bundle directly under an isolated HOME.
+- [ ] **Step 1: Lift the offscreen renderer so two snapshot modes share it**
 
-- [ ] **Step 2: Seed three HOMEs**
+```swift
+// rt-tray/Sources/SnapshotRenderer.swift
+#if DEBUG
+import AppKit
+import SwiftUI
 
-For each of an admin on two teams (`dev1`, teams `widgets` and `gadgets`, role admin), a team owner on one team (`dev2`, owner of `gadgets`), and a member (`dev4`, team `widgets`), seed a scratch HOME with `seedOrg` as in Task 8 Step 8 (roster, roles, two team folders, the username), plus a `.git/config` with an origin in the clone so `team status` reports a remote.
+enum SnapshotRenderer {
+    /// AppKit-backed controls (buttons, pickers, the progress spinner) only draw
+    /// through a real view hierarchy, so this renders a hosting view in an offscreen window.
+    @MainActor
+    static func render<V: View>(_ view: V, appearance: NSAppearance.Name, to url: URL) {
+        let host = NSHostingView(rootView: view)
+        host.appearance = NSAppearance(named: appearance)
+        let size = host.fittingSize
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: appearance)
+        window.contentView = host
+        host.frame = NSRect(origin: .zero, size: size)
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { fatalError("no bitmap for \(url.lastPathComponent)") }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try! rep.representation(using: .png, properties: [:])!.write(to: url)
+    }
+}
+#endif
+```
 
-- [ ] **Step 3: Screenshot Settings › Team for each, in light and dark**
+In `ChecklistRowSnapshot.swift`, delete its private `render` and call `SnapshotRenderer.render(Rows(), appearance: ..., to: ...)`. Run its mode once before and once after (`swift run rt-tray --render-checklist-row-snapshots <dir>`) and confirm the two PNGs still come out.
 
-Launch the scratch app with `HOME` pointed at each seeded home, open Settings › Team, and capture the pane in both appearances (six screenshots). Check, and say plainly what is wrong if anything is:
+- [ ] **Step 2: Add the Team pane's snapshot mode**
 
-- Admin on two teams: "Your team" is a picker listing `widgets` and `gadgets`; the Invite section is there with a Team picker; picking `gadgets` in "Your team" changes the Members header to "Members of gadgets".
-- Owner: "Your team" is plain text `gadgets`; no Invite section.
-- Member: "Your team" is plain text `widgets`; no Invite section; the last line reads "Use a new invite from your org admin. This Mac holds one org."
-- Nothing is clipped, and the pickers read in both appearances.
+```swift
+// rt-tray/Sources/Settings/TeamPaneSnapshot.swift
+import AppKit
+import SwiftUI
+import MattstackCore
 
-- [ ] **Step 4: PR 5 gate**
+/// `rt-tray --render-team-pane-snapshots <out-dir>` renders Settings › Team
+/// for an org admin on two teams, a team owner and a member, light and dark,
+/// then exits before any window, status item, socket or daemon work exists.
+/// DEBUG builds only.
+enum TeamPaneSnapshot {
+    @MainActor
+    static func runIfRequested() -> Bool {
+        #if DEBUG
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "--render-team-pane-snapshots") else { return false }
+        guard args.count > i + 1 else {
+            FileHandle.standardError.write(Data("usage: --render-team-pane-snapshots <out-dir>\n".utf8))
+            exit(64)
+        }
+        let out = URL(fileURLWithPath: args[i + 1])
+        try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        _ = NSApplication.shared
+        var count = 0
+        for (name, json) in people {
+            let info = try! JSONDecoder().decode(TeamSettingsInfo.self, from: Data(json.utf8))
+            for scheme in ["light", "dark"] {
+                let view = TeamPaneForm(info: info, invite: nil, error: nil, maskedRemote: "github.com/acme/org",
+                                        onCreateTeam: {}, onJoin: {}, onUseTeam: { _ in }, onInvite: { _, _ in })
+                    .frame(width: 560)
+                SnapshotRenderer.render(view, appearance: scheme == "dark" ? .darkAqua : .aqua, to: out.appendingPathComponent("team-pane-\(name)-\(scheme).png"))
+                count += 1
+            }
+        }
+        print("wrote \(count) snapshots to \(out.path)")
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    #if DEBUG
+    /// What `rt team status --json` reports for each person. Decoded, not constructed: the struct's memberwise init is internal to MattstackCore.
+    private static let people: [(String, String)] = [
+        ("admin", #"{"contract":1,"name":"Acme","slug":"acme","remote":"https://github.com/acme/org.git","lastPush":"2026-10-01T10:00:00+00:00","members":[{"username":"dev1"},{"username":"dev4"}],"role":"admin","activeTeam":"widgets","teams":["widgets","gadgets"],"orgTeams":["gadgets","widgets"]}"#),
+        ("owner", #"{"contract":1,"name":"Acme","slug":"acme","remote":"https://github.com/acme/org.git","lastPush":"2026-10-01T10:00:00+00:00","members":[{"username":"dev1"},{"username":"dev2"}],"role":"owner","activeTeam":"gadgets","teams":["gadgets"],"orgTeams":["gadgets","widgets"]}"#),
+        ("member", #"{"contract":1,"name":"Acme","slug":"acme","remote":"https://github.com/acme/org.git","lastPush":null,"members":[{"username":"dev1"},{"username":"dev4"}],"role":"member","activeTeam":"widgets","teams":["widgets"],"orgTeams":["gadgets","widgets"]}"#),
+    ]
+    #endif
+}
+```
+
+In `main.swift`, directly after the `ChecklistRowSnapshot.runIfRequested()` line:
+
+```swift
+if MainActor.assumeIsolated({ TeamPaneSnapshot.runIfRequested() }) { exit(0) }
+```
+
+- [ ] **Step 3: Render and look**
 
 ```bash
+SCRATCH="$(mktemp -d)"
+(cd rt-tray && env -i HOME="$SCRATCH/home" PATH="$PATH" swift run rt-tray --render-team-pane-snapshots "$SCRATCH/team-pane")
+ls "$SCRATCH/team-pane"
+```
+
+Expected: `wrote 6 snapshots`, and six PNGs. The mode returns before the app starts anything; the isolated HOME is the standing rule for running a built binary all the same. Open each PNG with the Read tool and check, saying plainly what is wrong if anything is:
+
+- Admin, light and dark: the first section is headed "Org"; "Your team" is a picker showing `widgets`; the members section is headed "Members of widgets"; the Invite section is there with a "Team" picker above the handle field, and its button is disabled (the handle is empty).
+- Owner: "Your team" is plain text `gadgets`; the members section is headed "Members of gadgets"; there is no Invite section.
+- Member: "Your team" is plain text `widgets`; there is no Invite section; "Backup" reads "no push recorded"; the last line reads "Use a new invite from your org admin. This Mac holds one org."
+- Nothing is clipped at 560 points wide, and the pickers and secondary text read in both appearances.
+
+A snapshot cannot click. That the picker runs `rt team use` and the pane reloads is held by Task 38's `useTeam` check, and that Invite sends the picked team by its `mintInvite` check.
+
+- [ ] **Step 4: Commit, and the PR 5 gate**
+
+```bash
+git add rt-tray/Sources/SnapshotRenderer.swift rt-tray/Sources/Settings/TeamPaneSnapshot.swift rt-tray/Sources/Setup/ChecklistRowSnapshot.swift rt-tray/Sources/main.swift
+git commit -m "tray: a debug snapshot mode for the Team pane"
 (cd rt-tray && swift run mattstack-checks)
 bun run test
 bun run check
 ```
 
-Open PR 5 from `org-teams-5-app` against `org-teams-4-conversion`, with the six screenshots in its body.
+Open PR 5 from `org-teams-5-app` against `org-teams-4-conversion`, with the six snapshots in its body (upload them; do not commit them).
 
 ---
 
@@ -8078,7 +9828,12 @@ Nothing merges to `main` until all five PRs are reviewed and green against their
 2. When all five are approved and green, land top down: merge PR 5 into `org-teams-4-conversion`, then PR 4 into `org-teams-3-writes`, PR 3 into `org-teams-2-packs`, PR 2 into `org-teams-1-resolver`. After each merge, re-run the receiving branch's gate.
 3. Rebase `org-teams-1-resolver` on `main` one last time, run `bun run test:all`, `bun run check` and `swift run mattstack-checks`, then merge PR 1 to `main` as one squash commit. `main` goes from the old layout to the new one in that single commit.
 4. Cut one release of its own for this change (the `rt:release` skill), separate from any release already in flight.
-5. On the admin's Mac, once it runs that release: `bun scripts/convert-team-repo-to-org.ts ~/.mattstack/teams/<org> --admin <forge username>` to read the split, then again with `--write --roster-confirmed`, review `git show`, and `rt team publish`.
+5. On the admin's Mac, once it runs that release, from a checkout of this repo at the release tag (`scripts/` is not in the app bundle):
+   1. Read the split: `bun scripts/convert-team-repo-to-org.ts ~/.mattstack/teams/<org> --admin <forge username>`.
+   2. Turn team sync off, so the clone's sync engine cannot commit or push the conversion while it is being reviewed: `rt settings set rt.teamSnapshot '{"enabled": false}' --scope machine`, then `rt daemon restart` (a running daemon notices the change only on its next rescan). If `rt settings get rt.teamSnapshot` showed other fields set on this Mac, keep them in the JSON.
+   3. Convert: the same command with `--write --roster-confirmed`. It refuses while team sync is on, and puts the clone back if it fails partway.
+   4. Review `git -C ~/.mattstack/teams/<org> show`, then `rt team publish`.
+   5. Turn team sync back on: `rt settings set rt.teamSnapshot '{"enabled": true}' --scope machine`, then `rt daemon restart`.
 6. Members update the app. Their launch-time `rt setup update` runs the migration, `org.pull`, `team.identity`, `plugins.install` and `skills.materialize`, in that order.
 
 Step 5 runs on a live org repo and step 3 moves `main`: both need the operator's go-ahead at the time, whatever was approved earlier.
