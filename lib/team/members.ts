@@ -364,7 +364,7 @@ export async function membersRemove(
     throw new UserActionableError("invalid-age-key", "That is not a valid age key", {}, {
       why: "Copy the exact key from the team roster.",
       next: "rt team status",
-      log: `"${agePublicKey}" is not a well-formed age1 recipient (bech32 checksum failed); pass the exact key from \`rt team status\` or the roster`,
+      log: "the --key value is not a well-formed age1 recipient (bech32 checksum failed); pass the exact key from `rt team status` or the roster",
     });
   }
 

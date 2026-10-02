@@ -212,7 +212,7 @@ function classifyGitFailure(result: ExecResult): GitFailureKind {
 }
 
 /** "unreachable" is the only access value left once `denied` is ruled out, so every non-auth failure lands there — but the MESSAGE still says what actually happened; "check your network" is reserved for the one kind that is. */
-function gitFailureMessage(kind: Exclude<GitFailureKind, "denied">, _remote: string, result: ExecResult): string {
+function gitFailureMessage(kind: Exclude<GitFailureKind, "denied">, result: ExecResult): string {
   switch (kind) {
     case "missing-binary":
       return "This Mac cannot run git. Install it, then try again.";
@@ -230,7 +230,7 @@ function gitFailureMessage(kind: Exclude<GitFailureKind, "denied">, _remote: str
 function gitAccessResult(pointer: InvitePointer, result: ExecResult): JoinResult {
   const kind = classifyGitFailure(result);
   if (kind === "denied") return deniedResult(pointer);
-  return unreachableResult(teamRefFrom(pointer), gitFailureMessage(kind, pointer.remote, result));
+  return unreachableResult(teamRefFrom(pointer), gitFailureMessage(kind, result));
 }
 
 function accessFromVerdict(v: RepoAccessVerdict, pointer: InvitePointer): { access: JoinResult["access"]; message: string } {
@@ -618,7 +618,7 @@ export async function joinRedeem(
   const handle = forge ? await seams.forgeLogin(p, forge.provider, forge.host, loginToken) : null;
   if (!handle) {
     const cli = forge?.provider === "gitlab" ? "glab" : "gh";
-    throw new UserActionableError("forge-login-unknown", `rt could not tell who you are on ${cli === "glab" ? "GitLab" : "GitHub"}. The invite has not been used yet. Sign in with ${cli} auth login, then join again.`, {}, {
+    throw new UserActionableError("forge-login-unknown", `rt could not tell who you are on ${cli === "glab" ? "GitLab" : "GitHub"}. The invite has not been used yet.`, {}, {
       why: `Sign in to the ${cli} command line tool, then join again.`,
       next: `${cli} auth login`,
       log: `the team is cloned at ${dir}`,

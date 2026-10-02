@@ -14,6 +14,7 @@ import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { teamSettingsPath } from "../rt-paths.ts";
 import { createRealSecretsExecSeam, readSecret } from "../secrets/store.ts";
 import { readStore } from "../settings/stores.ts";
+import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import { UserActionableError } from "../errors.ts";
 import type { InvitePointer } from "../setup/intent.ts";
 import type { Probes } from "../setup/probes.ts";
@@ -57,7 +58,7 @@ export function joinLinkBase(env: Record<string, string | undefined>): string {
   if (!override) return DEFAULT_JOIN_BASE_URL;
   if (!isSafeJoinBase(override)) {
     throw new UserActionableError("invalid-join-base", "The join link address rt was given must be https, or http on this Mac only", {}, {
-      log: `RT_JOIN_BASE_URL must be an https url, or http on loopback: got ${override}`,
+      log: `RT_JOIN_BASE_URL must be an https url, or http on loopback: got ${redactCredentials(override)}`,
     });
   }
   return override;

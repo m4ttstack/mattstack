@@ -721,6 +721,21 @@ describe("joinLinkBase refuses a base the code could be intercepted on", () => {
     expect(joinLinkBase({ RT_JOIN_BASE_URL: "http://127.0.0.1:8788/join" })).toBe("http://127.0.0.1:8788/join");
   });
 
+  test("a refused base that carries credentials is redacted before it reaches the log", () => {
+    const secret = "hunter2-invented";
+    let caught: unknown;
+    try {
+      joinLinkBase({ RT_JOIN_BASE_URL: `http://someone:${secret}@mattstack.example/join` });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(UserActionableError);
+    const actionable = caught as UserActionableError;
+    expect(actionable.code).toBe("invalid-join-base");
+    expect(actionable.log ?? "").not.toContain(secret);
+    expect(actionable.log ?? "").toContain("mattstack.example/join");
+  });
+
   test("a value that is not a url at all is refused rather than pasted into a link", () => {
     expect(() => joinLinkBase({ RT_JOIN_BASE_URL: "mattstack.example/join" })).toThrow(/https/);
   });

@@ -47,6 +47,12 @@ async function resolveCreateOpts(ctx: ApplyContext): Promise<CreateTeamOpts | "n
   return { name: p.env.RT_TEAM_NAME ?? "personal", remote: envRemote, createRepoOwner, others: false };
 }
 
+/** The tray shows only `detail` and `remedy`, so an error's why and next ride in the remedy or are lost. */
+function remedyFrom(err: UserActionableError): { remedy?: string } {
+  const remedy = [err.why, err.next ? `Run ${err.next}` : undefined].filter((part) => part !== undefined && part !== "").join(" ");
+  return remedy === "" ? {} : { remedy };
+}
+
 async function teamCreateRun(ctx: ApplyContext): Promise<StepOutcome> {
   const opts = await resolveCreateOpts(ctx);
   if (opts === "no-remote-source") {
@@ -63,7 +69,7 @@ async function teamCreateRun(ctx: ApplyContext): Promise<StepOutcome> {
     // crash.
     if (err instanceof UserActionableError) {
       logFailureDetail(err);
-      return { state: "failed", detail: err.message };
+      return { state: "failed", detail: err.message, ...remedyFrom(err) };
     }
     return toFailedOutcome(err);
   }
@@ -74,8 +80,8 @@ async function teamCreateRun(ctx: ApplyContext): Promise<StepOutcome> {
   } catch (err) {
     if (err instanceof UserActionableError) {
       logFailureDetail(err);
-      const remedy = err.code === "push-denied" ? "Check your push access to the team repo, then Retry" : undefined;
-      return { state: "failed", detail: err.message, ...(remedy !== undefined ? { remedy } : {}) };
+      if (err.code === "push-denied") return { state: "failed", detail: err.message, remedy: "Check your push access to the team repo, then Retry" };
+      return { state: "failed", detail: err.message, ...remedyFrom(err) };
     }
     return toFailedOutcome(err);
   }
@@ -124,7 +130,7 @@ export function outcomeFromJoinError(err: unknown): StepOutcome {
   if (err instanceof UserActionableError && err.code === "secrets-store-not-ready") {
     return { state: "failed", detail: err.message, remedy: "Retry from the home repo step, or run rt home init, then Retry. No new code is needed" };
   }
-  if (err instanceof UserActionableError) return { state: "failed", detail: err.message };
+  if (err instanceof UserActionableError) return { state: "failed", detail: err.message, ...remedyFrom(err) };
   return toFailedOutcome(err);
 }
 

@@ -1612,7 +1612,7 @@ describe("joinRedeem", () => {
     expect((caught as UserActionableError).code).toBe("forge-login-unknown");
     expect((caught as UserActionableError).message).not.toContain("localdev");
     expect((caught as UserActionableError).message).toContain("has not been used yet");
-    expect((caught as UserActionableError).message).toContain("Sign in with gh auth login, then join again.");
+    expect((caught as UserActionableError).message).toBe("rt could not tell who you are on GitHub. The invite has not been used yet.");
     expect((caught as UserActionableError).next).toBe("gh auth login");
     // The team WAS cloned (identity resolution needs the just-cloned settings), but
     // relay.redeem must never have run — the invite is still valid for a retry.

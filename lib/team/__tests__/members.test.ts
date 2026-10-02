@@ -752,6 +752,21 @@ describe("membersRemove", () => {
     expect(readTeamRecipients(SLUG, secrets)).toEqual([OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY]);
   });
 
+  test("a private key passed as --key never reaches the error's log", async () => {
+    const p = fakeProbes({ home: HOME });
+    const { secrets } = seamsWithClone();
+    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "board.members": [] }) });
+    const privateKey = `AGE-SECRET-KEY-1${"Q7X".repeat(20)}`;
+
+    const err = await membersRemove(p, secrets, SLUG, "alice", privateKey, seams).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(UserActionableError);
+    const actionable = err as UserActionableError;
+    expect(actionable.code).toBe("invalid-age-key");
+    expect(actionable.log ?? "").not.toContain(privateKey);
+    expect(`${actionable.message} ${actionable.why ?? ""} ${actionable.next ?? ""}`).not.toContain(privateKey);
+  });
+
   test("no git remote configured -> forge access is skipped, never a crash", async () => {
     const p = fakeProbes({ home: HOME }); // no .git/config at all
     const { secrets } = seamsWithClone();
