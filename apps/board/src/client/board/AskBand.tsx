@@ -3,7 +3,12 @@ import { createPortal } from 'react-dom';
 
 import { Button, ContextMenu, Spinner } from '@mattstack/tui-kit';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
-import { askBandModel, type AskAction, type AskBand } from './ask-band.ts';
+import {
+  askBandModel,
+  clock,
+  type AskAction,
+  type AskBand,
+} from './ask-band.ts';
 import { AskGlyph } from './ask-glyph.tsx';
 
 const ACTION: Record<AskAction, string> = {
@@ -13,9 +18,6 @@ const ACTION: Record<AskAction, string> = {
 
 const FOOTER =
   'Dismiss clears it now; otherwise it clears itself in 24h. Retry drops the old ask and sends a fresh one.';
-
-const clock = (ms: number): string =>
-  new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 /** The trail: what the row knows of the ask's life, oldest first, in the
     kit's anchored menu surface (it clamps to the viewport and closes on
@@ -127,6 +129,7 @@ export function AskBand({
           <AskGlyph name="chevron-down" size={12} />
         </span>
       </button>
+      {band.note && <span className="tui-ask-note">{band.note}</span>}
       {ctx.local &&
         band.actions.map(action => (
           <Button

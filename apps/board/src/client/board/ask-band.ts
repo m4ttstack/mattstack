@@ -23,6 +23,9 @@ export interface AskBand {
   who: string;
   title: string;
   label: string;
+  /** A quiet line at the band's right edge, when the state has nothing else
+      to say there. */
+  note?: string;
   actions: AskAction[];
   /** What the row knows of the ask's life, oldest first. */
   steps: AskStep[];
@@ -58,6 +61,9 @@ function doneLabel(kind: Kind, outcome?: string): string {
   return base;
 }
 
+export const clock = (ms: number): string =>
+  new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
 const capitalize = (s: string): string =>
   s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 
@@ -72,7 +78,7 @@ export function askBandModel(sent: SentNudgeInfo): AskBand {
   };
   const band = (
     b: Pick<AskBand, 'tone' | 'icon' | 'label'> &
-      Partial<Pick<AskBand, 'actions'>>,
+      Partial<Pick<AskBand, 'actions' | 'note'>>,
     ...more: AskStep[]
   ): AskBand => ({
     name,
@@ -155,6 +161,7 @@ export function askBandModel(sent: SentNudgeInfo): AskBand {
         tone: 'neutral',
         icon: 'send',
         label: REQUESTED[kind],
+        ...(sent.sentAt ? { note: `Sent ${clock(sent.sentAt)}` } : {}),
       });
   }
 }

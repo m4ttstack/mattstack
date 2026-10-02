@@ -4735,9 +4735,9 @@ a.tui-id-card-ref:focus-visible {
    falls below it and it cannot read as the next row's header. */
 .tui-ask {
   --ask-fill: var(--text-4);
-  --ask-text: var(--text-2);
-  --ask-mix: 9%;
-  --ask-base: var(--chrome);
+  --ask-text: var(--text-1);
+  --ask-mix: 5%;
+  --ask-base: color-mix(in srgb, var(--card) 55%, var(--chrome));
   grid-column: 2;
   display: flex;
   align-items: center;
@@ -4789,7 +4789,6 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-ask-where {
   flex-shrink: 0;
-  opacity: 0.85;
 }
 .tui-ask-state {
   min-width: 0;
@@ -4830,6 +4829,11 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-ask-sep {
   opacity: 0.6;
+}
+.tui-ask-note {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: var(--text-3);
 }
 .tui-ask-label {
   font-weight: 500;

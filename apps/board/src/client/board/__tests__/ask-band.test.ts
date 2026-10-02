@@ -22,9 +22,18 @@ describe('askBandModel', () => {
       who: "Grace's agent",
       title: 'Re-review from Grace',
       label: 're-review requested',
+      note: `Sent ${new Date(NOW - 3 * 60 * MIN).toLocaleTimeString([], {
+        hour: 'numeric',
+        minute: '2-digit',
+      })}`,
       actions: [],
       steps: [{ name: 'Requested', detail: 'you', at: NOW - 3 * 60 * MIN }],
     });
+  });
+
+  test('only a pending ask carries the sent-time note', () => {
+    for (const display of ['launched', 'done', 'failed', 'rejected'] as const)
+      expect(askBandModel(sent({ display })).note).toBeUndefined();
   });
 
   test('words each ask kind', () => {
