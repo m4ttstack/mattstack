@@ -134,6 +134,11 @@ function stopAll(targets: StopTarget[]): void {
   const failures: out.FailureInput[] = [];
   for (const { pid, command, port } of targets) {
     const where = `pid ${pid}, port ${port}`;
+    // process.kill on 0 or a negative pid signals a whole process group.
+    if (!Number.isInteger(pid) || pid <= 0) {
+      done.push(out.line("skipped", `${command} has no process to stop`, where));
+      continue;
+    }
     try {
       system.kill(pid);
       done.push(out.line("done", `Stopped ${command}`, where));
@@ -153,7 +158,7 @@ function killByPort(port: number): void {
   for (const row of rows) {
     const [command, pidText] = row.split(/\s+/);
     const pid = Number(pidText);
-    if (command && Number.isInteger(pid) && pid > 0 && !targets.has(pid)) targets.set(pid, { pid, command, port });
+    if (command && pidText && !targets.has(pid)) targets.set(pid, { pid, command, port });
   }
   if (targets.size === 0) {
     out.print(out.line("skipped", `Nothing is listening on port ${port}`));

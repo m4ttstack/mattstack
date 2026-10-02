@@ -207,6 +207,24 @@ describe("stopping what listens on a port", () => {
     expect(io.stdout()).toBe("[skipped] Nothing is listening on port 3000\n");
   });
 
+  test("a pid that is not a real process id is never signalled, from the picker or from lsof", async () => {
+    fakeDaemon([entry({ pid: 0, command: "ghost" }), entry({ port: 4000, pid: -1, command: "phantom" })]);
+    setTTY(true);
+    gate.setInteractive(() => false);
+    mock.module("../../lib/pick-wrappers.ts", () => ({ ...realPickWrappers, filterableMultiselect: async () => ["0", "-1"] }));
+    __test__.setSystem({ listeners: () => "", kill: (pid) => void killed.push(pid) });
+    await portScanner([]);
+    expect(killed).toEqual([]);
+    expect(io.stdout()).toBe("[skipped] ghost has no process to stop  pid 0, port 3000\n[skipped] phantom has no process to stop  pid -1, port 4000\n");
+
+    io.clear();
+    __test__.setSystem({ listeners: () => LSOF.split("\n")[0] + "\nghost       0 me     3u  IPv4 0x9  0t0  TCP *:3000 (LISTEN)\n", kill: (pid) => void killed.push(pid) });
+    await portScanner(["3000"]);
+    expect(killed).toEqual([]);
+    expect(io.stdout()).toBe("[skipped] ghost has no process to stop  pid 0, port 3000\n");
+    expect(io.stderr()).toBe("");
+  });
+
   test("the picker stops what was picked and reads the same way", async () => {
     fakeDaemon(ENTRIES);
     setTTY(true);
