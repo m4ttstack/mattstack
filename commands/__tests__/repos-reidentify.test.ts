@@ -142,8 +142,22 @@ describe("rt repos reidentify", () => {
       expect(code).toBe(2);
       expect(out).toEqual([]);
       expect(io.stderr()).toBe(
-        "This needs the repo's old identity and its new one\n  why: It got 1.\n  next: rt repos reidentify <old-identity> <new-identity> [--dry-run] [--json]\n",
+        "This needs the repo's old identity and its new one\n  why: You gave one.\n  next: rt repos reidentify <old-identity> <new-identity> [--dry-run] [--json]\n",
       );
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("the usage why counts what was given in plain words", async () => {
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await runExpectingProcessExit(() => reposReidentify([], {}, { print: (s) => out.push(s) }));
+      expect(io.stderr()).toContain("  why: You gave none.\n");
+      io.clear();
+      await runExpectingProcessExit(() => reposReidentify(["a", "b", "c"], {}, { print: (s) => out.push(s) }));
+      expect(io.stderr()).toContain("  why: You gave 3.\n");
     } finally {
       io.restore();
     }

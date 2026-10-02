@@ -1273,8 +1273,16 @@ describe("homeInit", () => {
 
       expect(exitCode).toBeUndefined();
       expect(exec.calls.some((argv) => argv[0] === "deck")).toBe(false);
-      expect(logs.some((l) => l.includes("owns deck"))).toBe(true);
-      expect(logs.some((l) => l.includes("launchctl print gui/$(id -u)/com.mattstack.deck.dev"))).toBe(true);
+      const at = logs.indexOf("[warning] Set up deck");
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(logs.slice(at, at + 6)).toEqual([
+        "[warning] Set up deck",
+        "  note: The app's deck helper owns deck, and deck is not healthy, so rt did not run deck setup: it would add a second copy.",
+        "  next: If the helper is not registered:",
+        "        rt services register",
+        "  next: To look at it:",
+        "        launchctl print gui/$(id -u)/com.mattstack.deck.dev",
+      ]);
     });
 
     test("rt-own steps' stdout is printed even on a clean exit — rt daemon install's approval guidance must not be discarded", async () => {

@@ -317,7 +317,7 @@ export async function checkGate(seams: Pick<PreflightSeams, "repoRoot" | "exec">
     if (outside.length > 0) return { path: "full", reason: `changes outside the served apps, their kits, notes and website: ${outside.slice(0, 5).join(", ")}` };
     const moved = movedServedApps(files);
     if (moved.length === 0) return { path: "full", reason: "no served app moved since the tag" };
-    return { path: "fast", reason: `served app(s) moved: ${moved.join(", ")}` };
+    return { path: "fast", reason: `${moved.length} served ${moved.length === 1 ? "app" : "apps"} moved: ${moved.join(", ")}` };
   } catch (err) {
     return { path: "full", reason: `could not classify the diff (${String((err as Error).message ?? err)}); assume full` };
   }

@@ -28,6 +28,12 @@ function storeTable(stores: StoreReport[]): Block {
   return out.table(stores.map((s) => (s.detail ? [s.store, s.status, String(s.count), out.dim(s.detail)] : [s.store, s.status, String(s.count)])));
 }
 
+function givenCount(n: number): string {
+  if (n === 0) return "none";
+  if (n === 1) return "one";
+  return String(n);
+}
+
 /** `jsonMessage` is the envelope's error text and never changes; a person gets the sentence and the command. */
 function refuseUsage(deps: ReidentifyDeps, json: boolean, jsonMessage: string, title: string, why?: string): never {
   if (json) exitUserError(new UserActionableError("usage", jsonMessage), true, VERB, deps.print);
@@ -45,7 +51,7 @@ export async function reposReidentify(args: string[], _ctx: CommandContext = {},
   }
   const positionals = args.filter((a) => !a.startsWith("--"));
   if (positionals.length !== 2) {
-    refuseUsage(deps, json, `reidentify takes two identities, got ${positionals.length}; ${USAGE}`, "This needs the repo's old identity and its new one", `It got ${positionals.length}.`);
+    refuseUsage(deps, json, `reidentify takes two identities, got ${positionals.length}; ${USAGE}`, "This needs the repo's old identity and its new one", `You gave ${givenCount(positionals.length)}.`);
   }
   const [from, to] = positionals as [string, string];
 
