@@ -8,7 +8,7 @@ import { fileURLToPath } from "url";
 import type { Logger } from "pino";
 import { closeStateDb, listKvValues, setKvValue } from "../../state/index.ts";
 import { composeKey } from "../../state/branch-cache.ts";
-import { goldenRoot, machineSettingsPath, rtDir, teamSettingsPath } from "../../rt-paths.ts";
+import { goldenRoot, machineSettingsPath, rtDir } from "../../rt-paths.ts";
 import { deriveRepoIdentity, parseIdentity } from "../../settings/identity.ts";
 import { findByPath, loadRegistry, saveRegistry, type TreeRecord } from "../../worktree/registry.ts";
 import * as gitAsync from "../../worktree/git-async.ts";
@@ -23,6 +23,7 @@ import { createTree } from "../../worktree/create.ts";
 import type { WorktreeAppConfig } from "../../worktree/config.ts";
 import { RETENTION_MS } from "../../worktree/trash.ts";
 import { reconcileRepoRegistry, createWorktreeReconciler, withCreateLock, __test__ } from "../worktree-reconciler.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 function makeRepo(): string {
   // realpathSync: git canonicalizes /var -> /private/var on macOS (Global Constraints)
@@ -479,7 +480,7 @@ describe("createWorktreeReconciler", () => {
     const manualPath = join(repo, ".worktrees", "manual");
     execSync(`git worktree add -b manual-branch ${manualPath}`, { cwd: repo, shell: "/bin/zsh" });
 
-    const teamStore = teamSettingsPath("acme");
+    const teamStore = sharedStorePath("acme");
     mkdirSync(join(teamStore, ".."), { recursive: true });
     writeFileSync(
       teamStore,

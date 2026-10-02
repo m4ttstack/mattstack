@@ -15,7 +15,6 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import {
   machineSettingsPath,
-  teamSettingsPath,
   teamsDir,
   userSettingsPath,
 } from "../paths.ts";
@@ -34,6 +33,7 @@ import {
 import { withMigration } from "./with-migration.ts";
 import { withSchema } from "./with-schema.ts";
 import { suspendRepoOnly } from "./without-repo-only.ts";
+import { sharedStorePath } from "../../../test/org-fixture.ts";
 
 const SNAPSHOT = { type: "object", properties: { enabled: { type: "boolean" }, debounceSec: { type: "number" } }, required: ["enabled", "debounceSec"] };
 
@@ -72,7 +72,7 @@ describe("settings/resolve", () => {
 
   const writeUser = (obj: unknown) => write(userSettingsPath(), obj);
   const writeMachine = (obj: unknown) => write(machineSettingsPath(), obj);
-  const writeTeam = (name: string, obj: unknown) => write(teamSettingsPath(name), obj);
+  const writeTeam = (name: string, obj: unknown) => write(sharedStorePath(name), obj);
 
   /**
    * No wave-1 key carries `teamLocked` yet, but the resolver must implement
@@ -125,7 +125,7 @@ describe("settings/resolve", () => {
 
       const got = getSetting("rt.intercepts", { repoIdentity: IDENTITY });
       expect(got.value).toEqual([{ id: "team.repo" }]);
-      expect(got.provenance).toEqual([{ scope: "team.repo", file: teamSettingsPath(TEAM) }]);
+      expect(got.provenance).toEqual([{ scope: "team.repo", file: sharedStorePath(TEAM) }]);
 
       const user = explainSetting("rt.intercepts", { repoIdentity: IDENTITY }).find((r) => r.scope === "user");
       expect(user?.present).toBe(true);
@@ -167,7 +167,7 @@ describe("settings/resolve", () => {
     const marker = (layer: Layer) => [{ id: layer }];
 
     function fileFor(layer: Layer): string {
-      if (layer === "team" || layer === "team.repo") return teamSettingsPath(TEAM);
+      if (layer === "team" || layer === "team.repo") return sharedStorePath(TEAM);
       if (layer === "user" || layer === "user.repo") return userSettingsPath();
       return machineSettingsPath();
     }
@@ -242,7 +242,7 @@ describe("settings/resolve", () => {
         ready: [{ run: "bun install" }, { run: "bun run build" }], // team-only field
       });
       expect(got.provenance).toEqual([
-        { scope: "team", file: teamSettingsPath(TEAM) },
+        { scope: "team", file: sharedStorePath(TEAM) },
         { scope: "user", file: userSettingsPath() },
         { scope: "machine", file: machineSettingsPath() },
       ]);
@@ -299,7 +299,7 @@ describe("settings/resolve", () => {
         frontend: { pool: [{ from: 3000, to: 3010 }] },
       });
       expect(got.provenance).toEqual([
-        { scope: "team.repo", file: teamSettingsPath(TEAM) },
+        { scope: "team.repo", file: sharedStorePath(TEAM) },
         { scope: "user.repo", file: userSettingsPath() },
       ]);
     });
@@ -312,8 +312,8 @@ describe("settings/resolve", () => {
 
       expect(got.value).toEqual({ onDeck: 9, namePool: ["from-alpha"] });
       expect(got.provenance).toEqual([
-        { scope: "team", file: teamSettingsPath("alpha") },
-        { scope: "team", file: teamSettingsPath("beta") },
+        { scope: "team", file: sharedStorePath("alpha") },
+        { scope: "team", file: sharedStorePath("beta") },
       ]);
     });
 
@@ -380,7 +380,7 @@ describe("settings/resolve", () => {
       withTeamLocked("rt.intercepts", () => {
         const got = getSetting("rt.intercepts", { repoIdentity: IDENTITY });
         expect(got.value).toEqual([{ id: "team" }]);
-        expect(got.provenance).toEqual([{ scope: "team", file: teamSettingsPath(TEAM) }]);
+        expect(got.provenance).toEqual([{ scope: "team", file: sharedStorePath(TEAM) }]);
 
         const rows = explainSetting("rt.intercepts", { repoIdentity: IDENTITY });
         const user = rows.find((r) => r.scope === "user") as ExplainRow;
@@ -458,7 +458,7 @@ describe("settings/resolve", () => {
       const got = getSetting("rt.intercepts", { repoIdentity: IDENTITY });
 
       expect(got.value).toEqual([{ id: "team" }]);
-      expect(got.provenance).toEqual([{ scope: "team", file: teamSettingsPath(TEAM) }]);
+      expect(got.provenance).toEqual([{ scope: "team", file: sharedStorePath(TEAM) }]);
       expect(warnSpy.mock.calls.some((c) => String(c[0]).includes("rt.intercepts"))).toBe(true);
     });
 
@@ -618,7 +618,7 @@ describe("settings/resolve", () => {
       const got = getSetting("rt.intercepts", { repoIdentity: null });
 
       expect(got.value).toEqual([{ id: "team-global" }]);
-      expect(got.provenance).toEqual([{ scope: "team", file: teamSettingsPath(TEAM) }]);
+      expect(got.provenance).toEqual([{ scope: "team", file: sharedStorePath(TEAM) }]);
     });
 
     test("an omitted repoIdentity behaves like a null one", () => {
@@ -660,7 +660,7 @@ describe("settings/resolve", () => {
       const got = getSetting("rt.intercepts", { repoIdentity: IDENTITY });
 
       expect(got.value).toEqual([{ id: "team" }]);
-      expect(got.provenance).toEqual([{ scope: "team", file: teamSettingsPath(TEAM) }]);
+      expect(got.provenance).toEqual([{ scope: "team", file: sharedStorePath(TEAM) }]);
       expect(() => listSettings({ repoIdentity: IDENTITY })).not.toThrow();
       expect(() => explainSetting("rt.intercepts", { repoIdentity: IDENTITY })).not.toThrow();
     });
@@ -686,7 +686,7 @@ describe("settings/resolve", () => {
 
       expect(entry?.value).toEqual({ onDeck: 5, branchFormat: "x" });
       expect(entry?.provenance).toEqual([
-        { scope: "team", file: teamSettingsPath(TEAM) },
+        { scope: "team", file: sharedStorePath(TEAM) },
         { scope: "user", file: userSettingsPath() },
       ]);
     });
@@ -720,7 +720,7 @@ describe("settings/resolve", () => {
       expect(rows[0]).toEqual({ scope: "default", file: null, present: true, value: { onDeck: 0 } });
       const teamRepo = rows.find((r) => r.scope === "team.repo") as ExplainRow;
       expect(teamRepo.present).toBe(true);
-      expect(teamRepo.file).toBe(teamSettingsPath(TEAM));
+      expect(teamRepo.file).toBe(sharedStorePath(TEAM));
       expect(teamRepo.value).toEqual({ onDeck: 3 });
       expect(rows.find((r) => r.scope === "user")?.present).toBe(false);
     });
@@ -742,8 +742,8 @@ describe("settings/resolve", () => {
       const teamRows = rows.filter((r) => r.scope === "team");
 
       expect(teamRows.map((r) => r.file)).toEqual([
-        teamSettingsPath("alpha"),
-        teamSettingsPath("beta"),
+        sharedStorePath("alpha"),
+        sharedStorePath("beta"),
       ]);
       expect(teamRows[0]?.present).toBe(true);
       expect(teamRows[1]?.present).toBe(false);

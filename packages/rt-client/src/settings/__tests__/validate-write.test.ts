@@ -8,12 +8,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "../paths.ts";
+import { machineSettingsPath, userSettingsPath } from "../paths.ts";
 import { getDef } from "../registry-machinery.ts";
 import { setSettingsWarnSink } from "../resolve.ts";
 import { validateWrite } from "../validate-write.ts";
 import { withSchema } from "./with-schema.ts";
 import { suspendRepoOnly } from "./without-repo-only.ts";
+import { sharedStorePath } from "../../../test/org-fixture.ts";
 
 const IDENTITY = "gitlab.com/acme/acme-dev";
 const IDENTITY2 = "gitlab.com/acme/acme-other";
@@ -51,7 +52,7 @@ describe("settings/validate-write", () => {
   }
 
   const writeUser = (obj: unknown) => write(userSettingsPath(), obj);
-  const writeTeam = (name: string, obj: unknown) => write(teamSettingsPath(name), obj);
+  const writeTeam = (name: string, obj: unknown) => write(sharedStorePath(name), obj);
 
   test("type check still comes first", () => {
     const r = validateWrite(getDef("rt.homeSnapshot")!, "nope", { scope: "machine" });
