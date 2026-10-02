@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"rt-ui/internal/background"
 	"rt-ui/internal/protocol"
 	"rt-ui/internal/textwrap"
 	"rt-ui/internal/theme"
@@ -16,53 +17,94 @@ import (
 
 const indent = "  "
 
+type tone int
+
+const (
+	mintTone tone = iota
+	coralTone
+	peachTone
+	quietTone
+)
+
 type statusDef struct {
 	glyph string
-	color color.Color
+	tone  tone
 }
 
 // Glyphs avoid Nerd Font code points and filled shapes: they must read in
 // any terminal font, at the same weight as ✓ and ✗.
 var statuses = map[string]statusDef{
-	"done":      {theme.GlyphDone, theme.StaticMint},
-	"failed":    {theme.GlyphCrashed, theme.StaticCoral},
-	"needs-you": {"◆", theme.StaticPeach},
-	"pending":   {"◌", theme.StaticQuiet},
-	"stale":     {"↻", theme.StaticPeach},
-	"refused":   {"⊘", theme.StaticQuiet},
-	"off":       {theme.GlyphStopped, theme.StaticQuiet},
-	"skipped":   {"-", theme.StaticQuiet},
-	"running":   {theme.GlyphRunning, theme.StaticMint},
-	"warn":      {"!", theme.StaticPeach},
+	"done":      {theme.GlyphDone, mintTone},
+	"failed":    {theme.GlyphCrashed, coralTone},
+	"needs-you": {"◆", peachTone},
+	"pending":   {"◌", quietTone},
+	"stale":     {"↻", peachTone},
+	"refused":   {"⊘", quietTone},
+	"off":       {theme.GlyphStopped, quietTone},
+	"skipped":   {"-", quietTone},
+	"running":   {theme.GlyphRunning, mintTone},
+	"warn":      {"!", peachTone},
 }
 
 func fg(c color.Color) lipgloss.Style { return lipgloss.NewStyle().Foreground(c) }
 
 // Body text, titles and commands set no color: they take the terminal's own
-// foreground, so they read on a light background as well as a dark one. Dim
-// and faint are one tone: no second gray reads on both backgrounds.
+// foreground, so they read on a light background as well as a dark one.
 var (
 	textStyle    = lipgloss.NewStyle()
 	strongStyle  = lipgloss.NewStyle().Bold(true)
 	commandStyle = lipgloss.NewStyle().Bold(true)
-	dimStyle     = fg(theme.StaticQuiet)
-	faintStyle   = dimStyle
-	keyStyle     = fg(theme.StaticLav)
-	linkStyle    = fg(theme.StaticCyan).Underline(true)
-	ruleStyle    = fg(theme.StaticRule)
-	railStyle    = fg(theme.StaticRule)
 )
 
-// Glyph is the styled glyph for a status; an unknown status gets a dim dot.
-func Glyph(status string) string {
-	d, ok := statuses[status]
-	if !ok {
-		return faintStyle.Render("•")
+// Tones is the accent set for a resolved background.
+func Tones(bg background.Background) theme.StaticTones {
+	if bg == background.Dark {
+		return theme.StaticDark
 	}
-	return fg(d.color).Render(d.glyph)
+	// An unknown background takes the light set: it clears 3:1 on white and
+	// 3.5:1 on Bg, where the dark set falls to about 1.6:1 on white.
+	return theme.StaticLight
 }
 
-func glyph(status string) string { return Glyph(status) }
+// palette is one renderer's accent styles. Dim and faint are one tone: no
+// second gray reads on both backgrounds.
+type palette struct {
+	tones                theme.StaticTones
+	dim, key, link, rule lipgloss.Style
+}
+
+func newPalette(t theme.StaticTones) palette {
+	return palette{
+		tones: t,
+		dim:   fg(t.Quiet),
+		key:   fg(t.Lav),
+		link:  fg(t.Cyan).Underline(true),
+		rule:  fg(t.Rule),
+	}
+}
+
+func (t tone) of(tones theme.StaticTones) color.Color {
+	switch t {
+	case mintTone:
+		return tones.Mint
+	case coralTone:
+		return tones.Coral
+	case peachTone:
+		return tones.Peach
+	}
+	return tones.Quiet
+}
+
+// Glyph is the styled glyph for a status; an unknown status gets a dim dot.
+func Glyph(tones theme.StaticTones, status string) string {
+	d, ok := statuses[status]
+	if !ok {
+		return fg(tones.Quiet).Render("•")
+	}
+	return fg(d.tone.of(tones)).Render(d.glyph)
+}
+
+func (r *renderer) glyph(status string) string { return Glyph(r.p.tones, status) }
 
 // Clean strips escape sequences and control characters, so text that came
 // from a branch name or a child process cannot repaint the terminal. A line
@@ -100,35 +142,33 @@ func splitLines(s string) []string {
 	return strings.Split(lineBreaks.Replace(s), "\n")
 }
 
-func segment(s protocol.Segment) string {
+func (r *renderer) segment(s protocol.Segment) string {
 	t := Clean(s.Text)
 	switch s.Role {
 	case "strong":
 		return strongStyle.Render(t)
-	case "dim":
-		return dimStyle.Render(t)
-	case "faint":
-		return faintStyle.Render(t)
+	case "dim", "faint":
+		return r.p.dim.Render(t)
 	case "key":
-		return keyStyle.Render(t)
+		return r.p.key.Render(t)
 	case "command":
 		return commandStyle.Render(t)
 	case "link":
 		if u := Clean(s.URL); u != "" {
-			return ansi.SetHyperlink(u) + linkStyle.Render(t) + ansi.ResetHyperlink()
+			return ansi.SetHyperlink(u) + r.p.link.Render(t) + ansi.ResetHyperlink()
 		}
-		return linkStyle.Render(t)
+		return r.p.link.Render(t)
 	}
 	if d, ok := statuses[s.Role]; ok {
-		return fg(d.color).Render(t)
+		return fg(d.tone.of(r.p.tones)).Render(t)
 	}
 	return textStyle.Render(t)
 }
 
-func cell(c protocol.Cell) string {
+func (r *renderer) cell(c protocol.Cell) string {
 	var b strings.Builder
 	for _, s := range c {
-		b.WriteString(segment(s))
+		b.WriteString(r.segment(s))
 	}
 	return b.String()
 }

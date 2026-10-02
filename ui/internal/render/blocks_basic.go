@@ -35,41 +35,41 @@ func (r *renderer) lineRun(run []protocol.Block) {
 			r.callout(b)
 			continue
 		}
-		head := indent + glyph(b.Status) + " "
+		head := indent + r.glyph(b.Status) + " "
 		titleW := lipgloss.Width(Clean(b.Title))
 		hint := protocol.Cell{{Text: b.Hint, Role: "faint"}}
 		if b.Hint != "" && titleW <= titleCap {
 			if longestWord(Clean(b.Hint)) > textW-w-2 {
 				r.emit(head + textStyle.Render(Clean(b.Title)))
 				for _, row := range wrapCell(hint, textW) {
-					r.emit(calloutIndent + cell(row))
+					r.emit(calloutIndent + r.cell(row))
 				}
 				continue
 			}
 			for i, row := range wrapCell(hint, textW-w-2) {
 				if i == 0 {
-					r.emit(head + textStyle.Render(pad(Clean(b.Title), w)) + "  " + cell(row))
+					r.emit(head + textStyle.Render(pad(Clean(b.Title), w)) + "  " + r.cell(row))
 					continue
 				}
-				r.emit(calloutIndent + strings.Repeat(" ", w+2) + cell(row))
+				r.emit(calloutIndent + strings.Repeat(" ", w+2) + r.cell(row))
 			}
 			continue
 		}
 		title := wrapCell(protocol.Cell{{Text: b.Title}}, textW)
 		inline := b.Hint != "" && len(title) == 1 && titleW+2+lipgloss.Width(Clean(b.Hint)) <= textW
 		for i, row := range title {
-			s := calloutIndent + cell(row)
+			s := calloutIndent + r.cell(row)
 			if i == 0 {
-				s = head + cell(row)
+				s = head + r.cell(row)
 			}
 			if inline {
-				s += "  " + cell(hint)
+				s += "  " + r.cell(hint)
 			}
 			r.emit(s)
 		}
 		if b.Hint != "" && !inline {
 			for _, row := range wrapCell(hint, textW) {
-				r.emit(calloutIndent + cell(row))
+				r.emit(calloutIndent + r.cell(row))
 			}
 		}
 	}
@@ -83,18 +83,18 @@ func longestWord(s string) int {
 	return n
 }
 
-func calloutColor(label string) color.Color {
+func (r *renderer) calloutColor(label string) color.Color {
 	switch label {
 	case "next", "fix":
-		return theme.StaticPeach
+		return r.p.tones.Peach
 	case "why":
-		return theme.StaticQuiet
+		return r.p.tones.Quiet
 	}
-	return theme.StaticLav
+	return r.p.tones.Lav
 }
 
 func (r *renderer) callout(b protocol.Block) {
-	r.calloutLines(calloutColor(b.Label), b.Label, b.Body)
+	r.calloutLines(r.calloutColor(b.Label), b.Label, b.Body)
 }
 
 func (r *renderer) calloutLines(c color.Color, label string, body []protocol.Cell) {
@@ -106,11 +106,11 @@ func (r *renderer) calloutLines(c color.Color, label string, body []protocol.Cel
 	for _, line := range body {
 		for _, row := range calloutRows(line, w) {
 			if first {
-				r.emit(bar + fg(c).Render(label) + " " + cell(row))
+				r.emit(bar + fg(c).Render(label) + " " + r.cell(row))
 				first = false
 				continue
 			}
-			r.emit(cont + cell(row))
+			r.emit(cont + r.cell(row))
 		}
 	}
 }
@@ -206,7 +206,7 @@ func (r *renderer) kvRun(run []protocol.Block) {
 		}
 	}
 	for _, b := range run {
-		key := keyStyle.Render(Clean(b.Key))
+		key := r.p.key.Render(Clean(b.Key))
 		value := protocol.Cell{{Text: b.Value, Role: "strong"}}
 		switch {
 		case b.Value == "":
@@ -214,40 +214,40 @@ func (r *renderer) kvRun(run []protocol.Block) {
 		case lipgloss.Width(key) <= keyCap:
 			for i, row := range wrapCell(value, textW-w-2) {
 				if i == 0 {
-					r.emit(indent + pad(key, w) + "  " + cell(row))
+					r.emit(indent + pad(key, w) + "  " + r.cell(row))
 					continue
 				}
-				r.emit(indent + strings.Repeat(" ", w+2) + cell(row))
+				r.emit(indent + strings.Repeat(" ", w+2) + r.cell(row))
 			}
 		default:
 			r.emit(indent + key)
 			for _, row := range wrapCell(value, textW-2) {
-				r.emit(indent + "  " + cell(row))
+				r.emit(indent + "  " + r.cell(row))
 			}
 		}
 		if b.Source != "" {
-			r.emit(indent + "  " + faintStyle.Render(Clean(b.Source)))
+			r.emit(indent + "  " + r.p.dim.Render(Clean(b.Source)))
 		}
 	}
 }
 
 func (r *renderer) summary(b protocol.Block) {
 	r.gap()
-	s := indent + glyph(b.Status) + " " + strongStyle.Render(Clean(b.Title))
+	s := indent + r.glyph(b.Status) + " " + strongStyle.Render(Clean(b.Title))
 	if len(b.Counts) > 0 {
 		counts := make([]string, len(b.Counts))
 		for i, c := range b.Counts {
 			counts[i] = Clean(c)
 		}
-		s += "  " + faintStyle.Render(strings.Join(counts, " · "))
+		s += "  " + r.p.dim.Render(strings.Join(counts, " · "))
 	}
 	r.emit(s)
 }
 
 func (r *renderer) banner(b protocol.Block) {
-	s := indent + fg(theme.StaticCoral).Bold(true).Render(theme.GlyphBar+" "+Clean(b.Label)) + " " + strongStyle.Render(Clean(b.Subject))
+	s := indent + fg(r.p.tones.Coral).Bold(true).Render(theme.GlyphBar+" "+Clean(b.Label)) + " " + strongStyle.Render(Clean(b.Subject))
 	if b.Hint != "" {
-		s += "  " + faintStyle.Render(Clean(b.Hint))
+		s += "  " + r.p.dim.Render(Clean(b.Hint))
 	}
 	r.emit(s)
 }
@@ -259,31 +259,31 @@ func (r *renderer) failure(b protocol.Block) {
 	inline := hint != "" && len(title) == 1 &&
 		lipgloss.Width(Clean(b.Title))+2+lipgloss.Width(hint) <= w
 	for i, row := range title {
-		s := calloutIndent + cell(row)
+		s := calloutIndent + r.cell(row)
 		if i == 0 {
-			s = indent + glyph("failed") + " " + cell(row)
+			s = indent + r.glyph("failed") + " " + r.cell(row)
 		}
 		if inline {
-			s += "  " + faintStyle.Render(hint)
+			s += "  " + r.p.dim.Render(hint)
 		}
 		r.emit(s)
 	}
 	if hint != "" && !inline {
 		for _, row := range wrapCell(protocol.Cell{{Text: hint, Role: "faint"}}, w) {
-			r.emit(calloutIndent + cell(row))
+			r.emit(calloutIndent + r.cell(row))
 		}
 	}
 	if b.Why != "" {
-		r.calloutLines(theme.StaticQuiet, "why", []protocol.Cell{{{Text: b.Why}}})
+		r.calloutLines(r.p.tones.Quiet, "why", []protocol.Cell{{{Text: b.Why}}})
 	}
 	if len(b.Next) > 0 {
-		r.calloutLines(theme.StaticPeach, "next", []protocol.Cell{b.Next})
+		r.calloutLines(r.p.tones.Peach, "next", []protocol.Cell{b.Next})
 	}
 	if b.Details != "" {
 		dw := min(r.width-len(calloutIndent), paragraphMax)
 		for _, l := range splitLines(b.Details) {
 			for _, row := range wrapCell(protocol.Cell{{Text: l, Role: "faint"}}, dw) {
-				r.emit(calloutIndent + cell(row))
+				r.emit(calloutIndent + r.cell(row))
 			}
 		}
 	}

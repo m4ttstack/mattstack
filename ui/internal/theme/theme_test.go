@@ -165,30 +165,68 @@ func TestLightDiffTintsArePaleAndKeepTheirHue(t *testing.T) {
 	}
 }
 
-func TestStaticTonesReadOnALightAndADarkBackground(t *testing.T) {
+func TestTheLightStaticSetReadsOnWhiteAndOnBg(t *testing.T) {
+	for name, c := range map[string]struct {
+		tone          color.Color
+		white, onDark float64
+	}{
+		"mint":     {StaticLight.Mint, 3.0, 3.5},
+		"peach":    {StaticLight.Peach, 3.0, 3.5},
+		"lavender": {StaticLight.Lav, 3.5, 3.5},
+		"coral":    {StaticLight.Coral, 3.5, 3.5},
+		"cyan":     {StaticLight.Cyan, 3.5, 3.5},
+		"quiet":    {StaticLight.Quiet, 4, 4},
+	} {
+		if got := contrast(relLuminance(c.tone), relLuminance(paper)); got < c.white {
+			t.Errorf("light %s on white is %.2f:1, under %.1f:1", name, got, c.white)
+		}
+		if got := contrast(relLuminance(c.tone), relLuminance(Bg)); got < c.onDark {
+			t.Errorf("light %s on Bg is %.2f:1, under %.1f:1", name, got, c.onDark)
+		}
+	}
+}
+
+func TestTheDarkStaticSetIsTheAppsAccentsAndReadsOnBg(t *testing.T) {
+	for name, c := range map[string]struct{ tone, app color.Color }{
+		"mint": {StaticDark.Mint, Mint}, "peach": {StaticDark.Peach, Peach}, "lavender": {StaticDark.Lav, Lav},
+	} {
+		if Hex(c.tone) != Hex(c.app) {
+			t.Errorf("dark %s is %s, want the app's %s", name, Hex(c.tone), Hex(c.app))
+		}
+		if got := contrast(relLuminance(c.tone), relLuminance(Bg)); got < 4.5 {
+			t.Errorf("dark %s on Bg is %.2f:1, under 4.5:1", name, got)
+		}
+	}
+	for name, pair := range map[string][2]color.Color{
+		"coral": {StaticDark.Coral, StaticLight.Coral}, "cyan": {StaticDark.Cyan, StaticLight.Cyan},
+		"quiet": {StaticDark.Quiet, StaticLight.Quiet}, "rule": {StaticDark.Rule, StaticLight.Rule},
+	} {
+		if Hex(pair[0]) != Hex(pair[1]) {
+			t.Errorf("%s differs between the sets: %s and %s", name, Hex(pair[0]), Hex(pair[1]))
+		}
+	}
+}
+
+func TestTheStaticSetsHoldTheRuledValues(t *testing.T) {
 	for name, c := range map[string]struct {
 		tone color.Color
-		min  float64
+		want string
 	}{
-		"StaticMint":  {StaticMint, 3.5},
-		"StaticCoral": {StaticCoral, 3.5},
-		"StaticPeach": {StaticPeach, 3.5},
-		"StaticCyan":  {StaticCyan, 3.5},
-		"StaticLav":   {StaticLav, 4},
-		"StaticQuiet": {StaticQuiet, 4},
+		"light mint": {StaticLight.Mint, "#12AB56"}, "light peach": {StaticLight.Peach, "#E17A0D"}, "light lav": {StaticLight.Lav, "#A169FF"},
+		"coral": {StaticLight.Coral, "#E0484E"}, "cyan": {StaticLight.Cyan, "#2E86DE"}, "quiet": {StaticLight.Quiet, "#77729A"}, "rule": {StaticLight.Rule, "#736D96"},
 	} {
-		for ground, bg := range map[string]color.Color{"light": paper, "dark": Bg} {
-			if got := contrast(relLuminance(c.tone), relLuminance(bg)); got < c.min {
-				t.Errorf("%s on a %s background is %.2f:1, under %.1f:1", name, ground, got, c.min)
-			}
+		if Hex(c.tone) != c.want {
+			t.Errorf("%s = %s, want %s", name, Hex(c.tone), c.want)
 		}
 	}
 }
 
 func TestStaticPeachIsNotMistakenForStaticCoral(t *testing.T) {
-	d := math.Abs(hue(StaticPeach) - hue(StaticCoral))
-	if d = math.Min(d, 360-d); d < 25 {
-		t.Fatalf("peach and coral sit %.0f degrees apart: a warning would read as a failure", d)
+	for set, tones := range map[string]StaticTones{"light": StaticLight, "dark": StaticDark} {
+		d := math.Abs(hue(tones.Peach) - hue(tones.Coral))
+		if d = math.Min(d, 360-d); d < 25 {
+			t.Errorf("%s peach and coral sit %.0f degrees apart: a warning would read as a failure", set, d)
+		}
 	}
 }
 
@@ -215,7 +253,7 @@ func hue(c color.Color) float64 {
 }
 
 func TestStaticRuleReadsOnDarkAndOnLight(t *testing.T) {
-	rule := relLuminance(StaticRule)
+	rule := relLuminance(StaticLight.Rule)
 	if c := contrast(rule, relLuminance(Bg)); c < 3.5 {
 		t.Fatalf("StaticRule on a dark background is %.2f:1, under 3.5:1", c)
 	}

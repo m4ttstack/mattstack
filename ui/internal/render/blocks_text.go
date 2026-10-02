@@ -21,7 +21,7 @@ func cleanCode(s string) string {
 
 func (r *renderer) caption(s string) {
 	if s != "" {
-		r.emit(calloutIndent + faintStyle.Render(Clean(s)))
+		r.emit(calloutIndent + r.p.dim.Render(Clean(s)))
 	}
 }
 
@@ -63,12 +63,12 @@ func (r *renderer) copy(b protocol.Block) {
 
 func (r *renderer) verbatim(b protocol.Block) {
 	r.caption(b.Caption)
-	rail := calloutIndent + railStyle.Render("│") + " "
+	rail := calloutIndent + r.p.rule.Render("│") + " "
 	w := r.width - lipgloss.Width(rail)
 	for _, line := range b.Lines {
 		for _, l := range splitLines(line) {
 			for _, row := range codeRows(cleanCode(l), w) {
-				r.emit(rail + dimStyle.Render(row))
+				r.emit(rail + r.p.dim.Render(row))
 			}
 		}
 	}
@@ -104,7 +104,7 @@ func (r *renderer) diff(b protocol.Block) {
 	}
 	avail := r.width - len(indent)
 	for _, h := range b.Hunks {
-		r.emit(indent + keyStyle.Render(Clean(h.Header)))
+		r.emit(indent + r.p.key.Render(Clean(h.Header)))
 		w := 0
 		for _, l := range h.Lines {
 			w = max(w, lipgloss.Width(cleanCode(l.Text)))

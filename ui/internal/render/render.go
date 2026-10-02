@@ -4,20 +4,22 @@ import (
 	"slices"
 	"strings"
 
+	"rt-ui/internal/background"
 	"rt-ui/internal/protocol"
 )
 
 type Options struct {
 	// Width is the terminal's column count; values under 20 fall back to 80.
 	Width int
-	// Light says the terminal's background is light. The zero value keeps the
-	// dark tints, which is also what a terminal that says nothing gets.
-	Light bool
+	// Background picks the accent set and the diff tints. The zero value,
+	// Unknown, takes the light accents and the dark tints.
+	Background background.Background
 }
 
 type renderer struct {
 	width int
 	light bool
+	p     palette
 	out   strings.Builder
 }
 
@@ -28,7 +30,7 @@ func Render(blocks []protocol.Block, opts Options) string {
 	if w < 20 {
 		w = 80
 	}
-	r := &renderer{width: w, light: opts.Light}
+	r := &renderer{width: w, light: opts.Background == background.Light, p: newPalette(Tones(opts.Background))}
 	r.blocks(blocks)
 	return r.out.String()
 }

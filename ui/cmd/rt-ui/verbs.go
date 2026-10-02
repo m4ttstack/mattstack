@@ -14,6 +14,7 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 
+	"rt-ui/internal/background"
 	"rt-ui/internal/prompt"
 	"rt-ui/internal/protocol"
 	"rt-ui/internal/render"
@@ -182,7 +183,7 @@ func runSteps() int {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(signals)
-	if steps.Run(events, signals, term) == steps.Signalled {
+	if steps.Run(events, signals, term, render.Tones(background.Detect())) == steps.Signalled {
 		return ExitCancel
 	}
 	return ExitOK
@@ -313,8 +314,12 @@ func runRender(args []string) int {
 	if noColor {
 		profile = colorprofile.NoTTY
 	}
+	bg := background.Unknown
+	if profile != colorprofile.NoTTY && profile != colorprofile.Ascii {
+		bg = background.Detect()
+	}
 	w := &colorprofile.Writer{Forward: os.Stdout, Profile: profile}
-	if _, err := w.WriteString(render.Render(blocks, render.Options{Width: width, Light: render.LightBackground(os.Getenv("COLORFGBG"))})); err != nil {
+	if _, err := w.WriteString(render.Render(blocks, render.Options{Width: width, Background: bg})); err != nil {
 		return ExitInternal
 	}
 	return ExitOK

@@ -171,23 +171,41 @@ var (
 	DiffDelGutterBg = blendToward(Coral, Bg, diffGutterBlend)
 )
 
-// Static output (rt-ui render and the steps verb) lands on the terminal's own
-// background, which rt-ui never paints and cannot ask about, so it has one
-// palette for both: every Static tone clears 3.5:1 on white and on Bg, and
-// the two text tones, StaticLav and StaticQuiet, clear 4:1. The light tints
-// are the diff tints for a terminal that says its background is light.
+// The light tints are the diff tints for a terminal whose background
+// resolves light.
 var (
 	paper          = lipgloss.Color("#FFFFFF")
 	DiffAddBgLight = blendToward(Mint, paper, diffTintBlend)
 	DiffDelBgLight = blendToward(Coral, paper, diffTintBlend)
+)
 
-	StaticMint  = lipgloss.Color("#1A9461")
-	StaticCoral = lipgloss.Color("#E0484E")
-	StaticPeach = lipgloss.Color("#C4700F")
-	StaticLav   = lipgloss.Color("#8A63D2")
-	StaticCyan  = lipgloss.Color("#2E86DE")
-	StaticQuiet = lipgloss.Color("#77729A")
-	StaticRule  = lipgloss.Color("#736D96")
+// StaticTones are the accents of static output (rt-ui render and the steps
+// verb), which lands on the terminal's own background. Body text never takes
+// one: it keeps the terminal's foreground.
+type StaticTones struct {
+	Mint, Peach, Lav, Coral, Cyan, Quiet, Rule color.Color
+}
+
+var (
+	staticCoral = lipgloss.Color("#E0484E")
+	staticCyan  = lipgloss.Color("#2E86DE")
+	staticQuiet = lipgloss.Color("#77729A")
+	staticRule  = lipgloss.Color("#736D96")
+
+	// StaticLight clears 3:1 on white (lavender 3.5:1, quiet 4:1) and 3.5:1
+	// on Bg, so it also reads on a dark background nobody could identify.
+	StaticLight = StaticTones{
+		Mint:  lipgloss.Color("#12AB56"),
+		Peach: lipgloss.Color("#E17A0D"),
+		Lav:   lipgloss.Color("#A169FF"),
+		Coral: staticCoral, Cyan: staticCyan, Quiet: staticQuiet, Rule: staticRule,
+	}
+	// StaticDark matches the TUI's accents and falls to about 1.6:1 on white,
+	// so it is only for a background known to be dark.
+	StaticDark = StaticTones{
+		Mint: Mint, Peach: Peach, Lav: Lav,
+		Coral: staticCoral, Cyan: staticCyan, Quiet: staticQuiet, Rule: staticRule,
+	}
 )
 
 func Hex(c color.Color) string {

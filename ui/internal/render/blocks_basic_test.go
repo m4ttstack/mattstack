@@ -9,8 +9,10 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"rt-ui/internal/background"
 	"rt-ui/internal/protocol"
 	"rt-ui/internal/render"
+	"rt-ui/internal/theme"
 )
 
 const coral = "224;72;78"
@@ -475,24 +477,34 @@ func TestCleanStripsBidiControlsAndZeroWidthCharacters(t *testing.T) {
 
 func TestEveryStatusGlyphUsesAStaticTone(t *testing.T) {
 	want := map[string]string{
-		"done": "26;148;97", "running": "26;148;97", "failed": "224;72;78",
-		"needs-you": "196;112;15", "stale": "196;112;15", "warn": "196;112;15",
+		"done": lightMint, "running": lightMint, "failed": "224;72;78",
+		"needs-you": lightPeach, "stale": lightPeach, "warn": lightPeach,
 		"pending": "119;114;154", "refused": "119;114;154", "off": "119;114;154", "skipped": "119;114;154",
 	}
 	for status, rgb := range want {
-		if g := render.Glyph(status); !strings.Contains(g, "38;2;"+rgb+"m") {
+		if g := render.Glyph(theme.StaticLight, status); !strings.Contains(g, "38;2;"+rgb+"m") {
 			t.Errorf("%s glyph %q, want tone %s", status, g, rgb)
 		}
 	}
+	for status, rgb := range map[string]string{"done": darkMint, "warn": darkPeach, "failed": "224;72;78"} {
+		if g := render.Glyph(theme.StaticDark, status); !strings.Contains(g, "38;2;"+rgb+"m") {
+			t.Errorf("dark %s glyph %q, want tone %s", status, g, rgb)
+		}
+	}
 }
+
+const (
+	lightMint, lightPeach, lightLav = "18;171;86", "225;122;13", "161;105;255"
+	darkMint, darkPeach, darkLav    = "98;230;168", "255;183;122", "189;147;249"
+)
 
 func TestKeysLabelsAndRailsUseStaticTones(t *testing.T) {
 	for _, c := range []struct {
 		block protocol.Block
 		tone  string
 	}{
-		{protocol.Block{T: "kv", Key: "rt.worktreeApp", Value: "true"}, "38;2;138;99;210m"},
-		{protocol.Block{T: "callout", Label: "next", Body: []protocol.Cell{cmd("rt setup status")}}, "38;2;196;112;15m"},
+		{protocol.Block{T: "kv", Key: "rt.worktreeApp", Value: "true"}, "38;2;" + lightLav + "m"},
+		{protocol.Block{T: "callout", Label: "next", Body: []protocol.Cell{cmd("rt setup status")}}, "38;2;" + lightPeach + "m"},
 		{protocol.Block{T: "callout", Label: "why", Body: []protocol.Cell{text("x")}}, "38;2;119;114;154m"},
 		{protocol.Block{T: "verbatim", Lines: []string{"x"}}, "38;2;115;109;150m│"},
 		{protocol.Block{T: "banner", Label: "PRODUCTION", Subject: "db"}, "38;2;224;72;78m"},
@@ -503,17 +515,60 @@ func TestKeysLabelsAndRailsUseStaticTones(t *testing.T) {
 	}
 }
 
-func TestAccentsDoNotChangeWithTheBackground(t *testing.T) {
-	bs := []protocol.Block{
-		{T: "line", Status: "needs-you", Title: "Slack", Hint: "not connected"},
-		{T: "callout", Label: "next", Body: []protocol.Cell{cmd("rt setup slack connect")}},
-		{T: "kv", Key: "rt.worktreeApp", Value: "true", Source: "from team example"},
-		{T: "failure", Title: "x", Why: "y"},
-		{T: "verbatim", Caption: "value", Lines: []string{"{}"}},
+var accentBlocks = []protocol.Block{
+	{T: "line", Status: "needs-you", Title: "Slack", Hint: "not connected"},
+	{T: "line", Status: "done", Title: "Linked"},
+	{T: "callout", Label: "next", Body: []protocol.Cell{cmd("rt setup slack connect")}},
+	{T: "kv", Key: "rt.worktreeApp", Value: "true", Source: "from team example"},
+	{T: "failure", Title: "x", Why: "y"},
+	{T: "verbatim", Caption: "value", Lines: []string{"{}"}},
+	{T: "banner", Label: "PRODUCTION", Subject: "db"},
+}
+
+func TestAnUnknownBackgroundRendersTheLightSet(t *testing.T) {
+	unknown := render.Render(accentBlocks, render.Options{Width: 80})
+	light := render.Render(accentBlocks, render.Options{Width: 80, Background: background.Light})
+	if unknown != light {
+		t.Fatalf("unknown and light differ:\n%q\n%q", unknown, light)
 	}
-	dark := render.Render(bs, render.Options{Width: 80})
-	if light := render.Render(bs, render.Options{Width: 80, Light: true}); light != dark {
-		t.Fatalf("one palette for both backgrounds, but the light render differs:\n%q\n%q", dark, light)
+	for _, tone := range []string{lightMint, lightPeach, lightLav} {
+		if !strings.Contains(light, "38;2;"+tone+"m") {
+			t.Errorf("light render has no %s: %q", tone, light)
+		}
+	}
+}
+
+func TestADarkBackgroundRendersTheDarkSet(t *testing.T) {
+	dark := render.Render(accentBlocks, render.Options{Width: 80, Background: background.Dark})
+	for _, tone := range []string{darkMint, darkPeach, darkLav, "224;72;78", "119;114;154", "115;109;150"} {
+		if !strings.Contains(dark, "38;2;"+tone+"m") {
+			t.Errorf("dark render has no %s: %q", tone, dark)
+		}
+	}
+	for _, tone := range []string{lightMint, lightPeach, lightLav} {
+		if strings.Contains(dark, tone) {
+			t.Errorf("dark render kept the light %s: %q", tone, dark)
+		}
+	}
+}
+
+func TestBodyTextAndTitlesTakeNoColorOnAnyBackground(t *testing.T) {
+	bs := []protocol.Block{
+		{T: "line", Status: "done", Title: "Linked"},
+		{T: "section", Title: "Skills"},
+		{T: "paragraph", Text: "plain words"},
+	}
+	for _, bg := range []background.Background{background.Unknown, background.Dark, background.Light} {
+		out := render.Render(bs, render.Options{Width: 80, Background: bg})
+		for _, body := range []string{"Linked", "Skills", "plain words"} {
+			i := strings.Index(out, body)
+			if i < 0 {
+				t.Fatalf("%v: %q missing in %q", bg, body, out)
+			}
+			if last := strings.LastIndex(out[:i], "\x1b["); last >= 0 && strings.Contains(out[last:i], "38;") && !strings.Contains(out[last:i], "\x1b[m") {
+				t.Errorf("%v: %q sits under a foreground color: %q", bg, body, out)
+			}
+		}
 	}
 }
 
