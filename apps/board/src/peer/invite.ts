@@ -3,8 +3,11 @@
 const INVITE_RE =
   /^(https?:\/\/[^\s\/]+(?:\/[^\s\/]+)*?)\/invite\/([0-9a-f]{32})\/?$/i;
 
+/** Board tokens only ever go to the one switchboard, so an invite minted on
+    any other origin is refused before anything is redeemed. */
 export function parseInvite(
-  s: string
+  s: string,
+  relayUrl: string
 ): { ok: true; url: string; code: string } | { ok: false; message: string } {
   const m = s.trim().match(INVITE_RE);
   if (!m)
@@ -13,36 +16,37 @@ export function parseInvite(
       message:
         "that doesn't look like a board invite (expected .../invite/<code>)",
     };
-  return {
-    ok: true,
-    url: m[1]!.replace(/\/+$/, ''),
-    code: m[2]!.toLowerCase(),
-  };
+  const url = m[1]!.replace(/\/+$/, '');
+  if (!sameOrigin(url, relayUrl))
+    return {
+      ok: false,
+      message: `that invite is for another switchboard; mattstack only uses ${relayUrl.replace(/\/+$/, '')}`,
+    };
+  return { ok: true, url, code: m[2]!.toLowerCase() };
 }
 
-/** Setup's prompt accepts four shapes: blank (keep current settings), a full
-    invite link, a bare URL (the manual escape hatch: prompt for the values),
-    or anything else, which is a typo worth re-prompting on rather than
-    silently treating as "skip". */
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
+}
+
+/** Setup's prompt accepts blank (keep current settings) or a full invite
+    link; anything else is a typo worth re-prompting on rather than silently
+    treating as "skip". */
 export function classifySetupAnswer(
-  s: string
+  s: string,
+  relayUrl: string
 ):
   | { kind: 'skip' }
   | { kind: 'invite'; url: string; code: string }
-  | { kind: 'manual-url'; url: string }
   | { kind: 'invalid'; message: string } {
   const trimmed = s.trim();
   if (!trimmed) return { kind: 'skip' };
-  const inv = parseInvite(trimmed);
+  const inv = parseInvite(trimmed, relayUrl);
   if (inv.ok) return { kind: 'invite', url: inv.url, code: inv.code };
-  // Something invite-shaped that did not parse (a truncated code, say) is a
-  // broken invite, not a switchboard address: treating it as one would store
-  // the whole invite path as switchboard.url and point every later relay call
-  // at .../invite/<code>/<endpoint>.
-  if (/\/invite\//i.test(trimmed))
-    return { kind: 'invalid', message: inv.message };
-  if (/^https?:\/\//i.test(trimmed))
-    return { kind: 'manual-url', url: trimmed.replace(/\/+$/, '') };
   return { kind: 'invalid', message: inv.message };
 }
 
@@ -105,16 +109,4 @@ export async function redeemInvite(
     error: 'network',
     message: message || `switchboard answered ${res.status}`,
   };
-}
-
-/** Setup rebuilds config.json from a base template, which would silently drop
-    an existing switchboard block on re-run (spec I7). This computes the block
-    to carry into finalConfig: a fresh join wins, else whatever already stood. */
-export function carrySwitchboard(
-  existing: { url?: string } | undefined,
-  joined: { url: string } | null
-): { switchboard: { url: string } } | Record<string, never> {
-  if (joined) return { switchboard: { url: joined.url } };
-  if (existing?.url) return { switchboard: { url: existing.url } };
-  return {};
 }

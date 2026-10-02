@@ -18,6 +18,7 @@ describe("readTeamSnapshot — injected read seam", () => {
       "mattstack.tracking": { repos: { "github.com/acme/repo": {}, "gitlab.example.com/acme/other": {} } },
       "claude.marketplaces": ["market-a"],
       "claude.plugins": ["plugin-a", "plugin-b"],
+      "board.projects": ["acme/app"],
     });
     const p = fakeProbes({ home: "/fake-home" });
     const snapshot = readTeamSnapshot(p, "acme", { read });
@@ -28,6 +29,7 @@ describe("readTeamSnapshot — injected read seam", () => {
       marketplaces: ["market-a"],
       plugins: ["plugin-a", "plugin-b"],
       remote: null,
+      boardProjects: true,
     });
   });
 
@@ -38,6 +40,7 @@ describe("readTeamSnapshot — injected read seam", () => {
     expect(snapshot.trackingIdentities).toEqual([]);
     expect(snapshot.marketplaces).toEqual([]);
     expect(snapshot.plugins).toEqual([]);
+    expect(snapshot.boardProjects).toBe(false);
   });
 
   test("a non-array claude.marketplaces/plugins value degrades to [] rather than propagating a bad shape", async () => {

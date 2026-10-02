@@ -10,6 +10,7 @@
  * credential.
  */
 
+import { switchboardUrl } from "../../../packages/rt-client/src/switchboard.ts";
 import { DEFAULT_CALLBACK_PORT, missingSlackUserScopes, slackRedirectHint } from "../slack-app.ts";
 import type { Action, Integration, Row } from "../contract.ts";
 import { row } from "../contract.ts";
@@ -17,7 +18,7 @@ import { readCredentialHealth, type CredentialHealthRow } from "../../credential
 import { daysUntil } from "../../credential-health/sweep.ts";
 import { CREDENTIAL_STATUS_WORD } from "../../credential-health/status-word.ts";
 import { getStateDb } from "../../state/index.ts";
-import { isValidHostname, isValidHttpsUrl } from "../host-validate.ts";
+import { isValidHostname } from "../host-validate.ts";
 import { integrationDef, type IntegrationDef, type ValidateCtx } from "../integrations.ts";
 import type { SetupIntent } from "../intent.ts";
 import type { Probes } from "../probes.ts";
@@ -25,7 +26,7 @@ import type { PackRequirements } from "../requirements.ts";
 import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
-import { boardPeering } from "../../team/board-token.ts";
+import { boardEnvHas, boardPeering } from "../../team/board-token.ts";
 import { slackSecretWait, slackWaitRowDetail, type SlackSecretWait } from "../team-slack-secret.ts";
 
 /** Reads user-scope secrets: the real implementation goes through lib/secrets/store.readSecret (null on NoAgeKeyError) plus staged values (staging.ts) — that wiring is a later task's job; validators only depend on this narrow shape. */
@@ -86,7 +87,7 @@ function parseGhUser(output: string): string | null {
 }
 
 /**
- * A joined team's declared forge/switchboard host is shown, not trusted — the
+ * A joined team's declared forge host is shown, not trusted: the
  * token this ctx feeds to `def.validate()` belongs to the user, so only a
  * host the user themselves confirmed (`rt.integrations`, via `connect
  * --host`) is ever eligible to receive it. Mirrors commands/setup.ts's own
@@ -98,11 +99,6 @@ function ctxFor(id: Integration, team: TeamSnapshot, overrides: UserIntegrationO
   if (id === "gitlab") {
     const declaredHost = team.integrations.forge?.provider === "gitlab" ? team.integrations.forge.host : null;
     const host = overrides.forgeHost && isValidHostname(overrides.forgeHost) ? overrides.forgeHost : null;
-    return { ...base, host, declaredHost };
-  }
-  if (id === "switchboard") {
-    const declaredHost = team.integrations.switchboard?.url ?? null;
-    const host = overrides.switchboardUrl && isValidHttpsUrl(overrides.switchboardUrl) ? overrides.switchboardUrl : null;
     return { ...base, host, declaredHost };
   }
   return { ...base, host: null };
@@ -120,7 +116,7 @@ interface DeclaredEntry {
 }
 
 /**
- * declared = forge's own provider ∪ linear/slack/switchboard when the team
+ * declared = forge's own provider ∪ linear/slack when the team
  * has configured them ∪ every integration a pack names directly ∪ every
  * integration a pack tool's connect field names — first-seen order.
  * Required-ness is derived from the declaring source (T8 precedent,
@@ -144,7 +140,6 @@ function declaredIntegrations(team: TeamSnapshot, reqs: PackRequirements[]): Dec
   if (team.integrations.forge) require(team.integrations.forge.provider);
   if (team.integrations.linear) require("linear");
   if (team.integrations.slack?.clientId) require("slack");
-  if (team.integrations.switchboard) require("switchboard");
   for (const req of reqs) for (const id of req.integrations) require(id);
   for (const req of reqs) {
     for (const tool of req.tools) {
@@ -227,37 +222,6 @@ async function slackRow(p: Probes, base: Omit<Row, "status" | "detail" | "action
   return row({ ...base, status: result.status, detail: result.detail, action: SLACK_OAUTH_ACTION });
 }
 
-/**
- * No credential to hold (RT-141): the deployed switchboard service gates
- * /health behind a per-board token no user-supplied value can ever satisfy,
- * so rt holds nothing here. This is a plain reachability probe against the
- * public /healthz, same shape as access.ts's switchboardRow but required
- * when the team declares switchboard (that row is always optional).
- */
-async function switchboardRow(p: Probes, base: Omit<Row, "status" | "detail" | "action" | "recheck">, def: IntegrationDef, ctx: ValidateCtx): Promise<Row> {
-  const result = await def.validate(p, "", ctx);
-  if (result.status === "ready" || !ctx.declaredHost) return row({ ...base, status: result.status, detail: result.detail });
-  // Confirmed to this very URL and only unreachable: a Confirm here would
-  // re-latch the same value, so the row offers the re-check instead.
-  const trimSlash = (u: string) => u.replace(/\/+$/, "");
-  if (ctx.host && trimSlash(ctx.host) === trimSlash(ctx.declaredHost)) return row({ ...base, status: result.status, detail: result.detail, action: ACCOUNT_RECHECK_ACTION });
-  // The row is required when the team declares a switchboard, so an
-  // unconfirmed URL with no button would block Install with nothing to click.
-  // The app sends the field back as `host` on stdin to `setup switchboard connect`.
-  const detail = ctx.host ? `${result.detail}. You confirmed ${ctx.host}, but this team uses ${ctx.declaredHost}. Confirm the team's address to switch` : result.detail;
-  return row({
-    ...base,
-    status: result.status,
-    detail,
-    action: {
-      type: "connect",
-      label: "Confirm",
-      integration: def.id,
-      fields: [{ name: "host", label: "Switchboard URL", secret: false, hint: "Your team declares this URL. Confirming it lets rt reach the switchboard from this Mac.", value: ctx.declaredHost }],
-    },
-  });
-}
-
 export const BOARD_PEERING_ROW_ID = "account.board-peering";
 
 const REINVITE = "the team's owner to invite you again (rt team invite --handle <your forge username>)";
@@ -278,27 +242,62 @@ const BOARD_PEERING_BASE = {
   id: BOARD_PEERING_ROW_ID,
   kind: "account" as const,
   title: "Board peering",
-  why: "Lets this machine's board peer with your teammates' boards through the team's switchboard.",
+  why: "Lets this machine's board peer with your teammates' boards through the switchboard.",
   required: false,
   optionalNote: "Your board does not peer until the team's owner re-invites it.",
 };
 
-async function boardPeeringRow(p: Probes, secrets: SecretPresence): Promise<Row | null> {
-  const peering = await boardPeering(p, (domain, key) => secrets.has(domain, key));
+export const SELF_INVITE_STEPS: Action = {
+  type: "steps",
+  label: "Show steps…",
+  steps: [
+    "Open your board's team members panel",
+    "Invite your own username there",
+    "Paste that invite into the panel's join row",
+    "Re-check this row",
+  ],
+};
+
+async function boardPeeringRow(p: Probes, secrets: SecretPresence, team: TeamSnapshot): Promise<Row | null> {
+  const peering = await boardPeering(p, (domain, key) => secrets.has(domain, key), team.boardProjects === true);
   if (peering.kind === "not-applicable") return null;
   if (peering.kind === "unpeered") {
-    return row({ ...BOARD_PEERING_BASE, status: "needs-you", detail: `You joined ${peering.teams.join(", ")} by invite, but this Mac's board has no switchboard token, so it cannot peer. Ask ${REINVITE}`, action: REINVITE_STEPS });
+    const unpeered = `This Mac is in ${peering.teams.join(", ")}, but its board has no switchboard token, so it cannot peer.`;
+    const created = peering.teams.filter((slug) => readTeamLocal(p, slug).createdByRt);
+    const joinedSome = peering.teams.some((slug) => !readTeamLocal(p, slug).createdByRt);
+    // The board token is one per Mac, not per team, so creating any one team here is enough to self-invite.
+    const canSelfInvite =
+      created.length > 0 && (Boolean(p.env.SWITCHBOARD_ADMIN_TOKEN) || boardEnvHas(p, "SWITCHBOARD_ADMIN_TOKEN") || (await secrets.has("rt", "switchboardAdminToken")) !== null);
+    // A creator without the admin token, and no other team's owner to ask, has no way to peer from here.
+    if (!canSelfInvite && !joinedSome) return null;
+    if (canSelfInvite) {
+      return row({
+        ...BOARD_PEERING_BASE,
+        optionalNote: "Your board does not peer until you invite it from the board's members panel.",
+        status: "needs-you",
+        detail: `${unpeered} You created ${created.join(", ")} on this Mac, so you can invite your own board from the board's members panel.`,
+        action: SELF_INVITE_STEPS,
+      });
+    }
+    return row({ ...BOARD_PEERING_BASE, status: "needs-you", detail: `${unpeered} Ask ${REINVITE}`, action: REINVITE_STEPS });
   }
   if (peering.kind === "unreadable") {
     return row({ ...BOARD_PEERING_BASE, status: "error", detail: `Could not read your secrets store to check the board's switchboard token (${peering.error})`, action: ACCOUNT_RECHECK_ACTION });
   }
-  return row({ ...BOARD_PEERING_BASE, status: "ready", detail: "Your board holds a switchboard token" });
+  const relay = switchboardUrl(p.env);
+  const res = await p.fetch(`${relay}/healthz`);
+  if (res.status === 200) return row({ ...BOARD_PEERING_BASE, status: "ready", detail: "Your board holds a switchboard token" });
+  const detail =
+    res.status === 0
+      ? "Your board holds a switchboard token, but rt could not reach the switchboard. Check your network"
+      : `Your board holds a switchboard token, but the switchboard answered HTTP ${res.status} to its health check`;
+  return row({ ...BOARD_PEERING_BASE, status: "error", detail, action: ACCOUNT_RECHECK_ACTION });
 }
 
 /** Same contract as accountRowForSafe: a throw fails only this row, never the rest of the group. */
-async function boardPeeringRowSafe(p: Probes, secrets: SecretPresence): Promise<Row | null> {
+async function boardPeeringRowSafe(p: Probes, secrets: SecretPresence, team: TeamSnapshot): Promise<Row | null> {
   try {
-    return await boardPeeringRow(p, secrets);
+    return await boardPeeringRow(p, secrets, team);
   } catch (err) {
     return row({ ...BOARD_PEERING_BASE, status: "error", detail: err instanceof Error ? err.message : String(err), action: ACCOUNT_RECHECK_ACTION });
   }
@@ -341,10 +340,6 @@ async function accountRowFor(p: Probes, entry: DeclaredEntry, team: TeamSnapshot
     return row({ id: `account.${id}`, kind: "account", title: id, why: "Declared by the team or a pack, but rt doesn't know this integration.", required: true, status: "error", detail: err instanceof Error ? err.message : String(err) });
   }
 
-  // Not `!def.secret`: switchboard also has no secret (RT-141) but is a plain
-  // reachability probe, not a CLI session the Tools group already tracks.
-  // It must keep entry.required, never fall into the CLI_SESSION_OPTIONAL_NOTE
-  // wording that names a tool row switchboard doesn't have.
   const cliOwned = id === "doppler" || id === "ldcli";
   const base = {
     id: `account.${id}`,
@@ -359,7 +354,6 @@ async function accountRowFor(p: Probes, entry: DeclaredEntry, team: TeamSnapshot
 
   if (id === "github") return githubRow(p, base, def, secrets, ctx, forge!);
   if (id === "slack") return slackRow(p, base, def, secrets, ctx, team);
-  if (id === "switchboard") return switchboardRow(p, base, def, ctx);
   return genericRow(p, base, def, secrets, ctx, forge);
 }
 
@@ -475,10 +469,7 @@ export async function accountRows(
     if (entry.id === "slack" && slackAppNeeded) rows.push(slackAppRow(slackAppRequired));
     rows.push(idRows[i]!);
   });
-  // A switchboard rt cannot reach yet keeps the member on its own Confirm or Re-check first.
-  const switchboard = rows.findIndex((r) => r.id === "account.switchboard");
-  if (switchboard !== -1 && rows[switchboard]!.status !== "ready") return rows;
-  const peering = await boardPeeringRowSafe(p, secrets);
-  if (peering) rows.splice(switchboard === -1 ? rows.length : switchboard + 1, 0, peering);
+  const peering = solo ? null : await boardPeeringRowSafe(p, secrets, team);
+  if (peering) rows.push(peering);
   return rows;
 }

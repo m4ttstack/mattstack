@@ -25,15 +25,16 @@ import {
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { getSetting, setSetting } from '@mattstack/rt-client';
+import {
+  getSetting,
+  listTeams,
+  setSetting,
+  switchboardUrl,
+} from '@mattstack/rt-client';
 import { loadConfig, type BoardConfig } from '../src/config.ts';
 import { readEnvFile, upsertEnvKeys } from '../src/env-file.ts';
 import { canonicalUsername } from '../src/peer/envelope.ts';
-import {
-  carrySwitchboard,
-  classifySetupAnswer,
-  redeemInvite,
-} from '../src/peer/invite.ts';
+import { classifySetupAnswer, redeemInvite } from '../src/peer/invite.ts';
 
 // Slack app credentials are NOT checked in — bring your own app (see the README
 // "Slack integration" section). The client id is public (an OAuth app
@@ -294,30 +295,16 @@ async function main() {
     }
   }
 
-  // Peer boards: one paste. An invite link joins outright; a bare URL falls back
-  // to the manual token prompt; blank keeps whatever is already configured.
-  let joined: { url: string } | null = null;
-  const existingSw = existingConfig?.switchboard;
+  // Peer boards: one paste. An invite link joins outright; blank keeps
+  // whatever is already configured.
+  const relayUrl = switchboardUrl();
   const answer = ask(
     'Board invite for peer boards (paste the link; blank keeps current settings)',
     ''
   );
-  const classified = classifySetupAnswer(answer);
+  const classified = classifySetupAnswer(answer, relayUrl);
   if (classified.kind === 'invalid') {
     console.error(classified.message);
-  } else if (classified.kind === 'manual-url') {
-    const swToken = ask(
-      'Switchboard board token (from your operator)',
-      env.SWITCHBOARD_TOKEN
-    );
-    if (swToken) {
-      env.SWITCHBOARD_TOKEN = swToken;
-      joined = { url: classified.url };
-    } else {
-      console.error(
-        'No token entered. Peer features stay disabled until SWITCHBOARD_TOKEN is set.'
-      );
-    }
   } else if (
     classified.kind === 'invite' &&
     (!defaultMember || defaultMember === 'all')
@@ -326,18 +313,21 @@ async function main() {
     // own MRs from anyone else's, so redeeming here would burn a one-time
     // invite on a board that would publish nothing.
     console.error('Peer boards need your username; set it above and re-run.');
+  } else if (classified.kind === 'invite' && listTeams().length === 0) {
+    console.error(
+      'Join a team on this Mac first, then paste the invite again.'
+    );
   } else if (classified.kind === 'invite') {
     // Redeem as late as possible (right before the .env write below) so a crash
-    // between redeem and persist cannot burn the one-time invite (spec I4).
+    // between redeem and persist cannot burn the one-time invite.
     const r = await redeemInvite(
-      classified.url,
+      relayUrl,
       classified.code,
       canonicalUsername(defaultMember),
       fetch
     );
     if (r.ok) {
       env.SWITCHBOARD_TOKEN = r.token;
-      joined = { url: classified.url };
       console.log(`Joined peer boards as ${r.username}.`);
     } else {
       console.error(`Could not join peer boards: ${r.message}`);
@@ -363,21 +353,6 @@ async function main() {
   console.log(
     'Saved your default member and review checkout to the settings store.'
   );
-
-  // Direct setSetting, not saveSwitchboardUrl: that helper's file branch
-  // requires config.json to exist, which a fresh clone with only a team
-  // store may not have. setup.ts is the migration vehicle for this
-  // developer's own settings (same reasoning as defaultMember/cwds above),
-  // so it establishes store ownership outright rather than latching.
-  const swUpdate = carrySwitchboard(existingSw, joined);
-  if ('switchboard' in swUpdate) {
-    setSetting('board.switchboardUrl', swUpdate.switchboard.url, 'machine');
-    console.log(
-      swUpdate.switchboard.url
-        ? `Switchboard url set to ${swUpdate.switchboard.url}`
-        : 'Switchboard url cleared.'
-    );
-  }
 
   installSkills();
 

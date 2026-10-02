@@ -36,20 +36,6 @@ export function nextBackoffMs(failures: number): number {
   return Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** failures);
 }
 
-/** The board token rides every call, so only https, or http to this machine. */
-export function acceptedRelayUrl(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  let u: URL;
-  try {
-    u = new URL(raw);
-  } catch {
-    return null;
-  }
-  const local = u.hostname === "localhost" || u.hostname === "127.0.0.1";
-  if (u.protocol !== "https:" && !(u.protocol === "http:" && local)) return null;
-  return raw.replace(/\/+$/, "");
-}
-
 type WaitOutcome = { kind: "ok"; woke: boolean; cursor: number } | { kind: "fail"; reason: string };
 
 function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -106,11 +92,11 @@ export function startPeerWaker(deps: PeerWakerDeps): PeerWakerHandle {
     while (!stopController.signal.aborted) {
       let base: string | null;
       try {
-        base = acceptedRelayUrl(deps.readUrl());
+        base = deps.readUrl() ?? null;
       } catch {
         base = null;
       }
-      // The token and cursor belong to one relay: a newly declared relay
+      // The token and cursor belong to one relay: a relay whose URL changed
       // must neither receive the old token nor inherit the old cursor.
       if (base && base !== boundBase) {
         boundBase = base;

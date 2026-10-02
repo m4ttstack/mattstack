@@ -14,16 +14,3 @@ export function isValidHostname(host: string): boolean {
   if (trimmed.length > 253) return false;
   return HOSTNAME_RE.test(trimmed);
 }
-
-/** A full URL, https only, with a valid hostname and no embedded credentials. */
-export function isValidHttpsUrl(url: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== "https:") return false;
-  if (parsed.username !== "" || parsed.password !== "") return false;
-  return isValidHostname(parsed.hostname);
-}

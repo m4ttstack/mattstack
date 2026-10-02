@@ -274,12 +274,13 @@ describe("teamInvite", () => {
     };
   }
 
-  function inviteDeps(overrides: { exec?: ExecScript; record?: Partial<TeamLocalRecord>; onRelay?: () => void } = {}): TeamDeps & { lines: string[]; exitCodes: number[] } {
+  function inviteDeps(overrides: { exec?: ExecScript; record?: Partial<TeamLocalRecord>; onRelay?: () => void; adminToken?: string } = {}): TeamDeps & { lines: string[]; exitCodes: number[] } {
     const probes = fakeProbes({
       home,
       files: { [join(teamDir, ".git", "config")]: GIT_CONFIG },
       exec: overrides.exec ?? ghExec(),
       fetch: (url, init) => {
+        if (url.endsWith("/boards")) return Promise.resolve({ status: 401, body: "", headers: {} });
         overrides.onRelay?.();
         return relayFetch()(url, init);
       },
@@ -287,7 +288,8 @@ describe("teamInvite", () => {
     if (overrides.record) {
       writeTeamLocal(probes, "acme", { createdByRt: false, joinedByRt: false, rtMayManageMembership: false, ...overrides.record });
     }
-    return baseDeps({ probes });
+    const deps = baseDeps({ probes });
+    return overrides.adminToken === undefined ? deps : { ...deps, mintInviteSeams: { readLocalSecret: async () => overrides.adminToken! } };
   }
 
   test("--json prints the exact contract envelope shape", async () => {
@@ -315,16 +317,8 @@ describe("teamInvite", () => {
   });
 
   describe("board peering the invite could not carry is never silent", () => {
-    function declareSwitchboard(): void {
-      writeFileSync(
-        join(teamDir, "mattstack", "settings.team.jsonc"),
-        `${JSON.stringify({ "board.title": "Acme Team", "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }, null, 2)}\n`,
-      );
-    }
-
     test("--json reports peering missing with the warning, and still mints", async () => {
-      declareSwitchboard();
-      const deps = inviteDeps();
+      const deps = inviteDeps({ adminToken: "admin-1" });
       const stderr = spyOn(console, "error").mockImplementation(() => {});
       try {
         await teamInvite(["--handle", "zaphod", "--json"], {}, deps);
@@ -339,20 +333,19 @@ describe("teamInvite", () => {
     });
 
     test("--require-peering refuses with exit 2 before the relay is touched", async () => {
-      declareSwitchboard();
       let relayCalls = 0;
-      const deps = inviteDeps({ onRelay: () => { relayCalls++; } });
+      const deps = inviteDeps({ adminToken: "admin-1", onRelay: () => { relayCalls++; } });
 
       const code = await runExpectingProcessExit(() => teamInvite(["--handle", "zaphod", "--require-peering", "--json"], {}, deps));
 
       expect(code).toBe(2);
       expect(JSON.parse(deps.lines[0]!).error.code).toBe("peering-not-embedded");
       expect(relayCalls).toBe(0);
+      expect(deps.lines).toHaveLength(1);
     });
 
     test("human mode: an invite that could not connect the board is a failure, not a refusal", async () => {
-      declareSwitchboard();
-      const deps = inviteDeps();
+      const deps = inviteDeps({ adminToken: "admin-1" });
       const io = captureOut();
       ui.__test__.setHuman(() => false);
       try {

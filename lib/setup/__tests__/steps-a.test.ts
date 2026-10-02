@@ -594,13 +594,13 @@ describe("team.join after the join itself finished", () => {
 
   /** A machine an earlier join left behind, with the stamp an older rt wrote on its local record. */
   function joinedCtx(): ApplyContext {
-    const files = { [`${TEAMS}/beta/mattstack/settings.team.jsonc`]: JSON.stringify({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }) };
+    const files = { [`${TEAMS}/beta/mattstack/settings.team.jsonc`]: "{}" };
     const p = fakeProbes({ home: "/fake-home", files, dirs: { [TEAMS]: ["beta"] } });
     p.writeFile("/fake-home/.mattstack/rt/teams/beta.json", JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, peeringPending: true }));
     return makeCtx(p, { team: { slug: "beta", name: "beta", mode: "none" } }).ctx;
   }
 
-  test("with no invite in progress the step leaves the plan, whatever an older stamp says: account.switchboard owns the peering check", () => {
+  test("with no invite in progress the step leaves the plan, whatever an older stamp says: account.board-peering owns the peering check", () => {
     expect(teamJoinStep.applies(joinedCtx())).toBe(false);
   });
 

@@ -20,8 +20,9 @@ export interface InvitePointer {
       the invitee's board on the switchboard and seals the per-board token
       here, because at join time the invitee cannot yet decrypt team secrets
       (their age key becomes a recipient only after the owner's members sync).
-      Absent when the team has no switchboard or the register failed at mint. */
-  switchboard?: { url: string; token: string };
+      Absent when the owner's Mac holds no switchboard admin token or the
+      register failed. `url` appears only in a pointer from an older rt. */
+  switchboard?: { url?: string; token: string };
 }
 
 export interface SetupIntent {

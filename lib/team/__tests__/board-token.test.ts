@@ -6,14 +6,14 @@ const HOME = "/fake-home";
 const COMPILED_ENV = `${HOME}/.mattstack/board/.env`;
 const TEAMS = `${HOME}/.mattstack/teams`;
 
-/** One team this machine joined by invite, declaring an https switchboard, so only the token sources decide the verdict. */
+/** One team this machine joined by invite, so only the token sources decide the verdict. */
 function joined(files: Record<string, string> = {}, env: Record<string, string> = {}) {
   return fakeProbes({
     home: HOME,
     env,
     dirs: { [TEAMS]: ["acme"] },
     files: {
-      [`${TEAMS}/acme/mattstack/settings.team.jsonc`]: JSON.stringify({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }),
+      [`${TEAMS}/acme/mattstack/settings.team.jsonc`]: "{}",
       [`${HOME}/.mattstack/rt/teams/acme.json`]: JSON.stringify({ joinedByRt: true }),
       ...files,
     },
@@ -21,7 +21,7 @@ function joined(files: Record<string, string> = {}, env: Record<string, string> 
 }
 
 const noSecret = async () => null;
-const verdict = (p: ReturnType<typeof fakeProbes>, extraRoots: string[] = []) => boardPeering(p, noSecret, extraRoots);
+const verdict = (p: ReturnType<typeof fakeProbes>, extraRoots: string[] = []) => boardPeering(p, noSecret, true, extraRoots);
 
 describe("boardPeering: the board's .env", () => {
   test("the compiled board's .env under ~/.mattstack/board carrying a token counts", async () => {
@@ -49,13 +49,57 @@ describe("boardPeering: the board's .env", () => {
 describe("boardPeering: rt's secret", () => {
   test("a stored switchboardToken counts when no .env has one", async () => {
     const has = async (domain: string, key: string) => (domain === "rt" && key === "switchboardToken" ? "tok-1" : null);
-    expect(await boardPeering(joined(), has, [])).toEqual({ kind: "peered" });
+    expect(await boardPeering(joined(), has, true, [])).toEqual({ kind: "peered" });
   });
 
   test("a presence check that throws is unreadable, never no token", async () => {
     const has = async () => {
       throw new Error("keychain locked");
     };
-    expect(await boardPeering(joined(), has, [])).toEqual({ kind: "unreadable", error: "keychain locked" });
+    expect(await boardPeering(joined(), has, true, [])).toEqual({ kind: "unreadable", error: "keychain locked" });
+  });
+});
+
+describe("boardPeering: which Macs it applies to", () => {
+  test("a Mac in no team is not applicable", async () => {
+    const p = fakeProbes({ home: HOME, dirs: { [TEAMS]: [] } });
+    expect(await verdict(p)).toEqual({ kind: "not-applicable" });
+  });
+
+  test("a team that tracks no board projects is not applicable", async () => {
+    const p = fakeProbes({
+      home: HOME,
+      dirs: { [TEAMS]: ["acme"] },
+      files: { [`${TEAMS}/acme/mattstack/settings.team.jsonc`]: "{}" },
+    });
+    expect(await boardPeering(p, async () => null, false, [])).toEqual({ kind: "not-applicable" });
+  });
+
+  test("a board whose legacy config.json tracks projects still applies", async () => {
+    const p = fakeProbes({
+      home: HOME,
+      dirs: { [TEAMS]: ["acme"] },
+      files: {
+        [`${TEAMS}/acme/mattstack/settings.team.jsonc`]: "{}",
+        [`${HOME}/.mattstack/board/config.json`]: JSON.stringify({ projects: ["group/app"] }),
+      },
+    });
+    expect(await boardPeering(p, async () => null, false, [])).toEqual({ kind: "unpeered", teams: ["acme"] });
+  });
+
+  test("a team created on this Mac applies too", async () => {
+    const p = fakeProbes({
+      home: HOME,
+      dirs: { [TEAMS]: ["acme"] },
+      files: {
+        [`${TEAMS}/acme/mattstack/settings.team.jsonc`]: "{}",
+        [`${HOME}/.mattstack/rt/teams/acme.json`]: JSON.stringify({ createdByRt: true, joinedByRt: false }),
+      },
+    });
+    expect(await verdict(p)).toEqual({ kind: "unpeered", teams: ["acme"] });
+  });
+
+  test("a joined team with no switchboard declaration still applies", async () => {
+    expect(await verdict(joined())).toEqual({ kind: "unpeered", teams: ["acme"] });
   });
 });

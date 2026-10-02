@@ -200,9 +200,9 @@ t "assert-installed.sh takes a backup and asserts the .age plus the LFS filter" 
   'grep -q "rt state backup init" run/guest/assert-installed.sh && grep -q "state-backups" run/guest/assert-installed.sh && grep -q "filter.lfs.process" run/guest/assert-installed.sh'
 t "assert-team.sh asserts requiredMissing is empty, naming the row + detail" bash -c \
   'grep -q "requiredMissing\[\]?" run/guest/assert-team.sh && grep -q "requiredMissing: \$id" run/guest/assert-team.sh'
-t "kitchen-sink fixture declares slack + switchboard, matching accounts.ts" bash -c \
-  'jq -e ".\"mattstack.integrations\".slack.clientId and .\"mattstack.integrations\".switchboard.url" fixtures/team-kitchen-sink/settings.team.json >/dev/null \
-   && grep -q "clientId" ../../lib/setup/validators/accounts.ts && grep -q "switchboard" ../../lib/setup/validators/accounts.ts'
+t "kitchen-sink fixture declares slack, matching accounts.ts" bash -c \
+  'jq -e ".\"mattstack.integrations\".slack.clientId and (.\"mattstack.integrations\".switchboard | not)" fixtures/team-kitchen-sink/settings.team.json >/dev/null \
+   && grep -q "clientId" ../../lib/setup/validators/accounts.ts'
 t "assert-installed.sh asserts tool.fast-browser ready and times doctor --json" bash -c \
   'grep -q "tool.fast-browser\")" run/guest/assert-installed.sh && grep -q "fastbrowser-doctor.json" run/guest/assert-installed.sh && grep -q "elapsed}s" run/guest/assert-installed.sh'
 t "assert-installed.sh asserts state.db user_version, honestly uncompared" bash -c \

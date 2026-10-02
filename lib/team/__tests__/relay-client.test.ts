@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createRelayClient, inviteRelayUrl, DEFAULT_INVITE_RELAY_URL } from "../relay-client.ts";
+import { createRelayClient } from "../relay-client.ts";
 import { generateKey, seal, sealReply } from "../invite-crypto.ts";
 import { UserActionableError } from "../../errors.ts";
 import type { InvitePointer } from "../../setup/intent.ts";
@@ -46,22 +46,6 @@ async function expectUserActionableError(promise: Promise<unknown>, code: string
 
 const BASE_URL = "https://relay.test";
 const ID_HEX = "0102030405060708090a0b0c0d0e0f10";
-
-describe("inviteRelayUrl", () => {
-  test("defaults to the switchboard host", () => {
-    expect(inviteRelayUrl({})).toBe(DEFAULT_INVITE_RELAY_URL);
-    expect(DEFAULT_INVITE_RELAY_URL).toBe("https://switchboard.mattstack.dev");
-  });
-
-  test("honors RT_INVITE_RELAY_URL", () => {
-    expect(inviteRelayUrl({ RT_INVITE_RELAY_URL: "http://localhost:9" })).toBe("http://localhost:9");
-  });
-
-  test("ignores an empty override and strips a trailing slash", () => {
-    expect(inviteRelayUrl({ RT_INVITE_RELAY_URL: "" })).toBe(DEFAULT_INVITE_RELAY_URL);
-    expect(inviteRelayUrl({ RT_INVITE_RELAY_URL: "http://localhost:9/" })).toBe("http://localhost:9");
-  });
-});
 
 describe("create", () => {
   test("POSTs JSON to /v1/invites and returns id/creatorSecret", async () => {

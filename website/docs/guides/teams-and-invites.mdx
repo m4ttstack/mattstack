@@ -37,9 +37,7 @@ The joiner opens the invite link, or pastes the code into **Join a team** in set
 - If the joiner's forge account (GitHub or GitLab) cannot see the repo, a warning names the problem and suggests asking the owner or org admin for access. The `access.team-repo` checklist row holds Install until access is resolved.
 - If access is confirmed, setup continues normally.
 
-When the team declares a switchboard, joining confirms its URL for the joiner, so the `account.switchboard` row reads ready. If this Mac already confirmed a different switchboard URL, join leaves it alone and warns; the row then offers **Confirm** with the team's URL prefilled.
-
-The invite also carries the joiner's board token. When this Mac's board ends up without one, the **Board peering** row says the board does not peer yet. It never holds up Install or Finish, but setup keeps listing it, and the setup check after an app update notifies you about it. The fix is on the owner's side: ask them to re-invite your board, with `rt team invite --handle <your forge username>` (then run `rt team join` with the new code) or from the board's members panel. The row turns ready once the token arrives.
+The invite also carries the joiner's board token. When this Mac's board ends up without one, the **Board peering** row says the board does not peer yet. It never holds up Install or Finish, but setup keeps listing it, and the setup check after an app update notifies you about it. The fix is on the owner's side: ask them to re-invite your board, with `rt team invite --handle <your forge username>` (then run `rt team join` with the new code) or from the board's members panel. The row turns ready once the token arrives. It shows only when your team runs a board, and on the Mac that created the team only when that Mac can invite its own board. It shows an error with a **Re-check** when the switchboard does not answer.
 
 ## When an invitee replies
 

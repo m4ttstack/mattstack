@@ -665,6 +665,15 @@ describe("settings/unset", () => {
     expect(after).toContain("mattstack.appPath");
   });
 
+  test("removes a stored switchboard URL an older rt wrote", () => {
+    mkdirSync(dirname(machineSettingsPath()), { recursive: true });
+    writeFileSync(machineSettingsPath(), `{\n  "board.switchboardUrl": "https://old.example.app",\n  "mattstack.appPath": "/Applications/mattstack-dev.app"\n}\n`);
+    expect(unsetSetting("board.switchboardUrl", "machine")).toBe(true);
+    const after = readFileSync(machineSettingsPath(), "utf8");
+    expect(after).not.toContain("board.switchboardUrl");
+    expect(after).toContain("mattstack.appPath");
+  });
+
   test("refuses a retired key with a repo identity", () => {
     expect(() => unsetSetting("mattstack.mode", "user", { repoIdentity: IDENTITY })).toThrow(/not repo-scoped/);
   });

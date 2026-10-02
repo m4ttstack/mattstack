@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { childEnv } from "../../subprocess.ts";
+import { switchboardUrl } from "../../../packages/rt-client/src/switchboard.ts";
 import { PEER_INBOX_EVENT, startPeerWaker, type PeerWakerDeps } from "../peer-waker.ts";
 
 const RELAY = join(import.meta.dir, "..", "..", "..", "apps", "board", "switchboard", "server.ts");
@@ -54,7 +55,7 @@ test("a publish reaches the recipient's waker in well under a second", async () 
     emit: (type) => {
       if (type === PEER_INBOX_EVENT) woke.push(Date.now());
     },
-    readUrl: () => base,
+    readUrl: () => switchboardUrl({ RT_SWITCHBOARD_URL: base }),
     readToken: async () => ada,
   });
   await Bun.sleep(150);

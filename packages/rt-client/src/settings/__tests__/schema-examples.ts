@@ -174,9 +174,9 @@ export const EXAMPLES: Record<string, Example> = {
   "rt.mcp.uploadRoots": { good: [[], ["/Users/me/Screenshots"]], bad: [{ value: ["/a", 7], path: [1] }] },
   "rt.picker.hidden": { good: [[], ["pane", "worktree provision"]], bad: [{ value: ["pane", 7], path: [1] }] },
   "rt.integrations": {
-    good: [{}, { forgeHost: "gitlab.example.com", switchboardUrl: "https://switchboard.example.com" }],
+    good: [{}, { forgeHost: "gitlab.example.com" }, { forgeHost: "gitlab.example.com", switchboardUrl: "https://switchboard.example.com" }],
     bad: [{ value: { forgeHost: 443 }, path: ["forgeHost"] }],
-    layer: [{ switchboardUrl: "https://switchboard.example.com" }],
+    layer: [{ forgeHost: "gitlab.example.com" }],
   },
   "mattstack.integrations": {
     good: [
@@ -186,9 +186,9 @@ export const EXAMPLES: Record<string, Example> = {
         forge: { host: "gitlab.example.com", provider: "gitlab" },
         linear: { teamKey: "ACME" },
         slack: { appId: "A0123", clientId: "123.456", channel: "#acme-dev", callbackPort: 53682 },
-        switchboard: { url: "https://switchboard.example.com" },
       },
       { linear: {} },
+      { switchboard: { url: "https://switchboard.example.com" } },
     ],
     bad: [
       { value: { forge: { host: "gitlab.example.com", provider: "bitbucket" } }, path: ["forge", "provider"] },

@@ -4,7 +4,7 @@ export type RowStatus = "ready" | "missing" | "invalid" | "needs-you" | "checkin
 export type RowKind = "permission" | "tool" | "account" | "access" | "info";
 export type Recheck = "on-activate" | "on-change" | "manual";
 export type GroupId = "mac" | "accounts" | "access" | "tools";
-export type Integration = "github" | "gitlab" | "linear" | "slack" | "switchboard" | "sdm" | "doppler" | "ldcli";
+export type Integration = "github" | "gitlab" | "linear" | "slack" | "sdm" | "doppler" | "ldcli";
 
 export interface ConnectField {
   name: string;

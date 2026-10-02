@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 
 import {
   getDef,
+  switchboardUrl,
   validateWrite,
   type getSetting,
   type setSetting,
@@ -17,7 +18,6 @@ import {
   loadConfigFrom,
   saveMemberHidden,
   saveRosterMembers,
-  saveSwitchboardUrl,
   saveTabs,
   type TabConfig,
 } from '../config.ts';
@@ -293,13 +293,16 @@ describe('loadConfigFrom: store values get the same normalization/validation the
     });
   });
 
-  test("a store switchboardUrl with a trailing slash strips it, same as parseSwitchboard's file-side rule", () => {
-    const p = tmpConfig();
+  test('a board.switchboardUrl an older rt left in the store is never read', () => {
+    const p = tmpConfig({
+      ...base,
+      switchboard: { url: 'https://old-file.example.app' },
+    });
     const cfg = loadConfigFrom(
       p,
-      fakeResolve({ 'board.switchboardUrl': 'https://sb.example.app/' })
+      fakeResolve({ 'board.switchboardUrl': 'https://old-store.example.app' })
     );
-    expect(cfg.switchboard.url).toBe('https://sb.example.app');
+    expect(cfg.switchboard.url).toBe(switchboardUrl());
   });
 
   test('board.defaultPack reads from the store', () => {
@@ -666,7 +669,7 @@ describe('saveMemberHidden: latch-gated writer', () => {
   });
 });
 
-describe('saveMemberHidden / saveSwitchboardUrl: config.json-free still succeeds (RULING: file-authority is meaningless with no file)', () => {
+describe('saveMemberHidden: config.json-free still succeeds', () => {
   const teamOwned = {
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['team/repo'],
@@ -674,7 +677,7 @@ describe('saveMemberHidden / saveSwitchboardUrl: config.json-free still succeeds
       { username: 'carol', hidden: true },
       { username: 'dave' },
     ],
-    // board.hiddenMembers/board.switchboardUrl deliberately absent -- unowned going in
+    // board.hiddenMembers deliberately absent -- unowned going in
   };
 
   test('saveMemberHidden with owned team keys and no config.json establishes board.hiddenMembers ownership, seeded from the resolved hidden set', () => {
@@ -725,28 +728,6 @@ describe('saveMemberHidden / saveSwitchboardUrl: config.json-free still succeeds
     expect(() =>
       saveMemberHidden('dave', true, missing, fakeResolve({}), fakeWrite([]))
     ).toThrow(/config\.json not found/);
-  });
-
-  test('saveSwitchboardUrl with owned team keys and no config.json establishes board.switchboardUrl ownership', () => {
-    const missing = join(
-      mkdtempSync(join(tmpdir(), 'board-latch-nofile-')),
-      'config.json'
-    );
-    const calls: Array<{ key: string; value: unknown; scope: string }> = [];
-    const cfg = saveSwitchboardUrl(
-      'https://sb.example.app/',
-      missing,
-      fakeResolve(teamOwned),
-      fakeWrite(calls)
-    );
-    expect(calls).toEqual([
-      {
-        key: 'board.switchboardUrl',
-        value: 'https://sb.example.app',
-        scope: 'machine',
-      },
-    ]); // slash-free, per the switchboardUrl round-trip fix
-    expect(cfg.gitlabHost).toBe('https://gitlab.example.com'); // the reload succeeded off the store alone
   });
 });
 
@@ -865,49 +846,6 @@ describe('saveMemberHidden: a store-owned roster decides the writer, not config.
       )
     ).toThrow(/unknown member "ghost"/);
     expect(calls).toEqual([]);
-  });
-});
-
-describe('saveSwitchboardUrl: latch-gated writer', () => {
-  test('unowned: writes config.json (temp-file-plus-rename), store untouched', () => {
-    const p = tmpConfig();
-    const calls: Array<{ key: string; value: unknown; scope: string }> = [];
-    const cfg = saveSwitchboardUrl(
-      'https://sb.example.app/',
-      p,
-      fakeResolve({}),
-      fakeWrite(calls)
-    );
-    expect(calls).toEqual([]);
-    expect(cfg.switchboard.url).toBe('https://sb.example.app');
-    const onDisk = JSON.parse(readFileSync(p, 'utf8'));
-    expect(onDisk.switchboard).toEqual({ url: 'https://sb.example.app/' });
-  });
-
-  test('owned: writes board.switchboardUrl (machine), config.json untouched', () => {
-    const p = tmpConfig();
-    const before = readFileSync(p, 'utf8');
-    const calls: Array<{ key: string; value: unknown; scope: string }> = [];
-    saveSwitchboardUrl(
-      'https://sb.example.app',
-      p,
-      fakeResolve({ 'board.switchboardUrl': 'https://old.example.app' }),
-      fakeWrite(calls)
-    );
-    expect(calls).toEqual([
-      {
-        key: 'board.switchboardUrl',
-        value: 'https://sb.example.app',
-        scope: 'machine',
-      },
-    ]);
-    expect(readFileSync(p, 'utf8')).toBe(before);
-    // A resolver that already reflects the write's own value proves the reload reads it back correctly.
-    const reloaded = loadConfigFrom(
-      p,
-      fakeResolve({ 'board.switchboardUrl': 'https://sb.example.app' })
-    );
-    expect(reloaded.switchboard.url).toBe('https://sb.example.app');
   });
 });
 

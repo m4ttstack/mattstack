@@ -48,8 +48,5 @@
       "approved": "white_check_mark"
     }
   },
-  "switchboard": {
-    "url": ""
-  },
   "tabs": [{ "id": "team", "label": "Team", "source": { "kind": "authors" } }]
 }

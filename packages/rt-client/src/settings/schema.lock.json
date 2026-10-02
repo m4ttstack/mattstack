@@ -746,15 +746,6 @@
             }
           },
           "additionalProperties": {}
-        },
-        "switchboard": {
-          "type": "object",
-          "properties": {
-            "url": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": {}
         }
       },
       "additionalProperties": {}
@@ -1006,9 +997,6 @@
       "type": "object",
       "properties": {
         "forgeHost": {
-          "type": "string"
-        },
-        "switchboardUrl": {
           "type": "string"
         }
       },

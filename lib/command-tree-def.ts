@@ -637,15 +637,12 @@ function integrationNode(id: string, title: string): CommandNode {
   if (id === "github") {
     connectArgs.push({ name: "Use gh", flag: "--use-gh", type: "boolean", default: false, hint: "Use the existing gh CLI session instead of a token" });
   }
-  if (id === "gitlab" || id === "switchboard") {
+  if (id === "gitlab") {
     connectArgs.push({
       name: "Host",
       flag: "--host",
       type: "text",
-      hint:
-        id === "gitlab"
-          ? "Confirm a self-hosted GitLab (e.g. gitlab.example.com) — a team-declared host is never used until you confirm it here"
-          : "Confirm your switchboard URL (e.g. https://switchboard.example.com) — a team-declared URL is never used until you confirm it here",
+      hint: "Confirm a self-hosted GitLab (e.g. gitlab.example.com). A team-declared host is never used until you confirm it here",
     });
   }
   const subcommands: Record<string, CommandNode> = {
@@ -2705,7 +2702,6 @@ export const TREE: Record<string, CommandNode> = {
       gitlab: integrationNode("gitlab", "GitLab"),
       linear: integrationNode("linear", "Linear"),
       slack: integrationNode("slack", "Slack"),
-      switchboard: integrationNode("switchboard", "Switchboard"),
       sdm: integrationNode("sdm", "StrongDM"),
       doppler: integrationNode("doppler", "Doppler"),
       ldcli: integrationNode("ldcli", "LaunchDarkly"),

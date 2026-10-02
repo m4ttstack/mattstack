@@ -28,7 +28,6 @@ export interface TeamIntegrations {
   forge?: { host: string; provider: "github" | "gitlab" };
   slack?: { appId?: string; clientId?: string; channel?: string; callbackPort?: number };
   linear?: { teamKey: string };
-  switchboard?: { url: string };
 }
 
 export interface TeamSnapshot {
@@ -38,6 +37,8 @@ export interface TeamSnapshot {
   marketplaces: string[];
   plugins: string[];
   remote: string | null;
+  /** The team's board tracks at least one project, which is what makes a board worth peering. */
+  boardProjects?: boolean;
 }
 
 /** Reads one registered setting key, degrading to `undefined` on a resolver-layer throw rather than taking the whole plan down with it. Injectable so tests never touch the real resolver/disk. */
@@ -66,10 +67,9 @@ export function parseOriginUrl(gitConfig: string): string | null {
   return match ? match[1]! : null;
 }
 
-/** `rt.integrations` (user scope) — the only source a credential fetch or a reachability probe may treat as a confirmed destination; a joined team's own declaration (`TeamSnapshot.integrations`) is shown to the user but never substitutes for this. Written by an explicit `rt setup <id> connect --host` that has re-validated the host, and, for `switchboardUrl` only and only when unset, by `rt team join` once an invite the user redeemed has stored a board token for the declared URL. */
+/** `rt.integrations` (user scope): the only source a credential fetch or a reachability probe may treat as a confirmed destination; a joined team's own declaration (`TeamSnapshot.integrations`) is shown to the user but never substitutes for this. Written by an explicit `rt setup gitlab connect --host` that has re-validated the host. */
 export interface UserIntegrationOverrides {
   forgeHost?: string;
-  switchboardUrl?: string;
 }
 
 export function readUserIntegrationOverrides(opts: { read?: SettingsReader; warn?: (message: string) => void } = {}): UserIntegrationOverrides {
@@ -92,6 +92,7 @@ export function readTeamSnapshot(p: Probes, slug: string, opts: { read?: Setting
   const tracking = read<{ repos?: Record<string, unknown> }>("mattstack.tracking");
   const marketplaces = read<unknown>("claude.marketplaces");
   const plugins = read<unknown>("claude.plugins");
+  const boardProjects = read<unknown>("board.projects");
 
   const gitConfig = p.readFile(join(p.home, ".mattstack", "teams", slug, ".git", "config"));
   const remote = gitConfig !== null ? parseOriginUrl(gitConfig) : null;
@@ -103,6 +104,7 @@ export function readTeamSnapshot(p: Probes, slug: string, opts: { read?: Setting
     marketplaces: Array.isArray(marketplaces) ? (marketplaces as string[]) : [],
     plugins: Array.isArray(plugins) ? (plugins as string[]) : [],
     remote,
+    boardProjects: Array.isArray(boardProjects) && boardProjects.length > 0,
   };
 }
 
