@@ -36,13 +36,14 @@ import { createRealProbes, readStdinJson, type Probes } from "../lib/setup/probe
 import { readTeamSnapshot, stripUserinfo, type SettingsReader } from "../lib/setup/team-settings.ts";
 import { createTeam } from "../lib/team/create.ts";
 import { extractInviteCode } from "../lib/team/invite-crypto.ts";
-import { mintInvite, type InviteResult } from "../lib/team/invite.ts";
+import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeams } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
 import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, preferredRoster, teamRemote, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
-import { createRelayClient, inviteRelayUrl } from "../lib/team/relay-client.ts";
+import { createRelayClient } from "../lib/team/relay-client.ts";
+import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { daemonQuery } from "../lib/daemon-client.ts";
 import type { TeamSnapshotEntry } from "../lib/daemon/team-snapshots.ts";
@@ -55,8 +56,10 @@ export interface TeamDeps {
   ageKeySeam?: AgeKeySeam;
   /** `json` gates the interactive TTY prompt — a machine caller must never block waiting on a terminal that isn't there. */
   readCode?: (json: boolean) => Promise<string>;
-  /** Overrides `joinRedeem`'s `read`/`readTeamSecret`/`forgeLogin`/`warn` seams — real by default, so a test never has to rely on the isolated test HOME happening to lack a switchboard config. */
+  /** Overrides `joinRedeem`'s `read`/`readTeamSecret`/`forgeLogin`/`warn` seams, real by default, so a test never has to rely on the isolated test HOME happening to lack a team switchboard admin token. */
   joinRedeemSeams?: Partial<JoinRedeemSeams>;
+  /** Overrides `mintInvite`'s seams; real by default. */
+  mintInviteSeams?: Partial<MintInviteSeams>;
   /** Overrides `teamStatus`'s `board.title`/`board.members` reads — real by default, so a test never has to seed a real settings store just to check envelope shape. */
   statusRead?: SettingsReader;
   /** The forge token rt holds for a remote's host — real store by default. */
@@ -340,8 +343,13 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
       }
     }
 
-    const relay = createRelayClient(deps.probes.fetch, inviteRelayUrl(deps.probes.env));
-    const result = await mintInvite(deps.probes, relay, { slug, handle, now: deps.probes.now(), requirePeering: args.includes("--require-peering") });
+    const relay = createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env));
+    const result = await mintInvite(
+      deps.probes,
+      relay,
+      { slug, handle, now: deps.probes.now(), requirePeering: args.includes("--require-peering") },
+      { ...realMintInviteSeams(), ...deps.mintInviteSeams },
+    );
 
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
@@ -412,7 +420,7 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
     }
 
     const code = await (deps.readCode ?? defaultReadCode)(json);
-    const relay = createRelayClient(deps.probes.fetch, inviteRelayUrl(deps.probes.env));
+    const relay = createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env));
 
     let result: JoinResult;
     if (dryRun) {
@@ -477,7 +485,7 @@ export async function teamMembersSync(args: string[], _ctx: CommandContext = {},
 
   try {
     const slug = resolveTeamSlug(args, "team members sync");
-    const relay = createRelayClient(deps.probes.fetch, inviteRelayUrl(deps.probes.env));
+    const relay = createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env));
     const secrets = createRealTeamSecretsSeams(slug);
     const result = await membersSync(deps.probes, relay, secrets, slug);
 

@@ -40,7 +40,8 @@ import {
 import { onNotification, notifyEnabled, notifyEvent, loadNotificationPrefs } from "./notifier.ts";
 import { checkInviteReplies, INVITE_REPLIES_NS, listInviteSlugs, MEMBER_JOINED_CATEGORY } from "./daemon/invite-replies.ts";
 import { readInviteRecords } from "./team/invite-records.ts";
-import { createRelayClient, inviteRelayUrl } from "./team/relay-client.ts";
+import { createRelayClient } from "./team/relay-client.ts";
+import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import { openReply } from "./team/invite-crypto.ts";
 import { base64ToKey, isValidAgePublicKey } from "./team/members.ts";
 import { hasKvValue, setKvValueCritical } from "./state/kv-blob.ts";
@@ -50,7 +51,7 @@ import { createRealProbes } from "./setup/probes.ts";
 import { runAccountsSweep, type IntegrationTarget } from "./credential-health/sweep.ts";
 import { INTEGRATIONS, type ValidateCtx } from "./setup/integrations.ts";
 import type { Integration } from "./setup/contract.ts";
-import { isValidHostname, isValidHttpsUrl } from "./setup/host-validate.ts";
+import { isValidHostname } from "./setup/host-validate.ts";
 import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "./setup/team-settings.ts";
 import { createRealAgeKeySeam } from "./home/age-key.ts";
 import { readSecret, createRealSecretsExecSeam, type SecretsSeams } from "./secrets/store.ts";
@@ -169,11 +170,6 @@ function credentialHealthCtxFor(id: Integration, team: TeamSnapshot, overrides: 
   if (id === "gitlab") {
     const declaredHost = team.integrations.forge?.provider === "gitlab" ? team.integrations.forge.host : null;
     const host = overrides.forgeHost && isValidHostname(overrides.forgeHost) ? overrides.forgeHost : null;
-    return { ...base, host, declaredHost };
-  }
-  if (id === "switchboard") {
-    const declaredHost = team.integrations.switchboard?.url ?? null;
-    const host = overrides.switchboardUrl && isValidHttpsUrl(overrides.switchboardUrl) ? overrides.switchboardUrl : null;
     return { ...base, host, declaredHost };
   }
   return { ...base, host: null };
@@ -946,7 +942,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           "invite-replies",
           async () => {
             const probes = createRealProbes();
-            const relay = createRelayClient(probes.fetch, inviteRelayUrl(probes.env));
+            const relay = createRelayClient(probes.fetch, switchboardUrl(probes.env));
             const db = getStateDb("daemon");
             const { notified } = await checkInviteReplies({
               slugs: () => listInviteSlugs(probes.home),
@@ -1121,7 +1117,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         peerWaker = startPeerWaker({
           log: peerWakerLog,
           emit,
-          readUrl: () => getSetting<string>("board.switchboardUrl").value,
+          readUrl: () => switchboardUrl(),
           readToken: () => readSwitchboardToken(),
         });
         peerWaker.done.catch((err) => peerWakerLog.warn({ err }, "peer waker stopped unexpectedly"));

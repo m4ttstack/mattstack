@@ -16,7 +16,8 @@ import { logCliEvent } from "../lib/cli-logger.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { computeUninstallActions, runUninstall, type UninstallAction } from "../lib/setup/uninstall.ts";
-import { createRelayClient, inviteRelayUrl, type RelayClient } from "../lib/team/relay-client.ts";
+import { createRelayClient, type RelayClient } from "../lib/team/relay-client.ts";
+import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import * as out from "../lib/ui/out.ts";
 import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
 
@@ -41,7 +42,7 @@ export function realUninstallDeps(): UninstallDeps {
   return {
     probes,
     secrets: { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
-    relay: createRelayClient(probes.fetch, inviteRelayUrl(probes.env)),
+    relay: createRelayClient(probes.fetch, switchboardUrl(probes.env)),
     json: (v) => out.json(v),
     exit: process.exit,
     isTTY: () => process.stdin.isTTY === true,

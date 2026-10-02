@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { acceptedRelayUrl, nextBackoffMs, PEER_INBOX_EVENT, startPeerWaker, type PeerWakerDeps } from "../peer-waker.ts";
+import { nextBackoffMs, PEER_INBOX_EVENT, startPeerWaker, type PeerWakerDeps } from "../peer-waker.ts";
 
 type Reply = { status: number; body?: unknown } | "network" | "hang";
 
@@ -131,12 +131,6 @@ describe("peer waker", () => {
     expect(h.emitted).toEqual([{ type: PEER_INBOX_EVENT, data: { cursor: 9 } }]);
   });
 
-  test("never fetches a plain-http relay that is not this machine", async () => {
-    const h = harness([], { readUrl: () => "http://relay.example" });
-    await h.done;
-    expect(h.urls).toEqual([]);
-  });
-
   test("a readUrl that throws counts as unpeered", async () => {
     const h = harness([], {
       readUrl: () => {
@@ -193,14 +187,5 @@ describe("peer waker", () => {
 describe("helpers", () => {
   test("nextBackoffMs doubles from 1s and caps at 60s", () => {
     expect([0, 1, 2, 3, 4, 5, 6, 7].map(nextBackoffMs)).toEqual([1000, 2000, 4000, 8000, 16000, 32000, 60000, 60000]);
-  });
-
-  test("acceptedRelayUrl takes https anywhere and http only on this machine", () => {
-    expect(acceptedRelayUrl("https://relay.example/")).toBe("https://relay.example");
-    expect(acceptedRelayUrl("http://127.0.0.1:7940")).toBe("http://127.0.0.1:7940");
-    expect(acceptedRelayUrl("http://localhost:7940")).toBe("http://localhost:7940");
-    expect(acceptedRelayUrl("http://relay.example")).toBeNull();
-    expect(acceptedRelayUrl("not a url")).toBeNull();
-    expect(acceptedRelayUrl(undefined)).toBeNull();
   });
 });

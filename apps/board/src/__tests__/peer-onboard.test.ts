@@ -81,6 +81,8 @@ describe('joinSwitchboard', () => {
     for (const dm of ['', 'all']) {
       const r = await joinSwitchboard('https://x/invite/' + 'a'.repeat(32), {
         defaultMember: dm,
+        relayUrl: 'https://x',
+        inTeam: () => true,
         persist: () => {},
         startPeering: () => {},
         fetchFn: f,
@@ -94,6 +96,8 @@ describe('joinSwitchboard', () => {
   test('unparseable invite is 400 with the parse message', async () => {
     const r = await joinSwitchboard('garbage', {
       defaultMember: 'grace',
+      relayUrl: 'https://x',
+      inTeam: () => true,
       persist: () => {},
       startPeering: () => {},
       fetchFn: goodFetch,
@@ -107,7 +111,9 @@ describe('joinSwitchboard', () => {
       'https://sb.example.app/invite/' + 'a'.repeat(32),
       {
         defaultMember: 'Grace', // canonicalized before redeem
-        persist: (url, token) => calls.push(`persist:${url}:${token}`),
+        relayUrl: 'https://sb.example.app',
+        inTeam: () => true,
+        persist: token => calls.push(`persist:${token}`),
         startPeering: (url, token) => calls.push(`start:${url}:${token}`),
         fetchFn: fakeFetch((url, init) => {
           expect(JSON.parse(String(init?.body)).username).toBe('grace');
@@ -116,10 +122,7 @@ describe('joinSwitchboard', () => {
       }
     );
     expect(r.status).toBe(200);
-    expect(calls).toEqual([
-      'persist:https://sb.example.app:tok',
-      'start:https://sb.example.app:tok',
-    ]);
+    expect(calls).toEqual(['persist:tok', 'start:https://sb.example.app:tok']);
   });
 
   test('mismatch surfaces the relay body verbatim as 409 and persists nothing', async () => {
@@ -132,6 +135,8 @@ describe('joinSwitchboard', () => {
     let persisted = false;
     const r = await joinSwitchboard('https://x/invite/' + 'a'.repeat(32), {
       defaultMember: 'bob',
+      relayUrl: 'https://x',
+      inTeam: () => true,
       persist: () => {
         persisted = true;
       },
@@ -146,6 +151,8 @@ describe('joinSwitchboard', () => {
   test('persist failure after redeem answers 500 with the re-invite recovery copy', async () => {
     const r = await joinSwitchboard('https://x/invite/' + 'a'.repeat(32), {
       defaultMember: 'grace',
+      relayUrl: 'https://x',
+      inTeam: () => true,
       persist: () => {
         throw new Error('disk');
       },
@@ -156,6 +163,67 @@ describe('joinSwitchboard', () => {
     });
     expect(r.status).toBe(500);
     expect(r.body).toContain('re-invite');
+  });
+
+  test('an invite on another host is refused before any network call, with nothing persisted or started', async () => {
+    let fetched = 0;
+    const calls: string[] = [];
+    const r = await joinSwitchboard(
+      'https://evil.example.app/invite/' + 'a'.repeat(32),
+      {
+        defaultMember: 'grace',
+        relayUrl: 'https://sb.example.app',
+        inTeam: () => true,
+        persist: token => calls.push(`persist:${token}`),
+        startPeering: () => calls.push('start'),
+        fetchFn: fakeFetch(() => (fetched++, Response.json({ token: 'tok' }))),
+      }
+    );
+    expect(r.status).toBe(400);
+    expect(r.body).toContain('https://sb.example.app');
+    expect(fetched).toBe(0);
+    expect(calls).toEqual([]);
+  });
+
+  test('redeem goes to the switchboard, never to a path the invite carried', async () => {
+    const urls: string[] = [];
+    await joinSwitchboard(
+      'https://sb.example.app/extra/invite/' + 'a'.repeat(32),
+      {
+        defaultMember: 'grace',
+        relayUrl: 'https://sb.example.app',
+        inTeam: () => true,
+        persist: () => {},
+        startPeering: () => {},
+        fetchFn: fakeFetch(
+          url => (
+            urls.push(url),
+            Response.json({ username: 'grace', token: 'tok' })
+          )
+        ),
+      }
+    );
+    expect(urls).toEqual(['https://sb.example.app/invites/redeem']);
+  });
+
+  test('a Mac in no team is refused before any network call, with nothing persisted or started', async () => {
+    let fetched = 0;
+    const calls: string[] = [];
+    const r = await joinSwitchboard(
+      'https://sb.example.app/invite/' + 'a'.repeat(32),
+      {
+        defaultMember: 'grace',
+        relayUrl: 'https://sb.example.app',
+        inTeam: () => false,
+        persist: token => calls.push(`persist:${token}`),
+        startPeering: () => calls.push('start'),
+        fetchFn: fakeFetch(() => (fetched++, Response.json({ token: 'tok' }))),
+      }
+    );
+    expect(r.status).toBe(400);
+    expect(r.body).toContain('team');
+    expect(fetched).toBe(0);
+    expect(calls).toEqual([]);
   });
 });
 

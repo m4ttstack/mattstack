@@ -16,7 +16,6 @@
 
 import type { ConnectField, Integration } from "./contract.ts";
 import { UserActionableError } from "../errors.ts";
-import { isValidHttpsUrl } from "./host-validate.ts";
 import type { Probes } from "./probes.ts";
 import { interpretSdmStatus } from "../sdm/core.ts";
 import { tokenField } from "./token-create.ts";
@@ -34,8 +33,6 @@ export interface ValidateCtx {
    * -integration meaning, normalized (trailing slash stripped) before use:
    *  - gitlab: a bare hostname, e.g. "gitlab.example.com" (defaults to
    *    "gitlab.com" when null) — validate() prefixes `https://`.
-   *  - switchboard: a full https URL, e.g. "https://switchboard.example.com";
-   *    validate() appends `/healthz` directly.
    *  - github/linear/slack/sdm/doppler/ldcli: ignored (fixed API host, or
    *    no network call at all).
    */
@@ -268,39 +265,6 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
       if (data.ok === true) return { status: "ready", detail: `Connected to ${data.team ?? "an unnamed workspace"}`, scopesSeen: parseHeaderList(res.headers["x-oauth-scopes"]) };
       if (res.status !== 200) return { status: "error", detail: `Slack answered HTTP ${res.status} to the sign-in check`, scopesSeen: [] };
       return { status: "invalid", detail: data.error ? `Slack returned an error: ${data.error}` : "Slack did not accept this token", scopesSeen: [] };
-    },
-  },
-
-  switchboard: {
-    id: "switchboard",
-    title: "Switchboard",
-    why: () => "Lets rt reach your team's switchboard service.",
-    // RT-141: the deployed service has no route rt can authenticate a bearer
-    // against... /health falls through to per-board token auth and 404s past
-    // it, so no value rt could hold here would ever pass. There is nothing
-    // to connect: /healthz is public.
-    fields: [],
-    async validate(p, _token, ctx) {
-      if (!ctx.host) {
-        // Same rule as gitlab: a team-declared URL is shown, never fetched
-        // against, until the user confirms it themselves via `connect --host`.
-        // "error" (never "invalid"): nothing was rejected — rt chose not to ask.
-        if (ctx.declaredHost) {
-          return {
-            status: "error",
-            detail: `Your team's switchboard is at ${ctx.declaredHost}. Run rt setup switchboard connect --host ${ctx.declaredHost} to confirm that address`,
-            scopesSeen: [],
-          };
-        }
-        return { status: "invalid", detail: "No switchboard address set", scopesSeen: [] };
-      }
-      if (!isValidHttpsUrl(ctx.host)) return { status: "invalid", detail: `The switchboard address ${ctx.host} must be a valid https URL`, scopesSeen: [] };
-      const base = stripTrailingSlash(ctx.host);
-      const res = await p.fetch(`${base}/healthz`);
-      if (res.status === 0) return { status: "error", detail: unreachableDetail(base), scopesSeen: [] };
-      // Never "invalid": there is no credential here to have been rejected.
-      if (res.status !== 200) return { status: "error", detail: `The switchboard answered HTTP ${res.status} to its health check`, scopesSeen: [] };
-      return { status: "ready", detail: "Switchboard reachable", scopesSeen: [] };
     },
   },
 

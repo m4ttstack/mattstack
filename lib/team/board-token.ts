@@ -4,41 +4,47 @@
  * writes only there, so rt checks the same files before the secret.
  */
 
-import { parse } from "jsonc-parser";
 import { join, resolve } from "path";
-import { isValidHttpsUrl } from "../setup/host-validate.ts";
 import type { Probes } from "../setup/probes.ts";
-import { discoverTeams, readTeamSnapshot } from "../setup/team-settings.ts";
+import { discoverTeams } from "../setup/team-settings.ts";
 import { isCompiledRt } from "../rt-self.ts";
-import { readTeamLocal } from "./team-local.ts";
 
-const TOKEN_LINE = /^[ \t]*(?:export[ \t]+)?SWITCHBOARD_TOKEN[ \t]*=[ \t]*["']?([^"'\s#]+)/m;
+function envLine(key: string): RegExp {
+  return new RegExp(`^[ \\t]*(?:export[ \\t]+)?${key}[ \\t]*=[ \\t]*["']?([^"'\\s#]+)`, "m");
+}
 
 /** Mirrors apps/board/src/app-root.ts: BOARD_APP_ROOT wins, the compiled board lives under ~/.mattstack/board. */
-function boardRoots(p: Pick<Probes, "home" | "env">, extraRoots: string[]): string[] {
+export function boardRoots(p: Pick<Probes, "home" | "env">, extraRoots: string[]): string[] {
   const override = p.env.BOARD_APP_ROOT;
   return [...(override ? [resolve(override)] : []), join(p.home, ".mattstack", "board"), ...extraRoots];
 }
 
 /** A dev-mode board runs from this same checkout, so an rt running from source also checks the checkout's board. */
-function sourceBoardRoots(): string[] {
+export function sourceBoardRoots(): string[] {
   return isCompiledRt() ? [] : [join(import.meta.dir, "..", "..", "apps", "board")];
 }
 
-function boardEnvHasSwitchboardToken(p: Pick<Probes, "home" | "env" | "readFile">, extraRoots: string[]): boolean {
+/** Whether any board root's .env sets `key`; the board loads that file into its own environment. */
+export function boardEnvHas(p: Pick<Probes, "home" | "env" | "readFile">, key: string, extraRoots: string[] = sourceBoardRoots()): boolean {
+  const line = envLine(key);
   return boardRoots(p, extraRoots).some((root) => {
     const raw = p.readFile(join(root, ".env"));
-    return raw !== null && TOKEN_LINE.test(raw);
+    return raw !== null && line.test(raw);
   });
 }
 
-/** Reads the one team's own store, never the resolver's multi-team overlay, so each team is judged by its own declaration. */
-function declaresHttpsSwitchboard(p: Probes, slug: string): boolean {
-  const raw = p.readFile(join(p.home, ".mattstack", "teams", slug, "mattstack", "settings.team.jsonc"));
-  const parsed: unknown = raw === null ? undefined : parse(raw, [], { allowTrailingComma: true });
-  const store = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
-  const url = readTeamSnapshot(p, slug, { read: <T>(key: string) => store[key] as T | undefined, warn: () => {} }).integrations.switchboard?.url;
-  return !!url && isValidHttpsUrl(url);
+/** The board falls back to its legacy config.json's projects when the team declares none, so a board configured there runs too. */
+function legacyConfigTracksProjects(p: Pick<Probes, "home" | "env" | "readFile">, extraRoots: string[]): boolean {
+  return boardRoots(p, extraRoots).some((root) => {
+    const raw = p.readFile(join(root, "config.json"));
+    if (raw === null) return false;
+    try {
+      const projects = (JSON.parse(raw) as { projects?: unknown }).projects;
+      return Array.isArray(projects) && projects.length > 0;
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Asks only whether a secret exists, the way the setup plan's presence check does; it may throw when the store cannot answer. */
@@ -47,16 +53,17 @@ export type SecretPresenceCheck = (domain: string, key: string) => Promise<strin
 export type BoardPeering = { kind: "not-applicable" } | { kind: "peered" } | { kind: "unpeered"; teams: string[] } | { kind: "unreadable"; error: string };
 
 /**
- * Whether a team this machine joined by invite expects its board to peer with
- * an https switchboard while neither token source holds a token. A creator's
- * machine, or a team with no usable switchboard, has nothing a re-invite could
- * fix. Only presence is asked of the secrets store, and a store that cannot
+ * Whether this Mac is in a team (created or joined) and runs a board (the
+ * team or the board's legacy config tracks projects) while neither token
+ * source holds a token.
+ * Only presence is asked of the secrets store, and a store that cannot
  * answer is reported as such, never read as no token.
  */
-export async function boardPeering(p: Probes, has: SecretPresenceCheck, extraRoots: string[] = sourceBoardRoots()): Promise<BoardPeering> {
-  const teams = discoverTeams(p).filter((slug) => readTeamLocal(p, slug).joinedByRt && declaresHttpsSwitchboard(p, slug));
+export async function boardPeering(p: Probes, has: SecretPresenceCheck, teamTracksProjects: boolean, extraRoots: string[] = sourceBoardRoots()): Promise<BoardPeering> {
+  const teams = discoverTeams(p);
   if (teams.length === 0) return { kind: "not-applicable" };
-  if (boardEnvHasSwitchboardToken(p, extraRoots)) return { kind: "peered" };
+  if (!teamTracksProjects && !legacyConfigTracksProjects(p, extraRoots)) return { kind: "not-applicable" };
+  if (boardEnvHas(p, "SWITCHBOARD_TOKEN", extraRoots)) return { kind: "peered" };
   try {
     return (await has("rt", "switchboardToken")) === null ? { kind: "unpeered", teams } : { kind: "peered" };
   } catch (err) {

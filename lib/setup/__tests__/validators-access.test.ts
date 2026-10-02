@@ -454,58 +454,6 @@ describe("accessRows — access.repo.<slug>", () => {
   });
 });
 
-describe("accessRows — access.switchboard", () => {
-  test("no switchboard configured -> row absent entirely", async () => {
-    const rows = await accessRows(fakeProbes(), baseTeam(), null);
-    expect(rows.some((r) => r.id === "access.switchboard")).toBe(false);
-  });
-
-  test("a confirmed URL with a trailing slash probes /healthz, not //healthz", async () => {
-    const team = baseTeam({ integrations: { switchboard: { url: "https://sw.example.com" } } });
-    const calledUrls: string[] = [];
-    const fetch = async (url: string) => {
-      calledUrls.push(url);
-      return { status: 200, body: "", headers: {} };
-    };
-    const r = await pickRow(accessRows(fakeProbes({ fetch }), team, null, { switchboardUrl: "https://sw.example.com/" }), "access.switchboard");
-    expect(calledUrls).toEqual(["https://sw.example.com/healthz"]);
-    expect(r.status).toBe("ready");
-  });
-
-  test("configured, user-confirmed, /healthz 200 -> ready, required false", async () => {
-    const team = baseTeam({ integrations: { switchboard: { url: "https://sw.example.com" } } });
-    const fetch = async (url: string) => (url === "https://sw.example.com/healthz" ? { status: 200, body: "", headers: {} } : { status: 0, body: "", headers: {} });
-    const r = await pickRow(accessRows(fakeProbes({ fetch }), team, null, { switchboardUrl: "https://sw.example.com" }), "access.switchboard");
-    expect(r.status).toBe("ready");
-    expect(r.required).toBe(false);
-  });
-
-  test("configured, user-confirmed, /health status 0 (unreachable) -> error, distinct detail from a non-200 refusal", async () => {
-    const team = baseTeam({ integrations: { switchboard: { url: "https://sw.example.com" } } });
-    const fetch = async () => ({ status: 0, body: "", headers: {} });
-    const r = await pickRow(accessRows(fakeProbes({ fetch }), team, null, { switchboardUrl: "https://sw.example.com" }), "access.switchboard");
-    expect(r.status).toBe("error");
-    expect(r.detail).toContain("Could not reach");
-  });
-
-  test("configured, user-confirmed, /healthz non-200 -> error, distinct detail from the unreachable case", async () => {
-    const team = baseTeam({ integrations: { switchboard: { url: "https://sw.example.com" } } });
-    const fetch = async () => ({ status: 503, body: "", headers: {} });
-    const r = await pickRow(accessRows(fakeProbes({ fetch }), team, null, { switchboardUrl: "https://sw.example.com" }), "access.switchboard");
-    expect(r.status).toBe("error");
-    expect(r.detail).toBe("The switchboard answered HTTP 503 to its health check");
-  });
-
-  test("team-declared switchboard, NOT user-confirmed -> needs-you, never fetched (R-F2)", async () => {
-    const team = baseTeam({ integrations: { switchboard: { url: "https://sw.example.com" } } });
-    const p = fakeProbes();
-    const r = await pickRow(accessRows(p, team, null), "access.switchboard");
-    expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("Confirm that address");
-    expect(p.calls.fetch).toEqual([]);
-  });
-});
-
 describe("accessRows on solo", () => {
   test("no rows at all, whatever the snapshot says", async () => {
     const rows = await accessRows(fakeProbes(), baseTeam({ remote: REMOTE, trackingIdentities: ["github.com/acme/x"] }), null, {}, undefined, true);
@@ -514,10 +462,10 @@ describe("accessRows on solo", () => {
 });
 
 describe("accessRows — independent probes run concurrently (R-T9-e)", () => {
-  test("row order is deterministic (team-repo, forge, repo.*, switchboard) regardless of which probe resolves first", async () => {
+  test("row order is deterministic (team-repo, forge, repo.*) regardless of which probe resolves first", async () => {
     const team = baseTeam({
       remote: REMOTE,
-      integrations: { forge: { host: "gitlab.example.com", provider: "gitlab" }, switchboard: { url: "https://sw.example.com" } },
+      integrations: { forge: { host: "gitlab.example.com", provider: "gitlab" } },
       trackingIdentities: ["github.com/acme/repo"],
     });
     // team-repo's exec resolves slower than the repo.* row's exec — Promise.all must still land them in declaration order, not resolution order.
@@ -527,6 +475,6 @@ describe("accessRows — independent probes run concurrently (R-T9-e)", () => {
     };
     const fetch = async () => ({ status: 200, body: "", headers: {} });
     const rows = await accessRows(fakeProbes({ exec, fetch }), team, null);
-    expect(rows.map((r) => r.id)).toEqual(["access.team-repo", "access.forge", "access.repo.github.com-acme-repo", "access.switchboard"]);
+    expect(rows.map((r) => r.id)).toEqual(["access.team-repo", "access.forge", "access.repo.github.com-acme-repo"]);
   });
 });

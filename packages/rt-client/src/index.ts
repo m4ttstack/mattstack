@@ -2,6 +2,7 @@ export { rtCommand, DEFAULT_SOCK } from "./transport.ts";
 export type { RtResponse, RtClientOptions } from "./transport.ts";
 export { guardTestDaemonEnv } from "./test-isolation.ts";
 export { redactCredentials } from "./redact.ts";
+export { SWITCHBOARD_URL, switchboardUrl } from "./switchboard.ts";
 
 export {
   readProjectMRs,

@@ -6,6 +6,7 @@ import { teamJoin, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import { encodeCode, seal } from "../../lib/team/invite-crypto.ts";
+import { SWITCHBOARD_URL } from "../../packages/rt-client/src/switchboard.ts";
 import type { JoinRedeemSeams } from "../../lib/team/join.ts";
 import type { InvitePointer } from "../../lib/setup/intent.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
@@ -64,8 +65,6 @@ function fakeJoinRedeemSeams(overrides: Partial<JoinRedeemSeams> = {}): JoinRede
     forgeToken: async () => null,
     localStoreReady: async () => true,
     writeLocalSecret: async () => {},
-    writeMachineSetting: () => {},
-    writeUserSetting: () => {},
     warn: () => {},
     ...overrides,
   };
@@ -279,14 +278,14 @@ describe("teamJoin", () => {
     expect(body.contract).toBe(1);
     expect(body.team).toEqual({ slug: "acme", name: "Acme", owner: "matt" });
     expect(body.access).toBe("ok");
-    expect(body.peering).toBe("idle"); // no switchboard.url configured in this test's joinRedeemSeams.read
+    expect(body.peering).toBe("idle"); // no admin token in this test's team secrets
     expect(body.message).toBe("Joined Acme, owned by matt.");
 
     const dir = pathJoin(HOME, ".mattstack", "teams", "acme");
     expect(probes.calls.exec).toContainEqual(["git", "clone", REMOTE, dir]);
   });
 
-  test("redeem: switchboard url + admin token, explicitly faked via TeamDeps — peering applied", async () => {
+  test("redeem: an admin token in the team's secrets, explicitly faked via TeamDeps, peering applied", async () => {
     const fetchCalls: string[] = [];
     const probes = fakeProbes({
       home: HOME,
@@ -301,7 +300,6 @@ describe("teamJoin", () => {
     const deps = baseDeps({
       probes,
       joinRedeemSeams: fakeJoinRedeemSeams({
-        read: fakeRead({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }),
         readTeamSecret: async () => "admin-token",
         writeLocalSecret: async (key, value) => {
           secretWrites.push({ key, value });
@@ -313,7 +311,7 @@ describe("teamJoin", () => {
 
     const body = JSON.parse(deps.lines[0]!);
     expect(body.peering).toBe("applied");
-    expect(fetchCalls).toContain("https://sb.test/boards");
+    expect(fetchCalls).toContain(`${SWITCHBOARD_URL}/boards`);
     expect(secretWrites).toEqual([{ key: "switchboardToken", value: "tok-1" }]);
   });
 
@@ -375,7 +373,6 @@ describe("teamJoin", () => {
     const deps = baseDeps({
       probes,
       joinRedeemSeams: fakeJoinRedeemSeams({
-        read: fakeRead({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }),
         readTeamSecret: async () => "admin-token",
         writeLocalSecret: async () => {
           throw new Error("sops: no matching creation rules");

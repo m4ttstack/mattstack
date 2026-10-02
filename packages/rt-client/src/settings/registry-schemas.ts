@@ -143,13 +143,12 @@ export const SCHEMAS = {
   "rt.trustedBrowserOrigins": z.array(z.string()),
   "rt.mcp.uploadRoots": z.array(z.string()),
   "rt.picker.hidden": z.array(z.string()),
-  "rt.integrations": z.looseObject({ forgeHost: z.string().optional(), switchboardUrl: z.string().optional() }),
+  "rt.integrations": z.looseObject({ forgeHost: z.string().optional() }),
   "mattstack.integrations": z.looseObject({
     // A team scaffolded from a remote rt does not recognize as a forge stores forge: null.
     forge: z.looseObject({ host: z.string(), provider: z.enum(["github", "gitlab"]) }).nullable().optional(),
     linear: z.looseObject({ teamKey: z.string().optional() }).optional(),
     slack: z.looseObject({ clientId: z.string().optional(), appId: z.string().optional(), channel: z.string().optional(), callbackPort: z.number().optional() }).optional(),
-    switchboard: z.looseObject({ url: z.string().optional() }).optional(),
   }),
   "mattstack.tracking": z.looseObject({ repos: z.record(z.string(), z.looseObject({ caches: z.array(z.string()).optional() })).optional() }),
   "setup.waived": z.array(z.string()),

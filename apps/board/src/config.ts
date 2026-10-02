@@ -6,6 +6,7 @@ import {
   identityFromRemote,
   serializeIdentity,
   setSetting,
+  switchboardUrl,
   type RepoIdentity,
 } from '@mattstack/rt-client';
 import { APP_ROOT } from './app-root.ts';
@@ -217,8 +218,8 @@ export interface BoardConfig {
   /** config.json's explicit project → remote entries, the only input to rtRepos that is not derived. */
   rtRepoOverrides: Record<string, string>;
   slack: SlackConfig;
-  /** Peer-boards relay. Empty url disables every peer feature (publish, poll,
-      nudge endpoint) cleanly. Token comes from SWITCHBOARD_TOKEN, not config. */
+  /** Peer-boards relay: always the built-in switchboard. The token comes from
+      SWITCHBOARD_TOKEN or the rt daemon, never config. */
   switchboard: SwitchboardBoardConfig;
   /** Board tabs, in display order. Absent in config.json/store = IMPLICIT_TABS. */
   tabs: TabConfig[];
@@ -364,7 +365,7 @@ export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
     }
   }
   const slack = parseSlack(cfg.slack, source);
-  const switchboard = parseSwitchboard(cfg.switchboard, source);
+  const switchboard: SwitchboardBoardConfig = { url: switchboardUrl() };
   const tabs = parseTabs(cfg.tabs, source);
   const rtRepos =
     cfg.rtRepos &&
@@ -483,49 +484,6 @@ export function parseTabs(raw: unknown, source: string): TabConfig[] {
       ...(t.pack !== undefined ? { pack: t.pack } : {}),
     };
   });
-}
-
-/** Shared with saveSwitchboardUrl's owned-branch write, so a trailing slash
-    never lands in the store either — peer/onboard.ts builds `${url}/invites`
-    verbatim, and a stored slash would double up into `//invites`. */
-function stripTrailingSlash(url: string): string {
-  return url.replace(/\/+$/, '');
-}
-
-function parseSwitchboard(
-  raw: unknown,
-  source: string
-): SwitchboardBoardConfig {
-  if (raw === undefined || raw === null) return { url: '' };
-  if (typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new Error(`${source} "switchboard" must be an object`);
-  }
-  const s = raw as Partial<SwitchboardBoardConfig>;
-  if (s.url !== undefined && typeof s.url !== 'string') {
-    throw new Error(`${source} "switchboard.url" must be a string`);
-  }
-  const url = stripTrailingSlash(s.url ?? '');
-  // Every relay call carries a bearer token, so a deployed relay must be
-  // https; plain http stays legal only for a loopback relay in development.
-  if (url.startsWith('http://')) {
-    let host = '';
-    try {
-      host = new URL(url).hostname;
-    } catch {
-      // fall through: an unparseable http url is rejected below
-    }
-    const local =
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host === '[::1]' ||
-      host === '::1';
-    if (!local) {
-      throw new Error(
-        `${source} "switchboard.url" must be https (tokens travel on every call); http is allowed only for localhost`
-      );
-    }
-  }
-  return { url };
 }
 
 function parseSlack(raw: unknown, source: string): SlackConfig {
@@ -712,7 +670,7 @@ function rosterFromStore(
  *
  * The store is a raw value straight off getSetting — unlike fileConfig, it
  * never went through parseConfig's normalization (ticketPrefixes' trim
- * +uppercase, switchboard's trailing-slash strip, slack's DEFAULT_SLACK fill
+ * +uppercase, slack's DEFAULT_SLACK fill
  * for an unset field, member/defaultMember shape checks). Building `merged`
  * and then round-tripping it through parseConfig — same move loadTriageConfig
  * makes with parseTriageBlock over a store value — applies that normalization
@@ -722,7 +680,7 @@ function rosterFromStore(
  * The round trip passes a store-level `source` label (not per-field
  * attribution): `merged` blends fields independently sourced from the store
  * or `fileConfig` field-by-field, and parseConfig's ~20 throw sites cover
- * both top-level and nested (slack.*, switchboard.*) paths, so precise
+ * both top-level and nested (slack.*) paths, so precise
  * per-field attribution would mean threading a lookup (not a string) through
  * every nested parser here — judged not worth it since ANY thrown error
  * post-migration is far more likely to trace back to the store than a
@@ -790,11 +748,6 @@ function withBoardStoreFallback(
     // Explicit entries only: the reparse below validates gitlabHost/projects
     // and derives the full map from them.
     rtRepos: fileConfig.rtRepoOverrides,
-    switchboard: {
-      url:
-        storeValue('board.switchboardUrl', resolve) ??
-        fileConfig.switchboard.url,
-    },
     tabs: storeValue('board.tabs', resolve) ?? fileConfig.tabs,
   };
 
@@ -1131,52 +1084,6 @@ function seedAndWriteHiddenOverlay(
   write('board.hiddenMembers', next, 'user');
 }
 
-function isSwitchboardUrlOwned(resolve: GetSettingFn): boolean {
-  try {
-    return resolve<unknown>('board.switchboardUrl').value !== undefined;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Persist switchboard.url and return the reload. Unowned: config.json (temp-
- * file-plus-rename, as before — a crashed write must not half-eat the
- * operator's config) — UNLESS config.json doesn't exist at all (RULING:
- * file-authority is meaningless with no file), in which case this establishes
- * store ownership outright instead of raw-ENOENT-ing, same move as
- * saveMemberHidden's config.json-free branch. Owned: `board.switchboardUrl`
- * (the machine store) instead, config.json untouched. Every branch is exactly
- * one write, like saveMemberHidden. A non-ENOENT file-read failure (malformed
- * JSON) still surfaces loudly, same as today.
- */
-export function saveSwitchboardUrl(
-  url: string,
-  path: string = CONFIG_PATH,
-  resolve: GetSettingFn = getSetting,
-  write: SetSettingFn = setSetting
-): BoardConfig {
-  if (isSwitchboardUrlOwned(resolve)) {
-    write('board.switchboardUrl', stripTrailingSlash(url), 'machine');
-  } else {
-    let raw: Record<string, unknown> | undefined;
-    try {
-      raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
-    } catch (err) {
-      if (!isEnoent(err)) throw err;
-    }
-    if (raw === undefined) {
-      write('board.switchboardUrl', stripTrailingSlash(url), 'machine');
-    } else {
-      raw.switchboard = { url };
-      const text = JSON.stringify(raw, null, 2) + '\n';
-      writeFileSync(path + '.tmp', text);
-      renameSync(path + '.tmp', path);
-    }
-  }
-  return loadConfigFrom(path, resolve);
-}
-
 /** Every board secrets loader below shares this one call: env-first, then
     the rt daemon's token-gated `secrets:read` (scope "board"). `deps` exists
     only for tests -- production callers take the default (real api-token
@@ -1212,8 +1119,8 @@ export async function loadSlackToken(
   return (await boardSecrets(deps)).slackToken ?? null;
 }
 
-/** Switchboard board token. Optional: without it (or without switchboard.url)
-    the board runs exactly as before, with all peer features disabled. */
+/** Switchboard board token. Optional: without it the board runs exactly as
+    before, with all peer features disabled. */
 export async function loadSwitchboardToken(
   deps?: BoardSecretsDeps
 ): Promise<string | null> {

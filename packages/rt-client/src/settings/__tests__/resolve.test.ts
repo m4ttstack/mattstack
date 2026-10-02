@@ -441,6 +441,16 @@ describe("settings/resolve", () => {
       expect(() => getSetting("mattstack.mode")).toThrow(/unknown setting/);
     });
 
+    test("a switchboard URL an older rt stored is retired: neither listed nor warned about", () => {
+      writeMachine({ "board.switchboardUrl": "https://old.example.app" });
+
+      const listed = listSettings();
+
+      expect(listed.find((e) => e.key === "board.switchboardUrl")).toBeUndefined();
+      expect(warnSpy.mock.calls.some((c) => String(c[0]).includes("board.switchboardUrl"))).toBe(false);
+      expect(() => getSetting("board.switchboardUrl")).toThrow(/unknown setting/);
+    });
+
     test("a type-invalid value skips only its own scope; weaker scopes still apply", () => {
       writeTeam(TEAM, { "rt.intercepts": [{ id: "team" }] });
       writeUser({ "rt.intercepts": { not: "an array" } }); // rt.intercepts is type array

@@ -341,7 +341,6 @@ describe("settings/registry", () => {
         "board.agent.effort",
         "board.cwds",
         "board.triageMaxConcurrent",
-        "board.switchboardUrl",
         "boxscore.projects",
         "boxscore.linearDoneStates",
         "boxscore.sizeBand",
@@ -389,7 +388,7 @@ describe("settings/registry", () => {
         "herd.watchdog.midRunTrustAccept",
         "panes.relocationAutoAccept",
       ];
-      expect(suiteKeys).toHaveLength(82);
+      expect(suiteKeys).toHaveLength(81);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
