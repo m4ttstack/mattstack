@@ -126,7 +126,8 @@ def skipped_errs($values): [
     chk("restore:\(.id)" as $v | $values | index([$v]) != null; "skipped[\($i)].id: matches no option value of this question")
   )),
   ([entries("skipped")[] | .id?] as $ids
-    | ($values[] | select(. as $v | ($ids | map("restore:\(.)")) | index([$v]) == null) | "option \(.): no skipped entry carries its value"))
+    | ($values[] | select(. as $v | ($ids | map("restore:\(.)")) | index([$v]) == null) | "option \(.): no skipped entry carries its value"),
+      ($ids | group_by(.) | map(select(length > 1) | .[0])[] | "skipped: id \(.) appears more than once"))
 ];
 def shape_errs($where; $allowed; $values):
   if type != "object" then ["\($where): context must be an object"]

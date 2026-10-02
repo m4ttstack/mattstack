@@ -102,9 +102,15 @@ Result: counts posted, discussion ids replied to and resolved, `approved`,
 the reviewer state GitLab reports, the summary note id, `mrUrl`.
 
 Failure before publish deletes the pending comments this call created, so
-the MR shows nothing. A publish that times out is settled by listing pending
-comments: empty means it landed, otherwise they are deleted and the call
-fails.
+the MR shows nothing. A publish GitLab refuses before acting (400, 401,
+403, 404, 422) posted nothing: the pending comments are deleted and the
+call says so. Any other publish failure (a timeout, a 5xx, a dropped
+connection) is settled by listing pending comments: empty means it landed;
+otherwise GitLab may still have created some or all of the notes, because
+it creates every note before it deletes the drafts, so the leftovers are
+deleted and the call fails saying the outcome is unknown and to look at
+the MR before retrying. A publish that left only some of this call's
+drafts reports how many of how many posted.
 
 Layers:
 
