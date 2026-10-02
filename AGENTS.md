@@ -376,7 +376,9 @@ turns it into such a warning passes `err.next` as the copy's `next`.
 terminal is frozen. Every verb writes the text it always wrote through
 `out.payload` (`say` in `commands/chat.ts`) and its `--json` through
 `out.json`, and `commands/__tests__/fixtures/chat-bytes.json` pins the bytes;
-never regenerate that fixture to make a change pass. Only `rooms`, `read`,
+never regenerate that fixture to make a change pass. Chat's `--json`
+envelopes carry the daemon's words and are not reworded, unlike the
+envelope sentences above. Only `rooms`, `read`,
 `who`, `buddies`, `sign-in` and `--help` draw blocks, and only when
 `out.isHuman()` says a person is at the terminal (`show`). Chat failures are
 ordinary `failure` blocks on stderr; where chat declines on purpose (a long
