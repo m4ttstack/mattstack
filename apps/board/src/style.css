@@ -866,17 +866,6 @@ body {
      vertical-align), which a flex item cannot express directly. */
   transform: translateY(2.5px);
 }
-/* The row tools (ticket, copy) ride the status line's right end. Centered,
-   not baseline-aligned: an icon-only box has no text baseline, so under the
-   line's baseline alignment its bottom edge would push the verb down the
-   moment the tools appear. */
-.tui-status-tools {
-  display: inline-flex;
-  align-items: center;
-  align-self: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
 /* The copy tool is a verb in icon form, so it wears the verb's box: nothing
    at rest, the same tint under the pointer, the same corner. */
 .tui-copy-inline {
@@ -1016,26 +1005,11 @@ body {
   font-size: 0.66rem;
   color: var(--text-4);
 }
-/* In-flow tools take the auto margin and the verbs give theirs up, so the
-   verb keeps its corner and the tools stack to its left. Coarse pointers
-   have no hover, so they get this at rest. */
-.tui-status-tools {
-  margin-left: auto;
-  padding-left: 16px;
-}
-/* The tools wear the verb's box, so one gap runs the whole group: the 6px
-   that separates two verbs separates the last tool from the first verb. */
-.tui-status-tools + .tui-status-verbs {
-  margin-left: 0;
-  padding-left: 6px;
-}
-/* Under a pointer, secondary verbs and the tools wait out of sight at rest
-   but never out of the tab order: clipped to a point, not display: none,
-   so focus-within can reveal them for keyboard users. Clipped tools are out
-   of flow, so the verbs hold the auto margin until the reveal. */
+/* Under a pointer, secondary verbs wait out of sight at rest but never out
+   of the tab order: clipped to a point, not display: none, so focus-within
+   can reveal them for keyboard users. */
 @media (hover: hover) {
-  .tui-status-verb[data-secondary],
-  .tui-status-tools {
+  .tui-status-verb[data-secondary] {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -1043,21 +1017,12 @@ body {
     clip-path: inset(50%);
     white-space: nowrap;
   }
-  .tui-status-tools + .tui-status-verbs {
-    margin-left: auto;
-    padding-left: 16px;
-  }
-  .tui-row:is(:hover, :focus-within) .tui-status-verb[data-secondary],
-  .tui-row:is(:hover, :focus-within) .tui-status-tools {
+  .tui-row:is(:hover, :focus-within) .tui-status-verb[data-secondary] {
     position: static;
     width: auto;
     height: auto;
     overflow: visible;
     clip-path: none;
-  }
-  .tui-row:is(:hover, :focus-within) .tui-status-tools + .tui-status-verbs {
-    margin-left: 0;
-    padding-left: 6px;
   }
 }
 

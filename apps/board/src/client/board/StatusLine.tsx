@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Badge, Tooltip } from '@mattstack/tui-kit';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
@@ -102,15 +102,10 @@ export function StatusLine({
   mr,
   status,
   ctx,
-  tools,
 }: {
   mr: BoardMRWithReview;
   status: RowStatus;
   ctx: RowContext;
-  /** Row utilities that are verbs too (open the ticket, copy for Slack):
-      they ride the status line's right end, left of the verbs so the verb
-      never moves when they appear, and show only under the pointer. */
-  tools?: ReactNode;
 }) {
   const { line, more } = status;
   // Merge is the one irreversible verb: the first click arms it, the second
@@ -160,7 +155,6 @@ export function StatusLine({
           +{more.length} active
         </span>
       )}
-      {tools && <span className="tui-status-tools">{tools}</span>}
       {verbs.length > 0 && (
         <span className="tui-status-verbs">
           {ordered(verbs).map(({ verb, primary }) => {
