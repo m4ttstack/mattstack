@@ -7,6 +7,7 @@ import { Database } from 'bun:sqlite';
 import { parseDraftEnvelope } from '../src/peer/envelope.ts';
 import { ENVELOPE_TTL_MS, SwitchboardStore } from './store.ts';
 import { makeTeamInviteHandler, TeamInviteStore } from './team-invites.ts';
+import { InboxWaiters, MAX_WAIT_SECONDS } from './waiters.ts';
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -24,9 +25,14 @@ export function makeFetchHandler(
   store: SwitchboardStore,
   adminToken: string,
   now: () => number,
-  teamInvites: TeamInviteStore
+  teamInvites: TeamInviteStore,
+  waiters: InboxWaiters = new InboxWaiters()
 ) {
   const teamInviteRoutes = makeTeamInviteHandler(teamInvites, now);
+  // Strictly increasing so a waker's cursor (`received_at > since`) can never
+  // skip a second envelope stamped in the same millisecond.
+  let lastStamp = 0;
+  const stamp = () => (lastStamp = Math.max(now(), lastStamp + 1));
   return async (req: Request): Promise<Response> => {
     const { pathname } = new URL(req.url);
     if (pathname === '/healthz') return new Response('ok');
@@ -170,8 +176,15 @@ export function makeFetchHandler(
           'expected a DraftEnvelope { id, to, type, sentAt, payload }',
           { status: 400 }
         );
-      const result = store.publish(username, draft, now());
+      const at = stamp();
+      const result = store.publish(username, draft, at);
       if (!result.ok) return json(422, { error: result.error });
+      waiters.wake(
+        draft.to === '*'
+          ? waiters.boards().filter(u => u !== username)
+          : [draft.to],
+        at
+      );
       return json(201, { ok: true, delivered: result.delivered });
     }
 
@@ -179,6 +192,35 @@ export function makeFetchHandler(
       if (req.method === 'GET')
         return json(200, { envelopes: store.inbox(username) });
       return new Response('method not allowed', { status: 405 });
+    }
+
+    if (pathname === '/inbox/wait') {
+      if (req.method !== 'GET')
+        return new Response('method not allowed', { status: 405 });
+      const params = new URL(req.url).searchParams;
+      const since = Number(params.get('since') ?? '0');
+      const timeout = Number(params.get('timeout') ?? String(MAX_WAIT_SECONDS));
+      if (
+        !Number.isFinite(since) ||
+        !Number.isFinite(timeout) ||
+        timeout < 0
+      )
+        return new Response('expected numeric since and timeout', {
+          status: 400,
+        });
+      const pending = store.newestAfter(username, since);
+      if (pending !== null) return json(200, { woke: true, cursor: pending });
+      const woke = await waiters.wait(
+        username,
+        Math.min(timeout, MAX_WAIT_SECONDS) * 1000,
+        req.signal
+      );
+      return json(
+        200,
+        woke === null
+          ? { woke: false, cursor: since }
+          : { woke: true, cursor: woke }
+      );
     }
 
     if (pathname === '/inbox/ack') {
@@ -214,14 +256,17 @@ if (import.meta.main) {
   const db = new Database(dbPath);
   const store = new SwitchboardStore(db);
   const teamInvites = new TeamInviteStore(db);
-  const port = Number(process.env.PORT) || 7940;
+  const port = process.env.PORT !== undefined ? Number(process.env.PORT) : 7940;
+  // Bun closes a request idle for idleTimeout seconds (default 10), which
+  // would cut every /inbox/wait held up to MAX_WAIT_SECONDS.
   setInterval(() => {
     store.prune(Date.now(), ENVELOPE_TTL_MS);
     teamInvites.prune(Date.now());
   }, 60 * 60_000);
-  Bun.serve({
+  const server = Bun.serve({
     port,
+    idleTimeout: MAX_WAIT_SECONDS + 15,
     fetch: makeFetchHandler(store, adminToken, Date.now, teamInvites),
   });
-  console.log(`switchboard listening on :${port} (db: ${dbPath})`);
+  console.log(`switchboard listening on :${server.port} (db: ${dbPath})`);
 }
