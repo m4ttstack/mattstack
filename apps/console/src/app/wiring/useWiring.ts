@@ -247,8 +247,8 @@ export function useAnatomy(pack: string | null, skill: string | null) {
 /** `retry: false` because the confined source route's 404 is final. Swept by
     `invalidateSkillsQueries`: discard and sync rewrite files in place under
     the same path. */
-function skillSourceQuery(pack: string | null, path: string | null) {
-  return {
+export function useSkillSource(pack: string | null, path: string | null) {
+  return useQuery({
     queryKey: ['skills', 'source', pack, path],
     queryFn: async () => {
       const res = await client.api.skills.source.$get({
@@ -256,24 +256,9 @@ function skillSourceQuery(pack: string | null, path: string | null) {
       });
       return readOrThrow<SkillsSource>(res, 'skills source');
     },
-    retry: false,
-  } as const;
-}
-
-export function useSkillSource(pack: string | null, path: string | null) {
-  return useQuery({
-    ...skillSourceQuery(pack, path),
     enabled: pack !== null && path !== null,
+    retry: false,
   });
-}
-
-/** The same file `useSkillSource` reads, for an action that needs it once. */
-export function fetchSkillSource(
-  queryClient: QueryClient,
-  pack: string,
-  path: string
-): Promise<SkillsSource> {
-  return queryClient.fetchQuery(skillSourceQuery(pack, path));
 }
 
 /** Feeds the unsynced-changes banner. A failed poll means "unknown", so the

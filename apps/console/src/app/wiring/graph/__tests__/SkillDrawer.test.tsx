@@ -6,12 +6,14 @@ import {
 } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { designFixture, designSource } from './designFixtures';
 
 const anatomyGet = vi.fn();
 const sourceGet = vi.fn();
+const compileGet = vi.fn();
 
 vi.mock('../../../api', () => ({
   client: {
@@ -40,6 +42,7 @@ vi.mock('../../../api', () => ({
           $get: () => Promise.resolve(ok(designFixture('changes.clean'))),
         },
         source: { $get: (...args: unknown[]) => sourceGet(...args) },
+        compile: { $get: (...args: unknown[]) => compileGet(...args) },
         surface: {
           $get: () =>
             Promise.resolve(
@@ -99,6 +102,11 @@ function mockDesignPack(stagePlan = designFixture('anatomy.stage-plan')) {
   );
   sourceGet.mockImplementation(({ query }: { query: { path: string } }) =>
     Promise.resolve(ok(designSource(query.path)))
+  );
+  compileGet.mockResolvedValue(
+    ok({
+      content: designSource('/fixture/packs/acme/skills/work/SKILL.md').content,
+    })
   );
 }
 
@@ -254,6 +262,26 @@ describe('SkillDrawer', () => {
     expect(params().get('focus')).toBe('stage-plan');
   });
 
+  it('keeps its keys for the menu while the menu is open', async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&focus=stage-plan&select=row:140');
+    const user = userEvent.setup();
+
+    await user.click(within(await drawer()).getByTestId('drawer-menu'));
+    await screen.findByRole('menu');
+
+    await user.keyboard('{ArrowDown}');
+    expect(params().get('select')).toBe('row:140');
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    expect(params().get('select')).toBe('row:140');
+    expect(screen.getByTestId('skill-drawer')).toBeInTheDocument();
+
+    await user.keyboard('{ArrowDown}');
+    await waitFor(() => expect(params().get('select')).toBe('row:141'));
+  });
+
   it('leaves Open in editor off an engine file, which is the installed copy', async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=pipeline:feature&select=row:1');
@@ -261,8 +289,9 @@ describe('SkillDrawer', () => {
     fireEvent.click(within(await drawer()).getByTestId('drawer-menu'));
 
     expect(await screen.findByText('Copy path')).toBeInTheDocument();
-    expect(screen.getByText('Copy rendered text')).toBeInTheDocument();
-    expect(screen.queryByText('Open in editor')).toBeNull();
+    expect(
+      screen.getAllByRole('menuitem').map(item => item.textContent)
+    ).toEqual(['Copy rendered text', 'Copy path']);
   });
 
   it('opens a file in the pack checkout in the editor', async () => {
@@ -278,42 +307,37 @@ describe('SkillDrawer', () => {
     );
   });
 
-  it('copies the path and the rendered text', async () => {
+  it('copies the path', async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=pipeline:feature&select=row:1');
-    const menu = within(await drawer()).getByTestId('drawer-menu');
 
-    fireEvent.click(menu);
+    fireEvent.click(within(await drawer()).getByTestId('drawer-menu'));
     fireEvent.click(await screen.findByText('Copy path'));
+
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith(
         '/fixture/mattstack/attachments/pipeline/work/SKILL.md'
       )
     );
-
-    fireEvent.click(menu);
-    fireEvent.click(await screen.findByText('Copy rendered text'));
-    await waitFor(() =>
-      expect(writeText).toHaveBeenLastCalledWith(
-        designSource('/fixture/packs/acme/skills/work/SKILL.md').content
-      )
-    );
   });
 
-  it('copies the agent context of a verb from its rendered seams', async () => {
+  it('copies the rendered text as the agent context of a compile preview', async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=pipeline:feature&select=row:1');
 
     fireEvent.click(within(await drawer()).getByTestId('drawer-menu'));
-    fireEvent.click(await screen.findByText('Copy agent context'));
+    fireEvent.click(await screen.findByText('Copy rendered text'));
 
     await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(compileGet).toHaveBeenCalledWith({
+      query: { pack: 'acme', verb: 'work' },
+    });
     const blob = writeText.mock.calls.at(-1)![0] as string;
     expect(blob).toMatch(/^Verb: work\nEngine: mattstack:work/);
     expect(blob).toContain('Seams:');
   });
 
-  it('ends an input card source line with the file own line count', async () => {
+  it("ends an input card source line with the file's own line count", async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=stage-plan&select=input:include:gate-protocol');
 

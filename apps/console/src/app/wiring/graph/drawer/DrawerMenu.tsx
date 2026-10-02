@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEditorHref } from '../../../editorHref';
 import { buildAgentContext } from '../../agentContext';
 import { splitCompiledBody } from '../../parseSeam';
-import { fetchSkillSource, useCompositionSnapshot } from '../../useWiring';
+import { fetchCompilePreview, useCompositionSnapshot } from '../../useWiring';
 import classes from './drawer.module.css';
 
 async function copy(read: () => Promise<string>, what: string) {
@@ -18,18 +18,21 @@ async function copy(read: () => Promise<string>, what: string) {
   }
 }
 
-/** The drawer's actions on the file it shows and the skill it belongs to. */
+/** The drawer's actions on the file it shows and the skill it belongs to.
+    Its open state is the drawer's, so the drawer's keys stand down while
+    the menu has them. */
 export function DrawerMenu({
   pack,
   skill,
   filePath,
-  renderedPath,
+  opened,
+  onChange,
 }: {
   pack: string;
   skill: string;
   filePath: string;
-  /** The skill's compiled file, or null when it has never been compiled. */
-  renderedPath: string | null;
+  opened: boolean;
+  onChange: (opened: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   const editorHref = useEditorHref();
@@ -41,13 +44,24 @@ export function DrawerMenu({
     composition?.packDir != null &&
     filePath.startsWith(`${composition.packDir}/`);
 
-  const compiledBody = async () => {
-    if (!renderedPath) throw new Error('it has never been compiled');
-    return (await fetchSkillSource(queryClient, pack, renderedPath)).content;
+  // From the compile preview rather than the file on disk, so a stale or
+  // never-compiled skill copies what a compile would produce now.
+  const renderedText = async () => {
+    if (!verb) throw new Error(`${skill} is not a verb`);
+    const preview = await fetchCompilePreview(queryClient, pack, verb.name);
+    return buildAgentContext({
+      verb,
+      seams: splitCompiledBody(preview.content).map(section => section.seam),
+    });
   };
 
   return (
-    <Menu position="bottom-end" withinPortal>
+    <Menu
+      position="bottom-end"
+      withinPortal
+      opened={opened}
+      onChange={onChange}
+    >
       <Menu.Target>
         <ActionIcon
           variant="soft-outline"
@@ -61,31 +75,12 @@ export function DrawerMenu({
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>
-        {renderedPath && (
+        {verb && (
           <Menu.Item
             leftSection={<Icon name="copy" size={14} />}
-            onClick={() => void copy(compiledBody, 'the rendered text')}
+            onClick={() => void copy(renderedText, 'the rendered text')}
           >
             Copy rendered text
-          </Menu.Item>
-        )}
-        {renderedPath && verb && (
-          <Menu.Item
-            leftSection={<Icon name="copy" size={14} />}
-            onClick={() =>
-              void copy(
-                async () =>
-                  buildAgentContext({
-                    verb,
-                    seams: splitCompiledBody(await compiledBody()).map(
-                      section => section.seam
-                    ),
-                  }),
-                'agent context'
-              )
-            }
-          >
-            Copy agent context
           </Menu.Item>
         )}
         <Menu.Item

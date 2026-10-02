@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Badge,
   Box,
@@ -30,6 +30,8 @@ export const DRAWER_WIDTH = 600;
 
 const MUTED = 'var(--tk-text-3)';
 const BODY = 'var(--tk-text-1)';
+
+const MENU = '[role="menu"]';
 
 const VIEW_LABEL: Record<WiringView, string> = {
   template: 'Template',
@@ -115,25 +117,23 @@ export function SkillDrawer({
   const content = useLastPresent(current);
   const opened = current !== null;
   const close = () => setUrl({ select: null, rebind: false });
+  const [menuOpened, setMenuOpened] = useState(false);
 
+  const step = (by: -1 | 1) => {
+    const select = steppedRow(target, view, by);
+    if (select) setUrl({ select });
+  };
+  // The menu closes on its own Escape before that key reaches the document,
+  // so a key from inside the menu is the menu's even once it has shut.
+  const drawerKey = (run: () => void) => (event: KeyboardEvent) => {
+    if (!(event.target instanceof Element && event.target.closest(MENU))) run();
+  };
   useHotkeys(
-    opened
+    opened && !menuOpened
       ? [
-          ['Escape', close],
-          [
-            'ArrowUp',
-            () => {
-              const select = steppedRow(target, view, -1);
-              if (select) setUrl({ select });
-            },
-          ],
-          [
-            'ArrowDown',
-            () => {
-              const select = steppedRow(target, view, 1);
-              if (select) setUrl({ select });
-            },
-          ],
+          ['Escape', drawerKey(close)],
+          ['ArrowUp', drawerKey(() => step(-1))],
+          ['ArrowDown', drawerKey(() => step(1))],
         ]
       : []
   );
@@ -237,9 +237,8 @@ export function SkillDrawer({
             pack={pack}
             skill={anatomy.skill}
             filePath={content.filePath}
-            renderedPath={
-              anatomy.rendered.exists ? anatomy.rendered.path : null
-            }
+            opened={menuOpened}
+            onChange={setMenuOpened}
           />
           <CloseButton
             onClick={close}
