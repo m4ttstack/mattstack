@@ -50,7 +50,7 @@ const HISTORY = {
   truncated: false,
   commits: [
     commit('ed24bc4', 'pack: restamp self-referential fills at 0.4.11'),
-    commit('17f8273', 'pack: 0.4.11 — compiled verbs carry run-DB state'),
+    commit('17f8273', 'pack: 0.4.11, compiled verbs carry run-DB state'),
     commit('d1c512c', 'pack: restamp at the registered 0.4.10 install'),
   ],
   runtime: { dirtyFiles: [], moreDirtyFiles: false, packVersion: '0.4.11' },
@@ -85,8 +85,6 @@ const SLOTS = [
     fillSourcePath:
       '/Users/matt/.claude/plugins/cache/acme/demo/0.4.11/attachments/watch-ci-domain/SKILL.md',
     fill: null,
-    siteCount: 1,
-    inlined: true,
     layer: null,
   },
 ];
@@ -202,7 +200,7 @@ describe('VersionTimeline: two kinds of truth, two regions', () => {
     await openedHistory();
 
     expect(screen.getByTestId('version-timeline')).toHaveTextContent(
-      'Right now — this machine, not history'
+      'Right now, on this machine, not history'
     );
   });
 
@@ -273,7 +271,7 @@ describe('VersionTimeline: the history region', () => {
     expect(row).toHaveTextContent('2 days ago');
     expect(row).toHaveTextContent('compiled verbs carry run-DB state');
     expect(screen.getByTestId('history-count')).toHaveTextContent(
-      'History — 3 of 20 requested'
+      'History: 3 of 20 requested'
     );
   });
 

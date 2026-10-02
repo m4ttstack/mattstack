@@ -504,7 +504,8 @@ body {
  * surface and the chrome reads flat.
  *
  * `!important` for the same reason as the grid above: the kit sets these
- * backgrounds as inline styles.
+ * backgrounds as inline styles. A Sidebar given its own `bg` carries
+ * `data-own-surface` and keeps that surface, as Content does above.
  */
 .mantine-AppShell-header,
 .mantine-AppShell-navbar {
@@ -512,6 +513,6 @@ body {
 }
 
 #page-shell-header,
-#page-shell-sidebar {
+#page-shell-sidebar:not([data-own-surface]) {
   background-color: var(--tk-card) !important;
 }

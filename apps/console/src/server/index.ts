@@ -2,6 +2,7 @@ import { serveMattstackApp } from '@mattstack/app-server';
 
 import pkg from '../../package.json' with { type: 'json' };
 import { installConsoleBridgeRule } from './event-bridge';
+import { fixtureMode } from './fixtures/design/fixtureRt';
 import { routes } from './routes';
 
 const PORT = 11011;
@@ -23,8 +24,11 @@ await serveMattstackApp({
 // Fire-and-forget: awaits a deck round trip, so this must not block boot.
 // Any failure (deck down, a stale rt-client without the setting key yet,
 // or a settings read/write refusal) is logged once and otherwise ignored.
-void installConsoleBridgeRule().catch(err =>
-  console.error(
-    `gate bridge-rule reconcile skipped: ${err instanceof Error ? err.message : err}`
-  )
-);
+// A design-fixture server writes no settings.
+if (!fixtureMode(process.env)) {
+  void installConsoleBridgeRule().catch(err =>
+    console.error(
+      `gate bridge-rule reconcile skipped: ${err instanceof Error ? err.message : err}`
+    )
+  );
+}

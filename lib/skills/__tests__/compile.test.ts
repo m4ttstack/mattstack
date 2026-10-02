@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { compileSkill } from "../compile.ts";
+import type { TraceEntry } from "../placeholders.ts";
 import type { AttachmentSource, CompiledFile, StepSource, VerbDef } from "../types.ts";
 
 /** The sibling-reference lint reads the working tree, so its cases need a real pack root on disk. */
@@ -782,5 +783,20 @@ describe("compileSkill with placeholders", () => {
         verbSides: { work: "skills", "watch-ci": "skills" },
       }),
     ).toThrow("{{pack.path:work/SKILL.md}} -- work is a compiled verb; pack.path names source files only");
+  });
+
+  test("trace entries map onto the rendered SKILL.md after the step marker", () => {
+    const entries: TraceEntry[] = [];
+    const include: AttachmentSource = { ...domainFill, binding: "mattstack:x", provides: "", body: "included line", extraFiles: [] };
+    const result = compileSkill(verb, { ...slotless, body: "first line\n{{include:x}}\nlast line" }, {}, new Set(), {
+      includes: { x: include },
+      trace: (e) => entries.push(e),
+    });
+    const lines = skillMd(result).split("\n");
+    const marker = lines.findIndex((l) => l.startsWith("<!-- part: step "));
+    const bodyOffset = marker + 2;
+    const last = entries.at(-1)!;
+    expect(lines[bodyOffset + last.outStart]).toBe("last line");
+    expect(lines[bodyOffset + entries[1]!.outStart]!.startsWith("<!-- part: include:x ")).toBe(true);
   });
 });

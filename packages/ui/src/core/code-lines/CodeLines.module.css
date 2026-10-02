@@ -1,0 +1,119 @@
+/* Dimensions sit in :where() so a caller's classNames override them at any
+   specificity. The row height does not: the virtualizer's estimate is 19. */
+
+.row {
+  display: flex;
+  align-items: center;
+  height: 19px;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: var(--mantine-font-size-xs);
+  line-height: var(--mantine-line-height-xs);
+}
+
+/* A line longer than the viewport scrolls sideways; every row grows to the
+   longest line's width so a highlight covers the whole scroll width. */
+:where(.row) {
+  min-width: max-content;
+}
+
+.row[data-highlighted] {
+  background-color: var(--mantine-color-accent-light);
+}
+
+.gutter {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: none;
+  border-right: 2px solid transparent;
+  user-select: none;
+}
+
+:where(.gutter) {
+  width: 8rem;
+  padding: 0 var(--mantine-spacing-xs);
+}
+
+.gutter[data-tone='accent'] {
+  border-right-color: var(--mantine-color-accent-filled);
+}
+
+.gutterLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tk-text-3);
+}
+
+.gutter[data-tone='accent'] .gutterLabel {
+  color: var(--mantine-color-accent-text);
+}
+
+.numberCell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  align-self: stretch;
+  flex: none;
+  user-select: none;
+}
+
+:where(.numberCell) {
+  box-sizing: content-box;
+  min-width: var(--code-lines-digits);
+  padding: 0 var(--mantine-spacing-sm);
+}
+
+.number {
+  color: var(--tk-text-3);
+}
+
+.code {
+  white-space: pre;
+  color: var(--mantine-color-text);
+}
+
+:where(.code) {
+  min-width: calc(var(--code-lines-longest) * 1ch);
+  padding-right: var(--mantine-spacing-md);
+}
+
+.code[data-muted] {
+  color: var(--tk-text-3);
+}
+
+.code[data-tinted] {
+  color: var(--mantine-color-accent-text);
+}
+
+.root[data-variant='wash'] .row[data-highlighted] {
+  background-color: color-mix(
+    in srgb,
+    var(--mantine-color-accent-filled) var(--ui-wash),
+    transparent
+  );
+}
+
+.root[data-variant='wash'] .row[data-highlighted] .number {
+  color: var(--mantine-color-accent-text);
+}
+
+.root[data-variant='wash'] .code {
+  color: var(--tk-text-3);
+}
+
+.root[data-variant='wash'] .row[data-highlighted] .code {
+  color: var(--tk-text-1);
+}
+
+.root[data-variant='wash'] .row .code[data-muted] {
+  color: var(--tk-text-3);
+}
+
+.root[data-variant='wash'] .row .code[data-tinted] {
+  color: var(--mantine-color-accent-text);
+}
+
+.root[data-variant='wash'] .gutter[data-tone='muted'] {
+  border-right-color: var(--tk-line-2);
+}

@@ -1,0 +1,14 @@
+{
+  "packs": [
+    {
+      "name": "acme",
+      "dir": "/fixture/packs/acme",
+      "layout": "grouped"
+    },
+    {
+      "name": "globex",
+      "dir": "/fixture/packs/globex",
+      "layout": "flat"
+    }
+  ]
+}

@@ -19,7 +19,12 @@ import classes from '../PageShell.module.css';
 export interface PageShellSidebarProps {
   /** Content, or a render prop receiving the computed available height. */
   children: React.ReactNode | ((height: string) => React.ReactNode);
-  /** Surface override; defaults to the shell's shared surface (bg.level2). */
+  /**
+   * Surface override; defaults to the shell's shared surface (bg.level2).
+   *
+   * An explicit surface marks the rail `data-own-surface`, which a theme
+   * that paints the sidebar (Tokyo's card surface) reads as "leave it".
+   */
   bg?: BoxProps['bg'];
   /**
    * Extra props for the sidebar's inner ScrollArea (desktop rail only).
@@ -107,6 +112,7 @@ export const Sidebar = ({
       side="left"
       pos="relative"
       id="page-shell-sidebar"
+      data-own-surface={bgProp !== undefined || undefined}
       opened={sidebarOpen}
       width={sidebarWidth}
       bg={bgProp ?? bg}

@@ -171,21 +171,32 @@ function stageFields(meta: NonNullable<PlaceholderContext["stageMeta"]>): string
 
 export type Used = { slots: string[]; includes: string[]; packPaths: string[] };
 
+export type TraceEntry = {
+  templateIndex: number;
+  outStart: number;
+  outCount: number;
+  placeholders: { kind: string; arg: string | null }[];
+};
+
+function placeholdersIn(line: string): { kind: string; arg: string | null }[] {
+  return [...line.matchAll(PLACEHOLDER_RE)].map((m) => ({ kind: m[1]!, arg: m[2] ?? null }));
+}
+
 const HEADING_RE = /^#{1,6}\s/;
 const SLOT_LINE_RE = /^\{\{slot:([^}\s]+)\}\}$/;
 
 /**
  * A heading whose only content would have been an unbound slot: the slot's
- * name and the index of the last line to drop with it (the slot line, or the
- * one blank line after it), or null when the heading stays.
+ * name, the slot line's index, and the index of the last line to drop with it
+ * (the slot line, or the one blank line after it), or null when the heading stays.
  */
-function emptySlotAfter(lines: string[], heading: number, fills: PlaceholderContext["fills"]): { slot: string; end: number } | null {
+function emptySlotAfter(lines: string[], heading: number, fills: PlaceholderContext["fills"]): { slot: string; end: number; line: number } | null {
   let j = heading + 1;
   while (j < lines.length && lines[j]!.trim() === "") j++;
   const slot = lines[j]?.trim().match(SLOT_LINE_RE)?.[1];
   if (!slot || !(slot in fills) || fills[slot] !== null) return null;
   const end = j + 1 < lines.length && lines[j + 1]!.trim() === "" ? j + 1 : j;
-  return { slot, end };
+  return { slot, end, line: j };
 }
 
 // Global-regex `.replace` resets `lastIndex` per call, so PLACEHOLDER_RE is safe to share with findPlaceholders.
@@ -232,11 +243,17 @@ function substituteLine(line: string, i: number, ctx: PlaceholderContext, where:
   });
 }
 
-export function substitute(body: string, ctx: PlaceholderContext, where: string): { body: string; used: Used } {
+export function substitute(
+  body: string,
+  ctx: PlaceholderContext,
+  where: string,
+  trace?: (entry: TraceEntry) => void,
+): { body: string; used: Used } {
   const used: Used = { slots: [], includes: [], packPaths: [] };
   const lines = body.split("\n");
   const out: string[] = [];
   let inFence = false;
+  let outLines = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
@@ -245,11 +262,18 @@ export function substitute(body: string, ctx: PlaceholderContext, where: string)
       const empty = emptySlotAfter(lines, i, ctx.fills);
       if (empty) {
         used.slots.push(empty.slot);
+        for (let k = i; k <= empty.end; k++) {
+          trace?.({ templateIndex: k, outStart: outLines, outCount: 0, placeholders: k === empty.line ? [{ kind: "slot", arg: empty.slot }] : [] });
+        }
         i = empty.end;
         continue;
       }
     }
-    out.push(substituteLine(line, i, ctx, where, used));
+    const rendered = substituteLine(line, i, ctx, where, used);
+    const outCount = rendered.split("\n").length;
+    trace?.({ templateIndex: i, outStart: outLines, outCount, placeholders: placeholdersIn(line) });
+    outLines += outCount;
+    out.push(rendered);
   }
 
   return { body: out.join("\n"), used };

@@ -95,10 +95,13 @@ that meets the need:
 Colour comes from the theme, so every app looks alike: on a kit
 component, colour is chosen only through the `color` and `variant`
 props, never set as a value (`style`, `styles`, `classNames`, `--tk-*`
-or `--mantine-*`). The one surface an app picks is the page body's:
-`PageShell.Content` takes `bg`, the kit's documented surface override,
-set to a surface role from the table below (`bg="var(--tk-panel)"`),
-never a hue or a raw value.
+or `--mantine-*`). The surfaces an app picks are the page body's and,
+where its board draws one, the sidebar's: `PageShell.Content` and
+`PageShell.Sidebar` take `bg`, the kit's documented surface override, set
+to a surface role from the table below (`bg="var(--tk-panel)"`), never a
+hue or a raw value. An explicit `bg` marks the frame `data-own-surface`,
+and the theme keeps that surface instead of painting its own (the grid on
+Content, the card on Sidebar).
 
 When a kit control reads wrong (it blends into the page, or its contrast
 is low), check where it sits. Kit controls are drawn for `PageShell`
@@ -106,8 +109,9 @@ surfaces: a `SegmentedControl` track is `--tk-inset`, the same step as
 `--tk-bg`, so it vanishes on the bare page and reads on
 `PageShell.Content` (`--tk-card` by default, or the role its `bg`
 names). Move the control into `PageShell`, and never set that `bg` to
-`--tk-bg`, which puts the body back on the bare page. If it still reads
-wrong there, that is rung 3.
+`--tk-bg`, which puts the body back on the bare page. The one exception is a
+dotted React Flow canvas, which sits on `--tk-bg` by design; labels on it use
+the kit's quiet badge tones. If it still reads wrong there, that is rung 3.
 
 ### Hover and motion
 

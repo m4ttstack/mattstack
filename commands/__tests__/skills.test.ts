@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { compilePackAll, installedInfoFor, skillsCheck, skillsCompile, skillsComposition, skillsMaterialize, skillsPacks } from "../skills.ts";
+import { compilePackAll, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks, type DiscardIo } from "../skills.ts";
 import { compileSkill } from "../../lib/skills/compile.ts";
 import { materializeRepo, type MaterializeFs } from "../../lib/skills/materialize.ts";
 import { invocableRoster, loadAttachment, loadStepSource } from "../../lib/skills/sources.ts";
@@ -778,8 +778,23 @@ describe("skillsCompile", () => {
 
     const result = await compilePackAll({ pack: "t", packDir, mattstackDir, manifest });
 
-    expect(result).toEqual({ ok: true, errors: [] });
+    expect(result).toMatchObject({ ok: true, errors: [], removed: [] });
+    expect(result.written).toContain("skills/watch-ci/SKILL.md");
     expect(existsSync(join(packDir, "skills", "watch-ci", "SKILL.md"))).toBe(true);
+  });
+
+  test("compilePackAll names every file it wrote and every file it removed, pack-relative", async () => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir();
+    const manifest = makeManifest();
+    writeFile(join(packDir, "skills", "watch-ci", "left-over.md"), "from an older compile\n");
+
+    const result = await compilePackAll({ pack: "t", packDir, mattstackDir, manifest });
+
+    const filesUnder = (rel: string) => (readdirSync(join(packDir, rel), { recursive: true }) as string[]).filter((p) => statSync(join(packDir, rel, p)).isFile()).map((p) => `${rel}/${p}`);
+    expect(result.removed).toEqual(["skills/watch-ci/left-over.md"]);
+    expect([...result.written].sort()).toEqual(filesUnder("skills").sort());
+    expect(existsSync(join(packDir, "skills", "watch-ci", "left-over.md"))).toBe(false);
   });
 
   test("compilePackAll surfaces lint failures as errors, writing nothing", async () => {
@@ -791,6 +806,7 @@ describe("skillsCompile", () => {
 
     expect(result.ok).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
+    expect(result).toMatchObject({ written: [], removed: [] });
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
   });
 });
@@ -1918,7 +1934,133 @@ describe("skillsCompile --preview error handling", () => {
   });
 });
 
+const GATE_PROTOCOL_MD = "---\nname: gate-protocol\n---\n\nAsk before acting.\nWait for the answer.\n";
+
+function slottedStageMd(body: string): string {
+  return `---
+name: stage-plan
+description: "plan stage"
+type: pipeline-step
+slots:
+  domain: { contract: "watch-ci-domain@1" }
+metadata:
+  stage: plan
+---
+
+${body}
+`;
+}
+
+/** watch-ci plus one internal stage, stage-plan, whose domain slot is bound to acme's inlined fill. */
+function makeStagePackFlags(stageBody: string): string[] {
+  const mattstackDir = makeMattstackDir();
+  const mattstackPluginDir = join(mattstackDir, "plugins", "mattstack");
+  writeFile(join(mattstackPluginDir, "attachments", "pipeline", "stage-plan", "SKILL.md"), slottedStageMd(stageBody));
+  writeFile(join(mattstackPluginDir, "attachments", "gate-protocol", "SKILL.md"), GATE_PROTOCOL_MD);
+  const packDir = makePackDir();
+  const manifestDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-anatomy-")));
+  const manifestPath = join(manifestDir, "skills.jsonc");
+  writeFile(manifestPath, JSON.stringify({
+    pipelines: { feature: ["mattstack:stage-plan"] },
+    bindings: {
+      "mattstack:watch-ci": { domain: "acme:watch-ci-domain", forge: "mattstack:gitlab-forge" },
+      "mattstack:stage-plan": { domain: "acme:watch-ci-domain" },
+    },
+  }));
+  return ["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath];
+}
+
+const SKILLS_VERBS: Record<string, (args: string[]) => Promise<void>> = {
+  compile: skillsCompile,
+  composition: skillsComposition,
+  anatomy: skillsAnatomy,
+  changes: skillsChanges,
+  discard: (args) => skillsDiscard(args, discardIo()),
+};
+
+/** A run with nobody at the terminal and no shared checkout to guard; a prompt here is a bug. */
+function discardIo(over: Partial<DiscardIo> = {}): DiscardIo {
+  return {
+    interactive: () => false,
+    confirm: async () => {
+      throw new Error("discard prompted off a terminal");
+    },
+    sharedCheckout: () => null,
+    ...over,
+  };
+}
+
+/** What this one run wrote to stdout, read from the suite's open capture. */
+async function runSkills(argv: string[]): Promise<string> {
+  const [verb, ...rest] = argv;
+  const run = SKILLS_VERBS[verb ?? ""];
+  if (!run) throw new Error(`no test runner for rt skills ${verb}`);
+  const before = io.stdout().length;
+  await run(rest);
+  return io.stdout().slice(before);
+}
+
+async function runSkillsCapturing(argv: string[]): Promise<{ exitCode: number | undefined; stderr: string }> {
+  const { exitCode, errors } = await runExpectingCleanExit(async () => {
+    await runSkills(argv);
+  });
+  return { exitCode, stderr: errors.join("\n") };
+}
+
+const compositionJson = async (flags: string[]) => JSON.parse(await runSkills(["composition", ...flags, "--json"]));
+const anatomyJson = async (flags: string[]) => JSON.parse(await runSkills(["anatomy", ...flags, "--json"]));
+
+const INCLUDE_THEN_SLOT = "intro\n{{include:gate-protocol}}\n{{slot:domain}}";
+
 describe("skillsComposition --json", () => {
+  test("composition lists every compile target with its rendered path and template placeholders", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    const packDir = packFlags[packFlags.indexOf("--pack-dir") + 1]!;
+    const mattstackDir = packFlags[packFlags.indexOf("--mattstack-dir") + 1]!;
+    const payload = await compositionJson(packFlags);
+
+    const stage = payload.targets.find((t: { name: string }) => t.name === "stage-plan");
+    expect(stage).toMatchObject({ kind: "stage", public: false, engineError: null });
+    expect(stage.artifactPath.endsWith("/attachments/stage-plan/SKILL.md")).toBe(true);
+    expect(stage.templatePath).toBe(join(mattstackDir, "plugins", "mattstack", "attachments", "pipeline", "stage-plan", "SKILL.md"));
+    expect(stage.placeholders.map((p: { kind: string }) => p.kind)).toEqual(["include", "slot"]);
+    expect(stage.placeholders[0].line).toBeGreaterThan(1);
+    expect(stage.placeholders).toEqual([
+      { kind: "include", arg: "gate-protocol", line: 12 },
+      { kind: "slot", arg: "domain", line: 13 },
+    ]);
+    expect(stage.slots).toEqual([{ name: "domain", contract: "watch-ci-domain@1", required: false }]);
+
+    const verb = payload.targets.find((t: { name: string }) => t.name === "watch-ci");
+    expect(verb).toEqual({
+      name: "watch-ci",
+      kind: "verb",
+      public: true,
+      artifactPath: join(packDir, "skills", "watch-ci", "SKILL.md"),
+      templatePath: join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci", "SKILL.md"),
+      placeholders: [],
+      slots: [
+        { name: "domain", contract: "watch-ci-domain@1", required: false },
+        { name: "forge", contract: "ci-forge@1", required: true },
+      ],
+      engineError: null,
+    });
+  });
+
+  test("a target whose engine cannot load carries the load error instead of a template", async () => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir();
+    writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_TWO_VERBS);
+    const manifestPath = makeManifest();
+
+    const payload = await compositionJson(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]);
+
+    const broken = payload.targets.find((t: { name: string }) => t.name === "broken");
+    expect(broken).toMatchObject({ kind: "verb", templatePath: null, placeholders: [], slots: [] });
+    expect(broken.engineError).toContain("no-such-engine");
+    expect(payload.targets.find((t: { name: string }) => t.name === "watch-ci").engineError).toBeNull();
+  });
+
   test("verb, slots, fills, and binders reflect the manifest", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
@@ -1976,8 +2118,8 @@ describe("skillsComposition --json", () => {
     expect(binder.verb).toBe("watch-ci");
     expect(binder.kind).toBe("verb");
     expect(binder.slots).toEqual([
-      { name: "domain", boundTo: "acme:watch-ci-domain" },
-      { name: "forge", boundTo: "mattstack:gitlab-forge" },
+      { name: "domain", boundTo: "acme:watch-ci-domain", layer: "pack" },
+      { name: "forge", boundTo: "mattstack:gitlab-forge", layer: null },
     ]);
   });
 
@@ -2141,9 +2283,11 @@ describe("skillsComposition --json", () => {
 // provenance (binding <- layer):
 //   mattstack:watch-ci domain <- pack
 //   mattstack:watch-ci forge <- base:acme-base
+//   mattstack:stage-plan domain <- override
 {
   "bindings": {
-    "mattstack:watch-ci": { "domain": "acme:watch-ci-domain", "forge": "mattstack:gitlab-forge" }
+    "mattstack:watch-ci": { "domain": "acme:watch-ci-domain", "forge": "mattstack:gitlab-forge" },
+    "mattstack:stage-plan": { "domain": "acme:watch-ci-domain" }
   }
 }
 `);
@@ -2152,6 +2296,14 @@ describe("skillsComposition --json", () => {
     const slots = parsed.verbs.find((v: { name: string }) => v.name === "watch-ci").slots;
     expect(slots.find((s: { name: string }) => s.name === "domain").layer).toBe("pack");
     expect(slots.find((s: { name: string }) => s.name === "forge").layer).toBe("base:acme-base");
+    const binderSlots = (ref: string) => parsed.binders.find((b: { ref: string }) => b.ref === ref).slots;
+    expect(binderSlots("mattstack:watch-ci")).toEqual([
+      { name: "domain", boundTo: "acme:watch-ci-domain", layer: "pack" },
+      { name: "forge", boundTo: "mattstack:gitlab-forge", layer: "base:acme-base" },
+    ]);
+    expect(binderSlots("mattstack:stage-plan")).toEqual([
+      { name: "domain", boundTo: "acme:watch-ci-domain", layer: "override" },
+    ]);
   });
 
   test("composition layer is null for a manifest with no provenance header", async () => {
@@ -2178,7 +2330,7 @@ describe("skillsComposition --json", () => {
     await skillsComposition(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]);
 
     const parsed = JSON.parse(io.lines().join("\n"));
-    expect(parsed).toEqual({ pack: "acme", packDir, manifestPath: null, verbs: [], fills: [], binders: [], pipelines: {} });
+    expect(parsed).toEqual({ pack: "acme", packDir, manifestPath: null, verbs: [], fills: [], binders: [], pipelines: {}, targets: [] });
   });
 
   test("manifestPath is the absolute manifest the bindings came from, not <packDir>/skills.jsonc", async () => {
@@ -2238,6 +2390,123 @@ describe("skillsComposition --json", () => {
     await skillsComposition(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
 
     expect(() => JSON.parse(io.lines().join("\n"))).not.toThrow();
+  });
+});
+
+describe("skillsAnatomy --json", () => {
+  test("anatomy reports parts in template order with rendered ranges", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    await runSkills(["compile", ...packFlags]);
+    const a = await anatomyJson(["--skill", "stage-plan", ...packFlags]);
+    expect(a.kind).toBe("stage");
+    expect(a.status).toBe("in-sync");
+    expect(a.parts.map((p: { kind: string }) => p.kind)).toEqual(["text", "include", "slot"]);
+    const inc = a.parts[1];
+    const lines = readFileSync(a.rendered.path, "utf8").split("\n");
+    expect(lines[inc.renderedLines[0] - 1]).toStartWith("<!-- part: include:gate-protocol ");
+    expect(inc.source.lines).toBe(2);
+    expect(inc.templateLines).toEqual([12, 12]);
+    expect(lines[a.parts[0].renderedLines[0] - 1]).toBe("intro");
+    expect(lines[a.parts[2].renderedLines[0] - 1]).toStartWith("<!-- part: slot:domain ");
+    expect(a.parts[2]).toMatchObject({ mode: "inline", source: { ref: "acme:watch-ci-domain" } });
+    expect(a.template).toMatchObject({ ref: "mattstack:stage-plan", builtVersion: "1.2.0", lines: 13 });
+    expect(a.rendered).toMatchObject({ exists: true, lines: lines.length - 1 });
+  });
+
+  test("anatomy of a never-compiled stage still lists template parts", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    const a = await anatomyJson(["--skill", "stage-plan", ...packFlags]);
+    expect(a.status).toBe("never-compiled");
+    expect(a.rendered.exists).toBe(false);
+    expect(a.parts.every((p: { renderedLines: unknown }) => p.renderedLines !== undefined)).toBe(true);
+    expect(a.parts.map((p: { kind: string }) => p.kind)).toEqual(["text", "include", "slot"]);
+    expect(a.template.builtVersion).toBeNull();
+  });
+
+  test("a legacy stage engine's parts come from the compiled markers", async () => {
+    const packFlags = makeStagePackFlags("Plan the work.\nWrite the plan down.");
+    await runSkills(["compile", ...packFlags]);
+    const a = await anatomyJson(["--skill", "stage-plan", ...packFlags]);
+    expect(a.status).toBe("in-sync");
+    expect(a.parts.map((p: { kind: string; name: string | null }) => [p.kind, p.name])).toEqual([["text", null], ["slot", "domain"]]);
+    const [text, slot] = a.parts;
+    expect(text.renderedLines).not.toBeNull();
+    expect(slot.renderedLines).not.toBeNull();
+    const lines = readFileSync(a.rendered.path, "utf8").split("\n");
+    expect(lines[text.renderedLines[0] - 1]).toBe("Plan the work.");
+    expect(lines[slot.renderedLines[0] - 1]).toStartWith("<!-- part: slot:domain ");
+    expect(slot.source.ref).toBe("acme:watch-ci-domain");
+  });
+
+  test("an edited fill marks its part changed and the skill stale", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    const mattstackDir = packFlags[packFlags.indexOf("--mattstack-dir") + 1]!;
+    await runSkills(["compile", ...packFlags]);
+    const fillPath = join(mattstackDir, "plugins", "acme", "attachments", "watch-ci-domain", "SKILL.md");
+    writeFile(fillPath, readFileSync(fillPath, "utf8").replace("for details.", "for every detail."));
+    const a = await anatomyJson(["--skill", "stage-plan", ...packFlags]);
+    expect(a.status).toBe("stale");
+    expect(a.staleBecause).toEqual(["fill"]);
+    expect(a.parts.map((p: { changed: boolean }) => p.changed)).toEqual([false, false, true]);
+  });
+
+  test("anatomy rejects an unknown skill with a usage error", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    const { exitCode, stderr } = await runSkillsCapturing(["anatomy", "--skill", "nope", ...packFlags, "--json"]);
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toContain("has no skill called nope");
+  });
+
+  test("anatomy without --skill is a usage error", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    const { exitCode, stderr } = await runSkillsCapturing(["anatomy", ...packFlags]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Which skill?");
+    expect(stderr).toContain("rt skills anatomy --skill <name>");
+  });
+
+  test("without --json, prints one row per part", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    await runSkills(["compile", ...packFlags]);
+    const text = await runSkills(["anatomy", "--skill", "stage-plan", ...packFlags]);
+    const { parts } = await anatomyJson(["--skill", "stage-plan", ...packFlags]);
+    const [header, ...rows] = text.split("\n").filter((l) => l.trim() !== "");
+    expect(header!.split(/\s{2,}/)).toEqual(["Part", "Name", "Template lines", "Rendered lines"]);
+    expect(rows).toHaveLength(parts.length);
+    rows.forEach((row, i) => {
+      const p = parts[i];
+      const cells = [p.kind, p.name, `${p.templateLines[0]}-${p.templateLines[1]}`, `${p.renderedLines[0]}-${p.renderedLines[1]}`].filter((c) => c !== null);
+      expect(row.trim().split(/\s{2,}/)).toEqual(cells);
+    });
+  });
+
+  test("anatomy of a roster verb reports it public, with the verb's own description", async () => {
+    const packFlags = makeStagePackFlags(INCLUDE_THEN_SLOT);
+    await runSkills(["compile", ...packFlags]);
+    const a = await anatomyJson(["--skill", "watch-ci", ...packFlags]);
+    expect(a).toMatchObject({ skill: "watch-ci", kind: "verb", public: true, description: "Use when watching or triaging CI.", status: "in-sync" });
+    expect(a.rendered.path.endsWith("/skills/watch-ci/SKILL.md")).toBe(true);
+    expect(a.parts.map((p: { kind: string; name: string | null }) => [p.kind, p.name])).toEqual([["text", null], ["slot", "domain"]]);
+  });
+
+  test("a stale skill whose fill grew points named parts at their markers in the file on disk", async () => {
+    const packFlags = makeStagePackFlags("intro\n{{slot:domain}}\n{{include:gate-protocol}}\noutro");
+    const mattstackDir = packFlags[packFlags.indexOf("--mattstack-dir") + 1]!;
+    await runSkills(["compile", ...packFlags]);
+    const fillPath = join(mattstackDir, "plugins", "acme", "attachments", "watch-ci-domain", "SKILL.md");
+    writeFile(fillPath, readFileSync(fillPath, "utf8").replace("for details.", "for details.\nA second rule.\nA third rule."));
+
+    const a = await anatomyJson(["--skill", "stage-plan", ...packFlags]);
+    expect(a.status).toBe("stale");
+    expect(a.parts.map((p: { kind: string }) => p.kind)).toEqual(["text", "slot", "include", "text"]);
+    const lines = readFileSync(a.rendered.path, "utf8").split("\n");
+    const [intro, slot, inc, outro] = a.parts;
+    expect(lines[slot.renderedLines[0] - 1]).toStartWith("<!-- part: slot:domain ");
+    expect(slot.renderedLines[1] - slot.renderedLines[0]).toBe(1);
+    expect(lines[inc.renderedLines[0] - 1]).toStartWith("<!-- part: include:gate-protocol ");
+    expect(lines[inc.renderedLines[1] - 1]).toBe("Wait for the answer.");
+    expect(intro.renderedLines).toBeNull();
+    expect(outro.renderedLines).toBeNull();
   });
 });
 
@@ -2338,5 +2607,534 @@ describe("skillsMaterialize --dir exit codes", () => {
     expect(process.exitCode).toBe(0);
     expect(io.lines()).toContain(`  note: Set aside 1 stale bindings file: ${stale}.stale`);
     expect(existsSync(stale)).toBe(false);
+  });
+});
+
+const GIT_IDENTITY = ["-c", "user.email=ci@example.com", "-c", "user.name=ci"];
+
+function git(cwd: string, ...args: string[]): void {
+  execFileSync("git", [...GIT_IDENTITY, ...args], { cwd, stdio: "pipe" });
+}
+
+function commitAll(cwd: string): void {
+  git(cwd, "add", "-A");
+  git(cwd, "commit", "-q", "-m", "base");
+}
+
+const BINDINGS_BEFORE = JSON.stringify({ bindings: { "mattstack:stage-plan": { domain: "acme:plan-policy" } } });
+const BINDINGS_AFTER = JSON.stringify({ bindings: { "mattstack:stage-plan": { domain: "acme:plan-policy-strict" } } });
+
+/** A committed pack whose bindings and surface are known, in a repo rooted at `repoRoot` with the pack at `packRel`. */
+function makeCommittedPack(packRel = ""): { repoRoot: string; packDir: string } {
+  const repoRoot = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-changes-")));
+  const packDir = packRel ? join(repoRoot, packRel) : repoRoot;
+  execFileSync("git", ["init", "-q"], { cwd: repoRoot });
+  writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_BEFORE);
+  writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["work", "review"] }));
+  writeFile(join(packDir, "attachments", "stage-plan", "SKILL.md"), "stage plan\n");
+  writeFile(join(packDir, "README.md"), "readme\n");
+  commitAll(repoRoot);
+  return { repoRoot, packDir };
+}
+
+const changesJson = async (flags: string[]) => JSON.parse(await runSkills(["changes", ...flags, "--json"]));
+
+const blobId = (cwd: string, rel: string) => execFileSync("git", ["hash-object", "--", rel], { cwd, encoding: "utf8" }).trim();
+
+describe("skillsChanges --json", () => {
+  test("lists a rebind, a surface flip and an out-of-scope file", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["work", "ship"] }));
+    writeFile(join(packDir, "README.md"), "edited\n");
+
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(c).toEqual({
+      pack: "acme",
+      packDir,
+      dirty: true,
+      files: [
+        { path: "pack/skills.jsonc", status: "M", hash: blobId(packDir, "pack/skills.jsonc") },
+        { path: "pack/surface.jsonc", status: "M", hash: blobId(packDir, "pack/surface.jsonc") },
+      ],
+      outsideScope: [{ path: "README.md", status: "M" }],
+      bindings: [{ engineRef: "mattstack:stage-plan", slot: "domain", from: "acme:plan-policy", to: "acme:plan-policy-strict" }],
+      surface: [
+        { skill: "review", from: "public", to: "internal" },
+        { skill: "ship", from: "internal", to: "public" },
+      ],
+      signature: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+  });
+
+  test("a deleted pack file has no content id", async () => {
+    const { packDir } = makeCommittedPack();
+    rmSync(join(packDir, "attachments", "stage-plan", "SKILL.md"));
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+    expect(c.files).toEqual([{ path: "attachments/stage-plan/SKILL.md", status: "D", hash: null }]);
+  });
+
+  test("the signature is the same for the same tree, and moves with a file's content, a new file and a binding", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "attachments", "stage-plan", "SKILL.md"), "stage plan, edited\n");
+    const signature = async () => (await changesJson(["--pack", "acme", "--pack-dir", packDir])).signature as string;
+
+    const first = await signature();
+    expect(await signature()).toBe(first);
+
+    writeFile(join(packDir, "attachments", "stage-plan", "SKILL.md"), "stage plan, edited again\n");
+    const edited = await signature();
+    expect(edited).not.toBe(first);
+
+    writeFile(join(packDir, "skills", "fresh", "SKILL.md"), "fresh\n");
+    const added = await signature();
+    expect(added).not.toBe(edited);
+
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    expect(await signature()).not.toBe(added);
+  });
+
+  test("a file outside the pack's scope never moves the signature", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const before = (await changesJson(["--pack", "acme", "--pack-dir", packDir])).signature;
+    writeFile(join(packDir, "README.md"), "edited\n");
+    expect((await changesJson(["--pack", "acme", "--pack-dir", packDir])).signature).toBe(before);
+  });
+
+  test("a rename into the pack from outside its scope is listed as outside the scope, with its source", async () => {
+    const { packDir } = makeCommittedPack();
+    git(packDir, "mv", "README.md", "pack/README.md");
+
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(c.files).toEqual([]);
+    expect(c.outsideScope).toEqual([{ path: "pack/README.md", status: "R", from: "README.md" }]);
+  });
+
+  test("a rename reads as source and destination in the human list", async () => {
+    const { packDir } = makeCommittedPack();
+    git(packDir, "mv", "README.md", "pack/README.md");
+    expect(await runSkills(["changes", "--pack", "acme", "--pack-dir", packDir])).toContain("README.md -> pack/README.md");
+  });
+
+  test("a clean pack is not dirty", async () => {
+    const { packDir } = makeCommittedPack();
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+    expect(c).toMatchObject({ dirty: false, files: [], outsideScope: [], bindings: [], surface: [] });
+  });
+
+  test("an untracked file inside a new directory is listed by its own path", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "attachments", "stage-plan", "new notes.md"), "notes\n");
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+    expect(c.files).toEqual([{ path: "attachments/stage-plan/new notes.md", status: "??", hash: blobId(packDir, "attachments/stage-plan/new notes.md") }]);
+  });
+
+  test("a pack that is a subdirectory of its repo reports pack-relative paths and ignores the rest of the repo", async () => {
+    const { repoRoot, packDir } = makeCommittedPack("packs/acme");
+    writeFile(join(repoRoot, "unrelated.txt"), "elsewhere\n");
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    writeFile(join(packDir, "README.md"), "edited\n");
+
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(c.files).toEqual([{ path: "pack/skills.jsonc", status: "M", hash: blobId(packDir, "pack/skills.jsonc") }]);
+    expect(c.outsideScope).toEqual([{ path: "README.md", status: "M" }]);
+    expect(c.bindings).toEqual([{ engineRef: "mattstack:stage-plan", slot: "domain", from: "acme:plan-policy", to: "acme:plan-policy-strict" }]);
+  });
+
+  test("a rename into a subdirectory pack from elsewhere in its repo is outside the scope, and discard signs it the same way", async () => {
+    const { repoRoot, packDir } = makeCommittedPack("packs/acme");
+    writeFile(join(repoRoot, "NOTES.md"), "notes\n");
+    commitAll(repoRoot);
+    git(repoRoot, "mv", "NOTES.md", "packs/acme/pack/NOTES.md");
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(c.files).toEqual([{ path: "pack/skills.jsonc", status: "M", hash: blobId(packDir, "pack/skills.jsonc") }]);
+    expect(c.outsideScope).toEqual([{ path: "pack/NOTES.md", status: "R", from: "../../NOTES.md" }]);
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir, "--expect", c.signature]);
+
+    expect(d.discarded).toEqual([{ path: "pack/skills.jsonc", status: "M" }]);
+    expect(porcelain(repoRoot)).toBe("R  NOTES.md -> packs/acme/pack/NOTES.md\n");
+  });
+
+  test("a bindings file that is new since HEAD lists every binding as added", async () => {
+    const { packDir } = makeCommittedPack();
+    rmSync(join(packDir, "pack", "skills.jsonc"));
+    commitAll(packDir);
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_BEFORE);
+
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(c.files).toEqual([{ path: "pack/skills.jsonc", status: "??", hash: blobId(packDir, "pack/skills.jsonc") }]);
+    expect(c.bindings).toEqual([{ engineRef: "mattstack:stage-plan", slot: "domain", from: null, to: "acme:plan-policy" }]);
+  });
+
+  test("a pack outside any git checkout is a usage error", async () => {
+    const packDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-nogit-")));
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_BEFORE);
+    const { exitCode, stderr } = await runSkillsCapturing(["changes", "--pack", "acme", "--pack-dir", packDir, "--json"]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("not inside a git checkout");
+  });
+
+  test("a git failure other than a missing repository carries git's own message", async () => {
+    const packDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-badgit-")));
+    writeFile(join(packDir, ".git", "HEAD"), "ref: refs/heads/main\n");
+    mkdirSync(join(packDir, ".git", "objects"));
+    mkdirSync(join(packDir, ".git", "refs"));
+    writeFile(join(packDir, ".git", "config"), "[[[\n");
+    const { exitCode, stderr } = await runSkillsCapturing(["changes", "--pack", "acme", "--pack-dir", packDir, "--json"]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("config");
+    expect(stderr).not.toContain("not inside a git checkout");
+  });
+
+  test("reading changes never rewrites the index, so a concurrent git add is not locked out", async () => {
+    const { packDir } = makeCommittedPack();
+    const readme = join(packDir, "README.md");
+    utimesSync(readme, new Date(Date.now() + 120_000), new Date(Date.now() + 120_000));
+    const indexPath = join(packDir, ".git", "index");
+    const before = readFileSync(indexPath);
+
+    await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(readFileSync(indexPath).equals(before)).toBe(true);
+  });
+
+  test("prints ONLY json -- no human lines on stdout", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const text = await runSkills(["changes", "--pack", "acme", "--pack-dir", packDir, "--json"]);
+    expect(() => JSON.parse(text)).not.toThrow();
+  });
+});
+
+describe("skillsChanges human output", () => {
+  test("names the pack and the changed files", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const text = await runSkills(["changes", "--pack", "acme", "--pack-dir", packDir]);
+    expect(text).toContain("acme");
+    expect(text).toContain("pack/skills.jsonc");
+  });
+});
+
+const discardJson = async (flags: string[]) => JSON.parse(await runSkills(["discard", ...flags, "--json"]));
+
+function porcelain(cwd: string): string {
+  return execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd, encoding: "utf8" });
+}
+
+describe("skillsDiscard --json", () => {
+  test("throws away pack edits and new pack files, and leaves a README edit alone", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    writeFile(join(packDir, "attachments", "x", "SKILL.md"), "new skill\n");
+    writeFile(join(packDir, "README.md"), "edited\n");
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d).toEqual({
+      pack: "acme",
+      packDir,
+      discarded: [
+        { path: "pack/skills.jsonc", status: "M" },
+        { path: "attachments/x/SKILL.md", status: "??" },
+      ],
+    });
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_BEFORE);
+    expect(existsSync(join(packDir, "attachments", "x"))).toBe(false);
+    expect(readFileSync(join(packDir, "README.md"), "utf8")).toBe("edited\n");
+    expect(porcelain(packDir)).toBe(" M README.md\n");
+  });
+
+  test("a clean pack has nothing to throw away", async () => {
+    const { packDir } = makeCommittedPack();
+    expect(await discardJson(["--pack", "acme", "--pack-dir", packDir])).toEqual({ pack: "acme", packDir, discarded: [] });
+  });
+
+  test("an untracked file outside the pack's scope survives", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "notes", "todo.md"), "keep me\n");
+    writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["work"] }));
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d.discarded).toEqual([{ path: "pack/surface.jsonc", status: "M" }]);
+    expect(readFileSync(join(packDir, "notes", "todo.md"), "utf8")).toBe("keep me\n");
+    expect(porcelain(packDir)).toBe("?? notes/todo.md\n");
+  });
+
+  test("a staged new file under a pack root missing from HEAD is thrown away too", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "skills", "fresh", "SKILL.md"), "fresh\n");
+    git(packDir, "add", "skills");
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d.discarded).toEqual([{ path: "skills/fresh/SKILL.md", status: "A" }]);
+    expect(existsSync(join(packDir, "skills", "fresh", "SKILL.md"))).toBe(false);
+    expect(porcelain(packDir)).toBe("");
+  });
+
+  test("a pack inside a larger repo touches nothing outside its own directory", async () => {
+    const { repoRoot, packDir } = makeCommittedPack("packs/acme");
+    writeFile(join(repoRoot, "unrelated.txt"), "elsewhere\n");
+    writeFile(join(repoRoot, "pack", "skills.jsonc"), "repo-level, not the pack\n");
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    writeFile(join(packDir, "skills", "new", "SKILL.md"), "new\n");
+    writeFile(join(packDir, "README.md"), "edited\n");
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d.discarded).toEqual([
+      { path: "pack/skills.jsonc", status: "M" },
+      { path: "skills/new/SKILL.md", status: "??" },
+    ]);
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_BEFORE);
+    expect(porcelain(repoRoot)).toBe(" M packs/acme/README.md\n?? pack/skills.jsonc\n?? unrelated.txt\n");
+  });
+
+  test("a pack outside any git checkout is a usage error", async () => {
+    const packDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-nogit-")));
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_BEFORE);
+    const { exitCode, stderr } = await runSkillsCapturing(["discard", "--pack", "acme", "--pack-dir", packDir, "--json"]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("not inside a git checkout");
+    expect(existsSync(join(packDir, "pack", "skills.jsonc"))).toBe(true);
+  });
+
+  test("prints ONLY json -- no human lines on stdout", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const text = await runSkills(["discard", "--pack", "acme", "--pack-dir", packDir, "--json"]);
+    expect(() => JSON.parse(text)).not.toThrow();
+  });
+});
+
+describe("skillsDiscard human output", () => {
+  test("names the pack and what was thrown away", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const text = await runSkills(["discard", "--pack", "acme", "--pack-dir", packDir]);
+    expect(text).toContain("acme");
+    expect(text).toContain("pack/skills.jsonc");
+  });
+
+  test("says when there is nothing to throw away", async () => {
+    const { packDir } = makeCommittedPack();
+    const text = await runSkills(["discard", "--pack", "acme", "--pack-dir", packDir]);
+    expect(text).toContain("nothing");
+  });
+});
+
+async function discardWith(over: Partial<DiscardIo>, argv: string[]): Promise<{ exitCode: number | undefined; stderr: string; stdout: string }> {
+  const before = io.stdout().length;
+  const { exitCode, errors } = await runExpectingCleanExit(() => skillsDiscard(argv, discardIo(over)));
+  return { exitCode, stderr: errors.join("\n"), stdout: io.stdout().slice(before) };
+}
+
+describe("skillsDiscard guards", () => {
+  test("needs an explicit --pack, since it throws work away", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    const { exitCode, stderr } = await discardWith({}, ["--pack-dir", packDir, "--json"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("--pack");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_AFTER);
+  });
+
+  test("refuses a pack inside the shared checkout, which changes only through a pull request", async () => {
+    const { repoRoot, packDir } = makeCommittedPack("plugins/acme");
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    const { exitCode, stderr } = await discardWith({ sharedCheckout: () => repoRoot }, ["--pack", "acme", "--pack-dir", packDir, "--json"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("shared checkout");
+    expect(stderr).toContain("pull request");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_AFTER);
+  });
+
+  test("at a terminal it lists the files and keeps them all when the person says no", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const asked: string[] = [];
+
+    const { exitCode, stdout } = await discardWith(
+      { interactive: () => true, confirm: async (message) => (asked.push(message), false) },
+      ["--pack", "acme", "--pack-dir", packDir],
+    );
+
+    expect(exitCode).toBeUndefined();
+    expect(asked).toHaveLength(1);
+    expect(stdout).toContain("pack/skills.jsonc");
+    expect(stdout).toContain("Kept");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_AFTER);
+  });
+
+  test("at a terminal a yes throws the changes away", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    await discardWith({ interactive: () => true, confirm: async () => true }, ["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_BEFORE);
+  });
+
+  test("a file that lands under a pack root while the person confirms refuses the discard and deletes nothing", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "attachments", "x", "SKILL.md"), "new skill\n");
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const lateBeside = join(packDir, "attachments", "x", "late.md");
+    const lateElsewhere = join(packDir, "attachments", "y", "late.md");
+
+    const { exitCode, stderr } = await discardWith(
+      {
+        interactive: () => true,
+        confirm: async () => {
+          writeFile(lateBeside, "late\n");
+          writeFile(lateElsewhere, "late\n");
+          return true;
+        },
+      },
+      ["--pack", "acme", "--pack-dir", packDir],
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("changed while");
+    expect(readFileSync(join(packDir, "attachments", "x", "SKILL.md"), "utf8")).toBe("new skill\n");
+    expect(readFileSync(lateBeside, "utf8")).toBe("late\n");
+    expect(readFileSync(lateElsewhere, "utf8")).toBe("late\n");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_AFTER);
+  });
+
+  test.each<[string, string[]]>([["without --expect", []], ["with --expect", ["--expect"]]])(
+    "an edit to a listed file while the person confirms refuses and throws nothing away, %s",
+    async (_label, expectFlag) => {
+      const { packDir } = makeCommittedPack();
+      writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+      const signature = expectFlag.length > 0 ? [...expectFlag, (await changesJson(["--pack", "acme", "--pack-dir", packDir])).signature] : [];
+      const later = BINDINGS_AFTER.replace("plan-policy-strict", "plan-policy-loose");
+
+      const { exitCode, stderr } = await discardWith(
+        {
+          interactive: () => true,
+          confirm: async () => {
+            writeFile(join(packDir, "pack", "skills.jsonc"), later);
+            return true;
+          },
+        },
+        ["--pack", "acme", "--pack-dir", packDir, ...signature],
+      );
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("changed while");
+      expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(later);
+    },
+  );
+
+  test("--json never prompts, even at a terminal", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    const { exitCode, stdout } = await discardWith({ interactive: () => true }, ["--pack", "acme", "--pack-dir", packDir, "--json"]);
+
+    expect(exitCode).toBeUndefined();
+    expect(JSON.parse(stdout).discarded).toEqual([{ path: "pack/skills.jsonc", status: "M" }]);
+  });
+});
+
+describe("skillsDiscard --expect", () => {
+  test("a signature that still matches throws the changes away as before", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    writeFile(join(packDir, "attachments", "x", "SKILL.md"), "new skill\n");
+    const { signature } = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir, "--expect", signature]);
+
+    expect(d.discarded).toEqual([
+      { path: "pack/skills.jsonc", status: "M" },
+      { path: "attachments/x/SKILL.md", status: "??" },
+    ]);
+    expect(porcelain(packDir)).toBe("");
+  });
+
+  test.each<[string, (packDir: string) => void]>([
+    ["a listed file edited again", (dir) => writeFile(join(dir, "pack", "skills.jsonc"), BINDINGS_BEFORE.replace("plan-policy", "plan-policy-loose"))],
+    ["a new file in scope", (dir) => writeFile(join(dir, "skills", "late", "SKILL.md"), "late\n")],
+  ])("%s after the signature was read refuses and throws nothing away", async (_label, move) => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    writeFile(join(packDir, "attachments", "x", "SKILL.md"), "new skill\n");
+    const { signature } = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+    move(packDir);
+    const before = porcelain(packDir);
+
+    const { exitCode, stderr } = await runSkillsCapturing(["discard", "--pack", "acme", "--pack-dir", packDir, "--expect", signature, "--json"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("changed since");
+    expect(porcelain(packDir)).toBe(before);
+    expect(readFileSync(join(packDir, "attachments", "x", "SKILL.md"), "utf8")).toBe("new skill\n");
+  });
+
+  test("an --expect that is not a signature is a usage error that touches nothing", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    const { exitCode, stderr } = await runSkillsCapturing(["discard", "--pack", "acme", "--pack-dir", packDir, "--expect", "nope", "--json"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("signature");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_AFTER);
+  });
+});
+
+describe("skillsDiscard renames", () => {
+  test("a rename inside the scope is undone on both sides", async () => {
+    const { packDir } = makeCommittedPack();
+    mkdirSync(join(packDir, "skills"));
+    git(packDir, "mv", "attachments/stage-plan", "skills/stage-plan");
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d.discarded).toEqual([{ path: "skills/stage-plan/SKILL.md", status: "R", from: "attachments/stage-plan/SKILL.md" }]);
+    expect(readFileSync(join(packDir, "attachments", "stage-plan", "SKILL.md"), "utf8")).toBe("stage plan\n");
+    expect(existsSync(join(packDir, "skills"))).toBe(false);
+    expect(porcelain(packDir)).toBe("");
+  });
+
+  test("a rename across the scope boundary is left alone, even beside a pack file that is thrown away", async () => {
+    const { packDir } = makeCommittedPack();
+    git(packDir, "mv", "README.md", "pack/README.md");
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d.discarded).toEqual([{ path: "pack/skills.jsonc", status: "M" }]);
+    expect(readFileSync(join(packDir, "pack", "README.md"), "utf8")).toBe("readme\n");
+    expect(porcelain(packDir)).toBe("R  README.md -> pack/README.md\n");
+  });
+
+  test("a rename into a subdirectory pack from elsewhere in its repo is left alone", async () => {
+    const { repoRoot, packDir } = makeCommittedPack("packs/acme");
+    writeFile(join(repoRoot, "NOTES.md"), "notes\n");
+    commitAll(repoRoot);
+    git(repoRoot, "mv", "NOTES.md", "packs/acme/pack/NOTES.md");
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    expect(d.discarded).toEqual([]);
+    expect(porcelain(repoRoot)).toBe("R  NOTES.md -> packs/acme/pack/NOTES.md\n");
   });
 });

@@ -1,0 +1,349 @@
+:where([data-mantine-color-scheme='light']) .canvas {
+  --row-hover: var(--mantine-color-gray-1);
+}
+
+:where([data-mantine-color-scheme='dark']) .canvas {
+  --row-hover: var(--mantine-color-dark-5);
+}
+
+/* The layout's `input` and `output` node types share their names with
+   React Flow's own, whose stylesheet borders them. */
+.canvas {
+  --xy-node-border: none;
+  --xy-node-border-selected: none;
+  --xy-node-color: inherit;
+  position: absolute;
+  inset: 0 0 auto;
+}
+
+/* React Flow turns pointer events off on a node it cannot select or drag;
+   its rows and cards are buttons all the same. */
+.shell {
+  position: relative;
+  pointer-events: auto;
+}
+
+/* The ground Paper's rule is an outline over its contents, and a selected
+   row's ring sits over that, as on the boards, so the node clips nothing:
+   its header and last row round their own corners. */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0 12px;
+  border-radius: 8px 8px 0 0;
+  background-color: var(--tk-raised);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.rows {
+  --gutter-min: 68.5px;
+  display: grid;
+  grid-template-columns: minmax(var(--gutter-min), max-content) minmax(0, 1fr);
+}
+
+.rows[data-view='step'] {
+  --gutter-min: 64.5px;
+}
+
+.row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: stretch;
+  border-top: 1px solid var(--tk-line-3);
+  text-align: start;
+}
+
+.row:last-child {
+  border-radius: 0 0 8px 8px;
+}
+
+.row[data-kind='placeholder'],
+.row[data-selected] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
+}
+
+/* Raised so its ring paints over the node's rule, which is drawn over the
+   node's rows. */
+.row[data-selected] {
+  position: relative;
+  z-index: 1;
+  border-top: 0;
+  outline: 1.5px solid var(--tk-fill-accent);
+  outline-offset: -0.75px;
+}
+
+@media (hover: hover) {
+  .row:hover {
+    background-color: var(--row-hover);
+  }
+
+  .row[data-kind='placeholder']:hover,
+  .row[data-selected]:hover {
+    background-color: color-mix(
+      in srgb,
+      var(--tk-fill-accent) var(--ui-wash-hover),
+      transparent
+    );
+  }
+}
+
+.gutter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 10px;
+  border-right: 1px solid var(--tk-line-3);
+  background-color: var(--tk-panel);
+}
+
+.row:last-child .gutter {
+  border-bottom-left-radius: 8px;
+}
+
+.row[data-selected][data-kind='text'] .gutter {
+  background-color: transparent;
+}
+
+.body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 24px 0 12px;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Over a selected row, which is raised. */
+.handles {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.slot {
+  position: relative;
+  flex: none;
+}
+
+.handle:global(.react-flow__handle) {
+  width: 8px;
+  height: 8px;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  border: 1.5px solid var(--tk-line-1);
+  border-radius: 50%;
+  background-color: var(--tk-card);
+}
+
+.cardButton {
+  display: block;
+  border-radius: 7px;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+}
+
+.cardText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+/* A card's action is the card's sibling, not its child (a button cannot hold
+   a button), laid over the card's end; the card leaves it that room. It is
+   centred by its margins, not a transform: a pressed button's own transform
+   would replace that one and move it out from under the pointer. */
+.card[data-action] {
+  padding-inline-end: 64px;
+}
+
+.cardAction {
+  position: absolute;
+  inset-block: 0;
+  right: 12px;
+  margin-block: auto;
+}
+
+.step {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--tk-line-1);
+  border-radius: 50%;
+  background-color: var(--tk-card);
+}
+
+.outputBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.part {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: start;
+}
+
+.links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--tk-line-3);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+/* Badge always draws a 1px border, so its padding is a pixel short of the
+   board's to keep the label where the board puts it. */
+.chip {
+  --badge-height: 19px;
+  --badge-padding-x: 6px;
+  --badge-fz: 10px;
+  --badge-lh: normal;
+  --badge-radius: 5px;
+  font-family: var(--mantine-font-family-monospace);
+  font-weight: 400;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.chipIcon[data-position='left'] {
+  margin-inline-end: 4px;
+}
+
+.tag {
+  --badge-height: 17px;
+  --badge-padding-x: 6px;
+  --badge-fz: 10px;
+  --badge-lh: normal;
+  flex-shrink: 0;
+  letter-spacing: 0;
+}
+
+.edgeLine {
+  fill: none;
+  stroke: var(--tk-line-1);
+  stroke-width: 1.25;
+}
+
+.edgeMarker {
+  fill: var(--tk-line-1);
+}
+
+.edgeLabel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(var(--label-x), var(--label-y)) translate(-50%, -50%);
+  padding: 1px 6px;
+  border: 1px solid var(--tk-line-3);
+  border-radius: 5px;
+  background-color: var(--tk-bg);
+  pointer-events: none;
+}
+
+:global(.react-flow__panel).columns {
+  inset: 0;
+  margin: 0;
+  pointer-events: none;
+}
+
+/* Content scrolled up stops at the column headings' framed top
+   (`--content-top`), so it never runs under the focus header. */
+.canvas :global(.react-flow__renderer),
+:global(.react-flow__panel).columns {
+  clip-path: inset(var(--content-top) 0 0 0);
+}
+
+.column {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: nowrap;
+  transform: translate(var(--column-x), var(--column-y));
+}
+
+.columnTitle {
+  letter-spacing: 0.8px;
+}
+
+.dots {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+:global(.react-flow__panel).zoomPanel {
+  margin: 0 0 32px 24px;
+}
+
+.zoom {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 7px;
+  outline: 1px solid var(--tk-border);
+  outline-offset: -1px;
+  background-color: var(--tk-card);
+}
+
+.zoomButton:global(.react-flow__controls-button) {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--tk-line-3);
+  background: transparent;
+  color: var(--tk-text-3);
+  cursor: pointer;
+}
+
+.zoomButton:global(.react-flow__controls-button):last-child {
+  border-bottom: 0;
+}
+
+.zoomButton:global(.react-flow__controls-button) svg {
+  width: auto;
+  max-width: none;
+  max-height: none;
+  fill: none;
+}

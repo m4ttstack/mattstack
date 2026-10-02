@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
+import { notifications } from '@mattstack/app-kit/notifications';
 import {
+  useIsMutating,
   useMutation,
   useQuery,
   useQueryClient,
-  useSuspenseQuery,
 } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
@@ -31,6 +32,22 @@ export type SkillsHistory = InferResponseType<
 >;
 export type SkillsDiff = InferResponseType<
   typeof client.api.skills.diff.$get,
+  200
+>;
+export type SkillsAnatomy = InferResponseType<
+  typeof client.api.skills.anatomy.$get,
+  200
+>;
+export type SkillsSource = InferResponseType<
+  typeof client.api.skills.source.$get,
+  200
+>;
+export type SkillsChanges = InferResponseType<
+  typeof client.api.skills.changes.$get,
+  200
+>;
+export type SkillsDiscardReport = InferResponseType<
+  typeof client.api.skills.discard.$post,
   200
 >;
 
@@ -75,25 +92,8 @@ export function usePacks(options?: SharedQueryOptions) {
   });
 }
 
-// The outline cannot render without its roster, so this is the one suspense
-// query on the surface -- check/surface/compile-preview all layer on top of
-// what this call returns.
-export function useComposition(pack: string) {
-  return useSuspenseQuery({
-    queryKey: ['skills', 'composition', pack],
-    queryFn: async () => {
-      const res = await client.api.skills.composition.$get({ query: { pack } });
-      return readOrThrow<SkillsComposition>(res, 'skills composition');
-    },
-  });
-}
-
-/** The same cache entry `useComposition` fills, read WITHOUT suspending.
-    The page header needs the work types and the fetch time while staying
-    outside the outline's suspense boundary -- the pack picker has to survive
-    a composition failure, which is the whole reason that boundary is scoped
-    to the outline. Same query key, so this shares the fetch rather than
-    issuing a second one. */
+/** Never suspends: the pack picker and the page around the tabs have to
+    survive a composition failure. */
 export function useCompositionSnapshot(
   pack: string | null,
   options?: SharedQueryOptions
@@ -146,9 +146,6 @@ export function useSurface(pack: string | null, options?: SharedQueryOptions) {
   });
 }
 
-/** Conditional on a verb actually being open for preview -- most nodes in
-    the outline never trigger this, so it stays a plain query rather than
-    riding along with the route-level suspense. */
 export function useCompilePreview(
   pack: string | undefined,
   verb: string | undefined
@@ -212,6 +209,73 @@ export function useSkillsDiff(
   });
 }
 
+/** One skill's parts and the line ranges each occupies in its compiled
+    output. Per selection inside the page, so a plain query rather than the
+    route-level suspense. */
+export function useAnatomy(pack: string | null, skill: string | null) {
+  return useQuery({
+    queryKey: ['skills', 'anatomy', pack, skill],
+    queryFn: async () => {
+      const res = await client.api.skills.anatomy.$get({
+        query: { pack: pack ?? '', skill: skill ?? '' },
+      });
+      return readOrThrow<SkillsAnatomy>(res, 'skills anatomy');
+    },
+    enabled: pack !== null && skill !== null,
+  });
+}
+
+/** `retry: false` because the confined source route's 404 is final. Swept by
+    `invalidateSkillsQueries`: discard and sync rewrite files in place under
+    the same path. */
+export function useSkillSource(pack: string | null, path: string | null) {
+  return useQuery({
+    queryKey: ['skills', 'source', pack, path],
+    queryFn: async () => {
+      const res = await client.api.skills.source.$get({
+        query: { pack: pack ?? '', path: path ?? '' },
+      });
+      return readOrThrow<SkillsSource>(res, 'skills source');
+    },
+    enabled: pack !== null && path !== null,
+    retry: false,
+  });
+}
+
+async function readPendingChanges(pack: string): Promise<SkillsChanges> {
+  const res = await client.api.skills.changes.$get({ query: { pack } });
+  return readOrThrow<SkillsChanges>(res, 'skills changes');
+}
+
+/** Feeds the unsynced-changes banner. A failed poll means "unknown", so the
+    hook never suspends, never retries (the next poll is 15s away) and never
+    toasts: callers read `data` and treat `isError` as "show nothing". The
+    answer is what is on disk right now, hence the focus refetch. */
+export function usePendingChanges(pack: string | null) {
+  return useQuery({
+    queryKey: ['skills', 'changes', pack],
+    queryFn: () => readPendingChanges(pack ?? ''),
+    enabled: pack !== null,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+    retry: false,
+  });
+}
+
+/** What is pending in the pack right now, read past the poll's cache, for a
+    write that must act on what its confirm showed and nothing else. Lands
+    in the same cache entry, so the banner redraws from it. */
+export function fetchPendingChanges(
+  queryClient: QueryClient,
+  pack: string
+): Promise<SkillsChanges> {
+  return queryClient.fetchQuery({
+    queryKey: ['skills', 'changes', pack],
+    queryFn: () => readPendingChanges(pack),
+    staleTime: 0,
+  });
+}
+
 export interface SkillsSurfaceApplyStep {
   direction: 'public' | 'internal';
   names: string[];
@@ -268,8 +332,9 @@ async function postSkillsWrite<TResponse>(
 
 /** Every cached read a write to this pack can go stale -- the client mirror
     of the server's own per-pack cache sweep (`e8f4163`, mirrored again for
-    `/api/skills/bind`): composition, surface, check, compile, and history all
-    read the pack, and a surface-apply or a bind recompiles it. */
+    `/api/skills/bind`): composition, surface, check, compile, history,
+    anatomy, source and the pending-changes poll all read the pack, and a
+    surface-apply or a bind recompiles it. */
 function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
   for (const scope of [
     'composition',
@@ -277,20 +342,58 @@ function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
     'check',
     'compile',
     'history',
+    'anatomy',
+    'source',
+    'changes',
   ]) {
     void queryClient.invalidateQueries({ queryKey: ['skills', scope, pack] });
   }
 }
 
+/** Every write to a pack (bind, surface apply, sync, discard) runs under
+    this key, so one count says whether any of them is in flight. */
+export const skillsWriteKey = (pack: string) => ['skills', 'write', pack];
+
+/** True while any write to the pack is in flight, from any caller, mounted
+    or not: the lock a second write waits on. */
+export function useSkillsWriting(pack: string): boolean {
+  return useIsMutating({ mutationKey: skillsWriteKey(pack) }) > 0;
+}
+
+function isSkillsWriting(queryClient: QueryClient, pack: string) {
+  return queryClient.isMutating({ mutationKey: skillsWriteKey(pack) }) > 0;
+}
+
+/** Runs `write` only if no write to the pack is in flight at this moment,
+    else refuses with a toast. Every confirm calls it when it is answered,
+    not when it opened: a confirm can stay up while a write started elsewhere
+    on the page, or one that outlived its own screen, takes the lock. */
+export function guardedWrite(
+  queryClient: QueryClient,
+  pack: string,
+  write: () => void
+): void {
+  if (isSkillsWriting(queryClient, pack)) {
+    notifications.error(
+      `Another change to ${pack} is still being written. Try again once it finishes.`
+    );
+    return;
+  }
+  write();
+}
+
 /** The one client mutation surface for both skills writes -- the surface
     roster's Apply and Rebind's Apply both go through this, so there is one
-    place that invalidates the pack's cache on success rather than two that
-    could drift apart. */
+    place that invalidates the pack's cache rather than two that could drift
+    apart. Swept on settle: the server drops its own cache whatever the
+    outcome, since a write that failed or was killed may have written. */
 export function useSkillsApply(pack: string) {
   const queryClient = useQueryClient();
-  const onSuccess = () => invalidateSkillsQueries(queryClient, pack);
+  const onSettled = () => invalidateSkillsQueries(queryClient, pack);
+  const mutationKey = skillsWriteKey(pack);
 
   const surfaceApply = useMutation({
+    mutationKey,
     mutationFn: (delta: { toPublic: string[]; toInternal: string[] }) => {
       if (!pack) return Promise.reject(new Error('no pack selected'));
       return postSkillsWrite<SkillsSurfaceApplyResponse>(
@@ -298,10 +401,11 @@ export function useSkillsApply(pack: string) {
         { pack, ...delta }
       );
     },
-    onSuccess,
+    onSettled,
   });
 
   const bind = useMutation({
+    mutationKey,
     mutationFn: (write: { verb: string; slot: string; fill: string }) => {
       if (!pack) return Promise.reject(new Error('no pack selected'));
       return postSkillsWrite<SkillsBindResponse>(client.api.skills.bind.$post, {
@@ -309,10 +413,12 @@ export function useSkillsApply(pack: string) {
         ...write,
       });
     },
-    onSuccess,
+    onSettled,
   });
 
-  return { surfaceApply, bind };
+  const writing = useSkillsWriting(pack);
+
+  return { surfaceApply, bind, writing };
 }
 
 export type SkillsCheckPayload = InferResponseType<
@@ -325,6 +431,20 @@ export type SkillsSyncReport = InferResponseType<
   200
 >;
 
+/** Why a sync stopped: the step that refused or failed (a `guards` refusal
+    names the files that stopped it), or rt's own error. Null for a sync that
+    ran through. */
+export function syncRefusal(
+  report: SkillsSyncReport | undefined
+): string | null {
+  if (!report || report.ok) return null;
+  if (typeof report.error === 'string') return report.error;
+  const stopped = report.steps?.find(
+    step => step.status === 'refused' || step.status === 'failed'
+  );
+  return stopped?.detail ?? 'sync stopped without a reason';
+}
+
 /** Invalidation happens on settle, not only on success: sync mutates
     checkouts and installed caches even when the chain ends in a refusal
     (it may have pulled, bumped, and compiled first) -- the client mirror
@@ -332,10 +452,31 @@ export type SkillsSyncReport = InferResponseType<
 export function useSkillsSync(pack: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () =>
+    mutationKey: skillsWriteKey(pack),
+    mutationFn: (options: { commitPending: true; expect: string } | void) =>
       postSkillsWrite<SkillsSyncReport>(client.api.skills.sync.$post, {
         pack,
+        ...(options ? { commitPending: true, expect: options.expect } : {}),
       }),
+    onSettled: () => invalidateSkillsQueries(queryClient, pack),
+  });
+}
+
+/** Unlike sync, a non-2xx answer here is an error, not a report. Swept on
+    settle for the same reason as sync: rt restores tracked paths and cleans
+    untracked ones as separate steps, so a refusal may still have changed
+    what the cached reads describe. `expect` is the signature of the list
+    the person confirmed; rt refuses once the pack no longer matches it. */
+export function useDiscardChanges(pack: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: skillsWriteKey(pack),
+    mutationFn: async (expect: string): Promise<SkillsDiscardReport> => {
+      const res = await client.api.skills.discard.$post({
+        json: { pack, expect },
+      });
+      return readOrThrow<SkillsDiscardReport>(res, 'skills discard');
+    },
     onSettled: () => invalidateSkillsQueries(queryClient, pack),
   });
 }
@@ -372,8 +513,7 @@ const RAIL_QUERY_OPTIONS: SharedQueryOptions = {
 /**
  * How many rows on the Wiring spine need attention, for readers mounted
  * outside the Wiring route. Runs `buildSpine` rather than counting anything
- * itself: the rail badge and the spine's own header must be the same number,
- * and two derivations of it would eventually disagree.
+ * itself: two derivations of the same number would eventually disagree.
  *
  * Shares its query keys with the page, so opening /wiring reuses these
  * fetches instead of issuing its own. Answers 0 while the queries are in

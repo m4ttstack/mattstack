@@ -49,6 +49,15 @@
 
   /* Soft ambient shadow for floating chrome (sidebar toggles, fabs). */
   --ui-shadow-floating: 0 1px 3px rgb(0 0 0 / 12%), 0 1px 2px rgb(0 0 0 / 24%);
+
+  /* How much hue the kit's `wash` tone mixes over transparent, at rest and
+     hovered. App rows that wash read the same strengths. */
+  --ui-wash: 10%;
+  --ui-wash-hover: 14%;
+
+  /* How much hue the kit's `tint` tones mix: an attention mark, which reads
+     lighter than a selection's wash in dark. */
+  --ui-tint: 10%;
 }
 :root[data-mantine-color-scheme='dark'] {
   --ui-base-bg-1: var(--mantine-color-dark-7);
@@ -61,6 +70,11 @@
   --ui-base-text-dimmed: var(--mantine-color-gray-6);
 
   --ui-shadow-floating: 0 1px 3px rgb(0 0 0 / 36%), 0 1px 2px rgb(0 0 0 / 48%);
+
+  --ui-wash: 20%;
+  --ui-wash-hover: 26%;
+
+  --ui-tint: 15%;
 }
 
 /*

@@ -297,7 +297,7 @@ describe('SeamCompare: saying how much attribution had to work with', () => {
     renderCompare({ diff: withOther });
 
     expect(screen.getByTestId('elsewhere')).toHaveTextContent(
-      '2 more hunks elsewhere in this pack — this diff covers the pack, not just watch-ci.'
+      '2 more hunks elsewhere in this pack. This diff covers the pack, not just watch-ci.'
     );
   });
 });

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState } from 'react';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 
 import {
@@ -565,6 +565,83 @@ test('TabBar title leads the tablist as the page heading and actions trail it, n
   ).toBeTruthy();
 });
 
+test('the root tab bar carries tabBar title and actions above the sidebar, full width', () => {
+  renderWithProviders(
+    <PageShell
+      tabs={[{ id: 'graph', label: 'Graph', active: true }]}
+      tabBar={{
+        title: 'Wiring',
+        actions: <button type="button">Open pack</button>,
+      }}
+    >
+      <PageShell.Sidebar>
+        <div>focus list</div>
+      </PageShell.Sidebar>
+      <PageShell.Main>
+        <PageShell.Content>
+          <div>stage</div>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+
+  const tabList = screen.getByRole('tablist', { name: 'Page tabs' });
+  const heading = screen.getByRole('heading', { level: 2, name: 'Wiring' });
+  const open = screen.getByRole('button', { name: 'Open pack' });
+  const sidebar = document.getElementById('page-shell-sidebar')!;
+
+  expect(tabList).not.toContainElement(heading);
+  expect(tabList).not.toContainElement(open);
+  expect(sidebar).not.toContainElement(tabList);
+  expect(
+    tabList.compareDocumentPosition(sidebar) & Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy();
+});
+
+test('tabBar keeps the root tab bar and its title, with no empty tablist, while there are no tabs yet', () => {
+  renderWithProviders(
+    <PageShell tabs={[]} tabBar={{ title: 'Wiring' }}>
+      <div>content body</div>
+    </PageShell>
+  );
+
+  expect(
+    screen.getByRole('heading', { level: 2, name: 'Wiring' })
+  ).toBeTruthy();
+  expect(screen.queryByRole('tablist')).toBeNull();
+});
+
+test('the sidebar subtracts a root tab bar that carries a title from its height', () => {
+  renderWithProviders(
+    <PageShell
+      tabBarHeight={40}
+      tabs={[{ id: 'graph', label: 'Graph', active: true }]}
+      tabBar={{ title: 'Wiring' }}
+    >
+      <PageShell.Sidebar>
+        {height => <div>sidebar:{height}</div>}
+      </PageShell.Sidebar>
+      <PageShell.Main>
+        <PageShell.Content>
+          <div>stage</div>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+
+  expect(screen.getByText(/^sidebar:/).textContent).toContain('2.5rem');
+});
+
+test('without tabBar an empty tabs list still renders no tab bar', () => {
+  renderWithProviders(
+    <PageShell tabs={[]}>
+      <div>content body</div>
+    </PageShell>
+  );
+
+  expect(screen.queryByRole('tablist')).toBeNull();
+});
+
 test('a TabBar with neither title nor actions renders no heading', () => {
   renderWithProviders(
     <PageShell tabs={[{ id: 'inventory', label: 'Inventory', active: true }]}>
@@ -663,5 +740,246 @@ test('a surface passed through scrollAreaProps marks the frame too', () => {
   );
   expect(document.getElementById('page-shell-content')).toHaveAttribute(
     'data-own-surface'
+  );
+});
+
+test('a sidebar given its own bg marks itself data-own-surface, and only then', () => {
+  const { unmount } = renderWithProviders(
+    <PageShell>
+      <PageShell.Sidebar>
+        <div>kit surface</div>
+      </PageShell.Sidebar>
+      <PageShell.Main>
+        <PageShell.Content>
+          <div>body</div>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+  expect(document.getElementById('page-shell-sidebar')).not.toHaveAttribute(
+    'data-own-surface'
+  );
+  unmount();
+  renderWithProviders(
+    <PageShell sideBarHeaderBg="var(--ui-bg-2)">
+      <PageShell.Sidebar>
+        <div>shared surface</div>
+      </PageShell.Sidebar>
+      <PageShell.Main>
+        <PageShell.Content>
+          <div>body</div>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+  expect(document.getElementById('page-shell-sidebar')).not.toHaveAttribute(
+    'data-own-surface'
+  );
+});
+
+test('a sidebar bg is its own surface', () => {
+  renderWithProviders(
+    <PageShell>
+      <PageShell.Sidebar bg="var(--tk-panel)">
+        <div>own surface</div>
+      </PageShell.Sidebar>
+      <PageShell.Main>
+        <PageShell.Content>
+          <div>body</div>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+  expect(document.getElementById('page-shell-sidebar')).toHaveAttribute(
+    'data-own-surface'
+  );
+});
+
+/** Runs `body` with every measured element reporting `height` px: jsdom
+    does no layout, and Mantine's useElementSize reads a ResizeObserver
+    whose callback it defers through requestAnimationFrame. */
+async function withMeasuredHeight(
+  height: number,
+  body: () => void | Promise<void>
+) {
+  const realRaf = window.requestAnimationFrame;
+  const realCaf = window.cancelAnimationFrame;
+  const realResizeObserver = window.ResizeObserver;
+  window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+    cb(0);
+    return 0;
+  };
+  window.cancelAnimationFrame = () => {};
+  window.ResizeObserver = class {
+    cb: ResizeObserverCallback;
+    constructor(cb: ResizeObserverCallback) {
+      this.cb = cb;
+    }
+    observe() {
+      this.cb(
+        [
+          {
+            borderBoxSize: [{ blockSize: height, inlineSize: 320 }],
+            contentRect: { height, width: 320 },
+          } as unknown as ResizeObserverEntry,
+        ],
+        this as unknown as ResizeObserver
+      );
+    }
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  try {
+    await body();
+  } finally {
+    window.ResizeObserver = realResizeObserver;
+    window.requestAnimationFrame = realRaf;
+    window.cancelAnimationFrame = realCaf;
+  }
+}
+
+function NotchedShell({ notch }: { notch?: { opened: boolean } }) {
+  return (
+    <PageShell
+      tabBarHeight={40}
+      tabs={[{ id: 'graph', label: 'Graph', active: true }]}
+      tabBar={{ title: 'Wiring' }}
+      topNotch={notch && { content: <div>banner</div>, opened: notch.opened }}
+    >
+      <PageShell.Sidebar>
+        {height => <div>sidebar:{height}</div>}
+      </PageShell.Sidebar>
+      <PageShell.Main>
+        <PageShell.Content>
+          {height => <div>content:{height}</div>}
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+}
+
+test('a root topNotch in compound mode docks full width between the tab bar and the body row', () => {
+  renderWithProviders(<NotchedShell notch={{ opened: true }} />);
+
+  const banner = screen.getByText('banner');
+  const tabList = screen.getByRole('tablist', { name: 'Page tabs' });
+  const sidebar = document.getElementById('page-shell-sidebar')!;
+  const main = document.getElementById('page-shell-main')!;
+
+  expect(sidebar).not.toContainElement(banner);
+  expect(main).not.toContainElement(banner);
+  expect(
+    tabList.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy();
+  expect(
+    banner.compareDocumentPosition(sidebar) & Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy();
+});
+
+test('a docked topNotch takes its measured height from both the content and the sidebar', async () => {
+  await withMeasuredHeight(54, () => {
+    renderWithProviders(<NotchedShell notch={{ opened: true }} />);
+
+    expect(screen.getByText(/^content:/).textContent).toContain('- 54px');
+    expect(screen.getByText(/^sidebar:/).textContent).toContain('- 54px');
+  });
+});
+
+test('a closed docked topNotch takes nothing from either height', async () => {
+  await withMeasuredHeight(54, () => {
+    renderWithProviders(<NotchedShell notch={{ opened: false }} />);
+
+    expect(screen.getByText(/^content:/).textContent).not.toContain('px');
+    expect(screen.getByText(/^sidebar:/).textContent).not.toContain('px');
+  });
+});
+
+test('a compound shell with no root topNotch keeps its heights as they were', async () => {
+  await withMeasuredHeight(54, () => {
+    const { unmount } = renderWithProviders(<NotchedShell />);
+    const content = screen.getByText(/^content:/).textContent;
+    const sidebar = screen.getByText(/^sidebar:/).textContent;
+    unmount();
+    renderWithProviders(<NotchedShell notch={{ opened: false }} />);
+
+    expect(content).not.toContain('px');
+    expect(screen.getByText(/^content:/).textContent).toBe(content);
+    expect(screen.getByText(/^sidebar:/).textContent).toBe(sidebar);
+  });
+});
+
+test('a closing docked topNotch keeps its height in the shell until it has slid out', async () => {
+  await withMeasuredHeight(54, async () => {
+    const { rerender } = renderWithProviders(
+      <NotchedShell notch={{ opened: true }} />
+    );
+    expect(screen.getByText(/^content:/).textContent).toContain('- 54px');
+
+    rerender(<NotchedShell notch={{ opened: false }} />);
+
+    expect(screen.getByText(/^content:/).textContent).toContain('- 54px');
+    expect(screen.getByText(/^sidebar:/).textContent).toContain('- 54px');
+    expect(screen.getByText('banner')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText(/^content:/).textContent).not.toContain('px')
+    );
+    expect(screen.getByText(/^sidebar:/).textContent).not.toContain('px');
+  });
+});
+
+test('an opening docked topNotch takes its height at once', async () => {
+  await withMeasuredHeight(54, () => {
+    const { rerender } = renderWithProviders(
+      <NotchedShell notch={{ opened: false }} />
+    );
+    rerender(<NotchedShell notch={{ opened: true }} />);
+
+    expect(screen.getByText(/^content:/).textContent).toContain('- 54px');
+  });
+});
+
+test('a docked topNotch that goes away takes its height with it', async () => {
+  await withMeasuredHeight(54, () => {
+    const { rerender } = renderWithProviders(
+      <NotchedShell notch={{ opened: true }} />
+    );
+    rerender(<NotchedShell />);
+    rerender(<NotchedShell notch={{ opened: false }} />);
+
+    expect(screen.getByText(/^content:/).textContent).not.toContain('px');
+    expect(screen.getByText(/^sidebar:/).textContent).not.toContain('px');
+  });
+});
+
+test('a docked topNotch animates only as it opens and closes, never as it resizes in place', async () => {
+  await withMeasuredHeight(54, async () => {
+    const { rerender } = renderWithProviders(
+      <NotchedShell notch={{ opened: false }} />
+    );
+    const wrapper = () =>
+      screen.getByText('banner').parentElement!.parentElement!
+        .parentElement as HTMLElement;
+
+    rerender(<NotchedShell notch={{ opened: true }} />);
+    expect(wrapper().style.transition).toContain('height');
+    await waitFor(() => expect(wrapper().style.transition).toBe(''));
+
+    rerender(<NotchedShell notch={{ opened: false }} />);
+    expect(wrapper().style.transition).toContain('height');
+  });
+});
+
+test('a simple-mode topNotch still docks inside the content area', () => {
+  renderWithProviders(
+    <PageShell
+      title="Dashboard"
+      topNotch={{ content: <div>banner</div>, opened: true }}
+    >
+      <div>body</div>
+    </PageShell>
+  );
+
+  expect(document.getElementById('page-shell-content')).toContainElement(
+    screen.getByText('banner')
   );
 });

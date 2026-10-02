@@ -28,8 +28,13 @@
 import { execFileSync, spawnSync } from "child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { applyEdits, modify } from "jsonc-parser";
+import { homedir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { mattstackHome } from "../lib/rt-paths.ts";
+import { childEnv, runCapture } from "../lib/subprocess.ts";
+import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
+import { insideCheckout } from "../lib/skills/sync.ts";
+import { interactive } from "../lib/ui/gate.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
@@ -39,7 +44,9 @@ import { createRealProbes } from "../lib/setup/probes.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
-import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
+import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
+import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
+import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
@@ -48,7 +55,7 @@ import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
-import { findPlaceholders } from "../lib/skills/placeholders.ts";
+import { findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
@@ -646,18 +653,18 @@ function loadIncludesFor(
   resolved: Resolved,
   where: string,
 ): Record<string, AttachmentSource> {
-  const out: Record<string, AttachmentSource> = {};
+  const loaded: Record<string, AttachmentSource> = {};
   const fillBodies = Object.values(fills)
     .filter((f): f is AttachmentSource => f !== null && isInlined(f, resolved.internalRoster))
     .map((f) => f.body);
   for (const name of includeNames([step.body, ...fillBodies])) {
     try {
-      out[name] = loadInclude(name, resolved.pluginRoots);
+      loaded[name] = loadInclude(name, resolved.pluginRoots);
     } catch (err) {
       throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
     }
   }
-  return out;
+  return loaded;
 }
 
 /** Every stage's own rules plus its bound fills' rules; unioned into the orchestrator because a stage read as a file loads no frontmatter of its own. */
@@ -678,7 +685,20 @@ function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageE
   return rules;
 }
 
-function compileVerb(target: CompileTarget, resolved: Resolved, emittedTargetDirs: string[], verbSides: Record<string, Side>): CompileResult {
+type CompileAnatomy = {
+  step: StepSource;
+  includes: Record<string, AttachmentSource>;
+  fills: Record<string, AttachmentSource | null>;
+  slotMode: Record<string, "inline" | "reference">;
+};
+
+function compileVerb(
+  target: CompileTarget,
+  resolved: Resolved,
+  emittedTargetDirs: string[],
+  verbSides: Record<string, Side>,
+  trace?: (entry: TraceEntry) => void,
+): CompileResult & { anatomy?: CompileAnatomy } {
   const { isPublic, isStage } = target;
   let verb = target.verb;
   const where = `${isStage ? "stage" : "verb"} "${verb.name}"`;
@@ -705,9 +725,10 @@ function compileVerb(target: CompileTarget, resolved: Resolved, emittedTargetDir
 
   try {
     const fills = loadFillsFor(step, resolved, where);
-    return compileSkill(verb, step, fills, resolved.invocable, {
+    const includes = loadIncludesFor(step, fills, resolved, where);
+    const result = compileSkill(verb, step, fills, resolved.invocable, {
       internalRoster: resolved.internalRoster,
-      includes: loadIncludesFor(step, fills, resolved, where),
+      includes,
       pipelines: entries,
       repoKey: resolved.repoKey,
       mattstackSha: resolved.mattstackSha,
@@ -722,7 +743,14 @@ function compileVerb(target: CompileTarget, resolved: Resolved, emittedTargetDir
       where,
       verbSides,
       side: isPublic ? "skills" : "attachments",
+      trace,
     });
+    if (!trace) return result;
+    const slotMode: Record<string, "inline" | "reference"> = {};
+    for (const [slot, fill] of Object.entries(fills)) {
+      if (fill) slotMode[slot] = isInlined(fill, resolved.internalRoster) ? "inline" : "reference";
+    }
+    return { ...result, anatomy: { step, includes, fills, slotMode } };
   } catch (err) {
     const message = (err as Error).message;
     // loadFillsFor/loadIncludesFor's SkillsUsageError already carries this same
@@ -734,7 +762,22 @@ function compileVerb(target: CompileTarget, resolved: Resolved, emittedTargetDir
   }
 }
 
-function writeCompiledVerb(outDir: string, result: CompileResult): void {
+/** The files a compile wrote and removed, pack-relative, so a caller commits exactly them and nothing that merely sits beside them. */
+export type CompileWrites = { written: string[]; removed: string[] };
+
+function packRelativeFiles(packDir: string, dir: string, files: string[]): string[] {
+  const rel = relativePath(packDir, dir).split(sep).join("/");
+  return files.map((f) => `${rel}/${f}`);
+}
+
+/** Sweeps a stale compiled dir, reporting each file it held as removed. */
+function removeCompiledDir(packDir: string, dir: string, into: CompileWrites): void {
+  into.removed.push(...packRelativeFiles(packDir, dir, listFilesRecursive(dir)));
+  rmSync(dir, { recursive: true, force: true });
+}
+
+function writeCompiledVerb(packDir: string, outDir: string, result: CompileResult, into: CompileWrites): void {
+  const before = listFilesRecursive(outDir);
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
 
@@ -748,6 +791,9 @@ function writeCompiledVerb(outDir: string, result: CompileResult): void {
       chmodSync(dest, statSync(file.copyFrom).mode);
     }
   }
+  const written = new Set(result.files.map((f) => f.path));
+  into.written.push(...packRelativeFiles(packDir, outDir, [...written]));
+  into.removed.push(...packRelativeFiles(packDir, outDir, before.filter((f) => !written.has(f))));
 }
 
 type CompileVerbStatus = "compiled" | "errored";
@@ -847,6 +893,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   outcomes: { target: CompileTarget; outcome: CompileOutcome }[];
   failures: string[];
   misplaced: string[];
+  writes: CompileWrites;
 } {
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
   const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, verbFilter);
@@ -862,6 +909,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   const failures = outcomes.flatMap(({ outcome }) => (outcome.ok ? [] : [outcome.message]));
 
   const writing = write && failures.length === 0;
+  const writes: CompileWrites = { written: [], removed: [] };
   if (writing) {
     for (const { target, outcome } of outcomes) {
       if (!outcome.ok) continue;
@@ -870,8 +918,8 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
       // its door compiles into skills/<verb>/: the other side is only stale when
       // it carries the compiler header, never when it is the hand-written source.
       const stale = otherSideDir(resolved.packDir, verb.name, isPublic);
-      if (existsSync(stale) && !isHandWrittenDir(stale)) rmSync(stale, { recursive: true, force: true });
-      writeCompiledVerb(outDirFor(resolved.packDir, verb.name, isPublic), outcome.result);
+      if (existsSync(stale) && !isHandWrittenDir(stale)) removeCompiledDir(resolved.packDir, stale, writes);
+      writeCompiledVerb(resolved.packDir, outDirFor(resolved.packDir, verb.name, isPublic), outcome.result, writes);
     }
   }
 
@@ -894,7 +942,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     }
   }
 
-  return { outcomes, failures, misplaced };
+  return { outcomes, failures, misplaced, writes };
 }
 
 export type CompiledRow = { name: string; side: Side; files: number; warnings: string[] };
@@ -1022,7 +1070,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
  * verbs -- each named in `errors` -- with no partial write on failure,
  * exactly as the handler behaves today.
  */
-export async function compilePackAll(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string; verbs?: string[] | null; write?: boolean }): Promise<{ ok: boolean; errors: string[] }> {
+export async function compilePackAll(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string; verbs?: string[] | null; write?: boolean }): Promise<{ ok: boolean; errors: string[] } & CompileWrites> {
   const args: string[] = [];
   if (opts.pack) args.push("--pack", opts.pack);
   if (opts.packDir) args.push("--pack-dir", opts.packDir);
@@ -1031,10 +1079,10 @@ export async function compilePackAll(opts: { pack?: string; packDir?: string; ma
   if (opts.mattstackDir) args.push("--mattstack-dir", opts.mattstackDir);
   const resolved = await resolve(parseFlags(args));
   const chainErrors = pipelineChainErrors(resolved);
-  if (chainErrors.length > 0) return { ok: false, errors: chainErrors };
-  const { failures, misplaced } = performCompile(resolved, opts.verbs ?? null, opts.write ?? true);
+  if (chainErrors.length > 0) return { ok: false, errors: chainErrors, written: [], removed: [] };
+  const { failures, misplaced, writes } = performCompile(resolved, opts.verbs ?? null, opts.write ?? true);
   const errors = [...failures, ...misplaced.map((name) => `misplaced: ${name}`)];
-  return { ok: errors.length === 0, errors };
+  return { ok: errors.length === 0, errors, ...writes };
 }
 
 type CheckVerbStatus = "in-sync" | "stale" | "never-compiled";
@@ -1322,10 +1370,24 @@ type CompositionBinder = {
   ref: string;
   verb: string | null;
   kind: CompositionBinderKind;
-  slots: { name: string; boundTo: string }[];
+  /** `layer` names the bindings layer that set the slot, as a verb slot's does. */
+  slots: { name: string; boundTo: string; layer: string | null }[];
 };
 
 type CompositionFill = { binding: string; provides: string; sourcePath: string; registered: boolean };
+
+type CompositionTarget = {
+  name: string;
+  kind: "verb" | "stage";
+  public: boolean;
+  artifactPath: string;
+  templatePath: string | null;
+  /** Line numbers count the engine file's frontmatter, so they open the template at the right line. */
+  placeholders: { kind: string; arg: string | null; line: number }[];
+  /** The slots the template declares, so a stage's slots are known without a roster entry. */
+  slots: { name: string; contract: string; required: boolean }[];
+  engineError: string | null;
+};
 
 export type CompositionPayload = {
   pack: string;
@@ -1350,6 +1412,8 @@ export type CompositionPayload = {
    * nowhere else to get it.
    */
   pipelines: Record<string, string[]>;
+  /** Every compile target, roster verbs and pipeline stages both, where `verbs` is the roster only. */
+  targets: CompositionTarget[];
 };
 
 /**
@@ -1486,7 +1550,37 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
       ref,
       verb: verbName,
       kind,
-      slots: Object.entries(slotBindings).map(([name, boundTo]) => ({ name, boundTo })),
+      slots: Object.entries(slotBindings).map(([name, boundTo]) => ({
+        name,
+        boundTo,
+        layer: resolved.provenance[`${ref} ${name}`] ?? null,
+      })),
+    };
+  });
+}
+
+function buildCompositionTargets(resolved: Resolved, publicSet: Set<string> | null): CompositionTarget[] {
+  return compileTargets(resolved, publicSet, null).targets.map((t) => {
+    let step: StepSource | null = null;
+    let engineError: string | null = null;
+    try {
+      step = loadStepSource(t.verb.engine, resolved.pluginRoots);
+    } catch (err) {
+      engineError = (err as Error).message;
+    }
+    return {
+      name: t.verb.name,
+      kind: t.isStage ? "stage" : "verb",
+      public: t.isPublic,
+      artifactPath: join(outDirFor(resolved.packDir, t.verb.name, t.isPublic), "SKILL.md"),
+      templatePath: step ? join(step.dir, "SKILL.md") : null,
+      placeholders: step
+        ? findPlaceholders(step.body).map((p) => ({ kind: p.kind, arg: p.arg, line: step.bodyStartLine + p.line - 1 }))
+        : [],
+      slots: step
+        ? Object.entries(step.slots).map(([name, spec]) => ({ name, contract: spec.contract, required: spec.required ?? false }))
+        : [],
+      engineError,
     };
   });
 }
@@ -1558,6 +1652,7 @@ export async function skillsComposition(args: string[]): Promise<void> {
     const verbs = resolved.fullRoster.map((verb) => buildCompositionVerb(verb, resolved, publicSet));
     const fills = enumerateFills(resolved.pluginRoots);
     const binders = buildBinders(resolved, pipelines);
+    const targets = buildCompositionTargets(resolved, publicSet);
 
     const payload: CompositionPayload = {
       pack: resolved.team,
@@ -1567,6 +1662,7 @@ export async function skillsComposition(args: string[]): Promise<void> {
       fills,
       binders,
       pipelines,
+      targets,
     };
 
     if (flags.json) {
@@ -1574,6 +1670,351 @@ export async function skillsComposition(args: string[]): Promise<void> {
       return;
     }
     out.print(...compositionBlocks(payload));
+  });
+}
+
+// ─── rt skills anatomy ─────────────────────────────────────────────────────
+
+const STEP_VERSION_RE = /^<!-- part: step .*?\bversion=(\S+) /m;
+
+/** A file's line count as an editor shows it: the trailing newline ends the last line rather than starting another. */
+function fileLineCount(text: string): number {
+  if (text === "") return 0;
+  const count = text.split("\n").length;
+  return text.endsWith("\n") ? count - 1 : count;
+}
+
+function readIfExists(path: string): string | null {
+  return existsSync(path) ? readFileSync(path, "utf8") : null;
+}
+
+function spanText(span: [number, number] | null): string {
+  return span ? `${span[0]}-${span[1]}` : "-";
+}
+
+export async function skillsAnatomy(args: string[]): Promise<void> {
+  await withCleanErrors(async () => {
+    const at = args.indexOf("--skill");
+    if (at < 0) throw new SkillsUsageError("rt skills anatomy needs --skill <name>", usageFailure("Which skill?", "rt skills anatomy --skill <name>"));
+    const skill = requireFlagValue("--skill", args[at + 1]);
+    const flags = parseFlags([...args.slice(0, at), ...args.slice(at + 2)]);
+    const resolved = await resolve(flags);
+    const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
+    const plan = compileTargets(resolved, publicSet, null);
+    const target = plan.targets.find((t) => t.verb.name === skill);
+    if (!target) {
+      throw new SkillsUsageError(`no skill named "${skill}" in pack ${resolved.team}`, {
+        title: `The ${resolved.team} pack has no skill called ${skill}`,
+        next: out.cmd(`rt skills surface list --pack ${resolved.team}`),
+      });
+    }
+
+    const trace: TraceEntry[] = [];
+    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, (e) => trace.push(e));
+    const main = result.files.find((f) => "content" in f && f.path === "SKILL.md");
+    if (!main || !("content" in main) || !result.anatomy) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
+    const fresh = main.content;
+    const { step, includes, fills, slotMode } = result.anatomy;
+    const renderedPath = join(outDirFor(resolved.packDir, skill, target.isPublic), "SKILL.md");
+    const onDisk = readIfExists(renderedPath);
+    const shown = onDisk ?? fresh;
+
+    const builtVersions = new Map(partExtents(onDisk ?? "").map((p) => [p.key, p.version]));
+    const sources: Record<string, AnatomySource> = {};
+    for (const [name, inc] of Object.entries(includes)) {
+      const key = `include:${name}`;
+      sources[key] = { ref: `${inc.plugin}:${name}`, path: join(inc.dir, "SKILL.md"), version: inc.version, builtVersion: builtVersions.get(key) ?? null, lines: inc.body.split("\n").length };
+    }
+    for (const [slot, fill] of Object.entries(fills)) {
+      if (!fill) continue;
+      const key = `slot:${slot}`;
+      sources[key] = { ref: fill.binding, path: join(fill.dir, "SKILL.md"), version: fill.version, builtVersion: builtVersions.get(key) ?? null, lines: fill.body.split("\n").length };
+    }
+    const targets: Record<string, AnatomyTarget> = {};
+    for (const t of plan.targets) {
+      const path = join(outDirFor(resolved.packDir, t.verb.name, t.isPublic), "SKILL.md");
+      const text = readIfExists(path);
+      targets[t.verb.name] = { skill: t.verb.name, path, lines: text === null ? null : fileLineCount(text) };
+    }
+
+    const bodyOffset = fresh.split("\n").findIndex((l) => l.startsWith("<!-- part: step ")) + 2;
+    const changedKeys = onDisk ? changedPartKeys(onDisk, fresh) : new Set<string>();
+    // check masks the compiler's version and sha stamps before comparing, and so must this, or the two disagree.
+    const staleBecause = onDisk ? skillMdDriftCauses(maskProvenance(onDisk), maskProvenance(fresh)) : [];
+    const status = onDisk === null ? "never-compiled" : staleBecause.length > 0 ? "stale" : "in-sync";
+    let parts = trace.length > 0
+      ? buildParts({ bodyStartLine: step.bodyStartLine, bodyOffset, trace, sources, targets, slotModes: slotMode, changedKeys })
+      : partsFromMarkers(shown, sources, changedKeys);
+    if (trace.length > 0 && onDisk !== null && status === "stale") parts = partsOnDisk(parts, onDisk);
+    const templatePath = join(step.dir, "SKILL.md");
+
+    const payload: AnatomyPayload = {
+      pack: resolved.team,
+      skill,
+      kind: target.isStage ? "stage" : "verb",
+      public: target.isPublic,
+      description: (target.isStage ? step.description : target.verb.description) || null,
+      template: {
+        ref: `${step.plugin}:${step.name}`,
+        path: templatePath,
+        version: step.version,
+        builtVersion: onDisk ? STEP_VERSION_RE.exec(onDisk)?.[1] ?? null : null,
+        lines: fileLineCount(readFileSync(templatePath, "utf8")),
+      },
+      rendered: { path: renderedPath, exists: onDisk !== null, lines: fileLineCount(shown) },
+      status,
+      staleBecause,
+      parts,
+      links: linksIn(shown),
+    };
+
+    if (flags.json) {
+      out.json(payload);
+      return;
+    }
+    out.print(out.table(
+      payload.parts.map((p) => [p.kind, p.name ?? "", spanText(p.templateLines), spanText(p.renderedLines)]),
+      ["Part", "Name", "Template lines", "Rendered lines"],
+    ));
+  });
+}
+
+// ─── rt skills changes ─────────────────────────────────────────────────────
+
+const GIT_TIMEOUT_MS = 5000;
+const GIT_WRITE_TIMEOUT_MS = 60_000;
+
+/**
+ * The console polls `changes`, so a read must never take index.lock: a plain
+ * `git status` refreshes the index and would lock out a concurrent add or
+ * commit. `core.quotePath=false` keeps non-ASCII names literal; paths with
+ * spaces or quotes still arrive quoted, which parsePorcelain undoes.
+ */
+function runGit(packDir: string, args: string[], opts: { timeoutMs?: number; env?: Record<string, string | undefined> } = {}) {
+  return runCapture(["git", "--no-optional-locks", "-c", "core.quotePath=false", ...args], {
+    cwd: packDir,
+    stderr: "pipe",
+    timeoutMs: opts.timeoutMs ?? GIT_TIMEOUT_MS,
+    ...(opts.env ? { env: opts.env } : {}),
+  });
+}
+
+/** HEAD's copy of a pack-relative file, or null when HEAD has none (a new file, or a repo with no commits yet). */
+async function committedText(packDir: string, team: string, rel: string): Promise<string | null> {
+  const res = await runGit(packDir, ["show", `HEAD:./${rel}`]);
+  if (res.exitCode === -1) throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(res)}`);
+  return res.exitCode === 0 ? res.stdout : null;
+}
+
+/** The in-scope files with their content ids, the binding and surface edits, and the signature over all of them. */
+async function signedChanges(packDir: string, team: string, inScope: PendingFile[]): Promise<{ files: HashedFile[]; signature: string } & PackSideChanges> {
+  const files = await withHashes(packDir, inScope, async (paths) => {
+    const res = await runGit(packDir, ["hash-object", "--", ...paths]);
+    if (res.exitCode !== 0) throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(res)}`);
+    return res.stdout;
+  });
+  const side = await packSideChanges(packDir, (rel) => committedText(packDir, team, rel));
+  return { files, ...side, signature: pendingSignature({ files, ...side }) };
+}
+
+/**
+ * Every pending file with a side inside the pack, pack-relative, whether or
+ * not it is in the pack's scope. The status covers the whole repo, because one
+ * limited to the pack directory cannot pair a rename whose source lies outside
+ * it and shows the destination as a plain add; the other side of such a
+ * rename is spelled as a path that climbs out of the pack.
+ */
+async function readPackPending(packDir: string, team: string): Promise<PendingFile[]> {
+  const prefixRes = await runGit(packDir, ["rev-parse", "--show-prefix"]);
+  if (prefixRes.exitCode !== 0) {
+    if (isNotARepo(prefixRes)) {
+      throw new SkillsUsageError(`pack ${team} is not inside a git checkout, so there is no way to tell what changed`, {
+        title: `The ${team} pack is not inside a git checkout`,
+        why: "Without git, rt cannot tell what changed.",
+        details: packDir,
+      });
+    }
+    throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(prefixRes)}`);
+  }
+  const statusRes = await runGit(packDir, ["status", "--porcelain=v1", "--untracked-files=all"]);
+  if (statusRes.exitCode !== 0) throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(statusRes)}`);
+  return packRelative(parsePorcelain(statusRes.stdout), prefixRes.stdout.trim()).filter(touchesPack);
+}
+
+function shownPath(f: PendingFile): string {
+  return f.from === undefined ? f.path : `${f.from} -> ${f.path}`;
+}
+
+export async function skillsChanges(args: string[]): Promise<void> {
+  await withCleanErrors(async () => {
+    const flags = parseFlags(args);
+    const { team, packDir } = await resolvePack(flags);
+
+    const all = await readPackPending(packDir, team);
+    const outsideScope = all.filter((f) => !fullyInScope(f));
+    const signed = await signedChanges(packDir, team, all.filter(fullyInScope));
+    const payload: ChangesPayload = {
+      pack: team,
+      packDir,
+      dirty: all.length > 0,
+      files: signed.files,
+      outsideScope,
+      bindings: signed.bindings,
+      surface: signed.surface,
+      signature: signed.signature,
+    };
+
+    if (flags.json) {
+      out.json(payload);
+      return;
+    }
+    if (!payload.dirty) {
+      out.print(out.line("done", `Pack ${team} has nothing waiting to sync`));
+      return;
+    }
+    const fileRows = (group: string, rows: PendingFile[]) => (rows.length > 0 ? [{ group }, ...rows.map((f) => [f.status, shownPath(f)])] : []);
+    const blocks = [
+      out.line("pending", `Pack ${team} has changes that are not synced yet`),
+      out.table([...fileRows("Pack files", payload.files), ...fileRows("Other files", outsideScope)], ["Status", "Path"]),
+    ];
+    if (payload.bindings.length > 0) {
+      blocks.push(out.table(payload.bindings.map((b) => [`${b.engineRef} ${b.slot}`, b.from ?? "(none)", b.to ?? "(none)"]), ["Binding", "Was", "Now"]));
+    }
+    if (payload.surface.length > 0) {
+      blocks.push(out.table(payload.surface.map((c) => [c.skill, c.from, c.to]), ["Skill", "Was", "Now"]));
+    }
+    out.print(...blocks);
+  });
+}
+
+// ─── rt skills discard ─────────────────────────────────────────────────────
+
+export type DiscardPayload = { pack: string; packDir: string; discarded: PendingFile[] };
+
+export type DiscardIo = {
+  interactive: () => boolean;
+  confirm: (message: string) => Promise<boolean>;
+  sharedCheckout: () => string | null;
+};
+
+const REAL_DISCARD_IO: DiscardIo = {
+  interactive,
+  confirm: async (message) => (await import("../lib/ui/prompts.ts")).confirm({ message, destructive: true }),
+  sharedCheckout: () => resolveSharedCheckout(homedir()),
+};
+
+/**
+ * Every path, tracked or not, is one the pending read listed, named to git
+ * literally: tracked files are restored, both sides of a rename included, and
+ * untracked files are cleaned one by one, so a file that lands after the read
+ * is never touched. Git never sees a bare `.`, a whole pack root or a path
+ * outside the pack's scope.
+ */
+async function discardPending(packDir: string, team: string, pending: PendingFile[]): Promise<PendingFile[]> {
+  const fail = (res: GitRun) => new SkillsUsageError(`pack ${team}: ${describeGitFailure(res)}`);
+  const tracked = pending.filter((f) => f.status !== "??");
+  const untracked = pending.filter((f) => f.status === "??");
+  const discarded = [...tracked];
+
+  if (tracked.length > 0) {
+    const res = await runGit(packDir, ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...literalPathspecs(tracked)], { timeoutMs: GIT_WRITE_TIMEOUT_MS });
+    if (res.exitCode !== 0) throw fail(res);
+  }
+
+  if (untracked.length > 0) {
+    const dryRun = await runGit(packDir, ["clean", "-n", "--", ...literalPathspecs(untracked)], { env: { ...childEnv(), LC_ALL: "C" } });
+    if (dryRun.exitCode !== 0) throw fail(dryRun);
+    const doomed = parseCleanDryRun(dryRun.stdout);
+    if (doomed.length > 0) {
+      const res = await runGit(packDir, ["clean", "-f", "--", ...literalPathspecs(doomed)], { timeoutMs: GIT_WRITE_TIMEOUT_MS });
+      if (res.exitCode !== 0) throw fail(res);
+      pruneEmptiedDirs(packDir, doomed.map((f) => f.path));
+      discarded.push(...doomed);
+    }
+  }
+  return discarded;
+}
+
+function changedUnderDiscard(message: string, title: string, next: string): SkillsUsageError {
+  return new SkillsUsageError(`${message}, so nothing was thrown away`, {
+    title,
+    why: "rt threw nothing away. Look over the changes again, then discard.",
+    next: out.cmd(next),
+  });
+}
+
+/** Takes `--expect <signature>` out of the arguments; parseFlags is shared by every skills verb, and only discard takes it. */
+function takeExpect(args: string[]): { expect: string | null; rest: string[] } {
+  const i = args.indexOf("--expect");
+  if (i === -1) return { expect: null, rest: args };
+  const value = args[i + 1];
+  if (value === undefined || !SIGNATURE_RE.test(value)) {
+    throw new SkillsUsageError(
+      "--expect needs the signature that rt skills changes --json prints",
+      usageFailure("Which signature?", "rt skills discard --pack <name> --expect <signature>", "Pass the signature rt skills changes --json printed for the changes you looked at."),
+    );
+  }
+  return { expect: value, rest: [...args.slice(0, i), ...args.slice(i + 2)] };
+}
+
+export async function skillsDiscard(args: string[], io: DiscardIo = REAL_DISCARD_IO): Promise<void> {
+  await withCleanErrors(async () => {
+    const { expect, rest } = takeExpect(args);
+    const flags = parseFlags(rest);
+    if (!flags.team) {
+      throw new SkillsUsageError(
+        "rt skills discard needs --pack <name>; it throws work away, so it never guesses which pack",
+        usageFailure("Which pack?", "rt skills discard --pack <name>", "This throws work away, so it never guesses the pack."),
+      );
+    }
+    const { team, packDir } = await resolvePack(flags);
+    const shared = io.sharedCheckout();
+    if (insideCheckout(packDir, shared)) {
+      throw new SkillsUsageError(`pack ${team} is in the shared checkout at ${shared}, which rt never writes to; changes there go through a pull request`, {
+        title: `The ${team} pack is in the shared checkout, which rt never changes`,
+        why: "Changes there go through a pull request.",
+        ...(shared ? { details: shared } : {}),
+      });
+    }
+
+    let pending = (await readPackPending(packDir, team)).filter(fullyInScope);
+    const prompting = pending.length > 0 && !flags.json && io.interactive();
+    const signature = expect !== null || prompting ? (await signedChanges(packDir, team, pending)).signature : null;
+    if (expect !== null && signature !== expect) {
+      throw changedUnderDiscard(`pack ${team} changed since its pending changes were shown`, `The ${team} pack changed since its changes were shown`, `rt skills changes --pack ${team}`);
+    }
+    if (prompting) {
+      out.print(
+        out.line("pending", `Pack ${team} has ${pending.length === 1 ? "1 change" : `${pending.length} changes`} that are not synced yet`),
+        out.table(pending.map((f) => [f.status, shownPath(f)]), ["Status", "Path"]),
+      );
+      if (!(await io.confirm("Throw these away? This cannot be undone."))) {
+        out.print(out.line("skipped", `Kept every change in pack ${team}`));
+        return;
+      }
+      // The list stayed on screen while the person decided; anything that
+      // moved since is not what they said yes to.
+      const now = (await readPackPending(packDir, team)).filter(fullyInScope);
+      if ((await signedChanges(packDir, team, now)).signature !== signature) {
+        throw changedUnderDiscard(`pack ${team} changed while you were deciding`, `The ${team} pack changed while you were deciding`, `rt skills discard --pack ${team}`);
+      }
+      pending = now;
+    }
+    const payload: DiscardPayload = { pack: team, packDir, discarded: await discardPending(packDir, team, pending) };
+
+    if (flags.json) {
+      out.json(payload);
+      return;
+    }
+    if (payload.discarded.length === 0) {
+      out.print(out.line("done", `Pack ${team} has nothing to throw away`));
+      return;
+    }
+    const count = payload.discarded.length;
+    out.print(
+      out.line("done", `Threw away ${count} ${count === 1 ? "change" : "changes"} in pack ${team}`),
+      out.table(payload.discarded.map((f) => [f.status, shownPath(f)]), ["Status", "Path"]),
+    );
   });
 }
 

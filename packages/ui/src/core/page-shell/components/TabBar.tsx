@@ -55,20 +55,20 @@ export interface PageShellTabBarProps {
 }
 
 /**
- * The shell's tab row, rendered by the root when its `tabs` prop is set --
- * or composed directly by a consumer building their own tab row (register
- * presence into the shell's height math via
- * `usePageShellContext().setHasTabBar`, the same way this component does).
- * Spans the full shell width above the body row (sidebar included), sized
- * by the root's `tabBarHeight` and sitting on the shared shell surface
- * (context `bg`). Built on Mantine's native `Tabs`/`Tabs.Tab` (role="tablist"
- * / role="tab" come from Mantine); the active tab carries the same calm
- * primary-light tint the kit uses for other active states (`SelectableList`
- * rows, the docs sidebar), on top of Mantine's native active indicator.
+ * The shell's tab row. The root renders it from its `tabs` prop (and, opted
+ * in, its `tabBar` title and actions) across the full shell width above the
+ * body row, sidebar included. Composed inside `PageShell.Main` instead, it
+ * sits beside a sidebar; a consumer's own tab row registers in the height
+ * math through `usePageShellContext().setHasTabBar`, as this one does. Sized
+ * by the root's `tabBarHeight`, on the shared shell surface (context `bg`).
+ * Built on Mantine's native `Tabs`/`Tabs.Tab` (role="tablist" / role="tab"
+ * come from Mantine); the active tab carries the same calm primary-light
+ * tint the kit uses for other active states (`SelectableList` rows, the docs
+ * sidebar), on top of Mantine's native active indicator.
  *
  * `title` and `actions` sit outside the tablist, before and after it, so
- * the tablist stays a clean tablist for assistive tech while the row can
- * stand in for a header on pages that have no sidebar to span.
+ * the tablist stays a clean tablist for assistive tech while the row stands
+ * in for the page header. With no tabs yet, no empty tablist renders.
  */
 export const TabBar = ({
   tabs,
@@ -109,48 +109,50 @@ export const TabBar = ({
           <Divider orientation="vertical" h="1.25em" />
         </Group>
       )}
-      <Tabs
-        variant="default"
-        value={tabs.find(tab => tab.active)?.id ?? null}
-        color={color}
-        radius={radius}
-        h="100%"
-      >
-        <Tabs.List id="page-shell-tab-bar" aria-label="Page tabs" h="100%">
-          {tabs.map(tab => {
-            const LinkComponent = tab.component;
-            return (
-              <Tabs.Tab
-                key={tab.id}
-                value={tab.id}
-                h="100%"
-                fz="sm"
-                classNames={{ tab: classes.tabBarTab }}
-                leftSection={tab.icon && <Icon name={tab.icon} size={16} />}
-                rightSection={
-                  tab.iconRight && <Icon name={tab.iconRight} size={16} />
-                }
-                onClick={tab.onClick}
-                // `component` can't take a dynamic value (the polymorphic
-                // types need a static element), so per-tab linking goes
-                // through Mantine's `renderRoot` escape hatch instead. `href`
-                // is folded in inside the callback (rather than passed as a
-                // prop to `Tabs.Tab` itself) so it stays out of the way of
-                // `Tabs.Tab`'s own prop types.
-                renderRoot={
-                  LinkComponent
-                    ? rootProps => (
-                        <LinkComponent {...rootProps} href={tab.href} />
-                      )
-                    : undefined
-                }
-              >
-                {tab.labelComponent ?? tab.label}
-              </Tabs.Tab>
-            );
-          })}
-        </Tabs.List>
-      </Tabs>
+      {tabs.length > 0 && (
+        <Tabs
+          variant="default"
+          value={tabs.find(tab => tab.active)?.id ?? null}
+          color={color}
+          radius={radius}
+          h="100%"
+        >
+          <Tabs.List id="page-shell-tab-bar" aria-label="Page tabs" h="100%">
+            {tabs.map(tab => {
+              const LinkComponent = tab.component;
+              return (
+                <Tabs.Tab
+                  key={tab.id}
+                  value={tab.id}
+                  h="100%"
+                  fz="sm"
+                  classNames={{ tab: classes.tabBarTab }}
+                  leftSection={tab.icon && <Icon name={tab.icon} size={16} />}
+                  rightSection={
+                    tab.iconRight && <Icon name={tab.iconRight} size={16} />
+                  }
+                  onClick={tab.onClick}
+                  // `component` can't take a dynamic value (the polymorphic
+                  // types need a static element), so per-tab linking goes
+                  // through Mantine's `renderRoot` escape hatch instead. `href`
+                  // is folded in inside the callback (rather than passed as a
+                  // prop to `Tabs.Tab` itself) so it stays out of the way of
+                  // `Tabs.Tab`'s own prop types.
+                  renderRoot={
+                    LinkComponent
+                      ? rootProps => (
+                          <LinkComponent {...rootProps} href={tab.href} />
+                        )
+                      : undefined
+                  }
+                >
+                  {tab.labelComponent ?? tab.label}
+                </Tabs.Tab>
+              );
+            })}
+          </Tabs.List>
+        </Tabs>
+      )}
       {actions != null && (
         <Group gap="sm" ml="auto" wrap="nowrap">
           {actions}

@@ -1,0 +1,277 @@
+{
+  "pack": "acme",
+  "skill": "work",
+  "kind": "verb",
+  "public": true,
+  "description": "Runs a unit of work end to end, from provisioning through ship and CI.",
+  "template": {
+    "ref": "mattstack:work",
+    "path": "/fixture/mattstack/attachments/pipeline/work/SKILL.md",
+    "version": "0.30.4",
+    "builtVersion": "0.28.10",
+    "lines": 250
+  },
+  "rendered": {
+    "path": "/fixture/packs/acme/skills/work/SKILL.md",
+    "exists": true,
+    "lines": 824
+  },
+  "status": "stale",
+  "staleBecause": ["source"],
+  "parts": [
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [1, 28],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "verb.path",
+      "name": "stage-provision",
+      "templateLines": [29, 29],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": {
+        "skill": "stage-provision",
+        "path": "/fixture/packs/acme/attachments/stage-provision/SKILL.md",
+        "lines": 777
+      },
+      "changed": false
+    },
+    {
+      "kind": "verb.path",
+      "name": "stage-plan",
+      "templateLines": [30, 30],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": {
+        "skill": "stage-plan",
+        "path": "/fixture/packs/acme/attachments/stage-plan/SKILL.md",
+        "lines": 780
+      },
+      "changed": false
+    },
+    {
+      "kind": "verb.path",
+      "name": "stage-gates",
+      "templateLines": [31, 31],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": {
+        "skill": "stage-gates",
+        "path": "/fixture/packs/acme/attachments/stage-gates/SKILL.md",
+        "lines": 212
+      },
+      "changed": false
+    },
+    {
+      "kind": "verb.path",
+      "name": "stage-evidence",
+      "templateLines": [32, 32],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": {
+        "skill": "stage-evidence",
+        "path": "/fixture/packs/acme/attachments/stage-evidence/SKILL.md",
+        "lines": 1152
+      },
+      "changed": false
+    },
+    {
+      "kind": "verb.path",
+      "name": "stage-implement",
+      "templateLines": [33, 33],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": {
+        "skill": "stage-implement",
+        "path": "/fixture/packs/acme/attachments/stage-implement/SKILL.md",
+        "lines": 91
+      },
+      "changed": false
+    },
+    {
+      "kind": "verb.path",
+      "name": "stage-self-review",
+      "templateLines": [34, 34],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": {
+        "skill": "stage-self-review",
+        "path": "/fixture/packs/acme/attachments/stage-self-review/SKILL.md",
+        "lines": 105
+      },
+      "changed": false
+    },
+    {
+      "kind": "verb.path",
+      "name": "stage-ship",
+      "templateLines": [35, 35],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": {
+        "skill": "stage-ship",
+        "path": "/fixture/packs/acme/attachments/stage-ship/SKILL.md",
+        "lines": 1091
+      },
+      "changed": false
+    },
+    {
+      "kind": "verb.path",
+      "name": "stage-watch-ci",
+      "templateLines": [36, 36],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": {
+        "skill": "stage-watch-ci",
+        "path": "/fixture/packs/acme/attachments/stage-watch-ci/SKILL.md",
+        "lines": 1116
+      },
+      "changed": false
+    },
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [37, 39],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "variable",
+      "name": "run-start.flags:work",
+      "templateLines": [40, 40],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [41, 241],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "slot",
+      "name": "tiering",
+      "templateLines": [242, 242],
+      "renderedLines": [249, 340],
+      "mode": "inline",
+      "source": {
+        "ref": "mattstack:model-tiering",
+        "path": "/fixture/mattstack/attachments/model-tiering/SKILL.md",
+        "version": "0.30.4",
+        "builtVersion": "0.28.10",
+        "lines": 90
+      },
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [243, 245],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "include",
+      "name": "gate-protocol",
+      "templateLines": [246, 246],
+      "renderedLines": [344, 793],
+      "mode": null,
+      "source": {
+        "ref": "mattstack:gate-protocol",
+        "path": "/fixture/mattstack/attachments/gate-protocol/SKILL.md",
+        "version": "0.30.4",
+        "builtVersion": "0.28.10",
+        "lines": 450
+      },
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [247, 249],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "include",
+      "name": "wrap-up-form",
+      "templateLines": [250, 250],
+      "renderedLines": [797, 824],
+      "mode": null,
+      "source": {
+        "ref": "mattstack:wrap-up-form",
+        "path": "/fixture/mattstack/attachments/wrap-up-form/SKILL.md",
+        "version": "0.30.4",
+        "builtVersion": "0.28.10",
+        "lines": 28
+      },
+      "target": null,
+      "changed": false
+    }
+  ],
+  "links": [
+    {
+      "path": "../../attachments/stage-provision/SKILL.md",
+      "line": 32
+    },
+    {
+      "path": "../../attachments/stage-plan/SKILL.md",
+      "line": 33
+    },
+    {
+      "path": "../../attachments/stage-gates/SKILL.md",
+      "line": 34
+    },
+    {
+      "path": "../../attachments/stage-evidence/SKILL.md",
+      "line": 35
+    },
+    {
+      "path": "../../attachments/stage-implement/SKILL.md",
+      "line": 36
+    },
+    {
+      "path": "../../attachments/stage-self-review/SKILL.md",
+      "line": 37
+    },
+    {
+      "path": "../../attachments/stage-ship/SKILL.md",
+      "line": 38
+    },
+    {
+      "path": "../../attachments/stage-watch-ci/SKILL.md",
+      "line": 39
+    }
+  ]
+}

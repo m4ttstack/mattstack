@@ -63,6 +63,7 @@ export { usePageShellContext } from './page-shell/hooks';
 export type { PageShellContentProps } from './page-shell/components/Content';
 export type { PageShellHeaderProps } from './page-shell/components/Header';
 export type { PageShellSidebarProps } from './page-shell/components/Sidebar';
+export type { PageShellTopNotch } from './page-shell/components/TopNotchSlot';
 // The tab bar itself is rendered by the PageShell root (its `tabs` prop),
 // so only the tab shape and the height constant cross the barrel.
 // Collision-checked like the names above: neither exists in
@@ -117,7 +118,10 @@ export type {
   HybridMenuProps,
 } from './hybrid-menu/HybridMenu';
 export { VirtualList } from './virtual-list/VirtualList';
-export type { VirtualListProps } from './virtual-list/VirtualList';
+export type {
+  VirtualListProps,
+  VirtualListWindow,
+} from './virtual-list/VirtualList';
 export {
   VirtualTable,
   VirtualTableHeader,
@@ -129,6 +133,14 @@ export type {
   VirtualTableProps,
   VirtualTableShellProps,
 } from './virtual-table/VirtualTable';
+export { CodeLines } from './code-lines/CodeLines';
+export type {
+  CodeLinesBand,
+  CodeLinesPart,
+  CodeLinesProps,
+  CodeLinesRowAttributes,
+  CodeLinesRowState,
+} from './code-lines/CodeLines';
 export { RangePicker } from './range-picker/RangePicker';
 export type {
   RangePickerPreset,

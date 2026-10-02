@@ -92,8 +92,30 @@ export const baseTheme = /* @__PURE__ */ createTheme({
   },
   variantColorResolver,
   components: themeComponents({
-    Paper: { defaultProps: flatSurfaceProps },
+    // `variant="ground"`: a card on the page ground; `soft-outline` and
+    // `panel-outline`: a ruled card inside another surface (see the CSS
+    // module).
+    Paper: {
+      defaultProps: flatSurfaceProps,
+      classNames: { root: classes.paperRoot },
+    },
     Card: { defaultProps: flatSurfaceProps },
+    // `variant="soft"`: a table inside a card (see the CSS module).
+    Table: { classNames: { table: classes.tableRoot } },
+    // `Combobox.Option variant="wash"`: a picked option in the accent wash
+    // (see the CSS module).
+    Combobox: { classNames: { option: classes.comboboxOption } },
+    // `variant="segmented"`: parts with gaps between them (see the CSS module).
+    Progress: { classNames: { root: classes.progressRoot } },
+    // `variant="quiet"`: a raised track and a ruled card segment (see the CSS
+    // module).
+    SegmentedControl: {
+      classNames: {
+        root: classes.segmentedRoot,
+        indicator: classes.segmentedIndicator,
+        label: classes.segmentedLabel,
+      },
+    },
     Button: {
       defaultProps: { fw: 500 },
       classNames: { root: classes.buttonRoot },
@@ -114,6 +136,7 @@ export const baseTheme = /* @__PURE__ */ createTheme({
     ScrollArea: { defaultProps: { type: 'auto' } },
     // The whole switch is a click target; the cursor should say so.
     Switch: {
+      classNames: { root: classes.switchRoot, track: classes.switchTrack },
       styles: {
         label: { cursor: 'pointer' },
         track: { cursor: 'pointer' },
