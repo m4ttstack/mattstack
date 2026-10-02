@@ -8,7 +8,7 @@
 
 **Tech Stack:** Bun and TypeScript (rt, rt-client, settings-kit), jsonc-parser, zod (schema lock), React and Mantine (console, board, boxscore), Swift and SwiftUI (rt-tray), `bun:test`, vitest for the apps.
 
-**Spec:** `docs/superpowers/specs/2026-10-01-org-and-teams-design.md` (at `f22d1d240`). Read it before any task; section numbers below refer to it.
+**Spec:** `docs/superpowers/specs/2026-10-01-org-and-teams-design.md` (at `4c4be8321`). Read it before any task; section numbers below refer to it.
 
 ## Global Constraints
 
@@ -5091,13 +5091,13 @@ git commit -m "team sync: push and stage only what this Mac's role owns, and nam
 - Produces:
 
 ```ts
-export interface CreateTeamOpts { name: string; remote: string | null; createRepoOwner?: string; others: boolean; /** The first team folder's name; the org slug when left out. */ team?: string }
+export interface CreateTeamOpts { name: string; remote: string | null; createRepoOwner?: string; others: boolean; /** The first team folder's name; the org slug (or team-<slug>) when left out. */ firstTeam?: string }
 export interface CreateTeamSeams { forgeLogin: typeof forgeLogin; forgeToken: typeof storedForgeToken }
 export function scaffoldFiles(slug: string, name: string, remote: string, recipients?: string[], team?: string, creator?: { username: string; agePublicKey?: string }): Record<string, string>;
 export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam?: AgeKeySeam, seams?: CreateTeamSeams): Promise<CreateTeamResult>;
 ```
 
-`rt team create <name> [--team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]`.
+`rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]`. The flag is `--first-team` because `--team` names the clone on every org-level `rt team` verb.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -5123,16 +5123,16 @@ describe("the creator", () => {
     expect((org["mattstack.org"] as { admins: string[] }).admins).toEqual(["dev1"]);
   });
 
-  test("--team names the first team folder", async () => {
+  test("--first-team names the first team folder", async () => {
     const p = gitAwareFakeProbes(HOME);
-    const result = await createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false, team: "widgets" }, new FakeAgeKeySeam(), seams);
+    const result = await createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false, firstTeam: "widgets" }, new FakeAgeKeySeam(), seams);
     expect(result.team).toBe("widgets");
     expect(p.exists(`${HOME}/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc`)).toBe(true);
   });
 
   test("a first team name that is not a folder name is refused before anything is written", async () => {
     const p = gitAwareFakeProbes(HOME);
-    await expect(createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false, team: "Widgets!" }, new FakeAgeKeySeam(), seams)).rejects.toMatchObject({ code: "bad-team-name" });
+    await expect(createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false, firstTeam: "Widgets!" }, new FakeAgeKeySeam(), seams)).rejects.toMatchObject({ code: "bad-team-name" });
     expect(p.exists(`${HOME}/.mattstack/teams/acme`)).toBe(false);
   });
 
@@ -5201,7 +5201,7 @@ In `createTeam` (new fourth parameter `seams: CreateTeamSeams = REAL_SEAMS`):
 - Right after `const slug = slugify(opts.name);`:
 
 ```ts
-  const team = opts.team ?? defaultTeamName(slug);
+  const team = opts.firstTeam ?? defaultTeamName(slug);
   if (!TEAM_NAME_RE.test(team)) {
     throw new UserActionableError("bad-team-name", `${JSON.stringify(team)} cannot be a team name`, {}, { why: "A team name uses lowercase letters, digits and dashes, and starts with a letter." });
   }
@@ -5219,13 +5219,13 @@ In `createTeam` (new fourth parameter `seams: CreateTeamSeams = REAL_SEAMS`):
 
 - `writeScaffold` passes the creator: `scaffoldFiles(slug, opts.name, remote, [publicKey], team, { username, agePublicKey: publicKey })`.
 - After the scaffold is written (in both the git-deferred branch and the normal path): `if (!recorded) updateTeamLocal(p, slug, { forgeUsername: username });`.
-- `recordIntent` and the early-return intent carry the team: `team: { slug, name: opts.name, remote, others: opts.others, team }`.
+- `recordIntent` and the early-return intent carry the first team: `team: { slug, name: opts.name, remote, others: opts.others, firstTeam: team }`.
 
-`lib/setup/intent.ts`: `team?: { slug: string; name: string; remote: string; others: boolean; team?: string };`. `lib/setup/steps/team.ts` `resolveCreateOpts`: the intent branch returns `{ name: intentTeam.name, remote: intentTeam.remote || null, createRepoOwner, others: intentTeam.others, ...(intentTeam.team ? { team: intentTeam.team } : {}) }`.
+`lib/setup/intent.ts`: `team?: { slug: string; name: string; remote: string; others: boolean; firstTeam?: string };`. `lib/setup/steps/team.ts` `resolveCreateOpts`: the intent branch returns `{ name: intentTeam.name, remote: intentTeam.remote || null, createRepoOwner, others: intentTeam.others, ...(intentTeam.firstTeam ? { firstTeam: intentTeam.firstTeam } : {}) }`.
 
-`commands/team.ts` `teamCreate`: read `const team = flagValue(args, "--team");`, add `"--team"` to the `positional(args, [...])` value-flag list, pass `team` in the opts, and the usage string becomes `rt team create <name> [--team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]`. The human line reads `Created the ${result.slug} org` / `The ${result.slug} org is already set up`.
+`commands/team.ts` `teamCreate`: read `const firstTeam = flagValue(args, "--first-team");`, add `"--first-team"` to the `positional(args, [...])` value-flag list, pass `firstTeam` in the opts, and the usage string becomes `rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]`. The human line reads `Created the ${result.slug} org` / `The ${result.slug} org is already set up`. Add a test in `commands/__tests__/team.test.ts`: `teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git", "--first-team", "widgets", "--json"], {}, deps)` prints an envelope whose `data.team` is `"widgets"`, and `"widgets"` is not mistaken for the name positional.
 
-`lib/command-tree-def.ts`, `team create`: description `"Start an org for your team, with its first team inside"`, the `Name` hint `"The org's display name; its folder name is made from it"`, and a new arg `{ name: "First team", flag: "--team", type: "text", placeholder: "widgets", hint: "The first team's name; the org's own name when left out" }`.
+`lib/command-tree-def.ts`, `team create`: description `"Start an org for your team, with its first team inside"`, the `Name` hint `"The org's display name; its folder name is made from it"`, and a new arg `{ name: "First team", flag: "--first-team", type: "text", placeholder: "widgets", hint: "The first team's name; the org's own name when left out" }`.
 
 - [ ] **Step 4: Run, regenerate docs, commit**
 
