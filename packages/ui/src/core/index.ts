@@ -119,6 +119,7 @@ export type {
 } from './hybrid-menu/HybridMenu';
 export { VirtualList } from './virtual-list/VirtualList';
 export type {
+  VirtualListLayout,
   VirtualListProps,
   VirtualListWindow,
 } from './virtual-list/VirtualList';

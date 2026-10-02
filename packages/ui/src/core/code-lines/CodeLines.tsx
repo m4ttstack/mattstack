@@ -1,7 +1,10 @@
 import { useMemo, type CSSProperties } from 'react';
 import type { ScrollAreaProps } from '@mantine/core';
 
-import { VirtualList } from '../virtual-list/VirtualList';
+import {
+  VirtualList,
+  type VirtualListWindow,
+} from '../virtual-list/VirtualList';
 import classes from './CodeLines.module.css';
 
 // Matches the row height in CodeLines.module.css: the virtualizer's size
@@ -20,8 +23,9 @@ export type CodeLinesBand = {
   tone?: 'accent' | 'muted';
 };
 
-/** The elements of one row: the band gutter and its label, the line number
-    in its cell, and the code. */
+/** The elements of one row: the band gutter, the line number in its cell,
+    and the code; and a band's label, which sticks to the top of the viewport
+    over the gutter while its band is in view. */
 export type CodeLinesPart =
   'row' | 'gutter' | 'gutterLabel' | 'numberCell' | 'number' | 'code';
 
@@ -33,7 +37,8 @@ export interface CodeLinesRowState {
   tinted: boolean;
   muted: boolean;
   band: CodeLinesBand | null;
-  /** The row carries its band's label. */
+  /** The row its band's label sits beside: the band's first line in view.
+      The label takes this row's `gutterLabel` attributes. */
   labelled: boolean;
   /** The row is inside the viewport, not one of the rows mounted around it. */
   inView: boolean;
@@ -124,6 +129,35 @@ export function CodeLines({
     [lines]
   );
 
+  const lastLine = firstLine + lines.length - 1;
+  const rowState = (
+    line: string,
+    index: number,
+    visible: VirtualListWindow | null
+  ): CodeLinesRowState => {
+    const lineNumber = firstLine + index;
+    const firstInView = firstLine + (visible?.first ?? 0);
+    const band =
+      bands?.find(b => lineNumber >= b.from && lineNumber <= b.to) ?? null;
+    return {
+      line: lineNumber,
+      text: line,
+      highlighted:
+        highlight !== null &&
+        lineNumber >= highlight[0] &&
+        lineNumber <= highlight[1],
+      // `search` ignores `lastIndex`, so a global or sticky pattern gives
+      // the same answer on every row.
+      tinted: tintPattern !== undefined && line.search(tintPattern) >= 0,
+      muted: mutedPattern !== undefined && line.search(mutedPattern) >= 0,
+      band,
+      labelled:
+        band !== null && lineNumber === Math.max(band.from, firstInView),
+      inView:
+        visible !== null && index >= visible.first && index <= visible.last,
+    };
+  };
+
   return (
     <VirtualList
       items={lines}
@@ -141,35 +175,60 @@ export function CodeLines({
           '--code-lines-longest': longest,
         } as CSSProperties,
       }}
+      renderOverlay={
+        hasGutter
+          ? ({ start, end, visible }) =>
+              bands.map(band => {
+                const from = Math.max(band.from, firstLine);
+                const to = Math.min(band.to, lastLine);
+                if (to < from) return null;
+                const top = start(from - firstLine);
+                const firstInView = firstLine + (visible?.first ?? 0);
+                const labelLine = Math.min(Math.max(from, firstInView), to);
+                const attributes =
+                  rowAttributes?.(
+                    rowState(
+                      lines[labelLine - firstLine],
+                      labelLine - firstLine,
+                      visible
+                    )
+                  ) ?? {};
+                return (
+                  <div
+                    key={`${band.from}:${band.label}`}
+                    className={cx(
+                      classes.gutter,
+                      classNames?.gutter,
+                      classes.bandBox
+                    )}
+                    data-band
+                    data-label-tone={band.tone ?? 'muted'}
+                    style={{ top, height: end(to - firstLine) - top }}
+                  >
+                    <span
+                      {...attributes.gutterLabel}
+                      className={cx(
+                        classes.gutterLabel,
+                        classNames?.gutterLabel,
+                        classes.stickyLabel
+                      )}
+                    >
+                      {band.label}
+                    </span>
+                  </div>
+                );
+              })
+          : undefined
+      }
       renderRow={(line, index, visible) => {
-        const lineNumber = firstLine + index;
-        const firstInView = firstLine + (visible?.first ?? 0);
-        const band =
-          bands?.find(b => lineNumber >= b.from && lineNumber <= b.to) ?? null;
-        const state: CodeLinesRowState = {
-          line: lineNumber,
-          text: line,
-          highlighted:
-            highlight !== null &&
-            lineNumber >= highlight[0] &&
-            lineNumber <= highlight[1],
-          // `search` ignores `lastIndex`, so a global or sticky pattern gives
-          // the same answer on every row.
-          tinted: tintPattern !== undefined && line.search(tintPattern) >= 0,
-          muted: mutedPattern !== undefined && line.search(mutedPattern) >= 0,
-          band,
-          labelled:
-            band !== null && lineNumber === Math.max(band.from, firstInView),
-          inView:
-            visible !== null && index >= visible.first && index <= visible.last,
-        };
+        const state = rowState(line, index, visible);
         const attributes = rowAttributes?.(state) ?? {};
 
         return (
           <div
             {...attributes.row}
             className={cx(classes.row, classNames?.row)}
-            data-line={lineNumber}
+            data-line={state.line}
             data-highlighted={state.highlighted || undefined}
           >
             {hasGutter && (
@@ -177,17 +236,10 @@ export function CodeLines({
                 {...attributes.gutter}
                 className={cx(classes.gutter, classNames?.gutter)}
                 data-gutter
-                data-tone={band ? (band.tone ?? 'muted') : undefined}
-              >
-                {band && state.labelled && (
-                  <span
-                    {...attributes.gutterLabel}
-                    className={cx(classes.gutterLabel, classNames?.gutterLabel)}
-                  >
-                    {band.label}
-                  </span>
-                )}
-              </div>
+                data-tone={
+                  state.band ? (state.band.tone ?? 'muted') : undefined
+                }
+              />
             )}
             <div
               {...attributes.numberCell}
@@ -197,7 +249,7 @@ export function CodeLines({
                 {...attributes.number}
                 className={cx(classes.number, classNames?.number)}
               >
-                {lineNumber}
+                {state.line}
               </span>
             </div>
             <span
