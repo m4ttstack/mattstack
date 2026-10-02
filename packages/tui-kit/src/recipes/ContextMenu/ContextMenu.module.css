@@ -7,13 +7,15 @@
  * rule that needs rewriting at adoption.
  */
 @layer soribashi.recipes {
+  .positioner {
+    z-index: 200;
+  }
+
   /* `box-sizing` is an ADDITION, not a lift — mr-board gets it from a global
      reset, the kit's copy of which (src/canvas.css) is optional. See
      docs/decisions.md for what it does and does not guarantee. */
   .root {
     box-sizing: border-box;
-    position: fixed;
-    z-index: 200;
     min-width: var(--sb-contextmenu-min-w);
     padding: var(--spacing-px4);
     background: var(--card);
@@ -21,6 +23,7 @@
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-menu);
     font-size: var(--font-size-px13);
+    outline: none;
   }
 
   .label {
@@ -52,10 +55,16 @@
     cursor: pointer;
   }
 
-  .item:hover:not(:disabled),
-  .item:focus-visible {
-    background: var(--surface-wash-accent-16);
+  /* Base UI moves focus with the pointer, so `data-highlighted` is both hover
+     and keyboard focus. `data-popup-open` keeps a Sub's row lit while its
+     panel is open. */
+  .item {
     outline: none;
+  }
+
+  .item[data-highlighted],
+  .item[data-popup-open] {
+    background: var(--surface-wash-accent-16);
   }
 
   .item:disabled {
@@ -77,31 +86,22 @@
     margin: var(--spacing-px4) var(--spacing-px2);
   }
 
-  /* The submenu's containing block: see `SubPanel` for why it is not fixed. */
-  .sub {
-    position: relative;
-  }
-
-  /* Same box as `.root`. `--sb-contextmenu-min-w` is set on the root and
-     reaches this panel by inheritance, since the panel is a DOM descendant.
-     `max-content` because an absolute box with `left` set shrinks to fit the
-     space its containing block leaves, which is none on the right-hand path,
-     so the panel would never grow past the min width and rows would wrap. */
+  /* Same box as `.root`. SUBMENU_INSET in ContextMenu.tsx is its padding plus
+     its border. */
   .submenu {
     box-sizing: border-box;
-    position: absolute;
-    z-index: 1;
-    width: max-content;
     min-width: var(--sb-contextmenu-min-w);
     padding: var(--spacing-px4);
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-menu);
+    font-size: var(--font-size-px13);
+    outline: none;
   }
 
   .chevron {
-    font-size: var(--font-size-px11);
+    display: flex;
     color: var(--text-4);
   }
 

@@ -1,9 +1,9 @@
+import { Menu } from "@base-ui/react/menu";
 import { mergeRefs } from "@soribashi/core";
 import type { PartRenderCtx } from "@soribashi/core";
 import type {
   ButtonHTMLAttributes,
   ComponentProps,
-  CSSProperties,
   HTMLAttributes,
   MouseEvent as ReactMouseEvent,
   ReactNode,
@@ -13,6 +13,7 @@ import type {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { defineCompound } from "../../builders.ts";
 import { useEscapeClose } from "../../hooks/index.ts";
+import { ICONS } from "../Icon/Icon.tsx";
 import classes from "./ContextMenu.module.css";
 import "./ContextMenu.keyframes.css";
 
@@ -24,9 +25,11 @@ export const recipeCategory = 3 as const;
     CSS-module class keys: `hint` is a real style slot with no part, because a
     hint is a property OF an item and promoting it would let a call site render
     one outside any item. `submenu` and `chevron` are part-less for the same
-    reason: both belong to a `Sub`. */
+    reason: both belong to a `Sub`. `positioner` is Base UI's positioning box
+    around the root's and every Sub's popup. */
 const CONTEXTMENU_SLOT_KEYS = [
   "root",
+  "positioner",
   "item",
   "label",
   "separator",
@@ -59,11 +62,23 @@ export const CONTEXTMENU_PARTS = {
   row: "contextmenu-row",
 } as const;
 
-/** Viewport keep-out for the clamped menu, in CSS pixels. A plain number, not a
-    spacing token: it is consumed in JS geometry, not in CSS. */
+/** Viewport keep-out for the menu and its submenus, in CSS pixels. A plain
+    number, not a spacing token: Base UI's collision padding takes a number. */
 const VIEWPORT_MARGIN = 8;
 
+/** The root's padding (`--spacing-px4`) plus its 1px border, and the same for a
+    submenu's popup. Offsetting a submenu by it docks the panel on the root's
+    outer edge and lines its first item up with the trigger row. Keep in step
+    with `.root` and `.submenu` in ContextMenu.module.css. */
+const SUBMENU_INSET = 5;
+
 const CONTEXTMENU_SCALARS = { minWidth: "200px" } as const;
+
+/** Shift on both axes and never flip: a point near an edge is clamped back
+    inside the margin, as the hand-placed menu always was. The positioner
+    also needs `sticky`, or Base UI limits the shift to keep the popup
+    touching its anchor, and a point past the edge leaves it off screen. */
+const CLAMP = { side: "shift", align: "shift" } as const;
 
 /** Strips the Styles API's own config keys, which `useStyles` consumes and
     which are not valid DOM attributes. Every part needs this: `defineCompound`
@@ -84,27 +99,68 @@ function stripFrameworkKeys<
   return rest;
 }
 
+type CloseDetails = Pick<Menu.Root.ChangeEventDetails, "reason" | "cancel" | "allowPropagation">;
+
+/** Escape belongs to the layer stack, so Base UI's own Escape close is
+    cancelled. It must still be allowed to propagate: Base UI's popup handler
+    otherwise stops it before it reaches the stack's `document` listener.
+    Returns whether it cancelled. */
+function deferEscape(details: CloseDetails): boolean {
+  if (details.reason !== "escape-key") return false;
+  details.cancel();
+  details.allowPropagation();
+  return true;
+}
+
+/** Close requests the root never acts on, so `onClose` keeps its documented
+    triggers.
+    - `outside-press`: the recipe's own mousedown listener decides outside
+      clicks. Base UI's fires on a capture-phase pointerdown, before a
+      trigger's own handler can claim the press.
+    - `focus-out`: Tab moving focus out of the menu leaves it open. */
+const ROOT_IGNORED_CLOSES: ReadonlySet<string> = new Set(["outside-press", "focus-out"]);
+
+/** Base UI keeps a disabled item focusable through `aria-disabled` and strips
+    the native attribute. This menu keeps the native one: a disabled row is
+    inert to the pointer and skipped by the arrow keys (Base UI's navigation
+    skips `:disabled`). So Base UI is never told a row is disabled, and the
+    button carries it instead. */
+function buttonRender(disabled: boolean | undefined) {
+  return (props: ComponentProps<"button">) => (
+    <button
+      {...props}
+      type="button"
+      disabled={disabled}
+      aria-disabled={disabled ? undefined : props["aria-disabled"]}
+    />
+  );
+}
+
+/** Joins the layer stack for as long as it is mounted. */
+function EscapeLayer({ onClose }: { onClose: () => void }) {
+  useEscapeClose(onClose);
+  return null;
+}
+
 /** The root part's own props; `ContextMenuProps` below is the full surface. */
 export interface ContextMenuOwnProps {
   /** Requested viewport x of the anchor point (typically `event.clientX`).
-      CLAMPED, not obeyed — see the layout effect. */
+      CLAMPED inside the viewport margin, not obeyed. */
   x: number;
   /** Requested viewport y of the anchor point (`event.clientY`). */
   y: number;
   /** The menu's accessible name (`aria-label` on the root). */
   ariaLabel: string;
   /** Called on Escape, on a mousedown outside, on scroll, and on resize. NOT
-      called when an item is clicked — closing after an action is the caller's
+      called when an item is clicked: closing after an action is the caller's
       decision (mr-board's Slack-mark items deliberately stay open). */
   onClose: () => void;
-  /** A focusable descendant to focus once, after the clamp commits. The menu is
-      `visibility: hidden` until measured, and such a subtree cannot take focus
-      at all — so a child's own `autoFocus`, or a focus call from a passive
-      effect, silently no-ops. This prop is correctly ordered against the clamp.
-      Omit it and nothing steals focus. */
+  /** A focusable descendant to focus once, as soon as the menu mounts. Without
+      it, focus moves to the menu itself (or its first tabbable child) so the
+      arrow keys work. */
   initialFocusRef?: RefObject<HTMLElement | null>;
-  /** Called every time the clamped position commits, including on a later
-      re-clamp — unlike `initialFocusRef`, which fires once per mount. */
+  /** Called once the menu's element is laid out, and again whenever (x, y)
+      moves it, so a consumer can measure it and re-anchor. */
   onPositioned?: () => void;
   children?: ReactNode;
 }
@@ -163,84 +219,6 @@ type ContextMenuSubProps_ = ContextMenuSubOwnProps &
 
 type ContextMenuRowProps_ = Omit<HTMLAttributes<HTMLDivElement>, "ref">;
 
-/** The open panel of a `Sub`. Mounted only while open, so its
-    `useEscapeClose` sits above the root's on the layer stack and Escape
-    closes this panel first.
-
-    Positioned `absolute` against the Sub's own box, NOT `fixed` like the
-    root: the root's entry animation puts a transform on it, which makes it
-    the containing block of any fixed descendant, so a fixed panel opened
-    during that animation would be offset by the root's own position and
-    stay there. The clamp works in viewport geometry, then converts to offsets
-    from the row, which sits at the origin of the Sub's box. */
-function SubPanel({
-  anchorRef,
-  onClose,
-  focusFirst,
-  styleProps,
-  label,
-  children,
-}: {
-  anchorRef: RefObject<HTMLButtonElement | null>;
-  onClose: () => void;
-  focusFirst: boolean;
-  styleProps: { className?: string; style?: CSSProperties };
-  label: string;
-  children?: ReactNode;
-}) {
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-  useEscapeClose(onClose);
-
-  useLayoutEffect(() => {
-    const anchor = anchorRef.current;
-    const panel = panelRef.current;
-    if (!anchor || !panel) return;
-    const r = anchor.getBoundingClientRect();
-    const width = panel.offsetWidth;
-    const height = panel.offsetHeight;
-    const fitsRight = r.right + width + VIEWPORT_MARGIN <= window.innerWidth;
-    const top = Math.max(
-      VIEWPORT_MARGIN,
-      Math.min(r.top, window.innerHeight - height - VIEWPORT_MARGIN),
-    );
-    setPos({
-      left: fitsRight ? anchor.offsetWidth : Math.max(-width, VIEWPORT_MARGIN - r.left),
-      top: top - r.top,
-    });
-  }, [anchorRef]);
-
-  // Keyed on the committed `pos`: the panel is `visibility: hidden` until
-  // then, and a hidden subtree cannot take focus.
-  useLayoutEffect(() => {
-    if (pos && focusFirst)
-      panelRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
-  }, [pos, focusFirst]);
-
-  const anchored: CSSProperties = pos
-    ? { left: pos.left, top: pos.top }
-    : { left: 0, top: 0, visibility: "hidden" };
-  return (
-    <div
-      ref={panelRef}
-      role="menu"
-      aria-label={label}
-      {...styleProps}
-      style={{ ...styleProps.style, ...anchored }}
-      data-part={CONTEXTMENU_PARTS.submenu}
-      onKeyDown={(e) => {
-        // Stopped so an outer Sub's panel does not close as well.
-        if (e.key === "ArrowLeft") {
-          e.stopPropagation();
-          onClose();
-        }
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
 export const ContextMenu = defineCompound({
   name: "ContextMenu",
   classes,
@@ -250,7 +228,13 @@ export const ContextMenu = defineCompound({
   // be replacing), and its `getStyles` takes an OPTIONS OBJECT — a part styling
   // its own slot calls `getStyles()`, one reaching across calls
   // `getStyles({ part: 'hint' })`. The bare-string form does not typecheck.
-  vars: () => ({ root: { "--sb-contextmenu-min-w": CONTEXTMENU_SCALARS.minWidth } }),
+  //
+  // `submenu` gets its own copy: its popup is a sibling of the root's, not a
+  // descendant, so it cannot inherit the root's.
+  vars: () => ({
+    root: { "--sb-contextmenu-min-w": CONTEXTMENU_SCALARS.minWidth },
+    submenu: { "--sb-contextmenu-min-w": CONTEXTMENU_SCALARS.minWidth },
+  }),
   parts: {
     root: {
       render: ({ props, getStyles, children, ref }: Ctx<ContextMenuRootProps_>) => {
@@ -267,63 +251,48 @@ export const ContextMenu = defineCompound({
 
         // A part's `render` runs inside the builder's own forwardRef component
         // body on every render, so these hooks obey the rules of hooks normally.
-        const menuRef = useRef<HTMLDivElement | null>(null);
-        const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+        const [wrapper, setWrapper] = useState<HTMLDivElement | null>(null);
+        const [popup, setPopup] = useState<HTMLDivElement | null>(null);
         // A plain mutable ref, not state: flipping it must not schedule a render.
         const hasFocusedRef = useRef(false);
 
-        // The recipe needs its own handle on the element (to measure it, and to
-        // answer "was that mousedown inside me?") while a consumer may still
-        // pass a ref. Memoised on `ref`: `mergeRefs` returns a fresh callback
-        // per call, and a fresh identity every render would make React detach
-        // and re-attach it each time.
-        const setRefs = useMemo(() => mergeRefs(menuRef, ref), [ref]);
-
-        // Keep the menu on screen: render once at the requested point (hidden,
-        // see `anchored`), measure, then clamp both axes. `useLayoutEffect` so
-        // the correction commits before paint — with useEffect the menu jumps.
-        //
-        // `offsetWidth`/`offsetHeight`, NOT `getBoundingClientRect()`: the entry
-        // animation opens on `scale(0.97)` and is already running when this
-        // fires, so a rect measure clamps against a box 3% narrower than the one
-        // that lands, and the settled menu overhangs its margin by ~6px.
-        //
-        // Deps are `[x, y]` only. A consumer whose menu changes size (mr-board's
-        // note mode) gives it a fresh React `key` to remount and re-measure —
-        // the shell cannot know about a consumer's modes.
-        useLayoutEffect(() => {
-          const el = menuRef.current;
-          if (!el) return;
-          const width = el.offsetWidth;
-          const height = el.offsetHeight;
-          setPos({
-            left: Math.max(VIEWPORT_MARGIN, Math.min(x, window.innerWidth - width - VIEWPORT_MARGIN)),
-            top: Math.max(VIEWPORT_MARGIN, Math.min(y, window.innerHeight - height - VIEWPORT_MARGIN)),
-          });
-        }, [x, y]);
-
-        // Its own effect, keyed on the COMMITTED `pos` rather than the requested
-        // `[x, y]` — they run on different renders. By the time this body runs,
-        // `setPos` has landed as `visibility` flipping to visible: the earliest
-        // point a focus call can succeed, and still pre-paint.
-        useLayoutEffect(() => {
-          if (!pos) return;
-          onPositioned?.();
-          if (initialFocusRef && !hasFocusedRef.current) {
+        // Focusing from the popup's ref callback runs before Base UI's focus
+        // manager records where focus was; finding it already inside the
+        // popup, Base UI skips its own initial focus instead of overriding
+        // this one. Children's refs attach before this one, so the target is
+        // already set.
+        const attachPopup = useCallback(
+          (el: HTMLDivElement | null) => {
+            setPopup(el);
+            const target = initialFocusRef?.current;
+            if (!el || !target || hasFocusedRef.current) return;
             hasFocusedRef.current = true;
-            initialFocusRef.current?.focus();
-          }
-        }, [pos, onPositioned, initialFocusRef]);
+            target.focus();
+          },
+          [initialFocusRef],
+        );
+        // Memoised on `ref`: `mergeRefs` returns a fresh callback per call, and
+        // a fresh identity every render would make React detach and re-attach
+        // it each time.
+        const setRefs = useMemo(() => mergeRefs(attachPopup, ref), [attachPopup, ref]);
+
+        const anchor = useMemo(
+          () => ({ getBoundingClientRect: () => new DOMRect(x, y, 0, 0) }),
+          [x, y],
+        );
+
+        useLayoutEffect(() => {
+          if (popup) onPositioned?.();
+        }, [popup, x, y, onPositioned]);
 
         useEscapeClose(onClose);
 
-        // Note the shapes: `mousedown` (not click) so the menu is gone before
-        // the underlying element's own click handler runs; `scroll` in the
-        // CAPTURE phase, because scroll does not bubble from a scrolling
-        // descendant to window.
+        // `mousedown` (not click) so the menu is gone before the underlying
+        // element's own click handler runs; `scroll` in the CAPTURE phase,
+        // because scroll does not bubble from a scrolling descendant to window.
         useEffect(() => {
           const onDown = (e: MouseEvent) => {
-            if (!menuRef.current?.contains(e.target as Node)) onClose();
+            if (!wrapper?.contains(e.target as Node)) onClose();
           };
           document.addEventListener("mousedown", onDown);
           window.addEventListener("scroll", onClose, true);
@@ -333,43 +302,76 @@ export const ContextMenu = defineCompound({
             window.removeEventListener("scroll", onClose, true);
             window.removeEventListener("resize", onClose);
           };
-        }, [onClose]);
+        }, [onClose, wrapper]);
 
-        // Before the first measurement there is no honest position to paint at,
-        // so the menu is laid out (it must be, to be measurable) but not shown.
-        const anchored: CSSProperties = pos
-          ? { left: pos.left, top: pos.top }
-          : { left: x, top: y, visibility: "hidden" };
-        // Merged, not replaced: getStyles() has already folded in the consumer's
-        // own `style` and the universal style props.
         const rootStyles = getStyles();
 
+        // The menu and every submenu portal into this in-place wrapper, not
+        // `<body>`, so a scoped `.dark` or theme wrapper around the caller
+        // still reaches them.
         return (
-          <div
-            ref={setRefs}
-            role="menu"
-            {...rest}
-            {...rootStyles}
-            style={{ ...rootStyles.style, ...anchored }}
-            data-part={CONTEXTMENU_PARTS.root}
-            aria-label={ariaLabel}
-          >
-            {children}
+          <div ref={setWrapper} style={{ display: "contents" }}>
+            <Menu.Root
+              open
+              modal={false}
+              onOpenChange={(open, details) => {
+                if (open || deferEscape(details)) return;
+                if (ROOT_IGNORED_CLOSES.has(details.reason)) details.cancel();
+                else onClose();
+              }}
+            >
+              {/* Never shown or focused. A trigger that mounts while the menu is
+                  open gives the root its floating-tree node, which is how Base
+                  UI knows the submenus are its children (keyboard entry,
+                  focus, and which menu a key belongs to). Base UI's
+                  `ContextMenu.Root` would supply one without it, but it is
+                  always modal: a backdrop over the page and a scroll lock. */}
+              <Menu.Trigger render={<span hidden />} nativeButton={false} tabIndex={-1} />
+              <Menu.Portal container={wrapper}>
+                <Menu.Positioner
+                  anchor={anchor}
+                  positionMethod="fixed"
+                  side="bottom"
+                  align="start"
+                  collisionAvoidance={CLAMP}
+                  collisionPadding={VIEWPORT_MARGIN}
+                  sticky
+                  {...getStyles({ part: "positioner" })}
+                >
+                  <Menu.Popup
+                    ref={setRefs}
+                    {...rest}
+                    {...rootStyles}
+                    data-part={CONTEXTMENU_PARTS.root}
+                    aria-labelledby={undefined}
+                    aria-label={ariaLabel}
+                  >
+                    {children}
+                  </Menu.Popup>
+                </Menu.Positioner>
+              </Menu.Portal>
+            </Menu.Root>
           </div>
         );
       },
     },
     item: {
       render: ({ props, getStyles, ref }: Ctx<ContextMenuItemProps_>) => {
-        const { label, hint, trailing, ...rest } = stripFrameworkKeys(props);
+        const { label, hint, trailing, disabled, onClick, ...rest } = stripFrameworkKeys(props);
         return (
-          <button
+          <Menu.Item
             ref={ref as Ref<HTMLButtonElement>}
-            role="menuitem"
-            type="button"
-            // `disabled` and `onClick` stay in `rest` deliberately: both are
-            // real button attributes that need no translation.
-            {...rest}
+            render={buttonRender(disabled)}
+            nativeButton
+            closeOnClick={false}
+            {...(rest as Omit<Menu.Item.Props, "onClick">)}
+            onClick={(e) => {
+              onClick?.(e as unknown as ReactMouseEvent<HTMLButtonElement>);
+              // Base UI's own click handlers run after this one, and one
+              // refocuses the clicked item. The caller owns where focus goes
+              // next (often back to whatever opened the menu).
+              e.preventBaseUIHandler();
+            }}
             {...getStyles()}
             data-part={CONTEXTMENU_PARTS.item}
           >
@@ -382,7 +384,7 @@ export const ContextMenu = defineCompound({
                   {hint}
                 </span>
               ) : null)}
-          </button>
+          </Menu.Item>
         );
       },
     },
@@ -403,9 +405,8 @@ export const ContextMenu = defineCompound({
     },
     separator: {
       render: ({ props, getStyles, ref }: Ctx<ContextMenuSeparatorProps_>) => (
-        <div
+        <Menu.Separator
           ref={ref as Ref<HTMLDivElement>}
-          role="separator"
           {...stripFrameworkKeys(props)}
           {...getStyles()}
           data-part={CONTEXTMENU_PARTS.separator}
@@ -415,61 +416,58 @@ export const ContextMenu = defineCompound({
     sub: {
       render: ({ props, getStyles, ref }: Ctx<ContextMenuSubProps_>) => {
         const { label, ariaLabel, disabled, children, ...rest } = stripFrameworkKeys(props);
-        // Hooks are legal here for the same reason as in the root's render.
-        const [open, setOpen] = useState<null | "pointer" | "keyboard">(null);
-        const buttonRef = useRef<HTMLButtonElement | null>(null);
-        const close = useCallback(() => {
-          setOpen(null);
-          buttonRef.current?.focus();
-        }, []);
+        // Controlled so the layer stack, not Base UI, closes it on Escape.
+        const [open, setOpen] = useState(false);
+        const close = useCallback(() => setOpen(false), []);
         return (
           <div
             ref={ref as Ref<HTMLDivElement>}
             {...rest}
             {...getStyles()}
             data-part={CONTEXTMENU_PARTS.sub}
-            onMouseEnter={() => {
-              if (!disabled) setOpen((o) => o ?? "pointer");
-            }}
-            onMouseLeave={() => setOpen(null)}
           >
-            <button
-              ref={buttonRef}
-              role="menuitem"
-              type="button"
-              aria-haspopup="menu"
-              aria-expanded={open !== null}
-              disabled={disabled}
-              {...getStyles({ part: "item" })}
-              data-part={CONTEXTMENU_PARTS.item}
-              onClick={() => setOpen((o) => o ?? "pointer")}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowRight" || e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setOpen("keyboard");
-                }
+            <Menu.SubmenuRoot
+              open={open}
+              onOpenChange={(next, details) => {
+                if (next || !deferEscape(details)) setOpen(next);
               }}
             >
-              <span>{label}</span>
-              <span
-                {...getStyles({ part: "chevron" })}
-                data-part={CONTEXTMENU_PARTS.chevron}
-                aria-hidden="true"
+              <Menu.SubmenuTrigger
+                render={buttonRender(disabled)}
+                nativeButton
+                openOnHover={!disabled}
+                {...getStyles({ part: "item" })}
+                data-part={CONTEXTMENU_PARTS.item}
               >
-                ›
-              </span>
-            </button>
-            {open && (
-              <SubPanel
-                anchorRef={buttonRef}
-                onClose={close}
-                focusFirst={open === "keyboard"}
-                styleProps={getStyles({ part: "submenu" })}
-                label={ariaLabel}
-              >
-                {children}
-              </SubPanel>
-            )}
+                <span>{label}</span>
+                <span
+                  {...getStyles({ part: "chevron" })}
+                  data-part={CONTEXTMENU_PARTS.chevron}
+                  aria-hidden="true"
+                >
+                  {ICONS["chevron-right"]}
+                </span>
+              </Menu.SubmenuTrigger>
+              {open && <EscapeLayer onClose={close} />}
+              <Menu.Portal>
+                <Menu.Positioner
+                  positionMethod="fixed"
+                  sideOffset={SUBMENU_INSET}
+                  alignOffset={-SUBMENU_INSET}
+                  collisionPadding={VIEWPORT_MARGIN}
+                  {...getStyles({ part: "positioner" })}
+                >
+                  <Menu.Popup
+                    {...getStyles({ part: "submenu" })}
+                    data-part={CONTEXTMENU_PARTS.submenu}
+                    aria-labelledby={undefined}
+                    aria-label={ariaLabel}
+                  >
+                    {children}
+                  </Menu.Popup>
+                </Menu.Positioner>
+              </Menu.Portal>
+            </Menu.SubmenuRoot>
           </div>
         );
       },
@@ -478,15 +476,14 @@ export const ContextMenu = defineCompound({
       render: ({ props, getStyles, children, ref }: Ctx<ContextMenuRowProps_>) => {
         const { children: _children, ...rest } = stripFrameworkKeys(props);
         return (
-          <div
+          <Menu.Group
             ref={ref as Ref<HTMLDivElement>}
-            role="group"
             {...rest}
             {...getStyles()}
             data-part={CONTEXTMENU_PARTS.row}
           >
             {children}
-          </div>
+          </Menu.Group>
         );
       },
     },

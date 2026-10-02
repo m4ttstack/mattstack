@@ -1,10 +1,11 @@
 import { createTheme } from "@soribashi/core";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { renderWithTheme } from "../../../test/test-utils.tsx";
 import { animationResolution } from "../../../test/keyframes.ts";
 import { tuiTheme } from "../../theme.ts";
+import { SideDrawer } from "../SideDrawer/SideDrawer.tsx";
 import { CONTEXTMENU_PARTS, ContextMenu } from "./ContextMenu.tsx";
 
 /**
@@ -32,10 +33,9 @@ import { CONTEXTMENU_PARTS, ContextMenu } from "./ContextMenu.tsx";
  *     `userEvent.keyboard`, a real key event to the focused element, which
  *     bubbles to the `document` listener `useEscapeClose` installs.
  *  3. A DISABLED ITEM IS CLICKED PROGRAMMATICALLY (`el.click()`). Playwright's
- *     actionability check makes a driver click on a disabled control hang
- *     until it times out; `HTMLElement.click()` on a disabled form control is
- *     a defined no-op (the activation behaviour returns early), which is
- *     exactly the browser behaviour the `disabled` prop is claiming.
+ *     actionability check makes a driver click on an `aria-disabled` control
+ *     hang until it times out. `HTMLElement.click()` still dispatches a real
+ *     click, which is what the item's own guard has to swallow.
  *  4. THE LAYER STACK IS MODULE-GLOBAL (src/hooks/layers.ts).
  *     vitest-browser-react's per-test cleanup unmounts every tree, which pops
  *     the registration, so no test resets it by hand.
@@ -125,6 +125,38 @@ describe("ContextMenu (browser)", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("when an item's onClick moves focus elsewhere, focus stays there", async () => {
+    // The board's scheme menu sends focus back to its trigger on a pick.
+    function Harness() {
+      const triggerRef = useRef<HTMLButtonElement | null>(null);
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <button ref={triggerRef} type="button">
+            scheme
+          </button>
+          {open && (
+            <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
+              <ContextMenu.Item
+                label="dark"
+                onClick={() => {
+                  setOpen(false);
+                  triggerRef.current?.focus();
+                }}
+              />
+            </ContextMenu>
+          )}
+        </>
+      );
+    }
+    const screen = await renderWithTheme(<Harness />);
+    await settledBox(rootOf(screen.container));
+
+    await screen.getByRole("menuitem", { name: "dark" }).click();
+
+    await expect.element(screen.getByRole("button", { name: "scheme" })).toHaveFocus();
+  });
+
   it("a disabled item is disabled in the DOM and does not fire", async () => {
     const onClick = vi.fn();
     const screen = await renderWithTheme(
@@ -138,6 +170,24 @@ describe("ContextMenu (browser)", () => {
     item.click();
 
     expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("a disabled item still shows its hint, and the arrow keys skip it", async () => {
+    const screen = await renderWithTheme(
+      <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
+        <ContextMenu.Item label="review" onClick={noop} />
+        <ContextMenu.Item label="merge" hint="pipeline running" disabled onClick={noop} />
+        <ContextMenu.Item label="open in gitlab" onClick={noop} />
+      </ContextMenu>,
+    );
+    expect(partsIn(screen.container, CONTEXTMENU_PARTS.hint)[0]?.textContent).toBe("pipeline running");
+    const root = rootOf(screen.container);
+    await expect.poll(() => root.contains(document.activeElement)).toBe(true);
+
+    await userEvent.keyboard("{ArrowDown}");
+    await expect.element(screen.getByRole("menuitem", { name: "review" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    await expect.element(screen.getByRole("menuitem", { name: "open in gitlab" })).toHaveFocus();
   });
 
   it("renders `hint` as its own slot, and lets `trailing` replace it", async () => {
@@ -225,6 +275,20 @@ describe("ContextMenu (browser)", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("closes on Escape pressed on one of its own items", async () => {
+    const onClose = vi.fn();
+    const screen = await renderWithTheme(
+      <ContextMenu x={40} y={40} ariaLabel="m" onClose={onClose}>
+        <ContextMenu.Item label="open in gitlab" onClick={noop} />
+      </ContextMenu>,
+    );
+    (screen.getByRole("menuitem", { name: "open in gitlab" }).element() as HTMLElement).focus();
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("closes on a mousedown OUTSIDE it, but not on one inside", async () => {
     const onClose = vi.fn();
     const screen = await renderWithTheme(
@@ -238,6 +302,54 @@ describe("ContextMenu (browser)", () => {
 
     document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not modal: an outside click reaches the element under it, and the page is not scroll-locked", async () => {
+    const onClose = vi.fn();
+    const onOutside = vi.fn();
+    const screen = await renderWithTheme(
+      <>
+        <button type="button" style={{ position: "fixed", left: 300, top: 300 }} onClick={onOutside}>
+          another row
+        </button>
+        <ContextMenu x={40} y={40} ariaLabel="m" onClose={onClose}>
+          <ContextMenu.Item label="open in gitlab" onClick={noop} />
+        </ContextMenu>
+      </>,
+    );
+    await settledBox(rootOf(screen.container));
+
+    expect(getComputedStyle(document.documentElement).overflow).not.toBe("hidden");
+    expect(getComputedStyle(document.body).overflow).not.toBe("hidden");
+    await screen.getByRole("button", { name: "another row" }).click();
+    expect(onOutside).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives focus back to where it was when the caller closes it", async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            row
+          </button>
+          {open && (
+            <ContextMenu x={40} y={40} ariaLabel="m" onClose={() => setOpen(false)}>
+              <ContextMenu.Item label="open in gitlab" onClick={noop} />
+            </ContextMenu>
+          )}
+        </>
+      );
+    }
+    const screen = await renderWithTheme(<Harness />);
+    const row = screen.getByRole("button", { name: "row" });
+    await row.click();
+    const root = rootOf(screen.container);
+    await expect.poll(() => root.contains(document.activeElement)).toBe(true);
+
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.activeElement).toBe(row.element());
   });
 
   it("closes on scroll and on resize", async () => {
@@ -338,9 +450,12 @@ describe("ContextMenu (browser)", () => {
     );
     const root = rootOf(screen.container);
 
-    // `.tui-menu`'s own fixed positioning + radius (a bare <div> has neither).
+    // `.tui-menu`'s radius (a bare <div> has none), and the stacking order on
+    // the fixed box that positions it.
     const rootStyle = getComputedStyle(root);
-    expect(rootStyle.position).toBe("fixed");
+    const positioner = getComputedStyle(root.parentElement as HTMLElement);
+    expect(positioner.position).toBe("fixed");
+    expect(positioner.zIndex).toBe("200");
     expect(rootStyle.borderRadius).toBe("8px");
     expect(rootStyle.minWidth).toBe("200px");
 
@@ -403,12 +518,7 @@ describe("ContextMenu (browser)", () => {
     expect(Math.abs(box.top - 70)).toBeLessThan(0.5);
   });
 
-  it("focuses initialFocusRef once the clamp has positioned it", async () => {
-    // The ticket's repro: a child relying on `autoFocus` comes up unfocused
-    // because the anti-flash `visibility: hidden` blocks focus entirely until
-    // the clamp commits. This pins the first-class answer — `initialFocusRef`
-    // lands focus in the SAME effect chain, right after the clamp's `setPos`
-    // has landed and `visibility` has flipped to `visible`.
+  it("focuses initialFocusRef once the menu is up", async () => {
     function Menu() {
       const textareaRef = useRef<HTMLTextAreaElement | null>(null);
       return (
@@ -425,9 +535,27 @@ describe("ContextMenu (browser)", () => {
     expect(document.activeElement).toBe(textarea);
   });
 
-  it("steals no focus when initialFocusRef is omitted", async () => {
-    // The negative case: nothing in the recipe reaches for focus on its own
-    // when the consumer never opted in.
+  it("keeps initialFocusRef focused when it is not the menu's first tabbable", async () => {
+    // The board's scheme menu points this at its checked item. Items are not
+    // tabbable until highlighted, so the menu's own default would be to focus
+    // itself, a frame after mount; the ref must still win.
+    function Menu() {
+      const checkedRef = useRef<HTMLButtonElement | null>(null);
+      return (
+        <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop} initialFocusRef={checkedRef}>
+          <ContextMenu.Item label="system" onClick={noop} />
+          <ContextMenu.Item ref={checkedRef} label="dark" onClick={noop} />
+        </ContextMenu>
+      );
+    }
+    const screen = await renderWithTheme(<Menu />);
+    await settledBox(rootOf(screen.container));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "dark" }).element());
+  });
+
+  it("without initialFocusRef, focus still moves into the menu", async () => {
     function Menu() {
       const textareaRef = useRef<HTMLTextAreaElement | null>(null);
       return (
@@ -438,10 +566,26 @@ describe("ContextMenu (browser)", () => {
       );
     }
     const screen = await renderWithTheme(<Menu />);
-    await settledBox(rootOf(screen.container));
+    const root = rootOf(screen.container);
+    await settledBox(root);
 
-    const textarea = screen.getByRole("textbox", { name: "note" }).element();
-    expect(document.activeElement).not.toBe(textarea);
+    await expect.poll(() => root.contains(document.activeElement)).toBe(true);
+  });
+
+  it("the arrow keys move focus from item to item", async () => {
+    const screen = await renderWithTheme(
+      <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
+        <ContextMenu.Item label="open in gitlab" onClick={noop} />
+        <ContextMenu.Item label="copy for slack" onClick={noop} />
+      </ContextMenu>,
+    );
+    const root = rootOf(screen.container);
+    await expect.poll(() => root.contains(document.activeElement)).toBe(true);
+
+    await userEvent.keyboard("{ArrowDown}");
+    await expect.element(screen.getByRole("menuitem", { name: "open in gitlab" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    await expect.element(screen.getByRole("menuitem", { name: "copy for slack" })).toHaveFocus();
   });
 
   it("calls onPositioned once the clamp has committed", async () => {
@@ -528,7 +672,7 @@ describe("ContextMenu.Sub (browser)", () => {
     await screen.getByRole("menuitem", { name: "gitlab", exact: true }).click();
     await expect.element(screen.getByRole("menu", { name: "gitlab actions" })).toBeVisible();
     await userEvent.keyboard("{Escape}");
-    expect(submenuIn(screen.container)).toBeNull();
+    await expect.poll(() => submenuIn(screen.container)).toBeNull();
     expect(onClose).not.toHaveBeenCalled();
     await userEvent.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -540,9 +684,30 @@ describe("ContextMenu.Sub (browser)", () => {
     row.focus();
     await userEvent.keyboard("{ArrowRight}");
     await expect.element(screen.getByRole("menuitem", { name: "merge" })).toHaveFocus();
+    expect(row.hasAttribute("data-popup-open")).toBe(true);
+    // The row stays washed while its panel is open, so the two read as linked.
+    const washed = getComputedStyle(row).backgroundColor;
+    const idle = getComputedStyle(screen.getByRole("menuitem", { name: "review" }).element()).backgroundColor;
+    expect(washed).not.toBe(idle);
     await userEvent.keyboard("{ArrowLeft}");
-    expect(submenuIn(screen.container)).toBeNull();
+    await expect.poll(() => submenuIn(screen.container)).toBeNull();
     expect(document.activeElement).toBe(row);
+  });
+
+  it("inside the submenu the arrow keys move only within it, and the menu stays open", async () => {
+    const onClose = vi.fn();
+    const screen = await renderWithTheme(menu(40, onClose));
+    const row = screen.getByRole("menuitem", { name: "gitlab", exact: true }).element() as HTMLButtonElement;
+    row.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await expect.element(screen.getByRole("menuitem", { name: "merge" })).toHaveFocus();
+
+    await userEvent.keyboard("{ArrowDown}");
+    await expect.element(screen.getByRole("menuitem", { name: "open in gitlab" })).toHaveFocus();
+    const review = screen.getByRole("menuitem", { name: "review" }).element();
+    expect(review.hasAttribute("data-highlighted")).toBe(false);
+    expect(submenuIn(screen.container)).not.toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("Enter and Space on the row both open the panel and focus its first item", async () => {
@@ -556,37 +721,61 @@ describe("ContextMenu.Sub (browser)", () => {
     }
   });
 
-  it("a mousedown inside the submenu does not close the menu", async () => {
+  it("a mousedown or a click inside the submenu does not close the menu", async () => {
+    const onClose = vi.fn();
+    const onMerge = vi.fn();
+    const screen = await renderWithTheme(
+      <ContextMenu x={40} y={40} ariaLabel="m" onClose={onClose}>
+        <ContextMenu.Item label="review" onClick={noop} />
+        <ContextMenu.Sub label="gitlab" ariaLabel="gitlab actions">
+          <ContextMenu.Item label="merge" onClick={onMerge} />
+        </ContextMenu.Sub>
+      </ContextMenu>,
+    );
+    await screen.getByRole("menuitem", { name: "gitlab", exact: true }).click();
+    await expect.element(screen.getByRole("menu", { name: "gitlab actions" })).toBeVisible();
+    const merge = screen.getByRole("menuitem", { name: "merge" });
+    merge.element().dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    expect(onClose).not.toHaveBeenCalled();
+
+    await merge.click();
+    expect(onMerge).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(submenuIn(screen.container)).not.toBeNull();
+  });
+
+  it("a mousedown outside both the menu and its open submenu closes it", async () => {
     const onClose = vi.fn();
     const screen = await renderWithTheme(menu(40, onClose));
     await screen.getByRole("menuitem", { name: "gitlab", exact: true }).click();
-    const merge = screen.getByRole("menuitem", { name: "merge" }).element();
-    merge.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    expect(onClose).not.toHaveBeenCalled();
+    await expect.element(screen.getByRole("menu", { name: "gitlab actions" })).toBeVisible();
+
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("opens beside the row, to its right, when there is room", async () => {
+  it("opens to the right, flush on the menu's edge, its first item level with the row", async () => {
     const screen = await renderWithTheme(menu());
-    await settledBox(rootOf(screen.container));
+    const rootBox = await settledBox(rootOf(screen.container));
     const row = screen.getByRole("menuitem", { name: "gitlab", exact: true });
     await row.click();
     await expect.element(screen.getByRole("menu", { name: "gitlab actions" })).toBeVisible();
     const box = submenuIn(screen.container)!.getBoundingClientRect();
-    const rowBox = row.element().getBoundingClientRect();
-    expect(Math.abs(box.left - rowBox.right)).toBeLessThan(1);
-    expect(Math.abs(box.top - rowBox.top)).toBeLessThan(1);
+    const first = screen.getByRole("menuitem", { name: "merge" }).element().getBoundingClientRect();
+    expect(Math.abs(box.left - rootBox.right)).toBeLessThan(1);
+    expect(Math.abs(first.top - row.element().getBoundingClientRect().top)).toBeLessThan(1);
   });
 
-  it("flips to the left of the row when there is no room on the right", async () => {
+  it("flips to the left of the menu when there is no room on the right", async () => {
     const screen = await renderWithTheme(menu(window.innerWidth));
-    await settledBox(rootOf(screen.container));
+    const rootBox = await settledBox(rootOf(screen.container));
     const row = screen.getByRole("menuitem", { name: "gitlab", exact: true });
     await row.click();
     await expect.element(screen.getByRole("menu", { name: "gitlab actions" })).toBeVisible();
     const box = await settledBox(submenuIn(screen.container)!);
     expect(box.right).toBeLessThanOrEqual(window.innerWidth - MARGIN + 0.5);
     expect(box.left).toBeGreaterThanOrEqual(MARGIN - 0.5);
-    expect(Math.abs(box.right - row.element().getBoundingClientRect().left)).toBeLessThan(1);
+    expect(Math.abs(box.right - rootBox.left)).toBeLessThan(1);
   });
 
   it("widens for a long row instead of wrapping it, on both the right and the flipped side", async () => {
@@ -633,6 +822,7 @@ describe("ContextMenu.Sub (browser)", () => {
       </ContextMenu>,
     );
     await screen.getByRole("menuitem", { name: "gitlab", exact: true }).click();
+    await expect.element(screen.getByRole("menu", { name: "gitlab actions" })).toBeVisible();
 
     for (const part of [
       "contextmenu-sub",
@@ -653,10 +843,86 @@ describe("ContextMenu.Sub (browser)", () => {
         </ContextMenu.Sub>
       </ContextMenu>,
     );
-    const row = screen.getByRole("menuitem", { name: "gitlab", exact: true }).element() as HTMLButtonElement;
-    row.click();
-    row.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    const row = screen.getByRole("menuitem", { name: "gitlab", exact: true });
+    const button = row.element() as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    button.click();
+    button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    await userEvent.hover(row, { force: true });
+    // Longer than the hover-open delay, so a hover that was going to open it has.
+    await new Promise((resolve) => setTimeout(resolve, 300));
     expect(submenuIn(screen.container)).toBeNull();
+  });
+});
+
+describe("ContextMenu Escape over another layer (browser)", () => {
+  function MenuOverDrawer({ onDrawerClose }: { onDrawerClose: () => void }) {
+    const [menu, setMenu] = useState(true);
+    const [drawer, setDrawer] = useState(true);
+    return (
+      <>
+        {drawer && (
+          <SideDrawer
+            side="right"
+            ariaLabel="comments"
+            onClose={() => {
+              setDrawer(false);
+              onDrawerClose();
+            }}
+          >
+            drawer body
+          </SideDrawer>
+        )}
+        {menu && (
+          <ContextMenu x={40} y={40} ariaLabel="m" onClose={() => setMenu(false)}>
+            <ContextMenu.Item label="review" onClick={noop} />
+            <ContextMenu.Sub label="gitlab" ariaLabel="gitlab actions">
+              <ContextMenu.Item label="merge" onClick={noop} />
+            </ContextMenu.Sub>
+          </ContextMenu>
+        )}
+      </>
+    );
+  }
+
+  beforeEach(async () => {
+    await page.viewport(1000, 700);
+  });
+
+  it("Escape closes the menu and leaves the drawer under it open; a second Escape closes the drawer", async () => {
+    const onDrawerClose = vi.fn();
+    const screen = await renderWithTheme(<MenuOverDrawer onDrawerClose={onDrawerClose} />);
+    const root = rootOf(screen.container);
+    await expect.poll(() => root.contains(document.activeElement)).toBe(true);
+
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => partsIn(screen.container, CONTEXTMENU_PARTS.root).length).toBe(0);
+    expect(onDrawerClose).not.toHaveBeenCalled();
+
+    await userEvent.keyboard("{Escape}");
+    expect(onDrawerClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("with a submenu open, Escape closes the submenu, then the menu, then the drawer", async () => {
+    const onDrawerClose = vi.fn();
+    const screen = await renderWithTheme(<MenuOverDrawer onDrawerClose={onDrawerClose} />);
+    const row = screen.getByRole("menuitem", { name: "gitlab", exact: true });
+    (row.element() as HTMLButtonElement).focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await expect.element(screen.getByRole("menuitem", { name: "merge" })).toHaveFocus();
+
+    await userEvent.keyboard("{Escape}");
+    await expect
+      .poll(() => partsIn(screen.container, CONTEXTMENU_PARTS.submenu).length)
+      .toBe(0);
+    expect(partsIn(screen.container, CONTEXTMENU_PARTS.root)).toHaveLength(1);
+
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => partsIn(screen.container, CONTEXTMENU_PARTS.root).length).toBe(0);
+    expect(onDrawerClose).not.toHaveBeenCalled();
+
+    await userEvent.keyboard("{Escape}");
+    expect(onDrawerClose).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -675,5 +941,24 @@ describe("ContextMenu.Row (browser)", () => {
     const b = screen.getByRole("menuitem", { name: "mark as commented" }).element().getBoundingClientRect();
     expect(Math.abs(a.top - b.top)).toBeLessThan(1);
     expect(b.left).toBeGreaterThan(a.right - 1);
+  });
+
+  it("the arrow keys reach every item in the row", async () => {
+    const screen = await renderWithTheme(
+      <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
+        <ContextMenu.Item label="post to slack" onClick={noop} />
+        <ContextMenu.Row aria-label="slack reactions">
+          <ContextMenu.Item label="👀" aria-label="mark as looking" onClick={noop} />
+          <ContextMenu.Item label="💬" aria-label="mark as commented" onClick={noop} />
+        </ContextMenu.Row>
+      </ContextMenu>,
+    );
+    const root = rootOf(screen.container);
+    await expect.poll(() => root.contains(document.activeElement)).toBe(true);
+
+    for (const name of ["post to slack", "mark as looking", "mark as commented"]) {
+      await userEvent.keyboard("{ArrowDown}");
+      await expect.element(screen.getByRole("menuitem", { name })).toHaveFocus();
+    }
   });
 });
