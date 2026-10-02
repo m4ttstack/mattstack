@@ -111,7 +111,7 @@ describe("useToasts", () => {
     expect(hook.current.toasts).toEqual([]);
   });
 
-  it("fail turns the pending toast into a plain one that leaves after 3500ms", () => {
+  it("fail turns the pending toast into a failed one that leaves after 3500ms", () => {
     const hook = renderUseToasts();
     let handle!: ReturnType<typeof hook.current.startToast>;
     act(() => {
@@ -120,7 +120,7 @@ describe("useToasts", () => {
     act(() => {
       handle.fail("couldn't rebase !1");
     });
-    expect(hook.current.toasts).toEqual([{ id: 1, text: "couldn't rebase !1" }]);
+    expect(hook.current.toasts).toEqual([{ id: 1, text: "couldn't rebase !1", state: "failed" }]);
     act(() => {
       vi.advanceTimersByTime(3499);
     });
@@ -144,7 +144,9 @@ describe("useToasts", () => {
     act(() => {
       handle.fail("couldn't merge !1 (502)");
     });
-    expect(hook.current.toasts).toEqual([{ id: 2, text: "couldn't merge !1 (502)" }]);
+    expect(hook.current.toasts).toEqual([
+      { id: 2, text: "couldn't merge !1 (502)", state: "failed" },
+    ]);
     act(() => {
       vi.advanceTimersByTime(3500);
     });

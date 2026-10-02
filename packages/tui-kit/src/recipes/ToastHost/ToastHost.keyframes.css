@@ -21,7 +21,8 @@
     transition: border-left-color 200ms ease-out;
   }
 
-  [data-part="toasthost-toast"][data-state="done"] [data-part="toasthost-status"] {
+  [data-part="toasthost-toast"][data-state="done"] [data-part="toasthost-status"],
+  [data-part="toasthost-toast"][data-state="failed"] [data-part="toasthost-status"] {
     animation: toasthost-check 220ms ease-out;
   }
 

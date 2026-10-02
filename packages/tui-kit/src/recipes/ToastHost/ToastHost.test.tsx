@@ -4,6 +4,7 @@ import { renderWithTheme } from "../../../test/test-utils.tsx";
 import { animationResolution } from "../../../test/keyframes.ts";
 import type { Toast } from "../../hooks/index.ts";
 import { tuiTheme } from "../../theme.ts";
+import { CHECK_ICON, CROSS_ICON } from "../Icon/Icon.tsx";
 import { TOASTHOST_PARTS, ToastHost } from "./ToastHost.tsx";
 
 /**
@@ -138,18 +139,24 @@ describe("ToastHost (browser)", () => {
     ]);
   });
 
-  it("a pending toast leads with the spinner, a done one with the check, a plain one with neither", async () => {
+  it("a pending toast leads with the spinner, a settled one with an icon, a plain one with neither", async () => {
     const screen = await renderWithTheme(
       <ToastHost
         toasts={[
           { id: 1, text: "merging", state: "pending" },
           { id: 2, text: "merged", state: "done" },
           { id: 3, text: "copied" },
+          { id: 4, text: "couldn't merge", state: "failed" },
         ]}
       />,
     );
 
-    const [pending, done, plain] = toastsOf(screen.container) as [HTMLElement, HTMLElement, HTMLElement];
+    const [pending, done, plain, failed] = toastsOf(screen.container) as [
+      HTMLElement,
+      HTMLElement,
+      HTMLElement,
+      HTMLElement,
+    ];
     expect(pending.getAttribute("data-state")).toBe("pending");
     expect(pending.querySelector('[data-part="spinner"]')).not.toBeNull();
     expect(done.getAttribute("data-state")).toBe("done");
@@ -157,6 +164,14 @@ describe("ToastHost (browser)", () => {
     expect(done.querySelector('[data-part="icon"]')).not.toBeNull();
     expect(plain.getAttribute("data-state")).toBeNull();
     expect(plain.querySelector(`[data-part="${TOASTHOST_PARTS.status}"]`)).toBeNull();
-    expect([pending, done, plain].map((el) => el.textContent)).toEqual(["merging", "merged", "copied"]);
+    expect(failed.getAttribute("data-state")).toBe("failed");
+    expect(failed.querySelector('[data-part="icon"] path')?.getAttribute("d")).toBe(CROSS_ICON);
+    expect(done.querySelector('[data-part="icon"] path')?.getAttribute("d")).toBe(CHECK_ICON);
+    expect([pending, done, plain, failed].map((el) => el.textContent)).toEqual([
+      "merging",
+      "merged",
+      "copied",
+      "couldn't merge",
+    ]);
   });
 });

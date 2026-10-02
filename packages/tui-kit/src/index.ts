@@ -81,7 +81,7 @@ export type {
   TextFieldProps,
 } from "./recipes/Field/Field.tsx";
 
-export { CHECK_ICON, COPY_ICON, Icon, ICONS, iconTheme } from "./recipes/Icon/Icon.tsx";
+export { CHECK_ICON, COPY_ICON, CROSS_ICON, Icon, ICONS, iconTheme } from "./recipes/Icon/Icon.tsx";
 export type { IconOwnProps, IconProps } from "./recipes/Icon/Icon.tsx";
 
 export {

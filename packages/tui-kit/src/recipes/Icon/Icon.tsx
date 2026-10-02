@@ -152,6 +152,7 @@ export const ICONS: Record<string, ReactNode> = {
 /** Outside ICONS because CopyButton toggles between them by path, not by name. */
 export const COPY_ICON = "M9 9h10v10H9zM5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1";
 export const CHECK_ICON = "M20 6 9 17l-5-5";
+export const CROSS_ICON = "M6 6l12 12M18 6L6 18";
 
 /** No-op `.extend({})` a consumer's `createTheme({ components })` starts from. */
 export const iconTheme = Icon.extend({});

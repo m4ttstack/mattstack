@@ -55,7 +55,7 @@ export function ToastHosts() {
       <p>
         <code>startToast</code> opens a toast with a spinner; its handle settles
         that same toast. <code>done</code> swaps in a check and leaves after
-        2s, <code>fail</code> swaps in plain text and leaves after 3.5s.
+        2s, <code>fail</code> swaps in a cross and leaves after 3.5s.
       </p>
       <div style={{ display: "flex", gap: "0.6rem", marginTop: "1rem" }}>
         <button
