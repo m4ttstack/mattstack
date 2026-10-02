@@ -24,7 +24,7 @@ import {
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 
 import { chat, __test__ } from "../chat.ts";
 import { createChatHandlers } from "../../lib/daemon/handlers/chat.ts";
@@ -35,6 +35,8 @@ import { AGENT_NAMES } from "../../lib/chat-names.ts";
 import { setSetting } from "../../packages/rt-client/src/settings/write.ts";
 import { drainNotifications, peekNotifications } from "../../lib/notifier.ts";
 import { fakeHerdr, HerdrFakeError } from "../../lib/herdr/__tests__/fake-herdr.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 // ─── in-process CLI + fake daemon harness ───────────────────────────────────
 
@@ -125,21 +127,17 @@ afterEach(async () => {
  * test process, and reads the spies' recorded calls before mockRestore()
  * clears them.
  */
-async function runChatRaw(args: string[], opts: { sock?: string } = {}): Promise<{ code: number; stdout: string; stderr: string }> {
+async function runChatRaw(args: string[], opts: { sock?: string } = {}): Promise<{ code: number; stdout: string; stderr: string; rawStdout: string }> {
   if (opts.sock) args = [...args, "--sock", opts.sock];
-  const stdout: string[] = [];
-  const stderr: string[] = [];
-  const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-    stdout.push(a.map(String).join(" "));
-  });
-  const errSpy = spyOn(console, "error").mockImplementation((...a: unknown[]) => {
-    stderr.push(a.map(String).join(" "));
-  });
+  const io = captureOut({ console: true });
+  ui.__test__.setHuman(() => false);
   const exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit sentinel");
   });
 
   let code = 0;
+  let rawStdout = "";
+  let rawStderr = "";
   try {
     await chat(args);
   } catch (err) {
@@ -149,11 +147,12 @@ async function runChatRaw(args: string[], opts: { sock?: string } = {}): Promise
       throw err;
     }
   } finally {
-    logSpy.mockRestore();
-    errSpy.mockRestore();
+    rawStdout = io.stdout();
+    rawStderr = io.stderr();
     exitSpy.mockRestore();
+    io.restore();
   }
-  return { code, stdout: stdout.join("\n"), stderr: stderr.join("\n") };
+  return { code, stdout: rawStdout.replace(/\n$/, ""), stderr: rawStderr.replace(/\n$/, ""), rawStdout };
 }
 
 async function runChat(args: string[]): Promise<string> {
@@ -1298,4 +1297,112 @@ describe("rt chat CLI: read --last, invite", () => {
     expect((await runChatRaw(["invite"])).code).toBe(1);
     expect((await runChatRaw(["invite", "w1:p1"])).code).toBe(1);
   });
+});
+
+// ─── the bytes agents read ──────────────────────────────────────────────────
+
+const BYTES_FIXTURE = join(import.meta.dir, "fixtures", "chat-bytes.json");
+
+describe("rt chat stdout off a terminal (frozen for agents)", () => {
+  test("every verb's stdout off a terminal matches the fixture captured before the output layer", async () => {
+    const got: Record<string, { code: number; stdout: string }> = {};
+    // Only what changes from run to run is replaced: the temp HOME, clock
+    // values, and the random id behind a signed-in name.
+    const stable = (text: string): string =>
+      text
+        .replaceAll(home, "<home>")
+        .replace(/\b1\d{12}\b/g, "<ms>")
+        .replace(/\[\d\d:\d\d\]/g, "[HH:MM]")
+        .replace(/\b\d+[smhd] ago\b/g, "<age> ago")
+        .replace(/claimable again in [0-9ms ]+\)/g, "claimable again in <dur>)")
+        .replace(/\bidle \d+[smhd]\b/g, "idle <age>")
+        .replace(/"(handle|baseHandle)":"remy[^"]*"/g, '"$1":"<id>"');
+    const run = async (name: string, args: string[]): Promise<void> => {
+      const r = await runChatRaw(args);
+      got[name] = { code: r.code, stdout: stable(r.rawStdout) };
+    };
+
+    const origCwd = process.cwd();
+    // Outside any repo, so sign-in prints no repo or branch of this checkout.
+    process.chdir(home);
+    try {
+      await run("join-first-member", ["join", "r", "--as", "a"]);
+      await run("join-json", ["join", "r", "--as", "b", "--json"]);
+      await run("join-third-member", ["join", "r", "--as", "c"]);
+      await run("post-woke-nobody", ["post", "r", "hello", "--as", "a"]);
+      await run("post-mention", ["post", "r", "@b", "ping", "--as", "a"]);
+      await run("post-quiet", ["post", "r", "fyi", "--quiet", "--as", "a"]);
+      await run("post-json", ["post", "r", "again", "--as", "a", "--json"]);
+      await run("rooms", ["rooms", "--as", "b"]);
+      await run("rooms-json", ["rooms", "--as", "b", "--json"]);
+      await run("who-room", ["who", "r", "--as", "b"]);
+      await run("who-room-json", ["who", "r", "--json"]);
+      await run("ack", ["ack", "1", "--as", "b"]);
+      await run("ack-again", ["ack", "1", "--as", "b"]);
+      await run("ack-json", ["ack", "2", "--as", "c", "--json"]);
+      await run("claim-won", ["claim", "1", "--as", "b"]);
+      await run("claim-held", ["claim", "1", "--as", "b"]);
+      await run("claim-lost", ["claim", "1", "--as", "c"]);
+      await run("claim-json", ["claim", "2", "--as", "c", "--json"]);
+      await run("release", ["release", "1", "--as", "b"]);
+      await run("release-json", ["release", "2", "--as", "c", "--json"]);
+      await run("read", ["read", "r", "--as", "b"]);
+      await run("read-nothing-unread", ["read", "r", "--as", "b"]);
+      await run("read-last", ["read", "r", "--last", "2", "--as", "b"]);
+      await run("read-last-json", ["read", "r", "--last", "1", "--as", "b", "--json"]);
+      await run("read-json", ["read", "--as", "c", "--json"]);
+      await run("mark-json", ["mark", "r", "--as", "b", "--json"]);
+      await run("mark", ["mark", "r", "--as", "b"]);
+      await run("dm", ["dm", "b", "hi", "there", "--as", "a"]);
+      await run("dm-json", ["dm", "b", "again", "--as", "a", "--json"]);
+      await run("rooms-with-a-direct-room", ["rooms", "--as", "b"]);
+      await run("leave", ["leave", "r", "--as", "c"]);
+      await run("leave-json", ["leave", "r", "--as", "b", "--json"]);
+      await run("archive", ["archive", "r", "--as", "a"]);
+      await run("archive-reopen", ["archive", "r", "--reopen", "--as", "a"]);
+      await run("archive-json", ["archive", "r", "--as", "a", "--json"]);
+      await run("prune", ["prune"]);
+      await run("prune-json", ["prune", "--json"]);
+      await run("buddies-nobody", ["buddies"]);
+      await run("sign-in", ["sign-in", "--as", "remy", "--no-room", "--session", "s1"]);
+      await run("sign-in-json", ["sign-in", "--as", "remy", "--no-room", "--session", "s1", "--json"]);
+      await run("buddies", ["buddies"]);
+      await run("buddies-json", ["buddies", "--json"]);
+      await run("who-bare", ["who"]);
+      await run("away", ["away", "brb", "lunch", "--session", "s1"]);
+      await run("away-json", ["away", "afk", "--session", "s1", "--json"]);
+      await run("back", ["back", "--session", "s1"]);
+      await run("back-json", ["back", "--session", "s1", "--json"]);
+      await run("sign-out", ["sign-out", "--session", "s1"]);
+      await runChatRaw(["sign-in", "--as", "remy", "--no-room", "--session", "s2"]);
+      await run("sign-out-json", ["sign-out", "--session", "s2", "--json"]);
+      await run("sign-out-quiet", ["sign-out", "--session", "s2", "--quiet"]);
+      // A room no earlier line touched: "r" is archived by now.
+      await run("sign-in-room", ["sign-in", "--as", "remy", "--room", "fresh", "--session", "s3"]);
+      canned = { "chat:sign-in": { ok: true, data: { handle: "kai", baseHandle: "kai", reclaimed: false, sessionId: "pane-sess-1", room: null } } };
+      await run("sign-in-pane", ["sign-in", "--pane", "w1:p1"]);
+      canned = { "chat:sign-in": { ok: true, data: { handle: "kai", baseHandle: "kai", reclaimed: false, sessionId: "pane-sess-1", room: "build" } } };
+      await run("sign-in-pane-room", ["sign-in", "--pane", "w1:p1"]);
+      canned = { "chat:sign-out": { ok: true, data: { sessionId: "pane-sess-1" } } };
+      await run("sign-out-pane", ["sign-out", "--pane", "w1:p1"]);
+      canned = { "chat:invite": { ok: true, data: { paneId: "w1:p1", delivered: "accepted" } } };
+      await run("invite", ["invite", "w1:p1", "--room", "r"]);
+      await run("invite-json", ["invite", "w1:p1", "--room", "r", "--json"]);
+      canned = { "chat:invite": { ok: true, data: { paneId: "w1:p1", delivered: "refused", reason: "at a prompt" } } };
+      await run("invite-refused", ["invite", "w1:p1", "--room", "r"]);
+      canned = {};
+      await run("help", ["join", "--help"]);
+    } finally {
+      process.chdir(origCwd);
+    }
+
+    if (process.env.RT_UPDATE_CHAT_BYTES) {
+      mkdirSync(dirname(BYTES_FIXTURE), { recursive: true });
+      // ASCII only: every character above 0x7f is written as its escape, so the
+      // fixture holds no glyph an editor or a formatter could rewrite.
+      const ascii = JSON.stringify(got, null, 2).replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+      writeFileSync(BYTES_FIXTURE, ascii + "\n");
+    }
+    expect(got).toEqual(JSON.parse(readFileSync(BYTES_FIXTURE, "utf8")));
+  }, 60_000);
 });
