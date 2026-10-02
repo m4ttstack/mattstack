@@ -1,13 +1,13 @@
 /**
  * access-group validators — network/auth reachability of the team's git
- * remotes and forge/switchboard hosts, distinct from accounts.ts's
+ * remotes and forge hosts, distinct from accounts.ts's
  * credential-presence rows: a row here can be "needs-you" even with a valid
  * token, when the token's OWNER hasn't been granted access to a specific
  * repo yet.
  */
 
 import { row, type Action, type Row } from "../contract.ts";
-import { isValidHostname, isValidHttpsUrl } from "../host-validate.ts";
+import { isValidHostname } from "../host-validate.ts";
 import type { SetupIntent } from "../intent.ts";
 import type { Probes } from "../probes.ts";
 import { forgeFromRemote, type TeamSnapshot, type UserIntegrationOverrides } from "../team-settings.ts";
@@ -57,8 +57,8 @@ async function teamRepoRow(p: Probes, team: TeamSnapshot, intent: SetupIntent | 
   return row({ ...base, ...rowFromVerdict(verdict, { grantedBy, provider }) });
 }
 
-/** A joined team names its own forge/switchboard host, but a team is not the user — probing (let alone authenticating against) that host is a network access rt takes on the user's behalf, so it waits for the same user-confirmed `rt.integrations` override ctxFor's credential validators require, rather than dialing an inviter-controlled host on its own. */
-function connectHostSteps(id: "github" | "gitlab" | "switchboard", declaredHost: string): Action {
+/** A joined team names its own forge host, but a team is not the user... probing (let alone authenticating against) that host is a network access rt takes on the user's behalf, so it waits for the same user-confirmed `rt.integrations` override ctxFor's credential validators require, rather than dialing an inviter-controlled host on its own. */
+function connectHostSteps(id: "github" | "gitlab", declaredHost: string): Action {
   return { type: "steps", label: "Show steps…", steps: [`Run: rt setup ${id} connect --host ${declaredHost}`, "This confirms the host yourself before rt talks to it"] };
 }
 
@@ -115,41 +115,15 @@ async function repoRow(p: Probes, identity: string, overrides: UserIntegrationOv
   return row({ ...base, ...rowFromVerdict(verdict, { grantedBy: "that repo's admin", provider }) });
 }
 
-async function switchboardRow(p: Probes, team: TeamSnapshot, overrides: UserIntegrationOverrides): Promise<Row | null> {
-  const declaredUrl = team.integrations.switchboard?.url;
-  if (!declaredUrl) return null;
-  const base = {
-    id: "access.switchboard",
-    kind: "access" as const,
-    title: "Switchboard reachability",
-    why: "Confirms the team's switchboard service is reachable from this machine.",
-    required: false,
-    optionalNote: "Works without this; only matters if your pack uses switchboard.",
-  };
-
-  const confirmedUrl = overrides.switchboardUrl && isValidHttpsUrl(overrides.switchboardUrl) ? overrides.switchboardUrl.replace(/\/+$/, "") : null;
-  if (!confirmedUrl) {
-    return row({ ...base, status: "needs-you", detail: `Your team's switchboard is at ${declaredUrl}. Confirm that address before rt connects to it`, action: connectHostSteps("switchboard", declaredUrl) });
-  }
-
-  const res = await p.fetch(`${confirmedUrl}/healthz`);
-  if (res.status === 200) return row({ ...base, status: "ready", detail: "Reachable" });
-  if (res.status === 0) return row({ ...base, status: "error", detail: `Could not reach ${confirmedUrl}. Check your network or proxy` });
-  return row({ ...base, status: "error", detail: `The switchboard answered HTTP ${res.status} to its health check` });
-}
-
-/** Every probe here is independent (different remote/host/URL each), so they run concurrently — worst-case latency is the slowest single probe, not their sum; team-repo/forge/switchboard/each tracking identity all keep their own bounded timeout. */
+/** Every probe here is independent (different remote/host/URL each), so they run concurrently: worst-case latency is the slowest single probe, not their sum. team-repo/forge/each tracking identity all keep their own bounded timeout. */
 export async function accessRows(p: Probes, team: TeamSnapshot, intent: SetupIntent | null, overrides: UserIntegrationOverrides = {}, secrets?: SecretPresence, solo = false): Promise<Row[]> {
   if (solo) return [];
 
-  const [teamRepo, forge, switchboard, ...repos] = await Promise.all([
+  const [teamRepo, forge, ...repos] = await Promise.all([
     teamRepoRow(p, team, intent, overrides, secrets),
     forgeRow(p, team, intent, overrides),
-    switchboardRow(p, team, overrides),
     ...team.trackingIdentities.map((identity) => repoRow(p, identity, overrides, secrets)),
   ]);
 
-  const rows: Row[] = [teamRepo!, forge!, ...repos];
-  if (switchboard) rows.push(switchboard);
-  return rows;
+  return [teamRepo!, forge!, ...repos];
 }

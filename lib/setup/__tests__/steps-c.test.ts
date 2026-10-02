@@ -1857,12 +1857,12 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           fetch: async () => ({ status: 200, body: "", headers: {} }),
           dirs: { [teams]: ["acme"] },
           files: {
-            [`${teams}/acme/mattstack/settings.team.jsonc`]: JSON.stringify({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }),
+            [`${teams}/acme/mattstack/settings.team.jsonc`]: "{}",
             "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true }),
           },
         });
-        const team: TeamSnapshot = { slug: "acme", integrations: { switchboard: { url: "https://sb.test" } }, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
-        const rows = await accountRows(p, team, [], { has: async () => null }, null, { switchboardUrl: "https://sb.test" });
+        const team: TeamSnapshot = { slug: "acme", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
+        const rows = await accountRows(p, team, [], { has: async () => null }, null);
         expect(rows.find((r) => r.id === "account.board-peering")?.status).toBe("needs-you");
 
         const plan = finalizePlan({ slug: "acme", name: "acme", mode: "none" }, [{ id: "accounts", title: "Accounts", rows }]);

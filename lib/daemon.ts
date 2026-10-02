@@ -51,7 +51,7 @@ import { createRealProbes } from "./setup/probes.ts";
 import { runAccountsSweep, type IntegrationTarget } from "./credential-health/sweep.ts";
 import { INTEGRATIONS, type ValidateCtx } from "./setup/integrations.ts";
 import type { Integration } from "./setup/contract.ts";
-import { isValidHostname, isValidHttpsUrl } from "./setup/host-validate.ts";
+import { isValidHostname } from "./setup/host-validate.ts";
 import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "./setup/team-settings.ts";
 import { createRealAgeKeySeam } from "./home/age-key.ts";
 import { readSecret, createRealSecretsExecSeam, type SecretsSeams } from "./secrets/store.ts";
@@ -170,11 +170,6 @@ function credentialHealthCtxFor(id: Integration, team: TeamSnapshot, overrides: 
   if (id === "gitlab") {
     const declaredHost = team.integrations.forge?.provider === "gitlab" ? team.integrations.forge.host : null;
     const host = overrides.forgeHost && isValidHostname(overrides.forgeHost) ? overrides.forgeHost : null;
-    return { ...base, host, declaredHost };
-  }
-  if (id === "switchboard") {
-    const declaredHost = team.integrations.switchboard?.url ?? null;
-    const host = overrides.switchboardUrl && isValidHttpsUrl(overrides.switchboardUrl) ? overrides.switchboardUrl : null;
     return { ...base, host, declaredHost };
   }
   return { ...base, host: null };

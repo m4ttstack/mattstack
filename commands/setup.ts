@@ -38,7 +38,7 @@ import type { RenderStatus } from "../lib/ui/protocol.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverStore } from "../lib/setup/finish-gate.ts";
-import { isValidHostname, isValidHttpsUrl } from "../lib/setup/host-validate.ts";
+import { isValidHostname } from "../lib/setup/host-validate.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
 import { clearIntent, readIntent, teamRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
@@ -1023,11 +1023,6 @@ function ctxFor(id: Integration, team: TeamSnapshot, overrides: UserIntegrationO
     const host = overrides.forgeHost && isValidHostname(overrides.forgeHost) ? overrides.forgeHost : null;
     return { ...base, host, declaredHost };
   }
-  if (id === "switchboard") {
-    const declaredHost = team.integrations.switchboard?.url ?? null;
-    const host = overrides.switchboardUrl && isValidHttpsUrl(overrides.switchboardUrl) ? overrides.switchboardUrl : null;
-    return { ...base, host, declaredHost };
-  }
   return { ...base, host: null };
 }
 
@@ -1258,53 +1253,25 @@ function extractFieldValue(field: ConnectField, input: unknown): string | null {
   return null;
 }
 
-/** Bare hostname for gitlab, full https URL for switchboard — the two shapes `--host` accepts, matching what `ctxFor` will demand back before trusting it. */
-function hostFlagValid(id: Integration, host: string): boolean {
-  return id === "gitlab" ? isValidHostname(host) : isValidHttpsUrl(host);
-}
-
 async function connectCredential(id: Integration, args: string[], deps: ConnectDeps): Promise<void> {
   const def = integrationDef(id);
   const field = def.fields[0];
 
-  // A team can declare a self-hosted forge/switchboard, but that declaration
-  // is never sent a credential on its own — the user confirms it once, here,
-  // by passing --host (or, for switchboard, by redeeming an invite that
-  // carries a board token, see lib/team/join.ts); ctxFor then only ever
-  // trusts the confirmed value.
-  let hostFlag = id === "gitlab" || id === "switchboard" ? flagValue(args, "--host") : undefined;
-  // The app's Confirm sheet has no flag to pass, so switchboard (the one
-  // fieldless integration) reads the host from the same stdin channel every
-  // credential field uses: a `host` field, or a bare string. A TTY caller
-  // still passes --host.
-  if (hostFlag === undefined && id === "switchboard" && !deps.isTTY()) {
-    const input = await deps.stdin();
-    const given = typeof input === "string" ? input : isPlainObject(input) && typeof input.host === "string" ? input.host : "";
-    if (given.trim() !== "") hostFlag = given.trim();
-  }
-  if (hostFlag !== undefined && !hostFlagValid(id, hostFlag)) {
-    throw new UserActionableError(
-      "bad-host",
-      id === "gitlab"
-        ? `--host takes a bare hostname such as gitlab.example.com, not ${hostFlag}`
-        : `The switchboard address must be a valid https URL such as https://switchboard.example.com, not ${hostFlag}`,
-    );
+  // A team can declare a self-hosted forge, but that declaration is never
+  // sent a credential on its own: the user confirms it once, here, by
+  // passing --host, and ctxFor then only ever trusts the confirmed value.
+  const hostFlag = id === "gitlab" ? flagValue(args, "--host") : undefined;
+  if (hostFlag !== undefined && !isValidHostname(hostFlag)) {
+    throw new UserActionableError("bad-host", `--host takes a bare hostname such as gitlab.example.com, not ${hostFlag}`);
   }
   const overrides = overridesFor(deps);
-  const confirmedOverrides: UserIntegrationOverrides =
-    hostFlag === undefined ? overrides : id === "gitlab" ? { ...overrides, forgeHost: hostFlag } : { ...overrides, switchboardUrl: hostFlag };
+  const confirmedOverrides: UserIntegrationOverrides = hostFlag === undefined ? overrides : { ...overrides, forgeHost: hostFlag };
   const ctx = ctxFor(id, snapshotFor(deps), confirmedOverrides);
 
   let value: string;
   let sourceDetail: string | null = null;
 
-  // Credential-less (RT-141: switchboard): an empty `fields` means there is
-  // nothing for the user to type or pipe, so neither the TTY prompt nor the
-  // stdin read below ever runs; every other integration still has at least
-  // one field and keeps hitting the branches below exactly as before.
-  if (def.fields.length === 0) {
-    value = "";
-  } else if (id === "github" && args.includes("--use-gh")) {
+  if (id === "github" && args.includes("--use-gh")) {
     value = await ghAuthToken(deps.probes);
     sourceDetail = GH_SOURCE_DETAIL;
   } else if (deps.isTTY()) {
@@ -1505,8 +1472,6 @@ export const setupLinearStatus = (a: string[], _c?: CommandContext, d: SetupDeps
 export const setupLinearConnect = (a: string[], _c?: CommandContext, d: ConnectDeps = realConnectDeps()) => integrationConnect("linear", a, d);
 export const setupSlackStatus = (a: string[], _c?: CommandContext, d: SetupDeps = realConnectDeps()) => integrationStatus("slack", a, d);
 export const setupSlackConnect = (a: string[], _c?: CommandContext, d: ConnectDeps = realConnectDeps()) => integrationConnect("slack", a, d);
-export const setupSwitchboardStatus = (a: string[], _c?: CommandContext, d: SetupDeps = realConnectDeps()) => integrationStatus("switchboard", a, d);
-export const setupSwitchboardConnect = (a: string[], _c?: CommandContext, d: ConnectDeps = realConnectDeps()) => integrationConnect("switchboard", a, d);
 export const setupSdmStatus = (a: string[], _c?: CommandContext, d: SetupDeps = realConnectDeps()) => integrationStatus("sdm", a, d);
 export const setupSdmConnect = (a: string[], _c?: CommandContext, d: ConnectDeps = realConnectDeps()) => integrationConnect("sdm", a, d);
 export const setupDopplerStatus = (a: string[], _c?: CommandContext, d: SetupDeps = realConnectDeps()) => integrationStatus("doppler", a, d);
@@ -1581,7 +1546,7 @@ export async function setupSlackCreateApp(args: string[], _ctx: CommandContext =
 
     // Deep-merge by hand: setSetting REPLACES the key's whole value, it does not merge (the registry's
     // `merge: "deep"` is a read-side overlay across scopes, not a write-side behavior) — writing `{slack:{...}}`
-    // bare would silently drop the team's forge/linear/switchboard config out from under every other verb
+    // bare would silently drop the team's forge/linear config out from under every other verb
     // that reads it (ctxFor, snapshotFor).
     deps.writeSetting(
       "mattstack.integrations",

@@ -133,28 +133,22 @@ describe("composePlan", () => {
     expect(accounts.rows.some((r) => r.id === "account.github")).toBe(true);
   });
 
-  // RT-260: composePlan now threads readUserIntegrationOverrides() into accountRows (it never did before this task), so a joined team whose declared switchboard URL matches the user's own confirmed latch must read as a re-check, not a Confirm prompt asking to re-latch the same value.
-  test("join intent, team declares switchboard -> latch matching the declared URL offers the re-check action; no latch offers connect", async () => {
+  test("join intent, a team file that still declares a switchboard -> the plan carries no switchboard row of either kind", async () => {
     const prevHome = process.env.HOME;
     const home = mkdtempSync(join(tmpdir(), "rt-plan-switchboard-"));
     process.env.HOME = home;
     try {
       const teamPath = teamSettingsPath("acme");
       mkdirSync(dirname(teamPath), { recursive: true });
-      writeFileSync(teamPath, "// team store\n{}\n");
-      setSetting("mattstack.integrations", { switchboard: { url: "https://sw.example.com" } }, "team", { team: "acme" });
+      writeFileSync(teamPath, `// team store\n${JSON.stringify({ "mattstack.integrations": { switchboard: { url: "https://sw.example.com" } } })}\n`);
 
       const p = fakeProbes({ exec: readyExec, tray: grantedTray });
       writeIntent(p, joinIntent());
 
-      const unlatched = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: ["acme"] });
-      const unlatchedRow = unlatched.groups.find((g) => g.id === "accounts")!.rows.find((r) => r.id === "account.switchboard")!;
-      expect(unlatchedRow.action?.type).toBe("connect");
-
-      setSetting("rt.integrations", { switchboardUrl: "https://sw.example.com" }, "user");
-      const latched = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: ["acme"] });
-      const latchedRow = latched.groups.find((g) => g.id === "accounts")!.rows.find((r) => r.id === "account.switchboard")!;
-      expect(latchedRow.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: ["acme"] });
+      const ids = plan.groups.flatMap((g) => g.rows.map((r) => r.id));
+      expect(ids).not.toContain("account.switchboard");
+      expect(ids).not.toContain("access.switchboard");
     } finally {
       process.env.HOME = prevHome;
       rmSync(home, { recursive: true, force: true });

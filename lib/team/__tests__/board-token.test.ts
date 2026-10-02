@@ -6,14 +6,14 @@ const HOME = "/fake-home";
 const COMPILED_ENV = `${HOME}/.mattstack/board/.env`;
 const TEAMS = `${HOME}/.mattstack/teams`;
 
-/** One team this machine joined by invite, declaring an https switchboard, so only the token sources decide the verdict. */
+/** One team this machine joined by invite, so only the token sources decide the verdict. */
 function joined(files: Record<string, string> = {}, env: Record<string, string> = {}) {
   return fakeProbes({
     home: HOME,
     env,
     dirs: { [TEAMS]: ["acme"] },
     files: {
-      [`${TEAMS}/acme/mattstack/settings.team.jsonc`]: JSON.stringify({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }),
+      [`${TEAMS}/acme/mattstack/settings.team.jsonc`]: "{}",
       [`${HOME}/.mattstack/rt/teams/acme.json`]: JSON.stringify({ joinedByRt: true }),
       ...files,
     },
@@ -57,5 +57,28 @@ describe("boardPeering: rt's secret", () => {
       throw new Error("keychain locked");
     };
     expect(await boardPeering(joined(), has, [])).toEqual({ kind: "unreadable", error: "keychain locked" });
+  });
+});
+
+describe("boardPeering: which Macs it applies to", () => {
+  test("a Mac in no team is not applicable", async () => {
+    const p = fakeProbes({ home: HOME, dirs: { [TEAMS]: [] } });
+    expect(await verdict(p)).toEqual({ kind: "not-applicable" });
+  });
+
+  test("a team created on this Mac applies too", async () => {
+    const p = fakeProbes({
+      home: HOME,
+      dirs: { [TEAMS]: ["acme"] },
+      files: {
+        [`${TEAMS}/acme/mattstack/settings.team.jsonc`]: "{}",
+        [`${HOME}/.mattstack/rt/teams/acme.json`]: JSON.stringify({ createdByRt: true, joinedByRt: false }),
+      },
+    });
+    expect(await verdict(p)).toEqual({ kind: "unpeered", teams: ["acme"] });
+  });
+
+  test("a joined team with no switchboard declaration still applies", async () => {
+    expect(await verdict(joined())).toEqual({ kind: "unpeered", teams: ["acme"] });
   });
 });
