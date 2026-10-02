@@ -205,7 +205,6 @@ test('a remote board keeps only what needs no local server', async () => {
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1418",
-      "# agent actions",
       "agent actionsneed a local board",
       "---",
       "> sessions and reports",

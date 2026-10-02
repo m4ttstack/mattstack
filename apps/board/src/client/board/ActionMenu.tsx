@@ -316,6 +316,10 @@ function ActionMenu({
   const top = entries.filter(e => e.section === 'top');
   const reactions = top.filter(isReaction);
   const agentItems = entries.filter(e => e.section === 'agent');
+  // A remote board's lone hint row already reads "agent actions".
+  const agentHeading = !(
+    agentItems.length === 1 && agentItems[0]!.key === 'local-hint'
+  );
   const flyouts = (Object.keys(FLYOUT) as FlyoutSection[])
     .map(section => ({
       section,
@@ -354,7 +358,7 @@ function ActionMenu({
       {agentItems.length > 0 && (
         <>
           {top.length > 0 && <ContextMenu.Separator />}
-          <ContextMenu.Label>agent actions</ContextMenu.Label>
+          {agentHeading && <ContextMenu.Label>agent actions</ContextMenu.Label>}
           {agentItems.map(renderItem)}
         </>
       )}

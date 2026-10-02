@@ -199,6 +199,16 @@ test('a blocked row shows its reason without a blocked tag; one with no reason k
   expect(tagOf(row('rebase'))).toBe('blocked');
 });
 
+test('a remote board says agent actions once, on the row that needs a local board', async () => {
+  await openMenu(ownIdle, { ...ownEnv, local: false });
+  const lines = menuLines();
+  expect(lines.slice(0, 2)).toEqual([
+    '# !1418',
+    'agent actionsneed a local board',
+  ]);
+  expect(lines).not.toContain('# agent actions');
+});
+
 test('a one-row section renders inline, not as a flyout', async () => {
   await openMenu(
     mrx(1418, { author: { username: 'kim', name: 'Kim' } }),
