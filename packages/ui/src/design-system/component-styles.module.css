@@ -79,6 +79,13 @@
   outline-offset: -1px;
 }
 
+/* A ground card that needs attention (an edit not shared yet) rings in the
+   warn fill; a selection's ring, below, wins over it. */
+.paperRoot[data-variant='ground'][data-attention] {
+  outline: 1px solid var(--tk-fill-warn);
+  outline-offset: -1px;
+}
+
 .paperRoot[data-variant='ground'][data-selected] {
   outline: 1.5px solid var(--tk-fill-accent);
   outline-offset: -0.75px;

@@ -124,6 +124,14 @@ schemes). A `SegmentedControl` there can take `variant="quiet"`: a raised
 track, the active segment a card ruled in the soft line step with no shadow,
 and muted labels until active.
 
+Something that needs attention takes a tint of its kit hue, lighter in dark
+than a selection's wash. A status tag (`Badge`) can take `variant="tint"`
+(the tint behind a label in the hue's text step, no rule), a banner (`Alert`)
+`variant="tint-outline"` (the same tint, ruled in the hue's fill), and a
+status chip on a card `variant="hue-outline"` (a card fill ringed in the
+hue's fill, the label in its text step). A ground card marked
+`data-attention` rings in the warn fill; a selection ring wins over it.
+
 `CodeLines` can take `variant="wash"`: the highlighted range in the thin
 accent wash with accent line numbers and body text, the text outside it
 muted, and a muted band ruled in the soft line step. Its `classNames` size

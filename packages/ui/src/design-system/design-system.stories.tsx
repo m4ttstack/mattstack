@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  Alert,
   Badge,
   Box,
   Button,
@@ -189,6 +190,49 @@ function CardTones() {
   );
 }
 
+function AttentionTones() {
+  return (
+    <Box bg="var(--tk-bg)" w={560}>
+      <Alert
+        variant="tint-outline"
+        color="warn"
+        radius={0}
+        icon={<Icon name="info" size={16} />}
+      >
+        tint-outline: a banner, ruled in the hue
+      </Alert>
+      <Stack gap="sm" p="lg">
+        <Group gap="sm">
+          <Badge variant="tint" color="warn">
+            tint
+          </Badge>
+          <Badge variant="tint" color="bad">
+            tint bad
+          </Badge>
+          <Badge variant="hue-outline" color="warn">
+            hue-outline
+          </Badge>
+          <Badge variant="quiet-outline">quiet-outline</Badge>
+        </Group>
+        <Group gap="sm">
+          <Paper withBorder variant="ground" p="xs" data-attention>
+            needs attention
+          </Paper>
+          <Paper
+            withBorder
+            variant="ground"
+            p="xs"
+            data-attention
+            data-selected
+          >
+            needs attention, selected
+          </Paper>
+        </Group>
+      </Stack>
+    </Box>
+  );
+}
+
 export const BgLevels: Story = {
   render: () => <BackgroundLevels />,
 };
@@ -216,4 +260,9 @@ export const PanelTonesStory: Story = {
 export const CardTonesStory: Story = {
   name: 'Card tones: outline papers, card-outline button, wash options',
   render: () => <CardTones />,
+};
+
+export const AttentionTonesStory: Story = {
+  name: 'Attention tones: tint tag, tint-outline banner, hue-outline chip, ground card attention',
+  render: () => <AttentionTones />,
 };

@@ -90,6 +90,47 @@ function wash(hue: string): VariantColorResolverResult {
 }
 
 /**
+ * Opt-in tones that mark something as needing attention in a kit hue. `tint`
+ * mixes the hue's fill at `--ui-tint` (lighter than a selection's wash in
+ * dark) behind a label in the hue's text step, with no rule: a status tag.
+ * `tint-outline` adds a rule in the hue's fill: a banner. `hue-outline` is a
+ * card fill ringed in the hue's fill, with the same label: a status chip on
+ * a card. None of them is interactive, so hover keeps the rest fill.
+ */
+const HUE_TONES: Record<
+  string,
+  { fallback: string; tone: (hue: string) => VariantColorResolverResult }
+> = {
+  tint: {
+    fallback: 'light',
+    tone: hue => ({
+      background: washOf(hue, '--ui-tint'),
+      hover: washOf(hue, '--ui-tint'),
+      color: `var(--tk-text-${hue})`,
+      border: `${rem(1)} solid transparent`,
+    }),
+  },
+  'tint-outline': {
+    fallback: 'light',
+    tone: hue => ({
+      background: washOf(hue, '--ui-tint'),
+      hover: washOf(hue, '--ui-tint'),
+      color: `var(--tk-text-${hue})`,
+      border: `${rem(1)} solid var(--tk-fill-${hue})`,
+    }),
+  },
+  'hue-outline': {
+    fallback: 'outline',
+    tone: hue => ({
+      background: 'var(--tk-card)',
+      hover: 'var(--tk-card)',
+      color: `var(--tk-text-${hue})`,
+      border: `${rem(1)} solid var(--tk-fill-${hue})`,
+    }),
+  },
+};
+
+/**
  * Mantine 9's variant-color hook. Starts from Mantine's `defaultVariantColorsResolver`
  * and overrides only the cases the kit cares about.
  *
@@ -100,7 +141,8 @@ function wash(hue: string): VariantColorResolverResult {
  * Mantine's white/black pick.
  *
  * It also answers the kit's own `quiet`, `quiet-outline`, `panel-outline`,
- * `soft-outline`, `card-outline` and `wash` tones above.
+ * `soft-outline`, `card-outline`, `wash`, `tint`, `tint-outline` and
+ * `hue-outline` tones above.
  */
 export const variantColorResolver: VariantColorsResolver = input => {
   const quiet = input.variant ? QUIET_TONES.get(input.variant) : undefined;
@@ -110,6 +152,16 @@ export const variantColorResolver: VariantColorsResolver = input => {
     return typeof input.color === 'string' && ON_FILL_HUES.has(input.color)
       ? wash(input.color)
       : defaultVariantColorsResolver({ ...input, variant: 'light' });
+  }
+
+  const hueTone = input.variant ? HUE_TONES[input.variant] : undefined;
+  if (hueTone) {
+    return typeof input.color === 'string' && ON_FILL_HUES.has(input.color)
+      ? hueTone.tone(input.color)
+      : defaultVariantColorsResolver({
+          ...input,
+          variant: hueTone.fallback,
+        });
   }
 
   const base = defaultVariantColorsResolver(input);

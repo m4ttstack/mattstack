@@ -143,3 +143,55 @@ describe('wash tone', () => {
     expect(wash).toEqual(light);
   });
 });
+
+describe('tint tones', () => {
+  const TINT =
+    'color-mix(in srgb, var(--tk-fill-warn) var(--ui-tint), transparent)';
+
+  it('tint mixes a kit hue at the tint strength behind a label in that hue, with no rule', () => {
+    const result = variantColorResolver({
+      color: 'warn',
+      theme,
+      variant: 'tint',
+    });
+    expect(result.background).toBe(TINT);
+    expect(result.hover).toBe(TINT);
+    expect(result.color).toBe('var(--tk-text-warn)');
+    expect(result.border).toContain('solid transparent');
+  });
+
+  it("tint-outline rules the same tint in the hue's fill", () => {
+    const result = variantColorResolver({
+      color: 'warn',
+      theme,
+      variant: 'tint-outline',
+    });
+    expect(result.background).toBe(TINT);
+    expect(result.color).toBe('var(--tk-text-warn)');
+    expect(result.border).toContain('solid var(--tk-fill-warn)');
+  });
+
+  it("hue-outline is a card fill ringed in the hue's fill, with a label in that hue", () => {
+    const result = variantColorResolver({
+      color: 'warn',
+      theme,
+      variant: 'hue-outline',
+    });
+    expect(result.background).toBe('var(--tk-card)');
+    expect(result.color).toBe('var(--tk-text-warn)');
+    expect(result.border).toContain('solid var(--tk-fill-warn)');
+  });
+
+  it.each([
+    ['tint', 'light'],
+    ['tint-outline', 'light'],
+    ['hue-outline', 'outline'],
+  ])(
+    '%s on a colour outside the kit hues reads as the %s variant',
+    (variant, fallback) => {
+      expect(variantColorResolver({ color: 'gray', theme, variant })).toEqual(
+        variantColorResolver({ color: 'gray', theme, variant: fallback })
+      );
+    }
+  );
+});

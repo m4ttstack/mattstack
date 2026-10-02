@@ -54,6 +54,10 @@
      hovered. App rows that wash read the same strengths. */
   --ui-wash: 10%;
   --ui-wash-hover: 14%;
+
+  /* How much hue the kit's `tint` tones mix: an attention mark, which reads
+     lighter than a selection's wash in dark. */
+  --ui-tint: 10%;
 }
 :root[data-mantine-color-scheme='dark'] {
   --ui-base-bg-1: var(--mantine-color-dark-7);
@@ -69,6 +73,8 @@
 
   --ui-wash: 20%;
   --ui-wash-hover: 26%;
+
+  --ui-tint: 15%;
 }
 
 /*

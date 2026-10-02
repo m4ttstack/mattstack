@@ -150,6 +150,15 @@ describe('ground paper rule', () => {
       rule("\\.paperRoot\\[data-variant='ground'\\]\\[data-selected\\]")
     ).toContain('outline: 1.5px solid var(--tk-fill-accent)');
   });
+
+  it('rings a ground card that needs attention in the warn fill, under a selection ring', () => {
+    const attention =
+      "\\.paperRoot\\[data-variant='ground'\\]\\[data-attention\\]";
+    expect(rule(attention)).toContain('outline: 1px solid var(--tk-fill-warn)');
+    expect(css.indexOf('[data-attention]')).toBeLessThan(
+      css.indexOf("[data-variant='ground'][data-selected]")
+    );
+  });
 });
 
 describe('segmented progress', () => {

@@ -183,3 +183,9 @@ test('both scheme blocks set the wash strengths the kit and apps share', () => {
     ['20%', '26%'],
   ]);
 });
+
+test('both scheme blocks set the tint strength the kit tint tones mix at', () => {
+  expect(
+    SCHEMES.map(scheme => declarations(schemeBlock(scheme)).get('--ui-tint'))
+  ).toEqual(['10%', '15%']);
+});
