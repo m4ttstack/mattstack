@@ -98,6 +98,7 @@ afterEach(() => {
   // The store outlives a render, so one test's toast would satisfy the next.
   act(() => notifications.clean());
   restoreLayout();
+  window.localStorage.clear();
   vi.restoreAllMocks();
   vi.clearAllMocks();
   window.history.pushState(null, '', '/');
@@ -271,6 +272,62 @@ describe('SkillDrawer', () => {
 
     await waitFor(() => expect(params().get('select')).toBeNull());
     expect(params().get('focus')).toBe('stage-plan');
+  });
+
+  it('pops out to the full screen and back, and opens where it was left', async () => {
+    mockDesignPack();
+    const first = renderAt('?tab=graph&focus=stage-plan&select=row:140');
+    const user = userEvent.setup();
+
+    expect(await drawer()).toHaveAttribute('data-mode', 'side');
+    await user.click(
+      within(await drawer()).getByRole('button', { name: 'Open full screen' })
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('skill-drawer')).toHaveAttribute(
+        'data-mode',
+        'full'
+      )
+    );
+    expect(screen.getByTestId('drawer-file')).toHaveTextContent(
+      'stage-plan/SKILL.md'
+    );
+
+    first.unmount();
+    renderAt('?tab=graph&focus=stage-plan&select=row:140');
+    expect(await drawer()).toHaveAttribute('data-mode', 'full');
+
+    await user.click(
+      within(await drawer()).getByRole('button', {
+        name: 'Back to the side panel',
+      })
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('skill-drawer')).toHaveAttribute(
+        'data-mode',
+        'side'
+      )
+    );
+  });
+
+  it('closes the full screen on Escape', async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&focus=stage-plan&select=row:140');
+    const user = userEvent.setup();
+
+    await user.click(
+      within(await drawer()).getByRole('button', { name: 'Open full screen' })
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('skill-drawer')).toHaveAttribute(
+        'data-mode',
+        'full'
+      )
+    );
+
+    fireEvent.keyDown(document.documentElement, { key: 'Escape' });
+
+    await waitFor(() => expect(params().get('select')).toBeNull());
   });
 
   it('keeps its keys for the menu while the menu is open', async () => {

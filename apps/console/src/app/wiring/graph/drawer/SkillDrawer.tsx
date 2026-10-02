@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActionIcon,
   Alert,
   Badge,
   Box,
@@ -7,10 +8,12 @@ import {
   CloseButton,
   Drawer,
   Loader,
+  Modal,
   SegmentedControl,
   Switch,
   Tabs,
   Text,
+  Tooltip,
 } from '@mattstack/app-kit/core';
 import { useHotkeys } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
@@ -43,6 +46,7 @@ import { HistoryTab } from './HistoryTab';
 import { RebindPanel } from './RebindPanel';
 import { TextTab } from './TextTab';
 import { UsedByTab } from './UsedByTab';
+import { useDrawerMode } from './useDrawerMode';
 
 export const DRAWER_WIDTH = 600;
 
@@ -176,6 +180,7 @@ export function SkillDrawer({
   setUrl: (patch: Partial<WiringUrl>) => void;
 }) {
   const surface = useDrawerSurface();
+  const [mode, setMode] = useDrawerMode();
   const target = useMemo(() => parseTarget(url.select), [url.select]);
   const current = useMemo(
     () => selectedContent(url, view, anatomy),
@@ -238,24 +243,9 @@ export function SkillDrawer({
     ? composition?.verbs.find(v => v.name === anatomy.skill)
     : undefined;
 
-  return (
-    <Drawer
-      opened={opened}
-      onClose={close}
-      position="right"
-      size={DRAWER_WIDTH}
-      withOverlay={false}
-      lockScroll={false}
-      trapFocus={false}
-      closeOnEscape={false}
-      withCloseButton={false}
-      padding={0}
-      styles={surface}
-      classNames={{ body: classes.body }}
-      attributes={{
-        content: { 'data-parity': layers.root, 'data-testid': 'skill-drawer' },
-      }}
-    >
+  const full = mode === 'full';
+  const panel = (
+    <>
       <Box
         className={classes.header}
         data-tabs={content.tabs.length > 1 || undefined}
@@ -331,6 +321,18 @@ export function SkillDrawer({
               data-testid="drawer-view"
             />
           )}
+          <Tooltip label={full ? 'Back to the side panel' : 'Open full screen'}>
+            <ActionIcon
+              variant="soft-outline"
+              radius={6}
+              className={classes.more}
+              aria-label={full ? 'Back to the side panel' : 'Open full screen'}
+              onClick={() => setMode(full ? 'side' : 'full')}
+              data-testid="drawer-mode"
+            >
+              <Icon name={full ? 'minimize' : 'maximize'} size={14} />
+            </ActionIcon>
+          </Tooltip>
           <DrawerMenu
             pack={pack}
             skill={anatomy.skill}
@@ -487,6 +489,48 @@ export function SkillDrawer({
           }
         />
       )}
+    </>
+  );
+  const attributes = {
+    content: {
+      'data-parity': layers.root,
+      'data-testid': 'skill-drawer',
+      'data-mode': mode,
+    },
+  };
+
+  return full ? (
+    <Modal
+      opened={opened}
+      onClose={close}
+      fullScreen
+      closeOnEscape={false}
+      withCloseButton={false}
+      padding={0}
+      transitionProps={{ transition: 'fade', duration: 150 }}
+      styles={{ content: surface.panel }}
+      classNames={{ content: classes.fullScreen, body: classes.body }}
+      attributes={attributes}
+    >
+      {panel}
+    </Modal>
+  ) : (
+    <Drawer
+      opened={opened}
+      onClose={close}
+      position="right"
+      size={DRAWER_WIDTH}
+      withOverlay={false}
+      lockScroll={false}
+      trapFocus={false}
+      closeOnEscape={false}
+      withCloseButton={false}
+      padding={0}
+      styles={surface}
+      classNames={{ body: classes.body }}
+      attributes={attributes}
+    >
+      {panel}
     </Drawer>
   );
 }

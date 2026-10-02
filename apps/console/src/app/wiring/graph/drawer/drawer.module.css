@@ -5,6 +5,19 @@
   padding: 0;
 }
 
+/* The body sizes the code viewer, so the full-screen frame must not scroll
+   it as a whole. */
+.fullScreen {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.fullScreen .body {
+  flex: 1;
+  min-height: 0;
+}
+
 .header {
   display: flex;
   flex: none;

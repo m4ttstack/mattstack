@@ -19,5 +19,6 @@ export function useDrawerSurface() {
   return {
     content: { ...surface, borderLeft: `1px solid ${border.default}` },
     header: { ...surface, borderBottom: `1px solid ${border.default}` },
+    panel: surface,
   };
 }
