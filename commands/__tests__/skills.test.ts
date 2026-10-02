@@ -2013,6 +2013,7 @@ describe("skillsComposition --json", () => {
       { kind: "include", arg: "gate-protocol", line: 12 },
       { kind: "slot", arg: "domain", line: 13 },
     ]);
+    expect(stage.slots).toEqual([{ name: "domain", contract: "watch-ci-domain@1", required: false }]);
 
     const verb = payload.targets.find((t: { name: string }) => t.name === "watch-ci");
     expect(verb).toEqual({
@@ -2022,6 +2023,10 @@ describe("skillsComposition --json", () => {
       artifactPath: join(packDir, "skills", "watch-ci", "SKILL.md"),
       templatePath: join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci", "SKILL.md"),
       placeholders: [],
+      slots: [
+        { name: "domain", contract: "watch-ci-domain@1", required: false },
+        { name: "forge", contract: "ci-forge@1", required: true },
+      ],
       engineError: null,
     });
   });
@@ -2035,7 +2040,7 @@ describe("skillsComposition --json", () => {
     const payload = await compositionJson(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]);
 
     const broken = payload.targets.find((t: { name: string }) => t.name === "broken");
-    expect(broken).toMatchObject({ kind: "verb", templatePath: null, placeholders: [] });
+    expect(broken).toMatchObject({ kind: "verb", templatePath: null, placeholders: [], slots: [] });
     expect(broken.engineError).toContain("no-such-engine");
     expect(payload.targets.find((t: { name: string }) => t.name === "watch-ci").engineError).toBeNull();
   });
@@ -2097,8 +2102,8 @@ describe("skillsComposition --json", () => {
     expect(binder.verb).toBe("watch-ci");
     expect(binder.kind).toBe("verb");
     expect(binder.slots).toEqual([
-      { name: "domain", boundTo: "acme:watch-ci-domain" },
-      { name: "forge", boundTo: "mattstack:gitlab-forge" },
+      { name: "domain", boundTo: "acme:watch-ci-domain", layer: "pack" },
+      { name: "forge", boundTo: "mattstack:gitlab-forge", layer: null },
     ]);
   });
 
@@ -2262,9 +2267,11 @@ describe("skillsComposition --json", () => {
 // provenance (binding <- layer):
 //   mattstack:watch-ci domain <- pack
 //   mattstack:watch-ci forge <- base:acme-base
+//   mattstack:stage-plan domain <- override
 {
   "bindings": {
-    "mattstack:watch-ci": { "domain": "acme:watch-ci-domain", "forge": "mattstack:gitlab-forge" }
+    "mattstack:watch-ci": { "domain": "acme:watch-ci-domain", "forge": "mattstack:gitlab-forge" },
+    "mattstack:stage-plan": { "domain": "acme:watch-ci-domain" }
   }
 }
 `);
@@ -2273,6 +2280,14 @@ describe("skillsComposition --json", () => {
     const slots = parsed.verbs.find((v: { name: string }) => v.name === "watch-ci").slots;
     expect(slots.find((s: { name: string }) => s.name === "domain").layer).toBe("pack");
     expect(slots.find((s: { name: string }) => s.name === "forge").layer).toBe("base:acme-base");
+    const binderSlots = (ref: string) => parsed.binders.find((b: { ref: string }) => b.ref === ref).slots;
+    expect(binderSlots("mattstack:watch-ci")).toEqual([
+      { name: "domain", boundTo: "acme:watch-ci-domain", layer: "pack" },
+      { name: "forge", boundTo: "mattstack:gitlab-forge", layer: "base:acme-base" },
+    ]);
+    expect(binderSlots("mattstack:stage-plan")).toEqual([
+      { name: "domain", boundTo: "acme:watch-ci-domain", layer: "override" },
+    ]);
   });
 
   test("composition layer is null for a manifest with no provenance header", async () => {

@@ -1350,7 +1350,8 @@ type CompositionBinder = {
   ref: string;
   verb: string | null;
   kind: CompositionBinderKind;
-  slots: { name: string; boundTo: string }[];
+  /** `layer` names the bindings layer that set the slot, as a verb slot's does. */
+  slots: { name: string; boundTo: string; layer: string | null }[];
 };
 
 type CompositionFill = { binding: string; provides: string; sourcePath: string; registered: boolean };
@@ -1363,6 +1364,8 @@ type CompositionTarget = {
   templatePath: string | null;
   /** Line numbers count the engine file's frontmatter, so they open the template at the right line. */
   placeholders: { kind: string; arg: string | null; line: number }[];
+  /** The slots the template declares, so a stage's slots are known without a roster entry. */
+  slots: { name: string; contract: string; required: boolean }[];
   engineError: string | null;
 };
 
@@ -1527,7 +1530,11 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
       ref,
       verb: verbName,
       kind,
-      slots: Object.entries(slotBindings).map(([name, boundTo]) => ({ name, boundTo })),
+      slots: Object.entries(slotBindings).map(([name, boundTo]) => ({
+        name,
+        boundTo,
+        layer: resolved.provenance[`${ref} ${name}`] ?? null,
+      })),
     };
   });
 }
@@ -1549,6 +1556,9 @@ function buildCompositionTargets(resolved: Resolved, publicSet: Set<string> | nu
       templatePath: step ? join(step.dir, "SKILL.md") : null,
       placeholders: step
         ? findPlaceholders(step.body).map((p) => ({ kind: p.kind, arg: p.arg, line: step.bodyStartLine + p.line - 1 }))
+        : [],
+      slots: step
+        ? Object.entries(step.slots).map(([name, spec]) => ({ name, contract: spec.contract, required: spec.required ?? false }))
         : [],
       engineError,
     };
