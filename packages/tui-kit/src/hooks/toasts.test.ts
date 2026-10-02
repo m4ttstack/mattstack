@@ -1,8 +1,7 @@
-import { createElement } from 'react';
-import { act, create } from 'react-test-renderer';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { useToasts } from './index.ts';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createElement } from "react";
+import { act, create } from "react-test-renderer";
+import { useToasts } from "./index.ts";
 
 /**
  * useToasts is a real React hook (useState/useRef/useCallback), and this file
@@ -30,7 +29,7 @@ function renderUseToasts() {
   };
 }
 
-describe('useToasts', () => {
+describe("useToasts", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -39,31 +38,31 @@ describe('useToasts', () => {
     vi.useRealTimers();
   });
 
-  it('addToast assigns increasing ids', () => {
+  it("addToast assigns increasing ids", () => {
     const hook = renderUseToasts();
     act(() => {
-      hook.current.addToast('first');
+      hook.current.addToast("first");
     });
     act(() => {
-      hook.current.addToast('second');
+      hook.current.addToast("second");
     });
     expect(hook.current.toasts).toEqual([
-      { id: 1, text: 'first' },
-      { id: 2, text: 'second' },
+      { id: 1, text: "first" },
+      { id: 2, text: "second" },
     ]);
   });
 
-  it('entries drop after the 3500ms timeout', () => {
+  it("entries drop after the 3500ms timeout", () => {
     const hook = renderUseToasts();
     act(() => {
-      hook.current.addToast('hello');
+      hook.current.addToast("hello");
     });
-    expect(hook.current.toasts).toEqual([{ id: 1, text: 'hello' }]);
+    expect(hook.current.toasts).toEqual([{ id: 1, text: "hello" }]);
 
     act(() => {
       vi.advanceTimersByTime(3499);
     });
-    expect(hook.current.toasts).toEqual([{ id: 1, text: 'hello' }]);
+    expect(hook.current.toasts).toEqual([{ id: 1, text: "hello" }]);
 
     act(() => {
       vi.advanceTimersByTime(1);
@@ -71,44 +70,40 @@ describe('useToasts', () => {
     expect(hook.current.toasts).toEqual([]);
   });
 
-  it('removes only the timed-out toast, leaving later ones', () => {
+  it("removes only the timed-out toast, leaving later ones", () => {
     const hook = renderUseToasts();
     act(() => {
-      hook.current.addToast('early');
+      hook.current.addToast("early");
     });
     act(() => {
       vi.advanceTimersByTime(1000);
     });
     act(() => {
-      hook.current.addToast('late');
+      hook.current.addToast("late");
     });
     // "early" was added at t=0, "late" at t=1000; advance to just past
     // early's 3500ms deadline (t=3501) but well before late's (t=4500).
     act(() => {
       vi.advanceTimersByTime(2501);
     });
-    expect(hook.current.toasts).toEqual([{ id: 2, text: 'late' }]);
+    expect(hook.current.toasts).toEqual([{ id: 2, text: "late" }]);
   });
 
-  it('startToast holds a pending toast until done, then shows the check for 2s', () => {
+  it("startToast holds a pending toast until done, then shows the check for 2s", () => {
     const hook = renderUseToasts();
     let handle!: ReturnType<typeof hook.current.startToast>;
     act(() => {
-      handle = hook.current.startToast('merging !1…');
+      handle = hook.current.startToast("merging !1…");
     });
     act(() => {
       vi.advanceTimersByTime(10000);
     });
-    expect(hook.current.toasts).toEqual([
-      { id: 1, text: 'merging !1…', state: 'pending' },
-    ]);
+    expect(hook.current.toasts).toEqual([{ id: 1, text: "merging !1…", state: "pending" }]);
 
     act(() => {
-      handle.done('merge accepted !1');
+      handle.done("merge accepted !1");
     });
-    expect(hook.current.toasts).toEqual([
-      { id: 1, text: 'merge accepted !1', state: 'done' },
-    ]);
+    expect(hook.current.toasts).toEqual([{ id: 1, text: "merge accepted !1", state: "done" }]);
 
     act(() => {
       vi.advanceTimersByTime(2000);
@@ -116,18 +111,16 @@ describe('useToasts', () => {
     expect(hook.current.toasts).toEqual([]);
   });
 
-  it('fail turns the pending toast into a failed one that leaves after 3500ms', () => {
+  it("fail turns the pending toast into a failed one that leaves after 3500ms", () => {
     const hook = renderUseToasts();
     let handle!: ReturnType<typeof hook.current.startToast>;
     act(() => {
-      handle = hook.current.startToast('rebasing !1…');
+      handle = hook.current.startToast("rebasing !1…");
     });
     act(() => {
       handle.fail("couldn't rebase !1");
     });
-    expect(hook.current.toasts).toEqual([
-      { id: 1, text: "couldn't rebase !1", state: 'failed' },
-    ]);
+    expect(hook.current.toasts).toEqual([{ id: 1, text: "couldn't rebase !1", state: "failed" }]);
     act(() => {
       vi.advanceTimersByTime(3499);
     });
@@ -138,11 +131,11 @@ describe('useToasts', () => {
     expect(hook.current.toasts).toEqual([]);
   });
 
-  it('a pending toast whose work never answers leaves after 30s, and a late result still shows', () => {
+  it("a pending toast whose work never answers leaves after 30s, and a late result still shows", () => {
     const hook = renderUseToasts();
     let handle!: ReturnType<typeof hook.current.startToast>;
     act(() => {
-      handle = hook.current.startToast('stuck…');
+      handle = hook.current.startToast("stuck…");
     });
     act(() => {
       vi.advanceTimersByTime(30000);
@@ -152,7 +145,7 @@ describe('useToasts', () => {
       handle.fail("couldn't merge !1 (502)");
     });
     expect(hook.current.toasts).toEqual([
-      { id: 2, text: "couldn't merge !1 (502)", state: 'failed' },
+      { id: 2, text: "couldn't merge !1 (502)", state: "failed" },
     ]);
     act(() => {
       vi.advanceTimersByTime(3500);
@@ -160,18 +153,16 @@ describe('useToasts', () => {
     expect(hook.current.toasts).toEqual([]);
   });
 
-  it('a second settle is ignored', () => {
+  it("a second settle is ignored", () => {
     const hook = renderUseToasts();
     let handle!: ReturnType<typeof hook.current.startToast>;
     act(() => {
-      handle = hook.current.startToast('merging !1…');
+      handle = hook.current.startToast("merging !1…");
     });
     act(() => {
-      handle.done('merge accepted !1');
+      handle.done("merge accepted !1");
       handle.fail("couldn't merge !1");
     });
-    expect(hook.current.toasts).toEqual([
-      { id: 1, text: 'merge accepted !1', state: 'done' },
-    ]);
+    expect(hook.current.toasts).toEqual([{ id: 1, text: "merge accepted !1", state: "done" }]);
   });
 });

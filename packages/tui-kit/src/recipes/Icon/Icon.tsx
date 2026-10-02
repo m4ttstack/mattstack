@@ -1,13 +1,12 @@
-import type { ComponentProps, ReactNode, SVGProps } from 'react';
-
-import { defineComponent } from '../../builders.ts';
-import classes from './Icon.module.css';
+import type { ComponentProps, ReactNode, SVGProps } from "react";
+import { defineComponent } from "../../builders.ts";
+import classes from "./Icon.module.css";
 
 /** Authoring category (1 = pure styled primitive). Read off this module by
     scripts/derive.ts to build the kit's manifest; not dead code. */
 export const recipeCategory = 1 as const;
 
-const ICON_SELECTORS = ['root'] as const;
+const ICON_SELECTORS = ["root"] as const;
 
 /**
  * Stable selector surface for app-side CSS, since CSS-module class names are
@@ -18,7 +17,7 @@ const ICON_SELECTORS = ['root'] as const;
  * slot -> `<recipe>-<slot key>`. Self-identifying, so a value never needs an
  * ancestor to disambiguate which recipe it reaches into.
  */
-const ICON_PART = 'icon';
+const ICON_PART = "icon";
 
 /** Icon's own props; `IconProps` below is the full public surface. */
 export interface IconOwnProps {
@@ -38,13 +37,13 @@ export interface IconOwnProps {
  * non-overridable tail — `getStyles` then `data-part`.
  */
 export const Icon = defineComponent<
-  IconOwnProps & Omit<SVGProps<SVGSVGElement>, 'ref'>,
+  IconOwnProps & Omit<SVGProps<SVGSVGElement>, "ref">,
   typeof ICON_SELECTORS,
   readonly [],
   readonly [],
   SVGSVGElement
 >({
-  name: 'Icon',
+  name: "Icon",
   selectors: ICON_SELECTORS,
   classes,
   render: ({ props, getStyles, ref }) => {
@@ -74,7 +73,7 @@ export const Icon = defineComponent<
         strokeLinejoin="round"
         aria-hidden
         {...(rest as SVGProps<SVGSVGElement>)}
-        {...getStyles('root')}
+        {...getStyles("root")}
         data-part={ICON_PART}
       >
         {circle && <circle cx="12" cy="12" r="4" />}
@@ -118,47 +117,42 @@ export const ICONS: Record<string, ReactNode> = {
   // flattened into `d` (Icon has no fill-shape slot), same arc math for every
   // conversion: M(cx-r) cy a r r 0 1 0 (2r) 0 a r r 0 1 0 (-2r) 0.
   plus: <Icon d="M5 12h14M12 5v14" />,
-  'external-link': (
+  "external-link": (
     <Icon d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
   ),
-  'triangle-alert': (
+  "triangle-alert": (
     <Icon d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3M12 9v4M12 17h.01" />
   ),
   // Subpath joins below stay explicit ("M…l…" not "m…"): a bare `m` here would
   // inherit the arc's endpoint as its origin instead of the standalone
   // coordinate lucide's own separate <path> intended.
-  'circle-check': (
-    <Icon d="M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0M9 12l2 2 4-4" />
-  ),
-  'file-warning': (
+  "circle-check": <Icon d="M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0M9 12l2 2 4-4" />,
+  "file-warning": (
     <Icon d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2zM12 9v4M12 17h.01" />
   ),
-  'refresh-cw': (
+  "refresh-cw": (
     <Icon d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5" />
   ),
   pencil: (
     <Icon d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zM15 5l4 4" />
   ),
-  'trash-2': (
+  "trash-2": (
     <Icon d="M10 11v6M14 11v6M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
   ),
-  'lock-keyhole': (
+  "lock-keyhole": (
     <Icon d="M11 16a1 1 0 1 0 2 0a1 1 0 1 0-2 0M5 10L19 10A2 2 0 0 1 21 12L21 20A2 2 0 0 1 19 22L5 22A2 2 0 0 1 3 20L3 12A2 2 0 0 1 5 10ZM7 10V7a5 5 0 0 1 10 0v3" />
   ),
-  'user-round-check': (
+  "user-round-check": (
     <Icon d="M2 21a8 8 0 0 1 13.292-6M5 8a5 5 0 1 0 10 0a5 5 0 1 0-10 0M16 19l2 2 4-4" />
   ),
-  'rotate-ccw': (
-    <Icon d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" />
-  ),
-  'chevron-right': <Icon d="m9 18 6-6-6-6" />,
+  "rotate-ccw": <Icon d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" />,
+  "chevron-right": <Icon d="m9 18 6-6-6-6" />,
 };
 
 /** Outside ICONS because CopyButton toggles between them by path, not by name. */
-export const COPY_ICON =
-  'M9 9h10v10H9zM5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1';
-export const CHECK_ICON = 'M20 6 9 17l-5-5';
-export const CROSS_ICON = 'M6 6l12 12M18 6L6 18';
+export const COPY_ICON = "M9 9h10v10H9zM5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1";
+export const CHECK_ICON = "M20 6 9 17l-5-5";
+export const CROSS_ICON = "M6 6l12 12M18 6L6 18";
 
 /** No-op `.extend({})` a consumer's `createTheme({ components })` starts from. */
 export const iconTheme = Icon.extend({});

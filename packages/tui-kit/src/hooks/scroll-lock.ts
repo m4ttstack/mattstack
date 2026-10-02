@@ -12,14 +12,14 @@ interface OverflowTarget {
 }
 
 let lockCount = 0;
-let savedOverflow = '';
+let savedOverflow = "";
 
 /** Take one lock. The first snapshots `target.overflow` and sets it to
     "hidden"; later calls just bump the count. */
 function acquireScrollLock(target: OverflowTarget): void {
   if (lockCount === 0) {
     savedOverflow = target.overflow;
-    target.overflow = 'hidden';
+    target.overflow = "hidden";
   }
   lockCount++;
 }

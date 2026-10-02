@@ -1,5 +1,5 @@
-import { ToastHost, TOASTHOST_PARTS } from '@mattstack/tui-kit';
-import { useToasts } from '@mattstack/tui-kit/hooks';
+import { TOASTHOST_PARTS, ToastHost } from "@mattstack/tui-kit";
+import { useToasts } from "@mattstack/tui-kit/hooks";
 
 /**
  * The ToastHost recipe's workshop page.
@@ -31,65 +31,64 @@ export function ToastHosts() {
         confirmation stack, fixed to the viewport's bottom-right. Pairs with
         Task 7's <code>useToasts()</code> hook — every button below calls the
         SAME <code>addToast</code>, so firing several in a row shows the real
-        stacking/self-removal behaviour (each entry clears itself after 3.5s).
+        stacking/self-removal behaviour (each entry clears itself after
+        3.5s).
       </p>
 
-      <h2 style={{ marginTop: '2rem' }}>fire a toast</h2>
-      <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
-        <button type="button" onClick={() => addToast('posted to slack')}>
+      <h2 style={{ marginTop: "2rem" }}>fire a toast</h2>
+      <div style={{ display: "flex", gap: "0.6rem", marginTop: "1rem" }}>
+        <button type="button" onClick={() => addToast("posted to slack")}>
           posted to slack
         </button>
-        <button type="button" onClick={() => addToast('copied')}>
+        <button type="button" onClick={() => addToast("copied")}>
           copied
         </button>
         <button
           type="button"
-          onClick={() => addToast('re-review requested from bob, carol')}
+          onClick={() => addToast("re-review requested from bob, carol")}
         >
           re-review requested
         </button>
       </div>
 
-      <h2 style={{ marginTop: '2rem' }}>track work</h2>
+      <h2 style={{ marginTop: "2rem" }}>track work</h2>
       <p>
         <code>startToast</code> opens a toast with a spinner; its handle settles
-        that same toast. <code>done</code> swaps in a check and leaves after 2s,{' '}
-        <code>fail</code> swaps in a cross and leaves after 3.5s.
+        that same toast. <code>done</code> swaps in a check and leaves after
+        2s, <code>fail</code> swaps in a cross and leaves after 3.5s.
       </p>
-      <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
+      <div style={{ display: "flex", gap: "0.6rem", marginTop: "1rem" }}>
         <button
           type="button"
-          onClick={() => track('merging !42…', 'merge accepted !42', true)}
+          onClick={() => track("merging !42…", "merge accepted !42", true)}
         >
           merge (succeeds)
         </button>
         <button
           type="button"
-          onClick={() =>
-            track('rebasing !42…', "couldn't rebase !42 (409)", false)
-          }
+          onClick={() => track("rebasing !42…", "couldn't rebase !42 (409)", false)}
         >
           rebase (fails)
         </button>
       </div>
 
-      <h2 style={{ marginTop: '2rem' }}>role / aria-live</h2>
+      <h2 style={{ marginTop: "2rem" }}>role / aria-live</h2>
       <p>
-        The host carries <code>role="status"</code> and{' '}
+        The host carries <code>role="status"</code> and{" "}
         <code>aria-live="polite"</code> by default (both overridable — see
         <code> data-part</code> below for the same non-overridable-tail
-        convention every other recipe follows). An empty queue renders nothing
-        at all, verbatim from mr-board's own <code>ToastHost</code>.
+        convention every other recipe follows). An empty queue renders
+        nothing at all, verbatim from mr-board's own <code>ToastHost</code>.
       </p>
 
-      <h2 style={{ marginTop: '2rem' }}>data-part</h2>
+      <h2 style={{ marginTop: "2rem" }}>data-part</h2>
       <p>
         The host carries <code>data-part="{TOASTHOST_PARTS.root}"</code>, and
         each entry <code>data-part="{TOASTHOST_PARTS.toast}"</code> — the
         tui-kit convention that replaces the hashed CSS-module class name as
-        mr-board's cross-boundary selector hook: <code>.tui-toasts</code>{' '}
-        becomes <code>[data-part="toasthost"]</code>, and{' '}
-        <code>.tui-toast</code> becomes{' '}
+        mr-board's cross-boundary selector hook: <code>.tui-toasts</code>{" "}
+        becomes <code>[data-part="toasthost"]</code>, and{" "}
+        <code>.tui-toast</code> becomes{" "}
         <code>[data-part="toasthost-toast"]</code>.
       </p>
 

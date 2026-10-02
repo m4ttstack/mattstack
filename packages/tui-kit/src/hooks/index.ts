@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { RefObject } from 'react';
-
-import { handleEscape, pushLayer } from './layers.ts';
-import { acquireScrollLock, releaseScrollLock } from './scroll-lock.ts';
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
+import { pushLayer, handleEscape } from "./layers.ts";
+import { acquireScrollLock, releaseScrollLock } from "./scroll-lock.ts";
 
 // Re-exported so a consumer importing only the `./hooks` subpath can still
 // exercise the DOM-free cores in its own tests.
 export { pushLayer, handleEscape, acquireScrollLock, releaseScrollLock };
-export type { OverflowTarget } from './scroll-lock.ts';
+export type { OverflowTarget } from "./scroll-lock.ts";
 
 /** Scrolls the returned ref's element into its scroll container whenever `key`
     turns truthy or changes, for content that can render below the fold of a
@@ -16,7 +15,7 @@ export type { OverflowTarget } from './scroll-lock.ts';
 function useRevealOnChange<T extends HTMLElement = HTMLElement>(key: unknown) {
   const ref = useRef<T | null>(null);
   useEffect(() => {
-    if (key) ref.current?.scrollIntoView({ block: 'nearest' });
+    if (key) ref.current?.scrollIntoView({ block: "nearest" });
   }, [key]);
   return ref;
 }
@@ -39,15 +38,15 @@ function useEscapeClose(onClose: () => void): void {
     openLayers++;
     if (!escListener) {
       escListener = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') handleEscape();
+        if (e.key === "Escape") handleEscape();
       };
-      document.addEventListener('keydown', escListener);
+      document.addEventListener("keydown", escListener);
     }
     return () => {
       pop();
       openLayers--;
       if (openLayers === 0 && escListener) {
-        document.removeEventListener('keydown', escListener);
+        document.removeEventListener("keydown", escListener);
         escListener = null;
       }
     };
@@ -61,14 +60,12 @@ function useEscapeClose(onClose: () => void): void {
     scrollHeight covers content + padding but not the border while border-box
     `height` is responsible for it. The border is measured off the element
     rather than hardcoded, so it survives a CSS change. */
-function useAutoGrowTextarea(
-  deps: readonly unknown[]
-): RefObject<HTMLTextAreaElement | null> {
+function useAutoGrowTextarea(deps: readonly unknown[]): RefObject<HTMLTextAreaElement | null> {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = 'auto';
+    el.style.height = "auto";
     const border = el.offsetHeight - el.clientHeight;
     el.style.height = `${el.scrollHeight + border}px`;
   }, deps);
@@ -93,7 +90,7 @@ function useBodyScrollLock(): void {
 interface Toast {
   id: number;
   text: string;
-  state?: 'pending' | 'done' | 'failed';
+  state?: "pending" | "done" | "failed";
 }
 
 /** Settles a toast that `startToast` opened, in place. */
@@ -120,53 +117,47 @@ function useToasts(): {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
   const expire = useCallback((id: number, ms: number) => {
-    return setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), ms);
+    return setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), ms);
   }, []);
   const addToast = useCallback(
     (text: string) => {
       const id = ++toastId.current;
-      setToasts(t => [...t, { id, text }]);
+      setToasts((t) => [...t, { id, text }]);
       expire(id, TOAST_MS);
     },
-    [expire]
+    [expire],
   );
   const startToast = useCallback(
     (text: string): ToastHandle => {
       let id = ++toastId.current;
-      setToasts(t => [...t, { id, text, state: 'pending' }]);
+      setToasts((t) => [...t, { id, text, state: "pending" }]);
       let settled = false;
       let shown = true;
       const timer = setTimeout(() => {
         shown = false;
-        setToasts(t => t.filter(x => x.id !== id));
+        setToasts((t) => t.filter((x) => x.id !== id));
       }, PENDING_MS);
-      const settle = (next: Omit<Toast, 'id'>, ms: number) => {
+      const settle = (next: Omit<Toast, "id">, ms: number) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         if (shown) {
-          setToasts(t => t.map(x => (x.id === id ? { id, ...next } : x)));
+          setToasts((t) => t.map((x) => (x.id === id ? { id, ...next } : x)));
         } else {
           id = ++toastId.current;
-          setToasts(t => [...t, { id, ...next }]);
+          setToasts((t) => [...t, { id, ...next }]);
         }
         expire(id, ms);
       };
       return {
-        done: doneText => settle({ text: doneText, state: 'done' }, DONE_MS),
-        fail: failText => settle({ text: failText, state: 'failed' }, TOAST_MS),
+        done: (doneText) => settle({ text: doneText, state: "done" }, DONE_MS),
+        fail: (failText) => settle({ text: failText, state: "failed" }, TOAST_MS),
       };
     },
-    [expire]
+    [expire],
   );
   return { toasts, addToast, startToast };
 }
 
-export {
-  useRevealOnChange,
-  useEscapeClose,
-  useAutoGrowTextarea,
-  useBodyScrollLock,
-  useToasts,
-};
+export { useRevealOnChange, useEscapeClose, useAutoGrowTextarea, useBodyScrollLock, useToasts };
 export type { Toast, ToastHandle };

@@ -1,12 +1,10 @@
-import type { ComponentProps, HTMLAttributes } from 'react';
-
-import { defineComponent } from '../../builders.ts';
-import type { Toast } from '../../hooks/index.ts';
-import { CHECK_ICON, CROSS_ICON, Icon } from '../Icon/Icon.tsx';
-import { Spinner } from '../Spinner/Spinner.tsx';
-import classes from './ToastHost.module.css';
-
-import './ToastHost.keyframes.css';
+import type { ComponentProps, HTMLAttributes } from "react";
+import { defineComponent } from "../../builders.ts";
+import type { Toast } from "../../hooks/index.ts";
+import { CHECK_ICON, CROSS_ICON, Icon } from "../Icon/Icon.tsx";
+import { Spinner } from "../Spinner/Spinner.tsx";
+import classes from "./ToastHost.module.css";
+import "./ToastHost.keyframes.css";
 
 /** Authoring category (1 = pure styled primitive). Read off this module by
     scripts/derive.ts to build the kit's manifest; not dead code. */
@@ -14,20 +12,20 @@ export const recipeCategory = 1 as const;
 
 /** `root` is the fixed-position stack; `toast` is one entry; `status` is the
     spinner, check or cross a toast that tracks work leads with. */
-const TOASTHOST_SELECTORS = ['root', 'toast', 'status'] as const;
+const TOASTHOST_SELECTORS = ["root", "toast", "status"] as const;
 
 /** Stable selector surface for app-side CSS, stamped in the non-overridable
     tail so a call site cannot sever an app's `[data-part]` rules. */
 export const TOASTHOST_PARTS = {
-  root: 'toasthost',
-  toast: 'toasthost-toast',
-  status: 'toasthost-status',
+  root: "toasthost",
+  toast: "toasthost-toast",
+  status: "toasthost-status",
 } as const;
 
 /** Verbatim mr-board value. A fixed position offset, outside the spacing
     ladder's padding-margin-gap scope, so it gets a recipe-local property. */
 const TOASTHOST_SCALARS: Record<string, string> = {
-  '--sb-toasthost-offset': '16px',
+  "--sb-toasthost-offset": "16px",
 };
 
 /** ToastHost's own props; `ToastHostProps` below is the full public surface. */
@@ -37,8 +35,7 @@ export interface ToastHostOwnProps {
   toasts: Toast[];
 }
 
-type ToastHostProps_ = ToastHostOwnProps &
-  Omit<HTMLAttributes<HTMLDivElement>, 'ref'>;
+type ToastHostProps_ = ToastHostOwnProps & Omit<HTMLAttributes<HTMLDivElement>, "ref">;
 
 export const ToastHost = defineComponent<
   ToastHostProps_,
@@ -47,7 +44,7 @@ export const ToastHost = defineComponent<
   readonly [],
   HTMLDivElement
 >({
-  name: 'ToastHost',
+  name: "ToastHost",
   selectors: TOASTHOST_SELECTORS,
   classes,
   // Nothing to merge with the builder's automatic autoVars output, which a
@@ -75,22 +72,22 @@ export const ToastHost = defineComponent<
         role="status"
         aria-live="polite"
         {...rest}
-        {...getStyles('root')}
+        {...getStyles("root")}
         data-part={TOASTHOST_PARTS.root}
       >
-        {toasts.map(t => (
+        {toasts.map((t) => (
           <div
             key={t.id}
-            {...getStyles('toast')}
+            {...getStyles("toast")}
             data-part={TOASTHOST_PARTS.toast}
             data-state={t.state}
           >
             {t.state && (
-              <span {...getStyles('status')} data-part={TOASTHOST_PARTS.status}>
-                {t.state === 'pending' ? (
+              <span {...getStyles("status")} data-part={TOASTHOST_PARTS.status}>
+                {t.state === "pending" ? (
                   <Spinner size="sm" />
                 ) : (
-                  <Icon d={t.state === 'done' ? CHECK_ICON : CROSS_ICON} />
+                  <Icon d={t.state === "done" ? CHECK_ICON : CROSS_ICON} />
                 )}
               </span>
             )}
