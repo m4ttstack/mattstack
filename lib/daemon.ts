@@ -1117,12 +1117,14 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           const d = data as { repo?: string; path?: string };
           if (d?.repo && d?.path) releaseEndpointsForWorktree({ log }, d.repo, d.path);
         });
+        const peerWakerLog = loggerHandle.childLogger("peer-waker");
         peerWaker = startPeerWaker({
-          log: loggerHandle.childLogger("peer-waker"),
+          log: peerWakerLog,
           emit,
           readUrl: () => getSetting<string>("board.switchboardUrl").value,
           readToken: () => readSwitchboardToken(),
         });
+        peerWaker.done.catch((err) => peerWakerLog.warn({ err }, "peer waker stopped unexpectedly"));
 
         // Worktree lifecycle reconciler. Kicked detached off the tail of every
         // cache refresh; `emit` (not bare broadcast) so reconciler events also

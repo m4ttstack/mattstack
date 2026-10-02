@@ -121,7 +121,13 @@ export function startPeerWaker(deps: PeerWakerDeps): PeerWakerHandle {
         failures = 0;
         if (outcome.woke) {
           cursor = Math.max(cursor, outcome.cursor);
-          deps.emit(PEER_INBOX_EVENT, { cursor });
+          // emit fans out synchronously to every broadcast subscriber; one
+          // that throws must not end the loop.
+          try {
+            deps.emit(PEER_INBOX_EVENT, { cursor });
+          } catch (err) {
+            deps.log.warn({ err }, "peer waker: a peer-inbox subscriber threw");
+          }
           deps.log.debug({ cursor }, "peer waker: inbox woke");
         }
         continue;

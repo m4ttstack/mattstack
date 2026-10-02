@@ -54,6 +54,19 @@ describe("peer waker", () => {
     expect(h.urls[1]).toBe("https://relay.example/inbox/wait?since=1500&timeout=25");
   });
 
+  test("a subscriber that throws on one wake does not stop the next", async () => {
+    const cursors: unknown[] = [];
+    const h = harness([ok(true, 1), ok(true, 2)], {
+      emit: (_type, data) => {
+        cursors.push(data);
+        if (cursors.length === 1) throw new Error("subscriber blew up");
+      },
+    });
+    await h.done;
+    expect(cursors).toEqual([{ cursor: 1 }, { cursor: 2 }]);
+    expect(h.warns).toHaveLength(1);
+  });
+
   test("a timed-out wait loops straight back without sleeping", async () => {
     const h = harness([ok(false, 0), ok(false, 0)]);
     await h.done;
