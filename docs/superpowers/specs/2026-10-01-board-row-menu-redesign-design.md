@@ -187,8 +187,10 @@ header, as today. `bulkActions` drops every row with `blocked` set from each
 MR's `rowActions` output first, before the offered set and the target list
 are built, so a blocked row is never counted as a target (the stack
 merge block keeps working, since it is set by `bulkActions` itself after
-that filter). `SECTION_RANK` orders `top, agent, sessions, gitlab, slack,
-more`, and `BULK_RANK` keeps its current relative order of keys within that.
+that filter). Each bulk entry's section is folded back onto the three bulk
+headings (`top`, `slack` and `more` to slack; `agent` and `sessions` to
+agent; `gitlab` stays), so the bulk menu reads exactly as it does today, and
+`SECTION_RANK` and `BULK_RANK` are unchanged.
 
 ## Kept behaviour
 
