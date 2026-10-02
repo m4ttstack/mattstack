@@ -67,11 +67,11 @@ test("a clean rebase says it saved a backup, what it is doing, and that it worke
   expect(io.stderr()).toBe("");
 });
 
-test("a paused conflict asks for the person and lists the files", async () => {
+test("a paused conflict asks for the person and lists the files under a label, indented", async () => {
   const repo = conflictRepo();
   const result = await rebaseOnto({ cwd: repo, target: "main", skipFetch: true, autoResolve: [], onConflict: "pause" });
   expect(result.rebaseInProgress).toBe(true);
-  expect(io.lines().slice(2)).toEqual(["[needs you] 1 file has conflicts rt cannot resolve  the rebase is paused", "a.txt"]);
+  expect(io.lines().slice(2)).toEqual(["[needs you] 1 file has conflicts rt cannot resolve  the rebase is paused", "files:", "  a.txt"]);
   expect(io.stderr()).toBe("");
 });
 

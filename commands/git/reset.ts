@@ -294,7 +294,7 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
   say(
     quiet,
     out.line("warn", `${branch} has ${plural(extraCommits.length, "commit")} that origin does not`),
-    out.table(extraCommits.map((sha) => [getCommitOneliner(sha, cwd)])),
+    out.verbatim(extraCommits.map((sha) => getCommitOneliner(sha, cwd)), "commits"),
     ...(autoConfirm ? [] : [out.callout("note", `rt will reset to ${remoteBranch} and put these back on top.`)]),
   );
 

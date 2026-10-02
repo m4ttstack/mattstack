@@ -105,21 +105,21 @@ describe("renderAgentTask", () => {
 });
 
 describe("manualReport", () => {
-  test("says the rebase is paused, lists the files, and names both ways out", async () => {
+  test("says the rebase is paused and names both ways out, leaving the files to the paused line above it", async () => {
     const repo = makeConflictRepo();
     const bundle = buildConflictBundle(await pausedConflict(repo), repo);
     const lines = renderPlain(manualReport(bundle)).split("\n");
     expect(lines[0]).toBe("[needs you] The rebase of feature onto master is paused  1 file to resolve");
-    expect(lines[1]).toBe("app.txt");
-    expect(lines[2]).toBe("  next: Fix the files, then run git add <files> and git rebase --continue");
-    expect(lines[3]).toBe("  note: To give up instead, run git rebase --abort");
-    expect(lines[4]).toBe(`        Your branch as it was: ${bundle.backupBranch}`);
-    expect(lines[5]).toBe("        rt did not push. When the rebase is done, run git push --force-with-lease origin feature");
+    expect(lines[1]).toBe("  next: Fix the files, then run git add <files> and git rebase --continue");
+    expect(lines[2]).toBe("  note: To give up instead, run git rebase --abort");
+    expect(lines[3]).toBe(`        Your branch as it was: ${bundle.backupBranch}`);
+    expect(lines[4]).toBe("        rt did not push. When the rebase is done, run git push --force-with-lease origin feature");
+    expect(lines).not.toContain("app.txt");
   });
 
   test("with no backup the note leaves that line out", () => {
     const text = renderPlain(manualReport({ kind: "rebase-conflict", state: "mid-rebase", branch: "feature", target: "origin/main", commitsBehind: 2, unresolvedFiles: ["a.ts", "b.ts"], autoResolvedFiles: [], backupBranch: null, branchCommits: [], targetCommits: [], hint: "" }));
-    expect(text).toContain("[needs you] The rebase of feature onto origin/main is paused  2 files to resolve\na.ts\nb.ts\n");
+    expect(text).toStartWith("[needs you] The rebase of feature onto origin/main is paused  2 files to resolve\n  next: ");
     expect(text).not.toContain("Your branch as it was");
   });
 });

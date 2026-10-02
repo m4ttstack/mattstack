@@ -203,10 +203,11 @@ describe("what a reset prints", () => {
     await resetToOrigin({ cwd: local, autoConfirm: true, skipFetch: true });
     const lines = io.lines();
     expect(lines[1]).toBe("[warning] feature has 1 commit that origin does not");
-    expect(lines[2]).toMatch(/^[0-9a-f]{7,} feature 3 local only$/);
-    expect(lines[3]).toMatch(/^\[ok\] Put back [0-9a-f]{7,} feature 3 local only$/);
-    expect(lines[4]).toBe("[ok] feature matches origin/feature  1 commit of yours put back on top");
-    expect(lines).toHaveLength(5);
+    expect(lines[2]).toBe("commits:");
+    expect(lines[3]).toMatch(/^  [0-9a-f]{7,} feature 3 local only$/);
+    expect(lines[4]).toMatch(/^\[ok\] Put back [0-9a-f]{7,} feature 3 local only$/);
+    expect(lines[5]).toBe("[ok] feature matches origin/feature  1 commit of yours put back on top");
+    expect(lines).toHaveLength(6);
     expect(io.stderr()).toBe("");
   });
 

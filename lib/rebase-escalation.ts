@@ -122,7 +122,6 @@ A backup of the pre-rebase branch exists at \`${bundle.backupBranch ?? "(none)"}
 export function manualReport(bundle: ConflictBundle): Block[] {
   return [
     out.line("needs-you", `The rebase of ${bundle.branch} onto ${bundle.target} is paused`, `${plural(bundle.unresolvedFiles.length, "file")} to resolve`),
-    out.table(bundle.unresolvedFiles.map((f) => [f])),
     out.callout("next", ["Fix the files, then run ", out.cmd("git add <files>"), " and ", out.cmd("git rebase --continue")]),
     out.callout(
       "note",

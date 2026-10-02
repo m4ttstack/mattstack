@@ -365,7 +365,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
         say(
           quiet,
           out.line("needs-you", `${plural(unmatched.length, "file")} ${unmatched.length === 1 ? "has" : "have"} conflicts rt cannot resolve`, "the rebase is paused"),
-          out.table(unmatched.map((f) => [f])),
+          out.verbatim(unmatched, "files"),
         );
         return {
           status: "conflict",
