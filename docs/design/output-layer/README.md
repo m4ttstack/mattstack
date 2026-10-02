@@ -80,3 +80,9 @@ the ANSI output on each background.
 - `code-dark.png`, `code-light.png`: `rt code`, `rt settings extension`, the worktree config warning and the one-at-a-time fallback.
 
 `rt cd` and `rt nav` have no render: 5c does not change them.
+
+## Phase 5f2: chat
+
+- `chat-dark.png`, `chat-light.png`: what a person sees from `rt chat`: rooms, read, who, buddies, sign-in, help, a failure, the two policy refusals and the sign-out warning. Off a terminal these verbs print their older plain text, unchanged.
+
+What reads wrong: there is no blank line between one message and the next author, so a long thread reads dense. A wrapped body line now hangs under its own indent, so it cannot land at the author column. `read` times are UTC with no zone, as the plain text always printed them.

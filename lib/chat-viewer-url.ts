@@ -1,4 +1,5 @@
 import { getSetting } from "./settings/resolve.ts";
+import { warn } from "./ui/warn.ts";
 
 /**
  * The link rt prints for a room or a message when `chat.viewerUrl` is set.
@@ -15,13 +16,13 @@ export function chatViewerUrl(base: string | undefined, room: string, messageId?
 /** `chat.viewerUrl`, or undefined when unset; the CLI's "posted → link" and
     the daemon's desk notification both go through here. The link is
     decoration on a post that has already succeeded, so an unreadable setting
-    is reported and dropped rather than allowed to fail the post. */
-export function readChatViewerUrlSetting(): string | undefined {
+    is logged and dropped rather than allowed to fail the post. */
+export function readChatViewerUrlSetting(read: () => { value?: unknown } = () => getSetting<string>("chat.viewerUrl")): string | undefined {
   try {
-    const resolved = getSetting<string>("chat.viewerUrl");
+    const resolved = read();
     return typeof resolved.value === "string" && resolved.value ? resolved.value : undefined;
   } catch (err) {
-    console.warn(`chat.viewerUrl could not be read, posting without a link: ${err instanceof Error ? err.message : String(err)}`);
+    warn("chat", `chat.viewerUrl could not be read, posting without a link: ${err instanceof Error ? err.message : String(err)}`);
     return undefined;
   }
 }

@@ -65,6 +65,9 @@ import {
 } from "../lib/chat-session.ts";
 import { chatViewerUrl, readChatViewerUrlSetting } from "../lib/chat-viewer-url.ts";
 import { parseDuration } from "./events.ts";
+import * as out from "../lib/ui/out.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
+import type { Block, Segment } from "../lib/ui/protocol.ts";
 import {
   chatArchive,
   chatAway,
@@ -114,16 +117,16 @@ function positional(args: string[]): string | undefined {
 
 /** Every positional token, in order, skipping flags and their value slots. */
 function positionals(args: string[]): string[] {
-  const out: string[] = [];
+  const found: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a.startsWith("--")) {
       if (FLAGS_WITH_VALUES.has(a)) i++; // skip the flag's value slot
       continue;
     }
-    out.push(a);
+    found.push(a);
   }
-  return out;
+  return found;
 }
 
 /**
@@ -135,11 +138,11 @@ function positionals(args: string[]): string[] {
 const POST_FLAGS: ReadonlySet<string> = new Set(["--as", "--session", "--sock", "--file", "--as-is", "--quiet", "--json"]);
 const DM_FLAGS: ReadonlySet<string> = new Set(["--as", "--session", "--sock", "--file", "--as-is", "--json"]);
 
-function refuseUnknownFlags(args: string[], allowed: ReadonlySet<string>, usage: string): void {
+function refuseUnknownFlags(args: string[], allowed: ReadonlySet<string>, verb: "post" | "dm", usage: string): void {
   for (const a of args) {
     if (!a.startsWith("--")) continue;
     const name = a.split("=")[0]!;
-    if (!allowed.has(name)) fail(`unknown flag ${name}\n${usage}`);
+    if (!allowed.has(name)) failUsage(`rt chat ${verb} does not take ${name}`, usage);
   }
 }
 
@@ -154,25 +157,51 @@ function sockOpts(args: string[]): { sockPath?: string } {
   return sockPath ? { sockPath } : {};
 }
 
-function fail(msg: string): never {
-  console.error(`rt chat: ${msg}`);
+/** One line an agent may be reading: stdout, byte for byte, never styled. */
+function say(text: string): void {
+  out.payload(`${text}\n`);
+}
+
+/** Blocks for a person at a terminal; the frozen text for every other reader. */
+function show(blocks: () => Block[], frozen: () => string): void {
+  if (out.isHuman()) out.print(...blocks());
+  else say(frozen());
+}
+
+function fail(f: out.FailureInput): never {
+  out.fail(f);
   process.exit(1);
 }
 
-const NAME_RULE = "must match ^[a-z0-9._-]+$";
+function failUsage(title: string, usage: string, why?: string): never {
+  out.fail(usageFailure(title, usage, why));
+  process.exit(1);
+}
+
+/** A policy refusal is a `refused` note on stderr, never a failure block; it still exits 1. */
+function refuse(...blocks: Block[]): never {
+  out.note(...blocks);
+  process.exit(1);
+}
+
+const NAME_WHY = "Names use lowercase letters, digits, dots, dashes and underscores.";
+const SESSION_ID_INVALID: out.FailureInput = { title: "That session id is not valid", why: "A session id uses letters, digits, dots, dashes and underscores." };
+function noSession(form: string): out.FailureInput {
+  return { title: "rt cannot tell which session this is", why: "Chat needs a session id. Claude Code sets one for you; anywhere else, name the session yourself.", next: out.cmd(`rt chat ${form} --session <id>`) };
+}
 
 /** Rejects with the reason rather than silently normalizing (Global Constraint). */
 function requireValidName(kind: string, name: string): void {
-  if (!isValidChatName(name)) fail(`invalid ${kind} "${name}" — ${NAME_RULE}`);
+  if (!isValidChatName(name)) fail({ title: `"${name}" is not a valid ${kind} name`, why: NAME_WHY });
 }
 
-/** sign-in/sign-out only — every other verb's session-id use (resolveHandle) goes through readChatSession, which degrades an invalid id to "no session" rather than failing. */
+/** sign-in/sign-out only. Every other verb's session-id use (resolveHandle) goes through readChatSession, which degrades an invalid id to "no session" rather than failing. */
 function requireValidSessionId(id: string): void {
-  if (!isValidSessionId(id)) fail(`invalid session id "${id}" — must match ^[A-Za-z0-9._-]+$`);
+  if (!isValidSessionId(id)) fail(SESSION_ID_INVALID);
 }
 
 function unwrap<T>(res: RtResponse<T>, label: string): T {
-  if (!res.ok || res.data === undefined) fail(res.error ?? `${label} failed`);
+  if (!res.ok || res.data === undefined) fail({ title: res.error ?? `The chat ${label} did not go through` });
   return res.data;
 }
 
@@ -274,7 +303,7 @@ function herdrPaneHandle(): string | null {
 function identityFlagValue(args: string[], flag: "--as" | "--name"): string | undefined {
   if (!args.includes(flag)) return undefined;
   const value = flagValue(args, flag);
-  if (!value) fail(`sign-in ${flag} needs a non-empty value`);
+  if (!value) failUsage(flag === "--as" ? "Which identity?" : "What name?", `rt chat sign-in ${flag} <name>`);
   return value;
 }
 
@@ -282,7 +311,11 @@ function resolveSignInRequest(args: string[]): { baseHandle?: string; continue?:
   const explicit = identityFlagValue(args, "--as");
   const named = identityFlagValue(args, "--name");
   if (explicit !== undefined && named !== undefined) {
-    fail("sign-in takes --as or --name, not both: --as continues an identity, --name starts a fresh one");
+    fail({
+      title: "Continue an identity or start a new one, not both",
+      why: "You asked to pick up an identity you had and to start a fresh one under a new name.",
+      next: [out.cmd("rt chat sign-in --as <name>"), " to continue, or ", out.cmd("rt chat sign-in --name <name>"), " to start fresh"],
+    });
   }
   if (explicit !== undefined) {
     requireValidName("handle", explicit);
@@ -315,7 +348,7 @@ function readChatHandleSetting(): string | undefined {
  * own to have a prior handle for.
  */
 function resolvePaneRequest(args: string[]): { continue?: string } {
-  if (args.includes("--name")) fail("sign-in --pane takes --as only, not --name");
+  if (args.includes("--name")) fail({ title: "A pane sign-in continues an identity", why: "Signing a pane in can pick up an identity it had, but cannot start a fresh one under a new name.", next: out.cmd("rt chat sign-in --pane <pane> --as <name>") });
   const explicit = identityFlagValue(args, "--as");
   if (explicit === undefined) return {};
   requireValidName("handle", explicit);
@@ -363,7 +396,7 @@ function resolveHandle(args: string[]): string {
   const session = readChatSession(currentSessionId(args));
   if (session) {
     if (flagValue(args, "--as") !== undefined) {
-      fail(`signed in as ${sessionName(session)}: sign out to change identity (rt chat sign-out)`);
+      refuse(out.line("refused", `You are signed in as ${sessionName(session)}`), out.callout("why", "One session keeps one identity. Run it again without naming another one, or sign out to change it."), out.callout("next", out.cmd("rt chat sign-out")));
     }
     return session.handle;
   }
@@ -579,11 +612,85 @@ function renderBuddies(buddies: Array<PresenceRow & { status: BuddyStatus }>): s
   return lines.join("\n");
 }
 
+// ─── what a person at a terminal sees ───────────────────────────────────────
+
+const STATUS_ROLE: Record<BuddyStatus, Segment["role"]> = { live: "running", idle: "pending", offline: "dim" };
+
+function present(parts: Array<string | undefined>, glue: string): string {
+  return parts.filter((s): s is string => Boolean(s)).join(glue);
+}
+
+function roomRow(r: RoomSummary): out.CellInput[] {
+  const unread: Segment =
+    r.unread === 0
+      ? out.dim("nothing unread")
+      : { text: `${r.unread} unread${r.mentions > 0 ? ` (${pluralize(r.mentions, "mention")})` : ""}`, role: r.mentions > 0 ? "needs-you" : "text" };
+  const last = r.lastPostedAt !== undefined ? `last post ${relativeAgo(r.lastPostedAt)} ago` : "no posts yet";
+  return [out.strong(roomHeading(r)), pluralize(r.memberCount, "member"), unread, out.dim(last)];
+}
+
+function roomsBlocks(rooms: RoomSummary[]): Block[] {
+  if (rooms.length === 0) return [out.line("skipped", "You are not in any room yet"), out.callout("next", out.cmd("rt chat join <room>"))];
+  const channels = rooms.filter((r) => r.kind !== "dm").map(roomRow);
+  const directs = rooms.filter((r) => r.kind === "dm").map(roomRow);
+  return [out.table(directs.length > 0 ? [...channels, { group: DIRECT_SECTION_LABEL }, ...directs] : channels)];
+}
+
+// rt-ui draws a paragraph flush at the author row's column, so an unindented
+// body line could pass as another author's row.
+function indentBody(body: string): string {
+  return body
+    .split(/\r\n|\r|\n/)
+    .map((l) => (l === "" ? l : `  ${l}`))
+    .join("\n");
+}
+
+function readBlocks(rooms: { room: string; messages: ChatMessage[] }[], full: boolean, headingFor: (room: string) => string): Block[] {
+  if (rooms.length === 0) return [out.line("skipped", "Nothing unread")];
+  return rooms.map((r) =>
+    out.section(
+      headingFor(r.room),
+      undefined,
+      ...r.messages.flatMap((m) => [
+        out.table([[out.strong(m.name ?? m.handle), out.dim(new Date(m.postedAt).toISOString().slice(11, 16))]]),
+        out.paragraph(indentBody(full ? m.body : truncate(m.body, 200))),
+      ]),
+    ),
+  );
+}
+
+function whoBlocks(heading: string, members: ChatMember[]): Block[] {
+  if (members.length === 0) return [out.section(heading, undefined, out.line("skipped", "No members"))];
+  const rows = members.map((m): out.CellInput[] => [out.strong(m.name ?? m.handle), { text: STATUS_WORD[m.status], role: STATUS_ROLE[m.status] }, out.dim(present([m.cwd, m.pane], "  "))]);
+  return [out.section(heading, undefined, out.table(rows))];
+}
+
+function buddiesBlocks(buddies: Array<PresenceRow & { status: BuddyStatus }>): Block[] {
+  if (buddies.length === 0) return [out.line("skipped", "Nobody is signed in")];
+  const rows: out.CellInput[][] = [];
+  for (const status of BUDDY_SECTIONS) {
+    for (const b of buddies.filter((x) => x.status === status)) {
+      const word = status === "offline" ? `offline, ${relativeAgo(b.signedOutAt ?? b.lastSeenAt)} ago` : buddyStatusWord(b);
+      rows.push([out.strong(b.name ?? b.handle), { text: word, role: STATUS_ROLE[status] }, out.dim(present([buddyDeets(b), b.statusText && truncate(b.statusText, 60)], " · "))]);
+    }
+  }
+  return [out.table(rows)];
+}
+
+function signInBlocks(frozen: string): Block[] {
+  const [first, ...rest] = frozen.split(" · ");
+  return [out.line("done", (first ?? frozen).replace(/^signed in/, "Signed in"), rest.join(" · ") || undefined)];
+}
+
+function helpBlocks(): Block[] {
+  return [out.kv("usage", "rt chat <verb>"), out.section("Verbs", undefined, out.table(Object.keys(VERBS).map((v) => [out.strong(v), out.dim(VERB_HINTS[v] ?? "")])))];
+}
+
 // ─── verbs ────────────────────────────────────────────────────────────────────
 
 async function runJoin(args: string[]): Promise<void> {
   const room = positional(args);
-  if (!room) fail("usage: rt chat join <room> [--as <handle>] [--wake-on mention|all|none]");
+  if (!room) failUsage("Which room?", "rt chat join <room>");
   requireValidName("room", room);
 
   const handle = resolveHandle(args);
@@ -593,7 +700,7 @@ async function runJoin(args: string[]): Promise<void> {
   let wakeOn: WakeMode | undefined;
   if (wakeOnRaw !== undefined) {
     if (wakeOnRaw !== "mention" && wakeOnRaw !== "all" && wakeOnRaw !== "none") {
-      fail(`--wake-on must be mention, all, or none (got "${wakeOnRaw}")`);
+      fail({ title: `"${wakeOnRaw}" is not a wake setting`, why: "Use mention, all or none." });
     }
     wakeOn = wakeOnRaw;
   }
@@ -602,15 +709,15 @@ async function runJoin(args: string[]): Promise<void> {
   const data = unwrap(res, "join");
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, room, ...data }));
+    out.json({ ok: true, room, ...data });
     return;
   }
-  console.log(renderJoin(room, data.name ?? data.handle, data));
+  say(renderJoin(room, data.name ?? data.handle, data));
 }
 
 async function runLeave(args: string[]): Promise<void> {
   const room = positional(args);
-  if (!room) fail("usage: rt chat leave <room>");
+  if (!room) failUsage("Which room?", "rt chat leave <room>");
   requireValidName("room", room);
 
   const handle = resolveHandle(args);
@@ -620,15 +727,15 @@ async function runLeave(args: string[]): Promise<void> {
   unwrap(res, "leave");
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true }));
+    out.json({ ok: true });
     return;
   }
-  console.log(`✓ left #${room} (${resolveSelfName(args)})`);
+  say(`✓ left #${room} (${resolveSelfName(args)})`);
 }
 
 async function runArchive(args: string[]): Promise<void> {
   const room = positional(args);
-  if (!room) fail("usage: rt chat archive <room> [--reopen]");
+  if (!room) failUsage("Which room?", "rt chat archive <room>");
   requireValidName("room", room);
 
   const handle = resolveHandle(args);
@@ -639,10 +746,10 @@ async function runArchive(args: string[]): Promise<void> {
   const data = unwrap(res, "archive");
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, room: data.room, archivedAt: data.archivedAt }));
+    out.json({ ok: true, room: data.room, archivedAt: data.archivedAt });
     return;
   }
-  console.log(
+  say(
     archived
       ? `archived #${room}: hidden from every member's rooms until someone posts into it`
       : `reopened #${room}`,
@@ -664,19 +771,19 @@ async function resolveBody(words: string[], args: string[], usage: string): Prom
     try {
       text = normalizeBody(readFileSync(file, "utf8"));
     } catch {
-      fail(`cannot read --file ${file}`);
+      fail({ title: "That file could not be read", hint: file });
     }
-    if (!text) fail(`--file ${file} is empty`);
+    if (!text) fail({ title: "That file is empty", hint: file });
     return text;
   }
   const wantsStdin = (words.length === 1 && words[0] === "-") || (words.length === 0 && !process.stdin.isTTY);
   if (wantsStdin) {
     const text = normalizeBody(await readStdin());
-    if (!text) fail(usage);
+    if (!text) failUsage("What is the message?", usage);
     return text;
   }
   const body = words.join(" ");
-  if (!body) fail(usage);
+  if (!body) failUsage("What is the message?", usage);
   return body;
 }
 
@@ -698,14 +805,14 @@ const WALL_CHARS = 500;
  * message, because the hint at post time is the one that changes the next
  * post. `--as-is` is the override for the rare body that really is one line.
  */
-function requireReadable(body: string, args: string[]): void {
+function requireReadable(body: string, args: string[], heredoc: string): void {
   if (args.includes("--as-is")) return;
   if (body.length >= WALL_CHARS && !body.includes("\n")) {
-    fail(
-      `refusing a ${body.length}-character body with no line breaks.\n` +
-        "Post the message from a heredoc so its paragraphs and lists survive:\n" +
-        "  rt chat post <room> <<'EOF'\n  ...\n  EOF\n" +
-        "(--as-is posts it anyway.)",
+    refuse(
+      out.line("refused", `That message is ${body.length} characters with no line breaks`),
+      out.callout("why", "A long one-line message has usually lost its paragraphs on the way in."),
+      out.callout("next", out.cmd(heredoc)),
+      out.callout("note", "Put the message on stdin from a heredoc so its paragraphs and lists survive.", "--as-is posts it as it is."),
     );
   }
 }
@@ -716,13 +823,13 @@ async function runPost(args: string[]): Promise<void> {
   // Body is the positional tokens after the room, flag-aware: `--as <handle>`
   // (and every other recognized flag) is resolved separately by resolveHandle,
   // so a bare args.slice(1).join(" ") would splice the flag back into the post.
-  refuseUnknownFlags(args, POST_FLAGS, POST_USAGE);
+  refuseUnknownFlags(args, POST_FLAGS, "post", POST_USAGE);
   const rest = positionals(args);
   const room = rest[0];
-  if (!room) fail(POST_USAGE);
+  if (!room) failUsage("Which room?", POST_USAGE);
   requireValidName("room", room);
   const body = await resolveBody(rest.slice(1), args, POST_USAGE);
-  requireReadable(body, args);
+  requireReadable(body, args, "rt chat post <room> <<'EOF'");
 
   const handle = resolveHandle(args);
   requireValidName("handle", handle);
@@ -735,17 +842,17 @@ async function runPost(args: string[]): Promise<void> {
   // at the prompt that caused it), plus the viewer link when configured.
   const url = chatViewerUrl(readChatViewerUrlSetting(), room, data.id);
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, id: data.id, quiet, recipients: data.recipients, recipientNames: data.recipientNames, url: url ?? null }));
+    out.json({ ok: true, id: data.id, quiet, recipients: data.recipients, recipientNames: data.recipientNames, url: url ?? null });
     return;
   }
   // A quiet post's empty recipient list is the point, not the "woke nobody"
   // outcome the last line reports. That line is where rooms defaulting to
   // wake-on mention puts the correction: the poster, still in the turn that
   // posted, reads that nobody will act and picks a mention, @here, or a DM.
-  if (quiet) console.log("posted quietly (on the record, unread for every member, nobody woken)");
-  else if (data.recipients.length > 0) console.log(`delivered to ${(data.recipientNames ?? data.recipients).join(", ")}`);
-  else console.log(`on the record for ${data.others} member${data.others === 1 ? "" : "s"}, woke nobody: @handle or @here wakes someone, rt chat dm reaches one`);
-  if (url) console.log(`posted → ${url}`);
+  if (quiet) say("posted quietly (on the record, unread for every member, nobody woken)");
+  else if (data.recipients.length > 0) say(`delivered to ${(data.recipientNames ?? data.recipients).join(", ")}`);
+  else say(`on the record for ${data.others} member${data.others === 1 ? "" : "s"}, woke nobody: @handle or @here wakes someone, rt chat dm reaches one`);
+  if (url) say(`posted → ${url}`);
 }
 
 /**
@@ -756,9 +863,9 @@ async function runPost(args: string[]): Promise<void> {
 async function runAck(args: string[]): Promise<void> {
   const rest = positionals(args);
   const raw = rest[0];
-  if (!raw) fail("usage: rt chat ack <messageId>");
+  if (!raw) failUsage("Which message?", "rt chat ack <messageId>");
   const id = Number(raw);
-  if (!Number.isInteger(id) || id <= 0) fail(`not a message id: ${raw} (the delivered line shows it as "#<id>")`);
+  if (!Number.isInteger(id) || id <= 0) fail({ title: `"${raw}" is not a message id`, why: "A delivered message shows its id as #<id>." });
 
   const handle = resolveHandle(args);
   requireValidName("handle", handle);
@@ -766,18 +873,18 @@ async function runAck(args: string[]): Promise<void> {
   const res = await chatAck({ id, handle }, sockOpts(args));
   const data = unwrap(res, "ack");
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, id, author: data.author, authorName: data.authorName, room: data.room, already: data.already }));
+    out.json({ ok: true, id, author: data.author, authorName: data.authorName, room: data.room, already: data.already });
     return;
   }
   const author = data.authorName ?? data.author;
-  if (data.already) console.log(`already acked #${id} (${author} was not woken again)`);
-  else console.log(`acked #${id} → ${author}`);
+  if (data.already) say(`already acked #${id} (${author} was not woken again)`);
+  else say(`acked #${id} → ${author}`);
 }
 
 function parseMessageId(raw: string | undefined, verb: string): number {
-  if (!raw) fail(`usage: rt chat ${verb} <messageId>`);
+  if (!raw) failUsage("Which message?", `rt chat ${verb} <messageId>`);
   const id = Number(raw);
-  if (!Number.isInteger(id) || id <= 0) fail(`not a message id: ${raw} (the delivered line shows it as "#<id>")`);
+  if (!Number.isInteger(id) || id <= 0) fail({ title: `"${raw}" is not a message id`, why: "A delivered message shows its id as #<id>." });
   return id;
 }
 
@@ -802,20 +909,20 @@ async function runClaim(args: string[]): Promise<void> {
   const res = await chatClaim({ id, handle }, sockOpts(args));
   const data = unwrap(res, "claim");
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, id, ...data }));
+    out.json({ ok: true, id, ...data });
     return;
   }
   if (data.outcome === "lost") {
     const now = Date.now();
-    console.log(`#${id} already claimed by ${data.holderName ?? data.holder} ${humanDuration(now - data.claimedAt)} ago (claimable again in ${humanDuration(data.expiresAt - now)})`);
+    say(`#${id} already claimed by ${data.holderName ?? data.holder} ${humanDuration(now - data.claimedAt)} ago (claimable again in ${humanDuration(data.expiresAt - now)})`);
     return;
   }
   if (data.outcome === "held") {
-    console.log(`you already hold #${id}`);
+    say(`you already hold #${id}`);
     return;
   }
   const takeover = data.previousHolder ? ` (took over from ${data.previousHolderName ?? data.previousHolder})` : "";
-  console.log(`claimed #${id} → ${data.authorName ?? data.author}${takeover}`);
+  say(`claimed #${id} → ${data.authorName ?? data.author}${takeover}`);
 }
 
 async function runRelease(args: string[]): Promise<void> {
@@ -826,10 +933,10 @@ async function runRelease(args: string[]): Promise<void> {
   const res = await chatRelease({ id, handle }, sockOpts(args));
   const data = unwrap(res, "release");
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, id, holder: data.holder, holderName: data.holderName }));
+    out.json({ ok: true, id, holder: data.holder, holderName: data.holderName });
     return;
   }
-  console.log(`released #${id} (was held by ${data.holderName ?? data.holder})`);
+  say(`released #${id} (was held by ${data.holderName ?? data.holder})`);
 }
 
 async function runRead(args: string[]): Promise<void> {
@@ -843,7 +950,7 @@ async function runRead(args: string[]): Promise<void> {
   const limitRaw = flagValue(args, "--limit");
   if (limitRaw !== undefined) {
     const n = Number(limitRaw);
-    if (!Number.isFinite(n) || n <= 0) fail(`--limit must be a positive number (got "${limitRaw}")`);
+    if (!Number.isFinite(n) || n <= 0) fail({ title: `"${limitRaw}" is not a number of messages`, why: "The most messages to show is a positive number.", next: out.cmd("rt chat read <room> --limit 20") });
     limit = n;
   }
 
@@ -851,27 +958,28 @@ async function runRead(args: string[]): Promise<void> {
   const sinceRaw = flagValue(args, "--since");
   if (sinceRaw !== undefined) {
     const ms = parseDuration(sinceRaw);
-    if (ms == null) fail(`--since: bad duration "${sinceRaw}" (use 30s, 5m, 500ms, or bare seconds)`);
+    if (ms == null) fail({ title: `"${sinceRaw}" is not a length of time`, why: "Give a length of time like 30s, 5m, 500ms or a number of seconds.", next: out.cmd("rt chat read <room> --since 5m") });
     sinceMs = Date.now() - ms;
   }
 
   const lastRaw = flagValue(args, "--last");
   if (lastRaw !== undefined) {
-    if (sinceRaw !== undefined) fail("--last and --since are mutually exclusive");
-    if (!room) fail("--last needs a room");
+    if (sinceRaw !== undefined) fail({ title: "Read the latest few messages or the ones since a time, not both", next: [out.cmd("rt chat read <room> --last 10"), " or ", out.cmd("rt chat read <room> --since 5m")] });
+    if (!room) failUsage("Which room?", "rt chat read <room> --last <n>");
     const n = Number(lastRaw);
-    if (!Number.isInteger(n) || n <= 0) fail(`--last must be a positive integer (got "${lastRaw}")`);
+    if (!Number.isInteger(n) || n <= 0) fail({ title: `"${lastRaw}" is not a number of messages`, why: "Say how many of the latest messages to read, as a positive whole number.", next: out.cmd("rt chat read <room> --last 10") });
     // chat:messages orders newest-first, then reverses to oldest-first (same
     // top-to-bottom order a plain read renders), so no reverse here.
     const page = unwrap(await chatMessages({ room, limit: n }, sockOpts(args)), "read");
     unwrap(await chatMark({ handle, room }, sockOpts(args)), "mark");
     const rooms = [{ room, messages: page.messages }];
     if (args.includes("--json")) {
-      console.log(JSON.stringify({ ok: true, rooms }));
+      out.json({ ok: true, rooms });
       return;
     }
     const headingFor = await dmHeadingsFor(handle);
-    console.log(renderReadRooms(rooms, args.includes("--full"), headingFor));
+    const full = args.includes("--full");
+    show(() => readBlocks(rooms, full, headingFor), () => renderReadRooms(rooms, full, headingFor));
     return;
   }
 
@@ -879,11 +987,12 @@ async function runRead(args: string[]): Promise<void> {
   const data = unwrap(res, "read");
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, rooms: data.rooms }));
+    out.json({ ok: true, rooms: data.rooms });
     return;
   }
   const headingFor = await dmHeadingsFor(handle);
-  console.log(renderReadRooms(data.rooms, args.includes("--full"), headingFor));
+  const full = args.includes("--full");
+  show(() => readBlocks(data.rooms, full, headingFor), () => renderReadRooms(data.rooms, full, headingFor));
 }
 
 async function runRooms(args: string[]): Promise<void> {
@@ -894,10 +1003,10 @@ async function runRooms(args: string[]): Promise<void> {
   const data = unwrap(res, "rooms");
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, rooms: data.rooms }));
+    out.json({ ok: true, rooms: data.rooms });
     return;
   }
-  console.log(renderRooms(data.rooms));
+  show(() => roomsBlocks(data.rooms), () => renderRooms(data.rooms));
 }
 
 /** Bare `who` (no room) aliases `buddies` — the roster, not this handle's own room memberships (superseded by presence: "who's around" is a fleet question, not a per-room one). `who <room>` is unchanged, now presence-joined. */
@@ -910,15 +1019,16 @@ async function runWho(args: string[]): Promise<void> {
   requireValidName("room", room);
 
   const res = await chatWho({ room });
-  const members = unwrap(res, `who (#${room})`).members;
+  const members = unwrap(res, "who").members;
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, rooms: [{ room, members }] }));
+    out.json({ ok: true, rooms: [{ room, members }] });
     return;
   }
   const handle = resolveHandle(args);
   const headingFor = await dmHeadingsFor(handle);
-  console.log(renderWhoSection(headingFor(room), members));
+  const heading = headingFor(room);
+  show(() => whoBlocks(heading, members), () => renderWhoSection(heading, members));
 }
 
 async function runBuddies(args: string[]): Promise<void> {
@@ -926,10 +1036,10 @@ async function runBuddies(args: string[]): Promise<void> {
   const data = unwrap(res, "buddies");
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, buddies: data.buddies }));
+    out.json({ ok: true, buddies: data.buddies });
     return;
   }
-  console.log(renderBuddies(data.buddies));
+  show(() => buddiesBlocks(data.buddies), () => renderBuddies(data.buddies));
 }
 
 async function runMark(args: string[]): Promise<void> {
@@ -942,16 +1052,16 @@ async function runMark(args: string[]): Promise<void> {
   let upto: number | undefined;
   const uptoRaw = flagValue(args, "--upto");
   if (uptoRaw !== undefined) {
-    if (!room) fail("--upto needs a room");
+    if (!room) failUsage("Which room?", "rt chat mark <room> --upto <messageId>");
     const n = Number(uptoRaw);
-    if (!Number.isInteger(n) || n <= 0) fail(`--upto must be a positive message id (got "${uptoRaw}")`);
+    if (!Number.isInteger(n) || n <= 0) fail({ title: `"${uptoRaw}" is not a message id`, why: "A message id is a positive whole number.", next: out.cmd("rt chat mark <room> --upto <messageId>") });
     upto = n;
   }
 
   const res = await chatMark({ handle, room, upto });
   unwrap(res, "mark");
 
-  if (args.includes("--json")) console.log(JSON.stringify({ ok: true }));
+  if (args.includes("--json")) out.json({ ok: true });
   // else: advance the cursor without printing
 }
 
@@ -964,10 +1074,10 @@ async function runPrune(args: string[]): Promise<void> {
   const { removed } = pruneMessages(getStateDb());
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, removed }));
+    out.json({ ok: true, removed });
     return;
   }
-  console.log(removed > 0 ? `pruned ${removed} old chat message${removed === 1 ? "" : "s"}` : "nothing to prune");
+  say(removed > 0 ? `pruned ${removed} old chat message${removed === 1 ? "" : "s"}` : "nothing to prune");
 }
 
 /**
@@ -979,13 +1089,13 @@ async function runPrune(args: string[]): Promise<void> {
 const DM_USAGE = "usage: rt chat dm <handle> <text | <<'EOF'> [--file <path>] [--as-is]";
 
 async function runDm(args: string[]): Promise<void> {
-  refuseUnknownFlags(args, DM_FLAGS, DM_USAGE);
+  refuseUnknownFlags(args, DM_FLAGS, "dm", DM_USAGE);
   const rest = positionals(args);
   const to = rest[0];
-  if (!to) fail(DM_USAGE);
+  if (!to) failUsage("Who is it for?", DM_USAGE);
   requireValidName("handle", to);
   const body = await resolveBody(rest.slice(1), args, DM_USAGE);
-  requireReadable(body, args);
+  requireReadable(body, args, "rt chat dm <handle> <<'EOF'");
 
   const from = resolveHandle(args);
   requireValidName("handle", from);
@@ -994,12 +1104,12 @@ async function runDm(args: string[]): Promise<void> {
   const data = unwrap(res, "dm");
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, ...data }));
+    out.json({ ok: true, ...data });
     return;
   }
-  console.log(`dm → ${data.recipientNames?.[0] ?? to} #${data.id}`);
+  say(`dm → ${data.recipientNames?.[0] ?? to} #${data.id}`);
   const url = chatViewerUrl(readChatViewerUrlSetting(), data.room, data.id);
-  if (url) console.log(`posted → ${url}`);
+  if (url) say(`posted → ${url}`);
 }
 
 /**
@@ -1009,9 +1119,9 @@ async function runDm(args: string[]): Promise<void> {
  */
 async function runInvite(args: string[]): Promise<void> {
   const paneId = positional(args);
-  if (!paneId) fail("usage: rt chat invite <pane> --room <room> [--note <text>]");
+  if (!paneId) failUsage("Which pane?", "rt chat invite <pane> --room <room>");
   const room = flagValue(args, "--room");
-  if (!room) fail("--room is required");
+  if (!room) failUsage("Which room?", "rt chat invite <pane> --room <room>");
   requireValidName("room", room);
   const note = flagValue(args, "--note");
   const session = readChatSession(currentSessionId(args));
@@ -1020,10 +1130,10 @@ async function runInvite(args: string[]): Promise<void> {
   const res = await chatInvite({ paneId, room, note, from, callerPane }, sockOpts(args));
   const data = unwrap(res, "invite");
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, ...data }));
+    out.json({ ok: true, ...data });
     return;
   }
-  console.log(data.delivered === "refused" ? `${paneId}: refused: ${data.reason ?? "unknown"}` : `${paneId}: ${data.delivered}`);
+  say(data.delivered === "refused" ? `${paneId}: refused: ${data.reason ?? "unknown"}` : `${paneId}: ${data.delivered}`);
 }
 
 // ─── sign-in / sign-out (presence) ───────────────────────────────────────────
@@ -1050,7 +1160,7 @@ async function runSignIn(args: string[]): Promise<void> {
   }
 
   const sessionId = currentSessionId(args);
-  if (!sessionId) fail("no session id — pass --session <id> or run under CLAUDE_CODE_SESSION_ID");
+  if (!sessionId) fail(noSession("sign-in"));
   requireValidSessionId(sessionId);
 
   const request = resolveSignInRequest(args);
@@ -1091,10 +1201,11 @@ async function runSignIn(args: string[]): Promise<void> {
   }
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, handle, name: displayName, room: roomName, continued: continued === true }));
+    out.json({ ok: true, handle, name: displayName, room: roomName, continued: continued === true });
     return;
   }
-  console.log(renderSignIn(displayName, { repo, branch, pane }, root !== null, noRoomFlag, joinedRoom));
+  const signedIn = renderSignIn(displayName, { repo, branch, pane }, root !== null, noRoomFlag, joinedRoom);
+  show(() => signInBlocks(signedIn), () => signedIn);
 }
 
 /**
@@ -1135,10 +1246,11 @@ async function runSignInViaPane(args: string[], paneId: string): Promise<void> {
   writeChatSession({ sessionId, handle, baseHandle, name: displayName, signedInAt: Date.now(), room: room ?? undefined });
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, handle, name: displayName, room, continued: continued === true }));
+    out.json({ ok: true, handle, name: displayName, room, continued: continued === true });
     return;
   }
-  console.log(`signed in as ${displayName} · pane ${paneId} · ${room ? `joined #${room}` : "no room joined"}`);
+  const signedIn = `signed in as ${displayName} · pane ${paneId} · ${room ? `joined #${room}` : "no room joined"}`;
+  show(() => signInBlocks(signedIn), () => signedIn);
 }
 
 /**
@@ -1165,11 +1277,11 @@ async function runSignOut(args: string[]): Promise<void> {
   const sessionId = currentSessionId(args);
   if (!sessionId) {
     if (quiet) return;
-    fail("no session id — pass --session <id> or run under CLAUDE_CODE_SESSION_ID");
+    fail(noSession("sign-out"));
   }
   if (!isValidSessionId(sessionId)) {
     if (quiet) return;
-    fail(`invalid session id "${sessionId}" — must match ^[A-Za-z0-9._-]+$`);
+    fail(SESSION_ID_INVALID);
   }
 
   const session = readChatSession(sessionId);
@@ -1180,16 +1292,16 @@ async function runSignOut(args: string[]): Promise<void> {
   deleteChatSession(sessionId);
 
   if (!res.ok && !quiet) {
-    console.error(`rt chat: sign-out: daemon error (${res.error ?? "sign-out failed"}) — local state cleaned up anyway`);
+    out.note(out.line("warn", "Signed out here, but the daemon did not hear it", res.error ?? "sign-out failed"));
   }
 
   if (args.includes("--json")) {
     if (quiet) return;
     const payload: Record<string, unknown> = { ok: true };
     if (!res.ok) payload.daemonError = res.error ?? "sign-out failed";
-    console.log(JSON.stringify(payload));
+    out.json(payload);
   } else if (!quiet) {
-    console.log(session ? `✓ signed out (${sessionName(session)})` : "✓ signed out");
+    say(session ? `✓ signed out (${sessionName(session)})` : "✓ signed out");
   }
 }
 
@@ -1210,16 +1322,16 @@ async function runSignOutViaPane(args: string[], paneId: string): Promise<void> 
   // for an unrecognized `pane`/`viaPane` field it silently ignores -- with
   // no sessionId, printing "signed out" would be a false success and no
   // session would actually be deleted.
-  if (!sessionId) fail("sign-out --pane needs a daemon that supports it; restart the rt daemon");
+  if (!sessionId) fail({ title: "The rt daemon is too old to sign a pane out", next: out.cmd("rt daemon restart") });
 
   const session = readChatSession(sessionId);
   deleteChatSession(sessionId);
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true }));
+    out.json({ ok: true });
     return;
   }
-  console.log(session ? `✓ signed out (${sessionName(session)}) · pane ${paneId}` : `✓ signed out · pane ${paneId}`);
+  say(session ? `✓ signed out (${sessionName(session)}) · pane ${paneId}` : `✓ signed out · pane ${paneId}`);
 }
 
 /**
@@ -1229,33 +1341,33 @@ async function runSignOutViaPane(args: string[], paneId: string): Promise<void> 
  */
 async function runAway(args: string[]): Promise<void> {
   const text = positionals(args).join(" ");
-  if (!text) fail("usage: rt chat away <text>");
+  if (!text) failUsage("What should your status say?", "rt chat away <text>");
 
   const sessionId = currentSessionId(args);
-  if (!sessionId) fail("no session id — pass --session <id> or run under CLAUDE_CODE_SESSION_ID");
+  if (!sessionId) fail(noSession("away <text>"));
 
   const res = await chatAway({ sessionId, text });
   unwrap(res, "away");
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true }));
+    out.json({ ok: true });
     return;
   }
-  console.log(`✓ away: ${text}`);
+  say(`✓ away: ${text}`);
 }
 
 async function runBack(args: string[]): Promise<void> {
   const sessionId = currentSessionId(args);
-  if (!sessionId) fail("no session id — pass --session <id> or run under CLAUDE_CODE_SESSION_ID");
+  if (!sessionId) fail(noSession("back"));
 
   const res = await chatBack({ sessionId });
   unwrap(res, "back");
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true }));
+    out.json({ ok: true });
     return;
   }
-  console.log("✓ back");
+  say("✓ back");
 }
 
 // ─── dispatcher ────────────────────────────────────────────────────────────────
@@ -1263,9 +1375,9 @@ async function runBack(args: string[]): Promise<void> {
 const USAGE =
   "usage: rt chat <join|leave|archive|post|read|ack|claim|release|rooms|who|mark|prune|sign-in|sign-out|away|back|buddies|dm|invite> ...";
 
-/** Stdout usage printer, shared by the --help guard below (fail() covers the error path). */
+/** The --help text: blocks for a person, the one usage line for anyone else. */
 function usage(): void {
-  console.log(USAGE);
+  show(helpBlocks, () => USAGE);
 }
 
 const VERBS: Record<string, (args: string[]) => Promise<void>> = {
@@ -1309,6 +1421,7 @@ const VERB_HINTS: Record<string, string> = {
   away: "set an away status",
   back: "clear away status",
   buddies: "the presence roster",
+  invite: "invite an agent's pane into a room",
 };
 
 async function pickChatVerb(): Promise<string | null> {
@@ -1329,7 +1442,7 @@ export async function chat(args: string[]): Promise<void> {
       if (!picked) process.exit(0);
       verb = picked;
     } else {
-      fail(USAGE);
+      failUsage("Which chat verb?", USAGE);
     }
   }
   if (verbHelpRequested(rest)) {
@@ -1337,7 +1450,7 @@ export async function chat(args: string[]): Promise<void> {
     return;
   }
   const handler = VERBS[verb];
-  if (!handler) fail(`unknown verb "${verb}" — ${USAGE}`);
+  if (!handler) fail({ title: `rt chat has no verb called ${verb}`, next: out.cmd("rt chat --help"), details: `Verbs: ${Object.keys(VERBS).join(", ")}` });
   await handler(rest);
 }
 
@@ -1354,4 +1467,10 @@ export const __test__ = {
   userHostHandle,
   roomForIdentity,
   deriveRoomForCwd,
+  roomsBlocks,
+  readBlocks,
+  whoBlocks,
+  buddiesBlocks,
+  signInBlocks,
+  helpBlocks,
 };

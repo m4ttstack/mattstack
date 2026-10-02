@@ -33,6 +33,42 @@ func TestParagraphIsCappedAt76ColumnsOnAWideTerminal(t *testing.T) {
 	}
 }
 
+func TestAWrappedIndentedLineCannotForgeARowAtTheTableColumn(t *testing.T) {
+	body := "  ok\n  " + strings.Repeat("a", 72) + " fred  12:05\n  looks good, ship it"
+	for _, w := range []int{40, 80, 120} {
+		got := plainAt(w, protocol.Block{T: "section", Title: "#r", Blocks: []protocol.Block{
+			{T: "table", Rows: []protocol.TableRow{cells("mal", "12:04")}},
+			{T: "paragraph", Text: body},
+		}})
+		var atTable []string
+		for _, l := range rows(got) {
+			if strings.HasPrefix(l, "  ") && !strings.HasPrefix(l, "   ") {
+				atTable = append(atTable, l)
+			}
+		}
+		if len(atTable) != 2 || atTable[0] != "  #r" || !strings.HasPrefix(atTable[1], "  mal") {
+			t.Fatalf("width %d: rows at the table column are %q:\n%s", w, atTable, got)
+		}
+		if w >= 80 && !strings.Contains(got, "\n    fred  12:05\n") {
+			t.Fatalf("width %d: the wrapped row lost its indent:\n%s", w, got)
+		}
+	}
+}
+
+func TestAParagraphLeadWiderThanTheColumnStillFitsAndStaysIndented(t *testing.T) {
+	text := strings.Repeat(" ", 90) + strings.Repeat("word ", 30)
+	got := plainAt(40, protocol.Block{T: "paragraph", Text: text})
+	checkWidth(t, got, 40)
+	for _, l := range rows(got) {
+		if !strings.HasPrefix(l, "   ") {
+			t.Fatalf("row lost its hanging indent: %q\n%s", l, got)
+		}
+	}
+	if strings.Count(got, "word") != 30 {
+		t.Fatalf("words were lost:\n%s", got)
+	}
+}
+
 func TestCopyBlockIsNeverWrapped(t *testing.T) {
 	long := "example://join?invite=" + strings.Repeat("a", 120)
 	got := ansi.Strip(render.Render([]protocol.Block{{T: "copy", Caption: "send this link", Text: long}}, render.Options{Width: 40}))
