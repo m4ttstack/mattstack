@@ -1,4 +1,11 @@
-# Console pipeline viewer boards
+# Console design boards
+
+Two designs live here, each in its own pen.dev document: the pipeline viewer
+on the Wiring page's Graph tab (`console.pen`) and the settings rows
+(`settings.pen`). They share `renders/` and `parity/`; the tables below say
+which files are whose.
+
+## Pipeline viewer
 
 The design for console's Wiring Graph tab: skills drawn as templates, with
 the files that fill each placeholder on one side and the steps it links to on
@@ -11,7 +18,7 @@ Every pack, skill, file and contract name on the canvas is invented (`acme`
 is the pack). The line counts and title lengths keep realistic shapes so the
 layouts are proofed against real volumes.
 
-## What lives here
+### What lives here
 
 | file | what it is |
 | --- | --- |
@@ -23,7 +30,7 @@ The file also holds exploration boards (window chrome, tray options, React
 Flow focus studies, anatomy sheets). Only the 18 boards below are the
 reference; nothing else is exported or compared.
 
-## Boards
+### Boards
 
 Each slug is drawn in a light and a dark frame. Routes are on the Wiring page
 (`/wiring?tab=graph`); `scenario` is the fixture scenario the harness loads.
@@ -45,14 +52,14 @@ The dark frame of each pair carries the same name with `dark` in place of
 `Export` on its id: `html-css` with `includeLayerNames: true` into `parity/`,
 and `png` at `scale: 1` into `renders/`, renamed to the slug pattern.
 
-## Checking the app against a board
+### Checking the app against a board
 
 Follow `apps/console/scripts/parity/run.md`. The app side runs on the design
 fixture: the console server started with `CONSOLE_FIXTURE=design` answers from
 the same invented `acme` pack the boards draw, and `CONSOLE_FIXTURE_SCENARIO`
 is the board's scenario (`clean`, or `unsynced` for the two unsynced boards).
 
-## Kit chrome is not compared
+### Kit chrome is not compared
 
 The rail, app bar, PageShell tab bar, Drawer frame and Modal frame are the
 kit's and Mantine's own, so a parity run compares the content inside them
@@ -61,7 +68,7 @@ content layer sits where it will in the app. The rebind picker is not chrome:
 its list of files sits inside the panel, as drawer-rebind draws it, so the
 list and its rows are compared with the rest of the drawer.
 
-## Board-fix list
+### Board-fix list
 
 Where a kit piece and a board disagree, the kit wins (`docs/apps/ui-authoring.md`).
 Each difference below is expected in a parity run and is not fixed in the
@@ -88,3 +95,32 @@ task, never left silent.
 - Unsynced boards' canvas bottom: the unsynced boards push the stage down under the banner but leave its dotted layer 948 tall and the zoom controls where the clean board pins them, so both run past the stage's bottom edge (the board render cuts the controls off). The app pins the controls to the stage's bottom and sizes the dots to the stage, so the controls sit 50px higher and the dots compare 898 tall.
 
 The Graph tab's dotted canvas sits on the page ground (`--tk-bg`), as the boards' `Stage` layer does. That is deliberate: the dotted canvas is the one surface exempt from the "never set `PageShell.Content` to `--tk-bg`" rule in `docs/apps/ui-authoring.md`, and a label on it uses the kit's quiet badge tones rather than a gray `light` one.
+
+## Settings rows, direction B4 approved 2026-10-01
+
+The settings row and its explain view, redrawn after the row's three
+trailing controls (summary toggle, `⋯`, `›`) and the busy explain modal
+proved confusing in use. Approved by Matt on 2026-10-01 ("build B4, keep
+the scope names"). Spec:
+`docs/superpowers/specs/2026-10-01-console-settings-row-design.md`.
+
+### What lives here
+
+| file | what it is |
+| --- | --- |
+| `settings.pen` | the design source, a pen.dev document. Open it in Pen; the MCP reads and edits it. Never edit the renders by hand. |
+| `renders/B-expand-in-place.light.png`, `renders/B4-open-row.light.png`, `renders/R-run-detail-modal.light.png` | 2x exports of the approved boards |
+| `parity/README.md`, `parity/boards/`, `parity/build/` | the build compared with the boards, by eye and by number, and the board corrections that followed |
+
+Approved boards:
+
+- `B · Expand in place (approved row)`: rows at rest and under the pointer,
+  one open with the Value tab
+- `B4 · Tabs back, calmer (approved 2026-10-01)`: the open row, both tabs
+- `R · Run detail keeps a thin modal`: the one place the panel still sits in
+  a modal
+
+Kept for the record: `A · One row, one door (rejected)`, `B2 · Open row,
+Where it's set (too busy)`, `B3 · One line says where it's set (rejected)`,
+and `M1` / `M2`, the detail modal that B replaced. Every name, path and
+machine on the canvas is invented.
