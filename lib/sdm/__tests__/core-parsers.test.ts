@@ -82,7 +82,7 @@ describe("interpretSdmStatus", () => {
   test("ETIMEDOUT maps to error", () => {
     const h = interpretSdmStatus("ETIMEDOUT", null, "");
     expect(h.status).toBe("error");
-    expect(h.message).toContain("did not respond");
+    expect(h.message).toBe("StrongDM did not answer in time.");
   });
 
   test("nonzero exit with login text means not authenticated", () => {
@@ -97,6 +97,15 @@ describe("interpretSdmStatus", () => {
 
   test("healthy table output is ok", () => {
     expect(interpretSdmStatus(null, 0, STATUS_OUTPUT)).toEqual({ status: "ok", message: null });
+  });
+
+  test("each health message is a plain sentence that names no command", () => {
+    expect(interpretSdmStatus("ENOENT", null, "").message).toBe("The StrongDM CLI is not installed. Install it from https://www.strongdm.com/docs/cli/.");
+    expect(interpretSdmStatus("EACCES", null, "").message).toBe("The StrongDM CLI could not start (EACCES).");
+    expect(interpretSdmStatus(null, 3, "").message).toBe("The StrongDM CLI stopped with exit code 3.");
+    expect(interpretSdmStatus(null, 3, "  gateway unreachable \n").message).toBe("gateway unreachable");
+    const loggedOut = interpretSdmStatus(null, 1, "You are not authenticated. please run: sdm login");
+    expect(loggedOut).toEqual({ status: "not-authenticated", message: "Your StrongDM login has expired, or this Mac has not logged in yet." });
   });
 });
 

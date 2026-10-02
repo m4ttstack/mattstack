@@ -90,7 +90,7 @@ export function resourceNeedsAccessRequest(catalogOutput: string, resource: stri
 
 const NOT_AUTHENTICATED: SdmHealth = {
   status: "not-authenticated",
-  message: "StrongDM CLI is not authenticated: run `sdm login` and try again.",
+  message: "Your StrongDM login has expired, or this Mac has not logged in yet.",
 };
 
 export function interpretSdmStatus(
@@ -99,13 +99,13 @@ export function interpretSdmStatus(
   output: string,
 ): SdmHealth {
   if (spawnErrorCode === "ENOENT") {
-    return { status: "not-installed", message: `StrongDM CLI not found. Install it from ${SDM_INSTALL_URL}.` };
+    return { status: "not-installed", message: `The StrongDM CLI is not installed. Install it from ${SDM_INSTALL_URL}.` };
   }
   if (spawnErrorCode === "ETIMEDOUT") {
-    return { status: "error", message: "StrongDM CLI did not respond in time." };
+    return { status: "error", message: "StrongDM did not answer in time." };
   }
   if (spawnErrorCode) {
-    return { status: "error", message: `Error running sdm (${spawnErrorCode}).` };
+    return { status: "error", message: `The StrongDM CLI could not start (${spawnErrorCode}).` };
   }
   const lower = output.toLowerCase();
   const loggedOutText =
@@ -114,7 +114,7 @@ export function interpretSdmStatus(
     if (loggedOutText || /\blog ?in\b/.test(lower)) return NOT_AUTHENTICATED;
     return {
       status: "error",
-      message: output.trim().slice(0, 200) || `sdm status exited with code ${exitCode}.`,
+      message: output.trim().slice(0, 200) || `The StrongDM CLI stopped with exit code ${exitCode}.`,
     };
   }
   // A logged-out CLI can exit 0 with a banner; the table header is the
@@ -323,7 +323,7 @@ export async function requestAccess(
     { timeoutMs: SDM_ACCESS_TIMEOUT_MS },
   );
   if (!r.ok) {
-    return { ok: false, error: `Access request failed: ${r.output.trim() || "unknown error"}`, code: classifySdmFailure(r.output) };
+    return { ok: false, error: r.output.trim() || "StrongDM gave no reason.", code: classifySdmFailure(r.output) };
   }
   invalidateSdmSnapshotCache();
   invalidateSdmCatalogCache();
@@ -359,7 +359,7 @@ export async function connectResourceWith(
     r = await attempt();
   }
   if (!r.ok && !r.output.includes("already connected")) {
-    return { ok: false, error: `Connect failed: ${r.output.trim() || "unknown error"}`, code: classifySdmFailure(r.output) };
+    return { ok: false, error: r.output.trim() || "StrongDM gave no reason.", code: classifySdmFailure(r.output) };
   }
   invalidateSdmSnapshotCache();
   return { ok: true };
@@ -407,7 +407,7 @@ export function runSdmLoginInteractive(
       const code = (err as NodeJS.ErrnoException).code ?? "EUNKNOWN";
       settle({
         ok: false,
-        output: code === "ENOENT" ? `StrongDM CLI not found. Install it from ${SDM_INSTALL_URL}.` : `Error running sdm (${code}).`,
+        output: code === "ENOENT" ? `The StrongDM CLI is not installed. Install it from ${SDM_INSTALL_URL}.` : `The StrongDM CLI could not start (${code}).`,
         spawnErrorCode: code,
         exitCode: null,
       });
@@ -434,10 +434,10 @@ export async function loginSdmWith(
   if (result.timedOut) {
     return {
       ok: false,
-      error: "Login timed out. Complete the SAML flow in your browser, or run `sdm login` in a terminal.",
+      error: "The login timed out before your browser finished it.",
     };
   }
-  return { ok: false, error: `Login failed: ${result.output.trim() || "the sdm CLI reported the details above"}` };
+  return { ok: false, error: result.output.trim() || "StrongDM printed the reason above." };
 }
 
 /** Run `sdm login` interactively in the user's terminal; sdm opens the browser for SAML. */

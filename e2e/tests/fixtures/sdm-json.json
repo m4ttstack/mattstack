@@ -21,12 +21,12 @@
   },
   "status-logged-out": {
     "exitCode": 1,
-    "stdout": "{\n  \"ok\": false,\n  \"health\": \"not-authenticated\",\n  \"message\": \"StrongDM CLI is not authenticated: run `sdm login` and try again.\",\n  \"appRunning\": \"<machine>\",\n  \"tunnels\": []\n}\n",
+    "stdout": "{\n  \"ok\": false,\n  \"health\": \"not-authenticated\",\n  \"message\": \"Your StrongDM login has expired, or this Mac has not logged in yet.\",\n  \"appRunning\": \"<machine>\",\n  \"tunnels\": []\n}\n",
     "stderr": ""
   },
   "connections-logged-out": {
     "exitCode": 1,
-    "stdout": "{\n  \"ok\": false,\n  \"health\": \"not-authenticated\",\n  \"error\": \"StrongDM CLI is not authenticated: run `sdm login` and try again.\"\n}\n",
+    "stdout": "{\n  \"ok\": false,\n  \"health\": \"not-authenticated\",\n  \"error\": \"Your StrongDM login has expired, or this Mac has not logged in yet.\"\n}\n",
     "stderr": ""
   }
 }
