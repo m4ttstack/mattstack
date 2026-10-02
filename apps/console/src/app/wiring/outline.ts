@@ -237,6 +237,12 @@ export function invertBindings(
  * entry with `verb !== null` -- which is what makes `attentionCount`
  * independent of the work type. See `buildSpine`.
  */
+/** A verb rt sweeps in unwired whose slots nothing binds. A verb with no
+    slots has nothing to bind, so it stands on its own instead. */
+export function looseEnd(entry: SpineEntry): boolean {
+  return entry.unwired && entry.slots.length > 0;
+}
+
 export function needsAttention(entry: SpineEntry): boolean {
   if (entry.health === 'source-newer' || entry.health === 'never-compiled')
     return true;

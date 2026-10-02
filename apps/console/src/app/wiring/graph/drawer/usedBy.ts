@@ -6,11 +6,11 @@ import {
 import type { FocusGroups, FocusItem } from '../model/focusModel';
 
 export type UsedByGroup =
-  'PIPELINE STEPS' | 'ON-DEMAND' | 'BOARD' | 'NOT WIRED INTO ANYTHING';
+  'PIPELINE STEPS' | 'STANDALONE' | 'BOARD' | 'NOT WIRED INTO ANYTHING';
 
 export const USED_BY_GROUPS: readonly UsedByGroup[] = [
   'PIPELINE STEPS',
-  'ON-DEMAND',
+  'STANDALONE',
   'BOARD',
   'NOT WIRED INTO ANYTHING',
 ];
@@ -47,7 +47,7 @@ function placesOf(groups: FocusGroups): Map<string, Place> {
     place('PIPELINE STEPS')(pipeline);
     pipeline.children.forEach(place('PIPELINE STEPS'));
   }
-  groups.onDemand.forEach(place('ON-DEMAND'));
+  groups.standalone.forEach(place('STANDALONE'));
   groups.board.forEach(place('BOARD'));
   groups.unwired.items.forEach(place('NOT WIRED INTO ANYTHING'));
   return places;

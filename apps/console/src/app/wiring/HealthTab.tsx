@@ -17,6 +17,7 @@ import { Icons } from '@mattstack/app-kit/icons';
 import { InstalledCachesBar } from './InstalledCachesBar';
 import {
   buildSpine,
+  looseEnd,
   spineRows,
   suffixOf,
   type OrphanFillEntry,
@@ -45,7 +46,7 @@ function computeHealthGroups(spine: WiringSpine) {
   const neverCompiledEntries = all.filter(
     entry => entry.health === 'never-compiled'
   );
-  const unwiredEntries = spine.outside.filter(entry => entry.unwired);
+  const unwiredEntries = spine.outside.filter(looseEnd);
 
   return {
     inSyncCount: all.filter(entry => entry.health === 'in-sync').length,

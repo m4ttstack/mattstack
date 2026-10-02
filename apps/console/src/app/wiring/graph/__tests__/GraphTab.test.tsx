@@ -166,13 +166,13 @@ describe('Graph tab: the page', () => {
 });
 
 describe('Graph tab: the focus list', () => {
-  it("draws the board's groups: the pipeline, on-demand verbs, board skills and Unwired", async () => {
+  it("draws the board's groups: the pipeline, standalone verbs, board skills and Unwired", async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=pipeline:feature');
     const list = await focusList();
 
     expect(within(list).getByText('Pipeline')).toBeInTheDocument();
-    expect(within(list).getByText('On-demand')).toBeInTheDocument();
+    expect(within(list).getByText('Standalone')).toBeInTheDocument();
     expect(within(list).getByText('Board')).toBeInTheDocument();
 
     const pipeline = within(list).getByTestId('focus-pipeline:feature');
@@ -194,7 +194,7 @@ describe('Graph tab: the focus list', () => {
       expect(within(list).getByTestId(`focus-${board}`)).toBeInTheDocument();
     }
     expect(within(list).getByTestId('focus-unwired')).toHaveTextContent(
-      'Unwired6'
+      'Unwired2'
     );
   });
 
@@ -308,7 +308,7 @@ describe('Graph tab: the focus list', () => {
     ).toHaveAttribute('data-variant', 'contrast');
   });
 
-  it('focuses an on-demand verb', async () => {
+  it('focuses a standalone verb', async () => {
     mockDesignPack();
     const user = userEvent.setup();
     renderAt('?tab=graph&focus=pipeline:feature');
@@ -322,16 +322,24 @@ describe('Graph tab: the focus list', () => {
     );
   });
 
-  it('lists the unwired verbs under Unwired', async () => {
+  it('lists a verb with no slots as standalone, not unwired', async () => {
+    mockDesignPack();
+    renderAt('?tab=graph&focus=pipeline:feature');
+    const list = await focusList();
+
+    expect(within(list).getByTestId('focus-checkout')).toBeInTheDocument();
+  });
+
+  it('lists a verb whose slot nothing binds under Unwired', async () => {
     mockDesignPack();
     const user = userEvent.setup();
     renderAt('?tab=graph&focus=pipeline:feature');
     const list = await focusList();
 
     await user.click(within(list).getByTestId('focus-unwired'));
-    await user.click(await within(list).findByTestId('focus-checkout'));
+    await user.click(await within(list).findByTestId('focus-release-notes'));
 
-    expect(params().get('focus')).toBe('checkout');
+    expect(params().get('focus')).toBe('release-notes');
   });
 
   it('checks the Needs attention switch from ?attention=1 and hides in-sync items', async () => {
@@ -596,7 +604,7 @@ describe('Graph tab: the focus header', () => {
     );
   });
 
-  it('calls an on-demand verb public', async () => {
+  it('calls a standalone verb public', async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=shepherdr');
     const header = await screen.findByTestId('focus-header');
