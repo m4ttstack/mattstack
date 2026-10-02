@@ -13,7 +13,6 @@
   "commands/gate.ts",
   "commands/glitter.ts",
   "commands/herd.ts",
-  "commands/home.ts",
   "commands/mcp.ts",
   "commands/nav.ts",
   "commands/pane.ts",

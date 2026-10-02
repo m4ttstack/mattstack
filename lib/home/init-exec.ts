@@ -37,6 +37,19 @@ export interface ExecSeam {
 
 export type InitResult = { ok: true } | { ok: false; failedStep: InitStep["kind"]; stderr: string };
 
+/** The failure title per init step. `lib/setup/steps/home.ts` keys its clone remedy on the clone's entry, so the words here are the contract between the two. */
+export const INIT_STEP_FAILED: Record<InitStep["kind"], string> = {
+  ensureStateDirs: "rt could not create its state folders",
+  cloneUserRepo: "rt could not clone your home repo",
+  initUserRepo: "rt could not start your home repo",
+  commitInitialUserRepo: "rt could not make the first commit in your home repo",
+  writeGitignore: "rt could not write the home repo's ignore file",
+  writeOwners: "rt could not write the list of paths you commit by hand",
+  writeMachineKey: "rt could not name this Mac",
+  ensureProfileDir: "rt could not create this Mac's profile",
+  writeSkillsSymlink: "rt could not link your skills list",
+};
+
 type StepLog = (message: string) => void;
 
 class StepFailed extends Error {
