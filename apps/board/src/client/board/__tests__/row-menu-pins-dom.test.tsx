@@ -31,7 +31,7 @@ test('own idle MR, local, slack thread not found, gitlab buttons up', async () =
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1418",
-      "no thread, find it again",
+      "post to slack",
       "---",
       "# agent actions",
       "review",
@@ -46,7 +46,7 @@ test('own idle MR, local, slack thread not found, gitlab buttons up', async () =
   `);
   expect(await clickEach(ownIdle, ownEnv)).toMatchInlineSnapshot(`
     [
-      "no thread, find it again → find-thread",
+      "post to slack → post-slack",
       "review → launch:review",
       "respond → launch:respond",
       "rebase locally → launch:rebase-local",
@@ -65,7 +65,7 @@ test('own idle MR, local, slack thread not found, gitlab buttons up', async () =
       "mark as draft → draft:true",
       "open in gitlab → open:https://gitlab.example.com/acme/webapp/-/merge_requests/1418",
       "open MR post in slackno thread → (nothing) (stays open)",
-      "post to slack → post-slack",
+      "no thread, find it again → find-thread",
       "copy for slack → copy",
       "add a note → note",
       "auto-doctor: ignore this MR → stand-down:true",
@@ -155,7 +155,7 @@ test('failed lanes, finished respond, conflicts and a peer review with comments'
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1422",
-      "find slack thread",
+      "post to slack",
       "---",
       "# agent actions",
       "review",
@@ -171,7 +171,7 @@ test('failed lanes, finished respond, conflicts and a peer review with comments'
   `);
   expect(await clickEach(failedLanes, failedEnv)).toMatchInlineSnapshot(`
     [
-      "find slack thread → find-thread",
+      "post to slack → post-slack",
       "review → launch:review",
       "restart response → launch:respond",
       "call doctor → launch:doctor",
@@ -191,7 +191,7 @@ test('failed lanes, finished respond, conflicts and a peer review with comments'
       "mark as draft → draft:true",
       "open in gitlab → open:https://gitlab.example.com/acme/webapp/-/merge_requests/1422",
       "open MR post in slackno thread → (nothing) (stays open)",
-      "post to slack → post-slack",
+      "find slack thread → find-thread",
       "copy for slack → copy",
       "add a note → note",
       "re-enable auto-doctor → stand-down:false",

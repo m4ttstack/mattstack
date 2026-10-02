@@ -551,19 +551,22 @@ export function rowActions(
           )
         );
       }
-    } else
-      top.push(
-        item(
-          'top',
-          'find-thread',
-          s?.status === 'notfound'
-            ? 'no thread, find it again'
-            : 'find slack thread',
-          SLACK,
-          { kind: 'find-thread' },
-          { bulk: 'find slack threads' }
-        )
+    }
+    // The author of an unposted MR leads with posting it; finding the thread
+    // leads only for everyone else.
+    const postFirst = own && !found;
+    const findThread = (section: Section) =>
+      item(
+        section,
+        'find-thread',
+        s?.status === 'notfound'
+          ? 'no thread, find it again'
+          : 'find slack thread',
+        SLACK,
+        { kind: 'find-thread' },
+        { bulk: 'find slack threads' }
       );
+    if (!found && !postFirst) top.push(findThread('top'));
     slack.push(
       item(
         'slack',
@@ -574,10 +577,11 @@ export function rowActions(
         block(!found ? 'no thread' : !s.permalink && 'no link yet')
       )
     );
+    if (postFirst) slack.push(findThread('slack'));
     if (own)
-      slack.push(
+      (postFirst ? top : slack).push(
         item(
-          'slack',
+          postFirst ? 'top' : 'slack',
           'post-slack',
           mrx.slackChannel ? `post to #${mrx.slackChannel}` : 'post to slack',
           SLACK,

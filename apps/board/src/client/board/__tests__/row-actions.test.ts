@@ -22,7 +22,7 @@ const sections = (mr: typeof ownIdle, env: typeof ownEnv) =>
 
 test('an idle own MR: every action, by section, in menu order', () => {
   expect(sections(ownIdle, ownEnv)).toEqual([
-    'top:find-thread',
+    'top:post-slack',
     'agent:review',
     'agent:respond',
     'agent:rebase-local',
@@ -41,7 +41,7 @@ test('an idle own MR: every action, by section, in menu order', () => {
     'gitlab:mark-draft',
     'gitlab:open-gitlab',
     'slack:open-slack-post',
-    'slack:post-slack',
+    'slack:find-thread',
     'slack:copy',
     'more:note',
     'more:stand-down',
@@ -681,7 +681,12 @@ const inOptedRepo = (over: Record<string, unknown> = {}) =>
 test('an own MR in a repo that opted in offers the code owners post, after the slack post', () => {
   const offered = keys(
     inOptedRepo({
-      slack: { status: 'notfound', reactions: [], posted: false },
+      slack: {
+        status: 'found',
+        reactions: [],
+        permalink: 'https://x',
+        posted: true,
+      },
     }),
     ownersEnv
   );
@@ -689,6 +694,15 @@ test('an own MR in a repo that opted in offers the code owners post, after the s
   expect(offered.indexOf('post-owners')).toBe(
     offered.indexOf('post-slack') + 1
   );
+});
+
+test('the code owners post stays in the slack flyout while the slack post leads', () => {
+  const mr = inOptedRepo({
+    slack: { status: 'notfound', reactions: [], posted: false },
+  });
+  const placed = sections(mr, ownersEnv);
+  expect(placed).toContain('top:post-slack');
+  expect(placed).toContain('slack:post-owners');
 });
 
 test('the code owners post stays once the review request is in slack', () => {
@@ -749,4 +763,51 @@ test('the slack post names the channel it goes to', () => {
 
 test('the slack post keeps its plain wording when the channel is unknown', () => {
   expect(slackPostLabel({})).toBe('post to slack');
+});
+
+const topKeys = (mr: typeof ownIdle) =>
+  rowActions(mr, actionEnvOf(ownEnv, mr))
+    .filter(a => a.section === 'top')
+    .map(a => a.key);
+
+test('an own MR with no thread leads with the slack post', () => {
+  const mr = mrx(260, {
+    slackChannel: 'code-review',
+    slack: { status: 'notfound', reactions: [], posted: false },
+  });
+  const actions = rowActions(mr, actionEnvOf(ownEnv, mr));
+  expect(topKeys(mr)).toEqual(['post-slack']);
+  const post = actions.find(a => a.key === 'post-slack')!;
+  expect(post.label).toBe('post to #code-review');
+  expect(post.blocked).toBeUndefined();
+  const find = actions.find(a => a.key === 'find-thread')!;
+  expect(find.section).toBe('slack');
+  expect(find.label).toBe('no thread, find it again');
+});
+
+test('an own MR with a found thread leads with the reactions', () => {
+  const mr = mrx(261, {
+    slack: {
+      status: 'found',
+      reactions: [],
+      permalink: 'https://slack.example.com/archives/C1/p2',
+      posted: true,
+    },
+  });
+  const actions = rowActions(mr, actionEnvOf(ownEnv, mr));
+  expect(topKeys(mr).every(k => k.startsWith('react-'))).toBe(true);
+  expect(topKeys(mr).length).toBeGreaterThan(0);
+  const post = actions.find(a => a.key === 'post-slack')!;
+  expect(post.section).toBe('slack');
+  expect(post.blocked).toBe('thread exists');
+  expect(actions.map(a => a.key)).not.toContain('find-thread');
+});
+
+test("a teammate's MR with no thread leads with finding it", () => {
+  const mr = mrx(262, {
+    author: { username: 'kim', name: 'Kim' },
+    slack: { status: 'notfound', reactions: [], posted: false },
+  });
+  expect(topKeys(mr)).toEqual(['find-thread']);
+  expect(keys(mr, ownEnv)).not.toContain('post-slack');
 });

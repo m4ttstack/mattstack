@@ -45,8 +45,9 @@ label. No new field.
 `Section` in `row-actions.ts` becomes
 `'top' | 'agent' | 'sessions' | 'gitlab' | 'slack' | 'more'`.
 
-- `top`: the reaction row, or "find slack thread" when Slack is on and no
-  thread is found.
+- `top`: the reaction row when Slack is on and a thread is found. With no
+  thread found, "post to #channel" on your own MR, and "find slack thread"
+  on anyone else's.
 - `agent`: the review lane primary, the respond lane primary, call doctor,
   rebase locally, ask-respond (teammate MRs) and the seatless `seat-hint`.
 - `sessions`, `gitlab`, `slack`, `more`: flyouts.
@@ -99,23 +100,24 @@ label "review from scratch". Both keys stay.
 | mark as draft / mark ready | gitlab | local, own | never |
 | open in gitlab | gitlab | always | never |
 | mark / unmark looking, commented, approved | top (reaction row) | local, Slack on, thread found | never |
-| find slack thread / find it again | top | local, Slack on, thread not found | never |
+| find slack thread / find it again | top; slack on your own MR | local, Slack on, thread not found | never |
 | open MR post in slack | slack | local, Slack on | no thread: "no thread"; no permalink: "no link yet" |
-| post to #channel / post to slack | slack | local, Slack on, own | thread found: "thread exists" |
+| post to #channel / post to slack | top with no thread found; slack once one is | local, Slack on, own | thread found: "thread exists" |
 | post to code owners... | slack | local, Slack on, own, repo in `ownerSlackRepos` | never (repo not listed is a config fact, so omitted) |
 | copy for slack | slack | always | never |
 | add a note / edit note | more | always | never |
 | auto-doctor: ignore | more | local, own, seat | triage off and no doctor run active: "auto-doctor is off" |
 | re-enable auto-doctor | more | local, own, seat | never |
 
-"find slack thread" lives only in `top`; it is not repeated in the slack
-flyout.
+"find slack thread" and "post to #channel" each sit in one section, never
+both: on your own MR with no thread, posting leads and finding it again
+waits in the slack flyout.
 
 ## Role menus
 
 Following the table's role gates, with single-row sections inlined:
 
-- **Own MR, local:** top (reactions or find thread), agent (two primaries,
+- **Own MR, local:** top (reactions, or the slack post), agent (two primaries,
   doctor and rebase locally when needed), then sessions, gitlab, slack and
   more flyouts.
 - **Teammate MR, local:** top, agent (review primary, ask-respond), then
