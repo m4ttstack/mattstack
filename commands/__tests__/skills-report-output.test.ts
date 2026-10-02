@@ -85,6 +85,7 @@ test("composition is one tree per verb, with engine errors as failed lines", () 
     fills: [],
     binders: [],
     pipelines: {},
+    targets: [],
   };
   expect(renderPlain(compositionBlocks(payload))).toBe(
     ["Pack acme", "watch-ci  mattstack:watch-ci, public", "  - domain  acme:watch-ci-domain  team", "  - forge   not bound", "[failed] ship  engine not found", "Fills: 0", "Binders: 0", ""].join("\n"),
