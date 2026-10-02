@@ -527,11 +527,22 @@ describe("mcpTools", () => {
       expect(out.error).toContain("The operation timed out.");
     });
 
-    test("a sequence error that names a GitLab timeout keeps the daemon's own account of what landed", async () => {
-      const error = "review not posted: TimeoutError: The operation timed out.";
-      reply = () => ({ ok: false, error });
+    for (const error of [
+      "Error: review not posted: TimeoutError: The operation timed out.",
+      "Error: publish failed and its outcome is unknown: TimeoutError: The operation timed out.; GitLab may have posted some or all of this review; look at the MR before retrying",
+    ]) {
+      test(`a sequence error naming a timeout keeps the daemon's own account: ${error.slice(0, 26)}`, async () => {
+        reply = () => ({ ok: false, error });
+        const out = await tool().handler({ ...TARGET, outcome: "comment", summary: "s" }, {} as NodeJS.ProcessEnv);
+        expect(out.ok).toBe(false);
+        expect(out.error).toBe(error);
+      });
+    }
+
+    test("a bare request timeout is still rewritten to the outcome-unknown wording", async () => {
+      reply = () => ({ ok: false, error: "request timed out" });
       const out = await tool().handler({ ...TARGET, outcome: "comment", summary: "s" }, {} as NodeJS.ProcessEnv);
-      expect(out.error).toBe(error);
+      expect(out.error).toBe("mr_review_submit timed out and its outcome is unknown; the review may still land; look at the MR before retrying (request timed out)");
     });
   });
 

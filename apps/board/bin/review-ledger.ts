@@ -79,11 +79,13 @@ function skippedList(round: number, raw: string | undefined): SkippedFinding[] {
       die(`--skipped[${i}]: id, title, severity and excerpt are required`);
     if (!SEVERITIES.includes(s.severity as SkippedSeverity))
       die(`--skipped[${i}].severity must be one of ${SEVERITIES.join('|')}`);
-    if (s.file !== undefined && !text('file'))
+    const file = s.file ?? undefined;
+    const line = s.line ?? undefined;
+    if (file !== undefined && !text('file'))
       die(`--skipped[${i}].file must be a non-empty string when present`);
     if (
-      s.line !== undefined &&
-      !(typeof s.line === 'number' && Number.isInteger(s.line) && s.line > 0)
+      line !== undefined &&
+      !(typeof line === 'number' && Number.isInteger(line) && line > 0)
     )
       die(`--skipped[${i}].line must be a positive integer when present`);
     if (s.snippet !== undefined && typeof s.snippet !== 'string')
@@ -92,8 +94,8 @@ function skippedList(round: number, raw: string | undefined): SkippedFinding[] {
       id: qualifySkippedId(round, s.id as string),
       title: s.title as string,
       severity: s.severity as SkippedSeverity,
-      ...(s.file !== undefined ? { file: s.file as string } : {}),
-      ...(s.line !== undefined ? { line: s.line as number } : {}),
+      ...(file !== undefined ? { file: file as string } : {}),
+      ...(line !== undefined ? { line: line as number } : {}),
       excerpt: s.excerpt as string,
       snippet: typeof s.snippet === 'string' ? s.snippet : '',
     };

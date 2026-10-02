@@ -48,7 +48,7 @@ const MR_UPLOAD_TIMEOUT_MS = 120_000;
 const MR_REVIEW_SUBMIT_TIMEOUT_MS = 180_000;
 
 /** The daemon's own sequence errors already say what reached the MR. */
-const REVIEW_SEQUENCE_ERROR = /^(review not posted|publish failed)/;
+const REVIEW_SEQUENCE_ERROR = /^(Error: )?(review not posted|publish failed)/;
 
 function withReviewTimeout(res: ToolResult): ToolResult {
   if (res.ok || REVIEW_SEQUENCE_ERROR.test(res.error ?? "") || !isTimeoutError(res.error)) return res;

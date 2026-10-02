@@ -295,6 +295,53 @@ describe('review-ledger CLI', () => {
     expect(view.skipped[0].snippet).toBe('');
   });
 
+  test('a null file or line records the finding without that anchor', async () => {
+    const handle = mintHandle('review', URL_A, dir);
+    seed(handle, 4821);
+    const rec = await run([
+      'record',
+      handle,
+      '--round',
+      '1',
+      '--sha',
+      'a',
+      '--outcome',
+      'comment',
+      '--skipped',
+      JSON.stringify([
+        {
+          id: 'f1',
+          title: 't',
+          severity: 'minor',
+          excerpt: 'e',
+          file: null,
+          line: null,
+        },
+        {
+          id: 'f2',
+          title: 'u',
+          severity: 'minor',
+          excerpt: 'e',
+          file: 'src/a.ts',
+          line: null,
+        },
+      ]),
+    ]);
+    expect(rec.code).toBe(0);
+    const view = JSON.parse((await run(['read', handle])).out);
+    expect(
+      view.skipped.map((s: Record<string, unknown>) => [
+        s.id,
+        'file' in s,
+        s.file,
+        'line' in s,
+      ])
+    ).toEqual([
+      ['r1-f1', false, undefined, false],
+      ['r1-f2', true, 'src/a.ts', false],
+    ]);
+  });
+
   test('input that would lose round state exits 1 with its own reason and writes nothing', async () => {
     const handle = mintHandle('review', URL_A, dir);
     seed(handle, 4821);

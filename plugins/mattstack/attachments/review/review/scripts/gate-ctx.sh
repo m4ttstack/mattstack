@@ -232,15 +232,19 @@ def trim_carry($f; $limit):
     (carry_candidates($f) | sort_by(-.b, .i) | first.i) as $i
     | .questions[$i].context |= del(.[$f])
     | .trimmed += ["\(.questions[$i].id):\($f)"]);
-def long_originals: [.questions | to_entries[]
-  | select(.value.context["gate-ctx"]? == "carryover@1" and (.value.context.original | length) > 80)
+def long_carry($f): [.questions | to_entries[]
+  | select(.value.context["gate-ctx"]? == "carryover@1" and (.value.context[$f] | length) > 80)
   | {i: .key, b: (.value.context | tojson | utf8bytelength)}];
+# A second pass cuts out the first marker with the middle half, so a field
+# carries one marker however often it shrinks.
 def middle: length as $n | ($n / 4 | floor) as $k | .[:$k] + " ... " + .[$n - $k:];
-def trim_originals($limit):
-  until(ctx_bytes < $limit or (long_originals | length == 0);
-    (long_originals | sort_by(-.b, .i) | first.i) as $i
-    | .questions[$i].context.original |= middle
-    | "\(.questions[$i].id):original" as $tag
+# Shortens, never deletes: carryover@1 reads an absent authorReply as
+# "the author never replied", and original is required.
+def shorten_carry($f; $limit):
+  until(ctx_bytes < $limit or (long_carry($f) | length == 0);
+    (long_carry($f) | sort_by(-.b, .i) | first.i) as $i
+    | .questions[$i].context[$f] |= middle
+    | "\(.questions[$i].id):\($f)" as $tag
     | if .trimmed | index([$tag]) then . else .trimmed += [$tag] end);
 def entry_candidates($f): [.questions | to_entries[] | .key as $i
   | select(.value.context["gate-ctx"]? == "findings@1")
@@ -265,7 +269,7 @@ def main($mode; $limit):
   if $mode == "prose" or (structurable | not) then render("prose"; true)
   else . as $src
     | (.trimmed = [] | trim("points"; $limit) | trim("note"; $limit)
-        | trim_carry("authorReply"; $limit) | trim_carry("note"; $limit) | trim_originals($limit)
+        | trim_carry("note"; $limit) | shorten_carry("authorReply"; $limit) | shorten_carry("original"; $limit)
         | trim_entries("evidence"; $limit) | trim_entries("fix"; $limit)) as $fitted
     | if ($fitted | ctx_bytes) < $limit then $fitted | render("structured"; false)
       else ($src | render("prose"; true)) as $full
