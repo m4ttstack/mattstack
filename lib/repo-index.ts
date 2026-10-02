@@ -266,7 +266,7 @@ export function updateRepoIndex(repoName: string, repoRoot: string): void {
  * ONLY ever a refused/failed locate — the plain write keeps the sync seam's
  * best-effort contract and never reports failure.
  */
-export type IndexHealResult = { ok: true; healed: boolean } | { ok: false; error: string };
+export type IndexHealResult = { ok: true; healed: boolean } | { ok: false; error: string; why?: string; next?: string };
 
 /**
  * `updateRepoIndex` for callers that can await: the same write, plus the move
@@ -292,7 +292,8 @@ export async function updateRepoIndexAsync(repoName: string, repoRoot: string): 
   }
   const { locateMovedRepo } = await import("./repo-locate-dispatch.ts");
   const outcome = await locateMovedRepo({ newPath: mainPath, repo: repoName });
-  return outcome.ok ? { ok: true, healed: true } : { ok: false, error: outcome.error };
+  if (outcome.ok) return { ok: true, healed: true };
+  return { ok: false, error: outcome.error, ...(outcome.why ? { why: outcome.why } : {}), ...(outcome.next ? { next: outcome.next } : {}) };
 }
 
 /**

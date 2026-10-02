@@ -14,7 +14,12 @@ import { loadRepoIndex, REPO_INDEX_NS } from "../repo-index.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../worktree/registry.ts";
 import { saveClaims } from "../endpoint/store.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../settings/identity.ts";
-import { applyLocate, findLocateCandidates, isRefusal, planLocate } from "../repo-locate.ts";
+import { applyLocate, findLocateCandidates, isRefusal, parseRefusalText, planLocate } from "../repo-locate.ts";
+import { repoLabel } from "../repo-label.ts";
+
+const LONG_DASH = new RegExp(`[${String.fromCodePoint(0x2013)}${String.fromCodePoint(0x2014)}]`);
+/** A refusal a person reads: no long dash and no flag in the sentence. */
+const plainWords = (message: string) => !LONG_DASH.test(message) && !message.includes("--");
 
 describe("repo locate", () => {
   const origHome = process.env.HOME;
@@ -62,12 +67,14 @@ describe("repo locate", () => {
     mkdirSync(plain);
     const out = await planLocate({ newPath: plain });
     expect(isRefusal(out) && out.refusal).toBe("not-a-git-repo");
+    expect(isRefusal(out) && plainWords(out.message)).toBe(true);
   });
 
   test("nothing lost in the index is refused", async () => {
     const repo = repoWithRemote("alpha");
     const out = await planLocate({ newPath: repo });
     expect(isRefusal(out) && out.refusal).toBe("nothing-lost");
+    expect(isRefusal(out) && plainWords(out.message)).toBe(true);
   });
 
   test("a derived identity matching no lost row refuses and names both sides", async () => {
@@ -77,8 +84,9 @@ describe("repo locate", () => {
     const out = await planLocate({ newPath: repo });
 
     expect(isRefusal(out) && out.refusal).toBe("identity-mismatch");
-    expect(isRefusal(out) && out.message).toContain("remote:gitlab.com%2Fg%2Fbeta");
-    expect(isRefusal(out) && out.message).toContain("remote:gitlab.com%2Fg%2Fsomething-else");
+    expect(isRefusal(out) && plainWords(out.message)).toBe(true);
+    expect(isRefusal(out) && out.message).toContain(repoLabel("remote:gitlab.com%2Fg%2Fbeta"));
+    expect(isRefusal(out) && out.message).toContain(repoLabel("remote:gitlab.com%2Fg%2Fsomething-else"));
   });
 
   test("a remote-less repo is refused: its identity IS its path, so a move mints a new one", async () => {
@@ -88,6 +96,7 @@ describe("repo locate", () => {
     const out = await planLocate({ newPath: repo });
 
     expect(isRefusal(out) && out.refusal).toBe("identity-changed");
+    expect(isRefusal(out) && plainWords(out.message)).toBe(true);
     expect(isRefusal(out) && out.message).toContain("rt repos register");
   });
 
@@ -101,6 +110,7 @@ describe("repo locate", () => {
     const out = await planLocate({ newPath: realpathSync(clone) });
 
     expect(isRefusal(out) && out.refusal).toBe("old-path-exists");
+    expect(isRefusal(out) && plainWords(out.message)).toBe(true);
   });
 
   test("plans the index keys, registry rewrite, claim rewrite and repair paths of a moved repo", async () => {
@@ -252,6 +262,7 @@ describe("repo locate", () => {
     const out = await planLocate({ newPath: treePath });
 
     expect(isRefusal(out) && out.refusal).toBe("not-main-worktree");
+    expect(isRefusal(out) && plainWords(out.message)).toBe(true);
   });
 
   test("a registry record written between plan and apply is moved, not overwritten", async () => {
@@ -459,4 +470,13 @@ describe("repo locate", () => {
 
     expect(await findLocateCandidates()).toEqual([{ path: moved, identity }]);
   });
+});
+
+test("a refusal sent as its code and message reads back; any other error does not", () => {
+  expect(parseRefusalText("old-path-exists: widgets is still at /x, so this folder is a second copy, not a move")).toEqual({
+    refusal: "old-path-exists",
+    message: "widgets is still at /x, so this folder is a second copy, not a move",
+  });
+  expect(parseRefusalText("git worktree repair failed: exit 1")).toBeNull();
+  expect(parseRefusalText("The rt daemon is running but did not answer")).toBeNull();
 });
