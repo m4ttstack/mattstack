@@ -1,9 +1,16 @@
 import type { ReactNode } from 'react';
+import type { ExplainRowWire } from '@mattstack/settings-kit/react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { ExplainModal } from './ExplainModal';
 import { BOARD_DEFS, BOARD_ROWS } from './fixtures/boards';
+import {
+  POOL_DEF,
+  POOL_KEY,
+  POOL_REPO_ROWS,
+  POOL_ROWS,
+} from './fixtures/repos';
 import type { PanelStore } from './KeyPanel';
 import { SettingRow, type RowOpen } from './SettingRow';
 import classes from './SettingsRows.module.css';
@@ -15,17 +22,28 @@ const store: PanelStore = {
   prune: async () => null,
 };
 
-const def = (key: string) => BOARD_DEFS.find(d => d.key === key)!;
+const DEFS = [...BOARD_DEFS, POOL_DEF];
+const ROWS: Record<string, ExplainRowWire[]> = {
+  ...BOARD_ROWS,
+  [POOL_KEY]: POOL_ROWS,
+};
+const REPO_ROWS: Record<string, Record<string, ExplainRowWire[]>> = {
+  [POOL_KEY]: POOL_REPO_ROWS,
+};
+
+const def = (key: string) => DEFS.find(d => d.key === key)!;
 
 function stubFetch(real: typeof fetch): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const m = /\/api\/settings\/explain\/([^?]+)/.exec(String(input));
+    const url = new URL(String(input), window.location.href);
+    const m = /\/api\/settings\/explain\/(.+)$/.exec(url.pathname);
     if (!m) return real(input, init);
     const key = decodeURIComponent(m[1]!);
-    return new Response(
-      JSON.stringify({ def: def(key), rows: BOARD_ROWS[key] ?? [] }),
-      { headers: { 'content-type': 'application/json' } }
-    );
+    const repo = url.searchParams.get('repo');
+    const rows = repo ? REPO_ROWS[key]?.[repo] : ROWS[key];
+    return new Response(JSON.stringify({ def: def(key), rows: rows ?? [] }), {
+      headers: { 'content-type': 'application/json' },
+    });
   }) as typeof fetch;
 }
 
@@ -101,6 +119,18 @@ export const RunDetailModal: Story = {
       <ExplainModal
         settingKey="rt.logLevel"
         store={{ defs: BOARD_DEFS, loading: false, error: null, ...store }}
+        onClose={() => {}}
+      />
+    </QueryClientProvider>
+  ),
+};
+
+export const RunDetailRepos: Story = {
+  render: () => (
+    <QueryClientProvider client={client}>
+      <ExplainModal
+        settingKey={POOL_KEY}
+        store={{ defs: DEFS, loading: false, error: null, ...store }}
         onClose={() => {}}
       />
     </QueryClientProvider>

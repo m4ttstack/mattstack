@@ -506,6 +506,105 @@ describe('KeyPanel', () => {
     ).toBeInTheDocument();
   });
 
+  describe('the Repos list with no repo picked', () => {
+    const STOREFRONT = 'gitlab.example.com/acme/storefront';
+    const BILLING = 'gitlab.example.com/acme/billing';
+
+    function renderRepos(
+      d: SettingDefWire,
+      rowsFor: Record<string, ExplainRowWire[]>
+    ) {
+      explainGet.mockImplementation(async (url: string) => {
+        const repo = new URL(url, 'http://x').searchParams.get('repo');
+        return ok({
+          def: d,
+          rows: (repo && rowsFor[repo]) ?? [
+            { scope: 'default', file: null, present: false },
+          ],
+        });
+      });
+      renderWithProviders(
+        <QueryClientProvider client={new QueryClient()}>
+          <KeyPanel
+            def={d}
+            store={store()}
+            tab="where"
+            onTab={vi.fn()}
+            value={null}
+          />
+        </QueryClientProvider>
+      );
+    }
+
+    it('draws each repo section’s set rungs as read-only layer lines', async () => {
+      const d = def('rt.worktreePool', {
+        type: 'object',
+        merge: 'deep',
+        repoScoped: true,
+        repoOnly: true,
+        repos: [
+          { identity: STOREFRONT, scopes: ['user'] },
+          { identity: BILLING, scopes: ['team'] },
+        ],
+        effective: { scope: null, file: null },
+      });
+      renderRepos(d, {
+        [STOREFRONT]: [
+          {
+            scope: 'user.repo',
+            file: '/stores/user.jsonc',
+            present: true,
+            value: { onDeck: 2, ready: [{ run: 'bun install' }] },
+          },
+        ],
+        [BILLING]: [
+          {
+            scope: 'team.repo',
+            file: '/stores/team.jsonc',
+            present: true,
+            value: { onDeck: 1 },
+          },
+        ],
+      });
+      const storefront = await screen.findByTestId(`repo-${STOREFRONT}`);
+      const value = await within(storefront).findByTestId(
+        'layer-value-user.repo'
+      );
+      expect(value).toHaveTextContent(/^2 fields$/);
+      expect(value.closest(`.${classes.line}`)).not.toBeNull();
+      expect(within(storefront).getByText('user · repo')).toBeInTheDocument();
+      expect(within(storefront).queryByTestId('json-block')).toBeNull();
+      expect(within(storefront).queryByRole('link')).toBeNull();
+      expect(within(storefront).queryAllByRole('button')).toHaveLength(0);
+      const billing = screen.getByTestId(`repo-${BILLING}`);
+      expect(
+        await within(billing).findByTestId('layer-value-team.repo')
+      ).toHaveTextContent(/^1 field$/);
+    });
+
+    it('a repo section shows a string value bare', async () => {
+      const d = def('rt.worktreeCwd', {
+        repoScoped: true,
+        repos: [{ identity: STOREFRONT, scopes: ['machine'] }],
+        effective: { scope: null, file: null },
+      });
+      renderRepos(d, {
+        [STOREFRONT]: [
+          {
+            scope: 'machine.repo',
+            file: '/stores/local.jsonc',
+            present: true,
+            value: 'apps/web',
+          },
+        ],
+      });
+      const storefront = await screen.findByTestId(`repo-${STOREFRONT}`);
+      expect(
+        await within(storefront).findByTestId('layer-value-machine.repo')
+      ).toHaveTextContent(/^apps\/web$/);
+    });
+  });
+
   it('a repo switch drops an open rung editor and writes nothing', async () => {
     const d = def('board.ticketPrefixes', {
       type: 'array',

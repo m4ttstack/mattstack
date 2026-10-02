@@ -1,4 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useState,
+  type KeyboardEventHandler,
+  type ReactNode,
+} from 'react';
 import {
   ActionIcon,
   Alert,
@@ -28,7 +33,6 @@ import { DivergedPanel } from './DivergedPanel';
 import { DraftEditor } from './DraftEditor';
 import { editorKind, formOf } from './formShape';
 import { isDiverged, issueText, type WireIssue } from './issues';
-import { JsonBlock } from './JsonBlock';
 import classes from './KeyPanel.module.css';
 import { PanelToolbarSlot } from './PanelToolbar';
 import { ScalarControl } from './ScalarControl';
@@ -161,6 +165,94 @@ function Status({ role, row }: { role: Role; row: ExplainRowWire }) {
   );
 }
 
+function LayerBadge({ scope }: { scope: string }) {
+  const { text } = useSchemeColors();
+  if (rungBase(scope)) return <ScopeBadge scope={scope as LayerScope} bare />;
+  if (scope === 'default') return <ScopeBadge scope="default" />;
+  return (
+    <Text fz={12} fw={500} c={text.muted}>
+      {scope}
+    </Text>
+  );
+}
+
+/** A layer's value as its line reads it: a string bare, a scalar's JSON
+    text, a composite's summary, never a JSON block. */
+function LayerValue({
+  def,
+  row,
+  role,
+}: {
+  def: SettingDefWire;
+  row: ExplainRowWire;
+  role?: Role;
+}) {
+  const { text } = useSchemeColors();
+  if (!row.present)
+    return (
+      <Text fz={13} lh="17px" c={text.muted}>
+        not set
+      </Text>
+    );
+  if (def.secret)
+    return (
+      <Text fz={13} lh="17px" c={text.muted}>
+        present, never shown here
+      </Text>
+    );
+  const composite = def.type === 'object' || def.type === 'array';
+  return (
+    <Text
+      fz={13}
+      lh="17px"
+      ff="monospace"
+      truncate
+      fw={role === 'winner' ? 500 : undefined}
+      c={role === 'overridden' || role === 'inert' ? text.muted : undefined}
+      data-role={role}
+      data-testid={`layer-value-${row.scope}`}
+    >
+      {composite ? rowSummary(layerDef(def, row)) : valueText(row.value)}
+    </Text>
+  );
+}
+
+/** One layer's 38px line: its badge in the fixed column, then its value.
+    `trailing` and `children` hold an editable line's status, actions and
+    sub-lines. */
+function Line({
+  scope,
+  value,
+  onValueKeyDown,
+  trailing,
+  editing = false,
+  testId,
+  children,
+}: {
+  scope: string;
+  value: ReactNode;
+  onValueKeyDown?: KeyboardEventHandler<HTMLDivElement>;
+  trailing?: ReactNode;
+  editing?: boolean;
+  testId?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <Box className={classes.line} mod={{ editing }} data-testid={testId}>
+      <Group gap={12} wrap="nowrap" mih={38} px={8}>
+        <Box className={classes.scope}>
+          <LayerBadge scope={scope} />
+        </Box>
+        <Box className={classes.value} onKeyDown={onValueKeyDown}>
+          {value}
+        </Box>
+        {trailing}
+      </Group>
+      {children}
+    </Box>
+  );
+}
+
 function LayerLine({
   def,
   row,
@@ -250,33 +342,7 @@ function LayerLine({
         editing below
       </Text>
     );
-  else if (!row.present)
-    value = (
-      <Text fz={13} lh="17px" c={text.muted}>
-        not set
-      </Text>
-    );
-  else if (def.secret)
-    value = (
-      <Text fz={13} lh="17px" c={text.muted}>
-        present, never shown here
-      </Text>
-    );
-  else
-    value = (
-      <Text
-        fz={13}
-        lh="17px"
-        ff="monospace"
-        truncate
-        fw={role === 'winner' ? 500 : undefined}
-        c={role === 'overridden' || role === 'inert' ? text.muted : undefined}
-        data-role={role}
-        data-testid={`layer-value-${scope}`}
-      >
-        {composite ? rowSummary(layerDef(def, row)) : valueText(row.value)}
-      </Text>
-    );
+  else value = <LayerValue def={def} row={row} role={role} />;
 
   const issues =
     editing && composite ? [] : (reported ?? row.nonconforming ?? []);
@@ -285,108 +351,97 @@ function LayerLine({
   const subs =
     Boolean(row.invalid) || issues.length > 0 || stray || Boolean(offerOlder);
 
-  return (
-    <Box
-      className={classes.line}
-      mod={{ editing }}
-      data-testid={`layer-${scope}`}
-    >
-      <Group gap={12} wrap="nowrap" mih={38} px={8}>
-        <Box className={classes.scope}>
-          {store ? (
-            <ScopeBadge scope={scope as LayerScope} bare />
-          ) : scope === 'default' ? (
-            <ScopeBadge scope="default" />
-          ) : (
-            <Text fz={12} fw={500} c={text.muted}>
-              {scope}
-            </Text>
-          )}
-        </Box>
-        <Box
-          className={classes.value}
-          onKeyDown={
-            editing && store && !composite
-              ? cancelOnEscape(() => setEditing(false))
-              : undefined
-          }
-        >
-          {value}
-        </Box>
-        <Status role={role} row={row} />
-        <Group gap={2} wrap="nowrap" className={classes.actions}>
-          {row.file !== null && (
-            <Tooltip label={`Open ${row.file}`}>
-              <ActionIcon
-                component="a"
-                href={editorHref(row.file)}
-                variant="subtle"
-                color="gray"
-                aria-label={`open ${row.file}`}
-              >
-                <Icons.externalLink size={14} />
-              </ActionIcon>
+  const trailing = (
+    <>
+      <Status role={role} row={row} />
+      <Group gap={2} wrap="nowrap" className={classes.actions}>
+        {row.file !== null && (
+          <Tooltip label={`Open ${row.file}`}>
+            <ActionIcon
+              component="a"
+              href={editorHref(row.file)}
+              variant="subtle"
+              color="gray"
+              aria-label={`open ${row.file}`}
+            >
+              <Icons.externalLink size={14} />
+            </ActionIcon>
+          </Tooltip>
+        )}
+        {editable && store && (
+          <Tooltip label={editing ? 'Cancel' : `Set at ${named}`}>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              disabled={busy}
+              aria-label={
+                editing
+                  ? `cancel editing ${def.key} at ${label}`
+                  : `set ${def.key} at ${label}`
+              }
+              onClick={() => setEditing(e => !e)}
+            >
+              {editing ? <Icons.close size={14} /> : <Icons.edit size={14} />}
+            </ActionIcon>
+          </Tooltip>
+        )}
+        {moves.length > 0 && (
+          <Menu position="bottom-end" withinPortal>
+            <Tooltip label="Move to another layer">
+              <Menu.Target>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  disabled={busy}
+                  aria-label={`move ${def.key} from ${label}`}
+                >
+                  <Icons.arrowRight size={14} />
+                </ActionIcon>
+              </Menu.Target>
             </Tooltip>
-          )}
-          {editable && store && (
-            <Tooltip label={editing ? 'Cancel' : `Set at ${named}`}>
-              <ActionIcon
-                variant="subtle"
-                color="gray"
-                disabled={busy}
-                aria-label={
-                  editing
-                    ? `cancel editing ${def.key} at ${label}`
-                    : `set ${def.key} at ${label}`
-                }
-                onClick={() => setEditing(e => !e)}
-              >
-                {editing ? <Icons.close size={14} /> : <Icons.edit size={14} />}
-              </ActionIcon>
-            </Tooltip>
-          )}
-          {moves.length > 0 && (
-            <Menu position="bottom-end" withinPortal>
-              <Tooltip label="Move to another layer">
-                <Menu.Target>
-                  <ActionIcon
-                    variant="subtle"
-                    color="gray"
-                    disabled={busy}
-                    aria-label={`move ${def.key} from ${label}`}
-                  >
-                    <Icons.arrowRight size={14} />
-                  </ActionIcon>
-                </Menu.Target>
-              </Tooltip>
-              <Menu.Dropdown>
-                {moves.map(to => (
-                  <Menu.Item
-                    key={to}
-                    leftSection={<ScopeDot scope={to} />}
-                    onClick={() => void onMove(scope, to)}
-                  >
-                    {`Move to ${scopeLabel(to, team)}`}
-                  </Menu.Item>
-                ))}
-              </Menu.Dropdown>
-            </Menu>
-          )}
-          {writable && store && row.present && (
-            <Tooltip label={`Remove from ${named}${allRepos}`}>
-              <ActionIcon
-                variant="subtle"
-                color="gray"
-                disabled={busy}
-                aria-label={`remove ${def.key} from ${label}`}
-                onClick={() => void onRemove(scope)}
-              >
-                <Icons.trash size={14} />
-              </ActionIcon>
-            </Tooltip>
-          )}
-        </Group>
+            <Menu.Dropdown>
+              {moves.map(to => (
+                <Menu.Item
+                  key={to}
+                  leftSection={<ScopeDot scope={to} />}
+                  onClick={() => void onMove(scope, to)}
+                >
+                  {`Move to ${scopeLabel(to, team)}`}
+                </Menu.Item>
+              ))}
+            </Menu.Dropdown>
+          </Menu>
+        )}
+        {writable && store && row.present && (
+          <Tooltip label={`Remove from ${named}${allRepos}`}>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              disabled={busy}
+              aria-label={`remove ${def.key} from ${label}`}
+              onClick={() => void onRemove(scope)}
+            >
+              <Icons.trash size={14} />
+            </ActionIcon>
+          </Tooltip>
+        )}
       </Group>
+    </>
+  );
+
+  return (
+    <Line
+      scope={scope}
+      value={value}
+      onValueKeyDown={
+        editing && store && !composite
+          ? cancelOnEscape(() => setEditing(false))
+          : undefined
+      }
+      trailing={trailing}
+      editing={editing}
+      testId={`layer-${scope}`}
+    >
       {subs && (
         <Stack gap={2} className={classes.sub}>
           {row.invalid && (
@@ -449,25 +504,30 @@ function LayerLine({
           />
         </Box>
       )}
-    </Box>
+    </Line>
   );
 }
 
 function RepoSection({
-  settingKey,
+  def,
   identity,
   onPick,
 }: {
-  settingKey: string;
+  def: SettingDefWire;
   identity: string;
   onPick?: (repo: string) => void;
 }) {
   const { text } = useSchemeColors();
-  const { rows, loading } = useKeyExplain(settingKey, identity);
+  const { rows, loading } = useKeyExplain(def.key, identity);
   const set = rows.filter(r => r.present && isRung(r.scope));
   return (
     <Box className={classes.repo} data-testid={`repo-${identity}`}>
-      <Group gap={12} wrap="nowrap" justify="space-between">
+      <Group
+        gap={12}
+        wrap="nowrap"
+        justify="space-between"
+        className={classes.repoHead}
+      >
         <Text fz={13} ff="monospace">
           {repoLabel(identity)}
         </Text>
@@ -483,17 +543,18 @@ function RepoSection({
         )}
       </Group>
       {loading ? (
-        <Skeleton h={28} mt={8} />
+        <Skeleton h={38} />
       ) : (
         set.map(r => (
-          <Stack key={r.scope} gap={4} pt={8}>
-            <ScopeBadge scope={r.scope as LayerScope} />
-            <JsonBlock value={r.value} />
-          </Stack>
+          <Line
+            key={r.scope}
+            scope={r.scope}
+            value={<LayerValue def={def} row={r} />}
+          />
         ))
       )}
       {!loading && set.length === 0 && (
-        <Text fz={12} c={text.muted} pt={6}>
+        <Text fz={12} c={text.muted} className={classes.repoNote}>
           no repo section sets it now
         </Text>
       )}
@@ -735,7 +796,7 @@ function WhereTab({
           {def.repos!.map(r => (
             <RepoSection
               key={r.identity}
-              settingKey={def.key}
+              def={def}
               identity={r.identity}
               onPick={onPickRepo}
             />

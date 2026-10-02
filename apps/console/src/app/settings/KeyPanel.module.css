@@ -85,6 +85,14 @@
 }
 
 .repo {
-  padding: 10px 8px;
+  padding-block: 10px;
   border-bottom: 1px solid var(--tk-border-soft);
+}
+
+.repoHead {
+  padding: 0 8px 4px;
+}
+
+.repoNote {
+  padding: 2px 8px 0;
 }

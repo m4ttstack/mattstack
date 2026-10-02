@@ -799,7 +799,9 @@ describe('with a repo picked', () => {
     const section = await screen.findByTestId(`repo-${REPO}`);
     expect(within(section).getByText('acme/app')).toBeInTheDocument();
     expect(within(section).getByText('team · repo')).toBeInTheDocument();
-    expect(section).toHaveTextContent('"fixedPort": 3000');
+    expect(
+      await within(section).findByTestId('layer-value-team.repo')
+    ).toHaveTextContent(/^1 field$/);
     await userEvent.click(
       within(section).getByRole('button', { name: 'Show acme/app' })
     );
