@@ -83,24 +83,69 @@ function useBodyScrollLock(): void {
   }, []);
 }
 
-/** One transient toast: a fresh id per addToast() call and the text to show. */
+/** One transient toast: a fresh id per addToast() call and the text to show.
+    `state` marks a toast that tracks work: `pending` draws a spinner until the
+    work settles, `done` a check. A plain toast has none. */
 interface Toast {
   id: number;
   text: string;
+  state?: "pending" | "done";
 }
 
+/** Settles a toast that `startToast` opened, in place. */
+interface ToastHandle {
+  done: (text: string) => void;
+  fail: (text: string) => void;
+}
+
+const TOAST_MS = 3500;
+const DONE_MS = 2000;
+/** A pending toast whose work never answers still leaves. */
+const PENDING_MS = 30000;
+
 /** Transient toast queue: each addToast() call appends one with a fresh id and
-    self-removes it after 3.5s. */
-function useToasts(): { toasts: Toast[]; addToast: (text: string) => void } {
+    self-removes it after 3.5s. startToast() opens a pending toast that stays
+    until its handle settles it: done swaps in a check and leaves after 2s,
+    fail swaps in plain text and leaves after 3.5s. */
+function useToasts(): {
+  toasts: Toast[];
+  addToast: (text: string) => void;
+  startToast: (text: string) => ToastHandle;
+} {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
-  const addToast = useCallback((text: string) => {
-    const id = ++toastId.current;
-    setToasts((t) => [...t, { id, text }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
+  const expire = useCallback((id: number, ms: number) => {
+    return setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), ms);
   }, []);
-  return { toasts, addToast };
+  const addToast = useCallback(
+    (text: string) => {
+      const id = ++toastId.current;
+      setToasts((t) => [...t, { id, text }]);
+      expire(id, TOAST_MS);
+    },
+    [expire],
+  );
+  const startToast = useCallback(
+    (text: string): ToastHandle => {
+      const id = ++toastId.current;
+      setToasts((t) => [...t, { id, text, state: "pending" }]);
+      let timer: ReturnType<typeof setTimeout> | undefined = expire(id, PENDING_MS);
+      const settle = (next: Toast, ms: number) => {
+        if (timer === undefined) return;
+        clearTimeout(timer);
+        timer = undefined;
+        setToasts((t) => t.map((x) => (x.id === id ? next : x)));
+        expire(id, ms);
+      };
+      return {
+        done: (doneText) => settle({ id, text: doneText, state: "done" }, DONE_MS),
+        fail: (failText) => settle({ id, text: failText }, TOAST_MS),
+      };
+    },
+    [expire],
+  );
+  return { toasts, addToast, startToast };
 }
 
 export { useRevealOnChange, useEscapeClose, useAutoGrowTextarea, useBodyScrollLock, useToasts };
-export type { Toast };
+export type { Toast, ToastHandle };

@@ -88,4 +88,62 @@ describe("useToasts", () => {
     });
     expect(hook.current.toasts).toEqual([{ id: 2, text: "late" }]);
   });
+
+  it("startToast holds a pending toast until done, then shows the check for 2s", () => {
+    const hook = renderUseToasts();
+    let handle!: ReturnType<typeof hook.current.startToast>;
+    act(() => {
+      handle = hook.current.startToast("merging !1…");
+    });
+    act(() => {
+      vi.advanceTimersByTime(10000);
+    });
+    expect(hook.current.toasts).toEqual([{ id: 1, text: "merging !1…", state: "pending" }]);
+
+    act(() => {
+      handle.done("merge accepted !1");
+    });
+    expect(hook.current.toasts).toEqual([{ id: 1, text: "merge accepted !1", state: "done" }]);
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(hook.current.toasts).toEqual([]);
+  });
+
+  it("fail turns the pending toast into a plain one that leaves after 3500ms", () => {
+    const hook = renderUseToasts();
+    let handle!: ReturnType<typeof hook.current.startToast>;
+    act(() => {
+      handle = hook.current.startToast("rebasing !1…");
+    });
+    act(() => {
+      handle.fail("couldn't rebase !1");
+    });
+    expect(hook.current.toasts).toEqual([{ id: 1, text: "couldn't rebase !1" }]);
+    act(() => {
+      vi.advanceTimersByTime(3499);
+    });
+    expect(hook.current.toasts).toHaveLength(1);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(hook.current.toasts).toEqual([]);
+  });
+
+  it("a pending toast whose work never answers leaves after 30s, and a late settle is ignored", () => {
+    const hook = renderUseToasts();
+    let handle!: ReturnType<typeof hook.current.startToast>;
+    act(() => {
+      handle = hook.current.startToast("stuck…");
+    });
+    act(() => {
+      vi.advanceTimersByTime(30000);
+    });
+    expect(hook.current.toasts).toEqual([]);
+    act(() => {
+      handle.done("late");
+    });
+    expect(hook.current.toasts).toEqual([]);
+  });
 });

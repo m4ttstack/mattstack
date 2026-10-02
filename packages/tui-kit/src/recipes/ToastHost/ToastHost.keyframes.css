@@ -16,4 +16,23 @@
       transform: none;
     }
   }
+
+  [data-part="toasthost-toast"] {
+    transition: border-left-color 200ms ease-out;
+  }
+
+  [data-part="toasthost-toast"][data-state="done"] [data-part="toasthost-status"] {
+    animation: toasthost-check 220ms ease-out;
+  }
+
+  @keyframes toasthost-check {
+    from {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 }
