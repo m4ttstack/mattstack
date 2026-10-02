@@ -6,6 +6,7 @@ import { pendingChangesOf, sameChanges } from '../model/pendingChanges';
 import { designFixture } from './designFixtures';
 
 const composition = designFixture('composition');
+const HASH = 'a'.repeat(40);
 
 const rebind = (extra: SkillsChanges['files'] = []): SkillsChanges => {
   const changes = designFixture('changes.unsynced');
@@ -35,13 +36,17 @@ const names = (changes: SkillsChanges, withComposition = true) =>
 describe('pendingChangesOf', () => {
   it('names a rebind once, hiding its bindings file and the stage it rebuilt', () => {
     expect(
-      names(rebind([{ path: 'attachments/stage-plan/SKILL.md', status: 'M' }]))
+      names(
+        rebind([
+          { path: 'attachments/stage-plan/SKILL.md', status: 'M', hash: HASH },
+        ])
+      )
     ).toEqual(['plan']);
   });
 
   it("lists another skill's compiled output, which the rebind did not rebuild", () => {
     expect(
-      names(rebind([{ path: 'skills/work/SKILL.md', status: 'M' }]))
+      names(rebind([{ path: 'skills/work/SKILL.md', status: 'M', hash: HASH }]))
     ).toEqual(['plan', 'skills/work/SKILL.md']);
   });
 
@@ -49,7 +54,11 @@ describe('pendingChangesOf', () => {
     expect(
       names(
         rebind([
-          { path: 'attachments/plan-policy-strict/SKILL.md', status: 'M' },
+          {
+            path: 'attachments/plan-policy-strict/SKILL.md',
+            status: 'M',
+            hash: HASH,
+          },
         ])
       )
     ).toEqual(['plan', 'attachments/plan-policy-strict/SKILL.md']);
@@ -61,11 +70,11 @@ describe('pendingChangesOf', () => {
       dirty: true,
       surface: [{ skill: 'review', from: 'public', to: 'internal' }],
       files: [
-        { path: 'pack/surface.jsonc', status: 'M' },
-        { path: 'skills/review/SKILL.md', status: 'D' },
-        { path: 'attachments/review/SKILL.md', status: '??' },
-        { path: 'skills/review/references/notes.md', status: '??' },
-        { path: 'skills/work/SKILL.md', status: 'M' },
+        { path: 'pack/surface.jsonc', status: 'M', hash: HASH },
+        { path: 'skills/review/SKILL.md', status: 'D', hash: null },
+        { path: 'attachments/review/SKILL.md', status: '??', hash: HASH },
+        { path: 'skills/review/references/notes.md', status: '??', hash: HASH },
+        { path: 'skills/work/SKILL.md', status: 'M', hash: HASH },
       ],
     };
     expect(
@@ -83,11 +92,11 @@ describe('pendingChangesOf', () => {
       dirty: true,
       surface: [{ skill: 'review', from: 'public', to: 'internal' }],
       files: [
-        { path: 'pack/surface.jsonc', status: 'M' },
-        { path: 'skills/review/SKILL.md', status: 'D' },
-        { path: 'attachments/review/SKILL.md', status: '??' },
-        { path: 'skills/review/references/notes.md', status: '??' },
-        { path: 'skills/work/SKILL.md', status: 'M' },
+        { path: 'pack/surface.jsonc', status: 'M', hash: HASH },
+        { path: 'skills/review/SKILL.md', status: 'D', hash: null },
+        { path: 'attachments/review/SKILL.md', status: '??', hash: HASH },
+        { path: 'skills/review/references/notes.md', status: '??', hash: HASH },
+        { path: 'skills/work/SKILL.md', status: 'M', hash: HASH },
       ],
     };
     const fresh = pendingChangesOf(changes, movedInternal('review'));
@@ -107,13 +116,18 @@ describe('pendingChangesOf', () => {
       dirty: true,
       surface: [{ skill: 'house-style', from: 'public', to: 'internal' }],
       files: [
-        { path: 'pack/surface.jsonc', status: 'M' },
+        { path: 'pack/surface.jsonc', status: 'M', hash: HASH },
         {
           path: 'attachments/house-style/SKILL.md',
           status: 'R',
           from: 'skills/house-style/SKILL.md',
+          hash: HASH,
         },
-        { path: 'attachments/house-style/references/x.md', status: '??' },
+        {
+          path: 'attachments/house-style/references/x.md',
+          status: '??',
+          hash: HASH,
+        },
       ],
     };
     expect(
@@ -146,8 +160,8 @@ describe('pendingChangesOf', () => {
       dirty: true,
       surface: [{ skill: 'review', from: 'public', to: 'internal' }],
       files: [
-        { path: 'pack/surface.jsonc', status: 'M' },
-        { path: 'skills/work/SKILL.md', status: 'M' },
+        { path: 'pack/surface.jsonc', status: 'M', hash: HASH },
+        { path: 'skills/work/SKILL.md', status: 'M', hash: HASH },
       ],
     };
     expect(pendingChangesOf(changes, linked).map(c => c.name)).toEqual([
@@ -160,8 +174,8 @@ describe('pendingChangesOf', () => {
       ...designFixture('changes.clean'),
       dirty: true,
       files: [
-        { path: 'pack/skills.jsonc', status: 'M' },
-        { path: 'attachments/stage-plan/SKILL.md', status: 'M' },
+        { path: 'pack/skills.jsonc', status: 'M', hash: HASH },
+        { path: 'attachments/stage-plan/SKILL.md', status: 'M', hash: HASH },
       ],
     };
     expect(names(changes)).toEqual([
@@ -173,7 +187,9 @@ describe('pendingChangesOf', () => {
   it('lists rebuilt output until the composition says what was rebuilt', () => {
     expect(
       names(
-        rebind([{ path: 'attachments/stage-plan/SKILL.md', status: 'M' }]),
+        rebind([
+          { path: 'attachments/stage-plan/SKILL.md', status: 'M', hash: HASH },
+        ]),
         false
       )
     ).toEqual(['plan', 'attachments/stage-plan/SKILL.md']);
@@ -181,7 +197,9 @@ describe('pendingChangesOf', () => {
 });
 
 describe('sameChanges', () => {
-  const base = rebind([{ path: 'attachments/notes.md', status: '??' }]);
+  const base = rebind([
+    { path: 'attachments/notes.md', status: '??', hash: HASH },
+  ]);
 
   it('matches the same changes in another order, whatever lies outside the pack', () => {
     expect(
@@ -196,7 +214,12 @@ describe('sameChanges', () => {
   it.each<[string, Partial<SkillsChanges>]>([
     [
       'a file added',
-      { files: [...base.files, { path: 'pack/extra.md', status: '??' }] },
+      {
+        files: [
+          ...base.files,
+          { path: 'pack/extra.md', status: '??', hash: HASH },
+        ],
+      },
     ],
     [
       "a file's status",
@@ -215,6 +238,10 @@ describe('sameChanges', () => {
     [
       'a surface change',
       { surface: [{ skill: 'review', from: 'public', to: 'internal' }] },
+    ],
+    [
+      "a file's content, which only rt's signature carries",
+      { signature: 'e'.repeat(64) },
     ],
   ])('tells %s apart', (_, change) => {
     expect(sameChanges(base, { ...base, ...change })).toBe(false);

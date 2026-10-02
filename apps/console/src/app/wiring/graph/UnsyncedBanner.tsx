@@ -120,9 +120,9 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
   /**
    * A confirm refuses its write when a fresh read of the pack differs from
    * the list it showed, since that list came from a poll that can be seconds
-   * old and stayed fixed while the confirm was open. rt then reads the pack
-   * again on its own and acts on whatever is pending when it starts, so an
-   * edit landing between this check and that read is not caught here.
+   * old and stayed fixed while the confirm was open. The write carries the
+   * shown list's signature, so rt refuses too when an edit lands between
+   * this check and its own read.
    */
   const confirmed =
     (
@@ -155,9 +155,9 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
 
   // Reported from the promise, which settles whether or not the banner is
   // still mounted; a `mutate` callback is dropped once it unmounts.
-  const runSync = () =>
+  const runSync = (expect: string) =>
     sync
-      .mutateAsync({ commitPending: true })
+      .mutateAsync({ commitPending: true, expect })
       .then(report => {
         const refusal = syncRefusal(report);
         if (refusal) notifications.error(refusal);
@@ -168,9 +168,9 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
       })
       .catch((error: Error) => notifications.error(error.message));
 
-  const runDiscard = () =>
+  const runDiscard = (expect: string) =>
     discard
-      .mutateAsync()
+      .mutateAsync(expect)
       .then(() =>
         notifications.success(`Discarded the unsynced changes in ${pack}`)
       )
@@ -236,10 +236,13 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
         icon: <Icon name="close" size={16} data-parity="close" />,
       },
       attributes: { content: { 'data-parity': 'Modal · sync changes' } },
-      onConfirm: confirmed(changes, runSync, fresh =>
-        fresh.outsideScope.length > 0
-          ? outsideNote(fresh.outsideScope.map(file => file.path))
-          : null
+      onConfirm: confirmed(
+        changes,
+        () => runSync(changes.signature),
+        fresh =>
+          fresh.outsideScope.length > 0
+            ? outsideNote(fresh.outsideScope.map(file => file.path))
+            : null
       ),
     });
 
@@ -258,7 +261,7 @@ export function UnsyncedBanner({ pack }: { pack: string }) {
         </Stack>
       ),
       labels: { confirm: 'Discard' },
-      onConfirm: confirmed(changes, runDiscard),
+      onConfirm: confirmed(changes, () => runDiscard(changes.signature)),
     });
 
   return (

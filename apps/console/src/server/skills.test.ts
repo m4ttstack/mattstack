@@ -1872,7 +1872,7 @@ describe('write routes', () => {
       { pack: 'demo', toPublic: [], toInternal: ['watch-ci'] },
     ],
     ['/api/skills/sync', { pack: 'demo' }],
-    ['/api/skills/discard', { pack: 'demo' }],
+    ['/api/skills/discard', { pack: 'demo', expect: 'a'.repeat(64) }],
   ];
 
   it.each(writes)(
@@ -2006,6 +2006,9 @@ describe('write routes', () => {
     }
   );
 });
+
+const SIGNATURE =
+  '7ce21e4417715d4f9cc0069f90e6123eff0bac0da6995ce8e7feb2b3da634bba';
 
 const postJson = (app: Hono, path: string, body: unknown) =>
   app.request(path, {
@@ -2542,7 +2545,10 @@ describe('skills changes and discard routes', () => {
     });
     const app = mountSkills(new Hono(), rt.run);
 
-    const res = await postJson(app, '/api/skills/discard', { pack: 'acme' });
+    const res = await postJson(app, '/api/skills/discard', {
+      pack: 'acme',
+      expect: SIGNATURE,
+    });
 
     expect(res.status).toBe(200);
     expect(rt.calls[0]).toEqual([
@@ -2551,7 +2557,26 @@ describe('skills changes and discard routes', () => {
       '--pack',
       'acme',
       '--json',
+      '--expect',
+      SIGNATURE,
     ]);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['without a signature', { pack: 'acme' }],
+    ['with a signature that is not one', { pack: 'acme', expect: 'abc' }],
+    ['with a signature that is not a string', { pack: 'acme', expect: 7 }],
+  ])('discard 400s %s, before rt is spawned', async (_label, body) => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postJson(app, '/api/skills/discard', body);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining('signature'),
+    });
+    expect(rt.run).not.toHaveBeenCalled();
   });
 
   it('discard 400s without a pack, before rt is spawned', async () => {
@@ -2570,7 +2595,10 @@ describe('skills changes and discard routes', () => {
     });
     const app = mountSkills(new Hono(), rt.run);
 
-    const res = await postJson(app, '/api/skills/discard', { pack: 'acme' });
+    const res = await postJson(app, '/api/skills/discard', {
+      pack: 'acme',
+      expect: SIGNATURE,
+    });
 
     expect(res.status).toBe(502);
     await expect(res.json()).resolves.toMatchObject({
@@ -2588,7 +2616,10 @@ describe('skills changes and discard routes', () => {
     const anatomy = '/api/skills/anatomy?pack=acme&skill=stage-plan';
 
     await app.request(anatomy);
-    await postJson(app, '/api/skills/discard', { pack: 'acme' });
+    await postJson(app, '/api/skills/discard', {
+      pack: 'acme',
+      expect: SIGNATURE,
+    });
     await app.request(anatomy);
 
     expect(rt.calls.filter(argv => argv[1] === 'anatomy')).toHaveLength(2);
@@ -2604,7 +2635,10 @@ describe('skills changes and discard routes', () => {
     const anatomy = '/api/skills/anatomy?pack=globex&skill=stage-plan';
 
     await app.request(anatomy);
-    await postJson(app, '/api/skills/discard', { pack: 'acme' });
+    await postJson(app, '/api/skills/discard', {
+      pack: 'acme',
+      expect: SIGNATURE,
+    });
     await app.request(anatomy);
 
     expect(rt.calls.filter(argv => argv[1] === 'anatomy')).toHaveLength(1);
@@ -2621,9 +2655,36 @@ describe('skills changes and discard routes', () => {
     await postJson(app, '/api/skills/sync', {
       pack: 'acme',
       commitPending: true,
+      expect: SIGNATURE,
     });
 
-    expect(rt.calls[0]).toContain('--commit-pending');
+    expect(rt.calls[0]).toEqual([
+      'skills',
+      'sync',
+      '--pack',
+      'acme',
+      '--json',
+      '--commit-pending',
+      '--expect',
+      SIGNATURE,
+    ]);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['without a signature', { pack: 'acme', commitPending: true }],
+    [
+      'with a signature that is not one',
+      { pack: 'acme', commitPending: true, expect: 'ABC' },
+    ],
+    ['with a bad signature and no commit', { pack: 'acme', expect: 'abc' }],
+  ])('sync 400s %s, before rt is spawned', async (_label, body) => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postJson(app, '/api/skills/sync', body);
+
+    expect(res.status).toBe(400);
+    expect(rt.run).not.toHaveBeenCalled();
   });
 
   it('sync leaves --commit-pending off unless it is exactly true', async () => {

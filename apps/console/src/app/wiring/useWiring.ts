@@ -453,10 +453,10 @@ export function useSkillsSync(pack: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: skillsWriteKey(pack),
-    mutationFn: (options: { commitPending?: boolean } | void) =>
+    mutationFn: (options: { commitPending: true; expect: string } | void) =>
       postSkillsWrite<SkillsSyncReport>(client.api.skills.sync.$post, {
         pack,
-        ...(options?.commitPending ? { commitPending: true } : {}),
+        ...(options ? { commitPending: true, expect: options.expect } : {}),
       }),
     onSettled: () => invalidateSkillsQueries(queryClient, pack),
   });
@@ -465,13 +465,16 @@ export function useSkillsSync(pack: string) {
 /** Unlike sync, a non-2xx answer here is an error, not a report. Swept on
     settle for the same reason as sync: rt restores tracked paths and cleans
     untracked ones as separate steps, so a refusal may still have changed
-    what the cached reads describe. */
+    what the cached reads describe. `expect` is the signature of the list
+    the person confirmed; rt refuses once the pack no longer matches it. */
 export function useDiscardChanges(pack: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: skillsWriteKey(pack),
-    mutationFn: async (): Promise<SkillsDiscardReport> => {
-      const res = await client.api.skills.discard.$post({ json: { pack } });
+    mutationFn: async (expect: string): Promise<SkillsDiscardReport> => {
+      const res = await client.api.skills.discard.$post({
+        json: { pack, expect },
+      });
       return readOrThrow<SkillsDiscardReport>(res, 'skills discard');
     },
     onSettled: () => invalidateSkillsQueries(queryClient, pack),

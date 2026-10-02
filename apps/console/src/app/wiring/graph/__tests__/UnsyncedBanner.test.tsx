@@ -112,6 +112,7 @@ const REFUSED = {
   restartNeeded: false,
 };
 
+const HASH = 'a'.repeat(40);
 const FOUR_PATHS = [
   'attachments/plan-policy/SKILL.md',
   'attachments/plan-policy-lite/SKILL.md',
@@ -121,14 +122,25 @@ const FOUR_PATHS = [
 const FOUR_FILES: SkillsChanges = {
   ...designFixture('changes.clean'),
   dirty: true,
-  files: FOUR_PATHS.map(path => ({ path, status: 'M' })),
+  files: FOUR_PATHS.map(path => ({ path, status: 'M', hash: HASH })),
 };
 const CHANGED =
   'The pack changed since this list was shown. Review the new list and try again.';
 
 const withNotes = (changes: SkillsChanges): SkillsChanges => ({
   ...changes,
-  files: [...changes.files, { path: 'pack/notes.md', status: '??' }],
+  files: [
+    ...changes.files,
+    { path: 'pack/notes.md', status: '??', hash: HASH },
+  ],
+});
+
+/** The same files after one was edited again: only the content ids and the
+    signature move. */
+const edited = (changes: SkillsChanges): SkillsChanges => ({
+  ...changes,
+  files: changes.files.map(f => ({ ...f, hash: 'e'.repeat(40) })),
+  signature: 'e'.repeat(64),
 });
 
 let restoreLayout: () => void;
@@ -235,8 +247,8 @@ describe('the unsynced banner', () => {
       ...designFixture('changes.clean'),
       dirty: true,
       files: [
-        { path: 'skills/review/SKILL.md', status: 'M' },
-        { path: 'pack/notes.md', status: '??' },
+        { path: 'skills/review/SKILL.md', status: 'M', hash: HASH },
+        { path: 'pack/notes.md', status: '??', hash: HASH },
       ],
     });
     renderAt();
@@ -257,7 +269,7 @@ describe('the unsynced banner', () => {
       ...unsynced,
       files: [
         ...unsynced.files,
-        { path: 'attachments/gate-protocol/SKILL.md', status: 'M' },
+        { path: 'attachments/gate-protocol/SKILL.md', status: 'M', hash: HASH },
       ],
     });
     renderAt();
@@ -289,7 +301,7 @@ describe('the unsynced banner', () => {
       ...unsynced,
       files: [
         ...unsynced.files,
-        { path: 'attachments/stage-plan/SKILL.md', status: 'M' },
+        { path: 'attachments/stage-plan/SKILL.md', status: 'M', hash: HASH },
       ],
     });
     renderAt();
@@ -318,7 +330,7 @@ describe('the unsynced banner', () => {
     serveChanges({
       ...designFixture('changes.clean'),
       dirty: true,
-      files: [{ path: 'pack/surface.jsonc', status: 'M' }],
+      files: [{ path: 'pack/surface.jsonc', status: 'M', hash: HASH }],
       surface: [{ skill: 'review', from: 'public', to: 'internal' }],
     });
     renderAt();
@@ -409,7 +421,11 @@ describe('Sync changes', () => {
 
     await waitFor(() =>
       expect(syncPost).toHaveBeenCalledWith({
-        json: { pack: 'acme', commitPending: true },
+        json: {
+          pack: 'acme',
+          commitPending: true,
+          expect: designFixture('changes.unsynced').signature,
+        },
       })
     );
     expect(
@@ -503,6 +519,18 @@ describe('Sync changes', () => {
     expect(syncPost).not.toHaveBeenCalled();
   });
 
+  it("posts nothing when a listed file's content changed while its confirm was open", async () => {
+    renderAt();
+    await userEvent.click(button(await banner(), 'Sync changes'));
+    const confirm = await dialog('Sync 1 change?');
+    serveChanges(edited(designFixture('changes.unsynced')));
+
+    await userEvent.click(button(confirm, 'Sync changes'));
+
+    expect(await screen.findByText(CHANGED)).toBeInTheDocument();
+    expect(syncPost).not.toHaveBeenCalled();
+  });
+
   it('posts nothing when files outside the pack turned up while its confirm was open', async () => {
     renderAt();
     await userEvent.click(button(await banner(), 'Sync changes'));
@@ -583,7 +611,12 @@ describe('Discard', () => {
     await userEvent.click(button(confirm, 'Discard'));
 
     await waitFor(() =>
-      expect(discardPost).toHaveBeenCalledWith({ json: { pack: 'acme' } })
+      expect(discardPost).toHaveBeenCalledWith({
+        json: {
+          pack: 'acme',
+          expect: designFixture('changes.unsynced').signature,
+        },
+      })
     );
     expect(
       await screen.findByText('Discarded the unsynced changes in acme')
@@ -608,6 +641,18 @@ describe('Discard', () => {
     await userEvent.click(button(await banner(), 'Discard'));
     const confirm = await dialog('Discard 1 change?');
     serveChanges(withNotes(designFixture('changes.unsynced')));
+
+    await userEvent.click(button(confirm, 'Discard'));
+
+    expect(await screen.findByText(CHANGED)).toBeInTheDocument();
+    expect(discardPost).not.toHaveBeenCalled();
+  });
+
+  it("throws nothing away when a listed file's content changed while its confirm was open", async () => {
+    renderAt();
+    await userEvent.click(button(await banner(), 'Discard'));
+    const confirm = await dialog('Discard 1 change?');
+    serveChanges(edited(designFixture('changes.unsynced')));
 
     await userEvent.click(button(confirm, 'Discard'));
 

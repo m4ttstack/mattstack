@@ -256,6 +256,10 @@ interface SkillsPendingFile {
   status: string;
   from?: string;
 }
+/** `hash` is git's blob id for what is on disk at `path`, null once it is gone. */
+interface SkillsChangedFile extends SkillsPendingFile {
+  hash: string | null;
+}
 interface SkillsBindingChange {
   engineRef: string;
   slot: string;
@@ -267,14 +271,18 @@ interface SkillsSurfaceChange {
   from: 'public' | 'internal';
   to: 'public' | 'internal';
 }
+/** `signature` covers the in-scope files, their content and the binding and
+    surface changes; a sync or discard sent with it refuses once the pack
+    no longer matches. */
 interface SkillsChangesResponse {
   pack: string;
   packDir: string;
   dirty: boolean;
-  files: SkillsPendingFile[];
+  files: SkillsChangedFile[];
   outsideScope: SkillsPendingFile[];
   bindings: SkillsBindingChange[];
   surface: SkillsSurfaceChange[];
+  signature: string;
 }
 interface SkillsDiscardResponse {
   pack: string;
@@ -551,21 +559,44 @@ const bindBody = validator(
   }
 );
 
+const SIGNATURE = /^[0-9a-f]{64}$/;
+
+/** A non-string `expect` reads as the empty string, so it fails the
+    signature check rather than reading as "not sent". */
+function expectOf(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  return typeof value === 'string' ? value : '';
+}
+
+const BAD_EXPECT =
+  'expect must be the signature the changes read printed (64 hex characters)';
+
 const syncBody = validator(
   'json',
-  (value): { pack?: string; commitPending?: boolean } => {
-    const v = value as { pack?: unknown; commitPending?: unknown };
+  (value): { pack?: string; commitPending?: boolean; expect?: string } => {
+    const v = value as {
+      pack?: unknown;
+      commitPending?: unknown;
+      expect?: unknown;
+    };
     return {
       pack: typeof v?.pack === 'string' ? v.pack : undefined,
       commitPending: v?.commitPending === true ? true : undefined,
+      expect: expectOf(v?.expect),
     };
   }
 );
 
-const discardBody = validator('json', (value): { pack?: string } => {
-  const v = value as { pack?: unknown };
-  return { pack: typeof v?.pack === 'string' ? v.pack : undefined };
-});
+const discardBody = validator(
+  'json',
+  (value): { pack?: string; expect?: string } => {
+    const v = value as { pack?: unknown; expect?: unknown };
+    return {
+      pack: typeof v?.pack === 'string' ? v.pack : undefined,
+      expect: expectOf(v?.expect),
+    };
+  }
+);
 
 const skillQuery = validator(
   'query',
@@ -780,8 +811,16 @@ export function mountSkills(
       }
     })
     .post('/api/skills/sync', syncBody, async c => {
-      const { pack, commitPending } = c.req.valid('json');
+      const { pack, commitPending, expect } = c.req.valid('json');
       if (!pack) return c.json({ error: 'pack is required' }, 400);
+      // Committing pending edits is only ever done against the list a
+      // person was shown, so it never runs without that list's signature.
+      if (
+        (commitPending || expect !== undefined) &&
+        !SIGNATURE.test(expect ?? '')
+      ) {
+        return c.json({ error: BAD_EXPECT }, 400);
+      }
       const rt = heldOpen(c.env, c.req.raw);
       try {
         // Never `cachedRun`: sync mutates checkouts and installed caches, and
@@ -796,6 +835,7 @@ export function mountSkills(
             pack,
             '--json',
             ...(commitPending ? ['--commit-pending'] : []),
+            ...(expect !== undefined ? ['--expect', expect] : []),
           ],
           WRITE
         ).finally(() => dropCachedReads(pack));
@@ -1402,15 +1442,18 @@ export function mountSkills(
       }
     })
     .post('/api/skills/discard', discardBody, async c => {
-      const { pack } = c.req.valid('json');
+      const { pack, expect } = c.req.valid('json');
       if (!pack) return c.json({ error: 'pack is required' }, 400);
+      if (expect === undefined || !SIGNATURE.test(expect)) {
+        return c.json({ error: BAD_EXPECT }, 400);
+      }
       const rt = heldOpen(c.env, c.req.raw);
       try {
         // Swept whatever the outcome: rt restores tracked paths and then
         // cleans untracked ones as separate steps, so a failure or a kill in
         // the second has still changed what the cached reads describe.
         const { stdout, stderr } = await rt(
-          ['skills', 'discard', '--pack', pack, '--json'],
+          ['skills', 'discard', '--pack', pack, '--json', '--expect', expect],
           WRITE
         ).finally(() => dropCachedReads(pack));
         const payload = parseJsonPayload(stdout);

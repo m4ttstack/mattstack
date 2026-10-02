@@ -5,7 +5,8 @@
   "files": [
     {
       "path": "pack/skills.jsonc",
-      "status": "M"
+      "status": "M",
+      "hash": "b6a72a63f76c5336df299a5154770fadcb973a5c"
     }
   ],
   "outsideScope": [],
@@ -17,5 +18,6 @@
       "to": "acme:plan-policy-strict"
     }
   ],
-  "surface": []
+  "surface": [],
+  "signature": "7ce21e4417715d4f9cc0069f90e6123eff0bac0da6995ce8e7feb2b3da634bba"
 }

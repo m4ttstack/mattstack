@@ -335,6 +335,9 @@ describe('the per-pack write lock', () => {
   );
 });
 
+const SIGNATURE =
+  '7ce21e4417715d4f9cc0069f90e6123eff0bac0da6995ce8e7feb2b3da634bba';
+
 describe('useSkillsSync', () => {
   it('posts commitPending when asked to', async () => {
     syncPost.mockResolvedValue(reply({ pack: 'acme' }));
@@ -344,12 +347,12 @@ describe('useSkillsSync', () => {
     });
 
     act(() => {
-      result.current.mutate({ commitPending: true });
+      result.current.mutate({ commitPending: true, expect: SIGNATURE });
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(syncPost).toHaveBeenCalledWith({
-      json: { pack: 'acme', commitPending: true },
+      json: { pack: 'acme', commitPending: true, expect: SIGNATURE },
     });
   });
 
@@ -370,7 +373,7 @@ describe('useSkillsSync', () => {
 });
 
 describe('useDiscardChanges', () => {
-  it('posts the pack and sweeps anatomy and changes', async () => {
+  it('posts the pack with the signature it was shown and sweeps anatomy and changes', async () => {
     discardPost.mockResolvedValue(reply({ pack: 'acme', discarded: [] }));
     const { invalidate, Wrap } = harness();
     const { result } = renderHook(() => useDiscardChanges('acme'), {
@@ -378,11 +381,13 @@ describe('useDiscardChanges', () => {
     });
 
     act(() => {
-      result.current.mutate();
+      result.current.mutate(SIGNATURE);
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(discardPost).toHaveBeenCalledWith({ json: { pack: 'acme' } });
+    expect(discardPost).toHaveBeenCalledWith({
+      json: { pack: 'acme', expect: SIGNATURE },
+    });
     const keys = invalidatedKeys(invalidate);
     expect(keys).toContainEqual(['skills', 'anatomy', 'acme']);
     expect(keys).toContainEqual(['skills', 'changes', 'acme']);
@@ -397,7 +402,7 @@ describe('useDiscardChanges', () => {
     });
 
     act(() => {
-      result.current.mutate();
+      result.current.mutate(SIGNATURE);
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));

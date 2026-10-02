@@ -149,7 +149,9 @@ function signatureOf(changes: SkillsChanges): string {
   ]);
 }
 
-/** Whether two reads of the pack's changes describe the same pending work. */
+/** Whether two reads of the pack's changes describe the same pending work.
+    Only rt's own signature sees a file's content, so a listed file edited
+    again reads as a change too. */
 export function sameChanges(a: SkillsChanges, b: SkillsChanges): boolean {
-  return signatureOf(a) === signatureOf(b);
+  return a.signature === b.signature && signatureOf(a) === signatureOf(b);
 }

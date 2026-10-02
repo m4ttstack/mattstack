@@ -93,7 +93,9 @@ The Wiring page (`WiringMap.tsx`) shows the mattstack skill graph read from
   `pendingChanges` (what the banner lists) and `statusTone`. `graph/layout/templateLayout.ts`
   places the nodes. A change to what the tab shows starts in the model and its tests.
 - **Writes** (bind, surface, sync, discard) confirm through `modals.confirm` and report through
-  `notifications`, and one write per pack runs at a time.
+  `notifications`, and one write per pack runs at a time. The banner's Sync and Discard send the
+  `signature` of the `changes` read their confirm listed; the server refuses a commit-pending sync
+  or a discard without one, and rt refuses either once the pack no longer matches it.
 - **Surface and Health tabs** (`SurfaceTab.tsx`, `HealthTab.tsx`). `VersionTimeline` and
   `SeamCompare` serve the drawer's History tab.
 
