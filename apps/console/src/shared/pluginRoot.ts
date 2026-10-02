@@ -1,5 +1,8 @@
-const PLUGIN_LAYOUT =
-  /^(.*)\/(?:skills|attachments)\/(?:[^/]+\/)?[^/]+\/SKILL\.md$/;
+const SKILL_DIRS = ['skills', 'attachments'] as const;
+
+const PLUGIN_LAYOUT = new RegExp(
+  `^(.*)/(?:${SKILL_DIRS.join('|')})/(?:[^/]+/)?[^/]+/SKILL\\.md$`
+);
 
 /**
  * rt lays a plugin out as `<root>/skills/<name>` or
@@ -9,4 +12,9 @@ const PLUGIN_LAYOUT =
  */
 export function pluginRootOf(sourcePath: string): string | null {
   return PLUGIN_LAYOUT.exec(sourcePath)?.[1] ?? null;
+}
+
+/** The folders of a plugin root that hold every skill file it ships. */
+export function pluginSkillDirs(root: string): string[] {
+  return SKILL_DIRS.map(dir => `${root}/${dir}`);
 }

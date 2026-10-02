@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
-import { pluginRootOf } from '../shared/pluginRoot';
+import { pluginRootOf, pluginSkillDirs } from '../shared/pluginRoot';
 import { runGit as liveRunGit, type RunGit } from './git-bin';
 import { GIT_LOG_FORMAT, parseGitLog, type GitCommit } from './gitLog';
 import {
@@ -1327,8 +1327,8 @@ export function mountSkills(
       }
       try {
         // The readable roots come from rt, never from the request: the pack
-        // directory plus the plugin roots of the engines its verbs compile
-        // from.
+        // directory plus the skill folders of the engines its verbs compile
+        // from, never the rest of an engine's plugin.
         const { stdout } = await cachedRun([
           'skills',
           'composition',
@@ -1342,7 +1342,7 @@ export function mountSkills(
         const roots = new Set<string>([composition.packDir]);
         for (const verb of composition.verbs ?? []) {
           const root = verb.sourcePath ? pluginRootOf(verb.sourcePath) : null;
-          if (root) roots.add(root);
+          if (root) for (const dir of pluginSkillDirs(root)) roots.add(dir);
         }
         // Confinement compares resolved against resolved, so a symlink inside
         // a root cannot lead out of it and a root reached through a symlink

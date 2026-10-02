@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { pluginRootOf } from './pluginRoot';
+import { pluginRootOf, pluginSkillDirs } from './pluginRoot';
 
 describe('pluginRootOf', () => {
   it('strips a flat skills or attachments layout back to the plugin root', () => {
@@ -21,5 +21,11 @@ describe('pluginRootOf', () => {
   it('answers null for a path in neither layout rather than guessing', () => {
     expect(pluginRootOf('/steps/ship/SKILL.md')).toBeNull();
     expect(pluginRootOf('/r/skills/ship/README.md')).toBeNull();
+  });
+});
+
+describe('pluginSkillDirs', () => {
+  it('names the two folders the layout reads skill files from', () => {
+    expect(pluginSkillDirs('/r')).toEqual(['/r/skills', '/r/attachments']);
   });
 });

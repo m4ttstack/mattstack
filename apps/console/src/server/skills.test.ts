@@ -2117,6 +2117,10 @@ describe('skills source route', () => {
   const files: Record<string, string> = {
     '/packs/acme/attachments/stage-plan/SKILL.md': 'a\nb',
     '/cache/mattstack/0.30.4/attachments/gate-protocol/SKILL.md': 'g',
+    '/cache/mattstack/0.30.4/skills/review/SKILL.md': 'r',
+    '/cache/mattstack/0.30.4/README.md': 'the plugin readme',
+    '/cache/mattstack/0.30.4/docs/notes.md': 'plugin docs',
+    '/cache/mattstack/0.30.4/skills-extra/x.md': 'beside skills/',
     '/packs/acme/attachments/big/SKILL.md': 'x'.repeat(1_048_577),
     '/packs/acme-evil/SKILL.md': 'sibling pack',
     '/elsewhere/SKILL.md': 'outside every root',
@@ -2179,6 +2183,40 @@ describe('skills source route', () => {
     );
 
     expect(res.status).toBe(200);
+  });
+
+  it('serves a markdown file under the engine plugin root skills directory', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      identity
+    );
+
+    const res = await getSource(
+      app,
+      '/cache/mattstack/0.30.4/skills/review/SKILL.md'
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ content: 'r' });
+  });
+
+  it.each([
+    '/cache/mattstack/0.30.4/README.md',
+    '/cache/mattstack/0.30.4/docs/notes.md',
+    '/cache/mattstack/0.30.4/skills-extra/x.md',
+  ])('404s %s, a markdown file of the engine outside its skill folders', async path => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      identity
+    );
+
+    expect((await getSource(app, path)).status).toBe(404);
   });
 
   it.each([
