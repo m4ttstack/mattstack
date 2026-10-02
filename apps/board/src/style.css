@@ -64,6 +64,17 @@ body {
 [data-part='panel'] {
   background: var(--chrome);
 }
+/* The recipe's bottom padding left a sliver of panel under the last row, and
+   a row's full-width footer band showed it. Rows run to the panel's own edge,
+   and the rows' own clip keeps the last one's corners inside its radius (the
+   panel itself cannot clip: its title straddles the top border). */
+[data-part='panel']:has(.tui-rows) {
+  padding-bottom: 0;
+}
+.tui-rows {
+  overflow: clip;
+  border-radius: 0 0 8px 8px;
+}
 
 /* The scheme control, pinned to the header card's top-right corner via
    absolute positioning, since `.tui-header` wraps (`flex-wrap: wrap`): on the
@@ -333,10 +344,11 @@ body {
   position: relative;
   overflow: hidden;
 }
-/* The one row feature allowed to grow the row: a note adds its band under
+/* The row features allowed to grow the row: a note or a sent ask adds its band under
    line 3 and the row takes whatever that band needs (B10). Everything else
    still lives inside the fixed four lines. */
-.tui-row[data-note] {
+.tui-row[data-note],
+.tui-row[data-ask] {
   height: auto;
   min-height: var(--row-h);
 }
@@ -1994,6 +2006,8 @@ body {
    be measured from that constant. The row clips, so an overshoot lands on
    the row's own bottom edge exactly. */
 .tui-stack-rows > .tui-row[data-note] > .tui-row-pick::after,
+.tui-stack-rows > .tui-row[data-ask] > .tui-row-pick::after,
+.tui-row-nested[data-ask] .tui-row-pick::before,
 .tui-row-nested[data-note] .tui-row-pick::before {
   bottom: -400px;
 }
@@ -4713,4 +4727,179 @@ a.tui-id-card-ref:focus-visible {
   .tui-gate-sheet-trail {
     grid-area: trail;
   }
+}
+
+/* The sent-ask band: this board's own ask of a teammate's agent, the foot of
+   its row. A bordered box inside the row's own padding, aligned with the
+   row's content and tinted by where the ask stands, so the row's divider
+   falls below it and it cannot read as the next row's header. */
+.tui-ask {
+  --ask-fill: var(--border);
+  --ask-line: 100%;
+  --ask-text: var(--text-1);
+  --ask-mix: 0%;
+  --ask-base: color-mix(in srgb, var(--card) 55%, var(--chrome));
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 5px 10px;
+  min-width: 0;
+  font-size: 0.76rem;
+  line-height: 20px;
+  color: var(--ask-text);
+  background: color-mix(
+    in srgb,
+    var(--ask-fill) var(--ask-mix),
+    var(--ask-base)
+  );
+  border: 1px solid
+    color-mix(in srgb, var(--ask-fill) var(--ask-line), transparent);
+  border-radius: 6px;
+}
+.tui-ask[data-ask-tone='work'] {
+  --ask-fill: var(--fill-accent);
+  --ask-mix: 15%;
+  --ask-line: 40%;
+  --ask-base: var(--card);
+  --ask-text: var(--text-accent-small);
+}
+.tui-ask[data-ask-tone='ok'] {
+  --ask-fill: var(--fill-ok);
+  --ask-mix: 15%;
+  --ask-line: 40%;
+  --ask-base: var(--card);
+  --ask-text: var(--text-ok-small);
+}
+.tui-ask[data-ask-tone='bad'] {
+  --ask-fill: var(--fill-bad);
+  --ask-mix: 15%;
+  --ask-line: 40%;
+  --ask-base: var(--card);
+  --ask-text: var(--text-bad-small);
+}
+.tui-ask[data-ask-tone='warn'] {
+  --ask-fill: var(--fill-warn);
+  --ask-mix: 15%;
+  --ask-line: 40%;
+  --ask-base: var(--card);
+  --ask-text: var(--text-warn-small);
+}
+.tui-ask-where,
+.tui-ask-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.tui-ask-where {
+  flex-shrink: 0;
+}
+.tui-ask-state {
+  min-width: 0;
+}
+/* The click target for the trail: the band's left side, bare until hovered. */
+.tui-ask-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: -2px auto -2px -6px;
+  padding: 2px 6px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.tui-ask-trigger:hover,
+.tui-ask-trigger[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--ask-text) 10%, transparent);
+}
+.tui-ask-trigger:focus-visible {
+  outline: 2px solid var(--ask-text);
+  outline-offset: 1px;
+}
+.tui-ask-caret {
+  display: inline-flex;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: transform 160ms ease;
+}
+.tui-ask-caret[data-open] {
+  transform: rotate(180deg);
+}
+.tui-ask-sep {
+  opacity: 0.6;
+}
+.tui-ask-note {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  color: var(--text-3);
+}
+.tui-ask-label {
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The actions are the kit's ghost Button; the band only keeps them from
+   shrinking. */
+.tui-ask-btn {
+  flex-shrink: 0;
+}
+.tui-ask-btn + .tui-ask-btn {
+  margin-left: -6px;
+}
+/* The trail's content, inside the kit's menu surface (which owns the card,
+   shadow, clamping and entry motion). */
+.tui-ask-trail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 360px;
+  max-width: calc(100vw - 24px);
+  padding-bottom: 12px;
+  font-size: 0.76rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-ask-caret {
+    transition: none;
+  }
+}
+.tui-ask-trail-step {
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-ok-vivid);
+}
+.tui-ask-trail-step[data-stop='bad'] {
+  color: var(--text-bad);
+}
+.tui-ask-trail-step[data-stop='warn'] {
+  color: var(--text-warn-vivid);
+}
+.tui-ask-trail-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.tui-ask-trail-name {
+  font-weight: 500;
+  color: var(--fg);
+}
+.tui-ask-trail-detail,
+.tui-ask-trail-foot {
+  font-size: 0.7rem;
+  color: var(--text-3);
+}
+.tui-ask-trail-foot {
+  padding: 0 12px;
 }

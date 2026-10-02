@@ -11,6 +11,7 @@ import {
   statusFlags,
 } from '../../view.ts';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
+import { AskBand } from './AskBand.tsx';
 import { ThreadsLink } from './CommentsDrawer.tsx';
 import { ago, getSlackMarks, mrLine, rowTitle } from './format.ts';
 import {
@@ -246,6 +247,7 @@ function RowView({
         data-mr-url={url ?? undefined}
         data-tone={status.bar ?? undefined}
         data-note={mr.note || noteOpen ? '1' : undefined}
+        data-ask={mr.sentNudge ? '1' : undefined}
         data-local={ctx.local ? '1' : undefined}
         title={ctx.local ? 'right-click for actions' : undefined}
         onClick={e => onRowClick(e, mr)}
@@ -336,6 +338,7 @@ function RowView({
             <RowNote mr={mr} ctx={ctx} editing={noteOpen} />
           )}
         </div>
+        <AskBand mr={mr} ctx={ctx} />
       </div>
     );
   };

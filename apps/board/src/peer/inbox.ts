@@ -21,9 +21,22 @@ export interface MaterializeDeps {
       result: NudgeResult | 'confirmed';
       reason?: string;
       at: number;
-    }
+    },
+    /** Who sent the report: only the teammate that was asked can answer. */
+    from?: string
   ): void;
-  retireSentNudge(mrUrl: string, ifSentBefore: number, nudgeId?: string): void;
+  finishSentNudge(
+    mrUrl: string,
+    finish: {
+      result: 'done' | 'failed';
+      outcome?: string;
+      reason?: string;
+      at: number;
+    },
+    ifSentBefore: number,
+    nudgeId?: string,
+    from?: string
+  ): void;
   log(line: string): void;
   /** Called once per tick that reached the relay: "unauthorized" on a 401
       inbox, "ok" on a fetch that came back. Lets the runtime track token
@@ -47,29 +60,45 @@ export function materializeEnvelope(
     // A reviewing transition confirms any pending sent nudge for this MR: the
     // re-review actually started, whichever of state/outcome lands first.
     if (p.status === 'queued' || p.status === 'reviewing') {
-      deps.resolveSentNudge(p.mrUrl, { result: 'confirmed', at: now });
+      deps.resolveSentNudge(p.mrUrl, { result: 'confirmed', at: now }, e.from);
     }
-    // The re-review finished, so the ask is spent: retire the sent nudge and
-    // the row can ask again. Guarded on the report's own updatedAt so a
-    // redelivered pre-nudge "done" cannot clear an ask sent after it.
-    if (p.status === 'done') {
-      deps.retireSentNudge(p.mrUrl, p.updatedAt);
+    // The review ended: keep the ask on the row with its result, so the
+    // asker can read it and dismiss or retry. Guarded on the report's own
+    // updatedAt so a redelivered pre-nudge report cannot finish an ask sent
+    // after it.
+    if (p.status === 'done' || p.status === 'error') {
+      deps.finishSentNudge(
+        p.mrUrl,
+        {
+          result: p.status === 'done' ? 'done' : 'failed',
+          ...(p.status === 'done' && p.outcome ? { outcome: p.outcome } : {}),
+          at: now,
+        },
+        p.updatedAt,
+        undefined,
+        e.from
+      );
     }
     return;
   }
   if (e.type === 'respond-state') {
     // The author's board telling the asker how the respond it asked for is
     // going. Mirrors review-state's chip mechanics exactly: any non-terminal
-    // status confirms the ask, done retires it, error changes nothing (the
-    // launched chip keeps standing, same as an errored re-review).
+    // status confirms the ask; done and error finish it.
     const p = parseReviewStatePayload(e.payload);
     if (!p)
       return deps.log(`peer: malformed respond-state from ${e.from} (${e.id})`);
     if (p.status !== 'done' && p.status !== 'error') {
-      deps.resolveSentNudge(p.mrUrl, { result: 'confirmed', at: now });
+      deps.resolveSentNudge(p.mrUrl, { result: 'confirmed', at: now }, e.from);
     }
-    if (p.status === 'done') {
-      deps.retireSentNudge(p.mrUrl, p.updatedAt, p.nudgeId);
+    if (p.status === 'done' || p.status === 'error') {
+      deps.finishSentNudge(
+        p.mrUrl,
+        { result: p.status === 'done' ? 'done' : 'failed', at: now },
+        p.updatedAt,
+        p.nudgeId,
+        e.from
+      );
     }
     return;
   }
@@ -102,11 +131,11 @@ export function materializeEnvelope(
     const p = parseNudgeOutcomePayload(e.payload);
     if (!p)
       return deps.log(`peer: malformed nudge-outcome from ${e.from} (${e.id})`);
-    deps.resolveSentNudge(p.mrUrl, {
-      result: p.result,
-      reason: p.reason,
-      at: now,
-    });
+    deps.resolveSentNudge(
+      p.mrUrl,
+      { result: p.result, reason: p.reason, at: now },
+      e.from
+    );
     return;
   }
   deps.log(

@@ -710,6 +710,20 @@ export function Board() {
     [addToast, load]
   );
 
+  const handleAskDismiss = useCallback(
+    (mr: BoardMR) => {
+      if (!mr.webUrl) return;
+      postAction('/nudge/dismiss', { mrUrl: mr.webUrl }).then(result => {
+        if (!result.ok) {
+          addToast(`could not dismiss the ask (${result.status})`);
+          return;
+        }
+        load();
+      });
+    },
+    [addToast, load]
+  );
+
   // Row menu's "never diagnose this stack" toggle. Turning it on mutes
   // auto-doctor for this MR and every descendant (server-enforced) and
   // clears whatever's currently on this row; turning it off just clears the
@@ -845,6 +859,20 @@ export function Board() {
       postOwners: setOwnersPost,
     }),
     [handleCopy, handleDismissLane, handleStandDown, handlePostSlack]
+  );
+  // Retry sends the same kind of ask to the same teammate: /nudge replaces
+  // the recorded ask for the MR, so the new one scraps the old.
+  const handleAskRetry = useCallback(
+    (mr: BoardMRWithReview) => {
+      const sent = mr.sentNudge;
+      if (!sent) return;
+      void runOne(
+        { kind: 'ask', ask: sent.kind ?? 're-review', reviewer: sent.reviewer },
+        mr,
+        runner
+      );
+    },
+    [runner]
   );
   const runRowAction = useCallback(
     (action: RowAction, mr: BoardMR, opts: RunOpts) =>
@@ -1199,6 +1227,8 @@ export function Board() {
     onClearOrphan: handleClearOrphan,
     onMerge: mr => void runOne({ kind: 'mr', action: 'merge' }, mr, runner),
     onDismissLane: handleDismissLane,
+    onAskRetry: handleAskRetry,
+    onAskDismiss: handleAskDismiss,
     onStandDown: handleStandDown,
     noteEditing,
     onEditNote: setNoteEditing,
