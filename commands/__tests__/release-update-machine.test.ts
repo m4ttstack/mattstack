@@ -2,7 +2,8 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { UpdateMachineSeams } from "../../lib/release/update-machine.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { releaseUpdateMachine } from "../release.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import { releaseUpdateMachine, updateMachineBlocks } from "../release.ts";
 
 const ok = (stdout = "") => Promise.resolve({ stdout, stderr: "", exitCode: 0 });
 const SHA = "1234567890abcdef1234567890abcdef12345678";
@@ -63,40 +64,33 @@ function fakeSeams(overrides: Partial<UpdateMachineSeams> = {}): UpdateMachineSe
 // reassigned to undefined, so every reset here uses 0, never undefined --
 // otherwise one failing-leg test's exitCode=1 sticks for the rest of the file.
 async function run(args: string[], seams: UpdateMachineSeams): Promise<{ logs: string[]; exitCode: number }> {
-  const logs: string[] = [];
-  const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-    logs.push(a.map(String).join(" "));
-  });
+  const io = captureOut();
+  ui.__test__.setHuman(() => false);
   process.exitCode = 0;
   try {
     await releaseUpdateMachine(args, {}, seams);
-    return { logs, exitCode: process.exitCode as number };
+    return { logs: io.lines(), exitCode: process.exitCode as number };
   } finally {
     process.exitCode = 0;
-    logSpy.mockRestore();
+    io.restore();
   }
 }
 
 /** exitUserError always calls the real process.exit, never a seam... spy on it to catch the code without killing the test process. */
 async function runExpectingProcessExit(fn: () => Promise<void>): Promise<{ code: number | undefined; logs: string[]; stdout: string; stderr: string }> {
-  const logs: string[] = [];
   const io = captureOut();
   ui.__test__.setHuman(() => false);
-  const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-    logs.push(a.map(String).join(" "));
-  });
   const exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit sentinel");
   });
   try {
     await fn();
-    return { code: undefined, logs, stdout: io.stdout(), stderr: io.stderr() };
+    return { code: undefined, logs: io.lines(), stdout: io.stdout(), stderr: io.stderr() };
   } catch {
-    return { code: exitSpy.mock.calls.at(-1)?.[0] as number | undefined, logs, stdout: io.stdout(), stderr: io.stderr() };
+    return { code: exitSpy.mock.calls.at(-1)?.[0] as number | undefined, logs: io.lines(), stdout: io.stdout(), stderr: io.stderr() };
   } finally {
     io.restore();
     exitSpy.mockRestore();
-    logSpy.mockRestore();
   }
 }
 
@@ -121,7 +115,8 @@ describe("rt release update-machine", () => {
     const out = logs.join("\n");
     expect(out).toContain("prod app update");
     expect(out).toContain("verification sweep");
-    expect(out).toContain("tag v2.11.0: clean");
+    expect(logs[0]).toStartWith("[ok] prod app update  ");
+    expect(logs.at(-1)).toBe("[ok] tag v2.11.0  clean");
     expect(exitCode ?? 0).toBe(0);
   });
 
@@ -154,13 +149,14 @@ describe("rt release update-machine", () => {
     expect(body.error.code).toBe("update-machine-noninteractive");
   });
 
-  test("non-interactive without --yes, human mode, also exits 2", async () => {
+  test("no terminal and no --yes is refused, not failed", async () => {
     const seams = fakeSeams({ isTTY: false });
     const { code, logs, stderr } = await runExpectingProcessExit(() => releaseUpdateMachine([], {}, seams));
     expect(code).toBe(2);
     expect(logs).toEqual([]);
-    expect(stderr).toContain("refuses to run state-changing legs on a non-interactive terminal without --yes");
-    expect(stderr).not.toContain("[failed]");
+    expect(stderr).toBe(
+      "[refused] rt will not change this Mac without a terminal to confirm each step\n  why: Approve every step up front to run it anyway.\n  next: rt release update-machine --yes\n",
+    );
   });
 
   test("non-interactive with --verify-only never hits the refusal (read-only)", async () => {
@@ -187,7 +183,35 @@ describe("rt release update-machine", () => {
   test("a halted run's human summary names the leg that halted it", async () => {
     const seams = fakeSeams({ exec: (argv) => (argv.join(" ").startsWith("shasum") ? ok("deadbeef  nope\n") : fakeSeams().exec(argv)) });
     const { logs } = await run(["--yes"], seams);
-    const out = logs.join("\n");
-    expect(out).toContain("halted after prod app update failed");
+    expect(logs.at(-1)).toBe("[failed] tag v2.11.0  stopped at prod app update");
+    expect(logs.some((l) => l.startsWith("[failed] prod app update  sha256 mismatch"))).toBe(true);
+    expect(logs.some((l) => l.startsWith("[skipped] ") && l.includes("Not run: the run stopped at prod app update"))).toBe(true);
+  });
+
+  test("a shared checkout off main is a refused leg and stops the run refused", () => {
+    const report = {
+      tag: "v2.11.0",
+      ok: false,
+      haltedAfter: "shared checkout sync",
+      legs: [
+        { id: "prod-app" as const, label: "prod app update", status: "ok" as const, detail: "replaced with v2.11.0" },
+        { id: "checkout-sync" as const, label: "shared checkout sync", status: "aborted" as const, detail: "The shared checkout is on feature/sample, not main, so rt left it alone" },
+        { id: "daemon" as const, label: "daemon restart", status: "skipped" as const, detail: "Not run: the run stopped at shared checkout sync" },
+      ],
+    };
+    expect(renderPlain(updateMachineBlocks(report))).toBe(
+      "[ok] prod app update  replaced with v2.11.0\n" +
+        "[refused] shared checkout sync  The shared checkout is on feature/sample, not main, so rt left it alone\n" +
+        "[skipped] daemon restart  Not run: the run stopped at shared checkout sync\n" +
+        "\n" +
+        "[refused] tag v2.11.0  stopped at shared checkout sync\n",
+    );
+  });
+
+  test("--plan in human mode lists every leg as not yet run and says nothing changed", async () => {
+    const { logs, exitCode } = await run(["--plan"], fakeSeams());
+    expect(logs.slice(0, 6).every((l) => l.startsWith("[not yet] "))).toBe(true);
+    expect(logs.at(-1)).toBe("[not yet] tag v2.11.0  plan only, nothing changed");
+    expect(exitCode ?? 0).toBe(0);
   });
 });

@@ -145,6 +145,12 @@ describe("checkGitState", () => {
     expect(r.row.status).toBe("ok");
     expect(r.tag).toBe("v2.10.2");
     expect(r.commitsSinceTag).toBe(12);
+    expect(r.row.detail).toBe("12 commits since v2.10.2");
+  });
+
+  test("one commit since the tag is singular", async () => {
+    const r = await checkGitState(seams({ exec: gitExec("main", "", "v2.10.2", "1") }));
+    expect(r.row.detail).toBe("1 commit since v2.10.2");
   });
 
   test("stale off main or dirty", async () => {

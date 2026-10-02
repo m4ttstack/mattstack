@@ -6,6 +6,7 @@ import {
   gatherHomeState,
   homeClaim,
   homeInit,
+  homeKeyExport,
   homeKeyImport,
   homeRelease,
   homeSnapshot,
@@ -28,12 +29,16 @@ import type { PromptIO, PromptStdin } from "../../lib/prompt-secret.ts";
 import { STATE_DIR_NAMES } from "../../lib/home/init-plan.ts";
 import type { ExecResult, ExecSeam } from "../../lib/home/init-exec.ts";
 import { renderSopsYaml, type AgeExecResult, type AgeKeySeam } from "../../lib/home/age-key.ts";
-import { mattstackHome } from "../../lib/rt-paths.ts";
+import { logsDir, mattstackHome } from "../../lib/rt-paths.ts";
+import { __test__ as gateTest } from "../../lib/ui/gate.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { keyExport } from "../../lib/home/age-key.ts";
 import { readOwners } from "../../lib/home/snapshot-owners.ts";
 import type { DaemonResponse } from "../../lib/daemon-client.ts";
 import type { SnapshotResult, SnapshotStatus } from "../../lib/daemon/home-snapshot.ts";
 import type { MaterializeEnv, MaterializeExecResult, MaterializeExecSeam } from "../../lib/home/materialize.ts";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 
@@ -254,14 +259,8 @@ async function runHomeInit(
   const exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit");
   });
-  const logs: string[] = [];
-  const errors: string[] = [];
-  spyOn(console, "log").mockImplementation((...parts: unknown[]) => {
-    logs.push(parts.map(String).join(" "));
-  });
-  spyOn(console, "error").mockImplementation((...parts: unknown[]) => {
-    errors.push(parts.map(String).join(" "));
-  });
+  const io = captureOut();
+  ui.__test__.setHuman(() => false);
   try {
     // Omitting `readIntent` entirely is what makes homeInit fall through to
     // its real ~/.mattstack/rt/setup-intent.json read; the default above
@@ -269,14 +268,13 @@ async function runHomeInit(
     // writes there can move an assertion.
     const intentSeam = readIntent === "real-disk-read" ? {} : { readIntent };
     await homeInit(args, {}, { probes, exec, ageKeySeam, sopsYamlSeam, key, pickerSeam, isInteractive, materializeEnv, materializeExec, env, ...intentSeam });
-    return { exitCode: undefined, logs, errors };
+    return { exitCode: undefined, logs: io.lines(), errors: io.errLines() };
   } catch {
     const code = exitSpy.mock.calls.at(-1)?.[0] as number | undefined;
-    return { exitCode: code, logs, errors };
+    return { exitCode: code, logs: io.lines(), errors: io.errLines() };
   } finally {
     exitSpy.mockRestore();
-    (console.log as unknown as { mockRestore: () => void }).mockRestore();
-    (console.error as unknown as { mockRestore: () => void }).mockRestore();
+    io.restore();
   }
 }
 
@@ -325,8 +323,9 @@ describe("homeInit", () => {
     expect(errors.some((e) => e.includes("age1stale"))).toBe(true);
     expect(errors.some((e) => e.includes(FAKE_PUBLIC_KEY.slice(0, 12)))).toBe(true);
     expect(errors.some((e) => e.includes("rt home key import --force"))).toBe(true);
-    expect(errors.some((e) => e.includes("deliberate ceremony"))).toBe(true);
-    expect(errors.some((e) => e.includes("rt secrets set"))).toBe(true);
+    expect(errors).toContain("  note: To change the key on purpose, rewrite the recipient in your home repo by hand, then save each secret again with rt secrets set.");
+    expect(errors).toContain(`  why: They are locked to age1stale…, but this Mac holds ${FAKE_PUBLIC_KEY.slice(0, 12)}…, and rt will not change that lock by itself.`);
+    expect(errors.some((e) => e.includes("…."))).toBe(false);
   });
 
   test("fully provisioned, key ALREADY in the keychain, recipient matches: no-op", async () => {
@@ -410,8 +409,8 @@ describe("homeInit", () => {
 
     // The mint (and the age-key-ready line) happen BEFORE the success line —
     // never print success ahead of a mint that could still fail.
-    const readyIdx = logs.findIndex((l) => l.includes("age key ready"));
-    const successIdx = logs.findIndex((l) => l.includes("is provisioned"));
+    const readyIdx = logs.findIndex((l) => l.includes("secrets key is ready"));
+    const successIdx = logs.findIndex((l) => l.includes("This Mac is set up"));
     expect(readyIdx).toBeGreaterThanOrEqual(0);
     expect(successIdx).toBeGreaterThan(readyIdx);
   });
@@ -477,7 +476,8 @@ describe("homeInit", () => {
     const { exitCode, errors } = await runHomeInit(probes, seam, ageKeySeam);
 
     expect(exitCode).toBe(1);
-    expect(errors.some((e) => e.includes("refusing to overwrite"))).toBe(true);
+    expect(errors[0]).toBe("[refused] Your home folder is set up, apart from your skills link");
+    expect(errors.some((e) => e.includes("will not overwrite it"))).toBe(true);
     expect(ageKeySeam.calls.some((c) => c[1] === "find-generic-password")).toBe(true);
     expect(seam.calls.some((c) => c.kind === "writeSymlink")).toBe(false);
   });
@@ -490,10 +490,10 @@ describe("homeInit", () => {
       exists: (path) => path.endsWith("skills.jsonc"),
     });
 
-    const { exitCode, errors } = await runHomeInit(probes, seam, ageKeySeam, ["--dry-run"]);
+    const { exitCode, logs } = await runHomeInit(probes, seam, ageKeySeam, ["--dry-run"]);
 
     expect(exitCode).toBeUndefined();
-    expect(errors.some((e) => e.includes("refusing to overwrite"))).toBe(true);
+    expect(logs.some((l) => l.includes("A file is in the way of your skills link"))).toBe(true);
     expect(seam.calls).toEqual([]);
     expect(ageKeySeam.calls).toEqual([]);
   });
@@ -514,8 +514,9 @@ describe("homeInit", () => {
     const { exitCode, logs, errors } = await runHomeInit(probes, seam, ageKeySeam);
 
     expect(exitCode).toBe(1);
-    expect(logs.some((l) => l.includes("already fully provisioned"))).toBe(false);
-    expect(errors.some((e) => e.includes("refusing to overwrite"))).toBe(true);
+    expect(logs.some((l) => l.includes("Nothing to set up"))).toBe(false);
+    expect(errors[0]).toBe("[refused] Your home folder is set up, apart from your skills link");
+    expect(errors.some((e) => e.includes("will not overwrite it"))).toBe(true);
   });
 
   test("fully provisioned but blocked, --dry-run: still never prints 'fully provisioned'", async () => {
@@ -527,11 +528,11 @@ describe("homeInit", () => {
       readSymlinkTarget: () => null,
     });
 
-    const { exitCode, logs, errors } = await runHomeInit(probes, seam, ageKeySeam, ["--dry-run"]);
+    const { exitCode, logs } = await runHomeInit(probes, seam, ageKeySeam, ["--dry-run"]);
 
     expect(exitCode).toBeUndefined();
-    expect(logs.some((l) => l.includes("already fully provisioned"))).toBe(false);
-    expect(errors.some((e) => e.includes("refusing to overwrite"))).toBe(true);
+    expect(logs.some((l) => l.includes("Nothing to set up"))).toBe(false);
+    expect(logs.some((l) => l.includes("A file is in the way of your skills link"))).toBe(true);
   });
 
   describe("--url validation", () => {
@@ -540,7 +541,7 @@ describe("homeInit", () => {
       const { exitCode, errors } = await runHomeInit(fakeProbes({}), seam, new FakeAgeKeySeam(), ["--url"]);
 
       expect(exitCode).toBe(1);
-      expect(errors.some((e) => e.includes("--url requires a value"))).toBe(true);
+      expect(errors.some((e) => e.includes("  next: rt home init --url <remote>"))).toBe(true);
       expect(seam.calls).toEqual([]);
     });
 
@@ -549,7 +550,7 @@ describe("homeInit", () => {
       const { exitCode, errors } = await runHomeInit(fakeProbes({}), seam, new FakeAgeKeySeam(), ["--url", "--dry-run"]);
 
       expect(exitCode).toBe(1);
-      expect(errors.some((e) => e.includes("--url requires a value"))).toBe(true);
+      expect(errors.some((e) => e.includes("  next: rt home init --url <remote>"))).toBe(true);
       expect(seam.calls).toEqual([]);
     });
 
@@ -571,7 +572,7 @@ describe("homeInit", () => {
       );
 
       expect(exitCode).toBe(1);
-      expect(errors.some((e) => e.includes("not a safe machine-key segment"))).toBe(true);
+      expect(errors.some((e) => e.includes("cannot name a Mac"))).toBe(true);
       expect(seam.calls).toEqual([]);
     });
 
@@ -682,7 +683,8 @@ describe("homeInit", () => {
       );
 
       expect(exitCode).toBe(1);
-      expect(errors.some((e) => e.includes("ghost") && e.includes("--new-profile"))).toBe(true);
+      expect(errors.some((e) => e.includes("ghost") && e.includes("as a new profile"))).toBe(true);
+      expect(errors).toContain("  next: rt home init --profile ghost --new-profile");
       expect(picker.calls).toEqual([]);
       expect(seam.calls).toEqual([]);
     });
@@ -704,7 +706,7 @@ describe("homeInit", () => {
       );
 
       expect(exitCode).toBe(1);
-      expect(errors.some((e) => e.includes("--profile") && e.includes("--new-profile"))).toBe(true);
+      expect(errors.some((e) => e.includes("no terminal to ask which"))).toBe(true);
       expect(picker.calls).toEqual([]);
       expect(seam.calls).toEqual([]);
     });
@@ -747,7 +749,7 @@ describe("homeInit", () => {
       );
 
       expect(exitCode).toBe(1);
-      expect(errors.some((e) => e.includes("no machine profile selected"))).toBe(true);
+      expect(errors.some((e) => e.includes("No machine profile was chosen"))).toBe(true);
       expect(seam.calls.some((c) => c.kind === "writeFile" && (c.arg as any).path === "machine-key")).toBe(false);
     });
 
@@ -770,6 +772,7 @@ describe("homeInit", () => {
       expect(exitCode).toBeUndefined();
       expect(picker.calls).toEqual([]);
       expect(logs.some((l) => l.includes("desktop") && l.includes("laptop"))).toBe(true);
+      expect(logs).toContain("  next: rt home init --profile <key>");
       expect(seam.calls).toEqual([]);
     });
 
@@ -788,7 +791,7 @@ describe("homeInit", () => {
 
       expect(exitCode).toBeUndefined();
       expect(seam.calls).toEqual([]);
-      expect(logs.some((l) => l.includes("machine-key"))).toBe(true);
+      expect(logs).toContain("[not yet] Name this Mac  laptop");
     });
 
     test("truly fresh machine (no local user/ clone yet): clones BEFORE the profile choice, then provisions with the chosen key", async () => {
@@ -835,6 +838,7 @@ describe("homeInit", () => {
       expect(exitCode).toBeUndefined();
       expect(seam.calls).toEqual([]);
       expect(logs.some((l) => l.includes("no machine-key file yet"))).toBe(true);
+      expect(logs).toContain("  next: rt home init --profile <key>");
     });
 
     test("truly fresh machine, --dry-run: says materialize will also run, since its plan can't be previewed pre-clone", async () => {
@@ -843,7 +847,7 @@ describe("homeInit", () => {
 
       const { logs } = await runHomeInit(probes, seam, new FakeAgeKeySeam(), ["--dry-run"], new FakeSopsYamlSeam(), KEY);
 
-      expect(logs.some((l) => l.includes("materialize will also run"))).toBe(true);
+      expect(logs.some((l) => l.includes("rt will also refresh"))).toBe(true);
     });
 
     test("truly fresh machine, --dry-run --no-materialize: stays silent about materialize", async () => {
@@ -859,7 +863,7 @@ describe("homeInit", () => {
         KEY,
       );
 
-      expect(logs.some((l) => l.includes("materialize will also run"))).toBe(false);
+      expect(logs.some((l) => l.includes("rt will also refresh"))).toBe(false);
     });
 
     test("--new-profile as a bare flag: uses the hostname slug, no picker", async () => {
@@ -887,7 +891,7 @@ describe("homeInit", () => {
       const { exitCode, errors } = await runHomeInit(fakeProbes({}), seam, new FakeAgeKeySeam(), ["--profile"]);
 
       expect(exitCode).toBe(1);
-      expect(errors.some((e) => e.includes("--profile requires a value"))).toBe(true);
+      expect(errors.some((e) => e.includes("  next: rt home init --profile <key>"))).toBe(true);
       expect(seam.calls).toEqual([]);
     });
 
@@ -909,8 +913,9 @@ describe("homeInit", () => {
       );
 
       expect(exitCode).toBe(1);
+      expect(errors[0]).toBe("[refused] This Mac already has a machine profile");
       expect(errors.some((e) => e.includes(KEY) && e.includes("machine-key"))).toBe(true);
-      expect(logs.some((l) => l.includes("fully provisioned"))).toBe(false);
+      expect(logs.some((l) => l.includes("Nothing to set up"))).toBe(false);
       expect(picker.calls).toEqual([]);
       expect(seam.calls).toEqual([]);
     });
@@ -961,11 +966,11 @@ describe("homeInit", () => {
 
       expect(exitCode).toBeUndefined();
       expect(exec.calls).toEqual([["rt", "intercept", "install"]]);
-      expect(logs.some((l) => l.includes("materializing"))).toBe(true);
-      expect(logs.some((l) => l.includes("rt intercept install"))).toBe(true);
+      expect(logs.some((l) => l.includes("Set up rt's git intercept"))).toBe(true);
+      expect(logs.some((l) => l.includes("Set up rt's git intercept"))).toBe(true);
       // Materialize always does at least rtInterceptInstall, so a live run
       // must never claim "nothing to do" one breath before doing something.
-      expect(logs.some((l) => l.includes("already fully provisioned"))).toBe(false);
+      expect(logs.some((l) => l.includes("Nothing to set up"))).toBe(false);
     });
 
     test("--no-materialize on a live, fully-provisioned run: 'nothing to do' is honest again since materialize is actually skipped", async () => {
@@ -982,7 +987,7 @@ describe("homeInit", () => {
         async () => NOOP_MATERIALIZE_ENV,
       );
 
-      expect(logs.some((l) => l.includes("already fully provisioned"))).toBe(true);
+      expect(logs.some((l) => l.includes("Nothing to set up"))).toBe(true);
     });
 
     test("--no-materialize skips gathering the env and running any step", async () => {
@@ -1009,7 +1014,7 @@ describe("homeInit", () => {
       expect(exitCode).toBeUndefined();
       expect(envCalled).toBe(false);
       expect(exec.calls).toEqual([]);
-      expect(logs.some((l) => l.includes("materialize skipped"))).toBe(true);
+      expect(logs.some((l) => l.includes("Skipped the refresh"))).toBe(true);
     });
 
     test("--dry-run previews the materialize plan (read-only env gathering) without running any step", async () => {
@@ -1032,9 +1037,9 @@ describe("homeInit", () => {
 
       expect(exitCode).toBeUndefined();
       expect(exec.calls).toEqual([]); // env gathering never spawns a materialize step
-      expect(logs.some((l) => l.includes("materialize would run"))).toBe(true);
-      expect(logs.some((l) => l.includes("rt intercept install"))).toBe(true);
-      expect(logs.some((l) => l.includes("deck setup"))).toBe(true);
+      expect(logs.some((l) => l.includes("rt would also refresh"))).toBe(true);
+      expect(logs.some((l) => l.includes("Set up rt's git intercept"))).toBe(true);
+      expect(logs.some((l) => l.includes("Set up deck"))).toBe(true);
     });
 
     test("--dry-run previews an already-healthy deck as skipped, not as a pending deck setup", async () => {
@@ -1053,7 +1058,7 @@ describe("homeInit", () => {
         async () => env,
       );
 
-      expect(logs.some((l) => l.includes("skipped") && l.includes("already healthy"))).toBe(true);
+      expect(logs.some((l) => l.includes("[skipped] Set up deck") && l.includes("already running well"))).toBe(true);
     });
 
     test("--dry-run on a fully-provisioned machine no longer claims 'nothing to do' once materialize would run something", async () => {
@@ -1070,8 +1075,8 @@ describe("homeInit", () => {
         async () => NOOP_MATERIALIZE_ENV, // still plans rtInterceptInstall
       );
 
-      expect(logs.some((l) => l.includes("already fully provisioned"))).toBe(false);
-      expect(logs.some((l) => l.includes("materialize would run"))).toBe(true);
+      expect(logs.some((l) => l.includes("Nothing to set up"))).toBe(false);
+      expect(logs.some((l) => l.includes("rt would also refresh"))).toBe(true);
     });
 
     test("--dry-run --no-materialize: no preview, 'nothing to do' still prints on a fully-provisioned machine", async () => {
@@ -1093,8 +1098,8 @@ describe("homeInit", () => {
       );
 
       expect(envCalled).toBe(false);
-      expect(logs.some((l) => l.includes("materialize would run"))).toBe(false);
-      expect(logs.some((l) => l.includes("already fully provisioned"))).toBe(true);
+      expect(logs.some((l) => l.includes("rt would also refresh"))).toBe(false);
+      expect(logs.some((l) => l.includes("Nothing to set up"))).toBe(true);
     });
 
     test("a missing rt daemon runs rtDaemonInstall too, in addition to rtInterceptInstall", async () => {
@@ -1141,9 +1146,11 @@ describe("homeInit", () => {
 
       expect(exec.calls).toEqual([["rt", "intercept", "install"], ["deck", "setup"]]);
       // boardSetup never spawns — mr-board's setup prompts interactively — it only prints the manual command, once.
-      expect(logs.some((l) => l.includes("mr-board setup"))).toBe(true);
+      expect(logs.some((l) => l.includes("Set up mr-board"))).toBe(true);
       const manualCommandLines = logs.filter((l) => l.includes("/repos/mr-board") && l.includes("scripts/setup.ts"));
-      expect(manualCommandLines).toHaveLength(1);
+      expect(manualCommandLines).toEqual(['        cd "/repos/mr-board" && bun run scripts/setup.ts']);
+      const at = logs.indexOf(manualCommandLines[0]!);
+      expect(logs.slice(at - 2, at)).toEqual(["[needs you] Set up mr-board  you run this one yourself", "  next: Run this yourself, it asks questions:"]);
     });
 
     test("deck on PATH but already healthy: deck setup never spawns (it restarts the live proxy) — reported as skipped instead", async () => {
@@ -1165,8 +1172,8 @@ describe("homeInit", () => {
       );
 
       expect(exec.calls).toEqual([["rt", "intercept", "install"]]); // deck setup never spawned
-      expect(logs.some((l) => l.includes("already healthy"))).toBe(true);
-      expect(logs.some((l) => l.includes("deck healthy — setup skipped"))).toBe(true);
+      expect(logs.some((l) => l.includes("already running well"))).toBe(true);
+      expect(logs.some((l) => l.includes("deck is already running well"))).toBe(true);
     });
 
     test("a tracked repo missing from disk is reported by name, never cloned", async () => {
@@ -1191,7 +1198,7 @@ describe("homeInit", () => {
       );
 
       expect(exec.calls).toEqual([["rt", "intercept", "install"]]); // report-only: no clone spawned
-      expect(logs.some((l) => l.includes("gitq") && l.includes("not present locally"))).toBe(true);
+      expect(logs.some((l) => l.includes("gitq") && l.includes("not on this Mac yet"))).toBe(true);
     });
 
     test("an rt-own step failing exits 1, but a non-rt-own step failing does not", async () => {
@@ -1215,12 +1222,12 @@ describe("homeInit", () => {
       );
 
       expect(exitCode).toBe(1);
-      expect(errors.some((e) => e.includes("rt-owned step"))).toBe(true);
+      expect(errors.some((e) => e.includes("one of its own pieces"))).toBe(true);
       // The failing non-rt-own step still ran and is reported, not swallowed.
-      expect(logs.some((l) => l.includes("deck setup"))).toBe(true);
+      expect(logs.some((l) => l.includes("Set up deck"))).toBe(true);
       expect(logs.some((l) => l.includes("deck exploded"))).toBe(true);
       // The failed-check runs BEFORE the success line — an rt-own failure must never claim "provisioned."
-      expect(logs.some((l) => l.includes("is provisioned"))).toBe(false);
+      expect(logs.some((l) => l.includes("This Mac is set up"))).toBe(false);
     });
 
     test("a deckSetup failure alone (rt-own steps all ok) still prints success and exits 0", async () => {
@@ -1243,7 +1250,7 @@ describe("homeInit", () => {
       );
 
       expect(exitCode).toBeUndefined();
-      expect(logs.some((l) => l.includes("is provisioned"))).toBe(true);
+      expect(logs.some((l) => l.includes("This Mac is set up"))).toBe(true);
     });
 
     test("an unhealthy deck owned by the app's helper is reported, never repaired with deck setup, and init still exits 0", async () => {
@@ -1295,6 +1302,9 @@ describe("homeInit", () => {
 
       expect(exitCode).toBeUndefined();
       expect(logs.some((l) => l.includes("approve it in System Settings"))).toBe(true);
+      const daemon = logs.indexOf("[ok] Set up the rt daemon");
+      expect(daemon).toBeGreaterThanOrEqual(0);
+      expect(logs.slice(daemon + 1).some((l) => l.includes("approve it in System Settings"))).toBe(true);
     });
 
     test("multi-line captured stdout is indented per line, not just on its first line", async () => {
@@ -1320,8 +1330,7 @@ describe("homeInit", () => {
         exec,
       );
 
-      // Each source line becomes its own indented console.log call — none of
-      // them fall back to column 0 as an embedded "\n" inside one line would.
+      // Each source line is its own output line, never one line carrying an embedded "\n".
       expect(logs.some((l) => l.includes("line one"))).toBe(true);
       expect(logs.some((l) => l.includes("line two"))).toBe(true);
       expect(logs.some((l) => l.includes("line three"))).toBe(true);
@@ -1334,7 +1343,7 @@ describe("homeInit", () => {
       const seam = new FakeSeam();
       const exec = new FakeMaterializeExecSeam();
 
-      const { exitCode, errors, logs } = await runHomeInit(
+      const { exitCode, logs } = await runHomeInit(
         FULLY_PROVISIONED_PROBES(),
         seam,
         new FakeAgeKeySeam(),
@@ -1350,8 +1359,8 @@ describe("homeInit", () => {
       );
 
       expect(exitCode).toBeUndefined(); // a non-rt-own materialize failure never gates the exit code
-      expect(errors.some((e) => e.includes("boom: env gathering exploded"))).toBe(true);
-      expect(logs.some((l) => l.includes("is provisioned"))).toBe(true);
+      expect(logs.some((l) => l.includes("boom: env gathering exploded"))).toBe(true);
+      expect(logs.some((l) => l.includes("This Mac is set up"))).toBe(true);
       expect(exec.calls).toEqual([]); // never reached runMaterialize
     });
 
@@ -1406,7 +1415,7 @@ describe("homeInit", () => {
       );
 
       expect(exitCode).toBeUndefined();
-      expect(logs.some((l) => l.includes("materialize would run"))).toBe(false);
+      expect(logs.some((l) => l.includes("rt would also refresh"))).toBe(false);
     });
 
     test("a configured claude.marketplaces prints the installer pointer, never replays anything itself", async () => {
@@ -1419,12 +1428,191 @@ describe("homeInit", () => {
 
         const { logs } = await runHomeInit(FULLY_PROVISIONED_PROBES(), seam, new FakeAgeKeySeam());
 
-        expect(logs.some((l) => l.includes("claude.marketplaces") && l.includes("installer"))).toBe(true);
+        expect(logs.some((l) => l.includes("Claude plugin") && l.includes("installer"))).toBe(true);
       } finally {
         process.env.HOME = origHome;
         rmSync(isolatedHome, { recursive: true, force: true });
       }
     });
+  });
+
+  test("a failed clone leads with one plain title, and what git said follows with escapes stripped", async () => {
+    class FailingCloneSeam extends FakeSeam {
+      override async run(cmd: string[]): Promise<ExecResult> {
+        if (cmd[1] === "clone") return { code: 128, stdout: "", stderr: "\x1b[2Jfatal: repository not found\n\nline two" };
+        return super.run(cmd);
+      }
+    }
+    const { exitCode, logs, errors } = await runHomeInit(fakeProbes({}), new FailingCloneSeam(), new FakeAgeKeySeam(), ["--url", TEST_URL]);
+
+    expect(exitCode).toBe(1);
+    expect(errors).toEqual(["rt could not clone your home repo", "what it said:", "  fatal: repository not found", "  line two"]);
+    expect(logs).toContain(`[failed] Clone your home repo  ${TEST_URL}`);
+  });
+
+  test("each stage ends in its own line, and the run ends with one line when the Mac is set up", async () => {
+    const { exitCode, logs } = await runHomeInit(fakeProbes({}), new FakeSeam(), new FakeAgeKeySeam(), ["--url", TEST_URL, "--no-materialize"]);
+
+    expect(exitCode).toBeUndefined();
+    expect(logs[0]).toBe(`Setting up your home folder (${mattstackHome()})`);
+    const plan = logs.indexOf(`[not yet] Clone your home repo  ${TEST_URL}`);
+    const ran = logs.indexOf(`[ok] Clone your home repo  ${TEST_URL}`);
+    expect(plan).toBeGreaterThan(0);
+    expect(ran).toBeGreaterThan(plan);
+    expect(logs).toContain("[skipped] Skipped the refresh of what rt generates from your settings");
+    expect(logs.at(-1)).toBe(`[ok] This Mac is set up  ${mattstackHome()}`);
+    expect(logs.join("\n")).not.toContain("\x1b[");
+    expect(logs.join("\n")).not.toContain("Cloning ");
+  });
+
+  test("a wrong key in the keychain is one failure with its why and the import command", async () => {
+    const sopsYamlSeam = new FakeSopsYamlSeam({ path: SOPS_YAML_PATH, content: renderSopsYaml("age1stale-recipient-from-another-machine") });
+    const { exitCode, errors } = await runHomeInit(FULLY_PROVISIONED_PROBES(), new FakeSeam(), new FakeAgeKeySeamWithExistingKey(), [], sopsYamlSeam);
+
+    expect(exitCode).toBe(1);
+    expect(errors[0]).toBe("This Mac's key does not match your secrets");
+    expect(errors[1]).toStartWith("  why: They are locked to age1stale-re");
+    expect(errors[2]).toBe("  next: rt home key import --force");
+  });
+
+  test("the tray's dry run with no terminal to pick a profile leads with the question, and nothing before it", async () => {
+    const probes = fakeProbes({ isGitRepo: (dir) => dir.endsWith("/user"), exists: (path) => path.endsWith("/user"), listProfiles: () => ["desktop", "laptop"] });
+    const { exitCode, logs, errors } = await runHomeInit(probes, new FakeSeam(), new FakeAgeKeySeam(), ["--dry-run", "--json"], new FakeSopsYamlSeam(), KEY, new UnreachablePickerSeam(), () => false);
+
+    expect(exitCode).toBe(1);
+    expect(logs).toEqual([]);
+    expect(errors[0]).toBe("Which machine profile should this Mac use?");
+    expect(errors[1]).toBe("  why: This Mac could use any of 2 machine profiles (desktop, laptop), and there is no terminal to ask which.");
+    expect(errors).toContain("  next: rt home init --profile <key>");
+    // TeamChoiceModel.homeInitCheck shows the first 200 bytes of stderr with its newlines turned into spaces.
+    expect(errors.join("\n").slice(0, 200).replace(/\n/g, " ")).toStartWith("Which machine profile should this Mac use?   why: This Mac could use");
+  });
+
+  test("a credential in the clone url never reaches the CLI log", async () => {
+    const cliLogs = (): Map<string, string> =>
+      new Map(
+        existsSync(logsDir())
+          ? readdirSync(logsDir())
+              .filter((f) => f.startsWith("cli.") && f.endsWith(".log"))
+              .map((f) => [f, readFileSync(join(logsDir(), f), "utf8")])
+          : [],
+      );
+    const before = cliLogs();
+    const secretUrl = "https://x-access-token:ghp_sample0credcheck@forge.example.test/sample/credential-check.git";
+    const { exitCode } = await runHomeInit(fakeProbes({}), new FakeSeam(), new FakeAgeKeySeam(), ["--url", secretUrl, "--no-materialize"]);
+
+    expect(exitCode).toBeUndefined();
+    const written = [...cliLogs()].map(([file, text]) => text.slice(before.get(file)?.length ?? 0)).join("");
+    expect(written).toContain('"msg":"Cloning <remote>"');
+    expect([...cliLogs().values()].join("")).not.toContain("ghp_sample0credcheck");
+  });
+});
+
+describe("homeInit at a terminal", () => {
+  const FAKE_UI = join(import.meta.dir, "..", "..", "lib", "ui", "__tests__", "fake-rt-ui.ts");
+  let dir: string;
+  let record: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "rt-home-steps-"));
+    record = join(dir, "record.ndjson");
+    process.env.RT_UI_BIN = FAKE_UI;
+    process.env.RT_UI_FAKE = JSON.stringify({ record });
+    gateTest.setInteractive(() => true);
+  });
+  afterEach(() => {
+    gateTest.setInteractive(undefined);
+    delete process.env.RT_UI_BIN;
+    delete process.env.RT_UI_FAKE;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  type Sent = { t: string; title?: string; text?: string; hint?: string; status?: string };
+
+  /** Each stage is its own helper process, which appends what it received when it ends: one list per stage, hello dropped. */
+  function stages(): Sent[][] {
+    const out: Sent[][] = [];
+    for (const line of readFileSync(record, "utf8").trim().split("\n")) {
+      const msg = JSON.parse(line) as Sent;
+      if (msg.t === "hello") out.push([]);
+      else out.at(-1)!.push(msg);
+    }
+    return out;
+  }
+
+  const REFRESH_ENV: MaterializeEnv = {
+    ...NOOP_MATERIALIZE_ENV,
+    daemonInstalled: false,
+    deckOnPath: true,
+    deckHealthy: true,
+    boardRepoPath: "/repos/mr-board",
+    trackedRepos: [{ name: "gitq", path: "/repos/gitq", present: false }],
+  };
+
+  function refreshExec(): FakeMaterializeExecSeam {
+    const exec = new FakeMaterializeExecSeam();
+    exec.script(["rt", "daemon", "install"], { stdout: "daemon not yet responding: approve it in System Settings", stderr: "", exitCode: 0 });
+    return exec;
+  }
+
+  const refreshRun = (exec: FakeMaterializeExecSeam = refreshExec(), env: MaterializeEnv = REFRESH_ENV) =>
+    runHomeInit(FULLY_PROVISIONED_PROBES(), new FakeSeam(), new FakeAgeKeySeam(), [], new FakeSopsYamlSeam(), KEY, new UnreachablePickerSeam(), () => false, async () => env, exec);
+
+  test("each refresh stage is its own rt-ui step, ended in its own state, and nothing it painted reaches stdout", async () => {
+    const { exitCode, logs } = await refreshRun();
+
+    expect(exitCode).toBeUndefined();
+    expect(stages()).toEqual([
+      [{ t: "start", title: "Set up rt's git intercept" }, { t: "done", title: "Set up rt's git intercept" }],
+      [{ t: "start", title: "Set up the rt daemon" }, { t: "done", title: "Set up the rt daemon" }],
+      [
+        { t: "start", title: "Some tracked repos are not on this Mac yet" },
+        { t: "done", title: "Some tracked repos are not on this Mac yet", hint: "gitq", status: "needs-you" },
+      ],
+      [{ t: "start", title: "Set up deck" }, { t: "done", title: "Set up deck", hint: "deck is already running well", status: "skipped" }],
+      [{ t: "start", title: "Set up mr-board" }, { t: "done", title: "Set up mr-board", hint: "you run this one yourself", status: "needs-you" }],
+    ]);
+    expect(logs.some((l) => /^\[[a-z ]+\] (Set up (rt's git intercept|the rt daemon|deck|mr-board)|Some tracked repos)/.test(l))).toBe(false);
+    expect(logs.some((l) => l.includes("approve it in System Settings"))).toBe(true);
+    expect(logs.at(-1)).toBe(`[ok] This Mac is set up  ${mattstackHome()}`);
+  });
+
+  test("a refresh step rt does not own that fails ends warn, with what it said printed after it", async () => {
+    const exec = new FakeMaterializeExecSeam();
+    exec.script(["deck", "setup"], { stdout: "", stderr: "deck exploded", exitCode: 1 });
+    const { exitCode, logs } = await refreshRun(exec, { ...NOOP_MATERIALIZE_ENV, deckOnPath: true });
+
+    expect(exitCode).toBeUndefined();
+    expect(stages()[1]).toEqual([{ t: "start", title: "Set up deck" }, { t: "done", title: "Set up deck", status: "warn" }]);
+    expect(logs.some((l) => l.includes("deck exploded"))).toBe(true);
+  });
+
+  test("a failed stage keeps its progress line and ends failing", async () => {
+    const seam = new FakeSeam({ failRun: (cmd) => cmd[1] === "clone" });
+    const { exitCode, logs, errors } = await runHomeInit(fakeProbes({}), seam, new FakeAgeKeySeam(), ["--url", TEST_URL]);
+
+    expect(exitCode).toBe(1);
+    expect(stages().find((s) => s[0]?.title === "Clone your home repo")).toEqual([
+      { t: "start", title: "Clone your home repo" },
+      { t: "sub", text: `Cloning ${TEST_URL}` },
+      { t: "fail", title: "Clone your home repo", hint: TEST_URL },
+    ]);
+    expect(logs).not.toContain(`[failed] Clone your home repo  ${TEST_URL}`);
+    expect(errors[0]).toBe("rt could not clone your home repo");
+  });
+
+  test("a helper that dies leaves one plain line per stage, each with its guidance after it", async () => {
+    process.env.RT_UI_FAKE = JSON.stringify({ dieOn: "start" });
+    const { exitCode, logs } = await refreshRun();
+
+    expect(exitCode).toBeUndefined();
+    expect(logs).toContain("[ok] Set up rt's git intercept");
+    const daemon = logs.indexOf("[ok] Set up the rt daemon");
+    expect(daemon).toBeGreaterThan(logs.indexOf("[ok] Set up rt's git intercept"));
+    expect(logs[daemon + 1]).toContain("approve it in System Settings");
+    expect(logs).toContain("[needs you] Some tracked repos are not on this Mac yet  gitq");
+    expect(logs).toContain("[skipped] Set up deck  deck is already running well");
+    expect(logs).toContain("[needs you] Set up mr-board  you run this one yourself");
   });
 });
 
@@ -1500,7 +1688,7 @@ describe("homeInit — the real intent read", () => {
         "real-disk-read",
       );
 
-      expect(logs.join("\n")).toContain("clone https://x/from-intent.git into user/");
+      expect(logs.join("\n")).toContain("Clone your home repo  https://x/from-intent.git");
     } finally {
       process.env.HOME = origHome;
       rmSync(isolatedHome, { recursive: true, force: true });
@@ -1515,18 +1703,18 @@ describe("claudePluginsPointerMessage", () => {
 
   test("marketplaces resolved, plugins not: points at the installer", () => {
     const message = claudePluginsPointerMessage([{ name: "x" }], undefined);
-    expect(message).toContain("claude.marketplaces");
+    expect(message).toContain("marketplace settings");
     expect(message).toContain("installer");
   });
 
   test("plugins resolved, marketplaces not: points at the installer", () => {
     const message = claudePluginsPointerMessage(undefined, ["some-plugin"]);
-    expect(message).toContain("claude.plugins");
+    expect(message).toContain("Claude plugin");
   });
 
   test("never suggests rt home init itself replays them", () => {
     const message = claudePluginsPointerMessage([{ name: "x" }], ["y"]);
-    expect(message).toContain("not rt home init's");
+    expect(message).toContain("not by rt home init");
   });
 });
 
@@ -1616,31 +1804,24 @@ class FakeDaemonSeam implements HomeDaemonSeam {
   }
 }
 
-/** Runs an async CLI function, catching the `process.exit` call the failure paths make. */
+/** Runs an async CLI function, catching the `process.exit` call the failure paths make. `logs` is stdout by line, `errors` is stderr by line, both as plain text. */
 async function runCatchingExit(
   fn: () => Promise<void>,
 ): Promise<{ exitCode: number | undefined; logs: string[]; errors: string[] }> {
   const exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit");
   });
-  const logs: string[] = [];
-  const errors: string[] = [];
-  spyOn(console, "log").mockImplementation((...parts: unknown[]) => {
-    logs.push(parts.map(String).join(" "));
-  });
-  spyOn(console, "error").mockImplementation((...parts: unknown[]) => {
-    errors.push(parts.map(String).join(" "));
-  });
+  const io = captureOut();
+  ui.__test__.setHuman(() => false);
   try {
     await fn();
-    return { exitCode: undefined, logs, errors };
+    return { exitCode: undefined, logs: io.lines(), errors: io.errLines() };
   } catch {
     const code = exitSpy.mock.calls.at(-1)?.[0] as number | undefined;
-    return { exitCode: code, logs, errors };
+    return { exitCode: code, logs: io.lines(), errors: io.errLines() };
   } finally {
     exitSpy.mockRestore();
-    (console.log as unknown as { mockRestore: () => void }).mockRestore();
-    (console.error as unknown as { mockRestore: () => void }).mockRestore();
+    io.restore();
   }
 }
 
@@ -1738,6 +1919,66 @@ describe("homeSnapshot", () => {
     expect(exitCode).toBe(1);
     expect(errors.some((e) => e.includes("git commit failed"))).toBe(true);
   });
+
+  test("status reads as a state line and five facts, with a warning per fault", async () => {
+    const seam = new FakeDaemonSeam(() => ({ ok: true, data: { ...okStatus, enabled: false, lastCommitError: "fatal: unable to create index.lock" } }));
+    const { logs } = await runCatchingExit(() => homeSnapshot(["--status"], {}, seam));
+    expect(logs[0]).toBe("[off] Saving your home repo is disabled  /home/.mattstack");
+    expect(logs).toContain("watching: yes");
+    expect(logs).toContain("[warning] The last save did not commit  fatal: unable to create index.lock");
+  });
+
+  test("a daemon that is down is one failure with the command to start it", async () => {
+    const seam = new FakeDaemonSeam(() => null);
+    const { exitCode, logs, errors } = await runCatchingExit(() => homeSnapshot([], {}, seam));
+    expect(exitCode).toBe(1);
+    expect(logs).toEqual([]);
+    expect(errors).toEqual(["The rt daemon is not running", "  next: rt daemon start"]);
+  });
+});
+
+describe("homeKeyExport", () => {
+  async function expectedBytes(): Promise<string> {
+    let text = "";
+    await keyExport(new FakeAgeKeySeamWithExistingKey(), (t) => {
+      text = `${t}\n`;
+    });
+    return text;
+  }
+
+  test("key export writes the same bytes at a terminal and in a pipe, and nothing else on stdout", async () => {
+    const expected = await expectedBytes();
+    expect(expected).toContain(FAKE_PRIVATE_KEY);
+    const io = captureOut();
+    try {
+      for (const human of [true, false]) {
+        io.clear();
+        ui.__test__.setHuman(() => human);
+        await homeKeyExport([], {}, new FakeAgeKeySeamWithExistingKey());
+        expect(io.stdout()).toBe(expected);
+        expect(io.stderr()).toBe("");
+      }
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("no key yet: a failure on stderr naming the command, nothing on stdout, exit 1", async () => {
+    const exitSpy = spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await expect(homeKeyExport([], {}, new FakeAgeKeySeam())).rejects.toThrow("process.exit");
+      expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe("This Mac has no secrets key yet\n  next: rt home init\n");
+    } finally {
+      exitSpy.mockRestore();
+      io.restore();
+    }
+  });
 });
 
 describe("readStdinTrimmed", () => {
@@ -1830,7 +2071,7 @@ describe("homeKeyImport", () => {
 
     expect(exitCode).toBeUndefined();
     expect(logs.some((l) => l.includes(FAKE_PUBLIC_KEY.slice(0, 12)))).toBe(true);
-    expect(logs.some((l) => l.includes("decryptable on this machine"))).toBe(true);
+    expect(logs.some((l) => l.includes("can now be opened on this Mac"))).toBe(true);
     expect(seam.calls.some((c) => c.includes("add-generic-password") && !c.includes("-U"))).toBe(true);
   });
 
@@ -1891,6 +2132,15 @@ describe("homeKeyImport", () => {
     expect(seam.calls.some((c) => c.includes("add-generic-password"))).toBe(false);
   });
 
+  test("a key already on this Mac is refused, not failed", async () => {
+    const seam = new FakeImportSeam({ existingPrivateKey: OTHER_PRIVATE_KEY, existingPublicKey: OTHER_PUBLIC_KEY });
+    const { exitCode, errors } = await runImport([], seam);
+    expect(exitCode).toBe(1);
+    expect(errors[0]).toBe("[refused] This Mac already has a secrets key");
+    expect(errors[1]).toBe(`  why: Its recipient is ${OTHER_PUBLIC_KEY.slice(0, 12)}…, and rt replaces it only when you ask.`);
+    expect(errors[2]).toBe("  next: rt home key import --force");
+  });
+
   test("existing key, --force: overwrites (-U) and succeeds", async () => {
     const seam = new FakeImportSeam({ existingPrivateKey: OTHER_PRIVATE_KEY, existingPublicKey: OTHER_PUBLIC_KEY });
 
@@ -1913,6 +2163,7 @@ describe("homeKeyImport", () => {
     expect(errors.some((e) => e.includes(OTHER_PUBLIC_KEY.slice(0, 12)))).toBe(true);
     // The wrong key is already stored, so a plain retry hits the exists-refusal — the message must say so.
     expect(errors.some((e) => e.includes("rt home key import --force"))).toBe(true);
+    expect(errors.some((e) => e.includes("…."))).toBe(false);
   });
 
   test("imported key's recipient matches an existing .sops.yaml: succeeds, no mismatch warning", async () => {
@@ -1924,7 +2175,7 @@ describe("homeKeyImport", () => {
     expect(exitCode).toBeUndefined();
     expect(errors).toEqual([]);
     expect(logs.some((l) => l.includes(FAKE_PUBLIC_KEY.slice(0, 12)))).toBe(true);
-    expect(logs.some((l) => l.includes("decryptable on this machine"))).toBe(true);
+    expect(logs.some((l) => l.includes("can now be opened on this Mac"))).toBe(true);
   });
 
   test("--stdin: reads the key via input.fromStdin, never input.fromPrompt", async () => {
@@ -1947,7 +2198,7 @@ describe("homeKeyImport", () => {
     expect(exitCode).toBeUndefined();
     expect(errors).toEqual([]);
     expect(logs.some((l) => l.includes(FAKE_PUBLIC_KEY.slice(0, 12)))).toBe(true);
-    expect(logs.some((l) => l.includes("decryptable on this machine"))).toBe(true);
+    expect(logs.some((l) => l.includes("can now be opened on this Mac"))).toBe(true);
     expect(stdinCalled).toBe(true);
     expect(promptCalled).toBe(false);
   });
@@ -1982,7 +2233,7 @@ describe("homeClaim / homeRelease", () => {
     const owners = readOwners(ownersPath);
     expect(Object.keys(owners.zones)).toEqual(["prefs/"]);
     expect(owners.zones["prefs/"]!.owner).toContain("matt@");
-    expect(logs.some((l) => l.includes("claimed"))).toBe(true);
+    expect(logs.some((l) => l.includes("Claimed"))).toBe(true);
     expect(logs.some((l) => l.includes("prefs/"))).toBe(true);
   });
 
@@ -2002,14 +2253,14 @@ describe("homeClaim / homeRelease", () => {
     const { exitCode, errors } = await runCatchingExit(() => homeClaim(["../escape"], {}, ownersPath, provisioned));
 
     expect(exitCode).toBe(1);
-    expect(errors.some((e) => e.includes("not a valid snapshot zone"))).toBe(true);
+    expect(errors.some((e) => e.includes("is not a path rt can track"))).toBe(true);
   });
 
   test("claim with no zone argument: exits 1, explains a zone is required", async () => {
     const { exitCode, errors } = await runCatchingExit(() => homeClaim([], {}, ownersPath, provisioned));
 
     expect(exitCode).toBe(1);
-    expect(errors.some((e) => e.includes("zone is required"))).toBe(true);
+    expect(errors.some((e) => e.includes("Which path should rt leave"))).toBe(true);
   });
 
   test("claim refuses when ~/.mattstack/user isn't provisioned yet, and never touches the owners file", async () => {
@@ -2054,6 +2305,25 @@ describe("homeClaim / homeRelease", () => {
     expect(readOwners(ownersPath).zones["prefs/"]!.owner).toBe("alice@desktop");
   });
 
+  test("a path someone else claimed is refused, not failed", async () => {
+    await runCatchingExit(() => homeClaim(["prefs/", "--owner", "matt@laptop"], {}, ownersPath, provisioned));
+    const { exitCode, errors } = await runCatchingExit(() => homeClaim(["prefs/", "--owner", "alice@desktop"], {}, ownersPath, provisioned));
+    expect(exitCode).toBe(1);
+    expect(errors).toEqual(["[refused] prefs/ is already claimed by matt@laptop", "  next: rt home claim prefs/ --owner alice@desktop --force"]);
+  });
+
+  test("the refusal's next keeps the owner and note the person gave, quoting what a shell would split", async () => {
+    await runCatchingExit(() => homeClaim(["my prefs/", "--owner", "matt@laptop"], {}, ownersPath, provisioned));
+    const { errors } = await runCatchingExit(() => homeClaim(["my prefs/", "--owner=alice@desktop", "--note", "ci box's"], {}, ownersPath, provisioned));
+    expect(errors).toEqual(["[refused] my prefs/ is already claimed by matt@laptop", "  next: rt home claim 'my prefs/' --owner alice@desktop --note 'ci box'\\''s' --force"]);
+  });
+
+  test("the refusal's next leaves out an owner the person never named", async () => {
+    await runCatchingExit(() => homeClaim(["prefs/", "--owner", "matt@laptop"], {}, ownersPath, provisioned));
+    const { errors } = await runCatchingExit(() => homeClaim(["prefs/"], {}, ownersPath, provisioned));
+    expect(errors[1]).toBe("  next: rt home claim prefs/ --force");
+  });
+
   test("release removes a previously claimed zone and names who owned it", async () => {
     await runCatchingExit(() => homeClaim(["prefs/", "--owner", "matt@laptop"], {}, ownersPath, provisioned));
     expect(Object.keys(readOwners(ownersPath).zones)).toEqual(["prefs/"]);
@@ -2062,14 +2332,14 @@ describe("homeClaim / homeRelease", () => {
 
     expect(exitCode).toBeUndefined();
     expect(Object.keys(readOwners(ownersPath).zones)).toEqual([]);
-    expect(logs.some((l) => l.includes("released"))).toBe(true);
+    expect(logs.some((l) => l.includes("Released"))).toBe(true);
     expect(logs.some((l) => l.includes("matt@laptop"))).toBe(true);
   });
 
   test("release on a never-claimed zone prints 'nothing to release', not a ✓", async () => {
     const { exitCode, logs } = await runCatchingExit(() => homeRelease(["never-claimed/"], {}, ownersPath, provisioned));
     expect(exitCode).toBeUndefined();
-    expect(logs.some((l) => l.includes("nothing to release"))).toBe(true);
+    expect(logs.some((l) => l.includes("Nothing to release"))).toBe(true);
     expect(logs.some((l) => l.includes("✓"))).toBe(false);
   });
 
@@ -2087,14 +2357,14 @@ describe("homeClaim / homeRelease", () => {
     const { exitCode, errors } = await runCatchingExit(() => homeRelease(["../escape"], {}, ownersPath, provisioned));
 
     expect(exitCode).toBe(1);
-    expect(errors.some((e) => e.includes("not a valid snapshot zone"))).toBe(true);
+    expect(errors.some((e) => e.includes("is not a path rt can track"))).toBe(true);
   });
 
   test("release with no zone argument: exits 1, explains a zone is required", async () => {
     const { exitCode, errors } = await runCatchingExit(() => homeRelease([], {}, ownersPath, provisioned));
 
     expect(exitCode).toBe(1);
-    expect(errors.some((e) => e.includes("zone is required"))).toBe(true);
+    expect(errors.some((e) => e.includes("Which claimed path should rt take back"))).toBe(true);
   });
 
   test("release refuses when ~/.mattstack/user isn't provisioned yet", async () => {

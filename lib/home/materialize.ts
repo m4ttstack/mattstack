@@ -79,8 +79,10 @@ export interface MaterializeResult {
   stderr: string;
   /** Captured stdout — non-empty only for `RT_OWN_STEP_KINDS` steps, and printed even on `ok: true`: `rt daemon install` writes operator-critical approval guidance to stdout on a clean exit. */
   stdout: string;
-  /** An informational note to show even on `ok: true` — e.g. `boardSetup`'s manual-run command. Never a failure message (that's `stderr`). */
+  /** An informational note to show even on `ok: true`. Never a failure message (that's `stderr`). */
   note: string;
+  /** A command a person must run by hand because it asks questions, such as `boardSetup`'s. */
+  runYourself?: string;
 }
 
 /**
@@ -104,7 +106,7 @@ function failureMessage(bin: string, r: MaterializeExecResult): string {
   if (r.exitCode === -1) {
     // rtBin can be an absolute self-invocation path (compiled binary) rather
     // than a bare command — "is it on PATH?" would be a non sequitur there.
-    return bin.includes("/") ? `could not run \`${bin}\` — not found` : `could not run \`${bin}\` — is it on PATH?`;
+    return bin.includes("/") ? `rt could not find ${bin} to run it` : `rt could not run ${bin}: is it installed and on your PATH?`;
   }
   return r.stderr || `exit ${r.exitCode}`;
 }
@@ -138,17 +140,21 @@ async function runStep(step: MaterializeStep, seam: MaterializeExecSeam, rtBin: 
     case "reportMissingRepos":
       return ok(step);
     case "reportDeckHealthy":
-      return { step, ok: true, stderr: "", stdout: "", note: "deck healthy — setup skipped" };
+      return { step, ok: true, stderr: "", stdout: "", note: "deck is already running well, so rt left it alone" };
     case "reportDeckUnhealthy":
       return {
         step,
         ok: false,
-        stderr: `deck is unhealthy and ${step.helperLabel} (the app's deck helper) owns it, so \`deck setup\` was not run (it would install a competing LaunchAgent); if the helper is not registered run \`rt services register\`, else inspect it with \`launchctl print gui/$(id -u)/${step.helperLabel}\``,
+        stderr: [
+          "The app's deck helper owns deck, and deck is not healthy, so rt did not run deck setup: it would add a second copy.",
+          "If the helper is not registered: rt services register",
+          `To look at it: launchctl print gui/$(id -u)/${step.helperLabel}`,
+        ].join("\n"),
         stdout: "",
         note: "",
       };
     case "boardSetup":
-      return { step, ok: true, stderr: "", stdout: "", note: `run manually (interactive): ${boardSetupCommand(step.repoPath)}` };
+      return { step, ok: true, stderr: "", stdout: "", note: "", runYourself: boardSetupCommand(step.repoPath) };
   }
 }
 

@@ -70,7 +70,7 @@ export function renderOwnersFile(): string {
 /** A machine-key value that would fail machineKey()'s own override guard — refused before it can ever be written and then silently ignored. */
 export class InvalidMachineKeyError extends Error {
   constructor(key: string) {
-    super(`"${key}" is not a safe machine-key segment (empty, ".", "..", or containing "/" or "\\")`);
+    super(`"${key}" cannot name a Mac: a name cannot be empty, ".", "..", or hold a slash or a backslash.`);
   }
 }
 
@@ -95,10 +95,13 @@ export interface ChooseMachineProfileResult {
 
 /** `--profile <key>` named something not already in `profiles`, and `--new-profile` wasn't passed to say that's intentional. */
 export class UnknownProfileFlagError extends Error {
-  constructor(profile: string, profiles: string[]) {
+  constructor(
+    readonly profile: string,
+    profiles: string[],
+  ) {
     super(
-      `--profile ${profile} isn't one of the existing profiles (${profiles.length > 0 ? profiles.join(", ") : "none yet"}) — ` +
-        "pass --new-profile as well to create it.",
+      `There is no machine profile called ${profile} yet (${profiles.length > 0 ? `the profiles are ${profiles.join(", ")}` : "there are none yet"}). ` +
+        "Name it as a new profile to create it.",
     );
   }
 }
@@ -106,17 +109,14 @@ export class UnknownProfileFlagError extends Error {
 /** Multiple profiles exist, no flag picked one, and stdin isn't a TTY to prompt on — never silently guess. */
 export class ProfileChoiceRequiredError extends Error {
   constructor(profiles: string[]) {
-    super(
-      `${profiles.length} existing machine profile(s) (${profiles.join(", ")}) and no terminal to prompt on — ` +
-        "pass --profile <key> to adopt one, or --new-profile to start a new one.",
-    );
+    super(`This Mac could use any of ${profiles.length} machine profiles (${profiles.join(", ")}), and there is no terminal to ask which.`);
   }
 }
 
 /** Mirrors InvalidMachineKeyError for a profile key chosen by flag or hostname slug, before it ever reaches buildInitPlan. */
 export class InvalidProfileKeyError extends Error {
   constructor(key: string) {
-    super(`"${key}" is not a safe machine-profile key (empty, ".", "..", or containing "/" or "\\")`);
+    super(`"${key}" cannot name a machine profile: a name cannot be empty, ".", "..", or hold a slash or a backslash.`);
   }
 }
 
@@ -129,11 +129,7 @@ export class InvalidProfileKeyError extends Error {
  */
 export class ProfileNameCollisionError extends Error {
   constructor(hostnameSlug: string) {
-    super(
-      `--new-profile's default name ("${hostnameSlug}") is already an existing profile — ` +
-        `using it would silently share that profile with whichever other machine created it. ` +
-        `Pass --profile <name> --new-profile with a distinct name.`,
-    );
+    super(`This Mac's default profile name, ${hostnameSlug}, already belongs to another Mac's profile. Give the new profile a name of its own.`);
   }
 }
 

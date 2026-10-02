@@ -57,7 +57,7 @@ describe("resolveTag", () => {
     const r = await resolveTag(s);
     expect(r.tag).toBe("v2.10.2");
     expect(r.row?.status).toBe("ok");
-    expect(r.row?.detail).toContain("local v* tag");
+    expect(r.row?.detail).toContain("the newest release tag on this Mac");
   });
 
   test("prefers the local v* tag over anything git describe would report as nearest", async () => {
@@ -79,7 +79,7 @@ describe("resolveTag", () => {
     });
     const r = await resolveTag(s);
     expect(r.tag).toBe("v2.10.2");
-    expect(r.row?.detail).toContain("newest GitHub release");
+    expect(r.row?.detail).toContain("the newest release on GitHub");
   });
 
   test("falls back when listing local tags itself fails", async () => {
@@ -292,7 +292,7 @@ describe("checkReleaseBody", () => {
     expect(row.status).toBe("stale");
     expect(row.detail).toContain("RELEASE_NOTES.md");
     expect(row.detail).toContain("new tag");
-    expect(row.detail).toContain("never gh release edit");
+    expect(row.detail).toContain("never edit the release by hand");
   });
 
   test("error when git show fails", async () => {
@@ -303,6 +303,11 @@ describe("checkReleaseBody", () => {
 });
 
 describe("checkReleaseAssets", () => {
+  test("the words the release skills read are still there", () => {
+    expect(checkReleaseAssets("v2.10.2", { ...RELEASE, assets: [] }).detail).toStartWith("missing assets: ");
+    expect(checkReleaseState({ ...RELEASE, isDraft: true }).detail).toStartWith("still a draft. To publish it: ");
+  });
+
   test("ok when all four assets are attached", () => {
     const row = checkReleaseAssets("v2.10.2", RELEASE);
     expect(row.status).toBe("ok");
@@ -349,6 +354,16 @@ describe("checkLatest", () => {
     });
     const row = await checkLatest(s, "v2.10.2", RELEASE);
     expect(row.status).toBe("pending");
+    expect(row.detail).toBe("still propagating: published 7 minutes ago, and the latest-release link can lag about 20 minutes behind");
+  });
+
+  test("one minute after publish reads as one minute", async () => {
+    const s = seams({
+      now: () => new Date("2026-09-18T21:08:55Z").getTime(),
+      fetchJson: () => Promise.resolve({ tag_name: "v2.10.1", assets: [] }),
+    });
+    const row = await checkLatest(s, "v2.10.2", RELEASE);
+    expect(row.detail).toStartWith("still propagating: published 1 minute ago,");
   });
 
   test("pending, not stale, when the local clock is slightly behind GitHub's (negative elapsed)", async () => {
@@ -358,6 +373,17 @@ describe("checkLatest", () => {
     });
     const row = await checkLatest(s, "v2.10.2", RELEASE);
     expect(row.status).toBe("pending");
+    expect(row.detail).toBe("still propagating: just published, and the latest-release link can lag about 20 minutes behind");
+  });
+
+  test("a clock a few minutes behind GitHub's still reads as just published, never a negative age", async () => {
+    const s = seams({
+      now: () => new Date("2026-09-18T21:04:55Z").getTime(),
+      fetchJson: () => Promise.resolve({ tag_name: "v2.10.1", assets: [] }),
+    });
+    const row = await checkLatest(s, "v2.10.2", RELEASE);
+    expect(row.status).toBe("pending");
+    expect(row.detail).toStartWith("still propagating: just published,");
   });
 
   test("stale with an unknown-publish-time message when releaseData is null", async () => {

@@ -210,7 +210,7 @@ export async function checkGitState(
       id: "git",
       label: "git state",
       status: problems.length ? "stale" : "ok",
-      detail: problems.length ? problems.join("; ") : `${count} commit(s) since ${tag}`,
+      detail: problems.length ? problems.join("; ") : `${count} commit${count === 1 ? "" : "s"} since ${tag}`,
     };
     return { row, tag, commitsSinceTag: count };
   } catch (err) {

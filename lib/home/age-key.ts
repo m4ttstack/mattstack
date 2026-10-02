@@ -16,6 +16,7 @@
  */
 
 import { resolveBundledTool } from "../bundled-tool.ts";
+import * as out from "../ui/out.ts";
 
 export interface AgeExecResult {
   code: number;
@@ -292,7 +293,7 @@ const CLI_DEBUG = process.env.RT_LOG_LEVEL === "debug";
  * its RT_LOG_LEVEL=debug gating rather than inventing a separate one.
  */
 function debugLog(cmd: string[]): void {
-  if (CLI_DEBUG) console.error(`[age-key] ${cmd.join(" ")}`);
+  if (CLI_DEBUG) out.note(out.kv("age-key", cmd.join(" ")));
 }
 
 /** A locked keychain (screen-lock, or a keychain item whose ACL belongs to a different signed binary) pops a GUI dialog and blocks until clicked; this bounds every spawn against that. */

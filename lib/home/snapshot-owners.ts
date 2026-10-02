@@ -34,14 +34,14 @@ export interface Owners {
 
 export class InvalidZoneError extends Error {
   constructor(zone: string) {
-    super(`"${zone}" is not a valid snapshot zone (must be non-empty, no leading "/", no backslash, no "." or ".." segment)`);
+    super(`"${zone}" is not a path rt can track: a path must not be empty, start with a slash, hold a backslash, or have a "." or ".." part.`);
   }
 }
 
 /** Thrown by claimZone when `zone` is already claimed by a DIFFERENT owner and the caller didn't pass `force: true`. */
 export class ZoneOwnedByOthersError extends Error {
   constructor(public readonly zone: string, public readonly existingOwner: string) {
-    super(`"${zone}" is already claimed by ${existingOwner} — pass force to reassign it`);
+    super(`"${zone}" is already claimed by ${existingOwner}`);
   }
 }
 
