@@ -130,10 +130,6 @@
 }
 
 .root[data-variant='wash'] .code {
-  color: var(--tk-text-3);
-}
-
-.root[data-variant='wash'] .row[data-highlighted] .code {
   color: var(--tk-text-1);
 }
 

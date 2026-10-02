@@ -71,7 +71,7 @@ export interface CodeLinesProps {
   scrollTo?: number | null;
   /**
    * `wash`: the highlight is a thin accent wash, with its line numbers in
-   * accent and its text in the body colour; text outside it reads muted, and
+   * accent; text reads in the body colour, `mutedPattern` lines muted, and
    * a muted band draws its rule in the soft line step.
    * @default 'default'
    */
