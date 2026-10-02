@@ -45,7 +45,7 @@ import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsi
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
-import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, relativeToPrefix, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
+import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, relativeToPrefix, SIGNATURE_RE, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
@@ -1931,9 +1931,24 @@ async function discardPending(packDir: string, team: string, pending: PendingFil
   return discarded;
 }
 
+/** Takes `--expect <signature>` out of the arguments; parseFlags is shared by every skills verb, and only discard takes it. */
+function takeExpect(args: string[]): { expect: string | null; rest: string[] } {
+  const i = args.indexOf("--expect");
+  if (i === -1) return { expect: null, rest: args };
+  const value = args[i + 1];
+  if (value === undefined || !SIGNATURE_RE.test(value)) {
+    throw new SkillsUsageError(
+      "--expect needs the signature that rt skills changes --json prints",
+      usageFailure("Which signature?", "rt skills discard --pack <name> --expect <signature>", "Pass the signature rt skills changes --json printed for the changes you looked at."),
+    );
+  }
+  return { expect: value, rest: [...args.slice(0, i), ...args.slice(i + 2)] };
+}
+
 export async function skillsDiscard(args: string[], io: DiscardIo = REAL_DISCARD_IO): Promise<void> {
   await withCleanErrors(async () => {
-    const flags = parseFlags(args);
+    const { expect, rest } = takeExpect(args);
+    const flags = parseFlags(rest);
     if (!flags.team) {
       throw new SkillsUsageError(
         "rt skills discard needs --pack <name>; it throws work away, so it never guesses which pack",
@@ -1951,6 +1966,13 @@ export async function skillsDiscard(args: string[], io: DiscardIo = REAL_DISCARD
     }
 
     const pending = (await readPackPending(packDir, team, { wholeRepo: true })).filter(fullyInScope);
+    if (expect !== null && (await signedChanges(packDir, team, pending)).signature !== expect) {
+      throw new SkillsUsageError(`pack ${team} changed since its pending changes were shown, so nothing was thrown away`, {
+        title: `The ${team} pack changed since its changes were shown`,
+        why: "rt threw nothing away. Look over the changes again, then discard.",
+        next: out.cmd(`rt skills changes --pack ${team}`),
+      });
+    }
     if (pending.length > 0 && !flags.json && io.interactive()) {
       out.print(
         out.line("pending", `Pack ${team} has ${pending.length === 1 ? "1 change" : `${pending.length} changes`} that are not synced yet`),

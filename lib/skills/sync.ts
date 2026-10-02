@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from "fs";
 import { join, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
-import { needsStaging, outOfScopeSides, packRelative, parsePorcelainEntries, type PorcelainEntry } from "./changes.ts";
+import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, relativeToPrefix, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 
@@ -21,7 +21,8 @@ export type SyncDeps = {
 
 export type SyncStep = { name: string; status: "ran" | "skipped" | "refused" | "failed"; detail: string };
 
-export type SyncOptions = { commitPending?: boolean };
+/** `expect` is the signature `rt skills changes` printed: the sync refuses when the pack's pending changes no longer match it. */
+export type SyncOptions = { commitPending?: boolean; expect?: string };
 
 export type SyncReport = {
   ok: boolean;
@@ -180,6 +181,33 @@ function guardBase(engineInTree: boolean, packInTree: boolean, engineCache: stri
   return "engine and pack checkouts clean on main";
 }
 
+/** The in-scope files with their content ids and the signature over them, read the way `rt skills changes` reads them. */
+async function signPending(deps: SyncDeps, dir: string, files: PendingFile[]): Promise<{ files: HashedFile[]; signature: string }> {
+  const hashed = await withHashes(dir, files, async (paths) => {
+    const res = await deps.run("git", ["hash-object", "--", ...paths], { cwd: dir });
+    if (res.code !== 0) throw new Error(`git hash-object failed in ${dir}: ${res.stderr.trim()}`);
+    return res.stdout;
+  });
+  const side = await packSideChanges(dir, async (rel) => {
+    const res = await deps.run("git", ["show", `HEAD:./${rel}`], { cwd: dir });
+    return res.code === 0 ? res.stdout : null;
+  });
+  return { files: hashed, signature: pendingSignature({ files: hashed, ...side }) };
+}
+
+/** Every pending file in the pack directory, pack-relative, read the way `rt skills changes` reads them. */
+async function readPackDirPending(deps: SyncDeps, dir: string): Promise<PendingFile[]> {
+  const status = await deps.run("git", ["--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all", "--", "."], { cwd: dir });
+  if (status.code !== 0) throw new Error(`git status failed in ${dir}: ${status.stderr.trim()}`);
+  const prefix = await deps.run("git", ["rev-parse", "--show-prefix"], { cwd: dir });
+  if (prefix.code !== 0) throw new Error(`git rev-parse --show-prefix failed in ${dir}: ${prefix.stderr.trim()}`);
+  return relativeToPrefix(parsePorcelain(status.stdout), prefix.stdout.trim());
+}
+
+function changedSinceShown(pack: string): Outcome {
+  return refused(`The ${pack} pack changed since its pending changes were shown, so rt synced nothing. Look over the changes again, then sync`);
+}
+
 async function listInstalled(deps: SyncDeps): Promise<PluginListEntry[]> {
   const res = await deps.run(deps.claudeBin!, ["plugin", "list", "--json"]);
   if (res.code !== 0) throw new Error(`Listing Claude Code's plugins failed: ${res.stderr.trim()}`);
@@ -273,7 +301,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       }
     }
     if (packGit) {
-      const statusArgs = opts.commitPending ? ["status", "--porcelain=v1", "--untracked-files=all"] : ["status", "--porcelain"];
+      const fullStatus = opts.commitPending || opts.expect !== undefined;
+      const statusArgs = fullStatus ? ["status", "--porcelain=v1", "--untracked-files=all"] : ["status", "--porcelain"];
       const packStatus = await deps.run("git", statusArgs, { cwd: pack.dir });
       if (packStatus.code !== 0) return failed(`git status failed in ${pack.dir}: ${packStatus.stderr.trim()}`);
       if (packStatus.stdout.trim() !== "") {
@@ -289,12 +318,18 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
           return refused(`The pack checkout at ${pack.dir} has changes outside the pack: ${outside.join(", ")}. Commit or stash those, then run this again`);
         }
       }
-    } else if (opts.commitPending && packInTree) {
-      const packStatus = await deps.run("git", ["--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all", "--", "."], { cwd: pack.dir });
-      if (packStatus.code !== 0) return failed(`git status failed in ${pack.dir}: ${packStatus.stderr.trim()}`);
-      if (packStatus.stdout.trim() !== "") {
+      // Signed from this same read, so what passes the check is exactly what
+      // commit-pending later stages.
+      if (opts.expect !== undefined && (await signPending(deps, pack.dir, pending)).signature !== opts.expect) return changedSinceShown(pack.name);
+    } else if ((opts.commitPending || opts.expect !== undefined) && packInTree) {
+      const inPackDir = await readPackDirPending(deps, pack.dir);
+      if (opts.commitPending && inPackDir.length > 0) {
         return refused(`The ${pack.name} pack is in the shared checkout at ${pack.dir} and has changes that are not synced. rt never commits there: commit them in a pull request to the monorepo`);
       }
+      if (opts.expect !== undefined && (await signPending(deps, pack.dir, inPackDir.filter(fullyInScope))).signature !== opts.expect) return changedSinceShown(pack.name);
+    } else if (opts.expect !== undefined) {
+      const inPackDir = await readPackDirPending(deps, pack.dir);
+      if ((await signPending(deps, pack.dir, inPackDir.filter(fullyInScope))).signature !== opts.expect) return changedSinceShown(pack.name);
     }
 
     if (engineGit) {

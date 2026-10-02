@@ -4,8 +4,11 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import type { PackInfo } from "../packs.ts";
 import { execFileSync } from "child_process";
+import { createHash } from "crypto";
 import { childEnv, runCapture } from "../../subprocess.ts";
 import { bumpPatchVersion, type RunResult, type SyncDeps, syncPack } from "../sync.ts";
+import { skillsChanges } from "../../../commands/skills.ts";
+import { captureSkills } from "./helpers.ts";
 
 type Call = { cmd: string; args: string[]; cwd?: string };
 
@@ -19,6 +22,10 @@ function fixturePack(name: string, marketplace: string | null, version: string, 
   writeFileSync(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name, version }, null, 2) + "\n");
   writeFileSync(join(dir, "surface.jsonc"), `{ "public": [] }\n`);
   return { name, dir, layout: "flat", surfacePath: join(dir, "surface.jsonc"), marketplace };
+}
+
+function blobOf(bytes: Buffer): string {
+  return createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
 }
 
 function pluginId(info: PackInfo): string {
@@ -136,6 +143,10 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       }
       const failure = world.gitFail?.[args[0]!];
       if (failure) return { code: 1, stdout: "", stderr: failure };
+      if (args[0] === "hash-object") {
+        const paths = args.slice(args.indexOf("--") + 1);
+        return { code: 0, stdout: paths.map((p) => blobOf(readFileSync(join(cwd, p)))).join("\n") + "\n", stderr: "" };
+      }
       if (args[0] === "rev-parse" && args[1] === "--show-prefix") return { code: 0, stdout: `${world.prefix?.[cwd] ?? ""}\n`, stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     }
@@ -1407,6 +1418,25 @@ describe("commit-pending", () => {
     expect(world.calls.some((c) => c.cmd === "git" && ["add", "commit", "push", "pull"].includes(c.args[0]!))).toBe(false);
   });
 
+  test("an --expect that does not match the pending read refuses at the safety checks, before anything is pulled or staged", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    touch(pack.dir, "pack/skills.jsonc");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = {
+      calls: [],
+      gitStatus: { [pack.dir]: " M pack/skills.jsonc\n" },
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      drift: [false, false],
+    };
+
+    const report = await syncPack(pack, engine, makeDeps(pack, engine, world), { commitPending: true, expect: "0".repeat(64) });
+
+    expect(stepNames(report.steps)).toEqual(["guards"]);
+    expect(report.steps[0]).toMatchObject({ status: "refused" });
+    expect(report.steps[0]!.detail).toContain("changed since");
+    expect(world.calls.some((c) => c.cmd === "git" && ["pull", "add", "commit", "push"].includes(c.args[0]!))).toBe(false);
+  });
+
   test("without commit-pending a dirty pack is refused as before and no commit-pending step appears", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");
@@ -1609,6 +1639,69 @@ describe("commit-pending against real git", () => {
     expect(report.steps.at(-1)).toMatchObject({ name: "materialize", status: "failed" });
     expect(mustGit(root, "rev-list", "--count", "HEAD").trim()).toBe("1");
     expect(mustGit(root, "status", "--porcelain")).toBe("M  pack/skills.jsonc\n");
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+});
+
+/** What `rt skills changes --json` prints for the pack, read through the verb itself. */
+async function changesSignature(packDir: string): Promise<string> {
+  const io = captureSkills();
+  try {
+    await skillsChanges(["--pack", "acme", "--pack-dir", packDir, "--json"]);
+    return JSON.parse(io.stdout()).signature as string;
+  } finally {
+    io.restore();
+  }
+}
+
+describe("--expect against real git", () => {
+  test("the signature rt skills changes printed lets the sync through", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    writeFileSync(join(pack.dir, "skills", "fresh.md"), "fresh\n");
+    const signature = await changesSignature(pack.dir);
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+
+    const report = await syncPack(pack, engine, realGitDeps(root, pack, engine, world), { commitPending: true, expect: signature });
+
+    expect(report.ok).toBe(true);
+    expect(remoteLog(remote)).toEqual(["skills sync: acme v1.0.1", "skills: acme pending changes", "base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a pack inside a larger repo signs the same way changes does", async () => {
+    const { root, remote, pack } = realPackRepo("packs");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const signature = await changesSignature(pack.dir);
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+
+    const report = await syncPack(pack, engine, realGitDeps(root, pack, engine, world), { commitPending: true, expect: signature });
+
+    expect(report.ok).toBe(true);
+    expect(remoteLog(remote)).toHaveLength(3);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test.each<[string, (dir: string) => void]>([
+    ["a listed file edited again", (dir) => writeFileSync(join(dir, "pack", "skills.jsonc"), '{ "bindings": { "later": {} } }\n')],
+    ["a new file in scope", (dir) => writeFileSync(join(dir, "attachments", "old", "late.md"), "late\n")],
+  ])("%s after the signature was read refuses with nothing pulled, staged, committed or pushed", async (_label, move) => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const signature = await changesSignature(pack.dir);
+    move(pack.dir);
+    const before = mustGit(root, "status", "--porcelain");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+
+    const report = await syncPack(pack, engine, realGitDeps(root, pack, engine, world), { commitPending: true, expect: signature });
+
+    expect(stepNames(report.steps)).toEqual(["guards"]);
+    expect(report.steps[0]).toMatchObject({ status: "refused" });
+    expect(report.steps[0]!.detail).toContain("changed since");
+    expect(world.calls.some((c) => c.cmd === "git" && ["pull", "add", "commit", "push"].includes(c.args[0]!))).toBe(false);
+    expect(mustGit(root, "status", "--porcelain")).toBe(before);
+    expect(mustGit(root, "diff", "--cached", "--name-only")).toBe("");
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
 });

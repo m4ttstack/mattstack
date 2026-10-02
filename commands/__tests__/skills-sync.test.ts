@@ -111,6 +111,27 @@ describe("syncOptions", () => {
     const sync = TREE.skills?.subcommands?.sync;
     expect(sync?.args?.some((a) => a.flag === "--commit-pending")).toBe(true);
   });
+
+  test("--expect reaches syncPack as the signature to match", () => {
+    const signature = "a".repeat(64);
+    expect(syncOptions(["--pack", "acme", "--commit-pending", "--expect", signature, "--json"])).toEqual({ commitPending: true, expect: signature });
+  });
+
+  test("an --expect that is not a signature is refused before anything runs", () => {
+    expect(() => syncOptions(["--pack", "acme", "--expect"])).toThrow("signature");
+    expect(() => syncOptions(["--pack", "acme", "--expect", "--json"])).toThrow("signature");
+    expect(() => syncOptions(["--pack", "acme", "--expect", "abc"])).toThrow("signature");
+  });
+
+  test("sync and discard list --expect, and agents may pass it to sync while --commit-pending stays theirs to refuse", () => {
+    const sync = TREE.skills?.subcommands?.sync;
+    const discard = TREE.skills?.subcommands?.discard;
+    expect(sync?.args?.some((a) => a.flag === "--expect")).toBe(true);
+    expect(discard?.args?.some((a) => a.flag === "--expect")).toBe(true);
+    expect(sync?.agentSafe).toBe(true);
+    expect(sync?.agentDeniedFlags).toContain("--commit-pending");
+    expect(sync?.agentDeniedFlags).not.toContain("--expect");
+  });
 });
 
 describe("syncMaterializeVerdict", () => {

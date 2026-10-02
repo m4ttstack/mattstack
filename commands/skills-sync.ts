@@ -4,7 +4,7 @@
  * recompile and recheck on drift, commit and push, update the pack plugin,
  * and flag any cswap session whose plugins symlink has drifted.
  *
- *   rt skills sync [--pack <name>] [--manifest <path>] [--repo <slug or host/path>] [--commit-pending] [--json]
+ *   rt skills sync [--pack <name>] [--manifest <path>] [--repo <slug or host/path>] [--commit-pending] [--expect <signature>] [--json]
  *
  * The full step chain and its refusal conditions live in lib/skills/sync.ts;
  * this file only wires real dependencies (git/claude subprocesses, checkPack,
@@ -18,6 +18,7 @@ import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts
 import { realpathSync } from "fs";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import { syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
+import { SIGNATURE_RE } from "../lib/skills/changes.ts";
 import { checkPack, compilePackAll } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
@@ -82,8 +83,17 @@ export function manifestTarget(args: string[]): { manifest?: string; repo?: stri
   return { ...(manifest ? { manifest } : {}), ...(repo ? { repo } : {}) };
 }
 
+export class ExpectFlagError extends Error {}
+
+/** Throws ExpectFlagError when --expect carries no signature: a missing one would otherwise sync with no check at all. */
 export function syncOptions(args: string[]): SyncOptions {
-  return { commitPending: args.includes("--commit-pending") };
+  const options: SyncOptions = { commitPending: args.includes("--commit-pending") };
+  if (!args.includes("--expect")) return options;
+  const expect = flagValue(args, "--expect");
+  if (expect === undefined || !SIGNATURE_RE.test(expect)) {
+    throw new ExpectFlagError("--expect needs the signature that rt skills changes --json prints");
+  }
+  return { ...options, expect };
 }
 
 export function syncMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[] } {
@@ -183,6 +193,14 @@ export async function skillsSync(args: string[]): Promise<void> {
     process.exit(1);
   };
 
+  let options: SyncOptions = {};
+  try {
+    options = syncOptions(args);
+  } catch (err) {
+    if (!(err instanceof ExpectFlagError)) throw err;
+    fail(err.message, usageFailure("Which signature?", "rt skills sync --commit-pending --expect <signature>", "Pass the signature rt skills changes --json printed for the changes you looked at."));
+  }
+
   const packs = discoverPacks();
   if (packs.length === 0) {
     fail("no packs discovered (no directory marketplace plugin carries a surface.jsonc); pass --pack <name>", {
@@ -229,7 +247,7 @@ export async function skillsSync(args: string[]): Promise<void> {
 
   let report: SyncReport;
   try {
-    report = await syncPack(pack!, engine, deps, syncOptions(args));
+    report = await syncPack(pack!, engine, deps, options);
   } catch (err) {
     fail(err instanceof Error ? err.message : String(err));
     return;

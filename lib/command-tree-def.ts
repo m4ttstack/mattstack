@@ -2378,6 +2378,7 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to read ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc" },
           { name: "Repo", flag: "--repo", type: "text", placeholder: "gitlab.example.com/acme/widgets", hint: "Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares" },
           { name: "Commit pending", flag: "--commit-pending", type: "boolean", default: false, hint: "Commit this pack's changes that are not synced yet, then sync them" },
+          { name: "Expect", flag: "--expect", type: "text", placeholder: "<signature>", hint: "Sync only if the pack's changes are still the ones rt skills changes showed with this signature" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2456,6 +2457,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "skillsDiscard",
         args: [
           { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack whose changes to throw away; required, since this never guesses" },
+          { name: "Expect", flag: "--expect", type: "text", placeholder: "<signature>", hint: "Throw them away only if they are still the ones rt skills changes showed with this signature" },
           SETUP_JSON_ARG,
         ],
       },

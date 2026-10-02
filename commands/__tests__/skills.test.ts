@@ -2993,6 +2993,53 @@ describe("skillsDiscard guards", () => {
   });
 });
 
+describe("skillsDiscard --expect", () => {
+  test("a signature that still matches throws the changes away as before", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    writeFile(join(packDir, "attachments", "x", "SKILL.md"), "new skill\n");
+    const { signature } = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+
+    const d = await discardJson(["--pack", "acme", "--pack-dir", packDir, "--expect", signature]);
+
+    expect(d.discarded).toEqual([
+      { path: "pack/skills.jsonc", status: "M" },
+      { path: "attachments/x/SKILL.md", status: "??" },
+    ]);
+    expect(porcelain(packDir)).toBe("");
+  });
+
+  test.each<[string, (packDir: string) => void]>([
+    ["a listed file edited again", (dir) => writeFile(join(dir, "pack", "skills.jsonc"), BINDINGS_BEFORE.replace("plan-policy", "plan-policy-loose"))],
+    ["a new file in scope", (dir) => writeFile(join(dir, "skills", "late", "SKILL.md"), "late\n")],
+  ])("%s after the signature was read refuses and throws nothing away", async (_label, move) => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    writeFile(join(packDir, "attachments", "x", "SKILL.md"), "new skill\n");
+    const { signature } = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+    move(packDir);
+    const before = porcelain(packDir);
+
+    const { exitCode, stderr } = await runSkillsCapturing(["discard", "--pack", "acme", "--pack-dir", packDir, "--expect", signature, "--json"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("changed since");
+    expect(porcelain(packDir)).toBe(before);
+    expect(readFileSync(join(packDir, "attachments", "x", "SKILL.md"), "utf8")).toBe("new skill\n");
+  });
+
+  test("an --expect that is not a signature is a usage error that touches nothing", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+
+    const { exitCode, stderr } = await runSkillsCapturing(["discard", "--pack", "acme", "--pack-dir", packDir, "--expect", "nope", "--json"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("signature");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_AFTER);
+  });
+});
+
 describe("skillsDiscard renames", () => {
   test("a rename inside the scope is undone on both sides", async () => {
     const { packDir } = makeCommittedPack();

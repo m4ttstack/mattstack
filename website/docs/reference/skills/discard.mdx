@@ -20,6 +20,7 @@ rt skills discard [flags]
 | Flag / Arg | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--pack` | text |  | Pack whose changes to throw away; required, since this never guesses |
+| `--expect` | text |  | Throw them away only if they are still the ones rt skills changes showed with this signature |
 | [`--json`](/guides/common-flags) | boolean | `false` | Machine-readable result |
 
 _See code: [commands/skills.ts › skillsDiscard](https://github.com/m4ttstack/mattstack/blob/main/commands/skills.ts)_
