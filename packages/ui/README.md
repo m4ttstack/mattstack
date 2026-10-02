@@ -119,7 +119,9 @@ accent wash with accent line numbers and body text, the text outside it
 muted, and a muted band ruled in the soft line step. Its `classNames` size
 each part of a row (gutter, number cell, number, code), and `rowAttributes`
 puts data attributes on each part from what that row shows, including
-whether it is in the viewport.
+whether it is in the viewport. Every row is as wide as the longest line, so
+a highlight follows a sideways scroll, and `scrollbarType` passes a
+ScrollArea `type` (`hover` keeps the scrollbars out of sight at rest).
 
 An app that registers its own icon adds a `declare module
 '@mattstack/app-kit/icons' { interface AppIcons { hash: true } }` block in

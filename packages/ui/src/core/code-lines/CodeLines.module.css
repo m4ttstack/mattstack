@@ -10,8 +10,8 @@
   line-height: var(--mantine-line-height-xs);
 }
 
-/* A line longer than the viewport scrolls sideways; the row grows with it so
-   a highlight tint covers the whole line, not just the first screenful. */
+/* A line longer than the viewport scrolls sideways; every row grows to the
+   longest line's width so a highlight covers the whole scroll width. */
 :where(.row) {
   min-width: max-content;
 }
@@ -74,6 +74,7 @@
 }
 
 :where(.code) {
+  min-width: calc(var(--code-lines-longest) * 1ch);
   padding-right: var(--mantine-spacing-md);
 }
 

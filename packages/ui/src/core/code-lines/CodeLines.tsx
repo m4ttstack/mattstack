@@ -1,4 +1,5 @@
-import type { CSSProperties } from 'react';
+import { useMemo, type CSSProperties } from 'react';
+import type { ScrollAreaProps } from '@mantine/core';
 
 import { VirtualList } from '../virtual-list/VirtualList';
 import classes from './CodeLines.module.css';
@@ -76,7 +77,12 @@ export interface CodeLinesProps {
   /** Data attributes for each part of a row, from what that row shows: a hook
       for tests and tooling that address rows. */
   rowAttributes?: (row: CodeLinesRowState) => CodeLinesRowAttributes;
+  /** When the scrollbars show, as Mantine's ScrollArea `type`.
+      @default 'auto' */
+  scrollbarType?: ScrollAreaProps['type'];
 }
+
+const TAB = ' '.repeat(8);
 
 const cx = (...names: (string | undefined)[]) =>
   names.filter(Boolean).join(' ');
@@ -99,9 +105,20 @@ export function CodeLines({
   variant = 'default',
   classNames,
   rowAttributes,
+  scrollbarType = 'auto',
 }: CodeLinesProps) {
   const hasGutter = bands !== undefined && bands.length > 0;
   const digits = String(firstLine + lines.length - 1).length;
+  // Every line takes the longest one's width, so a highlight runs under all
+  // of a line scrolled into view sideways. Monospace, so a count is a width.
+  const longest = useMemo(
+    () =>
+      lines.reduce(
+        (most, line) => Math.max(most, line.replace(/\t/g, TAB).length),
+        0
+      ),
+    [lines]
+  );
 
   return (
     <VirtualList
@@ -114,7 +131,11 @@ export function CodeLines({
       scrollAreaProps={{
         className: classes.root,
         mod: { variant },
-        style: { '--code-lines-digits': `${digits}ch` } as CSSProperties,
+        type: scrollbarType,
+        style: {
+          '--code-lines-digits': `${digits}ch`,
+          '--code-lines-longest': longest,
+        } as CSSProperties,
       }}
       renderRow={(line, index, visible) => {
         const lineNumber = firstLine + index;

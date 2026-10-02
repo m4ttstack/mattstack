@@ -366,4 +366,36 @@ describe('CodeLines', () => {
       container.querySelector('[data-variant="wash"]')?.contains(row('alpha'))
     ).toBe(true);
   });
+
+  test('sizes every line to the longest, so a highlight spans the whole scroll width', () => {
+    const { container } = renderWithProviders(
+      <CodeLines
+        lines={['short', 'a much longer line', '\tx']}
+        height={VIEWPORT_HEIGHT}
+      />
+    );
+
+    const root = container.querySelector('[data-variant]') as HTMLElement;
+    expect(root.style.getPropertyValue('--code-lines-longest')).toBe('18');
+  });
+
+  test('passes its scrollbar type to the scroll area', () => {
+    const { container, rerender } = renderWithProviders(
+      <CodeLines lines={['alpha']} height={VIEWPORT_HEIGHT} />
+    );
+    const hidden = () =>
+      [...container.querySelectorAll('.mantine-ScrollArea-scrollbar')].every(
+        bar => bar.hasAttribute('data-hidden')
+      );
+    expect(hidden()).toBe(false);
+
+    rerender(
+      <CodeLines
+        lines={['alpha']}
+        height={VIEWPORT_HEIGHT}
+        scrollbarType="never"
+      />
+    );
+    expect(hidden()).toBe(true);
+  });
 });
