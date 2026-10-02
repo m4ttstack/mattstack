@@ -135,8 +135,8 @@ const withNotes = (changes: SkillsChanges): SkillsChanges => ({
   ],
 });
 
-/** The same files after one was edited again: only the content ids and the
-    signature move. */
+/** The same files with every one's content edited again: each content id
+    and the signature move, the paths and statuses stay. */
 const edited = (changes: SkillsChanges): SkillsChanges => ({
   ...changes,
   files: changes.files.map(f => ({ ...f, hash: 'e'.repeat(40) })),
