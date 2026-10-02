@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 
-import { compare, normColor, visibleOnly } from './compare';
+import {
+  compare,
+  normColor,
+  visibleOnly,
+  withoutNestedRoots,
+} from './compare';
 import type { ParityNode } from './config';
 
 const n = (key: string, o: Partial<ParityNode> = {}): ParityNode => ({
@@ -81,6 +86,16 @@ describe('parity compare', () => {
     );
     expect(r.map(m => m.field)).toEqual(['stroke', 'opacity', 'text']);
   });
+  it('reads an en or em dash in a key as a hyphen', () => {
+    const [en, em] = [String.fromCharCode(0x2013), String.fromCharCode(0x2014)];
+    expect(
+      compare(
+        [n(`text · L1${en}15`), n(`text · L16${em}20`)],
+        [n('text · L1-15'), n('text · L16-20')],
+        { dynamicText: [] }
+      )
+    ).toEqual([]);
+  });
   it('flags a duplicate app key', () => {
     const r = compare([n('A')], [n('A'), n('A')], { dynamicText: [] });
     expect(r).toEqual([
@@ -151,5 +166,38 @@ describe('visibleOnly', () => {
       'Dot[0]',
       'Dot[1]',
     ]);
+  });
+});
+
+describe('withoutNestedRoots', () => {
+  const raw = (
+    name: string,
+    parent: number,
+    o: Partial<ParityNode> = {}
+  ): ParityNode => n(name, { name, parent, tag: 'div', ...o });
+
+  it('keys through another root that paints nothing, as the design does', () => {
+    const nodes = [
+      raw('Stage', -1),
+      raw('Focus header', 0),
+      raw('title', 1, { kind: 'text', text: 'plan' }),
+      raw('badge', 1, { fill: '#e8e8ec' }),
+      raw('Spacer', 0),
+      raw('pill', 4, { fill: '#fff' }),
+    ];
+    expect(
+      withoutNestedRoots(nodes, ['Stage', 'Focus header']).map(v => v.key)
+    ).toEqual(['Stage', 'title', 'badge', 'Spacer', 'Spacer/pill']);
+  });
+
+  it('keeps a nested root that paints, and the compared root itself', () => {
+    const nodes = [
+      raw('Focus header', -1),
+      raw('Banner', 0, { fill: '#fff' }),
+      raw('l', 1, { kind: 'text', text: 'unsynced' }),
+    ];
+    expect(
+      withoutNestedRoots(nodes, ['Focus header', 'Banner']).map(v => v.key)
+    ).toEqual(['Focus header', 'Banner', 'Banner/l']);
   });
 });

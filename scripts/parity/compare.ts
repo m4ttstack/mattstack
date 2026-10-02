@@ -111,32 +111,34 @@ function isDynamic(key: string, dynamicText: string[]): boolean {
 /** Time-based copy ("Synced 4 min ago", "Stalled · 42s") keeps its words but not its numbers. */
 const maskNumbers = (s: string) => s.replace(/\d+/g, '#');
 
+const paints = (v: ParityNode) =>
+  v.kind === 'text' ||
+  normColor(v.fill) !== null ||
+  normColor(v.stroke) !== null ||
+  v.tag === 'svg' ||
+  v.tag === 'img';
+
 /**
- * Drops design layers that paint nothing (frames with no fill or stroke),
- * then rebuilds every key from the surviving ancestors, indexing names that
- * repeat under the same surviving parent in document order. Needs the raw
- * collector output (`name`, `parent`, `tag` on every node, preorder).
+ * Keeps the nodes `keep` admits and rebuilds every key from the surviving
+ * ancestors, indexing names that repeat under the same surviving parent in
+ * document order. Needs the raw collector output (`name`, `parent`, `tag` on
+ * every node, preorder).
  */
-export function visibleOnly(nodes: ParityNode[]): ParityNode[] {
-  const keep = nodes.map(
-    v =>
-      v.parent === -1 ||
-      v.kind === 'text' ||
-      normColor(v.fill) !== null ||
-      normColor(v.stroke) !== null ||
-      v.tag === 'svg' ||
-      v.tag === 'img'
-  );
+function rekeyed(
+  nodes: ParityNode[],
+  keep: (node: ParityNode) => boolean
+): ParityNode[] {
+  const kept = nodes.map(v => v.parent === -1 || keep(v));
   const keptParent = (i: number): number => {
     let p = nodes[i]!.parent ?? -1;
-    while (p !== -1 && !keep[p]) p = nodes[p]!.parent ?? -1;
+    while (p !== -1 && !kept[p]) p = nodes[p]!.parent ?? -1;
     return p;
   };
   const parentOf = new Map<number, number>();
   const counts = new Map<string, number>();
   const groupKey = (p: number, name: string) => `${p}\u0000${name}`;
   nodes.forEach((v, i) => {
-    if (!keep[i] || v.parent === -1) return;
+    if (!kept[i] || v.parent === -1) return;
     const p = keptParent(i);
     parentOf.set(i, p);
     const k = groupKey(p, v.name ?? v.key);
@@ -146,7 +148,7 @@ export function visibleOnly(nodes: ParityNode[]): ParityNode[] {
   const keys = new Map<number, string>();
   const out: ParityNode[] = [];
   nodes.forEach((v, i) => {
-    if (!keep[i]) return;
+    if (!kept[i]) return;
     const name = v.name ?? v.key;
     if (v.parent === -1) {
       keys.set(i, name);
@@ -167,15 +169,41 @@ export function visibleOnly(nodes: ParityNode[]): ParityNode[] {
   return out;
 }
 
+/** Drops design layers that paint nothing (frames with no fill or stroke). */
+export function visibleOnly(nodes: ParityNode[]): ParityNode[] {
+  return rekeyed(nodes, paints);
+}
+
+/**
+ * A board root drawn inside another root (`Focus header` in `Stage`) is an
+ * unpainted frame there, so the design keys straight through it. The app's
+ * copy of that root carries `data-parity` to be compared on its own, and this
+ * keys through it the same way when it paints nothing.
+ */
+export function withoutNestedRoots(
+  nodes: ParityNode[],
+  roots: string[]
+): ParityNode[] {
+  return rekeyed(nodes, v => !roots.includes(v.name ?? '') || paints(v));
+}
+
 export interface CompareOptions {
   dynamicText: string[];
 }
 
+const DASHES = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`, 'g');
+
+/** Board layer names can carry en or em dashes; app code never writes one. */
+const dashFree = (nodes: ParityNode[]) =>
+  nodes.map(v => ({ ...v, key: v.key.replace(DASHES, '-') }));
+
 export function compare(
-  design: ParityNode[],
-  app: ParityNode[],
+  designNodes: ParityNode[],
+  appNodes: ParityNode[],
   opts: CompareOptions
 ): Mismatch[] {
+  const design = dashFree(designNodes);
+  const app = dashFree(appNodes);
   const out: Mismatch[] = [];
   const appByKey = new Map<string, ParityNode>();
   const appCount = new Map<string, number>();
@@ -279,9 +307,12 @@ export function compareFiles(
   slug: string
 ): Mismatch[] {
   const board = boardBySlug(app.boards, slug);
-  return compare(visibleOnly(readNodes(designPath)), readNodes(appPath), {
-    dynamicText: board.dynamicText,
-  });
+  const roots = targetsOf(board).map(t => t.root);
+  return compare(
+    visibleOnly(readNodes(designPath)),
+    withoutNestedRoots(readNodes(appPath), roots),
+    { dynamicText: board.dynamicText }
+  );
 }
 
 /** One result per target of a board, compared lazily from the files the runner uploaded. */
