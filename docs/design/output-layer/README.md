@@ -32,8 +32,8 @@ on a dark and a light terminal background.
 
 The light pages above the phase 5g section were rendered with
 `COLORFGBG=0;15`, which is how a light terminal that reports its background
-gets the pale diff tints. Since phase 5g `rt-ui render` also asks the terminal
-and reads Ghostty's config (see below). A `copy` block has no rail: its text
+gets the pale diff tints. Since phase 5g `rt-ui render` also reads Ghostty's
+config and, failing both, asks the terminal (see below). A `copy` block has no rail: its text
 prints at column 0. The rail beside a `verbatim` block takes the `StaticRule`
 tone.
 
@@ -96,7 +96,7 @@ What reads wrong: there is no blank line between one message and the next author
 
 ## Phase 5g: renderer
 
-Two accent tones, chosen by the terminal's background: static output takes `theme.StaticDark` (the app's own mint, peach and lavender) on a background that resolves dark and `theme.StaticLight` on one that resolves light or cannot be determined. Body text keeps the terminal's foreground in both. The dark pages here render with `RT_UI_BACKGROUND=dark` and the light pages with `RT_UI_BACKGROUND=light`, so the setting is what decides. `fixture-*.png`, `statuses-*.png` and `5g-palette-*.png` were regenerated the same way; every other page, in this section and above it, predates the two tones.
+Two accent tones, chosen by the terminal's background: static output takes `theme.StaticDark` (the app's own mint, peach and lavender) on a background that resolves dark and `theme.StaticLight` on one that resolves light or cannot be determined. Body text keeps the terminal's foreground in both. On `auto` the background comes from `COLORFGBG`, then Ghostty's configured background, then the terminal's answer to an OSC 11 query. The dark pages here render with `RT_UI_BACKGROUND=dark` and the light pages with `RT_UI_BACKGROUND=light`, so the setting is what decides. `fixture-*.png`, `statuses-*.png` and `5g-palette-*.png` were regenerated the same way; every other page, in this section and above it, predates the two tones.
 
 | File | What it shows |
 |---|---|

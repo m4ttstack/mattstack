@@ -211,11 +211,12 @@ Five rules cost the most when broken:
   callout labels, keys, hints, rails) use theme colors, so output reads on a
   light terminal as well as a dark one. Static output takes its accents from
   `theme.StaticDark` on a dark background and `theme.StaticLight` otherwise;
-  `ui/internal/background` picks once per process from the `rt.ui.background`
-  setting (`auto`, `dark`, `light`), then on `auto` the terminal's OSC 11
-  answer, `COLORFGBG` and Ghostty's configured background, and an unknown
-  background gets the light set. A new accent needs a tone in both sets that
-  passes both sets' contrast tests. Never give body text a fixed color.
+  `ui/internal/background` picks from the `rt.ui.background` setting
+  (`auto`, `dark`, `light`), then on `auto` `COLORFGBG`, Ghostty's configured
+  background and last the terminal's OSC 11 answer, and an unknown
+  background gets the light set. Setting `dark` or `light` skips the
+  terminal query. A new accent needs a tone in both sets that passes both
+  sets' contrast tests. Never give body text a fixed color.
 
 Plain output collapses newlines and tabs in single-line fields (titles,
 hints, cells, labels) to a space and indents paragraph lines two spaces, so
