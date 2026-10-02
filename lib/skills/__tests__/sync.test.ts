@@ -2124,24 +2124,67 @@ describe("commit-pending against real git", () => {
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
 
-  test.each<[string, (cmd: string, args: string[]) => boolean, string]>([
-    ["git write-tree before the pending commit", (cmd, args) => cmd === "git" && args[0] === "write-tree", "git write-tree failed: fatal: Unable to create '.git/index.lock': File exists."],
-    ["the pending git commit", (cmd, args) => cmd === "git" && args[0] === "commit" && args.includes("skills: acme pending changes"), "git commit failed: fatal: Unable to create '.git/index.lock': File exists."],
-  ])("a failing %s puts the build back and leaves the pack edits staged", async (_label, fails, lead) => {
-    const { root, remote, pack } = realPackRepo("");
+  test("a repo root rt cannot read still refuses a file that slipped into its commit, naming the pack instead", async () => {
+    const { root, remote, pack } = realPackRepo("packs");
     const engine = fixturePack("beacon", "local", "2.0.0");
     writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
     const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
     const deps = realGitDeps(root, pack, engine, world);
     deps.compilePack = rebuildingCompile(pack);
     const run = deps.run;
-    deps.run = async (cmd, args, opts) => (fails(cmd, args) ? { code: 128, stdout: "", stderr: "fatal: Unable to create '.git/index.lock': File exists." } : run(cmd, args, opts));
+    deps.run = async (cmd, args, opts) => {
+      if (cmd === "git" && args[0] === "rev-parse" && args[1] === "--show-toplevel") return { code: 128, stdout: "", stderr: "fatal: not a git repository" };
+      if (cmd === "git" && args[0] === "commit" && args.includes("skills: acme pending changes")) {
+        writeFileSync(join(root, "outside.md"), "staged by someone else\n");
+        mustGit(root, "add", "outside.md");
+      }
+      return run(cmd, args, opts);
+    };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    const detail = report.steps.at(-1)!.detail;
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(detail).toContain(`Something was staged in ${pack.dir} while rt committed your pack edits: outside.md.`);
+    expect(detail).toContain("put the version and the rebuilt skills back, so your pack edits are still staged, not committed");
+    expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["base"]);
+    expect(mustGit(root, "status", "--porcelain")).toBe("A  outside.md\nM  packs/acme/pack/skills.jsonc\n");
+    expectBuildPutBack(pack);
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  const locked = "fatal: Unable to create '.git/index.lock': File exists.";
+  const corrupt = "fatal: index file corrupt";
+  test.each<[string, () => (cmd: string, args: string[]) => boolean, string, (dir: string) => string]>([
+    ["git write-tree before the pending commit", () => (cmd, args) => cmd === "git" && args[0] === "write-tree", locked, () => `git write-tree failed: ${locked}`],
+    ["the pending git commit", () => (cmd, args) => cmd === "git" && args[0] === "commit" && args.includes("skills: acme pending changes"), locked, () => `git commit failed: ${locked}`],
+    ["index check before the pending commit", () => (cmd, args) => cmd === "git" && args[0] === "diff" && args[1] === "--cached", corrupt, (dir) => `git diff --cached failed in ${dir}: ${corrupt}.`],
+    ["git ls-files before the version add", () => (cmd, args) => cmd === "git" && args[0] === "ls-files" && args.includes("--ignored"), corrupt, (dir) => `git ls-files failed in ${dir}: ${corrupt}.`],
+    [
+      "index check after the version add",
+      () => {
+        let checks = 0;
+        return (cmd, args) => cmd === "git" && args[0] === "diff" && args[1] === "--cached" && ++checks === 2;
+      },
+      corrupt,
+      (dir) => `git diff --cached failed in ${dir}: ${corrupt}.`,
+    ],
+  ])("a failing %s puts the build back and leaves the pack edits staged", async (_label, failing, stderr, lead) => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = rebuildingCompile(pack);
+    const fails = failing();
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) => (fails(cmd, args) ? { code: 128, stdout: "", stderr } : run(cmd, args, opts));
 
     const report = await syncPack(pack, engine, deps, { commitPending: true });
 
     const detail = report.steps.at(-1)!.detail;
     expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "failed" });
-    expect(detail).toContain(`${lead} rt pushed nothing and put the version and the rebuilt skills back, so your pack edits are still staged, not committed`);
+    expect(detail).toContain(`${lead(pack.dir)} rt pushed nothing and put the version and the rebuilt skills back, so your pack edits are still staged, not committed`);
     expect(world.calls.some((c) => c.cmd === "git" && c.args[0] === "push")).toBe(false);
     expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["base"]);
     expect(mustGit(root, "status", "--porcelain")).toBe("M  pack/skills.jsonc\n");

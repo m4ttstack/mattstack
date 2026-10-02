@@ -383,10 +383,10 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     return packPrefix;
   };
 
+  /** Only ever names the directory in a refusal that must still reach abandon, so a failed read names the pack instead. */
   const repoRootOf = async (): Promise<string> => {
     const res = await deps.run("git", ["rev-parse", "--show-toplevel"], { cwd: pack.dir });
-    if (res.code !== 0) throw new Error(`git rev-parse --show-toplevel failed in ${pack.dir}: ${res.stderr.trim()}`);
-    return res.stdout.trim();
+    return res.code === 0 ? res.stdout.trim() : pack.dir;
   };
 
   const finish = (): SyncReport => ({
@@ -792,6 +792,14 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   const commitPush = await tryStep(async () => {
     if (!rebuild) return skipped("nothing changed, so there is nothing to commit");
     const stop = (what: string, versionStaged: string[], pushed = false): Promise<Outcome> => abandon(what, [], versionStaged, failed, "Run this again once that is sorted", pushed);
+    /** The build is already in the worktree, so a read that throws must still go through abandon. */
+    const readOrStop = async <T>(versionStaged: string[], read: () => Promise<T>): Promise<T | Outcome> => {
+      try {
+        return await read();
+      } catch (e) {
+        return stop(e instanceof Error ? e.message : String(e), versionStaged);
+      }
+    };
     /** Refuses when the commit's tree is not the index snapshot taken just before it: whatever was staged meanwhile rode in. */
     const rodeIn = async (sha: string, snapshot: string, what: string, versionStaged: string[]): Promise<Outcome | null> => {
       const tree = await deps.run("git", ["rev-parse", `${sha}^{tree}`], { cwd: pack.dir });
@@ -809,7 +817,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (published) {
       const snapshot = await deps.run("git", ["write-tree"], { cwd: pack.dir });
       if (snapshot.code !== 0) return stop(`git write-tree failed: ${snapshot.stderr.trim()}`, []);
-      const unseen = await unseenStaged(deps, pack.dir, await prefixOfPack(), expectedBlobs(staged));
+      const unseen = await readOrStop([], async () => unseenStaged(deps, pack.dir, await prefixOfPack(), expectedBlobs(staged)));
+      if (!Array.isArray(unseen)) return unseen;
       if (unseen.length > 0) return abandon(unseenLead(unseen), unseen, [], refused, unstage);
       const pendingCommit = await deps.run("git", ["commit", "-m", pendingSubject], { cwd: pack.dir });
       if (pendingCommit.code !== 0) return stop(`git commit failed: ${pendingCommit.stderr.trim()}`, []);
@@ -821,7 +830,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     }
     // Only the files this run's compile wrote or removed, by literal name: a
     // file dropped into a compiled folder meanwhile stays out of the commit.
-    const ignored = await ignoredUntracked(deps, pack.dir, compiled.written);
+    const ignored = await readOrStop([], () => ignoredUntracked(deps, pack.dir, compiled.written));
+    if (!(ignored instanceof Set)) return ignored;
     const addPaths = [MANIFEST_REL, ...compiled.written.filter((p) => !ignored.has(p))];
     const versionStaged = [...addPaths, ...compiled.removed];
     const add = await deps.run("git", ["add", "--", ...addPaths.map(literal)], { cwd: pack.dir });
@@ -832,7 +842,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     }
     const snapshot = await deps.run("git", ["write-tree"], { cwd: pack.dir });
     if (snapshot.code !== 0) return stop(`git write-tree failed: ${snapshot.stderr.trim()}`, versionStaged);
-    const unseen = await unseenStaged(deps, pack.dir, await prefixOfPack(), new Map(versionStaged.map((p) => [p, builtBlobs.get(p) ?? null])));
+    const unseen = await readOrStop(versionStaged, async () => unseenStaged(deps, pack.dir, await prefixOfPack(), new Map(versionStaged.map((p) => [p, builtBlobs.get(p) ?? null]))));
+    if (!Array.isArray(unseen)) return unseen;
     if (unseen.length > 0) return abandon(unseenLead(unseen), unseen, versionStaged, refused, unstage);
     if (published) {
       // The version commit must sit directly on the pending commit, or the
