@@ -495,7 +495,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       if (now.length === 0) return skipped("the pull already holds every pending change");
       const toStage = needsStaging(now).filter((f) => f.status !== "??" || pathExists(join(pack.dir, f.path)));
       if (toStage.length > 0) {
-        const add = await deps.run("git", ["add", "--", ...toStage.map((f) => `:(literal)${f.path}`)], { cwd: pack.dir });
+        const add = await deps.run("git", ["add", "--", ...toStage.map((f) => literal(f.path))], { cwd: pack.dir });
         if (add.code !== 0) return failed(`git add failed: ${add.stderr.trim()}`);
       }
       published = true;
