@@ -30,11 +30,21 @@ import { tmpdir, homedir } from "os";
 import { join } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, exitUserError } from "../lib/errors.ts";
+import { UserActionableError, exitUserError, failureFor, logFailureDetail } from "../lib/errors.ts";
+import { refusalNote } from "./git/shared.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
 import { runCapture } from "../lib/subprocess.ts";
 import { runPreflight, type CheckRow, type PreflightSeams } from "../lib/release/preflight.ts";
 import { runVerify, type VerifyRow, type VerifySeams } from "../lib/release/verify.ts";
-import { runUpdateMachine, CHAT_ROOM, type LegResult, type UpdateMachineOptions, type UpdateMachineSeams } from "../lib/release/update-machine.ts";
+import {
+  runUpdateMachine,
+  CHAT_ROOM,
+  type LegResult,
+  type UpdateMachineOptions,
+  type UpdateMachineReport,
+  type UpdateMachineSeams,
+} from "../lib/release/update-machine.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import {
   listJoin,
@@ -88,25 +98,33 @@ function parseVerifyArgs(args: string[]): { tag?: string; json: boolean; noWait:
   return { tag, json: args.includes("--json"), noWait: args.includes("--no-wait") };
 }
 
-const MARK: Record<CheckRow["status"], string> = { ok: "✓", stale: "✗", error: "!" };
-const VERIFY_MARK: Record<VerifyRow["status"], string> = { ok: "✓", stale: "✗", error: "!", pending: "…" };
+// A row rt could not check is not a failure: nothing is known to be wrong.
+const ROW_STATUS: Record<VerifyRow["status"], RenderStatus> = { ok: "done", stale: "stale", error: "warn", pending: "pending" };
+
+function rowLine(row: CheckRow | VerifyRow): Block {
+  const versions = row.pinned && row.current && row.pinned !== row.current ? ` ${row.pinned} → ${row.current}` : "";
+  return out.line(ROW_STATUS[row.status], `${row.label}${versions}`, row.detail ?? row.status);
+}
 
 export async function releasePreflight(args: string[], _ctx: CommandContext = {}, seams?: PreflightSeams): Promise<void> {
   const report = await runPreflight(seams ?? (await createRealSeams()));
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify(envelope(report)));
+    out.json(envelope(report));
     if (!report.clean) process.exitCode = 1;
     return;
   }
 
-  for (const row of report.rows) {
-    const versions = row.pinned && row.current && row.pinned !== row.current ? ` ${row.pinned} → ${row.current}` : "";
-    console.log(`${MARK[row.status]} ${row.label}${versions}: ${row.detail ?? row.status}`);
-  }
-  if (report.gate) console.log(`gate: ${report.gate.path} (${report.gate.reason})`);
   const okCount = report.rows.length - report.staleCount - report.errorCount;
-  console.log(`${report.rows.length} checks: ${okCount} ok, ${report.staleCount} stale, ${report.errorCount} unverifiable`);
+  out.print(
+    ...report.rows.map(rowLine),
+    ...(report.gate ? [out.kv("gate", `${report.gate.path} (${report.gate.reason})`)] : []),
+    out.summary(report.clean ? "done" : report.staleCount > 0 ? "stale" : "warn", `${report.rows.length} checks`, [
+      `${okCount} ok`,
+      `${report.staleCount} stale`,
+      `${report.errorCount} unverifiable`,
+    ]),
+  );
   if (!report.clean) process.exitCode = 1;
 }
 
@@ -115,18 +133,17 @@ export async function releaseVerify(args: string[], _ctx: CommandContext = {}, s
   const report = await runVerify(seams ?? (await createRealVerifySeams()), { tag, noWait });
 
   if (json) {
-    console.log(JSON.stringify(envelope(report)));
+    out.json(envelope(report));
     if (!report.clean) process.exitCode = 1;
     return;
   }
 
-  console.log(`rt release verify ${report.tag ?? "(no tag resolved)"}`);
-  for (const row of report.rows) {
-    const versions = row.pinned && row.current && row.pinned !== row.current ? ` ${row.pinned} → ${row.current}` : "";
-    console.log(`${VERIFY_MARK[row.status]} ${row.label}${versions}: ${row.detail ?? row.status}`);
-  }
   const okCount = report.rows.length - report.staleCount - report.errorCount - report.pendingCount;
-  console.log(`${report.rows.length} checks: ${okCount} ok, ${report.staleCount} stale, ${report.pendingCount} pending, ${report.errorCount} unverifiable`);
+  const status: RenderStatus = report.clean ? "done" : report.staleCount > 0 ? "stale" : report.errorCount > 0 ? "warn" : "pending";
+  out.print(
+    out.section(`Release ${report.tag ?? "(no tag resolved)"}`, undefined, ...report.rows.map(rowLine)),
+    out.summary(status, `${report.rows.length} checks`, [`${okCount} ok`, `${report.staleCount} stale`, `${report.pendingCount} pending`, `${report.errorCount} unverifiable`]),
+  );
   if (!report.clean) process.exitCode = 1;
 }
 
@@ -160,7 +177,20 @@ export async function createRealUpdateMachineSeams(options: UpdateMachineOptions
   };
 }
 
-const LEG_MARK: Record<LegResult["status"], string> = { ok: "✓", skipped: "-", aborted: "!", error: "✗", planned: "•" };
+const LEG_STATUS: Record<LegResult["status"], RenderStatus> = { ok: "done", skipped: "skipped", aborted: "refused", error: "failed", planned: "pending" };
+
+/** An aborted leg is rt declining by a guard (a checkout off main, an announcement that did not land), except the prod app's: its only abort is a checksum that does not match, which is a fault. */
+function legStatus(leg: LegResult): RenderStatus {
+  return leg.status === "aborted" && leg.id === "prod-app" ? "failed" : LEG_STATUS[leg.status];
+}
+
+export function updateMachineBlocks(report: UpdateMachineReport): Block[] {
+  const planOnly = report.legs.length > 0 && report.legs.every((leg) => leg.status === "planned");
+  const stoppedBy = report.haltedAfter ? report.legs.find((leg) => leg.label === report.haltedAfter) : undefined;
+  const summary = planOnly ? "plan only, nothing changed" : report.ok ? "clean" : report.haltedAfter ? `stopped at ${report.haltedAfter}` : "problems above";
+  const summaryStatus: RenderStatus = planOnly ? "pending" : report.ok ? "done" : stoppedBy && legStatus(stoppedBy) === "refused" ? "refused" : "failed";
+  return [...report.legs.map((leg) => out.line(legStatus(leg), leg.label, leg.detail)), out.summary(summaryStatus, `tag ${report.tag}`, [summary])];
+}
 
 export async function releaseUpdateMachine(args: string[], _ctx: CommandContext = {}, seams?: UpdateMachineSeams): Promise<void> {
   const json = args.includes("--json");
@@ -188,6 +218,11 @@ export async function releaseUpdateMachine(args: string[], _ctx: CommandContext 
     report = await runUpdateMachine(seams ?? realSeams!, options);
   } catch (err) {
     cleanupWorkDir();
+    if (err instanceof UserActionableError && err.code === "update-machine-noninteractive" && !json) {
+      logFailureDetail(err);
+      out.note(...refusalNote(failureFor(err)));
+      process.exit(2);
+    }
     if (err instanceof UserActionableError) exitUserError(err, json, "release update-machine");
     throw err;
   }
@@ -196,16 +231,12 @@ export async function releaseUpdateMachine(args: string[], _ctx: CommandContext 
   const failed = report.legs.some((l) => l.status === "aborted" || l.status === "error");
 
   if (json) {
-    console.log(JSON.stringify(envelope(report)));
+    out.json(envelope(report));
     if (failed) process.exitCode = 1;
     return;
   }
 
-  for (const leg of report.legs) {
-    console.log(`${LEG_MARK[leg.status]} ${leg.label}: ${leg.detail}`);
-  }
-  const summary = report.ok ? "clean" : report.haltedAfter ? `halted after ${report.haltedAfter} failed` : "problems above";
-  console.log(`tag ${report.tag}: ${summary}`);
+  out.print(...updateMachineBlocks(report));
   if (failed) process.exitCode = 1;
 }
 
