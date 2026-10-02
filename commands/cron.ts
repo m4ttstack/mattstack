@@ -70,7 +70,7 @@ export async function cronInstall(args: string[], _ctx: CommandContext = {}): Pr
   installCronTrigger(trigger);
 
   if (json) {
-    console.log(JSON.stringify(envelope({ installed: trigger, restartRequired: true })));
+    console.log(JSON.stringify(envelope({ installed: trigger, restartRequired: false })));
     return;
   }
   console.log(`rt cron install: installed "${trigger.name}"`);
@@ -84,7 +84,7 @@ export async function cronRemove(args: string[], _ctx: CommandContext = {}): Pro
   const result = removeCronTrigger(name);
 
   if (json) {
-    console.log(JSON.stringify(envelope({ removed: result.removed, name, restartRequired: result.removed })));
+    console.log(JSON.stringify(envelope({ removed: result.removed, name, restartRequired: false })));
     return;
   }
   console.log(result.removed ? `rt cron remove: removed "${name}"` : `rt cron remove: "${name}" was not installed`);
