@@ -7,7 +7,8 @@
 
 import * as out from "../../lib/ui/out.ts";
 import { getCurrentBranch } from "../../lib/git-ops.ts";
-import { createBackup, listBackups, restoreFromBackup } from "../../lib/git-backup.ts";
+import { createBackup, listBackups, restoreFromBackup, type BackupBranch } from "../../lib/git-backup.ts";
+import type { Block } from "../../lib/ui/protocol.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
 import { NOT_ON_A_BRANCH } from "./shared.ts";
 
@@ -49,6 +50,26 @@ function formatAge(ts: string): string {
   return `${days}d ago`;
 }
 
+/** A restore hard-resets the branch you are on, which need not be the branch the backup was taken from. */
+export function restoreBlocks(current: string | null, backup: BackupBranch, age: string): { pending: Block[]; done: Block } {
+  const here = current ?? "detached HEAD";
+  const from = `${backup.operation} backup from ${age}`;
+  if (current === backup.originalBranch) {
+    return {
+      pending: [out.line("pending", `Restore ${here} to ${backup.sha}`, from), out.callout("note", "This throws away every change made since that backup.")],
+      done: out.line("done", `Restored ${here}`, backup.ref),
+    };
+  }
+  const title = `Reset ${here} to ${backup.originalBranch}'s backup`;
+  return {
+    pending: [
+      out.line("pending", `${title} ${backup.sha}`, from),
+      out.callout("note", `This replaces ${here} with that backup, and throws away every commit and change on ${here} that is not in it.`),
+    ],
+    done: out.line("done", title, backup.ref),
+  };
+}
+
 export async function restoreCommand(
   _args: string[],
   ctx: CommandContext,
@@ -79,11 +100,8 @@ export async function restoreCommand(
   }
 
   const backup = backups.find((b) => b.ref === selected)!;
-
-  out.print(
-    out.line("pending", `Restore ${backup.originalBranch} to ${backup.sha}`, `${backup.operation} backup from ${formatAge(backup.timestamp)}`),
-    out.callout("note", "This throws away every change made since that backup."),
-  );
+  const { pending, done } = restoreBlocks(getCurrentBranch(cwd), backup, formatAge(backup.timestamp));
+  out.print(...pending);
 
   const ok = await inkConfirm({
     message: "Restore? (this does a hard reset)",
@@ -96,5 +114,5 @@ export async function restoreCommand(
   }
 
   restoreFromBackup(selected, cwd);
-  out.print(out.line("done", `Restored ${backup.originalBranch}`, selected));
+  out.print(done);
 }
