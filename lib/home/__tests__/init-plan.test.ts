@@ -246,7 +246,7 @@ describe("chooseMachineProfile", () => {
     } catch (err) {
       expect((err as Error).message).toContain("new-box");
       expect((err as Error).message).toContain("desktop");
-      expect((err as Error).message).toContain("--new-profile");
+      expect((err as Error).message).toContain("as a new profile");
     }
   });
 
@@ -281,7 +281,7 @@ describe("chooseMachineProfile", () => {
       chooseMachineProfile({ ...BASE, hostnameSlug: "mbp-14", profiles: ["mbp-14", "desktop"], flags: { newProfile: true } });
     } catch (err) {
       expect((err as Error).message).toContain("mbp-14");
-      expect((err as Error).message).toContain("--profile");
+      expect((err as Error).message).toContain("a name of its own");
     }
   });
 
@@ -313,8 +313,8 @@ describe("chooseMachineProfile", () => {
     try {
       chooseMachineProfile({ ...BASE, profiles: ["desktop", "laptop"], interactive: false });
     } catch (err) {
-      expect((err as Error).message).toContain("--profile");
-      expect((err as Error).message).toContain("--new-profile");
+      expect((err as Error).message).toContain("no terminal to ask which");
+      expect((err as Error).message).toContain("2 machine profiles");
       expect((err as Error).message).toContain("desktop");
     }
   });

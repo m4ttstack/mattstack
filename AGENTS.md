@@ -398,6 +398,21 @@ connect's `hint`, a health `message`) never quotes a command: the command
 rides apart, in the failed result's `next`, and the CLI shows it as the
 `next:` line.
 
+A release row's `detail` is copy a person reads, but the data in it (a
+version, a sha, a tool's output) stays as it is.
+
+A run a person watches step by step (`home init` and its refresh steps)
+opens one rt-ui step per stage through `openStep` and ends each in its own
+line, with the stage's progress as sub-lines; off a terminal each ending
+prints as one plain line. Every sub-line also goes to the CLI log, and always
+through `withoutUrls`, since a clone url can carry a token. A program that
+reads such a run's text (the setup app's `home.init` step) keys on constants
+both sides import (`INIT_STEP_FAILED`, `INIT_OUTPUT_CAPTION`), never on a
+copy of the words.
+
+`lib/prompt-secret.ts` re-exports `lib/ui/prompt-secret.ts`: the no-echo
+prompt holds the terminal in raw mode and lives with the other prompts.
+
 ## The TypeScript CLI is UI-free
 
 The rt TS CLI (`commands/`, `lib/`, `cli.ts`, `scripts/`) is pure Bun/TypeScript

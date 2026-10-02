@@ -8,6 +8,7 @@
 
 import { join } from "path";
 import { readAgeKey } from "../../home/age-key.ts";
+import { INIT_OUTPUT_CAPTION, INIT_STEP_FAILED } from "../../home/init-exec.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { toFailedOutcome } from "./step-utils.ts";
@@ -37,6 +38,13 @@ async function checkLocalKey(ctx: ApplyContext): Promise<KeyStatus> {
   }
 }
 
+const ERROR_WORDS = /\b(error|Error|EACCES|ENOENT|denied|failed|fatal)\b/;
+const INIT_FAILURE_TITLES = new Set<string>(Object.values(INIT_STEP_FAILED));
+
+/** Off a terminal a status is a plain `[failed] ` style tag, which the app's one-line detail has no use for. */
+function untagged(line: string): string {
+  return line.replace(/^\[[a-z ]+\] /, "");
+}
 
 /**
  * The most informative line of a subprocess's stderr, for a step whose only
@@ -47,6 +55,8 @@ async function checkLocalKey(ctx: ApplyContext): Promise<KeyStatus> {
  * app showed was a numbered source frame from the compiled binary's own
  * logging call, with the actual exception discarded. Prefer a line that names an
  * error, fall back to the first non-frame line, and only then to line 0.
+ * rt home init's own failures lead with a title from INIT_STEP_FAILED, and the
+ * cause sits under it.
  */
 export function failureDetail(stderr: string): string {
   const lines = stderr
@@ -56,17 +66,34 @@ export function failureDetail(stderr: string): string {
     .filter((l) => l.length > 0);
   if (lines.length === 0) return "";
 
-  // `79828 |  code`, `      ^`, `    at fn (file:1:2)` — bun's crash frames.
+  // `79828 |  code`, `      ^`, `    at fn (file:1:2)`: bun's crash frames.
   const isFrame = (l: string) => /^\d+\s*\|/.test(l) || /^\^+$/.test(l) || /^at\s/.test(l);
-  const named = lines.find((l) => /\b(error|Error|EACCES|ENOENT|denied|failed|fatal)\b/.test(l) && !isFrame(l));
+
+  // out.fail tags the title `[failed] ` and it may follow other stderr lines
+  // when anything reached stderr earlier in the same run.
+  const titleAt = lines.findIndex((l) => INIT_FAILURE_TITLES.has(untagged(l)));
+  if (titleAt !== -1) {
+    const title = untagged(lines[titleAt]!);
+    const said = lines.slice(titleAt + 1).filter((l) => l !== `${INIT_OUTPUT_CAPTION}:` && !isFrame(l));
+    const cause = said.find((l) => ERROR_WORDS.test(l)) ?? said[0];
+    return cause === undefined ? title : `${title}: ${cause}`;
+  }
+
+  // rt's own why, next, fix and note lines are guidance under a title, never the error.
+  const isCallout = (l: string) => /^(why|next|fix|note):/.test(l);
+  const named = lines.find((l) => ERROR_WORDS.test(l) && !isFrame(l) && !isCallout(l));
   const chosen = named ?? lines.find((l) => !isFrame(l)) ?? lines[0]!;
-  // A line ending in ":" is a header introducing the real error on the next
-  // line (`rt home init: failed at step "X":` + payload) — carry it along.
   if (chosen.endsWith(":")) {
     const next = lines[lines.indexOf(chosen) + 1];
     if (next !== undefined && !isFrame(next)) return `${chosen} ${next}`;
   }
-  return chosen;
+  return untagged(chosen);
+}
+
+/** `rt home init`'s last stdout line is its ending (`[ok] This Mac is set up  <home>` off a terminal); the app shows it without the tag, title and hint joined by a colon. */
+export function homeInitDoneDetail(stdout: string): string {
+  const last = stdout.trim().split("\n").pop() ?? "";
+  return untagged(last).replace(/ {2,}/, ": ");
 }
 
 async function homeInitRun(ctx: ApplyContext): Promise<StepOutcome> {
@@ -88,8 +115,7 @@ async function homeInitRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   const result = await p.runRt(["home", "init"], { timeoutMs: HOME_INIT_TIMEOUT_MS });
   if (result.code === 0) {
-    const lastLine = result.stdout.trim().split("\n").pop() ?? "";
-    return { state: "done", detail: lastLine };
+    return { state: "done", detail: homeInitDoneDetail(result.stdout) };
   }
 
   return { state: "failed", detail: failureDetail(result.stderr), remedy: homeInitRemedy(result.stderr) };
@@ -120,8 +146,8 @@ function missingToolRemedy(stderr: string): string | null {
 const REMOTE_AUTH_STDERR = /authenticat|could not read username|access denied|repository not found|403 forbidden|invalid username or (?:password|token)|gh auth login|permission denied \(publickey/i;
 /** ssh writes "Permission denied (publickey)", but so does a plain local `fatal: cannot mkdir user: Permission denied` — on its own this says nothing about a remote. */
 const AMBIGUOUS_PERMISSION_STDERR = /permission denied/i;
-/** `commands/home.ts` prints `failed at step "<id>"`; only the clone step ever contacts a host. */
-const CLONE_STEP_STDERR = /failed at step "cloneUserRepo"/;
+/** `rt home init` leads a failed clone with this title; only the clone step ever contacts a host. */
+const CLONE_FAILED_TITLE = INIT_STEP_FAILED.cloneUserRepo;
 
 /**
  * `rt home init` reaches a remote only when a url was resolved; the local-only
@@ -139,7 +165,7 @@ export function homeInitRemedy(stderr: string): string {
 
   const remoteShaped =
     REMOTE_AUTH_STDERR.test(stderr) ||
-    (AMBIGUOUS_PERMISSION_STDERR.test(stderr) && CLONE_STEP_STDERR.test(stderr));
+    (AMBIGUOUS_PERMISSION_STDERR.test(stderr) && stderr.split("\n").some((l) => untagged(l.trim()) === CLONE_FAILED_TITLE));
   return remoteShaped ? "Run gh auth login, then Retry" : "Check the error above, then Retry";
 }
 

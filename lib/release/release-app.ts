@@ -102,6 +102,9 @@ export interface ReleaseAppOptions {
   yesNotes?: string | null;
 }
 
+/** What a run reports as it goes; the command decides how it is drawn. */
+export type ReleaseAppProgress = { kind: "step"; step: StepResult } | { kind: "watching"; tag: string } | { kind: "notes"; notes: string; hash: string };
+
 export interface ReleaseAppSeams extends VerifySeams {
   /** True only when a human can answer the notes prompt (a real TTY, RT_BATCH unset). */
   isTTY: boolean;
@@ -110,7 +113,7 @@ export interface ReleaseAppSeams extends VerifySeams {
   readFile(path: string): string | null;
   writeFile(path: string, text: string): void;
   confirm(message: string): Promise<boolean>;
-  log(line: string): void;
+  progress(event: ReleaseAppProgress): void;
 }
 
 const LABELS: Record<StepId, string> = {
@@ -119,12 +122,6 @@ const LABELS: Record<StepId, string> = {
   tag: "tag",
   verify: "verify publish",
 };
-
-const STEP_MARK: Record<StepStatus, string> = { ok: "✓", done: "-", planned: "•", failed: "✗", stopped: "!", pending: "…" };
-
-export function formatStep(s: StepResult): string {
-  return `${STEP_MARK[s.status]} ${s.label}: ${s.detail}${s.command ? `\n    ${s.command}` : ""}`;
-}
 
 class StepFailure extends Error {
   constructor(readonly step: StepId, message: string, readonly resume: string | null) {
@@ -175,9 +172,35 @@ async function remoteTags(seams: ReleaseAppSeams): Promise<RemoteTag[]> {
     .sort((a, b) => compareVersions(b.name.slice(1), a.name.slice(1)));
 }
 
+/** Two of qualify's three stops with nothing to resume; `qualifyStop` tells them apart by these, since the report has no key for why it stopped. */
+const NO_RELEASE_TAG = "origin has no release tag. Run this from an rt checkout.";
+const NOTHING_MOVED = "nothing has moved since ";
+
+export type QualifyStop = "no-release-tag" | "nothing-moved" | "not-fast-path";
+
+/** The notes step's detail when the person said no; `notesDeclined` tells it from the approval stops by this. */
+const NOTES_DECLINED = "You said no at the prompt. Nothing was committed.";
+
+/** A notes step stopped because the person said no at the prompt, not because the notes wait on approval. */
+export function notesDeclined(step: StepResult | undefined): boolean {
+  return step?.id === "notes" && step.status === "stopped" && step.detail === NOTES_DECLINED;
+}
+
+/** The phase a dry run planned: a tag already done means a real run only re-checks that tag's publish. */
+export function plannedPhase(report: ReleaseAppReport): Phase {
+  return report.steps.some((s) => s.id === "tag" && s.status === "done") ? "released" : "notes";
+}
+
+/** Why a qualify step stopped with nothing to resume: an environment problem, nothing to release, or main does not qualify. */
+export function qualifyStop(step: StepResult | undefined): QualifyStop | null {
+  if (step?.id !== "qualify" || step.status !== "stopped") return null;
+  if (step.detail === NO_RELEASE_TAG) return "no-release-tag";
+  return step.detail.startsWith(NOTHING_MOVED) ? "nothing-moved" : "not-fast-path";
+}
+
 function newestReleaseTag(tags: RemoteTag[]): string {
   const newest = tags[0];
-  if (!newest) throw new StepFailure("qualify", "origin has no vX.Y.Z tag; run this from an rt checkout", null);
+  if (!newest) throw new StepFailure("qualify", NO_RELEASE_TAG, null);
   return newest.name;
 }
 
@@ -236,7 +259,7 @@ async function qualify(seams: ReleaseAppSeams): Promise<Ctx> {
   const verify = await runVerify(seams, { tag: lastTag, noWait: true, skipLatest: true });
 
   if (structural === "released") {
-    if (verify.clean) throw new StepFailure("qualify", `nothing has moved since ${lastTag}`, null);
+    if (verify.clean) throw new StepFailure("qualify", `${NOTHING_MOVED}${lastTag}`, null);
     return {
       headSha, lastTag, nextTag: lastTag, moved: [], files: [], phase: "released",
       qualifyDetail: `${lastTag} has not moved since; its publish has not verified yet (${unverifiedSummary(verify)}), so re-checking it before any new release`,
@@ -244,11 +267,11 @@ async function qualify(seams: ReleaseAppSeams): Promise<Ctx> {
   }
 
   if (!verify.clean) {
-    throw new StepFailure("qualify", `${lastTag} has not verified yet (${unverifiedSummary(verify)}); run rt release verify ${lastTag} first`, `rt release verify ${lastTag}`);
+    throw new StepFailure("qualify", `${lastTag} has not verified yet (${unverifiedSummary(verify)}), so check it first`, `rt release verify ${lastTag}`);
   }
 
   const gate = await checkGate(seams, lastTag, "origin/main");
-  if (gate.path !== "fast") throw new StepFailure("qualify", `not a fast-path diff since ${lastTag}: ${gate.reason}`, null);
+  if (gate.path !== "fast") throw new StepFailure("qualify", `Main does not qualify for the fast path since ${lastTag}: ${gate.reason}`, null);
   const files = (await git(seams, ["diff", "--no-renames", "--name-only", `${lastTag}..origin/main`])).split("\n").map((f) => f.trim()).filter(Boolean);
   const moved = movedServedApps(files);
   const nextTag = nextPatchTag(lastTag);
@@ -327,9 +350,9 @@ async function commitFiles(seams: ReleaseAppSeams, o: {
     throw new StepFailure(o.step, `main moved from ${head} to ${now.slice(0, 9)} before the commit landed; nothing changed`, o.resume);
   }
   if (/HTTP 40[13]|protected branch|not accessible|permission/i.test(reason)) {
-    throw new StepFailure(o.step, `not allowed to update main (${reason}); check the gh token's scopes and the branch protection. Nothing changed`, null);
+    throw new StepFailure(o.step, `rt is not allowed to update main (${reason}). Check the GitHub token's scopes and the branch protection. Nothing changed.`, null);
   }
-  throw new StepFailure(o.step, `could not update main (${reason}); it is still at ${head}, so a rerun retries. Nothing changed`, o.resume);
+  throw new StepFailure(o.step, `rt could not update main (${reason}). It is still at ${head}, so running again retries. Nothing changed.`, o.resume);
 }
 
 async function commitNotes(seams: ReleaseAppSeams, ctx: Ctx, notes: string): Promise<string> {
@@ -378,7 +401,7 @@ async function finishVerify(
   rec: Recorder,
   report: (status: ReleaseStatus, resume?: string | null) => ReleaseAppReport,
 ): Promise<ReleaseAppReport> {
-  seams.log(`  watching release.yml for ${tag} (a real run takes 25-50 minutes)`);
+  seams.progress({ kind: "watching", tag });
   try {
     const verify = await runVerify(seams, { tag });
     if (verify.clean) {
@@ -405,7 +428,7 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
   const rec: Recorder = (id, status, detail, command) => {
     const step: StepResult = { id, label: LABELS[id], status, detail, ...(command ? { command } : {}) };
     steps.push(step);
-    seams.log(formatStep(step));
+    seams.progress({ kind: "step", step });
   };
 
   let lastTag: string | null = null;
@@ -477,7 +500,7 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
     if (already) {
       rec("notes", "done", `RELEASE_NOTES.md for ${ctx.nextTag} is already committed on main (${already.sha.slice(0, 9)})`);
     } else {
-      rec("notes", "planned", `generate RELEASE_NOTES.md for ${ctx.lastTag}..origin/main, approve them (--yes-notes <hash> off a terminal), commit them on main`);
+      rec("notes", "planned", `Write the release notes for ${ctx.lastTag}..origin/main, get them approved, and commit them on main`);
     }
     rec("tag", "planned", `tag ${ctx.nextTag} at the notes commit and push it`, `git tag -a ${ctx.nextTag} <notes commit> -m ${ctx.nextTag}`);
     rec("verify", "planned", "watch release.yml and check the published release", `rt release verify ${ctx.nextTag}`);
@@ -501,14 +524,14 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
   } else {
     if (opts.yesNotes !== null) {
       if (opts.yesNotes !== hash) {
-        if (!opts.json) seams.log(`\n${notes}\nnotes hash ${hash}`);
-        rec("notes", "stopped", `--yes-notes ${opts.yesNotes} does not match these notes (hash ${hash} for ${ctx.nextTag}): these notes need approval, nothing committed`);
+        if (!opts.json) seams.progress({ kind: "notes", notes, hash });
+        rec("notes", "stopped", `The approved hash ${opts.yesNotes} does not match these notes (${hash} for ${ctx.nextTag}). They need approval again; nothing was committed.`);
         return report("awaiting-approval", `${rerun}${opts.json ? " --json" : ""} --yes-notes ${hash}`);
       }
     } else {
-      if (!opts.json) seams.log(`\n${notes}\nnotes hash ${hash}`);
+      if (!opts.json) seams.progress({ kind: "notes", notes, hash });
       if (opts.json || !seams.isTTY) {
-        rec("notes", "stopped", `the notes for ${ctx.nextTag} (hash ${hash}) need approval; nothing committed`);
+        rec("notes", "stopped", `The notes for ${ctx.nextTag} (hash ${hash}) need your approval. Nothing was committed.`);
         return report("awaiting-approval", `${rerun}${opts.json ? " --json" : ""} --yes-notes ${hash}`);
       }
       let confirmed: boolean;
@@ -520,7 +543,7 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
         return report("failed", err.resume);
       }
       if (!confirmed) {
-        rec("notes", "stopped", "declined at the prompt; nothing committed");
+        rec("notes", "stopped", NOTES_DECLINED);
         return report("declined", rerun);
       }
     }

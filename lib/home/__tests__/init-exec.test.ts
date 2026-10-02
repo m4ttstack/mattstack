@@ -233,7 +233,7 @@ describe("executeInitPlan", () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.failedStep).toBe("writeSkillsSymlink");
-        expect(result.stderr).toContain("refusing to overwrite");
+        expect(result.stderr).toContain("rt will not overwrite it");
       }
       expect(seam.calls).toEqual([{ kind: "blocksSymlink", path: "skills.jsonc" }]);
       expect(seam.calls.some((c) => c.kind === "writeSymlink")).toBe(false);
@@ -383,7 +383,7 @@ describe("createRealExecSeam", () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.failedStep).toBe("writeSkillsSymlink");
-        expect(result.stderr).toContain("refusing to overwrite");
+        expect(result.stderr).toContain("rt will not overwrite it");
       }
       const st = lstatSync(join(home, "skills.jsonc"));
       expect(st.isSymbolicLink()).toBe(false);

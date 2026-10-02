@@ -17,7 +17,7 @@ digraph fast_path_release_apps {
     "Fast path verified: continue at Publish and finish" [shape=doublecircle style=filled fillcolor=lightgreen];
     "Take the full path instead" [shape=doublecircle];
     "Trigger: preflight says fast path" [shape=ellipse];
-    "rt release apps --dry-run" [shape=plaintext];
+    "rt release apps --dry-run --json" [shape=plaintext];
     "Dry run qualifies?" [shape=diamond];
     "rt release apps --json" [shape=plaintext];
     "Release apps status?" [shape=diamond];
@@ -37,8 +37,8 @@ digraph fast_path_release_apps {
     "Off-script gate: fast path declined" [shape=box];
     "Fast path declined: gate rounds = 2?" [shape=diamond];
 
-    "Trigger: preflight says fast path" -> "rt release apps --dry-run";
-    "rt release apps --dry-run" -> "Dry run qualifies?";
+    "Trigger: preflight says fast path" -> "rt release apps --dry-run --json";
+    "rt release apps --dry-run --json" -> "Dry run qualifies?";
     "Dry run qualifies?" -> "rt release apps --json" [label="yes"];
     "Dry run qualifies?" -> "Take the full path instead" [label="no: refused outside its gate"];
     "rt release apps --json" -> "Release apps status?";
@@ -78,15 +78,16 @@ digraph fast_path_release_apps {
     "Off-script gate: fast path declined" -> "Fast path declined: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: fast path declined" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: fast path declined" -> "Handed back to Matt" [label="hand back"];
-    "Fast path declined: gate rounds = 2?" -> "rt release apps --dry-run" [label="no: retry"];
+    "Fast path declined: gate rounds = 2?" -> "rt release apps --dry-run --json" [label="no: retry"];
     "Fast path declined: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Release apps status?" -> "Off-script gate: fast path declined" [label="declined: no longer qualifies"];
 }
 ```
 
 Run each `rt release apps ... --json` call in the background: it waits on the tag's release.yml run
-(25 to 50 minutes) and prints one envelope when it exits. The dry run shows the qualify result, the
-next tag and the commands. The verb skips the rehearsal because its gate admits only the
+(25 to 50 minutes) and prints one envelope when it exits. The dry run prints one envelope too: it
+qualifies when its `status` is `planned`, its `nextTag` is the tag a real run cuts, and its
+`steps` carry the qualify result and each planned command. The verb skips the rehearsal because its gate admits only the
 served-app path, the notes and `website/`, and its qualify step has confirmed the newest tag
 verified. Every step detects its own completion, so rerunning the verb resumes, even after a run
 killed mid-wait, and a newest tag whose publish has not verified is re-verified before anything

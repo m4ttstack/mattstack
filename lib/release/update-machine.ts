@@ -117,26 +117,26 @@ function versionFromTag(tag: string): string {
 async function resolveTag(seams: UpdateMachineSeams, explicit?: string): Promise<string> {
   if (explicit) {
     if (!/^v\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$/.test(explicit)) {
-      throw new UserActionableError("update-machine-bad-tag", `--tag must look like a released tag (v<major>.<minor>.<patch>), got "${explicit}"`);
+      throw new UserActionableError("update-machine-bad-tag", `"${explicit}" is not a release tag`, {}, { why: "A release tag looks like v2.19.0." });
     }
     return explicit;
   }
   const r = await seams.exec(["gh", "api", `repos/${RELEASE_REPO}/releases/latest`, "--jq", ".tag_name"]);
   if (r.exitCode !== 0) {
-    throw new UserActionableError("update-machine-resolve-tag-failed", `could not resolve the latest released tag: ${execTail(r)}`);
+    throw new UserActionableError("update-machine-resolve-tag-failed", `rt could not find the latest release: ${execTail(r)}`);
   }
   const tag = r.stdout.trim();
-  if (!tag) throw new UserActionableError("update-machine-resolve-tag-failed", "gh api returned no tag_name for the latest release");
+  if (!tag) throw new UserActionableError("update-machine-resolve-tag-failed", "GitHub did not name the latest release");
   return tag;
 }
 
 async function resolveCommit(seams: UpdateMachineSeams, tag: string): Promise<string> {
   const r = await seams.exec(["gh", "api", `repos/${RELEASE_REPO}/commits/${tag}`, "--jq", ".sha"]);
   if (r.exitCode !== 0) {
-    throw new UserActionableError("update-machine-resolve-commit-failed", `could not resolve the commit for ${tag}: ${execTail(r)}`);
+    throw new UserActionableError("update-machine-resolve-commit-failed", `rt could not find the commit for ${tag}: ${execTail(r)}`);
   }
   const sha = r.stdout.trim();
-  if (!sha) throw new UserActionableError("update-machine-resolve-commit-failed", `gh api returned no sha for ${tag}`);
+  if (!sha) throw new UserActionableError("update-machine-resolve-commit-failed", `GitHub did not give the commit for ${tag}`);
   return sha;
 }
 
@@ -224,7 +224,7 @@ export async function deckVersionAtTag(seams: UpdateMachineSeams, tag: string): 
 async function runCheckoutSyncLeg(seams: UpdateMachineSeams): Promise<LegResult> {
   const branch = (await seams.exec(["git", "branch", "--show-current"], { cwd: seams.sharedCheckoutPath })).stdout.trim();
   if (branch !== "main") {
-    return abortedLeg("checkout-sync", CHECKOUT_SYNC_LABEL, `${seams.sharedCheckoutPath} is on branch "${branch}", not main; refusing to touch a shared checkout`);
+    return abortedLeg("checkout-sync", CHECKOUT_SYNC_LABEL, `The shared checkout is on ${branch}, not main, so rt left it alone`);
   }
   const pull = await seams.exec(["git", "pull", "--ff-only"], { cwd: seams.sharedCheckoutPath });
   if (pull.exitCode !== 0) return errorLeg("checkout-sync", CHECKOUT_SYNC_LABEL, `git pull failed: ${execTail(pull)}`);
@@ -529,7 +529,7 @@ async function runDevBundleLeg(seams: UpdateMachineSeams, ctx: ReleaseContext, o
  *  the API but its commit is absent from a plain clone, so it is refused too. */
 export function assertDevAppRef(ref: string): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref) || ref.includes("..") || ref.startsWith("pull/")) {
-    throw new UserActionableError("dev-app-bad-ref", `the ref must be a branch, tag, or sha of ${RELEASE_REPO} (for a PR, its branch name), got "${ref}"`);
+    throw new UserActionableError("dev-app-bad-ref", `"${ref}" is not a branch, tag or commit of the release repo`, {}, { why: "For a pull request, use its branch name." });
   }
 }
 
@@ -594,7 +594,7 @@ async function runDaemonLeg(seams: UpdateMachineSeams, ctx: ReleaseContext): Pro
   // out from under them, and a failed announce refuses the restart outright.
   const announced = await announceOnceDaemonAnswers(seams, `update-machine: restarting the rt daemon for ${ctx.tag} (${ctx.sha.slice(0, 12)})`);
   if (!announced) {
-    return abortedLeg("daemon", DAEMON_LABEL, `chat announce in #${CHAT_ROOM} failed after ${ANNOUNCE_ATTEMPTS} attempts; refusing to restart the daemon`);
+    return abortedLeg("daemon", DAEMON_LABEL, `The announcement in #${CHAT_ROOM} failed ${ANNOUNCE_ATTEMPTS} times, so rt did not restart the daemon`);
   }
 
   const restart = await seams.exec(["rt", "daemon", "restart"]);
@@ -745,17 +745,17 @@ async function runVerifyLeg(
 function describePlannedLeg(id: LegId, tag: string): string {
   switch (id) {
     case "prod-app":
-      return `download and sha256-verify the ${tag} dmg, then move-aside-replace ${PROD_APP_PATH} (never launched)`;
+      return `Download the ${tag} app, check its checksum, and swap it in for the installed one without opening it`;
     case "dev-bundle":
-      return `build the dev bundle at ${tag} in a scratch tree, kill and wait out the running copy, move-aside-replace ${DEV_APP_PATH}, and relaunch it`;
+      return `Build the dev app at ${tag} in a scratch folder, quit the running copy, swap the new one in, and reopen it if it was running`;
     case "checkout-sync":
-      return "pull the shared rt checkout (main only) and bun install --frozen-lockfile";
+      return "Pull main into the shared checkout and install its packages";
     case "daemon":
-      return `announce in #${CHAT_ROOM}, then restart the rt daemon and confirm its source rev matches ${tag}`;
+      return `Announce in #${CHAT_ROOM}, then restart the rt daemon and check that it runs ${tag}`;
     case "served-suite":
-      return "re-register any managed app whose registry entry does not match the shared checkout, then deck restart --managed, restarting stragglers by name";
+      return "Register any app whose entry does not match the shared checkout, then restart every managed app";
     case "verify":
-      return "confirm prod version, dev pid, daemon source rev, deck version, and every managed app's freshness";
+      return "Check the app version, the dev app, the daemon, deck and every managed app";
   }
 }
 
@@ -766,7 +766,7 @@ async function gateLeg(seams: UpdateMachineSeams, yes: boolean | undefined, labe
 
 export async function runUpdateMachine(seams: UpdateMachineSeams, options: UpdateMachineOptions = {}): Promise<UpdateMachineReport> {
   if (options.plan && options.verifyOnly) {
-    throw new UserActionableError("update-machine-plan-verify-only", "--plan and --verify-only are mutually exclusive; pick one");
+    throw new UserActionableError("update-machine-plan-verify-only", "A run can plan or check, not both");
   }
 
   const tag = await resolveTag(seams, options.tag);
@@ -797,10 +797,10 @@ export async function runUpdateMachine(seams: UpdateMachineSeams, options: Updat
   }
 
   if (!options.yes && !seams.isTTY) {
-    throw new UserActionableError(
-      "update-machine-noninteractive",
-      "refuses to run state-changing legs on a non-interactive terminal without --yes",
-    );
+    throw new UserActionableError("update-machine-noninteractive", "rt will not change this Mac without a terminal to confirm each step", {}, {
+      why: "Approve every step up front to run it anyway.",
+      next: "rt release update-machine --yes",
+    });
   }
 
   const sha = await resolveCommit(seams, tag);
@@ -810,11 +810,11 @@ export async function runUpdateMachine(seams: UpdateMachineSeams, options: Updat
 
   async function runGatedLeg(id: LegId, label: string, run: () => Promise<LegResult>): Promise<void> {
     if (haltedAfter) {
-      legs.push(skippedLeg(id, label, `not run: halted after ${haltedAfter} failed`));
+      legs.push(skippedLeg(id, label, `Not run: the run stopped at ${haltedAfter}`));
       return;
     }
     if (!(await gateLeg(seams, options.yes, label))) {
-      legs.push(skippedLeg(id, label, "declined at the confirmation prompt"));
+      legs.push(skippedLeg(id, label, "You said no at the prompt"));
       return;
     }
     const result = await run();

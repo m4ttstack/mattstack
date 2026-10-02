@@ -147,7 +147,7 @@ describe("runMaterialize", () => {
     seam.script(["/fake/rt-binary", "intercept", "install"], { stdout: "", stderr: "", exitCode: -1 });
 
     const [result] = await runMaterialize([{ kind: "rtInterceptInstall" }], seam, "/fake/rt-binary");
-    expect(result!.stderr).toBe("could not run `/fake/rt-binary` — not found");
+    expect(result!.stderr).toBe("rt could not find /fake/rt-binary to run it");
   });
 
   test("deckSetup shells out to deck setup, also with the generous timeout", async () => {
@@ -190,11 +190,11 @@ describe("runMaterialize", () => {
       ok: true,
       stderr: "",
       stdout: "",
-      note: "deck healthy — setup skipped",
+      note: "deck is already running well, so rt left it alone",
     });
   });
 
-  test("boardSetup is always report-only and ok, with the manual command in `note` (not `stderr`)", async () => {
+  test("boardSetup is always report-only and ok, with the command a person runs by hand (not `stderr`)", async () => {
     const seam = new FakeExecSeam();
     const [result] = await runMaterialize([{ kind: "boardSetup", repoPath: "/repos/mr-board" }], seam);
     expect(result).toEqual({
@@ -202,7 +202,8 @@ describe("runMaterialize", () => {
       ok: true,
       stderr: "",
       stdout: "",
-      note: 'run manually (interactive): cd "/repos/mr-board" && bun run scripts/setup.ts',
+      note: "",
+      runYourself: 'cd "/repos/mr-board" && bun run scripts/setup.ts',
     });
   });
 
@@ -226,7 +227,7 @@ describe("runMaterialize", () => {
 
     const [result] = await runMaterialize([{ kind: "deckSetup" }], seam);
     expect(result!.ok).toBe(false);
-    expect(result!.stderr).toBe("could not run `deck` — is it on PATH?");
+    expect(result!.stderr).toBe("rt could not run deck: is it installed and on your PATH?");
   });
 
   test("rt-own steps capture stdout even on a clean exit — rt daemon install's approval guidance is printed there, not discarded", async () => {

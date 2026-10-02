@@ -37,6 +37,22 @@ export interface ExecSeam {
 
 export type InitResult = { ok: true } | { ok: false; failedStep: InitStep["kind"]; stderr: string };
 
+/** The failure title per init step. `lib/setup/steps/home.ts` keys its clone remedy on the clone's entry, so the words here are the contract between the two. */
+export const INIT_STEP_FAILED: Record<InitStep["kind"], string> = {
+  ensureStateDirs: "rt could not create its state folders",
+  cloneUserRepo: "rt could not clone your home repo",
+  initUserRepo: "rt could not start your home repo",
+  commitInitialUserRepo: "rt could not make the first commit in your home repo",
+  writeGitignore: "rt could not write the home repo's ignore file",
+  writeOwners: "rt could not write the list of paths you commit by hand",
+  writeMachineKey: "rt could not name this Mac",
+  ensureProfileDir: "rt could not create this Mac's profile",
+  writeSkillsSymlink: "rt could not link your skills list",
+};
+
+/** The caption over a failed step's own output; `lib/setup/steps/home.ts` skips the line it renders as when it picks a cause. */
+export const INIT_OUTPUT_CAPTION = "what it said";
+
 type StepLog = (message: string) => void;
 
 class StepFailed extends Error {
@@ -54,10 +70,10 @@ async function run(exec: ExecSeam, cmd: string[], opts?: { cwd?: string }): Prom
 /** Seeds a tracked file only into a genuinely empty clone — a populated clone already carries it from its own history. */
 async function writeIfAbsent(exec: ExecSeam, path: string, content: string, log: StepLog, label: string): Promise<void> {
   if (await exec.exists(path)) {
-    log(`${label} already present — leaving it`);
+    log(`${label} is already there, so rt left it`);
     return;
   }
-  log(`seeding ${label}`);
+  log(`Adding ${label}`);
   await exec.writeFile(path, content);
 }
 
@@ -65,23 +81,23 @@ async function runStep(step: InitStep, exec: ExecSeam, log: StepLog): Promise<vo
   switch (step.kind) {
     case "ensureStateDirs": {
       for (const dir of step.dirs) {
-        log(`creating ${dir}/`);
+        log(`Creating ${dir}/`);
         await exec.mkdirp(dir);
       }
       return;
     }
     case "cloneUserRepo": {
-      log(`cloning ${step.url} into user/`);
+      log(`Cloning ${step.url}`);
       await run(exec, ["git", "clone", step.url, "user"]);
       return;
     }
     case "initUserRepo": {
-      log("initialising user/ as a local repo (no remote)");
+      log("Starting a repo with no remote");
       await run(exec, ["git", "init", "-b", "main", "user"]);
       return;
     }
     case "commitInitialUserRepo": {
-      log("committing the initial user/ tree");
+      log("Committing the first version");
       await run(exec, ["git", "-C", "user", "add", "-A"]);
       // An unconfigured identity fails `git commit` with an opaque "empty
       // ident name" error, and a fresh machine's install must not stop on
@@ -113,12 +129,12 @@ async function runStep(step: InitStep, exec: ExecSeam, log: StepLog): Promise<vo
       return;
     }
     case "writeMachineKey": {
-      log(`writing machine-key (${step.key})`);
+      log(`Naming this Mac ${step.key}`);
       await exec.writeFile("machine-key", step.key);
       return;
     }
     case "ensureProfileDir": {
-      log(`creating user/local/${step.key}/`);
+      log(`Creating the profile folder for ${step.key}`);
       await exec.mkdirp(join("user", "local", step.key));
       return;
     }
@@ -128,9 +144,9 @@ async function runStep(step: InitStep, exec: ExecSeam, log: StepLog): Promise<vo
       // in between), and clobbering real content is worse than a stale
       // "skip" ever is.
       if (await exec.blocksSymlink("skills.jsonc")) {
-        throw new StepFailed("a real file already exists at skills.jsonc — refusing to overwrite it");
+        throw new StepFailed("A real file is already at skills.jsonc, and rt will not overwrite it");
       }
-      log("linking skills.jsonc -> user/skills.jsonc");
+      log("Linking your skills list");
       await exec.writeSymlink("skills.jsonc", join("user", "skills.jsonc"));
       return;
     }

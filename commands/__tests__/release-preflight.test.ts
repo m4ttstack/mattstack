@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
 import type { PreflightSeams } from "../../lib/release/preflight.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { releasePreflight } from "../release.ts";
 
 const ok = (stdout: string) => Promise.resolve({ stdout, stderr: "", exitCode: 0 });
@@ -56,19 +58,17 @@ function fakeSeams(
 }
 
 async function run(args: string[], seams: PreflightSeams): Promise<{ logs: string[]; exitCode: number | string | undefined }> {
-  const logs: string[] = [];
-  const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-    logs.push(a.map(String).join(" "));
-  });
+  const io = captureOut();
+  ui.__test__.setHuman(() => false);
   // Bun's process.exitCode setter ignores undefined once the value is truthy; 0 is the only value that clears it.
   const before = process.exitCode;
   process.exitCode = 0;
   try {
     await releasePreflight(args, {}, seams);
-    return { logs, exitCode: process.exitCode };
+    return { logs: io.lines(), exitCode: process.exitCode };
   } finally {
     process.exitCode = before ?? 0;
-    logSpy.mockRestore();
+    io.restore();
   }
 }
 
@@ -100,11 +100,11 @@ describe("rt release preflight", () => {
   test("human output renders a checklist and a summary line", async () => {
     const violations = [{ path: "release preflight" }];
     const { logs, exitCode } = await run([], fakeSeams(COMMITTED_LOCK, COMMITTED_LOCK, undefined, violations));
-    const out = logs.join("\n");
-    expect(out).toContain("git state");
-    expect(out).toContain("picker:check");
-    expect(out).toContain("gate:");
-    expect(out).toMatch(/1 stale/);
+    const text = logs.join("\n");
+    expect(text).toContain("git state");
+    expect(logs.some((l) => l.startsWith("[out of date] picker:check"))).toBe(true);
+    expect(text).toContain("gate: ");
+    expect(logs.at(-1)).toMatch(/^\[out of date\] \d+ checks {2}\d+ ok, 1 stale, \d+ unverifiable$/);
     expect(exitCode).toBe(1);
   });
 });

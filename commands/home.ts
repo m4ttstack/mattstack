@@ -37,7 +37,14 @@ import { homedir } from "os";
 import { join } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { isCompiledRt } from "../lib/rt-self.ts";
-import { bold, dim, green, red, reset, yellow } from "../lib/ansi.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
+import { openStep, type StepHandle } from "../lib/ui/spawn.ts";
+import { interactive } from "../lib/ui/gate.ts";
+import { logCliEvent } from "../lib/cli-logger.ts";
+import { shellQuote } from "../lib/herdr-launch.ts";
+import { withoutUrls } from "../lib/team/redact.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 import { isSafeMachineKeySegment, machineKey, mattstackHome } from "../lib/rt-paths.ts";
 import { resolveInitialMachineKey } from "../lib/home/machine-id.ts";
 import {
@@ -54,7 +61,7 @@ import {
   type InitPlan,
   type InitStep,
 } from "../lib/home/init-plan.ts";
-import { createRealExecSeam, executeInitPlan, type ExecSeam } from "../lib/home/init-exec.ts";
+import { createRealExecSeam, executeInitPlan, INIT_OUTPUT_CAPTION, INIT_STEP_FAILED, type ExecSeam, type InitResult } from "../lib/home/init-exec.ts";
 import {
   AgeKeyAbsentError,
   createRealAgeKeySeam,
@@ -173,27 +180,115 @@ export function gatherHomeState(home: string, probes: HomeProbes, machineKeyValu
   };
 }
 
-function describeStep(step: InitStep): string {
+function describeStep(step: InitStep): { title: string; hint?: string } {
   switch (step.kind) {
     case "ensureStateDirs":
-      return `create missing state dirs: ${step.dirs.join(", ")}`;
+      return { title: "Create the folders rt keeps its state in", hint: step.dirs.join(", ") };
     case "cloneUserRepo":
-      return `clone ${step.url} into user/`;
+      return { title: "Clone your home repo", hint: step.url };
     case "initUserRepo":
-      return "git init a local-only user/ repo (no remote)";
+      return { title: "Start a home repo on this Mac only", hint: "no remote" };
     case "commitInitialUserRepo":
-      return "commit the initial user/ tree";
+      return { title: "Commit the first version of your home repo" };
     case "writeGitignore":
-      return "write the user repo's .gitignore";
+      return { title: "Add the home repo's ignore file" };
     case "writeOwners":
-      return "write user/snapshot-owners.jsonc";
+      return { title: "Add the list of paths you commit by hand" };
     case "writeMachineKey":
-      return `write the machine-key file (${step.key})`;
+      return { title: "Name this Mac", hint: step.key };
     case "ensureProfileDir":
-      return `create user/local/${step.key}/`;
+      return { title: "Create this Mac's profile", hint: step.key };
     case "writeSkillsSymlink":
-      return "link skills.jsonc -> user/skills.jsonc";
+      return { title: "Link your skills list into your home repo" };
   }
+}
+
+/** Where a stage ended. `failed` ends its rt-ui step failing; any other status ends it in place, in that state. */
+interface StageEnding {
+  status: Exclude<RenderStatus, "running">;
+  title: string;
+  hint?: string;
+}
+
+/**
+ * One rt-ui step per stage a person watches: its progress is the step's
+ * sub-line (cleared when the step ends done, kept when it fails) and goes to
+ * the CLI log. Off a terminal, or when the helper cannot start or dies, the
+ * same ending prints as one plain line.
+ */
+async function stage(title: string, task: (sub: (text: string) => void) => Promise<StageEnding>): Promise<StageEnding> {
+  let step: StepHandle | null = null;
+  if (interactive()) {
+    try {
+      step = openStep(title);
+    } catch {
+      step = null;
+    }
+  }
+  const sub = (text: string) => {
+    step?.sub(text);
+    // A clone url can carry a token: neither --url nor RT_HOME_URL is checked for credentials.
+    logCliEvent("debug", "home", withoutUrls(text));
+  };
+  let ending: StageEnding;
+  try {
+    ending = await task(sub);
+  } catch (err) {
+    if (step) await step.fail(title);
+    throw err;
+  }
+  const painted =
+    step === null
+      ? false
+      : ending.status === "failed"
+        ? await step.fail(ending.title, ending.hint)
+        : await step.done(ending.title, ending.hint, ending.status === "done" ? undefined : ending.status);
+  if (!painted) out.print(out.line(ending.status, ending.title, ending.hint));
+  return ending;
+}
+
+function failInit(failure: out.FailureInput, ...after: Block[]): never {
+  out.fail(failure, ...after);
+  process.exit(1);
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** What a child process said, under the failure: the title stays one clean line and the renderer strips its escapes. */
+function childOutput(text: string): Block[] {
+  const lines = text.split("\n").filter((line) => line.trim() !== "");
+  return lines.length > 0 ? [out.verbatim(lines, INIT_OUTPUT_CAPTION)] : [];
+}
+
+function planBlock(home: string, steps: InitStep[]): Block {
+  return out.section(
+    "Setting up your home folder",
+    home,
+    ...steps.map((step) => {
+      const { title, hint } = describeStep(step);
+      return out.line("pending", title, hint);
+    }),
+  );
+}
+
+function skillsLinkBlocked(home: string): Block[] {
+  return [out.line("needs-you", "A file is in the way of your skills link", join(home, "skills.jsonc")), out.callout("fix", "Move it aside, then run this again")];
+}
+
+/** One stage per plan step, stopping at the first failure as executeInitPlan does. */
+async function runInitSteps(steps: InitStep[], exec: ExecSeam): Promise<InitResult> {
+  for (const step of steps) {
+    const { title, hint } = describeStep(step);
+    const outcome: { result?: InitResult } = {};
+    await stage(title, async (sub) => {
+      outcome.result = await executeInitPlan([step], exec, sub);
+      return { status: outcome.result.ok ? "done" : "failed", title, hint };
+    });
+    if (outcome.result && !outcome.result.ok) return outcome.result;
+  }
+  return { ok: true };
 }
 
 /** Thrown by parseUrlArg for a `--url` with no usable value — never silently absorbed into a default or into the next flag. */
@@ -205,7 +300,7 @@ function parseUrlArg(args: string[]): string | null {
 
   const value = args[idx + 1];
   if (value === undefined || value.startsWith("--")) {
-    throw new InvalidUrlArgError("--url requires a value, e.g. --url https://github.com/org/mattstack-home");
+    throw new InvalidUrlArgError("Give it the address of your home repo.");
   }
   return value;
 }
@@ -242,7 +337,7 @@ function parseProfileArg(args: string[]): string | undefined {
 
   const value = args[idx + 1];
   if (value === undefined || value.startsWith("--")) {
-    throw new InvalidProfileArgError("--profile requires a value, e.g. --profile mbp-14");
+    throw new InvalidProfileArgError("Give it the name of a machine profile.");
   }
   return value;
 }
@@ -266,7 +361,7 @@ export function createRealMachineProfilePickerSeam(): MachineProfilePickerSeam {
   };
 }
 
-export type EnsureHomeAgeKeyResult = { ok: true } | { ok: false; message: string };
+export type EnsureHomeAgeKeyResult = { ok: true } | { ok: false; failure: out.FailureInput; after?: Block[] };
 
 /**
  * The sole mint site: `key export` (lib/home/age-key.ts:keyExport) refuses
@@ -313,11 +408,11 @@ async function ensureHomeAgeKey(
   if (mismatched && minted) {
     return {
       ok: false,
-      message:
-        `secrets are encrypted to ${existingRecipient ?? "an unrecognized recipient"}; a placeholder age key was ` +
-        "already minted and stored in this machine's keychain, but that isn't the key these secrets need — import " +
-        "the correct key from your password manager (`rt home key import --force`; a plain `rt home key import` " +
-        "will hit the exists-refusal now that a placeholder key is stored) before initializing.",
+      failure: {
+        title: "This Mac's key cannot open your secrets",
+        why: `They are locked to ${existingRecipient ?? "a key rt does not recognise"}. A new key was already minted and stored for this Mac, and it is not the one they need.`,
+        next: out.cmd("rt home key import --force"),
+      },
     };
   }
 
@@ -330,27 +425,25 @@ async function ensureHomeAgeKey(
   if (mismatched) {
     return {
       ok: false,
-      message:
-        `secrets are encrypted to ${truncateKey(existingRecipient ?? "an unrecognized recipient")}, but this ` +
-        `machine's keychain holds a different key (${truncateKey(publicKey)}) — refusing to rewrite ${sopsYamlPath}.\n` +
-        "  If you imported the wrong key: `rt home key import --force` with the right one.\n" +
-        "  If you mean to rotate the recipient: that's a deliberate ceremony — rewrite user/.sops.yaml and " +
-        "re-encrypt each secret (`rt secrets set <domain> <key>`), then re-run.",
+      failure: {
+        title: "This Mac's key does not match your secrets",
+        why: `They are locked to ${existingRecipient === null ? "a key rt does not recognise" : truncateKey(existingRecipient)}, but this Mac holds ${truncateKey(publicKey)}, and rt will not change that lock by itself.`,
+        next: out.cmd("rt home key import --force"),
+      },
+      after: [out.callout("note", "To change the key on purpose, rewrite the recipient in your home repo by hand, then save each secret again with rt secrets set.")],
     };
   }
 
   if (existing === null) {
     sopsYamlSeam.write(sopsYamlPath, renderSopsYaml(publicKey));
-    console.log(
-      `rt home init: wrote ${sopsYamlPath} (recipient ${publicKey}) — it's tracked, so commit it:\n` +
-        `  git -C ${userDir} add .sops.yaml && git -C ${userDir} commit -m "home: sops recipient"`,
+    out.print(
+      out.line("done", "Set up secrets for your home repo", "this adds one tracked file"),
+      out.callout("next", "Commit it:"),
+      out.copy(`git -C ${userDir} add .sops.yaml && git -C ${userDir} commit -m "home: sops recipient"`),
     );
   }
 
-  console.log(
-    `rt home init: age key ready — recipient ${publicKey}.\n` +
-      "  Run `rt home key export` to save the private key to your password manager.",
-  );
+  out.print(out.line("done", "This Mac's secrets key is ready", truncateKey(publicKey)), out.callout("next", ["Save it to your password manager: ", out.cmd("rt home key export")]));
 
   return { ok: true };
 }
@@ -361,23 +454,10 @@ function planOrExit(state: HomeState, config: { url: string | null; machineKey: 
     return buildInitPlan(state, config);
   } catch (err) {
     if (err instanceof InvalidMachineKeyError) {
-      console.error(`rt home init: ${err.message}`);
-      process.exit(1);
+      failInit({ title: "rt cannot use that name for this Mac", why: err.message });
     }
     throw err;
   }
-}
-
-function printPlan(home: string, steps: InitStep[]): void {
-  console.log(`rt home init plan for ${home}:`);
-  steps.forEach((step, i) => console.log(`  ${i + 1}. ${describeStep(step)}`));
-}
-
-function printSkillsSymlinkBlocked(home: string): void {
-  console.error(
-    `\nrt home init: a real file already exists at ${join(home, "skills.jsonc")} — refusing to overwrite it. ` +
-      "Move it aside by hand, then rerun.",
-  );
 }
 
 // ─── materialize (init's last phase) ────────────────────────────────────────
@@ -467,60 +547,65 @@ export async function defaultMaterializeEnv(
   return { deckOnPath, deckHealthy, deckHelperLabel: helperLabel, boardRepoPath, daemonInstalled: isDaemonInstalled(), trackedRepos };
 }
 
-function describeMaterializeStep(step: MaterializeStep): string {
+/** The plan row for a refresh step: what it is, and how a dry run expects it to end. */
+function describeMaterializeStep(step: MaterializeStep): { title: string; status: StageEnding["status"]; hint?: string } {
   switch (step.kind) {
     case "rtInterceptInstall":
-      return "rt intercept install";
+      return { title: "Set up rt's git intercept", status: "pending" };
     case "rtDaemonInstall":
-      return "rt daemon install";
+      return { title: "Set up the rt daemon", status: "pending" };
     case "reportMissingRepos":
-      return `tracked repos not present locally (not cloned): ${step.names.join(", ")}`;
+      return { title: "Some tracked repos are not on this Mac yet", status: "needs-you", hint: step.names.join(", ") };
     case "deckSetup":
-      return "deck setup";
+      return { title: "Set up deck", status: "pending" };
     case "reportDeckHealthy":
-      return "deck setup (skipped — already healthy)";
+      return { title: "Set up deck", status: "skipped", hint: "deck is already running well" };
     case "reportDeckUnhealthy":
-      return "deck setup (skipped: the app's deck helper owns deck)";
+      return { title: "Set up deck", status: "skipped", hint: "the app's deck helper owns deck" };
     case "boardSetup":
-      return "mr-board setup (interactive — not run automatically)";
+      return { title: "Set up mr-board", status: "needs-you", hint: "you run this one yourself" };
   }
 }
 
-/** Indents every line of `text` under a step's ✓/✗ mark — a multi-line captured stdout (e.g. `rt daemon install`'s several lines of approval guidance) must not fall back to column 0 after its first line. */
-function printIndented(text: string): void {
-  for (const line of text.split("\n")) console.log(`    ${dim}${line}${reset}`);
+/** A failed step is coral only when it is one rt owns: that is the only kind that fails the run. */
+function refreshEnding(result: MaterializeResult): StageEnding {
+  const { title, status, hint } = describeMaterializeStep(result.step);
+  if (!result.ok) return { status: RT_OWN_STEP_KINDS.has(result.step.kind) ? "failed" : "warn", title };
+  return { status: status === "pending" ? "done" : status, title, hint };
 }
 
-function printMaterializeResults(results: MaterializeResult[]): void {
-  console.log(`\nrt home init: materializing (regenerating everything re-derivable from settings)…`);
-  for (const result of results) {
-    const mark = result.ok ? `${green}✓${reset}` : `${red}✗${reset}`;
-    console.log(`  ${mark} ${describeMaterializeStep(result.step)}`);
-    if (!result.ok && result.stderr) printIndented(result.stderr);
-    if (result.stdout) printIndented(result.stdout);
-    if (result.note) printIndented(result.note);
+/** One stage per refresh step; every step runs whatever an earlier one did, as runMaterialize does. True when a step rt owns failed. */
+async function runRefreshSteps(steps: MaterializeStep[], exec: MaterializeExecSeam, rtBin: string): Promise<boolean> {
+  let rtOwnFailed = false;
+  for (const step of steps) {
+    const outcome: { result?: MaterializeResult } = {};
+    await stage(describeMaterializeStep(step).title, async () => {
+      [outcome.result] = await runMaterialize([step], exec, rtBin);
+      return refreshEnding(outcome.result!);
+    });
+    const result = outcome.result!;
+    // A sub-line clears when its step ends done, and this guidance must outlive the step.
+    const detail = [result.ok ? "" : result.stderr, result.stdout, result.note].filter((text) => text !== "").flatMap((text) => text.split("\n"));
+    if (detail.length > 0) out.print(out.verbatim(detail));
+    if (result.runYourself) out.print(out.callout("next", "Run this yourself, it asks questions:", out.cmd(result.runYourself)));
+    if (!result.ok && RT_OWN_STEP_KINDS.has(step.kind)) rtOwnFailed = true;
   }
+  return rtOwnFailed;
 }
 
 /**
  * `claude.marketplaces`/`claude.plugins` replay is the installer's job, not
- * init's — this only points at it when either resolves to a value, so a
+ * init's. This only points at it when either resolves to a value, so a
  * machine with nothing configured stays silent.
  */
 export function claudePluginsPointerMessage(marketplaces: unknown, plugins: unknown): string | null {
   if (marketplaces === undefined && plugins === undefined) return null;
-  return (
-    "claude.marketplaces/claude.plugins are configured — replaying them is the mattstack installer's job, " +
-    "not rt home init's; re-run the installer if this machine needs them applied."
-  );
+  return "Your Claude plugin and marketplace settings are applied by the mattstack installer, not by rt home init. Run the installer again if this Mac needs them.";
 }
 
 function printClaudePluginsPointer(): void {
-  const message = claudePluginsPointerMessage(
-    getSetting<unknown>("claude.marketplaces").value,
-    getSetting<unknown>("claude.plugins").value,
-  );
-  if (message) console.log(`\n  ${dim}${message}${reset}`);
+  const message = claudePluginsPointerMessage(getSetting<unknown>("claude.marketplaces").value, getSetting<unknown>("claude.plugins").value);
+  if (message) out.print(out.paragraph(message));
 }
 
 export interface HomeInitSeams {
@@ -585,10 +670,8 @@ export async function homeInit(args: string[], _ctx: CommandContext = {}, seams:
     resolvedUrl = resolveHomeUrl(args, { readIntent, env });
     profileFlag = parseProfileArg(args);
   } catch (err) {
-    if (err instanceof InvalidUrlArgError || err instanceof InvalidProfileArgError) {
-      console.error(`rt home init: ${err.message}`);
-      process.exit(1);
-    }
+    if (err instanceof InvalidUrlArgError) failInit(usageFailure("Which repo should rt clone?", "rt home init --url <remote>", err.message));
+    if (err instanceof InvalidProfileArgError) failInit(usageFailure("Which machine profile?", "rt home init --profile <key>", err.message));
     throw err;
   }
   const newProfileFlag = args.includes("--new-profile");
@@ -605,23 +688,14 @@ export async function homeInit(args: string[], _ctx: CommandContext = {}, seams:
     if (!state.userRepoPresent) {
       if (dryRun) {
         const previewPlan = planOrExit(state, { url: resolvedUrl, machineKey: key });
-        printPlan(home, previewPlan.steps);
-        if (previewPlan.blocked === "skills-symlink-real-file") printSkillsSymlinkBlocked(home);
-        console.log(
-          `\n  rt home init: this machine has no machine-key file yet — existing profiles under user/local/ ` +
-            `aren't knowable until the repo above is actually cloned, so the key shown here ("${key}") is only ` +
-            "the no-profiles-yet fallback. Pass --profile <key> or --new-profile to pin the real choice ahead of time.",
+        out.print(
+          planBlock(home, previewPlan.steps),
+          out.callout("note", `This Mac has no machine-key file yet, and its profiles are only known once the repo above is cloned, so "${key}" is a stand-in. Name the profile ahead of time to settle it.`),
+          out.callout("next", out.cmd("rt home init --profile <key>")),
+          // The refresh depends on what the clone lands, so it cannot be previewed from here; staying silent would let a fresh Mac's dry run imply provisioning is the whole story.
+          ...(noMaterialize ? [] : [out.callout("note", "rt will also refresh what it generates from your settings. That plan can only be shown once your home repo is cloned.")]),
         );
-        // Materialize's plan depends on what the clone lands (tracked repos,
-        // which tools are installed), so it cannot be previewed from here —
-        // but staying silent would let a fresh machine's dry run, the exact
-        // case this path serves, imply provisioning is the whole story.
-        if (!noMaterialize) {
-          console.log(
-            `\n  rt home init: materialize will also run after provisioning — its plan can't be previewed ` +
-              "until user/ is cloned. Re-run --dry-run afterwards to see it, or pass --no-materialize to skip it.",
-          );
-        }
+        if (previewPlan.blocked === "skills-symlink-real-file") out.print(...skillsLinkBlocked(home));
         return;
       }
 
@@ -636,13 +710,10 @@ export async function homeInit(args: string[], _ctx: CommandContext = {}, seams:
         skillsSymlinkBlocked: false,
       };
       const clonePlan = planOrExit(cloneOnlyState, { url: resolvedUrl, machineKey: key });
-      printPlan(home, clonePlan.steps);
+      out.print(planBlock(home, clonePlan.steps));
 
-      const cloneResult = await executeInitPlan(clonePlan.steps, exec, (message) => console.log(`  ${message}`));
-      if (!cloneResult.ok) {
-        console.error(`\nrt home init: failed at step "${cloneResult.failedStep}":\n${cloneResult.stderr}`);
-        process.exit(1);
-      }
+      const cloneResult = await runInitSteps(clonePlan.steps, exec);
+      if (!cloneResult.ok) failInit({ title: INIT_STEP_FAILED[cloneResult.failedStep] }, ...childOutput(cloneResult.stderr));
 
       // Known true from the steps that just succeeded, not re-probed: fake
       // probes in tests are static and wouldn't reflect the clone anyway,
@@ -669,26 +740,33 @@ export async function homeInit(args: string[], _ctx: CommandContext = {}, seams:
         err instanceof ProfileNameCollisionError ||
         err instanceof InvalidProfileKeyError
       ) {
-        console.error(`rt home init: ${err.message}`);
-        process.exit(1);
+        const next =
+          err instanceof UnknownProfileFlagError
+            ? `rt home init --profile ${err.profile} --new-profile`
+            : err instanceof ProfileNameCollisionError
+              ? "rt home init --profile <name> --new-profile"
+              : "rt home init --profile <key>";
+        failInit({
+          title: err instanceof ProfileChoiceRequiredError ? "Which machine profile should this Mac use?" : "That machine profile will not work",
+          why: err.message,
+          next: out.cmd(next),
+        });
       }
       throw err;
     }
 
     if (choice.source === "prompt-needed") {
       if (dryRun) {
-        console.log(
-          `rt home init: ${home} needs a machine profile — existing: ${profiles.join(", ")}, or start a new one ` +
-            `("${key}"). A prompt would run here interactively; pass --profile <key> or --new-profile to skip it.`,
+        out.print(
+          out.line("needs-you", "This Mac needs a machine profile", `existing: ${profiles.join(", ")}`),
+          out.callout("note", `A live run asks you to pick one, or to start a new one called ${key}.`),
+          out.callout("next", out.cmd("rt home init --profile <key>")),
         );
         return;
       }
       const picked = await pickerSeam.pick(profiles, key);
       if (picked === null || !isSafeMachineKeySegment(picked)) {
-        console.error(
-          "rt home init: no machine profile selected — aborting. Pass --profile <key> or --new-profile to skip the prompt.",
-        );
-        process.exit(1);
+        failInit({ title: "No machine profile was chosen", next: out.cmd("rt home init --profile <key>") });
       }
       chosenKey = picked;
     } else {
@@ -702,11 +780,10 @@ export async function homeInit(args: string[], _ctx: CommandContext = {}, seams:
     // ignoring them would look like the flag worked (see: "fully
     // provisioned" printing on an already-keyed machine passed --profile
     // other-box) when nothing happened at all.
-    console.error(
-      `rt home init: this machine's machine-key file already pins "${key}" — --profile/--new-profile only apply ` +
-        `while choosing a machine's first profile. Edit or remove ~/.mattstack/machine-key and re-run to change it.`,
+    refuse(
+      "This Mac already has a machine profile",
+      out.callout("why", `It is pinned to "${key}" in its machine-key file. Naming a profile only applies while a Mac is choosing its first one.`),
     );
-    process.exit(1);
   }
 
   const plan = planOrExit(state, { url: resolvedUrl, machineKey: chosenKey });
@@ -726,48 +803,47 @@ export async function homeInit(args: string[], _ctx: CommandContext = {}, seams:
     try {
       materializeSteps = planMaterialize(await materializeEnv());
     } catch (err) {
-      console.error(`\nrt home init: could not preview the materialize plan: ${(err as Error).message ?? err}`);
+      out.print(out.line("warn", "rt could not preview what it would refresh", errorMessage(err)));
     }
   }
 
   if (plan.steps.length > 0) {
-    printPlan(home, plan.steps);
+    out.print(planBlock(home, plan.steps));
   } else if (!plan.blocked && (dryRun ? materializeSteps.length === 0 : noMaterialize)) {
     // Live run: materialize always does at least rtInterceptInstall unless
     // --no-materialize was passed, so "nothing to do" would otherwise be
     // said one breath before materialize does something — dishonest.
-    console.log(`rt home init: ${home} is already fully provisioned — nothing to do.`);
+    out.print(out.line("skipped", "Nothing to set up", "your home folder is already in place"));
   }
 
-  if (plan.blocked === "skills-symlink-real-file") printSkillsSymlinkBlocked(home);
+  if (plan.blocked === "skills-symlink-real-file") out.print(...skillsLinkBlocked(home));
 
   if (dryRun) {
     if (materializeSteps.length > 0) {
-      console.log(`\nrt home init: materialize would run (regenerating everything re-derivable from settings):`);
-      materializeSteps.forEach((step, i) => console.log(`  ${i + 1}. ${describeMaterializeStep(step)}`));
+      const rows = materializeSteps.map((step) => {
+        const { title, status, hint } = describeMaterializeStep(step);
+        return out.line(status, title, hint);
+      });
+      out.print(out.section("rt would also refresh what it generates from your settings", undefined, ...rows));
     }
     return;
   }
 
-  const result = await executeInitPlan(plan.steps, exec, (message) => console.log(`  ${message}`));
-
-  if (!result.ok) {
-    console.error(`\nrt home init: failed at step "${result.failedStep}":\n${result.stderr}`);
-    process.exit(1);
-  }
+  const result = await runInitSteps(plan.steps, exec);
+  if (!result.ok) failInit({ title: INIT_STEP_FAILED[result.failedStep] }, ...childOutput(result.stderr));
 
   // Mint (or backfill) BEFORE the success line: printing success ahead of a
   // failed mint would tell the operator init worked while `rt secrets set`
   // still has no key or creation rule to encrypt against.
   const ageKeyResult = await ensureHomeAgeKey(ageKeySeam, sopsYamlSeam);
-  if (!ageKeyResult.ok) {
-    console.error(`\nrt home init: ${ageKeyResult.message}`);
-    process.exit(1);
-  }
+  if (!ageKeyResult.ok) failInit(ageKeyResult.failure, ...(ageKeyResult.after ?? []));
 
   if (plan.blocked === "skills-symlink-real-file") {
-    console.error(`\nrt home init: provisioning finished, but the skills.jsonc symlink is still blocked — see above.`);
-    process.exit(1);
+    refuse(
+      "Your home folder is set up, apart from your skills link",
+      out.callout("why", `${join(home, "skills.jsonc")} is a real file, and rt will not overwrite it.`),
+      out.callout("fix", "Move it aside, then run this again"),
+    );
   }
 
   // Materialize is init's LAST phase, run on every non-dry-run invocation —
@@ -779,23 +855,20 @@ export async function homeInit(args: string[], _ctx: CommandContext = {}, seams:
   // so this must never crash init to a bare exception after that.
   let materializeFailed = false;
   if (noMaterialize) {
-    console.log(`\n  ${dim}materialize skipped (--no-materialize)${reset}`);
+    out.print(out.line("skipped", "Skipped the refresh of what rt generates from your settings"));
   } else {
     try {
       const env = await materializeEnv();
-      const steps = planMaterialize(env);
-      const results = await runMaterialize(steps, materializeExec, rtSelfBin());
-      printMaterializeResults(results);
-      materializeFailed = results.some((r) => !r.ok && RT_OWN_STEP_KINDS.has(r.step.kind));
+      materializeFailed = await runRefreshSteps(planMaterialize(env), materializeExec, rtSelfBin());
     } catch (err) {
-      console.error(`\nrt home init: materialize threw and was skipped: ${(err as Error).message ?? err}`);
+      out.print(out.line("warn", "rt could not refresh what it generates from your settings", errorMessage(err)));
     }
   }
 
   try {
     printClaudePluginsPointer();
   } catch (err) {
-    console.error(`\nrt home init: could not check claude.marketplaces/claude.plugins: ${(err as Error).message ?? err}`);
+    out.print(out.line("warn", "rt could not check your Claude plugin settings", errorMessage(err)));
   }
 
   // Checked BEFORE the success line — printing "provisioned" ahead of a
@@ -803,11 +876,16 @@ export async function homeInit(args: string[], _ctx: CommandContext = {}, seams:
   // worked when a regenerated piece of rt's own state (PATH shims, daemon
   // registration) is known broken.
   if (materializeFailed) {
-    console.error(`\nrt home init: materialize failed on an rt-owned step — see above.`);
-    process.exit(1);
+    failInit({ title: "rt could not refresh one of its own pieces", why: "The step marked failed above is one rt needs.", next: out.cmd("rt home init") });
   }
 
-  console.log(`\nrt home init: ${home} is provisioned.`);
+  out.print(out.line("done", "This Mac is set up", home));
+}
+
+/** rt declining by policy rather than failing: a refused line on stderr, never a failure block; `home` exits 1 either way. */
+function refuse(title: string, ...callouts: Block[]): never {
+  out.note(out.line("refused", title), ...callouts);
+  process.exit(1);
 }
 
 export async function homeKeyExport(
@@ -815,11 +893,14 @@ export async function homeKeyExport(
   _ctx: CommandContext = {},
   seams: AgeKeySeam = createRealAgeKeySeam(),
 ): Promise<void> {
+  out.payloadOnStdout();
   try {
-    await keyExport(seams, (text) => console.log(text));
+    // The key and its header are a payload: a person pipes them to a
+    // password manager, so they are never styled and nothing else joins them.
+    await keyExport(seams, (text) => out.payload(`${text}\n`));
   } catch (err) {
     if (err instanceof AgeKeyAbsentError) {
-      console.error(`rt home key export: ${err.message}`);
+      out.fail({ title: "This Mac has no secrets key yet", next: out.cmd("rt home init") });
       process.exit(1);
     }
     throw err;
@@ -886,13 +967,11 @@ export async function homeKeyImport(
   // silently proceeding as if the leak never happened.
   const pastedKeyArg = args.find((a) => a.startsWith(AGE_PRIVATE_KEY_PREFIX));
   if (pastedKeyArg !== undefined) {
-    console.error(
-      "rt home key import: the private key must be piped via --stdin or entered at the interactive prompt, " +
-        "never as a positional argument — it just landed in your shell history and rt's own CLI log. " +
-        "Treat it as compromised and rotate it (mint a new key, re-encrypt every secret to the new recipient) " +
-        "before using it for anything.",
+    refuse(
+      "rt will not import a key passed as a positional argument",
+      out.callout("why", "It just landed in your shell history and in rt's own log, so treat it as leaked and rotate it before you use it for anything."),
+      out.callout("next", out.cmd("rt home key import --stdin")),
     );
-    process.exit(1);
   }
 
   const force = args.includes("--force");
@@ -901,7 +980,7 @@ export async function homeKeyImport(
   try {
     privateKey = args.includes("--stdin") ? await input.fromStdin() : await input.fromPrompt();
   } catch (err) {
-    console.error(`rt home key import: ${(err as Error).message}`);
+    out.fail({ title: "rt could not read the key", hint: (err as Error).message });
     process.exit(1);
   }
 
@@ -909,14 +988,14 @@ export async function homeKeyImport(
 
   if (!result.ok) {
     if (result.reason === "malformed") {
-      console.error("rt home key import: not a valid age private key (expected an AGE-SECRET-KEY-1… value)");
-    } else {
-      console.error(
-        `rt home key import: a key already exists in the keychain (recipient ${truncateKey(result.existingPublicKey)}) — ` +
-          "pass --force to overwrite it.",
-      );
+      out.fail({ title: "That is not a valid age private key", why: "A key starts with AGE-SECRET-KEY-1." });
+      process.exit(1);
     }
-    process.exit(1);
+    refuse(
+      "This Mac already has a secrets key",
+      out.callout("why", `Its recipient is ${truncateKey(result.existingPublicKey)}, and rt replaces it only when you ask.`),
+      out.callout("next", out.cmd("rt home key import --force")),
+    );
   }
 
   const { publicKey } = result;
@@ -927,17 +1006,15 @@ export async function homeKeyImport(
   const existingRecipient = existing === null ? null : sopsYamlRecipient(existing);
 
   if (existingRecipient !== null && existingRecipient !== publicKey) {
-    console.error(
-      `rt home key import: imported key's recipient (${truncateKey(publicKey)}) does not match this repo's ` +
-        `.sops.yaml recipient (${truncateKey(existingRecipient)}) — this key can't decrypt the secrets already here. ` +
-        "The wrong key is already stored, so a plain retry will hit the exists-refusal — " +
-        "re-run `rt home key import --force` once you have the right key.",
-    );
+    out.fail({
+      title: "That key cannot open the secrets in your home repo",
+      why: `The key you just imported (${truncateKey(publicKey)}) is stored now, but they are locked to ${truncateKey(existingRecipient)}, so import the right one over it.`,
+      next: out.cmd("rt home key import --force"),
+    });
     process.exit(2);
   }
 
-  console.log(`  ${green}✓${reset} imported — recipient ${bold}${truncateKey(publicKey)}${reset}`);
-  console.log(`    ${dim}secrets encrypted to this recipient are now decryptable on this machine${reset}`);
+  out.print(out.line("done", "Imported your secrets key", truncateKey(publicKey)), out.callout("note", "Secrets locked to this key can now be opened on this Mac"));
 }
 
 // ─── snapshot / claim / release ─────────────────────────────────────────────
@@ -952,7 +1029,7 @@ function defaultHomeDaemonSeam(): HomeDaemonSeam {
 }
 
 function daemonDownAndExit(command: string): never {
-  console.error(`\n  ${yellow}rt daemon is not running${reset} — start it: ${bold}rt daemon start${reset}\n`);
+  out.fail({ title: "The rt daemon is not running", next: out.cmd("rt daemon start") });
   process.exit(1);
   throw new Error(`unreachable: process.exit did not stop ${command}`);
 }
@@ -961,45 +1038,28 @@ function formatTimestamp(ms: number): string {
   return ms === 0 ? "never" : new Date(ms).toLocaleString();
 }
 
-function printSnapshotResult(result: SnapshotResult): void {
-  if (result.skipped) {
-    console.log(`  ${dim}snapshot skipped: ${result.skipped}${reset}`);
-    return;
-  }
-  if (!result.committed) {
-    console.log(`  ${dim}snapshot: no changes${reset}`);
-    return;
-  }
-  console.log(`  ${green}✓${reset} snapshot committed ${dim}${result.sha ? result.sha.slice(0, 8) : "(no sha)"}${reset}`);
-  console.log(`    ${dim}paths: ${result.paths.length > 0 ? result.paths.join(", ") : "(none)"}${reset}`);
+function snapshotResultBlocks(result: SnapshotResult): Block[] {
+  if (result.skipped) return [out.line("skipped", "Nothing was saved", result.skipped)];
+  if (!result.committed) return [out.line("skipped", "Nothing has changed since the last save")];
+  return [
+    out.line("done", "Saved your home repo", result.sha ? result.sha.slice(0, 8) : undefined),
+    out.kv("paths", result.paths.length > 0 ? result.paths.join(", ") : "none"),
+  ];
 }
 
-function printSnapshotStatus(status: SnapshotStatus): void {
-  const stateIcon = status.enabled ? `${green}●${reset}` : `${dim}○${reset}`;
-  console.log(`  ${stateIcon} home snapshot ${status.enabled ? "enabled" : "disabled"} ${dim}(${status.repoDir})${reset}`);
-  console.log(`    ${dim}watching: ${status.watching ? "yes" : "no"}${reset}`);
-  console.log(`    ${dim}last run: ${formatTimestamp(status.lastRunAt)}${reset}`);
-  console.log(
-    `    ${dim}last commit: ${status.lastCommit ? `${status.lastCommit.sha.slice(0, 8)} ${status.lastCommit.message}` : "none"}${reset}`,
-  );
-  if (status.lastCommitError) {
-    console.log(`    ${yellow}commit error: ${status.lastCommitError}${reset}`);
-  }
-  const pushLine = status.pushPending
-    ? "pending"
-    : status.lastPushAt !== 0
-      ? `last pushed ${formatTimestamp(status.lastPushAt)}`
-      : "never pushed";
-  console.log(`    ${dim}push: ${pushLine}${reset}`);
-  if (status.lastPushError) {
-    console.log(`    ${yellow}push error: ${status.lastPushError}${reset}`);
-  }
-  console.log(
-    `    ${dim}claimed zones: ${status.claimedZones.length > 0 ? status.claimedZones.join(", ") : "(none)"}${reset}`,
-  );
-  if (status.ownersError) {
-    console.log(`    ${red}owners file unreadable: ${status.ownersError}${reset}`);
-  }
+function snapshotStatusBlocks(status: SnapshotStatus): Block[] {
+  const push = status.pushPending ? "waiting to push" : status.lastPushAt !== 0 ? `last pushed ${formatTimestamp(status.lastPushAt)}` : "never pushed";
+  return [
+    out.line(status.enabled ? "running" : "off", status.enabled ? "Saving your home repo is enabled" : "Saving your home repo is disabled", status.repoDir),
+    out.kv("watching", status.watching ? "yes" : "no"),
+    out.kv("last run", formatTimestamp(status.lastRunAt)),
+    out.kv("last commit", status.lastCommit ? `${status.lastCommit.sha.slice(0, 8)} ${status.lastCommit.message}` : "none"),
+    out.kv("push", push),
+    out.kv("claimed zones", status.claimedZones.length > 0 ? status.claimedZones.join(", ") : "none"),
+    ...(status.lastCommitError ? [out.line("warn", "The last save did not commit", status.lastCommitError)] : []),
+    ...(status.lastPushError ? [out.line("warn", "The last push did not go through", status.lastPushError)] : []),
+    ...(status.ownersError ? [out.line("warn", "The list of claimed paths could not be read", status.ownersError)] : []),
+  ];
 }
 
 export async function homeSnapshot(
@@ -1011,20 +1071,20 @@ export async function homeSnapshot(
     const res = await daemon.query("home:snapshot-status");
     if (!res) daemonDownAndExit("rt home snapshot --status");
     if (!res.ok) {
-      console.error(`rt home snapshot --status: ${res.error ?? "unknown daemon error"}`);
+      out.fail({ title: "rt could not read the snapshot status", hint: res.error ?? "the daemon gave no reason" });
       process.exit(1);
     }
-    printSnapshotStatus(res.data as SnapshotStatus);
+    out.print(...snapshotStatusBlocks(res.data as SnapshotStatus));
     return;
   }
 
   const res = await daemon.query("home:snapshot", { reason: "manual" });
   if (!res) daemonDownAndExit("rt home snapshot");
   if (!res.ok) {
-    console.error(`rt home snapshot: ${res.error ?? "unknown daemon error"}`);
+    out.fail({ title: "rt could not save your home repo", hint: res.error ?? "the daemon gave no reason" });
     process.exit(1);
   }
-  printSnapshotResult(res.data as SnapshotResult);
+  out.print(...snapshotResultBlocks(res.data as SnapshotResult));
 }
 
 function defaultOwnersPath(): string {
@@ -1058,10 +1118,9 @@ function homeRepoRoot(): string {
 }
 
 /** Shared by claim/release: writing (or even mkdir-ing the dir for) snapshot-owners.jsonc into a tree `rt home init` never provisioned would create a bare, non-git ~/.mattstack/user — refuse instead. */
-function refuseUnlessProvisioned(command: string, probes: HomeProbes): void {
-  const repoRoot = homeRepoRoot();
-  if (!probes.isGitRepo(repoRoot)) {
-    console.error(`rt home ${command}: ${repoRoot} isn't provisioned yet — run \`rt home init\` first.`);
+function refuseUnlessProvisioned(_command: string, probes: HomeProbes): void {
+  if (!probes.isGitRepo(homeRepoRoot())) {
+    out.fail({ title: "Your home repo is not set up yet", next: out.cmd("rt home init") });
     process.exit(1);
   }
 }
@@ -1080,7 +1139,7 @@ export async function homeClaim(
       zone = await textInput({ message: "Zone to claim (path relative to the home repo)", placeholder: "prefs/ or scripts/deploy.sh" });
       if (!zone) process.exit(0);
     } else {
-      console.error("rt home claim: a zone is required, e.g. `rt home claim prefs/` or `rt home claim scripts/deploy.sh`");
+      out.fail(usageFailure("Which path should rt leave for you to commit?", "rt home claim <zone>", "A zone is a folder such as prefs/ or one file such as scripts/deploy.sh."));
       process.exit(1);
     }
   }
@@ -1103,18 +1162,17 @@ export async function homeClaim(
     claimZone(ownersPath, zone, owner, { note, kind, force });
   } catch (err) {
     if (err instanceof InvalidZoneError) {
-      console.error(`rt home claim: ${err.message}`);
+      out.fail({ title: "That path cannot be claimed", why: err.message });
       process.exit(1);
     }
     if (err instanceof ZoneOwnedByOthersError) {
-      console.error(`rt home claim: ${err.message}`);
-      process.exit(1);
+      const again = ["rt home claim", shellQuote(err.zone), ...(ownerArg === undefined ? [] : ["--owner", shellQuote(ownerArg)]), ...(note === undefined ? [] : ["--note", shellQuote(note)]), "--force"];
+      refuse(`${err.zone} is already claimed by ${err.existingOwner}`, out.callout("next", out.cmd(again.join(" "))));
     }
     throw err;
   }
 
-  console.log(`  ${green}✓${reset} claimed ${bold}${normalizeZone(zone, kind)}${reset} for ${owner}`);
-  console.log(`    ${dim}the daemon snapshots ${ownersPath} like any other path — it'll pick this up on its next cycle${reset}`);
+  out.print(out.line("done", `Claimed ${normalizeZone(zone, kind)}`, `for ${owner}`), out.callout("note", "The daemon picks this up the next time it takes a snapshot"));
 }
 
 export async function homeRelease(
@@ -1135,7 +1193,7 @@ export async function homeRelease(
         })) ?? undefined;
       if (!zone) process.exit(0);
     } else {
-      console.error("rt home release: a zone is required, e.g. `rt home release prefs/`");
+      out.fail(usageFailure("Which claimed path should rt take back?", "rt home release <zone>"));
       process.exit(1);
     }
   }
@@ -1147,17 +1205,16 @@ export async function homeRelease(
     result = releaseZone(ownersPath, zone);
   } catch (err) {
     if (err instanceof InvalidZoneError) {
-      console.error(`rt home release: ${err.message}`);
+      out.fail({ title: "That path cannot be released", why: err.message });
       process.exit(1);
     }
     throw err;
   }
 
   if (!result.released) {
-    console.log(`  ${dim}nothing to release — "${zone}" isn't claimed${reset}`);
+    out.print(out.line("skipped", "Nothing to release", `${zone} is not claimed`));
     return;
   }
 
-  console.log(`  ${green}✓${reset} released ${bold}${result.zone}${reset} ${dim}(was claimed by ${result.owner})${reset}`);
-  console.log(`    ${dim}the daemon snapshots ${ownersPath} like any other path — it'll pick this up on its next cycle${reset}`);
+  out.print(out.line("done", `Released ${result.zone}`, `was claimed by ${result.owner}`), out.callout("note", "The daemon picks this up the next time it takes a snapshot"));
 }

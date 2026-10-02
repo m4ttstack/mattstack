@@ -283,6 +283,9 @@ describe("rt release update-machine", () => {
     const report = await runUpdateMachine(seams, { plan: true });
     expect(report.legs).toHaveLength(6);
     expect(report.legs.every((l) => l.status === "planned")).toBe(true);
+    expect(report.legs.find((l) => l.id === "dev-bundle")!.detail).toBe(
+      `Build the dev app at ${TAG} in a scratch folder, quit the running copy, swap the new one in, and reopen it if it was running`,
+    );
     expect(report.ok).toBe(true);
     // Only the read-only tag resolution may have run; nothing state-changing did.
     for (const prefix of ["ditto", "download", "git clone", "kill", "open", "mv", "hdiutil"]) {
@@ -335,7 +338,7 @@ describe("rt release update-machine", () => {
     const report = await runUpdateMachine(seams, {});
     const devLeg = report.legs.find((l) => l.id === "dev-bundle")!;
     expect(devLeg.status).toBe("skipped");
-    expect(devLeg.detail).toContain("declined");
+    expect(devLeg.detail).toContain("You said no at the prompt");
     expect(report.legs.filter((l) => l.status === "ok")).toHaveLength(5);
     expect(report.haltedAfter).toBeNull();
   });
@@ -360,7 +363,7 @@ describe("rt release update-machine", () => {
       expect(report.legs.map((l) => l.status)).toEqual(["aborted", "skipped", "skipped", "skipped", "skipped", "ok"]);
       expect(report.legs[5]!.id).toBe("verify");
       expect(report.haltedAfter).toBe("prod app update");
-      for (const l of report.legs.slice(1, 5)) expect(l.detail).toContain("halted after");
+      for (const l of report.legs.slice(1, 5)) expect(l.detail).toContain("the run stopped at");
       expect(calls.some((c) => c === "rt daemon restart")).toBe(false);
       expect(calls.some((c) => c === `${DEV_DECK} restart --managed`)).toBe(false);
       expect(calls.some((c) => c.startsWith("git clone"))).toBe(false);
@@ -663,7 +666,7 @@ describe("rt release update-machine", () => {
       const report = await runUpdateMachine(seams, { yes: true });
       const leg = report.legs.find((l) => l.id === "daemon")!;
       expect(leg.status).toBe("aborted");
-      expect(leg.detail).toContain("30 attempts");
+      expect(leg.detail).toContain("failed 30 times");
       expect(calls.filter((c) => c.startsWith("announce ")).length).toBe(30);
       expect(calls).not.toContain("rt daemon restart");
     });
@@ -774,7 +777,7 @@ describe("rt release update-machine", () => {
       expect(sync.status).toBe("aborted");
       expect(sync.detail).toContain("not main");
       expect(daemonLeg.status).toBe("skipped");
-      expect(daemonLeg.detail).toContain("halted after");
+      expect(daemonLeg.detail).toContain("the run stopped at");
       expect(report.haltedAfter).toBe("shared checkout sync");
     });
 

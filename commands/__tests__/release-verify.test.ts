@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { VerifySeams } from "../../lib/release/verify.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { releaseVerify } from "../release.ts";
 
 const ok = (stdout: string) => Promise.resolve({ stdout, stderr: "", exitCode: 0 });
@@ -47,17 +49,15 @@ function fakeSeams(overrides: Partial<VerifySeams> = {}): VerifySeams {
  * in this file. Priming with 0 instead keeps every run isolated.
  */
 async function run(args: string[], seams: VerifySeams): Promise<{ logs: string[]; exitCode: number | string | undefined }> {
-  const logs: string[] = [];
-  const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-    logs.push(a.map(String).join(" "));
-  });
+  const io = captureOut();
+  ui.__test__.setHuman(() => false);
   process.exitCode = 0;
   try {
     await releaseVerify(args, {}, seams);
-    return { logs, exitCode: process.exitCode };
+    return { logs: io.lines(), exitCode: process.exitCode };
   } finally {
     process.exitCode = 0;
-    logSpy.mockRestore();
+    io.restore();
   }
 }
 
@@ -117,7 +117,8 @@ describe("rt release verify", () => {
     expect(out).toContain("release run");
     expect(out).toContain("release notes");
     expect(out).toContain("releases/latest");
-    expect(out).toMatch(/\d+ checks: \d+ ok, \d+ stale, \d+ pending, \d+ unverifiable/);
+    expect(logs[0]).toBe("Release v2.10.2");
+    expect(logs.at(-1)).toMatch(/^\[ok\] \d+ checks {2}\d+ ok, 0 stale, 0 pending, 0 unverifiable$/);
     expect(exitCode ?? 0).toBe(0);
   });
 
