@@ -1,6 +1,8 @@
 import type { ComponentProps, HTMLAttributes } from "react";
 import { defineComponent } from "../../builders.ts";
 import type { Toast } from "../../hooks/index.ts";
+import { CHECK_ICON, Icon } from "../Icon/Icon.tsx";
+import { Spinner } from "../Spinner/Spinner.tsx";
 import classes from "./ToastHost.module.css";
 import "./ToastHost.keyframes.css";
 
@@ -8,12 +10,17 @@ import "./ToastHost.keyframes.css";
     scripts/derive.ts to build the kit's manifest; not dead code. */
 export const recipeCategory = 1 as const;
 
-/** `root` is the fixed-position stack; `toast` is one entry. */
-const TOASTHOST_SELECTORS = ["root", "toast"] as const;
+/** `root` is the fixed-position stack; `toast` is one entry; `status` is the
+    spinner or check a toast that tracks work leads with. */
+const TOASTHOST_SELECTORS = ["root", "toast", "status"] as const;
 
 /** Stable selector surface for app-side CSS, stamped in the non-overridable
     tail so a call site cannot sever an app's `[data-part]` rules. */
-export const TOASTHOST_PARTS = { root: "toasthost", toast: "toasthost-toast" } as const;
+export const TOASTHOST_PARTS = {
+  root: "toasthost",
+  toast: "toasthost-toast",
+  status: "toasthost-status",
+} as const;
 
 /** Verbatim mr-board value. A fixed position offset, outside the spacing
     ladder's padding-margin-gap scope, so it gets a recipe-local property. */
@@ -69,7 +76,17 @@ export const ToastHost = defineComponent<
         data-part={TOASTHOST_PARTS.root}
       >
         {toasts.map((t) => (
-          <div key={t.id} {...getStyles("toast")} data-part={TOASTHOST_PARTS.toast}>
+          <div
+            key={t.id}
+            {...getStyles("toast")}
+            data-part={TOASTHOST_PARTS.toast}
+            data-state={t.state}
+          >
+            {t.state && (
+              <span {...getStyles("status")} data-part={TOASTHOST_PARTS.status}>
+                {t.state === "pending" ? <Spinner size="sm" /> : <Icon d={CHECK_ICON} />}
+              </span>
+            )}
             {t.text}
           </div>
         ))}

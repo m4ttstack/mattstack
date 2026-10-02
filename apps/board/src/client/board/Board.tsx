@@ -8,7 +8,13 @@ import {
 } from 'react';
 
 import type { GateDomain } from '@mattstack/gate-kit';
-import { ICONS, Panel, SideDrawer, ToastHost } from '@mattstack/tui-kit';
+import {
+  ICONS,
+  Panel,
+  SideDrawer,
+  ToastHost,
+  useToasts,
+} from '@mattstack/tui-kit';
 import type { TabConfig } from '../../config.ts';
 import type { BoardMR } from '../../data.ts';
 import { inferRoster } from '../../data.ts';
@@ -92,7 +98,6 @@ import {
   useLaunchAction,
   useMerging,
   useOptimisticLifecycle,
-  useToasts,
 } from './hooks.ts';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
 import { overlay, overlayMerging } from './optimistic.ts';
@@ -443,7 +448,7 @@ export function Board() {
     []
   );
   const [commentsFor, setCommentsFor] = useState<BoardMR | null>(null);
-  const { toasts, addToast } = useToasts();
+  const { toasts, addToast, startToast } = useToasts();
 
   // A drawer action succeeded: swap the chip to its resolved state, close the
   // drawer, and confirm with a toast (the board's transient-confirmation form).
@@ -521,36 +526,44 @@ export function Board() {
     axis: 'review',
     path: '/review',
     verbing: 'launching review',
+    started: 'review started',
     noun: 'review',
     optimistic: optimisticLifecycle,
     addToast,
+    startToast,
     reload: load,
   });
   const reReviewAction = useLaunchAction({
     axis: 'review',
     path: '/review',
     verbing: 're-reviewing',
+    started: 're-review started',
     noun: 'review',
     optimistic: optimisticLifecycle,
     addToast,
+    startToast,
     reload: load,
   });
   const respondAction = useLaunchAction({
     axis: 'respond',
     path: '/respond',
     verbing: 'launching response',
+    started: 'response started',
     noun: 'response',
     optimistic: optimisticLifecycle,
     addToast,
+    startToast,
     reload: load,
   });
   const doctorAction = useLaunchAction({
     axis: 'doctor',
     path: '/doctor',
     verbing: 'calling doctor',
+    started: 'doctor called',
     noun: 'doctor',
     optimistic: optimisticLifecycle,
     addToast,
+    startToast,
     reload: load,
   });
   // Resume actions: axis null means useLaunchAction's setQueued/rollback are
@@ -563,9 +576,11 @@ export function Board() {
     axis: null,
     path: '/review',
     verbing: 'resuming review',
+    started: 'review resumed',
     noun: 'review',
     optimistic: optimisticLifecycle,
     addToast,
+    startToast,
     reload: load,
     failureMessage: resumeReviewFailureMessage,
   });
@@ -573,9 +588,11 @@ export function Board() {
     axis: null,
     path: '/respond',
     verbing: 'resuming respond',
+    started: 'response resumed',
     noun: 'respond',
     optimistic: optimisticLifecycle,
     addToast,
+    startToast,
     reload: load,
     failureMessage: resumeRespondFailureMessage,
   });
@@ -785,21 +802,21 @@ export function Board() {
   const handlePostSlack = useCallback(
     (mr: BoardMR) => {
       if (!mr.webUrl) return;
-      addToast(`posting !${mr.iid} to slack…`);
+      const toast = startToast(`posting !${mr.iid} to slack…`);
       postAction('/slack/post', { mrUrls: [mr.webUrl] }).then(result => {
         if (!result.ok)
-          return addToast(
+          return toast.fail(
             `slack post failed for !${mr.iid} (${result.status})`
           );
-        addToast(
+        toast.done(
           result.body?.linked
-            ? `!${mr.iid} already in slack — linked`
+            ? `!${mr.iid} already in slack... linked`
             : `posted !${mr.iid} to slack`
         );
         load();
       });
     },
-    [addToast, load]
+    [startToast, load]
   );
 
   /** `onPosted` runs only when the message actually landed -- the selection bar
@@ -810,7 +827,7 @@ export function Board() {
       const urls = mrs.map(m => m.webUrl).filter((u): u is string => !!u);
       if (!urls.length) return;
       setPostingSummary(true);
-      addToast(
+      const toast = startToast(
         `posting ${urls.length} MR${urls.length === 1 ? '' : 's'} to slack…`
       );
       postAction(
@@ -820,10 +837,10 @@ export function Board() {
         .then(result => {
           const body: unknown = result.body;
           if (!result.ok)
-            return addToast(
+            return toast.fail(
               `slack post failed (${result.status})${typeof body === 'string' ? `: ${body}` : ''}`
             );
-          addToast(
+          toast.done(
             `posted ${urls.length} MR${urls.length === 1 ? '' : 's'} to slack`
           );
           onPosted?.();
@@ -831,7 +848,7 @@ export function Board() {
         })
         .finally(() => setPostingSummary(false));
     },
-    [addToast, load]
+    [startToast, load]
   );
 
   const runner: RunnerDeps = useMemo(
@@ -839,10 +856,11 @@ export function Board() {
       post: (path, payload) => postAction(path, payload),
       launch,
       addToast,
+      startToast,
       reload: fresh => void load(fresh),
       merging: { start: merging.start, fail: merging.fail },
     }),
-    [launch, addToast, load, merging.start, merging.fail]
+    [launch, addToast, startToast, load, merging.start, merging.fail]
   );
   const rowHandlers: RowHandlers = useMemo(
     () => ({
@@ -1267,11 +1285,11 @@ export function Board() {
     const next = state.slack === 'posted' ? 'all' : 'posted';
     update({ slack: next });
     if (next !== 'posted' || !data.local) return;
-    addToast('refreshing slack status…');
+    const toast = startToast('refreshing slack status…');
     postAction('/slack/refresh', {}).then(result => {
       if (!result.ok)
-        return addToast(`slack refresh failed (${result.status})`);
-      addToast('slack status refreshed');
+        return toast.fail(`slack refresh failed (${result.status})`);
+      toast.done('slack status refreshed');
       load();
     });
   };

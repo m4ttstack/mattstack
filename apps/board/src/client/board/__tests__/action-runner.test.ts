@@ -44,6 +44,13 @@ function fakeDeps(
       return ok();
     },
     addToast: t => events.push(`toast ${t}`),
+    startToast: t => {
+      events.push(`toast ${t}`);
+      return {
+        done: d => events.push(`done ${d}`),
+        fail: f => events.push(`fail ${f}`),
+      };
+    },
     reload: fresh => events.push(`reload ${fresh}`),
     merging: {
       start: url => events.push(`hold ${url.split('/').at(-1)}`),
@@ -53,14 +60,14 @@ function fakeDeps(
   return { deps, events };
 }
 
-test('runOne merge: pending, post, done, fresh reload', async () => {
+test('runOne merge: one toast from pending to done, fresh reload', async () => {
   const { deps, events } = fakeDeps();
   await runOne({ kind: 'mr', action: 'merge' }, mr(7), deps);
   expect(events).toEqual([
     'toast merging !7…',
     'hold 7',
     `post /mr/action {"mrUrl":"${mr(7).webUrl}","iid":7,"action":"merge"}`,
-    'toast merge accepted !7',
+    'done merge accepted !7',
     'reload true',
   ]);
 });
@@ -94,7 +101,7 @@ test('a refused GitLab action toasts the status and reloads fresh, so the row sh
   const { deps, events } = fakeDeps(() => fail(502));
   await runOne({ kind: 'mr', action: 'setAutoMerge' }, mr(7), deps);
   expect(events.slice(-2)).toEqual([
-    "toast couldn't setAutoMerge !7 (502)",
+    "fail couldn't setAutoMerge !7 (502)",
     'reload true',
   ]);
 });
@@ -106,7 +113,7 @@ test("a refused merge toasts GitLab's reason in place of the status", async () =
   }));
   await runOne({ kind: 'mr', action: 'merge' }, mr(7), deps);
   expect(events.slice(-2)).toEqual([
-    "toast couldn't merge !7: merge conflicts",
+    "fail couldn't merge !7: merge conflicts",
     'reload true',
   ]);
 });
@@ -135,10 +142,10 @@ test('runOne draft words both directions', async () => {
   const a = fakeDeps();
   await runOne({ kind: 'draft', draft: false }, mr(7), a.deps);
   expect(a.events).toContain('toast marking !7 ready…');
-  expect(a.events).toContain('toast !7 is ready for review');
+  expect(a.events).toContain('done !7 is ready for review');
   const b = fakeDeps();
   await runOne({ kind: 'draft', draft: true }, mr(7), b.deps);
-  expect(b.events).toContain('toast !7 is back to draft');
+  expect(b.events).toContain('done !7 is back to draft');
 });
 
 test('runOne react has no pending toast and returns the reactions', async () => {
@@ -159,10 +166,10 @@ test('runOne react has no pending toast and returns the reactions', async () => 
 test('runOne find-thread says whether it found one', async () => {
   const a = fakeDeps(() => ok({ status: 'found' }));
   await runOne({ kind: 'find-thread' }, mr(7), a.deps);
-  expect(a.events).toContain('toast found slack thread for !7');
+  expect(a.events).toContain('done found slack thread for !7');
   const b = fakeDeps(() => ok({ status: 'notfound' }));
   await runOne({ kind: 'find-thread' }, mr(7), b.deps);
-  expect(b.events).toContain('toast no slack thread found for !7');
+  expect(b.events).toContain('done no slack thread found for !7');
 });
 
 test("runOne ask prefers the server's refusal text, and says when it queued", async () => {
@@ -171,13 +178,19 @@ test("runOne ask prefers the server's refusal text, and says when it queued", as
   expect(a.events).toEqual([
     'toast requesting review of !7 from kim…',
     `post /nudge {"mrUrl":"${mr(7).webUrl}","iid":7,"reviewer":"kim","kind":"review"}`,
-    'toast kim has no board on the switchboard',
+    'fail kim has no board on the switchboard',
   ]);
   const b = fakeDeps(() => ok({ queued: true }));
   await runOne({ kind: 'ask', ask: 'review', reviewer: 'kim' }, mr(7), b.deps);
   expect(b.events).toContain(
-    'toast switchboard unreachable... queued the ask to kim'
+    'done switchboard unreachable... queued the ask to kim'
   );
+});
+
+test('a delivered ask settles its pending toast as asked', async () => {
+  const { deps, events } = fakeDeps(() => ok({}));
+  await runOne({ kind: 'ask', ask: 'review', reviewer: 'kim' }, mr(7), deps);
+  expect(events).toContain('done asked kim on !7');
 });
 
 test('runOne launch hands off to the launch flow with the note and intent', async () => {
@@ -264,6 +277,7 @@ test('runMany keeps at most four requests in flight', async () => {
     },
     launch: async () => ok(),
     addToast: () => {},
+    startToast: () => ({ done: () => {}, fail: () => {} }),
     reload: () => {},
     merging: { start: () => {}, fail: () => {} },
   };
