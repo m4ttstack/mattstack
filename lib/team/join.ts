@@ -374,9 +374,8 @@ async function peerBoard(
     return storeBoardToken(seams, pointer, pointer.switchboard.token);
   }
 
-  // Fallback for re-joins by members whose age key is already a team-secrets
-  // recipient; a first join cannot decrypt the admin token and lands on
-  // unavailable.
+  // Only a re-join by a member whose age key is already a team-secrets
+  // recipient can read the admin token here; a first join cannot.
   let token: unknown;
   try {
     const adminToken = await seams.readTeamSecret(pointer.team, "rt", "switchboardAdminToken", secrets(pointer.team));
