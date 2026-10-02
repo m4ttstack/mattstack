@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * rt intercept — generic command interception CLI verbs (RT-28 Task 7).
+ * rt intercept: generic command interception CLI verbs (RT-28 Task 7).
  *
  *   rt intercept run <command> -- [args...]   hidden verb the shim execs
  *   rt intercept status [--json]              shim + rule health + cache staleness
@@ -9,28 +9,27 @@
  *   rt intercept uninstall [--json]           remove generated shims
  *
  * `interceptRun` wires the real dependencies for `lib/endpoint/run.ts`'s
- * `runInterception` — the pure, testable core (see
+ * `runInterception`: the pure, testable core (see
  * `lib/endpoint/__tests__/intercept-run.test.ts`). Everything that talks to
  * git, the daemon, or a real subprocess lives here; the decision tree does
  * not.
  *
- * `RT_INTERCEPT_BYPASS=1` short-circuits HERE, before any matching — the
+ * `RT_INTERCEPT_BYPASS=1` short-circuits HERE, before any matching: the
  * generated `/bin/sh` shim (`lib/endpoint/shim.ts`) carries no bypass logic
  * of its own, by design (see that module's header comment).
  */
 
 import { closeSync, openSync, readSync, realpathSync, statSync } from "fs";
 import { join } from "path";
-import { bold, cyan, dim, green, red, reset, yellow } from "../lib/tui.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
+import { logCliEvent } from "../lib/cli-logger.ts";
+import { redactCredentials } from "../packages/rt-client/src/redact.ts";
 import { daemonQuery } from "../lib/daemon-client.ts";
 import { runCapture } from "../lib/subprocess.ts";
 import { GENERATED_MARKER, loadInterceptRules, shimPath, shimReport, installShims, staleIntercepts, uninstallShims } from "../lib/endpoint/shim.ts";
 import { runInterception, type RunDeps } from "../lib/endpoint/run.ts";
-
-function usageFail(msg: string): never {
-  console.error(`rt intercept: ${msg}`);
-  process.exit(1);
-}
 
 function toStringEnv(env: Record<string, string | undefined>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -188,9 +187,37 @@ function parseRunArgs(args: string[]): { command: string; forwardArgs: string[] 
   return { command, forwardArgs };
 }
 
+// lib/endpoint/run.ts's two RT_INTERCEPT_DEBUG traces start this way.
+const DEBUG_TRACE = /^rt-intercept: (match |claim result=)/;
+
+export const isDebugTrace = (msg: string): boolean => DEBUG_TRACE.test(msg);
+
+/**
+ * A line from the shim's core, never on stdout: this process's stdout belongs
+ * to the tool it wraps. The tool must run whatever happens to the line, so a
+ * stderr that is closed or broken drops it. This verb sits in front of every
+ * intercepted command, so a debug trace is a log line, never a warning, and
+ * reaches stderr only when the caller asked for traces.
+ */
+export function interceptNote(msg: string): void {
+  try {
+    if (isDebugTrace(msg)) {
+      logCliEvent("debug", "intercept", redactCredentials(msg));
+      if (process.env.RT_INTERCEPT_DEBUG === "1" || process.env.RT_LOG_LEVEL === "debug") out.note(out.verbatim([msg]));
+      return;
+    }
+    out.note(out.line("warn", msg));
+  } catch {
+    // stderr is gone; the wrapped tool still runs
+  }
+}
+
 export async function interceptRun(args: string[]): Promise<void> {
   const parsed = parseRunArgs(args);
-  if (!parsed) usageFail("usage: rt intercept run <command> -- [args...]");
+  if (!parsed) {
+    out.fail(usageFailure("Which command should rt run?", "rt intercept run <command> -- [args...]"));
+    process.exit(1);
+  }
   const { command, forwardArgs } = parsed;
 
   const cwd = process.cwd();
@@ -211,13 +238,35 @@ export async function interceptRun(args: string[]): Promise<void> {
     claim: (payload) => daemonQuery("endpoint:claim", payload, 10_000),
     execReal,
     resolveRealBinary,
-    warn: (msg) => console.error(msg),
+    warn: interceptNote,
   };
 
   await runInterception(deps, command, forwardArgs, cwd, callerEnv, pid);
 }
 
 // ─── rt intercept status ─────────────────────────────────────────────────────
+
+const rulesText = (n: number): string => `${n} ${n === 1 ? "rule" : "rules"}`;
+
+export function statusBlocks(report: ReturnType<typeof shimReport>, rulesByRepo: Record<string, number>, daemonUp: boolean, stale: { stale: boolean; reason?: string }): Block[] {
+  const blocks: Block[] = [daemonUp ? out.line("running", "The rt daemon is running") : out.line("off", "The rt daemon is not running", "intercepted commands run as they are")];
+  if (report.length === 0) {
+    blocks.push(out.line("pending", "No commands are intercepted yet"));
+    if (!stale.stale) blocks.push(out.callout("next", ["Add rules under ", out.key("rt.intercepts"), " in your settings, then run ", out.cmd("rt intercept install")]));
+  }
+  for (const entry of report) {
+    const hint = `${entry.repo}, ${rulesText(rulesByRepo[entry.repo] ?? 0)}`;
+    if (entry.installed && entry.current) blocks.push(out.line("done", entry.command, hint));
+    else if (entry.installed) blocks.push(out.line("stale", entry.command, `${hint}; its shim is out of date`));
+    else blocks.push(out.line("pending", entry.command, `${hint}; not installed yet`));
+  }
+  // The rules are a saved copy of what the settings resolve to, so a settings
+  // edit can leave them behind without any shim looking wrong: it is its own
+  // line, on the empty and the populated path alike.
+  if (stale.stale) blocks.push(out.line("stale", "The saved rules are behind your settings", stale.reason));
+  if (stale.stale || report.some((entry) => !entry.installed || !entry.current)) blocks.push(out.callout("next", out.cmd("rt intercept install")));
+  return blocks;
+}
 
 export async function interceptStatus(args: string[]): Promise<void> {
   const json = args.includes("--json");
@@ -228,58 +277,40 @@ export async function interceptStatus(args: string[]): Promise<void> {
   for (const rule of rules) rulesByRepo[rule.repo] = (rulesByRepo[rule.repo] ?? 0) + 1;
 
   const daemonUp = (await daemonQuery("endpoint:status", {}, 5_000)) !== null;
-  // intercepts.json is a cache of what the resolver would return, so a
-  // settings-store edit (or a `git pull` in a team zone) can leave it behind
-  // without any shim looking wrong — hence a separate line from the per-shim
-  // marks below, which only ever describe the files under ~/.local/bin.
   const stale = staleIntercepts();
 
   if (json) {
-    console.log(JSON.stringify({ ok: true, shims: report, rulesByRepo, daemonUp, stale }));
+    out.json({ ok: true, shims: report, rulesByRepo, daemonUp, stale });
     return;
   }
-
-  // Printed on BOTH the empty and populated paths: "no rules" plus a store
-  // that has moved since the cache was written is exactly the case where a
-  // regen would produce rules, so it is the one the user most needs to see.
-  const staleNotice = (): void => {
-    if (!stale.stale) return;
-    console.log(`  ${yellow}rules cache is stale${reset} — run ${bold}rt intercept install${reset}`);
-    console.log(`  ${dim}${stale.reason}${reset}\n`);
-  };
-
-  console.log(`\n  ${bold}${cyan}rt intercept status${reset} ${dim}(daemon ${daemonUp ? "up" : "down"})${reset}\n`);
-  if (report.length === 0) {
-    console.log(`  ${dim}no intercept rules registered — declare rt.intercepts in a settings store (or a repo config), then rt intercept install${reset}\n`);
-    staleNotice();
-    return;
-  }
-  for (const entry of report) {
-    const mark = entry.installed ? (entry.current ? `${green}✓${reset}` : `${yellow}stale${reset}`) : `${red}✗ missing${reset}`;
-    const count = rulesByRepo[entry.repo] ?? 0;
-    console.log(`  ${mark} ${bold}${entry.command}${reset} ${dim}(${entry.repo}, ${count} rule${count === 1 ? "" : "s"})${reset}`);
-  }
-  console.log();
-  staleNotice();
+  out.print(...statusBlocks(report, rulesByRepo, daemonUp, stale));
 }
 
 // ─── rt intercept install / uninstall ────────────────────────────────────────
+
+export function installBlocks(result: { installed: string[]; current: string[]; skipped: string[]; rules: number }): Block[] {
+  const blocks: Block[] = [];
+  if (result.installed.length > 0) blocks.push(out.line("done", "Installed", result.installed.join(", ")));
+  if (result.current.length > 0) blocks.push(out.line("done", "Already current", result.current.join(", ")));
+  if (result.skipped.length > 0) blocks.push(out.line("refused", "Left alone, because rt did not make them", result.skipped.join(", ")));
+  if (blocks.length === 0) blocks.push(out.line("skipped", "No commands to intercept"));
+  blocks.push(out.kv("Rules", String(result.rules)));
+  return blocks;
+}
+
+export function uninstallBlocks(result: { removed: string[] }): Block[] {
+  return [result.removed.length > 0 ? out.line("done", "Removed", result.removed.join(", ")) : out.line("skipped", "Nothing to remove")];
+}
 
 export async function interceptInstall(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const result = await installShims();
 
   if (json) {
-    console.log(JSON.stringify({ ok: true, ...result }));
+    out.json({ ok: true, ...result });
     return;
   }
-
-  console.log(`\n  ${bold}${cyan}rt intercept install${reset} ${dim}(${result.rules} rule${result.rules === 1 ? "" : "s"})${reset}\n`);
-  if (result.installed.length > 0) console.log(`  ${green}✓ installed${reset} ${result.installed.join(", ")}`);
-  if (result.current.length > 0) console.log(`  ${dim}already current${reset} ${result.current.join(", ")}`);
-  if (result.skipped.length > 0) console.log(`  ${yellow}⚠ skipped (not ours)${reset} ${result.skipped.join(", ")}`);
-  if (result.installed.length === 0 && result.current.length === 0 && result.skipped.length === 0) console.log(`  ${dim}no commands to shim${reset}`);
-  console.log();
+  out.print(...installBlocks(result));
 }
 
 export async function interceptUninstall(args: string[]): Promise<void> {
@@ -287,12 +318,8 @@ export async function interceptUninstall(args: string[]): Promise<void> {
   const result = uninstallShims();
 
   if (json) {
-    console.log(JSON.stringify({ ok: true, ...result }));
+    out.json({ ok: true, ...result });
     return;
   }
-
-  console.log(`\n  ${bold}${cyan}rt intercept uninstall${reset}\n`);
-  if (result.removed.length > 0) console.log(`  ${green}✓ removed${reset} ${result.removed.join(", ")}`);
-  else console.log(`  ${dim}nothing to remove${reset}`);
-  console.log();
+  out.print(...uninstallBlocks(result));
 }
