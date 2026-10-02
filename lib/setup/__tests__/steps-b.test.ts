@@ -1298,12 +1298,22 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
   // ─── cron.triage ────────────────────────────────────────────────────────
 
   describe("cron.triage", () => {
-    test("board.reReview explicitly disabled -> skipped, never installs a trigger", async () => {
+    test("both hooks off -> skipped, nothing installed", async () => {
+      setSetting("board.reReview", { enabled: false }, "user");
+      setSetting("board.peerAsks", { enabled: false }, "user");
+      const p = bundledProbes({ tools: ["board"] });
+      const { ctx } = makeCtx(p);
+      expect(await cronTriageStep.run(ctx)).toEqual({ state: "skipped", detail: "The board's re-review and peer ask hooks are off" });
+      expect(getSetting("rt.cron").value).toBeUndefined();
+    });
+
+    test("re-review off, peer asks on -> only board-peer is installed", async () => {
       setSetting("board.reReview", { enabled: false }, "user");
       const p = bundledProbes({ tools: ["board"] });
       const { ctx } = makeCtx(p);
-      expect(await cronTriageStep.run(ctx)).toEqual({ state: "skipped", detail: "The board's re-review hook is off" });
-      expect(getSetting("rt.cron").value).toBeUndefined();
+      expect(await cronTriageStep.run(ctx)).toEqual({ state: "done", detail: "Installed the board triage skill" });
+      const triggers = getSetting<{ triggers: { name: string }[] }>("rt.cron").value?.triggers ?? [];
+      expect(triggers.map((t) => t.name)).toEqual(["board-peer"]);
     });
 
     test("board.reReview unset -> registry default enables the trigger (default-on)", async () => {
@@ -1321,8 +1331,9 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const outcome = await cronTriageStep.run(ctx);
       expect(outcome).toEqual({ state: "done", detail: "Installed the board triage skill" });
       const triggers = getSetting<{ triggers: { name: string; run: string[] }[] }>("rt.cron").value?.triggers ?? [];
-      expect(triggers).toHaveLength(1);
+      expect(triggers).toHaveLength(2);
       expect(triggers[0]!.run).toEqual([join(appRoot, HELPERS_DIR, "board"), "triage"]);
+      expect(triggers[1]).toEqual({ name: "board-peer", event: "peer-inbox", run: [join(appRoot, HELPERS_DIR, "board"), "triage", "--peer"], debounceMs: 300 });
     });
 
     test("enabled, board not resolvable at all -> skipped, board-missing wording", async () => {
@@ -1349,8 +1360,9 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const outcome = await cronTriageStep.run(ctx);
       expect(outcome).toEqual({ state: "done", detail: "Installed the board triage skill" });
       const triggers = getSetting<{ triggers: { name: string; run: string[] }[] }>("rt.cron").value?.triggers ?? [];
-      expect(triggers).toHaveLength(1);
+      expect(triggers).toHaveLength(2);
       expect(triggers[0]!.run).toEqual(["bun", "run", join(boardCheckout, "bin", "triage.ts")]);
+      expect(triggers[1]!.run).toEqual(["bun", "run", join(boardCheckout, "bin", "triage.ts"), "--peer"]);
     });
 
     test("idempotent re-run: installing the same trigger twice still leaves exactly one", async () => {
@@ -1367,7 +1379,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       await cronTriageStep.run(makeCtx(p).ctx);
 
       const triggers = getSetting<{ triggers: unknown[] }>("rt.cron").value?.triggers ?? [];
-      expect(triggers).toHaveLength(1);
+      expect(triggers).toHaveLength(2);
     });
   });
 });

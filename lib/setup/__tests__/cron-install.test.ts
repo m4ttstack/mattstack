@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { PEER_INBOX_EVENT } from "../../daemon/peer-waker.ts";
 import {
   installCronTrigger,
+  peerTrigger,
   removeCronTrigger,
   resolveBoardTriage,
   triageTrigger,
@@ -135,5 +137,20 @@ describe("removeCronTrigger", () => {
 
     expect(result).toEqual({ written: true, removed: false });
     expect(deps.setSettingCalls).toEqual([["rt.cron", { triggers: [other] }, "machine"]]);
+  });
+});
+
+describe("peerTrigger", () => {
+  test("is the triage invocation plus --peer, on the waker's event, with a short debounce", () => {
+    expect(peerTrigger(["bun", "run", "/b/bin/triage.ts"])).toEqual({
+      name: "board-peer",
+      event: "peer-inbox",
+      run: ["bun", "run", "/b/bin/triage.ts", "--peer"],
+      debounceMs: 300,
+    });
+  });
+
+  test("listens on exactly the event the daemon waker broadcasts", () => {
+    expect(peerTrigger([]).event).toBe(PEER_INBOX_EVENT);
   });
 });
