@@ -102,3 +102,12 @@ test("a branch name holding shell syntax is written to config as it is, and noth
   expect(git(repo, "config", "--get", `branch.${hostile}.remote`)).toBe("origin");
   expect(git(repo, "config", "--get", `branch.${hostile}.merge`)).toBe(`refs/heads/${hostile}`);
 });
+
+test("an upstream remote that is a URL with a token never prints the token", async () => {
+  git(repo, "config", "branch.feature.remote", "https://user:tok123@example.test/x.git");
+  git(repo, "config", "branch.feature.merge", "refs/heads/feature");
+  await upstreamCommand(["--dry-run"], ctxFor(repo));
+  await pushCommand(["--dry-run"], ctxFor(repo));
+  expect(io.stdout() + io.stderr()).not.toContain("tok123");
+  expect(io.lines()[0]).toBe("[skipped] Would point feature at origin/feature  it tracks <remote>/feature now");
+});

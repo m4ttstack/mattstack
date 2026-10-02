@@ -15,6 +15,7 @@
 import { execFileSync, spawnSync } from "child_process";
 import * as out from "../../lib/ui/out.ts";
 import { getCurrentBranch } from "../../lib/git-ops.ts";
+import { withoutUrls } from "../../lib/team/redact.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
 import { NOT_ON_A_BRANCH } from "./shared.ts";
 
@@ -52,7 +53,7 @@ function setUpstreamConfig(branch: string, remote: string, cwd: string): void {
 
 function labelUpstream(u: UpstreamConfig | null): string {
   if (!u) return "nothing";
-  return `${u.remote}/${u.merge.replace(/^refs\/heads\//, "")}`;
+  return `${withoutUrls(u.remote)}/${u.merge.replace(/^refs\/heads\//, "")}`;
 }
 
 function isUpstreamCorrect(
