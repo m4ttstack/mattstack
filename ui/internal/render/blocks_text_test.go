@@ -74,7 +74,7 @@ func TestAParagraphLeadWiderThanTheColumnStillFitsAndStaysIndented(t *testing.T)
 func TestCopyBlockIsNeverWrapped(t *testing.T) {
 	long := "example://join?invite=" + strings.Repeat("a", 120)
 	got := ansi.Strip(render.Render([]protocol.Block{{T: "copy", Caption: "send this link", Text: long}}, render.Options{Width: 40}))
-	want := "    send this link\n    │ " + long + "\n"
+	want := "    send this link\n" + long + "\n"
 	if got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
@@ -82,7 +82,15 @@ func TestCopyBlockIsNeverWrapped(t *testing.T) {
 
 func TestCopyBlockKeepsEachOfItsLines(t *testing.T) {
 	got := plain(protocol.Block{T: "copy", Text: "line one\nline two"})
-	want := "    │ line one\n    │ line two\n"
+	want := "line one\nline two\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestACopyBlockPrintsAtColumnZeroWithNoRail(t *testing.T) {
+	got := plain(protocol.Block{T: "copy", Caption: "message to send", Text: "Join the team:\n  rt team join sample\x1b[2J"})
+	want := "    message to send\nJoin the team:\n  rt team join sample\n"
 	if got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}

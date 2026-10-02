@@ -218,9 +218,10 @@ Five rules cost the most when broken:
 Plain output collapses newlines and tabs in single-line fields (titles,
 hints, cells, labels) to a space and indents paragraph lines two spaces, so
 untrusted text cannot forge a status row. A `copy` block prints at column 0
-so it pastes clean, which means it must never carry untrusted multi-line
-text. Step sub-lines sit under their running step: they clear when the step
-ends with `done` and stay beneath it when it fails.
+with no rail, at a terminal and off one, so a drag-select pastes it clean;
+that is also why it must never carry untrusted multi-line text. Step
+sub-lines sit under their running step: they clear when the step ends with
+`done` and stay beneath it when it fails.
 
 A callout row that is only a command prints whole. A row whose one command
 is its last segment (`["Commit them, or set them aside with ", out.cmd("rt git

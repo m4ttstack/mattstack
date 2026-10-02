@@ -107,3 +107,4 @@ One palette for both backgrounds: static output takes the `Static*` tones in `ui
 | `5g-failures-dark.png`, `5g-failures-light.png` | 100 columns: failures whose details (a file list, a backup ref, git's rejected line) sit under the title with no blank row, back to back with a refusal and with the excerpts printed under them |
 | `5g-kv-dark.png`, `5g-kv-light.png` | 100 columns: the `rt deps resolve` rows, a link's From and To, intercept's `Rules` after its lines, a setting with its source, and a long value wrapping in its column |
 | `5g-breadcrumb-dark.png`, `5g-breadcrumb-light.png` | the breadcrumb header with its `blank` row, then two sections, the second after `sync all`'s branch gap |
+| `5g-copy-dark.png`, `5g-copy-light.png` | `rt team invite`'s link and message and `rt git pull`'s dry-run command as `copy` blocks: caption at the body column, text at column 0 with no rail, so a drag-select pastes clean |

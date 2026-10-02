@@ -50,11 +50,14 @@ func hangingIndent(s string, w int) (string, string) {
 	return strings.Repeat(" ", n), rest
 }
 
-// copy never wraps and never styles inside the text: the person selects it.
+// copy prints its text at column 0 with no rail, never wrapped and never
+// restyled inside, so a drag-select pastes it clean. That is also why it
+// must never carry untrusted multi-line text: a line here could pose as
+// output.
 func (r *renderer) copy(b protocol.Block) {
 	r.caption(b.Caption)
 	for _, l := range splitLines(b.Text) {
-		r.emit(calloutIndent + railStyle.Render("│") + " " + textStyle.Render(Clean(l)))
+		r.emit(textStyle.Render(Clean(l)))
 	}
 }
 

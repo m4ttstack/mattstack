@@ -129,7 +129,7 @@ The glyphs avoid Nerd Font code points and heavy filled shapes, which rendered b
 4. **One spinner.** The Go step is the spinner. `lib/tui/inline-spinner.ts` and the `\r` line in `lib/enrich.ts` move onto it in phase 5, with the verbs that use them.
 5. **Sub-lines clear on success.** Lines streamed under a running step vanish when it resolves and stay when it fails. At most the last five show at once, so a long stream never scrolls out of reach of the erase. They are always in the log.
 6. **Hints align.** Consecutive `line` blocks in one call pad their titles to a common width, and consecutive `kv` blocks pad their keys the same way. A `kv` run does not align with the `line` rows beside it.
-7. **Rails.** Callouts use the thick `▌` bar in the label's color. `copy` and `verbatim` use a thin `│` rail in the `StaticRule` tone.
+7. **Rails.** Callouts use the thick `▌` bar in the label's color. `verbatim` keeps its thin `│` rail in the `StaticRule` tone; `copy` has none: its text prints at column 0 so a drag-select pastes clean. Ruled 2026-10-02 (Matt).
 8. **Spacing.** One blank line before a `section` unless it is the first block; one before a `summary`. Blocks never print trailing blank lines, except `blank`, whose one job is an empty row.
 9. **Removed is not failed.** The `-` in a `changes` block is dim. Deleted lines in a `diff` keep the mission view's coral tint.
 
