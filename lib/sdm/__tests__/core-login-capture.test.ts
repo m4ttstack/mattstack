@@ -52,7 +52,7 @@ describe("startLoginCapture", () => {
     const cap = startLoginCapture(null, l => lines.push(l));
     expect(await cap.urlPromise).toBe("https://app.strongdm.com/auth-confirm-native/split456secret");
     expect((await cap.donePromise).ok).toBe(true);
-    expect(lines).toEqual(["Please complete logging in at: https://app.strongdm.com/auth-confirm-native/split456secret", "authentication successful"]);
+    expect(lines).toEqual(["Please complete logging in at: https://app.strongdm.com/auth-confirm-native/split456secret", "authentication successful \u2713"]);
   });
 
   test("through the sdm command's progress, the split token is redacted whole", async () => {
@@ -62,7 +62,7 @@ describe("startLoginCapture", () => {
       await cap.urlPromise;
       return cap.donePromise;
     });
-    expect(r.tail).toEqual(["Please complete logging in at: https://app.strongdm.com/auth-confirm-native/<redacted>", "authentication successful"]);
+    expect(r.tail).toEqual(["Please complete logging in at: https://app.strongdm.com/auth-confirm-native/<redacted>", "authentication successful \u2713"]);
     expect(r.tail.join("\n")).not.toContain("secret");
   });
 });

@@ -183,7 +183,7 @@ export function sdmEnv(): NodeJS.ProcessEnv {
  * mid auth token, so a line is handed on only once its newline arrives;
  * flush() hands on the unterminated rest when the stream ends.
  */
-function lineReader(onLine: (line: string) => void): { push(chunk: Buffer | string): void; flush(): void } {
+function lineReader(onLine: (line: string) => void): { push(chunk: string): void; flush(): void } {
   let rest = "";
   const emit = (line: string): void => {
     const trimmed = line.trim();
@@ -191,7 +191,7 @@ function lineReader(onLine: (line: string) => void): { push(chunk: Buffer | stri
   };
   return {
     push(chunk) {
-      const parts = (rest + String(chunk)).split("\n");
+      const parts = (rest + chunk).split("\n");
       rest = parts.pop() ?? "";
       for (const part of parts) emit(part);
     },
@@ -236,6 +236,7 @@ export function runSdmCommand(
           proc.kill(9); // SIGKILL
           // Safeguard: if process doesn't exit within 1s, force settle
           killTimer = setTimeout(() => {
+            flush();
             settle({
               ok: false,
               output,
@@ -251,12 +252,15 @@ export function runSdmCommand(
     const flush = () => {
       for (const r of readers) r.flush();
     };
-    proc.stdout?.on("data", (d: Buffer) => {
-      output += String(d);
+    // A multi-byte character can straddle two chunks; the stream's own decoder holds its first bytes back.
+    proc.stdout?.setEncoding("utf8");
+    proc.stderr?.setEncoding("utf8");
+    proc.stdout?.on("data", (d: string) => {
+      output += d;
       readers[0].push(d);
     });
-    proc.stderr?.on("data", (d: Buffer) => {
-      output += String(d);
+    proc.stderr?.on("data", (d: string) => {
+      output += d;
       readers[1].push(d);
     });
     proc.on("error", err => {
@@ -546,12 +550,15 @@ export function startLoginCapture(
   const flush = () => {
     for (const r of readers) r.flush();
   };
-  proc.stdout?.on("data", (d: Buffer) => {
-    output += String(d);
+  // A multi-byte character can straddle two chunks; the stream's own decoder holds its first bytes back.
+  proc.stdout?.setEncoding("utf8");
+  proc.stderr?.setEncoding("utf8");
+  proc.stdout?.on("data", (d: string) => {
+    output += d;
     readers[0].push(d);
   });
-  proc.stderr?.on("data", (d: Buffer) => {
-    output += String(d);
+  proc.stderr?.on("data", (d: string) => {
+    output += d;
     readers[1].push(d);
   });
 

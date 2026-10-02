@@ -46,6 +46,13 @@ describe("runSdmCommand", () => {
     expect(Date.now() - start).toBeLessThan(3_000);
   });
 
+  test("a character split across two pipe chunks comes out whole", async () => {
+    const lines: string[] = [];
+    const r = await runSdmCommand(["split-utf8"], l => lines.push(l));
+    expect(lines).toEqual(["caf\u00e9 ready"]);
+    expect(r.output).toBe("caf\u00e9 ready\n");
+  });
+
   test("missing binary maps to ENOENT", async () => {
     process.env.RT_SDM_BIN = "/nonexistent/sdm-not-here";
     const r = await runSdmCommand(["ok"], () => {});
