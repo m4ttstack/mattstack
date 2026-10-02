@@ -14,10 +14,7 @@ const SURFACE_FILES = new Set(['pack/surface.jsonc', 'surface.jsonc']);
 /** rt compiles a public skill under `skills/<name>` and an internal one
     under `attachments/<name>`; a compile empties and rewrites that
     directory, and removes the compiled copy on the other side. */
-const OTHER_SIDE: Record<string, string> = {
-  skills: 'attachments',
-  attachments: 'skills',
-};
+const SIDE = { public: 'skills', internal: 'attachments' } as const;
 
 const FILE_STATUS: Record<string, string> = {
   M: 'edited',
@@ -39,9 +36,11 @@ const dirOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
  * A binding change rebuilds the skill its binder belongs to. A surface
  * change rebuilds every skill that links to the moved one by path, and,
  * when the moved skill is itself compiled, writes its output on the new
- * side and removes it from the old. A hand-authored skill is moved as
- * source, so none of its files count. Empty until the composition has
- * loaded, so nothing is hidden on a guess.
+ * side and removes it from the old. Both sides come from the change, read
+ * with the files; the composition can predate the move, so it only says
+ * which skills are compiled. A hand-authored skill is moved as source, so
+ * none of its files count. Empty until the composition has loaded, so
+ * nothing is hidden on a guess.
  */
 function compiledOutputOf(
   changes: SkillsChanges,
@@ -55,6 +54,8 @@ function compiledOutputOf(
   const outputOf = (target: (typeof targets)[number]) =>
     dirOf(target.artifactPath.slice(root.length));
   const names = new Set<string>();
+  const moved = new Set<string>();
+  const rebuilt: string[] = [];
   const removed: string[] = [];
 
   for (const change of changes.bindings)
@@ -70,18 +71,17 @@ function compiledOutputOf(
         )
       )
         names.add(target.name);
-    const moved = targets.find(target => target.name === change.skill);
-    if (!moved) continue;
-    names.add(moved.name);
-    const [side] = outputOf(moved).split('/');
-    const other = side ? OTHER_SIDE[side] : undefined;
-    if (other) removed.push(`${other}/${moved.name}`);
+    if (!targets.some(target => target.name === change.skill)) continue;
+    moved.add(change.skill);
+    rebuilt.push(`${SIDE[change.to]}/${change.skill}`);
+    removed.push(`${SIDE[change.from]}/${change.skill}`);
   }
 
-  return {
-    rebuilt: targets.filter(target => names.has(target.name)).map(outputOf),
-    removed,
-  };
+  for (const target of targets)
+    if (names.has(target.name) && !moved.has(target.name))
+      rebuilt.push(outputOf(target));
+
+  return { rebuilt, removed };
 }
 
 /**

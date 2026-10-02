@@ -77,6 +77,30 @@ describe('pendingChangesOf', () => {
     ]);
   });
 
+  it('reads where a compiled skill moved to from the change, not from a composition read before the move', () => {
+    const changes: SkillsChanges = {
+      ...designFixture('changes.clean'),
+      dirty: true,
+      surface: [{ skill: 'review', from: 'public', to: 'internal' }],
+      files: [
+        { path: 'pack/surface.jsonc', status: 'M' },
+        { path: 'skills/review/SKILL.md', status: 'D' },
+        { path: 'attachments/review/SKILL.md', status: '??' },
+        { path: 'skills/review/references/notes.md', status: '??' },
+        { path: 'skills/work/SKILL.md', status: 'M' },
+      ],
+    };
+    const fresh = pendingChangesOf(changes, movedInternal('review'));
+    const stale = pendingChangesOf(changes, composition);
+
+    expect(stale).toEqual(fresh);
+    expect(stale.map(c => c.name)).toEqual([
+      'review',
+      'skills/review/references/notes.md',
+      'skills/work/SKILL.md',
+    ]);
+  });
+
   it("lists every file of a hand-authored skill's surface move, which rt moves as source", () => {
     const changes: SkillsChanges = {
       ...designFixture('changes.clean'),
