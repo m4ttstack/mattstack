@@ -163,7 +163,11 @@ that path; "re-enable auto-doctor" is never blocked.
 ## Kit change
 
 `@mattstack/tui-kit`'s `ContextMenu` has root, Item, Label and Separator, and
-Item already supports `disabled` and `hint`. Two additions:
+Item already supports `disabled` and `hint`. The whole recipe is rebuilt on
+Base UI's Menu (`@base-ui/react`), the way soribashi's own recipes compose
+Base UI, so submenu pointer travel, arrow-key focus, typeahead, focus return
+and collision placement come from the library rather than hand-rolled code.
+Its public API is unchanged. Two additions:
 
 - **`Sub`**: an Item with a chevron that opens a nested menu on hover, or on
   Right arrow / Enter when the Sub row has focus. Left arrow or Escape closes
