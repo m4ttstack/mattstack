@@ -4730,41 +4730,45 @@ a.tui-id-card-ref:focus-visible {
 }
 
 /* The sent-ask band: this board's own ask of a teammate's agent, the foot of
-   the row. Full width, a top rule, tinted by where the ask stands, its
-   content aligned with the row's own. */
-.tui-row[data-ask] {
-  padding-bottom: 0;
-}
+   its row. A bordered box inside the row's own padding, aligned with the
+   row's content and tinted by where the ask stands, so the row's divider
+   falls below it and it cannot read as the next row's header. */
 .tui-ask {
   --ask-fill: var(--text-4);
-  --ask-text: var(--text-3);
-  grid-column: 1 / -1;
+  --ask-text: var(--text-2);
+  --ask-mix: 6%;
+  grid-column: 2;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: var(--row-pad) -16px 0 0;
-  padding: 8px 16px 8px var(--gutter-w);
+  margin-top: 8px;
+  padding: 5px 10px;
   min-width: 0;
   font-size: 0.76rem;
   line-height: 20px;
   color: var(--ask-text);
-  background: color-mix(in srgb, var(--ask-fill) 15%, var(--card));
-  border-top: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--ask-fill) var(--ask-mix), var(--card));
+  border: 1px solid color-mix(in srgb, var(--ask-fill) 40%, transparent);
+  border-radius: 6px;
 }
 .tui-ask[data-ask-tone='work'] {
   --ask-fill: var(--fill-accent);
+  --ask-mix: 15%;
   --ask-text: var(--text-accent-small);
 }
 .tui-ask[data-ask-tone='ok'] {
   --ask-fill: var(--fill-ok);
+  --ask-mix: 15%;
   --ask-text: var(--text-ok-small);
 }
 .tui-ask[data-ask-tone='bad'] {
   --ask-fill: var(--fill-bad);
+  --ask-mix: 15%;
   --ask-text: var(--text-bad-small);
 }
 .tui-ask[data-ask-tone='warn'] {
   --ask-fill: var(--fill-warn);
+  --ask-mix: 15%;
   --ask-text: var(--text-warn-small);
 }
 .tui-ask-where,
@@ -4779,7 +4783,41 @@ a.tui-id-card-ref:focus-visible {
   opacity: 0.85;
 }
 .tui-ask-state {
-  flex: 1;
+  min-width: 0;
+}
+/* The click target for the trail: the band's left side, bare until hovered. */
+.tui-ask-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: -2px auto -2px -6px;
+  padding: 2px 6px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.tui-ask-trigger:hover,
+.tui-ask-trigger[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--ask-text) 10%, transparent);
+}
+.tui-ask-trigger:focus-visible {
+  outline: 2px solid var(--ask-text);
+  outline-offset: 1px;
+}
+.tui-ask-caret {
+  display: inline-flex;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: transform 160ms ease;
+}
+.tui-ask-caret[data-open] {
+  transform: rotate(180deg);
 }
 .tui-ask-sep {
   opacity: 0.6;
@@ -4805,30 +4843,22 @@ a.tui-id-card-ref:focus-visible {
   border-top-color: currentColor;
   animation: tui-status-rot 1s linear infinite;
 }
+/* The actions are the kit's ghost Button; the band only keeps them from
+   shrinking. */
 .tui-ask-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
   flex-shrink: 0;
-  padding: 3px 10px;
-  font: inherit;
-  font-weight: 600;
-  line-height: 18px;
-  color: var(--ask-text);
-  background: var(--card);
-  border: 1px solid var(--ask-text);
-  border-radius: 6px;
-  cursor: pointer;
 }
-.tui-ask-btn:hover {
-  background: color-mix(in srgb, var(--ask-text) 12%, var(--card));
+.tui-ask-btn + .tui-ask-btn {
+  margin-left: -6px;
 }
-.tui-ask-btn:focus-visible {
-  outline: 2px solid var(--ask-text);
-  outline-offset: 1px;
-}
-/* The hover trail: a card in a portal, since the row clips its overflow. */
+/* The trail: a card in a portal, since the row clips its overflow. It drops
+   in from the band's edge: down from under it, or up when it has flipped. */
 .tui-ask-trail {
+  opacity: 0;
+  transform: translateY(-8px);
+  transition:
+    opacity 160ms ease,
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
   position: fixed;
   z-index: 60;
   display: flex;
@@ -4844,7 +4874,19 @@ a.tui-id-card-ref:focus-visible {
   border: 1px solid var(--border-soft);
   border-radius: 10px;
   box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
-  pointer-events: none;
+}
+.tui-ask-trail[data-flip] {
+  transform: translateY(8px);
+}
+.tui-ask-trail[data-shown] {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tui-ask-trail,
+  .tui-ask-caret {
+    transition: none;
+  }
 }
 .tui-ask-trail-title {
   font-size: 0.82rem;

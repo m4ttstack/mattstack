@@ -2,7 +2,6 @@
     teammate's agent: where it stands and what can be done about it. Kept off
     the status line and its "+N active" count, since the work is remote. */
 import type { SentNudgeInfo } from '../types.ts';
-import { ago } from './format.ts';
 
 export type AskTone = 'neutral' | 'work' | 'ok' | 'bad' | 'warn';
 export type AskAction = 'retry' | 'dismiss';
@@ -24,7 +23,6 @@ export interface AskBand {
   who: string;
   title: string;
   label: string;
-  age?: string;
   actions: AskAction[];
   /** What the row knows of the ask's life, oldest first. */
   steps: AskStep[];
@@ -53,14 +51,6 @@ const TITLE: Record<Kind, string> = {
   respond: 'Response',
 };
 
-const since = (ms: number | undefined, now: number): string | undefined =>
-  ms ? ago(new Date(ms).toISOString(), now) : undefined;
-
-const ageWord = (ms: number | undefined, now: number): string | undefined => {
-  const a = since(ms, now);
-  return a ? `${a} ago` : undefined;
-};
-
 function doneLabel(kind: Kind, outcome?: string): string {
   const base = DONE[kind];
   if (outcome === 'approve') return `${base}: approved`;
@@ -71,7 +61,7 @@ function doneLabel(kind: Kind, outcome?: string): string {
 const capitalize = (s: string): string =>
   s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 
-export function askBandModel(sent: SentNudgeInfo, now: number): AskBand {
+export function askBandModel(sent: SentNudgeInfo): AskBand {
   const kind: Kind = sent.kind ?? 're-review';
   const name = capitalize(sent.reviewer);
   const requested: AskStep = {
@@ -80,7 +70,7 @@ export function askBandModel(sent: SentNudgeInfo, now: number): AskBand {
     at: sent.sentAt,
   };
   const band = (
-    b: Pick<AskBand, 'tone' | 'icon' | 'label' | 'age'> &
+    b: Pick<AskBand, 'tone' | 'icon' | 'label'> &
       Partial<Pick<AskBand, 'actions'>>,
     ...more: AskStep[]
   ): AskBand => ({
@@ -100,7 +90,6 @@ export function askBandModel(sent: SentNudgeInfo, now: number): AskBand {
           tone: 'work',
           icon: 'loader',
           label: RUNNING[kind],
-          age: since(sent.resolvedAt, now),
         },
         {
           name: 'Started',
@@ -115,7 +104,6 @@ export function askBandModel(sent: SentNudgeInfo, now: number): AskBand {
           tone: 'ok',
           icon: 'check',
           label,
-          age: ageWord(sent.finishedAt, now),
           actions: ['dismiss'],
         },
         { name: 'Finished', detail: label, at: sent.finishedAt }
@@ -129,7 +117,6 @@ export function askBandModel(sent: SentNudgeInfo, now: number): AskBand {
           label: sent.reason
             ? `failed to run: ${sent.reason}`
             : 'failed to run',
-          age: ageWord(sent.finishedAt, now),
           actions: ['retry', 'dismiss'],
         },
         {
@@ -144,7 +131,6 @@ export function askBandModel(sent: SentNudgeInfo, now: number): AskBand {
           tone: 'bad',
           icon: 'ban',
           label: sent.reason ? `declined: ${sent.reason}` : 'declined',
-          age: since(sent.sentAt, now),
           actions: ['retry', 'dismiss'],
         },
         {
@@ -159,7 +145,6 @@ export function askBandModel(sent: SentNudgeInfo, now: number): AskBand {
           tone: 'warn',
           icon: 'hourglass',
           label: 'no answer',
-          age: since(sent.sentAt, now),
           actions: ['retry', 'dismiss'],
         },
         { name: 'No answer', detail: `${name}'s board never replied` }
@@ -169,7 +154,6 @@ export function askBandModel(sent: SentNudgeInfo, now: number): AskBand {
         tone: 'neutral',
         icon: 'send',
         label: REQUESTED[kind],
-        age: since(sent.sentAt, now),
       });
   }
 }

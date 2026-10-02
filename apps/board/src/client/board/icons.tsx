@@ -284,6 +284,7 @@ const ASK_GLYPHS: Record<string, ReactNode> = {
     </>
   ),
   check: <path d="M20 6 9 17l-5-5" />,
+  'chevron-down': <path d="m6 9 6 6 6-6" />,
   'circle-check': (
     <>
       <circle cx="12" cy="12" r="10" />

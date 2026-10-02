@@ -338,7 +338,7 @@ function RowView({
             <RowNote mr={mr} ctx={ctx} editing={noteOpen} />
           )}
         </div>
-        <AskBand mr={mr} now={now} ctx={ctx} />
+        <AskBand mr={mr} ctx={ctx} />
       </div>
     );
   };

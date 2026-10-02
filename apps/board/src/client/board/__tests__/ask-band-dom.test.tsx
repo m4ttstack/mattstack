@@ -68,12 +68,12 @@ afterEach(async () => {
 
 async function render(mr: BoardMRWithReview, c: RowContext) {
   await React.act(async () => {
-    root.render(<AskBand mr={mr} now={NOW} ctx={c} />);
+    root.render(<AskBand mr={mr} ctx={c} />);
   });
 }
 
 const buttons = () =>
-  [...container.querySelectorAll('button')].map(b => b.textContent);
+  [...container.querySelectorAll('.tui-ask-btn')].map(b => b.textContent);
 
 test('no sent ask renders nothing', async () => {
   await render(mrWith(), ctx());
@@ -89,18 +89,38 @@ test('names the teammate agent and the state', async () => {
   expect(buttons()).toEqual([]);
 });
 
-test('hovering the band opens the trail card, leaving closes it', async () => {
+test('hovering the band opens nothing; clicking its trigger opens the trail, clicking again closes it', async () => {
   await render(mrWith({ kind: 're-review' }), ctx());
   const band = container.querySelector('.tui-ask')!;
-  expect(document.querySelector('.tui-ask-trail')).toBeNull();
+  const trigger =
+    container.querySelector<HTMLButtonElement>('.tui-ask-trigger')!;
   await React.act(async () => {
     band.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
   });
+  expect(document.querySelector('.tui-ask-trail')).toBeNull();
+  expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  await React.act(async () => trigger.click());
   const card = document.querySelector('.tui-ask-trail')!;
   expect(card.textContent).toContain('Re-review from Grace');
   expect(card.textContent).toContain('Requested');
+  expect(trigger.getAttribute('aria-expanded')).toBe('true');
+  await React.act(async () => trigger.click());
+  expect(document.querySelector('.tui-ask-trail')).toBeNull();
+});
+
+test('the open trail closes on Escape and on an outside click', async () => {
+  await render(mrWith({}), ctx());
+  const trigger =
+    container.querySelector<HTMLButtonElement>('.tui-ask-trigger')!;
+  await React.act(async () => trigger.click());
+  expect(document.querySelector('.tui-ask-trail')).not.toBeNull();
   await React.act(async () => {
-    band.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  });
+  expect(document.querySelector('.tui-ask-trail')).toBeNull();
+  await React.act(async () => trigger.click());
+  await React.act(async () => {
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
   });
   expect(document.querySelector('.tui-ask-trail')).toBeNull();
 });
@@ -121,7 +141,7 @@ test('done offers dismiss only, and it calls the dismiss handler', async () => {
   await render(mr, ctx({ onAskDismiss: m => calls.push(`dismiss ${m.iid}`) }));
   expect(buttons()).toEqual(['Dismiss']);
   await React.act(async () => {
-    container.querySelector<HTMLButtonElement>('button')!.click();
+    container.querySelector<HTMLButtonElement>('.tui-ask-btn')!.click();
   });
   expect(calls).toEqual(['dismiss 1418']);
 });
@@ -137,7 +157,9 @@ test('failed and no answer offer retry then dismiss; retry calls the retry handl
       })
     );
     expect(buttons()).toEqual(['Retry', 'Dismiss']);
-    const [retry, dismiss] = [...container.querySelectorAll('button')];
+    const [retry, dismiss] = [
+      ...container.querySelectorAll<HTMLButtonElement>('.tui-ask-btn'),
+    ];
     await React.act(async () => retry!.click());
     await React.act(async () => dismiss!.click());
     expect(calls).toEqual(['retry 1418', 'dismiss 1418']);
@@ -151,14 +173,14 @@ test('a clicked action does not bubble to the row', async () => {
       <div onClick={() => rowClicks++}>
         <AskBand
           mr={mrWith({ display: 'failed' })}
-          now={NOW}
+
           ctx={ctx({ onAskRetry: () => {}, onAskDismiss: () => {} })}
         />
       </div>
     );
   });
   await React.act(async () => {
-    container.querySelector<HTMLButtonElement>('button')!.click();
+    container.querySelector<HTMLButtonElement>('.tui-ask-btn')!.click();
   });
   expect(rowClicks).toBe(0);
 });
