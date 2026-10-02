@@ -61,6 +61,9 @@ export type DrawerContent = {
   dot: StatusTone | null;
   sentence: string;
   highlight: { template: LineRange | null; rendered: LineRange | null };
+  /** A line to find and highlight once the file is read, for a file whose
+      line numbers nothing knows up front. */
+  find?: RegExp;
   /** Only in the Rendered view, where each pasted part gets one. */
   bands: DrawerBand[];
   tabs: DrawerTab[];
@@ -450,6 +453,7 @@ function appFillContent(
       dot: null,
       sentence: `${view.skill} declares its ${row.name} slot here and reads it when it runs; ${pack} fills it with ${row.boundTo}.`,
       highlight: NO_HIGHLIGHT,
+      find: new RegExp(`^\\s*slot-${escapeRegExp(row.name ?? '')}:`),
       bands: [],
       tabs: ['text'],
       slot: null,
@@ -477,6 +481,22 @@ function appFillContent(
     usedBy: { kind: 'fill', name: row.boundTo, plugin },
     error: null,
   };
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** The range the drawer highlights in `lines`: the one its content names, or
+    the first line its `find` matches. */
+export function highlightOf(
+  content: DrawerContent,
+  lines: string[]
+): LineRange | null {
+  const named = content.highlight[content.view];
+  if (named || !content.find) return named;
+  const at = lines.findIndex(line => content.find!.test(line));
+  return at === -1 ? null : [at + 1, at + 1];
 }
 
 function outputSentence(output: OutputCard, anatomy: SkillsAnatomy): string {
