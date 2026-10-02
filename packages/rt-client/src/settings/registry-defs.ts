@@ -364,7 +364,7 @@ export const REGISTRY: readonly SettingDef[] = [
     merge: "deep",
     migrated: true,
     description:
-      "User-confirmed integration hosts (forgeHost, switchboardUrl), written by an explicit `rt setup <id> connect --host` after that host validates, and, for switchboardUrl only and only while unset, by `rt team join` once an invite the user redeemed has stored a board token for the team-declared URL. The one trusted source a credential is ever sent to — mattstack.integrations' team-declared host is shown to the user but never auto-used for a credentialed fetch.",
+      "User-confirmed integration hosts (forgeHost), written by an explicit `rt setup gitlab connect --host` after that host validates. The one trusted source a credential is ever sent to: mattstack.integrations' team-declared host is shown to the user but never auto-used for a credentialed fetch.",
   },
 
   // --- mattstack (shared team truth) ---------------------------------------
@@ -603,13 +603,6 @@ export const REGISTRY: readonly SettingDef[] = [
     scopes: ["machine"],
     merge: "replace",
     description: "Max concurrent triage panes the board launches on this machine.",
-  },
-  {
-    key: "board.switchboardUrl",
-    type: "string",
-    scopes: ["machine"],
-    merge: "replace",
-    description: "Local switchboard URL the board's POST /peer/join writer targets.",
   },
 
   // --- boxscore -------------------------------------------------------------
