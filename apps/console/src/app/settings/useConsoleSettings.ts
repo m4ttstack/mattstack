@@ -246,8 +246,13 @@ export function useConsoleSettings(
   );
 }
 
-/** One key's layer stack, with the picked repo's rungs when one is given. */
-export function useKeyExplain(key: string, repo: string | null): KeyExplain {
+/** One key's layer stack, with the picked repo's rungs when one is given.
+    A new `revision` re-reads it, for writes made outside the caller. */
+export function useKeyExplain(
+  key: string,
+  repo: string | null,
+  revision = 0
+): KeyExplain {
   const [def, setDef] = useState<SettingDefWire | null>(null);
   const [rows, setRows] = useState<ExplainRowWire[]>([]);
   const [loading, setLoading] = useState(true);
@@ -275,7 +280,7 @@ export function useKeyExplain(key: string, repo: string | null): KeyExplain {
     return () => {
       alive = false;
     };
-  }, [key, repo, generation]);
+  }, [key, repo, generation, revision]);
 
   const refresh = useCallback(() => setGeneration(g => g + 1), []);
   return useMemo(

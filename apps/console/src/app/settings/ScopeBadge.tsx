@@ -1,4 +1,5 @@
-import { Badge, Box } from '@mattstack/app-kit/core';
+import { Badge, Box, Text, Tooltip } from '@mattstack/app-kit/core';
+import { useHasOverflowX } from '@mattstack/app-kit/hooks';
 
 import { useSettingsTeam } from './useConsoleSettings';
 import { layerLabel, rungBase, type LayerScope, type StoreScope } from './view';
@@ -9,7 +10,9 @@ export const SCOPE_COLOR: Record<StoreScope, string> = {
   machine: 'accent',
 };
 
-export function ScopeDot({ scope }: { scope: StoreScope }) {
+type BadgeBase = StoreScope | 'default';
+
+export function ScopeDot({ scope }: { scope: BadgeBase }) {
   return (
     <Box
       component="span"
@@ -19,43 +22,51 @@ export function ScopeDot({ scope }: { scope: StoreScope }) {
         display: 'inline-block',
         borderRadius: '50%',
         flex: 'none',
-        background: `var(--mantine-color-${SCOPE_COLOR[scope]}-filled)`,
+        background: `var(--mantine-color-${scope === 'default' ? 'gray' : SCOPE_COLOR[scope]}-filled)`,
       }}
     />
   );
 }
 
 /** `bare` leaves the team's name off, for a fixed-width column a long slug
-    would truncate. */
+    would truncate. A label that still does not fit ends in an ellipsis and
+    shows whole in a tooltip. */
 export function ScopeBadge({
   scope,
   bare = false,
 }: {
-  scope: LayerScope;
+  scope: LayerScope | 'default';
   bare?: boolean;
 }) {
-  const base = rungBase(scope)!;
+  const base: BadgeBase = scope === 'default' ? 'default' : rungBase(scope)!;
   const named = useSettingsTeam();
   const team = bare ? null : named;
+  const hue = base === 'default' ? null : SCOPE_COLOR[base];
+  const label = scope === 'default' ? 'default' : layerLabel(scope, team);
+  const { ref, hasOverflow } = useHasOverflowX<HTMLParagraphElement>();
   return (
-    <Badge
-      variant="light"
-      color={SCOPE_COLOR[base]}
-      radius="sm"
-      tt="none"
-      fw={500}
-      lts={0}
-      c={`var(--tk-text-${SCOPE_COLOR[base]}-small)`}
-      leftSection={<ScopeDot scope={base} />}
-      style={{
-        '--badge-height': '17px',
-        '--badge-fz': '12px',
-        '--badge-padding-x': '6px',
-        paddingInlineStart: 5,
-      }}
-      styles={{ section: { marginInlineEnd: 4 } }}
-    >
-      {layerLabel(scope, team)}
-    </Badge>
+    <Tooltip label={label} disabled={!hasOverflow}>
+      <Badge
+        variant="light"
+        color={hue ?? 'gray'}
+        radius="sm"
+        tt="none"
+        fw={500}
+        lts={0}
+        c={hue ? `var(--tk-text-${hue}-small)` : undefined}
+        leftSection={<ScopeDot scope={base} />}
+        style={{
+          '--badge-height': '17px',
+          '--badge-fz': '12px',
+          '--badge-padding-x': '6px',
+          paddingInlineStart: 5,
+        }}
+        styles={{ section: { marginInlineEnd: 4 } }}
+      >
+        <Text ref={ref} span inherit truncate display="block">
+          {label}
+        </Text>
+      </Badge>
+    </Tooltip>
   );
 }

@@ -34,8 +34,10 @@ shelling out to `rt` and nothing proxied through to another service. The dev ser
 Routing is `wouter`, via `useAppRoute()` (`src/app/routes.ts`), which maps the current location to
 a structured `AppRoute` union: `board`, `run`, `search`, `wiring`, `settings`, `config`, `not-found`.
 `/settings` is the grouped, filterable page over every registered key (`src/app/settings/`);
-a row's explain opens a modal over the page, kept in `?explain=<key>`, and old `/config/:key`
-links redirect there. The
+one row at a time opens in place on its Value | Where it's set panel, kept in `?explain=<key>`
+(with `?tab=value` and `?fix=<layer>` when they apply) through replaced history entries, so a
+reload or a link reopens that row and scrolls to it; old `/config/:key` links redirect there. Run
+detail shows the same panel in a thin modal (`ExplainModal`). The
 `/runs/:repo/:runId` route carries a percent-encoded, possibly `remote:`/`path:`-prefixed repo
 identity in the `repo` segment; `canonicalRepo()` decodes and re-serializes it back to the exact
 wire form `@mattstack/rt-client`'s `serializeIdentity` produces, because a repo identity containing

@@ -18,6 +18,7 @@ const store = () => ({
   set: vi.fn(async () => null as string | null),
   unset: vi.fn(async () => null as string | null),
   move: vi.fn(async () => null as string | null),
+  prune: vi.fn(async () => null as string | null),
 });
 
 function deepDef(
@@ -57,8 +58,9 @@ async function openRow(def: SettingDefWire, s = store()) {
     <SettingRow def={def} store={s} subhead={null} query="" />
   );
   await userEvent.click(
-    screen.getByRole('button', { name: /^\d+ entr(y|ies)$/ })
+    screen.getByRole('button', { name: `open ${def.key}` })
   );
+  await screen.findByRole('radiogroup', { name: `${def.key} panel` });
   return s;
 }
 

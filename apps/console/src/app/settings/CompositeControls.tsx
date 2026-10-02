@@ -7,7 +7,6 @@ import {
 } from 'react';
 import {
   ActionIcon,
-  Box,
   Button,
   Group,
   NumberInput,
@@ -43,10 +42,10 @@ import {
   SWITCH_SIZE,
 } from './controlStyles';
 import { DraftEditor } from './DraftEditor';
-import { ExpandToggle } from './ExpandToggle';
 import { editorKind, formOf, type FormShape } from './formShape';
 import { JsonBlock } from './JsonBlock';
 import { ModeToggle } from './ModeToggle';
+import { PanelToolbar } from './PanelToolbar';
 import { ScopeBadge } from './ScopeBadge';
 import listClasses from './StringList.module.css';
 import { unitOf } from './units';
@@ -75,17 +74,20 @@ function blurOnEnter(e: KeyboardEvent<HTMLInputElement>) {
   if (e.key === 'Enter') e.currentTarget.blur();
 }
 
+function Summary({ label }: { label: string }) {
+  const { text } = useSchemeColors();
+  return (
+    <Text fz={12} c={text.muted}>
+      {label}
+    </Text>
+  );
+}
+
 function Body({ children }: { children: ReactNode }) {
   return (
-    <Box pl={16} pr={52} pb={14}>
-      <Stack
-        gap={0}
-        pl={16}
-        style={{ borderLeft: '1px solid var(--tk-line-2)' }}
-      >
-        {children}
-      </Stack>
-    </Box>
+    <Stack gap={0} px={8}>
+      {children}
+    </Stack>
   );
 }
 
@@ -117,12 +119,14 @@ function LiveHeader({ row, onJson }: { row: Row; onJson: () => void }) {
   const { text } = useSchemeColors();
   const team = useSettingsTeam();
   return (
-    <Group justify="space-between" wrap="nowrap" gap={8} pt={4} pb={6}>
-      <Text fz={12} c={text.muted}>
-        {`Editing the ${targetLabel(row.target, team)} layer`}
-      </Text>
-      <ModeToggle value="form" onChange={m => m === 'json' && onJson()} />
-    </Group>
+    <PanelToolbar>
+      <Group justify="space-between" wrap="nowrap" gap={8} pt={4} pb={6}>
+        <Text fz={12} c={text.muted}>
+          {`Editing the ${targetLabel(row.target, team)} layer`}
+        </Text>
+        <ModeToggle value="form" onChange={m => m === 'json' && onJson()} />
+      </Group>
+    </PanelToolbar>
   );
 }
 
@@ -195,7 +199,7 @@ function StringListBody({
         <TextInput
           aria-label={`add to ${def.key}`}
           disabled={saving}
-          size="xs"
+          size="sm"
           w={160}
           leftSection={<Icons.plus size={12} />}
           styles={{
@@ -218,7 +222,7 @@ function StringListBody({
       {resettable && (
         <Group gap={4} pb={2}>
           <Button
-            size="compact-xs"
+            size="compact-sm"
             variant="subtle"
             color="gray"
             disabled={saving}
@@ -309,7 +313,7 @@ function InlineTags({
       {adding ? (
         <TextInput
           aria-label={def.key}
-          size="xs"
+          size="sm"
           w={120}
           styles={{
             input: {
@@ -395,7 +399,7 @@ function StringMapBody({
             key={value}
             aria-label={`${labels[1]} for ${key}`}
             disabled={saving}
-            size="xs"
+            size="sm"
             w={200}
             defaultValue={value}
             onKeyDown={blurOnEnter}
@@ -424,7 +428,7 @@ function StringMapBody({
         <TextInput
           aria-label={`new ${labels[0]}`}
           disabled={saving}
-          size="xs"
+          size="sm"
           style={{ flex: 1 }}
           placeholder={labels[0]}
           value={k}
@@ -433,7 +437,7 @@ function StringMapBody({
         <TextInput
           aria-label={`new ${labels[1]}`}
           disabled={saving}
-          size="xs"
+          size="sm"
           w={200}
           placeholder={labels[1]}
           value={v}
@@ -490,7 +494,7 @@ function LeafInput({
       <Select
         aria-label={label}
         disabled={disabled}
-        size="xs"
+        size="sm"
         w={enumWidth(type.enum)}
         styles={INPUT_TYPE.label}
         data={[...type.enum]}
@@ -508,7 +512,7 @@ function LeafInput({
         <NumberInput
           aria-label={label}
           disabled={disabled}
-          size="xs"
+          size="sm"
           w={numberWidth(value)}
           styles={INPUT_TYPE.number}
           placeholder={placeholder}
@@ -537,7 +541,7 @@ function LeafInput({
     <TextInput
       aria-label={label}
       disabled={disabled}
-      size="xs"
+      size="sm"
       w={200}
       styles={INPUT_TYPE.code}
       placeholder={placeholder}
@@ -709,7 +713,7 @@ function ShapeLock({
       </Text>
       {(loading || rungBase(at) !== null) && (
         <Button
-          size="compact-xs"
+          size="sm"
           variant="default"
           disabled={loading}
           onClick={() => {
@@ -742,15 +746,6 @@ function DeepShapeLock({ def, row }: { def: SettingDefWire; row: Row }) {
       row={row}
       loading={loading}
     />
-  );
-}
-
-function UnsetSummary() {
-  const { text } = useSchemeColors();
-  return (
-    <Text fz={12} c={text.muted}>
-      unset
-    </Text>
   );
 }
 
@@ -842,55 +837,48 @@ function DraftBody({
   );
 }
 
-/** Composite rows: the control column holds an inline editor or a summary
-    toggle, and the body expands under the row. */
+/** Composite rows: the control column holds an inline editor or the
+    summary text, and the body is the Value tab's editor, always built. A
+    short string list has no body: its Value tab shows the inline control,
+    with the Form | JSON switch in `toolbar`. */
 export function compositeParts(
   def: SettingDefWire,
   kind: RowKind,
   row: Row,
-  open: boolean,
-  onToggle: () => void,
   asJson: boolean,
   onDoneJson: () => void,
   onEditJson: () => void
-): { control: ReactNode; body: ReactNode } {
+): { control: ReactNode; body: ReactNode; toolbar?: ReactNode } {
   const shape = recognize(def.schema);
   const value = def.effective.value;
-  const toggle = (
-    <ExpandToggle label={summarize(def)} open={open} onToggle={onToggle} />
-  );
+  const summary = <Summary label={summarize(def)} />;
   const readonly =
     (value === undefined && !def.secret) || def.effective.scope === null
-      ? { control: <UnsetSummary />, body: null }
-      : { control: toggle, body: open ? <ReadonlyBody def={def} /> : null };
+      ? { control: <Summary label="unset" />, body: null }
+      : { control: summary, body: <ReadonlyBody def={def} /> };
 
-  const toggleOf = (o: boolean) => (
-    <ExpandToggle
-      label={value === undefined ? 'unset' : rowSummary(def)}
-      open={o}
-      onToggle={onToggle}
-    />
+  const summaryOf = () => (
+    <Summary label={value === undefined ? 'unset' : rowSummary(def)} />
   );
   const invalidLock = () => <ShapeLock at={def.effective.scope} row={row} />;
   const edit = editorKind(def);
   const form = formOf(def);
   // An invalid winning layer's effective.value is undefined; an editor
   // seeded from that would discard the layer's real, unseen stored value on
-  // save. The guard runs before asJson (the row menu's forced JSON entry)
-  // and the ordinary json/objectList/objectMap bodies alike.
-  // A live editor with a body to switch back to: not an inline short list,
-  // and not a value that would land on a shape lock.
+  // save. The guard runs before asJson (the JSON side of the Form | JSON
+  // switch) and the ordinary json/objectList/objectMap bodies alike.
+  // A live editor to switch back to, unless the value would land on a
+  // shape lock.
   const liveForm =
     LIVE_KINDS.has(edit) &&
-    !(edit === 'stringList' && isInlineList(value)) &&
     def.effective.invalid === undefined &&
     (value === undefined || matchesSchema(def, value));
   if ((asJson && EDITOR_KINDS.has(edit)) || edit === 'json') {
     if (def.effective.invalid !== undefined)
       return { control: invalidLock(), body: null };
     return {
-      control: toggleOf(open),
-      body: open ? (
+      control: summaryOf(),
+      body: (
         <DraftBody
           def={def}
           row={row}
@@ -899,7 +887,7 @@ export function compositeParts(
           onDone={onDoneJson}
           onForm={liveForm ? onDoneJson : undefined}
         />
-      ) : null,
+      ),
     };
   }
 
@@ -907,8 +895,8 @@ export function compositeParts(
     if (def.effective.invalid !== undefined)
       return { control: invalidLock(), body: null };
     return {
-      control: toggleOf(open),
-      body: open ? <DraftBody def={def} row={row} form={form} /> : null,
+      control: summaryOf(),
+      body: <DraftBody def={def} row={row} form={form} />,
     };
   }
 
@@ -938,37 +926,36 @@ export function compositeParts(
       return {
         control: <InlineTags def={def} row={row} list={list} />,
         body: null,
+        toolbar: <LiveHeader row={row} onJson={onEditJson} />,
       };
     return {
-      control: toggle,
-      body: open ? (
-        <StringListBody def={def} row={row} onEditJson={onEditJson} />
-      ) : null,
+      control: summary,
+      body: <StringListBody def={def} row={row} onEditJson={onEditJson} />,
     };
   }
   if (shape.kind === 'stringMap')
     return {
-      control: toggle,
-      body: open ? (
+      control: summary,
+      body: (
         <StringMapBody
           def={def}
           row={row}
           labels={shape.labels}
           onEditJson={onEditJson}
         />
-      ) : null,
+      ),
     };
   if (shape.kind === 'leaves')
     return {
-      control: toggle,
-      body: open ? (
+      control: summary,
+      body: (
         <LeavesBody
           def={def}
           row={row}
           shape={{ fields: shape.fields, fallbacks: shape.placeholders }}
           onEditJson={onEditJson}
         />
-      ) : null,
+      ),
     };
   return readonly;
 }

@@ -12,6 +12,22 @@ import { ExplainModal, type ExplainStore } from './ExplainModal';
 import { schemaFields } from './testSchemas';
 import { SettingsRepoContext } from './useConsoleSettings';
 
+vi.mock('@mattstack/app-kit/lazy', () => ({
+  CodeMirror: ({
+    value,
+    onChange,
+  }: {
+    value?: string;
+    onChange?: (v: string) => void;
+  }) => (
+    <textarea
+      aria-label="JSON"
+      value={value}
+      onChange={e => onChange?.(e.currentTarget.value)}
+    />
+  ),
+}));
+
 const KEY = 'board.agent.model';
 
 const DEF: SettingDefWire = {
@@ -128,32 +144,59 @@ describe('ExplainModal', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders the settings row, the verdict and every layer', async () => {
+  it('renders the header and every layer', async () => {
     explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
     renderModal(store());
 
     const dialog = await screen.findByRole('dialog');
-    expect(
-      within(dialog).getByText(`>_ rt settings explain ${KEY}`)
-    ).toBeInTheDocument();
     expect(within(dialog).getByText('model')).toBeInTheDocument();
     expect(within(dialog).getByText(DEF.description)).toBeInTheDocument();
     expect(
-      await within(dialog).findByTestId('explain-sentence')
-    ).toHaveTextContent(
-      `${KEY} is "m-old" because the machine layer sets it, overriding user.`
-    );
-    expect(within(dialog).getByTestId('layer-value-user')).toHaveStyle({
-      textDecoration: 'line-through',
-    });
-    expect(
-      within(within(dialog).getByTestId('layer-machine')).getByText('wins')
+      await within(dialog).findByText('Weakest first. The last layer set wins.')
     ).toBeInTheDocument();
     expect(
-      within(within(dialog).getByTestId('layer-team')).getByText(
-        'not allowed at this layer (allowed: user, machine)'
-      )
+      await within(dialog).findByTestId('layer-value-user')
+    ).toHaveAttribute('data-role', 'overridden');
+    expect(
+      within(within(dialog).getByTestId('layer-machine')).getByText('in effect')
     ).toBeInTheDocument();
+    expect(within(dialog).queryByTestId('layer-team')).toBeNull();
+  });
+
+  it('puts the key and the close button on one line, with the scope badge', async () => {
+    explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
+    renderModal(store());
+    const close = await screen.findByRole('button', { name: 'Close modal' });
+    const title = screen.getByText('model').closest('div');
+    expect(title).toContainElement(close);
+    expect(
+      within(title as HTMLElement).getByText('machine')
+    ).toBeInTheDocument();
+  });
+
+  it('the Value tab leaves the description to the header', async () => {
+    explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
+    renderModal(store());
+
+    await userEvent.click(await screen.findByRole('radio', { name: 'Value' }));
+    expect(
+      await screen.findByRole('textbox', { name: KEY })
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(DEF.description)).toHaveLength(1);
+  });
+
+  it('shows a refused write from the Value tab', async () => {
+    explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
+    const s = store({ set: vi.fn(async () => 'store is read-only') });
+    renderModal(s);
+
+    await userEvent.click(await screen.findByRole('radio', { name: 'Value' }));
+    const input = screen.getByRole('textbox', { name: KEY });
+    await userEvent.clear(input);
+    await userEvent.type(input, 'm-next{Enter}');
+
+    expect(s.set).toHaveBeenCalledWith(KEY, 'machine', 'm-next');
+    expect(await screen.findByText('store is read-only')).toBeInTheDocument();
   });
 
   it('removes one layer and re-reads the stack', async () => {
@@ -281,7 +324,90 @@ describe('ExplainModal', () => {
   it('Escape outside a field closes', async () => {
     explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
     const { onClose } = renderModal(store());
-    await screen.findByTestId('explain-sentence');
+    await screen.findByTestId('layer-machine');
+    await userEvent.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('Escape on an editor’s Form | JSON switch abandons that edit, modal stays', async () => {
+    const BRIDGES: SettingDefWire = {
+      ...DEF,
+      key: 'rt.notify.eventBridges',
+      type: 'array',
+      scopes: ['user', 'machine'],
+      effective: { scope: 'default', file: null, value: [] },
+      ...schemaFields('rt.notify.eventBridges'),
+    };
+    explainGet.mockResolvedValue(
+      ok({
+        def: BRIDGES,
+        rows: [
+          { scope: 'default', file: null, present: false },
+          { scope: 'user', file: '/stores/user.jsonc', present: false },
+          { scope: 'machine', file: '/stores/local.jsonc', present: false },
+        ],
+      })
+    );
+    const { onClose } = renderModal(
+      store({ defs: [BRIDGES] }),
+      'rt.notify.eventBridges'
+    );
+
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: 'set rt.notify.eventBridges at user',
+      })
+    );
+    const layer = screen.getByTestId('layer-user');
+    within(layer).getByRole('radio', { name: 'Form' }).focus();
+    await userEvent.keyboard('{Escape}');
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(within(layer).queryByText('Editing the user layer')).toBeNull();
+  });
+
+  it('Escape on a switch being set at a layer abandons that edit, modal stays', async () => {
+    const FLAG: SettingDefWire = {
+      ...DEF,
+      key: 'rt.flag',
+      type: 'boolean',
+      effective: { scope: 'machine', file: '/stores/local.jsonc', value: true },
+    };
+    explainGet.mockResolvedValue(
+      ok({
+        def: FLAG,
+        rows: [
+          { scope: 'default', file: null, present: false },
+          { scope: 'user', file: '/stores/user.jsonc', present: false },
+          {
+            scope: 'machine',
+            file: '/stores/local.jsonc',
+            present: true,
+            value: true,
+          },
+        ],
+      })
+    );
+    const s = store({ defs: [FLAG] });
+    const { onClose } = renderModal(s, 'rt.flag');
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'set rt.flag at user' })
+    );
+    const layer = screen.getByTestId('layer-user');
+    within(layer).getByRole('switch', { name: 'rt.flag' }).focus();
+    await userEvent.keyboard('{Escape}');
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(within(layer).queryByRole('switch')).toBeNull();
+    expect(s.set).not.toHaveBeenCalled();
+  });
+
+  it('Escape on the tab bar closes', async () => {
+    explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
+    const { onClose } = renderModal(store());
+    await userEvent.click(await screen.findByRole('radio', { name: 'Value' }));
+    expect(screen.getByRole('radio', { name: 'Value' })).toHaveFocus();
     await userEvent.keyboard('{Escape}');
     expect(onClose).toHaveBeenCalled();
   });
@@ -310,9 +436,9 @@ describe('ExplainModal', () => {
         <ExplainModal settingKey={KEY} onClose={onClose} />
       </QueryClientProvider>
     );
-    expect(await screen.findByTestId('explain-sentence')).toHaveTextContent(
-      'because the machine layer sets it'
-    );
+    expect(
+      within(await screen.findByTestId('layer-machine')).getByText('in effect')
+    ).toBeInTheDocument();
   });
 
   it('says so for an unknown key', async () => {
@@ -327,7 +453,7 @@ describe('ExplainModal', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('a composite layer shows its whole value, never cut at 40 characters', async () => {
+  it('a composite layer shows its summary; Set opens its whole value', async () => {
     const LONG = {
       triggers: [
         {
@@ -361,9 +487,16 @@ describe('ExplainModal', () => {
     );
     renderModal(store({ defs: [CRON] }), 'rt.cron');
     const layer = await screen.findByTestId('layer-machine');
-    expect(layer).toHaveTextContent('"name": "nightly-sync"');
-    expect(layer).toHaveTextContent('"--all"');
-    expect(layer.textContent).not.toContain('…');
+    expect(within(layer).getByTestId('layer-value-machine')).toHaveTextContent(
+      '1 field'
+    );
+    expect(layer).not.toHaveTextContent('nightly-sync');
+
+    await userEvent.click(
+      within(layer).getByRole('button', { name: 'set rt.cron at machine' })
+    );
+    const json = within(layer).getByRole('textbox', { name: 'JSON' });
+    expect(json).toHaveValue(JSON.stringify(LONG, null, 2));
   });
 
   it('Set at an unset objectList layer opens the form, not JSON', async () => {
@@ -676,11 +809,17 @@ describe('with a repo picked', () => {
     );
     const section = await screen.findByTestId(`repo-${REPO}`);
     expect(within(section).getByText('acme/app')).toBeInTheDocument();
-    expect(within(section).getByText('team · repo')).toBeInTheDocument();
-    expect(section).toHaveTextContent('"fixedPort": 3000');
-    await userEvent.click(
-      within(section).getByRole('button', { name: 'Show acme/app' })
+    expect(within(section).getByText('team')).toBeInTheDocument();
+    expect(
+      await within(section).findByTestId('layer-value-team.repo')
+    ).toHaveTextContent(/^1 field$/);
+    const show = within(section).getByRole('button', {
+      name: 'Show acme/app',
+    });
+    expect(show.style.getPropertyValue('--button-height')).toBe(
+      'var(--button-height-sm)'
     );
+    await userEvent.click(show);
     expect(onPickRepo).toHaveBeenCalledWith(REPO);
   });
 });

@@ -255,7 +255,7 @@ describe('EffectiveInputs', () => {
 
     expect(window.location.pathname).toBe(before);
     expect(await screen.findByRole('dialog')).toHaveTextContent(
-      'rt settings explain rt.runsPruneDays'
+      'rt.runsPruneDays'
     );
   });
 

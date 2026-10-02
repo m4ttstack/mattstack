@@ -29,7 +29,7 @@ export function ModeToggle({
   return (
     <SegmentedControl
       ref={root}
-      size="xs"
+      size="sm"
       aria-label="Edit mode"
       value={value}
       onChange={v => {

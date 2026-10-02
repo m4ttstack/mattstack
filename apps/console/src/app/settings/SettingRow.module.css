@@ -1,0 +1,79 @@
+/* The card's frame moves with the panel's collapse; `--row-motion` is the
+   collapse's own duration, set on the row. */
+.item {
+  --inset: 12px;
+  border: 0 solid var(--tk-border);
+  border-bottom: 1px solid var(--tk-border-soft);
+  transition-property: margin-block, border-width, border-color, border-radius;
+  transition-duration: var(--row-motion);
+  transition-timing-function: ease;
+}
+
+/* The open card's 1px border takes 1px of inset, so opening moves nothing. */
+.item[data-open] {
+  --inset: 11px;
+  margin-block: 8px;
+  border: 1px solid var(--tk-border);
+  border-radius: var(--mantine-radius-lg);
+}
+
+.header {
+  padding: 12px var(--inset) 11px;
+  cursor: pointer;
+  border-radius: var(--mantine-radius-md);
+}
+
+.item[data-open] .header {
+  padding-block: 11px 12px;
+}
+
+/* Padding gives back what the growing border takes, over the same time. */
+.header,
+.inset,
+.panel {
+  transition: padding var(--row-motion) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item,
+  .header,
+  .inset,
+  .panel {
+    transition: none;
+  }
+}
+
+:where([data-mantine-color-scheme='light']) .header {
+  --row-hover: var(--mantine-color-gray-1);
+}
+
+:where([data-mantine-color-scheme='dark']) .header {
+  --row-hover: var(--mantine-color-dark-5);
+}
+
+@media (hover: hover) {
+  .item:not([data-open]) .header:hover {
+    background-color: var(--row-hover);
+  }
+}
+
+.item:not([data-open]) .header:focus-within {
+  background-color: var(--row-hover);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+}
+
+.control {
+  flex: none;
+}
+
+.inset {
+  padding-inline: var(--inset);
+}
+
+.panel {
+  padding: 0 var(--inset) var(--inset);
+}

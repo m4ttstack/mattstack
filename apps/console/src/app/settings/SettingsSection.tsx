@@ -10,11 +10,17 @@ import {
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 
 import { useAgentModels } from '../config/useSettings';
+import type { OpenRow } from './explainParam';
 import type { WireIssue } from './issues';
-import { SettingRow } from './SettingRow';
+import type { PanelStore } from './KeyPanel';
+import { SettingRow, type RowOpen } from './SettingRow';
 import { useSettingsTeam } from './useConsoleSettings';
-import type { RowStore } from './useRowSave';
-import type { Section, StoreScope } from './view';
+import {
+  providerOf,
+  type Provider,
+  type Section,
+  type StoreScope,
+} from './view';
 
 const SUBHEAD: Record<
   StoreScope,
@@ -43,7 +49,17 @@ function subheadNote(scope: StoreScope, team: string | null): string {
   return SUBHEAD[scope].note;
 }
 
-export type Provider = 'claude' | 'codex';
+interface RowWiring {
+  query: string;
+  open: OpenRow | null;
+  onOpenChange: (key: string, next: RowOpen | null) => void;
+  onPickRepo?: (repo: string) => void;
+  onFix?: (key: string, issue: WireIssue | null) => void;
+}
+
+function rowOpen(key: string, open: OpenRow | null): RowOpen | null {
+  return open?.key === key ? { tab: open.tab, fix: open.fix } : null;
+}
 
 function Header({
   section,
@@ -84,22 +100,23 @@ function countText(filtering: boolean, shown: number, total: number) {
 function AgentsSection({
   section,
   store,
-  query,
   filtering,
   initialProvider,
-  onExplain,
+  query,
+  open,
+  onOpenChange,
+  onPickRepo,
   onFix,
 }: {
   section: Section;
-  store: RowStore;
-  query: string;
+  store: PanelStore;
   filtering: boolean;
   initialProvider: Provider;
-  onExplain: (key: string) => void;
-  onFix?: (key: string, issue: WireIssue | null) => void;
-}) {
+} & RowWiring) {
   const all = section.subsections.flatMap(s => s.defs);
-  const [chosen, setChosen] = useState<Provider>(initialProvider);
+  const [chosen, setChosen] = useState<Provider>(
+    () => providerOf(open?.key) ?? initialProvider
+  );
   const shownFor = (p: Provider) =>
     all.some(d => d.key.startsWith(`agent.${p}.`));
   const other: Provider = chosen === 'claude' ? 'codex' : 'claude';
@@ -117,9 +134,8 @@ function AgentsSection({
         count={countText(filtering, defs.length, section.total)}
         right={
           <SegmentedControl
-            size="xs"
+            size="sm"
             withItemsBorders={false}
-            styles={{ label: { fontSize: 12, fontWeight: 500 } }}
             value={provider}
             onChange={v => setChosen(v as Provider)}
             data={[
@@ -137,8 +153,10 @@ function AgentsSection({
           subhead={null}
           query={query}
           suggestions={def.key.endsWith('.model') ? suggestions : undefined}
-          onExplain={onExplain}
           onFix={onFix}
+          open={rowOpen(def.key, open)}
+          onOpenChange={next => onOpenChange(def.key, next)}
+          onPickRepo={onPickRepo}
         />
       ))}
     </Box>
@@ -148,20 +166,19 @@ function AgentsSection({
 export function SettingsSection({
   section,
   store,
-  query,
   filtering,
   agentProvider,
-  onExplain,
+  query,
+  open,
+  onOpenChange,
+  onPickRepo,
   onFix,
 }: {
   section: Section;
-  store: RowStore;
-  query: string;
+  store: PanelStore;
   filtering: boolean;
   agentProvider: Provider;
-  onExplain: (key: string) => void;
-  onFix?: (key: string, issue: WireIssue | null) => void;
-}) {
+} & RowWiring) {
   const { text } = useSchemeColors();
   const team = useSettingsTeam();
   if (section.group.id === 'agents')
@@ -169,10 +186,12 @@ export function SettingsSection({
       <AgentsSection
         section={section}
         store={store}
-        query={query}
         filtering={filtering}
         initialProvider={agentProvider}
-        onExplain={onExplain}
+        query={query}
+        open={open}
+        onOpenChange={onOpenChange}
+        onPickRepo={onPickRepo}
         onFix={onFix}
       />
     );
@@ -216,8 +235,10 @@ export function SettingsSection({
               store={store}
               subhead={sub.scope}
               query={query}
-              onExplain={onExplain}
               onFix={onFix}
+              open={rowOpen(def.key, open)}
+              onOpenChange={next => onOpenChange(def.key, next)}
+              onPickRepo={onPickRepo}
             />
           ))}
         </Box>
