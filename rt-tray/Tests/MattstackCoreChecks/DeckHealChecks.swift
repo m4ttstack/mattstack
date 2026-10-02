@@ -58,6 +58,15 @@ let deckHealChecks: [Check] = [
         c.expectEqual(p.observe(healthy: false, hold: nil, now: 80), .waiting)
         c.expectEqual(p.observe(healthy: false, hold: nil, now: 90), .heal)
     },
+    Check("deck heal: a finished restart gives deck two fresh polls") { c in
+        var p = DeckHealPolicy()
+        for t in [0.0, 10, 20] {
+            c.expectEqual(p.observe(healthy: false, hold: .restartInFlight, now: t), .held(.restartInFlight))
+        }
+        p.restartFinished()
+        c.expectEqual(p.observe(healthy: false, hold: nil, now: 30), .waiting)
+        c.expectEqual(p.observe(healthy: false, hold: nil, now: 40), .heal)
+    },
     Check("deck status: running is quiet and names the pid; dev adds the run mode") { c in
         let prod = DeckStatusLines.status(for: .healthy, pid: "4242", runMode: nil)
         c.expectEqual(prod, "Deck: running · pid 4242")
@@ -66,13 +75,14 @@ let deckHealChecks: [Check] = [
                       "Deck: running · pid 4242 · pinned")
     },
     Check("deck status: every unhealthy state reads at full contrast") { c in
-        let lines = [DeckHealDecision.waiting, .heal, .gaveUp, .held(.awaitingApproval), .held(.notRegistered),
+        let lines = [DeckHealDecision.waiting, .heal, .gaveUp, .held(.launchSettling), .held(.awaitingApproval), .held(.notRegistered),
                      .held(.servedAppsRestarting), .held(.restartInFlight)]
             .map { DeckStatusLines.status(for: $0, pid: nil, runMode: nil) }
         c.expectEqual(lines, [
             "Deck: not responding",
             "Deck: not responding, restarting",
             "Deck: down, stopped restarting it automatically",
+            "Deck: starting",
             "Deck: waiting for Login Items approval",
             "Deck: not registered",
             "Deck: restarting apps",

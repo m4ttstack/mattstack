@@ -2,6 +2,8 @@ import Foundation
 
 /// Why the tray will not restart deck right now, even though it is not answering.
 public enum DeckHealHold: Equatable, Sendable {
+    /// Launch's own settle-and-spawn-heal pass still owns the agents.
+    case launchSettling
     case awaitingApproval
     case notRegistered
     /// The version-change sweep is already restarting deck's apps.
@@ -57,6 +59,12 @@ public struct DeckHealPolicy: Sendable {
         attempts = []
     }
 
+    /// Deck gets a fresh two polls to answer after any restart finishes, so a
+    /// slow boot is never restarted again the moment the restart's hold lifts.
+    public mutating func restartFinished() {
+        misses = 0
+    }
+
     public mutating func attemptCount(now: TimeInterval) -> Int {
         prune(now: now)
         return attempts.count
@@ -79,6 +87,7 @@ public enum DeckStatusLines {
         case .waiting: return "Deck: not responding"
         case .heal: return "Deck: not responding, restarting"
         case .gaveUp: return "Deck: down, stopped restarting it automatically"
+        case .held(.launchSettling): return "Deck: starting"
         case .held(.awaitingApproval): return "Deck: waiting for Login Items approval"
         case .held(.notRegistered): return "Deck: not registered"
         case .held(.servedAppsRestarting): return "Deck: restarting apps"

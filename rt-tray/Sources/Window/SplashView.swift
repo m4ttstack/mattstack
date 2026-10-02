@@ -99,6 +99,7 @@ private extension VerticalAlignment {
 struct SplashView: View {
     let content: SplashContent
     let retry: () -> Void
+    let restartDeck: () -> Void
     @State private var play = false
 
     private var markColor: Color { BundleFlavor.isDevBuild ? devMarkColor : prodMarkColor }
@@ -111,7 +112,7 @@ struct SplashView: View {
                 mark
                     .alignmentGuide(.markCenter) { $0[VerticalAlignment.center] }
                 if case .unreachable(let reason) = content {
-                    UnreachablePanel(reason: reason, retry: retry)
+                    UnreachablePanel(reason: reason, retry: retry, restartDeck: restartDeck)
                         .frame(width: unreachableWidth)
                         .transition(.opacity)
                 }
@@ -174,6 +175,7 @@ struct SplashView: View {
 private struct UnreachablePanel: View {
     let reason: String
     let retry: () -> Void
+    let restartDeck: () -> Void
 
     var body: some View {
         VStack(spacing: 10) {
@@ -186,9 +188,12 @@ private struct UnreachablePanel: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
-            Button("Retry", action: retry)
-                .keyboardShortcut(.defaultAction)
-                .padding(.top, 4)
+            HStack(spacing: 8) {
+                Button("Retry", action: retry)
+                Button("Restart Deck", action: restartDeck)
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(.top, 4)
         }
     }
 }

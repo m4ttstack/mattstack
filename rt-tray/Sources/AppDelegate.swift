@@ -62,6 +62,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     // ── Setup / Settings / rt ────────────────────────────────────────────────
     private var permissionsService: PermissionsService!
     private var servicesRegistrar: ServicesRegistrar!
+    /// Nil in stub mode, which never touches a real launchd job.
+    private var deckLifecycle: DeckLifecycle?
     private var needBroker: NeedBroker!
     private var coordinator: SetupCoordinator?
     private var rtClient: RtClient?
@@ -189,6 +191,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         NotificationCenter.default.addObserver(
             self, selector: #selector(restartDaemon), name: .rtRestartDaemon, object: nil)
         NotificationCenter.default.addObserver(
+            self, selector: #selector(restartDeck(_:)), name: .rtRestartDeck, object: nil)
+        NotificationCenter.default.addObserver(
             self, selector: #selector(viewDaemonLogs), name: .rtViewDaemonLogs, object: nil)
         NotificationCenter.default.addObserver(
             self, selector: #selector(openCrashLog), name: .rtOpenCrashLog, object: nil)
@@ -259,6 +263,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     if await daemonClient.isReachable() { break }
                 }
             }
+            deckLifecycle?.launchSettling = false
             await refreshStatus()
             await drainPendingNotifications()
         }
@@ -289,7 +294,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             // Off the launch Task, which holds the first refreshStatus: the
             // sweep wait alone can take a minute.
             Task { @MainActor [weak self] in
+                self?.deckLifecycle?.servedAppsRestarting = true
                 await registrar.restartServedApps()
+                self?.deckLifecycle?.servedAppsRestarting = false
                 await self?.windowModel?.retryFailedTabsAfterServedAppsRestart()
             }
         }
@@ -561,6 +568,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         servicesRegistrar = ServicesRegistrar(bundlePath: Bundle.main.bundlePath, runner: SystemCommandRunner())
         daemonLifecycle.services = servicesRegistrar
         servicesRegistrar.onHandDeckBlocked = { TrayState.shared.handDeckBlocked = $0 }
+        if !BundleFlavor.isStubActive {
+            deckLifecycle = DeckLifecycle(registrar: servicesRegistrar, daemon: daemonLifecycle)
+        }
         let privileged = PrivilegedInstaller(bundlePath: Bundle.main.bundlePath, escalator: AuthorizationServicesEscalator())
         // Stub mode never lets a real provider reach a mutating/probing call.
         #if DEBUG
@@ -910,6 +920,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         for line in diagnostics {
             menu.addItem(Self.infoMenuItem(line, quiet: false))
         }
+        if deckLifecycle != nil {
+            let deckText = TrayState.shared.deckStatusText
+            let deckStatus = Self.infoMenuItem(deckText, quiet: DeckStatusLines.isQuiet(deckText))
+            deckStatus.setAccessibilityIdentifier(AXID.trayDeckStatus)
+            menu.addItem(deckStatus)
+            if let diagnostic = TrayState.shared.deckDiagnostic {
+                menu.addItem(Self.infoMenuItem(diagnostic, quiet: false))
+            }
+        }
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Processes…", axid: AXID.trayProcesses) { [weak self] in
             self?.detachProcessPanel()
@@ -967,6 +986,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         sub.addItem(ActionMenuItem("Restart Daemon", axid: AXID.trayRestartDaemon) {
             NotificationCenter.default.post(name: .rtRestartDaemon, object: nil)
         })
+        if deckLifecycle != nil {
+            sub.addItem(ActionMenuItem("Restart Deck", axid: AXID.trayRestartDeck) {
+                NotificationCenter.default.post(name: .rtRestartDeck, object: DeckLifecycle.menuOrigin)
+            })
+        }
         sub.addItem(ActionMenuItem("View Logs…", axid: AXID.trayViewLogs) {
             NotificationCenter.default.post(name: .rtViewDaemonLogs, object: nil)
         })
@@ -1285,6 +1309,33 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
 
     // MARK: - Actions
+
+    @objc private func restartDeck(_ note: Notification) {
+        guard let deckLifecycle else { return }
+        let origin = note.object as? String ?? DeckLifecycle.menuOrigin
+        Task { @MainActor in
+            TrayState.shared.deckStatusText = DeckStatusLines.status(for: .held(.restartInFlight), pid: nil, runMode: nil)
+            TrayState.shared.deckDiagnostic = nil
+            let ok = await deckLifecycle.restart(origin: origin)
+            if !ok { TrayLog.warn("deck restart failed", ["origin": origin]) }
+            await refreshDeck()
+        }
+    }
+
+    /// Runs beside `refreshStatus`, never behind it: deck can be down while
+    /// the daemon answers, and the reverse.
+    @MainActor
+    private func refreshDeck() async {
+        guard let deckLifecycle, !isRefreshingDeck else { return }
+        isRefreshingDeck = true
+        defer { isRefreshingDeck = false }
+        let (status, diagnostic) = await deckLifecycle.poll()
+        TrayState.shared.deckStatusText = status
+        TrayState.shared.deckDiagnostic = diagnostic
+        if DeckStatusLines.isQuiet(status), case .unreachable = windowModel?.deckWait {
+            windowModel?.retryDeckWait()
+        }
+    }
 
     @objc private func restartDaemon() {
         Task { @MainActor in
@@ -1662,6 +1713,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private func startPolling() {
         statusTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             Task { await self?.refreshStatus() }
+            Task { await self?.refreshDeck() }
         }
 
         notificationTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -1670,6 +1722,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
 
     private var isRefreshing = false
+    private var isRefreshingDeck = false
     private var consecutiveStatusFailures = 0
     /// Stamped whenever `setHealth(.starting)` runs. `.starting` has no
     /// natural "it failed" signal of its own -- unlike `.down`, which the
