@@ -131,6 +131,37 @@ describe("peer waker", () => {
     expect(h.urls).toEqual([]);
   });
 
+  test("a redirect is a failure that backs off and is never followed", async () => {
+    let stolen = 0;
+    const target = Bun.serve({ port: 0, fetch: () => (stolen++, Response.json({ woke: true, cursor: 1 })) });
+    const relay = Bun.serve({
+      port: 0,
+      fetch: () => new Response(null, { status: 302, headers: { location: `http://127.0.0.1:${target.port}/steal` } }),
+    });
+    try {
+      const sleeps: number[] = [];
+      const warns: unknown[] = [];
+      let handle: ReturnType<typeof startPeerWaker> | undefined = undefined;
+      handle = startPeerWaker({
+        log: { debug() {}, info() {}, warn: (ctx: unknown) => void warns.push(ctx) } as unknown as PeerWakerDeps["log"],
+        emit: () => handle?.stop(),
+        readUrl: () => `http://127.0.0.1:${relay.port}`,
+        readToken: async () => "tok",
+        sleep: async (ms) => {
+          sleeps.push(ms);
+          handle?.stop();
+        },
+      });
+      await handle.done;
+      expect(sleeps).toEqual([1000]);
+      expect(warns).toEqual([expect.objectContaining({ reason: "http 302" })]);
+      expect(stolen).toBe(0);
+    } finally {
+      relay.stop(true);
+      target.stop(true);
+    }
+  });
+
   test("stop ends the loop", async () => {
     const h = startPeerWaker({
       log: { debug() {}, info() {}, warn() {} } as unknown as PeerWakerDeps["log"],

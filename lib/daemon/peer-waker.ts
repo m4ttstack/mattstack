@@ -74,8 +74,10 @@ async function waitOnce(
 ): Promise<WaitOutcome> {
   const signal = AbortSignal.any([stop, AbortSignal.timeout(timeoutMs)]);
   try {
+    // The bearer token would ride a followed redirect to wherever it points.
     const res = await fetchFn(`${base}/inbox/wait?since=${since}&timeout=${waitSeconds}`, {
       headers: { authorization: `Bearer ${token}` },
+      redirect: "manual",
       signal,
     });
     if (!res.ok) return { kind: "fail", reason: `http ${res.status}` };
