@@ -1,5 +1,5 @@
 /**
- * rt tools install|setup — what a setup plan row's Install button spawns.
+ * rt tools install|setup: what a setup plan row's Install button spawns.
  *
  *   rt tools install <tool> [--json]
  *   rt tools setup <tool> [--config-dir <dir>]… [--json]
@@ -13,6 +13,8 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { flagValues } from "../lib/cli-args.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/errors.ts";
+import * as out from "../lib/ui/out.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 import { readIntent, teamRefFromIntent } from "../lib/setup/intent.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { readPackRequirements, type PackRequirements } from "../lib/setup/requirements.ts";
@@ -26,7 +28,7 @@ function tool(args: string[]): string | undefined {
   return args.find((a) => !a.startsWith("--"));
 }
 
-/** Mirrors composePlan's own team resolution (readIntent → teamRefFromIntent) so a team-declared brew formula/vendor URL is found the same way the plan row that offered this Install action found it. No joined team is not an error — plenty of tools (herdr, claude, apple-clt) need no reqs at all. */
+/** Mirrors composePlan's own team resolution (readIntent → teamRefFromIntent) so a team-declared brew formula/vendor URL is found the same way the plan row that offered this Install action found it. No joined team is not an error: plenty of tools (herdr, claude, apple-clt) need no reqs at all. */
 function resolveTeamReqs(p: Probes): PackRequirements[] {
   const ref = teamRefFromIntent(readIntent(p), listTeams());
   return ref.slug ? readPackRequirements(p, ref.slug) : [];
@@ -55,8 +57,11 @@ export async function toolsInstall(args: string[], _ctx: CommandContext = {}, p:
     if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
       t = (await pickTool("Install which tool?", installableTools(p, resolveTeamReqs(p)))) ?? undefined;
       if (!t) process.exit(0);
-    } else {
+    } else if (json) {
       exitUserError(new UserActionableError("usage", "usage: rt tools install <tool> [--json]"), json, "tools install");
+    } else {
+      out.fail(usageFailure("Which tool?", "rt tools install <tool>"));
+      process.exit(2);
     }
   }
 
@@ -71,15 +76,18 @@ export async function toolsInstall(args: string[], _ctx: CommandContext = {}, p:
   }
 
   if (json) {
-    console.log(JSON.stringify(envelope(result)));
+    out.json(envelope(result));
     if (!result.ok) {
-      console.error(result.detail);
+      out.fail({ title: result.detail });
       process.exit(1);
     }
     return;
   }
-  console.log(`rt tools install: ${t} (${result.via}) — ${result.ok ? "ok" : "failed"}: ${result.detail}`);
-  if (!result.ok) process.exit(1);
+  if (!result.ok) {
+    out.fail({ title: `${t} was not installed`, why: result.detail });
+    process.exit(1);
+  }
+  out.print(out.line("done", `Installed ${t}`, result.detail));
 }
 
 export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
@@ -89,8 +97,11 @@ export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: P
     if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
       t = (await pickTool("Set up which tool?", SETUP_TOOLS)) ?? undefined;
       if (!t) process.exit(0);
-    } else {
+    } else if (json) {
       exitUserError(new UserActionableError("usage", "usage: rt tools setup <tool> [--config-dir <dir>]… [--json]"), json, "tools setup");
+    } else {
+      out.fail(usageFailure("Which tool?", "rt tools setup <tool>"));
+      process.exit(2);
     }
   }
 
@@ -105,13 +116,16 @@ export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: P
   }
 
   if (json) {
-    console.log(JSON.stringify(envelope(result)));
+    out.json(envelope(result));
     if (!result.ok) {
-      console.error(result.detail);
+      out.fail({ title: result.detail });
       process.exit(1);
     }
     return;
   }
-  console.log(`rt tools setup: ${t} — ${result.ok ? "ok" : "failed"}: ${result.detail}`);
-  if (!result.ok) process.exit(1);
+  if (!result.ok) {
+    out.fail({ title: `${t} was not set up`, why: result.detail });
+    process.exit(1);
+  }
+  out.print(out.line("done", `Set up ${t}`, result.detail));
 }

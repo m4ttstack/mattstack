@@ -40,7 +40,6 @@
   "commands/state.ts",
   "commands/sync.ts",
   "commands/team.ts",
-  "commands/tools.ts",
   "commands/worktree-hook.ts",
   "lib/chat-viewer-url.ts",
   "lib/cli-logger.ts",
