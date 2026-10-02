@@ -186,7 +186,9 @@ function refuse(...blocks: Block[]): never {
 
 const NAME_WHY = "Names use lowercase letters, digits, dots, dashes and underscores.";
 const SESSION_ID_INVALID: out.FailureInput = { title: "That session id is not valid", why: "A session id uses letters, digits, dots, dashes and underscores." };
-const NO_SESSION: out.FailureInput = { title: "rt cannot tell which session this is", why: "Chat needs a session id. Claude Code sets one; anywhere else, pass --session <id>." };
+function noSession(form: string): out.FailureInput {
+  return { title: "rt cannot tell which session this is", why: "Chat needs a session id. Claude Code sets one for you; anywhere else, name the session yourself.", next: out.cmd(`rt chat ${form} --session <id>`) };
+}
 
 /** Rejects with the reason rather than silently normalizing (Global Constraint). */
 function requireValidName(kind: string, name: string): void {
@@ -309,7 +311,11 @@ function resolveSignInRequest(args: string[]): { baseHandle?: string; continue?:
   const explicit = identityFlagValue(args, "--as");
   const named = identityFlagValue(args, "--name");
   if (explicit !== undefined && named !== undefined) {
-    fail({ title: "Sign in with one of them, not both", why: "--as continues an identity you had; --name starts a fresh one." });
+    fail({
+      title: "Continue an identity or start a new one, not both",
+      why: "You asked to pick up an identity you had and to start a fresh one under a new name.",
+      next: [out.cmd("rt chat sign-in --as <name>"), " to continue, or ", out.cmd("rt chat sign-in --name <name>"), " to start fresh"],
+    });
   }
   if (explicit !== undefined) {
     requireValidName("handle", explicit);
@@ -342,7 +348,7 @@ function readChatHandleSetting(): string | undefined {
  * own to have a prior handle for.
  */
 function resolvePaneRequest(args: string[]): { continue?: string } {
-  if (args.includes("--name")) fail({ title: "A pane sign-in continues an identity", why: "sign-in --pane takes --as, never --name." });
+  if (args.includes("--name")) fail({ title: "A pane sign-in continues an identity", why: "Signing a pane in can pick up an identity it had, but cannot start a fresh one under a new name.", next: out.cmd("rt chat sign-in --pane <pane> --as <name>") });
   const explicit = identityFlagValue(args, "--as");
   if (explicit === undefined) return {};
   requireValidName("handle", explicit);
@@ -390,7 +396,7 @@ function resolveHandle(args: string[]): string {
   const session = readChatSession(currentSessionId(args));
   if (session) {
     if (flagValue(args, "--as") !== undefined) {
-      refuse(out.line("refused", `You are signed in as ${sessionName(session)}`), out.callout("why", "One session keeps one identity. Leave out --as, or sign out to change it."), out.callout("next", out.cmd("rt chat sign-out")));
+      refuse(out.line("refused", `You are signed in as ${sessionName(session)}`), out.callout("why", "One session keeps one identity. Run it again without naming another one, or sign out to change it."), out.callout("next", out.cmd("rt chat sign-out")));
     }
     return session.handle;
   }
@@ -944,7 +950,7 @@ async function runRead(args: string[]): Promise<void> {
   const limitRaw = flagValue(args, "--limit");
   if (limitRaw !== undefined) {
     const n = Number(limitRaw);
-    if (!Number.isFinite(n) || n <= 0) fail({ title: `"${limitRaw}" is not a number of messages`, why: "--limit takes a positive number." });
+    if (!Number.isFinite(n) || n <= 0) fail({ title: `"${limitRaw}" is not a number of messages`, why: "The most messages to show is a positive number.", next: out.cmd("rt chat read <room> --limit 20") });
     limit = n;
   }
 
@@ -952,16 +958,16 @@ async function runRead(args: string[]): Promise<void> {
   const sinceRaw = flagValue(args, "--since");
   if (sinceRaw !== undefined) {
     const ms = parseDuration(sinceRaw);
-    if (ms == null) fail({ title: `"${sinceRaw}" is not a length of time`, why: "--since takes 30s, 5m, 500ms or a number of seconds." });
+    if (ms == null) fail({ title: `"${sinceRaw}" is not a length of time`, why: "Give a length of time like 30s, 5m, 500ms or a number of seconds.", next: out.cmd("rt chat read <room> --since 5m") });
     sinceMs = Date.now() - ms;
   }
 
   const lastRaw = flagValue(args, "--last");
   if (lastRaw !== undefined) {
-    if (sinceRaw !== undefined) fail({ title: "Use --last or --since, not both" });
+    if (sinceRaw !== undefined) fail({ title: "Read the latest few messages or the ones since a time, not both", next: [out.cmd("rt chat read <room> --last 10"), " or ", out.cmd("rt chat read <room> --since 5m")] });
     if (!room) failUsage("Which room?", "rt chat read <room> --last <n>");
     const n = Number(lastRaw);
-    if (!Number.isInteger(n) || n <= 0) fail({ title: `"${lastRaw}" is not a number of messages`, why: "--last takes a positive whole number." });
+    if (!Number.isInteger(n) || n <= 0) fail({ title: `"${lastRaw}" is not a number of messages`, why: "Say how many of the latest messages to read, as a positive whole number.", next: out.cmd("rt chat read <room> --last 10") });
     // chat:messages orders newest-first, then reverses to oldest-first (same
     // top-to-bottom order a plain read renders), so no reverse here.
     const page = unwrap(await chatMessages({ room, limit: n }, sockOpts(args)), "read");
@@ -1048,7 +1054,7 @@ async function runMark(args: string[]): Promise<void> {
   if (uptoRaw !== undefined) {
     if (!room) failUsage("Which room?", "rt chat mark <room> --upto <messageId>");
     const n = Number(uptoRaw);
-    if (!Number.isInteger(n) || n <= 0) fail({ title: `"${uptoRaw}" is not a message id`, why: "--upto takes a positive message id." });
+    if (!Number.isInteger(n) || n <= 0) fail({ title: `"${uptoRaw}" is not a message id`, why: "A message id is a positive whole number.", next: out.cmd("rt chat mark <room> --upto <messageId>") });
     upto = n;
   }
 
@@ -1154,7 +1160,7 @@ async function runSignIn(args: string[]): Promise<void> {
   }
 
   const sessionId = currentSessionId(args);
-  if (!sessionId) fail(NO_SESSION);
+  if (!sessionId) fail(noSession("sign-in"));
   requireValidSessionId(sessionId);
 
   const request = resolveSignInRequest(args);
@@ -1271,7 +1277,7 @@ async function runSignOut(args: string[]): Promise<void> {
   const sessionId = currentSessionId(args);
   if (!sessionId) {
     if (quiet) return;
-    fail(NO_SESSION);
+    fail(noSession("sign-out"));
   }
   if (!isValidSessionId(sessionId)) {
     if (quiet) return;
@@ -1338,7 +1344,7 @@ async function runAway(args: string[]): Promise<void> {
   if (!text) failUsage("What should your status say?", "rt chat away <text>");
 
   const sessionId = currentSessionId(args);
-  if (!sessionId) fail(NO_SESSION);
+  if (!sessionId) fail(noSession("away <text>"));
 
   const res = await chatAway({ sessionId, text });
   unwrap(res, "away");
@@ -1352,7 +1358,7 @@ async function runAway(args: string[]): Promise<void> {
 
 async function runBack(args: string[]): Promise<void> {
   const sessionId = currentSessionId(args);
-  if (!sessionId) fail(NO_SESSION);
+  if (!sessionId) fail(noSession("back"));
 
   const res = await chatBack({ sessionId });
   unwrap(res, "back");

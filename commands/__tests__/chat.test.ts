@@ -267,6 +267,7 @@ describe("rt chat CLI — additional verb behavior", () => {
 
     const bad = await runChatRaw(["mark", "r", "--upto", "0", "--as", "b"]);
     expect(bad.code).not.toBe(0);
+    expect(bad.stderr).toBe('"0" is not a message id\n  why: A message id is a positive whole number.\n  next: rt chat mark <room> --upto <messageId>');
   });
 
   test("post's body is every word after the room, joined back with spaces", async () => {
@@ -693,16 +694,18 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
   test("sign-in refuses --as with --name, before contacting the daemon", async () => {
     const { code, stderr } = await runChatRaw(["sign-in", "--as", "x", "--name", "y", "--no-room", "--session", "s1"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("--as");
-    expect(stderr).toContain("--name");
+    expect(stderr).toBe(
+      "Continue an identity or start a new one, not both\n  why: You asked to pick up an identity you had and to start a fresh one under a new name.\n  next: rt chat sign-in --as <name> to continue, or rt chat sign-in --name <name> to start fresh",
+    );
     expect(seen.find((s) => s.cmd === "chat:sign-in")).toBeUndefined();
   });
 
   test("sign-in --pane refuses --name, before contacting the daemon", async () => {
     const { code, stderr } = await runChatRaw(["sign-in", "--pane", "w1:p1", "--name", "y"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("--name");
-    expect(stderr).toContain("--pane");
+    expect(stderr).toBe(
+      "A pane sign-in continues an identity\n  why: Signing a pane in can pick up an identity it had, but cannot start a fresh one under a new name.\n  next: rt chat sign-in --pane <pane> --as <name>",
+    );
     expect(seen.find((s) => s.cmd === "chat:sign-in")).toBeUndefined();
   });
 
@@ -769,13 +772,16 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
   test("sign-out with no known session id is a refused no-op, not a crash", async () => {
     const { code, stderr } = await runChatRaw(["sign-out"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("session id");
+    expect(stderr).toBe(
+      "rt cannot tell which session this is\n  why: Chat needs a session id. Claude Code sets one for you; anywhere else, name the session yourself.\n  next: rt chat sign-out --session <id>",
+    );
   });
 
   test("sign-in without a session id (no --session, no CLAUDE_CODE_SESSION_ID) refuses rather than inventing one", async () => {
     const { code, stderr } = await runChatRaw(["sign-in", "--as", "x", "--no-room"]);
     expect(code).not.toBe(0);
     expect(stderr).toContain("session id");
+    expect(stderr).toContain("\n  next: rt chat sign-in --session <id>");
   });
 
   test("--as naming an id live in another session is refused with the reclaimed wording, and writes no session file", async () => {
@@ -986,10 +992,12 @@ describe("rt chat CLI — buddies, away, back, dm", () => {
     const away = await runChatRaw(["away", "brb"]);
     expect(away.code).not.toBe(0);
     expect(away.stderr).toContain("session id");
+    expect(away.stderr).toContain("\n  next: rt chat away <text> --session <id>");
 
     const back = await runChatRaw(["back"]);
     expect(back.code).not.toBe(0);
     expect(back.stderr).toContain("session id");
+    expect(back.stderr).toContain("\n  next: rt chat back --session <id>");
   });
 
   test("dm posts and the desk notifies when the recipient is the human", async () => {
@@ -1269,8 +1277,22 @@ describe("rt chat CLI: read --last, invite", () => {
 
   test("read --last refuses --since and a non-positive N", async () => {
     await runChat(["join", "build", "--as", "alice"]);
-    expect((await runChatRaw(["read", "build", "--last", "5", "--since", "5m", "--as", "alice"])).code).toBe(1);
-    expect((await runChatRaw(["read", "build", "--last", "0", "--as", "alice"])).code).toBe(1);
+    const both = await runChatRaw(["read", "build", "--last", "5", "--since", "5m", "--as", "alice"]);
+    expect(both.code).toBe(1);
+    expect(both.stderr).toBe("Read the latest few messages or the ones since a time, not both\n  next: rt chat read <room> --last 10 or rt chat read <room> --since 5m");
+    const zero = await runChatRaw(["read", "build", "--last", "0", "--as", "alice"]);
+    expect(zero.code).toBe(1);
+    expect(zero.stderr).toBe('"0" is not a number of messages\n  why: Say how many of the latest messages to read, as a positive whole number.\n  next: rt chat read <room> --last 10');
+  });
+
+  test("read refuses a limit that is not a positive number and a length of time it cannot read", async () => {
+    await runChat(["join", "build", "--as", "alice"]);
+    const limit = await runChatRaw(["read", "build", "--limit", "0", "--as", "alice"]);
+    expect(limit.code).toBe(1);
+    expect(limit.stderr).toBe('"0" is not a number of messages\n  why: The most messages to show is a positive number.\n  next: rt chat read <room> --limit 20');
+    const since = await runChatRaw(["read", "build", "--since", "soon", "--as", "alice"]);
+    expect(since.code).toBe(1);
+    expect(since.stderr).toBe('"soon" is not a length of time\n  why: Give a length of time like 30s, 5m, 500ms or a number of seconds.\n  next: rt chat read <room> --since 5m');
   });
 
   test("read --last requires a room", async () => {
@@ -1491,7 +1513,7 @@ describe("rt chat failures", () => {
     await signInInProcess({ as: "x", session: "s1" });
     const r = await runChatRaw(["post", "r", "hi", "--as", "y", "--session", "s1"]);
     expect(r.code).toBe(1);
-    expect(r.stderr).toBe("[refused] You are signed in as x\n  why: One session keeps one identity. Leave out --as, or sign out to change it.\n  next: rt chat sign-out");
+    expect(r.stderr).toBe("[refused] You are signed in as x\n  why: One session keeps one identity. Run it again without naming another one, or sign out to change it.\n  next: rt chat sign-out");
   });
 
   test("a flag post does not take is refused by name, with the usage as the command", async () => {
