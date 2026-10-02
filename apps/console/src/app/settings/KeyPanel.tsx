@@ -543,7 +543,7 @@ function RepoSection({
           </Button>
         )}
       </Group>
-      {loading ? (
+      {loading && rows.length === 0 ? (
         <Skeleton h={38} />
       ) : (
         // The section header already names the repo, so each line's badge
