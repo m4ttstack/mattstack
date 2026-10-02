@@ -275,6 +275,7 @@ describe('slot states', () => {
       expect(params().get('rebind')).toBe('1');
     });
     const panel = await screen.findByTestId('rebind-panel');
+    expect(panel).toHaveTextContent('Choose what fills the domain slot');
     expect(within(panel).getByTestId('rebind-current')).toHaveTextContent(
       'nothing bound'
     );

@@ -131,7 +131,7 @@ export function RebindPanel({
           className={classes.sentence}
           data-parity="t"
         >
-          Change what fills the {slot} slot
+          {choices.current ? 'Change' : 'Choose'} what fills the {slot} slot
         </Text>
       </div>
       <Group gap={16} align="flex-start">

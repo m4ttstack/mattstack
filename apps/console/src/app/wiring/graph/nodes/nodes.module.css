@@ -174,16 +174,18 @@
 }
 
 /* A card's action is the card's sibling, not its child (a button cannot hold
-   a button), laid over the card's end; the card leaves it that room. */
+   a button), laid over the card's end; the card leaves it that room. It is
+   centred by its margins, not a transform: a pressed button's own transform
+   would replace that one and move it out from under the pointer. */
 .card[data-action] {
   padding-inline-end: 76px;
 }
 
 .cardAction {
   position: absolute;
-  top: 50%;
+  inset-block: 0;
   right: 12px;
-  transform: translateY(-50%);
+  margin-block: auto;
 }
 
 .step {
