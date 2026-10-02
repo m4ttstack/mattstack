@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from "fs";
-import { join, relative, sep } from "path";
+import { join, posix, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, relativeToPrefix, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
 import type { PackInfo } from "./packs.ts";
@@ -226,6 +226,34 @@ async function ignoredUntracked(deps: SyncDeps, dir: string, paths: string[]): P
   return new Set(res.stdout.split("\0").filter(Boolean));
 }
 
+/**
+ * Every path the index holds a change for, both sides of a rename, spelled
+ * from the pack. `--no-relative` keeps a staged file outside the pack in the
+ * list even when diff.relative is set.
+ */
+async function stagedPaths(deps: SyncDeps, dir: string, prefix: string): Promise<string[]> {
+  const res = await deps.run("git", ["diff", "--cached", "--name-status", "-z", "--no-relative"], { cwd: dir });
+  if (res.code !== 0) throw new Error(`git diff --cached failed in ${dir}: ${res.stderr.trim()}`);
+  const fields = res.stdout.split("\0");
+  const paths: string[] = [];
+  for (let i = 0; i < fields.length; ) {
+    const status = fields[i++] ?? "";
+    if (status === "") continue;
+    if (status.startsWith("R")) paths.push(fields[i++]!, fields[i++]!);
+    else if (status.startsWith("C")) {
+      i++;
+      paths.push(fields[i++]!);
+    } else paths.push(fields[i++]!);
+  }
+  return prefix === "" ? paths : paths.map((p) => posix.relative(prefix, p));
+}
+
+/** The staged paths beyond `expected`, which a commit made now would carry without anyone having seen them. */
+async function extraStaged(deps: SyncDeps, dir: string, prefix: string, expected: string[]): Promise<string[]> {
+  const allowed = new Set(expected);
+  return (await stagedPaths(deps, dir, prefix)).filter((p) => !allowed.has(p));
+}
+
 function shownPath(f: PendingFile): string {
   return f.from === undefined ? f.path : `${f.from} -> ${f.path}`;
 }
@@ -291,9 +319,19 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   let branchNote = "";
   let pending: PorcelainEntry[] = [];
   let pendingHashed: HashedFile[] = [];
-  let packPrefix = "";
+  let packPrefix: string | null = null;
   let published = false;
+  let staged: PendingFile[] = [];
   let compiled: { written: string[]; removed: string[] } = { written: [], removed: [] };
+
+  /** Where the pack sits in its repo, read once: git diff and status print repo-root paths. */
+  const prefixOfPack = async (): Promise<string> => {
+    if (packPrefix !== null) return packPrefix;
+    const res = await deps.run("git", ["rev-parse", "--show-prefix"], { cwd: pack.dir });
+    if (res.code !== 0) throw new Error(`git rev-parse --show-prefix failed in ${pack.dir}: ${res.stderr.trim()}`);
+    packPrefix = res.stdout.trim();
+    return packPrefix;
+  };
 
   const finish = (): SyncReport => ({
     ok: !steps.some(stops),
@@ -449,7 +487,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       // upstream made too), which git add would then fail to match. An entry
       // may only drop out: one that is new or reads differently now was never
       // listed to whoever asked for this.
-      const now = await hashPending(deps, pack.dir, await readRepoPending(deps, pack.dir, packPrefix));
+      const now = await hashPending(deps, pack.dir, await readRepoPending(deps, pack.dir, await prefixOfPack()));
       const moved = now.filter((e) => !pendingHashed.some((was) => sameEntry(was, e)));
       if (moved.length > 0) {
         return refused(`The ${pack.name} pack changed while rt was syncing it (${moved.map(shownPath).join(", ")}), so rt staged and committed nothing. Look over the changes again, then sync`);
@@ -461,6 +499,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
         if (add.code !== 0) return failed(`git add failed: ${add.stderr.trim()}`);
       }
       published = true;
+      staged = now;
       return ran(`staged ${plural(now.length, "file")}`);
     });
     steps.push({ name: "commit-pending", ...commitPending });
@@ -582,7 +621,13 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
 
   const commitPush = await tryStep(async () => {
     if (!rebuild) return skipped("nothing changed, so there is nothing to commit");
+    // git commit takes the whole index, so each commit first checks the
+    // index holds only what rt staged for it.
     if (published) {
+      const extra = await extraStaged(deps, pack.dir, await prefixOfPack(), staged.flatMap((f) => (f.from === undefined ? [f.path] : [f.from, f.path])));
+      if (extra.length > 0) {
+        return refused(`Something besides your pack edits is staged in ${pack.dir}: ${extra.join(", ")}. rt committed and pushed nothing; unstage those, then run this again`);
+      }
       const pendingCommit = await deps.run("git", ["commit", "-m", `skills: ${pack.name} pending changes`], { cwd: pack.dir });
       if (pendingCommit.code !== 0) return failed(`git commit failed: ${pendingCommit.stderr.trim()}`);
     }
@@ -595,6 +640,11 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     if (compiled.removed.length > 0) {
       const rm = await deps.run("git", ["rm", "--cached", "--ignore-unmatch", "--quiet", "--", ...compiled.removed.map(literal)], { cwd: pack.dir });
       if (rm.code !== 0) return failed(`git rm failed: ${rm.stderr.trim()}`);
+    }
+    const extra = await extraStaged(deps, pack.dir, await prefixOfPack(), [...addPaths, ...compiled.removed]);
+    if (extra.length > 0) {
+      const kept = published ? `; your pack edits stay committed here (skills: ${pack.name} pending changes) and go out with the next sync` : "";
+      return refused(`Something besides the rebuilt skills is staged in ${pack.dir}: ${extra.join(", ")}. rt pushed nothing${kept}. Unstage those, then run this again`);
     }
     const commit = await deps.run("git", ["commit", "-m", `skills sync: ${pack.name} v${bumpAfter}`], { cwd: pack.dir });
     if (commit.code !== 0) return failed(`git commit failed: ${commit.stderr.trim()}`);

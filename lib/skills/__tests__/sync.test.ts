@@ -1649,6 +1649,72 @@ describe("commit-pending against real git", () => {
     expect(mustGit(root, "status", "--porcelain")).toBe("?? attachments/fresh/hand.md\n?? skills/keep/hand.md\n");
   }, REAL_GIT_TIMEOUT_MS);
 
+  test.each<[string, string, string]>([
+    ["a pack file", "attachments/old/extra.md", "attachments/old/extra.md"],
+    ["a file beside the pack", "../outside.md", "../outside.md"],
+  ])("%s another process stages before the pending commit refuses it, naming the file, with nothing committed or pushed", async (_label, rel, named) => {
+    const { root, remote, pack } = realPackRepo("packs");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.materialize = async () => {
+      writeFileSync(join(pack.dir, rel), "staged by someone else\n");
+      mustGit(pack.dir, "add", "--", rel);
+      return { ok: true, detail: "materialized 1" };
+    };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(report.steps.at(-1)!.detail).toContain(named);
+    expect(report.steps.at(-1)!.detail).not.toContain("pack/skills.jsonc");
+    expect(mustGit(root, "rev-list", "--count", "HEAD").trim()).toBe("1");
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a file staged between the pending commit and the version commit refuses the version commit and pushes nothing", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) => {
+      const res = await run(cmd, args, opts);
+      if (cmd === "git" && args[0] === "commit" && args.includes("skills: acme pending changes")) {
+        writeFileSync(join(pack.dir, "skills", "keep", "slipped-in.md"), "staged by someone else\n");
+        mustGit(root, "add", "skills/keep/slipped-in.md");
+      }
+      return res;
+    };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(report.steps.at(-1)!.detail).toContain("skills/keep/slipped-in.md");
+    expect(world.calls.some((c) => c.cmd === "git" && c.args[0] === "push")).toBe(false);
+    expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["skills: acme pending changes", "base"]);
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a clean pack inside a larger repo commits its rebuilt skills, read from the pack", async () => {
+    const { root, remote, pack } = realPackRepo("packs");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = async () => {
+      writeFileSync(join(pack.dir, "skills", "keep", "SKILL.md"), "keep, recompiled\n");
+      return { ok: true, errors: [], written: ["skills/keep/SKILL.md"], removed: [] };
+    };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.ok).toBe(true);
+    expect(mustGit(root, "show", "--name-only", "--format=", "HEAD").trim().split("\n").sort()).toEqual(["packs/acme/.claude-plugin/plugin.json", "packs/acme/skills/keep/SKILL.md"]);
+    expect(remoteLog(remote)).toEqual(["skills sync: acme v1.0.1", "base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
   test("a compiled file the pack ignores stays out of the version commit instead of failing the add", async () => {
     const { root, remote, pack } = realPackRepo("");
     const engine = fixturePack("beacon", "local", "2.0.0");
