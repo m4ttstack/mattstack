@@ -1301,7 +1301,6 @@ describe('rowStatus: social lanes', () => {
       word: 'Kim is reviewing right now',
     });
   });
-
 });
 
 describe('rowStatus: the stress row', () => {

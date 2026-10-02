@@ -207,15 +207,15 @@ import {
 } from './peer/envelope.ts';
 import { type MaterializeDeps } from './peer/inbox.ts';
 import {
+  dismissSentNudge,
+  finishSentNudge,
   pendingNudgesByMr,
+  pruneFinishedSentNudges,
   pruneNudges,
   pruneSentNudges,
   readNudges,
   readSentNudges,
   resolveSentNudge,
-  finishSentNudge,
-  dismissSentNudge,
-  pruneFinishedSentNudges,
   sentNudgeView,
   writeNudge,
   writeSentNudge,

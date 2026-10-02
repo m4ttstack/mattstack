@@ -325,10 +325,7 @@ export interface SentNudgeView {
   finishedAt?: number;
 }
 
-export function sentNudgeView(
-  n: SentNudge,
-  now: number
-): SentNudgeView | null {
+export function sentNudgeView(n: SentNudge, now: number): SentNudgeView | null {
   if (isFinishedStale(n, now)) return null;
   const r = n.resolution;
   const finished = r?.result === 'done' || r?.result === 'failed';

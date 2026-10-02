@@ -5,17 +5,17 @@ import type { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
+  dismissSentNudge,
+  finishSentNudge,
   markNudgeHandled,
   NUDGE_NO_RESPONSE_MS,
   pendingNudgesByMr,
+  pruneFinishedSentNudges,
   pruneNudges,
   pruneSentNudges,
   readNudges,
   readSentNudges,
   resolveSentNudge,
-  dismissSentNudge,
-  finishSentNudge,
-  pruneFinishedSentNudges,
   SENT_FINISH_KEEP_MS,
   sentNudgeDisplay,
   sentNudgeView,
@@ -476,12 +476,7 @@ describe('finishSentNudge', () => {
       db
     );
     resolveSentNudge(URL_A, { result: 'launched', at: 5 }, db);
-    finishSentNudge(
-      URL_A,
-      { result: 'failed', reason: 'boom', at: 9 },
-      10,
-      db
-    );
+    finishSentNudge(URL_A, { result: 'failed', reason: 'boom', at: 9 }, 10, db);
     expect(readSentNudges(db).get(URL_A)?.resolution).toEqual({
       result: 'failed',
       reason: 'boom',
@@ -600,10 +595,7 @@ describe('sentNudgeDisplay', () => {
       )
     ).toBe('done');
     expect(
-      sentNudgeDisplay(
-        { ...base, resolution: { result: 'failed', at: 5 } },
-        6
-      )
+      sentNudgeDisplay({ ...base, resolution: { result: 'failed', at: 5 } }, 6)
     ).toBe('failed');
   });
 });

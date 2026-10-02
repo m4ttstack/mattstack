@@ -333,10 +333,11 @@ body {
   position: relative;
   overflow: hidden;
 }
-/* The one row feature allowed to grow the row: a note adds its band under
+/* The row features allowed to grow the row: a note or a sent ask adds its band under
    line 3 and the row takes whatever that band needs (B10). Everything else
    still lives inside the fixed four lines. */
-.tui-row[data-note] {
+.tui-row[data-note],
+.tui-row[data-ask] {
   height: auto;
   min-height: var(--row-h);
 }
@@ -1994,6 +1995,8 @@ body {
    be measured from that constant. The row clips, so an overshoot lands on
    the row's own bottom edge exactly. */
 .tui-stack-rows > .tui-row[data-note] > .tui-row-pick::after,
+.tui-stack-rows > .tui-row[data-ask] > .tui-row-pick::after,
+.tui-row-nested[data-ask] .tui-row-pick::before,
 .tui-row-nested[data-note] .tui-row-pick::before {
   bottom: -400px;
 }
@@ -4715,37 +4718,41 @@ a.tui-id-card-ref:focus-visible {
   }
 }
 
-/* The sent-ask band: this board's own ask of a teammate's agent, on its own
-   line at the foot of the row, tinted by where the ask stands. */
+/* The sent-ask band: this board's own ask of a teammate's agent, the foot of
+   the row. Full width, a top rule, tinted by where the ask stands, its
+   content aligned with the row's own. */
+.tui-row[data-ask] {
+  padding-bottom: 0;
+}
 .tui-ask {
-  --ask-fill: var(--muted);
+  --ask-fill: var(--text-4);
   --ask-text: var(--text-3);
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 8px;
-  padding: 5px 10px;
+  margin: var(--row-pad) -16px 0 0;
+  padding: 8px 16px 8px var(--gutter-w);
   min-width: 0;
   font-size: 0.76rem;
   line-height: 20px;
   color: var(--ask-text);
-  background: var(--ask-fill);
-  border: 1px solid color-mix(in srgb, var(--ask-text) 22%, transparent);
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--ask-fill) 15%, var(--card));
+  border-top: 1px solid var(--border-soft);
 }
-.tui-ask[data-tone='work'] {
-  --ask-fill: var(--fill-purple);
-  --ask-text: var(--text-purple-small);
+.tui-ask[data-ask-tone='work'] {
+  --ask-fill: var(--fill-accent);
+  --ask-text: var(--text-accent-small);
 }
-.tui-ask[data-tone='ok'] {
+.tui-ask[data-ask-tone='ok'] {
   --ask-fill: var(--fill-ok);
   --ask-text: var(--text-ok-small);
 }
-.tui-ask[data-tone='bad'] {
+.tui-ask[data-ask-tone='bad'] {
   --ask-fill: var(--fill-bad);
   --ask-text: var(--text-bad-small);
 }
-.tui-ask[data-tone='warn'] {
+.tui-ask[data-ask-tone='warn'] {
   --ask-fill: var(--fill-warn);
   --ask-text: var(--text-warn-small);
 }
@@ -4792,14 +4799,14 @@ a.tui-id-card-ref:focus-visible {
   align-items: center;
   gap: 5px;
   flex-shrink: 0;
-  padding: 2px 9px;
+  padding: 3px 10px;
   font: inherit;
   font-weight: 600;
   line-height: 18px;
   color: var(--ask-text);
   background: var(--card);
-  border: 1px solid color-mix(in srgb, var(--ask-text) 55%, transparent);
-  border-radius: 5px;
+  border: 1px solid var(--ask-text);
+  border-radius: 6px;
   cursor: pointer;
 }
 .tui-ask-btn:hover {
@@ -4808,4 +4815,54 @@ a.tui-id-card-ref:focus-visible {
 .tui-ask-btn:focus-visible {
   outline: 2px solid var(--ask-text);
   outline-offset: 1px;
+}
+/* The hover trail: a card in a portal, since the row clips its overflow. */
+.tui-ask-trail {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  padding: 16px;
+  font-size: 0.76rem;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
+  pointer-events: none;
+}
+.tui-ask-trail-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.tui-ask-trail-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-ok-vivid);
+}
+.tui-ask-trail-step[data-stop='bad'] {
+  color: var(--text-bad);
+}
+.tui-ask-trail-step[data-stop='warn'] {
+  color: var(--text-warn-vivid);
+}
+.tui-ask-trail-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.tui-ask-trail-name {
+  font-weight: 600;
+  color: var(--fg);
+}
+.tui-ask-trail-detail,
+.tui-ask-trail-foot {
+  font-size: 0.7rem;
+  color: var(--text-3);
 }

@@ -7,16 +7,27 @@ import { ago } from './format.ts';
 export type AskTone = 'neutral' | 'work' | 'ok' | 'bad' | 'warn';
 export type AskAction = 'retry' | 'dismiss';
 
+/** One line of the hover trail. `at` is absent when the step has no time of
+    its own (a silence is not an event). */
+export interface AskStep {
+  name: string;
+  detail: string;
+  at?: number;
+}
+
 export interface AskBand {
   tone: AskTone;
   /** A lucide icon name. */
   icon: string;
+  /** The teammate, as the band and the trail name them. */
+  name: string;
   who: string;
+  title: string;
   label: string;
   age?: string;
   actions: AskAction[];
   /** What the row knows of the ask's life, oldest first. */
-  trail: string[];
+  steps: AskStep[];
 }
 
 type Kind = NonNullable<SentNudgeInfo['kind']>;
@@ -36,6 +47,11 @@ const DONE: Record<Kind, string> = {
   're-review': 're-reviewed',
   respond: 'responded',
 };
+const TITLE: Record<Kind, string> = {
+  review: 'Review',
+  're-review': 'Re-review',
+  respond: 'Response',
+};
 
 const since = (ms: number | undefined, now: number): string | undefined =>
   ms ? ago(new Date(ms).toISOString(), now) : undefined;
@@ -52,26 +68,33 @@ function doneLabel(kind: Kind, outcome?: string): string {
   return base;
 }
 
+const capitalize = (s: string): string =>
+  s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+
 export function askBandModel(sent: SentNudgeInfo, now: number): AskBand {
   const kind: Kind = sent.kind ?? 're-review';
-  const who = `${sent.reviewer}'s agent`;
-  const requested = ageWord(sent.sentAt, now);
-  const trail = [requested ? `requested ${requested}` : 'requested'];
+  const name = capitalize(sent.reviewer);
+  const requested: AskStep = {
+    name: 'Requested',
+    detail: 'you',
+    at: sent.sentAt,
+  };
   const band = (
     b: Pick<AskBand, 'tone' | 'icon' | 'label' | 'age'> &
       Partial<Pick<AskBand, 'actions'>>,
-    ...more: string[]
+    ...more: AskStep[]
   ): AskBand => ({
-    who,
+    name,
+    who: `${name}'s agent`,
+    title: `${TITLE[kind]} from ${name}`,
     actions: [],
     ...b,
-    trail: [...trail, ...more],
+    steps: [requested, ...more],
   });
 
   switch (sent.display) {
     case 'confirmed':
-    case 'launched': {
-      const started = ageWord(sent.resolvedAt, now);
+    case 'launched':
       return band(
         {
           tone: 'work',
@@ -79,36 +102,42 @@ export function askBandModel(sent: SentNudgeInfo, now: number): AskBand {
           label: RUNNING[kind],
           age: since(sent.resolvedAt, now),
         },
-        started ? `started ${started}` : 'started'
+        {
+          name: 'Started',
+          detail: `${name}'s agent`,
+          at: sent.resolvedAt,
+        }
       );
-    }
     case 'done': {
       const label = doneLabel(kind, sent.outcome);
-      const finished = ageWord(sent.finishedAt, now);
       return band(
         {
           tone: 'ok',
           icon: 'check',
           label,
-          age: finished,
+          age: ageWord(sent.finishedAt, now),
           actions: ['dismiss'],
         },
-        `finished ${finished ?? ''}: ${label}`.replace(' :', ':')
+        { name: 'Finished', detail: label, at: sent.finishedAt }
       );
     }
-    case 'failed': {
-      const finished = ageWord(sent.finishedAt, now);
+    case 'failed':
       return band(
         {
           tone: 'bad',
           icon: 'triangle-alert',
-          label: sent.reason ? `failed to run: ${sent.reason}` : 'failed to run',
-          age: finished,
+          label: sent.reason
+            ? `failed to run: ${sent.reason}`
+            : 'failed to run',
+          age: ageWord(sent.finishedAt, now),
           actions: ['retry', 'dismiss'],
         },
-        finished ? `failed ${finished}` : 'failed'
+        {
+          name: 'Failed',
+          detail: sent.reason ?? `${name}'s agent hit an error`,
+          at: sent.finishedAt,
+        }
       );
-    }
     case 'rejected':
       return band(
         {
@@ -118,7 +147,10 @@ export function askBandModel(sent: SentNudgeInfo, now: number): AskBand {
           age: since(sent.sentAt, now),
           actions: ['retry', 'dismiss'],
         },
-        'declined'
+        {
+          name: 'Declined',
+          detail: sent.reason ?? `${name}'s board refused it`,
+        }
       );
     case 'expired':
     case 'no-response':
@@ -130,7 +162,7 @@ export function askBandModel(sent: SentNudgeInfo, now: number): AskBand {
           age: since(sent.sentAt, now),
           actions: ['retry', 'dismiss'],
         },
-        'no answer'
+        { name: 'No answer', detail: `${name}'s board never replied` }
       );
     case 'requested':
       return band({

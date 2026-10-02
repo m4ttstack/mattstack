@@ -42,7 +42,7 @@ const mrWith = (sent?: Partial<SentNudgeInfo>): BoardMRWithReview =>
       ? {
           sentNudge: {
             display: 'requested',
-            reviewer: 'leath',
+            reviewer: 'grace',
             sentAt: NOW - 60_000,
             ...sent,
           },
@@ -80,14 +80,29 @@ test('no sent ask renders nothing', async () => {
   expect(container.querySelector('.tui-ask')).toBeNull();
 });
 
-test('names the teammate agent, the state, and carries the trail as the hover title', async () => {
+test('names the teammate agent and the state', async () => {
   await render(mrWith({ kind: 're-review' }), ctx());
   const band = container.querySelector('.tui-ask')!;
-  expect(band.getAttribute('data-tone')).toBe('neutral');
-  expect(band.textContent).toContain("leath's agent");
+  expect(band.getAttribute('data-ask-tone')).toBe('neutral');
+  expect(band.textContent).toContain("Grace's agent");
   expect(band.textContent).toContain('re-review requested');
-  expect(band.getAttribute('title')).toContain('requested 1m ago');
   expect(buttons()).toEqual([]);
+});
+
+test('hovering the band opens the trail card, leaving closes it', async () => {
+  await render(mrWith({ kind: 're-review' }), ctx());
+  const band = container.querySelector('.tui-ask')!;
+  expect(document.querySelector('.tui-ask-trail')).toBeNull();
+  await React.act(async () => {
+    band.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  });
+  const card = document.querySelector('.tui-ask-trail')!;
+  expect(card.textContent).toContain('Re-review from Grace');
+  expect(card.textContent).toContain('Requested');
+  await React.act(async () => {
+    band.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+  });
+  expect(document.querySelector('.tui-ask-trail')).toBeNull();
 });
 
 test('a running ask shows the spinner and no action', async () => {

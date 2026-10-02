@@ -8,7 +8,7 @@ const MIN = 60_000;
 
 const sent = (over: Partial<SentNudgeInfo>): SentNudgeInfo => ({
   display: 'requested',
-  reviewer: 'leath',
+  reviewer: 'grace',
   sentAt: NOW - 3 * 60 * MIN,
   ...over,
 });
@@ -18,11 +18,13 @@ describe('askBandModel', () => {
     expect(askBandModel(sent({ kind: 're-review' }), NOW)).toEqual({
       tone: 'neutral',
       icon: 'send',
-      who: "leath's agent",
+      name: 'Grace',
+      who: "Grace's agent",
+      title: 'Re-review from Grace',
       label: 're-review requested',
       age: '3h',
       actions: [],
-      trail: ['requested 3h ago'],
+      steps: [{ name: 'Requested', detail: 'you', at: NOW - 3 * 60 * MIN }],
     });
   });
 
@@ -147,17 +149,27 @@ describe('askBandModel', () => {
       }),
       NOW
     );
-    expect(m.trail).toEqual([
-      'requested 3h ago',
-      'finished 1h ago: reviewed: approved',
+    expect(m.steps).toEqual([
+      { name: 'Requested', detail: 'you', at: NOW - 3 * 60 * MIN },
+      { name: 'Finished', detail: 'reviewed: approved', at: NOW - 60 * MIN },
     ]);
     const running = askBandModel(
       sent({ display: 'confirmed', resolvedAt: NOW - 10 * MIN }),
       NOW
     );
-    expect(running.trail).toEqual([
-      'requested 3h ago',
-      'started 10m ago',
-    ]);
+    expect(running.steps.map(s => s.name)).toEqual(['Requested', 'Started']);
+    expect(running.steps[1]).toMatchObject({
+      detail: "Grace's agent",
+      at: NOW - 10 * MIN,
+    });
+  });
+
+  test('the trail titles the ask and names the teammate', () => {
+    expect(askBandModel(sent({ kind: 'respond' }), NOW).title).toBe(
+      'Response from Grace'
+    );
+    expect(askBandModel(sent({ kind: 'review' }), NOW).title).toBe(
+      'Review from Grace'
+    );
   });
 });
