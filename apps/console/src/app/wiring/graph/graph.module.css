@@ -75,10 +75,16 @@
 /* Over the canvas, which stays draggable and clickable through it. */
 .header {
   position: absolute;
-  top: 20px;
-  left: 24px;
-  right: 24px;
+  top: 16px;
+  left: 20px;
+  right: 20px;
   z-index: 1;
+  padding: 12px 16px;
+  /* A quiet, see-through panel over the dots: it marks the header off
+     without pulling the eye from the graph. */
+  --paper-border-color: var(--tk-border-soft);
+  background-color: color-mix(in srgb, var(--tk-card) 70%, transparent);
+  backdrop-filter: blur(6px);
   pointer-events: none;
 }
 

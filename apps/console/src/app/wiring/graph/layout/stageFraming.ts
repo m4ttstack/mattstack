@@ -20,7 +20,11 @@ const RIGHT_ROOM = 24;
 const BOTTOM_ROOM = 136;
 
 /** Space between the focus header and the column headings under it. */
-export const HEADER_GAP = 6;
+export const HEADER_GAP = 18;
+
+/** Stage px a drag may move the graph past its framing on every side, so
+    the canvas drags even when the whole graph is in view. */
+export const PAN_SLACK = 160;
 
 /** The template's right edge with the handles on it, in layout units: what a
     drawer over the stage's right edge leaves in view. */
@@ -35,8 +39,9 @@ export type FramingOptions = {
 
 export type Framing = {
   viewport: Viewport;
-  /** Where the viewport may travel, in layout units: the board's corner, and
-      the graph's width and height plus their room. */
+  /** Where the viewport may travel, in layout units: the board's corner and
+      the graph's width and height plus their room, and the drag room past
+      them. */
   extent: CoordinateExtent;
   /** The stage y the framed graph starts at, the column headings' top.
       Content that scrolls above it would run under the focus header. */
@@ -51,8 +56,9 @@ export function panFor(stageWidth: number, zoom: number, cover: number) {
   return Math.min(0, stageWidth - cover - RIGHT_ROOM - TEMPLATE_RIGHT * zoom);
 }
 
-/** Where a viewport framed at `viewport` may travel: up to the framed top,
-    and far enough right to bring the graph out from under a drawer. */
+/** Where a viewport framed at `viewport` may travel: the framed top, far
+    enough right to bring the graph out from under a drawer, and the drag
+    room past both on every side. */
 export function extentFor(
   stage: { width: number; height: number },
   graph: { right: number; bottom: number },
@@ -61,14 +67,16 @@ export function extentFor(
 ): CoordinateExtent {
   const { x, y, zoom } = viewport;
   const top = -y / zoom;
+  const slack = PAN_SLACK / zoom;
   return [
-    [0, top],
+    [-slack, top - slack],
     [
       Math.max(
         graph.right + (RIGHT_ROOM + cover) / zoom,
         (stage.width - x) / zoom
-      ),
-      Math.max(graph.bottom + BOTTOM_ROOM / zoom, top + stage.height / zoom),
+      ) + slack,
+      Math.max(graph.bottom + BOTTOM_ROOM / zoom, top + stage.height / zoom) +
+        slack,
     ],
   ];
 }
