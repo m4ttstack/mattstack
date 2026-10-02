@@ -545,6 +545,11 @@ describe('canvas errors', () => {
     expect(alert.getAttribute('style')).toContain('warn');
     expect(within(header).queryByTestId('focus-status')).toBeNull();
     expect(await screen.findByTestId('template-node')).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('focus-list')).getByTestId('check-error')
+    ).toHaveTextContent(
+      'rt skills check failed, so no row below can state its drift: rt skills check: pack/skills.jsonc is not valid JSONC'
+    );
   });
 
   it('a check that fails to refresh keeps the statuses it already gave, without the alert', async () => {
@@ -568,6 +573,9 @@ describe('canvas errors', () => {
     expect(within(header).getByTestId('focus-status')).toHaveTextContent(
       'in sync with installed mattstack 0.30.4'
     );
+    expect(
+      within(screen.getByTestId('focus-list')).queryByTestId('check-error')
+    ).toBeNull();
   });
 
   it('a failed changes poll shows nothing', async () => {

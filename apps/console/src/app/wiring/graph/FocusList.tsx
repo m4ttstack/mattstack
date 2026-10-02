@@ -435,7 +435,7 @@ export function GraphSidebar({ pack }: { pack: string }) {
       data-parity="Focus list"
       data-testid="focus-list"
     >
-      {checkQuery.isError && (
+      {checkQuery.isError && !checkQuery.data && (
         <Alert
           variant="light"
           color="warn"

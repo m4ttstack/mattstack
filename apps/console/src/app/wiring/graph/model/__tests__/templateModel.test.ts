@@ -390,6 +390,25 @@ describe('slot states', () => {
     ]);
   });
 
+  it('still lists a referenced fill among what the text links to while its rebind is unsynced', () => {
+    const view = buildTemplateView({
+      anatomy: withPart(anatomyPlanUnsynced, 'domain', {
+        mode: 'reference',
+        renderedLines: [223, 223],
+      }),
+      composition: compositionUnsynced,
+      check,
+      changes: changesUnsynced,
+      step: 2,
+    });
+    expect(view.rows.find(r => r.line === 136)).toMatchObject({
+      state: 'unsynced',
+    });
+    expect(
+      view.output!.links.map(link => [link.label, link.path, link.select])
+    ).toContainEqual(['plan-policy-strict', null, 'row:136']);
+  });
+
   it('names the fill a bound slot row is filled from, and none for an include', () => {
     const view = planView();
     expect(view.rows.find(r => r.line === 136)).toMatchObject({

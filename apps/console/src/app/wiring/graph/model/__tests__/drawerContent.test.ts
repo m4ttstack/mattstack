@@ -278,6 +278,16 @@ describe('a slot nothing fills', () => {
     });
   });
 
+  it('reads an empty binding as nothing bound, as the rebind panel does', () => {
+    const view = viewWith({
+      boundTo: '',
+      resolveError: 'no fill provides changelog-style@1',
+    });
+    expect(open(view, 'row:22')).toMatchObject({
+      slot: { name: 'changelog', bound: false },
+    });
+  });
+
   it("carries rt's whole message for a slot it could not resolve", () => {
     const message =
       'loadAttachment: slot "changelog": binding "acme:changelog-style" not found; searched:\n/a\n/b';

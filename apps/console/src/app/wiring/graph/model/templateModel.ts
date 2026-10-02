@@ -63,7 +63,7 @@ export type InputCard = {
   rowId: string;
   title: string;
   subtitle: string;
-  /** `fileX` for a slot whose binding names no file rt could find. */
+  /** `fileX` for a slot rt could not load a fill file for. */
   icon: 'fileText' | 'cpu' | 'fileX';
   path: string | null;
   subtitleTone: 'dimmed' | 'accent' | 'warn' | 'bad';
@@ -750,8 +750,18 @@ function outputLinks(
       select: `link:${link.path}`,
     } satisfies OutputLink,
   }));
+  // A row's state names only its loudest fact, so an unsynced rebind hides
+  // that the slot still renders as a reference; the mode comes from the part.
+  const referenced = new Set(
+    anatomy.parts
+      .filter(part => part.kind === 'slot' && part.mode === 'reference')
+      .map(part => part.name)
+  );
   const byBinding = rows.flatMap(row =>
-    row.kind === 'placeholder' && row.state === 'referenced' && row.fill
+    row.kind === 'placeholder' &&
+    row.placeholder === 'slot' &&
+    referenced.has(row.name) &&
+    row.fill
       ? [
           {
             line: row.renderedLines?.[0] ?? 0,

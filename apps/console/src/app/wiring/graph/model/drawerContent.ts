@@ -250,7 +250,7 @@ function rowContent(
         ? {
             name: part.name ?? '',
             contract: row.contract,
-            bound: row.boundTo !== null,
+            bound: !!row.boundTo,
           }
         : null,
     usedBy: null,
