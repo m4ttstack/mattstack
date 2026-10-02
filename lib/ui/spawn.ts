@@ -4,6 +4,7 @@
  */
 import { BackNavigation } from "../back-navigation.ts";
 import { encodeLine, parsePromptResult, parseSessionLine, PROTOCOL_VERSION, type PromptResult, type PromptSpec, type RenderStatus, type SessionClosed, type SessionIntent, type StepLevel } from "./protocol.ts";
+import { rtUiEnv } from "./background.ts";
 import { interactive } from "./gate.ts";
 import { resolveRtUi } from "./resolve.ts";
 
@@ -35,7 +36,7 @@ function spawnVerb(verb: "prompt" | "steps" | "session", extra: string[] = []) {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env },
+    env: verb === "steps" ? rtUiEnv() : { ...process.env },
   });
   live.add(proc);
   proc.exited.then(() => live.delete(proc));

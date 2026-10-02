@@ -218,6 +218,7 @@ export const SHAPES: Record<string, CompositeShape> = {
 export const ENUMS: Record<string, readonly string[]> = {
   "agent.provider": ["claude", "codex"],
   "rt.logLevel": ["trace", "debug", "info", "warn", "error"],
+  "rt.ui.background": ["auto", "dark", "light"],
   "boxscore.defaultRange": ["7d", "30d", "90d"],
 };
 
