@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { resolveAllInboxes, resolveAllLiveInboxes, resolveInbox, resolveLiveInbox } from "../claude-registry.ts";
+import { resolveAllInboxes, resolveAllLiveInboxes, resolveInbox, resolveLiveInbox, sessionForPid } from "../claude-registry.ts";
 
 function fakeRoot(entries: Array<{ pid: number; sessionId: string; sock?: string; status?: string }>): string {
   const root = mkdtempSync(join(tmpdir(), "creg-"));
@@ -108,5 +108,19 @@ describe("resolveAllLiveInboxes", () => {
     ]);
     expect(resolveAllInboxes({ roots: [root] }).size).toBe(2);
     expect([...resolveAllLiveInboxes({ roots: [root] }).keys()]).toEqual(["dddddddd-0000-0000-0000-00000000000d"]);
+  });
+});
+
+describe("sessionForPid", () => {
+  test("reads the session id from the pid's own file, scanning every root", () => {
+    const a = fakeRoot([]);
+    const b = fakeRoot([{ pid: 444, sessionId: "dddddddd-0000-0000-0000-000000000004" }]);
+    expect(sessionForPid(444, { roots: [a, b] })).toBe("dddddddd-0000-0000-0000-000000000004");
+  });
+  test("returns null for an unknown pid and for a file whose pid field disagrees", () => {
+    const root = fakeRoot([{ pid: 555, sessionId: "eeeeeeee-0000-0000-0000-000000000005" }]);
+    writeFileSync(join(root, "666.json"), JSON.stringify({ pid: 777, sessionId: "ffffffff-0000-0000-0000-000000000006" }));
+    expect(sessionForPid(999, { roots: [root] })).toBeNull();
+    expect(sessionForPid(666, { roots: [root] })).toBeNull();
   });
 });
