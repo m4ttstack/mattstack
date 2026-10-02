@@ -6,7 +6,7 @@ import * as out from "../../../lib/ui/out.ts";
 import { renderPlain } from "../../../lib/ui/out-plain.ts";
 import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
 import { stashApplyCommand, stashBlocks, stashDropCommand, stashPopCommand, stashPushCommand, tagBlocks, tagCreateCommand, tagDeleteCommand, UNDO_REFUSED } from "../mutate.ts";
-import { exitCodeOf, inDir, makeRepo, trapExit } from "./helpers.ts";
+import { exitCodeOf, git, inDir, makeRepo, trapExit } from "./helpers.ts";
 
 test("the stash list names each stash by its number, its branch and its message", () => {
   expect(
@@ -77,6 +77,28 @@ test("stash pop says the stash left the list", async () => {
   io.clear();
   await inDir(repo, () => stashPopCommand([]));
   expect(io.stdout()).toBe("[ok] Brought back stash 0  and removed it from the list\n");
+});
+
+/** A stash of a.txt that conflicts with a commit made after it. */
+async function conflictingStash(): Promise<void> {
+  writeFileSync(join(repo, "a.txt"), "stashed\n");
+  await inDir(repo, () => stashPushCommand([]));
+  writeFileSync(join(repo, "a.txt"), "committed\n");
+  git(repo, "commit", "-qam", "change a");
+  io.clear();
+}
+
+test("a stash pop that conflicts warns that the stash was kept", async () => {
+  await conflictingStash();
+  expect(await exitCodeOf(() => inDir(repo, () => stashPopCommand([])))).toBeNull();
+  expect(io.stdout()).toBe("[warning] Brought back stash 0, but some files have conflicts  the stash was kept\n");
+  expect(git(repo, "stash", "list")).not.toBe("");
+});
+
+test("a stash pop that conflicts keeps its --json envelope", async () => {
+  await conflictingStash();
+  await inDir(repo, () => stashPopCommand(["--json"]));
+  expect(io.stdout()).toBe('{"ok":true,"index":0}\n');
 });
 
 test("a value flag with nothing after it asks for the value", async () => {

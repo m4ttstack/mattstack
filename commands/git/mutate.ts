@@ -132,12 +132,19 @@ function stashIndexArg(args: string[], json: boolean, usage: string): number {
 export async function stashPopCommand(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const index = stashIndexArg(args, json, "usage: rt git stash pop [<index>] [--json]");
+  const client = createGitClient(process.cwd());
+  let kept = false;
   try {
-    await createGitClient(process.cwd()).stashPop(index);
+    // A pop that conflicts keeps the stash and does not throw. Not counted
+    // under --json, so a failure's error string stays the pop's own.
+    const before = json ? null : (await client.stashes()).length;
+    await client.stashPop(index);
+    if (before !== null) kept = (await client.stashes()).length === before;
   } catch (err) {
     failPlain(json, "Could not bring that stash back", errText(err));
   }
   if (json) out.json({ ok: true, index });
+  else if (kept) out.print(out.line("warn", `Brought back stash ${index}, but some files have conflicts`, "the stash was kept"));
   else out.print(out.line("done", `Brought back stash ${index}`, "and removed it from the list"));
 }
 
