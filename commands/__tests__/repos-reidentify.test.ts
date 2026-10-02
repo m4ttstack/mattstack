@@ -59,7 +59,7 @@ describe("rt repos reidentify", () => {
     ui.__test__.setHuman(() => false);
     try {
       await reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) });
-      expect(io.lines()[0]).toBe("[ok] Moved this repo's data  remote:github.com%2Facme%2Fold → remote:github.com%2Facme%2Fnew");
+      expect(io.lines()[0]).toBe("[ok] Moved this repo's data  github.com/acme/old → github.com/acme/new");
       expect(io.lines().some((l) => /kv:repo-index\s+moved\s+1/.test(l))).toBe(true);
       expect(io.lines().some((l) => /run_history\.repo\s+none/.test(l))).toBe(true);
       expect(out).toEqual([]);
@@ -94,7 +94,7 @@ describe("rt repos reidentify", () => {
     ui.__test__.setHuman(() => false);
     try {
       await reposReidentify(["github.com/acme/typo", "github.com/acme/new"], {}, { print: (s) => out.push(s) });
-      expect(io.lines()[0]).toBe("[skipped] Nothing to move  rt holds nothing under remote:github.com%2Facme%2Ftypo");
+      expect(io.lines()[0]).toBe("[skipped] Nothing to move  rt holds nothing under github.com/acme/typo");
     } finally {
       io.restore();
     }

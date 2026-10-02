@@ -11,7 +11,9 @@ import { deriveRepoIdentity, serializeIdentity } from "../../lib/settings/identi
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { reposPrune, reposRegister, type RegisterDeps } from "../repos.ts";
+import { pruneBlocks, reposPrune, reposRegister, type RegisterDeps } from "../repos.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import { repoDataDir } from "../../lib/rt-paths.ts";
 
 function testDeps(): RegisterDeps & { lines: string[] } {
   const lines: string[] = [];
@@ -372,6 +374,48 @@ describe("reposPrune", () => {
     expect(code).toBe(2);
     expect(stderr).toBe("This command has no option called --force\n  next: rt repos prune [--dry-run] [--json]\n");
     expect(loadRepoIndexEntries().map((e) => e.repoName)).toEqual(["gone"]);
+  });
+
+  test("a name folded into the identity row names that repo in full, never its key", async () => {
+    const widgets = makeTempRepo("widgets");
+    const identity = "remote:github.com%2Facme%2Fwidgets";
+    setKvValue("repo-index", "widgets", widgets);
+    setKvValue("repo-index", identity, widgets);
+    mkdirSync(repoDataDir("widgets"), { recursive: true });
+    writeFileSync(join(repoDataDir("widgets"), "notes.json"), "{}");
+
+    const { lines } = await human(() => reposPrune([], {}, testDeps()));
+
+    expect(lines).toEqual([
+      `[ok] Removed widgets  ${widgets.replace(homedir(), "~")} · same folder as github.com/acme/widgets; carried 1 file to github.com/acme/widgets`,
+    ]);
+    expect(loadRepoIndexEntries().map((e) => e.repoName)).toEqual([identity]);
+  });
+
+  test("a row rt was too busy to clear is kept, with the command to try again", () => {
+    const text = renderPlain(pruneBlocks([{ repoName: "gone", path: "/x/gone", reason: "missing", registry: "busy", retained: true }], false));
+    expect(text).toBe("[warning] Kept gone  /x/gone · its folder is gone, and rt was busy and could not clear its worktree list\n  next: rt repos prune\n");
+  });
+
+  test("a duplicate whose data could not all move is kept, naming the repo that kept the folder", () => {
+    const text = renderPlain(
+      pruneBlocks(
+        [
+          {
+            repoName: "widgets",
+            path: "/x/widgets",
+            reason: "duplicate",
+            keptAs: "remote:github.com%2Facme%2Fwidgets",
+            data: { moved: [], merged: [], refused: ["notes.json"], removedDir: false, registry: "none" },
+            retained: true,
+          },
+        ],
+        false,
+      ),
+    );
+    expect(text).toBe(
+      "[warning] Kept widgets  /x/widgets · same folder as github.com/acme/widgets, but not all of its data could move; kept both copies of notes.json\n",
+    );
   });
 
   test("a retained missing row tells the operator to locate it", async () => {

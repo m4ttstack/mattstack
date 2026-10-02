@@ -22,10 +22,10 @@ import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.
 import { CACHE_KINDS, loadMachineRepoTrackingRaw, parseCachesArg, saveRepoTrackingRaw, type CacheKind, type TrackingMode } from "../lib/repo-tracking.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/errors.ts";
-import { findLocateCandidates, parseRefusalText } from "../lib/repo-locate.ts";
+import { findLocateCandidates, parseRefusalText, splitRefusalNext } from "../lib/repo-locate.ts";
 import { locateMovedRepo } from "../lib/repo-locate-dispatch.ts";
 import { tryResolveRepoArg } from "../lib/repo-arg.ts";
-import { repoLabel, repoLabelQualified } from "../lib/repo-label.ts";
+import { repoLabel, repoLabelFull, repoLabelQualified } from "../lib/repo-label.ts";
 import { daemonQuery } from "../lib/daemon-client.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
@@ -215,20 +215,21 @@ async function pickRegisterTarget(): Promise<string | null | undefined> {
 const PRUNE_USAGE = "usage: rt repos prune [--dry-run] [--json]";
 
 function describeReason(r: PrunedEntry): string {
-  return r.reason === "duplicate" ? `same folder as ${r.keptAs}` : "its folder is gone";
+  return r.reason === "duplicate" ? `same folder as ${repoLabelFull(r.keptAs ?? "")}` : "its folder is gone";
 }
 
 /** What the retired name's data did, as a trailing clause. Refusals are named one by one: they are the only outcome that leaves the person something to do. */
 function describeDataMove(r: PrunedEntry, dryRun: boolean): string {
   const d = r.data;
   if (!d) return "";
+  const kept = repoLabelFull(r.keptAs ?? "");
   const carried = d.moved.length + d.merged.length;
   const parts: string[] = [];
-  if (carried > 0) parts.push(`${dryRun ? "would carry" : "carried"} ${carried} file${carried === 1 ? "" : "s"} to ${r.keptAs}`);
+  if (carried > 0) parts.push(`${dryRun ? "would carry" : "carried"} ${carried} file${carried === 1 ? "" : "s"} to ${kept}`);
   if (d.merged.length > 0) parts.push(`merged ${d.merged.join(", ")}`);
-  if (d.registry === "moved") parts.push(`${dryRun ? "would move" : "moved"} its worktrees to ${r.keptAs}`);
-  if (d.registry === "merged") parts.push(`${dryRun ? "would merge" : "merged"} its worktrees into ${r.keptAs}'s`);
-  if (d.registry === "refused") parts.push(`${r.keptAs}'s worktrees could not be written, so both were kept`);
+  if (d.registry === "moved") parts.push(`${dryRun ? "would move" : "moved"} its worktrees to ${kept}`);
+  if (d.registry === "merged") parts.push(`${dryRun ? "would merge" : "merged"} its worktrees into ${kept}'s`);
+  if (d.registry === "refused") parts.push(`${kept}'s worktrees could not be written, so both were kept`);
   if (d.refused.length > 0) parts.push(`kept both copies of ${d.refused.join(", ")}`);
   return parts.length > 0 ? `; ${parts.join("; ")}` : "";
 }
@@ -360,7 +361,8 @@ export async function reposLocate(args: string[], _ctx: CommandContext = {}, dep
   if (!outcome.ok) {
     const refusal = parseRefusalText(outcome.error);
     if (refusal && !json) {
-      out.note(out.line("refused", refusal.message));
+      const { sentence, next } = splitRefusalNext(refusal.message);
+      out.note(out.line("refused", sentence), ...(next ? [out.callout("next", out.cmd(next))] : []));
       process.exit(2);
     }
     exitUserError(new UserActionableError("refused", outcome.error, {}, { why: outcome.why, next: outcome.next }), json, "repos locate", deps.print);
@@ -374,7 +376,7 @@ export async function reposLocate(args: string[], _ctx: CommandContext = {}, dep
     }
     out.print(
       out.line("pending", `Would move ${repoLabel(p.identity)}`, `${p.oldPath} → ${p.newPath}`),
-      out.kv("index rows", p.indexKeys.join(", ")),
+      out.kv("index rows", p.indexKeys.map(repoLabelFull).join(", ")),
       out.kv("worktree records", String(p.registryRewrites.reduce((n, r) => n + r.movedPaths.length, 0))),
       out.kv("endpoint claims", String(p.claimRewrites.length)),
       out.kv("worktrees to repair", p.gitRepairPaths.length === 0 ? "the main one only" : p.gitRepairPaths.join(", ")),

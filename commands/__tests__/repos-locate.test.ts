@@ -168,6 +168,32 @@ describe("reposLocate", () => {
     }
   });
 
+  test("a remote-less repo's refusal puts the command to run in a next line, and its envelope still ends in it", async () => {
+    const gone = join(scratch, "gone");
+    setKvValue("repo-index", `path:${encodeURIComponent(gone)}`, gone);
+    const dir = join(scratch, "local");
+    mkdirSync(dir, { recursive: true });
+    execSync("git init -q -b main", { cwd: dir, stdio: "pipe" });
+    execSync("git -c user.email=t@t -c user.name=t commit --allow-empty -q -m init", { cwd: dir, stdio: "pipe" });
+    const repo = realpathSync(dir);
+    const sentence = `${repo} has no remote, so rt knows a repo like this by its folder, and moving it makes it a new repo. Register the new folder instead`;
+
+    const { code, stderr } = await human(() => reposLocate([repo], {}, testDeps()));
+    expect(code).toBe(2);
+    expect(stderr).toBe(`[refused] ${sentence}\n  next: rt repos register ${repo}\n`);
+
+    const deps = testDeps();
+    expect(await runExpectingProcessExit(() => reposLocate([repo, "--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error).toEqual({ code: "refused", message: `identity-changed: ${sentence}: rt repos register ${repo}` });
+  });
+
+  test("a dry run names the repo's records in full, never by their keys", async () => {
+    const { to } = await movedRepo("eta");
+    const { lines } = await human(() => reposLocate([to, "--dry-run"], {}, testDeps()));
+    expect(lines).toContain("index rows: gitlab.com/g/eta");
+    expect(lines.join("\n")).not.toContain("remote:");
+  });
+
   test("a repo name rt does not know is one failure in plain words", async () => {
     const { to } = await movedRepo("zeta");
     const { code, stderr } = await human(() => reposLocate([to, "--repo", "no-such-repo"], {}, testDeps()));

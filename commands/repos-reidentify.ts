@@ -60,7 +60,7 @@ export async function reposReidentify(args: string[], _ctx: CommandContext = {},
     exitUserError(new UserActionableError("refused", outcome.error, {}, { why: outcome.why, next: outcome.next }), json, VERB, deps.print);
   }
   const report = outcome.report!;
-  const route = `${report.from.serialized} → ${report.to.serialized}`;
+  const route = `${report.from.raw} → ${report.to.raw}`;
 
   if (!outcome.ok) {
     // JSON mode must stay one parseable document, so the report rides in the error payload.
@@ -77,7 +77,7 @@ export async function reposReidentify(args: string[], _ctx: CommandContext = {},
   const nothing = report.stores.every((s) => s.status === "none");
   out.print(
     nothing
-      ? out.line("skipped", "Nothing to move", `rt holds nothing under ${report.from.serialized}`)
+      ? out.line("skipped", "Nothing to move", `rt holds nothing under ${report.from.raw}`)
       : out.line(dryRun ? "pending" : "done", dryRun ? "Would move this repo's data" : "Moved this repo's data", route),
     storeTable(report.stores),
   );

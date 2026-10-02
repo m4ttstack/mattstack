@@ -46,7 +46,7 @@ import { loadClaims, saveClaims, type EndpointClaim } from "./endpoint/store.ts"
 import { deriveRepoIdentity, parseIdentity, serializeIdentity } from "./settings/identity.ts";
 import { getStateDb } from "./state/index.ts";
 import { listWorktreesAsync, runGit } from "./worktree/git-async.ts";
-import { repoLabel } from "./repo-label.ts";
+import { repoLabel, repoLabelFull } from "./repo-label.ts";
 
 const LOCATE_REFUSAL_CODES = ["not-a-git-repo", "not-main-worktree", "nothing-lost", "old-path-exists", "identity-mismatch", "identity-changed"] as const;
 
@@ -114,6 +114,20 @@ export function isRefusal(x: LocatePlan | LocateRefusal): x is LocateRefusal {
 
 function refuse(refusal: LocateRefusalCode, message: string): LocateRefusal {
   return { refusal, message };
+}
+
+const NEXT_JOIN = ": ";
+
+/** A refusal that names a command to run keeps it last in its message, so a `--json` envelope still ends in it; the command must start with `rt ` for `splitRefusalNext` to find it. */
+export function refusalWithNext(sentence: string, command: string): string {
+  return `${sentence}${NEXT_JOIN}${command}`;
+}
+
+/** `refusalWithNext` read back for a person: the sentence alone, and the command apart. */
+export function splitRefusalNext(message: string): { sentence: string; next?: string } {
+  const at = message.lastIndexOf(`${NEXT_JOIN}rt `);
+  if (at < 0) return { sentence: message };
+  return { sentence: message.slice(0, at), next: message.slice(at + NEXT_JOIN.length) };
 }
 
 /** A refusal crosses the daemon socket as `<code>: <message>` (`lib/daemon/handlers/repos.ts`, and `repo-locate-dispatch.ts` the same way); null when `error` is not one. */
@@ -218,18 +232,18 @@ export async function planLocate(opts: { newPath: string; repo?: string }): Prom
     if (parseIdentity(identity)?.kind === "path") {
       return refuse(
         "identity-changed",
-        `${newPath} has no remote, so rt knows a repo like this by its folder, and moving it makes it a new repo. Register the new folder instead: rt repos register ${newPath}`,
+        refusalWithNext(`${newPath} has no remote, so rt knows a repo like this by its folder, and moving it makes it a new repo. Register the new folder instead`, `rt repos register ${newPath}`),
       );
     }
     return refuse(
       "identity-mismatch",
-      `${newPath} holds ${repoLabel(identity)}, and no missing repo rt knows is ${repoLabel(identity)}. The missing ones are ${lost.map((e) => repoLabel(e.repoName)).join(", ")}.`,
+      `${newPath} holds ${repoLabelFull(identity)}, and no missing repo rt knows is ${repoLabelFull(identity)}. The missing ones are ${lost.map((e) => repoLabelFull(e.repoName)).join(", ")}.`,
     );
   }
   if (named && canon(named.path) !== canon(identityRow.path)) {
     return refuse(
       "identity-mismatch",
-      `${newPath} holds ${repoLabel(identity)}, but the repo you named is ${repoLabel(named.repoName)}. rt matches a move by what a repo is, not by its name.`,
+      `${newPath} holds ${repoLabelFull(identity)}, but the repo you named is ${repoLabelFull(named.repoName)}. rt matches a move by what a repo is, not by its name.`,
     );
   }
 
