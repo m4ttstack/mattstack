@@ -12,6 +12,7 @@ import {
   resolveFrom,
   shareOf,
   spanOf,
+  textNounOf,
   type InputCard,
   type LineRange,
   type OutputCard,
@@ -201,24 +202,60 @@ function chipOf(part: AnatomyPart): string | null {
   return null;
 }
 
+/** The file's own text bands as one run wherever its parts' lines touch,
+    the lines above it as the header, and each pasted part by name. Lines no
+    part accounts for (a fill that changed since the build) get no band. */
 function bandsOf(
   anatomy: SkillsAnatomy,
   selected: string | null
 ): DrawerBand[] {
-  return anatomy.parts.flatMap(part =>
+  const tone = (on: boolean) => (on ? 'accent' : 'muted');
+  const isPasted = (part: AnatomyPart) =>
     (part.kind === 'include' || part.kind === 'slot') &&
-    part.mode !== 'reference' &&
-    part.renderedLines
+    part.mode !== 'reference';
+  const pasted = anatomy.parts.flatMap(part =>
+    isPasted(part) && part.renderedLines
       ? [
           {
             from: part.renderedLines[0],
             to: part.renderedLines[1],
             label: partLabel(part),
-            tone: partKey(part) === selected ? 'accent' : 'muted',
+            tone: tone(partKey(part) === selected),
           } satisfies DrawerBand,
         ]
       : []
   );
+  const ownRanges = anatomy.parts
+    .flatMap(part =>
+      !isPasted(part) && part.renderedLines ? [part.renderedLines] : []
+    )
+    .sort((a, b) => a[0] - b[0]);
+  if (!anatomy.parts.some(p => p.kind === 'text' && p.renderedLines))
+    return pasted;
+
+  const runs: LineRange[] = [];
+  for (const [from, to] of ownRanges) {
+    const last = runs[runs.length - 1];
+    if (last && from <= last[1] + 1) last[1] = Math.max(last[1], to);
+    else runs.push([from, to]);
+  }
+  const chosen = anatomy.parts.find(part => partKey(part) === selected);
+  const chosenOwn = chosen && !isPasted(chosen) ? chosen.renderedLines : null;
+  const own = `${textNounOf(anatomy)} text`;
+  const ownBands = runs.map(([from, to]): DrawerBand => ({
+    from,
+    to,
+    label: own,
+    tone: tone(
+      chosenOwn !== null && chosenOwn[0] >= from && chosenOwn[1] <= to
+    ),
+  }));
+  const firstOwn = runs[0][0];
+  const header: DrawerBand[] =
+    firstOwn > 1
+      ? [{ from: 1, to: firstOwn - 1, label: 'header', tone: 'muted' }]
+      : [];
+  return [...header, ...ownBands, ...pasted].sort((a, b) => a.from - b.from);
 }
 
 function rowContent(
