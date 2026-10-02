@@ -35,9 +35,11 @@ import { forgeLogin } from "./forge.ts";
 import { gitWithToken } from "./git-credential.ts";
 import { decodeCode, open, sealReply } from "./invite-crypto.ts";
 import { AUTH_FAILURE_PATTERN } from "./publish.ts";
-import { withoutUrls } from "./redact.ts";
+import { scrub, withoutUrls } from "./redact.ts";
 import { assertNotRealStoreInTest } from "../../packages/rt-client/src/test-isolation.ts";
 import type { RelayClient } from "./relay-client.ts";
+import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
+import * as out from "../ui/out.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { forgeLabel, probeTeamRepoAccess, type RepoAccessVerdict } from "./repo-access.ts";
 import { forgeTokenLookupForRemote, mayOfferToken, mayOfferTokenToHost, tokenLookupRemoteForHost } from "./forge-token.ts";
@@ -54,18 +56,32 @@ export interface JoinResult {
   intent: "written" | "not-written";
 }
 
-/** Raised only after the clone and the relay redeem have already succeeded — the join is real, but the local age key could not be read. Deliberately NOT a `UserActionableError`: the CLI reports it and exits 1 (a machine/environment problem), never 2 (a dead invite). */
-export class JoinKeyExchangeError extends Error {}
+/** Raised only after the clone and the relay redeem have already succeeded: the join is real, but the local age key could not be read. Not a `UserActionableError`, so `teamJoin` gives it its own code (`age-key-unavailable`, exit 2) and it never reads as a dead invite. */
+export class JoinKeyExchangeError extends Error {
+  constructor(
+    message: string,
+    readonly detail?: string,
+  ) {
+    super(message);
+  }
+}
 
 /** Raised after the redeem when a board token rt holds could not be stored. The reply is not sent and the intent is kept, so a plain `rt team join` rerun finishes: a sealed token lives nowhere else, and a minted one is minted again. */
-export class JoinPeeringStoreError extends Error {}
+export class JoinPeeringStoreError extends Error {
+  constructor(
+    message: string,
+    readonly detail?: string,
+  ) {
+    super(message);
+  }
+}
 
 const NO_TEAM: JoinResult["team"] = { slug: "", name: "", owner: "" };
 
 const GIT_ENV = { GIT_TERMINAL_PROMPT: "0", GIT_PROTOCOL_FROM_USER: "0" };
 
-function inviteUnknownError(message = "invite not recognized or expired: ask the team owner for a new one"): UserActionableError {
-  return new UserActionableError("invite-unknown", message);
+function inviteUnknownError(message = "That invite has expired or is not one rt knows", why = "Ask the team's owner for a new one."): UserActionableError {
+  return new UserActionableError("invite-unknown", message, {}, { why });
 }
 
 function teamRefFrom(pointer: InvitePointer): JoinResult["team"] {
@@ -77,7 +93,7 @@ function deniedResult(pointer: InvitePointer): JoinResult {
     team: teamRefFrom(pointer),
     access: "denied",
     peering: "idle",
-    message: `you don't have access yet: ask ${pointer.owner} to grant you access to ${pointer.name}`,
+    message: `Ask ${pointer.owner} to let you into ${pointer.name}, since you don't have access yet.`,
     intent: "written",
   };
 }
@@ -89,7 +105,7 @@ function unreachableResult(team: JoinResult["team"], message: string, intent: Jo
 // A real hostname/IP[:port] — starts and ends alnum, `.`/`-` in between, an
 // optional port. Anchoring the CAPTURE (not just the overall pattern) to this
 // charset is what keeps a `\n`/`\r`/control-char host from ever reaching a
-// message built from `remote` (see gitFailureMessage's "network" case) — `.`
+// message or log built from `remote`. A `.`
 // in a non-dotAll regex already excludes literal newlines from the PATH
 // portion, so the host class was the only gap.
 const HOST = "[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?";
@@ -140,10 +156,10 @@ function validatePointer(pointer: InvitePointer): InvitePointer {
   try {
     validateSlug(pointer.team);
   } catch {
-    throw new UserActionableError("invite-malformed", "invite pointer names an invalid team slug");
+    throw new UserActionableError("invite-malformed", "rt could not read that invite", {}, { log: "invite pointer names an invalid team slug" });
   }
   if (!isAllowedRemote(pointer.remote)) {
-    throw new UserActionableError("invite-malformed", "invite pointer's remote is not a recognized git URL");
+    throw new UserActionableError("invite-malformed", "rt could not read that invite", {}, { log: "invite pointer's remote is not a recognized git URL" });
   }
   return { ...pointer, name: sanitizeDisplay(pointer.name), owner: sanitizeDisplay(pointer.owner) };
 }
@@ -196,44 +212,43 @@ function classifyGitFailure(result: ExecResult): GitFailureKind {
 }
 
 /** "unreachable" is the only access value left once `denied` is ruled out, so every non-auth failure lands there — but the MESSAGE still says what actually happened; "check your network" is reserved for the one kind that is. */
-function gitFailureMessage(kind: Exclude<GitFailureKind, "denied">, remote: string, result: ExecResult): string {
+function gitFailureMessage(kind: Exclude<GitFailureKind, "denied">, result: ExecResult): string {
   switch (kind) {
     case "missing-binary":
-      return "git is not installed (or not on PATH) — install git and try again";
+      return "This Mac cannot run git. Install it, then try again.";
     case "disk-full":
-      return "no space left on this machine — free up disk space and try again";
+      return "This Mac is out of disk space. Free some up, then try again.";
     case "exists":
-      return "the destination already exists and isn't empty — remove it and try again";
+      return "The team's folder is already there and is not empty. Remove it, then try again.";
     case "network":
-      return `could not reach ${stripUserinfo(remote)} — check your network and try again`;
+      return "rt could not reach the team repo, so check your network and try again.";
     case "local":
-      return `git failed (exit ${result.code}): ${withoutUrls(`${result.stdout}\n${result.stderr}`.trim())}`;
+      return `git could not clone the team repo (exit ${result.code}): ${withoutUrls(`${result.stdout}\n${result.stderr}`.trim())}`;
   }
 }
 
 function gitAccessResult(pointer: InvitePointer, result: ExecResult): JoinResult {
   const kind = classifyGitFailure(result);
   if (kind === "denied") return deniedResult(pointer);
-  return unreachableResult(teamRefFrom(pointer), gitFailureMessage(kind, pointer.remote, result));
+  return unreachableResult(teamRefFrom(pointer), gitFailureMessage(kind, result));
 }
 
 function accessFromVerdict(v: RepoAccessVerdict, pointer: InvitePointer): { access: JoinResult["access"]; message: string } {
-  const joining = `Joining ${pointer.name} (owner ${pointer.owner})`;
+  const joining = `Joining ${pointer.name}, owned by ${pointer.owner}.`;
   const forge = forgeLabel(forgeFromRemote(pointer.remote)?.provider);
-  const repo = stripUserinfo(pointer.remote);
   switch (v.kind) {
     case "ok":
       return { access: "ok", message: joining };
     case "no-clt":
-      return { access: "deferred", message: `${joining} - access to the team repo is checked on the next screen` };
+      return { access: "deferred", message: `${joining} rt checks your access to the team repo once Apple's Command Line Tools are installed.` };
     case "no-account":
-      return { access: "no-account", message: `${joining}. Connect your ${forge} account on the next screen so rt can reach ${repo}.` };
+      return { access: "no-account", message: `${joining} Connect your ${forge} account so rt can reach the team repo.` };
     case "denied":
-      return { access: "denied", message: `${joining}. Your ${forge} account cannot see ${repo} yet: ask ${pointer.owner} or your org admin to grant read access.` };
+      return { access: "denied", message: `${joining} Your ${forge} account cannot see the team repo yet. Ask ${pointer.owner} or your org admin for read access.` };
     case "unreachable":
-      return { access: "unreachable", message: `${joining}. Could not reach ${repo}: ${v.detail}. The next screen re-checks it.` };
+      return { access: "unreachable", message: `${joining} rt could not reach the team repo: ${v.detail}. It checks again when you join.` };
     default:
-      return { access: "undetermined", message: `${joining}. Could not determine access to ${repo} yet: ${v.detail}. The next screen re-checks it.` };
+      return { access: "undetermined", message: `${joining} rt could not tell yet whether you can see the team repo: ${v.detail}. It checks again when you join.` };
   }
 }
 
@@ -242,7 +257,7 @@ export async function joinDryRun(p: Probes, relay: RelayClient, code: string): P
 
   const pointer = await fetchPointer(relay, idHex, key);
   if (pointer === null) {
-    return { ...unreachableResult(NO_TEAM, "could not reach the invite relay - check your network and try again"), intent: "not-written" };
+    return { ...unreachableResult(NO_TEAM, "rt could not reach the invite service. Check your network, then try again."), intent: "not-written" };
   }
 
   assertOnlyTeam(p, pointer.team);
@@ -274,7 +289,8 @@ export interface JoinRedeemSeams {
   writeMachineSetting: (key: string, value: unknown) => void;
   /** User-scope settings write, for the `rt.integrations` latch rt's own setup rows read. */
   writeUserSetting: (key: string, value: unknown) => void;
-  warn: (message: string) => void;
+  /** `message` is the log text; `shown` is what a person reads, and a warning without it shows its message. */
+  warn: (message: string, shown?: ShownWarning) => void;
 }
 
 /** Degrades to `undefined` on a resolver-layer throw rather than taking the redeem down with it — mirrors invite.ts's own default reader. */
@@ -288,8 +304,8 @@ function defaultRead(): SettingsReader {
   };
 }
 
-function defaultWarn(message: string): void {
-  console.error(message);
+function defaultWarn(message: string, shown?: ShownWarning): void {
+  warnLine("team", message, { show: shown ?? { title: message } });
 }
 
 function sameUrl(a: string, b: string): boolean {
@@ -302,7 +318,7 @@ function pointBoardAt(seams: JoinRedeemSeams, url: string): boolean {
     seams.writeMachineSetting("board.switchboardUrl", url);
     return true;
   } catch (err) {
-    seams.warn(`board peering: stored the switchboard token but could not set board.switchboardUrl (${err instanceof Error ? err.message : String(err)})`);
+    seams.warn(`board peering: stored the switchboard token but could not set board.switchboardUrl (${err instanceof Error ? err.message : String(err)})`, { title: "rt could not point your board at the team's switchboard", hint: "the join result says how to set it" });
     return false;
   }
 }
@@ -325,12 +341,12 @@ function confirmSwitchboardForRt(seams: JoinRedeemSeams, url: string): void {
     const confirmed = overrides.switchboardUrl && isValidHttpsUrl(overrides.switchboardUrl) ? overrides.switchboardUrl : undefined;
     if (confirmed !== undefined && sameUrl(confirmed, url)) return;
     if (confirmed !== undefined) {
-      seams.warn(`switchboard: rt's setup rows are confirmed for ${confirmed}, not this team's ${url}; leaving that alone. To switch: ${remedy}`);
+      seams.warn(`switchboard: rt's setup rows are confirmed for ${confirmed}, not this team's ${url}; leaving that alone. To switch: ${remedy}`, { title: "rt's setup still points at a different switchboard", hint: "left as it is", next: out.cmd(remedy) });
       return;
     }
     seams.writeUserSetting("rt.integrations", { ...overrides, switchboardUrl: url });
   } catch (err) {
-    seams.warn(`switchboard: could not confirm ${url} for rt's setup rows (${err instanceof Error ? err.message : String(err)}); confirm it yourself: ${remedy}`);
+    seams.warn(`switchboard: could not confirm ${url} for rt's setup rows (${err instanceof Error ? err.message : String(err)}); confirm it yourself: ${remedy}`, { title: "rt could not record the team's switchboard for setup", next: out.cmd(remedy) });
   }
 }
 
@@ -365,12 +381,13 @@ async function storeBoardToken(seams: JoinRedeemSeams, pointer: InvitePointer, u
     await seams.writeLocalSecret("switchboardToken", token);
   } catch (err) {
     throw new JoinPeeringStoreError(
-      `joined ${pointer.name} and redeemed the invite, but could not store your board's switchboard token (${errorText(err)}): fix that (run \`rt home init\` if it never ran) and run \`rt team join\` again to finish (no new code needed)`,
+      `You joined ${pointer.name}, but rt could not save your board's switchboard token. Join again to finish; you do not need a new code.`,
+      scrub(errorText(err), token),
     );
   }
   const outcome: PeeringOutcome = pointBoardAt(seams, url)
     ? { peering: "applied" }
-    : { peering: "unavailable", peeringFix: `set it yourself: rt settings set board.switchboardUrl '"${url}"' --scope machine` };
+    : { peering: "unavailable", peeringFix: `Point your board at the team's switchboard yourself: rt settings set board.switchboardUrl '"${url}"' --scope machine` };
   confirmSwitchboardForRt(seams, url);
   return outcome;
 }
@@ -391,14 +408,14 @@ async function peerBoard(
 ): Promise<PeeringOutcome> {
   const reinvite: PeeringOutcome = {
     peering: "unavailable",
-    peeringFix: `ask ${pointer.owner} for a new invite (\`rt team invite --handle ${handle}\`) and run \`rt team join\` with it, or ask them to re-invite your board from the board's members panel`,
+    peeringFix: `Ask ${pointer.owner} to invite ${handle} again and join with the new invite, or ask them to invite your board again from the board's members panel.`,
   };
 
   // Team-declared, so unverified: a non-https URL would carry the admin token
   // in cleartext, and the board refuses to boot on one once it is stored.
   if (declaredUrl && !isValidHttpsUrl(declaredUrl)) {
-    seams.warn(`board peering: the team declares switchboard "${declaredUrl}", which is not an https URL; skipping peering`);
-    return { peering: "unavailable", peeringFix: "the team's switchboard URL must be https, so the owner has to fix it in the team settings" };
+    seams.warn(`board peering: the team declares switchboard "${declaredUrl}", which is not an https URL; skipping peering`, { title: "The team's switchboard address is not secure", hint: "board peering was skipped; the team owner has to fix it" });
+    return { peering: "unavailable", peeringFix: "The team's switchboard address must be https, so the team's owner has to fix it in the team settings." };
   }
 
   if (pointer.switchboard?.token) {
@@ -406,7 +423,7 @@ async function peerBoard(
     // cannot decrypt team secrets yet, so the sealed pointer is the only
     // channel that works on a first join).
     if (declaredUrl && pointer.switchboard.url === declaredUrl) return storeBoardToken(seams, pointer, declaredUrl, pointer.switchboard.token);
-    seams.warn("board peering: the invite's switchboard does not match the team's declared one; refusing its token");
+    seams.warn("board peering: the invite's switchboard does not match the team's declared one; refusing its token", { title: "This invite's switchboard is not the team's", hint: "its board token was not used" });
     return reinvite;
   }
 
@@ -434,7 +451,11 @@ async function peerBoard(
     }
   } catch (err) {
     if (err instanceof UserActionableError) logFailureDetail(err);
-    seams.warn(`board peering: could not register this board (${errorText(err)})`);
+    seams.warn(`board peering: could not register this board (${errorText(err)})`, {
+      title: "rt could not register your board with the team's switchboard",
+      hint: errorText(err).split("\n")[0] || undefined,
+      ...(err instanceof UserActionableError && err.next ? { next: out.cmd(err.next) } : {}),
+    });
     return reinvite;
   }
   if (typeof token !== "string" || !token) return reinvite;
@@ -481,13 +502,13 @@ async function resolveSource(p: Probes, relay: RelayClient, code: string | undef
     }
     // Returned straight out of joinRedeem, before writeIntent runs, so this
     // one must say plainly that nothing was persisted.
-    if (pointer === null) return unreachableResult(NO_TEAM, "could not reach the invite relay - check your network and try again", "not-written");
+    if (pointer === null) return unreachableResult(NO_TEAM, "rt could not reach the invite service. Check your network, then try again.", "not-written");
     return { idHex, key, pointer };
   }
 
   const intent = readIntent(p);
   if (intent?.mode !== "join" || !intent.join) {
-    throw new UserActionableError("no-join-intent", "no invite in progress — pass a code, or run `rt team join --dry-run` first to save one");
+    throw new UserActionableError("no-join-intent", "There is no invite in progress", {}, { why: "Run the join and paste the invite code when it asks.", next: "rt team join" });
   }
   const pointer = validatePointer(intent.join.pointer);
   return { idHex: intent.join.id, key: base64ToKey(intent.join.keyB64), pointer };
@@ -548,10 +569,10 @@ export async function joinRedeem(
   if (existingOrigin !== null) {
     if (stripUserinfo(existingOrigin) !== stripUserinfo(pointer.remote)) {
       updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
-      throw new UserActionableError(
-        "team-remote-mismatch",
-        `"${pointer.team}" is already cloned at ${dir} with a different remote — remove it to rejoin, or resolve by hand`,
-      );
+      throw new UserActionableError("team-remote-mismatch", `The ${pointer.team} team is already on this Mac with a different repo`, {}, {
+        why: "Remove its folder to join again, or sort it out by hand.",
+        log: dir,
+      });
     }
     alreadyCloned = true;
   } else {
@@ -580,7 +601,9 @@ export async function joinRedeem(
   if (sealedToken && !(await seams.localStoreReady())) {
     throw new UserActionableError(
       "secrets-store-not-ready",
-      `the team is cloned at ${dir}, but this machine's secrets store is not set up yet, so your board's switchboard token would have nowhere to go: run \`rt home init\`, then \`rt team join\` again (no new code needed)`,
+      "The team is on this Mac, but this Mac's secrets are not set up yet. Set them up, then join again; you do not need a new code.",
+      {},
+      { why: "Your board's switchboard token needs somewhere to go.", next: "rt home init" },
     );
   }
   const forge = snapshot.integrations.forge ?? forgeFromRemote(pointer.remote) ?? undefined;
@@ -595,10 +618,11 @@ export async function joinRedeem(
   const handle = forge ? await seams.forgeLogin(p, forge.provider, forge.host, loginToken) : null;
   if (!handle) {
     const cli = forge?.provider === "gitlab" ? "glab" : "gh";
-    throw new UserActionableError(
-      "forge-login-unknown",
-      `the team is cloned at ${dir}, but your forge username could not be determined to redeem the invite — authenticate the ${cli} CLI and run \`rt team join\` again (the invite has not been used yet)`,
-    );
+    throw new UserActionableError("forge-login-unknown", `rt could not tell who you are on ${cli === "glab" ? "GitLab" : "GitHub"}. The invite has not been used yet.`, {}, {
+      why: `Sign in to the ${cli} command line tool, then join again.`,
+      next: `${cli} auth login`,
+      log: `the team is cloned at ${dir}`,
+    });
   }
 
   let redeemed: "redeemed" | "already";
@@ -608,7 +632,7 @@ export async function joinRedeem(
     if (isRelayConnectivityError(err)) {
       return unreachableResult(
         teamRefFrom(pointer),
-        `could not reach the invite relay to finish redeeming — the team is already cloned at ${dir}; run \`rt team join\` again once the relay is reachable`,
+        "The team is on this Mac, but rt could not reach the invite service to finish. Join again once it is reachable; you do not need a new code.",
       );
     }
     throw err;
@@ -617,7 +641,7 @@ export async function joinRedeem(
   // a prior attempt — "already" here is the crash-recovery signal, not a
   // real conflict, so only a FRESH clone treats it as one.
   if (redeemed === "already" && !alreadyCloned) {
-    throw inviteUnknownError(`this invite was already used: ask ${pointer.owner} for a new one`);
+    throw inviteUnknownError("That invite was already used", `Ask ${pointer.owner} for a new one.`);
   }
 
   const { peering, peeringFix } = await peerBoard(p, seams, secrets, pointer, declaredUrl, handle);
@@ -627,7 +651,8 @@ export async function joinRedeem(
     ({ publicKey } = await ensureAgeKey(seams.ageKeySeam));
   } catch (err) {
     throw new JoinKeyExchangeError(
-      `joined ${pointer.name} and redeemed the invite, but could not read your local age key (${err instanceof Error ? err.message : String(err)}) — fix keychain access and run \`rt team join\` again to finish (no new code needed)`,
+      `You joined ${pointer.name}, but rt could not read this Mac's secrets key. Join again to finish; you do not need a new code.`,
+      scrub(err instanceof Error ? err.message : String(err)),
     );
   }
   updateTeamLocal(p, pointer.team, { agePublicKey: publicKey });
@@ -642,7 +667,7 @@ export async function joinRedeem(
         access: "ok",
         peering,
         ...(peeringFix !== undefined ? { peeringFix } : {}),
-        message: `joined ${pointer.name}, but could not send your key back to ${pointer.owner} — run \`rt team join\` again once the relay is reachable to finish (no new code needed)`,
+        message: `Joined ${pointer.name}, but rt could not send your key back to ${pointer.owner}. Join again once the invite service is reachable; you do not need a new code.`,
         intent: "written",
       };
     }
@@ -650,13 +675,13 @@ export async function joinRedeem(
   }
 
   clearIntent(p);
-  const peeringHint = peeringFix !== undefined ? `; board peering could not be set up automatically... ${peeringFix}` : "";
+  const peeringHint = peeringFix !== undefined ? ` Your board is not connected yet. ${peeringFix}` : "";
   return {
     team: teamRefFrom(pointer),
     access: "ok",
     peering,
     ...(peeringFix !== undefined ? { peeringFix } : {}),
-    message: `Joined ${pointer.name} (owner ${pointer.owner})${peeringHint}`,
+    message: `Joined ${pointer.name}, owned by ${pointer.owner}.${peeringHint}`,
     intent: "written",
   };
 }

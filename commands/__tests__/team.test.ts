@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { teamCreate, teamInvite, teamManageMembership, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
+import { realTeamDeps, teamCreate, teamInvite, teamManageMembership, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
@@ -109,7 +109,7 @@ describe("teamCreate", () => {
     expect(code).toBe(2);
     const body = JSON.parse(deps.lines[0]!);
     expect(body.error.code).toBe("team-already-set-up");
-    expect(body.error.message).toBe("this machine is set up for team globex; mattstack supports one team per machine today");
+    expect(body.error.message).toBe("This Mac is already set up for the globex team, and mattstack supports one team per machine today");
   });
 
   test("missing name, --json: exits 2 with the usage envelope, not a plain-text line", async () => {
@@ -130,8 +130,7 @@ describe("teamCreate", () => {
       const code = await runExpectingProcessExit(() => teamCreate(["--remote", "https://github.com/acme/repo.git"], {}, deps));
       expect(code).toBe(2);
       expect(deps.lines).toEqual([]);
-      expect(io.stderr()).toContain("usage:");
-      expect(io.stderr()).not.toContain("[failed]");
+      expect(io.stderr()).toBe("What should the team be called?\n  next: rt team create <name> (--remote <url> | --create-repo <owner>) [--others] [--json]\n");
     } finally {
       io.restore();
     }
@@ -139,20 +138,40 @@ describe("teamCreate", () => {
 
   test("human output on success names the slug and remote", async () => {
     const deps = baseDeps();
-    await teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git"], {}, deps);
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git"], {}, deps);
+      expect(io.stdout()).toBe("[ok] Created the acme team  https://github.com/acme/repo.git\n");
+      expect(deps.lines).toEqual([]);
+    } finally {
+      io.restore();
+    }
+  });
 
-    expect(deps.lines[0]).toContain("acme");
-    expect(deps.lines[0]).toContain("https://github.com/acme/repo.git");
+  test("the default print seam writes the envelope line to stdout byte for byte", () => {
+    const io = captureOut();
+    try {
+      realTeamDeps().print('{"contract":1}');
+      expect(io.stdout()).toBe('{"contract":1}\n');
+    } finally {
+      io.restore();
+    }
   });
 });
 
 describe("teamPublish", () => {
   test("--team explicit: pushes and prints a human summary", async () => {
     const deps = depsWithZone();
-    await teamPublish(["--team", "acme", "--remote", "https://github.com/acme/repo.git"], {}, deps);
-
-    expect(deps.lines[0]).toContain("acme");
-    expect(deps.lines[0]).toContain("https://github.com/acme/repo.git");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamPublish(["--team", "acme", "--remote", "https://github.com/acme/repo.git"], {}, deps);
+      expect(io.stdout()).toBe("[ok] Pushed the acme team  https://github.com/acme/repo.git\n");
+      expect(deps.lines).toEqual([]);
+    } finally {
+      io.restore();
+    }
   });
 
   test("--team explicit, --json prints the exact contract envelope shape", async () => {
@@ -181,7 +200,7 @@ describe("teamPublish", () => {
     });
     const deps = baseDeps({ probes, forgeToken: async (_p, remote) => (remote.includes("acme/repo") ? "ghp-secret" : null) });
 
-    await teamPublish(["--team", "acme", "--remote", "https://github.com/acme/repo.git"], {}, deps);
+    await teamPublish(["--team", "acme", "--remote", "https://github.com/acme/repo.git", "--json"], {}, deps);
 
     const push = seen.find((c) => c.argv.includes("push"))!;
     expect(push.argv).toEqual(expect.arrayContaining([expect.stringMatching(/^credential\.https:\/\/[^/]+\.helper=$/)]));
@@ -291,7 +310,7 @@ describe("teamInvite", () => {
     expect(parsed.forgeAccess).toBe("skipped");
     // Not-created branch: the two forge web-UI steps, plus the admin sentence.
     expect(parsed.manualSteps).toHaveLength(3);
-    expect((parsed.manualSteps as string[]).at(-1)).toContain("Ask whoever administers");
+    expect((parsed.manualSteps as string[]).at(-1)).toContain("Ask whoever runs the team repo");
     expect(parsed.pasteBlock).toBe(pasteBlock(parsed.code, { link: parsed.link, teamName: "Acme Team" }));
   });
 
@@ -315,7 +334,7 @@ describe("teamInvite", () => {
 
       const parsed = JSON.parse(deps.lines[0]!);
       expect(parsed.peering).toBe("missing");
-      expect(parsed.peeringWarning).toContain("board peering was not embedded");
+      expect(parsed.peeringWarning).toContain("This invite will not connect their board");
       expect(typeof parsed.code).toBe("string");
     });
 
@@ -330,6 +349,21 @@ describe("teamInvite", () => {
       expect(JSON.parse(deps.lines[0]!).error.code).toBe("peering-not-embedded");
       expect(relayCalls).toBe(0);
     });
+
+    test("human mode: an invite that could not connect the board is a failure, not a refusal", async () => {
+      declareSwitchboard();
+      const deps = inviteDeps();
+      const io = captureOut();
+      ui.__test__.setHuman(() => false);
+      try {
+        const code = await runExpectingProcessExit(() => teamInvite(["--handle", "zaphod", "--require-peering"], {}, deps));
+        expect(code).toBe(2);
+        expect(io.errLines()[0]).toBe("rt did not make the invite, because it could not connect their board");
+        expect(io.stderr()).not.toContain("[refused]");
+      } finally {
+        io.restore();
+      }
+    });
   });
 
   test("a joined machine refuses before the relay is ever touched", async () => {
@@ -341,6 +375,20 @@ describe("teamInvite", () => {
     expect(relayCalls).toBe(0);
     expect(code).toBe(2);
     expect(JSON.parse(deps.lines[0]!).error.code).toBe("team-pull-only");
+  });
+
+  test("human mode: a pull-only clone refuses to invite, as a refused line", async () => {
+    const deps = inviteDeps({ record: { joinedByRt: true } });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => teamInvite(["--handle", "zaphod", "--team", "acme"], {}, deps));
+      expect(code).toBe(2);
+      expect(io.stderr()).toBe("[refused] This Mac joined the acme team by invite, so its copy is pull-only and cannot invite anyone.\n  why: Ask the team's owner to invite zaphod.\n");
+      expect(io.stdout()).toBe("");
+    } finally {
+      io.restore();
+    }
   });
 
   test("on a TTY, accepting the offer writes the permission before minting", async () => {
@@ -386,8 +434,7 @@ describe("teamInvite", () => {
       const code = await runExpectingProcessExit(() => teamInvite([], {}, deps));
       expect(code).toBe(2);
       expect(deps.lines).toEqual([]);
-      expect(io.stderr()).toContain("usage:");
-      expect(io.stderr()).not.toContain("[failed]");
+      expect(io.stderr()).toBe("Who is the invite for?\n  next: rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]\n");
     } finally {
       io.restore();
     }
@@ -395,21 +442,31 @@ describe("teamInvite", () => {
 
   test("team invite prints the join link on its own line", async () => {
     const deps = inviteDeps();
-    await teamInvite(["--handle", "bob"], {}, deps);
-
-    expect(deps.lines[0]).toMatch(/^https:\/\/mattstack\.dev\/join#/);
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamInvite(["--handle", "bob"], {}, deps);
+      expect(io.lines()[0]).toBe("invite link:");
+      expect(io.lines()[1]).toMatch(/^https:\/\/mattstack\.dev\/join#/);
+      expect(deps.lines).toEqual([]);
+    } finally {
+      io.restore();
+    }
   });
 
   test("human output names who to ask, since rt does not manage membership", async () => {
     const deps = inviteDeps({ exec: ghExec({ code: 127, stdout: "", stderr: "ENOENT: gh" }) });
-    await teamInvite(["--handle", "zaphod"], {}, deps);
-
-    expect(deps.lines[0]).toMatch(/^https:\/\/mattstack\.dev\/join#/);
-    const rest = deps.lines.slice(1).join("\n");
-    expect(rest).toContain("mattstack://join/");
-    expect(rest).toContain("forge access is skipped");
-    expect(rest).toContain("Ask whoever administers");
-    expect(rest).toContain("zaphod");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamInvite(["--handle", "zaphod"], {}, deps);
+      const text = io.stdout();
+      expect(text).toContain("mattstack://join/");
+      expect(text).toContain("[needs you] zaphod cannot see the team repo yet  forge access: skipped\n");
+      expect(text).toContain("Ask whoever runs the team repo");
+    } finally {
+      io.restore();
+    }
   });
 });
 
@@ -452,6 +509,66 @@ describe("teamManageMembership", () => {
     expect(readTeamLocal(deps.probes, "acme").rtMayManageMembership).toBe(false);
   });
 
+  test("human mode says whether invites grant access, and how to turn it on", async () => {
+    const cases: Array<[string[], Parameters<typeof manageDeps>[0], string]> = [
+      [["on", "--team", "acme"], { createdByRt: true, joinedByRt: false, rtMayManageMembership: false }, "[ok] Invites to acme give read access on the forge  membership management is on\n"],
+      [["--team", "acme"], { createdByRt: true, joinedByRt: false, rtMayManageMembership: false }, "[off] Invites to acme leave forge access to you  membership management is off\n  next: rt team manage-membership on\n"],
+      [["--team", "acme"], { createdByRt: false, joinedByRt: false, rtMayManageMembership: false }, "[off] Invites to acme leave forge access to you  membership management is off\n  note: mattstack did not create this repo, so this cannot be turned on\n"],
+    ];
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      for (const [args, local, expected] of cases) {
+        io.clear();
+        const deps = manageDeps(local);
+        await teamManageMembership(args, {}, deps);
+        expect(io.stdout()).toBe(expected);
+        expect(deps.lines).toEqual([]);
+      }
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("human mode: on where rt did not create the repo is a refused line, not a failure", async () => {
+    const deps = manageDeps({ createdByRt: false, joinedByRt: false, rtMayManageMembership: false });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => teamManageMembership(["on", "--team", "acme"], {}, deps));
+      expect(code).toBe(2);
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe(
+        "[refused] mattstack did not create the acme team's repo, so it will not manage who can see it\n  why: Whoever runs that repo gives people access.\n",
+      );
+      expect(deps.lines).toEqual([]);
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("--json: the same refusal keeps today's exit-2 envelope shape", async () => {
+    const deps = manageDeps({ createdByRt: false, joinedByRt: false, rtMayManageMembership: false });
+    const code = await runExpectingProcessExit(() => teamManageMembership(["on", "--team", "acme", "--json"], {}, deps));
+    expect(code).toBe(2);
+    const { at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(typeof at).toBe("string");
+    expect(body).toEqual({ contract: 1, error: { code: "not-rt-created", message: "mattstack did not create the acme team's repo, so it will not manage who can see it" } });
+  });
+
+  test("human mode: a usage error asks for on or off", async () => {
+    const deps = baseDeps();
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => teamManageMembership(["sideways", "--team", "acme"], {}, deps));
+      expect(code).toBe(2);
+      expect(io.stderr()).toBe("Choose on or off\n  next: rt team manage-membership [on|off] [--team <slug>] [--json]\n");
+    } finally {
+      io.restore();
+    }
+  });
+
   test("an unrecognized state token is a usage error, not silently ignored", async () => {
     const deps = manageDeps({ createdByRt: true, joinedByRt: false, rtMayManageMembership: false });
     const code = await runExpectingProcessExit(() => teamManageMembership(["sideways", "--team", "acme", "--json"], {}, deps));
@@ -490,6 +607,31 @@ describe("teamPull", () => {
       const code = await runExpectingProcessExit(() => teamPull(["--team", "acme"], {}, deps));
       expect(code).toBe(2);
       expect(io.stderr()).toContain("daemon");
+      expect(io.stderr()).toContain("  next: rt daemon start\n");
+    } finally {
+      io.restore();
+    }
+  });
+  test("human output says what the pull did, by outcome", async () => {
+    const cases: Array<[string, string | null, string]> = [
+      ["up-to-date", null, "[ok] The acme team is already up to date\n"],
+      ["fast-forwarded", null, "[ok] Pulled the acme team\n"],
+      ["rebased", "2 commits replayed", "[ok] Pulled the acme team  2 commits replayed\n"],
+      ["conflict", "settings.team.jsonc", "[needs you] The acme team has changes that clash with yours  settings.team.jsonc\n"],
+      ["skipped", "pull not enabled for this repo", "[skipped] Skipped pulling the acme team  pull not enabled for this repo\n"],
+      ["diverged-oddly", null, "[warning] The acme team pull ended in a way rt does not recognise  outcome: diverged-oddly\n"],
+      ["diverged-oddly", "3 files", "[warning] The acme team pull ended in a way rt does not recognise  outcome: diverged-oddly, 3 files\n"],
+    ];
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      for (const [outcome, detail, expected] of cases) {
+        io.clear();
+        const deps = depsWithZone({ daemon: async () => ({ ok: true, data: { outcome, detail } }) });
+        await teamPull(["--team", "acme"], {}, deps);
+        expect(io.stdout()).toBe(expected);
+        expect(deps.lines).toEqual([]);
+      }
     } finally {
       io.restore();
     }

@@ -52,15 +52,15 @@ interface RawResponse {
 }
 
 function relayUnreachable(): UserActionableError {
-  return new UserActionableError("relay-unreachable", "could not reach the invite relay");
+  return new UserActionableError("relay-unreachable", "rt could not reach the invite service", {}, { why: "Check your network, then try again." });
 }
 
 function relayError(status: number, path: string): UserActionableError {
-  return new UserActionableError("relay-error", `${status} ${path}`);
+  return new UserActionableError("relay-error", "The invite service answered with an error", {}, { log: `${status} ${path}` });
 }
 
 function relayIdConflict(): UserActionableError {
-  return new UserActionableError("relay-id-conflict", "invite id already exists on the relay — retry with a fresh id");
+  return new UserActionableError("relay-id-conflict", "The invite service already has an invite with this id", {}, { why: "Try again: rt picks a new id each time." });
 }
 
 function parseJsonObject(body: string): Record<string, unknown> | undefined {
@@ -81,7 +81,7 @@ const OPAQUE_ID_PATTERN = /^[0-9a-f]{32}$/;
 /** This module is the declared privacy boundary — an id that isn't a relay-minted opaque id must never reach the path, closing the gap a caller mistake (passing a handle or slug by accident) would otherwise open. */
 function assertOpaqueId(id: string): void {
   if (!OPAQUE_ID_PATTERN.test(id)) {
-    throw new UserActionableError("relay-error", "invite id must be a 32-character hex id");
+    throw new UserActionableError("relay-error", "rt could not read that invite", {}, { log: "invite id must be a 32-character hex id" });
   }
 }
 

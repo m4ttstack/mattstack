@@ -94,9 +94,18 @@ function readExistingOrigin(p: Probes, dir: string): string | null {
   return raw !== null ? parseOriginUrl(raw) : null;
 }
 
+const GIT_STEP_TITLE: Record<string, string> = {
+  "git-init-failed": "rt could not start the team repo",
+  "git-remote-failed": "rt could not point the team repo at its remote",
+  "git-add-failed": "rt could not stage the team repo's files",
+  "git-commit-failed": "rt could not make the team repo's first commit",
+};
+
 /** Every git-step failure becomes one of these — never a plain `Error` that would surface as an unhandled crash instead of a renderable message. */
 function gitStepError(code: string, step: string, result: ExecResult): UserActionableError {
-  return new UserActionableError(code, `${step} failed (exit ${result.code}): ${withoutUrls(`${result.stdout}\n${result.stderr}`.trim())}`);
+  return new UserActionableError(code, GIT_STEP_TITLE[code] ?? "rt could not set up the team repo", {}, {
+    log: `${step} failed (exit ${result.code}): ${withoutUrls(`${result.stdout}\n${result.stderr}`.trim())}`,
+  });
 }
 
 /**
@@ -120,7 +129,10 @@ async function resolveRemote(p: Probes, slug: string, opts: CreateTeamOpts): Pro
   if (cached) return cached;
 
   if (!opts.createRepoOwner) {
-    throw new UserActionableError("remote-required", "a git remote is required (gh-created or pasted)");
+    throw new UserActionableError("remote-required", "The team needs a repo", {}, {
+      why: "Give rt the address of an empty repo, or let it create one on GitHub.",
+      next: "rt team create <name> --remote <url>",
+    });
   }
 
   const repoPath = `${opts.createRepoOwner}/mattstack-team-${slug}`;
@@ -128,16 +140,18 @@ async function resolveRemote(p: Probes, slug: string, opts: CreateTeamOpts): Pro
   if (result.code !== 0) {
     const text = `${result.stdout}\n${result.stderr}`;
     if (/already exists/i.test(text)) {
-      throw new UserActionableError(
-        "create-repo-exists",
-        `gh repo create ${repoPath}: a repo already exists there — pass --remote <its URL> instead of --create-repo to finish setting up this team`,
-      );
+      throw new UserActionableError("create-repo-exists", "GitHub already has a repo with this team's name", {}, {
+        why: `It is ${repoPath}. Point rt at it instead of creating a new one.`,
+        next: "rt team create <name> --remote <its url>",
+      });
     }
-    throw new UserActionableError("create-repo-failed", `gh repo create ${repoPath} failed: ${withoutUrls(text.trim())}`);
+    throw new UserActionableError("create-repo-failed", "GitHub did not create the team repo", {}, { log: `gh repo create ${repoPath} failed: ${withoutUrls(text.trim())}` });
   }
   const url = result.stdout.split("\n")[0]?.trim();
   if (!url) {
-    throw new UserActionableError("create-repo-failed", `gh repo create ${repoPath} printed no URL to use as the remote`);
+    throw new UserActionableError("create-repo-failed", "GitHub created the team repo but did not say where it is", {}, {
+      log: `gh repo create ${repoPath} printed no URL to use as the remote`,
+    });
   }
 
   // Provenance, recorded at the one moment it is knowable: rt just created
@@ -162,10 +176,10 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
 
   const originConfigured = p.exists(dir) ? readExistingOrigin(p, dir) : null;
   if (originConfigured !== null && opts.remote !== null && opts.remote !== originConfigured) {
-    throw new UserActionableError(
-      "team-exists",
-      `team "${slug}" already exists at ${dir} with a different remote — pass the same --remote it was created with, or remove ${dir} to start over`,
-    );
+    throw new UserActionableError("team-exists", `The ${slug} team is already set up here with a different repo`, {}, {
+      why: "Use the repo it was created with, or remove the team's folder to start over.",
+      log: dir,
+    });
   }
 
   const scaffolded = p.exists(join(dir, SCAFFOLD_MARKER));

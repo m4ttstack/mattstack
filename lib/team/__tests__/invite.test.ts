@@ -453,14 +453,14 @@ describe("mintInvite", () => {
       expect(result.peeringWarning).toBeUndefined();
     });
 
-    test("a token that could not be minted reports peering missing, and the warning in the result is the one printed on stderr", async () => {
+    test("a token that could not be minted reports peering missing, and the reason goes to the warning's log text", async () => {
       const { seams, warnings } = baseSeams({ read: fakeRead(WITH_SWITCHBOARD), readLocalSecret: async () => null });
 
       const result = await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
 
       expect(result.peering).toBe("missing");
-      expect(result.peeringWarning).toContain("no readable switchboardAdminToken secret in the local rt domain");
-      expect(warnings).toContain(result.peeringWarning!);
+      expect(result.peeringWarning).toBe("This invite will not connect their board. After they join, invite their board again from the board's members panel.");
+      expect(warnings).toContain("board peering: no readable switchboardAdminToken secret in the local rt domain");
     });
 
     test("requirePeering refuses a missing token before anything reaches the relay or the roster", async () => {
@@ -471,7 +471,7 @@ describe("mintInvite", () => {
 
       expect(caught).toBeInstanceOf(UserActionableError);
       expect((caught as UserActionableError).code).toBe("peering-not-embedded");
-      expect((caught as Error).message).toContain("no readable switchboardAdminToken");
+      expect((caught as UserActionableError).log).toContain("no readable switchboardAdminToken");
       expect(relay.createCalls).toEqual([]);
       expect(writeCalls).toEqual([]);
     });
@@ -596,7 +596,9 @@ describe("mintInvite", () => {
     expect(caught).toBeInstanceOf(UserActionableError);
     const err = caught as UserActionableError;
     expect(err.code).toBe("invite-record-write-failed");
-    expect(err.message).toContain(relay.createReturns[0]!.id);
+    const code = err.message.split("Write its code down now: ")[1]!;
+    expect(decodeCode(code).idHex).toBe(relay.createReturns[0]!.id);
+    expect(err.log).toBeUndefined();
   });
 
   test("throws relay-id-mismatch if the relay does not honor the requested invite id", async () => {
@@ -705,7 +707,7 @@ describe("mintInvite: forge membership is not rt's to grant", () => {
     const result = await mintInvite(probesWithRemote("weird://host/thing"), relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
 
     expect(result.manualSteps.length).toBeGreaterThan(0);
-    expect(result.manualSteps.at(-1)).toContain("Ask whoever administers");
+    expect(result.manualSteps.at(-1)).toContain("Ask whoever runs the team repo");
   });
 });
 
@@ -717,6 +719,21 @@ describe("joinLinkBase refuses a base the code could be intercepted on", () => {
   test("http on loopback is allowed, which is where the harness serves its fixture", () => {
     expect(joinLinkBase({ RT_JOIN_BASE_URL: "http://localhost:8788/join" })).toBe("http://localhost:8788/join");
     expect(joinLinkBase({ RT_JOIN_BASE_URL: "http://127.0.0.1:8788/join" })).toBe("http://127.0.0.1:8788/join");
+  });
+
+  test("a refused base that carries credentials is redacted before it reaches the log", () => {
+    const secret = "hunter2-invented";
+    let caught: unknown;
+    try {
+      joinLinkBase({ RT_JOIN_BASE_URL: `http://someone:${secret}@mattstack.example/join` });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(UserActionableError);
+    const actionable = caught as UserActionableError;
+    expect(actionable.code).toBe("invalid-join-base");
+    expect(actionable.log ?? "").not.toContain(secret);
+    expect(actionable.log ?? "").toContain("mattstack.example/join");
   });
 
   test("a value that is not a url at all is refused rather than pasted into a link", () => {

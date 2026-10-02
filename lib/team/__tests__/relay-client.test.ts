@@ -262,7 +262,8 @@ describe("error mapping", () => {
     }
     expect(caught).toBeInstanceOf(UserActionableError);
     expect((caught as UserActionableError).code).toBe("relay-error");
-    expect((caught as UserActionableError).message).toBe(`500 /v1/invites/${ID_HEX}`);
+    expect((caught as UserActionableError).message).toBe("The invite service answered with an error");
+    expect((caught as UserActionableError).log).toBe(`500 /v1/invites/${ID_HEX}`);
   });
 
   test("every write/read verb maps an unlisted non-2xx to relay-error", async () => {

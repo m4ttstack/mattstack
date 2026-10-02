@@ -26,7 +26,7 @@ describe("grantRead", () => {
 
     expect(result.access).toBe("manual");
     expect(result.manualSteps).toHaveLength(1);
-    expect(result.manualSteps[0]).toContain("must accept the pending GitHub collaboration invite");
+    expect(result.manualSteps[0]).toContain("has to accept GitHub's invite to the repo");
   });
 
   test("github: gh missing (127) reports manual with an install step ahead of the settings-access steps", async () => {
@@ -38,7 +38,7 @@ describe("grantRead", () => {
     expect(result).toEqual({
       access: "manual",
       manualSteps: [
-        "Install the GitHub CLI (`gh`), then run `gh auth login`",
+        "Install the GitHub command line tool, then sign in: gh auth login",
         "Open https://github.com/acme/widgets/settings/access",
         "Invite octocat with Read",
       ],
@@ -51,7 +51,7 @@ describe("grantRead", () => {
 
     const result = await grantRead(p, GITHUB_REMOTE, "octocat");
 
-    expect(result.manualSteps[0]).toBe("Run `gh auth login`, then retry `rt team invite`");
+    expect(result.manualSteps[0]).toBe("Sign in, then invite them again: gh auth login");
   });
 
   test("github: an org SAML/SSO denial reports manual with an authorize-SSO step", async () => {
@@ -60,7 +60,7 @@ describe("grantRead", () => {
 
     const result = await grantRead(p, GITHUB_REMOTE, "octocat");
 
-    expect(result.manualSteps[0]).toContain("SAML/SSO enforcement");
+    expect(result.manualSteps[0]).toContain("single sign-on");
   });
 
   test("github: a 404 (unknown handle) reports manual naming the handle as not found", async () => {
@@ -78,7 +78,7 @@ describe("grantRead", () => {
 
     const result = await grantRead(p, GITHUB_REMOTE, "octocat");
 
-    expect(result.manualSteps[0]).toContain("token lacks permission");
+    expect(result.manualSteps[0]).toContain("token cannot change who can see this repo");
   });
 
   test("github: an unclassified failure still reports manual with just the base steps", async () => {
@@ -121,7 +121,7 @@ describe("grantRead", () => {
     expect(result).toEqual({
       access: "manual",
       manualSteps: [
-        'Check that "zaphod" is a real GitLab username — it was not found',
+        'Check that "zaphod" is a real GitLab username: it was not found',
         "Open https://gitlab.com/acme/widgets/-/project_members",
         "Invite zaphod with Reporter access",
       ],
@@ -269,7 +269,7 @@ describe("revokeRead", () => {
     const result = await revokeRead(p, GITLAB_REMOTE, "zaphod");
 
     expect(result.access).toBe("manual");
-    expect(result.manualSteps[0]).toContain("Install the GitLab CLI");
+    expect(result.manualSteps[0]).toContain("Install the GitLab command line tool");
   });
 
   test("an unparsable remote is skipped", async () => {

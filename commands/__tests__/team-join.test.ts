@@ -123,7 +123,7 @@ describe("teamJoin", () => {
     expect(code).toBe(2);
     const body = JSON.parse(deps.lines[0]!);
     expect(body.error.code).toBe("code-on-argv");
-    expect(body.error.message).toBe("pass the invite code on stdin, never as an argument");
+    expect(body.error.message).toBe("rt never takes an invite code as an argument");
     expect(fetchCalls).toHaveLength(0);
     // The code the CLI would have refused is never in the code-on-argv envelope.
     expect(deps.lines[0]).not.toContain(CODE);
@@ -146,10 +146,10 @@ describe("teamJoin", () => {
     expect(code).toBe(2);
     const body = JSON.parse(deps.lines[0]!);
     expect(body.error.code).toBe("team-already-set-up");
-    expect(body.error.message).toBe("this machine is set up for team globex; mattstack supports one team per machine today");
+    expect(body.error.message).toBe("This Mac is already set up for the globex team, and mattstack supports one team per machine today");
   });
 
-  test("human mode: code-on-argv prints the message and exits 2", async () => {
+  test("a code on argv is refused, not failed", async () => {
     const deps = baseDeps();
     const io = captureOut();
     ui.__test__.setHuman(() => false);
@@ -157,7 +157,9 @@ describe("teamJoin", () => {
       const code = await runExpectingProcessExit(() => teamJoin(["ABC"], {}, deps));
       expect(code).toBe(2);
       expect(deps.lines).toEqual([]);
-      expect(io.stderr()).toContain("pass the invite code on stdin, never as an argument");
+      expect(io.stderr()).toBe(
+        "[refused] rt never takes an invite code as an argument\n  why: It would land in your shell history. Run the join on its own and paste the code when it asks.\n  next: rt team join\n",
+      );
     } finally {
       io.restore();
     }
@@ -176,7 +178,7 @@ describe("teamJoin", () => {
       team: { slug: "acme", name: "Acme", owner: "matt" },
       access: "ok",
       peering: "idle",
-      message: "Joining Acme (owner matt)",
+      message: "Joining Acme, owned by matt.",
       intent: "written",
     });
     // The stdout envelope never carries the raw code back, either.
@@ -192,10 +194,18 @@ describe("teamJoin", () => {
       }),
     });
 
-    await teamJoin(["--dry-run"], {}, deps);
-
-    expect(deps.lines[0]).toContain("ask matt or your org admin");
-    expect(deps.lines[0]).not.toContain("http");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamJoin(["--dry-run"], {}, deps);
+      expect(io.lines()).toHaveLength(1);
+      expect(io.lines()[0]).toStartWith("[needs you] ");
+      expect(io.lines()[0]).toContain("Ask matt or your org admin");
+      expect(io.lines()[0]).not.toContain("http");
+      expect(deps.lines).toEqual([]);
+    } finally {
+      io.restore();
+    }
   });
 
   test("--dry-run rejects a hostile ext:: remote before any exec call, exit 2 invite-malformed", async () => {
@@ -248,7 +258,7 @@ describe("teamJoin", () => {
     expect(code).toBe(2);
     const body = JSON.parse(deps.lines[0]!);
     expect(body.error.code).toBe("invite-malformed");
-    expect(body.error.message).toBe("invite code is the wrong length");
+    expect(body.error.message).toBe("That invite code is the wrong length");
   });
 
   test("redeem: clones, redeems, and prints the exact contract envelope on success", async () => {
@@ -270,7 +280,7 @@ describe("teamJoin", () => {
     expect(body.team).toEqual({ slug: "acme", name: "Acme", owner: "matt" });
     expect(body.access).toBe("ok");
     expect(body.peering).toBe("idle"); // no switchboard.url configured in this test's joinRedeemSeams.read
-    expect(body.message).toBe("Joined Acme (owner matt)");
+    expect(body.message).toBe("Joined Acme, owned by matt.");
 
     const dir = pathJoin(HOME, ".mattstack", "teams", "acme");
     expect(probes.calls.exec).toContainEqual(["git", "clone", REMOTE, dir]);
@@ -350,7 +360,7 @@ describe("teamJoin", () => {
     expect(code).toBe(2);
     const body = JSON.parse(deps.lines[0]!);
     expect(body.error.code).toBe("age-key-unavailable");
-    expect(body.error.message).toContain("redeemed the invite");
+    expect(body.error.message).toContain("You joined Acme");
   });
 
   test("a board token that cannot be stored after the redeem exits 2 with its own code, telling the user a plain rerun finishes", async () => {
@@ -378,7 +388,7 @@ describe("teamJoin", () => {
     expect(code).toBe(2);
     const body = JSON.parse(deps.lines[0]!);
     expect(body.error.code).toBe("peering-store-failed");
-    expect(body.error.message).toContain("no new code needed");
+    expect(body.error.message).toContain("you do not need a new code");
   });
 
   test("a keychain failure in human mode prints a clean one-liner, not a raw stack", async () => {

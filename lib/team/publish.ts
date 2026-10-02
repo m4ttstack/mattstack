@@ -30,15 +30,15 @@ const REJECTED_PATTERN = /\[rejected\]|fetch first|non-fast-forward|failed to pu
 function classifyPushFailure(result: ExecResult): UserActionableError {
   const text = `${result.stdout}\n${result.stderr}`;
   if (result.code === 128 && AUTH_FAILURE_PATTERN.test(text)) {
-    return new UserActionableError("push-denied", withoutUrls(text.trim()));
+    return new UserActionableError("push-denied", "The forge would not let rt push to the team repo", {}, { why: "Check that you can push to it.", log: withoutUrls(text.trim()) });
   }
   if (REJECTED_PATTERN.test(text)) {
-    return new UserActionableError(
-      "remote-not-empty",
-      `the remote already has commits rt can't fast-forward past — rt team create expects an existing EMPTY repository: ${withoutUrls(text.trim())}`,
-    );
+    return new UserActionableError("remote-not-empty", "The team repo already has commits", {}, {
+      why: "rt starts a team in an empty repo.",
+      log: `the remote already has commits rt can't fast-forward past; rt team create expects an existing EMPTY repository: ${withoutUrls(text.trim())}`,
+    });
   }
-  return new UserActionableError("push-failed", `git push -u origin main failed (exit ${result.code}): ${withoutUrls(text.trim())}`);
+  return new UserActionableError("push-failed", "rt could not push the team repo", {}, { log: `git push -u origin main failed (exit ${result.code}): ${withoutUrls(text.trim())}` });
 }
 
 async function currentOrigin(p: Probes, dir: string): Promise<string | null> {
@@ -54,13 +54,13 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     // validateSlug's own error isn't a UserActionableError — this is the one
     // place that would let an unvalidated `--team ../../some-repo` resolve
     // to a directory outside teamsDir() and run git there.
-    throw new UserActionableError("invalid-team-slug", err instanceof Error ? err.message : String(err));
+    throw new UserActionableError("invalid-team-slug", "That is not a team name rt can use", {}, { log: err instanceof Error ? err.message : String(err) });
   }
   assertNotJoined(p, slug);
 
   const dir = join(p.home, ".mattstack", "teams", slug);
   if (!p.exists(dir)) {
-    throw new UserActionableError("no-team-zone", `no team zone for "${slug}" at ${dir} — run \`rt team create\` first`);
+    throw new UserActionableError("no-team-zone", `The ${slug} team is not on this Mac`, {}, { next: "rt team create" });
   }
 
   if (remote) {
@@ -68,7 +68,9 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     if (setUrl.code !== 0) {
       const add = await p.exec(["git", "remote", "add", "origin", remote], { cwd: dir });
       if (add.code !== 0) {
-        throw new UserActionableError("git-remote-failed", `git remote add origin failed (exit ${add.code}): ${withoutUrls(`${add.stdout}\n${add.stderr}`.trim())}`);
+        throw new UserActionableError("git-remote-failed", "rt could not point the team repo at its remote", {}, {
+          log: `git remote add origin failed (exit ${add.code}): ${withoutUrls(`${add.stdout}\n${add.stderr}`.trim())}`,
+        });
       }
     }
   }
