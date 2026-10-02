@@ -2027,6 +2027,38 @@ describe("commit-pending against real git", () => {
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
 
+  test("a file staged after the version index check and before the version commit is caught by the tree check, and rt undoes both commits", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = rebuildingCompile(pack);
+    const run = deps.run;
+    let sneaked = false;
+    deps.run = async (cmd, args, opts) => {
+      if (!sneaked && cmd === "git" && args[0] === "rev-parse" && args[1] === "HEAD") {
+        sneaked = true;
+        writeFileSync(join(pack.dir, "skills", "keep", "sneaked.md"), "staged by someone else\n");
+        mustGit(root, "add", "skills/keep/sneaked.md");
+      }
+      return run(cmd, args, opts);
+    };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    const detail = report.steps.at(-1)!.detail;
+    expect(sneaked).toBe(true);
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(detail).toContain(`Something was staged in ${pack.dir} while rt committed the version bump: skills/keep/sneaked.md`);
+    expect(detail).toContain("still staged, not committed");
+    expect(world.calls.some((c) => c.cmd === "git" && c.args[0] === "push")).toBe(false);
+    expect(mustGit(root, "log", "--format=%s").trim().split("\n")).toEqual(["base"]);
+    expect(mustGit(root, "status", "--porcelain")).toBe("M  pack/skills.jsonc\nA  skills/keep/sneaked.md\n");
+    expectBuildPutBack(pack);
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
   test.each<[string, string, string]>([
     ["inside the pack", "packs/acme/skills/keep/sneaked.md", "M  packs/acme/pack/skills.jsonc\nA  packs/acme/skills/keep/sneaked.md\n"],
     ["beside the pack", "outside.md", "A  outside.md\nM  packs/acme/pack/skills.jsonc\n"],

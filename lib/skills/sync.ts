@@ -828,6 +828,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       const rm = await deps.run("git", ["rm", "--cached", "--ignore-unmatch", "--quiet", "--", ...compiled.removed.map(literal)], { cwd: pack.dir });
       if (rm.code !== 0) return stop(`git rm failed: ${rm.stderr.trim()}`, addPaths);
     }
+    const snapshot = await deps.run("git", ["write-tree"], { cwd: pack.dir });
+    if (snapshot.code !== 0) return stop(`git write-tree failed: ${snapshot.stderr.trim()}`, versionStaged);
     const unseen = await unseenStaged(deps, pack.dir, await prefixOfPack(), new Map(versionStaged.map((p) => [p, builtBlobs.get(p) ?? null])));
     if (unseen.length > 0) return abandon(unseenLead(unseen), unseen, versionStaged, refused, unstage);
     if (published) {
@@ -839,8 +841,6 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
         return abandon(`Something was committed in ${pack.dir} on top of rt's commit of your pack edits`, [], versionStaged, refused, "Look over the commits, then run this again");
       }
     }
-    const snapshot = await deps.run("git", ["write-tree"], { cwd: pack.dir });
-    if (snapshot.code !== 0) return stop(`git write-tree failed: ${snapshot.stderr.trim()}`, versionStaged);
     const commit = await deps.run("git", ["commit", "-m", versionSubject], { cwd: pack.dir });
     if (commit.code !== 0) return stop(`git commit failed: ${commit.stderr.trim()}`, versionStaged);
     const id = await madeCommit(deps, pack.dir, commit.stdout);
