@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -25,6 +26,7 @@ import { IssueLines } from './IssueLines';
 import type { WireIssue } from './issues';
 import {
   KeyPanel,
+  notifying,
   whereDraws,
   type PanelStore,
   type PanelTab,
@@ -108,7 +110,12 @@ export function SettingRow({
 }) {
   const { text } = useSchemeColors();
   const repo = useSettingsRepo();
-  const row = useRowSave(store, def);
+  const [writes, setWrites] = useState(0);
+  const header = useMemo(
+    () => notifying(store, () => setWrites(n => n + 1)),
+    [store]
+  );
+  const row = useRowSave(header, def);
   const [open, setOpen] = useUncontrolled<RowOpen | null>({
     value: openProp,
     defaultValue: defaultOpen,
@@ -263,6 +270,7 @@ export function SettingRow({
               onTab={tab => setOpen({ tab, fix: null })}
               value={<ValueContent def={def} parts={parts} />}
               fix={open.fix}
+              externalWrites={writes}
               onPickRepo={onPickRepo}
             />
           </Box>

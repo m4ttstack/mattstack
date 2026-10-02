@@ -59,6 +59,26 @@ import {
 export type PanelTab = 'value' | 'where';
 export type PanelStore = RowStore & Pick<ConsoleStore, 'prune'>;
 
+/** `store`, calling `onChanged` after every settled write. */
+export function notifying(
+  store: PanelStore,
+  onChanged?: () => void
+): PanelStore {
+  if (!onChanged) return store;
+  const then = (err: string | null) => {
+    onChanged();
+    return err;
+  };
+  return {
+    set: (...a: Parameters<PanelStore['set']>) => store.set(...a).then(then),
+    unset: (...a: Parameters<PanelStore['unset']>) =>
+      store.unset(...a).then(then),
+    move: (...a: Parameters<PanelStore['move']>) => store.move(...a).then(then),
+    prune: (...a: Parameters<PanelStore['prune']>) =>
+      store.prune(...a).then(then),
+  };
+}
+
 type Role = 'winner' | 'overridden' | 'contributor' | 'inert';
 
 function Catalog({
@@ -502,18 +522,20 @@ function WhereTab({
   def: storeDef,
   store,
   fix,
+  externalWrites,
   onChanged,
   onPickRepo,
 }: {
   def: SettingDefWire;
   store: PanelStore;
   fix?: string | null;
+  externalWrites?: number;
   onChanged?: () => void;
   onPickRepo?: (repo: string) => void;
 }) {
   const { text } = useSchemeColors();
   const repo = useSettingsRepo();
-  const explained = useKeyExplain(storeDef.key, repo);
+  const explained = useKeyExplain(storeDef.key, repo, externalWrites);
   const [pruneError, setPruneError] = useState<string | null>(null);
   const { refresh, rows, loading } = explained;
   // A settled explain read is fresher than a store loaded when the page
@@ -725,7 +747,8 @@ function WhereTab({
 }
 
 /** One key's panel: the Value tab the caller draws, and every layer that
-    could set the key, weakest first. */
+    could set the key, weakest first. `externalWrites` counts the caller's
+    own writes beside the panel; each new count re-reads the layers. */
 export function KeyPanel({
   def,
   store,
@@ -733,6 +756,7 @@ export function KeyPanel({
   onTab,
   value,
   fix,
+  externalWrites,
   onChanged,
   onPickRepo,
 }: {
@@ -742,6 +766,7 @@ export function KeyPanel({
   onTab: (tab: PanelTab) => void;
   value: ReactNode;
   fix?: string | null;
+  externalWrites?: number;
   onChanged?: () => void;
   onPickRepo?: (repo: string) => void;
 }) {
@@ -776,6 +801,7 @@ export function KeyPanel({
           def={def}
           store={store}
           fix={fix}
+          externalWrites={externalWrites}
           onChanged={onChanged}
           onPickRepo={onPickRepo}
         />

@@ -15,6 +15,7 @@ import type { SettingDefWire } from '@mattstack/settings-kit/react';
 import classes from './ExplainModal.module.css';
 import {
   KeyPanel,
+  notifying,
   Suggested,
   type PanelStore,
   type PanelTab,
@@ -35,22 +36,6 @@ export type ExplainStore = Pick<
 >;
 
 const MODAL_WIDTH = 760;
-
-function notifying(store: PanelStore, onChanged?: () => void): PanelStore {
-  if (!onChanged) return store;
-  const then = (err: string | null) => {
-    onChanged();
-    return err;
-  };
-  return {
-    set: (...a: Parameters<PanelStore['set']>) => store.set(...a).then(then),
-    unset: (...a: Parameters<PanelStore['unset']>) =>
-      store.unset(...a).then(then),
-    move: (...a: Parameters<PanelStore['move']>) => store.move(...a).then(then),
-    prune: (...a: Parameters<PanelStore['prune']>) =>
-      store.prune(...a).then(then),
-  };
-}
 
 function Header({
   settingKey,

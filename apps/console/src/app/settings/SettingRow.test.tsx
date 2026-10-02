@@ -743,6 +743,54 @@ describe('SettingRow', () => {
     );
   });
 
+  it('a save from the header re-reads the open Where it’s set', async () => {
+    const s = store();
+    let rows: ExplainRowWire[] = [
+      { scope: 'default', file: null, present: true, value: 'medium' },
+      { scope: 'user', file: '/u', present: false },
+      { scope: 'machine', file: '/m', present: false },
+    ];
+    explainGet.mockImplementation(async () => ok({ def: null, rows }));
+    s.set.mockImplementation(async () => {
+      rows = rows.map(r =>
+        r.scope === 'user' ? { ...r, present: true, value: 'low' } : r
+      );
+      return null;
+    });
+    renderRow(
+      <SettingRow
+        def={def('agent.claude.effort', {
+          effective: { scope: 'default', file: null, value: 'medium' },
+        })}
+        store={s}
+        subhead={null}
+        query=""
+      />
+    );
+    await openRow('agent.claude.effort');
+    expect(await screen.findByTestId('layer-value-default')).toHaveAttribute(
+      'data-role',
+      'winner'
+    );
+    const input = screen.getByLabelText('agent.claude.effort');
+    await userEvent.clear(input);
+    await userEvent.type(input, 'low{Enter}');
+    await waitFor(() =>
+      expect(s.set).toHaveBeenCalledWith('agent.claude.effort', 'user', 'low')
+    );
+    expect(await screen.findByTestId('layer-value-user')).toHaveTextContent(
+      /^low$/
+    );
+    expect(screen.getByTestId('layer-value-user')).toHaveAttribute(
+      'data-role',
+      'winner'
+    );
+    expect(screen.getByTestId('layer-value-default')).toHaveAttribute(
+      'data-role',
+      'overridden'
+    );
+  });
+
   it('a stored secret or an unwritable stored row offers no remove', async () => {
     explains([{ scope: 'user', file: '/u', present: true, value: 'x' }]);
     renderRow(
