@@ -487,6 +487,28 @@ describe('SettingRow disclosure', () => {
       }
     });
 
+    it('under reduced motion the chevron names the panel only while it is there', async () => {
+      const real = window.matchMedia;
+      vi.spyOn(window, 'matchMedia').mockImplementation(query =>
+        query.includes('prefers-reduced-motion')
+          ? { ...real(query), matches: true }
+          : real(query)
+      );
+      renderRow(
+        <SettingRow def={scalar()} store={store()} subhead={null} query="" />
+      );
+      const chevron = screen.getByRole('button', {
+        name: 'open board.agent.model',
+      });
+      await waitFor(() => expect(chevron).not.toHaveAttribute('aria-controls'));
+      await userEvent.click(chevron);
+      const controls = screen
+        .getByRole('button', { name: 'close board.agent.model' })
+        .getAttribute('aria-controls');
+      expect(controls).toBeTruthy();
+      expect(document.getElementById(controls!)).not.toBeNull();
+    });
+
     it('under reduced motion the panel closes at once', async () => {
       vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0);
       const real = window.matchMedia;

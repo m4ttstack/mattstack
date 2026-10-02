@@ -262,7 +262,8 @@ export function SettingRow({
             variant="subtle"
             color="gray"
             aria-expanded={isOpen}
-            aria-controls={panelId}
+            // Under reduced motion a closed collapse renders nothing.
+            aria-controls={isOpen || !reduceMotion ? panelId : undefined}
             aria-label={`${isOpen ? 'close' : 'open'} ${def.key}`}
             onClick={toggle}
           >
