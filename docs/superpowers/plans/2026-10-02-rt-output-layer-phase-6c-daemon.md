@@ -60,7 +60,7 @@ Today's text quotes `<...>` for values; `--` stands for a long dash. "note" mean
 | `○ not installed (run rt daemon install)` | print `line("off", "The daemon is not installed")`, `callout("next", cmd("rt daemon install"))` |
 | `● running (SMAppService · pid <p> · uptime <u>)` + `watching: <n> repos`, `cache: <n> entries` | print `line("running", "The daemon is running", "pid <p>, up <u>")`, then a `kv` run: `watching` `<n> repo(s)`, `cache` `<n> entries` |
 | `events: <label> <state> (<age>) · ...` | `kv("events", formatFreshnessParts(...).join(" · "))` |
-| `health: <level>` + `- <reason>` lines | `line(level === "unhealthy" ? "failed" : "warn", \`The daemon reports it is ${level}\`)`, then `verbatim(reasons, "why")` |
+| `health: <level>` + `- <reason>` lines | `line("warn", \`The daemon reports it is ${level}\`)` for every level (it is running and answering, so not coral; coral stays for crash-looping and boot-failed), then `verbatim(reasons, "why")` |
 | `event loop: maxLag <n>ms` | `kv("event loop", "slowest pause <n> ms")` |
 | `● running, but not reporting status` + pid + reason line + `check: rt daemon logs` | `line("warn", "The daemon is running but did not report its status", "pid <p>")`, `callout("why", <reason sentence below>)`, `callout("next", cmd("rt daemon logs"))`. Reason: `error` gives "Its status command failed: <detail>"; an event loop gives "It answered a ping, but status timed out; its slowest pause was <n> ms<, in <cmd>>"; otherwise "It answered a ping, but status timed out, probably while it syncs." |
 | `◐ parked (pid <p>, another flavor owns rt.sock)` + `held by: <f>` | `line("off", "This daemon is waiting", "the <f> daemon is running instead")` (or "another daemon is running instead" with no flavor), `callout("next", cmd("rt daemon logs"))` |
@@ -362,6 +362,7 @@ test("running prints the health level and reasons when present", () => {
 test("a hostile health reason cannot repaint the screen", () => {
   const text = plain({ state: "running", data: { pid: 1, uptime: 1, watchedRepos: 0, cacheEntries: 0, health: { level: "unhealthy", reasons: ["x\x1b[2Jy"] } } });
   expect(text).not.toContain("\x1b");
+  expect(text).toContain("[warning] The daemon reports it is unhealthy");
 });
 
 test("degraded/unresponsive names the slowest pause, never 'probably mid-sync'", () => {
@@ -463,7 +464,7 @@ export function statusBlocks(verdict: DaemonStatusVerdict, now: number): { print
       if (el && el.maxLagMs >= 500) blocks.push(out.kv("event loop", `slowest pause ${el.maxLagMs} ms`));
       const health = verdict.data.health as { level: string; reasons: string[] } | undefined;
       if (health && health.level !== "ok") {
-        blocks.push(out.line(health.level === "unhealthy" ? "failed" : "warn", `The daemon reports it is ${health.level}`));
+        blocks.push(out.line("warn", `The daemon reports it is ${health.level}`));
         if (health.reasons.length > 0) blocks.push(out.verbatim(health.reasons, "why"));
       }
       return { print: blocks };
@@ -628,14 +629,20 @@ Before Step 3 this test fails (today's sentence is on stdout); after, it passes.
 In `daemon-logs-web-viewer.test.ts`, change `fakeSeams` to collect `print: (...blocks) => calls.printed.push(...blocks)` and `fail: (f) => calls.failures.push(f)`, and every assertion on `calls.errors` to `calls.failures.map((f) => f.title)`. Add:
 
 ```ts
-import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 test("the first stderr line of a missing logdy is the failure title alone", async () => {
-  const { seams, calls } = fakeSeams({ findLogdy: () => null });
-  await expect(runWebViewer(["/logs/daemon.log"], { open: true }, seams)).rejects.toThrow("exit 1");
-  const first = renderPlain([out.failure(calls.failures[0]!)]).split("\n")[0];
-  expect(first).toBe("rt could not find logdy");
+  const io = captureOut();
+  out.__test__.setHuman(() => false);
+  try {
+    const { seams } = fakeSeams({ findLogdy: () => null, fail: (f) => out.fail(f) });
+    await expect(runWebViewer(["/logs/daemon.log"], { open: true }, seams)).rejects.toThrow("exit 1");
+    expect(io.stderr()).toStartWith("rt could not find logdy\n");
+    expect(io.stdout()).toBe("");
+  } finally {
+    io.restore();
+  }
 });
 
 test("an early logdy exit and a slow logdy are failures the tray can show", async () => {

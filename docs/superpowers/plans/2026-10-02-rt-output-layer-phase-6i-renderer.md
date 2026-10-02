@@ -4,7 +4,7 @@
 
 **Goal:** The four renderer follow-ups from 5g: a table never clips a leading column (on a pane too narrow for its columns it stacks each row instead, so no value is lost on a pane 26 columns or wider); a command a callout moved to column 0 is followed by a blank row, as a copy block is; `settleBackground` asks the terminal at most once per process even when no answer comes; and `sdm`'s `withProgress` tells the step a task threw, so an older helper never paints a check over a failure. Plus the one `sdm` copy item: "0 of 1 connection have a label".
 
-**Architecture:** Go: `table` in `ui/internal/render/blocks_layout.go` measures, fits, and when `fitColumns` would cut a leading column, draws the rows stacked: each row's first cell on its own line, every other cell on the lines under it, indented, prefixed by its column header when the table has headers. Trees keep `fitColumns` as they are. `calloutLines` marks a column-0 command so the next row starts after a gap, inside a line run and between blocks alike. TS: a once-per-process latch in `lib/ui/background.ts`, beside the resolved background, read by `settleBackground` in `lib/ui/spawn.ts`; `withProgress` passes `{ thrown }` to `clear`, as `withTransientStep` already does.
+**Architecture:** Go: `table` in `ui/internal/render/blocks_layout.go` measures, fits, and when `fitColumns` would cut a leading column, draws the rows stacked: each row's first cell on its own line, every other cell on the lines under it, indented; when the table has headers, every cell, the first included, is led by its column header. Trees keep `fitColumns` as they are. `calloutLines` marks a column-0 command so the next row starts after a gap, inside a line run and between blocks alike. TS: a once-per-process latch in `lib/ui/background.ts`, beside the resolved background, read by `settleBackground` in `lib/ui/spawn.ts`; `withProgress` passes `{ thrown }` to `clear`, as `withTransientStep` already does.
 
 **Tech Stack:** Go (`ui/`, lipgloss v2), `go test`, Bun + TypeScript, Fast Browser.
 
@@ -73,8 +73,17 @@ func TestANarrowTableStacksAndLosesNothing(t *testing.T) {
 			t.Fatalf("%q is missing:\n%s", want, got)
 		}
 	}
-	if !strings.HasPrefix(rows(got)[0], "  rt.worktreeApp") {
-		t.Fatalf("a stacked row starts with its first cell:\n%s", got)
+	if !strings.HasPrefix(rows(got)[0], "  KEY  rt.worktreeApp") {
+		t.Fatalf("a stacked row starts with its first cell, led by its header:\n%s", got)
+	}
+}
+
+func TestAnUnbrokenValueInAStackedTableWrapsAndIsNeverClipped(t *testing.T) {
+	long := strings.Repeat("a1b2c3d4", 8)
+	got := plainAt(48, protocol.Block{T: "table", Headers: []string{"KEY", "VALUE", "SOURCE"}, Rows: []protocol.TableRow{cells("rt.worktreeApp", long, "user")}})
+	checkWidth(t, got, 48)
+	if strings.Contains(got, "…") || !strings.Contains(flat(got), long) {
+		t.Fatalf("the unbroken value lost characters:\n%s", got)
 	}
 }
 
@@ -133,7 +142,8 @@ and add:
 ```go
 // stackedTable draws a table too narrow for its columns one row at a time:
 // the first cell on its own line, each other cell on the lines under it,
-// indented and led by its column's header, so no cell is cut.
+// indented, and every cell led by its column's header, so no cell is cut and
+// none loses what it names.
 func (r *renderer) stackedTable(b protocol.Block, header []protocol.Cell, avail int) {
 	under := indent + "    "
 	for _, row := range b.Rows {
@@ -144,7 +154,11 @@ func (r *renderer) stackedTable(b protocol.Block, header []protocol.Cell, avail 
 		if len(row.Cells) == 0 {
 			continue
 		}
-		for _, l := range r.stackedLines(row.Cells[0], avail) {
+		first := row.Cells[0]
+		if len(header) > 0 {
+			first = append(append(protocol.Cell{}, header[0]...), append(protocol.Cell{{Text: "  "}}, first...)...)
+		}
+		for _, l := range r.stackedLines(first, avail) {
 			r.emit(indent + l)
 		}
 		for i, c := range row.Cells[1:] {
@@ -163,9 +177,9 @@ func (r *renderer) stackedTable(b protocol.Block, header []protocol.Cell, avail 
 and, beside it:
 
 ```go
-// stackedLines wraps a stacked cell into w columns. Under minWrap, or for a
-// word wider than w, wrapCell hands the text back whole, and fitLine clips it
-// so the pane edge holds.
+// stackedLines wraps a stacked cell into w columns. wrapCell cuts a word wider
+// than w at a separator or between graphemes; only under minWrap does it hand
+// the text back whole, and fitLine then clips it so the pane edge holds.
 func (r *renderer) stackedLines(c protocol.Cell, w int) []string {
 	var out []string
 	for _, l := range wrapCell(c, w) {
@@ -387,7 +401,7 @@ function enrichmentBlocks(path: string, enriched: number, total: number): Block[
 - [ ] **Step 2:** Render four pages: width 100 and width 48, each dark (`RT_UI_BACKGROUND=dark`) and light (`RT_UI_BACKGROUND=light`).
 - [ ] **Step 3:** Screenshot the four with Fast Browser into `docs/design/output-layer/6i-renderer-{dark,light}.png` (100 columns) and `6i-renderer-narrow-{dark,light}.png` (48). Write down plainly what reads wrong: at 48 columns a stacked row's cells read as belonging to their row (the indent and header prefix make the grouping clear) and the next row's first cell is easy to find; at 100 nothing stacks; the column-0 command has its blank row; nothing is clipped. Fix in Tasks 1 or 2 and re-render.
 - [ ] **Step 4:** README rows for the two pairs: `| \`6i-renderer-dark.png\`, \`6i-renderer-light.png\` | at 100 columns: tables that fit, a command at column 0 with its gap, the label counts |` and `| \`6i-renderer-narrow-dark.png\`, \`6i-renderer-narrow-light.png\` | the same at 48 columns: tables stacked row by row, nothing clipped |`.
-- [ ] **Step 5:** AGENTS.md: append to the "Output layer" section: `A table rt-ui cannot fit without cutting a leading column stacks instead: each row's first cell on its own line, the other cells under it, each led by its column header. On a pane 26 columns or wider no value is clipped; narrower than that, each stacked line is clipped to the pane. Trees still clip a leading column to keep their branches aligned.`
+- [ ] **Step 5:** AGENTS.md: append to the "Output layer" section: `A table rt-ui cannot fit without cutting a leading column stacks instead: each row's first cell on its own line, the other cells under it, every cell led by its column header. A value longer than the pane wraps, an unbroken one cut between characters. On a pane 26 columns or wider no value is clipped; narrower than that, each stacked line is clipped to the pane. Trees still clip a leading column to keep their branches aligned.`
 - [ ] **Step 6:** Gates, one at a time: `bun run ui:build`, `bun run ui:test`, `bun run typecheck`, `bun run test`, `bun run test:e2e`, `bun run test:pty`, `bun run picker:check`, `bun run format:check`, `bun run check`. All pass (known flakes as in 6a; `TestTextValidatesPatternThenAccepts` is RT-413's).
 - [ ] **Step 7:** Commit, message `docs: renderer leftover renders, narrow and wide`.
 
@@ -406,7 +420,7 @@ function enrichmentBlocks(path: string, enriched: number, total: number): Block[
 ## Decisions this plan made
 
 1. **Stack, do not clip.** A narrow table's rows stack whenever `fitColumns` would cut a leading column, so a value is not lost on any pane 26 columns or wider; the alternatives (share the shrink across columns, or clip the widest as today) still cut a value. Trees keep clipping: their branch rails need aligned columns, and their leading cells are short labels.
-2. **The stacked layout drops the header row and rule** and leads each later cell with its header instead, so the header stays next to the value it names.
+2. **The stacked layout drops the header row and rule** and leads every cell, the first included, with its header instead, so the header stays next to the value it names (`rt runs`' first column is `STATUS`, whose `done` or `failed` means nothing alone).
 3. **`settleBackground` settles once per process** whatever happened, because a terminal that did not answer once will not answer a moment later; `rt.ui.background` set to `dark` or `light` skips it altogether, as today.
 
 ## Self-Review

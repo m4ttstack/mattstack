@@ -52,7 +52,7 @@
 
 | View | Blocks |
 |---|---|
-| `herd list` | `table` of `[strong(id), status word, dim("room " + room), "<n> job(s)"]`; status `active` as `running`, `wrapped` as `off`. None: `line("skipped", "No herds")` then a `next` callout `rt herd list --all`; under `--all` the callout is dropped (it would point at itself) |
+| `herd list` | `table` of `[strong(id), status word, dim("room " + room), "<n> job(s)"]`; the status word is the herd's own (`active`, `wrapped`: the words `rt herd list --all` and the shepherd use), drawn in the `running` role for `active` and the `off` role for `wrapped`. None: `line("skipped", "No herds")` then a `next` callout `rt herd list --all`; under `--all` the callout is dropped (it would point at itself) |
 | `herd status` | `section(<herd id>, "room <room>")` holding: a `kv` run (`unread`, `push`, `lifecycle events`); a `table` of jobs `[strong(name), status word, dim("pane " + pane), dim(pane status), gate]`; then every problem `line`, herd-wide ones first (missing or dead subscription, lifecycle off, hidden session down, inbox unreachable), then one per job that needs the shepherd, each with its command in a `next` callout where the table below names one |
 | `herd gates` | `table` of `[strong(id), kind, subject, dim(labels)]`. None: `line("skipped", "No open gates")` |
 | `pane list` | `table` of `[strong(paneId), agent status word, who, dim(workspace and title), dim(repo and branch), dim(rooms)]`, background panes after a `background` group label. None: `line("skipped", "No Claude panes")` |
@@ -241,9 +241,9 @@ async function runVerb(fn: (args: string[]) => Promise<void>, args: string[]): P
     else throw err;
   } finally {
     exit.mockRestore();
+    io.restore();
   }
   const r = { code, stdout: io.stdout(), stderr: io.stderr() };
-  io.restore();
   return r;
 }
 
@@ -720,7 +720,7 @@ describe("herd views at a terminal", () => {
   const herd = { id: "h-sample", repo: "sample-app", room: "herd-h-sample", workspace: "w1", shepherdSession: "s", shepherdHandle: "ana.1", shepherdName: "ana", herdrSocket: null, hidden: false, status: "active" as const, createdAt: 1, wrappedAt: null };
   const job = { herd: "h-sample", name: "job-a", worktree: "/code/wt", branch: "job-a", tree: "wt", pane: "w1:p3", agentSession: "s2", agentId: null, handle: "job-a.2", handleName: "job-a", status: "active" as const, disposable: false, lastGate: null, lastReport: null, createdAt: 1, updatedAt: 1, openGate: null, paneStatus: "working", sessionDead: false, lastGateStatus: null, lastGateDelivery: null, lastGateConsumed: null };
 
-  test("list: one row per herd; a wrapped herd reads as off", () => {
+  test("list: one row per herd, its status in its own word", () => {
     const text = renderPlain(herdListBlocks([{ ...herd, jobs: 2 }, { ...herd, id: "h-two", status: "wrapped", jobs: 1 }]));
     expect(text.split("\n")[0]).toMatch(/^h-sample +active +room herd-h-sample +2 jobs$/);
     expect(text.split("\n")[1]).toMatch(/^h-two +wrapped +room herd-h-sample +1 job$/);

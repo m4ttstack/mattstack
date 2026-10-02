@@ -10,7 +10,7 @@ This is not a plan. It splits phase 6 into eleven slices, one PR each, so each s
 
 1. **Empty the raw-output allowlist.** `lib/__tests__/raw-output-allowlist.json` holds 42 files today. Each one leaves it in exactly one slice, one of three ways the spec names: converted onto `lib/ui/out.ts`; moved onto `out.json` or `out.payload` with no wording change (agent-only verbs); or put on a permanent exemption list with a one-line reason (a seam that must write to a stream directly). When the list is empty, delete `lib/ansi.ts`, the `lib/tui.ts` shim and `lib/tui/palette.ts`.
 2. **Chat daemon refusals get codes,** so `rt chat` draws them `refused` instead of as failures (5f2's decision 8).
-3. **Every follow-up Matt folded in:** four behavior bugs, the shell strings and token leftovers, about thirty copy polish items, four renderer leftovers, and chat `read`'s clock and spacing.
+3. **Every follow-up Matt folded in:** five behavior bugs, the shell strings and token leftovers, about thirty copy polish items, four renderer leftovers, and chat `read`'s clock and spacing.
 
 ## Standing rules every slice carries
 
@@ -75,7 +75,7 @@ Columns: guard lines / seam lines; who reads stdout; how the file leaves the lis
 | `commands/code.ts` | 6 / 0 | `rt nav`'s ctrl-o; Matt | the `rt nav` paths 5c kept raw, converted (Ruling 1), plus the `savePrefs` bug | 6f |
 | `lib/pickers.ts` | 3 / 0 | `rt cd`'s refusals | the `rt cd` paths 5c kept raw, converted (Ruling 1) | 6f |
 
-Totals: 419 guard lines and 25 seam lines. By kind: agent-only and seams 66 (6a), agent verbs with a human view 41 (6b), the daemon verb 104 (6c), service verbs 53 (6d), state 81 (6e), session verbs and `rt cd`/`rt nav` 73 (6f).
+Totals: 377 guard lines and 25 seam lines (402 in all). By kind, guard and seam lines together: agent-only and seams 51 (6a), agent verbs with a human view 41 (6b), the daemon verb 104 (6c), service verbs 53 (6d), state 80 (6e), session verbs and `rt cd`/`rt nav` 73 (6f).
 
 ## 2. The fold-ins, placed
 

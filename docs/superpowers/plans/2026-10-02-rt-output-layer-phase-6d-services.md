@@ -41,8 +41,8 @@
 
 | Reader | Reads | After |
 |---|---|---|
-| `rt-tray/Sources-core/Settings/AppsSettingsModel.swift:31,44` | `apps list --json`, `apps enable|disable <name> --json` | unchanged envelopes; `error.message` reworded |
-| `rt-tray/Sources-core/Flavor/FlavorLaunch.swift:113` | `flavor takeover <dev|prod> --json` | unchanged |
+| `rt-tray/Sources-core/Settings/AppsSettingsModel.swift:31,44` | `apps list --json`, `apps enable\|disable <name> --json` | unchanged envelopes; `error.message` reworded |
+| `rt-tray/Sources-core/Flavor/FlavorLaunch.swift:113` | `flavor takeover <dev\|prod> --json` | unchanged |
 | `rt-tray/Sources-core/Rt/RtFailureCopy.swift:56` | shows `apps list --json`'s `error.message` verbatim | each reworded message is one short line; `why` and `next` stay out of `message` |
 | `commands/__tests__/intercept-output.test.ts:235`, `e2e/tests/endpoint.test.ts:394` | the passthrough note contains `passthrough` | changed in Task 8 to `ran without an rt port` |
 | `lib/setup/steps/services.ts` | calls the tray directly, not `commands/services.ts` | unaffected |
@@ -86,7 +86,7 @@ Today `fail` prints the human message through `deps.print` (stdout). After, huma
 
 | Today | After |
 |---|---|
-| `rt flavor takeover: usage: rt flavor takeover <dev|prod>` | fail `usageFailure("Which app should this Mac run?", "rt flavor takeover <dev|prod>")` |
+| `rt flavor takeover: usage: rt flavor takeover <dev\|prod>` | fail `usageFailure("Which app should this Mac run?", "rt flavor takeover <dev\|prod>")` |
 | `... no rt source checkout is known; set one with: rt settings source-path <path>` | fail `{ title: "rt does not know where your rt source is", next: cmd("rt settings source-path <path>") }` |
 | `... <bundle> is not installed, so there is no compiled rt to link at <path>` | fail `{ title: "<bundle> is not installed", why: "The prod app carries the rt this Mac would run." }` |
 | `... could not point <path> at the <target> app: <err>` | fail `{ title: "rt could not switch this Mac to the <target> app", why: <err> }` |
@@ -101,17 +101,17 @@ Exit 2 on every failure, as today; `--json` unchanged.
 | `rt bg: <msg>` / `rt reconciler: <msg>` (daemon errors) | fail `{ title: <msg> }` |
 | `rt bg: usage: rt bg release [<owner>] [--json]` | fail `usageFailure("Which claim?", "rt bg release <owner>")` |
 | `rt reconciler: usage: rt reconciler clear <agentId> [--json]` | fail `usageFailure("Which agent?", "rt reconciler clear <agentId>")` |
-| bg status: `server: up|down`, `socket: <path>`, claims | print `line(up ? "running" : "off", up ? "The background server is running" : "The background server is stopped")`; claims `section("Live claims", undefined, table([strong(owner), dim(pane or "-"), "<age>"]))` or `line("skipped", "No live claims")`; the socket path is in `--json` only |
+| bg status: `server: up\|down`, `socket: <path>`, claims | print `line(up ? "running" : "off", up ? "The background server is running" : "The background server is stopped")`; claims `section("Live claims", undefined, table([strong(owner), dim(pane or "-"), "<age>"]))` or `line("skipped", "No live claims")`; the socket path is in `--json` only |
 | `released <owner>` / `<owner> was not claimed` | `line("done", "Released <owner>")` / `line("skipped", "<owner> was not claimed")` |
 | `stopped` / the daemon's `bg server has live claims: <owners>` (exit 1) | `line("done", "Stopped the background server")` / note `line("refused", "Left the background server running", "it still has live claims: <owners>")`, `callout("next", cmd("rt bg release <first owner>"))`, exit 1 as today |
-| reconciler status: `swept: <iso>|never`, `herdr: reachable|unreachable`, executors | `kv("last sweep", <local time> or "never")`, `line(reachable ? "done" : "warn", reachable ? "herdr is reachable" : "herdr is not reachable")`, `table` of `[strong(agentId), state word, dim(paneRef or "-")]` or `line("skipped", "No known executors")`; states: live `running`, blocked `needs-you`, hidden `off`, gone `warn` ("gone"), cleared `skipped`, unknown `skipped` |
+| reconciler status: `swept: <iso>\|never`, `herdr: reachable\|unreachable`, executors | `kv("last sweep", <local time> or "never")`, `line(reachable ? "done" : "warn", reachable ? "herdr is reachable" : "herdr is not reachable")`, `table` of `[strong(agentId), state word, dim(paneRef or "-")]` or `line("skipped", "No known executors")`; states: live `running`, blocked `needs-you`, hidden `off`, gone `warn` ("gone"), cleared `skipped`, unknown `skipped` |
 | `cleared <agentId>` | `line("done", "Cleared <agentId>")` |
 
 ### cron
 
 | Today | After |
 |---|---|
-| usage (exit 2) | human: fail `usageFailure("Which trigger?", "rt cron <install|remove> <trigger>", "The one trigger is board-triage.")`, exit 2; `--json` unchanged |
+| usage (exit 2) | human: fail `usageFailure("Which trigger?", "rt cron <install\|remove> <trigger>", "The one trigger is board-triage.")`, exit 2; `--json` unchanged |
 | `board binary not found -- resolve it first: \`rt deps resolve board\` (once bundled, ...)` | message `rt cannot find the board app`, `next: "rt deps resolve board"` |
 | `rt cron install: installed "<name>"` + `the daemon arms it within 30 seconds ... (rt daemon restart arms it now)` | print `line("done", "Installed the <name> schedule", "the daemon picks it up within 30 seconds")`, `callout("tip", ["To start it now: ", cmd("rt daemon restart")])` |
 | `rt cron remove: removed "<name>"` + the drop line | `line("done", "Removed the <name> schedule", "the daemon drops it within 30 seconds")`, the same tip |
@@ -123,7 +123,7 @@ Exit 2 on every failure, as today; `--json` unchanged.
 |---|---|
 | `rt endpoint: <msg>` failures | fail by kind: usage via `usageFailure("Which role?" / "Which worktree?", <usage>)`; `--path needs a value` / `--role needs a value` as `usageFailure`; `not in a git repo` as `{ title: "You are not in a git repo" }`; `repo "<n>" is not registered ...` as `{ title: "rt does not know this repo yet", why: "rt learns a repo the first time you run it there.", next: cmd("rt repos register .") }`; `daemon unavailable ... (rt daemon start)` as `{ title: "The rt daemon is not running", next: cmd("rt daemon start") }`; a daemon error as `{ title: <error> }`; `no claims to release` as `line("skipped", "No claims to release here")` (print, exit 1 as today) |
 | lookup: `no claim for role "<r>" in <repo>` | `line("off", "No claim for the <r> role", <repo>)` |
-| lookup: `<url> (running|claimed, not running|...|port taken)` | `line(status, <url>, <words>)`: running `running` "running"; claimed with a live process `pending` "the process is up but not listening yet"; claimed not running `off` "claimed, not running"; port taken `failed` "another process holds this port" |
+| lookup: `<url> (running\|claimed, not running\|...\|port taken)` | `line(status, <url>, <words>)`: running `running` "running"; claimed with a live process `pending` "the process is up but not listening yet"; claimed not running `off` "claimed, not running"; port taken `failed` "another process holds this port" |
 | `worktree <name> (<path>)` | `kv("worktree", <name> or the folder name)` |
 | `⚠ port <p> is listening, but pid <x> (<cmd>, <cwd>) does not belong to this worktree` | `line("warn", "Port <p> belongs to another worktree", "pid <x>, <cmd>")` |
 | `the listening process (pid <x>, <cmd>) could not be attributed to a worktree` | `line("warn", "rt could not tell which worktree owns port <p>", "pid <x>, <cmd>")` |
@@ -246,9 +246,9 @@ async function captured(fn: () => Promise<void>): Promise<{ code: number; stdout
     else throw e;
   } finally {
     exit.mockRestore();
+    io.restore();
   }
   const r = { code, stdout: io.stdout() };
-  io.restore();
   return r;
 }
 
@@ -475,9 +475,9 @@ async function run(fn: (args: string[]) => Promise<void>, args: string[]) {
     else throw e;
   } finally {
     exitSpy.mockRestore();
+    io.restore();
   }
   const r = { code, stdout: io.stdout(), stderr: io.stderr() };
-  io.restore();
   return r;
 }
 ```

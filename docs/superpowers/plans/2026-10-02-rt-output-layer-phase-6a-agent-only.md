@@ -282,9 +282,9 @@ async function runVerb(fn: (args: string[]) => Promise<void>, args: string[]): P
     else throw err;
   } finally {
     exit.mockRestore();
+    io.restore();
   }
   const r = { code, stdout: io.stdout(), stderr: io.stderr() };
-  io.restore();
   return r;
 }
 
@@ -770,9 +770,9 @@ Copy table:
         code = Number(m[1]);
       } finally {
         exit.mockRestore();
+        io.restore();
       }
       const stdout = io.stdout();
-      io.restore();
       return { code, stdout };
     };
     expect(await run(() => hookStatusCommand(["--json"], undefined))).toEqual({ code: 0, stdout: '{"installed":false}\n' });
