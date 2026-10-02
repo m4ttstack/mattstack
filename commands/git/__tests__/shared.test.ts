@@ -112,6 +112,9 @@ test("printable drops credential userinfo and keeps the rest of the URL", () => 
   expect(printable("ssh://user:secret@example.test/acme/app.git")).toBe("ssh://example.test/acme/app.git");
   expect(printable(`https://${["ghp", "_sampletoken123"].join("")}@example.test/acme/app.git`)).toBe("https://example.test/acme/app.git");
   expect(printable("https://sampleuser@example.test/acme/app.git")).toBe("https://example.test/acme/app.git");
+  expect(printable("https://user:p@ss@example.test/x.git")).toBe("https://example.test/x.git");
+  expect(printable("https://u:pw@evil@example.test/x.git")).toBe("https://example.test/x.git");
+  expect(printable("  https://user:secret@example.test/x.git")).toBe("https://example.test/x.git");
 });
 
 test("printable turns a value that still holds a token shape into REMOTE", () => {
@@ -120,4 +123,9 @@ test("printable turns a value that still holds a token shape into REMOTE", () =>
   expect(printable(`https://example.test/${token}/app.git`)).toBe("REMOTE");
   expect(printable(`ssh://${token}@example.test/acme/app.git`)).toBe("REMOTE");
   expect(printable(token)).toBe("REMOTE");
+});
+
+test("printable prints REMOTE when it cannot tell where the userinfo ends", () => {
+  expect(printable("https://user:pa/ss@example.test/x.git")).toBe("REMOTE");
+  expect(printable("https://u:p@ss/x@example.test/x.git")).toBe("REMOTE");
 });

@@ -84,11 +84,28 @@ export function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-const SCHEME_USERINFO_RE = /^([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/i;
+const SCHEME_RE = /^([a-z][a-z0-9+.-]*:\/\/)(.*)$/is;
+// Parity: the prefixes in CREDENTIAL_TOKEN_RE (lib/team/redact.ts).
 const TOKEN_SHAPE_RE = /\b(?:ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|glpat-|xox[abpsr]-|sk-ant-)[A-Za-z0-9_-]+/;
+// A colon in the first segment after `://` with an `@` anywhere after it: a password, even one holding a raw `/` or `@`.
+const PASSWORD_SHAPE_RE = /:\/\/[^/@\s]*:[^\s]*@/;
 
-/** The only way a remote name or URL reaches the screen. A clean remote prints as given so a printed command stays runnable; credential userinfo is dropped, and a token shape that survives anywhere turns the whole value into `REMOTE`. The argv given to git stays the real value. */
+function holdsCredentials(value: string): boolean {
+  return hasUrlCredentials(value) || PASSWORD_SHAPE_RE.test(value);
+}
+
+/**
+ * The only way a remote name or URL reaches the screen. A clean remote prints as given so a printed command stays runnable. Credential userinfo is dropped up to the last `@` of the authority; anything that still looks credentialed afterwards, or a token shape anywhere, prints as `REMOTE`. The argv given to git stays the real value.
+ */
 export function printable(remote: string): string {
-  const shown = hasUrlCredentials(remote) ? remote.replace(SCHEME_USERINFO_RE, "$1") : remote;
+  let shown = remote.trim();
+  if (holdsCredentials(shown)) {
+    const m = SCHEME_RE.exec(shown);
+    const authority = m ? m[2]!.split("/", 1)[0]! : "";
+    const at = authority.lastIndexOf("@");
+    if (!m || at < 0) return "REMOTE";
+    shown = m[1] + m[2]!.slice(at + 1);
+    if (holdsCredentials(shown) || shown.includes("@")) return "REMOTE";
+  }
   return TOKEN_SHAPE_RE.test(shown) ? "REMOTE" : shown;
 }
