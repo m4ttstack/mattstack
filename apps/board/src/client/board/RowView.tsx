@@ -305,11 +305,7 @@ function RowView({
               onOpenComments={ctx.onOpenComments}
             />
           </div>
-          <StatusLine
-            mr={mr}
-            status={status}
-            ctx={ctx}
-          />
+          <StatusLine mr={mr} status={status} ctx={ctx} />
           {(mr.note || noteOpen) && (
             <RowNote mr={mr} ctx={ctx} editing={noteOpen} />
           )}
