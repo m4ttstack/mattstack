@@ -168,8 +168,8 @@ function settingsReport(label: string, path: string, from: string, to: string, d
 export async function reidentify(fromArg: string, toArg: string, opts: { dryRun?: boolean } = {}): Promise<ReidentifyReport | { error: string }> {
   const from = normalizeIdentityArg(fromArg);
   const to = normalizeIdentityArg(toArg);
-  if (!from || !to) return { error: "both identities must be remote-kind: github.com/owner/repo or remote:github.com%2Fowner%2Frepo" };
-  if (from.serialized === to.serialized) return { error: "old and new identities are the same" };
+  if (!from || !to) return { error: "Both identities need a remote, like github.com/owner/repo" };
+  if (from.serialized === to.serialized) return { error: "The old and new identities are the same" };
   const dryRun = opts.dryRun === true;
   const f = from.serialized;
   const t = to.serialized;

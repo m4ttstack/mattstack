@@ -389,7 +389,7 @@ async function verifyLocate(plan: LocatePlan): Promise<{ error: string | null; s
 function retentionReason(data: DataMigration): string {
   const parts: string[] = [];
   if (data.refused.length > 0) parts.push(`both names hold ${data.refused.join(", ")}`);
-  if (data.registry === "refused") parts.push("its worktree registry could not be written");
+  if (data.registry === "refused") parts.push("rt could not carry over its worktrees");
   return parts.join("; ");
 }
 

@@ -273,7 +273,7 @@ export async function reposPrune(args: string[], _ctx: CommandContext = {}, deps
 
   for (const a of args) {
     if (a.startsWith("--") && a !== "--json" && a !== "--dry-run") {
-      refuseUsage(deps, json, "repos prune", `unknown flag "${a}" — ${PRUNE_USAGE}`, `This command has no option called ${a}`, PRUNE_USAGE);
+      refuseUsage(deps, json, "repos prune", `unknown flag "${a}"; ${PRUNE_USAGE}`, `This command has no option called ${a}`, PRUNE_USAGE);
     }
   }
 
@@ -332,13 +332,13 @@ export async function reposLocate(args: string[], _ctx: CommandContext = {}, dep
   const dryRun = args.includes("--dry-run");
   for (const a of args) {
     if (a.startsWith("--") && !LOCATE_FLAGS.includes(a)) {
-      refuseUsage(deps, json, "repos locate", `unknown flag "${a}" — ${LOCATE_USAGE}`, `This command has no option called ${a}`, LOCATE_USAGE);
+      refuseUsage(deps, json, "repos locate", `unknown flag "${a}"; ${LOCATE_USAGE}`, `This command has no option called ${a}`, LOCATE_USAGE);
     }
   }
 
   const repoArg = flagValue(args, "--repo");
   if (args.includes("--repo") && (repoArg === undefined || repoArg.startsWith("--"))) {
-    refuseUsage(deps, json, "repos locate", `--repo needs a value — ${LOCATE_USAGE}`, "Which repo moved?", LOCATE_USAGE, "The repo option needs a name.");
+    refuseUsage(deps, json, "repos locate", `--repo needs a value; ${LOCATE_USAGE}`, "Which repo moved?", LOCATE_USAGE, "The repo option needs a name.");
   }
   const repo = repoArg ? await resolveLocateRepo(repoArg, json, deps) : undefined;
 
@@ -348,7 +348,7 @@ export async function reposLocate(args: string[], _ctx: CommandContext = {}, dep
       deps,
       json,
       "repos locate",
-      `locate takes one path, got ${positionals.length} (${positionals.join(", ")}) — ${LOCATE_USAGE}`,
+      `locate takes one path, got ${positionals.length} (${positionals.join(", ")}); ${LOCATE_USAGE}`,
       "One folder at a time",
       LOCATE_USAGE,
       `You passed ${positionals.length}: ${positionals.join(", ")}.`,
@@ -408,7 +408,7 @@ async function pickLocateTarget(json: boolean, deps: RegisterDeps): Promise<stri
   const lost = getKnownRepos({ includeMissing: true }).filter((r) => r.missing);
   if (lost.length === 0) {
     if (json) deps.print(JSON.stringify(envelope({ lost: [], candidates: [] })));
-    else out.fail({ title: "No repo is missing", why: "Every repo rt knows is where it should be." });
+    else out.note(out.line("skipped", "No repo is missing", "every repo rt knows is where it should be"));
     process.exit(1);
   }
 

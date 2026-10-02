@@ -215,6 +215,21 @@ describe("reposLocate", () => {
     }
   });
 
+  test("usage envelopes join the usage line with a semicolon, never a long dash", async () => {
+    const cases: Array<[string[], string]> = [
+      [["--nope", "--json"], `unknown flag "--nope"; usage: rt repos locate`],
+      [["--json", "--repo"], `--repo needs a value; usage: rt repos locate`],
+      [[scratch, join(scratch, "other"), "--json"], `locate takes one path, got 2 (${scratch}, ${join(scratch, "other")}); usage: rt repos locate`],
+    ];
+    for (const [args, start] of cases) {
+      const deps = testDeps();
+      expect(await runExpectingProcessExit(() => reposLocate(args, {}, deps))).toBe(2);
+      const body = JSON.parse(deps.lines[0]!);
+      expect(body.error.code).toBe("usage");
+      expect(body.error.message).toStartWith(start);
+    }
+  });
+
   test("--repo without a value is a usage error", async () => {
     const deps = testDeps();
     const io = captureOut();
@@ -241,11 +256,11 @@ describe("reposLocate", () => {
     }
   });
 
-  test("no path and no lost rows exits 1 saying so", async () => {
+  test("no path and no lost rows exits 1 saying there is nothing to do", async () => {
     const deps = testDeps();
     const { code, stderr, lines } = await human(() => reposLocate([], {}, deps));
     expect(code).toBe(1);
-    expect(stderr).toBe("No repo is missing\n  why: Every repo rt knows is where it should be.\n");
+    expect(stderr).toBe("[skipped] No repo is missing  every repo rt knows is where it should be\n");
     expect(lines).toEqual([]);
   });
 

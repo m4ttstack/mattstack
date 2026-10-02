@@ -188,7 +188,19 @@ describe("rt repos reidentify", () => {
       const code = await runExpectingProcessExit(() => reposReidentify(["/tmp/x", "github.com/acme/new"], {}, { print: (s) => out.push(s) }));
       expect(code).toBe(2);
       expect(out).toEqual([]);
-      expect(io.stderr()).toContain("remote-kind");
+      expect(io.stderr()).toBe("Both identities need a remote, like github.com/owner/repo\n");
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("the same identity twice is one plain failure", async () => {
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old", "remote:github.com%2Facme%2Fold"], {}, { print: (s) => out.push(s) }));
+      expect(code).toBe(2);
+      expect(io.stderr()).toBe("The old and new identities are the same\n");
     } finally {
       io.restore();
     }

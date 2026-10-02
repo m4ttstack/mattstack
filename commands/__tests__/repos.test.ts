@@ -418,6 +418,12 @@ describe("reposPrune", () => {
     );
   });
 
+  test("an unknown flag's envelope joins the usage line with a semicolon", async () => {
+    const deps = testDeps();
+    expect(await runExpectingProcessExit(() => reposPrune(["--force", "--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error).toEqual({ code: "usage", message: 'unknown flag "--force"; usage: rt repos prune [--dry-run] [--json]' });
+  });
+
   test("a retained missing row tells the operator to locate it", async () => {
     const { setKvValue } = await import("../../lib/state/index.ts");
     updateRepoIndex("moved-repo", join(home, "gone-away"));
