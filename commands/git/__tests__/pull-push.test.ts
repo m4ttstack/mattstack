@@ -111,3 +111,20 @@ test("an upstream remote that is a URL with a token never prints the token", asy
   expect(io.stdout() + io.stderr()).not.toContain("tok123");
   expect(io.lines()[0]).toBe("[skipped] Would point feature at origin/feature  it tracks <remote>/feature now");
 });
+
+test("a push says it is pushing before git runs, then that it pushed", async () => {
+  expect(await pushCommand([], ctxFor(repo))).toBe(true);
+  expect(io.stdout()).toBe(
+    "[running] Pushing feature to origin/feature\n" +
+      "  note: This branch tracked nothing. It now tracks origin/feature.\n" +
+      "[ok] Pushed feature  to origin/feature\n",
+  );
+  expect(git(repo, "rev-parse", "origin/feature")).toBe(git(repo, "rev-parse", "HEAD"));
+});
+
+test("a push git rejects exits with git's code, after the running line", async () => {
+  writeFileSync(join(repo, ".git", "hooks", "pre-push"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  expect(await exitCodeOf(() => pushCommand([], ctxFor(repo)))).toBe(1);
+  expect(io.lines()[0]).toBe("[running] Pushing feature to origin/feature");
+  expect(io.stdout()).not.toContain("Pushed feature");
+});

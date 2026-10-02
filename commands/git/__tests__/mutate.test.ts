@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { execFileSync } from "child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as out from "../../../lib/ui/out.ts";
 import { renderPlain } from "../../../lib/ui/out-plain.ts";
 import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
-import { stashApplyCommand, stashBlocks, stashDropCommand, stashPopCommand, stashPushCommand, tagBlocks, tagCreateCommand, tagDeleteCommand, UNDO_REFUSED } from "../mutate.ts";
+import { amendCommand, stashApplyCommand, stashBlocks, stashDropCommand, stashPopCommand, stashPushCommand, tagBlocks, tagCreateCommand, tagDeleteCommand, undoCommand, UNDO_REFUSED } from "../mutate.ts";
 import { exitCodeOf, git, inDir, makeRepo, trapExit } from "./helpers.ts";
 
 test("the stash list names each stash by its number, its branch and its message", () => {
@@ -130,4 +131,40 @@ test("a tag git will not delete fails with a plain title over git's words", asyn
   expect(await exitCodeOf(() => inDir(repo, () => tagDeleteCommand(["no-such-tag"])))).toBe(1);
   expect(io.errLines()[0]).toBe("Could not delete that tag");
   expect(io.errLines().length).toBeGreaterThan(1);
+});
+
+test("amend on a branch another worktree holds is a refused note on stderr, exit 1", async () => {
+  const other = join(root, "other");
+  git(repo, "worktree", "add", "-q", "-f", other, "main");
+  expect(await exitCodeOf(() => inDir(repo, () => amendCommand([])))).toBe(1);
+  expect(io.stderr()).toBe(`[refused] rt will not rewrite this branch's history\n  why: main is already checked out in another worktree at ${other}\n`);
+  expect(io.stdout()).toBe("");
+});
+
+test("when ownership cannot be checked, amend warns on stderr and still amends", async () => {
+  writeFileSync(join(repo, "a.txt"), "amended\n");
+  git(repo, "add", "a.txt");
+  await inDir(repo, () => amendCommand([]));
+  expect(io.errLines()[0]).toBe("[warning] rt could not check who owns this branch  going ahead");
+  expect(io.lines().length).toBe(1);
+  expect(io.lines()[0]).toStartWith("[ok] Amended the last commit");
+});
+
+test("undo of the first commit is a refused note on stderr after the ownership warning, exit 1", async () => {
+  expect(await exitCodeOf(() => inDir(repo, () => undoCommand([])))).toBe(1);
+  expect(io.errLines()[0]).toBe("[warning] rt could not check who owns this branch  going ahead");
+  expect(io.errLines().at(-1)).toBe("[refused] This is the first commit, so there is nothing to go back to");
+  expect(io.stdout()).toBe("");
+});
+
+test("undo of a pushed commit is a refused note on stderr, exit 1", async () => {
+  const origin = join(root, "origin.git");
+  execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin], { stdio: "pipe" });
+  git(repo, "remote", "add", "origin", origin);
+  writeFileSync(join(repo, "a.txt"), "two\n");
+  git(repo, "commit", "-qam", "second commit");
+  git(repo, "push", "-q", "-u", "origin", "main");
+  expect(await exitCodeOf(() => inDir(repo, () => undoCommand([])))).toBe(1);
+  expect(io.stderr()).toBe("[refused] The last commit is already pushed\n  why: Undoing it here would leave this branch behind origin.\n");
+  expect(io.stdout()).toBe("");
 });

@@ -5,8 +5,8 @@ import { join } from "path";
 import { createGitClient } from "../../../packages/git-core/src/index.ts";
 import * as out from "../../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
-import { stashDropCommand, stashListCommand, stashPopCommand, stashPushCommand, tagCreateCommand, tagDeleteCommand, tagListCommand } from "../mutate.ts";
-import { exitCodeOf, inDir, makeRepo, trapExit } from "./helpers.ts";
+import { amendCommand, stashDropCommand, stashListCommand, stashPopCommand, stashPushCommand, tagCreateCommand, tagDeleteCommand, tagListCommand, undoCommand } from "../mutate.ts";
+import { exitCodeOf, git, inDir, makeRepo, trapExit } from "./helpers.ts";
 
 let root: string;
 let repo: string;
@@ -65,4 +65,24 @@ test("tag create, list and delete keep their envelopes", async () => {
 test("a flag is never taken as a tag name", async () => {
   expect(await exitCodeOf(() => inDir(repo, () => tagCreateCommand(["-D", "--json"])))).toBe(1);
   expect(io.stdout()).toBe('{"ok":false,"error":"usage: rt git tag create <name> [--message <m>] [--at <sha>] [--push] [--json]"}\n');
+});
+
+test("amend and undo on a branch another worktree holds keep the refused envelope, exit 1", async () => {
+  const other = join(root, "other");
+  git(repo, "worktree", "add", "-q", "-f", other, "main");
+  const error = `refused: main is already checked out in another worktree at ${other}`;
+  expect(await exitCodeOf(() => inDir(repo, () => amendCommand(["--json"])))).toBe(1);
+  expect(await exitCodeOf(() => inDir(repo, () => undoCommand(["--json"])))).toBe(1);
+  expect(io.stdout()).toBe(JSON.stringify({ ok: false, error }) + "\n" + JSON.stringify({ ok: false, error }) + "\n");
+  expect(io.stderr()).toBe("");
+});
+
+test("when ownership cannot be checked, the warning goes to stderr and stdout keeps the envelope alone", async () => {
+  writeFileSync(join(repo, "a.txt"), "amended\n");
+  git(repo, "add", "a.txt");
+  await inDir(repo, () => amendCommand(["--json"]));
+  expect(io.lines().length).toBe(1);
+  expect(JSON.parse(io.stdout()).ok).toBe(true);
+  expect(io.errLines()[0]).toBe("[warning] rt could not check who owns this branch  going ahead");
+  expect(io.errLines()[1]).toStartWith("  why: ");
 });
