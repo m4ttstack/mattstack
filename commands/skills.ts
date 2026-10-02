@@ -28,9 +28,11 @@
 import { execFileSync, spawnSync } from "child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { applyEdits, modify } from "jsonc-parser";
-import { createInterface } from "node:readline";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { mattstackHome } from "../lib/rt-paths.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
@@ -70,19 +72,33 @@ import {
 import type { AttachmentSource, CompileResult, Side, StageEntry, StepSource, VerbDef } from "../lib/skills/types.ts";
 
 /**
- * Marks an error as an expected, user-facing condition (bad flags, absent
- * binding, unknown verb) rather than a bug in this command -- withCleanErrors
- * prints these as a one-line "rt skills: <message>" and exits 1 with no
- * stack trace; anything else propagates to the top-level crash handler.
+ * An expected, user-facing condition (bad flags, an absent binding, an
+ * unknown verb) rather than a bug in this command. `message` is the technical
+ * text: it also travels inside --json envelopes and other verbs' errors, so
+ * it never changes for the sake of the screen. `shown` is what a person reads
+ * in its place; without it the message is the failure's title.
  */
-export class SkillsUsageError extends Error {}
+export class SkillsUsageError extends Error {
+  constructor(
+    message: string,
+    readonly shown?: out.FailureInput,
+  ) {
+    super(message);
+  }
+}
+
+export function skillsFailure(err: SkillsUsageError): out.FailureInput {
+  if (err.shown) return err.shown;
+  const [title, ...rest] = err.message.split("\n");
+  return { title: title ?? err.message, ...(rest.length > 0 ? { details: rest.join("\n") } : {}) };
+}
 
 async function withCleanErrors(fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
   } catch (err) {
     if (err instanceof SkillsUsageError) {
-      console.error(`rt skills: ${err.message}`);
+      out.fail(skillsFailure(err));
       process.exit(1);
     }
     throw err;
@@ -192,7 +208,7 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   if (flags.packDir) {
     const packDir = resolvePath(flags.packDir);
     if (!existsSync(packDir) || !statSync(packDir).isDirectory()) {
-      throw new SkillsUsageError(`--pack-dir ${packDir} is not an existing directory`);
+      throw new SkillsUsageError(`--pack-dir ${packDir} is not an existing directory`, { title: "That pack folder does not exist", details: packDir });
     }
     return { team: flags.team || packTeamFor(packDir), packDir };
   }
@@ -201,10 +217,10 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   if (enclosing) {
     const name = packTeamFor(enclosing.dir);
     if (!flags.team || flags.team === name) {
-      console.error(`rt skills: acting on the pack tree enclosing cwd (${enclosing.dir})`);
+      out.note(out.callout("note", ["Using the pack this folder is inside: ", out.strong(enclosing.dir)]));
       return { team: name, packDir: enclosing.dir };
     }
-    console.error(`rt skills: cwd is inside pack tree "${name}" (${enclosing.dir}) but --pack ${flags.team} was given; resolving through the registry`);
+    out.note(out.line("warn", `This folder is inside the ${name} pack, but you asked for ${flags.team}`, "using the one you asked for"));
   }
 
   const packs = flags.mattstackDir ? [] : discoverPacks();
@@ -215,14 +231,25 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
     if (existsSync(legacy)) return { team: flags.team, packDir: legacy };
     throw new SkillsUsageError(
       `no pack named "${flags.team}" (discovered: ${packs.map((p) => p.name).join(", ") || "none"}; checked ${legacy})`,
+      { title: `No pack is called ${flags.team}`, next: out.cmd("rt skills packs"), details: `Packs here: ${packs.map((p) => p.name).join(", ") || "none"}` },
     );
   }
 
   if (packs.length === 1) return { team: packs[0]!.name, packDir: packs[0]!.dir };
-  if (packs.length === 0) throw new SkillsUsageError("no packs discovered (no directory marketplace plugin carries a surface.jsonc); pass --pack <name>");
+  if (packs.length === 0) {
+    throw new SkillsUsageError("no packs discovered (no directory marketplace plugin carries a surface.jsonc); pass --pack <name>", {
+      title: "No packs found",
+      why: "A pack is a plugin from a directory marketplace that has a surface file.",
+      next: ["Run it again with ", out.cmd("--pack <name>"), " or ", out.cmd("--pack-dir <folder>")],
+    });
+  }
 
   if (!process.stdin.isTTY) {
-    throw new SkillsUsageError(`which pack? pass --pack <name> (discovered: ${packs.map((p) => p.name).join(", ")})`);
+    throw new SkillsUsageError(`which pack? pass --pack <name> (discovered: ${packs.map((p) => p.name).join(", ")})`, {
+      title: "Which pack?",
+      why: `There is more than one: ${packs.map((p) => p.name).join(", ")}.`,
+      next: ["Run it again with ", out.cmd("--pack <name>")],
+    });
   }
   const picked = await pickPack(packs);
   if (!picked) process.exit(0);
@@ -414,6 +441,11 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
     if (hit) return hit.path;
     throw new SkillsUsageError(
       `no ${team} bindings file for repo "${repo}" under ${reposRoot} (have: ${candidates.map((c) => c.slug).join(", ") || "none"}); run rt skills materialize`,
+      {
+        title: `No ${team} bindings file for ${repo} yet`,
+        next: out.cmd("rt skills materialize"),
+        details: `Repos that have one: ${candidates.map((c) => c.slug).join(", ") || "none"}`,
+      },
     );
   }
   if (candidates.length === 1) return candidates[0]!.path;
@@ -433,6 +465,13 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
       `pack "${team}" binds ${candidates.length} repos (${candidates.map((c) => c.slug).join(", ")})` +
         (hostless ? `; its team zone declares no forge host, so its projects cannot pick one` : "") +
         `; pass --repo <slug or host/path>`,
+      {
+        title: "Which repo?",
+        why:
+          `The ${team} pack is bound in ${candidates.length} repos: ${candidates.map((c) => c.slug).join(", ")}.` +
+          (hostless ? " Its team zone names no forge host, so rt cannot pick one." : ""),
+        next: ["Run it again with ", out.cmd("--repo <slug>")],
+      },
     );
   }
 
@@ -447,6 +486,11 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
     `no repos/*/packs/${team}/skills.jsonc under ${reposRoot}` +
       (standalone ? ` and ${ownManifest} is absent` : "") +
       `; run rt skills materialize, or pass --manifest explicitly`,
+    {
+      title: `No ${team} bindings file was found`,
+      next: out.cmd("rt skills materialize"),
+      details: `Looked for repos/*/packs/${team}/skills.jsonc under ${reposRoot}` + (standalone ? `, and for ${ownManifest}` : ""),
+    },
   );
 }
 
@@ -853,6 +897,34 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   return { outcomes, failures, misplaced };
 }
 
+export type CompiledRow = { name: string; side: Side; files: number; warnings: string[] };
+
+const countOf = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+export function compileBlocks(rows: CompiledRow[], writing: boolean): Block[] {
+  if (rows.length === 0) return [out.line("skipped", "Nothing to compile", "this pack has no verbs")];
+  return rows.flatMap((row) => [
+    writing
+      ? out.line(row.warnings.some((w) => !w.startsWith("note: ")) ? "warn" : "done", `Compiled ${row.name}`, `${countOf(row.files, "file", "files")} in ${row.side}/`)
+      : out.line("pending", row.name, `would write ${countOf(row.files, "file", "files")}`),
+    // compile.ts writes its surface-internal notes with their own "note: " label.
+    ...(row.warnings.length > 0 ? [out.callout("note", ...row.warnings.map((w) => w.replace(/^note: /, "")))] : []),
+  ]);
+}
+
+export function compileFailure(failures: string[]): out.FailureInput {
+  return { title: `${countOf(failures.length, "verb", "verbs")} did not compile`, details: failures.join("\n") };
+}
+
+export function misplacedFailure(names: string[]): out.FailureInput {
+  return {
+    title: names.length === 1 ? `${names[0]} is in the wrong folder` : `${names.length} skills are in the wrong folder`,
+    why: "A skill's folder has to match whether it is public or internal.",
+    next: out.cmd("rt skills surface apply"),
+    ...(names.length > 1 ? { details: names.join("\n") } : {}),
+  };
+}
+
 export async function skillsCompile(args: string[]): Promise<void> {
   await withCleanErrors(async () => {
     const flags = parseFlags(args);
@@ -860,11 +932,16 @@ export async function skillsCompile(args: string[]): Promise<void> {
     // Flag-shape errors before resolve(): pack resolution can open a picker
     // and shell out, and cancelling the picker would swallow the diagnostic.
     if (flags.preview && (flags.verbs?.length ?? 0) !== 1) {
-      throw new SkillsUsageError("--preview needs a single --verb");
+      throw new SkillsUsageError("--preview needs a single --verb", usageFailure("Which verb should be previewed?", "rt skills compile --preview --verb <name>"));
     }
     if (flags.preview && flags.json) {
-      throw new SkillsUsageError("--preview and --json cannot be combined (--preview prints the compiled body; --json compiles, writes, and reports)");
+      throw new SkillsUsageError("--preview and --json cannot be combined (--preview prints the compiled body; --json compiles, writes, and reports)", {
+        title: "A preview prints the compiled skill, so it cannot also print JSON",
+        next: out.cmd("rt skills compile --preview --verb <name>"),
+      });
     }
+
+    if (flags.preview) out.payloadOnStdout();
 
     const resolved = await resolve(flags);
     const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
@@ -883,7 +960,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
         if (!outcome.ok) {
           // A lint-erroring verb has no previewable body -- say so on stderr
           // and leave stdout empty rather than silently producing nothing.
-          console.error(`rt skills: ${outcome.message}`);
+          out.fail({ title: `${verb.name} did not compile, so there is nothing to preview`, details: outcome.message });
           process.exitCode = 1;
           return;
         }
@@ -891,7 +968,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
         // interleaved, so the output pipes straight into a file or a preview pane.
         const main = outcome.result.files.find((f) => "content" in f && f.path.endsWith("SKILL.md"));
         if (!main || !("content" in main)) throw new SkillsUsageError(`verb "${verb.name}": produced no SKILL.md`);
-        console.log(main.content);
+        out.payload(`${main.content}\n`);
       }
       // The post-loop misplaced scan below walks the whole pack rather than the
       // requested verb, so letting --preview reach it would put a misplaced
@@ -901,29 +978,11 @@ export async function skillsCompile(args: string[]): Promise<void> {
 
     const { outcomes, failures, misplaced } = performCompile(resolved, flags.verbs, !flags.dryRun);
     if (failures.length > 0 && !flags.json) {
-      for (const message of failures) console.error(`rt skills: ${message}`);
+      out.fail(compileFailure(failures));
       process.exit(1);
     }
 
     const writing = failures.length === 0 && !flags.dryRun;
-    for (const { target, outcome } of outcomes) {
-      if (!outcome.ok) continue;
-      const { verb, isPublic } = target;
-      const side: Side = isPublic ? "skills" : "attachments";
-
-      if (!writing) {
-        if (!flags.json) {
-          console.log(`would write ${outcome.result.files.length} files for ${verb.name}`);
-          for (const warning of outcome.result.warnings) console.log(`  ${warning}`);
-        }
-        continue;
-      }
-
-      if (!flags.json) {
-        console.log(`compiled ${verb.name} -> ${side} (${outcome.result.files.length} files, ${outcome.result.warnings.length} warnings)`);
-        for (const warning of outcome.result.warnings) console.log(`  ${warning}`);
-      }
-    }
 
     if (flags.json) {
       const rows: CompileVerbRow[] = outcomes.map(({ target, outcome }) => {
@@ -937,12 +996,17 @@ export async function skillsCompile(args: string[]): Promise<void> {
       // non-JSON path's exits. `written` stays honest on an empty target set.
       if (failures.length > 0 || misplaced.length > 0) process.exitCode = 1;
       const written = writing && outcomes.length > 0;
-      console.log(JSON.stringify({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced }));
+      out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced });
       return;
     }
 
-    for (const name of misplaced) {
-      console.log(`misplaced: ${name} (run rt skills surface apply, or move it)`);
+    const compiled: CompiledRow[] = outcomes.flatMap(({ target, outcome }) =>
+      outcome.ok ? [{ name: target.verb.name, side: target.isPublic ? ("skills" as const) : ("attachments" as const), files: outcome.result.files.length, warnings: outcome.result.warnings }] : [],
+    );
+    out.print(...compileBlocks(compiled, writing));
+
+    if (misplaced.length > 0) {
+      out.fail(misplacedFailure(misplaced));
       process.exitCode = 1;
     }
   });
@@ -1124,14 +1188,52 @@ export async function checkPack(opts: { pack?: string; packDir?: string; manifes
   return computeCheck(parseFlags(args));
 }
 
-export function installedCacheLine(installed: InstalledInfo): string | null {
+export function installedCacheBlocks(installed: InstalledInfo): Block[] {
+  const next = out.callout("next", out.cmd("rt skills sync"));
   if (installed.status === "lagging") {
-    return `installed cache: lagging (${installed.version} installed vs ${installed.sourceVersion} source) -- run rt skills sync`;
+    return [out.line("stale", "The installed copy is behind the source", `${installed.version} installed, ${installed.sourceVersion} in the source`), next];
   }
   if (installed.status === "missing") {
-    return `installed cache: missing (no installed record for ${installed.plugin}@${installed.marketplace}) -- run rt skills sync`;
+    return [out.line("pending", "This pack is not installed here", `${installed.plugin}@${installed.marketplace}`), next];
   }
-  return null;
+  return [];
+}
+
+export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[] {
+  const blocks: Block[] = payload.chainErrors.map((chainError) => out.line("failed", chainError));
+  let stale = false;
+  for (const row of payload.verbs) {
+    if (row.status === "never-compiled") {
+      stale = true;
+      blocks.push(out.line("stale", row.name, "never compiled"));
+    } else if (row.status === "stale") {
+      stale = true;
+      const files = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)].join(", ");
+      const causes = row.staleBecause ?? [];
+      blocks.push(out.line("stale", row.name, causes.length > 0 ? `${causes.join(", ")} moved: ${files}` : `changed since the last compile: ${files}`));
+    } else {
+      blocks.push(out.line("done", row.name, "current"));
+    }
+  }
+  if (stale) blocks.push(out.callout("next", out.cmd("rt skills compile")));
+  if (payload.installed) blocks.push(...installedCacheBlocks(payload.installed));
+
+  if (payload.mcpLint.length === 0) {
+    blocks.push(out.line("done", "mcp lint", "clean"));
+  } else {
+    const policy = payload.strictLint
+      ? "this pack is strict, so they fail a strict check and the sync"
+      : strictFlag
+        ? "they fail a strict check"
+        : "advisory; they fail a strict check";
+    blocks.push(out.verbatim(payload.mcpLint.map(formatHit), "mcp lint"));
+    blocks.push(out.line(strictFlag ? "failed" : "warn", `mcp lint: ${countOf(payload.mcpLint.length, "hit", "hits")}`, policy));
+  }
+  if (payload.scriptLint.length > 0) {
+    blocks.push(out.verbatim(payload.scriptLint.map(formatHit), "pack scripts, advisory"));
+    blocks.push(out.line("warn", `pack scripts: ${countOf(payload.scriptLint.length, "hit", "hits")}`, "advisory"));
+  }
+  return blocks;
 }
 
 export async function skillsCheck(args: string[]): Promise<void> {
@@ -1139,46 +1241,28 @@ export async function skillsCheck(args: string[]): Promise<void> {
     const flags = parseFlags(args);
     const payload = await computeCheck(flags);
 
-    if (!flags.json) {
-      for (const chainError of payload.chainErrors) console.log(chainError);
-      for (const row of payload.verbs) {
-        if (row.status === "never-compiled") {
-          console.log(`${row.name}: stale (never compiled -- outDir missing; run rt skills compile)`);
-        } else if (row.status === "stale") {
-          const humanFiles = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)];
-          const causes = row.staleBecause ?? [];
-          const movedPrefix = causes.length > 0 ? `${causes.join(", ")} moved; ` : "";
-          console.log(`${row.name}: stale (${movedPrefix}recompile or investigate drift with git diff) -- ${humanFiles.join(", ")}`);
-        } else {
-          console.log(`${row.name}: current`);
-        }
-      }
-      if (payload.installed) {
-        const line = installedCacheLine(payload.installed);
-        if (line) console.log(line);
-      }
-      for (const hit of payload.mcpLint) console.log(formatHit(hit));
-      const policy = payload.strictLint
-        ? "strict: --strict and rt skills sync fail on them"
-        : flags.strict ? "--strict fails on them" : "advisory; --strict fails on them";
-      console.log(payload.mcpLint.length > 0 ? `mcp lint: ${payload.mcpLint.length} hits (${policy})` : "mcp lint: clean");
-      for (const hit of payload.scriptLint) console.log(`(advisory) ${formatHit(hit)}`);
-      if (payload.scriptLint.length > 0) console.log(`mcp lint (pack scripts, advisory): ${payload.scriptLint.length} ${payload.scriptLint.length === 1 ? "hit" : "hits"}`);
-    }
-
     if (payload.drift) process.exitCode = 1;
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
       const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint } = payload;
-      console.log(JSON.stringify({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint }));
+      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint });
+      return;
     }
+    out.print(...checkBlocks(payload, flags.strict));
   });
 }
 
 function skillsFlagValue(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
   return i >= 0 ? args[i + 1] : undefined;
+}
+
+export function packsBlocks(rows: Array<{ name: string; dir: string; layout: string }>): Block[] {
+  if (rows.length === 0) {
+    return [out.line("pending", "No packs found"), out.callout("note", "A pack is a plugin from a directory marketplace that has a surface file.")];
+  }
+  return [out.table(rows.map((row) => [out.strong(row.name), row.layout, out.dim(row.dir)]), ["Pack", "Layout", "Folder"])];
 }
 
 export async function skillsPacks(args: string[]): Promise<void> {
@@ -1192,15 +1276,10 @@ export async function skillsPacks(args: string[]): Promise<void> {
   const rows = packs.map((p) => ({ name: p.name, dir: p.dir, layout: p.layout }));
 
   if (json) {
-    console.log(JSON.stringify({ packs: rows }));
+    out.json({ packs: rows });
     return;
   }
-
-  if (rows.length === 0) {
-    console.log("no packs discovered (no directory marketplace plugin carries a surface.jsonc)");
-    return;
-  }
-  for (const row of rows) console.log(`${row.name}  ${row.layout}  ${row.dir}`);
+  out.print(...packsBlocks(rows));
 }
 
 // ─── rt skills composition ─────────────────────────────────────────────────
@@ -1248,7 +1327,7 @@ type CompositionBinder = {
 
 type CompositionFill = { binding: string; provides: string; sourcePath: string; registered: boolean };
 
-type CompositionPayload = {
+export type CompositionPayload = {
   pack: string;
   packDir: string;
   /**
@@ -1448,6 +1527,21 @@ function enumerateFills(pluginRoots: PluginRoots): CompositionFill[] {
   return fills.sort((a, b) => a.binding.localeCompare(b.binding));
 }
 
+export function compositionBlocks(payload: CompositionPayload): Block[] {
+  const verbs = payload.verbs.map((verb) =>
+    verb.engineError
+      ? out.line("failed", verb.name, verb.engineError)
+      : out.tree(
+          [out.strong(verb.name), "  ", out.dim(`${verb.engineRef ?? verb.engine}, ${verb.public ? "public" : "internal"}`)],
+          verb.slots.map((slot) => {
+            const bound = slot.resolveError ? `error: ${slot.resolveError}` : (slot.boundTo ?? "not bound");
+            return slot.layer ? [slot.name, bound, out.dim(slot.layer)] : [slot.name, bound];
+          }),
+        ),
+  );
+  return [out.section(`Pack ${payload.pack}`, undefined, ...verbs), out.kv("Fills", String(payload.fills.length)), out.kv("Binders", String(payload.binders.length))];
+}
+
 export async function skillsComposition(args: string[]): Promise<void> {
   await withCleanErrors(async () => {
     // composition never takes --verb: resolved.roster is selectVerbs-filtered,
@@ -1476,25 +1570,10 @@ export async function skillsComposition(args: string[]): Promise<void> {
     };
 
     if (flags.json) {
-      console.log(JSON.stringify(payload));
+      out.json(payload);
       return;
     }
-
-    console.log(`rt skills composition -- pack ${payload.pack}`);
-    for (const verb of payload.verbs) {
-      if (verb.engineError) {
-        console.log(`  ${verb.name}: ENGINE ERROR -- ${verb.engineError}`);
-        continue;
-      }
-      console.log(`  ${verb.name} (${verb.engineRef}) ${verb.public ? "public" : "internal"}`);
-      for (const slot of verb.slots) {
-        const status = slot.resolveError
-          ? `ERROR -- ${slot.resolveError}`
-          : slot.boundTo ?? "(unbound)";
-        console.log(`    ${slot.name}: ${status}${slot.layer ? ` [${slot.layer}]` : ""}`);
-      }
-    }
-    console.log(`  ${payload.fills.length} fills, ${payload.binders.length} binders`);
+    out.print(...compositionBlocks(payload));
   });
 }
 
@@ -1510,6 +1589,15 @@ function materializeExitCode(result: MaterializeSkillsResult, single: boolean): 
   return result.repos.some((r) => !r.ok && !r.noManifest) ? 1 : 0;
 }
 
+export function materializeBlocks(result: MaterializeSkillsResult): Block[] {
+  if (result.skipped) return [out.line("skipped", "Nothing was written", result.reason)];
+  return result.repos.flatMap((r) => [
+    out.line(r.ok ? "done" : r.noManifest ? "skipped" : "failed", r.name, r.detail),
+    ...(r.migrated ? [out.callout("note", ["Renamed the old merged file to ", out.dim(r.migrated)])] : []),
+    ...(r.pruned?.length ? [out.callout("note", `${setAsideLine(r.pruned.length)}: ${r.pruned.join(", ")}`)] : []),
+  ]);
+}
+
 export async function skillsMaterialize(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const flag = (name: string) => (args.includes(name) ? requireFlagValue(name, skillsFlagValue(args, name)) : undefined);
@@ -1522,21 +1610,12 @@ export async function skillsMaterialize(args: string[]): Promise<void> {
 
   try {
     const result = await materializeSkills(createRealProbes(), { repo, dir });
-    if (json) {
-      console.log(JSON.stringify(envelope(result)));
-    } else if (result.skipped) {
-      console.log(`skipped: ${result.reason}`);
-    } else {
-      for (const r of result.repos) {
-        console.log(`${r.ok ? "materialized" : r.noManifest ? "no skills declared for" : "failed"} ${r.name}: ${r.detail}`);
-        if (r.migrated) console.log(`  renamed the old merged file to ${r.migrated}`);
-        if (r.pruned?.length) console.log(`  ${setAsideLine(r.pruned.length)}: ${r.pruned.join(", ")}`);
-      }
-    }
+    if (json) out.json(envelope(result));
+    else out.print(...materializeBlocks(result));
     const code = materializeExitCode(result, dir !== undefined);
     if (code !== 0) process.exitCode = code;
   } catch (err) {
-    if (err instanceof UserActionableError) exitUserError(err, json, "skills materialize", console.log);
+    if (err instanceof UserActionableError) exitUserError(err, json, "skills materialize");
     throw err;
   }
 }
@@ -1553,7 +1632,7 @@ type SurfaceFlags = {
   json: boolean;
 };
 
-type SurfaceRow = { name: string; kind: "compiled" | "hand-authored" | "missing"; status: "public" | "internal" };
+export type SurfaceRow = { name: string; kind: "compiled" | "hand-authored" | "missing"; status: "public" | "internal" };
 
 function kindLabel(kind: SurfaceRow["kind"]): string {
   return kind === "missing" ? "(no files on disk)" : kind;
@@ -1666,7 +1745,7 @@ export function computeRows(
   const surfacePath = surfaceFileFor(packDir);
   const source = surface && surfacePath
     ? surfacePath.slice(packDir.length + 1)
-    : "(no surface.jsonc yet -- inferred from current skills/ + stubs.jsonc placement)";
+    : "no surface file yet, worked out from where each skill sits";
 
   const names = new Set<string>([...allNames, ...publicSet, ...stageNames]);
   const rows = [...names].sort().map((name) => {
@@ -1757,15 +1836,12 @@ function moveHandAuthoredDir(packDir: string, move: PlannedMove): string | null 
   }
 
   renameSync(join(packDir, fromRel), join(packDir, toRel));
-  return "plain rename -- pack dir is not a git repo";
+  return "this pack is not a git repo, so no git history follows it";
 }
 
-function printSurfaceRows(flags: SurfaceFlags, source: string, rows: SurfaceRow[]): void {
-  console.log(`rt skills surface -- pack ${flags.team}`);
-  console.log(`source: ${source}`);
-  for (const row of rows) {
-    console.log(`  ${row.status.padEnd(9)}${kindLabel(row.kind).padEnd(15)}${row.name}`);
-  }
+export function surfaceBlocks(team: string | null, source: string, rows: SurfaceRow[]): Block[] {
+  if (rows.length === 0) return [out.line("pending", "No skills are registered in this pack")];
+  return [out.section(`Pack ${team ?? ""}`.trim(), source, out.table(rows.map((row) => [out.strong(row.name), row.status, out.dim(kindLabel(row.kind))]), ["Skill", "Surface", "Kind"]))];
 }
 
 async function runList(flags: SurfaceFlags): Promise<void> {
@@ -1776,12 +1852,11 @@ async function runList(flags: SurfaceFlags): Promise<void> {
   const { source, rows } = computeRows(packDir, verbNames, surface, stageNames);
 
   if (flags.json) {
-    console.log(JSON.stringify({ pack: flags.team, packDir, rows }));
+    out.json({ pack: flags.team, packDir, rows });
     return;
   }
 
-  printSurfaceRows(flags, source, rows);
-  if (rows.length === 0) console.log("(no skills registered in this pack)");
+  out.print(...surfaceBlocks(flags.team, source, rows));
 }
 
 type ApplyResult = { moved: string[]; recorded: string[]; compileErrors: string[] };
@@ -1813,12 +1888,12 @@ async function runApply(flags: SurfaceFlags): Promise<ApplyResult> {
     moved.push(name);
 
     if (flags.dryRun) {
-      if (!flags.json) console.log(`would move ${name}: ${route}`);
+      if (!flags.json) out.print(out.line("pending", name, `would move ${route}`));
       continue;
     }
 
     const note = moveHandAuthoredDir(packDir, move);
-    if (!flags.json) console.log(`moved ${name}: ${route}${note ? ` (${note})` : ""}`);
+    if (!flags.json) out.print(out.line("done", name, `moved ${route}${note ? ` (${note})` : ""}`));
   }
 
   // surface.jsonc only ever names the public side -- internal is the absence
@@ -1832,13 +1907,11 @@ async function runApply(flags: SurfaceFlags): Promise<ApplyResult> {
     if (existsSync(outDirFor(packDir, name, true)) || existsSync(otherSideDir(packDir, name, true))) continue;
     recorded.push(name);
     if (!flags.json) {
-      console.log(flags.dryRun
-        ? `${name}: would record; emitted to skills/ on the next compile`
-        : `${name}: recorded; emitted to skills/ on the next compile`);
+      out.print(out.line("pending", name, flags.dryRun ? "would be recorded; written to skills/ on the next compile" : "recorded; written to skills/ on the next compile"));
     }
   }
 
-  if (!flags.json && moved.length === 0 && recorded.length === 0) console.log("no moves needed");
+  if (!flags.json && moved.length === 0 && recorded.length === 0) out.print(out.line("skipped", "Nothing needs to move"));
 
   if (flags.json) {
     // The recompile runs through compilePackAll, not skillsCompile, so its
@@ -1892,18 +1965,18 @@ async function runSet(names: string[], want: "public" | "internal", flags: Surfa
   }
 
   writeSurfaceConfig(packDir, [...publicSet].sort());
-  if (!flags.json) for (const name of names) console.log(`${name}: ${want}`);
+  if (!flags.json) out.print(...names.map((name) => out.line("done", name, want)));
 
   const result = await runApply(flags);
   if (flags.json) {
-    console.log(JSON.stringify({
+    out.json({
       ok: result.compileErrors.length === 0,
       dryRun: flags.dryRun,
       set: names.map((name) => ({ name, want })),
       moved: result.moved,
       recorded: result.recorded,
       compileErrors: result.compileErrors,
-    }));
+    });
   }
 }
 
@@ -1944,20 +2017,11 @@ export function decidePaletteAction(
   return confirmed ? { kind: "write", delta } : { kind: "declined", delta };
 }
 
-function printDelta(delta: SurfaceDelta): void {
-  console.log("changes:");
-  for (const name of delta.toPublic) console.log(`  + public   ${name}`);
-  for (const name of delta.toInternal) console.log(`  - public   ${name}`);
-}
-
-function confirmYesNo(promptText: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const rl = createInterface({ input: process.stdin, output: process.stderr });
-    rl.question(promptText, (answer) => {
-      rl.close();
-      resolve(answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes");
-    });
-  });
+function deltaBlock(delta: SurfaceDelta): Block {
+  return out.changes([
+    ...delta.toPublic.map((name) => ({ op: "+" as const, name, hint: "becomes public" })),
+    ...delta.toInternal.map((name) => ({ op: "-" as const, name, hint: "becomes internal" })),
+  ]);
 }
 
 async function runPalette(flags: SurfaceFlags): Promise<void> {
@@ -1970,14 +2034,12 @@ async function runPalette(flags: SurfaceFlags): Promise<void> {
   const { source, rows } = computeRows(packDir, verbNames, surface, stageNames);
 
   if (rows.length === 0) {
-    console.log("(no skills registered in this pack)");
+    out.print(...surfaceBlocks(flags.team, source, rows));
     return;
   }
 
   if (!process.stdin.isTTY) {
-    printSurfaceRows(flags, source, rows);
-    console.log("");
-    console.log("no tty -- edit one at a time: rt skills surface set <name> --public|--internal");
+    out.print(...surfaceBlocks(flags.team, source, rows), out.callout("next", [out.cmd("rt skills surface set <name> --public"), " (or ", out.cmd("--internal"), ")"]));
     return;
   }
 
@@ -2007,21 +2069,22 @@ async function runPalette(flags: SurfaceFlags): Promise<void> {
 
   const preview = decidePaletteAction(previousPublic, resultRows, false);
   if (preview.kind === "no-changes") {
-    console.log("no changes -- surface.jsonc left as is");
+    out.print(out.line("skipped", "No changes"));
     return;
   }
 
-  printDelta(preview.delta);
-  const confirmed = await confirmYesNo("  apply these changes? [y/N] ");
+  out.print(deltaBlock(preview.delta));
+  const { confirm } = await import("../lib/ui/prompts.ts");
+  const confirmed = await confirm({ message: "Apply these changes?", initialValue: false });
   const decision = decidePaletteAction(previousPublic, resultRows, confirmed);
 
   if (decision.kind !== "write") {
-    console.log("declined -- no changes made");
+    out.print(out.line("skipped", "No changes made"));
     return;
   }
 
   writeSurfaceConfig(packDir, [...selectedSet].sort());
-  console.log(`surface.jsonc updated: ${selectedSet.size} public`);
+  out.print(out.line("done", "Saved which skills are public", `${selectedSet.size} public`));
 
   await runApply(flags);
 }
@@ -2042,13 +2105,7 @@ export async function skillsSurface(args: string[]): Promise<void> {
       if (rest.length) throw new SkillsUsageError(`unrecognized argument "${rest[0]}"`);
       const result = await runApply(flags);
       if (flags.json) {
-        console.log(JSON.stringify({
-          ok: result.compileErrors.length === 0,
-          dryRun: flags.dryRun,
-          moved: result.moved,
-          recorded: result.recorded,
-          compileErrors: result.compileErrors,
-        }));
+        out.json({ ok: result.compileErrors.length === 0, dryRun: flags.dryRun, moved: result.moved, recorded: result.recorded, compileErrors: result.compileErrors });
       }
       return;
     }
@@ -2062,7 +2119,7 @@ export async function skillsSurface(args: string[]): Promise<void> {
         names.push(a);
       }
       if (names.length === 0) {
-        throw new SkillsUsageError("set requires a skill name: rt skills surface set <name...> --public|--internal");
+        throw new SkillsUsageError("set requires a skill name: rt skills surface set <name...> --public|--internal", usageFailure("Which skill?", "rt skills surface set <name> --public"));
       }
       const duplicate = names.find((n, i) => names.indexOf(n) !== i);
       if (duplicate) throw new SkillsUsageError(`"${duplicate}" named more than once`);
@@ -2073,7 +2130,12 @@ export async function skillsSurface(args: string[]): Promise<void> {
         else if (a === "--internal") want = "internal";
         else throw new SkillsUsageError(`unrecognized argument "${a}"`);
       }
-      if (!want) throw new SkillsUsageError("set requires --public or --internal");
+      if (!want) {
+        throw new SkillsUsageError(
+          "set requires --public or --internal",
+          usageFailure("Should it be public or internal?", "rt skills surface set <name> --public", "Say which with --public or --internal."),
+        );
+      }
       await runSet(names, want, flags);
       return;
     }
@@ -2088,7 +2150,7 @@ export async function skillsSurface(args: string[]): Promise<void> {
     // a --json caller gets a clean usage error instead of the picker's
     // no-tty prose or a silent hang.
     if (flags.json) {
-      console.log(JSON.stringify({ ok: false, error: "rt skills surface --json needs a mode: list, set <name...> --public|--internal, or apply" }));
+      out.json({ ok: false, error: "rt skills surface --json needs a mode: list, set <name...> --public|--internal, or apply" });
       process.exitCode = 1;
       return;
     }
@@ -2286,7 +2348,7 @@ export async function applyBind(opts: {
     if (fragmentIsManifest) {
       throw new SkillsUsageError(`the bindings file ${fragmentPath} resolves outside the pack (${fragmentReal}); nothing written`);
     }
-    console.error(`rt skills bind: ${fragmentPath} resolves outside the pack; skipping fragment write`);
+    out.note(out.line("warn", "The pack's bindings file points outside the pack, so it was left alone", fragmentPath));
     return writeManifestOnly();
   }
   if (fragmentIsManifest) return writeManifestOnly();
@@ -2338,6 +2400,21 @@ export async function regeneratePackFile(manifestPath: string): Promise<Regenera
   return regenerateOutcomeFor(await materializeSkills(p, { dir }), manifestPath);
 }
 
+export function bindBlocks(b: { verb: string; slot: string; from: string; to: string; dryRun: boolean; fragmentUpdated: string | null; basePack: string | null }): Block[] {
+  return [
+    out.line(b.dryRun ? "pending" : "done", `${b.verb}.${b.slot}`, `${b.from} -> ${b.to}`),
+    ...(b.fragmentUpdated ? [out.callout("note", ["Also saved in the pack's own bindings file: ", out.dim(b.fragmentUpdated)])] : []),
+    ...(b.basePack ? [out.callout("note", `${b.basePack} is a base pack. Packs that extend it pick this up once it is published and their bindings are rebuilt.`)] : []),
+  ];
+}
+
+export function shadowWarning(verb: string, slot: string, layer: string, manifestPath: string): Block[] {
+  return [
+    out.line("warn", `${verb}.${slot} is still decided by the ${layer} layer`, "your change is saved, but that layer wins"),
+    out.callout("note", ["The winning value is in ", out.dim(manifestPath)]),
+  ];
+}
+
 export async function skillsBind(args: string[]): Promise<void> {
   await withCleanErrors(async () => {
     // Positionals, not raw args, so an interleaved flag (bind verb --pack x slot
@@ -2355,7 +2432,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       }
     }
     if (!verbName || !slotName || !fill) {
-      throw new SkillsUsageError("bind requires: rt skills bind <verb> <slot> <fill>");
+      throw new SkillsUsageError("bind requires: rt skills bind <verb> <slot> <fill>", usageFailure("Bind which verb, slot and fill?", "rt skills bind <verb> <slot> <fill>"));
     }
 
     const bindFlags = parseBindFlags(rest);
@@ -2378,8 +2455,14 @@ export async function skillsBind(args: string[]): Promise<void> {
     const rosterVerb = resolved.fullRoster.find((v) => v.name === verbName);
     const verb = rosterVerb ?? resolved.stages.find((v) => v.name === verbName);
     if (!verb && resolved.base && resolved.fullRoster.length === 0) {
+      const fragment = join(resolved.packDir, "pack", "skills.jsonc");
       throw new SkillsUsageError(
-        `pack "${resolved.team}" is a base pack with no verbs of its own, so bind cannot check the slot; edit ${join(resolved.packDir, "pack", "skills.jsonc")} directly`,
+        `pack "${resolved.team}" is a base pack with no verbs of its own, so bind cannot check the slot; edit ${fragment} directly`,
+        {
+          title: `${resolved.team} is a base pack with no verbs of its own, so rt cannot check the slot`,
+          why: "Edit its bindings file by hand.",
+          details: fragment,
+        },
       );
     }
     if (!verb) {
@@ -2427,11 +2510,11 @@ export async function skillsBind(args: string[]): Promise<void> {
 
     const engineRef = `${step.plugin}:${verb.engine}`;
     const oldValue = resolved.bindings[engineRef]?.[slotName] ?? "(unbound)";
-    const summary = `${verbName}.${slotName}: ${oldValue} -> ${fill}`;
+    const bound = { verb: verbName, slot: slotName, from: oldValue, to: fill, dryRun: bindFlags.dryRun, fragmentUpdated: null as string | null, basePack: null as string | null };
 
     if (bindFlags.dryRun) {
-      if (bindFlags.json) console.log(JSON.stringify({ ok: true, dryRun: true, verb: verbName, slot: slotName, from: oldValue, to: fill }));
-      else console.log(summary);
+      if (bindFlags.json) out.json({ ok: true, dryRun: true, verb: verbName, slot: slotName, from: oldValue, to: fill });
+      else out.print(...bindBlocks(bound));
       return;
     }
 
@@ -2447,28 +2530,24 @@ export async function skillsBind(args: string[]): Promise<void> {
     });
     if (resolved.base) {
       if (bindFlags.json) {
-        console.log(JSON.stringify({ ok: true, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, base: true }));
+        out.json({ ok: true, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, base: true });
         return;
       }
-      console.log(summary);
-      console.log(`${resolved.team} is a base pack: packs that extend it pick this up once it is published and their bindings files are regenerated`);
+      out.print(...bindBlocks({ ...bound, basePack: resolved.team }));
       return;
     }
     // A recompile here would read the stale bindings file and bake the old fill in.
     if (regenerated === false) {
       process.exitCode = 1;
       if (bindFlags.json) {
-        console.log(JSON.stringify({ ok: false, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, regenerated, regenerateDetail }));
+        out.json({ ok: false, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, regenerated, regenerateDetail });
         return;
       }
-      console.log(`${summary} (fragment updated: ${fragmentUpdated})`);
-      console.error(`rt skills bind: bindings file not regenerated: ${regenerateDetail}`);
-      console.error(`rt skills bind: the fragment ${fragmentUpdated} is written and the next rt skills materialize picks it up; nothing was recompiled`);
+      out.print(...bindBlocks({ ...bound, fragmentUpdated }));
+      out.fail({ title: "The bindings file was not rebuilt, so nothing was recompiled", ...(regenerateDetail ? { why: regenerateDetail } : {}), next: out.cmd("rt skills materialize") });
       return;
     }
-    if (shadowedBy) {
-      console.error(`rt skills bind: ${engineRef}.${slotName} is bound to ${fill} in the fragment, but the ${shadowedBy} layer still wins in ${resolved.manifestPath}`);
-    }
+    if (shadowedBy) out.note(...shadowWarning(verbName, slotName, shadowedBy, manifestPath));
 
     // A stage's bound fills feed every orchestrator's compiled allowed-tools union
     // (stageAllowedToolsFor) -- scoping to `--verb <stage>` would leave every
@@ -2487,7 +2566,7 @@ export async function skillsBind(args: string[]): Promise<void> {
         verbs: verbFilter,
       });
       if (!compileResult.ok) process.exitCode = 1;
-      console.log(JSON.stringify({
+      out.json({
         ok: compileResult.ok,
         verb: verbName,
         slot: slotName,
@@ -2498,11 +2577,11 @@ export async function skillsBind(args: string[]): Promise<void> {
         ...(regenerated === undefined ? {} : { regenerated }),
         ...(regenerateDetail === undefined ? {} : { regenerateDetail }),
         compileErrors: compileResult.errors,
-      }));
+      });
       return;
     }
 
-    console.log(fragmentUpdated ? `${summary} (fragment updated: ${fragmentUpdated})` : summary);
+    out.print(...bindBlocks({ ...bound, fragmentUpdated }));
     const surfaceFlags: SurfaceFlags = {
       team: resolved.team,
       dryRun: false,

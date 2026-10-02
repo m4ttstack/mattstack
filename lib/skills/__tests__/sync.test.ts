@@ -303,7 +303,7 @@ describe("syncPack", () => {
     const report = await syncPack(pack, engine, deps);
 
     expect(report.steps[0]!.status).toBe("refused");
-    expect(report.steps[0]!.detail).toContain('engine checkout on branch "feature"');
+    expect(report.steps[0]!.detail).toContain("engine checkout is on feature, not main");
     expect(report.steps[0]!.detail).toContain("main");
     expect(report.ok).toBe(false);
     expect(calls.some((c) => c.args[0] === "pull")).toBe(false);
@@ -318,7 +318,7 @@ describe("syncPack", () => {
     const report = await syncPack(pack, engine, deps);
 
     expect(report.steps[0]!.status).toBe("refused");
-    expect(report.steps[0]!.detail).toContain('"acme"');
+    expect(report.steps[0]!.detail).toContain("The acme pack was not installed from a directory marketplace");
     expect(report.steps[0]!.detail).toContain("marketplace");
     expect(calls).toEqual([]);
   });
@@ -334,7 +334,7 @@ describe("syncPack", () => {
     expect(report.steps[0]!.status).toBe("refused");
     expect(report.steps[0]!.detail).toContain(".claude/local/claude");
     expect(report.steps[0]!.detail).toContain("/opt/homebrew/bin/claude");
-    expect(report.steps[0]!.detail).toContain("install the Claude CLI or put it on PATH, then re-run");
+    expect(report.steps[0]!.detail).toContain("Install it, then run this again");
     expect(calls).toEqual([]);
   });
 
@@ -458,7 +458,7 @@ describe("syncPack", () => {
     expect(last.name).toBe("update-engine");
     expect(last.status).toBe("refused");
     expect(last.detail).toContain("network unreachable");
-    expect(last.detail).toContain("stale engine");
+    expect(last.detail).toContain("old engine");
     expect(report.ok).toBe(false);
     expect(calls.some((c) => c.cmd === "checkPack")).toBe(false);
     expect(calls.some((c) => c.args[0] === "push")).toBe(false);
@@ -512,7 +512,8 @@ describe("syncPack", () => {
 
     expect(stepNames(report.steps)).toEqual(["guards"]);
     expect(report.steps[0]!.status).toBe("refused");
-    expect(report.steps[0]!.detail).toContain("pack checkout dirty");
+    expect(report.steps[0]!.detail).toContain("pack checkout at");
+    expect(report.steps[0]!.detail).toContain("has uncommitted changes");
   });
 
   test("11: cswap sweep warns about exactly the divergent session", async () => {
@@ -539,6 +540,7 @@ describe("syncPack", () => {
     expect(report.warnings.length).toBe(1);
     expect(report.warnings[0]).toContain("stale");
     expect(report.steps.find((s) => s.name === "cswap-sweep")!.status).toBe("ran");
+    expect(report.steps.find((s) => s.name === "cswap-sweep")!.detail).toBe("1 cswap account links another plugins folder");
   });
 
   test("12: a failed update-pack fails the step with stderr in the detail", async () => {
@@ -674,7 +676,7 @@ describe("syncPack", () => {
     expect(stepNames(report.steps)).toEqual(["guards"]);
     expect(report.steps[0]!.status).toBe("refused");
     expect(report.steps[0]!.detail).toContain(join(pack.dir, ".worktrees"));
-    expect(report.steps[0]!.detail).toContain("prune");
+    expect(report.steps[0]!.detail).toContain("Remove it, then run this again");
     expect(calls).toEqual([]);
   });
 
@@ -756,7 +758,7 @@ describe("syncPack", () => {
     const report = await syncPack(pack, engine, deps);
 
     expect(report.steps[0]!.status).toBe("refused");
-    expect(report.steps[0]!.detail).toContain('pack checkout on branch "feature"');
+    expect(report.steps[0]!.detail).toContain("pack checkout is on feature, not main");
     expect(report.steps[0]!.detail).toContain("main");
     expect(report.ok).toBe(false);
     expect(calls.some((c) => c.args[0] === "pull")).toBe(false);
@@ -779,7 +781,7 @@ describe("syncPack", () => {
     const compile = report.steps.find((s) => s.name === "compile")!;
     expect(compile.status).toBe("refused");
     expect(compile.detail).toContain("boom: template placeholder unresolved");
-    expect(compile.detail).toContain("reverted plugin.json to 0.5.2");
+    expect(compile.detail).toContain("rt put the version back to 0.5.2");
     expect(readVersion(pack.dir)).toBe("0.5.2");
     expect(report.ok).toBe(false);
   });
@@ -801,7 +803,7 @@ describe("syncPack", () => {
     expect(recheck.detail).toContain("0.5.2 -> 0.5.3");
     expect(recheck.detail).toContain("uncommitted version bump");
     expect(recheck.detail).toContain("compiled output");
-    expect(recheck.detail).toContain("continuing from this working tree");
+    expect(recheck.detail).toContain("from this working tree");
     // the tree is left as-is (no write-back) on a recheck refusal
     expect(readVersion(pack.dir)).toBe("0.5.3");
   });
@@ -885,7 +887,8 @@ describe("syncPack", () => {
     const checkStep = report.steps.find((s) => s.name === "check")!;
     expect(checkStep.status).toBe("refused");
     expect(checkStep.detail).toContain("mcp lint");
-    expect(checkStep.detail).toContain("rt skills check");
+    expect(checkStep.detail).toContain("Fix them before syncing");
+    expect(checkStep.detail).not.toContain("rt skills check");
     const names = stepNames(report.steps);
     expect(names.at(-1)).toBe("check");
     for (const later of ["bump", "compile", "recheck", "commit-push", "update-pack"]) expect(names).not.toContain(later);
@@ -908,8 +911,8 @@ describe("syncPack", () => {
     expect(report.ok).toBe(true);
     const checkStep = report.steps.find((s) => s.name === "check")!;
     expect(checkStep.status).toBe("ran");
-    expect(checkStep.detail).toContain("2 hits (advisory");
-    expect(checkStep.detail).toContain("strictLint");
+    expect(checkStep.detail).toContain("mcp lint found 2 hits, advisory for this pack");
+    expect(checkStep.detail).not.toContain("strictLint");
   });
 
   test("28: check step carries no lint text at zero hits, even under a strict pack", async () => {
@@ -930,6 +933,7 @@ describe("syncPack", () => {
     const checkStep = report.steps.find((s) => s.name === "check")!;
     expect(checkStep.status).toBe("ran");
     expect(checkStep.detail).not.toContain("mcp lint");
+    expect(checkStep.detail).toMatch(/^the compiled skills are (current|out of date)$/);
   });
 });
 
@@ -1007,7 +1011,7 @@ describe("guards message", () => {
     const world: World = { calls: [], installed: { "mattstack@mattstack": "1.2.3", "acme@mattstack": "0.1.0" }, drift: [false] };
     const deps = { ...makeDeps(pack, engine, world), inTreeRoot: engine.dir };
     const report = await syncPack(pack, engine, deps);
-    expect(report.steps.find((s) => s.name === "guards")!.detail).toBe("pack checkout clean on main; engine is in-tree, its git checks skipped");
+    expect(report.steps.find((s) => s.name === "guards")!.detail).toBe("pack checkout clean on main; the engine is in the shared checkout, so its git checks are skipped");
   });
 
   test("says every git check was skipped when the pack is the in-tree engine", async () => {
@@ -1015,7 +1019,7 @@ describe("guards message", () => {
     const world: World = { calls: [], installed: { "mattstack@mattstack": "1.2.3" }, drift: [false] };
     const deps = { ...makeDeps(engine, engine, world), inTreeRoot: engine.dir };
     const report = await syncPack(engine, engine, deps);
-    expect(report.steps.find((s) => s.name === "guards")!.detail).toBe("engine and pack are in-tree; git checks skipped");
+    expect(report.steps.find((s) => s.name === "guards")!.detail).toBe("the engine and the pack are in the shared checkout, so git checks are skipped");
   });
 });
 
@@ -1094,9 +1098,9 @@ describe("in-tree plugins install from main", () => {
     expect(report.ok).toBe(true);
     const pullEngine = report.steps.find((s) => s.name === "pull-engine")!;
     expect(pullEngine.status).toBe("skipped");
-    expect(pullEngine.detail).toContain(`shared checkout ${root} is on "feature-x"`);
+    expect(pullEngine.detail).toContain(`the shared checkout at ${root} is on feature-x, not main`);
     expect(pullEngine.detail).toContain("installs from main");
-    expect(report.warnings.some((w) => w.includes("feature-x"))).toBe(true);
+    expect(report.warnings.some((w) => w.startsWith(`The shared checkout at ${root} is on feature-x`))).toBe(true);
   });
 
   test("names a detached shared checkout as detached", async () => {
@@ -1113,7 +1117,7 @@ describe("in-tree plugins install from main", () => {
     const report = await syncPack(pack, engine, deps);
     expect(report.ok).toBe(true);
     const detail = report.steps.find((s) => s.name === "pull-engine")!.detail;
-    expect(detail).toContain(`shared checkout ${root} is detached`);
+    expect(detail).toContain(`the shared checkout at ${root} is detached`);
     expect(detail).not.toContain('""');
   });
 
@@ -1140,7 +1144,7 @@ describe("in-tree pack drift", () => {
     expect(report.ok).toBe(false);
     const bump = report.steps.find((s) => s.name === "bump")!;
     expect(bump.status).toBe("refused");
-    expect(bump.detail).toContain("in-tree");
+    expect(bump.detail).toContain("shared checkout");
     expect(bump.detail).toContain("pull request");
     expect(stepNames(report.steps)).not.toContain("commit-push");
     expect(world.calls.some((c) => c.cmd === "git" && (c.args[0] === "commit" || c.args[0] === "push" || c.args[0] === "add"))).toBe(false);

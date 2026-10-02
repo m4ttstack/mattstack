@@ -1,9 +1,11 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { skillsCompile } from "../skills.ts";
 import { HEADER_COMMENT } from "../../lib/skills/compile.ts";
+import { captureSkills } from "../../lib/skills/__tests__/helpers.ts";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 function writeFile(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -43,14 +45,14 @@ function makeSelfPack(): { packDir: string; mattstackDir: string; manifestPath: 
   return { packDir, mattstackDir, manifestPath };
 }
 
-let logSpy: ReturnType<typeof spyOn>;
+let io: CapturedOut;
 
 beforeEach(() => {
-  logSpy = spyOn(console, "log").mockImplementation(() => {});
+  io = captureSkills();
 });
 
 afterEach(() => {
-  logSpy.mockRestore();
+  io.restore();
   process.exitCode = 0;
 });
 

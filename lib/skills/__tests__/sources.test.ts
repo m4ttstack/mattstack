@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -17,6 +17,9 @@ import {
   stripFrontmatter,
   type PluginRoots,
 } from "../sources.ts";
+import * as out from "../../ui/out.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
+import { setWarningLog, __test__ as warnTest } from "../../ui/warn.ts";
 
 function writeFile(path: string, content: string): void {
   mkdirSync(join(path, ".."), { recursive: true });
@@ -446,51 +449,55 @@ describe("buildPluginRoots", () => {
 
     const staleInstallPath = join(rootDir, "current-time", "0.1.0");
 
-    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    const io = captureOut();
+    out.__test__.setHuman(() => false);
+    warnTest.reset();
+    const logged: Array<{ module: string; message: string }> = [];
+    setWarningLog((module, message) => {
+      logged.push({ module, message });
+    });
     let roots: PluginRoots;
-    let callCount: number;
-    let warning: string;
+    let shown: string;
     try {
       roots = buildPluginRoots([
         { id: "mattstack@mattstack", installPath: mattstackDir },
         { id: "current-time@mattstack", installPath: staleInstallPath },
         { id: "acme@acme", installPath: acmeDir },
       ]);
-      // mockRestore() clears .mock.calls (bun, unlike jest), so read it before restoring.
-      callCount = errorSpy.mock.calls.length;
-      warning = errorSpy.mock.calls[0]?.join(" ") ?? "";
+      shown = io.stderr();
+      expect(io.stdout()).toBe("");
     } finally {
-      errorSpy.mockRestore();
+      warnTest.reset();
+      io.restore();
     }
 
     expect(roots.byName.mattstack).toEqual({ dir: mattstackDir, version: "1.2.0" });
     expect(roots.byName.acme).toEqual({ dir: acmeDir, version: "0.3.0" });
     expect(roots.byName["current-time"]).toBeUndefined();
 
-    expect(callCount).toBe(1);
-    expect(warning).toContain("current-time");
-    expect(warning).toContain(staleInstallPath);
+    expect(logged).toEqual([{ module: "skills", message: `skipping plugin "current-time" -- installPath does not exist: ${staleInstallPath}` }]);
+    expect(shown).toBe("[warning] Skipped the current-time plugin  its folder is gone\n");
   });
 
   test("no missing entries: every plugin resolves, no warning printed", () => {
     const { roots: fixtureRoots } = makeFixtureRoots();
 
-    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    const io = captureOut();
     let roots: PluginRoots;
-    let callCount: number;
+    let printed: string;
     try {
       roots = buildPluginRoots([
         { id: "mattstack@mattstack", installPath: fixtureRoots.byName.mattstack!.dir },
         { id: "acme@acme", installPath: fixtureRoots.byName.acme!.dir },
       ]);
-      callCount = errorSpy.mock.calls.length;
+      printed = io.stderr() + io.stdout();
     } finally {
-      errorSpy.mockRestore();
+      io.restore();
     }
 
     expect(roots.byName.mattstack?.version).toBe("1.2.0");
     expect(roots.byName.acme?.version).toBe("0.3.0");
-    expect(callCount).toBe(0);
+    expect(printed).toBe("");
   });
 });
 
