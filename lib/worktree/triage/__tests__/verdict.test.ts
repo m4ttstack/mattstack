@@ -50,7 +50,7 @@ describe("triageRow", () => {
     expect(r.actions).not.toContain("dispose");
   });
   test.each([
-    ["process", "stop-process"], ["herd", "open-herd"], ["run", "open-run"],
+    ["process", "stop-process"], ["herd", "release"], ["run", "open-run"],
   ] as const)("a %s hold is waiting with %s", (kind, action) => {
     const r = row({ hold: { kind, detail: "d" }, containment: "none" });
     expect([r.group, r.actions[0]]).toEqual(["waiting", action]);

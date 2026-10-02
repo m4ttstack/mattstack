@@ -32,7 +32,7 @@ export interface WorktreeTriageOpts {
 
 type TriageVerb =
   | "worktree:triage" | "worktree:triage-dispose" | "worktree:keep" | "worktree:unkeep"
-  | "worktree:push-branch" | "worktree:triage-diff" | "worktree:triage-remove" | "worktree:stop-holders";
+  | "worktree:push-branch" | "worktree:triage-diff" | "worktree:triage-remove" | "worktree:stop-holders" | "worktree:release";
 
 const DIFF_CAP_LINES = 400;
 const DIFF_CAP_FILES = 50;
@@ -321,6 +321,25 @@ export function createWorktreeTriageHandlers(
       const { terminated } = await killWorktreeProcesses(r.rec.path, { excludePaths: siblings });
       if (terminated.length > 0) opts.kick();
       return { ok: true as const, data: { terminated } };
+    },
+
+    // Stays a job tree: the reactor's live-cwd gate for released job trees
+    // still runs before the dispose, which a flip to merge disposal would skip.
+    "worktree:release": async (payload: any) => {
+      const r = resolve(payload);
+      if ("error" in r) return fail(r.error);
+      const row = await freshRow(r.repo, r.repoPath, r.rec);
+      if (!row.actions.includes("release")) return fail("not-held");
+      let released = false;
+      const written = patchTree(r.repo, r.rec.path, (t) => {
+        if (t.branch !== r.rec.branch || t.state !== r.rec.state) return;
+        t.releasedAt = new Date().toISOString();
+        delete t.heldReason;
+        released = true;
+      });
+      if (!written || !released) return fail("changed");
+      opts.kick();
+      return { ok: true as const, data: { tree: r.rec.name } };
     },
   };
 }
