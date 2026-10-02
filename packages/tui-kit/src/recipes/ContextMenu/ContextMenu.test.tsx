@@ -569,8 +569,69 @@ describe("ContextMenu (browser)", () => {
     const screen = await renderWithTheme(<Menu />);
     const root = rootOf(screen.container);
     await settledBox(root);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-    await expect.poll(() => root.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).toBe(root);
+    expect(document.activeElement).not.toBe(screen.getByRole("textbox", { name: "note" }).element());
+  });
+
+  it("a keyed swap to a second menu leaves focus on that menu's initialFocusRef", async () => {
+    // The board's note stage: clicking an item remounts the menu under a new
+    // key whose only field must take focus, even though something outside
+    // held focus before the first menu opened.
+    function Stages() {
+      const noteRef = useRef<HTMLTextAreaElement | null>(null);
+      const [stage, setStage] = useState<"closed" | "items" | "noting">("closed");
+      return (
+        <>
+          <button type="button">search</button>
+          {/* Opens the menu without taking focus from "search". */}
+          <button
+            type="button"
+            style={{ position: "fixed", left: 200, top: 300 }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setStage("items")}
+          >
+            row
+          </button>
+          {stage === "noting" && (
+            <ContextMenu key="noting" x={40} y={40} ariaLabel="note" onClose={noop} initialFocusRef={noteRef}>
+              <textarea ref={noteRef} aria-label="launch note" />
+            </ContextMenu>
+          )}
+          {stage === "items" && (
+            <ContextMenu key="items" x={40} y={40} ariaLabel="m" onClose={noop}>
+              <ContextMenu.Item label="review" onClick={() => setStage("noting")} />
+            </ContextMenu>
+          )}
+        </>
+      );
+    }
+    for (const activate of ["pointer", "keyboard"] as const) {
+      const screen = await renderWithTheme(<Stages />);
+      const search = screen.getByRole("button", { name: "search" }).element() as HTMLElement;
+      search.focus();
+      await screen.getByRole("button", { name: "row" }).click();
+      await expect.poll(() => partsIn(screen.container, CONTEXTMENU_PARTS.root).length).toBe(1);
+      await settledBox(rootOf(screen.container));
+      // The menu took focus from "search", so closing it would hand focus back there.
+      expect(document.activeElement).not.toBe(search);
+
+      const review = screen.getByRole("menuitem", { name: "review" });
+      if (activate === "pointer") {
+        await review.click();
+      } else {
+        await userEvent.keyboard("{ArrowDown}");
+        await expect.element(review).toHaveFocus();
+        await userEvent.keyboard("{Enter}");
+      }
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      expect(document.activeElement, activate).toBe(
+        screen.getByRole("textbox", { name: "launch note" }).element(),
+      );
+      await screen.unmount();
+    }
   });
 
   it("the arrow keys move focus from item to item", async () => {
@@ -836,23 +897,38 @@ describe("ContextMenu.Sub (browser)", () => {
     expect(partsIn(screen.container, "hijacked")).toHaveLength(0);
   });
 
-  it("a disabled Sub never opens", async () => {
-    const screen = await renderWithTheme(
-      <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
-        <ContextMenu.Sub label="gitlab" ariaLabel="gitlab actions" disabled>
-          <ContextMenu.Item label="merge" onClick={noop} />
-        </ContextMenu.Sub>
-      </ContextMenu>,
-    );
-    const row = screen.getByRole("menuitem", { name: "gitlab", exact: true });
-    const button = row.element() as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    button.click();
-    button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-    await userEvent.hover(row, { force: true });
-    // Longer than the hover-open delay, so a hover that was going to open it has.
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(submenuIn(screen.container)).toBeNull();
+  it("a disabled Sub never opens, by pointer or keyboard, and logs no warning", async () => {
+    const warn = vi.spyOn(console, "warn");
+    const error = vi.spyOn(console, "error");
+    try {
+      const screen = await renderWithTheme(
+        <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
+          <ContextMenu.Sub label="gitlab" ariaLabel="gitlab actions" disabled>
+            <ContextMenu.Item label="merge" onClick={noop} />
+          </ContextMenu.Sub>
+        </ContextMenu>,
+      );
+      const row = screen.getByRole("menuitem", { name: "gitlab", exact: true });
+      const button = row.element() as HTMLButtonElement;
+      expect(button.getAttribute("aria-disabled")).toBe("true");
+      button.click();
+      await userEvent.hover(row);
+      // Longer than the hover-open delay, so a hover that was going to open it has.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(submenuIn(screen.container)).toBeNull();
+
+      button.focus();
+      await userEvent.keyboard("{ArrowRight}");
+      await userEvent.keyboard("{Enter}");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(submenuIn(screen.container)).toBeNull();
+
+      expect(warn).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
   });
 });
 

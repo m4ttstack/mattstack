@@ -207,6 +207,23 @@ Base UI is driven, not trusted, in four places:
   that mousedown can still act as a toggle.
 - The portal lands in a wrapper the recipe renders in place, not `<body>`, so
   a scoped `.dark` or theme wrapper still reaches the menu and its submenus.
+- The root is a plain non-modal `Menu.Root`, not Base UI's `ContextMenu.Root`,
+  which is always modal (a backdrop and a scroll lock). It needs a trigger
+  anyway, so it gets a hidden `Menu.Trigger`, tied to it through
+  `triggerId`.
+
+Two things depend on Base UI's floating tree, so change either one only
+together with the other:
+
+- the hidden trigger, which supplies the root's floating-tree node id. Without
+  it, Base UI cannot tell the submenus are the root's children;
+- the root's `focus-out` cancel. Without the node id, focus moving into a
+  submenu reads as focus leaving the menu, and the cancel is what stops that
+  closing it.
+
+Base UI's focus return on close is off for the root. The recipe returns focus
+itself, and only when focus was lost with the menu, so a menu swapped in under
+a new key keeps the focus it took.
 
 The other overlays (Modal, SideDrawer, Tooltip) stay hand-rolled. Nothing
 they do needs what Base UI adds.

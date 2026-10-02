@@ -10,7 +10,7 @@ import type {
   Ref,
   RefObject,
 } from "react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { defineCompound } from "../../builders.ts";
 import { useEscapeClose } from "../../hooks/index.ts";
 import { ICONS } from "../Icon/Icon.tsx";
@@ -121,10 +121,10 @@ function deferEscape(details: CloseDetails): boolean {
 const ROOT_IGNORED_CLOSES: ReadonlySet<string> = new Set(["outside-press", "focus-out"]);
 
 /** Base UI keeps a disabled item focusable through `aria-disabled` and strips
-    the native attribute. This menu keeps the native one: a disabled row is
-    inert to the pointer and skipped by the arrow keys (Base UI's navigation
-    skips `:disabled`). So Base UI is never told a row is disabled, and the
-    button carries it instead. */
+    the native attribute. An Item keeps the native one, which the board
+    asserts: it is inert to the pointer and skipped by the arrow keys (Base
+    UI's navigation skips `:disabled`). So Base UI is never told an Item is
+    disabled, and the button carries it instead. */
 function buttonRender(disabled: boolean | undefined) {
   return (props: ComponentProps<"button">) => (
     <button
@@ -156,8 +156,7 @@ export interface ContextMenuOwnProps {
       decision (mr-board's Slack-mark items deliberately stay open). */
   onClose: () => void;
   /** A focusable descendant to focus once, as soon as the menu mounts. Without
-      it, focus moves to the menu itself (or its first tabbable child) so the
-      arrow keys work. */
+      it, the menu itself takes focus so the arrow keys work. */
   initialFocusRef?: RefObject<HTMLElement | null>;
   /** Called once the menu's element is laid out, and again whenever (x, y)
       moves it, so a consumer can measure it and re-anchor. */
@@ -208,7 +207,8 @@ export interface ContextMenuSubOwnProps {
   label: ReactNode;
   /** The nested menu's accessible name. */
   ariaLabel: string;
-  /** Disables the row's `<button>`, and a disabled Sub never opens. */
+  /** A disabled Sub never opens. Its row stays focusable (Base UI's
+      `aria-disabled` model), unlike a disabled Item. */
   disabled?: boolean;
   /** The nested menu's items. */
   children?: ReactNode;
@@ -252,22 +252,22 @@ export const ContextMenu = defineCompound({
         // A part's `render` runs inside the builder's own forwardRef component
         // body on every render, so these hooks obey the rules of hooks normally.
         const [wrapper, setWrapper] = useState<HTMLDivElement | null>(null);
+        const triggerId = useId();
         const [popup, setPopup] = useState<HTMLDivElement | null>(null);
         // A plain mutable ref, not state: flipping it must not schedule a render.
         const hasFocusedRef = useRef(false);
 
         // Focusing from the popup's ref callback runs before Base UI's focus
         // manager records where focus was; finding it already inside the
-        // popup, Base UI skips its own initial focus instead of overriding
-        // this one. Children's refs attach before this one, so the target is
-        // already set.
+        // popup, Base UI skips its own initial focus (the first tabbable, which
+        // could be a form field) instead of overriding this one. Children's
+        // refs attach before this one, so the target is already set.
         const attachPopup = useCallback(
           (el: HTMLDivElement | null) => {
             setPopup(el);
-            const target = initialFocusRef?.current;
-            if (!el || !target || hasFocusedRef.current) return;
+            if (!el || hasFocusedRef.current) return;
             hasFocusedRef.current = true;
-            target.focus();
+            (initialFocusRef?.current ?? el).focus();
           },
           [initialFocusRef],
         );
@@ -286,6 +286,24 @@ export const ContextMenu = defineCompound({
         }, [popup, x, y, onPositioned]);
 
         useEscapeClose(onClose);
+
+        // Focus goes back only if it was lost with the menu (it is on <body>).
+        // Base UI's own return is off: it picks its target while this menu
+        // unmounts, before a menu mounting in the same commit (a keyed stage
+        // swap) has taken focus, and would pull focus away from it.
+        const [returnTarget] = useState(() =>
+          typeof document === "undefined" ? null : document.activeElement,
+        );
+        useEffect(
+          () => () => {
+            queueMicrotask(() => {
+              const active = document.activeElement;
+              if ((active === null || active === document.body) && returnTarget?.isConnected)
+                (returnTarget as HTMLElement).focus?.();
+            });
+          },
+          [returnTarget],
+        );
 
         // `mousedown` (not click) so the menu is gone before the underlying
         // element's own click handler runs; `scroll` in the CAPTURE phase,
@@ -313,6 +331,7 @@ export const ContextMenu = defineCompound({
           <div ref={setWrapper} style={{ display: "contents" }}>
             <Menu.Root
               open
+              triggerId={triggerId}
               modal={false}
               onOpenChange={(open, details) => {
                 if (open || deferEscape(details)) return;
@@ -320,13 +339,18 @@ export const ContextMenu = defineCompound({
                 else onClose();
               }}
             >
-              {/* Never shown or focused. A trigger that mounts while the menu is
-                  open gives the root its floating-tree node, which is how Base
-                  UI knows the submenus are its children (keyboard entry,
-                  focus, and which menu a key belongs to). Base UI's
-                  `ContextMenu.Root` would supply one without it, but it is
-                  always modal: a backdrop over the page and a scroll lock. */}
-              <Menu.Trigger render={<span hidden />} nativeButton={false} tabIndex={-1} />
+              {/* Never shown or focused. The root's trigger (`triggerId`) gives
+                  it its floating-tree node, which is how Base UI knows the
+                  submenus are its children (keyboard entry, focus, and which
+                  menu a key belongs to). Base UI's `ContextMenu.Root` would
+                  supply one without it, but it is always modal: a backdrop
+                  over the page and a scroll lock. */}
+              <Menu.Trigger
+                id={triggerId}
+                render={<span hidden />}
+                nativeButton={false}
+                tabIndex={-1}
+              />
               <Menu.Portal container={wrapper}>
                 <Menu.Positioner
                   anchor={anchor}
@@ -340,6 +364,7 @@ export const ContextMenu = defineCompound({
                 >
                   <Menu.Popup
                     ref={setRefs}
+                    finalFocus={false}
                     {...rest}
                     {...rootStyles}
                     data-part={CONTEXTMENU_PARTS.root}
@@ -428,14 +453,14 @@ export const ContextMenu = defineCompound({
           >
             <Menu.SubmenuRoot
               open={open}
+              disabled={disabled}
               onOpenChange={(next, details) => {
                 if (next || !deferEscape(details)) setOpen(next);
               }}
             >
               <Menu.SubmenuTrigger
-                render={buttonRender(disabled)}
+                render={<button type="button" />}
                 nativeButton
-                openOnHover={!disabled}
                 {...getStyles({ part: "item" })}
                 data-part={CONTEXTMENU_PARTS.item}
               >

@@ -56,18 +56,21 @@
   }
 
   /* Base UI moves focus with the pointer, so `data-highlighted` is both hover
-     and keyboard focus. `data-popup-open` keeps a Sub's row lit while its
-     panel is open. */
+     and keyboard focus. A disabled Sub row (`data-disabled`) stays focusable,
+     so it is washed only when the keyboard put it there. `data-popup-open`
+     keeps a Sub's row lit while its panel is open. */
   .item {
     outline: none;
   }
 
-  .item[data-highlighted],
+  .item[data-highlighted]:not([data-disabled]),
+  .item[data-disabled]:focus-visible,
   .item[data-popup-open] {
     background: var(--surface-wash-accent-16);
   }
 
-  .item:disabled {
+  .item:disabled,
+  .item[data-disabled] {
     color: var(--text-3);
     opacity: 0.45;
     cursor: default;
