@@ -149,7 +149,7 @@ describe("teamJoin", () => {
     expect(body.error.message).toBe("This Mac is already set up for the globex team, and mattstack supports one team per machine today");
   });
 
-  test("human mode: code-on-argv prints the message and exits 2", async () => {
+  test("a code on argv is refused, not failed", async () => {
     const deps = baseDeps();
     const io = captureOut();
     ui.__test__.setHuman(() => false);
@@ -157,7 +157,9 @@ describe("teamJoin", () => {
       const code = await runExpectingProcessExit(() => teamJoin(["ABC"], {}, deps));
       expect(code).toBe(2);
       expect(deps.lines).toEqual([]);
-      expect(io.stderr()).toContain("rt never takes an invite code as an argument");
+      expect(io.stderr()).toBe(
+        "[refused] rt never takes an invite code as an argument\n  why: It would land in your shell history. Run the join on its own and paste the code when it asks.\n  next: rt team join\n",
+      );
     } finally {
       io.restore();
     }
@@ -192,10 +194,18 @@ describe("teamJoin", () => {
       }),
     });
 
-    await teamJoin(["--dry-run"], {}, deps);
-
-    expect(deps.lines[0]).toContain("Ask matt or your org admin for read access.");
-    expect(deps.lines[0]).not.toContain("http");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamJoin(["--dry-run"], {}, deps);
+      expect(io.lines()).toHaveLength(1);
+      expect(io.lines()[0]).toStartWith("[needs you] ");
+      expect(io.lines()[0]).toContain("Ask matt or your org admin");
+      expect(io.lines()[0]).not.toContain("http");
+      expect(deps.lines).toEqual([]);
+    } finally {
+      io.restore();
+    }
   });
 
   test("--dry-run rejects a hostile ext:: remote before any exec call, exit 2 invite-malformed", async () => {

@@ -28,7 +28,7 @@ import { getSetting } from "../lib/settings/resolve.ts";
 import { listTeams, readStore } from "../lib/settings/stores.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import * as out from "../lib/ui/out.ts";
-import type { RenderStatus } from "../lib/ui/protocol.ts";
+import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { warn } from "../lib/ui/warn.ts";
 import { UserActionableError, exitUserError, logFailureDetail } from "../lib/errors.ts";
@@ -36,10 +36,10 @@ import { createRealProbes, readStdinJson, type Probes } from "../lib/setup/probe
 import { readTeamSnapshot, stripUserinfo, type SettingsReader } from "../lib/setup/team-settings.ts";
 import { createTeam } from "../lib/team/create.ts";
 import { extractInviteCode } from "../lib/team/invite-crypto.ts";
-import { mintInvite } from "../lib/team/invite.ts";
+import { mintInvite, type InviteResult } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
-import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, preferredRoster, teamRemote } from "../lib/team/members.ts";
+import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, preferredRoster, teamRemote, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient, inviteRelayUrl } from "../lib/team/relay-client.ts";
@@ -262,6 +262,51 @@ export async function teamPublish(args: string[], _ctx: CommandContext = {}, dep
   }
 }
 
+/**
+ * The link and the message are copy blocks: a person pastes them, so they are
+ * never wrapped or indented. The paste block is built by rt from the team's
+ * own title; nothing an invitee controls reaches it.
+ */
+export function inviteBlocks(handle: string, result: InviteResult): Block[] {
+  const blocks: Block[] = [out.copy(result.link, "invite link"), out.copy(result.pasteBlock, "message to send")];
+  if (result.forgeAccess !== "granted") {
+    blocks.push(out.line("needs-you", `Give ${handle} read access to the team repo yourself`, `forge access: ${result.forgeAccess}`));
+    if (result.manualSteps.length > 0) blocks.push(out.callout("fix", ...result.manualSteps));
+  }
+  return blocks;
+}
+
+function joinStatus(result: JoinResult): RenderStatus {
+  if (result.access === "denied" || result.access === "no-account") return "needs-you";
+  if (result.access === "deferred") return "pending";
+  if (result.access !== "ok" || result.peering === "unavailable") return "warn";
+  return "done";
+}
+
+export function joinBlocks(result: JoinResult): Block[] {
+  return [out.line(joinStatus(result), result.message)];
+}
+
+export function membersSyncBlocks(result: MembersSyncResult): Block[] {
+  const added = result.added.length;
+  return [
+    added > 0 ? out.line("done", `Added ${added} ${added === 1 ? "key" : "keys"}`) : out.line("skipped", "No new keys to add"),
+    ...(result.pending.length > 0 ? [out.line("pending", "Still waiting on a reply", result.pending.join(", "))] : []),
+    ...(result.reencrypted.length > 0 ? [out.line("done", "Locked the team's secrets to the new keys", result.reencrypted.join(", "))] : []),
+  ];
+}
+
+export function membersRemoveBlocks(handle: string, slug: string, result: MembersRemoveResult): Block[] {
+  return [
+    result.rosterRemoved
+      ? out.line("done", `Removed ${handle} from the team`, `forge access: ${result.forgeAccess}`)
+      : out.line("skipped", `${handle} was not on the team list`, `forge access: ${result.forgeAccess}`),
+    ...(result.manualSteps.length > 0 ? [out.callout("fix", ...result.manualSteps)] : []),
+    out.callout("note", result.residueNote),
+    out.callout("next", out.cmd(`rt secrets rotate --team ${slug} <domain> <key>`)),
+  ];
+}
+
 export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
   const handle = flagValue(args, "--handle");
@@ -299,14 +344,7 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
       return;
     }
 
-    deps.print(result.link);
-    deps.print("");
-    deps.print(result.pasteBlock);
-    if (result.forgeAccess !== "granted") {
-      deps.print("");
-      deps.print(`rt team invite: forge access is ${result.forgeAccess} — finish it by hand:`);
-      for (const step of result.manualSteps) deps.print(`  - ${step}`);
-    }
+    out.print(...inviteBlocks(handle, result));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, "team invite", deps);
     throw err;
@@ -391,7 +429,7 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
       deps.print(JSON.stringify(envelope(result)));
       return;
     }
-    deps.print(`rt team join: ${result.message}`);
+    out.print(...joinBlocks(result));
   } catch (err) {
     // A distinct code (not the exit code) is what keeps a locked keychain
     // from reading as a dead invite (R-T18-b) — the exit code itself must
@@ -445,9 +483,7 @@ export async function teamMembersSync(args: string[], _ctx: CommandContext = {},
       deps.print(JSON.stringify(envelope(result)));
       return;
     }
-    deps.print(`rt team members sync: added ${result.added.length} key(s)`);
-    if (result.pending.length > 0) deps.print(`  still awaiting a reply: ${result.pending.join(", ")}`);
-    if (result.reencrypted.length > 0) deps.print(`  re-encrypted: ${result.reencrypted.join(", ")}`);
+    out.print(...membersSyncBlocks(result));
   } catch (err) {
     reportMembersError(err, deps, json, "team members sync");
   }
@@ -496,12 +532,7 @@ export async function teamMembersRemove(args: string[], _ctx: CommandContext = {
       deps.print(JSON.stringify(envelope(result)));
       return;
     }
-    deps.print(`rt team members remove: "${handle}" — forge access ${result.forgeAccess}, roster ${result.rosterRemoved ? "updated" : "unchanged"}`);
-    if (result.manualSteps.length > 0) {
-      deps.print("Finish revoking forge access by hand:");
-      for (const step of result.manualSteps) deps.print(`  - ${step}`);
-    }
-    deps.print(result.residueNote);
+    out.print(...membersRemoveBlocks(handle, slug, result));
   } catch (err) {
     reportMembersError(err, deps, json, "team members remove");
   }

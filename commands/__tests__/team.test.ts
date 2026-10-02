@@ -377,6 +377,20 @@ describe("teamInvite", () => {
     expect(JSON.parse(deps.lines[0]!).error.code).toBe("team-pull-only");
   });
 
+  test("human mode: a pull-only clone refuses to invite, as a refused line", async () => {
+    const deps = inviteDeps({ record: { joinedByRt: true } });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => teamInvite(["--handle", "zaphod", "--team", "acme"], {}, deps));
+      expect(code).toBe(2);
+      expect(io.stderr()).toBe("[refused] This Mac joined the acme team by invite, so its copy is pull-only and cannot invite anyone.\n  why: Ask the team's owner to invite zaphod.\n");
+      expect(io.stdout()).toBe("");
+    } finally {
+      io.restore();
+    }
+  });
+
   test("on a TTY, accepting the offer writes the permission before minting", async () => {
     const deps = inviteDeps({ record: { createdByRt: true } });
     deps.interactive = () => true;
@@ -428,21 +442,31 @@ describe("teamInvite", () => {
 
   test("team invite prints the join link on its own line", async () => {
     const deps = inviteDeps();
-    await teamInvite(["--handle", "bob"], {}, deps);
-
-    expect(deps.lines[0]).toMatch(/^https:\/\/mattstack\.dev\/join#/);
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamInvite(["--handle", "bob"], {}, deps);
+      expect(io.lines()[0]).toBe("invite link:");
+      expect(io.lines()[1]).toMatch(/^https:\/\/mattstack\.dev\/join#/);
+      expect(deps.lines).toEqual([]);
+    } finally {
+      io.restore();
+    }
   });
 
   test("human output names who to ask, since rt does not manage membership", async () => {
     const deps = inviteDeps({ exec: ghExec({ code: 127, stdout: "", stderr: "ENOENT: gh" }) });
-    await teamInvite(["--handle", "zaphod"], {}, deps);
-
-    expect(deps.lines[0]).toMatch(/^https:\/\/mattstack\.dev\/join#/);
-    const rest = deps.lines.slice(1).join("\n");
-    expect(rest).toContain("mattstack://join/");
-    expect(rest).toContain("forge access is skipped");
-    expect(rest).toContain("Ask whoever runs the team repo");
-    expect(rest).toContain("zaphod");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamInvite(["--handle", "zaphod"], {}, deps);
+      const text = io.stdout();
+      expect(text).toContain("mattstack://join/");
+      expect(text).toContain("[needs you] Give zaphod read access to the team repo yourself  forge access: skipped\n");
+      expect(text).toContain("Ask whoever runs the team repo");
+    } finally {
+      io.restore();
+    }
   });
 });
 

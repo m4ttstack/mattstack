@@ -249,6 +249,8 @@ describe("membersSync", () => {
     expect((rosterWrite!.value as { username: string; agePublicKey?: string }[]).find((m) => m.username === "alice")?.agePublicKey).toBe(ALICE_PUBLIC_KEY);
     expect(rosterWrite!.scope).toBe("team");
     expect(rosterWrite!.opts).toEqual({ team: SLUG });
+    expect(Object.keys(result).sort()).toEqual(["added", "addedHandles", "pending", "reencrypted"]);
+    expect(Object.values(result).every(Array.isArray)).toBe(true);
   });
 
   test("also records alice's age key onto mattstack.roster, the cross-app roster, alongside board.members", async () => {
@@ -671,6 +673,8 @@ describe("membersRemove", () => {
     expect(readTeamRecipients(SLUG, secrets)).toEqual([OWNER_PUBLIC_KEY]);
     expect(result.residueNote.length).toBeGreaterThan(0);
     expect(result.residueNote).toContain("Rotate those values to shut them out.");
+    expect(Object.keys(result).sort()).toEqual(["forgeAccess", "manualSteps", "reencrypted", "residueNote", "rosterRemoved"]);
+    expect({ forgeAccess: typeof result.forgeAccess, residueNote: typeof result.residueNote, rosterRemoved: typeof result.rosterRemoved }).toEqual({ forgeAccess: "string", residueNote: "string", rosterRemoved: "boolean" });
   });
 
   test("strips the handle from mattstack.roster as well as board.members", async () => {
