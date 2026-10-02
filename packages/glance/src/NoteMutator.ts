@@ -85,6 +85,7 @@ export interface ReviewerState {
 
 /** Above GitLab's own request limit, so a publish GitLab is still running is never abandoned. */
 const PUBLISH_TIMEOUT_MS = 90_000;
+/** Every other request a review submit makes (drafts, reviewer states, diff refs). */
 const DRAFT_TIMEOUT_MS = 15_000;
 
 /** A GitLab refusal: the message names the op and status, `status` carries it for callers. */
@@ -245,6 +246,7 @@ export class NoteMutator {
     const res = await fetch(url, {
       method: "GET",
       headers: { "PRIVATE-TOKEN": this.token },
+      signal: AbortSignal.timeout(DRAFT_TIMEOUT_MS),
     });
 
     safeEmit(this.onRequest, {

@@ -77,6 +77,14 @@ describe('fetchDiffRefs', () => {
     const m = new NoteMutator('https://gitlab.example.com', 'tok');
     await expect(m.fetchDiffRefs(42, 9)).rejects.toThrow(/404/);
   });
+
+  test('the request carries an abort signal, so a stalled read is bounded', async () => {
+    const calls = stub(200, {
+      diff_refs: { base_sha: 'b', start_sha: 's', head_sha: 'h' },
+    });
+    await new NoteMutator('https://gitlab.example.com', 'tok').fetchDiffRefs(42, 9);
+    expect(calls[0]!.signal).toBeInstanceOf(AbortSignal);
+  });
 });
 
 describe('createDiscussion', () => {
