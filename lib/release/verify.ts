@@ -88,18 +88,18 @@ export async function resolveTag(seams: VerifySeams): Promise<{ tag: string | nu
     const r = await seams.exec(["git", "tag", "--list", "v*", "--sort=-version:refname"], { cwd: seams.repoRoot });
     if (r.exitCode === 0) {
       const tag = r.stdout.split("\n").map((l) => l.trim()).find((l) => l.length > 0);
-      if (tag) return { tag, row: { id: "tag", label: "tag", status: "ok", detail: `resolved ${tag} as the latest local v* tag` } };
+      if (tag) return { tag, row: { id: "tag", label: "tag", status: "ok", detail: `${tag} is the newest release tag on this Mac` } };
     }
   } catch {
     // fall through to the GitHub API
   }
   try {
     const tag = await ghApi(seams, `repos/${GH_REPO}/releases/latest`, ".tag_name");
-    if (tag) return { tag, row: { id: "tag", label: "tag", status: "ok", detail: `resolved ${tag} via the newest GitHub release (no local v* tag found)` } };
+    if (tag) return { tag, row: { id: "tag", label: "tag", status: "ok", detail: `${tag} is the newest release on GitHub; this Mac has no release tag` } };
   } catch (err) {
-    return { tag: null, row: { id: "tag", label: "tag", status: "error", detail: `could not resolve a default tag: ${String((err as Error).message ?? err)}` } };
+    return { tag: null, row: { id: "tag", label: "tag", status: "error", detail: `rt could not tell which tag to check: ${String((err as Error).message ?? err)}` } };
   }
-  return { tag: null, row: { id: "tag", label: "tag", status: "error", detail: "could not resolve a default tag: no local v* tag and the GitHub API found nothing" } };
+  return { tag: null, row: { id: "tag", label: "tag", status: "error", detail: "rt could not tell which tag to check: there is no release tag on this Mac or on GitHub" } };
 }
 
 interface FoundRun {
@@ -162,18 +162,18 @@ function runRowFromPoll(runId: number, url: string, poll: PollResult): VerifyRow
     }
     return {
       id, label, status: "stale",
-      detail: `run ${runId} completed with conclusion "${poll.conclusion}"; recovery: gh release delete <tag> (the git tag survives) then gh run rerun ${runId} --failed`,
+      detail: `Run ${runId} ended "${poll.conclusion}". To recover, delete the GitHub release (the tag stays), then rerun its failed jobs: gh release delete <tag>, then gh run rerun ${runId} --failed`,
     };
   }
   // Every attempt errored and none ever returned a real status: this is not
   // "still running", it is "gh was unreachable the whole time".
   if (poll.status === "unknown" && poll.pollErrors === poll.attempts) {
-    return { id, label, status: "error", detail: `could not reach gh to check run ${runId} in ${poll.attempts} attempt(s); rerun rt release verify to recheck` };
+    return { id, label, status: "error", detail: `rt could not reach GitHub to check run ${runId} after ${poll.attempts} tries. Check again with: rt release verify` };
   }
-  const errNote = poll.pollErrors > 0 ? ` (${poll.pollErrors} transient poll error(s) tolerated)` : "";
+  const errNote = poll.pollErrors > 0 ? ` (${poll.pollErrors} of them could not reach GitHub)` : "";
   return {
     id, label, status: "pending",
-    detail: `run ${runId} still ${poll.status} after ${poll.attempts} check(s)${errNote}; rerun rt release verify to recheck`,
+    detail: `Run ${runId} is still ${poll.status} after ${poll.attempts} checks${errNote}. Check again with: rt release verify`,
   };
 }
 
@@ -215,7 +215,7 @@ export async function checkReleaseBody(seams: VerifySeams, tag: string, data: Re
     if (r.stdout === data.body) return { id, label, status: "ok", detail: "release body matches the committed RELEASE_NOTES.md" };
     return {
       id, label, status: "stale",
-      detail: `release body does not match the committed RELEASE_NOTES.md at ${tag}; recompare git show ${tag}:RELEASE_NOTES.md against gh release view ${tag} --json body. If the notes commit was wrong, the fix is a new tag; never gh release edit.`,
+      detail: `The release's notes do not match the committed RELEASE_NOTES.md at ${tag}. If the committed notes were wrong, the fix is a new tag: never edit the release by hand. To compare them: git show ${tag}:RELEASE_NOTES.md and gh release view ${tag} --json body`,
     };
   } catch (err) {
     return { id, label, status: "error", detail: String((err as Error).message ?? err) };
@@ -229,14 +229,14 @@ export function checkReleaseAssets(tag: string, data: ReleaseData): VerifyRow {
   const present = new Set((data.assets ?? []).map((a) => a.name));
   const missing = required.filter((n) => !present.has(n));
   if (missing.length === 0) return { id, label, status: "ok", detail: `all four assets attached: ${required.join(", ")}` };
-  return { id, label, status: "stale", detail: `missing asset(s): ${missing.join(", ")}; hand-completion recipe lives in the rt:mattstack-release skill` };
+  return { id, label, status: "stale", detail: `missing assets: ${missing.join(", ")}. The rt:mattstack-release skill finishes them by hand.` };
 }
 
 export function checkReleaseState(data: ReleaseData): VerifyRow {
   const id = "release-state";
   const label = "release state";
   const problems: string[] = [];
-  if (data.isDraft) problems.push("still a draft (recovery: gh release edit <tag> --draft=false)");
+  if (data.isDraft) problems.push("still a draft. To publish it: gh release edit <tag> --draft=false");
   if (data.isPrerelease) problems.push("marked prerelease");
   if (problems.length === 0) return { id, label, status: "ok", detail: "published, not a draft or prerelease" };
   return { id, label, status: "stale", detail: problems.join("; ") };
@@ -271,7 +271,7 @@ export async function checkLatest(seams: VerifySeams, tag: string, releaseData: 
   if (releaseData?.isDraft) {
     return {
       id, label, status: "stale", pinned: tag, current: latest.tag_name,
-      detail: "release is still a draft; releases/latest will not resolve to it until it is flipped public",
+      detail: "The release is still a draft, so the latest-release link will not point at it until it is public.",
     };
   }
 
@@ -283,7 +283,7 @@ export async function checkLatest(seams: VerifySeams, tag: string, releaseData: 
   if (elapsed !== null && elapsed < LATEST_PROPAGATION_WINDOW_MS) {
     return {
       id, label, status: "pending", pinned: tag, current: latest.tag_name,
-      detail: `still propagating (published ${Math.round(elapsed / 60_000)}m ago; the endpoint can lag up to ~20m behind the flip)`,
+      detail: `still propagating: published ${Math.round(elapsed / 60_000)} minutes ago, and the latest-release link can lag about 20 minutes behind`,
     };
   }
 

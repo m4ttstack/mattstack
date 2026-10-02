@@ -175,9 +175,13 @@ async function remoteTags(seams: ReleaseAppSeams): Promise<RemoteTag[]> {
     .sort((a, b) => compareVersions(b.name.slice(1), a.name.slice(1)));
 }
 
+/** Two of qualify's three stops with nothing to resume; `qualifyStop` tells them apart by these, since the report has no key for why it stopped. */
+const NO_RELEASE_TAG = "origin has no release tag. Run this from an rt checkout.";
+const NOTHING_MOVED = "nothing has moved since ";
+
 function newestReleaseTag(tags: RemoteTag[]): string {
   const newest = tags[0];
-  if (!newest) throw new StepFailure("qualify", "origin has no vX.Y.Z tag; run this from an rt checkout", null);
+  if (!newest) throw new StepFailure("qualify", NO_RELEASE_TAG, null);
   return newest.name;
 }
 
@@ -236,7 +240,7 @@ async function qualify(seams: ReleaseAppSeams): Promise<Ctx> {
   const verify = await runVerify(seams, { tag: lastTag, noWait: true, skipLatest: true });
 
   if (structural === "released") {
-    if (verify.clean) throw new StepFailure("qualify", `nothing has moved since ${lastTag}`, null);
+    if (verify.clean) throw new StepFailure("qualify", `${NOTHING_MOVED}${lastTag}`, null);
     return {
       headSha, lastTag, nextTag: lastTag, moved: [], files: [], phase: "released",
       qualifyDetail: `${lastTag} has not moved since; its publish has not verified yet (${unverifiedSummary(verify)}), so re-checking it before any new release`,
@@ -244,11 +248,11 @@ async function qualify(seams: ReleaseAppSeams): Promise<Ctx> {
   }
 
   if (!verify.clean) {
-    throw new StepFailure("qualify", `${lastTag} has not verified yet (${unverifiedSummary(verify)}); run rt release verify ${lastTag} first`, `rt release verify ${lastTag}`);
+    throw new StepFailure("qualify", `${lastTag} has not verified yet (${unverifiedSummary(verify)}), so check it first`, `rt release verify ${lastTag}`);
   }
 
   const gate = await checkGate(seams, lastTag, "origin/main");
-  if (gate.path !== "fast") throw new StepFailure("qualify", `not a fast-path diff since ${lastTag}: ${gate.reason}`, null);
+  if (gate.path !== "fast") throw new StepFailure("qualify", `Main does not qualify for the fast path since ${lastTag}: ${gate.reason}`, null);
   const files = (await git(seams, ["diff", "--no-renames", "--name-only", `${lastTag}..origin/main`])).split("\n").map((f) => f.trim()).filter(Boolean);
   const moved = movedServedApps(files);
   const nextTag = nextPatchTag(lastTag);
@@ -327,9 +331,9 @@ async function commitFiles(seams: ReleaseAppSeams, o: {
     throw new StepFailure(o.step, `main moved from ${head} to ${now.slice(0, 9)} before the commit landed; nothing changed`, o.resume);
   }
   if (/HTTP 40[13]|protected branch|not accessible|permission/i.test(reason)) {
-    throw new StepFailure(o.step, `not allowed to update main (${reason}); check the gh token's scopes and the branch protection. Nothing changed`, null);
+    throw new StepFailure(o.step, `rt is not allowed to update main (${reason}). Check the GitHub token's scopes and the branch protection. Nothing changed.`, null);
   }
-  throw new StepFailure(o.step, `could not update main (${reason}); it is still at ${head}, so a rerun retries. Nothing changed`, o.resume);
+  throw new StepFailure(o.step, `rt could not update main (${reason}). It is still at ${head}, so running again retries. Nothing changed.`, o.resume);
 }
 
 async function commitNotes(seams: ReleaseAppSeams, ctx: Ctx, notes: string): Promise<string> {
@@ -477,7 +481,7 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
     if (already) {
       rec("notes", "done", `RELEASE_NOTES.md for ${ctx.nextTag} is already committed on main (${already.sha.slice(0, 9)})`);
     } else {
-      rec("notes", "planned", `generate RELEASE_NOTES.md for ${ctx.lastTag}..origin/main, approve them (--yes-notes <hash> off a terminal), commit them on main`);
+      rec("notes", "planned", `Write the release notes for ${ctx.lastTag}..origin/main, get them approved, and commit them on main`);
     }
     rec("tag", "planned", `tag ${ctx.nextTag} at the notes commit and push it`, `git tag -a ${ctx.nextTag} <notes commit> -m ${ctx.nextTag}`);
     rec("verify", "planned", "watch release.yml and check the published release", `rt release verify ${ctx.nextTag}`);
@@ -502,13 +506,13 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
     if (opts.yesNotes !== null) {
       if (opts.yesNotes !== hash) {
         if (!opts.json) seams.log(`\n${notes}\nnotes hash ${hash}`);
-        rec("notes", "stopped", `--yes-notes ${opts.yesNotes} does not match these notes (hash ${hash} for ${ctx.nextTag}): these notes need approval, nothing committed`);
+        rec("notes", "stopped", `The approved hash ${opts.yesNotes} does not match these notes (${hash} for ${ctx.nextTag}). They need approval again; nothing was committed.`);
         return report("awaiting-approval", `${rerun}${opts.json ? " --json" : ""} --yes-notes ${hash}`);
       }
     } else {
       if (!opts.json) seams.log(`\n${notes}\nnotes hash ${hash}`);
       if (opts.json || !seams.isTTY) {
-        rec("notes", "stopped", `the notes for ${ctx.nextTag} (hash ${hash}) need approval; nothing committed`);
+        rec("notes", "stopped", `The notes for ${ctx.nextTag} (hash ${hash}) need your approval. Nothing was committed.`);
         return report("awaiting-approval", `${rerun}${opts.json ? " --json" : ""} --yes-notes ${hash}`);
       }
       let confirmed: boolean;
@@ -520,7 +524,7 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
         return report("failed", err.resume);
       }
       if (!confirmed) {
-        rec("notes", "stopped", "declined at the prompt; nothing committed");
+        rec("notes", "stopped", "You said no at the prompt. Nothing was committed.");
         return report("declined", rerun);
       }
     }

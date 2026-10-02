@@ -159,7 +159,7 @@ describe("rt release update-machine", () => {
     const { code, logs, stderr } = await runExpectingProcessExit(() => releaseUpdateMachine([], {}, seams));
     expect(code).toBe(2);
     expect(logs).toEqual([]);
-    expect(stderr).toContain("refuses to run state-changing legs on a non-interactive terminal without --yes");
+    expect(stderr).toContain("rt will not change this Mac without a terminal to confirm each step");
     expect(stderr).not.toContain("[failed]");
   });
 
