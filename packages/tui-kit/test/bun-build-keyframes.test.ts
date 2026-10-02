@@ -116,13 +116,14 @@ describe("Bun.build: every animation ident resolves inside the emitted bundle", 
     expect(keyframesNames(css).size).toBeGreaterThanOrEqual(KIT_KEYFRAMES.length);
   });
 
-  it("the source keyframes files declare the five idents the kit ships today", () => {
+  it("the source keyframes files declare the idents the kit ships today", () => {
     expect(KIT_KEYFRAMES).toEqual([
       "chip-pulse",
       "contextmenu-in",
       "sb-spinner-spin",
       "sidedrawer-in",
       "sidedrawer-out",
+      "toasthost-check",
       "toasthost-in",
     ]);
   });

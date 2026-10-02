@@ -32,4 +32,24 @@
     font-size: var(--font-size-px13);
     max-width: 320px;
   }
+
+  .toast[data-state] {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-px8);
+  }
+
+  .status {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: var(--fill-accent);
+  }
+
+  .toast[data-state="done"] {
+    border-left-color: var(--fill-ok);
+  }
+
+  .toast[data-state="done"] .status {
+    color: var(--text-ok);
+  }
 }

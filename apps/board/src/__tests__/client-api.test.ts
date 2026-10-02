@@ -18,7 +18,7 @@ test('postAction swallows network errors as status 0', async () => {
   }) as unknown as typeof fetch);
   expect(r).toMatchObject({ ok: false, status: 0, body: null });
 });
-test('launch flow: ok path toasts launch then focused, reloads, no rollback', async () => {
+test('launch flow: ok path settles the launch toast as focused, reloads, no rollback', async () => {
   const events: string[] = [];
   await runLaunchFlow(
     {
@@ -31,9 +31,17 @@ test('launch flow: ok path toasts launch then focused, reloads, no rollback', as
       setQueued: () => events.push('queued'),
       rollback: () => events.push('rollback'),
       addToast: t => events.push(`toast:${t}`),
+      startToast: t => {
+        events.push(`toast:${t}`);
+        return {
+          done: d => events.push(`done:${d}`),
+          fail: f => events.push(`fail:${f}`),
+        };
+      },
       reload: () => events.push('reload'),
       verbing: 'launching review',
       noun: 'review',
+      started: 'review started',
     },
     { webUrl: 'u', iid: 7 } as never,
     {}
@@ -41,7 +49,7 @@ test('launch flow: ok path toasts launch then focused, reloads, no rollback', as
   expect(events).toEqual([
     'queued',
     'toast:launching review for !7…',
-    'toast:review already running for !7 — focused its tab',
+    'done:review already running for !7... focused its tab',
     'reload',
   ]);
 });
@@ -53,9 +61,17 @@ test('launch flow: non-ok rolls back and toasts the status', async () => {
       setQueued: () => events.push('queued'),
       rollback: () => events.push('rollback'),
       addToast: t => events.push(`toast:${t}`),
+      startToast: t => {
+        events.push(`toast:${t}`);
+        return {
+          done: d => events.push(`done:${d}`),
+          fail: f => events.push(`fail:${f}`),
+        };
+      },
       reload: () => events.push('reload'),
       verbing: 'launching review',
       noun: 'review',
+      started: 'review started',
     },
     { webUrl: 'u', iid: 7 } as never,
     {}
@@ -64,7 +80,7 @@ test('launch flow: non-ok rolls back and toasts the status', async () => {
     'queued',
     'toast:launching review for !7…',
     'rollback',
-    "toast:couldn't launch review for !7 (502)",
+    "fail:couldn't launch review for !7 (502)",
   ]);
 });
 test('launch flow: failureMessage override replaces the default failure toast', async () => {
@@ -80,9 +96,17 @@ test('launch flow: failureMessage override replaces the default failure toast', 
       setQueued: () => events.push('queued'),
       rollback: () => events.push('rollback'),
       addToast: t => events.push(`toast:${t}`),
+      startToast: t => {
+        events.push(`toast:${t}`);
+        return {
+          done: d => events.push(`done:${d}`),
+          fail: f => events.push(`fail:${f}`),
+        };
+      },
       reload: () => events.push('reload'),
       verbing: 'resuming review',
       noun: 'review',
+      started: 'review started',
       failureMessage: (result, mr) =>
         `resume review failed for !${mr.iid} (${result.status}): ${result.text}`,
     },
@@ -93,7 +117,7 @@ test('launch flow: failureMessage override replaces the default failure toast', 
     'queued',
     'toast:resuming review for !7…',
     'rollback',
-    'toast:resume review failed for !7 (400): no session id on file',
+    'fail:resume review failed for !7 (400): no session id on file',
   ]);
 });
 test('launch flow: focus intent skips queued and launch toast, toasts the focus', async () => {
@@ -109,9 +133,17 @@ test('launch flow: focus intent skips queued and launch toast, toasts the focus'
       setQueued: () => events.push('queued'),
       rollback: () => events.push('rollback'),
       addToast: t => events.push(`toast:${t}`),
+      startToast: t => {
+        events.push(`toast:${t}`);
+        return {
+          done: d => events.push(`done:${d}`),
+          fail: f => events.push(`fail:${f}`),
+        };
+      },
       reload: () => events.push('reload'),
       verbing: 'calling doctor',
       noun: 'doctor',
+      started: 'doctor called',
     },
     { webUrl: 'u', iid: 7 } as never,
     {},
@@ -131,9 +163,17 @@ test('launch flow: focus intent posts focus:true, and a refusal toasts the serve
       setQueued: () => events.push('queued'),
       rollback: () => events.push('rollback'),
       addToast: t => events.push(`toast:${t}`),
+      startToast: t => {
+        events.push(`toast:${t}`);
+        return {
+          done: d => events.push(`done:${d}`),
+          fail: f => events.push(`fail:${f}`),
+        };
+      },
       reload: () => events.push('reload'),
       verbing: 'calling doctor',
       noun: 'doctor',
+      started: 'doctor called',
     },
     { webUrl: 'u', iid: 7 } as never,
     {},
@@ -142,6 +182,35 @@ test('launch flow: focus intent posts focus:true, and a refusal toasts the serve
   expect(posted).toEqual({ mrUrl: 'u', iid: 7, focus: true });
   expect(events).toEqual([
     "toast:couldn't focus doctor pane for !7: pane is gone",
+    'reload',
+  ]);
+});
+test('launch flow: a started launch settles its toast with the started text', async () => {
+  const events: string[] = [];
+  await runLaunchFlow(
+    {
+      post: async () => ({ ok: true, status: 200, body: {}, text: '' }),
+      setQueued: () => {},
+      rollback: () => {},
+      addToast: t => events.push(`toast:${t}`),
+      startToast: t => {
+        events.push(`toast:${t}`);
+        return {
+          done: d => events.push(`done:${d}`),
+          fail: f => events.push(`fail:${f}`),
+        };
+      },
+      reload: () => events.push('reload'),
+      verbing: 'launching review',
+      noun: 'review',
+      started: 'review started',
+    },
+    { webUrl: 'u', iid: 7 } as never,
+    {}
+  );
+  expect(events).toEqual([
+    'toast:launching review for !7…',
+    'done:review started for !7',
     'reload',
   ]);
 });
@@ -156,9 +225,11 @@ test('launch flow: a launch never sends focus:true', async () => {
       setQueued: () => {},
       rollback: () => {},
       addToast: () => {},
+      startToast: () => ({ done: () => {}, fail: () => {} }),
       reload: () => {},
       verbing: 'calling doctor',
       noun: 'doctor',
+      started: 'doctor called',
     },
     { webUrl: 'u', iid: 7 } as never,
     { mode: 'rebase' }
@@ -173,9 +244,11 @@ test('launch flow returns the server result', async () => {
       setQueued: () => {},
       rollback: () => {},
       addToast: () => {},
+      startToast: () => ({ done: () => {}, fail: () => {} }),
       reload: () => {},
       verbing: 'launching review',
       noun: 'review',
+      started: 'review started',
     },
     { webUrl: 'u', iid: 7 } as never,
     {}

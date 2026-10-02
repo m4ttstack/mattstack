@@ -171,7 +171,7 @@ export {
   useRevealOnChange,
   useToasts,
 } from "./hooks/index.ts";
-export type { OverflowTarget, Toast } from "./hooks/index.ts";
+export type { OverflowTarget, Toast, ToastHandle } from "./hooks/index.ts";
 
 export { tuiTheme } from "./theme.ts";
 

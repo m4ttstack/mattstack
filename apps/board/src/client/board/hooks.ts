@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { BoardMR } from '../../data.ts';
 import { getData, getMember, postAction, type ActionResult } from '../api.ts';
-import type { BoardData, BoardMRWithReview, Toast } from '../types.ts';
+import type { BoardData, BoardMRWithReview } from '../types.ts';
 import { setSlackMarks } from './format.ts';
 import { runLaunchFlow, type LaunchFlowDeps } from './launch-flow.ts';
 import {
@@ -69,23 +69,6 @@ export function useMerging(data: BoardData | null) {
   }, []);
 
   return { merging, start, fail };
-}
-
-/** Transient toast queue: each addToast() call appends one with a fresh id
-    and self-removes it after 3.5s. Mechanical extraction of Board's former
-    toasts/toastId/addToast block. */
-export function useToasts(): {
-  toasts: Toast[];
-  addToast: (text: string) => void;
-} {
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const toastId = useRef(0);
-  const addToast = useCallback((text: string) => {
-    const id = ++toastId.current;
-    setToasts(t => [...t, { id, text }]);
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500);
-  }, []);
-  return { toasts, addToast };
 }
 
 /** While the tab is hidden, the 60s poll loads on every HIDDEN_POLL_TICKSth
@@ -262,6 +245,8 @@ export function useBoardData(
 // of DOM-touching hooks, so the test imports runLaunchFlow directly from
 // launch-flow.ts rather than through here -- this file only *uses* it below.
 
+const SILENT_TOAST = { done: () => {}, fail: () => {} };
+
 /** Closes runLaunchFlow over one action's server path and optimistic axis.
     `axis: null` skips the optimistic queued/rollback entirely -- for resume
     actions, which today never claim a badge before the reload settles. */
@@ -272,7 +257,9 @@ export function useLaunchAction(opts: {
   noun: string;
   optimistic: ReturnType<typeof useOptimisticLifecycle>;
   addToast: (t: string) => void;
+  startToast: LaunchFlowDeps['startToast'];
   reload: () => void;
+  started: string;
   failureMessage?: LaunchFlowDeps['failureMessage'];
 }): (
   mr: BoardMR,
@@ -288,7 +275,9 @@ export function useLaunchAction(opts: {
     noun,
     optimistic,
     addToast,
+    startToast,
     reload,
+    started,
     failureMessage,
   } = opts;
   return useCallback(
@@ -308,13 +297,26 @@ export function useLaunchAction(opts: {
           axis && url ? () => optimistic.setQueued(axis, url) : () => {},
         rollback: axis && url ? () => optimistic.rollback(axis, url) : () => {},
         addToast: quiet ? () => {} : addToast,
+        startToast: quiet ? () => SILENT_TOAST : startToast,
         reload: quiet ? () => {} : reload,
         verbing,
         noun,
+        started,
         failureMessage,
       };
       return runLaunchFlow(deps, mr, { ...extra, note }, intent);
     },
-    [axis, path, verbing, noun, optimistic, addToast, reload, failureMessage]
+    [
+      axis,
+      path,
+      verbing,
+      noun,
+      started,
+      optimistic,
+      addToast,
+      startToast,
+      reload,
+      failureMessage,
+    ]
   );
 }

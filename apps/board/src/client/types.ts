@@ -252,11 +252,6 @@ export interface BoardData {
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
-export interface Toast {
-  id: number;
-  text: string;
-}
-
 export interface RowMenuState {
   x: number;
   y: number;
