@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import {
+  useIsMutating,
   useMutation,
   useQuery,
   useQueryClient,
@@ -358,12 +359,16 @@ function invalidateSkillsQueries(queryClient: QueryClient, pack: string) {
 /** The one client mutation surface for both skills writes -- the surface
     roster's Apply and Rebind's Apply both go through this, so there is one
     place that invalidates the pack's cache on success rather than two that
-    could drift apart. */
+    could drift apart. `writing` counts every write to the pack in flight
+    from any caller, mounted or not, so a second write can wait for the
+    first. */
 export function useSkillsApply(pack: string) {
   const queryClient = useQueryClient();
   const onSuccess = () => invalidateSkillsQueries(queryClient, pack);
+  const mutationKey = ['skills', 'write', pack];
 
   const surfaceApply = useMutation({
+    mutationKey,
     mutationFn: (delta: { toPublic: string[]; toInternal: string[] }) => {
       if (!pack) return Promise.reject(new Error('no pack selected'));
       return postSkillsWrite<SkillsSurfaceApplyResponse>(
@@ -375,6 +380,7 @@ export function useSkillsApply(pack: string) {
   });
 
   const bind = useMutation({
+    mutationKey,
     mutationFn: (write: { verb: string; slot: string; fill: string }) => {
       if (!pack) return Promise.reject(new Error('no pack selected'));
       return postSkillsWrite<SkillsBindResponse>(client.api.skills.bind.$post, {
@@ -385,7 +391,9 @@ export function useSkillsApply(pack: string) {
     onSuccess,
   });
 
-  return { surfaceApply, bind };
+  const writing = useIsMutating({ mutationKey }) > 0;
+
+  return { surfaceApply, bind, writing };
 }
 
 export type SkillsCheckPayload = InferResponseType<

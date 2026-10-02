@@ -5,6 +5,7 @@ import {
   Button,
   CloseButton,
   Drawer,
+  Loader,
   SegmentedControl,
   Switch,
   Tabs,
@@ -85,37 +86,41 @@ function steppedRow(
   return next ? `row:${next.line}` : null;
 }
 
-/** Asks before a verb goes public or internal, then applies it. */
+/** Asks before a verb goes public or internal, then applies it. Going
+    internal removes the skill's public copy, so that confirm is destructive.
+    Results come from the promise, which settles after an unmount too. */
 function usePublicSwitch(pack: string) {
-  const { surfaceApply } = useSkillsApply(pack);
+  const { surfaceApply, writing } = useSkillsApply(pack);
   const toggle = (skill: string, toPublic: boolean) => {
+    if (writing) return;
     const next = toPublic ? 'public' : 'internal';
     modals.confirm({
       title: `Make ${skill} ${next}?`,
+      destructive: !toPublic,
       message: toPublic
         ? `${skill} is compiled into skills/${skill}/, so it runs as a skill of its own. Nothing is shared until you sync.`
         : `skills/${skill}/ stops being compiled and is removed, so ${skill} no longer runs as a skill of its own. Nothing is shared until you sync.`,
       labels: { confirm: `Make ${next}` },
-      onConfirm: () =>
-        surfaceApply.mutate(
-          toPublic
-            ? { toPublic: [skill], toInternal: [] }
-            : { toPublic: [], toInternal: [skill] },
-          {
-            onSuccess: result => {
-              const failed = result.steps.find(step => !step.ok);
-              if (failed) {
-                notifications.error(failed.error ?? 'rt skills surface failed');
-                return;
-              }
-              notifications.success(`${skill} is ${next}`);
-            },
-            onError: error => notifications.error(error.message),
-          }
-        ),
+      onConfirm: () => {
+        surfaceApply
+          .mutateAsync(
+            toPublic
+              ? { toPublic: [skill], toInternal: [] }
+              : { toPublic: [], toInternal: [skill] }
+          )
+          .then(result => {
+            const failed = result.steps.find(step => !step.ok);
+            if (failed) {
+              notifications.error(failed.error ?? 'rt skills surface failed');
+              return;
+            }
+            notifications.success(`${skill} is ${next}`);
+          })
+          .catch((error: Error) => notifications.error(error.message));
+      },
     });
   };
-  return { toggle, pending: surfaceApply.isPending };
+  return { toggle, writing };
 }
 
 /** What the drawer shows for the URL's selection; null keeps it shut. */
@@ -280,7 +285,8 @@ export function SkillDrawer({
               variant="contrast"
               label="public"
               checked={verb.public}
-              disabled={publicSwitch.pending}
+              disabled={publicSwitch.writing}
+              thumbIcon={publicSwitch.writing ? <Loader size={8} /> : undefined}
               onChange={event =>
                 publicSwitch.toggle(verb.name, event.currentTarget.checked)
               }

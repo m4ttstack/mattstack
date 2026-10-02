@@ -1,18 +1,28 @@
 import '../../../icons';
 
+import { modals } from '@mattstack/app-kit/modals';
+import { notifications } from '@mattstack/app-kit/notifications';
 import {
   renderWithProviders,
   stubVirtualLayout,
 } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { navigate } from 'wouter/use-browser-location';
 
 import { designFixture, designSource } from './designFixtures';
 
 const bindPost = vi.fn();
 const surfaceApplyPost = vi.fn();
+const compositionGet = vi.fn();
 
 vi.mock('../../../api', () => ({
   client: {
@@ -32,9 +42,7 @@ vi.mock('../../../api', () => ({
               })
             ),
         },
-        composition: {
-          $get: () => Promise.resolve(ok(designFixture('composition'))),
-        },
+        composition: { $get: () => compositionGet() },
         check: { $get: () => Promise.resolve(ok(designFixture('check'))) },
         anatomy: {
           $get: ({ query }: { query: { skill: string } }) =>
@@ -85,6 +93,9 @@ const STRICT = 'acme:plan-policy-strict';
 let restoreLayout: () => void;
 
 beforeEach(() => {
+  compositionGet.mockImplementation(() =>
+    Promise.resolve(ok(designFixture('composition')))
+  );
   restoreLayout = stubVirtualLayout({
     rowHeight: 19,
     viewportHeight: 380,
@@ -109,6 +120,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Both stores outlive a render, so one test's toast would satisfy the next.
+  act(() => {
+    notifications.clean();
+    modals.closeAll();
+  });
   restoreLayout();
   vi.clearAllMocks();
   window.history.pushState(null, '', '/');
@@ -146,6 +162,38 @@ async function pickStrict() {
 }
 
 /** The confirm, by its title: the drawer is a dialog too. */
+/** A write rt has not answered yet. */
+function held() {
+  let answer!: (json: unknown, status?: number) => void;
+  const promise = new Promise(resolve => {
+    answer = (json, status = 200) => resolve(ok(json, status));
+  });
+  return { promise, answer };
+}
+
+const FAILED_BIND = {
+  pack: 'acme',
+  verb: 'stage-plan',
+  slot: 'domain',
+  fill: STRICT,
+  ok: false,
+  error: 'the pack checkout is locked',
+};
+
+async function confirmApply(root: HTMLElement) {
+  await userEvent.click(within(root).getByRole('button', { name: 'Apply' }));
+  await userEvent.click(
+    within(await dialog()).getByRole('button', { name: 'Apply' })
+  );
+}
+
+const closeDrawer = async () =>
+  userEvent.click(
+    within(screen.getByTestId('skill-drawer')).getByRole('button', {
+      name: 'Close',
+    })
+  );
+
 const dialog = (title: RegExp = /\?$/) =>
   screen.findByRole('dialog', { name: title });
 const noConfirm = () =>
@@ -309,6 +357,60 @@ describe('RebindPanel', () => {
     expect(params().get('rebind')).toBe('1');
   });
 
+  it('reports a bind that fails after the drawer has closed', async () => {
+    const bind = held();
+    bindPost.mockReturnValue(bind.promise);
+    renderAt(REBIND);
+    await confirmApply(await pickStrict());
+    await closeDrawer();
+    await waitFor(() => expect(params().get('select')).toBeNull());
+    expect(screen.queryByTestId('rebind-panel')).toBeNull();
+
+    await act(async () => bind.answer(FAILED_BIND, 502));
+    expect(
+      await screen.findByText('the pack checkout is locked')
+    ).toBeInTheDocument();
+  });
+
+  it('holds Apply while a bind is in flight, even in a reopened panel', async () => {
+    const bind = held();
+    bindPost.mockReturnValue(bind.promise);
+    renderAt(REBIND);
+    const root = await pickStrict();
+    await confirmApply(root);
+    expect(within(root).getByRole('button', { name: 'Apply' })).toBeDisabled();
+    expect(within(root).getByRole('button', { name: 'Cancel' })).toBeDisabled();
+
+    await closeDrawer();
+    act(() => navigate(`/wiring${REBIND}`));
+    const reopened = await pickStrict();
+    expect(
+      within(reopened).getByRole('button', { name: 'Apply' })
+    ).toBeDisabled();
+    expect(bindPost).toHaveBeenCalledTimes(1);
+
+    await act(async () =>
+      bind.answer({ ...FAILED_BIND, ok: true, error: undefined })
+    );
+    await waitFor(() =>
+      expect(
+        within(reopened).getByRole('button', { name: 'Apply' })
+      ).toBeEnabled()
+    );
+  });
+
+  it('picks a fill from the keyboard', async () => {
+    renderAt(REBIND);
+    const root = await panel();
+    picker(root).focus();
+    // The first ArrowDown opens the list; the next two step to the second fill.
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{Enter}');
+
+    expect(picker(root)).toHaveTextContent('plan-policy-strict');
+    expect(within(root).queryByRole('option')).toBeNull();
+    expect(params().get('select')).toBe('row:136');
+  });
+
   it('closes on Cancel without writing', async () => {
     renderAt(REBIND);
     const root = await pickStrict();
@@ -360,6 +462,67 @@ describe('the public switch', () => {
     expect(within(drawer).queryByRole('switch')).toBeNull();
   });
 
+  it('reports a switch that fails after the Graph tab has gone, and holds the switch meanwhile', async () => {
+    const apply = held();
+    surfaceApplyPost.mockReturnValue(apply.promise);
+    renderAt('?tab=graph&focus=pipeline:feature&select=row:1');
+    const drawer = await screen.findByTestId('skill-drawer');
+    await userEvent.click(
+      await within(drawer).findByRole('switch', { name: 'public' })
+    );
+    await userEvent.click(
+      within(await dialog()).getByRole('button', { name: 'Make internal' })
+    );
+    await waitFor(() =>
+      expect(
+        within(drawer).getByRole('switch', { name: 'public' })
+      ).toBeDisabled()
+    );
+
+    act(() => navigate('/wiring?tab=surface'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('skill-drawer')).toBeNull()
+    );
+    await act(async () =>
+      apply.answer({
+        pack: 'acme',
+        steps: [
+          {
+            direction: 'internal',
+            names: ['work'],
+            ok: false,
+            error: 'surface set refused',
+          },
+        ],
+        rows: null,
+      })
+    );
+    expect(await screen.findByText('surface set refused')).toBeInTheDocument();
+  });
+
+  it('confirms making a verb public without the destructive tone', async () => {
+    const composition = designFixture('composition');
+    composition.verbs = composition.verbs.map(verb =>
+      verb.name === 'work' ? { ...verb, public: false } : verb
+    );
+    compositionGet.mockImplementation(() => Promise.resolve(ok(composition)));
+    renderAt('?tab=graph&focus=pipeline:feature&select=row:1');
+    const drawer = await screen.findByTestId('skill-drawer');
+    const toggle = await within(drawer).findByRole('switch', {
+      name: 'public',
+    });
+    expect(toggle).not.toBeChecked();
+
+    await userEvent.click(toggle);
+    const confirm = await dialog();
+    expect(confirm).toHaveTextContent('Make work public?');
+    expect(
+      within(confirm)
+        .getByRole('button', { name: 'Make public' })
+        .getAttribute('style') ?? ''
+    ).not.toMatch(/red/);
+  });
+
   it('confirms before making a verb internal', async () => {
     renderAt('?tab=graph&focus=pipeline:feature&select=row:1');
     const drawer = await screen.findByTestId('skill-drawer');
@@ -371,6 +534,11 @@ describe('the public switch', () => {
     await userEvent.click(toggle);
     const confirm = await dialog();
     expect(confirm).toHaveTextContent('Make work internal?');
+    expect(
+      within(confirm)
+        .getByRole('button', { name: 'Make internal' })
+        .getAttribute('style')
+    ).toMatch(/red/);
     expect(surfaceApplyPost).not.toHaveBeenCalled();
 
     await userEvent.click(

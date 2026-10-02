@@ -27,16 +27,8 @@ export type RebindChoices = {
   options: RebindOption[];
 };
 
-function otherSkills(
-  sites: readonly BindingSite[],
-  ref: string,
-  slot: string
-): number {
-  return new Set(
-    sites
-      .filter(site => !(site.ref === ref && site.slot === slot))
-      .map(site => site.ref)
-  ).size;
+function otherSkills(sites: readonly BindingSite[], ref: string): number {
+  return new Set(sites.map(site => site.ref).filter(site => site !== ref)).size;
 }
 
 function whereBound(others: number, here: boolean): string {
@@ -66,7 +58,7 @@ export function rebindChoices(
     .map(fill => ({
       fill,
       here: fill.binding === current,
-      others: otherSkills(sites[fill.binding] ?? [], ref, slot),
+      others: otherSkills(sites[fill.binding] ?? [], ref),
     }))
     .sort(
       (a, b) =>

@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   Box,
   Button,
@@ -69,7 +69,14 @@ export function RebindPanel({
   composition: SkillsComposition;
   onDone: () => void;
 }) {
-  const { bind } = useSkillsApply(pack);
+  const { bind, writing } = useSkillsApply(pack);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const choices = useMemo(
     () => rebindChoices(composition, skill, skillRef, slot),
     [composition, skill, skillRef, slot]
@@ -87,8 +94,10 @@ export function RebindPanel({
     combobox.closeDropdown();
   };
 
+  // Reported from the promise, which settles whether or not this panel is
+  // still mounted; a `mutate` callback is dropped once it unmounts.
   const apply = () => {
-    if (!changed) return;
+    if (!changed || writing) return;
     const fill = picked;
     const was = choices.current
       ? `instead of ${suffixOf(choices.current)}`
@@ -97,23 +106,19 @@ export function RebindPanel({
       title: `Rebind the ${slot} slot?`,
       message: `${step} will use ${suffixOf(fill)} ${was}. Nothing is shared until you sync.`,
       labels: { confirm: 'Apply' },
-      onConfirm: () =>
-        bind.mutate(
-          { verb: skill, slot, fill },
-          {
-            onSuccess: result => {
-              if (!result.ok) {
-                notifications.error(result.error ?? 'rt skills bind failed');
-                return;
-              }
-              notifications.success(
-                `Rebound ${slot} to ${suffixOf(result.fill)}`
-              );
-              onDone();
-            },
-            onError: error => notifications.error(error.message),
-          }
-        ),
+      onConfirm: () => {
+        bind
+          .mutateAsync({ verb: skill, slot, fill })
+          .then(result => {
+            if (!result.ok) {
+              notifications.error(result.error ?? 'rt skills bind failed');
+              return;
+            }
+            notifications.success(`Rebound ${slot} to ${suffixOf(fill)}`);
+            if (mounted.current) onDone();
+          })
+          .catch((error: Error) => notifications.error(error.message));
+      },
     });
   };
 
@@ -300,7 +305,7 @@ export function RebindPanel({
           size="xs"
           radius={6}
           classNames={BUTTON}
-          disabled={bind.isPending}
+          disabled={writing}
           onClick={onDone}
           data-parity="button · Cancel"
         >
@@ -312,7 +317,7 @@ export function RebindPanel({
           radius={6}
           classNames={BUTTON}
           disabled={!changed}
-          loading={bind.isPending}
+          loading={writing}
           onClick={apply}
           data-parity="button · Apply"
         >

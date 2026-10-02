@@ -950,7 +950,9 @@ type RtResult = { code: number; stdout: string; stderr: string };
     roster read), and each needs its own answer. */
 function fakeRtHandler(handler: (argv: string[]) => RtResult) {
   const calls: string[][] = [];
-  const run = vi.fn(async (argv: string[], _opts?: { timeoutMs?: number }) => {
+  const run = vi.fn<
+    (argv: string[], opts?: { timeoutMs?: number }) => Promise<RtResult>
+  >(async argv => {
     calls.push(argv);
     return handler(argv);
   });
