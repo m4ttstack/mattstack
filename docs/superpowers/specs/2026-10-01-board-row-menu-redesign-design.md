@@ -80,7 +80,7 @@ since both launch the same review run.
 | post to code owners... | slack | own, Slack on, repo in `ownerSlackRepos` | disabled: "repo not enabled" |
 | copy for slack | slack (inline on teammate MRs) | always | always enabled |
 | add a note / edit note | more (inline on teammate MRs) | always | always enabled |
-| auto-doctor: ignore / re-enable | more | own; "stack" wording with descendants | always enabled |
+| auto-doctor: ignore / re-enable | more | own; "stack" wording with descendants | disabled: "auto-doctor is off" when triage is off |
 
 Every `local` gate still applies. Flyout rows that fail only the `local` or
 `own` gate are omitted, not disabled: those are role facts, not MR state, and
@@ -153,10 +153,10 @@ the menu open while several reactions are toggled.
 - The bulk menu, ask and pins DOM tests stay green.
 - Browser check of the menu in light and dark mode before calling it done.
 
-## Open questions
+## Decided
 
-- Should "call doctor" move into sessions and reports when it is not needed,
-  instead of hiding? Today it is omitted; the spec keeps that.
-- The auto-doctor toggle shows even when triage is off (the default). Leave
-  it, or disable it with "auto-doctor is off"? That needs triage state on the
-  client.
+- "call doctor" stays hidden at top level when the pipeline is healthy and
+  there are no conflicts, as today.
+- The auto-doctor toggle is disabled with "auto-doctor is off" when triage is
+  off for the board (`triage.enabled`, default false in `triage/config.ts`).
+  The board's client payload gains that one boolean so the menu can tell.
