@@ -385,6 +385,19 @@ ordinary `failure` blocks on stderr; where chat declines on purpose (a long
 one-line message, a second identity in one session) it is a `refused` note
 (`refuse`), with the same exit code.
 
+A verb that streams a child's output (`rt sdm connect`, `rt sdm login`) runs
+the child under `withProgress` in `commands/sdm.ts`: at a terminal the lines
+are a step's sub-lines, every line goes to the CLI log at `debug`, the step
+is erased when the task settles, and a failure prints the last five lines
+under its `failure` block. Every line passes through `redact` first, which
+replaces the one-time token in a StrongDM auth url, so neither the log nor
+an excerpt keeps it. No prompt and no child that owns the terminal may run
+inside it. Under `--json` nothing is drawn and child output stays off
+stderr. A sentence inside an sdm envelope that a person also reads (a
+connect's `hint`, a health `message`) never quotes a command: the command
+rides apart, in the failed result's `next`, and the CLI shows it as the
+`next:` line.
+
 ## The TypeScript CLI is UI-free
 
 The rt TS CLI (`commands/`, `lib/`, `cli.ts`, `scripts/`) is pure Bun/TypeScript
