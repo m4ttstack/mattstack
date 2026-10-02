@@ -24,13 +24,29 @@ func (r *renderer) caption(s string) {
 	}
 }
 
+// paragraph repeats each line's leading spaces on every row it wraps to, so
+// a continuation row never starts at the column a table row starts at: a
+// chat body wrapped back to the author's column would forge an author row.
 func (r *renderer) paragraph(b protocol.Block) {
 	w := min(r.width-2*len(indent), paragraphMax)
 	for _, para := range splitLines(b.Text) {
-		for _, l := range strings.Split(lipgloss.Wrap(Clean(para), w, ""), "\n") {
-			r.emit(indent + textStyle.Render(strings.TrimRight(l, " ")))
+		lead, rest := hangingIndent(Clean(para), w)
+		for _, l := range strings.Split(lipgloss.Wrap(rest, max(w-len(lead), 1), ""), "\n") {
+			r.emit(indent + textStyle.Render(strings.TrimRight(lead+l, " ")))
 		}
 	}
+}
+
+// hangingIndent splits s into its leading spaces and the rest. A lead too
+// wide to leave minWrap columns is cut down, but never below one space, so
+// the rows still fit the column and still sit right of it.
+func hangingIndent(s string, w int) (string, string) {
+	rest := strings.TrimLeft(s, " ")
+	n := len(s) - len(rest)
+	if n > 0 {
+		n = max(1, min(n, w-minWrap))
+	}
+	return strings.Repeat(" ", n), rest
 }
 
 // copy never wraps and never styles inside the text: the person selects it.

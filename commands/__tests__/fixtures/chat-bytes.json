@@ -1,0 +1,234 @@
+{
+  "join-first-member": {
+    "code": 0,
+    "stdout": "\u2713 joined #r as a \u00b7 1 member, you are alone here\n"
+  },
+  "join-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"room\":\"r\",\"handle\":\"b\",\"memberCount\":2,\"unread\":0,\"name\":\"b\"}\n"
+  },
+  "join-third-member": {
+    "code": 0,
+    "stdout": "\u2713 joined #r as c \u00b7 3 members\n"
+  },
+  "post-woke-nobody": {
+    "code": 0,
+    "stdout": "on the record for 2 members, woke nobody: @handle or @here wakes someone, rt chat dm reaches one\nposted \u2192 https://chat.mattstack/r/r#m-1\n"
+  },
+  "post-mention": {
+    "code": 0,
+    "stdout": "delivered to b\nposted \u2192 https://chat.mattstack/r/r#m-2\n"
+  },
+  "post-quiet": {
+    "code": 0,
+    "stdout": "posted quietly (on the record, unread for every member, nobody woken)\nposted \u2192 https://chat.mattstack/r/r#m-3\n"
+  },
+  "post-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"id\":4,\"quiet\":false,\"recipients\":[],\"recipientNames\":[],\"url\":\"https://chat.mattstack/r/r#m-4\"}\n"
+  },
+  "rooms": {
+    "code": 0,
+    "stdout": "#r   3 members   4 unread (1 mention)  last <age> ago\n"
+  },
+  "rooms-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"rooms\":[{\"room\":\"r\",\"memberCount\":3,\"unread\":4,\"mentions\":1,\"lastPostedAt\":<ms>}]}\n"
+  },
+  "who-room": {
+    "code": 0,
+    "stdout": "#r\n  a  offline  <home>\n  b  offline  <home>\n  c  offline  <home>\n"
+  },
+  "who-room-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"rooms\":[{\"room\":\"r\",\"members\":[{\"room\":\"r\",\"handle\":\"a\",\"name\":\"a\",\"joinedAt\":<ms>,\"lastReadId\":0,\"wakeOn\":\"mention\",\"cwd\":\"<home>\",\"status\":\"offline\"},{\"room\":\"r\",\"handle\":\"b\",\"name\":\"b\",\"joinedAt\":<ms>,\"lastReadId\":0,\"wakeOn\":\"mention\",\"cwd\":\"<home>\",\"status\":\"offline\"},{\"room\":\"r\",\"handle\":\"c\",\"name\":\"c\",\"joinedAt\":<ms>,\"lastReadId\":0,\"wakeOn\":\"mention\",\"cwd\":\"<home>\",\"status\":\"offline\"}]}]}\n"
+  },
+  "ack": {
+    "code": 0,
+    "stdout": "acked #1 \u2192 a\n"
+  },
+  "ack-again": {
+    "code": 0,
+    "stdout": "already acked #1 (a was not woken again)\n"
+  },
+  "ack-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"id\":2,\"author\":\"a\",\"authorName\":\"a\",\"room\":\"r\",\"already\":false}\n"
+  },
+  "claim-won": {
+    "code": 0,
+    "stdout": "claimed #1 \u2192 a\n"
+  },
+  "claim-held": {
+    "code": 0,
+    "stdout": "you already hold #1\n"
+  },
+  "claim-lost": {
+    "code": 0,
+    "stdout": "#1 already claimed by b <age> ago (claimable again in <dur>)\n"
+  },
+  "claim-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"id\":2,\"outcome\":\"claimed\",\"author\":\"a\",\"authorName\":\"a\",\"room\":\"r\"}\n"
+  },
+  "release": {
+    "code": 0,
+    "stdout": "released #1 (was held by b)\n"
+  },
+  "release-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"id\":2,\"holder\":\"c\",\"holderName\":\"c\"}\n"
+  },
+  "read": {
+    "code": 0,
+    "stdout": "#r\n  [HH:MM] a: hello\n  [HH:MM] a: @b ping\n  [HH:MM] a: fyi\n  [HH:MM] a: again\n"
+  },
+  "read-nothing-unread": {
+    "code": 0,
+    "stdout": "(no unread)\n"
+  },
+  "read-last": {
+    "code": 0,
+    "stdout": "#r\n  [HH:MM] a: fyi\n  [HH:MM] a: again\n"
+  },
+  "read-last-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"rooms\":[{\"room\":\"r\",\"messages\":[{\"id\":4,\"room\":\"r\",\"handle\":\"a\",\"name\":\"a\",\"body\":\"again\",\"mentions\":[],\"mentionNames\":[],\"postedAt\":<ms>}]}]}\n"
+  },
+  "read-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"rooms\":[{\"room\":\"r\",\"messages\":[{\"id\":1,\"room\":\"r\",\"handle\":\"a\",\"name\":\"a\",\"body\":\"hello\",\"mentions\":[],\"mentionNames\":[],\"postedAt\":<ms>},{\"id\":2,\"room\":\"r\",\"handle\":\"a\",\"name\":\"a\",\"body\":\"@b ping\",\"mentions\":[\"b\"],\"mentionNames\":[\"b\"],\"postedAt\":<ms>},{\"id\":3,\"room\":\"r\",\"handle\":\"a\",\"name\":\"a\",\"body\":\"fyi\",\"mentions\":[],\"mentionNames\":[],\"postedAt\":<ms>,\"quiet\":true},{\"id\":4,\"room\":\"r\",\"handle\":\"a\",\"name\":\"a\",\"body\":\"again\",\"mentions\":[],\"mentionNames\":[],\"postedAt\":<ms>}]}]}\n"
+  },
+  "mark-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true}\n"
+  },
+  "mark": {
+    "code": 0,
+    "stdout": ""
+  },
+  "dm": {
+    "code": 0,
+    "stdout": "dm \u2192 b #5\nposted \u2192 https://chat.mattstack/r/dm-7e18f737311b#m-5\n"
+  },
+  "dm-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"room\":\"dm-7e18f737311b\",\"id\":6,\"recipients\":[\"b\"],\"recipientNames\":[\"b\"]}\n"
+  },
+  "rooms-with-a-direct-room": {
+    "code": 0,
+    "stdout": "#r      3 members   \u2014                     last <age> ago\ndirect\na \u2194 b   3 members   2 unread (2 mentions) last <age> ago\n"
+  },
+  "leave": {
+    "code": 0,
+    "stdout": "\u2713 left #r (c)\n"
+  },
+  "leave-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true}\n"
+  },
+  "archive": {
+    "code": 0,
+    "stdout": "archived #r: hidden from every member's rooms until someone posts into it\n"
+  },
+  "archive-reopen": {
+    "code": 0,
+    "stdout": "reopened #r\n"
+  },
+  "archive-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"room\":\"r\",\"archivedAt\":<ms>}\n"
+  },
+  "prune": {
+    "code": 0,
+    "stdout": "nothing to prune\n"
+  },
+  "prune-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"removed\":0}\n"
+  },
+  "buddies-nobody": {
+    "code": 0,
+    "stdout": "(nobody signed in)\n"
+  },
+  "sign-in": {
+    "code": 0,
+    "stdout": "signed in as remy \u00b7 not in a repository \u00b7 no room joined\n"
+  },
+  "sign-in-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"handle\":\"<id>\",\"name\":\"remy\",\"room\":null,\"continued\":true}\n"
+  },
+  "buddies": {
+    "code": 0,
+    "stdout": "  offline (last 24h): remy (<age> ago)\n"
+  },
+  "buddies-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"buddies\":[{\"sessionId\":\"s1\",\"handle\":\"<id>\",\"baseHandle\":\"<id>\",\"name\":\"remy\",\"signedInAt\":<ms>,\"lastSeenAt\":<ms>,\"cwd\":\"<home>\",\"status\":\"offline\"}]}\n"
+  },
+  "who-bare": {
+    "code": 0,
+    "stdout": "  offline (last 24h): remy (<age> ago)\n"
+  },
+  "away": {
+    "code": 0,
+    "stdout": "\u2713 away: brb lunch\n"
+  },
+  "away-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true}\n"
+  },
+  "back": {
+    "code": 0,
+    "stdout": "\u2713 back\n"
+  },
+  "back-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true}\n"
+  },
+  "sign-out": {
+    "code": 0,
+    "stdout": "\u2713 signed out (remy)\n"
+  },
+  "sign-out-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true}\n"
+  },
+  "sign-out-quiet": {
+    "code": 0,
+    "stdout": ""
+  },
+  "sign-in-room": {
+    "code": 0,
+    "stdout": "signed in as remy \u00b7 joined #fresh (1 member)\n"
+  },
+  "sign-in-pane": {
+    "code": 0,
+    "stdout": "signed in as kai \u00b7 pane w1:p1 \u00b7 no room joined\n"
+  },
+  "sign-in-pane-room": {
+    "code": 0,
+    "stdout": "signed in as kai \u00b7 pane w1:p1 \u00b7 joined #build\n"
+  },
+  "sign-out-pane": {
+    "code": 0,
+    "stdout": "\u2713 signed out (kai) \u00b7 pane w1:p1\n"
+  },
+  "invite": {
+    "code": 0,
+    "stdout": "w1:p1: accepted\n"
+  },
+  "invite-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"paneId\":\"w1:p1\",\"delivered\":\"accepted\"}\n"
+  },
+  "invite-refused": {
+    "code": 0,
+    "stdout": "w1:p1: refused: at a prompt\n"
+  },
+  "help": {
+    "code": 0,
+    "stdout": "usage: rt chat <join|leave|archive|post|read|ack|claim|release|rooms|who|mark|prune|sign-in|sign-out|away|back|buddies|dm|invite> ...\n"
+  }
+}

@@ -24,7 +24,7 @@ import {
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 
 import { chat, __test__ } from "../chat.ts";
 import { createChatHandlers } from "../../lib/daemon/handlers/chat.ts";
@@ -35,6 +35,11 @@ import { AGENT_NAMES } from "../../lib/chat-names.ts";
 import { setSetting } from "../../packages/rt-client/src/settings/write.ts";
 import { drainNotifications, peekNotifications } from "../../lib/notifier.ts";
 import { fakeHerdr, HerdrFakeError } from "../../lib/herdr/__tests__/fake-herdr.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import type { BuddyStatus, ChatMember, ChatMessage, PresenceRow } from "../../packages/rt-client/src/index.ts";
+
 
 // ─── in-process CLI + fake daemon harness ───────────────────────────────────
 
@@ -125,21 +130,17 @@ afterEach(async () => {
  * test process, and reads the spies' recorded calls before mockRestore()
  * clears them.
  */
-async function runChatRaw(args: string[], opts: { sock?: string } = {}): Promise<{ code: number; stdout: string; stderr: string }> {
+async function runChatRaw(args: string[], opts: { sock?: string; human?: boolean } = {}): Promise<{ code: number; stdout: string; stderr: string; rawStdout: string }> {
   if (opts.sock) args = [...args, "--sock", opts.sock];
-  const stdout: string[] = [];
-  const stderr: string[] = [];
-  const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-    stdout.push(a.map(String).join(" "));
-  });
-  const errSpy = spyOn(console, "error").mockImplementation((...a: unknown[]) => {
-    stderr.push(a.map(String).join(" "));
-  });
+  const io = captureOut();
+  ui.__test__.setHuman(() => opts.human === true);
   const exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit sentinel");
   });
 
   let code = 0;
+  let rawStdout = "";
+  let rawStderr = "";
   try {
     await chat(args);
   } catch (err) {
@@ -149,11 +150,12 @@ async function runChatRaw(args: string[], opts: { sock?: string } = {}): Promise
       throw err;
     }
   } finally {
-    logSpy.mockRestore();
-    errSpy.mockRestore();
+    rawStdout = io.stdout();
+    rawStderr = io.stderr();
     exitSpy.mockRestore();
+    io.restore();
   }
-  return { code, stdout: stdout.join("\n"), stderr: stderr.join("\n") };
+  return { code, stdout: rawStdout.replace(/\n$/, ""), stderr: rawStderr.replace(/\n$/, ""), rawStdout };
 }
 
 async function runChat(args: string[]): Promise<string> {
@@ -212,7 +214,7 @@ describe("rt chat CLI", () => {
   test("an invalid room name is rejected with the reason", async () => {
     const { code, stderr } = await runChatRaw(["join", "Bad/Name"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("[a-z0-9._-]");
+    expect(stderr).toContain("lowercase letters, digits, dots, dashes and underscores");
   });
 
   test("--json emits a parseable object for every verb", async () => {
@@ -235,7 +237,7 @@ describe("rt chat CLI — additional verb behavior", () => {
   test("--as rejects an invalid handle the same way a bad room does", async () => {
     const { code, stderr } = await runChatRaw(["join", "r", "--as", "Bad Handle"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("[a-z0-9._-]");
+    expect(stderr).toContain("lowercase letters, digits, dots, dashes and underscores");
   });
 
   test("post prints the viewer link when chat.viewerUrl is set, and --json carries it", async () => {
@@ -265,6 +267,7 @@ describe("rt chat CLI — additional verb behavior", () => {
 
     const bad = await runChatRaw(["mark", "r", "--upto", "0", "--as", "b"]);
     expect(bad.code).not.toBe(0);
+    expect(bad.stderr).toBe('"0" is not a message id\n  why: A message id is a positive whole number.\n  next: rt chat mark <room> --upto <messageId>');
   });
 
   test("post's body is every word after the room, joined back with spaces", async () => {
@@ -385,6 +388,13 @@ describe("rt chat CLI — additional verb behavior", () => {
     expect(out).toContain("b");
   });
 
+  test("a who the daemon turns down with no reason names the verb, not the room", async () => {
+    canned["chat:who"] = { ok: false };
+    const { code, stderr } = await runChatRaw(["who", "r"]);
+    expect(code).not.toBe(0);
+    expect(stderr).toBe("The chat who did not go through");
+  });
+
   async function postedId(): Promise<number> {
     for (const h of ["asker", "b", "c"]) await runChat(["join", "r", "--as", h]);
     await runChat(["post", "r", "one", "of", "you:", "TLDR", "--as", "asker"]);
@@ -433,7 +443,7 @@ describe("rt chat CLI — additional verb behavior", () => {
     const { code, stderr } = await runChatRaw(["claim", "m-412", "--as", "b"]);
     expect(code).toBe(1);
     expect(stderr).toContain("not a message id");
-    expect((await runChatRaw(["release", "--as", "b"])).stderr).toContain("usage: rt chat release <messageId>");
+    expect((await runChatRaw(["release", "--as", "b"])).stderr).toContain("next: rt chat release <messageId>");
   });
 
   test("leave drops membership so rooms no longer lists it", async () => {
@@ -493,7 +503,8 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     await signInInProcess({ as: "x", session: "s1" });
     const { code, stderr } = await runChatRaw(["post", "r", "hi", "--as", "y", "--session", "s1"]);
     expect(code).not.toBe(0);
-    expect(stderr).toMatch(/signed in as x.*sign out/);
+    expect(stderr).toContain("You are signed in as x");
+    expect(stderr).toContain("rt chat sign-out");
   });
 
   test("deriveRoomForCwd: remote-kind, path-kind, not-a-worktree", () => {
@@ -683,23 +694,25 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
   test("sign-in --pane --room rejects an invalid room name locally, before contacting the daemon", async () => {
     const { code, stderr } = await runChatRaw(["sign-in", "--pane", "w1:p1", "--room", "Bad Room"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("[a-z0-9._-]");
+    expect(stderr).toContain("lowercase letters, digits, dots, dashes and underscores");
     expect(seen.find((s) => s.cmd === "chat:sign-in")).toBeUndefined();
   });
 
   test("sign-in refuses --as with --name, before contacting the daemon", async () => {
     const { code, stderr } = await runChatRaw(["sign-in", "--as", "x", "--name", "y", "--no-room", "--session", "s1"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("--as");
-    expect(stderr).toContain("--name");
+    expect(stderr).toBe(
+      "Continue an identity or start a new one, not both\n  why: You asked to pick up an identity you had and to start a fresh one under a new name.\n  next: rt chat sign-in --as <name> to continue, or rt chat sign-in --name <name> to start fresh",
+    );
     expect(seen.find((s) => s.cmd === "chat:sign-in")).toBeUndefined();
   });
 
   test("sign-in --pane refuses --name, before contacting the daemon", async () => {
     const { code, stderr } = await runChatRaw(["sign-in", "--pane", "w1:p1", "--name", "y"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("--name");
-    expect(stderr).toContain("--pane");
+    expect(stderr).toBe(
+      "A pane sign-in continues an identity\n  why: Signing a pane in can pick up an identity it had, but cannot start a fresh one under a new name.\n  next: rt chat sign-in --pane <pane> --as <name>",
+    );
     expect(seen.find((s) => s.cmd === "chat:sign-in")).toBeUndefined();
   });
 
@@ -748,7 +761,7 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     const { code, stderr } = await runChatRaw(["sign-out", "--session", "s1"]);
     expect(code).toBe(0);
     expect(existsSync(sessionPath)).toBe(false);
-    expect(stderr).toContain("daemon");
+    expect(stderr.startsWith("[warning] Signed out here, but the daemon did not hear it")).toBe(true);
   });
 
   test("sign-out --quiet prints nothing even when the daemon is unreachable", async () => {
@@ -766,13 +779,16 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
   test("sign-out with no known session id is a refused no-op, not a crash", async () => {
     const { code, stderr } = await runChatRaw(["sign-out"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("session id");
+    expect(stderr).toBe(
+      "rt cannot tell which session this is\n  why: Chat needs a session id. Claude Code sets one for you; anywhere else, name the session yourself.\n  next: rt chat sign-out --session <id>",
+    );
   });
 
   test("sign-in without a session id (no --session, no CLAUDE_CODE_SESSION_ID) refuses rather than inventing one", async () => {
     const { code, stderr } = await runChatRaw(["sign-in", "--as", "x", "--no-room"]);
     expect(code).not.toBe(0);
     expect(stderr).toContain("session id");
+    expect(stderr).toContain("\n  next: rt chat sign-in --session <id>");
   });
 
   test("--as naming an id live in another session is refused with the reclaimed wording, and writes no session file", async () => {
@@ -872,7 +888,7 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     const { code, stdout, stderr } = await runChatRaw(["sign-out", "--pane", "w1:p1"]);
     expect(code).not.toBe(0);
     expect(stdout).toBe("");
-    expect(stderr).toContain("sign-out --pane needs a daemon that supports it");
+    expect(stderr).toContain("The rt daemon is too old to sign a pane out");
   });
 
   test("a new session in the same herdr pane signs in as a new identity", async () => {
@@ -983,10 +999,12 @@ describe("rt chat CLI — buddies, away, back, dm", () => {
     const away = await runChatRaw(["away", "brb"]);
     expect(away.code).not.toBe(0);
     expect(away.stderr).toContain("session id");
+    expect(away.stderr).toContain("\n  next: rt chat away <text> --session <id>");
 
     const back = await runChatRaw(["back"]);
     expect(back.code).not.toBe(0);
     expect(back.stderr).toContain("session id");
+    expect(back.stderr).toContain("\n  next: rt chat back --session <id>");
   });
 
   test("dm posts and the desk notifies when the recipient is the human", async () => {
@@ -1266,8 +1284,22 @@ describe("rt chat CLI: read --last, invite", () => {
 
   test("read --last refuses --since and a non-positive N", async () => {
     await runChat(["join", "build", "--as", "alice"]);
-    expect((await runChatRaw(["read", "build", "--last", "5", "--since", "5m", "--as", "alice"])).code).toBe(1);
-    expect((await runChatRaw(["read", "build", "--last", "0", "--as", "alice"])).code).toBe(1);
+    const both = await runChatRaw(["read", "build", "--last", "5", "--since", "5m", "--as", "alice"]);
+    expect(both.code).toBe(1);
+    expect(both.stderr).toBe("Read the latest few messages or the ones since a time, not both\n  next: rt chat read <room> --last 10 or rt chat read <room> --since 5m");
+    const zero = await runChatRaw(["read", "build", "--last", "0", "--as", "alice"]);
+    expect(zero.code).toBe(1);
+    expect(zero.stderr).toBe('"0" is not a number of messages\n  why: Say how many of the latest messages to read, as a positive whole number.\n  next: rt chat read <room> --last 10');
+  });
+
+  test("read refuses a limit that is not a positive number and a length of time it cannot read", async () => {
+    await runChat(["join", "build", "--as", "alice"]);
+    const limit = await runChatRaw(["read", "build", "--limit", "0", "--as", "alice"]);
+    expect(limit.code).toBe(1);
+    expect(limit.stderr).toBe('"0" is not a number of messages\n  why: The most messages to show is a positive number.\n  next: rt chat read <room> --limit 20');
+    const since = await runChatRaw(["read", "build", "--since", "soon", "--as", "alice"]);
+    expect(since.code).toBe(1);
+    expect(since.stderr).toBe('"soon" is not a length of time\n  why: Give a length of time like 30s, 5m, 500ms or a number of seconds.\n  next: rt chat read <room> --since 5m');
   });
 
   test("read --last requires a room", async () => {
@@ -1298,4 +1330,332 @@ describe("rt chat CLI: read --last, invite", () => {
     expect((await runChatRaw(["invite"])).code).toBe(1);
     expect((await runChatRaw(["invite", "w1:p1"])).code).toBe(1);
   });
+});
+
+// ─── what a person at a terminal sees ───────────────────────────────────────
+
+describe("rt chat at a terminal", () => {
+  const cols = (cells: string[], widths: number[]): string => cells.map((c, i) => (i === cells.length - 1 ? c : c.padEnd(widths[i]!))).join("  ");
+  const at = Date.UTC(2026, 9, 1, 12, 4);
+  const message = (over: Partial<ChatMessage>): ChatMessage => ({ id: 1, room: "build", handle: "ana.1", name: "ana", body: "hello", mentions: [], mentionNames: [], postedAt: at, ...over });
+  const heading = (room: string): string => `#${room}`;
+
+  test("rooms is one table: name, members, unread, last post", () => {
+    const text = renderPlain(
+      __test__.roomsBlocks([
+        { room: "build-and-ship", memberCount: 3, unread: 2, mentions: 1, lastPostedAt: Date.now() - 65_000 },
+        { room: "quiet", memberCount: 1, unread: 0, mentions: 0 },
+      ]),
+    );
+    expect(text).toBe(
+      cols(["#build-and-ship", "3 members", "2 unread (1 mention)", "last post 1m ago"], [15, 9, 20]) + "\n" + cols(["#quiet", "1 member", "nothing unread", "no posts yet"], [15, 9, 20]) + "\n",
+    );
+  });
+
+  test("a direct room sits under its own label and shows two names, never its hashed id", () => {
+    const text = renderPlain(
+      __test__.roomsBlocks([
+        { room: "build", memberCount: 2, unread: 0, mentions: 0 },
+        { room: "dm-abc123", kind: "dm", participants: { a: "ana.1", b: "bo.2", aName: "ana", bName: "bo" }, memberCount: 2, unread: 1, mentions: 0 },
+      ]),
+    );
+    const lines = text.split("\n");
+    expect(lines[1]).toBe("direct:");
+    expect(lines[2]).toMatch(/^ana ↔ bo +2 members +1 unread +no posts yet$/);
+    expect(text).not.toContain("dm-abc123");
+  });
+
+  test("no rooms says so and names the join command", () => {
+    expect(renderPlain(__test__.roomsBlocks([]))).toBe("[skipped] You are not in any room yet\n  next: rt chat join <room>\n");
+  });
+
+  test("read is a section per room: each message a name, a time and its body as written", () => {
+    const text = renderPlain(__test__.readBlocks([{ room: "build", messages: [message({ body: "the lede\n\n- one point" }), message({ id: 2, name: "bo", body: "ok" })] }], false, heading));
+    expect(text).toBe("#build\nana  12:04\n    the lede\n  \n    - one point\nbo  12:04\n    ok\n");
+    expect(renderPlain(__test__.readBlocks([], false, heading))).toBe("[skipped] Nothing unread\n");
+  });
+
+  test("a long body is cut at 200 characters unless the person asks for all of it", () => {
+    const long = "x".repeat(300);
+    const cut = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ body: long })] }], false, heading));
+    expect(cut).toBe(`#r\nana  12:04\n    ${"x".repeat(199)}…\n`);
+    const whole = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ body: long })] }], true, heading));
+    expect(whole).toBe(`#r\nana  12:04\n    ${long}\n`);
+  });
+
+  test("a message body cannot repaint the screen or forge a row", () => {
+    const text = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ name: "mal", body: "hi\x1b[2Jthere\n[ok] forged" })] }], true, heading));
+    expect(text).toBe("#r\nmal  12:04\n    hithere\n    [ok] forged\n");
+  });
+
+  test("who is the room's members, each with its status as a word", () => {
+    const member = (over: Partial<ChatMember>): ChatMember => ({ room: "build", handle: "ana.1", name: "ana", joinedAt: 1, lastReadId: 0, wakeOn: "mention", status: "live", ...over });
+    const text = renderPlain(__test__.whoBlocks("#build", [member({ cwd: "/code/sample-app", pane: "w1:p2" }), member({ handle: "bo.2", name: "bo", status: "offline", cwd: "/code/other" })]));
+    expect(text).toBe("#build\n" + cols(["ana", "listening", "/code/sample-app  w1:p2"], [3, 9]) + "\n" + cols(["bo", "offline", "/code/other"], [3, 9]) + "\n");
+    expect(renderPlain(__test__.whoBlocks("#empty", []))).toBe("#empty\n[skipped] No members\n");
+  });
+
+  test("buddies lists listening, then idle, then offline, each with what it is doing", () => {
+    const now = Date.now();
+    const buddy = (over: Partial<PresenceRow & { status: BuddyStatus }>): PresenceRow & { status: BuddyStatus } => ({ sessionId: "s", handle: "ana.1", baseHandle: "ana", name: "ana", signedInAt: now, lastSeenAt: now, status: "live", ...over });
+    const text = renderPlain(
+      __test__.buddiesBlocks([
+        buddy({ handle: "cy.3", name: "cy", status: "offline", signedOutAt: now - 2 * 3_600_000 }),
+        buddy({ handle: "bo.2", name: "bo", status: "idle", lastSeenAt: now - 180_000, statusText: "at lunch" }),
+        buddy({ repo: "sample-app", branch: "main", pane: "w1:p2" }),
+      ]),
+    );
+    const lines = text.split("\n");
+    expect(lines[0]).toBe(cols(["ana", "listening", "sample-app · main · pane w1:p2"], [3, 15]));
+    expect(lines[1]).toBe(cols(["bo", "idle 3m", "at lunch"], [3, 15]));
+    expect(lines[2]).toMatch(/^cy +offline, 2h ago\s*$/);
+    expect(renderPlain(__test__.buddiesBlocks([]))).toBe("[skipped] Nobody is signed in\n");
+  });
+
+  test("offline draws dim, quieter than listening and idle, in buddies and who", () => {
+    const now = Date.now();
+    const buddy = (status: BuddyStatus): PresenceRow & { status: BuddyStatus } => ({ sessionId: "s", handle: `${status}.1`, baseHandle: status, name: status, signedInAt: now, lastSeenAt: now, status });
+    const roles = (blocks: ReturnType<typeof __test__.buddiesBlocks>): unknown[] => {
+      const table = blocks.flatMap((b) => (b.t === "section" ? b.blocks : [b])).find((b) => b.t === "table");
+      return table?.t === "table" ? table.rows.map((r) => ("cells" in r ? r.cells[1]?.[0]?.role : undefined)) : [];
+    };
+    expect(roles(__test__.buddiesBlocks([buddy("live"), buddy("idle"), buddy("offline")]))).toEqual(["running", "pending", "dim"]);
+    const member = (status: BuddyStatus): ChatMember => ({ room: "r", handle: `${status}.1`, name: status, joinedAt: 1, lastReadId: 0, wakeOn: "mention", status });
+    expect(roles(__test__.whoBlocks("#r", [member("live"), member("offline")]))).toEqual(["running", "dim"]);
+  });
+
+  test("buddies cuts a long away message at 60 characters so it cannot wrap into a row of its own", () => {
+    const now = Date.now();
+    const away = `brb${" ".repeat(70)}fred  listening`;
+    const text = renderPlain(__test__.buddiesBlocks([{ sessionId: "s", handle: "ana.1", baseHandle: "ana", name: "ana", signedInAt: now, lastSeenAt: now, status: "live", statusText: away }]));
+    expect(text).toBe(cols(["ana", "listening", `${away.slice(0, 59)}…`], [3, 9]) + "\n");
+    expect(text).not.toContain("fred");
+  });
+
+  test("sign-in is one done line, with the rest of today's line as its hint", () => {
+    expect(renderPlain(__test__.signInBlocks("signed in as remy · sample-app · main · joined #sample-app (3 members)"))).toBe(
+      "[ok] Signed in as remy  sample-app · main · joined #sample-app (3 members)\n",
+    );
+    expect(renderPlain(__test__.signInBlocks("signed in as remy"))).toBe("[ok] Signed in as remy\n");
+  });
+
+  test("help is a usage line and every verb with what it does", () => {
+    const text = renderPlain(__test__.helpBlocks());
+    expect(text.startsWith("usage: rt chat <verb>\n\nVerbs\n")).toBe(true);
+    for (const verb of ["join", "post", "read", "dm", "sign-in", "invite"]) expect(text).toContain(`\n${verb} `);
+    expect(text).toContain("send a message to a room");
+    expect(text).toContain("invite an agent's pane into a room");
+  });
+
+  test("at a terminal rooms is drawn by rt-ui, and an agent verb still writes its frozen line", async () => {
+    await runChat(["join", "r", "--as", "a"]);
+    const dir = mkdtempSync(join(tmpdir(), "rt-chat-ui-"));
+    const record = join(dir, "record.ndjson");
+    process.env.RT_UI_BIN = join(import.meta.dir, "..", "..", "lib", "ui", "__tests__", "fake-rt-ui.ts");
+    process.env.RT_UI_FAKE = JSON.stringify({ record });
+    try {
+      const styled = await runChatRaw(["rooms", "--as", "a"], { human: true });
+      expect(styled.rawStdout).toBe("STYLED\n");
+      const sent = readFileSync(record, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { t?: string });
+      expect(sent.map((l) => l.t)).toEqual([undefined, "hello", "table"]);
+
+      const posted = await runChatRaw(["post", "r", "hello", "--as", "a"], { human: true });
+      expect(posted.stdout).toBe("on the record for 0 members, woke nobody: @handle or @here wakes someone, rt chat dm reaches one\nposted → https://chat.mattstack/r/r#m-1");
+
+      const json = await runChatRaw(["rooms", "--as", "a", "--json"], { human: true });
+      expect(JSON.parse(json.stdout).ok).toBe(true);
+
+      const piped = await runChatRaw(["rooms", "--as", "a"]);
+      expect(piped.stdout.startsWith("#r ")).toBe(true);
+    } finally {
+      delete process.env.RT_UI_BIN;
+      delete process.env.RT_UI_FAKE;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ─── failures ───────────────────────────────────────────────────────────────
+
+describe("rt chat failures", () => {
+  test("a missing room asks which room and shows the command", async () => {
+    const r = await runChatRaw(["join"]);
+    expect(r.code).toBe(1);
+    expect(r.rawStdout).toBe("");
+    expect(r.stderr).toBe("Which room?\n  next: rt chat join <room>");
+  });
+
+  test("a failure under --json leaves stdout empty and exits 1", async () => {
+    const r = await runChatRaw(["join", "Bad/Name", "--json"]);
+    expect(r.code).toBe(1);
+    expect(r.rawStdout).toBe("");
+    expect(r.stderr).toBe('"Bad/Name" is not a valid room name\n  why: Names use lowercase letters, digits, dots, dashes and underscores.');
+  });
+
+  test("an unknown verb names the verbs and where help is", async () => {
+    const r = await runChatRaw(["bogus"]);
+    expect(r.code).toBe(1);
+    expect(r.stderr.startsWith("rt chat has no verb called bogus\n  next: rt chat --help\n  Verbs: ack, claim, release, join, leave, ")).toBe(true);
+  });
+
+  test("no verb off a terminal asks which one", async () => {
+    // A test run from an interactive terminal would otherwise open the verb picker and wait.
+    const origBatch = process.env.RT_BATCH;
+    process.env.RT_BATCH = "1";
+    try {
+      const r = await runChatRaw([]);
+      expect(r.code).toBe(1);
+      expect(r.stderr.startsWith("Which chat verb?\n  next: rt chat <join|leave|")).toBe(true);
+    } finally {
+      if (origBatch === undefined) delete process.env.RT_BATCH;
+      else process.env.RT_BATCH = origBatch;
+    }
+  });
+
+  test("a daemon refusal is the title, as the daemon worded it", async () => {
+    const r = await runChatRaw(["archive", "ghost", "--as", "a"]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("no such room");
+    expect(r.stderr.split("\n")).toHaveLength(1);
+  });
+
+  test("the long one-line refusal keeps its heredoc and its override", async () => {
+    await runChat(["join", "r", "--as", "a"]);
+    const r = await runChatRaw(["post", "r", "x".repeat(520), "--as", "a"]);
+    expect(r.code).toBe(1);
+    expect(r.rawStdout).toBe("");
+    expect(r.stderr).toBe(
+      "[refused] That message is 520 characters with no line breaks\n" +
+        "  why: A long one-line message has usually lost its paragraphs on the way in.\n" +
+        "  next: rt chat post <room> <<'EOF'\n" +
+        "  note: Put the message on stdin from a heredoc so its paragraphs and lists survive.\n" +
+        "        --as-is posts it as it is.",
+    );
+    const dm = await runChatRaw(["dm", "b", "x".repeat(520), "--as", "a"]);
+    expect(dm.code).toBe(1);
+    expect(dm.stderr).toContain("\n  next: rt chat dm <handle> <<'EOF'\n");
+  });
+
+  test("a second identity while signed in is refused with the sign-out command", async () => {
+    await signInInProcess({ as: "x", session: "s1" });
+    const r = await runChatRaw(["post", "r", "hi", "--as", "y", "--session", "s1"]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toBe("[refused] You are signed in as x\n  why: One session keeps one identity. Run it again without naming another one, or sign out to change it.\n  next: rt chat sign-out");
+  });
+
+  test("a flag post does not take is refused by name, with the usage as the command", async () => {
+    await runChat(["join", "r", "--as", "a"]);
+    const r = await runChatRaw(["post", "r", "hello", "--herd", "gate-cleanup-1", "--as", "a"]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toBe("rt chat post does not take --herd\n  next: rt chat post <room> <text | <<'EOF'> [--file <path>] [--as-is] [--quiet]");
+  });
+});
+
+// ─── the bytes agents read ──────────────────────────────────────────────────
+
+const BYTES_FIXTURE = join(import.meta.dir, "fixtures", "chat-bytes.json");
+
+describe("rt chat stdout off a terminal (frozen for agents)", () => {
+  test("every verb's stdout off a terminal matches the fixture captured before the output layer", async () => {
+    const got: Record<string, { code: number; stdout: string }> = {};
+    // Only what changes from run to run is replaced: the temp HOME, clock
+    // values, and the random id behind a signed-in name.
+    const stable = (text: string): string =>
+      text
+        .replaceAll(home, "<home>")
+        .replace(/\b1\d{12}\b/g, "<ms>")
+        .replace(/\[\d\d:\d\d\]/g, "[HH:MM]")
+        .replace(/\b\d+[smhd] ago\b/g, "<age> ago")
+        .replace(/claimable again in [0-9ms ]+\)/g, "claimable again in <dur>)")
+        .replace(/\bidle \d+[smhd]\b/g, "idle <age>")
+        .replace(/"(handle|baseHandle)":"remy[^"]*"/g, '"$1":"<id>"');
+    const run = async (name: string, args: string[]): Promise<void> => {
+      const r = await runChatRaw(args);
+      got[name] = { code: r.code, stdout: stable(r.rawStdout) };
+    };
+
+    const origCwd = process.cwd();
+    // Outside any repo, so sign-in prints no repo or branch of this checkout.
+    process.chdir(home);
+    try {
+      await run("join-first-member", ["join", "r", "--as", "a"]);
+      await run("join-json", ["join", "r", "--as", "b", "--json"]);
+      await run("join-third-member", ["join", "r", "--as", "c"]);
+      await run("post-woke-nobody", ["post", "r", "hello", "--as", "a"]);
+      await run("post-mention", ["post", "r", "@b", "ping", "--as", "a"]);
+      await run("post-quiet", ["post", "r", "fyi", "--quiet", "--as", "a"]);
+      await run("post-json", ["post", "r", "again", "--as", "a", "--json"]);
+      await run("rooms", ["rooms", "--as", "b"]);
+      await run("rooms-json", ["rooms", "--as", "b", "--json"]);
+      await run("who-room", ["who", "r", "--as", "b"]);
+      await run("who-room-json", ["who", "r", "--json"]);
+      await run("ack", ["ack", "1", "--as", "b"]);
+      await run("ack-again", ["ack", "1", "--as", "b"]);
+      await run("ack-json", ["ack", "2", "--as", "c", "--json"]);
+      await run("claim-won", ["claim", "1", "--as", "b"]);
+      await run("claim-held", ["claim", "1", "--as", "b"]);
+      await run("claim-lost", ["claim", "1", "--as", "c"]);
+      await run("claim-json", ["claim", "2", "--as", "c", "--json"]);
+      await run("release", ["release", "1", "--as", "b"]);
+      await run("release-json", ["release", "2", "--as", "c", "--json"]);
+      await run("read", ["read", "r", "--as", "b"]);
+      await run("read-nothing-unread", ["read", "r", "--as", "b"]);
+      await run("read-last", ["read", "r", "--last", "2", "--as", "b"]);
+      await run("read-last-json", ["read", "r", "--last", "1", "--as", "b", "--json"]);
+      await run("read-json", ["read", "--as", "c", "--json"]);
+      await run("mark-json", ["mark", "r", "--as", "b", "--json"]);
+      await run("mark", ["mark", "r", "--as", "b"]);
+      await run("dm", ["dm", "b", "hi", "there", "--as", "a"]);
+      await run("dm-json", ["dm", "b", "again", "--as", "a", "--json"]);
+      await run("rooms-with-a-direct-room", ["rooms", "--as", "b"]);
+      await run("leave", ["leave", "r", "--as", "c"]);
+      await run("leave-json", ["leave", "r", "--as", "b", "--json"]);
+      await run("archive", ["archive", "r", "--as", "a"]);
+      await run("archive-reopen", ["archive", "r", "--reopen", "--as", "a"]);
+      await run("archive-json", ["archive", "r", "--as", "a", "--json"]);
+      await run("prune", ["prune"]);
+      await run("prune-json", ["prune", "--json"]);
+      await run("buddies-nobody", ["buddies"]);
+      await run("sign-in", ["sign-in", "--as", "remy", "--no-room", "--session", "s1"]);
+      await run("sign-in-json", ["sign-in", "--as", "remy", "--no-room", "--session", "s1", "--json"]);
+      await run("buddies", ["buddies"]);
+      await run("buddies-json", ["buddies", "--json"]);
+      await run("who-bare", ["who"]);
+      await run("away", ["away", "brb", "lunch", "--session", "s1"]);
+      await run("away-json", ["away", "afk", "--session", "s1", "--json"]);
+      await run("back", ["back", "--session", "s1"]);
+      await run("back-json", ["back", "--session", "s1", "--json"]);
+      await run("sign-out", ["sign-out", "--session", "s1"]);
+      await runChatRaw(["sign-in", "--as", "remy", "--no-room", "--session", "s2"]);
+      await run("sign-out-json", ["sign-out", "--session", "s2", "--json"]);
+      await run("sign-out-quiet", ["sign-out", "--session", "s2", "--quiet"]);
+      // A room no earlier line touched: "r" is archived by now.
+      await run("sign-in-room", ["sign-in", "--as", "remy", "--room", "fresh", "--session", "s3"]);
+      canned = { "chat:sign-in": { ok: true, data: { handle: "kai", baseHandle: "kai", reclaimed: false, sessionId: "pane-sess-1", room: null } } };
+      await run("sign-in-pane", ["sign-in", "--pane", "w1:p1"]);
+      canned = { "chat:sign-in": { ok: true, data: { handle: "kai", baseHandle: "kai", reclaimed: false, sessionId: "pane-sess-1", room: "build" } } };
+      await run("sign-in-pane-room", ["sign-in", "--pane", "w1:p1"]);
+      canned = { "chat:sign-out": { ok: true, data: { sessionId: "pane-sess-1" } } };
+      await run("sign-out-pane", ["sign-out", "--pane", "w1:p1"]);
+      canned = { "chat:invite": { ok: true, data: { paneId: "w1:p1", delivered: "accepted" } } };
+      await run("invite", ["invite", "w1:p1", "--room", "r"]);
+      await run("invite-json", ["invite", "w1:p1", "--room", "r", "--json"]);
+      canned = { "chat:invite": { ok: true, data: { paneId: "w1:p1", delivered: "refused", reason: "at a prompt" } } };
+      await run("invite-refused", ["invite", "w1:p1", "--room", "r"]);
+      canned = {};
+      await run("help", ["join", "--help"]);
+    } finally {
+      process.chdir(origCwd);
+    }
+
+    if (process.env.RT_UPDATE_CHAT_BYTES) {
+      mkdirSync(dirname(BYTES_FIXTURE), { recursive: true });
+      // ASCII only: every character above 0x7f is written as its escape, so the
+      // fixture holds no glyph an editor or a formatter could rewrite.
+      const ascii = JSON.stringify(got, null, 2).replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+      writeFileSync(BYTES_FIXTURE, ascii + "\n");
+      throw new Error(`${BYTES_FIXTURE} was rewritten. Only capture it from code whose stdout is meant to change, then rerun without RT_UPDATE_CHAT_BYTES.`);
+    }
+    expect(got).toEqual(JSON.parse(readFileSync(BYTES_FIXTURE, "utf8")));
+  }, 60_000);
 });
