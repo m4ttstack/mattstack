@@ -76,7 +76,9 @@ export const GROUPS: Group[] = [
     tier: 'rt',
     blurb:
       'Saved presets, variations and scheduled jobs for rt commands, which verbs the pickers list, and which colors their output uses.',
-    match: pattern(/^rt\.(variations|presets|cron|picker\.hidden|ui\.background)$/),
+    match: pattern(
+      /^rt\.(variations|presets|cron|picker\.hidden|ui\.background)$/
+    ),
   },
   {
     id: 'board',
