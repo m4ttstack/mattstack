@@ -37,13 +37,15 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, chmodSync, statSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
-import { bold, cyan, dim, green, yellow, red, reset } from "../lib/tui.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { identityFromRemote } from "../lib/settings/identity.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import type { SettingScope } from "../lib/settings/registry.ts";
 import type { Value } from "../lib/settings/registry-schemas.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { warn } from "../lib/ui/warn.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -79,23 +81,21 @@ function hooksConfigPath(dataDir: string): string {
   return join(dataDir, "hooks.json");
 }
 
-let warnedHooksStoreProbe = false;
-
 /**
  * Ownership-latch probe: `undefined` means the store does not own `rt.hooks`
- * for this repo — the caller falls back to the legacy file. A probe failure
- * (thrown by getSetting) counts as unowned too, with ONE warning across the
- * process that never echoes the store's value.
+ * for this repo, so the caller falls back to the legacy file. A probe failure
+ * (thrown by getSetting) counts as unowned too, with a warning that never
+ * echoes the store's value.
  */
 function probeHooksStore(repoIdentity: string | null): Value<"rt.hooks"> | undefined {
   if (!repoIdentity) return undefined;
   try {
     return getSetting<Value<"rt.hooks">>(SETTING_KEY, { repoIdentity }).value;
   } catch (err) {
-    if (!warnedHooksStoreProbe) {
-      warnedHooksStoreProbe = true;
-      console.warn(`rt: ignoring "${SETTING_KEY}" — ${(err as Error).message}`);
-    }
+    const message = (err as Error).message;
+    warn("hooks", `ignoring "${SETTING_KEY}" -- ${message}`, {
+      show: { title: "Your hooks setting is being ignored", hint: message.split("\n")[0], next: out.cmd("rt settings check") },
+    });
     return undefined;
   }
 }
@@ -199,7 +199,9 @@ function saveHooksConfig(repoRoot: string, dataDir: string, config: HooksConfig,
       regenerateHooksCache(repoRoot, dataDir, repoIdentity);
       return;
     } catch (err) {
-      console.warn(`rt: could not write "${SETTING_KEY}" to the settings store — ${(err as Error).message}`);
+      warn("hooks", `could not write "${SETTING_KEY}" to the settings store -- ${(err as Error).message}`, {
+        show: { title: "Your hooks choice could not be saved to your settings", hint: "it was saved for this repo only" },
+      });
     }
   }
 
@@ -289,33 +291,24 @@ function setHooksPath(repoRoot: string, dataDir: string): void {
       stdio: "pipe",
     });
   } catch {
-    // Fall back to direct file edit if git CLI unavailable
-    console.log(`  ${yellow}warning: could not set core.hooksPath${reset}`);
+    out.print(out.line("warn", "Git was not pointed at rt's hook folder", "your choice will not take effect"));
   }
 }
 
 // ─── Display ─────────────────────────────────────────────────────────────────
 
-function showStatus(config: HooksConfig, repoName: string): void {
-
+export function hooksStatusBlocks(config: HooksConfig): Block[] {
+  const hooks = Object.entries(config.hooks);
   if (!config.enabled) {
-    console.log(`  ${red}${bold}⏸ all hooks disabled${reset}`);
-    console.log("");
-    for (const [hook, enabled] of Object.entries(config.hooks)) {
-      console.log(`  ${dim}  ${hook}  ${enabled ? "enabled" : "disabled"} (overridden by global off)${reset}`);
-    }
-  } else {
-    console.log(`  ${green}${bold}▶ hooks active${reset}`);
-    console.log("");
-    for (const [hook, enabled] of Object.entries(config.hooks)) {
-      if (enabled) {
-        console.log(`  ${green}✓${reset} ${hook}`);
-      } else {
-        console.log(`  ${red}✗${reset} ${hook}  ${dim}disabled${reset}`);
-      }
-    }
+    return [out.line("off", "All hooks are off"), ...hooks.map(([hook, enabled]) => out.line("off", hook, enabled ? "on, but everything is off" : "off"))];
   }
-  console.log("");
+  return [out.line("done", "Hooks are on"), ...hooks.map(([hook, enabled]) => (enabled ? out.line("done", hook) : out.line("off", hook, "off")))];
+}
+
+export function selectionBlocks(off: string[], total: number): Block[] {
+  if (off.length === 0) return [out.line("done", "All hooks run")];
+  if (off.length === total) return [out.line("off", "All hooks are off")];
+  return [out.line("off", `${off.length} ${off.length === 1 ? "hook" : "hooks"} off`, off.join(", "))];
 }
 
 // ─── Entry ───────────────────────────────────────────────────────────────────
@@ -325,7 +318,7 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
   const discoveredHooks = discoverHooks(repoRoot);
 
   if (discoveredHooks.length === 0) {
-    console.log(`\n  ${yellow}no husky hooks found in .husky/${reset}\n`);
+    out.fail({ title: "This repo has no husky hooks", why: "rt turns hooks on and off for repos that keep them in a .husky folder." });
     process.exit(1);
   }
 
@@ -350,8 +343,7 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
   if (sub === "off") {
     config.enabled = false;
     saveHooksConfig(repoRoot, dataDir, config, repoIdentity);
-    console.log(`\n  ${red}${bold}⏸ all hooks disabled${reset} ${dim}(${repoName})${reset}`);
-    console.log(`  ${dim}applies to terminal, Cursor, GitHub Desktop — all git clients${reset}\n`);
+    out.print(out.line("off", "All hooks are off", repoName), out.callout("note", "This applies in every git app: the terminal, Cursor, GitHub Desktop."));
     return;
   }
 
@@ -364,7 +356,7 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
       config.hooks[hook] = true;
     }
     saveHooksConfig(repoRoot, dataDir, config, repoIdentity);
-    console.log(`\n  ${green}${bold}▶ all hooks re-enabled${reset} ${dim}(${repoName})${reset}\n`);
+    out.print(out.line("done", "All hooks are back on", repoName));
     return;
   }
 
@@ -372,7 +364,7 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
 
   if (sub === "status") {
     refreshHooksCacheBestEffort(repoRoot, dataDir, repoIdentity);
-    showStatus(config, repoName);
+    out.print(...hooksStatusBlocks(config));
     return;
   }
 
@@ -383,19 +375,14 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
     const action = args[1];
 
     if (!(hookName in config.hooks)) {
-      console.log(`\n  ${red}unknown hook: ${hookName}${reset}`);
-      console.log(`  ${dim}available: ${Object.keys(config.hooks).join(", ")}${reset}\n`);
+      out.fail({ title: `This repo has no hook called ${hookName}`, why: `The hooks here are ${Object.keys(config.hooks).join(", ")}.` });
       process.exit(1);
     }
 
     config.hooks[hookName] = action === "on";
     saveHooksConfig(repoRoot, dataDir, config, repoIdentity);
 
-    if (action === "off") {
-      console.log(`\n  ${red}✗${reset} ${hookName} ${dim}disabled${reset} ${dim}(${repoName})${reset}\n`);
-    } else {
-      console.log(`\n  ${green}✓${reset} ${hookName} ${dim}enabled${reset} ${dim}(${repoName})${reset}\n`);
-    }
+    out.print(action === "off" ? out.line("off", `${hookName} is off`, repoName) : out.line("done", `${hookName} is on`, repoName));
     return;
   }
 
@@ -403,7 +390,7 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
 
   if (!process.stdin.isTTY) {
     refreshHooksCacheBestEffort(repoRoot, dataDir, repoIdentity);
-    showStatus(config, repoName);
+    out.print(...hooksStatusBlocks(config));
     return;
   }
 
@@ -419,14 +406,12 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
   const next = applyHookSelection(config, discoveredHooks, selected);
   saveHooksConfig(repoRoot, dataDir, next, repoIdentity);
 
-  const off = discoveredHooks.filter((h) => !next.hooks[h]);
-  if (off.length === 0) {
-    console.log(`\n  ${green}all hooks run${reset}\n`);
-  } else if (off.length === discoveredHooks.length) {
-    console.log(`\n  ${red}all hooks off${reset}\n`);
-  } else {
-    console.log(`\n  ${red}off:${reset} ${off.join(", ")}\n`);
-  }
+  out.print(
+    ...selectionBlocks(
+      discoveredHooks.filter((h) => !next.hooks[h]),
+      discoveredHooks.length,
+    ),
+  );
 }
 
 function runningHooks(config: HooksConfig, discoveredHooks: string[]): string[] {

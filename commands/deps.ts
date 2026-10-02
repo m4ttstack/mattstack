@@ -16,15 +16,13 @@ import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { DEFAULT_EXPOSED, isOurLink, link, reconcile, unlink } from "../lib/deps/links.ts";
-import { resolveTool } from "../lib/deps/resolve.ts";
+import { resolveTool, type ToolResolution } from "../lib/deps/resolve.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 
 function tool(args: string[]): string | undefined {
   return args.find((a) => !a.startsWith("--"));
-}
-
-function fail(msg: string): never {
-  console.error(`rt deps: ${msg}`);
-  process.exit(1);
 }
 
 async function pickTool(message: string, tools: readonly string[]): Promise<string | null> {
@@ -32,7 +30,7 @@ async function pickTool(message: string, tools: readonly string[]): Promise<stri
   return filterableSelect({ message, options: tools.map((name) => ({ value: name, label: name })), stderr: true });
 }
 
-/** The positional, or an interactive pick when it's omitted on a TTY; the existing `fail` in every other case (no TTY, --json, RT_BATCH). */
+/** The positional, or an interactive pick when it's omitted on a TTY; a usage failure in every other case (no TTY, --json, RT_BATCH). */
 async function requireTool(args: string[], usage: string, message: string, candidates: () => readonly string[]): Promise<string> {
   const t = tool(args);
   if (t) return t;
@@ -41,7 +39,8 @@ async function requireTool(args: string[], usage: string, message: string, candi
     if (!picked) process.exit(0);
     return picked;
   }
-  fail(usage);
+  out.fail(usageFailure("Which tool?", usage));
+  process.exit(1);
 }
 
 /** Tools currently exposed by one of our tagged links, else the known-tool set (never empty, so the picker always has candidates). */
@@ -50,66 +49,78 @@ function linkedTools(p: Probes): readonly string[] {
   return linked.length ? linked : DEFAULT_EXPOSED;
 }
 
+export function resolveBlocks(r: ToolResolution): Block[] {
+  return [
+    out.kv("Tool", r.tool),
+    out.kv("Bundled", r.bundled ?? "not bundled"),
+    out.kv("Your copy", r.userCopy ?? "none on your PATH"),
+    out.kv("Linked", r.linked ? "yes" : "no"),
+    out.kv("Uses", r.chosen ?? "nothing found"),
+  ];
+}
+
 export async function depsResolve(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
-  const t = await requireTool(args, "usage: rt deps resolve <tool> [--json]", "Resolve which tool?", () => DEFAULT_EXPOSED);
+  const t = await requireTool(args, "rt deps resolve <tool>", "Resolve which tool?", () => DEFAULT_EXPOSED);
 
   const resolution = resolveTool(p, t);
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify(envelope(resolution)));
+    out.json(envelope(resolution));
     return;
   }
-
-  console.log(`${t}:`);
-  console.log(`  bundled: ${resolution.bundled ?? "(not bundled)"}`);
-  console.log(`  user copy: ${resolution.userCopy ?? "(none on PATH)"}`);
-  console.log(`  linked: ${resolution.linked}`);
-  console.log(`  chosen: ${resolution.chosen ?? "(unresolved)"}`);
+  out.print(...resolveBlocks(resolution));
 }
 
 export async function depsLink(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
-  const t = await requireTool(args, "usage: rt deps link <tool> [--force] [--json]", "Link which tool?", () => DEFAULT_EXPOSED);
+  const t = await requireTool(args, "rt deps link <tool>", "Link which tool?", () => DEFAULT_EXPOSED);
 
   const outcome = link(p, t, { force: args.includes("--force") });
   const json = args.includes("--json");
 
-  // A refusal here is user-actionable (a foreign copy on PATH, dev mode
-  // owning ~/.local/bin/rt, no bundled tool) — exit 2 with the contract's
-  // `{error}` envelope, the same shape `rt tools install` already uses, so
-  // an app decoding row-action failures only ever needs the one path.
-  if (!outcome.ok) return exitUserError(new UserActionableError(outcome.reason, outcome.detail), json, "deps link", console.log);
+  // Every refusal exits 2. Under --json that is the contract's {error}
+  // envelope, the shape `rt tools install` uses, so an app decoding a row
+  // action reads one path. Only no-bundle is a failure; the others are rt
+  // declining by policy, which is never coral.
+  if (!outcome.ok) {
+    if (json || outcome.reason === "no-bundle") return exitUserError(new UserActionableError(outcome.reason, outcome.detail), json, "deps link");
+    const forceClears = outcome.reason === "user-copy" || outcome.reason === "occupied";
+    out.note(out.line("refused", outcome.detail), ...(forceClears ? [out.callout("next", out.cmd(`rt deps link ${t} --force`))] : []));
+    process.exit(2);
+  }
 
   if (json) {
-    console.log(JSON.stringify(envelope(outcome)));
+    out.json(envelope(outcome));
     return;
   }
-  console.log(outcome.state === "already" ? `rt deps: ${t} already linked at ${outcome.path}` : `rt deps: linked ${t} at ${outcome.path}`);
+  out.print(out.line("done", outcome.state === "already" ? `${t} is already linked` : `Linked ${t}`, outcome.path));
 }
 
 export async function depsUnlink(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
-  const t = await requireTool(args, "usage: rt deps unlink <tool> [--json]", "Unlink which tool?", () => linkedTools(p));
+  const t = await requireTool(args, "rt deps unlink <tool>", "Unlink which tool?", () => linkedTools(p));
 
   const outcome = unlink(p, t);
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify(envelope(outcome)));
+    out.json(envelope(outcome));
     return;
   }
-
-  console.log(outcome.removed ? `rt deps: unlinked ${t}` : `rt deps: ${t} was not one of ours — left untouched`);
+  if (!outcome.removed) {
+    out.note(out.line("refused", `${t} is not a link rt made`, "left as it is"));
+    return;
+  }
+  out.print(out.line("done", `Unlinked ${t}`));
 }
 
 export async function depsReconcile(args: string[], _ctx: CommandContext = {}, p: Probes = createRealProbes()): Promise<void> {
   const outcome = reconcile(p);
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify(envelope(outcome)));
+    out.json(envelope(outcome));
     return;
   }
-
   if (outcome.removed.length === 0) {
-    console.log("rt deps: nothing to reconcile");
+    out.print(out.line("skipped", "Nothing to tidy"));
     return;
   }
-  console.log(`rt deps: auto-unlinked (user copy now on PATH): ${outcome.removed.join(", ")}`);
+  out.print(out.line("done", "Removed links you no longer need", outcome.removed.join(", ")), out.callout("note", "Your own copy of each is on your PATH now."));
 }

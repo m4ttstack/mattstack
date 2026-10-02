@@ -20,6 +20,7 @@ on a dark and a light terminal background.
 | `skills-dark.png`, `skills-light.png` | `rt skills` at 100 columns: a check with stale, never-compiled and behind-the-source rows, a compile with a warning, a compile failure and a misplaced skill, the packs and surface tables with a palette delta, a bind, a link report with a conflict, a refused sync, and the refused `skills init` and `writing-style new` lines |
 | `git-dark.png`, `git-light.png` | the git verbs at 100 columns: `status` dirty and clean, `log`, `branches`, `stash list`, `tag list`, the result lines of amend, undo, backup, restore, push and pull, three refusals (an undo of a pushed commit, the ownership guard, uncommitted changes) and four failures (detached HEAD, a usage failure, a git error, a diverged push) |
 | `diff-dark.png`, `diff-light.png` | `rt git diff` at 80 columns: two hunks with a long deleted line, and a binary file. The light page is rendered with `COLORFGBG=0;15` |
+| `plugins-hooks-dark.png`, `plugins-hooks-light.png` | `rt plugin`, `tools`, `deps`, `hooks` and `intercept` at 100 columns: a scaffold with a failed install, the plugin list and a failed validate, two load warnings, tool results, a failure and a refusal, hooks on and off, and intercept status with a current, a stale and a not-yet-installed shim |
 
 The light pages are rendered with `COLORFGBG=0;15`, which is how a light
 terminal that reports its background gets the pale diff tints. A light
@@ -39,7 +40,14 @@ so a `next` rail reads like a warning. On a dark terminal the tree branches
 are faint. In the setup renders, `rt verify` draws each row as `rt setup status` does,
 and its summary counts rows by what they drew, while `--json` keeps counting
 checks; `rt logins` prints its table with no header, and the streamed lines
-under a failed step sit on a rail that is faint on dark. The settings, errors
+under a failed step sit on a rail that is faint on dark. In the plugin and hooks renders, the five `kv` rows of `rt deps resolve` (and
+`Rules` under `rt intercept install`) do not share a key column, because the
+helper aligns runs of `line` blocks and draws each `kv` on its own, so the
+values start at five different columns. At 100 columns the intercept title
+column is as wide as its longest title ("The saved rules are behind your
+settings"), so the stale doppler hint and the settings-file reason wrap to a
+second line. On light, the `pending` and `off` glyphs (the dotted and hollow
+circles) and the purple `kv` keys are faint. The settings, errors
 and setup pages predate the hint wrap, the words-only wrap and the
 `StaticRule` tone, and show the older drawing.
 

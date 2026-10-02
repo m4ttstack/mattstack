@@ -9,6 +9,7 @@
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { rtDir } from "./rt-paths.ts";
+import { warn } from "./ui/warn.ts";
 import { readJson, writeJson } from "./json-store.ts";
 import type { RtApi } from "./plugin-api-types.ts";
 
@@ -62,7 +63,7 @@ export function ensurePluginApiDir(): void {
       'throw new Error("rt-plugin is types-only; the API is injected at runtime via the ctx argument");\n',
     );
   } catch (err) {
-    console.error(`  [rt] could not refresh plugin-api types: ${err instanceof Error ? err.message : String(err)}`);
+    warn("plugins", `could not refresh plugin-api types: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

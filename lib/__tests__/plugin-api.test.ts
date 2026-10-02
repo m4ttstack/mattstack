@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync, readFileSync, statSync, writeFileSync, existsSync 
 import { join } from "path";
 import { tmpdir } from "os";
 import { restoreHome } from "./home-env.ts";
+import { captureOut } from "../ui/__tests__/capture-out.ts";
+import { __test__ as warnTest } from "../ui/warn.ts";
 
 let home: string;
 let savedHome: string | undefined;
@@ -95,4 +97,21 @@ describe("makeApi.log", () => {
     expect(readFileSync(file, "utf8")).toContain("loud");
     process.env.RT_LOG_LEVEL = saved;
   });
+});
+
+test("a types refresh that fails is one log line and never throws", async () => {
+  const { ensurePluginApiDir } = await import("../plugin-api.ts");
+  const blocker = join(mkdtempSync(join(tmpdir(), "rt-plugin-api-fail-")), "not-a-folder");
+  writeFileSync(blocker, "x");
+  process.env.HOME = blocker;
+  const io = captureOut();
+  warnTest.reset();
+  try {
+    expect(() => ensurePluginApiDir()).not.toThrow();
+    expect(io.stderr()).toStartWith("rt: could not refresh plugin-api types: ");
+    expect(io.stderr().trimEnd().split("\n")).toHaveLength(1);
+    expect(io.stdout()).toBe("");
+  } finally {
+    io.restore();
+  }
 });

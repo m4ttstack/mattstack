@@ -89,11 +89,11 @@ export function link(p: Probes, tool: string, opts: { force?: boolean } = {}, se
   const path = linkPath(p.home, tool);
 
   if (tool === "rt" && isDevModeWrapper(p, path)) {
-    return { ok: false, reason: "dev-mode-owns-rt", detail: `${path} is mattstack-dev.app's source wrapper; opening mattstack.app hands rt back to it` };
+    return { ok: false, reason: "dev-mode-owns-rt", detail: `The dev app runs rt for now: ${path} is mattstack-dev.app's source wrapper. Open mattstack.app to switch back.` };
   }
 
   const exec = bundledToolExec(p, tool);
-  if (!exec) return { ok: false, reason: "no-bundle", detail: `no bundled tool named "${tool}" in the app's deps.lock` };
+  if (!exec) return { ok: false, reason: "no-bundle", detail: `mattstack.app does not ship a tool called ${tool}` };
 
   const present = isPresent(p, path);
   const ours = present && isOurLink(p, tool);
@@ -107,8 +107,8 @@ export function link(p: Probes, tool: string, opts: { force?: boolean } = {}, se
   if (!ours && !broken && !opts.force) {
     // A foreign file at the slot itself is "occupied" below, not a user copy elsewhere.
     const elsewhere = userCopyOnPath(p, tool);
-    if (elsewhere && elsewhere !== path) return { ok: false, reason: "user-copy", detail: `${tool} is already on PATH at ${elsewhere}; pass --force to shadow it with the bundled copy` };
-    if (present) return { ok: false, reason: "occupied", detail: `${path} exists and is not a mattstack-managed link; pass --force to replace it` };
+    if (elsewhere && elsewhere !== path) return { ok: false, reason: "user-copy", detail: `You already have your own ${tool} at ${elsewhere}` };
+    if (present) return { ok: false, reason: "occupied", detail: `Something that rt did not put there is already at ${path}` };
   }
 
   if (present && tool !== "rt") p.removeFile(path);

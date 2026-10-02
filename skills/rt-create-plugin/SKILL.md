@@ -30,7 +30,7 @@ Two contract references, in order of authority:
    ```
 
    The manifest's `fn` field picks a different export; default is `"run"`.
-4. **Validate**: `rt plugin validate <name>`. It checks structure, that files exist, that modules import, and that declared exports exist; its error strings name the exact schema problem, so iterate against it. Then typecheck: `bunx tsc --noEmit` in the plugin folder.
+4. **Validate**: `rt plugin validate <name> --json`. It checks structure, that files exist, that modules import, and that declared exports exist, and prints one JSON object: `ok` is `true` when the plugin is sound, and `plugins[0].problems` lists every problem, each naming the exact schema path, so iterate against that list. The exit code is 1 while any problem remains. Then typecheck: `bunx tsc --noEmit` in the plugin folder.
 5. **Run it for real**: invoke each new command (`rt <command> ...`) and confirm output. Commands using `"context"` should be run from inside a git repo. Persistent data lands in `~/.rt/plugin-data/<name>/<key>.json`; plugin log lines in `~/.rt/logs/plugins.YYYY-MM-DD.log`; every invocation outcome in `~/.rt/logs/cli.YYYY-MM-DD.log`.
 
 To experiment without touching the user's real setup, point rt at a throwaway home: `HOME=/tmp/rt-sandbox RT_SKIP_SETUP=1 rt ...`.
@@ -80,7 +80,7 @@ A structurally broken plugin never breaks rt: it is skipped at startup with a wa
 
 ## Done means verified
 
-- `rt plugin validate <name>` prints `ok`.
+- `rt plugin validate <name> --json` reports `"ok": true` with an empty `problems` list.
 - `bunx tsc --noEmit` in the plugin folder is clean.
 - Every declared command was actually run, with output confirmed (context commands from inside a repo).
 - No collision warnings printed when running rt.

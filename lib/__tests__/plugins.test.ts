@@ -4,6 +4,9 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { validateManifest, toCommandNode, ExecFailure, discoverPlugins, loadPluginTree, scaffoldPlugin, deepValidate, migrateLegacyPluginsDir } from "../plugins.ts";
 import { restoreHome } from "./home-env.ts";
+import * as out from "../ui/out.ts";
+import { captureOut } from "../ui/__tests__/capture-out.ts";
+import { setWarningLog, __test__ as warnTest } from "../ui/warn.ts";
 
 const valid = {
   name: "my-plugin",
@@ -235,6 +238,60 @@ describe("discovery + merge", () => {
     version: { description: "Show version", aliases: ["v"], handler: async () => {} },
   };
 
+  describe("with no sink, warnings go through the layer", () => {
+    let io: ReturnType<typeof captureOut>;
+    let logged: Array<{ module: string; message: string }>;
+
+    beforeEach(() => {
+      io = captureOut();
+      out.__test__.setHuman(() => false);
+      warnTest.reset();
+      logged = [];
+      setWarningLog((module, message) => {
+        logged.push({ module, message });
+      });
+    });
+
+    afterEach(() => {
+      warnTest.reset();
+      io.restore();
+    });
+
+    test("a load warning is shown once, on stderr, and logged", () => {
+      writePlugin(home, "bad-plugin", "{ not json");
+      loadPluginTree(BUILTINS);
+      loadPluginTree(BUILTINS);
+
+      expect(io.stdout()).toBe("");
+      const lines = io.errLines();
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toStartWith("[warning] The bad-plugin plugin was not loaded  plugin.json is unreadable or not valid JSON");
+      expect(lines[1]).toBe("  next: rt plugin validate bad-plugin");
+      expect(logged).toHaveLength(2);
+      expect(logged[0]!.module).toBe("plugins");
+      expect(logged[0]!.message).toStartWith('skipping plugin "bad-plugin": ');
+    });
+
+    test("a collision with a built-in names both sides", () => {
+      writePlugin(home, "shadow", { name: "shadow", apiVersion: 1, commands: { version: { description: "d", module: "./v.ts" } } });
+      loadPluginTree(BUILTINS);
+      expect(io.errLines()).toEqual(["[warning] shadow's version command was not added  rt already has a command called version"]);
+    });
+
+    test("a collision between two plugins names the one that got there first", () => {
+      writePlugin(home, "a-plugin", { name: "a-plugin", apiVersion: 1, commands: { standup: { description: "d", module: "./s.ts" } } });
+      writePlugin(home, "b-plugin", { name: "b-plugin", apiVersion: 1, commands: { standup: { description: "d", module: "./s.ts" } } });
+      loadPluginTree(BUILTINS);
+      expect(io.errLines()).toEqual(['[warning] b-plugin\'s standup command was not added  plugin "a-plugin" already has a command called standup']);
+    });
+
+    test("a folder and a manifest that disagree on the name say how to fix it", () => {
+      writePlugin(home, "folder-name", { name: "other-name", apiVersion: 1, commands: { thing: { description: "d", module: "./t.ts" } } });
+      loadPluginTree(BUILTINS);
+      expect(io.errLines()).toEqual(["[warning] The folder-name plugin calls itself other-name  rename the folder or the manifest's name so they match"]);
+    });
+  });
+
   test("no plugins dir: returns builtins untouched, no warnings", () => {
     const tree = loadPluginTree(BUILTINS, warn);
     expect(Object.keys(tree)).toEqual(["version"]);
@@ -337,6 +394,11 @@ describe("scaffoldPlugin", () => {
   afterEach(() => {
     restoreHome(savedHome);
     rmSync(home, { recursive: true, force: true });
+  });
+
+  test("the scaffolded command still prints with console.log, byte for byte", () => {
+    const dir = scaffoldPlugin("my-tool");
+    expect(readFileSync(join(dir, "my-tool.ts"), "utf8")).toContain("  console.log(`hello from my-tool (run #${count}, args: ${JSON.stringify(args)})`);\n");
   });
 
   test("creates a valid, discoverable plugin and the plugin-api dir", () => {
