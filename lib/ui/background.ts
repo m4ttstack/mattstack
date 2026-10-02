@@ -34,13 +34,19 @@ export function backgroundSetting(): BackgroundSetting {
 
 // auto lets the helper ask the terminal, so it goes only where a person is
 // at all three streams: with a pager or a picker on the other end, the reply
-// would reach that program as keys.
+// would reach that program as keys. The test preload sets
+// RT_UI_NO_TERMINAL_QUERY, so no test run asks the terminal it runs in.
 function word(): string | undefined {
   const setting = backgroundSetting();
   if (setting !== "auto") return setting;
   if (resolved) return resolved;
+  if (process.env.RT_UI_NO_TERMINAL_QUERY) return undefined;
   return (["stdin", "stdout", "stderr"] as const).every(isTTY) ? "auto" : undefined;
 }
+
+// Helpers given one run id share one terminal answer, whatever order they
+// start in.
+let run: string | undefined;
 
 /** The environment rt-ui's render and steps verbs run under. */
 export function rtUiEnv(): Record<string, string | undefined> {
@@ -48,6 +54,8 @@ export function rtUiEnv(): Record<string, string | undefined> {
   const w = word();
   if (w) env.RT_UI_BACKGROUND = w;
   else delete env.RT_UI_BACKGROUND;
+  if (w === "auto") env.RT_UI_BACKGROUND_RUN = run ??= crypto.randomUUID();
+  else delete env.RT_UI_BACKGROUND_RUN;
   return env;
 }
 

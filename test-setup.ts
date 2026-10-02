@@ -30,6 +30,11 @@ process.env.RT_GH_TOKEN_FALLBACK = "off";
 // settings, sops store and keychain by default; suites inject their own seams.
 process.env.RT_POOL_FORGE_TOKEN = "off";
 
+// rt-ui asks the terminal for its background on auto; a test run must never
+// write that query to the developer's terminal. lib/ui/background.ts and
+// rt-ui both honor this, and no suite's reset clears it.
+process.env.RT_UI_NO_TERMINAL_QUERY = "1";
+
 // A pane spawned under a live daemon inherits its launchd MATTSTACK_FLAVOR,
 // and a source run is dev by build; pin the prod app's flavor, the one every
 // test assumes unless it sets its own.

@@ -12,12 +12,14 @@ import { openStep } from "../spawn.ts";
 
 const FAKE = resolve(import.meta.dir, "fake-rt-ui.ts");
 const origHome = process.env.HOME;
+const preloadBlock = process.env.RT_UI_NO_TERMINAL_QUERY;
 let home: string;
 let logged: string[];
 let previousSink: ReturnType<typeof setSettingsNoticeSink>;
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "rt-ui-bg-"));
+  delete process.env.RT_UI_NO_TERMINAL_QUERY;
   process.env.HOME = home;
   __test__.reset();
   __test__.setTTY(() => true);
@@ -28,6 +30,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  process.env.RT_UI_NO_TERMINAL_QUERY = preloadBlock;
   setSettingsNoticeSink(previousSink);
   process.env.HOME = origHome;
   __test__.reset();
@@ -133,13 +136,12 @@ test("a helper that reports nothing keeps getting auto", () => {
 
 test("auto is not passed unless stdin, stdout and stderr are all terminals", () => {
   process.env.RT_UI_BACKGROUND = "auto";
-  for (const [i, which] of ["stdin", "stdout", "stderr"].entries()) {
+  for (const which of ["stdin", "stdout", "stderr"]) {
     __test__.reset();
     __test__.setTTY((stream) => stream !== which);
     const env = rtUiEnv();
     expect(env.RT_UI_BACKGROUND, which).toBeUndefined();
     expect("RT_UI_BACKGROUND" in env, which).toBe(false);
-    void i;
   }
   const sent = renders({ renderErr: "background=dark\n" }, 1);
   expect(sent[0]!.bg).toBeUndefined();
@@ -150,4 +152,25 @@ test("dark and light are passed whatever the streams are", () => {
   setSetting("rt.ui.background", "light", "user");
   __test__.setTTY(() => false);
   expect(rtUiEnv().RT_UI_BACKGROUND).toBe("light");
+});
+
+test("the test preload keeps auto from ever reaching rt-ui", () => {
+  expect(preloadBlock).toBe("1");
+  process.env.RT_UI_NO_TERMINAL_QUERY = preloadBlock;
+  __test__.reset();
+  __test__.setTTY(() => true);
+  const env = rtUiEnv();
+  expect(env.RT_UI_BACKGROUND).toBeUndefined();
+  expect(env.RT_UI_NO_TERMINAL_QUERY).toBe("1");
+});
+
+test("every auto helper of one rt process shares one run id", () => {
+  const first = rtUiEnv();
+  const second = rtUiEnv();
+  expect(first.RT_UI_BACKGROUND).toBe("auto");
+  expect(first.RT_UI_BACKGROUND_RUN).toMatch(/\S{8,}/);
+  expect(second.RT_UI_BACKGROUND_RUN).toBe(first.RT_UI_BACKGROUND_RUN);
+  setSetting("rt.ui.background", "dark", "user");
+  __test__.reset();
+  expect("RT_UI_BACKGROUND_RUN" in rtUiEnv()).toBe(false);
 });
