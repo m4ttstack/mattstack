@@ -4,6 +4,8 @@ import {
   createTheme,
   MantineProvider,
   MantineThemeProvider,
+  Paper,
+  Progress,
   Switch,
   Text,
 } from '@mantine/core';
@@ -92,5 +94,48 @@ describe('contrast switch', () => {
     const root = container.querySelector(`.${classes.switchRoot}`);
     expect(root).toHaveAttribute('data-variant', 'contrast');
     expect(root!.querySelector(`.${classes.switchTrack}`)).not.toBeNull();
+  });
+});
+
+describe('ground paper', () => {
+  it('carries the kit class the ground border rule keys on', () => {
+    const { container } = render(
+      <MantineProvider theme={theme}>
+        <Paper withBorder variant="ground">
+          card
+        </Paper>
+      </MantineProvider>
+    );
+    const root = container.querySelector(`.${classes.paperRoot}`);
+    expect(root).toHaveAttribute('data-variant', 'ground');
+    expect(root).toHaveAttribute('data-with-border', 'true');
+  });
+
+  it('leaves a Paper with no variant unmarked', () => {
+    const { container } = render(
+      <MantineProvider theme={theme}>
+        <Paper withBorder>card</Paper>
+      </MantineProvider>
+    );
+    expect(
+      container.querySelector(`.${classes.paperRoot}`)
+    ).not.toHaveAttribute('data-variant');
+  });
+});
+
+describe('segmented progress', () => {
+  it('carries the kit class the segmented rule keys on', () => {
+    const { container } = render(
+      <MantineProvider theme={theme}>
+        <Progress.Root variant="segmented">
+          <Progress.Section value={40} />
+          <Progress.Section value={60} />
+        </Progress.Root>
+      </MantineProvider>
+    );
+    expect(container.querySelector(`.${classes.progressRoot}`)).toHaveAttribute(
+      'data-variant',
+      'segmented'
+    );
   });
 });

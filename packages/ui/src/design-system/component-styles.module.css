@@ -61,3 +61,24 @@
   + .switchTrack {
   --switch-bg: var(--tk-line-1);
 }
+
+/* Paper's `variant="ground"`: a card on the page ground (--tk-bg). It takes
+   the card surface in both schemes (Mantine's body surface is the panel in
+   dark) and, bordered, the kit border, a step stronger than Mantine's
+   separator gray, so it holds against the ground. Mantine scopes its border
+   colour under the scheme attribute, hence the third selector. */
+.paperRoot[data-variant='ground'] {
+  background-color: var(--tk-card);
+}
+
+.paperRoot[data-variant='ground'][data-with-border] {
+  --paper-border-color: var(--tk-border);
+}
+
+/* Progress's `variant="segmented"`: a bar of parts that sum to the whole,
+   with no track behind them, so the gaps between the parts show whatever
+   surface the bar sits on. */
+.progressRoot[data-variant='segmented'] {
+  gap: 2px;
+  background-color: transparent;
+}

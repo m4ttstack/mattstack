@@ -92,7 +92,14 @@ root bar takes tabs only, and a `PageShell.TabBar` composed in
 A `Badge` that sits on the page ground (`--tk-bg`) takes one of the kit's
 opt-in quiet tones, `variant="quiet"` (raised fill) or
 `variant="quiet-outline"` (card fill with the kit border); Mantine's gray
-`light` fill is the ground itself there.
+`light` fill is the ground itself there. A chip inside a card can take
+`variant="panel-outline"` (panel fill, soft rule, body label).
+
+A `Paper` on the page ground (a card on a dotted canvas) can take
+`variant="ground"`: the card surface in both schemes and, with `withBorder`,
+a rule in the kit border rather than Mantine's lighter separator gray. A
+`Progress` that splits a whole into parts can take `variant="segmented"`: no
+track, and a gap between the sections that shows the surface beneath.
 
 On a panel surface, a selected `NavLink` can take `variant="wash"` (a thin
 wash of its kit hue behind a label in that hue), and a `Switch` can take

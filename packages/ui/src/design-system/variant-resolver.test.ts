@@ -63,7 +63,18 @@ describe('quiet tones', () => {
     expect(result.border).toContain('solid var(--tk-border)');
   });
 
-  it.each(['quiet', 'quiet-outline'])(
+  it('panel-outline is a panel fill with a body label and a soft rule', () => {
+    const result = variantColorResolver({
+      color: 'accent',
+      theme,
+      variant: 'panel-outline',
+    });
+    expect(result.background).toBe('var(--tk-panel)');
+    expect(result.color).toBe('var(--tk-text-1)');
+    expect(result.border).toContain('solid var(--tk-line-3)');
+  });
+
+  it.each(['quiet', 'quiet-outline', 'panel-outline'])(
     '%s ignores the colour, so the primary default changes nothing',
     variant => {
       const plain = variantColorResolver({ color: 'accent', theme, variant });

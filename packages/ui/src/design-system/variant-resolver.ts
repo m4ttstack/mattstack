@@ -14,8 +14,9 @@ const ON_FILL_HUES = new Set(['accent', 'ok', 'bad', 'warn', 'purple', 'cyan']);
  * Opt-in tones for labels that sit on the page ground (`--tk-bg`), where
  * Mantine's gray `light` fill is the ground itself: `quiet` is a raised fill
  * with a muted label and no rule, `quiet-outline` a card fill with the kit
- * border and a muted label. Both ignore `color`, since a Badge always passes
- * the primary colour when none is given.
+ * border and a muted label. `panel-outline` is a chip inside a card: a panel
+ * fill, a soft rule and a body label. All three ignore `color`, since a Badge
+ * always passes the primary colour when none is given.
  */
 const QUIET_TONES = new Map<string, VariantColorResolverResult>([
   [
@@ -34,6 +35,15 @@ const QUIET_TONES = new Map<string, VariantColorResolverResult>([
       hover: 'var(--tk-card)',
       color: 'var(--tk-text-3)',
       border: `${rem(1)} solid var(--tk-border)`,
+    },
+  ],
+  [
+    'panel-outline',
+    {
+      background: 'var(--tk-panel)',
+      hover: 'var(--tk-panel)',
+      color: 'var(--tk-text-1)',
+      border: `${rem(1)} solid var(--tk-line-3)`,
     },
   ],
 ]);
@@ -66,8 +76,8 @@ function wash(hue: string): VariantColorResolverResult {
  * hue, the label reads the per-hue `--tk-on-fill-<hue>` token instead of
  * Mantine's white/black pick.
  *
- * It also answers the kit's own `quiet`, `quiet-outline` and `wash` tones
- * above.
+ * It also answers the kit's own `quiet`, `quiet-outline`, `panel-outline`
+ * and `wash` tones above.
  */
 export const variantColorResolver: VariantColorsResolver = input => {
   const quiet = input.variant ? QUIET_TONES.get(input.variant) : undefined;

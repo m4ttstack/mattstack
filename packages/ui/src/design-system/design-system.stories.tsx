@@ -4,6 +4,7 @@ import {
   Group,
   NavLink,
   Paper,
+  Progress,
   Stack,
   Switch,
   Text,
@@ -70,6 +71,23 @@ function QuietBadges() {
           <Badge variant="quiet">quiet</Badge>
           <Badge variant="quiet-outline">quiet-outline</Badge>
         </Group>
+        <Group gap="sm">
+          <Paper withBorder p="xs">
+            Paper withBorder
+          </Paper>
+          <Paper withBorder variant="ground" p="xs">
+            Paper ground
+          </Paper>
+        </Group>
+        <Text size="sm">Inside a card (--tk-card)</Text>
+        <Stack gap="sm" bg="var(--tk-card)" p="sm">
+          <Badge variant="panel-outline">panel-outline</Badge>
+          <Progress.Root variant="segmented" size={8}>
+            <Progress.Section value={20} color="accent" />
+            <Progress.Section value={30} color="gray" />
+            <Progress.Section value={50} color="gray" />
+          </Progress.Root>
+        </Stack>
       </Stack>
     </Box>
   );

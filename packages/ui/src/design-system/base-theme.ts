@@ -92,8 +92,14 @@ export const baseTheme = /* @__PURE__ */ createTheme({
   },
   variantColorResolver,
   components: themeComponents({
-    Paper: { defaultProps: flatSurfaceProps },
+    // `variant="ground"`: a card on the page ground (see the CSS module).
+    Paper: {
+      defaultProps: flatSurfaceProps,
+      classNames: { root: classes.paperRoot },
+    },
     Card: { defaultProps: flatSurfaceProps },
+    // `variant="segmented"`: parts with gaps between them (see the CSS module).
+    Progress: { classNames: { root: classes.progressRoot } },
     Button: {
       defaultProps: { fw: 500 },
       classNames: { root: classes.buttonRoot },
