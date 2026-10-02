@@ -64,6 +64,17 @@ body {
 [data-part='panel'] {
   background: var(--chrome);
 }
+/* The recipe's bottom padding left a sliver of panel under the last row, and
+   a row's full-width footer band showed it. Rows run to the panel's own edge,
+   and the rows' own clip keeps the last one's corners inside its radius (the
+   panel itself cannot clip: its title straddles the top border). */
+[data-part='panel']:has(.tui-rows) {
+  padding-bottom: 0;
+}
+.tui-rows {
+  overflow: clip;
+  border-radius: 0 0 8px 8px;
+}
 
 /* The scheme control, pinned to the header card's top-right corner via
    absolute positioning, since `.tui-header` wraps (`flex-wrap: wrap`): on the
