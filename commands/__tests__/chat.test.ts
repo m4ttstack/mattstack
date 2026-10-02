@@ -1412,6 +1412,18 @@ describe("rt chat at a terminal", () => {
     expect(renderPlain(__test__.buddiesBlocks([]))).toBe("[skipped] Nobody is signed in\n");
   });
 
+  test("offline draws dim, quieter than listening and idle, in buddies and who", () => {
+    const now = Date.now();
+    const buddy = (status: BuddyStatus): PresenceRow & { status: BuddyStatus } => ({ sessionId: "s", handle: `${status}.1`, baseHandle: status, name: status, signedInAt: now, lastSeenAt: now, status });
+    const roles = (blocks: ReturnType<typeof __test__.buddiesBlocks>): unknown[] => {
+      const table = blocks.flatMap((b) => (b.t === "section" ? b.blocks : [b])).find((b) => b.t === "table");
+      return table?.t === "table" ? table.rows.map((r) => ("cells" in r ? r.cells[1]?.[0]?.role : undefined)) : [];
+    };
+    expect(roles(__test__.buddiesBlocks([buddy("live"), buddy("idle"), buddy("offline")]))).toEqual(["running", "pending", "dim"]);
+    const member = (status: BuddyStatus): ChatMember => ({ room: "r", handle: `${status}.1`, name: status, joinedAt: 1, lastReadId: 0, wakeOn: "mention", status });
+    expect(roles(__test__.whoBlocks("#r", [member("live"), member("offline")]))).toEqual(["running", "dim"]);
+  });
+
   test("buddies cuts a long away message at 60 characters so it cannot wrap into a row of its own", () => {
     const now = Date.now();
     const away = `brb${" ".repeat(70)}fred  listening`;

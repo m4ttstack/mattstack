@@ -614,7 +614,7 @@ function renderBuddies(buddies: Array<PresenceRow & { status: BuddyStatus }>): s
 
 // ─── what a person at a terminal sees ───────────────────────────────────────
 
-const STATUS_ROLE: Record<BuddyStatus, Segment["role"]> = { live: "running", idle: "pending", offline: "off" };
+const STATUS_ROLE: Record<BuddyStatus, Segment["role"]> = { live: "running", idle: "pending", offline: "dim" };
 
 function present(parts: Array<string | undefined>, glue: string): string {
   return parts.filter((s): s is string => Boolean(s)).join(glue);
