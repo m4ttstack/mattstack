@@ -49,7 +49,7 @@ import { UsedByTab } from './UsedByTab';
 import { useDrawerMode } from './useDrawerMode';
 import { useDrawerWrap } from './useDrawerWrap';
 
-export const DRAWER_WIDTH = 600;
+export const DRAWER_WIDTH = 760;
 
 const MUTED = 'var(--tk-text-3)';
 const BODY = 'var(--tk-text-1)';
