@@ -55,7 +55,7 @@ export type GuidedResult =
   | { outcome: "aborted"; reason: string }
   | { outcome: "failed"; stage: "health" | "login" | "access" | "connect" | "verify"; error: string; hint?: string; next?: string };
 
-// `hint` is read by a person (the --json envelope's hint, a failure's details),
+// `hint` is read by a person (the --json envelope's hint, the CLI's failure `next:` line),
 // so it never quotes a command; `next` carries the command, for the CLI to show.
 function adviceFor(code?: SdmFailureCode): { hint?: string; next?: string } {
   if (code === "not-authenticated") return { hint: "Log in to StrongDM again, then connect.", next: "rt sdm login" };

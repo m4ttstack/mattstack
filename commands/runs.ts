@@ -141,11 +141,6 @@ export async function resolveRunsRepoArg(arg: string): Promise<string> {
   throw new UnknownRunsRepo(arg);
 }
 
-/**
- * Shared `--repo` handling for every runs subcommand: resolves the flag (if
- * present) and exits on an unknown repo, matching the output mode (`--json`
- * envelope vs plain stderr) the rest of each command already uses.
- */
 function repoArgFailure(err: RunsRepoArgError): out.FailureInput {
   if (err instanceof AmbiguousRunsRepo) {
     return { title: `More than one repo is called ${err.arg}`, why: `It could be ${err.matches.map(repoLabelQualified).join(" or ")}. Use the full name of the one you mean.` };
@@ -154,6 +149,11 @@ function repoArgFailure(err: RunsRepoArgError): out.FailureInput {
   return { title: err.message };
 }
 
+/**
+ * Shared `--repo` handling for every runs subcommand: resolves the flag (if
+ * present) and exits on an unknown repo, matching the output mode (`--json`
+ * envelope vs plain stderr) the rest of each command already uses.
+ */
 async function resolveRepoFilter(args: string[]): Promise<string | undefined> {
   const repoArg = flagValue(args, "--repo");
   if (!repoArg) return undefined;

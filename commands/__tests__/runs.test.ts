@@ -29,6 +29,10 @@ const realLastQueryTimedOut = realDaemonClient.lastQueryTimedOut;
 async function runExpectingCleanExit(fn: () => Promise<void>): Promise<{ exitCode: number | undefined; errors: string[]; logs: string[] }> {
   const io = captureOut();
   out.__test__.setHuman(() => false);
+  const savedTTY = process.stdin.isTTY;
+  const savedBatch = process.env.RT_BATCH;
+  Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true, writable: true });
+  process.env.RT_BATCH = "1";
   const exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit sentinel");
   });
@@ -41,6 +45,9 @@ async function runExpectingCleanExit(fn: () => Promise<void>): Promise<{ exitCod
   } finally {
     exitSpy.mockRestore();
     io.restore();
+    Object.defineProperty(process.stdin, "isTTY", { value: savedTTY, configurable: true, writable: true });
+    if (savedBatch === undefined) delete process.env.RT_BATCH;
+    else process.env.RT_BATCH = savedBatch;
   }
 }
 

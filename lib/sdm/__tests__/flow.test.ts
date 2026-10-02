@@ -265,12 +265,10 @@ describe("what a failed connect says (the --json envelope and the failure on scr
     const { deps } = makeDeps({ connect: async () => ({ ok: false, error: "You are not authenticated.", code: "not-authenticated" }) });
     const r = await runGuidedConnect(target, { interactive: false }, deps);
     const { json, exitCode } = buildConnectJson(target, r);
-    // Shape, as the sdm skill reads it.
     expect(exitCode).toBe(1);
     expect(Object.keys(json as object)).toEqual(["ok", "stage", "error", "hint"]);
     expect(Object.values(json as object).map((v) => typeof v)).toEqual(["boolean", "string", "string", "string"]);
     expect((json as { ok: boolean; stage: string }).stage).toBe("connect");
-    // Words, pinned on their own.
     expect((json as { hint: string }).hint).toBe("Log in to StrongDM again, then connect.");
     expect((json as { hint: string }).hint).not.toMatch(/`|rt sdm/);
   });

@@ -39,7 +39,7 @@ describe("withProgress", () => {
     record = join(dir, "record.ndjson");
     process.env.RT_UI_BIN = FAKE;
     process.env.RT_UI_FAKE = JSON.stringify({ record });
-    // bun test's stdin is never a TTY; each test says whether a person is there.
+    // Whether a person is there is the gate's answer, never the real stdin; each test says which.
     gate.setInteractive(() => true);
   });
   afterEach(() => {
@@ -98,7 +98,7 @@ describe("withProgress", () => {
     expect(JSON.stringify(cliLogLines())).not.toContain("tok123secret");
   });
 
-  test("logLine, which the terminal login calls directly, redacts the token too", () => {
+  test("logLine redacts on its own", () => {
     __test__.logLine("visit https://sdm.example/auth-confirm-native/tok456secret");
     expect(cliLogLines().filter((l) => l.module === "sdm").at(-1)?.msg).toBe("visit https://sdm.example/auth-confirm-native/<redacted>");
   });
@@ -171,11 +171,19 @@ describe("sdm blocks", () => {
       "Could not connect to Acme QA\n  why: no route to gateway\n  next: rt sdm login\n",
     );
     expect(failed(__test__.connectFailure(target, { outcome: "failed", stage: "access", error: "denied", hint: "Check the connection name, or ask for access with a reason." }))).toBe(
-      "Could not get access to Acme QA\n  why: denied\n  Check the connection name, or ask for access with a reason.\n",
+      "Could not get access to Acme QA\n  why: denied\n  next: Check the connection name, or ask for access with a reason.\n",
     );
     expect(
       failed(__test__.connectFailure(target, { outcome: "failed", stage: "verify", error: "The tunnel did not answer: timeout", hint: "Connect again, or check this connection in the StrongDM app.", next: "rt sdm connect demo:q" })),
     ).toBe("Acme QA did not come up\n  why: The tunnel did not answer: timeout\n  next: rt sdm connect demo:q\n");
+  });
+
+  test("a health failure says what is wrong in plain words for each status", () => {
+    expect(failed(__test__.healthFailure({ status: "not-authenticated", message: null }))).toBe("You are not logged in to StrongDM\n  next: rt sdm login\n");
+    expect(failed(__test__.healthFailure({ status: "not-installed", message: null }))).toBe(
+      "The StrongDM CLI is not installed\n  next: Install it from strongdm.com/docs/cli (https://www.strongdm.com/docs/cli/)\n",
+    );
+    expect(failed(__test__.healthFailure({ status: "error", message: "boom" }))).toBe("StrongDM is not answering\n  why: boom\n");
   });
 
   test("only a login that needs a person names the manual login on its next: line", () => {
@@ -262,9 +270,11 @@ describe("sdm verbs", () => {
   beforeEach(() => {
     io = captureOut();
     out.__test__.setHuman(() => false);
+    gate.setInteractive(() => false);
   });
   afterEach(() => {
     io.restore();
+    gate.setInteractive(undefined);
     // The verbs report through process.exitCode; a value left behind would fail the whole run.
     process.exitCode = 0;
   });

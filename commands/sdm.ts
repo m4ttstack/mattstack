@@ -148,7 +148,7 @@ function productionRefusal(target: GuidedTarget): Block[] {
 
 function healthFailure(health: SdmHealth): out.FailureInput {
   if (health.status === "not-authenticated") return { title: "You are not logged in to StrongDM", next: out.cmd("rt sdm login") };
-  if (health.status === "not-installed") return { title: "The StrongDM CLI is not installed", details: `Install it from ${SDM_INSTALL_URL}` };
+  if (health.status === "not-installed") return { title: "The StrongDM CLI is not installed", next: ["Install it from ", INSTALL_LINK] };
   return { title: "StrongDM is not answering", why: health.message ?? undefined };
 }
 
@@ -167,8 +167,7 @@ function connectFailure(target: GuidedTarget, result: FailedConnect): out.Failur
   return {
     title: STAGE_TITLE[result.stage](target.label),
     why: result.error,
-    next: next ? out.cmd(next) : undefined,
-    details: next ? undefined : result.hint,
+    next: next ? out.cmd(next) : result.hint,
   };
 }
 
@@ -605,7 +604,7 @@ export function enrichmentSkeleton(names: string[]): string {
 /**
  * `rt sdm enrichment`: show how much of the scanned catalog is enriched.
  * `rt sdm enrichment init`: scaffold ~/.mattstack/rt/sdm/enrichment.jsonc with one
- * entry per scanned resource, refusing to clobber an existing file — or, once
+ * entry per scanned resource, refusing to clobber an existing file, or once
  * the team store owns `rt.sdmEnrichment` (the ownership latch), refusing to
  * scaffold the file at all, since the store is authoritative from here on.
  */
