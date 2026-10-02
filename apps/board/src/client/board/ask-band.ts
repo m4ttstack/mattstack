@@ -61,13 +61,34 @@ function doneLabel(kind: Kind, outcome?: string): string {
   return base;
 }
 
-export const clock = (ms: number): string =>
-  new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const dayStart = (d: Date): number =>
+  new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+/** A moment as the reader would say it: the time today, "yesterday 6:30 PM",
+    or the date and time for anything older. Days count by the calendar, not
+    by 24-hour blocks. */
+export function clock(ms: number, now: number = Date.now()): string {
+  const at = new Date(ms);
+  const time = at.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  const days = Math.round(
+    (dayStart(new Date(now)) - dayStart(at)) / 86_400_000
+  );
+  if (days <= 0) return time;
+  if (days === 1) return `yesterday ${time}`;
+  const date = at.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return `${date}, ${time}`;
+}
 
 const capitalize = (s: string): string =>
   s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 
-export function askBandModel(sent: SentNudgeInfo): AskBand {
+export function askBandModel(
+  sent: SentNudgeInfo,
+  now: number = Date.now()
+): AskBand {
   const kind: Kind = sent.kind ?? 're-review';
   const name =
     sent.reviewerName?.trim().split(/\s+/)[0] || capitalize(sent.reviewer);
@@ -161,7 +182,7 @@ export function askBandModel(sent: SentNudgeInfo): AskBand {
         tone: 'neutral',
         icon: 'send',
         label: REQUESTED[kind],
-        ...(sent.sentAt ? { note: `Sent ${clock(sent.sentAt)}` } : {}),
+        ...(sent.sentAt ? { note: `Sent ${clock(sent.sentAt, now)}` } : {}),
       });
   }
 }

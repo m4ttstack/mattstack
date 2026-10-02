@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { SentNudgeInfo } from '../../types.ts';
-import { askBandModel } from '../ask-band.ts';
+import { askBandModel, clock } from '../ask-band.ts';
 
 const NOW = 10_000_000_000;
 const MIN = 60_000;
@@ -13,19 +13,45 @@ const sent = (over: Partial<SentNudgeInfo>): SentNudgeInfo => ({
   ...over,
 });
 
+describe('clock', () => {
+  const now = new Date(2026, 9, 1, 19, 0).getTime();
+  const at = (y: number, mo: number, d: number, h: number, mi: number) =>
+    new Date(y, mo, d, h, mi).getTime();
+  const time = (ms: number) =>
+    new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+  test('the same day is just the time', () => {
+    const ms = at(2026, 9, 1, 12, 48);
+    expect(clock(ms, now)).toBe(time(ms));
+  });
+
+  test('the day before says yesterday, by calendar day not 24 hours', () => {
+    const late = at(2026, 8, 30, 23, 50);
+    expect(clock(late, now)).toBe(`yesterday ${time(late)}`);
+    const early = at(2026, 8, 30, 0, 5);
+    expect(clock(early, now)).toBe(`yesterday ${time(early)}`);
+  });
+
+  test('older than yesterday names the date', () => {
+    const ms = at(2026, 8, 29, 18, 30);
+    const date = new Date(ms).toLocaleDateString([], {
+      month: 'short',
+      day: 'numeric',
+    });
+    expect(clock(ms, now)).toBe(`${date}, ${time(ms)}`);
+  });
+});
+
 describe('askBandModel', () => {
   test('requested: neutral, no action', () => {
-    expect(askBandModel(sent({ kind: 're-review' }))).toEqual({
+    expect(askBandModel(sent({ kind: 're-review' }), NOW)).toEqual({
       tone: 'neutral',
       icon: 'send',
       name: 'Grace',
       who: "Grace's agent",
       title: 'Re-review from Grace',
       label: 're-review requested',
-      note: `Sent ${new Date(NOW - 3 * 60 * MIN).toLocaleTimeString([], {
-        hour: 'numeric',
-        minute: '2-digit',
-      })}`,
+      note: `Sent ${clock(NOW - 3 * 60 * MIN, NOW)}`,
       actions: [],
       steps: [{ name: 'Requested', detail: 'you', at: NOW - 3 * 60 * MIN }],
     });

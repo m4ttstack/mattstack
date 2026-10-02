@@ -4832,7 +4832,7 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-ask-note {
   flex-shrink: 0;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   color: var(--text-3);
 }
 .tui-ask-label {
