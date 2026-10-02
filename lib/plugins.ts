@@ -321,11 +321,21 @@ export function loadPluginTree(
   return tree;
 }
 
+/** A scaffold the person can fix by choosing another name. */
+export class PluginScaffoldError extends Error {
+  constructor(
+    readonly code: "bad-name" | "exists",
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 /** Create ~/.mattstack/user/plugins/<name>/ with a starter command, tsconfig, and package.json. */
 export function scaffoldPlugin(name: string): string {
-  if (!KEBAB_RE.test(name)) throw new Error(`plugin name must be kebab-case (got "${name}")`);
+  if (!KEBAB_RE.test(name)) throw new PluginScaffoldError("bad-name", `plugin name must be kebab-case (got "${name}")`);
   const dir = join(pluginsDir(), name);
-  if (existsSync(dir)) throw new Error(`${dir} already exists`);
+  if (existsSync(dir)) throw new PluginScaffoldError("exists", `${dir} already exists`);
   ensurePluginApiDir();
   mkdirSync(dir, { recursive: true });
 

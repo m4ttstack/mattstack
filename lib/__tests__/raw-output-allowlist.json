@@ -23,7 +23,6 @@
   "commands/mcp.ts",
   "commands/nav.ts",
   "commands/pane.ts",
-  "commands/plugin.ts",
   "commands/port.ts",
   "commands/post-install.ts",
   "commands/reconciler.ts",
