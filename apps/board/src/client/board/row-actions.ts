@@ -631,6 +631,7 @@ export function rowActions(
 export const LAUNCH_CONFIRM_OVER = 3;
 
 export interface BulkEntry extends MenuEntry {
+  section: BulkSection;
   request: ActionRequest;
   /** The checked MRs that need the action; the rest are already there. */
   targets: BoardMRWithReview[];
@@ -848,8 +849,7 @@ export function bulkActions(
   });
   return entries.sort(
     (x, y) =>
-      SECTION_RANK[BULK_SECTION[x.section]] -
-        SECTION_RANK[BULK_SECTION[y.section]] ||
+      SECTION_RANK[x.section] - SECTION_RANK[y.section] ||
       bulkRank(x.key) - bulkRank(y.key)
   );
 }

@@ -121,7 +121,7 @@ const NUDGE_RETRYABLE = new Set<SentNudgeInfo['display']>([
 /** Peers we can ask to look again: their review finished with comments (so
     there's something to re-check) and no ask of ours is still outstanding. */
 function nudgeTargets(mrx: BoardMRWithReview): PeerReviewInfo[] {
-  if (mrx.sentNudge && !NUDGE_RETRYABLE.has(mrx.sentNudge.display)) return [];
+  if (askOutstanding(mrx)) return [];
   return (mrx.peerReviews ?? []).filter(
     p => p.status === 'done' && p.outcome === 'comment'
   );
@@ -150,7 +150,7 @@ function firstReviewTargets(
   roster: readonly string[],
   peers?: readonly string[]
 ): string[] {
-  if (mrx.sentNudge && !NUDGE_RETRYABLE.has(mrx.sentNudge.display)) return [];
+  if (askOutstanding(mrx)) return [];
   const engaged = new Set((mrx.peerReviews ?? []).map(p => p.reviewer));
   engaged.add(mrx.author.username);
   // When the relay has said who is enrolled, only they can receive an ask;
@@ -166,7 +166,7 @@ function respondAskTarget(
   mrx: BoardMRWithReview,
   peers?: readonly string[]
 ): string | null {
-  if (mrx.sentNudge && !NUDGE_RETRYABLE.has(mrx.sentNudge.display)) return null;
+  if (askOutstanding(mrx)) return null;
   const r = mrx.review;
   if (!r || r.status !== 'done' || r.outcome !== 'comment') return null;
   if (peers && !peers.includes(mrx.author.username)) return null;
