@@ -104,6 +104,22 @@ describe("peer waker", () => {
     expect(reads).toBe(1);
   });
 
+  test("a new relay URL gets a freshly read token and starts from cursor 0", async () => {
+    let urlReads = 0;
+    let tokenReads = 0;
+    const h = harness([ok(true, 1500), ok(false, 1500), ok(false, 0)], {
+      readUrl: () => (++urlReads <= 2 ? "https://a.example" : "https://b.example"),
+      readToken: async () => `tok${++tokenReads}`,
+    });
+    await h.done;
+    expect(h.urls.slice(0, 3)).toEqual([
+      "https://a.example/inbox/wait?since=0&timeout=25",
+      "https://a.example/inbox/wait?since=1500&timeout=25",
+      "https://b.example/inbox/wait?since=0&timeout=25",
+    ]);
+    expect(h.auths.slice(0, 3)).toEqual(["Bearer tok1", "Bearer tok1", "Bearer tok2"]);
+  });
+
   test("stays idle while unpeered and starts once a token appears", async () => {
     let reads = 0;
     const h = harness([ok(true, 9)], {

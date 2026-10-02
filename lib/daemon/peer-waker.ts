@@ -102,12 +102,22 @@ export function startPeerWaker(deps: PeerWakerDeps): PeerWakerHandle {
     let failures = 0;
     let lastFailure: string | null = null;
     let token: string | null = null;
+    let boundBase: string | null = null;
     while (!stopController.signal.aborted) {
       let base: string | null;
       try {
         base = acceptedRelayUrl(deps.readUrl());
       } catch {
         base = null;
+      }
+      // The token and cursor belong to one relay: a newly declared relay
+      // must neither receive the old token nor inherit the old cursor.
+      if (base && base !== boundBase) {
+        boundBase = base;
+        token = null;
+        cursor = 0;
+        failures = 0;
+        lastFailure = null;
       }
       if (base && token === null) token = await deps.readToken().catch(() => null);
       if (stopController.signal.aborted) break;
