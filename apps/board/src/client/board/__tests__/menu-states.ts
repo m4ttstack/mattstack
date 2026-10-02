@@ -3,13 +3,13 @@ import {
   busyEnv,
   failedEnv,
   failedLanes,
-  type MenuEnv,
   mrx,
   ownBusy,
   ownEnv,
   ownIdle,
   ROSTER,
   teammateReviewed,
+  type MenuEnv,
 } from './menu-fixtures.ts';
 
 const FOUND = {
