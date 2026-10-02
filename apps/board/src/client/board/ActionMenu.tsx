@@ -38,7 +38,9 @@ const FLYOUT: Record<FlyoutSection, [string, ActionGlyph]> = {
 
 const isReaction = (e: MenuEntry) => /^(un)?react-/.test(e.key);
 
-function glyphNode(g: ActionGlyph): React.ReactNode {
+/** `blocked` paints the Slack mark in currentColor, so it dims with a
+    blocked row's label instead of keeping its brand colours. */
+function glyphNode(g: ActionGlyph, blocked = false): React.ReactNode {
   switch (g.kind) {
     case 'menu':
       return <MenuGlyph kind={g.name} />;
@@ -47,7 +49,7 @@ function glyphNode(g: ActionGlyph): React.ReactNode {
     case 'out':
       return <ArrowOutGlyph />;
     case 'slack':
-      return <SlackLogo />;
+      return <SlackLogo mono={blocked} />;
     case 'emoji':
       return <span className="tui-menu-emoji">{g.glyph}</span>;
   }
@@ -76,7 +78,7 @@ function iconLabel(icon: React.ReactNode, text: string) {
 function entryLabel(e: MenuEntry, text: string) {
   const main = e.lane
     ? agentLabel(e.lane, text)
-    : iconLabel(e.glyph ? glyphNode(e.glyph) : null, text);
+    : iconLabel(e.glyph ? glyphNode(e.glyph, !!e.blocked) : null, text);
   if (!e.blocked) return main;
   return (
     <span className="tui-menu-blocked">

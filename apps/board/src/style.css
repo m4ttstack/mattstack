@@ -3023,8 +3023,8 @@ a.tui-id-card-ref:focus-visible {
 }
 /* A bulk item that cannot run keeps its words on one line with the reason
    wrapped under them, indented past the 13px icon and 9px gap. The
-   recipe's :disabled rule mutes the label; the reason takes the hint's
-   token. */
+   recipe's :disabled rule dims the label; the reason takes the hint's
+   legible token and italic, as the recipe's disabled hint does. */
 .tui-menu-blocked {
   display: flex;
   flex-direction: column;
@@ -3034,8 +3034,18 @@ a.tui-id-card-ref:focus-visible {
   max-width: 15rem;
   padding-left: 22px;
   font-size: 11px;
+  font-style: italic;
   color: var(--text-4);
   white-space: normal;
+}
+/* A disabled row's glyph dims with its label. An emoji ignores colour, so
+   it is greyed and faded instead. */
+[data-part='contextmenu-item']:disabled .tui-menu-icon-label svg {
+  color: inherit;
+}
+[data-part='contextmenu-item']:disabled .tui-menu-emoji {
+  filter: grayscale(1);
+  opacity: 0.45;
 }
 /* A selection no bulk action fits: one line where the items would be,
    padded like an item so the menu keeps its shape. */
