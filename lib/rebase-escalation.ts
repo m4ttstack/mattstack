@@ -181,11 +181,16 @@ async function herdrAvailable(runner: HerdrRunner): Promise<boolean> {
 const PANE_TAIL = 40;
 
 // A pane can hold thousands of lines; only its end goes under the failure,
-// so the failure itself stays on screen.
+// so the failure itself stays on screen. A read that throws yields no tail:
+// the caller is already printing a failure, and that title must still print.
 async function paneTail(runner: HerdrRunner, paneId: string): Promise<Block[]> {
-  const text = (await runner(["pane", "read", paneId, "--source", "recent"])).stdout.replace(/\s+$/, "");
-  if (text === "") return [];
-  return [out.verbatim(text.split("\n").slice(-PANE_TAIL), "the end of the pane")];
+  try {
+    const text = (await runner(["pane", "read", paneId, "--source", "recent"])).stdout.replace(/\s+$/, "");
+    if (text === "") return [];
+    return [out.verbatim(text.split("\n").slice(-PANE_TAIL), "the end of the pane")];
+  } catch {
+    return [];
+  }
 }
 
 const UNFINISHED: Record<Exclude<RebaseVerdict, "completed" | "agent-aborted">, string> = {

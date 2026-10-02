@@ -327,6 +327,20 @@ describe("runEscalationFlow (agent path)", () => {
     expect(io.stderr()).not.toContain("\x1b");
   }, 20_000);
 
+  test("a pane read that throws leaves the failure title first and the exit code alone", async () => {
+    const repo = makeConflictRepo();
+    const result = await pausedConflict(repo);
+    const { runner: scripted } = scriptedHerdr({ "agent wait": { stdout: "", exitCode: 1 } });
+    const runner: HerdrRunner = async (args) => {
+      if (args[0] === "pane" && args[1] === "read") throw new Error("herdr socket closed");
+      return scripted(args);
+    };
+    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: false, herdrRunner: runner });
+    expect(code).toBe(1);
+    expect(io.errLines()[0]).toBe("The agent did not finish in 10 minutes");
+    expect(io.stdout() + io.stderr()).not.toContain("Could not hand this to an agent");
+  }, 20_000);
+
   test("a herdr that fails after the choice ends with the manual report, never an abort", async () => {
     const repo = makeConflictRepo();
     const result = await pausedConflict(repo);
