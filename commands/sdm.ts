@@ -168,11 +168,14 @@ const STAGE_TITLE: Record<FailedConnect["stage"], (label: string) => string> = {
   verify: (label) => `${label} did not come up`,
 };
 
+// These stages stream sdm's output into the excerpt, so their why is only its last line.
+const STREAMED_STAGES = new Set<FailedConnect["stage"]>(["access", "connect"]);
+
 function connectFailure(target: GuidedTarget, result: FailedConnect): out.FailureInput {
   const next = result.next ?? (result.stage === "login" ? "rt sdm login" : undefined);
   return {
     title: STAGE_TITLE[result.stage](target.label),
-    why: redact(lastLine(result.error)),
+    why: redact(STREAMED_STAGES.has(result.stage) ? lastLine(result.error) : result.error),
     next: next ? out.cmd(next) : result.hint,
   };
 }

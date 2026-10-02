@@ -274,6 +274,15 @@ describe("sdm blocks", () => {
     expect(counted(0, 1)).toBe("[not yet] 0 of 1 connection has a label  the rest show their StrongDM names");
   });
 
+  test("a health or login failure keeps every line of its reason, since no excerpt follows it", () => {
+    expect(failed(__test__.connectFailure(target, { outcome: "failed", stage: "health", error: "StrongDM could not reach its API\nCheck your network, then try again." }))).toBe(
+      "StrongDM is not available on this Mac\n  why: StrongDM could not reach its API Check your network, then try again.\n",
+    );
+    expect(failed(__test__.connectFailure(target, { outcome: "failed", stage: "login", error: "session expired\nhttps://sdm.example/auth-confirm-native/tok1secret" }))).toBe(
+      "You are not logged in to StrongDM\n  why: session expired https://sdm.example/auth-confirm-native/<redacted>\n  next: rt sdm login\n",
+    );
+  });
+
   test("a failed connect's why is the last line StrongDM printed, never the whole output squashed", () => {
     expect(failed(__test__.connectFailure(target, { outcome: "failed", stage: "connect", error: "dialing gateway\n\nerror: no route to gateway\n" }))).toBe(
       "Could not connect to Acme QA\n  why: error: no route to gateway\n",
