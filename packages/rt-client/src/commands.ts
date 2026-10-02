@@ -626,6 +626,25 @@ export type MrJobDetail = { type: "trace"; content: string } | { type: "bridge";
 export interface DiscussionsWriteData { discussions: Discussion[]; fetchedAt: number }
 export interface DiscussionsDiffsData { diffs: Array<{ newPath: string; diff: string }>; truncated: boolean }
 
+export interface ReviewSubmitComment { body: string; path: string; line: number; oldPath?: string; oldLine?: number }
+export interface ReviewSubmitReply { discussionId: string; body?: string; resolve: boolean }
+export type ReviewSubmitData =
+  | { published: false; reason: "pending-drafts"; pending: { count: number; firstLines: string[] }; mrUrl: string }
+  | { published: false; reason: "bad-anchors"; badAnchors: Array<{ index: number; path: string; line: number }>; mrUrl: string }
+  | {
+      published: true;
+      comments: number;
+      replies: number;
+      repliedTo: string[];
+      resolved: string[];
+      approved: boolean;
+      approveError?: string;
+      resolveErrors: Array<{ discussionId: string; error: string }>;
+      reviewerState: string | null;
+      summaryNoteId: number | null;
+      mrUrl: string;
+    };
+
 export type MRActionName =
   | "merge" | "rebase" | "approve" | "unapprove"
   | "setAutoMerge" | "cancelAutoMerge"
@@ -868,6 +887,20 @@ export interface Commands {
   "mr:note-update": {
     payload: { repoName: string; iid: number; noteId: number; body: string };
     data: { noteId: number };
+  };
+
+  /** One whole review in one call: every comment and reply becomes a
+      pending comment, then one publish posts them with the summary and
+      marks the caller as having reviewed; `approve` approves afterwards.
+      `published: false` means nothing reached the MR and names why. A
+      refused approval after a publish answers `published: true,
+      approved: false`, so a caller never publishes twice. */
+  "mr:review-submit": {
+    payload: {
+      repoName: string; iid: number; outcome: "comment" | "approve"; summary: string;
+      comments: ReviewSubmitComment[]; replies: ReviewSubmitReply[];
+    };
+    data: ReviewSubmitData;
   };
 
   /** Wire reply is `{ok:true}` on success (no `data`); a failure is `{ok:false,error}`. */
@@ -1158,6 +1191,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "mr:comment-inline",
   "mr:comment",
   "mr:note-update",
+  "mr:review-submit",
   "mr:action",
   "mr:create",
   "mr:update",

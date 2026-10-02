@@ -106,8 +106,12 @@ export const REPO_TARGET_PROPS = {
 
 /** A timed-out or gateway-timed-out create or post may still land daemon-side (see
     MR_WRITE_TIMEOUT_MS); the pattern also matches GitLab's own wording (e.g. "504 Gateway Timeout"). */
+export function isTimeoutError(text: string | undefined): boolean {
+  return /timed ?out|timeout/i.test(text ?? "");
+}
+
 export function withLandingHint(res: ToolResult, check: string): ToolResult {
-  if (res.ok || !/timed ?out|timeout/i.test(res.error ?? "")) return res;
+  if (res.ok || !isTimeoutError(res.error)) return res;
   return err(`${res.error}; the write may still land, so check ${check} before retrying`);
 }
 

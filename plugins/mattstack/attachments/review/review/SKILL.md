@@ -84,6 +84,9 @@ digraph review {
     "Review target answer?" [shape=diamond];
     "Own review run: record the target?" [shape=diamond];
     "Record the review target: mr, branch and any ticket" [shape=box];
+    "Caller framed a re-review?" [shape=diamond];
+    "Take the earlier threads the caller handed in" [shape=box];
+    "Earlier threads in hand?" [shape=diamond];
 
     "Print the review depth block" [shape=box];
     "Review diff forge?" [shape=diamond];
@@ -132,18 +135,17 @@ digraph review {
     "Open the review off-script gate: gh pr review refused" [shape=box];
     "gh pr review off-script answer?" [shape=diamond];
     "gh pr comment <ref> with the summary body" [shape=plaintext];
-    "Next selected finding with a file anchor?" [shape=diamond];
-    "mr_comment_inline {mrUrl, path, line, body}" [shape=plaintext];
-    "mr_comment_inline result?" [shape=diamond];
-    "STOP: never post with the GitLab CLI; open the review off-script gate for the refused comment" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Open the review off-script gate: mr_comment_inline refused" [shape=box];
-    "Inline comment off-script answer?" [shape=diamond];
-    "mr_comment {mrUrl, body, resolvable}" [shape=plaintext];
-    "mr_comment result?" [shape=diamond];
-    "Open the review off-script gate: mr_comment summary refused" [shape=box];
-    "Summary comment off-script answer?" [shape=diamond];
-    "Make the recorded summary move once" [shape=box];
-    "Review disposition is approve?" [shape=diamond];
+    "This review already on the MR?" [shape=diamond];
+    "Compose the submitted review: comments, summary, outcome" [shape=box];
+    "mr_review_submit {mrUrl, outcome, summary, comments, replies}" [shape=plaintext];
+    "mr_review_submit result?" [shape=diamond];
+    "Bad anchors moved into the summary once already?" [shape=diamond];
+    "Move the bad-anchor findings into the summary" [shape=box];
+    "STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Open the review off-script gate: mr_review_submit refused" [shape=box];
+    "Open the review off-script gate: pending comments on the MR" [shape=box];
+    "Review submit off-script answer?" [shape=diamond];
+    "Make the recorded review move once" [shape=box];
     "mr_approve {mrUrl}" [shape=plaintext];
     "mr_approve result?" [shape=diamond];
     "Open the review off-script gate: mr_approve refused" [shape=box];
@@ -228,8 +230,13 @@ digraph review {
     "Review clarify rounds = 2?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="yes: hold, naming what was tried"];
     "Review target answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
     "Own review run: record the target?" -> "Record the review target: mr, branch and any ticket" [label="yes"];
-    "Own review run: record the target?" -> "Print the review depth block" [label="no: inherited"];
-    "Record the review target: mr, branch and any ticket" -> "Print the review depth block";
+    "Own review run: record the target?" -> "Caller framed a re-review?" [label="no: inherited"];
+    "Record the review target: mr, branch and any ticket" -> "Caller framed a re-review?";
+    "Caller framed a re-review?" -> "Take the earlier threads the caller handed in" [label="yes"];
+    "Caller framed a re-review?" -> "Print the review depth block" [label="no: a first review"];
+    "Take the earlier threads the caller handed in" -> "Earlier threads in hand?";
+    "Earlier threads in hand?" -> "Print the review depth block" [label="yes, or none to judge"];
+    "Earlier threads in hand?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="no: the thread read errored; hold, quoting its text"];
 
     "Print the review depth block" -> "Review diff forge?";
     "Review diff forge?" -> "gh pr diff <ref>" [label="GitHub"];
@@ -282,7 +289,7 @@ digraph review {
     "Caller owns the review gates?" -> "Hand back the severity line and the open's paths" [label="yes: a board wrapper said so"];
     "Caller owns the review gates?" -> "Gate review-post: open the posting gate from review-post.open.json" [label="no: direct run"];
     "Hand back the severity line and the open's paths" -> "Review caller's answer?";
-    "Review caller's answer?" -> "Review posting forge?" [label="{findings, outcome}"];
+    "Review caller's answer?" -> "Review posting forge?" [label="{findings, outcome}, with replies and restored on a re-review"];
     "Review caller's answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
     "Gate review-post: open the posting gate from review-post.open.json" -> "Review-post next answer?";
     "Gate review-post, legacy: tiers, outcome and next" -> "Review-post next answer?";
@@ -294,7 +301,7 @@ digraph review {
     "Review iterate note asks for another depth?" -> "Review report path given?" [label="no: draft edits only; the next gate is a new one"];
 
     "Review posting forge?" -> "gh pr review <ref> with the disposition and the summary body" [label="GitHub"];
-    "Review posting forge?" -> "Next selected finding with a file anchor?" [label="GitLab"];
+    "Review posting forge?" -> "This review already on the MR?" [label="GitLab"];
     "gh pr review <ref> with the disposition and the summary body" -> "gh pr review result?";
     "gh pr review result?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="posted"];
     "gh pr review result?" -> "Open the review off-script gate: gh pr review refused" [label="error"];
@@ -304,29 +311,30 @@ digraph review {
     "gh pr review off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
     "gh pr review off-script answer?" -> "Own review run: close it as abandoned?" [label="hand back"];
     "gh pr comment <ref> with the summary body" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}";
-    "Next selected finding with a file anchor?" -> "mr_comment_inline {mrUrl, path, line, body}" [label="yes"];
-    "Next selected finding with a file anchor?" -> "mr_comment {mrUrl, body, resolvable}" [label="no: all posted or moved to the summary"];
-    "mr_comment_inline {mrUrl, path, line, body}" -> "mr_comment_inline result?";
-    "mr_comment_inline result?" -> "Next selected finding with a file anchor?" [label="posted"];
-    "mr_comment_inline result?" -> "Open the review off-script gate: mr_comment_inline refused" [label="refused: the daemon already retried once"];
-    "mr_comment_inline result?" -> "STOP: never post with the GitLab CLI; open the review off-script gate for the refused comment" [label="tempted to post it with the GitLab CLI"];
-    "STOP: never post with the GitLab CLI; open the review off-script gate for the refused comment" -> "Open the review off-script gate: mr_comment_inline refused";
-    "Open the review off-script gate: mr_comment_inline refused" -> "Inline comment off-script answer?";
-    "Inline comment off-script answer?" -> "Next selected finding with a file anchor?" [label="take: the finding moves into the summary"];
-    "Inline comment off-script answer?" -> "mr_comment_inline {mrUrl, path, line, body}" [label="iterate here: retry with their note"];
-    "Inline comment off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
-    "Inline comment off-script answer?" -> "Own review run: close it as abandoned?" [label="hand back"];
-    "mr_comment {mrUrl, body, resolvable}" -> "mr_comment result?";
-    "mr_comment result?" -> "Review disposition is approve?" [label="posted: keep mrUrl"];
-    "mr_comment result?" -> "Open the review off-script gate: mr_comment summary refused" [label="refused"];
-    "Open the review off-script gate: mr_comment summary refused" -> "Summary comment off-script answer?";
-    "Summary comment off-script answer?" -> "Make the recorded summary move once" [label="take"];
-    "Summary comment off-script answer?" -> "mr_comment {mrUrl, body, resolvable}" [label="iterate here: retry with their note"];
-    "Summary comment off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
-    "Summary comment off-script answer?" -> "Own review run: close it as abandoned?" [label="hand back"];
-    "Make the recorded summary move once" -> "Review disposition is approve?";
-    "Review disposition is approve?" -> "mr_approve {mrUrl}" [label="yes"];
-    "Review disposition is approve?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="no"];
+    "This review already on the MR?" -> "Compose the submitted review: comments, summary, outcome" [label="no: nothing from it is up"];
+    "This review already on the MR?" -> "Open the review off-script gate: mr_approve refused" [label="yes, approval outstanding"];
+    "This review already on the MR?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="yes, nothing outstanding"];
+    "This review already on the MR?" -> "Open the review off-script gate: mr_review_submit refused" [label="partly: some of its comments are up without its summary"];
+    "This review already on the MR?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="the resumed MR read errored: hold, quoting its text"];
+    "Compose the submitted review: comments, summary, outcome" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies}";
+    "mr_review_submit {mrUrl, outcome, summary, comments, replies}" -> "mr_review_submit result?";
+    "mr_review_submit result?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="published, approved as asked: keep mrUrl"];
+    "mr_review_submit result?" -> "Open the review off-script gate: mr_approve refused" [label="published, approved: false on an approve"];
+    "mr_review_submit result?" -> "Bad anchors moved into the summary once already?" [label="published: false, bad-anchors"];
+    "mr_review_submit result?" -> "Open the review off-script gate: pending comments on the MR" [label="published: false, pending-drafts"];
+    "mr_review_submit result?" -> "Open the review off-script gate: mr_review_submit refused" [label="error"];
+    "mr_review_submit result?" -> "STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate" [label="tempted to post the pieces with mr_comment_inline, mr_comment, mr_reply_thread, mr_resolve_thread or the GitLab CLI"];
+    "STOP: never post a review piece by piece or with the GitLab CLI; open the review off-script gate" -> "Open the review off-script gate: mr_review_submit refused";
+    "Bad anchors moved into the summary once already?" -> "Move the bad-anchor findings into the summary" [label="no"];
+    "Bad anchors moved into the summary once already?" -> "Open the review off-script gate: mr_review_submit refused" [label="yes"];
+    "Move the bad-anchor findings into the summary" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies}";
+    "Open the review off-script gate: mr_review_submit refused" -> "Review submit off-script answer?";
+    "Open the review off-script gate: pending comments on the MR" -> "Review submit off-script answer?";
+    "Review submit off-script answer?" -> "Make the recorded review move once" [label="take"];
+    "Review submit off-script answer?" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies}" [label="iterate here: retry with their note"];
+    "Review submit off-script answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy} for review" [label="hold"];
+    "Review submit off-script answer?" -> "Own review run: close it as abandoned?" [label="hand back"];
+    "Make the recorded review move once" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}";
     "mr_approve {mrUrl}" -> "mr_approve result?";
     "mr_approve result?" -> "run_decision {contract: gate@1, scope: post, selection: {findings, disposition}, decidedBy}" [label="approved"];
     "mr_approve result?" -> "Open the review off-script gate: mr_approve refused" [label="refused"];
@@ -453,6 +461,49 @@ MR or PR URL; `key: branch`, value its source branch; and, only when the
 MR or PR itself names a ticket, `key: ticket`, value that id. Never guess
 a ticket id the target does not carry.
 
+### Caller framed a re-review?
+
+Yes when the caller says this pass is a re-review of a change already
+reviewed; a review typed by hand, or a caller that says nothing of an
+earlier round, is a first review.
+
+### Take the earlier threads the caller handed in
+
+A re-review judges two things, in this order: what became of the
+reviewer's earlier threads, then what is new. The caller hands in the
+earlier threads (each with its `discussionId`, anchor, `round`, the
+reviewer's first note and the author's replies), the commit the last
+round reviewed, and the round number. For each thread, read the code at
+the MR head and make one of the four calls the structured findings file
+names, with a one-line note of what was checked and a reply to post.
+Then hunt for new issues, weighting the diff since the last reviewed
+commit (`git diff <last reviewed sha>..HEAD`) while still reading the
+whole change. With no earlier threads handed in, the pass is a full
+review framed as a re-review, and `threads` is empty.
+
+A caller may hand in the rule that picks the threads (which ones count,
+and the `round` each one gets) in place of the threads themselves. Then
+this step reads them, `mr_threads {mrUrl, refresh: true}`, and keeps
+exactly what the rule picks. A read that errors answers no at `Earlier
+threads in hand?`: a hold whose reason quotes the error.
+
+The caller also hands in the skipped list: the findings the human chose
+not to raise in earlier rounds, each `{id, round, title, severity, file,
+line, excerpt, snippet}` with the sha of the round that skipped it. This
+pass reports every one of them back under the json's `skipped`, `changed`
+worked out as the structured findings file says, and never raises one
+again as a finding: an issue a skipped finding already says is not new.
+
+This step takes the inputs in and judges nothing yet: both judgments
+form after the depth block, in the fresh reviewer's context, like every
+judgment in this verb (`Dispatch the fresh reviewer; it forms the
+findings`). `HEAD` above is the MR head:
+the fetched `origin/mr-<iid>` (`origin/pr-<n>` on GitHub) when no
+MR-head checkout is in hand. With no last reviewed commit, a last
+reviewed commit of `unknown` (a round rebuilt from an old report), or one
+the fetch does not have, the whole change is what changed. Each thread's
+reply is drafted in the writing style from its call and note.
+
 ### Print the review depth block
 
 The review flow's "Commit to a review depth" below is this step, and its
@@ -501,12 +552,21 @@ payload. The findings form in that fresh context, never here. The fresh
 reviewer has the same tools and makes any `gitlab_get` read itself when it
 needs a fact, as in "Reading a GitLab fact no read tool returns".
 
+On a re-review the payload also carries the earlier threads and the last
+reviewed commit, as one block after the standard blocks, asking for each
+thread's call and one-line note ahead of the Strengths, and for findings
+on new issues only. The same block lists the skipped findings (each one's
+anchor, title and excerpt): an issue one of them already says is not new,
+so it is never a finding.
+
 ### Assemble the review draft
 
 The review flow's "Assemble the draft": Strengths / Issues (Critical /
-Important / Minor, each `file:line`, what, why, fix) / Assessment. On a
-second round, keep the round-one findings that verified and take the
-re-dispatch's answer for the rest.
+Important / Minor, each `file:line`, what, why, fix) / Assessment, with
+Earlier threads first on a re-review (each thread's call, note and the
+reply drafted for it). On a second verify round, keep the findings the
+first verify round verified and take the re-dispatch's answer for the
+rest.
 
 ### Verify each blocking finding against the MR head
 
@@ -571,7 +631,7 @@ from then on: each tool call is a fresh shell. Write
 | Field | Filled from |
 |---|---|
 | `target` | the MR/PR reference as its forge writes it: `!<iid>` or `#<number>` |
-| `reviewer`, `round` | only when the caller supplies them; otherwise omit the key |
+| `reviewer`, `round` | only when the caller supplies them; otherwise omit the key. On a re-review the caller supplies `round`. |
 | `outcome` label | `Verdict on <target>: ` plus a clause composed from the json's `summary`, never either field verbatim: readiness `yes` reads "ready to merge"; `with-fixes` or `no` reads "not ready" or "ready once <the gist of the reasoning>" |
 | `outcome` options | `comment` and `approve`, each described by what picking it does for this review. `request_changes` joins them only when this verb runs the gate itself and the target is on GitHub (`gh pr review --request-changes`); rt's GitLab MR tools have no Request changes. The recommendation goes FIRST, its label ending ` (recommended)`: `approve` when readiness is `yes`, else `comment` |
 | `next` | only when this verb runs the gate itself; a caller that owns the gates navigates on its own, so omit the question |
@@ -586,8 +646,13 @@ sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" fit < <dir>/review-post.source.json
 `review-source.sh` turns every finding into a `findings-<n>` option (tier
 order, four per question) whose label and description are the recipe
 older board renderers parse, and gives each question its findings in full
-as context. The output file IS the open: its `.context` and `.questions`
-go to the gate verbatim, fitted to the shared budget. A report json from
+as context. Ahead of those, each entry of the report's `threads` becomes
+its own `thread-<n>` question (the gate protocol's `carryover@1`). After
+the findings questions, the report's `skipped` entries become
+`skipped-<n>` questions (the gate protocol's `skipped@1`, four per
+question), each option `restore:<id>` and none recommended. The output
+file IS the open: its `.context` and `.questions` go to the gate
+verbatim, fitted to the shared budget. A report json from
 before version 2 carries no bodies, so fit opens it as prose on its own;
 that is correct, not an error. Never hand-edit the open, and never shorten
 a body to make it fit. Exit 1 names a field to fix; exit 2 goes straight
@@ -602,10 +667,12 @@ the report json where it drifted from the draft. Fix exactly that, once.
 ### Hand back the severity line and the open's paths
 
 A caller that owns the gates (a board wrapper; it says so when it
-delegates) gets no gate from this verb. Hand back the severity line and
-the absolute paths of `<dir>/review-post.open.json` (its source sits
+delegates) gets no gate from this verb. Hand back the severity line, the
+absolute paths of `<dir>/review-post.open.json` (its source sits
 beside it as `review-post.source.json`) and of the `gate-ctx.sh` that
-fitted it, then wait for its `{findings, outcome}` or its hold.
+fitted it, and on GitLab the MR head sha this review read (`mr_view`'s
+`mr.sha`), then wait for its `{findings, outcome}` (with `replies` and
+`restored` on a re-review) or its hold.
 `"fits": false` means even the prose is over the shared budget, and the
 caller has no daemon to drop contexts for it: drop whole question contexts
 largest first yourself and say so in the hand-back.
@@ -622,10 +689,11 @@ loudly. On the in-pane form (gate-protocol's `presentation: "form"`
 branch) the form never shows the JSON: run `sh
 "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" prose <
 <dir>/review-post.source.json`, show its `.context` in the pane before the
-first form call, and make each `findings-<n>` question's form text its
-label, a newline, then its prose `context`; options keep the gate's
-labels and descriptions. Ask in gate order, up to four questions per call,
-then submit exactly ONE `gate_answer` carrying every question. The gate
+first form call, and make each `thread-<n>`, `findings-<n>` and
+`skipped-<n>` question's form text its label, a newline, then its prose
+`context`; options keep the gate's labels and descriptions. Ask in gate
+order, up to four questions per call, then submit exactly ONE
+`gate_answer` carrying every question. The gate
 protocol records nothing for this gate: the `run_decision` node after
 posting is its record.
 
@@ -645,10 +713,76 @@ block and resets the verify-round counter, since a deeper depth means new
 setup and a fresh verify pass. Anything else is a draft edit only:
 re-present, and the next gate is a NEW gate, never the old one reopened.
 
-### Make the recorded summary move once
+### This review already on the MR?
 
-Exactly the move the off-script gate recorded for the refused summary,
-once.
+Asked before anything posts on GitLab. A run on its first pass answers
+no: nothing from this review is up. A resumed run with no post decision
+recorded reads the MR before any submit, whatever its holds say, since a
+submit can land after the last thing the run recorded:
+`mr_threads {mrUrl, refresh: true}`. A top-level note carrying this
+review's summary, written by this account, means it is posted; some of
+this review's comments without that note means partly; neither means no.
+A read that errors is a hold whose reason quotes the error, so nothing is
+submitted unchecked. The latest hold's reason (see Review off-script gates) adds what the MR
+read cannot show: a review it names as posted by the human in the forge
+UI is posted, and it says whether the approval landed. On an approve, an
+approval the reason does not name as landed is outstanding.
+
+- **Yes, approval outstanding:** the approval gate, whose iterate runs
+  `mr_approve` alone. The review is never submitted again.
+- **Yes, nothing outstanding:** the post record, with nothing posted.
+- **Partly:** the refused-review gate, whose move is the human finishing
+  the review in the forge UI.
+- **No:** compose and submit.
+
+### Compose the submitted review: comments, summary, outcome
+
+One call carries the whole review. `comments` is one entry per selected
+finding that has both `file` and `line`: `{body, path, line}`, `body` the
+finding as the summary would state it (tier, title, what to change).
+`summary` is the review-posting summary, its issue list holding every
+selected finding with no `file` or no `line`. `outcome` is the
+disposition: `comment` or `approve`. A review carries at most 100
+comments and replies in total; past that, the lowest-tier anchored
+findings go in the summary's issue list instead.
+
+`replies` is built from the gate's `thread-<n>` answers, one entry per
+thread whose answer picked anything: `discussionId` from the option value
+after `post:` or `resolve:`; `resolve` true when `resolve:<id>` was
+picked; `body` present only when `post:<id>` was picked, and then the
+answer's `text` when it carries one (the human edited the reply), else
+the report json's `reply` for that thread. A thread whose answer picked
+neither option gets no entry. A caller that decided the selection hands
+`replies` in already built; they go in unchanged.
+
+A skipped finding the human brought back (`restore:<id>` picked in a
+`skipped-<n>` answer) posts like a selected finding: a comment at its
+recorded `file` and `line` with its recorded text as the body, or in the
+summary's issue list when it lacks a `file` or a `line`. One with
+`changed` true (its code moved since the round that skipped it, so its
+recorded line may now hold other code) always posts in the summary's
+issue list, its recorded `file:line` in its text, never as a comment.
+Its text is the caller's record of it, never rewritten or put into the
+writing style, in a comment or in the summary: the caller's `restored`
+entry when it decided the selection (`title`, then `body` verbatim),
+else the skipped entry it handed in with that `id` (`title`, then
+`excerpt` verbatim). Its `changed` is the caller's `restored` entry's
+when it decided the selection, else the report json's `skipped` entry
+with that `id`.
+
+### Move the bad-anchor findings into the summary
+
+The result's `badAnchors` names comments by `index`, the zero-based
+position in the `comments` array that was sent. Nothing posted. Take each
+named finding out of `comments` and add it to the summary's issue list
+with its `file:line` in the text, as a finding with no anchor. Call again with the rest unchanged. This happens once: a
+second bad-anchors result is a refusal.
+
+### Make the recorded review move once
+
+The human made the move the off-script gate recorded, in the forge UI.
+The pane posts nothing here: it only records what the human did, once,
+and goes on to the post record.
 
 ### Make the recorded approval move once
 
@@ -674,24 +808,51 @@ shape in Review off-script gates below.
 The proposed move: post the summary body as a plain PR comment with `gh
 pr comment <ref>`, and leave the disposition to the human.
 
-### Open the review off-script gate: mr_comment_inline refused
+### Open the review off-script gate: mr_review_submit refused
 
-The daemon already verified placement and retried once, so a refusal
-here is final for this position. The proposed move is to post the finding
-in the summary comment instead, as if it had no `file` anchor, so the
-summary posts resolvable.
+An error that says the call timed out, that the outcome is unknown, or
+that it only partly landed may have left some or all of this review on
+the MR; any other error means nothing from it is up. The proposed move:
+the human posts the review in the forge UI, approving it on an approve
+(the summary and every comment quoted in full in `context`), and the run
+records it as posted by the human.
 
-### Open the review off-script gate: mr_comment summary refused
+- **Timed out, or outcome unknown:** `context` says first that some or
+  all of this review may already be on the MR, and the human looks for
+  the summary on the MR before choosing: a summary already there means
+  the review is up, and take records it without posting it again.
+- **Only partly landed:** `context` says first that some of this review's
+  comments may be on the MR without its summary, and that the human
+  checks the MR's threads. The move is take only: the human finishes the
+  review in the forge UI (what is missing, the summary included), and the
+  run records it as posted by the human.
 
-The inline threads are already posted: `context` lists them. The proposed
-move: the human posts the summary body (quoted in full in `context`) in
-the forge UI, and the run records it as posted by the human.
+After any of these errors, `context` also says that **Iterate here** is
+only for a human who has confirmed nothing from this review is on the MR;
+it is never a blind resubmit. Reached from `This review already on the MR?`
+with partly, `context` quotes the hold reason and what the threads show.
+
+### Open the review off-script gate: pending comments on the MR
+
+The reviewer already has pending comments on this MR, started in the
+forge UI or left by an earlier submit that failed; a submit would publish
+those along with the review. `context` quotes the count and the first
+lines the result gave. The way on is for the human to submit or discard
+those pending comments in the forge UI, and this gate's iterate retries
+the same call, so **Iterate here** is the recommended `next`. The proposed
+move, for a take, is the one the refused-review gate proposes: the human
+posts this review in the forge UI (the summary and every comment quoted
+in full in `context`), together with their pending comments, and the run
+records it as posted by the human.
 
 ### Open the review off-script gate: mr_approve refused
 
-The findings and the summary are posted; only the approval failed. The
-proposed move: the human approves in the forge UI, and the run records
-the approval as theirs.
+The review is posted; only the approval failed. The proposed move: the
+human approves in the forge UI, and the run records the approval as
+theirs. Iterate retries `mr_approve` alone, never the review. Entered from
+the submit result, `context` quotes the submit's `approveError`; from a
+refused `mr_approve`, its error; from `This review already on the MR?` on
+a resume, the hold reason that names the approval outstanding.
 
 ## Review off-script gates
 
@@ -710,10 +871,14 @@ null>"}`. `action: handback` is hand back, whatever `next` says; otherwise
 `next: iterate` is iterate here, `next: hold` is hold, and `next: proceed`
 is take. Take makes exactly that move, once, then continues after it.
 Iterate here retries the refused call with their note; each retry that
-fails opens a new gate. A hold's reason, like a hand-back's, names every
-thread and note already posted. A gate that comes back `closed` is a
-hold whose reason is "gate closed"; record it as any hold and end the
-turn.
+fails opens a new gate. A hold's reason, like a hand-back's, says what is
+on the MR. From the submit gate, the pending-comments gate or the
+approval gate it always says whether this review is posted (by the
+submit, by the human, partly, or with its outcome unknown) and, on an
+approve, whether the approval is outstanding: on a resume, `This review
+already on the MR?` reads exactly that. A gate that comes back `closed`
+is a hold whose reason is "gate closed"; record it as any hold and end
+the turn.
 
 ## What the graph cannot show
 
@@ -726,15 +891,27 @@ turn.
   demoted draft's own, before any selection narrows what posts.
 - A caller's decided selection is `{findings, outcome}` (findings naming
   finding ids from the report json, outcome the disposition), or from an
-  unmigrated caller the legacy `{tiers, outcome}`. Use the decider the
-  caller names alongside it.
+  unmigrated caller the legacy `{tiers, outcome}`. On a re-review it may
+  also carry `replies`, already in the submit's shape; posting hands them
+  through unchanged. It may also carry `restored: [{id, title, body, file,
+  line, changed}]`, the skipped findings the human brought back, handed in
+  by the caller from its own record; each posts as `Compose the submitted
+  review: comments, summary, outcome` says, with the caller's text and
+  `changed`. Use the decider the caller names alongside it.
 - Posting runs per review-posting below, handed `{findings: <ids>,
   disposition: <outcome>}`: `<ids>` is the union of every `findings-<n>`
   answer (unwrap a `{value, note}` object to its value), empty when the
   gate carried none, and `<outcome>` the answered value, already in
   posting's vocabulary (`comment`, `approve`, `request_changes`). A
   tier-shaped selection, or a `tiers` answer, passes as legacy `{levels:
-  <tiers>, disposition: <outcome>}`, which posting accepts unchanged.
+  <tiers>, disposition: <outcome>}`, which posting accepts unchanged. On
+  a re-review `replies` rides along: the caller's as handed, else built
+  from the `thread-<n>` answers as `Compose the submitted review:
+  comments, summary, outcome` says. So do the restored findings: the
+  caller's `restored` as handed, else one per `restore:<id>` value in the
+  `skipped-<n>` answers, each carrying the `changed` of the report json's
+  `skipped` entry with that `id`. A restored finding is a selected one for
+  posting, never a deselected one.
 - The post record's `selection` is that same object (for example
   `{"findings": ["f1", "f3"], "disposition": "comment"}`); `decidedBy`
   names the surface that actually answered (`board`, `console`, `pane`, or
@@ -744,9 +921,11 @@ turn.
   hold:<stage>:<attempt>, selection: {"reason": "<their words>"},
   decidedBy: <the answer's by>}` and `run_field_set {key: hold, value:
   "<their words>", stage: <stage>}`, then ends the turn.
-- On a resume, a thread or note that the latest hold's reason names as
-  already posted is never posted again; its finding is skipped at
-  posting.
+- On a resume with no post decision recorded, `This review already on
+  the MR?` reads the MR with `mr_threads` for this review's summary note,
+  and the latest hold's reason, before anything posts: a review either
+  shows as posted is never submitted again, and its outstanding approval
+  goes to the approval gate.
 - A gate that comes back `closed` is a hold whose reason is "gate
   closed"; record it as any hold and end the turn.
 - A fetch, diff or `gh pr diff` that errors is a hold whose reason quotes
@@ -793,16 +972,12 @@ If a rule below asks for a move this graph marks STOP, take the off-script edge 
 
 {{include:review-posting}}
 
-Posting mechanics on GitLab: a positioned inline comment is the
-`mr_comment_inline` tool, a thread reply is `mr_reply_thread`, the summary
-is ONE `mr_comment`, and the Approve disposition is `mr_approve` once the
-findings have posted. The summary posts resolvable (the default) when its
-issue list carries a selected finding with no `file` anchor, and with
-`resolvable: false` when it carries none. The daemon verifies DiffNote
-placement and, on the silent general-note degrade, retries ONCE with fresh
-diff_refs (deleting the stray notes; it cannot fix a position GitLab
-rejects outright), so never hand-build a position payload.
-`mr_comment` returns `mrUrl`, the link the close needs. On GitHub use `gh
-pr review` / `gh pr comment`: GitHub has no inline mechanism, so every
-selected finding, anchored or not, rides in the one `gh pr review` body,
-with its `file:line` in the text.
+Posting mechanics on GitLab: the review is ONE `mr_review_submit` call
+(comments, summary, outcome; `replies` on a re-review). It answers
+`published: true` with `mrUrl`, the link the close needs, or `published:
+false` with the reason and nothing posted. The daemon checks every
+comment's placement before it publishes, so never hand-build a position
+payload and never post a finding with `mr_comment_inline` here. On GitHub
+use `gh pr review` / `gh pr comment`: GitHub has no inline mechanism, so
+every selected finding, anchored or not, rides in the one `gh pr review`
+body, with its `file:line` in the text.

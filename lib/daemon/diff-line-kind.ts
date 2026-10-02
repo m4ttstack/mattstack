@@ -55,3 +55,31 @@ export function classifyNewLine(diff: string, target: number): NewLineKind {
     .slice(0, NEAREST_COUNT);
   return { kind: "outside", nearest };
 }
+
+export interface DiffFileRow {
+  newPath: string;
+  oldPath?: string;
+  diff: string;
+  collapsed?: boolean;
+  tooLarge?: boolean;
+}
+
+export type AnchorCheck =
+  | { kind: "anchorable"; oldPath?: string; oldLine?: number }
+  | { kind: "outside"; nearest: number[] }
+  | { kind: "no-file" };
+
+/**
+ * Checks a new-side `(path, line)` against one page of an MR's diffs. A file
+ * GitLab did not render (collapsed, too large, empty) or one past a full page
+ * cannot be checked, so it counts as anchorable and GitLab decides.
+ */
+export function checkAnchor(page: { diffs: DiffFileRow[]; truncated: boolean }, path: string, line: number): AnchorCheck {
+  const file = page.diffs.find((d) => d.newPath === path);
+  if (!file) return page.truncated ? { kind: "anchorable" } : { kind: "no-file" };
+  const oldPath = file.oldPath || undefined;
+  if (file.collapsed === true || file.tooLarge === true || file.diff === "") return { kind: "anchorable", oldPath };
+  const kind = classifyNewLine(file.diff, line);
+  if (kind.kind === "outside") return kind;
+  return kind.kind === "context" ? { kind: "anchorable", oldPath, oldLine: kind.oldLine } : { kind: "anchorable", oldPath };
+}

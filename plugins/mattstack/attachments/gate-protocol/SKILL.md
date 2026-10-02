@@ -363,15 +363,19 @@ path. The key is both the discriminant and the version:
 | `replies@1` | a replies question's `context` (the retired respond-post shape; renderers still read gates opened with it) | `replies[]`, each `thread`, `file`, `verb`, `text` | `sha` per entry |
 | `review@1` | a review-post gate's `context` | `readiness`, `summary`, `findings` (counts by severity) | `reviewer`, `round`, `re_review` (absent reads false), `prior` (`{addressed, still_open}`, both required) |
 | `findings@1` | each `findings-*` question's `context` | `findings[]`, each `id`, `severity`, `title`, `body` | `file`, `fix`, `evidence`, `disposition` per entry |
+| `carryover@1` | a review-post gate's `thread-<n>` question's `context`, one question per earlier thread, each its own question and never a chunk of one. The question is `multi` with exactly two options, `post:<thread>` and `resolve:<thread>`; an option label ending ` (recommended)` is a default. An answer is the picked values, or `{value: [...], text}` when the human edited the reply, and `text` replaces `reply` | `thread`, `round`, `call` (`fixed`, `not-fixed`, `pushback-accepted` or `pushback-rejected`), `original`, `reply` | `file` (the thread's anchor), `authorReply`, `note` |
+| `skipped@1` | a review-post gate's `skipped-<n>` questions' `context`, chunked at four after the findings questions. Each question is `multi` with one option per entry, its value `restore:<id>`, joined one to one like `findings@1`. Nothing is recommended: a skipped finding comes back only when the human ticks it. Answers read back as one union across the chunks | `skipped[]`, each `id`, `round`, `severity`, `title`, `changed` (boolean: the code it pointed at moved since that round) | `file` per entry (the finding's `path:line` anchor) |
 
 - Enums: `severity` is `blocking | non-blocking | question | none`;
   `verdict.call` is `valid | valid-low-value | pushback |
   needs-clarification | no-ask`; `reply.kind` is `verbatim` (the exact
   text that will post), `direction` (intent only), or `none` (nothing
   posts); `verb` is `reply | fix`, and `sha` rides only a `fix`.
-  `readiness` is `yes | no | with-fixes`, hyphenated; a `findings@1`
-  entry's `severity` is `critical | important | minor` and its
-  `disposition` (re-review only) is `new | still-open | addressed-check`;
+  `readiness` is `yes | no | with-fixes`, hyphenated; a `skipped@1`
+  entry's `severity` is `critical | important | minor`, as is a
+  `findings@1` entry's, and a `findings@1` entry's
+  `disposition` is `new` on a re-review, or absent (`still-open` and
+  `addressed-check` are read, never written);
   a severity with no findings may omit its count, and absent reads 0.
 - A `thread@1` question's `label` is the thread's `file:line`, and its
   ordinal is its position among the gate's `thread-*` questions. The

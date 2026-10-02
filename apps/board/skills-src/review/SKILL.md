@@ -80,6 +80,11 @@ digraph review_flow {
 
     "Prior review at --report (re-review)?" [shape=diamond];
     "Read <--report> (prior review)" [shape=plaintext];
+    "<status-bin> review-ledger read <state>" [shape=plaintext];
+    "Old review to rebuild as round 1?" [shape=diamond];
+    "Build the round-1 skipped list from the prior review" [shape=box];
+    "<status-bin> review-ledger record <state> --round 1 --sha unknown --outcome <the prior verdict's outcome> --skipped <json>" [shape=plaintext];
+    "<status-bin> review-ledger read <state> (after rebuilding round 1)" [shape=plaintext];
     "Domain skill resolved (review)?" [shape=diamond];
     "Delegate the review to the domain skill" [shape=box];
     "Domain review result?" [shape=diamond];
@@ -108,6 +113,7 @@ digraph review_flow {
     "Review the MR yourself" [shape=box];
     "Generic review result?" [shape=diamond];
     "Write the review report to --report" [shape=box];
+    "Append the review-round line to --report" [shape=box];
 
     "Fitted review-post open file handed back?" [shape=diamond];
     "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [shape=plaintext];
@@ -122,6 +128,7 @@ digraph review_flow {
     "review-post step outcome?" [shape=diamond];
     "Ask the review questions as one combined native form (degraded)" [shape=box];
     "Record the verdict answer in --report" [shape=box];
+    "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped <json> --restored <json> --confirmed <json>" [shape=plaintext];
 
     "Domain skill resolved (review act)?" [shape=diamond];
     "Hand the answer to the domain skill to post" [shape=box];
@@ -134,24 +141,19 @@ digraph review_flow {
     "STOP: the Posted already read goes through mr_threads (review)" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Fixed the posted-already mr_threads call once already (review)?" [shape=diamond];
     "Fix what the posted-already mr_threads error names (review)" [shape=box];
-    "Mark the findings and summary already posted" [shape=box];
+    "Mark the review already posted" [shape=box];
     "review off-script gate: mr_threads refused (posted already)" [shape=box];
     "Off-script outcome (review posted-already mr_threads)?" [shape=diamond];
     "Off-script rounds = 2 (review posted-already mr_threads)?" [shape=diamond];
-    "Findings left to post (review)?" [shape=diamond];
-    "Anchored to a diff line (this finding)?" [shape=diamond];
-    "mr_comment_inline {mrUrl, body, path, line}" [shape=plaintext];
-    "mr_comment_inline result?" [shape=diamond];
-    "STOP: review comments post through the mr_* tools" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Fixed the mr_comment_inline call once already?" [shape=diamond];
-    "Fix what the mr_comment_inline error names" [shape=box];
-    "Add the finding to the summary note" [shape=box];
-    "Summary note carries findings?" [shape=diamond];
-    "mr_comment {mrUrl, body}" [shape=plaintext];
-    "mr_comment result?" [shape=diamond];
-    "STOP: the summary note posts through mr_comment" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Fixed the mr_comment call once already?" [shape=diamond];
-    "Fix what the mr_comment error names" [shape=box];
+    "Review already posted (review)?" [shape=diamond];
+    "Compose the submitted review (review)" [shape=box];
+    "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)" [shape=plaintext];
+    "mr_review_submit result (review)?" [shape=diamond];
+    "STOP: a review posts whole through mr_review_submit" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Fixed the mr_review_submit call once already?" [shape=diamond];
+    "Fix what the mr_review_submit error names" [shape=box];
+    "Bad anchors moved once already (review)?" [shape=diamond];
+    "Move the bad-anchor findings into the summary (review)" [shape=box];
     "Outcome is approve?" [shape=diamond];
     "mr_approve {mrUrl}" [shape=plaintext];
     "mr_approve result?" [shape=diamond];
@@ -159,15 +161,16 @@ digraph review_flow {
     "Fixed the mr_approve call once already?" [shape=diamond];
     "Fix what the mr_approve error names" [shape=box];
 
-    "review off-script gate: mr_comment_inline refused" [shape=box];
-    "Off-script outcome (mr_comment_inline)?" [shape=diamond];
-    "Off-script rounds = 2 (mr_comment_inline)?" [shape=diamond];
-    "review off-script gate: mr_comment refused" [shape=box];
-    "Off-script outcome (mr_comment)?" [shape=diamond];
-    "Off-script rounds = 2 (mr_comment)?" [shape=diamond];
+    "review off-script gate: mr_review_submit refused" [shape=box];
+    "Off-script outcome (mr_review_submit)?" [shape=diamond];
+    "Off-script rounds = 2 (mr_review_submit)?" [shape=diamond];
+    "review off-script gate: pending comments on the MR" [shape=box];
+    "Off-script outcome (pending comments)?" [shape=diamond];
+    "Off-script rounds = 2 (pending comments)?" [shape=diamond];
     "review off-script gate: mr_approve refused" [shape=box];
     "Off-script outcome (mr_approve)?" [shape=diamond];
     "Off-script rounds = 2 (mr_approve)?" [shape=diamond];
+    "Record the round again with nothing restored (review)" [shape=box];
 
     "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [shape=plaintext];
     "<status-bin> review-status <state> error <what went wrong>" [shape=plaintext];
@@ -209,25 +212,33 @@ digraph review_flow {
     "Report fits the resumed answer (review)?" -> "Record the verdict answer in --report" [label="yes, or the answer is outcome alone"];
     "Report fits the resumed answer (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="no: missing or malformed for the answer's shape"];
     "Route the resumed escalation by its origin (review)" -> "Resumed escalation origin (review)?";
-    "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="iterate at round 2, any origin: the refusals are the reason"];
-    "Resumed escalation origin (review)?" -> "Delegate the review to the domain skill" [label="a pre-verdict origin, take or iterate at round 1, a domain skill resolved on this resume: it reviews afresh"];
+    "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="iterate at round 2, any other origin: the refusals are the reason"];
+    "Resumed escalation origin (review)?" -> "Record the round again with nothing restored (review)" [label="hand back, or iterate at round 2, at mr_review_submit refused or pending comments on the MR"];
+    "Resumed escalation origin (review)?" -> "Delegate the review to the domain skill" [label="mr_view, not on a re-review: take or iterate at round 1, a domain skill resolved on this resume: it reviews afresh"];
     "Resumed escalation origin (review)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="generic path, mr_view, not on a re-review: take with branches, or iterate at round 1"];
-    "Resumed escalation origin (review)?" -> "Read <--report> (prior review, resumed re-review)" [label="generic path, a re-review origin: take, or iterate at round 1"];
+    "Resumed escalation origin (review)?" -> "Read <--report> (prior review, resumed re-review)" [label="a re-review origin: take, or iterate at round 1"];
     "Resumed escalation origin (review)?" -> "Read <--report>, its verdict line and json sibling (resumed escalation)" [label="a posting origin: take, or iterate at round 1"];
     "Resumed escalation origin (review)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
-    "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back, or a generic-path take at mr_view with no branches"];
-    "Read <--report> (prior review, resumed re-review)" -> "rt_verb {args: [skills, writing-style, show]} (review)";
+    "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back at any other origin, or a generic-path take at mr_view with no branches"];
+    "Read <--report> (prior review, resumed re-review)" -> "<status-bin> review-ledger read <state>";
     "Read <--report>, its verdict line and json sibling (resumed escalation)" -> "Verdict line present (review)?";
     "Verdict line present (review)?" -> "Domain skill resolved (review act)?" [label="yes, and the report fits its answer"];
     "Verdict line present (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="no, or the report does not fit its answer"];
 
     "Prior review at --report (re-review)?" -> "Read <--report> (prior review)" [label="yes, and --re-review given"];
-    "Prior review at --report (re-review)?" -> "Domain skill resolved (review)?" [label="no, or not a re-review"];
-    "Read <--report> (prior review)" -> "Domain skill resolved (review)?";
+    "Prior review at --report (re-review)?" -> "<status-bin> review-ledger read <state>" [label="no file, and --re-review given"];
+    "Prior review at --report (re-review)?" -> "Domain skill resolved (review)?" [label="not a re-review"];
+    "Read <--report> (prior review)" -> "<status-bin> review-ledger read <state>";
+    "<status-bin> review-ledger read <state>" -> "Old review to rebuild as round 1?";
+    "Old review to rebuild as round 1?" -> "Build the round-1 skipped list from the prior review" [label="yes: the read printed round 0, and --report carries a verdict line and a json sibling that parses"];
+    "Old review to rebuild as round 1?" -> "Domain skill resolved (review)?" [label="no: a recorded round, a failed read, or nothing to rebuild from"];
+    "Build the round-1 skipped list from the prior review" -> "<status-bin> review-ledger record <state> --round 1 --sha unknown --outcome <the prior verdict's outcome> --skipped <json>";
+    "<status-bin> review-ledger record <state> --round 1 --sha unknown --outcome <the prior verdict's outcome> --skipped <json>" -> "<status-bin> review-ledger read <state> (after rebuilding round 1)";
+    "<status-bin> review-ledger read <state> (after rebuilding round 1)" -> "Domain skill resolved (review)?";
     "Domain skill resolved (review)?" -> "Delegate the review to the domain skill" [label="yes"];
     "Domain skill resolved (review)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="no: generic path"];
     "Delegate the review to the domain skill" -> "Domain review result?";
-    "Domain review result?" -> "Fitted review-post open file handed back?" [label="report written, severity levels handed back"];
+    "Domain review result?" -> "Append the review-round line to --report" [label="report written, severity levels handed back"];
     "Domain review result?" -> "<status-bin> review-status <state> error <what went wrong>" [label="failed: bad MR, mismatched ticket, fetch failure"];
     "rt_verb {args: [skills, writing-style, show]} (review)" -> "rt_verb named a style skill (review)?";
     "rt_verb named a style skill (review)?" -> "Load the named writing-style skill (review)" [label="yes"];
@@ -279,7 +290,8 @@ digraph review_flow {
     "Review the MR yourself" -> "Generic review result?";
     "Generic review result?" -> "Write the review report to --report" [label="findings produced"];
     "Generic review result?" -> "<status-bin> review-status <state> error <what went wrong>" [label="failed: bad MR link or diff unreadable"];
-    "Write the review report to --report" -> "Fitted review-post open file handed back?";
+    "Write the review report to --report" -> "Append the review-round line to --report";
+    "Append the review-round line to --report" -> "Fitted review-post open file handed back?";
 
     "Fitted review-post open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [label="yes"];
     "Fitted review-post open file handed back?" -> "Report json sibling (review)?" [label="no"];
@@ -299,28 +311,29 @@ digraph review_flow {
     "review-post step outcome?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
     "review-post step outcome?" -> "Ask the review questions as one combined native form (degraded)" [label="the wait keeps failing"];
     "Ask the review questions as one combined native form (degraded)" -> "Record the verdict answer in --report";
-    "Record the verdict answer in --report" -> "Domain skill resolved (review act)?";
+    "Record the verdict answer in --report" -> "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped <json> --restored <json> --confirmed <json>";
+    "<status-bin> review-ledger record <state> --round <n> --sha <sha> --outcome <comment|approve> --skipped <json> --restored <json> --confirmed <json>" -> "Domain skill resolved (review act)?";
 
     "Domain skill resolved (review act)?" -> "Hand the answer to the domain skill to post" [label="yes"];
     "Domain skill resolved (review act)?" -> "Writing style loaded (review act)?" [label="no"];
     "Hand the answer to the domain skill to post" -> "Domain posting result (review)?";
     "Domain posting result (review)?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="posted"];
-    "Domain posting result (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="failed"];
+    "Domain posting result (review)?" -> "Record the round again with nothing restored (review)" [label="failed"];
     "Writing style loaded (review act)?" -> "Resumed pane (review posting)?" [label="yes"];
     "Writing style loaded (review act)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="no: a resumed pane"];
     "Resumed pane (review posting)?" -> "mr_threads {mrUrl, refresh: true} (review posted already)" [label="yes"];
-    "Resumed pane (review posting)?" -> "Findings left to post (review)?" [label="no: this pane opened the gate, or a resumed posted-already take"];
+    "Resumed pane (review posting)?" -> "Review already posted (review)?" [label="no: this pane opened the gate, or a resumed posted-already take"];
     "mr_threads {mrUrl, refresh: true} (review posted already)" -> "mr_threads result (review posted already)?";
-    "mr_threads result (review posted already)?" -> "Mark the findings and summary already posted" [label="ok"];
+    "mr_threads result (review posted already)?" -> "Mark the review already posted" [label="ok"];
     "mr_threads result (review posted already)?" -> "Fixed the posted-already mr_threads call once already (review)?" [label="tool error"];
     "mr_threads result (review posted already)?" -> "STOP: the Posted already read goes through mr_threads (review)" [label="tempted to skip the read and post anyway"];
     "STOP: the Posted already read goes through mr_threads (review)" -> "Fixed the posted-already mr_threads call once already (review)?";
     "Fixed the posted-already mr_threads call once already (review)?" -> "Fix what the posted-already mr_threads error names (review)" [label="no"];
     "Fixed the posted-already mr_threads call once already (review)?" -> "review off-script gate: mr_threads refused (posted already)" [label="yes"];
     "Fix what the posted-already mr_threads error names (review)" -> "mr_threads {mrUrl, refresh: true} (review posted already)";
-    "Mark the findings and summary already posted" -> "Findings left to post (review)?";
+    "Mark the review already posted" -> "Review already posted (review)?";
     "review off-script gate: mr_threads refused (posted already)" -> "Off-script outcome (review posted-already mr_threads)?";
-    "Off-script outcome (review posted-already mr_threads)?" -> "Mark the findings and summary already posted" [label="take: the human names what is already up, marked in --report"];
+    "Off-script outcome (review posted-already mr_threads)?" -> "Mark the review already posted" [label="take: the human says whether the review is up, marked in --report"];
     "Off-script outcome (review posted-already mr_threads)?" -> "Off-script rounds = 2 (review posted-already mr_threads)?" [label="iterate: the cause is fixed"];
     "Off-script outcome (review posted-already mr_threads)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
     "Off-script outcome (review posted-already mr_threads)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back: nothing posts unchecked"];
@@ -328,29 +341,24 @@ digraph review_flow {
     "Off-script outcome (review posted-already mr_threads)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
     "Off-script rounds = 2 (review posted-already mr_threads)?" -> "mr_threads {mrUrl, refresh: true} (review posted already)" [label="no: read again"];
     "Off-script rounds = 2 (review posted-already mr_threads)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
-    "Findings left to post (review)?" -> "Anchored to a diff line (this finding)?" [label="yes"];
-    "Findings left to post (review)?" -> "Summary note carries findings?" [label="no"];
-    "Anchored to a diff line (this finding)?" -> "mr_comment_inline {mrUrl, body, path, line}" [label="yes"];
-    "Anchored to a diff line (this finding)?" -> "Add the finding to the summary note" [label="no"];
-    "Add the finding to the summary note" -> "Findings left to post (review)?";
-    "mr_comment_inline {mrUrl, body, path, line}" -> "mr_comment_inline result?";
-    "mr_comment_inline result?" -> "Findings left to post (review)?" [label="posted"];
-    "mr_comment_inline result?" -> "Fixed the mr_comment_inline call once already?" [label="tool error"];
-    "mr_comment_inline result?" -> "STOP: review comments post through the mr_* tools" [label="tempted to post with the GitLab CLI or the API"];
-    "STOP: review comments post through the mr_* tools" -> "Fixed the mr_comment_inline call once already?";
-    "Fixed the mr_comment_inline call once already?" -> "Fix what the mr_comment_inline error names" [label="no"];
-    "Fixed the mr_comment_inline call once already?" -> "review off-script gate: mr_comment_inline refused" [label="yes"];
-    "Fix what the mr_comment_inline error names" -> "mr_comment_inline {mrUrl, body, path, line}";
-    "Summary note carries findings?" -> "mr_comment {mrUrl, body}" [label="yes, not already posted or marked posted by hand"];
-    "Summary note carries findings?" -> "Outcome is approve?" [label="no"];
-    "mr_comment {mrUrl, body}" -> "mr_comment result?";
-    "mr_comment result?" -> "Outcome is approve?" [label="posted"];
-    "mr_comment result?" -> "Fixed the mr_comment call once already?" [label="tool error"];
-    "mr_comment result?" -> "STOP: the summary note posts through mr_comment" [label="tempted to post with the GitLab CLI or the API"];
-    "STOP: the summary note posts through mr_comment" -> "Fixed the mr_comment call once already?";
-    "Fixed the mr_comment call once already?" -> "Fix what the mr_comment error names" [label="no"];
-    "Fixed the mr_comment call once already?" -> "review off-script gate: mr_comment refused" [label="yes"];
-    "Fix what the mr_comment error names" -> "mr_comment {mrUrl, body}";
+    "Review already posted (review)?" -> "Outcome is approve?" [label="yes: its summary note is up, or a mark says the human posted it"];
+    "Review already posted (review)?" -> "Compose the submitted review (review)" [label="no: nothing landed"];
+    "Compose the submitted review (review)" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)";
+    "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)" -> "mr_review_submit result (review)?";
+    "mr_review_submit result (review)?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="published, approved as asked"];
+    "mr_review_submit result (review)?" -> "Fixed the mr_approve call once already?" [label="published, approved: false on an approve"];
+    "mr_review_submit result (review)?" -> "Bad anchors moved once already (review)?" [label="published: false, bad-anchors"];
+    "mr_review_submit result (review)?" -> "review off-script gate: pending comments on the MR" [label="published: false, pending-drafts"];
+    "mr_review_submit result (review)?" -> "review off-script gate: mr_review_submit refused" [label="tool error saying it timed out, the outcome is unknown, or it only partly landed"];
+    "mr_review_submit result (review)?" -> "Fixed the mr_review_submit call once already?" [label="any other tool error"];
+    "mr_review_submit result (review)?" -> "STOP: a review posts whole through mr_review_submit" [label="tempted to post the pieces with mr_comment_inline, mr_comment, mr_reply_thread or mr_resolve_thread, or with the GitLab CLI or the API"];
+    "STOP: a review posts whole through mr_review_submit" -> "Fixed the mr_review_submit call once already?";
+    "Fixed the mr_review_submit call once already?" -> "Fix what the mr_review_submit error names" [label="no"];
+    "Fixed the mr_review_submit call once already?" -> "review off-script gate: mr_review_submit refused" [label="yes"];
+    "Fix what the mr_review_submit error names" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)";
+    "Bad anchors moved once already (review)?" -> "Move the bad-anchor findings into the summary (review)" [label="no"];
+    "Bad anchors moved once already (review)?" -> "review off-script gate: mr_review_submit refused" [label="yes"];
+    "Move the bad-anchor findings into the summary (review)" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)";
     "Outcome is approve?" -> "mr_approve {mrUrl}" [label="yes, not marked approved"];
     "Outcome is approve?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="no: comment, or --report marks it approved by hand"];
     "mr_approve {mrUrl}" -> "mr_approve result?";
@@ -362,25 +370,25 @@ digraph review_flow {
     "Fixed the mr_approve call once already?" -> "review off-script gate: mr_approve refused" [label="yes"];
     "Fix what the mr_approve error names" -> "mr_approve {mrUrl}";
 
-    "review off-script gate: mr_comment_inline refused" -> "Off-script outcome (mr_comment_inline)?";
-    "Off-script outcome (mr_comment_inline)?" -> "Findings left to post (review)?" [label="take: the human posted it, marked in --report"];
-    "Off-script outcome (mr_comment_inline)?" -> "Off-script rounds = 2 (mr_comment_inline)?" [label="iterate: the cause is fixed"];
-    "Off-script outcome (mr_comment_inline)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
-    "Off-script outcome (mr_comment_inline)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
-    "Off-script outcome (mr_comment_inline)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
-    "Off-script outcome (mr_comment_inline)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
-    "Off-script rounds = 2 (mr_comment_inline)?" -> "mr_comment_inline {mrUrl, body, path, line}" [label="no: post again"];
-    "Off-script rounds = 2 (mr_comment_inline)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
+    "review off-script gate: mr_review_submit refused" -> "Off-script outcome (mr_review_submit)?";
+    "Off-script outcome (mr_review_submit)?" -> "Outcome is approve?" [label="take: the review is up, marked in --report"];
+    "Off-script outcome (mr_review_submit)?" -> "Off-script rounds = 2 (mr_review_submit)?" [label="iterate: the cause is fixed and nothing from this review is up"];
+    "Off-script outcome (mr_review_submit)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
+    "Off-script outcome (mr_review_submit)?" -> "Record the round again with nothing restored (review)" [label="hand back"];
+    "Off-script outcome (mr_review_submit)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
+    "Off-script outcome (mr_review_submit)?" -> "Record the round again with nothing restored (review)" [label="gate unavailable"];
+    "Off-script rounds = 2 (mr_review_submit)?" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)" [label="no: submit again"];
+    "Off-script rounds = 2 (mr_review_submit)?" -> "Record the round again with nothing restored (review)" [label="yes: the refusals are the reason"];
 
-    "review off-script gate: mr_comment refused" -> "Off-script outcome (mr_comment)?";
-    "Off-script outcome (mr_comment)?" -> "Outcome is approve?" [label="take: the human posted it, marked in --report"];
-    "Off-script outcome (mr_comment)?" -> "Off-script rounds = 2 (mr_comment)?" [label="iterate: the cause is fixed"];
-    "Off-script outcome (mr_comment)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
-    "Off-script outcome (mr_comment)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
-    "Off-script outcome (mr_comment)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
-    "Off-script outcome (mr_comment)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
-    "Off-script rounds = 2 (mr_comment)?" -> "mr_comment {mrUrl, body}" [label="no: post again"];
-    "Off-script rounds = 2 (mr_comment)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
+    "review off-script gate: pending comments on the MR" -> "Off-script outcome (pending comments)?";
+    "Off-script outcome (pending comments)?" -> "Outcome is approve?" [label="take: the human posted the review with their pending comments, marked in --report"];
+    "Off-script outcome (pending comments)?" -> "Off-script rounds = 2 (pending comments)?" [label="iterate: the human cleared their pending comments"];
+    "Off-script outcome (pending comments)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
+    "Off-script outcome (pending comments)?" -> "Record the round again with nothing restored (review)" [label="hand back"];
+    "Off-script outcome (pending comments)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
+    "Off-script outcome (pending comments)?" -> "Record the round again with nothing restored (review)" [label="gate unavailable"];
+    "Off-script rounds = 2 (pending comments)?" -> "mr_review_submit {mrUrl, outcome, summary, comments, replies} (review)" [label="no: submit again"];
+    "Off-script rounds = 2 (pending comments)?" -> "Record the round again with nothing restored (review)" [label="yes: the pending comments are the reason"];
 
     "review off-script gate: mr_approve refused" -> "Off-script outcome (mr_approve)?";
     "Off-script outcome (mr_approve)?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="take: the human approved it, marked in --report"];
@@ -393,6 +401,7 @@ digraph review_flow {
     "Off-script rounds = 2 (mr_approve)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
 
     "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" -> "Review done: the board closes this tab";
+    "Record the round again with nothing restored (review)" -> "<status-bin> review-status <state> error <what went wrong>";
     "<status-bin> review-status <state> error <what went wrong>" -> "Review error written: stay in the pane and report";
 }
 ```
@@ -403,10 +412,10 @@ What the graph cannot show:
   the moment `review-status <state> done` lands, which ends this session
   mid-batch. So the done write is a call of its own, sent only after every
   other write of the run has returned: the posting (the domain skill's, or
-  this skill's own `mr_comment_inline` and `mr_comment`), `mr_approve`,
-  the `--report` write, and under a run the domain skill's `run_stage` done
-  and `run_status` done. A write sent in the same batch as the done write
-  is lost.
+  this skill's own one `mr_review_submit`, and `mr_approve` alone after a
+  refused approval), the `--report` write, and under a run the domain
+  skill's `run_stage` done and `run_status` done. A write sent in the same
+  batch as the done write is lost.
 - **Resumed entry.** `--resumed-gate <gateId>` means a human answered a
   gate an earlier pane on this MR opened and the board parked, and the
   board is replaying that answer into this pane. `--resumed-gate-kind`
@@ -424,9 +433,9 @@ What the graph cannot show:
   picked, and `Record the verdict answer in --report` records it before
   anything posts. On `review-escalation`, `Route the resumed escalation by
   its origin (review)` reads where the earlier pane stopped. Either way
-  the Posted already read (`Mark the findings and summary already posted`
-  on the generic path, the domain skill's own otherwise) drops what an
-  earlier pane already put up, and an off-script gate at a read or
+  the Posted already read (`Mark the review already posted` on the
+  generic path, the domain skill's own otherwise) finds what an earlier
+  pane already put up, and an off-script gate at a read or
   posting refusal opens normally. This invocation supersedes any earlier
   gate contract remembered in the conversation.
 - **What a resumed pane carries.** On a `review-post` resume, from the
@@ -435,62 +444,76 @@ What the graph cannot show:
   `{answers, by, answeredAt}` comes from the `review-post-answer:` line in
   `--report`. The verdict's keys name its shape: `findings-N` keys plus
   `outcome` are the per-finding path, `tiers` plus `outcome` the tier
-  fallback, and `outcome` alone a clean review. From `--report`'s json
+  fallback, and `outcome` alone a clean review; `thread-N` and
+  `skipped-N` keys ride beside any of them on a re-review. From
+  `--report`'s json
   sibling (the stem swap in "Building the review-post questions"): each
   finding by its `id`, with its `tier`, `title`, `file`, `line`, `fix` and
   `kind`. From `--report` itself on the tier fallback: the findings under
-  each tier. From the launch: `<mrUrl>`. Nothing else survives the earlier
-  pane.
+  each tier. The earlier threads, each by its `discussionId` with its
+  `call` and drafted `reply`: the json sibling's `threads` on the domain
+  path, `--report`'s Earlier threads section on the generic path. The
+  skipped findings, each by its round-qualified `id` with its `title`,
+  `file`, `line`, recorded `excerpt` and `changed`: the json sibling's
+  `skipped` on the domain path, `--report`'s Skipped earlier section on
+  the generic path. From
+  `--report`'s `review-round:` line: the round and the sha it reviewed.
+  From the launch: `<mrUrl>`. Nothing else survives the earlier pane.
 - **Finding ids.** A per-finding option's value is the finding's `id` from
   the json sibling, verbatim. The same string keys the finding in the json,
   so a picked value joins its finding with no renumbering.
-- **Posting.** On the generic path, `Findings left to post (review)?`
-  walks the picked findings in gate order, skipping every finding `Mark
-  the findings and summary already posted` marked. On the per-finding
-  path they are the union of every `findings-N` answer array; on the tier
-  fallback, every finding in the report whose tier the `tiers` answer
-  picked; on a clean review, none. An explicit empty array posts nothing
-  from that question. A finding is anchored when it has both a `file` and
-  a `line`: the `mr_comment_inline` node's `path` is the finding's `file`
-  and its `line` the finding's `line`, always both, never a `position`
-  object; for a line the diff removed, add `oldPath` and `oldLine` as
-  well. The daemon re-fetches the diff refs itself, so no sha is needed.
-  Every comment body is written in the loaded voice: the tier and title,
-  what to change, and the anchor. The summary note posts once, after
-  every anchored finding, and only when it carries findings and is not
-  already posted. `mr_approve` runs only when the outcome is `approve`,
-  after the findings; approval has no read, so a resumed pane approves
+- **Posting.** On the generic path the whole review posts in one
+  `mr_review_submit` call, built at `Compose the submitted review
+  (review)` from the picked findings. On the per-finding path they are
+  the union of every `findings-N` answer array; on the tier fallback,
+  every finding in the report whose tier the `tiers` answer picked; on a
+  clean review, none. An explicit empty array posts nothing from that
+  question. On a re-review the same call carries `replies`, one per
+  earlier thread whose `thread-N` answer picked anything, and every
+  restored finding (a `restore:<id>` picked in a `skipped-N` answer),
+  posted like a picked one with its recorded text, except that one with
+  `changed` true posts in the summary, never inline. A finding is
+  anchored when it has both a `file` and a `line`:
+  its comment's `path` is the finding's `file` and its `line` the
+  finding's `line`, always both, never a `position` object; for a line the
+  diff removed, add `oldPath` and `oldLine` as well. The daemon re-fetches
+  the diff refs and checks every placement itself, so no sha is needed.
+  Every comment body and the summary are written in the loaded voice,
+  except a restored finding's text: it posts as recorded, in a comment or
+  in the summary.
+  `mr_approve` runs on its own only after the submit came back `approved:
+  false`, or when the review was already up or posted by hand and the
+  outcome is `approve`; approval has no read, so a resumed pane approves
   again unless `--report` marks it approved by hand ("Escalation marks"),
   and a refusal saying this account already approved counts as approved.
   Read each answer's `value` (an answer may be a `{value, note}` object); a
-  note is the human's steer on the wording of what posts. No finding
-  posts twice: a resumed pane reads what is already up with `mr_threads
-  {mrUrl, refresh: true} (review posted already)` before anything posts.
+  note is the human's steer on the wording of what posts. No review posts
+  twice: a resumed pane reads what is already up with `mr_threads {mrUrl,
+  refresh: true} (review posted already)` before anything posts.
 - **Escalation marks.** An off-script take at a posting origin, or at the
   Posted already read, writes a mark line into `--report` before the walk
   moves on, whether this pane or a resumed one acts on it. Each mark is
   one line with the fixed prefix `review-escalation-mark:`:
-  `review-escalation-mark: finding <id> posted by hand` (an
-  `mr_comment_inline` take, or each finding a Posted already read take's
-  note names), `review-escalation-mark: summary posted by hand` (an
-  `mr_comment` take, or a Posted already read take whose note names the
-  summary) and `review-escalation-mark: approved by hand` (an `mr_approve`
-  take). The walk reads them back: a finding marked posted by hand never
-  posts, a summary marked posted by hand never posts, and an approval
-  marked by hand never runs. A pane resumed on a later escalation has lost
+  `review-escalation-mark: review posted by hand` (a take at
+  `mr_review_submit refused` or `pending comments on the MR`, or a Posted
+  already read take whose note says the review is up) and
+  `review-escalation-mark: approved by hand` (an `mr_approve` take). A
+  take at a posting origin writes one mark for the review, never one per
+  finding. The walk reads them back: a review marked posted by hand is
+  never submitted, and an approval marked by hand never runs. A pane
+  resumed on a later escalation has lost
   every earlier answer but these, so they are what keeps a taken call from
   running twice.
-- **Budgets.** `Fixed the mr_comment_inline call once already?` counts per
-  finding; the `mr_comment` and `mr_approve` counters, and the three read
-  counters (`mr_view`, the re-review `mr_threads` and the posted-already
-  `mr_threads`), count for the whole run. A resumed pane counts them from
-  zero, except that a resumed iterate seeds its origin's counter as spent
-  (the named finding's, for `mr_comment_inline`), as a live iterate
-  leaves it. A guard STOP's re-entry passes the same counter as a tool
-  error. None resets after an off-script iterate: a refusal after an
-  iterate goes straight back to that origin's off-script gate, and its
-  `Off-script rounds = 2 (...)?` counter (per finding for
-  `mr_comment_inline`) bounds the loop. The round rides in the gate's
+- **Budgets.** The `mr_review_submit` and `mr_approve` fix-once counters,
+  `Bad anchors moved once already (review)?`, and the three read counters
+  (`mr_view`, the re-review `mr_threads` and the posted-already
+  `mr_threads`) count for the whole run. A resumed pane counts them from
+  zero, except that a resumed iterate seeds its origin's fix-once counter
+  as spent, as a live iterate leaves it. A guard STOP's re-entry passes
+  the same counter as a tool error. None resets after an off-script
+  iterate: a refusal after an iterate goes straight back to that origin's
+  off-script gate, and its `Off-script rounds = 2 (...)?` counter bounds
+  the loop. The round rides in the gate's
   option values, so the budget holds across a park: a resumed pane seeds
   the counter from it, and an iterate at round 2 is spent. `Resumed wait
   failures = 3 (review)?` counts failing resumed waits; closed, not found
@@ -545,13 +568,28 @@ anything posts. The answer's keys say which file it needs:
 - `tiers` plus `outcome`: `--report` itself, for the findings listed under
   each picked tier.
 - `outcome` alone: neither. A clean review posts no findings.
+- `thread-N` keys, beside any of these: the earlier threads, each joined
+  by its `discussionId` (the option value after `post:` or `resolve:`)
+  for its `call` and drafted `reply`. They come from the json sibling's
+  `threads` when a domain skill resolved, else from `--report`'s Earlier
+  threads section.
+- `skipped-N` keys, beside any of these: each restored finding, joined
+  by its `id` (the option value after `restore:`) for its `title`,
+  `file`, `line`, recorded `excerpt` and `changed`. They come from the
+  json sibling's `skipped` when a domain skill resolved, else from
+  `--report`'s Skipped earlier section.
+
+Every shape also reads `--report`'s `review-round:` line, for the round
+and sha `Record the verdict answer in --report` records.
 
 Missing or malformed means what it means for the tier fallback: no
 sibling `.json`, unparseable json, or a parsed report whose `findings` is
 missing, not an array, or holds entries that don't fit the schema. On a
 resume it is never a reason to fall back, because the gate is answered
 and its shape is fixed. A per-finding answer whose json sibling is missing
-or malformed, a picked value no finding's `id` matches, or a tier answer
+or malformed, a picked value no finding's `id` matches, a `thread-N`
+value whose `discussionId` its source does not carry, a `restore:<id>`
+value whose `id` its source does not carry, or a tier answer
 whose `--report` is missing or unreadable cannot be posted as answered:
 `Report fits the resumed answer (review)?` answers no, and the `error`
 names the file and which case it was. Never rebuild the findings by
@@ -569,9 +607,8 @@ pane's `Off-script rounds = 2 (...)?` answers yes to, so it writes
 `error` naming the refusals and never retries. Otherwise round `k` seeds
 that origin's `Off-script rounds = 2 (...)?` counter, and a later iterate
 at the same origin counts on from it. An iterate also seeds that origin's
-fix-once counter as spent (the named finding's, for `mr_comment_inline`),
-as a live iterate leaves it: a refusal after the retry goes straight back
-to the off-script gate.
+fix-once counter as spent, as a live iterate leaves it: a refusal after
+the retry goes straight back to the off-script gate.
 
 - **Pre-verdict origins** (`mr_view refused`, `mr_view refused on a
   re-review`, `mr_threads refused on the re-review read`): no verdict
@@ -581,18 +618,21 @@ to the off-script gate.
   read; a note with no branches takes the `hand back` edge. An iterate at
   `mr_view` reads the MR again. Every pre-verdict escalation opened on the
   generic path; when this resume resolves a domain skill after all, a take
-  or round-1 iterate delegates the review afresh, and the domain skill
-  makes its own reads.
+  or round-1 iterate delegates the review afresh (on a re-review origin,
+  after the round read below), and the domain skill makes its own reads.
 - **Re-review origins** (`mr_view refused on a re-review`, `mr_threads
   refused on the re-review read`) make this pass a re-review, though the
   launch carries no `--re-review`. `--report` still holds the prior
   review, since this pass has not written one: `Read <--report> (prior
-  review, resumed re-review)` loads it before the writing style, and a
-  missing file means no prior review, as "Re-review mode" says. The
-  threads are then read again, except after a take at the re-review
-  `mr_threads` read, which reviews the whole MR without them.
-- **Posting origins** (`mr_comment_inline refused`, `mr_comment refused`,
-  `mr_approve refused`, `mr_threads refused on the Posted already read`):
+  review, resumed re-review)` loads it, and a missing file means no prior
+  review, as "Re-review mode" says. `<status-bin> review-ledger read
+  <state>` then reads the round, before the writing style on the generic
+  path or the delegation on the domain path. The threads are then read
+  again, except after a take at the re-review `mr_threads` read, which
+  reviews the whole MR without them.
+- **Posting origins** (`mr_review_submit refused`, `pending comments on
+  the MR`, `mr_approve refused`, `mr_threads refused on the Posted already
+  read`):
   the verdict was answered and recorded before the escalation opened.
   `Read <--report>, its verdict line and json sibling (resumed
   escalation)` loads the `review-post-answer:` line and the files that
@@ -605,16 +645,48 @@ to the off-script gate.
   `review-escalation-mark:` line an earlier pane wrote ("Escalation
   marks"), and the walk honours them.
 - **A take at a posting origin** writes its mark before the walk
-  (`Record the resumed take's mark in --report (review)`): finding `<id>` posted
-  (`mr_comment_inline`), the summary posted (`mr_comment`), or the
-  approval done (`mr_approve`). The Posted already read then runs as for
-  any resumed pane. A take at the Posted already read itself marks exactly
-  what its note names and skips the read, since that read is what refused.
+  (`Record the resumed take's mark in --report (review)`): the review
+  posted (`mr_review_submit refused` or `pending comments on the MR`), or
+  the approval done (`mr_approve refused`). The Posted already read then
+  runs as for any resumed pane. A take at the Posted already read itself
+  marks the review posted when its note says the review is up, and skips
+  the read, since that read is what refused.
 - **An iterate at a posting origin** walks the posting again from the
-  top; the Posted already read drops what is up, so the refused call is
-  the first to post.
+  top; the Posted already read finds whether the review is up, so the
+  refused call is the first to run.
 - **Hold** keeps the pane open with nothing more posted and no terminal
   status. **Hand back** writes `error` naming the refusal the value names.
+  At `mr_review_submit refused` or `pending comments on the MR`, a hand
+  back or an iterate at round 2 first takes `Record the round again with
+  nothing restored (review)`.
+
+### Build the round-1 skipped list from the prior review
+
+The board has no round for this MR, yet `--report` holds a prior review
+and the verdict it got (its `review-post-answer:` line): an MR reviewed
+before the board kept rounds. Rebuild it as round 1 before this pass
+reviews anything, so its skipped findings are known.
+
+Its skipped findings are the prior json sibling's `findings` whose `id`
+is in no `findings-N` value of that answer (a `{value, note}` answer
+unwrapped to its value), each `{id, title, severity, file, line,
+excerpt}`: `id` and `title` are the json's, `severity` its `tier`
+lowercased, `file` and `line` its own (left out when it has none), and
+`excerpt` its `body` verbatim (its `title` when it has no `body`), then,
+when it has a `fix`, a blank line and `Fix: <fix>`. An
+answer that carried `tiers` in place of `findings-N` keys gives `[]`:
+that pass's gate could not read the json finding by finding, so its
+picks name no finding ids to compare against.
+
+Record it as round 1 with `--sha unknown`, since that review's commit is
+not known (with no snippets recorded either, none of its skipped findings
+ever reads as `changed`), and
+`--outcome` the answer's `outcome` value, the `--skipped` json quoted as
+`Record the verdict answer in --report` says. Then read the ledger again:
+its `round` is now 1, so this pass is round 2, and its `skipped` holds
+the rebuilt list. A record that exits nonzero does not stop the review:
+quote its stderr in the pane and go on, and the read after it still
+prints `round: 0`.
 
 ### Delegate the review to the domain skill
 
@@ -629,12 +701,16 @@ Tell the domain skill these things:
 - that this wrapper owns the gate, so it opens nothing: it hands back
   instead, including the absolute paths of the fitted `review-post` open
   file and of the `gate-ctx.sh` that fitted it, when it builds one;
-- under `--re-review`, the re-review framing: the prior review read at
-  `Read <--report> (prior review)` (or that none was found), "check what
-  the author addressed since the last review", and "flag it and fall back
-  to a full review if nothing was acted on" ("Re-review mode"). A resumed
-  re-review origin gets the same framing, with the prior review still at
-  `--report`;
+- under `--re-review`, the round ("Re-review mode"): the round number,
+  `reviewedSha` as the commit the last round reviewed, the prior review
+  read at `Read <--report> (prior review)` (or that none was found), and
+  the framing "judge each earlier thread, then find what is new". It
+  reads the threads itself, so it gets the rule that picks them in place
+  of the threads: Re-review mode's step 3, with the `rounds` list and the
+  `confirmed` ids from the round read. It also gets the round read's
+  `skipped` list, every entry whole plus a `sha`: the `reviewedSha` of
+  that entry's round in `rounds`. A resumed re-review origin gets
+  the same, with the prior review still at `--report`;
 - on a resumed pre-verdict escalation, that it reviews afresh: the
   escalation's take or iterate belonged to the generic path's own read.
 
@@ -643,11 +719,12 @@ Pass the operator note along as context when the launch carries one.
 The domain skill owns the actual review: resolving the MR and ticket,
 producing the draft, and writing the report to `--report` (the Markdown
 and its json sibling). It hands back the severity levels present in its
-findings, plus the two paths when it built a fitted open file. Carry all
-three to the gate: the paths decide `Fitted review-post open file handed
-back?`, and the levels are the tier fallback's options. It never presents
-posting gates or decides disposition; this wrapper opens the one event
-gate and later hands it the human's answer to post.
+findings, the two paths when it built a fitted open file, and the MR
+head sha it reviewed. Carry them all to the gate: the paths decide
+`Fitted review-post open file handed back?`, the levels are the tier
+fallback's options, and the sha goes in the review-round line. It never
+presents posting gates or decides disposition; this wrapper opens the
+one event gate and later hands it the human's answer to post.
 
 A failure it reports (a bad MR link, a mismatched MR and ticket, a fetch
 failure) is `error` with its message.
@@ -691,40 +768,132 @@ Read the diff critically and produce findings. Each finding has:
 - a severity tier: `Critical`, `Important` or `Minor`, the report's fixed
   tier vocabulary;
 - its anchor, `file:line` (or `file` alone when no single line fits);
-- what to change.
+- what is wrong;
+- what to change: its fix.
 
 Honor the operator note (for example "focus on the migration files", "skip
 the vendored code").
 
 On a re-review (`--re-review` given, or a resumed re-review origin),
-frame the review as "Re-review mode" says: check the threads already read
-and the new commits since the last review against the prior review, read
-at `Read <--report> (prior review)` or, on a resumed pane, at `Read
-<--report> (prior review, resumed re-review)`. **Author acted:**
-re-review focused on that: for each prior comment, was it adequately
-addressed? Are the new changes sound? Note anything still open. **No
-action found** (no threads addressed, no relevant new changes since the
-last review): say so explicitly in the report's summary line, e.g.
-`"no author action found since last review"`, and fall back to a normal
-full review of the whole MR so the pass is still useful. **No thread
-history** (the re-review read's off-script take): a full review of the
-whole MR, its summary line saying the threads could not be read, e.g.
-`"threads unreadable; full review"`.
+"Re-review mode" hands this review the round. A re-review judges two
+things, in this order: what became of the reviewer's earlier threads,
+then what is new. Re-review mode hands in the earlier threads (each with
+its `discussionId`, anchor, `round`, the reviewer's first note and the
+author's replies), the commit the last round reviewed, and the round
+number. For each thread, read the code at the MR head and make one of
+the four calls, with a one-line note of what was checked and a reply to
+post:
+
+- `fixed`: the code now does what the thread asked;
+- `not-fixed`: it does not, and the author gave no reason that holds;
+- `pushback-accepted`: the author declined and their reason holds;
+- `pushback-rejected`: the author declined and their reason does not
+  hold.
+
+Then hunt for new issues, weighting the diff since the last reviewed
+commit (`git diff <last reviewed sha>..origin/<source branch>`) while
+still reading the whole change; with no last reviewed commit, a last
+reviewed commit of `unknown` (a round rebuilt from an old report), or one
+the fetch does not have, the whole change is what changed. An issue an
+earlier thread already raises lives on its thread and is never a
+finding: the findings are new issues only. Each reply is in the loaded
+voice and never empty. With no earlier threads handed in, the pass is a
+full review framed as a re-review, and its summary line says so, e.g.
+`"no earlier threads; full review"`. **No thread history** (the
+re-review read's off-script take): a full review of the whole MR, its
+summary line saying the threads could not be read, e.g. `"threads
+unreadable; full review"`.
+
+Re-review mode also hands in the skipped findings: the ones the human
+chose not to raise in earlier rounds, each with its round-qualified `id`,
+`round`, `title`, `severity`, `file`, `line`, `excerpt`, `snippet` and
+the `reviewedSha` of its round. A would-be finding that says what a
+skipped one says, about the same code, is that skipped finding: it stays
+out of the findings, so out of `tiers` too, and the gate offers it back
+on its own. For each skipped finding work out `changed`: true when `git
+diff <its round's sha>..origin/<source branch> -- <file>` touches its
+`line` (any hunk in the file, when it has a `file` and no `line`), or its
+`snippet`, when non-empty, is no longer in the file at `origin/<source
+branch>`. When its round's sha is `unknown` or not in this checkout (`git
+cat-file -e <sha>^{commit}` fails: the MR was rebased or force-pushed),
+the snippet test alone decides, and with no snippet `changed` is false.
+It is false when the finding has no `file`.
 
 ### Write the review report to --report
 
 Save the review to `--report <path>` as Markdown: a short summary line,
-then the findings, grouped by tier, each with its anchor and what to
-change. Write it before the gate opens, so the board makes the
+then the findings, grouped by tier, each led by a short label (its
+title), then its anchor and what is wrong, then a `Fix:` line saying
+what to change. Write it before the gate opens, so the board makes the
 "reviewing..." badge clickable to open the review modal while you hold at
 the gate. On the domain path the domain skill wrote the report itself;
 this box is the generic path's. Either way the file exists before `done`.
+
+On a re-review, an Earlier threads section sits between the summary line
+and the findings: one entry per earlier thread, in the order Re-review
+mode handed them in. A resumed pane posts the replies from it, so each
+entry carries the thread's id, its call and the reply verbatim:
+
+```markdown
+## Earlier threads
+
+- `<discussionId>` · `<file:line>` · round <k> · <call>
+  - Checked: <the one-line note>
+  - Reply: <the reply to post, verbatim>
+```
+
+The angle-bracketed parts are placeholders: fill each from its thread.
+An unanchored thread reads `General thread` in place of its anchor, and
+`<call>` is one of the four calls as spelled above. The section is not a
+tier, so no thread is ever read as a finding.
+
+With skipped findings handed in, a Skipped earlier section follows, still
+ahead of the findings: one entry per skipped finding, in the order
+Re-review mode handed them in. A resumed pane posts a restored finding
+from it, so each entry carries its id, anchor, round, tier, title,
+`changed` and recorded text:
+
+```markdown
+## Skipped earlier
+
+- `<id>` · `<file:line>` · round <k> · <Tier> · <title>
+  - Changed: <yes or no>
+  - Recorded: <its excerpt, verbatim>
+```
+
+Fill the placeholders from the skipped entry: `<Tier>` is its severity
+capitalised, the anchor is the file alone when it has no line, or `no
+anchor` when it has no file, and `Changed` is the `changed` you worked
+out for it. Each line of the excerpt after its first sits under
+`Recorded:`, indented four spaces (a blank line stays blank), so the
+entry stays one list item and its `Fix:` line survives. This section is
+not a tier either: no skipped finding is ever read as one of this round's
+findings or numbered with them.
 
 The generic path writes the Markdown only. The json sibling is the domain
 skill's structured report, so without one the gate takes the tier
 fallback, built from your own findings' tiers. On the generic path a json
 sibling this pass did not write is stale: treat it as absent at `Report
 json sibling (review)?`.
+
+### Append the review-round line to --report
+
+The report is written, on either path. Before the gate opens, append one
+line to `--report` naming the round this pass is and the commit it
+reviewed:
+
+`review-round: {"round": <n>, "sha": "<sha>"}`
+
+`<n>` is 1 on a first review, else the round "Re-review mode" worked
+out. `<sha>` is the MR head this pass reviewed: on the generic path
+`mr_view`'s `mr.sha` (after a take at `mr_view`, which read no MR, `git
+rev-parse origin/<source branch>` from the fetch), on the domain path
+the sha the domain skill handed back. Never a guess: a domain skill that
+handed back no sha gets no line, and neither does a re-review whose
+ledger read exited nonzero, since its round number is a guess and a
+record of it could overwrite a round the board already holds. `Record
+the verdict answer in --report` reads the line back, so a pane resumed
+on the verdict records the round this pass reviewed.
 
 ### Build the per-finding questions (findings-N, outcome)
 
@@ -754,6 +923,7 @@ Print one line in the pane naming which case it was, for example:
 
 - `report.json not found; falling back to tier-level options`
 - `report.json has no findings array; falling back to tier-level options`
+- `report.json has earlier threads or skipped findings but no fitted open came back; falling back to tier-level options`
 
 A human watching then knows posting will be tier-grained instead of
 per-finding.
@@ -766,7 +936,28 @@ the ones the domain skill handed back as present, or your own findings'
 tiers on the generic path. Add `tiers` only when at least one level is
 present; with none, `outcome` alone. The finding titles ride the `tiers`
 question's own `context`, one line per finding, verbatim from the report
-file. `--context` is the tier-counts line alone.
+file. `--context` is the tier-counts line alone, under a round line on a
+re-review.
+
+On a re-review with earlier threads, one hand-built `thread-<n>`
+question per thread comes first, ahead of `tiers`, in the order the
+threads were handed in. On a re-review with skipped findings, hand-built
+`skipped-<n>` questions follow `tiers`, ahead of `outcome`, four
+findings per question in the order they were handed in. "Tier fallback"
+under "Building the review-post questions" draws both. With no levels
+present the gate carries the thread and skipped questions and `outcome`.
+
+What they are built from depends on the path:
+
+- **Generic path:** the threads you judged, and the skipped list
+  Re-review mode handed in with the `changed` you worked out for each.
+- **Domain path, json sibling parses:** its `threads` and its `skipped`,
+  as the domain skill reported them.
+- **Domain path, json sibling absent or unparseable:** no thread
+  questions and no skipped questions, since there are no discussion ids
+  or reported skipped entries to build them from. The earlier threads
+  stay on the MR as they are, and the skipped findings stay in the
+  board's record for the next round.
 
 ### review-post: take the review gate step
 
@@ -785,7 +976,8 @@ carrier:
   titles ride the `findings-N` options, never question `context`.
 - **Tier fallback:** there is no `summary` to read a readiness line from,
   so `--context` carries only the tier-counts line; the `tiers` question
-  carries the finding titles in its own `context`.
+  carries the finding titles in its own `context`. On a re-review a first
+  line `Round <n> · <k> earlier threads` sits above it.
 - **Either way,** `--context` fits inside the gate's 8192 UTF-8 byte
   budget; an oversized one is dropped loudly by the daemon, not by you:
   never pre-trim it yourself.
@@ -798,10 +990,12 @@ summary); `open-gate.sh` opens it as it stands.
 The daemon was down at open time (`gate open` or `open-gate.sh` exited
 nonzero), or the gate step's wait failed three times ("A failing wait is
 not degradation" in `board:gate-cli-recipes`). Ask one combined native
-form carrying the same questions the gate would have: every `findings-N`
-chunk plus `outcome` when the json has findings, the fallback's `tiers`
-plus `outcome` on the json-absent path, `outcome` alone on a clean
-review. Past four questions, chunk it across AskUserQuestion calls in gate
+form carrying the same questions the gate would have: every `thread-N`
+question first on a re-review, then every `findings-N` chunk when the
+json has findings or the fallback's `tiers` on the json-absent path,
+then every `skipped-N` chunk on a re-review, then `outcome`; `outcome`
+alone on a clean review with nothing skipped.
+Past four questions, chunk it across AskUserQuestion calls in gate
 order, as the pane form does, and proceed only on the answers from every
 call. It is still one form, never two gates. Render it by the same rules
 as the pane form (`Ask the review gate as a pane form`), a fitted file
@@ -831,8 +1025,85 @@ an earlier pass posted by hand the Posted already read finds.
 The line exists because an off-script gate moves the state's gate id to
 the escalation, and `gate wait` can then no longer return the verdict. A
 pane resumed on that escalation reads the verdict from this line, and
-`Mark the findings and summary already posted` dates its notes against
-its `answeredAt`.
+`Mark the review already posted` dates the summary note against its
+`answeredAt`.
+
+Then record the round, before anything posts:
+
+`<status-bin> review-ledger record <state> --round <n> --sha <the MR
+head sha this pass reviewed> --outcome <comment|approve> --skipped
+'<json array>' --restored '<json array>' --confirmed '<json array>'`
+
+`--skipped` is this round's findings the human left unticked, one object
+each, with this round's own bare `id` (the record round-qualifies it):
+
+- **Per-finding path** (`findings-N` keys): every entry of the report
+  json's `findings` array whose `id` no `findings-N` answer picked, never
+  one of its `skipped` entries (those already carry round-qualified ids),
+  as `{id, title, severity, file, line, excerpt, snippet}`. `id` and
+  `title` are the entry's; `severity` is its `tier` lowercased; `file`
+  and `line` are its own, left out when it has none; `excerpt` is its
+  `body` verbatim (its `title` when it carries no `body`), then, when it
+  carries a `fix`, a blank line and `Fix: <fix>`; `snippet` is
+  the code at its anchor at the reviewed sha (`git show <sha>:<file>`,
+  its `line` and up to two lines either side), left out when it has no
+  `line` or that read fails.
+- **Tier fallback** (a `tiers` key): the findings under every tier the
+  `tiers` answer left unticked (every finding, for `{"tiers": []}`), on
+  either path. Where they are read from:
+  - **Domain path, json sibling with a `findings` array that fits the
+    schema** (no fitted open came back): each entry of that array whose
+    `tier` was left unticked, built exactly as on the per-finding path,
+    with its own `id`, `body` and anchor.
+  - **Generic path, or a domain json absent or malformed:** each
+    finding listed in `--report` under such a tier, as `{id, title,
+    severity, file, line, excerpt}`. `id` numbers the findings under
+    `--report`'s tier headings in the order they appear there (`f1`,
+    `f2`, ...), never an Earlier threads or Skipped earlier entry, the
+    same on every pass that reads that report; `title` is the finding's
+    short label as `--report` writes it (its leading words when the entry
+    has no separate label), never empty, since the record refuses an
+    empty title; `severity` is the tier lowercased; `file` and `line` are
+    its anchor, left out when it has none; `excerpt` is the finding's
+    text from `--report` without its `Fix:` line, then, when its entry
+    there has one, a blank line and that `Fix:` line as written.
+- **Clean review** (neither key): `[]`.
+
+`--restored` is every `skipped-N` answer value with its `restore:`
+prefix removed, already round-qualified; `[]` when no `skipped-N`
+question picked anything. For example, with an invented finding left
+unticked and one invented skipped finding brought back:
+
+`--skipped '[{"id":"f3","title":"Example retry limit ignores the config","severity":"important","file":"lib/example/retry.ts","line":14,"excerpt":"<that finding's body, verbatim>\n\nFix: <that finding's fix>","snippet":"<lines 12 to 16 of lib/example/retry.ts at the reviewed sha>"}]' --restored '["r1-f4"]'`
+
+Every value there is invented: fill each from this round's own findings
+and answers, and never copy the example.
+
+Each of `--skipped`, `--restored` and `--confirmed` rides as one
+single-quoted shell argument. A single quote inside a title, body or
+snippet is written `'\''` (close the quote, an escaped quote, reopen it),
+so the argument reaches the record whole. A line break inside a JSON
+string is `\n`, so the blank line before `Fix:` is `\n\n`.
+
+`<n>` is 1 on a first review and the re-review's round otherwise.
+`--confirmed` lists the `discussionId` of every thread whose call is
+`fixed` or `pushback-accepted` where the answer picked `post:<id>` and
+not `resolve:<id>`: the reviewer said so and left resolving to the
+author, and no later round asks about it again. A resumed pane that
+finds the round already recorded records it again; the write replaces.
+The MR head sha is `mr_view`'s `mr.sha` (the source branch head as
+GitLab reports it; the field is on glance's `PullRequest`), read in the
+same pass as the review; never a guess.
+
+Both `<n>` and the sha are read from `--report`'s `review-round:` line
+(`Append the review-round line to --report`), which the pass that
+reviewed wrote, so a resumed pane records the same values. `--outcome`
+is the verdict's `outcome`. A report with no `review-round:` line
+records nothing: say so in the pane and go on. A record that exits
+nonzero does not stop the posting either: quote its stderr in the pane
+and go on, since the verdict is answered. A run that then ends without
+posting this review records the round again with nothing restored or
+confirmed (`Record the round again with nothing restored (review)`).
 
 ### Hand the answer to the domain skill to post
 
@@ -843,11 +1114,28 @@ Here that means the STOP's redirect: the move passes the same fix-once counter a
 Hand the domain skill the human's answer, the MR url and the `--report`
 path, so it executes the posting:
 
-- **Per-finding path:** `{findings: [ids], outcome}`, where `ids` is the
-  union of every `findings-N` question's answer array, and empty when the
-  gate carried `outcome` alone, since a clean review has no findings to
-  post.
-- **Tier fallback:** `{tiers, outcome}`.
+- **Per-finding path:** `{findings: [ids], outcome, replies}`, where
+  `ids` is the union of every `findings-N` question's answer array, and
+  empty when the gate carried `outcome` alone, since a clean review has
+  no findings to post. `replies` is built from the `thread-N` answers by
+  the rule in `Compose the submitted review (review)`, each drafted
+  `reply` read from the json sibling's `threads`; it is empty when the
+  gate carried no `thread-N` question.
+- **Tier fallback:** `{tiers, outcome}`, plus `replies` built the same
+  way when the gate carried `thread-N` questions.
+
+Either way, a gate that carried `skipped-N` questions adds `restored`:
+one `{id, title, body, file, line, changed}` per `restore:<id>` value
+picked, its `id` as picked and the rest from the skipped entry with that
+`id` (`body` is the entry's `excerpt`; `file` and `line` left out when it
+has none). The entries come from the ledger read this pass made at the
+start of the re-review. A pane resumed on the verdict or at a posting
+origin holds no such read, and a read made after the record leaves every
+restored finding out, so it takes them from the json sibling's `skipped`
+instead. `changed` always comes from the json sibling's `skipped` entry
+with that `id`, since the ledger keeps none: true sends the finding to
+the summary's issue list with its recorded `file:line`, never inline.
+`restored` is empty when nothing was brought back.
 
 Pass each answer's notes along with it. On a resumed pane
 (`--resumed-gate` given), tell the domain skill the pass is a resume, so
@@ -859,7 +1147,8 @@ take (at a posting origin or the Posted already read, which a
 domain-path resume has not recorded), so it skips what the human already
 posted or approved. The domain skill posts through the mr_* tools
 and hands back what posted, the findings it found already up included; a
-failure it reports is `error` with its message.
+failure it reports takes `Record the round again with nothing restored
+(review)`, then writes `error` with its message.
 
 ### Add the finding to the summary note
 
@@ -867,7 +1156,11 @@ The finding has no `file` and `line` to anchor to (its option's anchor was
 the json's `fileLabel`, or `file` alone). It posts in the review's summary
 comment instead of an inline thread. Add it to the summary note: its tier
 and title, what to change, and its `fileLabel` or `file` when it has one.
-The note posts once, with `mr_comment`, after the last anchored finding.
+A restored finding with no anchor, or with `changed` true, adds its
+recorded title and text as written, never put into the loaded voice,
+then its recorded `file:line` (its `file` alone when it has no `line`)
+when it has a `file`. The summary posts once, as the `summary` of the
+one `mr_review_submit` call.
 
 ### Fix what the mr_view error names (review)
 
@@ -893,31 +1186,30 @@ names: `mrUrl` the MR's https URL, whose project is registered with rt;
 `refresh` a boolean. An error that names no input (the daemon down, a
 GitLab fetch failure) has nothing to correct: read again unchanged, once,
 and the off-script gate follows. An error is never a reason to skip the
-read and post anyway: a finding posted twice is what this read prevents.
+read and post anyway: a review posted twice is what this read prevents.
 
-### Mark the findings and summary already posted
+### Mark the review already posted
 
 The Posted already rule, on a resumed pane (`--resumed-gate` given) before
-anything posts. An earlier pane may have posted part of this answer before
-it died, so read what is up in the `mr_threads` result, each thread's full
-note chain, against the picked findings. A note counts only when the
-account this pane posts as wrote it after the verdict's `answeredAt`
-(from the resumed wait on a `review-post` resume, from the verdict line
-on an escalation resume):
+anything posts. One check settles it: in the `mr_threads` result, a
+top-level note carrying this review's summary, written by the account
+this pane posts as after the verdict's `answeredAt` (from the resumed
+wait on a `review-post` resume, from the verdict line on an escalation
+resume). When it is there the review landed: skip the submit and go on to
+the approval check. A `review-escalation-mark:` line in `--report` saying
+the human posted the review counts the same as the note, including the
+mark a take writes after a partly landed refusal, where the human
+finished the review by hand. With no such mark and no summary note, the
+pane submits. Approval has no read: on an approve verdict `mr_approve`
+runs unless a mark says it was approved by hand; approving an approved MR
+is harmless.
 
-- a picked finding is posted when a thread carries such a note whose body
-  is the finding's comment (its tier and title) or that sits at the
-  finding's `path:line`;
-- the summary is posted when such a top-level note carries the summary.
+### Review already posted (review)?
 
-`Findings left to post (review)?` skips every finding marked posted, and
-`Summary note carries findings?` answers no when the summary is marked
-posted. They count as posted in the `done` summary. One read covers every
-finding and the summary. After an off-script take, what the human names
-is the list. Every `review-escalation-mark:` line in `--report` already
-marks its finding, summary or approval: keep those marks and add what the
-read finds. Approval has no read: `mr_approve` runs again unless a mark
-says it was approved by hand.
+Yes when `Mark the review already posted` found the summary note, or
+`--report` carries `review-escalation-mark: review posted by hand`. A
+pane that opened the verdict gate itself has neither (recording the
+verdict deleted every mark), so it answers no and submits.
 
 ### Record the resumed take's mark in --report (review)
 
@@ -925,36 +1217,79 @@ The generic path, before the Posted already read. A refusal at that read
 opens a second escalation, which moves the state's gate id, and a pane
 resumed on it could then no longer learn this answer. So a resumed take
 writes its mark now, as "Escalation marks" spells it: the same mark the
-live pane writes when it acts on that take. A take at a posting origin
-writes the one mark its value names; a take at the Posted already read
-writes one mark per finding its note names, and one for the summary when
-the note names it. The marks outlive this pane: a pane resumed on a later
-escalation reads them back, and the posting walk honours them.
+live pane writes when it acts on that take. A take at `mr_review_submit
+refused` or `pending comments on the MR` writes the review mark, and one
+at `mr_approve refused` the approval mark; a take at the Posted already
+read writes the review mark when its note says the review is up. The
+marks outlive this pane: a pane resumed on a later escalation reads them
+back, and the posting walk honours them.
 
-### Fix what the mr_comment_inline error names
+### Compose the submitted review (review)
 
-`mr_comment_inline` refused. Correct what the error names: `mrUrl` the
-MR's https URL, `.../-/merge_requests/<iid>`, whose project is registered
-with rt; `path` the finding's file as the diff names it; `line` a line
-the diff shows, always given with `path` (plus `oldPath` and `oldLine`
-for a line the diff removed); `body` the non-empty comment. An anchor
-GitLab rejects with the anchor already matching the finding, or an error
-that names no input, has nothing to correct: post again unchanged, once,
-and the off-script gate follows. An error is never a reason to post with
-the GitLab CLI or the API.
+One `mr_review_submit` call carries the whole review, in the loaded
+voice. `comments` is one entry per picked finding anchored to a diff line
+("Posting" under Flow): `{body, path, line}`, plus `oldPath` and `oldLine`
+for a line the diff removed, `body` the tier and title and what to
+change. `summary` is the review's summary note: the report's summary
+line, then every picked finding with no anchor, each added as `Add the
+finding to the summary note` says. It is never empty: a review with
+nothing picked still carries its summary line. `outcome` is the verdict's
+`outcome` value, `comment` or `approve`. A review carries at most 100
+comments and replies in total; past that, the lowest-tier anchored
+findings go in the summary instead.
 
-### Fix what the mr_comment error names
+`replies` is built from the gate's `thread-N` answers, one entry per
+thread whose answer picked anything: `discussionId` from the option
+value after `post:` or `resolve:`; `resolve` true when `resolve:<id>`
+was picked; `body` present only when `post:<id>` was picked, and then
+the answer's `text` when it carries one (the human edited the reply),
+else the drafted reply (the `Reply:` line of that thread's entry in
+`--report`'s Earlier threads section). A thread whose answer picked
+neither option gets no entry. With no `thread-N` question, `replies` is
+empty.
 
-`mr_comment` refused. Correct what the error names: `mrUrl` the MR's https
-URL, whose project is registered with rt; `body` the non-empty summary
-note. An error that names no input has nothing to correct: post again
-unchanged, once, and the off-script gate follows. An error is never a
-reason to post with the GitLab CLI or the API.
+A restored finding (a `restore:<id>` picked in a `skipped-N` answer)
+posts like a picked one: a comment at its recorded `file` and `line`,
+`body` its recorded `title` and then its `excerpt` verbatim, or in the
+summary note (`Add the finding to the summary note`) when it lacks a
+`file` or a `line`, or when its `changed` is true: its code moved since
+the round that skipped it, so its recorded line may now hold other code.
+Its text is the board's record of it, never rewritten: from the ledger
+read this pass made at the start of the re-review, or on a pane resumed
+on the verdict or at a posting origin, from `--report`'s Skipped earlier
+section. Its `changed` is the one the reviewing pass worked out, as that
+entry's `Changed:` line in `--report`'s Skipped earlier section records
+it.
+
+### Move the bad-anchor findings into the summary (review)
+
+The result's `badAnchors` names comments by `index`, the zero-based
+position in the `comments` array that was sent. Nothing posted. Take each
+named finding out of `comments` and add it to the summary as `Add the
+finding to the summary note` says, with its `file:line` in the text, as a
+finding with no anchor. Call again with the
+rest unchanged. This happens once: a second bad-anchors result goes to
+`review off-script gate: mr_review_submit refused`.
+
+### Fix what the mr_review_submit error names
+
+`mr_review_submit` refused the call itself. Correct what the error names:
+`mrUrl` the MR's https URL, whose project is registered with rt; `outcome`
+exactly `comment` or `approve`; `summary` non-empty; each comment a
+`body`, a `path` and a positive integer `line`; each reply a
+`discussionId` and a boolean `resolve`, with a `body` or `resolve: true`;
+at most 100 comments and replies together. An error that names no input
+has nothing to correct: call again unchanged, once, and the off-script
+gate follows. An error that says the call timed out, that the outcome is
+unknown, or that the review only partly landed, is never retried: it goes
+straight to the off-script gate. An error is never a reason to post the
+findings one by one, or with the GitLab CLI or the API.
 
 ### Fix what the mr_approve error names
 
-`mr_approve` refused. Correct what the error names: `mrUrl` the MR's https
-URL, whose project is registered with rt. A refusal about the approval
+`mr_approve` refused, or the submitted review came back `approved: false`
+with its `approveError`. Correct what the error names: `mrUrl` the MR's
+https URL, whose project is registered with rt. A refusal about the approval
 itself (the token's user may not approve this MR) has nothing to correct
 in the call: approve again unchanged, once, and the off-script gate
 follows. A refusal saying this account already approved is not an error:
@@ -1007,81 +1342,141 @@ spent round budget write `error` naming the refusal.
 
 Take "Off-script step" with this question. Label: `mr_threads refused
 twice on the Posted already read for !<iid>: <second error>`. Context:
-both `mr_threads` errors, quoted, and the picked findings' ids and anchors
-this pass could post.
+both `mr_threads` errors, quoted, and the summary this pass would post.
 
 | Value | Label | Description |
 |---|---|---|
-| `take: you name the findings and summary already posted (mr_threads refused on the Posted already read, round <k>)` | Name what is posted | You name what is already up and I post only the rest. |
+| `take: you say whether this review is already on the MR (mr_threads refused on the Posted already read, round <k>)` | Say if it is up | You say whether the review is already up and I submit it only if not. |
 | `iterate: you fixed the cause, read the threads again (mr_threads refused on the Posted already read, round <k>)` | Fixed it, read again | You fixed what refused the read and I read the threads again. |
 | `hold: keep this pane open with nothing posted (mr_threads refused on the Posted already read, round <k>)` | Hold this pane | I stop before posting anything and the pane stays open. |
 | `hand back: write an error naming the refusal, nothing posted (mr_threads refused on the Posted already read, round <k>)` | Hand it back | I write an error naming the refusal and post nothing. |
 
-A take marks exactly what the human names in the note as posted already,
-one `review-escalation-mark:` line per finding and one for the summary
-("Escalation marks"), before the walk moves on.
+A take writes `review-escalation-mark: review posted by hand` into
+`--report` ("Escalation marks") when the note says the review is up, and
+nothing when it says it is not, before the walk moves on.
 Iterate passes `Off-script rounds = 2 (review posted-already
 mr_threads)?` before reading again. Hand back, gate unavailable and a
 spent round budget write `error` naming the refusal; nothing posts
 unchecked.
 
-### review off-script gate: mr_comment_inline refused
+### review off-script gate: mr_review_submit refused
 
-Take "Off-script step" with this question. Label: `inline comment on
-<file>:<line> refused twice on !<iid>: <second error>`. Context: both
-`mr_comment_inline` errors, quoted, with the finding's id, anchor and
-body.
+Take "Off-script step" with this question. Label: `review submit refused
+on !<iid>: <last error>`. Context: every `mr_review_submit` error and
+bad-anchors result this pass got, quoted, then the summary and every
+comment in full. An error that says the call timed out, that the outcome
+is unknown, or that the review only partly landed may have left some or
+all of this review on the MR; any other error means nothing from it is
+up:
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you post finding <id> on <file>:<line> yourself (mr_comment_inline refused, round <k>)` | Post it yourself | You post this finding's comment and I continue with the next finding. |
-| `iterate: you fixed the cause, post finding <id> inline again (mr_comment_inline refused, round <k>)` | Fixed it, post again | You fixed what refused the comment and I post it inline again. |
-| `hold: keep this pane open with the remaining findings unposted (mr_comment_inline refused, round <k>)` | Hold this pane | I stop here and the findings not yet posted stay unposted. |
-| `hand back: write an error naming the refusal and what already posted (mr_comment_inline refused, round <k>)` | Hand it back | I write an error naming the refusal and what posted, and you take over. |
+- **Timed out, or outcome unknown:** the context says first that some or
+  all of this review may already be on the MR, and the human looks for
+  the summary on the MR before answering.
+- **Only partly landed:** the context says first that some of this
+  review's comments may be on the MR without its summary, and that the
+  human checks the MR's threads. The move is take only: the human
+  finishes the review in GitLab (what is missing, the summary included).
 
-A take counts the finding as posted, writes
-`review-escalation-mark: finding <id> posted by hand` into `--report`,
-and moves to the next one. Iterate passes `Off-script rounds = 2
-(mr_comment_inline)?` for this finding before posting again. Hand back,
-gate unavailable and a spent round budget write `error` naming the
-refusal and which findings posted.
-
-### review off-script gate: mr_comment refused
-
-Take "Off-script step" with this question. Label: `summary note refused
-twice on !<iid>: <second error>`. Context: both `mr_comment` errors,
-quoted, and the note's text.
+After any of these errors the context also says that iterate is only for
+a human who has confirmed nothing from this review is on the MR; it is
+never a blind resubmit.
 
 | Value | Label | Description |
 |---|---|---|
-| `take: you post the summary note yourself, then I apply the verdict (mr_comment refused, round <k>)` | Post the summary yourself | You post the summary note and I carry on to the verdict. |
-| `iterate: you fixed the cause, post the summary note again (mr_comment refused, round <k>)` | Fixed it, post again | You fixed what refused the note and I post it again. |
-| `hold: keep this pane open with the summary unposted and no verdict applied (mr_comment refused, round <k>)` | Hold this pane | I stop here with the summary unposted and the verdict unapplied. |
-| `hand back: write an error naming the refusal and what already posted (mr_comment refused, round <k>)` | Hand it back | I write an error naming the refusal and what posted, and you take over. |
+| `take: the review is up, posted or finished by you or by the failed call, then I apply the verdict (mr_review_submit refused, round <k>)` | Review is up | You post or finish the review yourself, or find the failed call already posted it, and I carry on to the verdict. |
+| `iterate: you fixed the cause and nothing from this review is on the MR, submit it again (mr_review_submit refused, round <k>)` | Nothing up, post again | You confirmed nothing from this review is on the MR and I submit it again. |
+| `hold: keep this pane open and post nothing more (mr_review_submit refused, round <k>)` | Hold this pane | I stop here and post nothing more. |
+| `hand back: write an error naming the refusal (mr_review_submit refused, round <k>)` | Hand it back | I write an error naming the refusal and you take over. |
 
-A take writes `review-escalation-mark: summary posted by hand` into
-`--report` and continues to `Outcome is approve?`. Iterate passes `Off-script
-rounds = 2 (mr_comment)?` before posting again. Hand back, gate
-unavailable and a spent round budget write `error` naming the refusal and
-which findings posted inline.
+A take writes `review-escalation-mark: review posted by hand` into
+`--report` and continues to `Outcome is approve?`. Iterate passes
+`Off-script rounds = 2 (mr_review_submit)?` before submitting again. Hand
+back, gate unavailable and a spent round budget take `Record the round
+again with nothing restored (review)`, then write `error` naming the
+refusal and what the MR shows.
+
+### review off-script gate: pending comments on the MR
+
+Take "Off-script step" with this question. Label: `pending comments block
+the review of !<iid>: <count> pending`. Context: the count and the first
+lines the result gave, quoted, and that these pending comments are this
+account's own, started in GitLab or left by an earlier submit that
+failed, which a submit would publish along with the review. Then the
+summary and every comment in full, for a take.
+
+| Value | Label | Description |
+|---|---|---|
+| `take: you post this review yourself together with your pending comments, then I apply the verdict (pending comments on the MR, round <k>)` | Post it yourself | You post this review along with your pending comments and I carry on to the verdict. |
+| `iterate: you submitted or discarded your pending comments, submit the review again (pending comments on the MR, round <k>)` | Cleared them, post again | You submit or discard your pending comments in GitLab and I submit the review again. |
+| `hold: keep this pane open with nothing posted (pending comments on the MR, round <k>)` | Hold this pane | I stop here with nothing posted. |
+| `hand back: write an error naming the pending comments, nothing posted (pending comments on the MR, round <k>)` | Hand it back | I write an error naming the pending comments and you take over. |
+
+Iterate is the usual answer: the human submits or discards those pending
+comments in GitLab, and iterate passes `Off-script rounds = 2 (pending
+comments)?` before submitting the same review again. A take writes
+`review-escalation-mark: review posted by hand` into `--report` and
+continues to `Outcome is approve?`. Hand back, gate unavailable and a
+spent round budget take `Record the round again with nothing restored
+(review)`, then write `error` naming the pending comments; nothing
+posted.
 
 ### review off-script gate: mr_approve refused
 
 Take "Off-script step" with this question. Label: `approval of !<iid>
-refused twice: <second error>`. Context: both `mr_approve` errors, quoted.
+refused twice: <second error>`. Context: both refusals, quoted: the
+submit's `approveError` or the first `mr_approve` error, then the second.
+The review is posted; only the approval failed.
 
 | Value | Label | Description |
 |---|---|---|
 | `take: you approve !<iid> yourself, then I mark the review done (mr_approve refused, round <k>)` | Approve it yourself | You approve the MR and I mark the review done as approve. |
 | `iterate: you fixed the cause, approve !<iid> again (mr_approve refused, round <k>)` | Fixed it, approve again | You fixed what refused the approval and I approve again. |
-| `hold: keep this pane open with the findings posted and no approval (mr_approve refused, round <k>)` | Hold this pane | I stop here with the findings posted and no approval. |
-| `hand back: write an error naming the refusal, the findings stay posted (mr_approve refused, round <k>)` | Hand it back | I write an error naming the refusal and you take over. |
+| `hold: keep this pane open with the review posted and no approval (mr_approve refused, round <k>)` | Hold this pane | I stop here with the review posted and no approval. |
+| `hand back: write an error naming the refusal, the review stays posted (mr_approve refused, round <k>)` | Hand it back | I write an error naming the refusal and you take over. |
 
 A take writes `review-escalation-mark: approved by hand` into `--report`
 and marks the review `done` with `--outcome approve`. Iterate passes
-`Off-script rounds = 2 (mr_approve)?` before approving again. Hand back,
-gate unavailable and a spent round budget write `error` naming the
-refusal; the posted findings stay.
+`Off-script rounds = 2 (mr_approve)?` before running `mr_approve` alone
+again, never the review. Hand back, gate unavailable and a spent round
+budget write `error` naming the refusal; the posted review stays.
+
+### Record the round again with nothing restored (review)
+
+The run is ending without posting this review, but `Record the verdict
+answer in --report` already recorded the round with the human's
+`--restored` and `--confirmed`. Left that way, a brought-back finding
+drops off the skipped list without ever posting, and a confirmed thread
+is hidden from every later round. So, before the `error` write, record
+the round again:
+
+`<status-bin> review-ledger record <state> --round <n> --sha <sha>
+--outcome <comment|approve> --skipped '<json array>' --restored '[]'
+--confirmed '[]'`
+
+`--round`, `--sha`, `--outcome` and `--skipped` are exactly what the
+verdict's record sent; the write replaces that round's row. A resumed
+pane builds them the way `Record the verdict answer in --report` does,
+from `--report`'s `review-round:` and `review-post-answer:` lines and the
+json sibling.
+
+Record again only when nothing from this review reached the MR:
+
+- **`pending comments on the MR`:** always; nothing was published.
+- **`mr_review_submit refused`:** always, unless an error this pass got
+  said the call timed out, that the outcome is unknown, or that the
+  review only partly landed. After timed out or outcome unknown, record
+  again only when the human's answer says nothing from this review is on
+  the MR: an iterate says so, a hand back only when its note does. After
+  only partly landed, never. A resumed pane holds none of the earlier
+  pane's errors, so at this origin it records again only on that same
+  answer.
+- **The domain skill's failure:** only when its report says nothing from
+  this review posted.
+
+Otherwise go straight to the `error` write. A report with no
+`review-round:` line records nothing, as at the verdict, and a record
+that exits nonzero is quoted in the pane; the `error` write follows
+either way.
 
 ## Gate step
 
@@ -1167,19 +1562,23 @@ answer with the `gate_answer` tool, a board gate records it with
 
 A `review-escalation` gate carries its one `action` question: render its
 label and the four options verbatim and submit the chosen value verbatim,
-nuance in the `{value, note}` form. Four things stay specific to
+nuance in the `{value, note}` form. Five things stay specific to
 `review-post`, which the included gate protocol does not cover:
 
 1. A label's " (recommended)" suffix becomes the form's own (Recommended)
    affordance.
 2. Your framing and reasoning go in the pane prose or option descriptions,
    never into rewritten question or option text.
-3. The question order is fixed: findings before outcome, since the human
-   weighs the findings before choosing a verdict.
+3. The question order is fixed: earlier threads, then findings, then
+   skipped findings, then outcome, since the human weighs them all before
+   choosing a verdict.
 4. Never an option that folds another question's answer in: there is
    never a "skip and approve clean" combo option, since "post nothing" is
    every `findings-N` question answered as an explicit empty array, which
    the daemon records.
+5. A `skipped-N` question has no recommended option: each skipped
+   finding is offered unticked, and only the human's tick brings one
+   back. Left alone, its answer is an explicit empty array.
 
 - **Fitted files.** A gate opened from a fitted file never shows its JSON
   in the form: run the `gate-ctx.sh`
@@ -1188,8 +1587,12 @@ nuance in the `{value, note}` form. Four things stay specific to
   (the open file's name with `.open.json` swapped for `.source.json`: `sh
   <gate-ctx.sh> prose < <dir>/review-post.source.json`), print its
   `.context` as one pane line before the form call, and make each
-  `findings-N` question's form text its label, a newline, then its prose
-  `context`. Options keep the gate's labels and descriptions.
+  `thread-N`, `findings-N` and `skipped-N` question's form text its
+  label, a newline, then its prose `context`. Options keep the gate's
+  labels and descriptions.
+- **Hand-built thread and skipped questions.** Their `context` is prose
+  already: the form text is the label, a newline, then that `context` as
+  written.
 - **Answers.** Each value is the chosen option's value verbatim, never an
   index or a paraphrase; nuance rides the note form, e.g. `{"outcome":
   {"value": "comment", "note": "approve once CI is green"}}`. A
@@ -1298,7 +1701,7 @@ situation line, and the four options the box's table gives, in order take,
 iterate, hold, hand back. Each option is an object:
 
 ```json
-{"value": "iterate: you fixed the cause, post the summary note again (mr_comment refused, round 1)", "label": "Fixed it, post again", "description": "You fixed what refused the note and I post it again."}
+{"value": "iterate: you fixed the cause and nothing from this review is on the MR, submit it again (mr_review_submit refused, round 1)", "label": "Nothing up, post again", "description": "You confirmed nothing from this review is on the MR and I submit it again."}
 ```
 
 `value` is spelled in full, starts with its verb, names the proposed move,
@@ -1319,12 +1722,12 @@ first letter lowercased) and the description `Retries are spent, so `
 plus the hand back row's description:
 
 ```json
-{"value": "iterate: you fixed the cause, post the summary note again (mr_comment refused, round 2)", "label": "No retry: hand it back", "description": "Retries are spent, so I write an error naming the refusal and what posted, and you take over."}
+{"value": "iterate: you fixed the cause and nothing from this review is on the MR, submit it again (mr_review_submit refused, round 2)", "label": "No retry: hand it back", "description": "Retries are spent, so I write an error naming the refusal and you take over."}
 ```
 
-`--context` quotes both errors verbatim (the first refusal and the one
-after the fix) with the call that was refused. Never send an empty
-context. It fits inside the gate's 8192 UTF-8 byte budget like
+`--context` is what the box's section names: for a refused call, the
+errors verbatim (the first refusal and the one after the fix) with the
+call that was refused. Never send an empty context. It fits inside the gate's 8192 UTF-8 byte budget like
 `review-post`'s; an oversized one is dropped loudly by the daemon, so
 never pre-trim it yourself. A nonzero open exit is not itself an
 off-script origin: it is `Off-script gate unavailable (review)`.
@@ -1379,7 +1782,10 @@ session.
 that file IS this gate: `gate-ctx.sh fit` output whose `.context` carries
 the review's structured summary and whose `findings-N` questions each
 carry their findings' structured context, with options already in the
-recipe below. Open it with:
+recipe below. On a re-review its `thread-N` questions come first, one
+per earlier thread, each in the gate protocol's `carryover@1` shape, and
+its `skipped-N` questions follow the findings, each in the `skipped@1`
+shape with its options unticked. Open it with:
 
 ```bash
 "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh" <status-bin> <state> review-post <open-file>
@@ -1396,6 +1802,15 @@ sibling of `--report`: swap the trailing `.md` for `.json`, or append
 append onto the md path. That's the same derivation the board's own
 `readReviewReportJson` uses server-side; the wrapper just reads the file
 itself.
+
+The hand-built per-finding recipe below covers first reviews only. A
+report json whose `threads` or `skipped` array is non-empty reaches the
+gate through the domain skill's fitted open file (`review-source.sh`,
+then `gate-ctx.sh fit`, with `round` in the extras), which carries the
+`thread-N` and `skipped-N` questions. Handed such a json with no fitted
+open file, treat it as malformed at `Report json sibling (review)?`: the
+tier fallback, with the earlier threads as hand-built `thread-N`
+questions and the skipped findings as hand-built `skipped-N` questions.
 
 **Per-finding questions.** When the json exists and its `findings` is a
 non-empty array, build one multi-select option per finding from that
@@ -1504,10 +1919,83 @@ the `tiers` answer to the report's tiers verbatim. The finding
 titles ride this `tiers` question's own `context` (one line per finding,
 verbatim from the report file, never re-summarized).
 
+On a re-review with earlier threads, one hand-built question per thread
+goes before `tiers`, numbered `thread-1`, `thread-2`, ... in the order
+the threads were handed in:
+
+```json
+{"id": "thread-1", "label": "lib/example/parse.ts:30", "multi": true,
+ "context": "lib/example/parse.ts:30 · round 1 · fixed by author\nYou wrote: this parser drops the trailing field\nAuthor replied: kept it in the latest push\nChecked: the parser now returns all four fields\nWill post as reply: Thanks, the trailing field comes through now.",
+ "options": [
+   {"value": "post:<discussionId>", "label": "Post reply (recommended)"},
+   {"value": "resolve:<discussionId>", "label": "Resolve thread (recommended)"}
+ ]}
+```
+
+Every string above is an invented placeholder: substitute the thread's
+real anchor, round, notes and `discussionId`, and don't copy the
+example verbatim.
+
+- **Label.** The thread's `file:line`, the file alone when it has no
+  line, or `General thread` when it has no anchor.
+- **Options.** Exactly two, `post:<discussionId>` and
+  `resolve:<discussionId>`, the thread's id verbatim in both. `Post
+  reply` always carries ` (recommended)`; `Resolve thread` carries it
+  only for the calls `fixed` and `pushback-accepted`, and reads plain
+  `Resolve thread` otherwise.
+- **Context.** Prose, its lines joined by newlines, in this order: the
+  anchor (as the label), `round <k>` and the call's words joined by
+  " · ", where `fixed` reads "fixed by author", `not-fixed` "waiting on
+  author", `pushback-accepted` "author pushed back, accept" and
+  `pushback-rejected` "author pushed back, hold firm"; then `You wrote:
+  ` and the reviewer's first note; then `Author replied: ` and the
+  author's latest note, or `The author has not replied in this thread.`
+  when they wrote none; then `Checked: ` and the note, when there is
+  one; then `Will post as reply: ` and the drafted reply. This is the
+  same prose the gate protocol's `carryover@1` flattens to, so every
+  surface reads one wording.
+
+On a re-review with skipped findings, hand-built questions follow
+`tiers`, ahead of `outcome`, numbered `skipped-1`, `skipped-2`, ...,
+four findings per question in the order they were handed in:
+
+```json
+{"id": "skipped-1", "label": "Bring back a finding you skipped earlier?", "multi": true,
+ "context": "[IMPORTANT] Example cache key ignores the locale (lib/example/cache.ts:18) · skipped in round 2 · code changed since\n[MINOR] Example log line names the wrong field · skipped in round 1",
+ "options": [
+   {"value": "restore:r2-f1", "label": "[Important] Example cache key ignores the locale",
+    "description": "lib/example/cache.ts:18 · skipped in round 2 · code changed since"},
+   {"value": "restore:r1-f5", "label": "[Minor] Example log line names the wrong field",
+    "description": "skipped in round 1"}
+ ]}
+```
+
+Every string above is an invented placeholder: substitute each skipped
+finding's real id, severity, title, anchor, round and `changed`, and
+don't copy the example verbatim.
+
+- **Options.** One per skipped finding. `value` is `restore:<id>`, its
+  round-qualified `id` verbatim. `label` is `[<Tier>] <title>`, `<Tier>`
+  its severity capitalised, the title middle-truncated past the 200-byte
+  cap as for findings. `description` joins with " · " its anchor
+  (`file:line`, or the file alone when it has no line), `skipped in
+  round <k>`, and `code changed since` when `changed` is true, leaving
+  out the parts that do not apply. No label carries ` (recommended)`.
+- **Context.** Prose, one line per option in option order:
+  `[<SEVERITY>] <title>`, then ` (<anchor>)` when it has a `file`, then
+  ` · skipped in round <k>`, then ` · code changed since` when `changed`
+  is true, `<SEVERITY>` being the severity in capitals. This is the line
+  the gate protocol's `skipped@1` flattens to.
+
+A domain-path re-review whose json sibling is absent or unparseable
+carries no thread questions and no skipped questions: there are no
+discussion ids or reported skipped entries to build them from.
+
 When no levels are present here either (a clean review with no findings,
 and no json to confirm it), omit the `tiers` question the same way as the
-per-finding path and open the gate with `outcome` alone, so a clean review
-is approvable in one click on this branch too:
+per-finding path and open the gate with `outcome` after any thread and
+skipped questions (alone on a first review), so a clean review is
+approvable in one click on this branch too:
 
 ```json
 [{"id": "outcome", "label": "Verdict", "multi": false, "options": ["comment", "approve"]}]
@@ -1534,23 +2022,52 @@ is what governs, and a reader scrolling from the top has no way to tell the two
 apart, which is why `Print the RE-REVIEW banner as the first output` comes
 before anything else.
 
-1. **Load the prior review, if any.** If a file exists at `--report <path>`,
-   it holds the previous review: read it first so you know exactly what was
-   flagged. If it's missing, there's no board record of a prior review;
-   carry on with the re-review framing anyway, since a human may have
-   reviewed outside the board.
-2. **Check whether the author actually acted.** Look at the MR's
-   discussions (read at `mr_threads {mrUrl, refresh: true} (re-review)`
-   on the generic path; the domain skill reads them itself) and new
-   commits since the last review. Did the author address the prior
-   feedback?
-3. **Branch.** Author acted: re-review focused on that. No action found:
-   say so explicitly in the report's summary line and fall back to a
-   normal full review. `Review the MR yourself` carries both branches.
-4. **Delegating to `--skill`?** Hand it the same framing: the prior review
-   (from `--report`), "check what the author addressed since the last
-   review", and the "flag and fall back to a full review if nothing was
-   acted on" instruction.
+1. **Read the round record.** Run `<status-bin> review-ledger read
+   <state>`. It prints one line of JSON: `round` (the last round the
+   board recorded; this pass is `round + 1`), `reviewedSha` (the commit
+   that round reviewed, null when there is none), `rounds` (each round's
+   `round`, `reviewedSha` and `recordedAt`), `skipped` (every finding a
+   human left unticked in an earlier round and no round has brought back
+   since, each with its round-qualified `id` such as `r1-f2`, its
+   `round`, `title`, `severity`, `file`, `line`, `excerpt` and `snippet`)
+   and `confirmed`. `round: 0` means the board has no record of an
+   earlier round: this pass is round 2 when a file exists at `--report`,
+   since a prior review is in hand, else round 1.
+2. **Rebuild round 1 for a review the board never recorded.** When the
+   read printed `round: 0` and `--report` holds a prior review carrying a
+   `review-post-answer:` line, with a json sibling that parses, rebuild
+   that review as round 1 before reviewing (`Build the round-1 skipped
+   list from the prior review`), record it, and read the ledger again.
+   With no such json sibling, record nothing: there is no list to
+   rebuild.
+3. **Collect your earlier threads.** From the `mr_threads {mrUrl,
+   refresh: true} (re-review)` result (the domain skill reads them
+   itself), keep every thread that can be resolved, is not resolved, and
+   whose first note this pane's account wrote. Leave out the board's own
+   latch thread (its first note's first line is an HTML comment naming
+   `mattstack:board re-review-latch`), other reviewers' threads, and any
+   thread whose id is in `confirmed`. Each thread's `round` is
+   the highest `rounds` entry whose `recordedAt` is at or before the
+   thread's first note; 1 when none is.
+4. **Hand the round to the review.** Give the review (the domain skill,
+   or `Review the MR yourself`) the earlier threads, `reviewedSha`, the
+   round number and the read's `skipped` list, each entry with the
+   `reviewedSha` of its round in `rounds`, with the framing: judge each
+   earlier thread, then find what is new, and raise no skipped finding
+   again. A `reviewedSha` of `unknown` (a round rebuilt from an old
+   report) is handed on as it is: the whole change is what changed. With
+   no earlier threads, say so explicitly in the report's summary line;
+   the pass is then a full review.
+
+A read that exits nonzero (no board db, no state row for `<state>`)
+reads as `round: 0` with nothing confirmed and nothing skipped: quote its
+stderr in the pane and go on. It rebuilds nothing, and this pass writes
+no `review-round:` line (`Append the review-round line to --report`), so
+no round is recorded for it: a guessed round number must never replace
+one the board holds. On the domain path the domain skill makes the
+thread read, so step 3 travels to it as the rule that picks the threads,
+with the `rounds` list and the `confirmed` ids (`Delegate the review to
+the domain skill`).
 
 Everything else (status writes, saving the report to `--report`, the gate)
 is the same: a re-review is still a review.

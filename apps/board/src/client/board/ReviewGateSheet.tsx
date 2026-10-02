@@ -33,7 +33,16 @@ import {
   SEVERITY_LABEL,
   SEVERITY_ORDER,
 } from './review-gate.ts';
-import { reserveDock, SheetLost } from './SheetParts.tsx';
+import {
+  CarryoverCard,
+  carryoverTally,
+  carryoverTexts,
+  FindingAnchor,
+  isPosting,
+  isResolving,
+  SkippedEarlier,
+} from './ReviewRoundParts.tsx';
+import { reserveDock, RoundHeading, SheetLost } from './SheetParts.tsx';
 
 /** The engine's optional record fields (`docs/superpowers/specs/
     2026-09-18-review-gate-redesign-design.md` §1): all absent on a report
@@ -130,8 +139,12 @@ function FullReportDisclosure({ mrUrl }: { mrUrl?: string | null }) {
         open={open}
         label="full report"
         onToggle={() => setOpen(o => !o)}
+        className="tui-review-full-report-head"
       >
-        <span className="tui-review-full-report-label">full report</span>
+        <span className="tui-review-full-report-label">Full report</span>
+        <span className="tui-review-full-report-hint">
+          the agent's whole write-up
+        </span>
       </DisclosureHead>
       <Disclosure open={open}>
         {failed ? (
@@ -166,13 +179,15 @@ function singles(answers: GateAnswers): GateAnswers {
   return out;
 }
 
+/** A re-review gate from before earlier threads rode their own cards still
+    marks carried findings; the labels name who has to act. */
 const DISPOSITION: Record<
   Disposition,
   { text: string; hue: 'accent' | 'amber' | 'green' }
 > = {
   new: { text: 'new', hue: 'accent' },
-  'still-open': { text: 'still open', hue: 'amber' },
-  'addressed-check': { text: 'confirm fix', hue: 'green' },
+  'still-open': { text: 'waiting on author', hue: 'amber' },
+  'addressed-check': { text: 'author says fixed', hue: 'green' },
 };
 
 function severityGroups(
@@ -211,13 +226,18 @@ function ReviewGateSheet({
   onContinue: () => void;
   onFocusPane: (mr: BoardMRWithReview, domain: GateDomain) => void;
 }) {
-  const { questions, groups } = useMemo(
-    () => collapseChunks(gate.questions),
-    [gate.questions]
-  );
   const data = useMemo(() => readReviewGate(gate), [gate]);
+  const { questions, groups } = useMemo(
+    () => collapseChunks(data?.rest ?? []),
+    [data]
+  );
+  const carryovers = useMemo(() => data?.carryovers ?? [], [data]);
   const findingsQuestion = useMemo<GateQuestion | undefined>(
     () => questions.find(q => q.multi && q.id === 'findings'),
+    [questions]
+  );
+  const skippedQuestion = useMemo<GateQuestion | undefined>(
+    () => questions.find(q => q.multi && q.id === 'skipped'),
     [questions]
   );
   const outcomeQuestion = useMemo<GateQuestion | undefined>(
@@ -225,7 +245,17 @@ function ReviewGateSheet({
     [questions]
   );
   const findingsName = findingsQuestion?.id;
+  const skippedName = skippedQuestion?.id;
   const outcomeName = outcomeQuestion?.id;
+  const skippedEntries = useMemo(
+    () =>
+      (skippedQuestion?.options ?? []).flatMap(o => {
+        const value = optionValue(o);
+        const e = data?.skipped.get(value);
+        return e ? [[value, e] as [string, typeof e]] : [];
+      }),
+    [skippedQuestion, data]
+  );
 
   const findings = useMemo<FindingEntry[]>(
     () =>
@@ -249,6 +279,10 @@ function ReviewGateSheet({
       (force || form.selections[findingsName] === undefined)
     ) {
       for (const f of findings) form.toggleMulti(findingsName, f.id, true);
+    }
+    for (const c of carryovers) {
+      if (!force && form.selections[c.name] !== undefined) continue;
+      for (const v of c.defaults) form.toggleMulti(c.name, v, true);
     }
     if (
       outcomeName &&
@@ -278,6 +312,16 @@ function ReviewGateSheet({
     const current = findingsName ? form.selections[findingsName] : undefined;
     return new Set(Array.isArray(current) ? current : []);
   }, [form.selections, findingsName]);
+  const selectedSkipped = useMemo(() => {
+    const current = skippedName ? form.selections[skippedName] : undefined;
+    return new Set(Array.isArray(current) ? current : []);
+  }, [form.selections, skippedName]);
+  const replying = carryovers.filter(c => isPosting(c, form.selections)).length;
+  const resolving = carryovers.filter(c =>
+    isResolving(c, form.selections)
+  ).length;
+  const replyTexts = carryoverTexts(carryovers, form.selections, form.texts);
+  const postingFindings = selectedFindings.size + selectedSkipped.size;
   const selectedOutcome = outcomeName
     ? form.selections[outcomeName]
     : undefined;
@@ -322,7 +366,9 @@ function ReviewGateSheet({
       const box = el.getBoundingClientRect();
       const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
       setAtEnd(remaining <= 1);
-      const rows = el.querySelectorAll<HTMLElement>('.tui-review-finding-row');
+      const rows = el.querySelectorAll<HTMLElement>(
+        '.tui-review-find-list .tui-review-finding-row'
+      );
       let below = 0;
       rows.forEach(row => {
         if (row.getBoundingClientRect().top >= box.bottom) below++;
@@ -345,9 +391,19 @@ function ReviewGateSheet({
 
   const submit = () => {
     if (!outcomeName || typeof selectedOutcome !== 'string') return;
+    if (replyTexts === null) return;
     const trimmedNote = outcomeNote.trim();
+    const threadAnswers: GateAnswers = {};
+    for (const c of carryovers) {
+      const v = form.selections[c.name];
+      const picked = Array.isArray(v) ? v : [];
+      const text = replyTexts[c.name];
+      threadAnswers[c.name] = text ? { value: picked, text } : picked;
+    }
     const answers: GateAnswers = {
       ...(findingsName ? { [findingsName]: [...selectedFindings] } : {}),
+      ...(skippedName ? { [skippedName]: [...selectedSkipped] } : {}),
+      ...threadAnswers,
       [outcomeName]:
         trimmedNote.length > 0
           ? { value: selectedOutcome, note: trimmedNote }
@@ -370,6 +426,21 @@ function ReviewGateSheet({
   if (!data) return null;
   const { review } = data;
   const meta = reviewMeta(review);
+  const roundSummary = [
+    carryovers.length > 0
+      ? `${carryovers.length} earlier ${carryovers.length === 1 ? 'thread' : 'threads'}`
+      : null,
+    findings.length > 0
+      ? `${findings.length} new ${findings.length === 1 ? 'finding' : 'findings'}`
+      : carryovers.length > 0
+        ? 'nothing new'
+        : null,
+    skippedEntries.length > 0
+      ? `${skippedEntries.length} skipped earlier`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <GateSheet
@@ -401,11 +472,41 @@ function ReviewGateSheet({
     >
       <div className="tui-sheet-body">
         <section className="tui-sheet-main" ref={mainRef}>
+          {review.round !== undefined && (
+            <RoundHeading round={review.round} summary={roundSummary} />
+          )}
+          {carryovers.length > 0 && (
+            <>
+              <div className="tui-sheet-list-head">
+                <span className="tui-sheet-list-title">
+                  Your earlier threads ({carryovers.length})
+                </span>
+                <span className="tui-sheet-list-tally">
+                  {carryoverTally(carryovers)}
+                </span>
+              </div>
+              <div className="tui-respond-list">
+                {carryovers.map(c => (
+                  <CarryoverCard key={c.name} pick={c} form={form} />
+                ))}
+              </div>
+            </>
+          )}
+          {carryovers.length > 0 && !findingsQuestion && (
+            <>
+              <div className="tui-sheet-list-head">
+                <span className="tui-sheet-list-title">New this round</span>
+              </div>
+              <p className="tui-thread-nothing">Nothing new this round.</p>
+            </>
+          )}
           {findingsQuestion && (
             <>
               <div className="tui-sheet-list-head">
                 <span className="tui-sheet-list-title">
-                  {findingsQuestion.label}
+                  {carryovers.length > 0
+                    ? 'New this round'
+                    : findingsQuestion.label}
                 </span>
                 <span className="tui-sheet-list-tally">
                   {selectedFindings.size} of {findings.length} selected
@@ -481,15 +582,19 @@ function ReviewGateSheet({
                                 >
                                   {f.title}
                                 </span>
-                                {f.disposition && (
-                                  <span
-                                    className="tui-respond-pill"
-                                    data-hue={DISPOSITION[f.disposition].hue}
-                                    data-disposition={f.disposition}
-                                  >
-                                    {DISPOSITION[f.disposition].text}
-                                  </span>
-                                )}
+                                {f.disposition &&
+                                  !(
+                                    f.disposition === 'new' &&
+                                    carryovers.length > 0
+                                  ) && (
+                                    <span
+                                      className="tui-respond-pill"
+                                      data-hue={DISPOSITION[f.disposition].hue}
+                                      data-disposition={f.disposition}
+                                    >
+                                      {DISPOSITION[f.disposition].text}
+                                    </span>
+                                  )}
                               </span>
                               {f.file && <FindingAnchor file={f.file} />}
                               <span className="tui-review-finding-text">
@@ -511,6 +616,13 @@ function ReviewGateSheet({
                 })}
               </div>
             </>
+          )}
+          {skippedName && skippedEntries.length > 0 && (
+            <SkippedEarlier
+              entries={skippedEntries}
+              selected={selectedSkipped}
+              onToggle={(value, on) => form.toggleMulti(skippedName, value, on)}
+            />
           )}
 
           <hr className="tui-review-divider" />
@@ -725,16 +837,29 @@ function ReviewGateSheet({
                     intent="accent"
                     size="lg"
                     className="tui-sheet-submit"
-                    disabled={form.busy || typeof selectedOutcome !== 'string'}
+                    disabled={
+                      form.busy ||
+                      typeof selectedOutcome !== 'string' ||
+                      replyTexts === null
+                    }
                     onClick={submit}
                   >
                     {form.busy
                       ? 'submitting…'
-                      : findingsQuestion === undefined
+                      : findingsQuestion === undefined &&
+                          !skippedQuestion &&
+                          carryovers.length === 0
                         ? (outcomeText ?? 'submit')
-                        : outcomeText
-                          ? `post ${selectedFindings.size} · ${outcomeText}`
-                          : `post ${selectedFindings.size}`}
+                        : [
+                            findingsQuestion || skippedQuestion
+                              ? `post ${postingFindings}`
+                              : null,
+                            replying > 0 ? `reply ${replying}` : null,
+                            resolving > 0 ? `resolve ${resolving}` : null,
+                            outcomeText || null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
                   </Button>
                   {form.failed && (
                     <span className="tui-gate-error">
@@ -755,17 +880,3 @@ function ReviewGateSheet({
 }
 
 export { ReviewGateSheet };
-
-/** A finding's file:line with its folders set back, so the file name reads
-    first on a long path. */
-function FindingAnchor({ file }: { file: string }) {
-  const cut = file.lastIndexOf('/') + 1;
-  return (
-    <span className="tui-review-finding-anchor">
-      {cut > 0 && (
-        <span className="tui-review-finding-dir">{file.slice(0, cut)}</span>
-      )}
-      <span className="tui-review-finding-file">{file.slice(cut)}</span>
-    </span>
-  );
-}

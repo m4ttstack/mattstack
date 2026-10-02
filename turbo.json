@@ -52,7 +52,16 @@
       "dependsOn": ["^build", "browsers"]
     },
     "board#test": {
-      "dependsOn": ["^build", "@mattstack/tui-kit#browsers"]
+      "dependsOn": ["^build", "@mattstack/tui-kit#browsers"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/plugins/mattstack/attachments/review/review/scripts/**",
+        "$TURBO_ROOT$/plugins/mattstack/attachments/review/review/tests/fixtures/**",
+        "!$TURBO_ROOT$/**/node_modules/**",
+        "!$TURBO_ROOT$/**/.turbo/**",
+        "!$TURBO_ROOT$/**/dist/**",
+        "!$TURBO_ROOT$/**/dist-bin/**"
+      ]
     },
     "@mattstack/tui-kit#test:oracles": {
       "dependsOn": ["^build", "browsers"],

@@ -8,6 +8,7 @@
 
 const VERBS: Record<string, () => Promise<unknown>> = {
   'review-status': () => import('../bin/review-status.ts'),
+  'review-ledger': () => import('../bin/review-ledger.ts'),
   'respond-status': () => import('../bin/respond-status.ts'),
   'doctor-status': () => import('../bin/doctor-status.ts'),
   'doctor-draft': () => import('../bin/doctor-draft.ts'),

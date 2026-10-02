@@ -11,7 +11,7 @@ metadata:
   slots: "doctor,doctor-api"
   slot-doctor: "required mr-doctor@2 -- owns the checkout-tier repair playbook: locating or provisioning the worktree, rebasing, triaging and fixing CI, watching for green. When a fix would otherwise dead-end in error but the decision is enumerable, it reports the decision back to this wrapper instead of guessing or terminating -- it never opens or waits on the escalation gate itself."
   slot-doctor-api: "required mr-doctor-api@2 -- owns the api-tier repair playbook: no checkout, pipeline retries, server-side rebase, held drafts only. Same escalation-reporting contract as the checkout-tier slot -- it never opens or waits on the escalation gate itself."
-  compiled: "mattstack:gate-protocol@0.30.4"
+  compiled: "mattstack:gate-protocol@0.30.15"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
@@ -567,7 +567,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Escalation step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.4 path=attachments/gate-protocol/SKILL.md lines=7-452 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.15 path=attachments/gate-protocol/SKILL.md lines=7-456 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act
@@ -927,15 +927,19 @@ path. The key is both the discriminant and the version:
 | `replies@1` | a replies question's `context` (the retired respond-post shape; renderers still read gates opened with it) | `replies[]`, each `thread`, `file`, `verb`, `text` | `sha` per entry |
 | `review@1` | a review-post gate's `context` | `readiness`, `summary`, `findings` (counts by severity) | `reviewer`, `round`, `re_review` (absent reads false), `prior` (`{addressed, still_open}`, both required) |
 | `findings@1` | each `findings-*` question's `context` | `findings[]`, each `id`, `severity`, `title`, `body` | `file`, `fix`, `evidence`, `disposition` per entry |
+| `carryover@1` | a review-post gate's `thread-<n>` question's `context`, one question per earlier thread, each its own question and never a chunk of one. The question is `multi` with exactly two options, `post:<thread>` and `resolve:<thread>`; an option label ending ` (recommended)` is a default. An answer is the picked values, or `{value: [...], text}` when the human edited the reply, and `text` replaces `reply` | `thread`, `round`, `call` (`fixed`, `not-fixed`, `pushback-accepted` or `pushback-rejected`), `original`, `reply` | `file` (the thread's anchor), `authorReply`, `note` |
+| `skipped@1` | a review-post gate's `skipped-<n>` questions' `context`, chunked at four after the findings questions. Each question is `multi` with one option per entry, its value `restore:<id>`, joined one to one like `findings@1`. Nothing is recommended: a skipped finding comes back only when the human ticks it. Answers read back as one union across the chunks | `skipped[]`, each `id`, `round`, `severity`, `title`, `changed` (boolean: the code it pointed at moved since that round) | `file` per entry (the finding's `path:line` anchor) |
 
 - Enums: `severity` is `blocking | non-blocking | question | none`;
   `verdict.call` is `valid | valid-low-value | pushback |
   needs-clarification | no-ask`; `reply.kind` is `verbatim` (the exact
   text that will post), `direction` (intent only), or `none` (nothing
   posts); `verb` is `reply | fix`, and `sha` rides only a `fix`.
-  `readiness` is `yes | no | with-fixes`, hyphenated; a `findings@1`
-  entry's `severity` is `critical | important | minor` and its
-  `disposition` (re-review only) is `new | still-open | addressed-check`;
+  `readiness` is `yes | no | with-fixes`, hyphenated; a `skipped@1`
+  entry's `severity` is `critical | important | minor`, as is a
+  `findings@1` entry's, and a `findings@1` entry's
+  `disposition` is `new` on a re-review, or absent (`still-open` and
+  `addressed-check` are read, never written);
   a severity with no findings may omit its count, and absent reads 0.
 - A `thread@1` question's `label` is the thread's `file:line`, and its
   ordinal is its position among the gate's `thread-*` questions. The

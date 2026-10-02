@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
-import { Markdown } from '@mattstack/tui-kit';
+import { Button, Markdown } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import type {
   ReplyEntry,
@@ -8,6 +8,8 @@ import type {
   ThreadCtx,
   VerdictCall,
 } from './gate-ctx.ts';
+import type { GateFormState } from './GateForm.tsx';
+import type { PostPick } from './respond-post.ts';
 
 const SEVERITY: Record<
   Severity,
@@ -108,7 +110,9 @@ function ThreadCard({
 /** A reply the developer may rewrite before it posts: the draft at rest,
     an auto-growing box while editing. `value` is the edit, absent when
     there is none; `canEdit` is false while the thread will not post this
-    reply (held, or picked fix or skip), which also closes an open box. */
+    reply (held, or picked fix or skip), which also closes an open box.
+    `controls`, when given, sit at the right of the box's footer, so the
+    reply and the decision on it read as one place. */
 function EditableReply({
   label,
   draft,
@@ -116,6 +120,7 @@ function EditableReply({
   canEdit,
   onChange,
   onReset,
+  controls,
 }: {
   label: string;
   draft: string;
@@ -123,6 +128,7 @@ function EditableReply({
   canEdit: boolean;
   onChange: (text: string) => void;
   onReset: () => void;
+  controls?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   if (editing && !canEdit) setEditing(false);
@@ -153,9 +159,17 @@ function EditableReply({
     el.setSelectionRange(el.value.length, el.value.length);
   }, [open, ref]);
   return (
-    <div className="tui-thread-reply" data-kind="verbatim">
+    <div
+      className="tui-thread-reply"
+      data-kind="verbatim"
+      data-held={controls && !canEdit ? '' : undefined}
+    >
       <span className="tui-thread-reply-k">
-        {canEdit ? 'will post as reply' : 'drafted reply'}
+        {canEdit
+          ? 'will post as reply'
+          : controls
+            ? 'drafted reply · not posting'
+            : 'drafted reply'}
       </span>
       {open ? (
         <textarea
@@ -185,21 +199,40 @@ function EditableReply({
           the reply is empty
         </span>
       )}
-      {canEdit && (
+      {(canEdit || controls) && (
         <div className="tui-thread-reply-actions">
-          {open ? (
+          {!canEdit ? (
+            <Button
+              type="button"
+              variant="light"
+              intent="muted"
+              size="sm"
+              className="tui-thread-reply-placeholder"
+              aria-hidden="true"
+              tabIndex={-1}
+              disabled
+            >
+              edit
+            </Button>
+          ) : open ? (
             <>
-              <button
+              <Button
                 type="button"
+                variant="light"
+                intent="accent"
+                size="sm"
                 className="tui-thread-reply-action"
                 aria-label={`${label}: done editing`}
                 onClick={close}
               >
                 done
-              </button>
+              </Button>
               {edited && (
-                <button
+                <Button
                   type="button"
+                  variant="light"
+                  intent="muted"
+                  size="sm"
                   className="tui-thread-reply-action"
                   aria-label={`${label}: reset to draft`}
                   onClick={() => {
@@ -208,19 +241,25 @@ function EditableReply({
                   }}
                 >
                   reset to draft
-                </button>
+                </Button>
               )}
             </>
           ) : (
-            <button
+            <Button
               ref={editRef}
               type="button"
+              variant="light"
+              intent="muted"
+              size="sm"
               className="tui-thread-reply-action"
               aria-label={`${label}: edit reply`}
               onClick={() => setEditing(true)}
             >
               edit
-            </button>
+            </Button>
+          )}
+          {controls && (
+            <div className="tui-thread-reply-controls">{controls}</div>
           )}
         </div>
       )}
@@ -323,9 +362,76 @@ function ReplyChoiceBody({
   );
 }
 
+/** A per-thread post question's controls, one compact row of two ticks:
+    post the reply, and, independently, resolve the thread. Unticking post
+    holds the reply back. What each does rides the tooltip. */
+function PostResolveChoice({
+  pick,
+  form,
+}: {
+  pick: PostPick;
+  form: GateFormState;
+}) {
+  const current = form.selections[pick.name];
+  const picked = new Set(Array.isArray(current) ? current : []);
+  const posting = picked.has(pick.post);
+  const resolving = picked.has(pick.resolve);
+  const ticks = [
+    {
+      value: 'post',
+      option: pick.post,
+      on: posting,
+      text: 'Post reply',
+      hint: posting
+        ? 'post this reply to the thread'
+        : 'held back; nothing is posted',
+    },
+    {
+      value: 'resolve',
+      option: pick.resolve,
+      on: resolving,
+      text: 'Resolve thread',
+      hint: posting
+        ? 'resolve the thread once the reply posts'
+        : 'resolve the thread without replying',
+    },
+  ];
+  return (
+    <div className="tui-post-controls">
+      {ticks.map(t => (
+        <label
+          className="tui-post-tick"
+          data-checked={t.on || undefined}
+          title={t.hint}
+          key={t.value}
+        >
+          <span className="tui-check">
+            <input
+              type="checkbox"
+              className="tui-gate-choice-input"
+              data-type="checkbox"
+              data-checked={t.on ? '' : undefined}
+              value={t.value}
+              aria-label={`${pick.label}: ${t.value}`}
+              aria-description={t.hint}
+              checked={t.on}
+              onChange={e =>
+                form.toggleMulti(pick.name, t.option, e.currentTarget.checked)
+              }
+            />
+            <span className="tui-check-tick" aria-hidden="true" />
+          </span>
+          {t.text}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 export {
   EditableReply,
   EditedChip,
+  PostResolveChoice,
   ReplyBlock,
   ReplyChoiceBody,
   SeverityPill,

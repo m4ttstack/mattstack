@@ -2,8 +2,9 @@
 # gate-ctx.sh -- validate, size-fit, and flatten a gate-ctx@1 gate open.
 #   gate-ctx.sh fit [--limit <bytes>] < source.json
 #   gate-ctx.sh prose < source.json
-# source.json: {"context": <gate-level object>, "questions": [<question,
-# its "context" an object when it has one>]}.
+# source.json: {"context": <plan@1, post@1 or review@1>, "questions":
+# [<question, its "context" a thread@1, reply@1, carryover@1, findings@1 or
+# skipped@1 object when it has one>]}.
 # stdout: {"mode","bytes","fits","trimmed","context","questions"}, every context
 # already a string, ready for --context and each question's context field.
 # "fits": false means even the smallest prose is over the limit. A review@1
@@ -73,6 +74,19 @@ def reply_errs($values): [
      | chk(($values | sort) == ["post:\($t)", "resolve:\($t)"]; "options: exactly post:\($t) and resolve:\($t)")
    else empty end)
 ];
+def carryover_errs($values): [
+  chk(.thread | str; "thread: required non-empty string"),
+  chk(.round | type == "number" and . == floor and . >= 1; "round: integer of at least 1"),
+  chk(.call | among(["fixed","not-fixed","pushback-accepted","pushback-rejected"]); "call: fixed|not-fixed|pushback-accepted|pushback-rejected"),
+  chk(.original | str; "original: required non-empty string"),
+  chk(.reply | str; "reply: required non-empty string"),
+  chk(optional("file"; str); "file: non-empty string when present"),
+  chk(optional("authorReply"; str); "authorReply: non-empty string when present"),
+  chk(optional("note"; str); "note: non-empty string when present"),
+  (if .thread | str then .thread as $t
+     | chk(($values | sort) == ["post:\($t)", "resolve:\($t)"]; "options: exactly post:\($t) and resolve:\($t)")
+   else empty end)
+];
 def review_errs: [
   chk(.readiness | among(["yes","no","with-fixes"]); "readiness: yes|no|with-fixes"),
   chk(.summary | str; "summary: required non-empty string"),
@@ -100,6 +114,21 @@ def findings_errs($values): [
     | ($values[] | select(. as $v | $ids | index([$v]) == null) | "option \(.): no findings entry carries its value"),
       ($ids | group_by(.) | map(select(length > 1) | .[0])[] | "findings: id \(.) appears more than once"))
 ];
+def skipped_errs($values): [
+  chk(.skipped | type == "array" and length > 0; "skipped: required non-empty array"),
+  (entries("skipped") | to_entries[] | .key as $i | .value | (
+    chk(.id | str; "skipped[\($i)].id: required non-empty string"),
+    chk(.round | type == "number" and . == floor and . >= 1; "skipped[\($i)].round: integer of at least 1"),
+    chk(.severity | among(["critical","important","minor"]); "skipped[\($i)].severity: critical|important|minor"),
+    chk(.title | str; "skipped[\($i)].title: required non-empty string"),
+    chk(.changed | type == "boolean"; "skipped[\($i)].changed: required boolean"),
+    chk(optional("file"; str); "skipped[\($i)].file: non-empty string when present"),
+    chk("restore:\(.id)" as $v | $values | index([$v]) != null; "skipped[\($i)].id: matches no option value of this question")
+  )),
+  ([entries("skipped")[] | .id?] as $ids
+    | ($values[] | select(. as $v | ($ids | map("restore:\(.)")) | index([$v]) == null) | "option \(.): no skipped entry carries its value"),
+      ($ids | group_by(.) | map(select(length > 1) | .[0])[] | "skipped: id \(.) appears more than once"))
+];
 def shape_errs($where; $allowed; $values):
   if type != "object" then ["\($where): context must be an object"]
   elif (.["gate-ctx"] | among($allowed)) | not then ["\($where): gate-ctx must be one of \($allowed | join(", "))"]
@@ -109,6 +138,8 @@ def shape_errs($where; $allowed; $values):
     elif .["gate-ctx"] == "review@1" then review_errs
     elif .["gate-ctx"] == "thread@1" then thread_errs
     elif .["gate-ctx"] == "reply@1" then reply_errs($values)
+    elif .["gate-ctx"] == "carryover@1" then carryover_errs($values)
+    elif .["gate-ctx"] == "skipped@1" then skipped_errs($values)
     else findings_errs($values) end
   ) | map("\($where): \(.)") end;
 def option_values: [.options[]? | if type == "object" then .value else . end];
@@ -118,10 +149,10 @@ def errors:
   else
     (if has("context") then .context | shape_errs("gate"; ["plan@1","post@1","review@1"]; []) else [] end)
     + [.questions[] | select(has("context")) | option_values as $v | .id as $id
-        | .context | shape_errs("\($id)"; ["thread@1","reply@1","findings@1"]; $v)[]]
-    + [.questions[] | select(.context["gate-ctx"]? == "reply@1" and .multi != true)
-        | "\(.id): multi: a reply@1 question is multi"]
-    + ([.questions[] | select(.context["gate-ctx"]? == "reply@1") | {id, t: .context.thread}]
+        | .context | shape_errs("\($id)"; ["thread@1","reply@1","findings@1","carryover@1","skipped@1"]; $v)[]]
+    + [.questions[] | select((.context["gate-ctx"]? | among(["reply@1","carryover@1"])) and .multi != true)
+        | "\(.id): multi: a per-thread question is multi"]
+    + ([.questions[] | select(.context["gate-ctx"]? | among(["reply@1","carryover@1"])) | {id, t: .context.thread}]
         | group_by(.t) | map(select(length > 1) | .[1:][] | "\(.id): thread \(.t) is offered by more than one question"))
   end;
 
@@ -158,6 +189,19 @@ def prose:
        + (if has("fix") then ["Fix: \(.fix)"] else [] end)
        + (if has("evidence") then ["Evidence: \(.evidence)"] else [] end)
      | join("\n")] | join("\n\n")
+  elif .["gate-ctx"] == "carryover@1" then
+    ([([(if has("file") then .file else "General thread" end), "round \(.round)",
+        {"fixed":"fixed by author","not-fixed":"waiting on author","pushback-accepted":"author pushed back, accept","pushback-rejected":"author pushed back, hold firm"}[.call]]
+       | join(" · ")),
+      "You wrote: \(.original)"]
+     + (if has("authorReply") then ["Author replied: \(.authorReply)"] else ["The author has not replied in this thread."] end)
+     + (if has("note") then ["Checked: \(.note)"] else [] end)
+     + ["Will post as reply: \(.reply)"]) | join("\n")
+  elif .["gate-ctx"] == "skipped@1" then
+    [.skipped[]
+     | "[\(.severity | ascii_upcase)] \(.title)" + (if has("file") then " (\(.file))" else "" end)
+       + " · skipped in round \(.round)" + (if .changed then " · code changed since" else "" end)]
+    | join("\n")
   elif .["gate-ctx"] == "thread@1" then
     (["[\(.severity | sev)] \(.author): \(.claim.summary)"]
      + [(.claim.points // [])[] | "- \(.)"]
@@ -181,6 +225,28 @@ def trim($f; $limit):
     (candidates($f) | sort_by(-.b, .i) | first.i) as $i
     | .questions[$i].context |= drop_field($f)
     | .trimmed += ["\(.questions[$i].id):\($f)"]);
+def carry_candidates($f): [.questions | to_entries[]
+  | select(.value.context["gate-ctx"]? == "carryover@1" and (.value.context | has($f)))
+  | {i: .key, b: (.value.context | tojson | utf8bytelength)}];
+def trim_carry($f; $limit):
+  until(ctx_bytes < $limit or (carry_candidates($f) | length == 0);
+    (carry_candidates($f) | sort_by(-.b, .i) | first.i) as $i
+    | .questions[$i].context |= del(.[$f])
+    | .trimmed += ["\(.questions[$i].id):\($f)"]);
+def long_carry($f): [.questions | to_entries[]
+  | select(.value.context["gate-ctx"]? == "carryover@1" and (.value.context[$f] | length) > 80)
+  | {i: .key, b: (.value.context | tojson | utf8bytelength)}];
+# A second pass cuts out the first marker with the middle half, so a field
+# carries one marker however often it shrinks.
+def middle: length as $n | ($n / 4 | floor) as $k | .[:$k] + " ... " + .[$n - $k:];
+# Shortens, never deletes: carryover@1 reads an absent authorReply as
+# "the author never replied", and original is required.
+def shorten_carry($f; $limit):
+  until(ctx_bytes < $limit or (long_carry($f) | length == 0);
+    (long_carry($f) | sort_by(-.b, .i) | first.i) as $i
+    | .questions[$i].context[$f] |= middle
+    | "\(.questions[$i].id):\($f)" as $tag
+    | if .trimmed | index([$tag]) then . else .trimmed += [$tag] end);
 def entry_candidates($f): [.questions | to_entries[] | .key as $i
   | select(.value.context["gate-ctx"]? == "findings@1")
   | .value.context.findings | to_entries[] | select(.value | has($f))
@@ -204,6 +270,7 @@ def main($mode; $limit):
   if $mode == "prose" or (structurable | not) then render("prose"; true)
   else . as $src
     | (.trimmed = [] | trim("points"; $limit) | trim("note"; $limit)
+        | trim_carry("note"; $limit) | shorten_carry("authorReply"; $limit) | shorten_carry("original"; $limit)
         | trim_entries("evidence"; $limit) | trim_entries("fix"; $limit)) as $fitted
     | if ($fitted | ctx_bytes) < $limit then $fitted | render("structured"; false)
       else ($src | render("prose"; true)) as $full

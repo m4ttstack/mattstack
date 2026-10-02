@@ -183,3 +183,24 @@ export function threadsOpenedBy(
 ): CommentThread[] {
   return threads.filter(t => t.notes[0]?.username === username);
 }
+
+/** A roster member other than the author left a plain note, or the board's
+    own latch is armed and not resolved. */
+export function hasQuietReview(
+  detail: MRDetail,
+  comments: GeneralComment[],
+  author: string | null,
+  members: ReadonlySet<string>
+): boolean {
+  if (
+    comments.some(
+      c =>
+        c.username !== null && c.username !== author && members.has(c.username)
+    )
+  )
+    return true;
+  return detail.discussions.some(d => {
+    const root = d.notes[0];
+    return !!root && latchKindOf(root.body ?? '') === 'armed' && !d.resolved;
+  });
+}
