@@ -52,6 +52,9 @@ export type {
   /** @deprecated see the type's own JSDoc in ContextMenu.tsx. */
   ContextMenuSeparatorOwnProps,
   ContextMenuSeparatorProps,
+  ContextMenuRowProps,
+  ContextMenuSubOwnProps,
+  ContextMenuSubProps,
 } from "./recipes/ContextMenu/ContextMenu.tsx";
 
 export { CopyButton, copyButtonTheme } from "./recipes/CopyButton/CopyButton.tsx";

@@ -1237,6 +1237,7 @@ export function Board() {
   const actionEnv: ActionEnv = {
     local: data.local,
     slackEnabled: data.slackEnabled,
+    triageEnabled: data.triageEnabled,
     ownerSlackRepos: data.ownerSlackRepos,
     self: seat,
     roster: data.members.map(m => m.username),
@@ -1590,6 +1591,7 @@ export function Board() {
             subject={`${selectedMrs.length} selected`}
             entries={bulkEntries}
             empty={`nothing fits all ${selectedMrs.length}`}
+            flat
             onClose={() => setRowMenu(null)}
             onRun={(key, opts) => {
               const entry = bulkEntries.find(e => e.key === key);

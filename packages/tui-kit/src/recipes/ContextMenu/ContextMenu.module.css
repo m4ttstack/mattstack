@@ -7,13 +7,15 @@
  * rule that needs rewriting at adoption.
  */
 @layer soribashi.recipes {
+  .positioner {
+    z-index: 200;
+  }
+
   /* `box-sizing` is an ADDITION, not a lift — mr-board gets it from a global
      reset, the kit's copy of which (src/canvas.css) is optional. See
      docs/decisions.md for what it does and does not guarantee. */
   .root {
     box-sizing: border-box;
-    position: fixed;
-    z-index: 200;
     min-width: var(--sb-contextmenu-min-w);
     padding: var(--spacing-px4);
     background: var(--card);
@@ -21,6 +23,7 @@
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-menu);
     font-size: var(--font-size-px13);
+    outline: none;
   }
 
   .label {
@@ -52,16 +55,29 @@
     cursor: pointer;
   }
 
-  .item:hover:not(:disabled),
-  .item:focus-visible {
-    background: var(--surface-wash-accent-16);
+  /* Base UI moves focus with the pointer, so `data-highlighted` is both hover
+     and keyboard focus. A disabled row (`data-disabled`) stays focusable, so
+     it is washed only when the keyboard put it there. `:not(:hover)` because
+     the pointer focuses a row by script, which keeps `:focus-visible` once a
+     key opened the menu. `data-popup-open` keeps a Sub's row lit while its
+     panel is open. */
+  .item {
     outline: none;
   }
 
-  .item:disabled {
-    color: var(--text-3);
-    opacity: 0.45;
-    cursor: default;
+  .item[data-highlighted]:not([data-disabled]),
+  .item[data-disabled]:focus-visible:not(:hover),
+  .item[data-popup-open] {
+    background: var(--surface-wash-accent-16);
+  }
+
+  /* No opacity: it would fade the hint with the label. The label and its
+     glyphs take --muted, about 3:1 on the card (a disabled control is exempt
+     from the text bar) and several times dimmer than a live --text-1 label;
+     the hint keeps --text-4 so the reason stays legible, set in italic. */
+  .item[data-disabled] {
+    color: var(--muted);
+    cursor: not-allowed;
   }
 
   .hint {
@@ -70,10 +86,48 @@
     color: var(--text-4);
   }
 
+  .item[data-disabled] .hint {
+    font-style: italic;
+  }
+
+  .item[data-disabled] .chevron {
+    color: inherit;
+  }
+
   .separator {
     box-sizing: border-box;
     height: 1px;
     border-top: 1px solid var(--border-soft);
     margin: var(--spacing-px4) var(--spacing-px2);
+  }
+
+  /* Same box as `.root`. SUBMENU_INSET in ContextMenu.tsx is its padding plus
+     its border. */
+  .submenu {
+    box-sizing: border-box;
+    min-width: var(--sb-contextmenu-min-w);
+    padding: var(--spacing-px4);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-menu);
+    font-size: var(--font-size-px13);
+    outline: none;
+  }
+
+  .chevron {
+    display: flex;
+    color: var(--text-4);
+  }
+
+  .row {
+    display: flex;
+    gap: var(--spacing-px4);
+  }
+
+  .row > .item {
+    width: auto;
+    flex: 1;
+    justify-content: center;
   }
 }

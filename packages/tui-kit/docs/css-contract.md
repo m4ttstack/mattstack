@@ -98,7 +98,7 @@ a record.
 | Button | `{ root: "button" }` |
 | Chip | `{ root: "chip", icon: "chip-icon" }` |
 | ConfirmDialog | `{ root: "confirmdialog", body: "confirmdialog-body", foot: "confirmdialog-foot" }` |
-| ContextMenu | `{ root: "contextmenu", item: "contextmenu-item", label: "contextmenu-label", separator: "contextmenu-separator", hint: "contextmenu-hint" }` |
+| ContextMenu | `{ root: "contextmenu", item: "contextmenu-item", label: "contextmenu-label", separator: "contextmenu-separator", hint: "contextmenu-hint", sub: "contextmenu-sub", submenu: "contextmenu-submenu", chevron: "contextmenu-chevron", row: "contextmenu-row" }` |
 | CopyButton | `"copybutton"` (single slot) |
 | Drawer | `{ root: "drawer", nav: "drawer-nav", back: "drawer-back", title: "drawer-title", navAction: "drawer-navaction", close: "drawer-close", header: "drawer-header", content: "drawer-content" }` |
 | Field (TextField / TextArea / RadioGroup) | `{ root: "field", label: "field-label", input: "field-input", error: "field-error", option: "field-option" }` |

@@ -1,6 +1,6 @@
-/** Pins of the one-row menu as it stands before the shared action model:
-    what each MR state shows and what each click does. These must pass
-    unchanged while RowMenu moves onto ActionMenu. */
+/** Pins of the one-row menu: what each MR state shows at the top level, and
+    what each click does, flyout rows included. A row may move between the
+    top level and a flyout; a click row may never go missing. */
 import { expect, test } from 'bun:test';
 
 import {
@@ -31,43 +31,44 @@ test('own idle MR, local, slack thread not found, gitlab buttons up', async () =
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1418",
+      "post to slack",
+      "---",
       "# agent actions",
       "review",
       "respond",
       "rebase locally",
-      "auto-doctor: ignore this MR",
-      "request review from…",
       "---",
-      "# gitlab",
-      "merge",
-      "rebase on target",
-      "set auto-merge",
-      "mark as draft",
-      "open in gitlab",
-      "---",
-      "# slack",
-      "no thread, find it again",
-      "post to slack",
-      "copy for slack",
-      "add a note",
+      "> sessions and reports",
+      "> gitlab",
+      "> slack",
+      "> more",
     ]
   `);
   expect(await clickEach(ownIdle, ownEnv)).toMatchInlineSnapshot(`
     [
+      "post to slack → post-slack",
       "review → launch:review",
       "respond → launch:respond",
       "rebase locally → launch:rebase-local",
-      "auto-doctor: ignore this MR → stand-down:true",
+      "resume reviewno session → (nothing) (stays open)",
+      "resume responseno session → (nothing) (stays open)",
+      "view agent reviewno report yet → (nothing) (stays open)",
+      "view agent responseno report yet → (nothing) (stays open)",
+      "dismiss review linenothing to dismiss → (nothing) (stays open)",
+      "dismiss respond linenothing to dismiss → (nothing) (stays open)",
+      "dismiss doctor linenothing to dismiss → (nothing) (stays open)",
+      "ask a reviewer's agent to re-reviewno peer review → (nothing) (stays open)",
       "request review from… → ask:review:kim",
       "merge → mr:merge",
       "rebase on target → mr:rebase",
       "set auto-merge → mr:setAutoMerge",
       "mark as draft → draft:true",
       "open in gitlab → open:https://gitlab.example.com/acme/webapp/-/merge_requests/1418",
+      "open MR post in slackno thread → (nothing) (stays open)",
       "no thread, find it again → find-thread",
-      "post to slack → post-slack",
       "copy for slack → copy",
       "add a note → note",
+      "auto-doctor: ignore this MR → stand-down:true",
     ]
   `);
 });
@@ -77,34 +78,29 @@ test("teammate's MR after my commented review, slack thread found", async () => 
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1419",
+      "[mark as looking | mark as commented | unmark approved]",
+      "---",
       "# agent actions",
       "re-review",
-      "resume review",
-      "view agent review",
       "ask kim's agent to respond",
       "---",
-      "# gitlab",
+      "> sessions and reports",
       "open in gitlab",
-      "---",
-      "# slack",
-      "👀mark as looking",
-      "💬mark as commented",
-      "✅unmark approved✓",
-      "open MR post in slack",
-      "copy for slack",
+      "> slack",
       "add a note",
     ]
   `);
   expect(await clickEach(teammateReviewed, ownEnv)).toMatchInlineSnapshot(`
     [
+      "mark as looking → react:eyes:false (stays open)",
+      "mark as commented → react:speech_balloon:false (stays open)",
+      "unmark approved → react:white_check_mark:true (stays open)",
       "re-review → launch:re-review",
+      "ask kim's agent to respond → ask:respond:kim",
       "resume review → launch:resume-review",
       "view agent review → view-report:review",
-      "ask kim's agent to respond → ask:respond:kim",
+      "dismiss review linenothing to dismiss → (nothing) (stays open)",
       "open in gitlab → open:https://gitlab.example.com/acme/webapp/-/merge_requests/1419",
-      "👀mark as looking → react:eyes:false (stays open)",
-      "💬mark as commented → react:speech_balloon:false (stays open)",
-      "✅unmark approved✓ → react:white_check_mark:true (stays open)",
       "open MR post in slack → open:https://slack.example.com/archives/C1/p1",
       "copy for slack → copy",
       "add a note → note",
@@ -119,35 +115,37 @@ test('own MR with lanes running, a broken pipeline, a draft and a stack above it
       "# !1420",
       "# agent actions",
       "focus review",
-      "resume review",
       "relaunch response",
-      "resume response",
       "call doctor",
-      "auto-doctor: ignore this stack",
-      "request review from…",
       "---",
-      "# gitlab",
-      "mark ready",
-      "open in gitlab",
-      "---",
-      "# slack",
+      "> sessions and reports",
+      "> gitlab",
       "copy for slack",
-      "edit note",
+      "> more",
     ]
   `);
   expect(await clickEach(ownBusy, busyEnv)).toMatchInlineSnapshot(`
     [
       "focus review → launch:review:focus",
-      "resume review → launch:resume-review",
       "relaunch response → launch:respond:focus",
-      "resume response → launch:resume-respond",
       "call doctor → launch:doctor",
-      "auto-doctor: ignore this stack → stand-down:true",
+      "resume review → launch:resume-review",
+      "resume response → launch:resume-respond",
+      "view agent reviewno report yet → (nothing) (stays open)",
+      "view agent responseno report yet → (nothing) (stays open)",
+      "dismiss review linenothing to dismiss → (nothing) (stays open)",
+      "dismiss respond linenothing to dismiss → (nothing) (stays open)",
+      "dismiss doctor linenothing to dismiss → (nothing) (stays open)",
+      "ask a reviewer's agent to re-reviewno peer review → (nothing) (stays open)",
       "request review from… → ask:review:kim",
+      "mergedraft → (nothing) (stays open)",
+      "rebase on targetup to date → (nothing) (stays open)",
+      "set auto-mergedraft → (nothing) (stays open)",
       "mark ready → draft:false",
       "open in gitlab → open:https://gitlab.example.com/acme/webapp/-/merge_requests/1420",
       "copy for slack → copy",
       "edit note → note",
+      "auto-doctor: ignore this stack → stand-down:true",
     ]
   `);
 });
@@ -157,47 +155,46 @@ test('failed lanes, finished respond, conflicts and a peer review with comments'
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1422",
+      "post to slack",
+      "---",
       "# agent actions",
       "review",
       "restart response",
-      "resume response",
       "call doctor",
       "rebase locally",
-      "dismiss review line",
-      "dismiss doctor line",
-      "re-enable auto-doctor",
-      "ask kim's agent to re-review",
-      "request review from…",
       "---",
-      "# gitlab",
-      "mark as draft",
-      "open in gitlab",
-      "---",
-      "# slack",
-      "find slack thread",
-      "post to slack",
-      "copy for slack",
-      "add a note",
+      "> sessions and reports",
+      "> gitlab",
+      "> slack",
+      "> more",
     ]
   `);
   expect(await clickEach(failedLanes, failedEnv)).toMatchInlineSnapshot(`
     [
+      "post to slack → post-slack",
       "review → launch:review",
       "restart response → launch:respond",
-      "resume response → launch:resume-respond",
       "call doctor → launch:doctor",
       "rebase locally → launch:rebase-local",
+      "resume reviewno session → (nothing) (stays open)",
+      "resume response → launch:resume-respond",
+      "view agent reviewno report yet → (nothing) (stays open)",
+      "view agent responseno report yet → (nothing) (stays open)",
       "dismiss review line → dismiss:review",
+      "dismiss respond linenothing to dismiss → (nothing) (stays open)",
       "dismiss doctor line → dismiss:doctor",
-      "re-enable auto-doctor → stand-down:false",
       "ask kim's agent to re-review → ask:re-review:kim",
       "request review from… → ask:review:jo",
+      "mergenot mergeable yet → (nothing) (stays open)",
+      "rebase on targetup to date → (nothing) (stays open)",
+      "set auto-mergenot mergeable yet → (nothing) (stays open)",
       "mark as draft → draft:true",
       "open in gitlab → open:https://gitlab.example.com/acme/webapp/-/merge_requests/1422",
+      "open MR post in slackno thread → (nothing) (stays open)",
       "find slack thread → find-thread",
-      "post to slack → post-slack",
       "copy for slack → copy",
       "add a note → note",
+      "re-enable auto-doctor → stand-down:false",
     ]
   `);
 });
@@ -208,20 +205,19 @@ test('a remote board keeps only what needs no local server', async () => {
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1418",
-      "# agent actions",
-      "auto-doctor: ignore this MR",
+      "agent actionsneed a local board",
       "---",
-      "# gitlab",
+      "> sessions and reports",
       "open in gitlab",
-      "---",
-      "# slack",
       "copy for slack",
       "add a note",
     ]
   `);
   expect(await clickEach(ownIdle, env)).toMatchInlineSnapshot(`
     [
-      "auto-doctor: ignore this MR → stand-down:true",
+      "agent actionsneed a local board → (nothing) (stays open)",
+      "view agent reviewno report yet → (nothing) (stays open)",
+      "view agent responseno report yet → (nothing) (stays open)",
       "open in gitlab → open:https://gitlab.example.com/acme/webapp/-/merge_requests/1418",
       "copy for slack → copy",
       "add a note → note",
@@ -266,7 +262,8 @@ test('a slack mark keeps the menu open and shows its check once the reply lands'
   await flush();
   expect(harness.effects).toEqual([{ effect: 'react:eyes:false', iid: 1419 }]);
   expect(harness.closed).toBe(false);
-  expect(
-    itemTexts().some(t => t.includes('unmark looking') && t.endsWith('✓'))
-  ).toBe(true);
+  const looking = [...document.querySelectorAll('[role="menuitem"]')].find(
+    el => el.getAttribute('aria-label') === 'unmark looking'
+  );
+  expect(looking?.textContent?.endsWith('✓')).toBe(true);
 });

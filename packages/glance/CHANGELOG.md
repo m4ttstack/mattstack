@@ -29,6 +29,8 @@
   an error, so check it after each create.
 - A non-2xx response from those methods throws an error carrying the HTTP
   `status` (typed `HttpStatusError`); the message is unchanged.
+- `mergeBlockedReason(mr)`: a few words on why merge cannot run, mapped from
+  `detailedMergeStatus`, or null.
 
 ### Patch Changes
 

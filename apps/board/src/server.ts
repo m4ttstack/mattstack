@@ -541,6 +541,16 @@ function peerAsksEnabled(): boolean {
   }
 }
 
+/** A config that fails to parse also stops the triage pass, so it reads as
+    triage being off. */
+function triagePassEnabled(): boolean {
+  try {
+    return loadTriageConfig().enabled;
+  } catch {
+    return false;
+  }
+}
+
 /** Fold every peer field onto the MRs, non-mutating. Read from disk per call
     like the review/respond/doctor attachments -- these files are small and a
     request already pays for far more. */
@@ -1492,6 +1502,7 @@ const httpServer = Bun.serve({
               !peering.current() &&
               switchboardToken.missing(),
             slackEnabled: !!slackToken,
+            triageEnabled: triagePassEnabled(),
             ownerSlackRepos: slackToken
               ? config.projects
                   .filter(p => codeownerSlackOn(config, p))

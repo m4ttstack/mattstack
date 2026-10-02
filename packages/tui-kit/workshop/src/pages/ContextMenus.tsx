@@ -42,9 +42,7 @@ export function ContextMenus() {
   const [marked, setMarked] = useState(false);
 
   // The `initialFocusRef` demo below (SORI-25). A plain `useRef` the consumer
-  // owns, exactly like `menuRef` inside the recipe itself — the root focuses
-  // it once, right after the anti-flash clamp commits and `visibility` flips
-  // from `hidden` to `visible`.
+  // owns; the root focuses it once, as soon as the menu mounts.
   const [noteAt, setNoteAt] = useState<Point | null>(null);
   const noteRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -127,14 +125,9 @@ export function ContextMenus() {
       <h2 style={{ marginTop: "2rem" }}>initialFocusRef (SORI-25)</h2>
       <p>
         Right-click the strip below to open a note-mode menu whose only content
-        is a <code>&lt;textarea autoFocus&gt;</code>-shaped field. Without{" "}
-        <code>initialFocusRef</code> that field would come up unfocused — the
-        anti-flash <code>visibility: hidden</code> first paint blocks focus
-        entirely until the clamp has measured and positioned the menu, so a
-        child's own <code>autoFocus</code> silently no-ops (this is exactly
-        what bit mr-board's RowMenu). Passing <code>initialFocusRef</code>{" "}
-        lets the recipe itself land focus in the correct order, right after the
-        clamp commits — type immediately, no click required.
+        is a textarea. The menu takes focus when it opens, and{" "}
+        <code>initialFocusRef</code> says which element gets it: here the
+        textarea, so you can type immediately, no click required.
       </p>
       <div
         style={strip}

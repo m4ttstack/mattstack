@@ -172,8 +172,21 @@ const menu = () => document.querySelector('[data-part="contextmenu"]');
 const items = () => [
   ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
 ];
+const flyoutRows = () => [
+  ...document.querySelectorAll<HTMLElement>(
+    '[data-part="contextmenu-sub"] > [aria-haspopup="menu"]'
+  ),
+];
+/** Clicks the item containing `text`. A single-row menu keeps most rows in
+    flyouts, so each is opened in turn until the item shows. */
 async function click(text: string) {
-  const hit = items().find(el => el.textContent?.includes(text));
+  const find = () => items().find(el => el.textContent?.includes(text));
+  let hit = find();
+  for (const row of flyoutRows()) {
+    if (hit) break;
+    await React.act(async () => row.click());
+    hit = find();
+  }
   if (!hit)
     throw new Error(
       `no item "${text}" in ${items()
@@ -368,11 +381,11 @@ test('a checked child of an open MR blocks bulk merge with the reason', async ()
   await check(101);
   await check(103);
   await rightClick(101);
-  const merge = items().find(i => i.textContent?.includes('blocked'));
-  expect(merge?.textContent).toContain(
-    '!103 sits on !101, which is still open'
+  const merge = items().find(i =>
+    i.textContent?.includes('!103 sits on !101, which is still open')
   );
-  expect(merge?.hasAttribute('disabled')).toBe(true);
+  expect(merge?.textContent?.startsWith('merge')).toBe(true);
+  expect(merge?.getAttribute('aria-disabled')).toBe('true');
   await React.act(async () => merge?.click());
   await settle();
   expect(posts.filter(p => p.url === '/mr/action')).toEqual([]);

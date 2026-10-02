@@ -74,7 +74,7 @@ export { TRANSITIONAL_MERGE_STATUSES, isTransitionalMergeStatus } from './types.
 export type { MRStatus, MRState, MRDashboardProps, MRDashboardActions } from './types.ts';
 
 // ── Dashboard helpers ─────────────────────────────────────────────────────────
-export { getMRDashboardProps, createDashboard } from './MRDashboard.ts';
+export { getMRDashboardProps, createDashboard, mergeBlockedReason } from './MRDashboard.ts';
 export type { Dashboard, DashboardGroup, CreateDashboardOptions } from './MRDashboard.ts';
 
 // ── Provider interface ────────────────────────────────────────────────────────
