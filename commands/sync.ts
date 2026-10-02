@@ -40,7 +40,7 @@ import type { CommandContext } from "../lib/command-tree.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface SyncSummary {
+export interface SyncSummary {
   branch: string;
   worktree: string;
   resetResult: ResetResult | null;
@@ -474,6 +474,20 @@ export async function syncAllCommand(
   }
 }
 
+/** Prints how a sync ended and returns the exit code: 4 for a stack refusal, 1 for a failure, 0 otherwise. */
+export function reportSync(summary: SyncSummary, json: boolean): number {
+  if (summary.refusal) {
+    if (json) console.log(renderStackRefusal(summary.refusal, "json"));
+    else console.error(`\n  ${red}${renderStackRefusal(summary.refusal, "human")}${reset}\n`);
+    return STACK_REFUSAL_EXIT;
+  }
+  if (summary.error) {
+    console.error(`\n  ${red}${summary.error}${reset}\n`);
+    return 1;
+  }
+  return 0;
+}
+
 export async function syncCommand(
   args: string[],
   ctx: CommandContext,
@@ -525,14 +539,6 @@ export async function syncCommand(
     process.exit(escalationExit);
   }
 
-  if (summary.refusal) {
-    if (mode === "json") console.log(renderStackRefusal(summary.refusal, "json"));
-    else console.error(`\n  ${red}${renderStackRefusal(summary.refusal, "human")}${reset}\n`);
-    process.exit(STACK_REFUSAL_EXIT);
-  }
-
-  if (summary.error) {
-    console.error(`\n  ${red}${summary.error}${reset}\n`);
-    process.exit(1);
-  }
+  const code = reportSync(summary, mode === "json");
+  if (code !== 0) process.exit(code);
 }
