@@ -28,6 +28,12 @@ afterEach(() => restoreLayout());
 const row = (text: string) =>
   screen.getByText(text).closest('[data-line]') as HTMLElement;
 
+/** The box a band's label sticks inside: where it starts and how tall. */
+const bandBox = (label: string) => {
+  const box = screen.getByText(label).closest('[data-band]') as HTMLElement;
+  return { top: box.style.top, height: box.style.height };
+};
+
 describe('CodeLines', () => {
   test('numbers lines from firstLine', () => {
     renderWithProviders(
@@ -91,7 +97,7 @@ describe('CodeLines', () => {
     expect(container.querySelector('[data-highlighted]')).toBeNull();
   });
 
-  test('renders a band label once, at the first row of the band', () => {
+  test('labels a band once, in a box over its lines that the label sticks in', () => {
     renderWithProviders(
       <CodeLines
         lines={['alpha', 'bravo', 'charlie', 'delta']}
@@ -100,9 +106,12 @@ describe('CodeLines', () => {
       />
     );
 
-    const label = screen.getByText('gate-protocol');
     expect(screen.getAllByText('gate-protocol')).toHaveLength(1);
-    expect(label.closest('[data-line]')?.getAttribute('data-line')).toBe('2');
+    expect(screen.getByText('gate-protocol').closest('[data-line]')).toBeNull();
+    expect(bandBox('gate-protocol')).toEqual({
+      top: `${ROW_HEIGHT}px`,
+      height: `${2 * ROW_HEIGHT}px`,
+    });
   });
 
   test('puts every row of a band in its gutter with the band tone', () => {
@@ -125,7 +134,7 @@ describe('CodeLines', () => {
     expect(tone('delta')).toBe('muted');
   });
 
-  test('labels a band at its first loaded row when the band starts above them', () => {
+  test('starts the band box at the first loaded line when the band starts above them', () => {
     renderWithProviders(
       <CodeLines
         lines={['alpha', 'bravo', 'charlie']}
@@ -135,12 +144,10 @@ describe('CodeLines', () => {
       />
     );
 
-    expect(
-      screen
-        .getByText('gate-protocol')
-        .closest('[data-line]')
-        ?.getAttribute('data-line')
-    ).toBe('10');
+    expect(bandBox('gate-protocol')).toEqual({
+      top: '0px',
+      height: `${2 * ROW_HEIGHT}px`,
+    });
   });
 
   test('has no gutter without bands', () => {
@@ -231,7 +238,7 @@ describe('CodeLines', () => {
     expect(viewport.scrollTop).toBe(400 * ROW_HEIGHT);
   });
 
-  test('labels a band at its first row in view when the band starts above the viewport', () => {
+  test('keeps the band label when the band starts above the viewport', () => {
     const lines = Array.from({ length: 2000 }, (_, i) => `line ${i + 1}`);
     renderWithProviders(
       <CodeLines
@@ -243,12 +250,10 @@ describe('CodeLines', () => {
     );
 
     expect(screen.getAllByText('gate-protocol')).toHaveLength(1);
-    expect(
-      screen
-        .getByText('gate-protocol')
-        .closest('[data-line]')
-        ?.getAttribute('data-line')
-    ).toBe('1000');
+    expect(bandBox('gate-protocol')).toEqual({
+      top: '0px',
+      height: `${1500 * ROW_HEIGHT}px`,
+    });
   });
 
   test('marks lines matching mutedPattern', () => {

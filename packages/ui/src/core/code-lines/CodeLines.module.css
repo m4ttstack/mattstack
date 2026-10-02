@@ -45,7 +45,38 @@
   color: var(--tk-text-3);
 }
 
-.gutter[data-tone='accent'] .gutterLabel {
+/* A band's label sits in a box over its lines, drawn above the rows, and
+   sticks to the top of the viewport while the box is in view, so the next
+   band's box pushes it out. It reads as a tag so a pinned one reads as the
+   heading of the lines below it. */
+.bandBox {
+  position: absolute;
+  left: 0;
+  display: block;
+  border-right-color: transparent;
+  pointer-events: none;
+}
+
+.stickyLabel {
+  position: sticky;
+  top: 1px;
+  display: block;
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 1px;
+  padding: 1px 5px;
+  border: 1px solid var(--tk-line-2);
+  border-radius: 4px;
+  background-color: var(--tk-raised);
+}
+
+.bandBox[data-label-tone='accent'] .gutterLabel {
+  border-color: color-mix(
+    in srgb,
+    var(--mantine-color-accent-filled) 45%,
+    transparent
+  );
   color: var(--mantine-color-accent-text);
 }
 

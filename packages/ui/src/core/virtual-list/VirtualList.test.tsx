@@ -112,3 +112,35 @@ describe('VirtualList visible window', () => {
     expect(seen.get(500)).toEqual({ first: 500, last: 509 });
   });
 });
+
+describe('VirtualList renderOverlay', () => {
+  test('draws over the rows, unshifted, knowing where each item sits', () => {
+    renderWithProviders(
+      <VirtualList
+        items={items}
+        estimateSize={() => ROW_HEIGHT}
+        maxHeight={VIEWPORT_HEIGHT}
+        scrollToIndex={500}
+        renderRow={item => <div>{item}</div>}
+        renderOverlay={layout => (
+          <div
+            data-testid="overlay"
+            data-start={layout.start(3)}
+            data-end={layout.end(4)}
+          />
+        )}
+      />
+    );
+
+    const overlay = screen.getByTestId('overlay');
+    expect(overlay.getAttribute('data-start')).toBe(String(3 * ROW_HEIGHT));
+    expect(overlay.getAttribute('data-end')).toBe(String(5 * ROW_HEIGHT));
+    expect(overlay.closest('[style*="translateY"]')).toBeNull();
+  });
+
+  test('draws nothing extra without one', () => {
+    const { container } = renderWithProviders(list());
+
+    expect(container.querySelector('[data-virtual-overlay]')).toBeNull();
+  });
+});

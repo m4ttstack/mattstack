@@ -147,7 +147,10 @@ whether it is in the viewport. Every row is as wide as the longest line, so
 a highlight follows a sideways scroll, and `scrollbarType` passes a
 ScrollArea `type` (`hover` keeps the scrollbars out of sight at rest). With
 `wrap`, a long line breaks at the viewport's width and its row grows to fit,
-instead of the rows scrolling sideways.
+instead of the rows scrolling sideways. A band's label is a tag that sticks to
+the top of the viewport while its lines are in view, drawn through
+`VirtualList`'s opt-in `renderOverlay`, a layer over the rows that knows where
+each row sits.
 
 An app that registers its own icon adds a `declare module
 '@mattstack/app-kit/icons' { interface AppIcons { hash: true } }` block in

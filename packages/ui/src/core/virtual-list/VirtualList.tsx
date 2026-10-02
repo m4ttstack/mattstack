@@ -11,6 +11,14 @@ export interface VirtualListWindow {
   last: number;
 }
 
+/** Where each item sits in the scroll content, in px: measured once it has
+    rendered, estimated until then. */
+export interface VirtualListLayout {
+  start: (index: number) => number;
+  end: (index: number) => number;
+  visible: VirtualListWindow | null;
+}
+
 export interface VirtualListProps<T = unknown> {
   /** Items to render. Only the ones currently in view (plus overscan) are mounted. */
   items: T[];
@@ -48,6 +56,12 @@ export interface VirtualListProps<T = unknown> {
    * `viewportRef` is excluded: the virtualizer owns the viewport ref.
    */
   scrollAreaProps?: Omit<ScrollAreaAutosizeProps, 'viewportRef'>;
+  /**
+   * Drawn over the rows in the scroll content, which is positioned but never
+   * shifted, so an absolutely placed child can span several rows and a
+   * sticky one sticks to the viewport.
+   */
+  renderOverlay?: (layout: VirtualListLayout) => ReactNode;
 }
 
 /**
@@ -65,6 +79,7 @@ export function VirtualList<T>({
   getItemKey,
   scrollToIndex,
   scrollAreaProps,
+  renderOverlay,
 }: VirtualListProps<T>) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -126,6 +141,11 @@ export function VirtualList<T>({
             </div>
           ))}
         </div>
+        {renderOverlay?.({
+          start: index => virtualizer.measurementsCache[index]?.start ?? 0,
+          end: index => virtualizer.measurementsCache[index]?.end ?? 0,
+          visible,
+        })}
       </div>
     </ScrollArea.Autosize>
   );
