@@ -22,7 +22,7 @@ test('own MR with free roster members offers the picker and fires the ask', asyn
   expect(harness.effects).toEqual([{ effect: 'ask:review:kim', iid: 1418 }]);
 });
 
-test('engaged peers and an outstanding ask hide the item', async () => {
+test('engaged peers block the item with a reason', async () => {
   await openMenu(
     mrx(1418, {
       peerReviews: [
@@ -45,7 +45,10 @@ test('engaged peers and an outstanding ask hide the item', async () => {
     }),
     { self: 'pat', roster: ['pat', 'kim', 'jo'] }
   );
-  expect(itemTexts().some(t => t.includes('request review from'))).toBe(false);
+  const ask = itemTexts().find(t => t.includes('request review from'));
+  expect(ask).toContain('everyone engaged');
+  await clickItem('request review from');
+  expect(harness.effects).toEqual([]);
 });
 
 test("a commented review on a teammate's MR offers the respond ask", async () => {
@@ -60,12 +63,15 @@ test("a commented review on a teammate's MR offers the respond ask", async () =>
   expect(harness.effects).toEqual([{ effect: 'ask:respond:kim', iid: 1418 }]);
 });
 
-test('no respond ask without a commented review of mine', async () => {
+test('the respond ask is blocked without a commented review of mine', async () => {
   await openMenu(mrx(1418, { author: { username: 'kim', name: 'Kim' } }), {
     self: 'pat',
     roster: ['pat', 'kim'],
   });
-  expect(itemTexts().some(t => t.includes('agent to respond'))).toBe(false);
+  const ask = itemTexts().find(t => t.includes('agent to respond'));
+  expect(ask).toContain('no finished review with comments');
+  await clickItem('agent to respond');
+  expect(harness.effects).toEqual([]);
 });
 
 test('a known enrollment list narrows the picker to enrolled members', async () => {

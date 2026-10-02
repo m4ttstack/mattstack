@@ -9,15 +9,16 @@ import {
   MenuGlyph,
   SlackLogo,
 } from './icons.tsx';
-import type {
-  ActionGlyph,
-  Lane,
-  MenuEntry,
-  RunOpts,
-  Section,
+import {
+  BULK_SECTION,
+  type ActionGlyph,
+  type BulkSection,
+  type Lane,
+  type MenuEntry,
+  type RunOpts,
 } from './row-actions.ts';
 
-const SECTIONS: Array<[Section, string]> = [
+const SECTIONS: Array<[BulkSection, string]> = [
   ['agent', 'agent actions'],
   ['gitlab', 'gitlab'],
   ['slack', 'slack'],
@@ -255,7 +256,7 @@ function ActionMenu({
         </div>
       )}
       {SECTIONS.map(([section, title]) => {
-        const items = entries.filter(e => e.section === section);
+        const items = entries.filter(e => BULK_SECTION[e.section] === section);
         if (!items.length) return null;
         return (
           <Fragment key={section}>

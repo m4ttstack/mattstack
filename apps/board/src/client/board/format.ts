@@ -127,6 +127,20 @@ function nudgeTargets(mrx: BoardMRWithReview): PeerReviewInfo[] {
   );
 }
 
+/** An ask of ours on this MR still waits for an answer. */
+function askOutstanding(mrx: BoardMRWithReview): boolean {
+  return !!mrx.sentNudge && !NUDGE_RETRYABLE.has(mrx.sentNudge.display);
+}
+
+/** Why respondAskTarget found nobody to ask, checked in its order. */
+function respondAskBlock(mrx: BoardMRWithReview): string {
+  if (askOutstanding(mrx)) return 'ask already sent';
+  const r = mrx.review;
+  if (!r || r.status !== 'done' || r.outcome !== 'comment')
+    return 'no finished review with comments';
+  return 'author not enrolled';
+}
+
 /** Roster members an author can ask for a first look: not the author, not a
     peer already engaged with this MR (any reported state counts as engaged),
     and nobody while an ask of ours is still outstanding -- one ask per MR,
@@ -353,42 +367,6 @@ function laneInterrupted(
   return true;
 }
 
-/** The GitLab-side actions the row menu offers for this MR, driven by the
-    view-model button state glance already computed. The rebase item also
-    raises on plain behind-ness: glance keeps rebaseButton mirroring GitLab's
-    own button (MAT-164), and the "freshen a merely-behind branch" affordance
-    is exactly what the board wants beyond that. */
-function gitlabMenuItems(mr: BoardMR): {
-  kind: 'merge' | 'rebase' | 'setAutoMerge' | 'cancelAutoMerge';
-  label: string;
-  disabled: boolean;
-}[] {
-  const items: ReturnType<typeof gitlabMenuItems> = [];
-  if (mr.mergeButton.visible)
-    items.push({
-      kind: 'merge',
-      label: 'merge',
-      disabled: mr.mergeButton.disabled || mr.mergeButton.loading,
-    });
-  if (mr.rebaseButton.visible || (mr.behindTarget ?? 0) > 0)
-    items.push({
-      kind: 'rebase',
-      label: 'rebase on target',
-      disabled: mr.rebaseButton.loading,
-    });
-  if (mr.autoMergeButton.visible)
-    items.push(
-      mr.autoMergeButton.isActive
-        ? {
-            kind: 'cancelAutoMerge',
-            label: 'cancel auto-merge',
-            disabled: false,
-          }
-        : { kind: 'setAutoMerge', label: 'set auto-merge', disabled: false }
-    );
-  return items;
-}
-
 /** Where an author action would be on a seatless ("all") board, which owns
     no MR and so offers none. */
 const SEAT_HINT = 'set your seat in board settings to act on your own MRs';
@@ -406,10 +384,11 @@ export {
   DOCTOR_LABEL,
   DOCTOR_ACTIVE,
   NUDGE_RETRYABLE,
-  gitlabMenuItems,
   laneInterrupted,
   type SlackMark,
   nudgeTargets,
+  askOutstanding,
+  respondAskBlock,
   firstReviewTargets,
   respondAskTarget,
   draftKey,

@@ -12,52 +12,271 @@ import {
   ownIdle,
   teammateReviewed,
 } from './menu-fixtures.ts';
+import { MENU_STATES } from './menu-states.ts';
 
 const keys = (mr: typeof ownIdle, env: typeof ownEnv) =>
   rowActions(mr, actionEnvOf(env, mr)).map(a => a.key);
 
-test('an idle own MR offers these actions, in menu order', () => {
-  expect(keys(ownIdle, ownEnv)).toEqual([
-    'review',
-    'respond',
-    'rebase-local',
-    'stand-down',
-    'request-review',
-    'merge',
-    'rebase',
-    'setAutoMerge',
-    'mark-draft',
-    'open-gitlab',
-    'find-thread',
-    'post-slack',
-    'copy',
-    'note',
+const sections = (mr: typeof ownIdle, env: typeof ownEnv) =>
+  rowActions(mr, actionEnvOf(env, mr)).map(a => `${a.section}:${a.key}`);
+
+test('an idle own MR: every action, by section, in menu order', () => {
+  expect(sections(ownIdle, ownEnv)).toEqual([
+    'top:find-thread',
+    'agent:review',
+    'agent:respond',
+    'agent:rebase-local',
+    'sessions:resume-review',
+    'sessions:resume-respond',
+    'sessions:view-review',
+    'sessions:view-respond',
+    'sessions:dismiss-review',
+    'sessions:dismiss-respond',
+    'sessions:dismiss-doctor',
+    'sessions:nudge-none',
+    'sessions:request-review',
+    'gitlab:merge',
+    'gitlab:rebase',
+    'gitlab:setAutoMerge',
+    'gitlab:mark-draft',
+    'gitlab:open-gitlab',
+    'slack:open-slack-post',
+    'slack:post-slack',
+    'slack:copy',
+    'more:note',
+    'more:stand-down',
   ]);
+});
+
+test('an idle own MR blocks what its state cannot run, with a reason', () => {
+  const blocked = Object.fromEntries(
+    rowActions(ownIdle, actionEnvOf(ownEnv, ownIdle))
+      .filter(a => a.blocked)
+      .map(a => [a.key, a.blocked])
+  );
+  expect(blocked).toEqual({
+    'resume-review': 'no session',
+    'resume-respond': 'no session',
+    'view-review': 'no report yet',
+    'view-respond': 'no report yet',
+    'dismiss-review': 'nothing to dismiss',
+    'dismiss-respond': 'nothing to dismiss',
+    'dismiss-doctor': 'nothing to dismiss',
+    'nudge-none': 'no peer review',
+    'open-slack-post': 'no thread',
+  });
 });
 
 test("a teammate's reviewed MR with a found thread", () => {
-  expect(keys(teammateReviewed, ownEnv)).toEqual([
-    're-review',
-    'resume-review',
-    'view-review',
-    'ask-respond',
-    'open-gitlab',
-    'react-eyes',
-    'react-speech_balloon',
-    'unreact-white_check_mark',
-    'open-slack-post',
-    'copy',
-    'note',
+  expect(sections(teammateReviewed, ownEnv)).toEqual([
+    'top:react-eyes',
+    'top:react-speech_balloon',
+    'top:unreact-white_check_mark',
+    'agent:re-review',
+    'agent:ask-respond',
+    'sessions:resume-review',
+    'sessions:view-review',
+    'sessions:dismiss-review',
+    'gitlab:open-gitlab',
+    'slack:open-slack-post',
+    'slack:copy',
+    'more:note',
   ]);
 });
 
-test('a remote board keeps the stand-down toggle and the local-free items', () => {
-  expect(keys(ownIdle, { ...ownEnv, local: false })).toEqual([
-    'stand-down',
-    'open-gitlab',
-    'copy',
-    'note',
+test('a remote board drops local-only rows and says why', () => {
+  const actions = rowActions(
+    ownIdle,
+    actionEnvOf({ ...ownEnv, local: false }, ownIdle)
+  );
+  expect(actions.map(a => `${a.section}:${a.key}`)).toEqual([
+    'agent:local-hint',
+    'sessions:view-review',
+    'sessions:view-respond',
+    'gitlab:open-gitlab',
+    'slack:copy',
+    'more:note',
   ]);
+  expect(actions[0]?.blocked).toBe('need a local board');
+});
+
+test('review and re-review both stay; re-review is the primary', () => {
+  const mr = MENU_STATES['own broken']!.mr;
+  const actions = rowActions(mr, actionEnvOf(ownEnv, mr));
+  expect(actions.find(a => a.key === 're-review')?.section).toBe('agent');
+  const fresh = actions.find(a => a.key === 'review');
+  expect(fresh?.section).toBe('sessions');
+  expect(fresh?.label).toBe('review from scratch');
+});
+
+test('each lane shows exactly one primary row in agent, in every state', () => {
+  const REVIEW = new Set(['review', 're-review', 'focus-review']);
+  const RESPOND = new Set(['respond', 'focus-respond']);
+  for (const [name, { mr, env }] of Object.entries(MENU_STATES)) {
+    if (env.local === false) continue;
+    const agent = rowActions(mr, actionEnvOf(env, mr)).filter(
+      a => a.section === 'agent'
+    );
+    expect([name, agent.filter(a => REVIEW.has(a.key)).length]).toEqual([
+      name,
+      1,
+    ]);
+    const own = env.self !== null && mr.author.username === env.self;
+    expect([name, agent.filter(a => RESPOND.has(a.key)).length]).toEqual([
+      name,
+      own ? 1 : 0,
+    ]);
+  }
+});
+
+test('every blocked row carries a reason', () => {
+  for (const { mr, env } of Object.values(MENU_STATES))
+    for (const a of rowActions(mr, actionEnvOf(env, mr)))
+      if ('blocked' in a)
+        expect(typeof a.blocked === 'string' && a.blocked.length > 0).toBe(
+          true
+        );
+});
+
+test('a draft blocks merge and auto-merge, and offers mark ready', () => {
+  const mr = MENU_STATES['own draft']!.mr;
+  const by = Object.fromEntries(
+    rowActions(mr, actionEnvOf(ownEnv, mr)).map(a => [a.key, a])
+  );
+  expect(by.merge?.blocked).toBe('draft');
+  expect(by.setAutoMerge?.blocked).toBe('draft');
+  expect(by['mark-ready']?.blocked).toBeUndefined();
+  expect(by.rebase?.blocked).toBe('up to date');
+});
+
+test('a running merge and rebase say so', () => {
+  const mr = mrx(1418, {
+    mergeButton: { visible: true, disabled: true, loading: true },
+    rebaseButton: { visible: true, loading: true },
+    autoMergeButton: { visible: true, isActive: false },
+  });
+  const by = Object.fromEntries(
+    rowActions(mr, actionEnvOf(ownEnv, mr)).map(a => [a.key, a])
+  );
+  expect(by.merge?.blocked).toBe('merging');
+  expect(by.rebase?.blocked).toBe('rebasing');
+});
+
+test('merge and auto-merge stay blocked while glance hides their buttons', () => {
+  const mr = mrx(1418, {
+    mergeButton: { visible: false, disabled: false, loading: false },
+    autoMergeButton: { visible: false, isActive: false },
+  });
+  const by = Object.fromEntries(
+    rowActions(mr, actionEnvOf(ownEnv, mr)).map(a => [a.key, a])
+  );
+  expect(by.merge?.blocked).toBe('not mergeable yet');
+  expect(by.setAutoMerge?.blocked).toBe('not mergeable yet');
+});
+
+test("gitlab rows follow glance's buttons", () => {
+  const armed = mrx(1418, {
+    autoMergeButton: { visible: true, isActive: true },
+  });
+  const armedKeys = rowActions(armed, actionEnvOf(ownEnv, armed)).map(
+    a => a.key
+  );
+  expect(armedKeys).toContain('cancelAutoMerge');
+  expect(armedKeys).not.toContain('setAutoMerge');
+  const raised = mrx(1418, {
+    mergeButton: { visible: true, disabled: true, loading: false },
+    statusDetail: 'ci_still_running',
+    rebaseButton: { visible: true, loading: false },
+    behindTarget: 0,
+  });
+  const by = Object.fromEntries(
+    rowActions(raised, actionEnvOf(ownEnv, raised)).map(a => [a.key, a])
+  );
+  expect(by.rebase).toBeDefined();
+  expect(by.rebase?.blocked).toBeUndefined();
+  expect(by.merge?.blocked).toBe('pipeline running');
+});
+
+test('a null behind count leaves rebase on target enabled', () => {
+  const mr = mrx(1418, { behindTarget: null });
+  const rebase = rowActions(mr, actionEnvOf(ownEnv, mr)).find(
+    a => a.key === 'rebase'
+  );
+  expect(rebase).toBeDefined();
+  expect(rebase?.blocked).toBeUndefined();
+});
+
+test('auto-doctor ignore is blocked when triage is off and no doctor runs', () => {
+  const off = rowActions(
+    ownIdle,
+    actionEnvOf({ ...ownEnv, triageEnabled: false }, ownIdle)
+  );
+  expect(off.find(a => a.key === 'stand-down')?.blocked).toBe(
+    'auto-doctor is off'
+  );
+  const running = mrx(1418, { doctor: { status: 'diagnosing' } });
+  const live = rowActions(
+    running,
+    actionEnvOf({ ...ownEnv, triageEnabled: false }, running)
+  );
+  expect(live.find(a => a.key === 'stand-down')?.blocked).toBeUndefined();
+  const unknown = rowActions(ownIdle, actionEnvOf(ownEnv, ownIdle));
+  expect(unknown.find(a => a.key === 'stand-down')?.blocked).toBeUndefined();
+  const stood = mrx(1418, { standDown: true });
+  const reenable = rowActions(
+    stood,
+    actionEnvOf({ ...ownEnv, triageEnabled: false }, stood)
+  );
+  expect(reenable.find(a => a.key === 'stand-down')?.blocked).toBeUndefined();
+});
+
+test("a teammate's MR without my commented review blocks the respond ask", () => {
+  const mr = MENU_STATES['teammate fresh']!.mr;
+  const ask = rowActions(mr, actionEnvOf(ownEnv, mr)).find(
+    a => a.key === 'ask-respond'
+  );
+  expect(ask?.label).toBe("ask kim's agent to respond");
+  expect(ask?.blocked).toBe('no finished review with comments');
+});
+
+test('the respond ask names an author who has not enrolled', () => {
+  const ask = rowActions(
+    teammateReviewed,
+    actionEnvOf({ ...ownEnv, peers: ['pat'] }, teammateReviewed)
+  ).find(a => a.key === 'ask-respond');
+  expect(ask?.blocked).toBe('author not enrolled');
+});
+
+test('an outstanding ask blocks request review and nudges with the same reason', () => {
+  const mr = mrx(1418, {
+    sentNudge: { display: 'requested', reviewer: 'kim' },
+  });
+  const by = Object.fromEntries(
+    rowActions(mr, actionEnvOf(ownEnv, mr)).map(a => [a.key, a])
+  );
+  expect(by['request-review']?.blocked).toBe('ask already sent');
+  expect(by['nudge-none']?.blocked).toBe('ask already sent');
+});
+
+test('a teammate respond report and a live teammate lane error stay reachable', () => {
+  const mr = mrx(1430, {
+    author: { username: 'kim', name: 'Kim' },
+    respond: { status: 'error', reportReady: true },
+    doctor: { status: 'error' },
+  });
+  const keys = rowActions(mr, actionEnvOf(ownEnv, mr)).map(a => a.key);
+  expect(keys).toContain('view-respond');
+  expect(keys).toContain('dismiss-respond');
+  expect(keys).toContain('dismiss-doctor');
+});
+
+test('the bulk menu never targets a blocked row and keeps its three headings', () => {
+  const draft = MENU_STATES['own draft']!.mr;
+  const entries = bulkActions([ownIdle, draft], actionEnvOf(ownEnv, ownIdle));
+  expect(entries.some(e => e.key === 'setAutoMerge')).toBe(false);
+  expect(new Set(entries.map(e => e.section))).toEqual(
+    new Set(['agent', 'gitlab', 'slack'])
+  );
 });
 
 test('only the bulk-capable actions carry a bulk label', () => {
@@ -138,9 +357,14 @@ test('request review from… carries its picker; asks name their reviewer', () =
     ask: 're-review',
     reviewer: 'kim',
   });
-  expect(
-    actions.filter(a => a.key.startsWith('dismiss-')).map(a => a.key)
-  ).toEqual(['dismiss-review', 'dismiss-doctor']);
+  const dismiss = actions.filter(a => a.key.startsWith('dismiss-'));
+  expect(dismiss.filter(a => !a.blocked).map(a => a.key)).toEqual([
+    'dismiss-review',
+    'dismiss-doctor',
+  ]);
+  expect(dismiss.find(a => a.key === 'dismiss-respond')?.blocked).toBe(
+    'nothing to dismiss'
+  );
 });
 
 const visible = { visible: true, disabled: false, loading: false };
@@ -189,7 +413,8 @@ test('one checked MR that cannot take an action hides it', () => {
 test('merge always confirms; launches confirm only past three', () => {
   const m1 = mrx(211, { mergeButton: visible });
   const m2 = mrx(212, { mergeButton: visible });
-  const four = [a, b, m1, m2];
+  const m3 = mrx(218, { mergeButton: visible });
+  const four = [a, m1, m2, m3];
   const entries = bulkActions(four, env3(four));
   expect(entries.find(e => e.key === 'merge')?.confirm).toBe('really merge 4?');
   expect(entries.find(e => e.key === 'review')?.confirm).toBe(
@@ -221,14 +446,16 @@ test('a checked MR stacked on an open MR blocks merge for the selection', () => 
     targetBranch: 'f-201',
     mergeButton: visible,
   });
-  const all = [a, b, c, child];
-  const blocked = bulkActions([b, child], env3(all)).find(
+  const sibling = mrx(219, { mergeButton: visible });
+  const all = [a, b, c, sibling, child];
+  const blocked = bulkActions([sibling, child], env3(all)).find(
     e => e.key === 'merge'
   );
   expect(blocked?.blocked).toBe('!205 sits on !201, which is still open');
-  const parentGone = bulkActions([b, child], env3([b, c, child])).find(
-    e => e.key === 'merge'
-  );
+  const parentGone = bulkActions(
+    [sibling, child],
+    env3([b, c, sibling, child])
+  ).find(e => e.key === 'merge');
   expect(parentGone?.blocked).toBeUndefined();
 });
 
