@@ -17,7 +17,11 @@ import {
   Title,
   usePageShellContext,
 } from '@mattstack/app-kit/core';
-import { useHotkeys, useSchemeColors } from '@mattstack/app-kit/hooks';
+import {
+  useHotkeys,
+  useReducedMotion,
+  useSchemeColors,
+} from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 import { isSet } from '@mattstack/settings-kit/shapes';
 import { useSearchParams } from 'wouter';
@@ -27,6 +31,7 @@ import { useOpenRow } from './explainParam';
 import { TIER_LABEL, type Tier } from './groups';
 import { RepoPicker } from './RepoPicker';
 import { ScopeDot } from './ScopeBadge';
+import { ROW_MOTION_MS } from './SettingRow';
 import { SettingsSection } from './SettingsSection';
 import { UnregisteredNote } from './UnregisteredNote';
 import {
@@ -251,20 +256,33 @@ export function SettingsPage() {
   };
 
   // A link (read once, at mount) or a Fix scrolls its row into view, first
-  // clearing a filter that hides it; a click on a row never scrolls.
-  const [reveal, setReveal] = useState<string | null>(
-    () => openRow.open?.key ?? null
+  // clearing a filter that hides it; a click on a row never scrolls. A Fix
+  // waits `settle` ms, since a row it closes above moves its target until
+  // that row's collapse ends.
+  const reduceMotion = useReducedMotion();
+  const [reveal, setReveal] = useState<{ key: string; settle: number } | null>(
+    () => (openRow.open ? { key: openRow.open.key, settle: 0 } : null)
   );
   useEffect(() => {
     if (store.loading || reveal === null) return;
     const target = Array.from(
       frame.current?.querySelectorAll<HTMLElement>('[data-key]') ?? []
-    ).find(el => el.dataset.key === reveal);
-    if (target) {
+    ).find(el => el.dataset.key === reveal.key);
+    if (!target) {
+      if (filtering && store.defs.some(d => d.key === reveal.key)) clearAll();
+      else setReveal(null);
+      return;
+    }
+    const scroll = () => {
       target.scrollIntoView({ block: 'start' });
       setReveal(null);
-    } else if (filtering && store.defs.some(d => d.key === reveal)) clearAll();
-    else setReveal(null);
+    };
+    if (reveal.settle === 0) {
+      scroll();
+      return;
+    }
+    const timer = window.setTimeout(scroll, reveal.settle);
+    return () => window.clearTimeout(timer);
   }, [store.loading, reveal, filtering, sections]); // eslint-disable-line react-hooks/exhaustive-deps
   const missing =
     openRow.open &&
@@ -506,7 +524,10 @@ export function SettingsPage() {
                             { key, tab: 'where', fix: issue?.scope ?? null },
                             { repo: issue?.repo }
                           );
-                          setReveal(key);
+                          setReveal({
+                            key,
+                            settle: reduceMotion ? 0 : ROW_MOTION_MS,
+                          });
                         }}
                       />
                     ))}

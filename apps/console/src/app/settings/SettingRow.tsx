@@ -54,7 +54,7 @@ import {
 /** The panel's collapse, in ms. The open card's frame
     (SettingRow.module.css) reads it as `--row-motion`, so both move
     together. */
-const ROW_MOTION_MS = 200;
+export const ROW_MOTION_MS = 200;
 
 export interface RowOpen {
   tab: PanelTab;

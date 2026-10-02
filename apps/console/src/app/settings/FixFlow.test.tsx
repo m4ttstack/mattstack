@@ -304,6 +304,44 @@ describe('Needs fixing on the page', () => {
     );
   });
 
+  describe('the Fix scroll', () => {
+    const native = Element.prototype.scrollIntoView;
+    let scrolled: ReturnType<typeof vi.fn<Element['scrollIntoView']>>;
+    beforeEach(() => {
+      scrolled = vi.fn<Element['scrollIntoView']>();
+      Element.prototype.scrollIntoView = scrolled;
+    });
+    afterEach(() => {
+      Element.prototype.scrollIntoView = native;
+      vi.restoreAllMocks();
+    });
+    const row = () =>
+      document.querySelector('[data-key="rt.notify.eventBridges"]');
+
+    it('waits for a collapsing row to settle before scrolling', async () => {
+      renderPage();
+      await fix(
+        await screen.findByText('user · [2].url: expected string, got number')
+      );
+      expect(scrolled.mock.contexts).not.toContain(row());
+      await waitFor(() => expect(scrolled.mock.contexts).toContain(row()));
+    });
+
+    it('scrolls at once under reduced motion', async () => {
+      const real = window.matchMedia;
+      vi.spyOn(window, 'matchMedia').mockImplementation(query =>
+        query.includes('prefers-reduced-motion')
+          ? { ...real(query), matches: true }
+          : real(query)
+      );
+      renderPage();
+      await fix(
+        await screen.findByText('user · [2].url: expected string, got number')
+      );
+      expect(scrolled.mock.contexts).toContain(row());
+    });
+  });
+
   it('Fix on a merged issue opens the row with no layer editor', async () => {
     vi.stubGlobal('fetch', async (url: string) => ({
       ok: true,
