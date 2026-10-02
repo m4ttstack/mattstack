@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Invadr } from 'invadrs/react';
 
-import { CopyButton, SelectBox } from '@mattstack/tui-kit';
+import { SelectBox } from '@mattstack/tui-kit';
 import type { BoardMR } from '../../data.ts';
 import { extractTicketId, ticketUrl } from '../../ticket.ts';
 import {
@@ -13,12 +13,11 @@ import {
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { AskBand } from './AskBand.tsx';
 import { ThreadsLink } from './CommentsDrawer.tsx';
-import { ago, getSlackMarks, mrLine, rowTitle } from './format.ts';
+import { ago, getSlackMarks, rowTitle } from './format.ts';
 import {
   ArrowDownGlyph,
   ArrowOutGlyph,
   FlagGlyph,
-  NoteGlyph,
   SlackLogo,
 } from './icons.tsx';
 import { mrRef } from './MrLinks.tsx';
@@ -310,29 +309,6 @@ function RowView({
             mr={mr}
             status={status}
             ctx={ctx}
-            tools={
-              <>
-                {url && (
-                  <button
-                    type="button"
-                    className="tui-copy-inline"
-                    title={mr.note ? 'edit this note' : 'add a note'}
-                    data-has-note={mr.note ? '1' : undefined}
-                    onClick={e => {
-                      e.stopPropagation();
-                      ctx.onEditNote(noteOpen ? null : url);
-                    }}
-                  >
-                    <NoteGlyph />
-                  </button>
-                )}
-                <CopyButton
-                  text={mrLine(mr, ctx.slackTemplates)}
-                  className="tui-copy-inline"
-                  title="copy this MR for Slack"
-                />
-              </>
-            }
           />
           {(mr.note || noteOpen) && (
             <RowNote mr={mr} ctx={ctx} editing={noteOpen} />

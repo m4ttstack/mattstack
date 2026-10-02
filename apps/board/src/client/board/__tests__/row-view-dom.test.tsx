@@ -520,17 +520,9 @@ test('"dismiss note" saves an empty note, which is the clear', async () => {
   expect(saved).toEqual([[1418, '']]);
 });
 
-test('the note tool opens the editor, and the editor saves on Enter', async () => {
-  const opened: Array<string | null> = [];
-  await render([mr()], ctx({ onEditNote: url => opened.push(url) }));
-  const tool = [
-    ...container.querySelectorAll<HTMLButtonElement>(
-      '.tui-status-tools button'
-    ),
-  ].find(b => (b.getAttribute('title') ?? '').includes('note'))!;
-  expect(tool.getAttribute('title')).toBe('add a note');
-  await React.act(async () => tool.click());
-  expect(opened).toEqual([URL]);
+test('the row has no hover note or copy tools, and the editor saves on Enter', async () => {
+  await render([mr()], ctx());
+  expect(container.querySelector('.tui-status-tools')).toBeNull();
 
   const saved: Array<[number, string]> = [];
   await render(
