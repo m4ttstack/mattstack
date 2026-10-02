@@ -144,6 +144,10 @@ func withSegText(s protocol.Segment, t string) protocol.Segment {
 	return s
 }
 
+// separators are where a word too wide for its row breaks, tried in order:
+// a path or a ref breaks at a slash before a dash.
+const separators = "/\\-_.:"
+
 // wrapCell breaks a cell into rows of at most w cells. Text is cleaned first
 // so the wrap measures exactly what segment paints.
 func wrapCell(c protocol.Cell, w int) []protocol.Cell {
@@ -154,7 +158,7 @@ func wrapCell(c protocol.Cell, w int) []protocol.Cell {
 	for i, s := range c {
 		clean[i] = withSegText(s, Clean(s.Text))
 	}
-	rows := textwrap.SpansWith(clean, w, textwrap.Options{WordsOnly: true}, segText, withSegText)
+	rows := textwrap.SpansWith(clean, w, textwrap.Options{WordsOnly: true, Separators: separators}, segText, withSegText)
 	out := make([]protocol.Cell, len(rows))
 	for i, r := range rows {
 		out[i] = r

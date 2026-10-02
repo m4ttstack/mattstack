@@ -96,12 +96,40 @@ func TestVerbatimSplitsALineThatHoldsANewline(t *testing.T) {
 	}
 }
 
-func TestALongVerbatimLineIsCutWithTheRailOnEveryRow(t *testing.T) {
-	line := "    at run (/Users/sample/.mattstack/user/plugins/seam-fixture-with-a-long-name/boom.ts:1:41)"
-	got := ansi.Strip(render.Render([]protocol.Block{{T: "verbatim", Lines: []string{line}}}, render.Options{Width: 60}))
-	want := "    │ " + line[:54] + "\n    │ " + line[54:] + "\n"
+func TestAVerbatimLineWrapsAtItsWordsWithTheRailOnEveryRow(t *testing.T) {
+	got := plainAt(40, protocol.Block{T: "verbatim", Lines: []string{"The app's deck helper owns deck, so rt did not run deck setup: it would add a second copy."}})
+	want := "    │ The app's deck helper owns deck,\n" +
+		"    │ so rt did not run deck setup: it\n" +
+		"    │ would add a second copy.\n"
 	if got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestALongVerbatimLineHangsUnderItsOwnIndentAndBreaksAPathAtASlash(t *testing.T) {
+	line := "    at run (/Users/sample/.mattstack/user/plugins/seam-fixture-with-a-long-name/boom.ts:1:41)"
+	got := plainAt(60, protocol.Block{T: "verbatim", Lines: []string{line}})
+	want := "    │     at run\n" +
+		"    │     (/Users/sample/.mattstack/user/plugins/\n" +
+		"    │     seam-fixture-with-a-long-name/boom.ts:1:41)\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestAVerbatimTokenWithNoSeparatorIsCutAndKeepsEveryCharacter(t *testing.T) {
+	blob := strings.Repeat("QmFzZTY0", 12)
+	got := plainAt(40, protocol.Block{T: "verbatim", Lines: []string{blob}})
+	checkWidth(t, got, 40)
+	var joined strings.Builder
+	for _, r := range rows(got) {
+		if !strings.HasPrefix(r, "    │ ") {
+			t.Fatalf("a row lost its rail: %q", r)
+		}
+		joined.WriteString(strings.TrimPrefix(r, "    │ "))
+	}
+	if joined.String() != blob {
+		t.Fatalf("characters lost: %q", joined.String())
 	}
 }
 

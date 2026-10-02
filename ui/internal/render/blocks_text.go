@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"rt-ui/internal/protocol"
+	"rt-ui/internal/textwrap"
 	"rt-ui/internal/theme"
 )
 
@@ -63,29 +64,30 @@ func (r *renderer) verbatim(b protocol.Block) {
 	w := r.width - lipgloss.Width(rail)
 	for _, line := range b.Lines {
 		for _, l := range splitLines(line) {
-			for _, row := range cutRows(cleanCode(l), w) {
+			for _, row := range codeRows(cleanCode(l), w) {
 				r.emit(rail + dimStyle.Render(row))
 			}
 		}
 	}
 }
 
-// cutRows breaks s every w cells with no word wrap and nothing dropped: the
-// end of a stack line carries its file and line number.
-func cutRows(s string, w int) []string {
-	if w < minWrap {
+// codeRows wraps a literal line at its spaces, and a word too wide for the
+// row at a separator, and hangs every row under the line's own indent. Only
+// the spaces at a break are dropped, so the end of a stack line still
+// carries its file and line number.
+func codeRows(s string, w int) []string {
+	if w < minWrap || ansi.StringWidth(s) <= w {
 		return []string{s}
 	}
-	var rows []string
-	for ansi.StringWidth(s) > w {
-		head := ansi.Truncate(s, w, "")
-		if head == "" || !strings.HasPrefix(s, head) {
-			break
-		}
-		rows = append(rows, head)
-		s = s[len(head):]
+	lead, rest := hangingIndent(s, w)
+	same := func(t string) string { return t }
+	with := func(_, t string) string { return t }
+	rows := textwrap.SpansWith([]string{rest}, w-len(lead), textwrap.Options{WordsOnly: true, Separators: separators}, same, with)
+	out := make([]string, len(rows))
+	for i, row := range rows {
+		out[i] = lead + strings.Join(row, "")
 	}
-	return append(rows, s)
+	return out
 }
 
 func (r *renderer) diff(b protocol.Block) {

@@ -309,7 +309,11 @@ spaces aside), and a `line` with status `failed` keep the tag.
 
 Both renderers drop bidi controls and zero-width characters from every field
 (`ui/fixtures/clean-cases.json` is the shared test). Wrapped text breaks at
-spaces only, so a flag or a branch name is never split at a hyphen;
+spaces, so a flag or a branch name that fits its row is never split at a
+hyphen; a word wider than its row breaks after its last `/` that fits (then
+`\`, `-`, `_`, `.`, `:`), and only a word with none is cut between
+characters. A `line` hint with a word too wide for its column takes the row
+under its title, whole. `verbatim` wraps the same way;
 `textwrap.Spans` keeps its hyphen breaks for the mission diff, and prose goes
 through `textwrap.SpansWith` with `WordsOnly`. `rt-ui render` reads
 `COLORFGBG` and paints the diff with pale tints on a light background; with no

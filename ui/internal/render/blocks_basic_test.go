@@ -473,3 +473,29 @@ func TestAccentsDoNotChangeWithTheBackground(t *testing.T) {
 		t.Fatalf("one palette for both backgrounds, but the light render differs:\n%q\n%q", dark, light)
 	}
 }
+
+func TestAHintTooLongForItsColumnDropsBelowItsTitleWhole(t *testing.T) {
+	got := plainAt(90,
+		protocol.Block{T: "line", Status: "done", Title: "Reset feature/login to origin/feature/login", Hint: "origin was rebased"},
+		protocol.Block{T: "line", Status: "done", Title: "Saved a backup", Hint: "rt-backup/reset/feature/login/2026-09-30T10-00-00"},
+	)
+	want := "  ✓ Reset feature/login to origin/feature/login  origin was rebased\n" +
+		"  ✓ Saved a backup\n" +
+		"    rt-backup/reset/feature/login/2026-09-30T10-00-00\n"
+	if got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestAHintDroppedBelowItsTitleIsStillCleaned(t *testing.T) {
+	out := render.Render([]protocol.Block{
+		{T: "line", Status: "done", Title: "Reset feature/login to origin/feature/login", Hint: "origin was rebased"},
+		{T: "line", Status: "done", Title: "Saved a backup", Hint: "rt-backup/reset/feature/login/2026-09-30T10-00-00\x1b[2J\n[ok] forged"},
+	}, render.Options{Width: 90})
+	if strings.Contains(out, "\x1b[2J") {
+		t.Fatalf("an escape survived: %q", out)
+	}
+	if !strings.Contains(ansi.Strip(out), "    rt-backup/reset/feature/login/2026-09-30T10-00-00 [ok] forged\n") {
+		t.Fatalf("the forged row left its line:\n%s", ansi.Strip(out))
+	}
+}

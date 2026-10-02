@@ -14,8 +14,10 @@ const calloutIndent = "    "
 
 // lineRun renders consecutive lines, with any callouts between them, and
 // pads hinted titles to one width so the hints line up. A hint wraps inside
-// its own column; a title too wide to leave the hint a column worth wrapping
-// into takes the hint on the rows below it and stays out of the alignment.
+// its own column. A hint holding a word wider than that column takes the
+// row below its title, whole, so a ref or a path is never cut; a title too
+// wide to leave the hint a column worth wrapping into does the same and
+// stays out of the alignment.
 func (r *renderer) lineRun(run []protocol.Block) {
 	textW := r.width - len(calloutIndent)
 	titleCap := textW - 2 - minWrap
@@ -37,6 +39,13 @@ func (r *renderer) lineRun(run []protocol.Block) {
 		titleW := lipgloss.Width(Clean(b.Title))
 		hint := protocol.Cell{{Text: b.Hint, Role: "faint"}}
 		if b.Hint != "" && titleW <= titleCap {
+			if longestWord(Clean(b.Hint)) > textW-w-2 {
+				r.emit(head + textStyle.Render(Clean(b.Title)))
+				for _, row := range wrapCell(hint, textW) {
+					r.emit(calloutIndent + cell(row))
+				}
+				continue
+			}
 			for i, row := range wrapCell(hint, textW-w-2) {
 				if i == 0 {
 					r.emit(head + textStyle.Render(pad(Clean(b.Title), w)) + "  " + cell(row))
@@ -64,6 +73,14 @@ func (r *renderer) lineRun(run []protocol.Block) {
 			}
 		}
 	}
+}
+
+func longestWord(s string) int {
+	n := 0
+	for _, word := range strings.Fields(s) {
+		n = max(n, lipgloss.Width(word))
+	}
+	return n
 }
 
 func calloutColor(label string) color.Color {

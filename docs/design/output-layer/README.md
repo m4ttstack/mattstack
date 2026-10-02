@@ -100,3 +100,4 @@ One palette for both backgrounds: static output takes the `Static*` tones in `ui
 | File | What it shows |
 |---|---|
 | `5g-palette-dark.png`, `5g-palette-light.png` | every status, every callout label, chat's listening, idle and offline rows, sdm's connection words, a kv key, a tree, a link, the summary, the banner, a failure with its excerpt, and a changes block, at 100 columns |
+| `5g-wrap-dark.png`, `5g-wrap-light.png` | 60 columns: backup refs in a hint column a longer title narrowed (whole on the row below), an excerpt that wraps at its words, a stack line that hangs under its indent and breaks its path at a slash, and a token with no separator, cut inside the pane |
