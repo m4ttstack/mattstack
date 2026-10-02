@@ -51,9 +51,16 @@ function setUpstreamConfig(branch: string, remote: string, cwd: string): void {
   execFileSync("git", ["config", `branch.${branch}.merge`, `refs/heads/${branch}`], { cwd, stdio: "pipe" });
 }
 
+const SCHEME_USERINFO_RE = /^([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/i;
+
+/** The only way a remote name or URL reaches the screen: userinfo of any scheme and token shapes are dropped. The argv given to git stays the real value. */
+function printable(remote: string): string {
+  return withoutUrls(remote).replace(SCHEME_USERINFO_RE, "$1");
+}
+
 function labelUpstream(u: UpstreamConfig | null): string {
   if (!u) return "nothing";
-  return `${withoutUrls(u.remote)}/${u.merge.replace(/^refs\/heads\//, "")}`;
+  return `${printable(u.remote)}/${u.merge.replace(/^refs\/heads\//, "")}`;
 }
 
 function isUpstreamCorrect(
@@ -83,7 +90,7 @@ export async function upstreamCommand(
   }
 
   const current = getUpstreamConfig(branch, cwd);
-  const wanted = `${remote}/${branch}`;
+  const wanted = `${printable(remote)}/${branch}`;
 
   if (isUpstreamCorrect(current, branch, remote)) {
     out.print(out.line("done", `${branch} already tracks ${wanted}`));
@@ -139,6 +146,7 @@ async function runPush(
   const dryRun = args.includes("--dry-run");
   const noVerify = args.includes("--no-verify");
   const remote = argValue(args, "--remote") ?? "origin";
+  const shown = printable(remote);
 
   const branch = getCurrentBranch(cwd);
   if (!branch) {
@@ -156,7 +164,7 @@ async function runPush(
       if (process.stdin.isTTY) {
         const { select } = await import("../../lib/rt-render.ts");
         const choice = await select({
-          message: `${branch} and ${remote}/${branch} have diverged, usually after a rebase or an amend. Force push?`,
+          message: `${branch} and ${shown}/${branch} have diverged, usually after a rebase or an amend. Force push?`,
           options: [
             { value: "force", label: "Force push with --force-with-lease" },
             { value: "cancel", label: "Cancel" },
@@ -169,7 +177,7 @@ async function runPush(
         force = true;
       } else {
         out.fail({
-          title: `${branch} and ${remote}/${branch} have diverged`,
+          title: `${branch} and ${shown}/${branch} have diverged`,
           why: "This usually follows a rebase or an amend, and a plain push would be rejected.",
           next: out.cmd("rt git push force"),
         });
@@ -191,13 +199,13 @@ async function runPush(
   if (noVerify) gitArgs.push("--no-verify");
   gitArgs.push("-u", remote, branch);
 
-  const target = `${remote}/${branch}`;
+  const target = `${shown}/${branch}`;
 
   if (dryRun) {
     out.print(
       out.line("skipped", `Would push ${branch} to ${target}`, force ? "dry run, forcing with a lease" : "dry run"),
       ...(upstreamWasWrong ? [out.callout("note", `This branch tracks ${labelUpstream(current)}. A real push points it at ${target}.`)] : []),
-      out.copy(`git ${gitArgs.join(" ")}`, "the command"),
+      out.copy(`git ${[...gitArgs.slice(0, -2), shown, branch].join(" ")}`, "the command"),
     );
     return true;
   }

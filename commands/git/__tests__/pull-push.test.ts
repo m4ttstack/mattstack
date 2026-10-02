@@ -128,3 +128,19 @@ test("a push git rejects exits with git's code, after the running line", async (
   expect(io.lines()[0]).toBe("[running] Pushing feature to origin/feature");
   expect(io.stdout()).not.toContain("Pushed feature");
 });
+
+test("an upstream remote on ssh with a password never prints the password", async () => {
+  git(repo, "config", "branch.feature.remote", "ssh://user:hunter2@example.test/x.git");
+  git(repo, "config", "branch.feature.merge", "refs/heads/feature");
+  await upstreamCommand(["--dry-run"], ctxFor(repo));
+  await pushCommand(["--dry-run"], ctxFor(repo));
+  expect(io.stdout() + io.stderr()).not.toContain("hunter2");
+});
+
+test("a dry run push to a --remote URL with a token never prints the token", async () => {
+  const url = "https://user:tok123@example.test/x.git";
+  await pushCommand(["--dry-run", "--remote", url], ctxFor(repo));
+  await upstreamCommand(["--dry-run", "--remote", url], ctxFor(repo));
+  expect(io.stdout() + io.stderr()).not.toContain("tok123");
+  expect(io.stdout()).toContain("git push -u <remote> feature");
+});
