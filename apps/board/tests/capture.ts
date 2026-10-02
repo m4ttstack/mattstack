@@ -256,6 +256,15 @@ try {
       );
       await (
         await required(
+          page.getByRole('menuitem', { name: 'sessions and reports' }),
+          "!1236's sessions and reports flyout"
+        )
+      ).click();
+      await page
+        .getByRole('menuitem', { name: 'view agent review' })
+        .waitFor();
+      await (
+        await required(
           page.getByRole('menuitem', { name: 'view agent review' }),
           "!1236's view agent review menu item"
         )
