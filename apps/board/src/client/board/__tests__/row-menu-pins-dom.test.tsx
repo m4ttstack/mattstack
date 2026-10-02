@@ -266,5 +266,5 @@ test('a slack mark keeps the menu open and shows its check once the reply lands'
   const looking = [...document.querySelectorAll('[role="menuitem"]')].find(
     el => el.getAttribute('aria-label') === 'unmark looking'
   );
-  expect(looking?.getAttribute('aria-pressed')).toBe('true');
+  expect(looking?.textContent?.endsWith('✓')).toBe(true);
 });

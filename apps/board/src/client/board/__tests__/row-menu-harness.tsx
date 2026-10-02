@@ -186,12 +186,16 @@ function panelOf(row: HTMLElement): Element | null {
     : null;
 }
 
-async function openRow(row: HTMLElement): Promise<Element | null> {
+/** Throws when the panel does not appear, so a flyout that fails to open
+    cannot read as an empty one. */
+async function openRow(row: HTMLElement): Promise<Element> {
   if (row.getAttribute('aria-expanded') !== 'true')
     await React.act(async () => {
       row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
-  return panelOf(row);
+  const panel = panelOf(row);
+  if (!panel) throw new Error(`flyout "${labelOf(row)}" did not open`);
+  return panel;
 }
 
 /** Opens the flyout whose row reads `title`. */

@@ -9,6 +9,7 @@ import {
   openActionMenu,
   openMenu,
   openSub,
+  typeNote,
   useMenuHarness,
 } from './row-menu-harness.tsx';
 
@@ -59,16 +60,19 @@ test('the reaction row toggles a mark and keeps the menu open', async () => {
   expect(menuLines()[1]).toBe(
     '[mark as looking | mark as commented | unmark approved]'
   );
-  const pressed = [
+  const toggles = [
     ...document.querySelectorAll(
       '[data-part="contextmenu-row"] [role="menuitem"]'
     ),
-  ].map(el => [el.getAttribute('title'), el.getAttribute('aria-pressed')]);
-  expect(pressed).toEqual([
-    ['mark as looking', 'false'],
-    ['mark as commented', 'false'],
-    ['unmark approved', 'true'],
+  ].map(el => [el.getAttribute('title'), el.textContent?.endsWith('✓')]);
+  expect(toggles).toEqual([
+    ['mark as looking', false],
+    ['mark as commented', false],
+    ['unmark approved', true],
   ]);
+  expect(
+    document.querySelector('[data-part="contextmenu-row"] [aria-pressed]')
+  ).toBeNull();
   await clickItem('mark as looking');
   expect(harness.effects.map(e => e.effect)).toEqual(['react:eyes:false']);
   expect(harness.closed).toBe(false);
@@ -129,6 +133,52 @@ test('flat draws every section inline under its heading, with no flyouts', async
     'note',
   ]);
   expect(document.querySelector('[data-part="contextmenu-sub"]')).toBeNull();
+});
+
+test('flat still draws a row from any section, under its bulk heading', async () => {
+  const entry = (key: string, section: MenuEntry['section']): MenuEntry => ({
+    key,
+    section,
+    label: key,
+    glyph: null,
+  });
+  await openActionMenu(
+    [
+      entry('find', 'top'),
+      entry('resume', 'sessions'),
+      entry('note', 'more'),
+      entry('merge', 'gitlab'),
+    ],
+    { flat: true }
+  );
+  expect(menuLines()).toEqual([
+    '# 2 selected',
+    '# agent actions',
+    'resume',
+    '---',
+    '# gitlab',
+    'merge',
+    '---',
+    '# slack',
+    'find',
+    'note',
+  ]);
+});
+
+test('alt-click on a launch inside a flyout opens the note box first', async () => {
+  await openMenu(teammateReviewed, ownEnv);
+  await clickItem('resume review', { altKey: true });
+  expect(harness.effects).toEqual([]);
+  expect(menuLines()).toEqual([
+    '# note for resume review !1419',
+    '[note box]',
+    '↵ launch with note · ⇧↵ newline · esc back',
+  ]);
+  await typeNote('pick up at the tests');
+  expect(harness.effects).toEqual([
+    { effect: 'launch:resume-review', iid: 1419, note: 'pick up at the tests' },
+  ]);
+  expect(harness.closed).toBe(true);
 });
 
 test('merge in the gitlab flyout still asks for a second click', async () => {

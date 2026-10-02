@@ -10,25 +10,31 @@ import {
   SlackLogo,
 } from './icons.tsx';
 import {
+  BULK_SECTION,
   type ActionGlyph,
+  type BulkSection,
   type Lane,
   type MenuEntry,
   type RunOpts,
   type Section,
 } from './row-actions.ts';
 
-const FLAT_SECTIONS: Array<[Section, string]> = [
+const FLAT_SECTIONS: Array<[BulkSection, string]> = [
   ['agent', 'agent actions'],
   ['gitlab', 'gitlab'],
   ['slack', 'slack'],
 ];
 
-const FLYOUTS: Array<[Section, string, ActionGlyph]> = [
-  ['sessions', 'sessions and reports', { kind: 'menu', name: 'file' }],
-  ['gitlab', 'gitlab', { kind: 'menu', name: 'branch' }],
-  ['slack', 'slack', { kind: 'slack' }],
-  ['more', 'more', { kind: 'menu', name: 'note' }],
-];
+type FlyoutSection = Exclude<Section, 'top' | 'agent'>;
+
+/** A Record, so a new Section fails to compile until it has a flyout. Key
+    order is the menu's order. */
+const FLYOUT: Record<FlyoutSection, [string, ActionGlyph]> = {
+  sessions: ['sessions and reports', { kind: 'menu', name: 'file' }],
+  gitlab: ['gitlab', { kind: 'menu', name: 'branch' }],
+  slack: ['slack', { kind: 'slack' }],
+  more: ['more', { kind: 'menu', name: 'note' }],
+};
 
 const isReaction = (e: MenuEntry) => /^(un)?react-/.test(e.key);
 
@@ -286,7 +292,7 @@ function ActionMenu({
   if (flat)
     return shell(
       FLAT_SECTIONS.map(([section, title]) => {
-        const items = entries.filter(e => e.section === section);
+        const items = entries.filter(e => BULK_SECTION[e.section] === section);
         if (!items.length) return null;
         return (
           <Fragment key={section}>
@@ -301,12 +307,14 @@ function ActionMenu({
   const top = entries.filter(e => e.section === 'top');
   const reactions = top.filter(isReaction);
   const agentItems = entries.filter(e => e.section === 'agent');
-  const flyouts = FLYOUTS.map(([section, title, glyph]) => ({
-    section,
-    title,
-    glyph,
-    items: entries.filter(e => e.section === section),
-  })).filter(f => f.items.length);
+  const flyouts = (Object.keys(FLYOUT) as FlyoutSection[])
+    .map(section => ({
+      section,
+      title: FLYOUT[section][0],
+      glyph: FLYOUT[section][1],
+      items: entries.filter(e => e.section === section),
+    }))
+    .filter(f => f.items.length);
 
   return shell(
     <>
@@ -318,12 +326,7 @@ function ActionMenu({
               label={e.glyph ? glyphNode(e.glyph) : e.label}
               aria-label={e.label}
               title={e.label}
-              aria-pressed={!!e.marked}
-              trailing={
-                pending.includes(e.key) ? (
-                  <span className="tui-menu-spin" aria-label="working" />
-                ) : undefined
-              }
+              trailing={trailingOf(e)}
               disabled={pending.includes(e.key)}
               onClick={click(e)}
             />
