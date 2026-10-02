@@ -1503,6 +1503,8 @@ function realGitDeps(root: string, pack: PackInfo, engine: PackInfo, world: Worl
 
 const remoteLog = (remote: string) => mustGit(remote, "log", "--format=%s", "main").trim().split("\n");
 
+const byStep = (steps: { name: string; status: string; detail: string }[]) => Object.fromEntries(steps.map((s) => [s.name, s]));
+
 describe("commit-pending against real git", () => {
   test("a staged deletion, an unstaged deletion and an edit land as one commit, pushed with the bump, and leave the tree clean", async () => {
     const { root, remote, pack } = realPackRepo("");
@@ -1582,25 +1584,52 @@ describe("commit-pending against real git", () => {
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
 
-  test("a file that lands under a pack root after the pending read is left out of every commit", async () => {
+  test.each<[string, (dir: string) => void, string]>([
+    ["a new file under a pack root", (dir) => writeFileSync(join(dir, "pack", "late.jsonc"), "{}\n"), "M  pack/skills.jsonc\n?? pack/late.jsonc\n"],
+    ["a listed file edited again", (dir) => writeFileSync(join(dir, "pack", "skills.jsonc"), '{ "bindings": { "later": {} } }\n'), "MM pack/skills.jsonc\n"],
+  ])("%s while the pack is pulled refuses before anything is staged or committed", async (_label, move, after) => {
     const { root, remote, pack } = realPackRepo("");
     const engine = fixturePack("beacon", "local", "2.0.0");
     writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    mustGit(root, "add", "pack/skills.jsonc");
     const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
     const deps = realGitDeps(root, pack, engine, world);
     const run = deps.run;
     deps.run = async (cmd, args, opts) => {
-      if (cmd === "git" && args[0] === "pull") writeFileSync(join(pack.dir, "pack", "late.jsonc"), "{}\n");
+      if (cmd === "git" && args[0] === "pull") move(pack.dir);
       return run(cmd, args, opts);
     };
 
     const report = await syncPack(pack, engine, deps, { commitPending: true });
 
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-pending", status: "refused" });
+    expect(report.steps.at(-1)!.detail).toContain("changed while rt was syncing it");
+    expect(world.calls.some((c) => c.cmd === "git" && ["add", "commit", "push"].includes(c.args[0]!))).toBe(false);
+    expect(mustGit(root, "rev-list", "--count", "HEAD").trim()).toBe("1");
+    expect(mustGit(root, "status", "--porcelain")).toBe(after);
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("an unstaged deletion the pulled commits also delete is no longer staged, and the rest commits", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const other = tmp("rt-sync-other-");
+    mustGit(other, "clone", "-q", remote, "clone");
+    const clone = join(other, "clone");
+    mustGit(clone, "rm", "-q", "attachments/old/SKILL.md");
+    mustGit(clone, "commit", "-q", "-m", "upstream drops old");
+    mustGit(clone, "push", "-q");
+    rmSync(join(pack.dir, "attachments", "old", "SKILL.md"));
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [false, false] };
+
+    const report = await syncPack(pack, engine, realGitDeps(root, pack, engine, world), { commitPending: true });
+
     expect(report.ok).toBe(true);
-    expect(remoteLog(remote)).toHaveLength(3);
+    expect(byStep(report.steps)["commit-pending"]).toMatchObject({ status: "ran", detail: "staged 1 file" });
+    expect(remoteLog(remote)).toEqual(["skills sync: acme v1.0.1", "skills: acme pending changes", "upstream drops old", "base"]);
     expect(mustGit(root, "show", "--name-only", "--format=", "HEAD~1").trim()).toBe("pack/skills.jsonc");
-    expect(mustGit(root, "log", "--format=", "--name-only", "origin/main").split("\n")).not.toContain("pack/late.jsonc");
-    expect(mustGit(root, "status", "--porcelain")).toBe("?? pack/late.jsonc\n");
+    expect(mustGit(root, "status", "--porcelain")).toBe("");
   }, REAL_GIT_TIMEOUT_MS);
 
   test("a staged rename commits, its destination's later edit included, without naming the source to git add", async () => {

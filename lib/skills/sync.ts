@@ -181,18 +181,40 @@ function guardBase(engineInTree: boolean, packInTree: boolean, engineCache: stri
   return "engine and pack checkouts clean on main";
 }
 
-/** The in-scope files with their content ids and the signature over them, read the way `rt skills changes` reads them. */
-async function signPending(deps: SyncDeps, dir: string, files: PendingFile[]): Promise<{ files: HashedFile[]; signature: string }> {
-  const hashed = await withHashes(dir, files, async (paths) => {
+function hashPending<T extends PendingFile>(deps: SyncDeps, dir: string, files: T[]): Promise<(T & { hash: string | null })[]> {
+  return withHashes(dir, files, async (paths) => {
     const res = await deps.run("git", ["hash-object", "--", ...paths], { cwd: dir });
     if (res.code !== 0) throw new Error(`git hash-object failed in ${dir}: ${res.stderr.trim()}`);
     return res.stdout;
   });
+}
+
+/** The signature over files already hashed, worked out the way `rt skills changes` works it out. */
+async function signatureOf(deps: SyncDeps, dir: string, hashed: HashedFile[]): Promise<string> {
   const side = await packSideChanges(dir, async (rel) => {
     const res = await deps.run("git", ["show", `HEAD:./${rel}`], { cwd: dir });
     return res.code === 0 ? res.stdout : null;
   });
-  return { files: hashed, signature: pendingSignature({ files: hashed, ...side }) };
+  return pendingSignature({ files: hashed, ...side });
+}
+
+async function signPending(deps: SyncDeps, dir: string, files: PendingFile[]): Promise<string> {
+  return signatureOf(deps, dir, await hashPending(deps, dir, files));
+}
+
+/** Every pending file in the pack's repo, spelled from the pack the way the guard spells it. */
+async function readRepoPending(deps: SyncDeps, dir: string, prefix: string): Promise<PorcelainEntry[]> {
+  const status = await deps.run("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd: dir });
+  if (status.code !== 0) throw new Error(`git status failed in ${dir}: ${status.stderr.trim()}`);
+  return packRelative(parsePorcelainEntries(status.stdout), prefix);
+}
+
+function sameEntry(a: HashedFile, b: HashedFile): boolean {
+  return a.path === b.path && (a.from ?? null) === (b.from ?? null) && a.status === b.status && a.hash === b.hash;
+}
+
+function shownPath(f: PendingFile): string {
+  return f.from === undefined ? f.path : `${f.from} -> ${f.path}`;
 }
 
 /** Every pending file in the pack directory, pack-relative, read the way `rt skills changes` reads them. */
@@ -255,6 +277,8 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   let drift = false;
   let branchNote = "";
   let pending: PorcelainEntry[] = [];
+  let pendingHashed: HashedFile[] = [];
+  let packPrefix = "";
   let published = false;
 
   const finish = (): SyncReport => ({
@@ -312,24 +336,28 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
         // in the commit.
         const prefix = await deps.run("git", ["rev-parse", "--show-prefix"], { cwd: pack.dir });
         if (prefix.code !== 0) return failed(`git rev-parse --show-prefix failed in ${pack.dir}: ${prefix.stderr.trim()}`);
-        pending = packRelative(parsePorcelainEntries(packStatus.stdout), prefix.stdout.trim());
+        packPrefix = prefix.stdout.trim();
+        pending = packRelative(parsePorcelainEntries(packStatus.stdout), packPrefix);
         const outside = pending.flatMap(outOfScopeSides);
         if (outside.length > 0) {
           return refused(`The pack checkout at ${pack.dir} has changes outside the pack: ${outside.join(", ")}. Commit or stash those, then run this again`);
         }
       }
-      // Signed from this same read, so what passes the check is exactly what
-      // commit-pending later stages.
-      if (opts.expect !== undefined && (await signPending(deps, pack.dir, pending)).signature !== opts.expect) return changedSinceShown(pack.name);
+      // Hashed and signed from this same read, so what passes the check is
+      // what commit-pending compares the pack against after the pull.
+      if (fullStatus) {
+        pendingHashed = await hashPending(deps, pack.dir, pending);
+        if (opts.expect !== undefined && (await signatureOf(deps, pack.dir, pendingHashed)) !== opts.expect) return changedSinceShown(pack.name);
+      }
     } else if ((opts.commitPending || opts.expect !== undefined) && packInTree) {
       const inPackDir = await readPackDirPending(deps, pack.dir);
       if (opts.commitPending && inPackDir.length > 0) {
         return refused(`The ${pack.name} pack is in the shared checkout at ${pack.dir} and has changes that are not synced. rt never commits there: commit them in a pull request to the monorepo`);
       }
-      if (opts.expect !== undefined && (await signPending(deps, pack.dir, inPackDir.filter(fullyInScope))).signature !== opts.expect) return changedSinceShown(pack.name);
+      if (opts.expect !== undefined && (await signPending(deps, pack.dir, inPackDir.filter(fullyInScope))) !== opts.expect) return changedSinceShown(pack.name);
     } else if (opts.expect !== undefined) {
       const inPackDir = await readPackDirPending(deps, pack.dir);
-      if ((await signPending(deps, pack.dir, inPackDir.filter(fullyInScope))).signature !== opts.expect) return changedSinceShown(pack.name);
+      if ((await signPending(deps, pack.dir, inPackDir.filter(fullyInScope))) !== opts.expect) return changedSinceShown(pack.name);
     }
 
     if (engineGit) {
@@ -403,15 +431,23 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (opts.commitPending) {
     const commitPending = await tryStep(async () => {
       if (pending.length === 0) return skipped("nothing waiting to commit");
-      // Only the paths the guard read, by literal name: anything that landed
-      // under a pack root since then was never listed to whoever asked for this.
-      const toStage = needsStaging(pending).filter((f) => f.status !== "??" || pathExists(join(pack.dir, f.path)));
+      // Read again because the pull can settle a pending entry (a deletion
+      // upstream made too), which git add would then fail to match. An entry
+      // may only drop out: one that is new or reads differently now was never
+      // listed to whoever asked for this.
+      const now = await hashPending(deps, pack.dir, await readRepoPending(deps, pack.dir, packPrefix));
+      const moved = now.filter((e) => !pendingHashed.some((was) => sameEntry(was, e)));
+      if (moved.length > 0) {
+        return refused(`The ${pack.name} pack changed while rt was syncing it (${moved.map(shownPath).join(", ")}), so rt staged and committed nothing. Look over the changes again, then sync`);
+      }
+      if (now.length === 0) return skipped("the pull already holds every pending change");
+      const toStage = needsStaging(now).filter((f) => f.status !== "??" || pathExists(join(pack.dir, f.path)));
       if (toStage.length > 0) {
         const add = await deps.run("git", ["add", "--", ...toStage.map((f) => `:(literal)${f.path}`)], { cwd: pack.dir });
         if (add.code !== 0) return failed(`git add failed: ${add.stderr.trim()}`);
       }
       published = true;
-      return ran(`staged ${plural(pending.length, "file")}`);
+      return ran(`staged ${plural(now.length, "file")}`);
     });
     steps.push({ name: "commit-pending", ...commitPending });
     if (stops(commitPending)) return finish();
