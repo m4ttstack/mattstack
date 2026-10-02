@@ -42,7 +42,7 @@ new mattstack member gets this with no setting to flip.
 | Who starts the agent | Daemon cron, through a new `triage --peer` mode. The board server still never runs triage. |
 | Default | Asks start automatically by default, under a new `board.peerAsks` key. Auto-doctor stays opt-in under `board.triage`. |
 | Fallback | The board's 60s tick stays. Push only ever makes things faster. |
-| Id echo | Review-state reports echo the ask that launched the run, so a late report cannot finish a newer ask. |
+| Id echo | Review-state reports echo the ask their run answers (the author's latest ask held when the run started), so a late report cannot finish a newer ask. |
 | Compatibility | Three users today. Deploy the relay, then release; no old-relay or old-board handling beyond the 60s tick. |
 
 ## Design
@@ -160,17 +160,21 @@ A mode of `apps/board/bin/triage.ts`.
 
 ### Id echo on review-state
 
-- `ReviewState` gains an optional `askId`, recorded whenever a review or
-  re-review launches on an MR: the dispatched nudge's id for a triage
-  launch; otherwise the latest review or re-review ask from the MR author on
-  that MR that arrived before the launch, or none.
-- The review-state emitter in `server.ts` puts `askId` on the payload as
-  `nudgeId`.
+- `ReviewState` gains an optional `runStartedAt`, stamped by
+  `writeReviewState` whenever a write moves the lane from nothing, done or
+  error into queued or reviewing. Every launch path, triage or click, goes
+  through that write, so no launch site changes.
+- `NudgeState` gains an optional `materializedAt` (this board's clock), so
+  the comparison below never mixes the relay's clock with this one.
+- The review-state emitter in `server.ts` picks the run's ask with
+  `askIdForRun`: the MR author's latest review or re-review ask on that MR
+  materialized at or before `runStartedAt`. It puts that id on the payload
+  as `nudgeId`. An ask that lands mid-run belongs to the next run.
 - On the asker's board, `materializeEnvelope` passes a review-state's
   `nudgeId` to `finishSentNudge`, which already retires by id for
   respond-state. With an id, only that ask can finish. Without one (a review
   nobody asked for), today's `updatedAt` guard applies.
-- `askId` is an optional field inside the stored JSON, so no
+- Both new fields are optional fields inside stored JSON, so no
   `SCHEMA_VERSION` bump. Confirm this in the plan.
 
 ## Rollout
@@ -194,9 +198,10 @@ A mode of `apps/board/bin/triage.ts`.
 - Board: `peer-inbox` triggers `tickNow`; "awaits click" follows
   `board.peerAsks`; review-state with `nudgeId` finishes only that ask; one
   without falls back to `updatedAt`.
-- Integration: a real relay handler, the real waker and a real peer pass
-  with a fake `launchAsk`, asserting the launch within about 1s of the
-  publish.
+- Integration: the real relay process and the real waker, asserting the
+  `peer-inbox` broadcast within 1s of a publish, and a held wait outliving
+  Bun's default 10s idle timeout (the relay sets `idleTimeout` above the
+  wait cap). The peer pass itself is covered by board unit tests.
 - UI: the ask band's status transitions rendered in Fast Browser, light and
   dark.
 
