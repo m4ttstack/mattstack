@@ -116,14 +116,15 @@ export function Suggested({
 }
 
 /** The def as if `row` were the only layer, so a scalar control edits that
-    layer's own value. */
+    layer's own value. A layer's value is also what it authored, which a
+    deep key's summary counts. */
 function layerDef(def: SettingDefWire, row: ExplainRowWire): SettingDefWire {
   return {
     ...def,
     effective: {
       scope: row.scope,
       file: row.file,
-      ...(row.present ? { value: row.value } : {}),
+      ...(row.present ? { value: row.value, authored: row.value } : {}),
     },
   };
 }

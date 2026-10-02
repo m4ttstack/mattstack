@@ -512,15 +512,16 @@ describe('KeyPanel', () => {
 
     function renderRepos(
       d: SettingDefWire,
-      rowsFor: Record<string, ExplainRowWire[]>
+      rowsFor: Record<string, ExplainRowWire[]>,
+      global: ExplainRowWire[] = [
+        { scope: 'default', file: null, present: false },
+      ]
     ) {
       explainGet.mockImplementation(async (url: string) => {
         const repo = new URL(url, 'http://x').searchParams.get('repo');
         return ok({
           def: d,
-          rows: (repo && rowsFor[repo]) ?? [
-            { scope: 'default', file: null, present: false },
-          ],
+          rows: (repo && rowsFor[repo]) ?? global,
         });
       });
       renderWithProviders(
@@ -583,6 +584,53 @@ describe('KeyPanel', () => {
       ).toHaveTextContent(/^1 field$/);
       expect(within(billing).getByText('team')).toBeInTheDocument();
       expect(within(billing).queryByText('team · repo')).toBeNull();
+    });
+
+    it('a deep key whose schema is all leaves counts each layer’s own fields', async () => {
+      const d = def('rt.gitStatus', {
+        type: 'object',
+        merge: 'deep',
+        repoScoped: true,
+        repos: [{ identity: STOREFRONT, scopes: ['user'] }],
+        schema: {
+          type: 'object',
+          properties: {
+            sweep: { type: 'boolean' },
+            sweepIntervalSec: { type: 'number' },
+            fetchIntervalSec: { type: 'number' },
+          },
+        } as NonNullable<SettingDefWire['schema']>,
+        effective: { scope: 'user', file: '/stores/user.jsonc' },
+      });
+      renderRepos(
+        d,
+        {
+          [STOREFRONT]: [
+            {
+              scope: 'user.repo',
+              file: '/stores/user.jsonc',
+              present: true,
+              value: { fetchIntervalSec: 120 },
+            },
+          ],
+        },
+        [
+          { scope: 'default', file: null, present: false },
+          {
+            scope: 'user',
+            file: '/stores/user.jsonc',
+            present: true,
+            value: { sweep: false },
+          },
+        ]
+      );
+      expect(await screen.findByTestId('layer-value-user')).toHaveTextContent(
+        /^1 of 3 set$/
+      );
+      const storefront = await screen.findByTestId(`repo-${STOREFRONT}`);
+      expect(
+        await within(storefront).findByTestId('layer-value-user.repo')
+      ).toHaveTextContent(/^1 of 3 set$/);
     });
 
     it('a repo section shows a string value bare', async () => {
