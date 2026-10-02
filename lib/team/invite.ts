@@ -26,6 +26,7 @@ import { readTeamLocal } from "./team-local.ts";
 import { encodeCode, generateId, generateKey, seal } from "./invite-crypto.ts";
 import { readInviteRecords, upsertInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
+import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 
 export const INVITE_TTL_DAYS = 7;
 
@@ -116,7 +117,8 @@ export interface MintInviteSeams {
   forgeToken: typeof storedForgeToken;
   /** A secret from the operator's LOCAL rt domain (the switchboard admin token lives there, not in team secrets a not-yet-synced invitee could never read anyway). */
   readLocalSecret: (key: string) => Promise<string | null>;
-  warn: (message: string) => void;
+  /** `message` is the log text; `shown` is what a person reads, and a warning without it shows its message. */
+  warn: (message: string, shown?: ShownWarning) => void;
 }
 
 /** Degrades to `undefined` on a resolver-layer throw rather than taking the mint down with it — mirrors team-settings.ts's own default reader. */
@@ -134,9 +136,8 @@ function defaultReadTeamStore(slug: string): Record<string, unknown> {
   return readStore(teamSettingsPath(slug)).global;
 }
 
-/** stderr only, so a `--json` command's stdout envelope stays uncorrupted — mirrors team-settings.ts's own default warn. */
-function defaultWarn(message: string): void {
-  console.error(message);
+function defaultWarn(message: string, shown?: ShownWarning): void {
+  warnLine("team", message, { show: shown ?? { title: message } });
 }
 
 export function realMintInviteSeams(): MintInviteSeams {
@@ -279,7 +280,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
     if (embedFailure) {
       peeringWarning = `board peering was not embedded in this invite (${embedFailure}); after they join, re-invite their board from the board's members panel`;
       if (opts.requirePeering) throw new UserActionableError("peering-not-embedded", `refusing to mint: ${peeringWarning}`);
-      seams.warn(peeringWarning);
+      seams.warn(peeringWarning, { title: "This invite will not connect their board", hint: "invite their board again from the board's members panel after they join" });
     }
   }
   const peering: InviteResult["peering"] = !switchboardUrl ? "none" : pointer.switchboard ? "embedded" : "missing";
@@ -328,6 +329,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
     } catch (err) {
       seams.warn(
         `rt team invite: minted a new invite for "${opts.handle}", but could not revoke the previous one (id ${priorRecord.id}) — ${err instanceof Error ? err.message : String(err)}; it will simply expire on its own.`,
+        { title: `The earlier invite for ${opts.handle} is still live`, hint: "it stops working when it expires" },
       );
     }
   }

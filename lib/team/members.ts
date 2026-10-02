@@ -39,6 +39,7 @@ import { assertNotJoined, readTeamLocal } from "./team-local.ts";
 import { openReply } from "./invite-crypto.ts";
 import { readInviteRecords, removeInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
+import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 
 const BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const AGE_HRP = "age";
@@ -167,16 +168,16 @@ export interface MembersSeams {
   readTeamLocal: typeof readTeamLocal;
   /** The forge token rt holds for the team remote's host, or null. */
   forgeToken: typeof storedForgeToken;
-  warn: (message: string) => void;
+  /** `message` is the log text; `shown` is what a person reads, and a warning without it shows its message. */
+  warn: (message: string, shown?: ShownWarning) => void;
 }
 
 function defaultReadTeamStore(slug: string): Record<string, unknown> {
   return readStore(teamSettingsPath(slug)).global;
 }
 
-/** stderr only, so a `--json` command's stdout envelope stays uncorrupted. */
-function defaultWarn(message: string): void {
-  console.error(message);
+function defaultWarn(message: string, shown?: ShownWarning): void {
+  warnLine("team", message, { show: shown ?? { title: message } });
 }
 
 export function realMembersSeams(): MembersSeams {
@@ -269,6 +270,7 @@ export async function membersSync(
       } catch (err) {
         seams.warn(
           `rt team members sync: the reply for "${handle}" could not be used (${err instanceof Error ? err.message : String(err)}) — leaving the invite in place to retry`,
+          { title: `The reply from ${handle} could not be used`, hint: "their invite stays open to try again" },
         );
         pending.push(handle);
         continue;
@@ -277,6 +279,7 @@ export async function membersSync(
       if (readTeamRecipients(slug, secrets).includes(agePublicKey)) {
         seams.warn(
           `rt team members sync: the reply for "${handle}" claims an age key that is already a recipient (a key belongs to exactly one handle) — treating as suspect and leaving the invite in place; investigate before re-syncing`,
+          { title: `The reply from ${handle} repeats a key the team already has`, hint: "treated as suspect; look into it before syncing again" },
         );
         pending.push(handle);
         continue;
@@ -288,7 +291,7 @@ export async function membersSync(
         // Lost a race against a concurrent sync, or the duplicate check above
         // was somehow stale — either way, nothing was actually added, so this
         // must not be reported as a success.
-        seams.warn(`rt team members sync: "${handle}"'s key turned out to already be a recipient — leaving the invite in place`);
+        seams.warn(`rt team members sync: "${handle}"'s key turned out to already be a recipient — leaving the invite in place`, { title: `${handle} was already added`, hint: "their invite stays open" });
         pending.push(handle);
         continue;
       }

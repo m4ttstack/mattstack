@@ -38,6 +38,8 @@ import { AUTH_FAILURE_PATTERN } from "./publish.ts";
 import { withoutUrls } from "./redact.ts";
 import { assertNotRealStoreInTest } from "../../packages/rt-client/src/test-isolation.ts";
 import type { RelayClient } from "./relay-client.ts";
+import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
+import * as out from "../ui/out.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { forgeLabel, probeTeamRepoAccess, type RepoAccessVerdict } from "./repo-access.ts";
 import { forgeTokenLookupForRemote, mayOfferToken, mayOfferTokenToHost, tokenLookupRemoteForHost } from "./forge-token.ts";
@@ -274,7 +276,8 @@ export interface JoinRedeemSeams {
   writeMachineSetting: (key: string, value: unknown) => void;
   /** User-scope settings write, for the `rt.integrations` latch rt's own setup rows read. */
   writeUserSetting: (key: string, value: unknown) => void;
-  warn: (message: string) => void;
+  /** `message` is the log text; `shown` is what a person reads, and a warning without it shows its message. */
+  warn: (message: string, shown?: ShownWarning) => void;
 }
 
 /** Degrades to `undefined` on a resolver-layer throw rather than taking the redeem down with it — mirrors invite.ts's own default reader. */
@@ -288,8 +291,8 @@ function defaultRead(): SettingsReader {
   };
 }
 
-function defaultWarn(message: string): void {
-  console.error(message);
+function defaultWarn(message: string, shown?: ShownWarning): void {
+  warnLine("team", message, { show: shown ?? { title: message } });
 }
 
 function sameUrl(a: string, b: string): boolean {
@@ -302,7 +305,7 @@ function pointBoardAt(seams: JoinRedeemSeams, url: string): boolean {
     seams.writeMachineSetting("board.switchboardUrl", url);
     return true;
   } catch (err) {
-    seams.warn(`board peering: stored the switchboard token but could not set board.switchboardUrl (${err instanceof Error ? err.message : String(err)})`);
+    seams.warn(`board peering: stored the switchboard token but could not set board.switchboardUrl (${err instanceof Error ? err.message : String(err)})`, { title: "rt could not point your board at the team's switchboard", hint: "the join result says how to set it" });
     return false;
   }
 }
@@ -325,12 +328,12 @@ function confirmSwitchboardForRt(seams: JoinRedeemSeams, url: string): void {
     const confirmed = overrides.switchboardUrl && isValidHttpsUrl(overrides.switchboardUrl) ? overrides.switchboardUrl : undefined;
     if (confirmed !== undefined && sameUrl(confirmed, url)) return;
     if (confirmed !== undefined) {
-      seams.warn(`switchboard: rt's setup rows are confirmed for ${confirmed}, not this team's ${url}; leaving that alone. To switch: ${remedy}`);
+      seams.warn(`switchboard: rt's setup rows are confirmed for ${confirmed}, not this team's ${url}; leaving that alone. To switch: ${remedy}`, { title: "rt's setup still points at a different switchboard", hint: "left as it is", next: out.cmd(remedy) });
       return;
     }
     seams.writeUserSetting("rt.integrations", { ...overrides, switchboardUrl: url });
   } catch (err) {
-    seams.warn(`switchboard: could not confirm ${url} for rt's setup rows (${err instanceof Error ? err.message : String(err)}); confirm it yourself: ${remedy}`);
+    seams.warn(`switchboard: could not confirm ${url} for rt's setup rows (${err instanceof Error ? err.message : String(err)}); confirm it yourself: ${remedy}`, { title: "rt could not record the team's switchboard for setup", next: out.cmd(remedy) });
   }
 }
 
@@ -397,7 +400,7 @@ async function peerBoard(
   // Team-declared, so unverified: a non-https URL would carry the admin token
   // in cleartext, and the board refuses to boot on one once it is stored.
   if (declaredUrl && !isValidHttpsUrl(declaredUrl)) {
-    seams.warn(`board peering: the team declares switchboard "${declaredUrl}", which is not an https URL; skipping peering`);
+    seams.warn(`board peering: the team declares switchboard "${declaredUrl}", which is not an https URL; skipping peering`, { title: "The team's switchboard address is not secure", hint: "board peering was skipped; the team owner has to fix it" });
     return { peering: "unavailable", peeringFix: "the team's switchboard URL must be https, so the owner has to fix it in the team settings" };
   }
 
@@ -406,7 +409,7 @@ async function peerBoard(
     // cannot decrypt team secrets yet, so the sealed pointer is the only
     // channel that works on a first join).
     if (declaredUrl && pointer.switchboard.url === declaredUrl) return storeBoardToken(seams, pointer, declaredUrl, pointer.switchboard.token);
-    seams.warn("board peering: the invite's switchboard does not match the team's declared one; refusing its token");
+    seams.warn("board peering: the invite's switchboard does not match the team's declared one; refusing its token", { title: "This invite's switchboard is not the team's", hint: "its board token was not used" });
     return reinvite;
   }
 
@@ -434,7 +437,11 @@ async function peerBoard(
     }
   } catch (err) {
     if (err instanceof UserActionableError) logFailureDetail(err);
-    seams.warn(`board peering: could not register this board (${errorText(err)})`);
+    seams.warn(`board peering: could not register this board (${errorText(err)})`, {
+      title: "rt could not register your board with the team's switchboard",
+      hint: errorText(err).split("\n")[0],
+      ...(err instanceof UserActionableError && err.next ? { next: out.cmd(err.next) } : {}),
+    });
     return reinvite;
   }
   if (typeof token !== "string" || !token) return reinvite;

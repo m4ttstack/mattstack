@@ -9,6 +9,7 @@ import type { SettingsReader } from "../../setup/team-settings.ts";
 import { decodeCode, encodeCode, openReply, seal } from "../invite-crypto.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, type JoinRedeemSeams } from "../join.ts";
 import type { RelayClient } from "../relay-client.ts";
+import type { ShownWarning } from "../../ui/warn.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import type { ExecResult } from "../../setup/probes.ts";
@@ -933,6 +934,49 @@ describe("joinRedeem", () => {
 
     expect(result.access).toBe("ok");
     expect(result.peering).toBe("unavailable");
+  });
+
+  test("a team-secrets failure inside peering keeps its next command in the warning", async () => {
+    const p = redeemProbes();
+    const relay = fakeRelay();
+    const shown: Array<ShownWarning | undefined> = [];
+    const { seams } = baseJoinRedeemSeams({
+      read: fakeRead({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }),
+      readTeamSecret: async () => {
+        throw new UserActionableError("team-secrets-unreadable", "This Mac cannot read the acme team's secrets yet", { team: "acme" }, { why: "No key matches.", next: "rt team pull", log: "sops -d /x/rt.json: no key" });
+      },
+      warn: (_message, copy) => {
+        shown.push(copy);
+      },
+    });
+
+    const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
+
+    expect(result.peering).toBe("unavailable");
+    expect(shown).toContainEqual({
+      title: "rt could not register your board with the team's switchboard",
+      hint: "This Mac cannot read the acme team's secrets yet",
+      next: { text: "rt team pull", role: "command" },
+    });
+  });
+
+  test("a plain error inside peering warns with no next command", async () => {
+    const p = redeemProbes();
+    const relay = fakeRelay();
+    const shown: Array<ShownWarning | undefined> = [];
+    const { seams } = baseJoinRedeemSeams({
+      read: fakeRead({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }),
+      readTeamSecret: async () => {
+        throw new Error("keychain sulking\nsecond line");
+      },
+      warn: (_message, copy) => {
+        shown.push(copy);
+      },
+    });
+
+    await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
+
+    expect(shown).toContainEqual({ title: "rt could not register your board with the team's switchboard", hint: "keychain sulking" });
   });
 
   test("a 2xx register with no parsable token → peering:unavailable, nothing written, and the message names the board-panel re-invite repair", async () => {
