@@ -174,3 +174,36 @@ test("every auto helper of one rt process shares one run id", () => {
   __test__.reset();
   expect("RT_UI_BACKGROUND_RUN" in rtUiEnv()).toBe(false);
 });
+
+function stepUnderFake(fake: Record<string, unknown>): { renderRecord: string; stepsRecord: string } {
+  const renderRecord = join(home, "settle.ndjson");
+  const stepsRecord = join(home, "settle-steps.ndjson");
+  process.env.RT_UI_BIN = FAKE;
+  process.env.RT_UI_FAKE = JSON.stringify({ record: renderRecord, envRecord: stepsRecord, ...fake });
+  return { renderRecord, stepsRecord };
+}
+
+test("a step under auto settles the background before its helper starts", async () => {
+  const { renderRecord, stepsRecord } = stepUnderFake({ renderErr: "background=light\n" });
+  await openStep("x").done();
+  const hello = `{"t":"hello","protocol":1}`;
+  expect(readFileSync(renderRecord, "utf8")).toStartWith(`{"argv":["--report-background"],"bg":"auto"}\n${hello}\n${hello}\n{"t":"start"`);
+  expect(readFileSync(stepsRecord, "utf8")).toContain(`{"bg":"light"}`);
+  await openStep("y").done();
+  expect(readFileSync(renderRecord, "utf8").split("\n").filter((l) => l.startsWith(`{"argv"`))).toHaveLength(1);
+});
+
+test("a step whose settling run fails still starts under auto", async () => {
+  const { renderRecord, stepsRecord } = stepUnderFake({ exit: 3 });
+  await openStep("x").done();
+  expect(readFileSync(renderRecord, "utf8")).toContain(`"bg":"auto"`);
+  expect(readFileSync(stepsRecord, "utf8")).toContain(`{"bg":"auto"}`);
+});
+
+test("under the test preload a step runs no settling render", async () => {
+  process.env.RT_UI_NO_TERMINAL_QUERY = preloadBlock;
+  const { renderRecord, stepsRecord } = stepUnderFake({ renderErr: "background=light\n" });
+  await openStep("x").done();
+  expect(readFileSync(renderRecord, "utf8")).not.toContain(`{"argv"`);
+  expect(readFileSync(stepsRecord, "utf8")).toBe("{}\n");
+});

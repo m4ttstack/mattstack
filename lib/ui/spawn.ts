@@ -4,7 +4,7 @@
  */
 import { BackNavigation } from "../back-navigation.ts";
 import { encodeLine, parsePromptResult, parseSessionLine, PROTOCOL_VERSION, type PromptResult, type PromptSpec, type RenderStatus, type SessionClosed, type SessionIntent, type StepLevel } from "./protocol.ts";
-import { rtUiEnv } from "./background.ts";
+import { noteBackgroundReport, rtUiEnv } from "./background.ts";
 import { interactive } from "./gate.ts";
 import { resolveRtUi } from "./resolve.ts";
 
@@ -29,9 +29,24 @@ function killLiveOnExit(): void {
   });
 }
 
+// The terminal query puts the tty in raw mode for up to 250 ms. A steps
+// helper would run it while the task starts, under a child that may be
+// reading /dev/tty itself (an ssh passphrase), so the query runs first, in a
+// render with nothing to draw. A failed run leaves auto to the steps helper.
+function settleBackground(bin: string): void {
+  const env = rtUiEnv();
+  if (env.RT_UI_BACKGROUND !== "auto") return;
+  try {
+    const hello = encodeLine({ t: "hello", protocol: PROTOCOL_VERSION });
+    const r = Bun.spawnSync([bin, "render", "--report-background"], { stdin: Buffer.from(hello), stdout: "pipe", stderr: "pipe", env, timeout: 2000 });
+    if (r.success) noteBackgroundReport(r.stderr.toString());
+  } catch { /* the steps helper resolves auto itself */ }
+}
+
 function spawnVerb(verb: "prompt" | "steps" | "session", extra: string[] = []) {
   const bin = resolveRtUi();
   killLiveOnExit();
+  if (verb === "steps") settleBackground(bin);
   const proc = Bun.spawn([bin, verb, ...extra], {
     stdin: "pipe",
     stdout: "pipe",
