@@ -468,7 +468,7 @@ function LayerLine({
                 </Text>
               </Text>
               <Button
-                size="compact-sm"
+                size="sm"
                 variant="default"
                 disabled={busy}
                 onClick={() =>
@@ -533,7 +533,7 @@ function RepoSection({
         </Text>
         {onPick && (
           <Button
-            size="compact-sm"
+            size="sm"
             variant="default"
             aria-label={`Show ${repoLabel(identity)}`}
             onClick={() => onPick(identity)}

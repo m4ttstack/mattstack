@@ -813,9 +813,13 @@ describe('with a repo picked', () => {
     expect(
       await within(section).findByTestId('layer-value-team.repo')
     ).toHaveTextContent(/^1 field$/);
-    await userEvent.click(
-      within(section).getByRole('button', { name: 'Show acme/app' })
+    const show = within(section).getByRole('button', {
+      name: 'Show acme/app',
+    });
+    expect(show.style.getPropertyValue('--button-height')).toBe(
+      'var(--button-height-sm)'
     );
+    await userEvent.click(show);
     expect(onPickRepo).toHaveBeenCalledWith(REPO);
   });
 });

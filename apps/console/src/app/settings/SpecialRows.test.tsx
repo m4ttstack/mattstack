@@ -45,7 +45,11 @@ describe('rt.worktreeReadyApproval', () => {
     expect(screen.getByTestId('approval-note')).toHaveTextContent(
       "approves the team's worktree ready commands by their hash; approve with rt worktree ready-approve"
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+    const revoke = screen.getByRole('button', { name: 'Revoke' });
+    expect(revoke.style.getPropertyValue('--button-height')).toBe(
+      'var(--button-height-sm)'
+    );
+    await userEvent.click(revoke);
     await waitFor(() =>
       expect(s.unset).toHaveBeenCalledWith('rt.worktreeReadyApproval', 'user')
     );

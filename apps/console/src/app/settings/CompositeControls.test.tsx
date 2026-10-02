@@ -891,6 +891,9 @@ describe('composite rows', () => {
     );
     expect(screen.getByText('unexpected shape')).toBeInTheDocument();
     const clear = await screen.findByRole('button', { name: 'Clear' });
+    expect(clear.style.getPropertyValue('--button-height')).toBe(
+      'var(--button-height-sm)'
+    );
     await waitFor(() => expect(clear).toBeEnabled());
     await userEvent.click(clear);
     await waitFor(() =>

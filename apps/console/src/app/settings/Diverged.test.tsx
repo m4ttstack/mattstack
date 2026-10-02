@@ -266,6 +266,9 @@ describe('a diverged older name', () => {
     const use = within(layer).getByRole('button', {
       name: 'Use the older value',
     });
+    expect(use.style.getPropertyValue('--button-height')).toBe(
+      'var(--button-height-sm)'
+    );
     expect(layer).toHaveTextContent('"warn"');
     await userEvent.click(use);
     await waitFor(() =>

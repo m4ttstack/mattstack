@@ -63,7 +63,7 @@ export function useRowParts(
         )}
         {hash && at && def.writable && (
           <Button
-            size="compact-sm"
+            size="sm"
             variant="default"
             onClick={() => void row.clear(at)}
           >

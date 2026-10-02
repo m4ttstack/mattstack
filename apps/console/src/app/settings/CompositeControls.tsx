@@ -713,7 +713,7 @@ function ShapeLock({
       </Text>
       {(loading || rungBase(at) !== null) && (
         <Button
-          size="compact-sm"
+          size="sm"
           variant="default"
           disabled={loading}
           onClick={() => {
