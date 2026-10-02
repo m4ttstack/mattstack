@@ -27,7 +27,7 @@
 
 import { execFileSync, spawnSync } from "child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "fs";
-import { applyEdits, modify, parse as parseJsonc } from "jsonc-parser";
+import { applyEdits, modify } from "jsonc-parser";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { mattstackHome } from "../lib/rt-paths.ts";
@@ -45,7 +45,7 @@ import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsi
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
-import { bindingChanges, describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, parseCleanDryRun, parsePorcelain, relativeToPrefix, surfaceChanges, type ChangesPayload, type GitRun, type PendingFile } from "../lib/skills/changes.ts";
+import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, relativeToPrefix, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
@@ -1761,8 +1761,6 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
 
 // ─── rt skills changes ─────────────────────────────────────────────────────
 
-const BINDINGS_FRAGMENT = "pack/skills.jsonc";
-
 const GIT_TIMEOUT_MS = 5000;
 const GIT_WRITE_TIMEOUT_MS = 60_000;
 
@@ -1781,20 +1779,22 @@ function runGit(packDir: string, args: string[], opts: { timeoutMs?: number; env
   });
 }
 
-function parseJsoncFile(text: string): unknown {
-  return parseJsonc(text, [], { allowTrailingComma: true });
-}
-
 /** HEAD's copy of a pack-relative file, or null when HEAD has none (a new file, or a repo with no commits yet). */
-async function committedCopy(packDir: string, team: string, rel: string): Promise<unknown> {
+async function committedText(packDir: string, team: string, rel: string): Promise<string | null> {
   const res = await runGit(packDir, ["show", `HEAD:./${rel}`]);
   if (res.exitCode === -1) throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(res)}`);
-  return res.exitCode === 0 ? parseJsoncFile(res.stdout) : null;
+  return res.exitCode === 0 ? res.stdout : null;
 }
 
-function workingCopy(packDir: string, rel: string): unknown {
-  const path = join(packDir, rel);
-  return existsSync(path) ? parseJsoncFile(readFileSync(path, "utf8")) : null;
+/** The in-scope files with their content ids, the binding and surface edits, and the signature over all of them. */
+async function signedChanges(packDir: string, team: string, inScope: PendingFile[]): Promise<{ files: HashedFile[]; signature: string } & PackSideChanges> {
+  const files = await withHashes(packDir, inScope, async (paths) => {
+    const res = await runGit(packDir, ["hash-object", "--", ...paths]);
+    if (res.exitCode !== 0) throw new SkillsUsageError(`pack ${team}: ${describeGitFailure(res)}`);
+    return res.stdout;
+  });
+  const side = await packSideChanges(packDir, (rel) => committedText(packDir, team, rel));
+  return { files, ...side, signature: pendingSignature({ files, ...side }) };
 }
 
 /**
@@ -1834,19 +1834,17 @@ export async function skillsChanges(args: string[]): Promise<void> {
     const { team, packDir } = await resolvePack(flags);
 
     const all = await readPackPending(packDir, team);
-    const files = all.filter(fullyInScope);
     const outsideScope = all.filter((f) => !fullyInScope(f));
-
-    const surfacePath = surfaceFileFor(packDir);
-    const surfaceRel = surfacePath ? relativePath(packDir, surfacePath) : null;
+    const signed = await signedChanges(packDir, team, all.filter(fullyInScope));
     const payload: ChangesPayload = {
       pack: team,
       packDir,
       dirty: all.length > 0,
-      files,
+      files: signed.files,
       outsideScope,
-      bindings: bindingChanges(await committedCopy(packDir, team, BINDINGS_FRAGMENT), workingCopy(packDir, BINDINGS_FRAGMENT)),
-      surface: surfaceRel ? surfaceChanges(await committedCopy(packDir, team, surfaceRel), workingCopy(packDir, surfaceRel)) : [],
+      bindings: signed.bindings,
+      surface: signed.surface,
+      signature: signed.signature,
     };
 
     if (flags.json) {
@@ -1857,10 +1855,10 @@ export async function skillsChanges(args: string[]): Promise<void> {
       out.print(out.line("done", `Pack ${team} has nothing waiting to sync`));
       return;
     }
-    const fileRows = (group: string, rows: ChangesPayload["files"]) => (rows.length > 0 ? [{ group }, ...rows.map((f) => [f.status, shownPath(f)])] : []);
+    const fileRows = (group: string, rows: PendingFile[]) => (rows.length > 0 ? [{ group }, ...rows.map((f) => [f.status, shownPath(f)])] : []);
     const blocks = [
       out.line("pending", `Pack ${team} has changes that are not synced yet`),
-      out.table([...fileRows("Pack files", files), ...fileRows("Other files", outsideScope)], ["Status", "Path"]),
+      out.table([...fileRows("Pack files", payload.files), ...fileRows("Other files", outsideScope)], ["Status", "Path"]),
     ];
     if (payload.bindings.length > 0) {
       blocks.push(out.table(payload.bindings.map((b) => [`${b.engineRef} ${b.slot}`, b.from ?? "(none)", b.to ?? "(none)"]), ["Binding", "Was", "Now"]));

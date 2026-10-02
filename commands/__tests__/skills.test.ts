@@ -2623,6 +2623,8 @@ function makeCommittedPack(packRel = ""): { repoRoot: string; packDir: string } 
 
 const changesJson = async (flags: string[]) => JSON.parse(await runSkills(["changes", ...flags, "--json"]));
 
+const blobId = (cwd: string, rel: string) => execFileSync("git", ["hash-object", "--", rel], { cwd, encoding: "utf8" }).trim();
+
 describe("skillsChanges --json", () => {
   test("lists a rebind, a surface flip and an out-of-scope file", async () => {
     const { packDir } = makeCommittedPack();
@@ -2637,8 +2639,8 @@ describe("skillsChanges --json", () => {
       packDir,
       dirty: true,
       files: [
-        { path: "pack/skills.jsonc", status: "M" },
-        { path: "pack/surface.jsonc", status: "M" },
+        { path: "pack/skills.jsonc", status: "M", hash: blobId(packDir, "pack/skills.jsonc") },
+        { path: "pack/surface.jsonc", status: "M", hash: blobId(packDir, "pack/surface.jsonc") },
       ],
       outsideScope: [{ path: "README.md", status: "M" }],
       bindings: [{ engineRef: "mattstack:stage-plan", slot: "domain", from: "acme:plan-policy", to: "acme:plan-policy-strict" }],
@@ -2646,7 +2648,43 @@ describe("skillsChanges --json", () => {
         { skill: "review", from: "public", to: "internal" },
         { skill: "ship", from: "internal", to: "public" },
       ],
+      signature: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
+  });
+
+  test("a deleted pack file has no content id", async () => {
+    const { packDir } = makeCommittedPack();
+    rmSync(join(packDir, "attachments", "stage-plan", "SKILL.md"));
+    const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
+    expect(c.files).toEqual([{ path: "attachments/stage-plan/SKILL.md", status: "D", hash: null }]);
+  });
+
+  test("the signature is the same for the same tree, and moves with a file's content, a new file and a binding", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "attachments", "stage-plan", "SKILL.md"), "stage plan, edited\n");
+    const signature = async () => (await changesJson(["--pack", "acme", "--pack-dir", packDir])).signature as string;
+
+    const first = await signature();
+    expect(await signature()).toBe(first);
+
+    writeFile(join(packDir, "attachments", "stage-plan", "SKILL.md"), "stage plan, edited again\n");
+    const edited = await signature();
+    expect(edited).not.toBe(first);
+
+    writeFile(join(packDir, "skills", "fresh", "SKILL.md"), "fresh\n");
+    const added = await signature();
+    expect(added).not.toBe(edited);
+
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    expect(await signature()).not.toBe(added);
+  });
+
+  test("a file outside the pack's scope never moves the signature", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const before = (await changesJson(["--pack", "acme", "--pack-dir", packDir])).signature;
+    writeFile(join(packDir, "README.md"), "edited\n");
+    expect((await changesJson(["--pack", "acme", "--pack-dir", packDir])).signature).toBe(before);
   });
 
   test("a rename into the pack from outside its scope is listed as outside the scope, with its source", async () => {
@@ -2675,7 +2713,7 @@ describe("skillsChanges --json", () => {
     const { packDir } = makeCommittedPack();
     writeFile(join(packDir, "attachments", "stage-plan", "new notes.md"), "notes\n");
     const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
-    expect(c.files).toEqual([{ path: "attachments/stage-plan/new notes.md", status: "??" }]);
+    expect(c.files).toEqual([{ path: "attachments/stage-plan/new notes.md", status: "??", hash: blobId(packDir, "attachments/stage-plan/new notes.md") }]);
   });
 
   test("a pack that is a subdirectory of its repo reports pack-relative paths and ignores the rest of the repo", async () => {
@@ -2686,7 +2724,7 @@ describe("skillsChanges --json", () => {
 
     const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
 
-    expect(c.files).toEqual([{ path: "pack/skills.jsonc", status: "M" }]);
+    expect(c.files).toEqual([{ path: "pack/skills.jsonc", status: "M", hash: blobId(packDir, "pack/skills.jsonc") }]);
     expect(c.outsideScope).toEqual([{ path: "README.md", status: "M" }]);
     expect(c.bindings).toEqual([{ engineRef: "mattstack:stage-plan", slot: "domain", from: "acme:plan-policy", to: "acme:plan-policy-strict" }]);
   });
@@ -2699,7 +2737,7 @@ describe("skillsChanges --json", () => {
 
     const c = await changesJson(["--pack", "acme", "--pack-dir", packDir]);
 
-    expect(c.files).toEqual([{ path: "pack/skills.jsonc", status: "??" }]);
+    expect(c.files).toEqual([{ path: "pack/skills.jsonc", status: "??", hash: blobId(packDir, "pack/skills.jsonc") }]);
     expect(c.bindings).toEqual([{ engineRef: "mattstack:stage-plan", slot: "domain", from: null, to: "acme:plan-policy" }]);
   });
 

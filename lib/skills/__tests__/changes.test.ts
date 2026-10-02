@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { bindingChanges, describeGitFailure, fullyInScope, inScope, isNotARepo, literalPathspecs, needsStaging, outOfScopeSides, packRelative, parseCleanDryRun, parsePorcelain, parsePorcelainEntries, relativeToPrefix, surfaceChanges } from "../changes.ts";
+import { execFileSync } from "child_process";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { dirname, join } from "path";
+import { bindingChanges, describeGitFailure, fullyInScope, inScope, isNotARepo, literalPathspecs, needsStaging, outOfScopeSides, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, parsePorcelainEntries, pendingSignature, relativeToPrefix, surfaceChanges, withHashes, type HashedFile } from "../changes.ts";
 
 describe("parsePorcelain", () => {
   test("reads status and path, including renames and untracked", () => {
@@ -223,5 +227,115 @@ describe("literalPathspecs", () => {
       { path: "attachments/x/SKILL.md", status: "R", from: "skills/x/SKILL.md" },
       { path: "skills/[draft]*.md", status: "D" },
     ])).toEqual([":(literal)pack/skills.jsonc", ":(literal)skills/x/SKILL.md", ":(literal)attachments/x/SKILL.md", ":(literal)skills/[draft]*.md"]);
+  });
+});
+
+describe("pendingSignature", () => {
+  const files: HashedFile[] = [
+    { path: "pack/skills.jsonc", status: "M", hash: "a".repeat(40) },
+    { path: "skills/x/SKILL.md", status: "R", from: "attachments/x/SKILL.md", hash: "b".repeat(40) },
+    { path: "skills/gone/SKILL.md", status: "D", hash: null },
+  ];
+  const bindings = [{ engineRef: "mattstack:stage-plan", slot: "domain", from: "acme:plan-policy", to: "acme:plan-policy-strict" }];
+  const base = pendingSignature({ files, bindings, surface: [] });
+
+  test("is 64 hex characters and the same for the same changes in any order", () => {
+    expect(base).toMatch(/^[0-9a-f]{64}$/);
+    expect(pendingSignature({ files: [...files].reverse(), bindings, surface: [] })).toBe(base);
+  });
+
+  test.each<[string, Parameters<typeof pendingSignature>[0]]>([
+    ["a file's content", { files: files.map((f, i) => (i === 0 ? { ...f, hash: "c".repeat(40) } : f)), bindings, surface: [] }],
+    ["a file's status", { files: files.map((f, i) => (i === 0 ? { ...f, status: "MM" } : f)), bindings, surface: [] }],
+    ["a rename's source", { files: files.map((f, i) => (i === 1 ? { ...f, from: "attachments/y/SKILL.md" } : f)), bindings, surface: [] }],
+    ["a file added", { files: [...files, { path: "pack/new.jsonc", status: "??", hash: "d".repeat(40) }], bindings, surface: [] }],
+    ["a binding", { files, bindings: [{ ...bindings[0]!, to: "acme:plan-policy-loose" }], surface: [] }],
+    ["a surface flip", { files, bindings, surface: [{ skill: "work", from: "public", to: "internal" }] }],
+  ])("changes with %s", (_label, input) => {
+    expect(pendingSignature(input)).not.toBe(base);
+  });
+});
+
+const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: "ci", GIT_AUTHOR_EMAIL: "ci@example.com", GIT_COMMITTER_NAME: "ci", GIT_COMMITTER_EMAIL: "ci@example.com" };
+
+function scratchRepo(): string {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-changes-hash-")));
+  execFileSync("git", ["init", "-q"], { cwd: dir, env: GIT_ENV });
+  return dir;
+}
+
+function put(dir: string, rel: string, text: string): void {
+  mkdirSync(dirname(join(dir, rel)), { recursive: true });
+  writeFileSync(join(dir, rel), text);
+}
+
+const hashObjectsIn = (dir: string) => async (paths: string[]) => execFileSync("git", ["hash-object", "--", ...paths], { cwd: dir, encoding: "utf8" });
+
+describe("withHashes", () => {
+  test("gives each present file git's own blob id and a deleted one null", async () => {
+    const dir = scratchRepo();
+    put(dir, "pack/skills.jsonc", "{}\n");
+    put(dir, "skills/a b/SKILL.md", "body\n");
+
+    const hashed = await withHashes(dir, [
+      { path: "pack/skills.jsonc", status: "M" },
+      { path: "skills/a b/SKILL.md", status: "??" },
+      { path: "skills/gone/SKILL.md", status: "D" },
+    ], hashObjectsIn(dir));
+
+    const blob = (rel: string) => execFileSync("git", ["hash-object", rel], { cwd: dir, encoding: "utf8" }).trim();
+    expect(hashed).toEqual([
+      { path: "pack/skills.jsonc", status: "M", hash: blob("pack/skills.jsonc") },
+      { path: "skills/a b/SKILL.md", status: "??", hash: blob("skills/a b/SKILL.md") },
+      { path: "skills/gone/SKILL.md", status: "D", hash: null },
+    ]);
+  });
+
+  test("a symlink's id is the one git stores for its link text, even when it points at a directory", async () => {
+    const dir = scratchRepo();
+    mkdirSync(join(dir, "skills", "target"), { recursive: true });
+    symlinkSync("target", join(dir, "skills", "link"));
+    execFileSync("git", ["add", "skills/link"], { cwd: dir, env: GIT_ENV });
+    const stored = execFileSync("git", ["ls-files", "-s", "skills/link"], { cwd: dir, encoding: "utf8" }).split(/\s+/)[1];
+
+    const [linked] = await withHashes(dir, [{ path: "skills/link", status: "A" }], hashObjectsIn(dir));
+
+    expect(linked!.hash).toBe(stored!);
+  });
+
+  test("an id that moves with the content", async () => {
+    const dir = scratchRepo();
+    put(dir, "pack/skills.jsonc", "{}\n");
+    const [before] = await withHashes(dir, [{ path: "pack/skills.jsonc", status: "M" }], hashObjectsIn(dir));
+    put(dir, "pack/skills.jsonc", "{ }\n");
+    const [after] = await withHashes(dir, [{ path: "pack/skills.jsonc", status: "M" }], hashObjectsIn(dir));
+    expect(after!.hash).not.toBe(before!.hash);
+  });
+
+  test("a short answer from git fails rather than pairing ids with the wrong files", async () => {
+    const dir = scratchRepo();
+    put(dir, "a.md", "a\n");
+    put(dir, "b.md", "b\n");
+    await expect(withHashes(dir, [{ path: "a.md", status: "??" }, { path: "b.md", status: "??" }], async () => "0".repeat(40) + "\n")).rejects.toThrow("hash-object");
+  });
+});
+
+describe("packSideChanges", () => {
+  test("reads the bindings and the surface as HEAD against the working tree", async () => {
+    const dir = scratchRepo();
+    put(dir, "pack/skills.jsonc", JSON.stringify({ bindings: { "mattstack:stage-plan": { domain: "acme:plan-policy-strict" } } }));
+    put(dir, "pack/surface.jsonc", JSON.stringify({ public: ["work"] }));
+    const head: Record<string, string> = {
+      "pack/skills.jsonc": JSON.stringify({ bindings: { "mattstack:stage-plan": { domain: "acme:plan-policy" } } }),
+      "pack/surface.jsonc": JSON.stringify({ public: ["review"] }),
+    };
+
+    expect(await packSideChanges(dir, async (rel) => head[rel] ?? null)).toEqual({
+      bindings: [{ engineRef: "mattstack:stage-plan", slot: "domain", from: "acme:plan-policy", to: "acme:plan-policy-strict" }],
+      surface: [
+        { skill: "review", from: "public", to: "internal" },
+        { skill: "work", from: "internal", to: "public" },
+      ],
+    });
   });
 });

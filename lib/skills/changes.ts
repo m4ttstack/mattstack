@@ -1,19 +1,27 @@
-import { posix } from "path";
+import { createHash } from "crypto";
+import { existsSync, lstatSync, readFileSync, readlinkSync } from "fs";
+import { parse as parseJsonc } from "jsonc-parser";
+import { join, posix, relative } from "path";
+import { surfaceFileFor } from "./packs.ts";
 
 export const PACK_SCOPE = ["pack", "skills", "attachments", ".claude-plugin", "surface.jsonc"] as const;
 
 /** `path` is where the file is now; `from` is set only on a rename or copy, naming its source. */
 export type PendingFile = { path: string; status: string; from?: string };
+/** `hash` is git's blob id for what is on disk at `path` now, null when nothing is there. */
+export type HashedFile = PendingFile & { hash: string | null };
 export type BindingChange = { engineRef: string; slot: string; from: string | null; to: string | null };
 export type SurfaceChange = { skill: string; from: "public" | "internal"; to: "public" | "internal" };
+export type PackSideChanges = { bindings: BindingChange[]; surface: SurfaceChange[] };
 export type ChangesPayload = {
   pack: string;
   packDir: string;
   dirty: boolean;
-  files: PendingFile[];
+  files: HashedFile[];
   outsideScope: PendingFile[];
   bindings: BindingChange[];
   surface: SurfaceChange[];
+  signature: string;
 };
 
 const C_ESCAPES: Record<string, string> = { a: "\x07", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", '"': '"', "\\": "\\" };
@@ -165,6 +173,94 @@ export function surfaceChanges(before: unknown, after: unknown): SurfaceChange[]
   }
   return out;
 }
+
+const BINDINGS_FRAGMENT = "pack/skills.jsonc";
+
+/** HEAD's text of a pack-relative file, or null when HEAD has no such file. */
+export type HeadText = (rel: string) => Promise<string | null>;
+
+function parseJsoncText(text: string): unknown {
+  return parseJsonc(text, [], { allowTrailingComma: true });
+}
+
+function workingCopy(packDir: string, rel: string): unknown {
+  const path = join(packDir, rel);
+  return existsSync(path) ? parseJsoncText(readFileSync(path, "utf8")) : null;
+}
+
+/** The binding and surface edits waiting in the pack: HEAD's copy of each file against the working tree's. */
+export async function packSideChanges(packDir: string, headText: HeadText): Promise<PackSideChanges> {
+  const committed = async (rel: string) => {
+    const text = await headText(rel);
+    return text === null ? null : parseJsoncText(text);
+  };
+  const surfacePath = surfaceFileFor(packDir);
+  const surfaceRel = surfacePath ? relative(packDir, surfacePath) : null;
+  return {
+    bindings: bindingChanges(await committed(BINDINGS_FRAGMENT), workingCopy(packDir, BINDINGS_FRAGMENT)),
+    surface: surfaceRel ? surfaceChanges(await committed(surfaceRel), workingCopy(packDir, surfaceRel)) : [],
+  };
+}
+
+/** Runs `git hash-object -- <paths>` in the pack directory and returns what it printed: one id per line, in path order. */
+export type HashObjects = (paths: string[]) => Promise<string>;
+
+const HASH_BATCH = 500;
+
+function symlinkBlobId(path: string): string {
+  const target = readlinkSync(path, { encoding: "buffer" });
+  return createHash("sha1").update(`blob ${target.length}\0`).update(target).digest("hex");
+}
+
+/**
+ * Each file with git's blob id for what is on disk at its path. hash-object
+ * follows a symlink, but git stores a symlink as its link text, so that id is
+ * worked out here; anything else that is not a regular file has none.
+ */
+export async function withHashes<T extends PendingFile>(packDir: string, files: T[], hashObjects: HashObjects): Promise<(T & { hash: string | null })[]> {
+  const ids = new Map<string, string | null>();
+  const regular: string[] = [];
+  for (const path of new Set(files.map((f) => f.path))) {
+    let stat;
+    try {
+      stat = lstatSync(join(packDir, path));
+    } catch {
+      ids.set(path, null);
+      continue;
+    }
+    if (stat.isFile()) regular.push(path);
+    else ids.set(path, stat.isSymbolicLink() ? symlinkBlobId(join(packDir, path)) : null);
+  }
+  for (let i = 0; i < regular.length; i += HASH_BATCH) {
+    const batch = regular.slice(i, i + HASH_BATCH);
+    const printed = (await hashObjects(batch)).split("\n").filter((l) => l.trim() !== "");
+    if (printed.length !== batch.length) throw new Error(`git hash-object named ${printed.length} of ${batch.length} files`);
+    batch.forEach((path, n) => ids.set(path, printed[n]!.trim()));
+  }
+  return files.map((f) => ({ ...f, hash: ids.get(f.path) ?? null }));
+}
+
+const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * One sha256 over everything a sync or discard of the pack acts on: the
+ * in-scope pending files with their content ids, and the binding and surface
+ * edits. `rt skills changes` prints it and the write verbs work it out again
+ * from their own read, so a write can refuse a pack that moved after it was
+ * shown.
+ */
+export function pendingSignature(input: { files: HashedFile[] } & PackSideChanges): string {
+  const files = input.files
+    .map((f) => ({ path: f.path, status: f.status, from: f.from ?? null, hash: f.hash }))
+    .sort((a, b) => byCodeUnit(a.path, b.path) || byCodeUnit(a.from ?? "", b.from ?? "") || byCodeUnit(a.status, b.status));
+  const bindings = input.bindings
+    .map((b) => ({ engineRef: b.engineRef, slot: b.slot, from: b.from, to: b.to }))
+    .sort((a, b) => byCodeUnit(a.engineRef, b.engineRef) || byCodeUnit(a.slot, b.slot));
+  const surface = input.surface.map((s) => ({ skill: s.skill, from: s.from, to: s.to })).sort((a, b) => byCodeUnit(a.skill, b.skill));
+  return createHash("sha256").update(JSON.stringify({ files, bindings, surface })).digest("hex");
+}
+
+export const SIGNATURE_RE = /^[0-9a-f]{64}$/;
 
 export type GitRun = { exitCode: number; stderr: string; timedOut?: boolean };
 
