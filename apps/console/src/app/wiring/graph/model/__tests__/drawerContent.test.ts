@@ -149,13 +149,43 @@ describe('an include row (drawer-include-row)', () => {
     );
   });
 
-  it('bands every pasted part, the clicked one in accent', () => {
+  it('bands every line: each pasted part, the clicked one in accent, and the step text between them', () => {
     expect(content?.bands).toEqual([
+      { from: 1, to: 48, label: 'step text', tone: 'muted' },
       { from: 49, to: 197, label: 'execution-strategy', tone: 'muted' },
+      { from: 198, to: 222, label: 'step text', tone: 'muted' },
       { from: 223, to: 302, label: 'plan-policy', tone: 'muted' },
       { from: 303, to: 752, label: 'gate-protocol', tone: 'accent' },
       { from: 753, to: 780, label: 'wrap-up-form', tone: 'muted' },
     ]);
+  });
+
+  it('bands the lines above the step text as the header', () => {
+    const headed: SkillsAnatomy = {
+      ...anatomyPlan,
+      parts: anatomyPlan.parts.map((part, index) =>
+        index === 0 ? { ...part, renderedLines: [14, 15] } : part
+      ),
+    };
+    const bands = drawerContent(
+      parseTarget('row:140')!,
+      planView,
+      headed,
+      null
+    )?.bands;
+    expect(bands?.slice(0, 2)).toEqual([
+      { from: 1, to: 13, label: 'header', tone: 'muted' },
+      { from: 14, to: 48, label: 'step text', tone: 'muted' },
+    ]);
+  });
+
+  it('bands a step text row in accent', () => {
+    expect(plan('row:1', 'rendered')?.bands[0]).toEqual({
+      from: 1,
+      to: 48,
+      label: 'step text',
+      tone: 'accent',
+    });
   });
 
   it('shows the template line on request, without bands', () => {

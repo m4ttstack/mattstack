@@ -322,7 +322,7 @@ function usageCounts(composition: SkillsComposition) {
   return { includeUses, fillUses };
 }
 
-function textNounOf(anatomy: SkillsAnatomy): TextNoun {
+export function textNounOf(anatomy: SkillsAnatomy): TextNoun {
   if (anatomy.kind === 'stage') return 'step';
   if (
     anatomy.skill === ORCHESTRATOR_VERB ||
