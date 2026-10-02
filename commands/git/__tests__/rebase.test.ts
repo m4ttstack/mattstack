@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { execSync } from "child_process";
+import { execFileSync, execSync } from "child_process";
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -82,6 +82,39 @@ describe("rebaseOnto onConflict", () => {
     });
     expect(result.status).toBe("conflict");
     expect(result.rebaseInProgress).toBeFalsy();
+    expect(rebaseDirExists(repo)).toBe(false);
+  });
+});
+
+describe("rebaseOnto auto-resolve", () => {
+  test("a conflicted file name holding shell syntax reaches git as one argument, and nothing runs", async () => {
+    const hostile = "feat$(touch${IFS}pwned)";
+    const repo = join(tmpRoot, "repo");
+    const git = (...args: string[]) => execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: repo, stdio: "pipe" });
+    execFileSync("git", ["init", "-q", "-b", "master", repo], { stdio: "pipe" });
+    writeFileSync(join(repo, hostile), "base\n");
+    git("add", "--", hostile);
+    git("commit", "-qm", "base");
+    git("checkout", "-qb", "feature");
+    writeFileSync(join(repo, hostile), "feature change\n");
+    git("commit", "-qam", "feature edit");
+    git("checkout", "-q", "master");
+    writeFileSync(join(repo, hostile), "master change\n");
+    git("commit", "-qam", "master edit");
+    git("checkout", "-q", "feature");
+
+    const result = await rebaseOnto({
+      cwd: repo,
+      target: "master",
+      skipFetch: true,
+      quiet: true,
+      autoResolve: [{ glob: "feat*", strategy: "theirs" }],
+    });
+
+    expect(existsSync(join(repo, "pwned"))).toBe(false);
+    expect(existsSync(join(process.cwd(), "pwned"))).toBe(false);
+    expect(result.status).toBe("ok");
+    expect(result.resolvedFiles).toEqual([hostile]);
     expect(rebaseDirExists(repo)).toBe(false);
   });
 });

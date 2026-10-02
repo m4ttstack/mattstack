@@ -737,6 +737,28 @@ describe("branch_sync tool", () => {
     expect(r.ok).toBe(false);
     expect(r.error).toBe("rt sync refused (exit 4): feat/x is a member of stack s; sync the stack instead. Run: /gitq:sync");
   });
+  // commands/__tests__/sync-output.test.ts pins that rt sync --json writes
+  // exactly this text for the same guard; change one and the other must follow.
+  const REFUSED_STDERR =
+    "[refused] You have uncommitted changes\n" +
+    "  why: Syncing rewrites the branch, and a conflict would lose them.\n" +
+    "  next: Commit them, or set them aside with rt git stash push\n";
+  const REFUSED_ERROR =
+    "rt sync refused (exit 1): [refused] You have uncommitted changes   why: Syncing rewrites the branch, and a conflict would lose them.   next: Commit them, or set them aside with rt git stash push";
+
+  test("exit 1 with no envelope reads what rt sync left on stderr, whole", async () => {
+    const tool = gitToolDefs({ git: fakeGit(clean), guard, sync: async () => ({ code: 1, stdout: "", stderr: REFUSED_STDERR }) }).find((t) => t.name === "branch_sync")!;
+    const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe(REFUSED_ERROR);
+  });
+
+  test("a warning printed before a three-line ending stays out of the error", async () => {
+    const warning = "[warning] Your repo folders setting could not be read  rt is looking in its usual places only\n  next: rt settings check\n";
+    const tool = gitToolDefs({ git: fakeGit(clean), guard, sync: async () => ({ code: 1, stdout: "", stderr: warning + REFUSED_STDERR }) }).find((t) => t.name === "branch_sync")!;
+    const r = await tool.handler({ tree: "/t" }, {} as NodeJS.ProcessEnv);
+    expect(r.error).toBe(REFUSED_ERROR);
+  });
   test("rt sync that could not be started says so, and a timeout stays a timeout", async () => {
     const failed = await runSync(-1, "");
     expect(failed).toEqual({ ok: false, body: undefined, error: "could not start rt sync" });

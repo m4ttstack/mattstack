@@ -70,7 +70,7 @@ test("a flag is never taken as a tag name", async () => {
 test("amend and undo on a branch another worktree holds keep the refused envelope, exit 1", async () => {
   const other = join(root, "other");
   git(repo, "worktree", "add", "-q", "-f", other, "main");
-  const error = `refused: main is already checked out in another worktree at ${other}`;
+  const error = `refused: main is checked out in another worktree: ${other}`;
   expect(await exitCodeOf(() => inDir(repo, () => amendCommand(["--json"])))).toBe(1);
   expect(await exitCodeOf(() => inDir(repo, () => undoCommand(["--json"])))).toBe(1);
   expect(io.stdout()).toBe(JSON.stringify({ ok: false, error }) + "\n" + JSON.stringify({ ok: false, error }) + "\n");

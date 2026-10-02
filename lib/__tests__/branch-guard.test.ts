@@ -279,3 +279,30 @@ describe("buildWorktreeGuardMap", () => {
     rmSync(parent, { recursive: true, force: true });
   });
 });
+
+describe("the sentences a person reads", () => {
+  test("worktrees that cannot be listed", async () => {
+    const dir = makeRepo();
+    const verdict = await checkBranchGuard({ cwd: dir, branch: "feature-x", defaultBranch: "main", runners: unreachableRunners, listWorktrees: async () => null });
+    expect(verdict).toEqual({ verdict: "unverified", detail: "rt could not list the worktrees, so it cannot tell whether another one has this branch" });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a branch another worktree holds: the path after a colon, the same for the refusal and the badge", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "rt-branch-guard-words-"));
+    const dir = join(parent, "main");
+    mkdirSync(dir);
+    git(dir, "init", "-q", "-b", "main");
+    git(dir, "config", "user.email", "test@test");
+    git(dir, "config", "user.name", "test");
+    git(dir, "commit", "-q", "--allow-empty", "-m", "init");
+    git(dir, "branch", "feature-x");
+    git(dir, "worktree", "add", join(parent, "wt"), "feature-x");
+    const verdict = await checkBranchGuard({ cwd: dir, branch: "feature-x", defaultBranch: "main", runners: unreachableRunners });
+    const guards = await buildWorktreeGuardMap(dir);
+    const detail = verdict.verdict === "refuse" ? verdict.detail : "";
+    expect(detail).toMatch(/^feature-x is checked out in another worktree: \/.*\/wt$/);
+    expect(guards.get("feature-x")).toBe(detail);
+    rmSync(parent, { recursive: true, force: true });
+  });
+});

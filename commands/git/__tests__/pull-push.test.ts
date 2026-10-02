@@ -109,7 +109,7 @@ test("an upstream remote that is a URL with a token never prints the token", asy
   await upstreamCommand(["--dry-run"], ctxFor(repo));
   await pushCommand(["--dry-run"], ctxFor(repo));
   expect(io.stdout() + io.stderr()).not.toContain("tok123");
-  expect(io.lines()[0]).toBe("[skipped] Would point feature at origin/feature  it tracks <remote>/feature now");
+  expect(io.lines()[0]).toBe("[skipped] Would point feature at origin/feature  it tracks https://example.test/x.git/feature now");
 });
 
 test("a push says it is pushing before git runs, then that it pushed", async () => {
@@ -142,11 +142,11 @@ test("a dry run push to a --remote URL with a token never prints the token", asy
   await pushCommand(["--dry-run", "--remote", url], ctxFor(repo));
   await upstreamCommand(["--dry-run", "--remote", url], ctxFor(repo));
   expect(io.stdout() + io.stderr()).not.toContain("tok123");
-  expect(io.stdout()).toContain("git push -u <remote> feature");
+  expect(io.stdout()).toContain("git push -u https://example.test/x.git feature");
 });
 
 test("a dry run pull from a --remote URL with a token never prints the token", async () => {
   await pullCommand(["--dry-run", "--remote", "https://user:tok123@example.test/x.git"], ctxFor(repo));
   expect(io.stdout() + io.stderr()).not.toContain("tok123");
-  expect(io.stdout()).toContain("--progress <remote>\n");
+  expect(io.stdout()).toContain("--progress https://example.test/x.git\n");
 });
