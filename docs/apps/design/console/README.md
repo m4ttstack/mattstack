@@ -59,7 +59,7 @@ Each difference below is expected in a parity run and is not fixed in the
 app. A kit-versus-board difference found in a later task is added here by that
 task, never left silent.
 
-- Drawer shadow and border: Mantine `Drawer`.
+- Drawer shadow and border: Mantine `Drawer`. Its 1px border sits inside the drawer's 600, so the drawer's content is 599 wide where the boards draw it 599.5 to 600. Text set against the right edge of drawer-rebind's options (each row's `s`) sits 1px left.
 - Modal frame and button sizes: the kit's `modals.confirm`.
 - Select chevron and dropdown shadow: Mantine `Select`.
 - Badge and Alert padding: Mantine defaults.
@@ -69,9 +69,12 @@ task, never left silent.
 - Needs attention switch: in the spec, missing from the boards. It sits above the Unwired rule, where it moves nothing the boards draw.
 - Stage height: the same 40px page row leaves the stage 952 tall against the board's 948, so the dotted background is 4px taller and the zoom controls, pinned to the bottom, sit 4px lower.
 - Edge layers: the board exports each edge's line as its own svg box, the line's box plus a pixel all round. The app draws the line as a React Flow SVG path, whose measured box is the line itself (no height when it runs straight). Both run between the same points, so only each edge layer's width and height differ.
-- Output share bar: the board sizes the segments by eye (8% drawn 23px wide, 58% drawn 181px); the app sizes each by its share of the rendered lines. The darker tone marks the selected part (drawer-include-row selects L140, gate-protocol; drawer-input-card its card), but template-plan draws gate-protocol darker with nothing selected, and drawer-history with only the whole output selected. The app darkens only the part the selection names: its row, its card or the part itself.
-- Drawer text past the board's last line: the text-range and include-row boards stop drawing at L44 and L330 with room left for about four more lines. The app fills the drawer's height, so the rows under them (L45-48 and L331-335) have no layer to pair with.
-- Drawer code row width: every row of the drawer's text is as wide as the file's longest line, so a highlight still covers a line scrolled into view sideways. The boards' rows stop at the drawer's edge, so each highlighted row (`line N`) compares wider: 681.59 against 599.5 on text-range, 1292.39 on include-row.
+- Output share bar: the board sizes the segments by eye (8% drawn 23px wide, 58% drawn 181px); the app sizes each by its share of the rendered lines. The darker tone marks the selected part (drawer-include-row selects L140, gate-protocol; drawer-input-card its card), but template-plan draws gate-protocol darker with nothing selected, drawer-history with only the whole output selected, and drawer-rebind with the domain slot (plan-policy) selected. The app darkens only the part the selection names: its row, its card or the part itself.
+- Drawer text past the board's last line: the text-range and include-row boards stop drawing at L44 and L330 with room left for about four more lines, and drawer-rebind stops at L232 with half the drawer left. The app fills the drawer's height, so the rows under them (L45-48, L331-335 and L233-247) have no layer to pair with.
+- Drawer code row width: every row of the drawer's text is as wide as the file's longest line, so a highlight still covers a line scrolled into view sideways. The boards' rows stop at the drawer's edge, so each highlighted row (`line N`) compares wider: 681.59 against 599.5 on text-range, 1292.39 on include-row and drawer-rebind.
+- Rebind chip arrow: drawer-rebind's chip reads `L136 -> L223-302`; the app writes `→`, as the other boards do. The chip is 6.6px narrower and the sentence after it starts 6.6px left.
+- Filled button border: Mantine draws a filled `Button`'s 1px border transparent over its fill; drawer-rebind outlines Apply in its own fill colour. They read the same, but the stroke compares as none.
+- Public switch and Change button: in the spec, missing from the boards. The switch sits after a verb's file name, before the spacer, so it moves nothing the text-range board draws. Change sits at the end of a slot row's context line and gives way to the rebind panel, and no board draws a slot row with the panel shut.
 - Output links chips: the plan board's "Its text links to" row runs past the right edge of its output card. The app wraps the chips inside the card, so the card and its links section are taller and `dev-servers/SKILL.md` starts a second row.
 
 The Graph tab's dotted canvas sits on the page ground (`--tk-bg`), as the boards' `Stage` layer does. That is deliberate: the dotted canvas is the one surface exempt from the "never set `PageShell.Content` to `--tk-bg`" rule in `docs/apps/ui-authoring.md`, and a label on it uses the kit's quiet badge tones rather than a gray `light` one.

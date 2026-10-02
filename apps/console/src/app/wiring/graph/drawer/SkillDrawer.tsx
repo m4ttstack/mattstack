@@ -12,7 +12,7 @@ import {
 } from '@mattstack/app-kit/core';
 import { useHotkeys } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
-import { modals } from '@mattstack/app-kit/modals';
+import { modals, useModals } from '@mattstack/app-kit/modals';
 import { notifications } from '@mattstack/app-kit/notifications';
 
 import { useDrawerSurface } from '../../drawerSurface';
@@ -175,6 +175,8 @@ export function SkillDrawer({
   const opened = current !== null;
   const close = () => setUrl({ select: null, rebind: false });
   const [menuOpened, setMenuOpened] = useState(false);
+  // A confirm shuts on its own Escape, which then reaches the document too.
+  const confirming = useModals().modals.length > 0;
   // A drawer shut by any route (Back, a new focus) unmounts the menu without
   // telling it, so it would come back open with the drawer's keys still off.
   useEffect(() => {
@@ -192,7 +194,7 @@ export function SkillDrawer({
       run();
   };
   useHotkeys(
-    opened && !menuOpened
+    opened && !menuOpened && !confirming
       ? [
           ['Escape', drawerKey(close)],
           ['ArrowUp', drawerKey(() => step(-1))],

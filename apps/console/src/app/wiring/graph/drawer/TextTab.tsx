@@ -63,7 +63,8 @@ export function TextTab({
 }: {
   pack: string;
   content: DrawerContent;
-  /** Under a panel that edits it: dimmed, and opened at its range. */
+  /** Under a panel that edits it: dimmed, unbanded, and opened at its
+      range. */
   beneathPanel?: boolean;
 }) {
   const source = useSkillSource(pack, content.filePath);
@@ -73,7 +74,8 @@ export function TextTab({
     [source.data]
   );
   const highlight = content.highlight[content.view];
-  const banded = content.bands.length > 0;
+  const bands = beneathPanel ? [] : content.bands;
+  const banded = bands.length > 0;
 
   return (
     <Box
@@ -95,7 +97,7 @@ export function TextTab({
             height={height}
             variant="wash"
             highlight={highlight}
-            bands={content.bands}
+            bands={bands}
             tintPattern={PLACEHOLDER}
             mutedPattern={MARKER}
             scrollTo={scrollLineOf(highlight, beneathPanel ? 0 : undefined)}

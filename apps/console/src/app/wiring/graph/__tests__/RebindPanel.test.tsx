@@ -268,6 +268,19 @@ describe('RebindPanel', () => {
     expect(params().get('rebind')).toBe('1');
   });
 
+  it('lets Escape shut the confirm without shutting the drawer', async () => {
+    renderAt(REBIND);
+    const root = await pickStrict();
+    await userEvent.click(within(root).getByRole('button', { name: 'Apply' }));
+    await dialog();
+    await userEvent.keyboard('{Escape}');
+
+    await waitFor(noConfirm);
+    expect(params().get('select')).toBe('row:136');
+    expect(params().get('rebind')).toBe('1');
+    expect(bindPost).not.toHaveBeenCalled();
+  });
+
   it('says why a bind failed and stays open', async () => {
     bindPost.mockResolvedValue(
       ok(

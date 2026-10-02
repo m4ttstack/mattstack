@@ -286,36 +286,33 @@
   margin-block: -2px;
 }
 
+/* The board leaves a pixel more under the buttons than over the title. */
 .rebind {
   display: flex;
   flex: none;
   flex-direction: column;
   gap: 12px;
-  padding: 16px 18px;
+  padding: 16px 18px 17px;
   border-bottom: 1px solid var(--tk-line-3);
   background-color: var(--tk-card);
 }
 
+/* Two equal columns whatever each side pads itself with. */
 .fromTo {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 10px;
 }
 
 .field {
   display: flex;
-  flex: 1;
   align-items: center;
   gap: 8px;
   min-width: 0;
   height: 36px;
   padding: 0 10px;
   text-align: start;
-}
-
-.pickerRoot {
-  flex: 1;
-  min-width: 0;
 }
 
 .options {
@@ -354,8 +351,14 @@
   white-space: normal;
 }
 
+/* The boards draw a control's rule inside its edge and pad from there; the
+   kit's controls pad inside a 1px border. */
 .panelButton {
-  --button-padding-x: 12px;
+  padding-inline: 11px;
+}
+
+.picker {
+  padding-inline: 9px;
 }
 
 .publicSwitch {

@@ -27,6 +27,15 @@ const BODY = 'var(--tk-text-1)';
 
 const BUTTON = { root: classes.panelButton };
 
+/** A Button's label is as tall as the button; its text is the board's layer. */
+function ButtonLabel({ children }: { children: string }) {
+  return (
+    <Text span fz={12} fw={500} lh="normal" data-parity="l">
+      {children}
+    </Text>
+  );
+}
+
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <Stack gap={2} data-testid="rebind-fact">
@@ -165,7 +174,7 @@ export function RebindPanel({
               type="button"
               pointer
               radius={6}
-              classNames={{ root: classes.pickerRoot, input: classes.field }}
+              classNames={{ input: `${classes.field} ${classes.picker}` }}
               onClick={() => combobox.toggleDropdown()}
               aria-label={`What fills the ${slot} slot`}
               data-parity="Select"
@@ -199,17 +208,18 @@ export function RebindPanel({
             className={classes.options}
             data-parity="options"
           >
-            <Text
-              id={labelId}
-              fz={11}
-              fw={500}
-              lh="normal"
-              c={MUTED}
-              className={classes.optionsLabel}
-              data-parity="h"
-            >
-              Files with the {choices.contract} contract
-            </Text>
+            <div className={classes.optionsLabel}>
+              <Text
+                id={labelId}
+                fz={11}
+                fw={500}
+                lh="normal"
+                c={MUTED}
+                data-parity="h"
+              >
+                Files with the {choices.contract} contract
+              </Text>
+            </div>
             <Combobox.Options
               labelledBy={labelId}
               className={classes.optionList}
@@ -290,24 +300,22 @@ export function RebindPanel({
           size="xs"
           radius={6}
           classNames={BUTTON}
-          attributes={{ label: { 'data-parity': 'l' } }}
           onClick={onDone}
           data-parity="button · Cancel"
         >
-          Cancel
+          <ButtonLabel>Cancel</ButtonLabel>
         </Button>
         <Button
           color="accent"
           size="xs"
           radius={6}
           classNames={BUTTON}
-          attributes={{ label: { 'data-parity': 'l' } }}
           disabled={!changed}
           loading={bind.isPending}
           onClick={apply}
           data-parity="button · Apply"
         >
-          Apply
+          <ButtonLabel>Apply</ButtonLabel>
         </Button>
       </Group>
     </Box>
