@@ -1,7 +1,7 @@
 import type { ComponentProps, HTMLAttributes } from "react";
 import { defineComponent } from "../../builders.ts";
 import type { Toast } from "../../hooks/index.ts";
-import { CHECK_ICON, Icon } from "../Icon/Icon.tsx";
+import { CHECK_ICON, CROSS_ICON, Icon } from "../Icon/Icon.tsx";
 import { Spinner } from "../Spinner/Spinner.tsx";
 import classes from "./ToastHost.module.css";
 import "./ToastHost.keyframes.css";
@@ -11,7 +11,7 @@ import "./ToastHost.keyframes.css";
 export const recipeCategory = 1 as const;
 
 /** `root` is the fixed-position stack; `toast` is one entry; `status` is the
-    spinner or check a toast that tracks work leads with. */
+    spinner, check or cross a toast that tracks work leads with. */
 const TOASTHOST_SELECTORS = ["root", "toast", "status"] as const;
 
 /** Stable selector surface for app-side CSS, stamped in the non-overridable
@@ -84,7 +84,11 @@ export const ToastHost = defineComponent<
           >
             {t.state && (
               <span {...getStyles("status")} data-part={TOASTHOST_PARTS.status}>
-                {t.state === "pending" ? <Spinner size="sm" /> : <Icon d={CHECK_ICON} />}
+                {t.state === "pending" ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <Icon d={t.state === "done" ? CHECK_ICON : CROSS_ICON} />
+                )}
               </span>
             )}
             {t.text}

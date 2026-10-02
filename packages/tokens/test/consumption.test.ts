@@ -37,6 +37,7 @@ const RAMP_NOW_CONSUMED = new Set([
   '--text-ok',
   '--text-ok-small',
   '--fill-bad',
+  '--text-bad',
   '--text-bad-small',
 ]);
 

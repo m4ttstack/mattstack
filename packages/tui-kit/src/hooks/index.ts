@@ -85,11 +85,12 @@ function useBodyScrollLock(): void {
 
 /** One transient toast: a fresh id per addToast() call and the text to show.
     `state` marks a toast that tracks work: `pending` draws a spinner until the
-    work settles, `done` a check. A plain toast has none. */
+    work settles, then `done` a check or `failed` a cross. A plain toast has
+    none. */
 interface Toast {
   id: number;
   text: string;
-  state?: "pending" | "done";
+  state?: "pending" | "done" | "failed";
 }
 
 /** Settles a toast that `startToast` opened, in place. */
@@ -107,7 +108,7 @@ const PENDING_MS = 30000;
 /** Transient toast queue: each addToast() call appends one with a fresh id and
     self-removes it after 3.5s. startToast() opens a pending toast that stays
     until its handle settles it: done swaps in a check and leaves after 2s,
-    fail swaps in plain text and leaves after 3.5s. */
+    fail swaps in a cross and leaves after 3.5s. */
 function useToasts(): {
   toasts: Toast[];
   addToast: (text: string) => void;
@@ -150,7 +151,7 @@ function useToasts(): {
       };
       return {
         done: (doneText) => settle({ text: doneText, state: "done" }, DONE_MS),
-        fail: (failText) => settle({ text: failText }, TOAST_MS),
+        fail: (failText) => settle({ text: failText, state: "failed" }, TOAST_MS),
       };
     },
     [expire],
