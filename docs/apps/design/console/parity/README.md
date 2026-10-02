@@ -96,3 +96,10 @@ the gitq.board JSON editor all read as the stories do. The Repos list for a
 repo-scoped key with no repo picked first printed each repo section as a
 full JSON block; it now draws the same read-only layer lines as Where it's
 set (board R's second modal, drawn from the build after Matt chose it).
+
+## Graph tab
+
+`graph/` holds the Graph tab beside its boards in `console.pen`, one image per
+board and scheme (`<slug>.<scheme>.png`, board left, app right), captured from
+the design fixture by the runbook in `apps/console/scripts/parity/run.md`.
+Differences the kit forces are listed in `../README.md`.
