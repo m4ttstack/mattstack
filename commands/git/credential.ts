@@ -8,6 +8,7 @@
 import { createRealProbes } from "../../lib/setup/probes.ts";
 import { readUserIntegrationOverrides } from "../../lib/setup/team-settings.ts";
 import { credentialHelperReply } from "../../lib/team/git-credential.ts";
+import * as out from "../../lib/ui/out.ts";
 import { forgeTokenLookupReal, mayOfferToken, tokenLookupRemoteForHost, tokenOrNull } from "../../lib/team/forge-token.ts";
 
 export interface GitCredentialDeps {
@@ -32,8 +33,14 @@ export async function gitCredentialReply(op: string, input: string, deps: GitCre
   });
 }
 
-export async function gitCredentialCommand(args: string[], _ctx: unknown): Promise<void> {
+export async function gitCredentialCommand(
+  args: string[],
+  _ctx: unknown,
+  deps: GitCredentialDeps = REAL_DEPS,
+  readInput: () => Promise<string> = () => Bun.stdin.text(),
+): Promise<void> {
+  out.payloadOnStdout();
   const op = args.find((a) => !a.startsWith("--")) ?? "";
-  const input = await Bun.stdin.text();
-  process.stdout.write(await gitCredentialReply(op, input));
+  const input = await readInput();
+  out.payload(await gitCredentialReply(op, input, deps));
 }
