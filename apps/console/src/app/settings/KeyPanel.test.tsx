@@ -19,7 +19,11 @@ import {
 import classes from './KeyPanel.module.css';
 import { PanelToolbar } from './PanelToolbar';
 import { schemaFields } from './testSchemas';
-import { SettingsRepoContext, SettingsTeamContext } from './useConsoleSettings';
+import {
+  prefetchKeyExplain,
+  SettingsRepoContext,
+  SettingsTeamContext,
+} from './useConsoleSettings';
 
 const explainGet = vi.fn();
 vi.stubGlobal('fetch', (url: string) =>
@@ -122,6 +126,14 @@ function renderPanel(
 }
 
 describe('KeyPanel', () => {
+  it('draws a warmed read’s layer lines on the first render, with no placeholder', async () => {
+    const d = def('board.agent.model');
+    explainGet.mockResolvedValue(ok({ def: d, rows: LAYERS }));
+    await prefetchKeyExplain(d, null);
+    renderPanel(d, LAYERS);
+    expect(screen.getByTestId('layer-user')).toBeInTheDocument();
+  });
+
   it('shows the tab it is given and reports a switch', async () => {
     const { onTab } = renderPanel(def('board.agent.model'), LAYERS, {
       tab: 'value',
@@ -584,6 +596,43 @@ describe('KeyPanel', () => {
       ).toHaveTextContent(/^1 field$/);
       expect(within(billing).getByText('team')).toBeInTheDocument();
       expect(within(billing).queryByText('team · repo')).toBeNull();
+    });
+
+    it('a warmed repo section draws its line on the first render', async () => {
+      const d = def('rt.worktreePool', {
+        type: 'object',
+        merge: 'deep',
+        repoScoped: true,
+        repoOnly: true,
+        repos: [{ identity: STOREFRONT, scopes: ['user'] }],
+        effective: { scope: null, file: null },
+      });
+      const rowsFor: Record<string, ExplainRowWire[]> = {
+        [STOREFRONT]: [
+          {
+            scope: 'user.repo',
+            file: '/stores/user.jsonc',
+            present: true,
+            value: { onDeck: 2 },
+          },
+        ],
+      };
+      explainGet.mockImplementation(async (url: string) => {
+        const repo = new URL(url, 'http://x').searchParams.get('repo');
+        return ok({
+          def: d,
+          rows: (repo && rowsFor[repo]) ?? [
+            { scope: 'default', file: null, present: false },
+          ],
+        });
+      });
+      await prefetchKeyExplain(d, null);
+      renderRepos(d, rowsFor);
+      expect(
+        within(screen.getByTestId(`repo-${STOREFRONT}`)).getByTestId(
+          'layer-value-user.repo'
+        )
+      ).toHaveTextContent(/^1 field$/);
     });
 
     it('a deep key whose schema is all leaves counts each layer’s own fields', async () => {

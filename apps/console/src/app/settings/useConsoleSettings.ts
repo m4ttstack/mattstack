@@ -246,15 +246,70 @@ export function useConsoleSettings(
   );
 }
 
+interface ExplainBody {
+  def: SettingDefWire;
+  rows: ExplainRowWire[];
+}
+
+const explainId = (key: string, repo: string | null) => `${key}\n${repo ?? ''}`;
+// The last answer per key and repo. A panel seeded from it draws at its
+// final height on its first frame, so its open animates once instead of
+// growing to a placeholder and then jumping to the real rows.
+const explainCache = new Map<string, ExplainBody>();
+const explainInFlight = new Map<string, Promise<void>>();
+
+function readExplain(key: string, repo: string | null): Promise<ExplainBody> {
+  return getJson<ExplainBody>(
+    `${BASE}/explain/${encodeURIComponent(key)}${query({ repo })}`
+  ).then(body => {
+    explainCache.set(explainId(key, repo), body);
+    return body;
+  });
+}
+
+function warm(key: string, repo: string | null): Promise<void> {
+  const id = explainId(key, repo);
+  if (explainCache.has(id)) return Promise.resolve();
+  const pending =
+    explainInFlight.get(id) ??
+    readExplain(key, repo)
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => explainInFlight.delete(id));
+  explainInFlight.set(id, pending);
+  return pending;
+}
+
+/** Reads ahead what a row's panel reads when it opens: the key's layers for
+    the picked repo, or, with none picked, each repo section's too. */
+export function prefetchKeyExplain(
+  def: Pick<SettingDefWire, 'key' | 'repos'>,
+  repo: string | null
+): Promise<void> {
+  const sections = repo === null ? (def.repos ?? []) : [];
+  return Promise.all([
+    warm(def.key, repo),
+    ...sections.map(r => warm(def.key, r.identity)),
+  ]).then(() => undefined);
+}
+
+export function resetExplainCache() {
+  explainCache.clear();
+  explainInFlight.clear();
+}
+
 /** One key's layer stack, with the picked repo's rungs when one is given.
-    A new `revision` re-reads it, for writes made outside the caller. */
+    A new `revision` re-reads it, for writes made outside the caller. Rows
+    read earlier show at once, but `loading` holds until this read lands,
+    since a write must not be built from rows that may be stale. */
 export function useKeyExplain(
   key: string,
   repo: string | null,
   revision = 0
 ): KeyExplain {
-  const [def, setDef] = useState<SettingDefWire | null>(null);
-  const [rows, setRows] = useState<ExplainRowWire[]>([]);
+  const [seed] = useState(() => explainCache.get(explainId(key, repo)));
+  const [def, setDef] = useState<SettingDefWire | null>(seed?.def ?? null);
+  const [rows, setRows] = useState<ExplainRowWire[]>(seed?.rows ?? []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
@@ -262,9 +317,7 @@ export function useKeyExplain(
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    getJson<{ def: SettingDefWire; rows: ExplainRowWire[] }>(
-      `${BASE}/explain/${encodeURIComponent(key)}${query({ repo })}`
-    )
+    readExplain(key, repo)
       .then(body => {
         if (!alive) return;
         setDef(body.def);
