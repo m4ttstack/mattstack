@@ -108,17 +108,12 @@ test('hovering the band opens nothing; clicking its trigger opens the trail, cli
   expect(document.querySelector('.tui-ask-trail')).toBeNull();
 });
 
-test('the open trail closes on Escape and on an outside click', async () => {
+test('the open trail closes on an outside click (Escape is the kit menu own)', async () => {
   await render(mrWith({}), ctx());
   const trigger =
     container.querySelector<HTMLButtonElement>('.tui-ask-trigger')!;
   await React.act(async () => trigger.click());
   expect(document.querySelector('.tui-ask-trail')).not.toBeNull();
-  await React.act(async () => {
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-  });
-  expect(document.querySelector('.tui-ask-trail')).toBeNull();
-  await React.act(async () => trigger.click());
   await React.act(async () => {
     document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
   });
@@ -127,7 +122,7 @@ test('the open trail closes on Escape and on an outside click', async () => {
 
 test('a running ask shows the spinner and no action', async () => {
   await render(mrWith({ display: 'launched', resolvedAt: NOW }), ctx());
-  expect(container.querySelector('.tui-ask-ring')).not.toBeNull();
+  expect(container.querySelector('[data-part="spinner"]')).not.toBeNull();
   expect(buttons()).toEqual([]);
 });
 

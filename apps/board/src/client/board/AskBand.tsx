@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { Button } from '@mattstack/tui-kit';
+import { Button, ContextMenu, Spinner } from '@mattstack/tui-kit';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { askBandModel, type AskAction, type AskBand } from './ask-band.ts';
-import { AskGlyph } from './icons.tsx';
+import { AskGlyph } from './ask-glyph.tsx';
 
 const ACTION: Record<AskAction, string> = {
   retry: 'Retry',
@@ -17,64 +17,30 @@ const FOOTER =
 const clock = (ms: number): string =>
   new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
-/** Room the card needs below the band before it flips above it. */
-const CARD_ROOM = 240;
-
-/** The trail: what the row knows of the ask's life, oldest first. A portal,
-    since the row clips its own overflow. It drops in from the band's edge,
-    and closes on an outside click, Escape, or any scroll or resize. */
+/** The trail: what the row knows of the ask's life, oldest first, in the
+    kit's anchored menu surface (it clamps to the viewport and closes on
+    Escape, an outside click, scroll and resize). A portal, since the row
+    clips its own overflow. */
 function Trail({
   band,
   rect,
-  trigger,
   onClose,
 }: {
   band: AskBand;
   rect: DOMRect;
-  trigger: RefObject<HTMLElement | null>;
   onClose: () => void;
 }) {
-  const card = useRef<HTMLDivElement>(null);
-  const [shown, setShown] = useState(false);
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => setShown(true));
-    const outside = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (card.current?.contains(t) || trigger.current?.contains(t)) return;
-      onClose();
-    };
-    const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('mousedown', outside);
-    document.addEventListener('keydown', key);
-    window.addEventListener('scroll', onClose, true);
-    window.addEventListener('resize', onClose);
-    return () => {
-      cancelAnimationFrame(frame);
-      document.removeEventListener('mousedown', outside);
-      document.removeEventListener('keydown', key);
-      window.removeEventListener('scroll', onClose, true);
-      window.removeEventListener('resize', onClose);
-    };
-  }, [onClose, trigger]);
-  const flip = rect.bottom + CARD_ROOM > window.innerHeight;
   const last = band.steps.length - 1;
   const stop = band.tone === 'bad' || band.tone === 'warn';
   return createPortal(
-    <div
-      ref={card}
+    <ContextMenu
+      x={rect.left}
+      y={rect.bottom + 6}
+      ariaLabel={band.title}
+      onClose={onClose}
       className="tui-ask-trail"
-      data-shown={shown ? '1' : undefined}
-      data-flip={flip ? '1' : undefined}
-      style={{
-        left: rect.left,
-        ...(flip
-          ? { bottom: window.innerHeight - rect.top + 6 }
-          : { top: rect.bottom + 6 }),
-      }}
     >
-      <div className="tui-ask-trail-title">{band.title}</div>
+      <ContextMenu.Label>{band.title}</ContextMenu.Label>
       {band.steps.map((step, i) => (
         <div
           key={step.name}
@@ -98,7 +64,7 @@ function Trail({
       {band.actions.length > 0 && (
         <div className="tui-ask-trail-foot">{FOOTER}</div>
       )}
-    </div>,
+    </ContextMenu>,
     document.body
   );
 }
@@ -109,14 +75,12 @@ function Trail({
     opens the trail. */
 export function AskBand({
   mr,
-
   ctx,
 }: {
   mr: BoardMRWithReview;
   ctx: RowContext;
 }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
   const bar = useRef<HTMLDivElement>(null);
   const sent = mr.sentNudge;
   if (!sent) return null;
@@ -132,11 +96,11 @@ export function AskBand({
       data-ask={sent.display}
     >
       <button
-        ref={trigger}
         type="button"
         className="tui-ask-trigger"
         aria-expanded={open}
         title={open ? 'hide the ask history' : 'show the ask history'}
+        onMouseDown={e => e.stopPropagation()}
         onClick={e => {
           e.stopPropagation();
           setRect(open ? null : bar.current!.getBoundingClientRect());
@@ -151,7 +115,7 @@ export function AskBand({
         </span>
         <span className="tui-ask-state">
           {band.icon === 'loader' ? (
-            <span className="tui-ask-ring" aria-hidden />
+            <Spinner size="xs" />
           ) : (
             <AskGlyph name={band.icon} />
           )}
@@ -181,14 +145,7 @@ export function AskBand({
             {ACTION[action]}
           </Button>
         ))}
-      {rect && (
-        <Trail
-          band={band}
-          rect={rect}
-          trigger={trigger}
-          onClose={() => setRect(null)}
-        />
-      )}
+      {rect && <Trail band={band} rect={rect} onClose={() => setRect(null)} />}
     </div>
   );
 }

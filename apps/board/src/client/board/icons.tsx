@@ -1,5 +1,3 @@
-import type { ReactNode } from 'react';
-
 import type { FlagKey } from '../../view.ts';
 
 const ICON = {
@@ -269,67 +267,6 @@ export function PencilLineIcon() {
       <path d="M13 21h8" />
       <path d="m15 5 4 4" />
       <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
-    </svg>
-  );
-}
-
-/** The sent-ask band's glyphs: lucide-react 1.34.0 path data (ISC licensed,
-    https://lucide.dev), keyed by the icon names `ask-band.ts` hands out. */
-const ASK_GLYPHS: Record<string, ReactNode> = {
-  cloud: <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />,
-  send: (
-    <>
-      <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
-      <path d="m21.854 2.147-10.94 10.939" />
-    </>
-  ),
-  check: <path d="M20 6 9 17l-5-5" />,
-  'chevron-down': <path d="m6 9 6 6 6-6" />,
-  'circle-check': (
-    <>
-      <circle cx="12" cy="12" r="10" />
-      <path d="m9 12 2 2 4-4" />
-    </>
-  ),
-  'triangle-alert': (
-    <>
-      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
-      <path d="M12 9v4" />
-      <path d="M12 17h.01" />
-    </>
-  ),
-  ban: (
-    <>
-      <circle cx="12" cy="12" r="10" />
-      <path d="m4.9 4.9 14.2 14.2" />
-    </>
-  ),
-  hourglass: (
-    <>
-      <path d="M5 22h14" />
-      <path d="M5 2h14" />
-      <path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22" />
-      <path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2" />
-    </>
-  ),
-  x: (
-    <>
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </>
-  ),
-  'rotate-cw': (
-    <>
-      <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-      <path d="M21 3v5h-5" />
-    </>
-  ),
-};
-
-export function AskGlyph({ name, size = 13 }: { name: string; size?: number }) {
-  return (
-    <svg {...RECORD_ICON} width={size} height={size}>
-      {ASK_GLYPHS[name]}
     </svg>
   );
 }

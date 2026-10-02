@@ -4823,25 +4823,11 @@ a.tui-id-card-ref:focus-visible {
   opacity: 0.6;
 }
 .tui-ask-label {
-  font-weight: 600;
+  font-weight: 500;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.tui-ask-age {
-  flex-shrink: 0;
-  opacity: 0.8;
-}
-.tui-ask-ring {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  border: 1.5px solid color-mix(in srgb, currentColor 35%, transparent);
-  border-top-color: currentColor;
-  animation: tui-status-rot 1s linear infinite;
 }
 /* The actions are the kit's ghost Button; the band only keeps them from
    shrinking. */
@@ -4851,48 +4837,24 @@ a.tui-id-card-ref:focus-visible {
 .tui-ask-btn + .tui-ask-btn {
   margin-left: -6px;
 }
-/* The trail: a card in a portal, since the row clips its overflow. It drops
-   in from the band's edge: down from under it, or up when it has flipped. */
+/* The trail's content, inside the kit's menu surface (which owns the card,
+   shadow, clamping and entry motion). */
 .tui-ask-trail {
-  opacity: 0;
-  transform: translateY(-8px);
-  transition:
-    opacity 160ms ease,
-    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  position: fixed;
-  z-index: 60;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: 380px;
+  width: 360px;
   max-width: calc(100vw - 24px);
-  box-sizing: border-box;
-  padding: 16px;
+  padding-bottom: 12px;
   font-size: 0.76rem;
-  color: var(--fg);
-  background: var(--card);
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
-}
-.tui-ask-trail[data-flip] {
-  transform: translateY(8px);
-}
-.tui-ask-trail[data-shown] {
-  opacity: 1;
-  transform: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .tui-ask-trail,
   .tui-ask-caret {
     transition: none;
   }
 }
-.tui-ask-trail-title {
-  font-size: 0.82rem;
-  font-weight: 700;
-}
 .tui-ask-trail-step {
+  padding: 0 12px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -4911,11 +4873,14 @@ a.tui-id-card-ref:focus-visible {
   min-width: 0;
 }
 .tui-ask-trail-name {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--fg);
 }
 .tui-ask-trail-detail,
 .tui-ask-trail-foot {
   font-size: 0.7rem;
   color: var(--text-3);
+}
+.tui-ask-trail-foot {
+  padding: 0 12px;
 }
