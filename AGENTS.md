@@ -330,9 +330,9 @@ hyphen; a word wider than its row breaks after its last `/` that fits (then
 characters. A `line` hint with a word too wide for its column takes the row
 under its title, whole. `verbatim` wraps the same way;
 `textwrap.Spans` keeps its hyphen breaks for the mission diff, and prose goes
-through `textwrap.SpansWith` with `WordsOnly`. `rt-ui render` reads
-`COLORFGBG` and paints the diff with pale tints on a light background; with no
-`COLORFGBG` it keeps the dark tints.
+through `textwrap.SpansWith` with `WordsOnly`. The diff takes pale tints only
+when the background resolves light (the same resolver as the accents); a dark
+or unknown background keeps the dark tints.
 
 A verb that prints a report builds it in a pure function that returns blocks
 (`checkBlocks`, `syncBlocks`, `linkBlocks` in `commands/skills*.ts`) and prints
