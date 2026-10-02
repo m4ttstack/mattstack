@@ -8,8 +8,8 @@ node bounds, in CSS px at 1x.
 
 | folder | what it holds |
 | --- | --- |
-| `boards/` | B list, B4 list and the R modal exported from pen at 1x, after the board corrections below |
-| `build/` | the matching story captures, light and dark, each with one hover state (B: a row; B4: a layer line's actions and tooltip; R: a layer line) |
+| `boards/` | B list, B4 list, the R modal and R's repo-scoped state (`R-repos`) exported from pen at 1x, after the board corrections below |
+| `build/` | the matching story captures, light and dark, each with one hover state (B: a row; B4: a layer line's actions and tooltip; R: a layer line); `R-repos` is `console-settings-rows--run-detail-repos` |
 
 ## Layout, board vs build
 
@@ -32,6 +32,10 @@ All rows measure equal after the code fixes listed in the last column.
 | modal tabs x, layer lines x range | 20, 20 to 740 | 20, 20 to 740 | were 11, 11 to 749 |
 | modal height | 295 | 295.4 | board was 289 before the kit tab correction |
 | `rt.worktreeApp` summary | `3 of 3 set` | `3 of 3 set` | story fixture lacked `authored` |
+| R-repos: Repos head, sections, section height | 191 to 238.6, 83.1 each | 191.4 to 239, 83.1 each | |
+| R-repos: repo label x / y in a section, line top | 8 / 11, 34 | 8 / 11, 34.1 | |
+| R-repos: line badge | base scope (`user`, `team`) | same | was the full rung, truncated to `team · re…` |
+| R-repos modal height | 428.8 | 429.2 | |
 
 ## Board corrections
 
@@ -74,7 +78,8 @@ Every surface, border, badge and status reads. Three things look heavier
 than the rest, all kit or theme:
 
 - The grey `default` badge is a near-black chip with white text in dark,
-  where the other badges are tinted washes.
+  where the other badges are tinted washes. No hue and variant pair fixes it
+  from the app: Tokyo's `gray` is a single Day ramp (MAT-427).
 - The unset Switch's track is very pale in light.
 - A disabled Save's label is faint in dark.
 
@@ -87,7 +92,7 @@ run detail, the ring does not show.
 `/settings` and a run detail's configuration modal were checked against real
 settings in both schemes (captures kept out of the repo: they hold real
 paths). The open row, its tabs, the reveal scroll on `?explain=`, hover and
-the gitq.board JSON editor all read as the stories do. One thing reads
-wrong: in run detail, a repo-scoped key with no repo picked (`rt.worktrees`)
-lists every repo section as a full JSON block. That Repos list moved over
-from the old modal unchanged, and it is the busiest thing left in the panel.
+the gitq.board JSON editor all read as the stories do. The Repos list for a
+repo-scoped key with no repo picked first printed each repo section as a
+full JSON block; it now draws the same read-only layer lines as Where it's
+set (board R's second modal, drawn from the build after Matt chose it).

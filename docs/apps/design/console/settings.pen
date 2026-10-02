@@ -12507,6 +12507,631 @@
               ]
             }
           ]
+        },
+        {
+          "type": "frame",
+          "id": "H02L63",
+          "name": "Modal repo-scoped, no repo picked",
+          "clip": true,
+          "width": 760,
+          "fill": "$card",
+          "cornerRadius": 6,
+          "effect": {
+            "type": "shadow",
+            "shadowType": "outer",
+            "color": "$shadow",
+            "offset": {
+              "x": 0,
+              "y": 12
+            },
+            "blur": 40
+          },
+          "layout": "vertical",
+          "children": [
+            {
+              "type": "frame",
+              "id": "FaSul",
+              "name": "Header",
+              "width": "fill_container",
+              "stroke": "$border-soft",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "layout": "vertical",
+              "gap": 4,
+              "padding": [
+                16,
+                16,
+                14,
+                20
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "C33fNB",
+                  "name": "Title line",
+                  "width": "fill_container",
+                  "height": 28,
+                  "gap": 8,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "etIuF",
+                      "name": "Key",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "DEzN3",
+                          "name": "Namespace",
+                          "fill": "$text-3",
+                          "content": "rt.",
+                          "fontFamily": "$mono",
+                          "fontSize": 15,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "v7tbE",
+                          "name": "Name",
+                          "fill": "$text-body",
+                          "content": "worktreePool",
+                          "fontFamily": "$mono",
+                          "fontSize": 15,
+                          "fontWeight": "500"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "g2pJVj",
+                      "name": "Push",
+                      "width": "fill_container",
+                      "height": 1
+                    },
+                    {
+                      "type": "frame",
+                      "id": "z8L75",
+                      "name": "Close",
+                      "width": 28,
+                      "height": 28,
+                      "cornerRadius": 6,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "Zt5ja",
+                          "name": "X",
+                          "width": 16,
+                          "height": 16,
+                          "icon": "x",
+                          "library": "lucide",
+                          "fill": "$text-3"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "yw5Ey",
+                  "name": "Description",
+                  "fill": "$text-3",
+                  "content": "Per-repo worktree pool: how many trees wait on deck and the ready steps each new tree runs.",
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "RUUi9",
+              "name": "Body",
+              "width": "fill_container",
+              "layout": "vertical",
+              "padding": [
+                12,
+                8
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "n7dyKO",
+                  "name": "Panel",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "padding": [
+                    0,
+                    12,
+                    12,
+                    12
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "Z3Rpw",
+                      "name": "Tabs",
+                      "height": 31,
+                      "fill": "$inset",
+                      "cornerRadius": 6,
+                      "padding": 4,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "V0Xzl",
+                          "name": "Value",
+                          "width": 51,
+                          "height": 23,
+                          "cornerRadius": 2,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Rdyxe",
+                              "name": "Label",
+                              "fill": "$text-3",
+                              "content": "Value",
+                              "fontFamily": "$font",
+                              "fontSize": 11.2,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "m6jPb",
+                          "name": "Where it's set",
+                          "width": 97,
+                          "height": 23,
+                          "fill": "$card",
+                          "cornerRadius": 2,
+                          "effect": [
+                            {
+                              "type": "shadow",
+                              "shadowType": "outer",
+                              "color": "#0000001a",
+                              "offset": {
+                                "x": 0,
+                                "y": 1
+                              },
+                              "blur": 2
+                            },
+                            {
+                              "type": "shadow",
+                              "shadowType": "outer",
+                              "color": "#0000000d",
+                              "offset": {
+                                "x": 0,
+                                "y": 1
+                              },
+                              "blur": 3
+                            }
+                          ],
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "qgqUU",
+                              "name": "Label",
+                              "fill": "$text-body",
+                              "content": "Where it's set",
+                              "fontFamily": "$font",
+                              "fontSize": 11.2,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "rUSVL",
+                      "name": "Layers",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "IV7Gp",
+                          "name": "Caption",
+                          "fill": "$text-4",
+                          "content": "Merged key by key. Lists replace whole.",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "lQoZ1",
+                          "name": "Gap",
+                          "width": "fill_container",
+                          "height": 8
+                        },
+                        {
+                          "type": "frame",
+                          "id": "V6A4z",
+                          "name": "Layer default",
+                          "width": "fill_container",
+                          "height": 38,
+                          "cornerRadius": 6,
+                          "gap": 12,
+                          "padding": [
+                            0,
+                            20,
+                            0,
+                            8
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "i88qG",
+                              "name": "Layer col",
+                              "width": 88,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "oNSba",
+                                  "name": "Scope default",
+                                  "fill": "$inset",
+                                  "cornerRadius": 4,
+                                  "gap": 4,
+                                  "padding": [
+                                    1,
+                                    6,
+                                    1,
+                                    5
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "ellipse",
+                                      "id": "I76le",
+                                      "name": "Dot",
+                                      "fill": "$text-3",
+                                      "width": 6,
+                                      "height": 6
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "K0yb0",
+                                      "name": "Label",
+                                      "fill": "$text-1",
+                                      "content": "default",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "500"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "text",
+                              "id": "Rtv0Y",
+                              "name": "Value",
+                              "fill": "$text-body",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "1 field",
+                              "fontFamily": "$mono",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Kh4VY",
+                              "name": "Merged",
+                              "gap": 4,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "i1ojw",
+                                  "name": "Check",
+                                  "width": 12,
+                                  "height": 12,
+                                  "icon": "check",
+                                  "library": "lucide",
+                                  "fill": "$ok-text"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "YSUAC",
+                                  "name": "Label",
+                                  "fill": "$ok-text-small",
+                                  "content": "merged",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Luck7",
+                          "name": "Repos head",
+                          "width": "fill_container",
+                          "height": 47.6,
+                          "stroke": "$border-soft",
+                          "strokeWidth": {
+                            "bottom": 1
+                          },
+                          "gap": 8,
+                          "padding": [
+                            23,
+                            8,
+                            9.6,
+                            8
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "JMPvk",
+                              "name": "Label",
+                              "fill": "$text-3",
+                              "content": "REPOS",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "500",
+                              "letterSpacing": 0.6
+                            },
+                            {
+                              "type": "text",
+                              "id": "SGK4f",
+                              "name": "Hint",
+                              "fill": "$text-3",
+                              "content": "· sections that override every repo's value for one repo",
+                              "fontFamily": "$font",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "KDuqi",
+                          "name": "Repo acme/storefront",
+                          "width": "fill_container",
+                          "height": 83.1,
+                          "stroke": "$border-soft",
+                          "strokeWidth": {
+                            "bottom": 1
+                          },
+                          "layout": "vertical",
+                          "gap": 6,
+                          "padding": [
+                            11,
+                            0,
+                            0,
+                            0
+                          ],
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "AVCyM",
+                              "name": "Repo header",
+                              "width": "fill_container",
+                              "height": 17,
+                              "padding": [
+                                0,
+                                8
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "y5U2D",
+                                  "name": "Repo",
+                                  "fill": "$text-body",
+                                  "content": "acme/storefront",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "NRb21",
+                              "name": "Layer user",
+                              "width": "fill_container",
+                              "height": 38,
+                              "cornerRadius": 6,
+                              "gap": 12,
+                              "padding": [
+                                0,
+                                8
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "ooVLS",
+                                  "name": "Layer col",
+                                  "width": 88,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "KOh0i",
+                                      "name": "Scope user",
+                                      "fill": "$cyan-wash",
+                                      "cornerRadius": 4,
+                                      "gap": 4,
+                                      "padding": [
+                                        1,
+                                        6,
+                                        1,
+                                        5
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "ellipse",
+                                          "id": "T33aDF",
+                                          "name": "Dot",
+                                          "fill": "$cyan-dot",
+                                          "width": 6,
+                                          "height": 6
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "wJhxH",
+                                          "name": "Label",
+                                          "fill": "$cyan-text-small",
+                                          "content": "user",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "500"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "odOQJ",
+                                  "name": "Value",
+                                  "fill": "$text-body",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "2 fields",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "tikTf",
+                          "name": "Repo acme/billing",
+                          "width": "fill_container",
+                          "height": 83.1,
+                          "stroke": "$border-soft",
+                          "strokeWidth": {
+                            "bottom": 1
+                          },
+                          "layout": "vertical",
+                          "gap": 6,
+                          "padding": [
+                            11,
+                            0,
+                            0,
+                            0
+                          ],
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "EBZqh",
+                              "name": "Repo header",
+                              "width": "fill_container",
+                              "height": 17,
+                              "padding": [
+                                0,
+                                8
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "OGqe3",
+                                  "name": "Repo",
+                                  "fill": "$text-body",
+                                  "content": "acme/billing",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "tXJZb",
+                              "name": "Layer team",
+                              "width": "fill_container",
+                              "height": 38,
+                              "cornerRadius": 6,
+                              "gap": 12,
+                              "padding": [
+                                0,
+                                8
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "Z7akfR",
+                                  "name": "Layer col",
+                                  "width": 88,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "wOaHw",
+                                      "name": "Scope team",
+                                      "fill": "$purple-wash",
+                                      "cornerRadius": 4,
+                                      "gap": 4,
+                                      "padding": [
+                                        1,
+                                        6,
+                                        1,
+                                        5
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "ellipse",
+                                          "id": "aliRl",
+                                          "name": "Dot",
+                                          "fill": "$purple-text",
+                                          "width": 6,
+                                          "height": 6
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "szmIi",
+                                          "name": "Label",
+                                          "fill": "$purple-text-small",
+                                          "content": "team",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "500"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "lEGR2",
+                                  "name": "Value",
+                                  "fill": "$text-body",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "3 fields",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
         }
       ]
     }
@@ -13268,6 +13893,23 @@
         },
         {
           "value": "#696e77",
+          "theme": {
+            "mode": "dark"
+          }
+        }
+      ]
+    },
+    "purple-text-small": {
+      "type": "color",
+      "value": [
+        {
+          "value": "#402060",
+          "theme": {
+            "mode": "light"
+          }
+        },
+        {
+          "value": "#e9d5ff",
           "theme": {
             "mode": "dark"
           }
