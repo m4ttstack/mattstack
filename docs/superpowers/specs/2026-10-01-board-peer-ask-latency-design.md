@@ -104,6 +104,10 @@ background subsystems.
   resets on a 2xx. It logs once per distinct failure kind at warn and each
   wake at debug, following the daemon's logging rules.
 - The waker never reads a payload.
+- It never follows a redirect: a 3xx is a failure that backs off, so the
+  board token only ever reaches the declared relay.
+- The cached token and cursor belong to one relay URL. When the URL
+  changes, the waker re-reads the token and starts again from cursor 0.
 
 ### Cron trigger
 
