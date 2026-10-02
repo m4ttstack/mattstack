@@ -194,6 +194,7 @@ describe("rt release apps: output", () => {
     expect(renderPlain(progressBlocks({ kind: "step", step: { id: "tag", label: "tag", status: "planned", detail: "tag v2.13.2 at the notes commit and push it", command: "git tag -a v2.13.2 <notes commit> -m v2.13.2" } }))).toBe(
       "[not yet] tag  tag v2.13.2 at the notes commit and push it\n  next: git tag -a v2.13.2 <notes commit> -m v2.13.2\n",
     );
+    expect(renderPlain(progressBlocks({ kind: "step", step: { id: "tag", label: "tag", status: "done", detail: "pushed v2.13.2 at 0123456ab" } }))).toBe("[ok] tag  pushed v2.13.2 at 0123456ab\n");
     expect(renderPlain(progressBlocks({ kind: "step", step: { id: "notes", label: "release notes", status: "stopped", detail: "the notes need approval" } }))).toBe("[needs you] release notes  the notes need approval\n");
     expect(renderPlain(progressBlocks({ kind: "step", step: { id: "qualify", label: "qualify", status: "stopped", detail: "Main does not qualify for the fast path since v2.13.1: lib/ changed" } }))).toBe(
       "[refused] qualify  Main does not qualify for the fast path since v2.13.1: lib/ changed\n",

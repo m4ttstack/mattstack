@@ -279,7 +279,7 @@ export interface ReleaseAppCommandDeps {
 
 const RELEASE_APPS_USAGE = "usage: rt release apps [--dry-run] [--json] [--yes-notes <notes hash>]";
 
-const STEP_STATUS: Record<StepStatus, RenderStatus> = { ok: "done", done: "skipped", planned: "pending", failed: "failed", stopped: "needs-you", pending: "pending" };
+const STEP_STATUS: Record<StepStatus, RenderStatus> = { ok: "done", done: "done", planned: "pending", failed: "failed", stopped: "needs-you", pending: "pending" };
 
 const QUALIFY_STOP_STATUS: Record<QualifyStop, RenderStatus> = { "not-fast-path": "refused", "nothing-moved": "skipped", "no-release-tag": "failed" };
 

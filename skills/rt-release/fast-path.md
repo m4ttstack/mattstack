@@ -86,8 +86,8 @@ digraph fast_path_release_apps {
 
 Run each `rt release apps ... --json` call in the background: it waits on the tag's release.yml run
 (25 to 50 minutes) and prints one envelope when it exits. The dry run prints one envelope too: it
-qualifies when its `status` is `planned`, and its `steps` carry the qualify result, the next tag
-and each planned command. The verb skips the rehearsal because its gate admits only the
+qualifies when its `status` is `planned`, its `nextTag` is the tag a real run cuts, and its
+`steps` carry the qualify result and each planned command. The verb skips the rehearsal because its gate admits only the
 served-app path, the notes and `website/`, and its qualify step has confirmed the newest tag
 verified. Every step detects its own completion, so rerunning the verb resumes, even after a run
 killed mid-wait, and a newest tag whose publish has not verified is re-verified before anything
