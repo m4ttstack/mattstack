@@ -143,10 +143,6 @@ export interface SpineEntry {
   engineError?: string;
   staleFiles: string[];
   orphanFiles: string[];
-  /** Stated where a reader would otherwise see an empty row. */
-  note?: string;
-  /** An outside skill whose slots bind exactly what a stage binds. */
-  sameWiringAsStep?: number;
   slots: SlotOutlineNode[];
   includes: IncludeOutlineNode[];
 }
@@ -168,10 +164,6 @@ export interface OrphanFillEntry {
 export type PipelineState = 'ok' | 'empty' | 'absent';
 
 export interface WiringSpine {
-  /** Fill binding -> every site that resolves to it. The slot rows' `N
-      sites` chip is this map's lengths, so the chip and the inverse index
-      cannot disagree about the same fill. */
-  bindingSites: Record<string, BindingSite[]>;
   workType: string | null;
   workTypes: string[];
   pipelineState: PipelineState;
@@ -259,27 +251,6 @@ export function invertBindings(
   return sites;
 }
 
-/** Identity of a binder's wiring, order-insensitive -- what makes "same
-    wiring as stage 7" a fact about the bindings rather than about the order
-    the manifest happened to list them in. */
-function wiringSignature(slots: { name: string; boundTo: string | null }[]) {
-  return slots
-    .map(s => `${s.name}=${s.boundTo ?? ''}`)
-    .sort()
-    .join('|');
-}
-
-/** Stated where a reader would otherwise be looking at an empty row. */
-function noSlotsNote(
-  kind: SpineEntryKind,
-  slots: SlotOutlineNode[]
-): string | undefined {
-  if (slots.length > 0) return undefined;
-  return kind === 'stage'
-    ? 'no slots — this stage takes nothing from the pack'
-    : 'no slots — this skill takes nothing from the pack';
-}
-
 /**
  * The one predicate behind both `attentionCount` and the "needs attention
  * only" filter -- a badge that disagreed with the list it links to would be
@@ -304,8 +275,8 @@ export function needsAttention(entry: SpineEntry): boolean {
 
 /**
  * Every row the spine draws, in render order. Names the set `attentionCount`
- * ranges over so the count, the filter and the summary's "showing N of M"
- * cannot each decide for themselves what a row is. Orphaned fills are not
+ * ranges over so the count and the filter cannot each decide for
+ * themselves what a row is. Orphaned fills are not
  * rows: they are fills, and the count never included them.
  */
 export function spineRows(
@@ -460,7 +431,6 @@ export function buildSpine(
       engineError: verb?.engineError,
       staleFiles: checkRow?.staleFiles ?? [],
       orphanFiles: checkRow?.orphanFiles ?? [],
-      note: noSlotsNote(kind, slots),
       slots,
       includes: includesFor(verb),
     };
@@ -479,13 +449,6 @@ export function buildSpine(
   // binds nothing, so "not in binders[]" means "takes nothing from the
   // pack", never "missing".
   const stages = stageRefs.map((ref, i) => entryFor('stage', ref, i + 1));
-
-  const stageStepBySignature = new Map<string, number>();
-  for (const stage of stages) {
-    const signature = wiringSignature(stage.slots);
-    if (signature && !stageStepBySignature.has(signature))
-      stageStepBySignature.set(signature, stage.step as number);
-  }
 
   const spineRefs = new Set(stageRefs);
   if (orchestratorRef) spineRefs.add(orchestratorRef);
@@ -541,10 +504,7 @@ export function buildSpine(
       continue;
     }
 
-    const entry = entryFor('outside', binder.ref, null);
-    const sameStep = stageStepBySignature.get(wiringSignature(entry.slots));
-    if (sameStep !== undefined) entry.sameWiringAsStep = sameStep;
-    outside.push(entry);
+    outside.push(entryFor('outside', binder.ref, null));
   }
 
   // Every roster verb reaches a row. rt emits no binder for a verb that binds
@@ -578,7 +538,6 @@ export function buildSpine(
       engineError: rosterVerb.engineError,
       staleFiles: checkRow?.staleFiles ?? [],
       orphanFiles: checkRow?.orphanFiles ?? [],
-      note: noSlotsNote('outside', slots),
       slots,
       includes: includesFor(rosterVerb),
     });
@@ -610,7 +569,6 @@ export function buildSpine(
   ).length;
 
   return {
-    bindingSites,
     workType,
     workTypes,
     pipelineState,

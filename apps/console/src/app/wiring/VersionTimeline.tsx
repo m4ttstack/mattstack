@@ -162,10 +162,9 @@ export interface VersionTimelineProps {
 
 /**
  * A verb's pack history and, on selecting two commits, the diff between
- * them with each hunk placed against the seam it fell inside. Folded out of
- * its old drawer into the detail panel's "History" tab.
+ * them with each hunk placed against the seam it fell inside.
  *
- * The panel's one structural rule: runtime facts and git history are two
+ * Its one structural rule: runtime facts and git history are two
  * regions on two surfaces, never one list. A commit row and a "working tree
  * is dirty" row look alike and mean nothing alike: one is ordered, immutable
  * and attributable, the other is momentary and true only of this machine.

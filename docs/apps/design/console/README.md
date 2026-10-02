@@ -45,6 +45,13 @@ The dark frame of each pair carries the same name with `dark` in place of
 `Export` on its id: `html-css` with `includeLayerNames: true` into `parity/`,
 and `png` at `scale: 1` into `renders/`, renamed to the slug pattern.
 
+## Checking the app against a board
+
+Follow `apps/console/scripts/parity/run.md`. The app side runs on the design
+fixture: the console server started with `CONSOLE_FIXTURE=design` answers from
+the same invented `acme` pack the boards draw, and `CONSOLE_FIXTURE_SCENARIO`
+is the board's scenario (`clean`, or `unsynced` for the two unsynced boards).
+
 ## Kit chrome is not compared
 
 The rail, app bar, PageShell tab bar, Drawer frame and Modal frame are the

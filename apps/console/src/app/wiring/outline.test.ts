@@ -150,14 +150,11 @@ describe('buildSpine: the run order comes from pipelines and nowhere else', () =
     ]);
   });
 
-  it('a stage no binder covers still gets its numbered row, saying it binds nothing', () => {
+  it('a stage no binder covers still gets its numbered row, with no slots', () => {
     const stage = buildSpine(PACK, EMPTY_CHECK).stages[1];
 
     expect(stage.ref).toBe('mattstack:stage-implement');
     expect(stage.slots).toEqual([]);
-    expect(stage.note).toBe(
-      'no slots — this stage takes nothing from the pack'
-    );
   });
 
   it('tells an rt with no pipelines field apart from a pack with no pipelines', () => {
@@ -185,18 +182,6 @@ describe('buildSpine: the run order comes from pipelines and nowhere else', () =
       'mattstack:rebase-worktree',
     ]);
   });
-
-  it('names the stage an outside skill duplicates, by its bindings rather than its name', () => {
-    const spine = buildSpine(PACK, EMPTY_CHECK);
-    const ship = spine.outside.find(e => e.key === 'mattstack:ship');
-    const reviewCore = spine.outside.find(
-      e => e.key === 'mattstack:review-core'
-    );
-
-    expect(ship?.sameWiringAsStep).toBe(3);
-    expect(reviewCore).toBeDefined();
-    expect(reviewCore?.sameWiringAsStep).toBeUndefined();
-  });
 });
 
 describe('buildSpine: a roster verb no binder names', () => {
@@ -208,9 +193,6 @@ describe('buildSpine: a roster verb no binder names', () => {
     expect(entry).toBeDefined();
     expect(entry?.unwired).toBe(true);
     expect(entry?.verb).toBe('rebase-worktree');
-    expect(entry?.note).toBe(
-      'no slots — this skill takes nothing from the pack'
-    );
   });
 
   it('keeps the source and artifact a compile action needs', () => {
@@ -665,7 +647,7 @@ describe('invertBindings: every site that resolves to a fill', () => {
     // One inversion, two readers -- the chip cannot claim a number the
     // drawer's list does not have rows for.
     expect(slot.boundTo).toBe('demo:ship-domain');
-    expect(spine.bindingSites['demo:ship-domain']).toHaveLength(2);
+    expect(invertBindings(PACK)['demo:ship-domain']).toHaveLength(2);
     expect(slot.siteCount).toBe(2);
   });
 });

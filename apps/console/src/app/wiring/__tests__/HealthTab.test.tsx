@@ -225,10 +225,10 @@ describe('HealthTab: grouped issues', () => {
     expect(group).toHaveTextContent('unused');
     expect(group).toHaveTextContent('unused@1');
     expect(group).toHaveTextContent('unregistered fill · nothing binds it');
-    // 2 unwired verbs + 1 orphan fill; the pointer on the On-demand tab counts
-    // the same three, so the two surfaces now agree.
+    // 2 unwired verbs + 1 orphan fill; the Graph tab's Unwired row counts
+    // the same three, so the two surfaces agree.
     expect(screen.getByTestId('health-stat-unwired')).toHaveTextContent('3');
-    // A fill has no detail panel, so its row opens nothing.
+    // A fill has no skill to open, so its row opens nothing.
     expect(
       screen.queryByRole('button', { name: 'open unused' })
     ).not.toBeInTheDocument();

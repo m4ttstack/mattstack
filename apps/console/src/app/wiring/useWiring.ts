@@ -4,7 +4,6 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
-  useSuspenseQuery,
 } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
@@ -92,25 +91,8 @@ export function usePacks(options?: SharedQueryOptions) {
   });
 }
 
-// The outline cannot render without its roster, so this is the one suspense
-// query on the surface -- check/surface/compile-preview all layer on top of
-// what this call returns.
-export function useComposition(pack: string) {
-  return useSuspenseQuery({
-    queryKey: ['skills', 'composition', pack],
-    queryFn: async () => {
-      const res = await client.api.skills.composition.$get({ query: { pack } });
-      return readOrThrow<SkillsComposition>(res, 'skills composition');
-    },
-  });
-}
-
-/** The same cache entry `useComposition` fills, read WITHOUT suspending.
-    The page header needs the work types and the fetch time while staying
-    outside the outline's suspense boundary -- the pack picker has to survive
-    a composition failure, which is the whole reason that boundary is scoped
-    to the outline. Same query key, so this shares the fetch rather than
-    issuing a second one. */
+/** Never suspends: the pack picker and the page around the tabs have to
+    survive a composition failure. */
 export function useCompositionSnapshot(
   pack: string | null,
   options?: SharedQueryOptions
@@ -163,9 +145,6 @@ export function useSurface(pack: string | null, options?: SharedQueryOptions) {
   });
 }
 
-/** Conditional on a verb actually being open for preview -- most nodes in
-    the outline never trigger this, so it stays a plain query rather than
-    riding along with the route-level suspense. */
 export function useCompilePreview(
   pack: string | undefined,
   verb: string | undefined
@@ -518,8 +497,7 @@ const RAIL_QUERY_OPTIONS: SharedQueryOptions = {
 /**
  * How many rows on the Wiring spine need attention, for readers mounted
  * outside the Wiring route. Runs `buildSpine` rather than counting anything
- * itself: the rail badge and the spine's own header must be the same number,
- * and two derivations of it would eventually disagree.
+ * itself: two derivations of the same number would eventually disagree.
  *
  * Shares its query keys with the page, so opening /wiring reuses these
  * fetches instead of issuing its own. Answers 0 while the queries are in
