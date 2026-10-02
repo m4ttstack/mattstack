@@ -323,7 +323,7 @@ export const REGISTRY: readonly SettingDef[] = [
     scopes: ["user"],
     default: "auto",
     merge: "replace",
-    description: "Whether rt's output uses its colors for a dark or a light terminal: auto, dark or light. Auto asks the terminal for its background, then reads COLORFGBG and Ghostty's config, and uses the light-terminal colors when none of them answers. Set dark or light when auto picks wrong. A fresh key, not an ownership-latch port, so a default is fine here.",
+    description: "Whether rt's output uses its colors for a dark or a light terminal: auto, dark or light. Auto reads COLORFGBG and Ghostty's config, then asks the terminal for its background, and uses the light-terminal colors when none of them answers. Set dark or light when auto picks wrong, or to keep rt from asking the terminal. A fresh key, not an ownership-latch port, so a default is fine here.",
   },
 
   // --- mattstack (installer-lane) -----------------------------------------
