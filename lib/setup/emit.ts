@@ -7,7 +7,7 @@
 import { interactive } from "../ui/gate.ts";
 import * as out from "../ui/out.ts";
 import type { Block, RenderStatus } from "../ui/protocol.ts";
-import { openStep, type StepHandle } from "../ui/spawn.ts";
+import { openStep, settleBackground, type StepHandle } from "../ui/spawn.ts";
 import type { ApplyEvent, EventId, StepState } from "./contract.ts";
 
 export type Emit = (ev: ApplyEvent) => void;
@@ -178,7 +178,10 @@ export function createStepEmitter(opts: StepEmitterOptions): StepEmitter {
       case "step": {
         if (ev.state === "pending") return;
         if (ev.state === "running") {
-          chain(() => start(ev.id));
+          chain(async () => {
+            if (human) await settleBackground();
+            start(ev.id);
+          });
           return;
         }
         const final = ev as StepEvent & { state: FinalState };

@@ -39,7 +39,7 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { isCompiledRt } from "../lib/rt-self.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
-import { openStep, type StepHandle } from "../lib/ui/spawn.ts";
+import { openStep, settleBackground, type StepHandle } from "../lib/ui/spawn.ts";
 import { interactive } from "../lib/ui/gate.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { shellQuote } from "../lib/herdr-launch.ts";
@@ -219,6 +219,7 @@ interface StageEnding {
 async function stage(title: string, task: (sub: (text: string) => void) => Promise<StageEnding>): Promise<StageEnding> {
   let step: StepHandle | null = null;
   if (interactive()) {
+    await settleBackground();
     try {
       step = openStep(title);
     } catch {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { getDef } from "../../../packages/rt-client/src/settings/registry-machinery.ts";
@@ -9,6 +9,8 @@ import { __test__ as warnTest, setWarningLog } from "../warn.ts";
 import { __test__, backgroundSetting, rtUiEnv } from "../background.ts";
 import * as out from "../out.ts";
 import { openStep } from "../spawn.ts";
+import { __test__ as gateTest } from "../gate.ts";
+import { createStepRunner } from "../steps.ts";
 
 const FAKE = resolve(import.meta.dir, "fake-rt-ui.ts");
 const origHome = process.env.HOME;
@@ -36,6 +38,7 @@ afterEach(() => {
   __test__.reset();
   warnTest.reset();
   out.__test__.reset();
+  gateTest.setInteractive(undefined);
   delete process.env.RT_UI_BIN;
   delete process.env.RT_UI_FAKE;
   delete process.env.RT_UI_BACKGROUND;
@@ -180,30 +183,37 @@ function stepUnderFake(fake: Record<string, unknown>): { renderRecord: string; s
   const stepsRecord = join(home, "settle-steps.ndjson");
   process.env.RT_UI_BIN = FAKE;
   process.env.RT_UI_FAKE = JSON.stringify({ record: renderRecord, envRecord: stepsRecord, ...fake });
+  gateTest.setInteractive(() => true);
   return { renderRecord, stepsRecord };
 }
 
-test("a step under auto settles the background before its helper starts", async () => {
+async function runStep(renderRecord: string): Promise<void> {
+  await createStepRunner().run("x", async () => {
+    appendFileSync(renderRecord, `{"task":"started"}\n`);
+  });
+}
+
+test("a step under auto settles the background before its task starts", async () => {
   const { renderRecord, stepsRecord } = stepUnderFake({ renderErr: "background=light\n" });
-  await openStep("x").done();
+  await runStep(renderRecord);
   const hello = `{"t":"hello","protocol":1}`;
-  expect(readFileSync(renderRecord, "utf8")).toStartWith(`{"argv":["--report-background"],"bg":"auto"}\n${hello}\n${hello}\n{"t":"start"`);
-  expect(readFileSync(stepsRecord, "utf8")).toContain(`{"bg":"light"}`);
-  await openStep("y").done();
+  expect(readFileSync(renderRecord, "utf8")).toStartWith(`{"argv":["--report-background"],"bg":"auto"}\n${hello}\n{"task":"started"}\n`);
+  expect(readFileSync(stepsRecord, "utf8")).toBe(`{"bg":"light"}\n`);
+  await runStep(renderRecord);
   expect(readFileSync(renderRecord, "utf8").split("\n").filter((l) => l.startsWith(`{"argv"`))).toHaveLength(1);
 });
 
 test("a step whose settling run fails still starts under auto", async () => {
   const { renderRecord, stepsRecord } = stepUnderFake({ exit: 3 });
-  await openStep("x").done();
-  expect(readFileSync(renderRecord, "utf8")).toContain(`"bg":"auto"`);
-  expect(readFileSync(stepsRecord, "utf8")).toContain(`{"bg":"auto"}`);
+  await runStep(renderRecord);
+  expect(readFileSync(renderRecord, "utf8")).toStartWith(`{"argv":["--report-background"],"bg":"auto"}`);
+  expect(readFileSync(stepsRecord, "utf8")).toBe(`{"bg":"auto"}\n`);
 });
 
 test("under the test preload a step runs no settling render", async () => {
   process.env.RT_UI_NO_TERMINAL_QUERY = preloadBlock;
   const { renderRecord, stepsRecord } = stepUnderFake({ renderErr: "background=light\n" });
-  await openStep("x").done();
+  await runStep(renderRecord);
   expect(readFileSync(renderRecord, "utf8")).not.toContain(`{"argv"`);
   expect(readFileSync(stepsRecord, "utf8")).toBe("{}\n");
 });

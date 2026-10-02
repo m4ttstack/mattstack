@@ -29,24 +29,32 @@ function killLiveOnExit(): void {
   });
 }
 
-// The terminal query puts the tty in raw mode for up to 250 ms. A steps
-// helper would run it while the task starts, under a child that may be
-// reading /dev/tty itself (an ssh passphrase), so the query runs first, in a
-// render with nothing to draw. A failed run leaves auto to the steps helper.
-function settleBackground(bin: string): void {
+/**
+ * Resolves an auto background in a render with nothing to draw, so a step's
+ * helper starts with the answer. The query holds the tty in raw mode for up
+ * to 250 ms, and a step's task may start a child that reads /dev/tty itself
+ * (an ssh passphrase), so await this before opening a step whose task
+ * follows. A failed run leaves auto for the steps helper to resolve.
+ */
+export async function settleBackground(): Promise<void> {
   const env = rtUiEnv();
   if (env.RT_UI_BACKGROUND !== "auto") return;
   try {
-    const hello = encodeLine({ t: "hello", protocol: PROTOCOL_VERSION });
-    const r = Bun.spawnSync([bin, "render", "--report-background"], { stdin: Buffer.from(hello), stdout: "pipe", stderr: "pipe", env, timeout: 2000 });
-    if (r.success) noteBackgroundReport(r.stderr.toString());
+    const proc = Bun.spawn([resolveRtUi(), "render", "--report-background"], {
+      stdin: new TextEncoder().encode(encodeLine({ t: "hello", protocol: PROTOCOL_VERSION })),
+      stdout: "ignore",
+      stderr: "pipe",
+      env,
+      timeout: 2000,
+    });
+    const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+    if (code === 0) noteBackgroundReport(stderr);
   } catch { /* the steps helper resolves auto itself */ }
 }
 
 function spawnVerb(verb: "prompt" | "steps" | "session", extra: string[] = []) {
   const bin = resolveRtUi();
   killLiveOnExit();
-  if (verb === "steps") settleBackground(bin);
   const proc = Bun.spawn([bin, verb, ...extra], {
     stdin: "pipe",
     stdout: "pipe",

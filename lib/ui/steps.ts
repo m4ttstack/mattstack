@@ -7,7 +7,7 @@
 import { logCliEvent } from "../cli-logger.ts";
 import { interactive } from "./gate.ts";
 import * as out from "./out.ts";
-import { openStep, type StepHandle } from "./spawn.ts";
+import { openStep, settleBackground, type StepHandle } from "./spawn.ts";
 
 export { __test__ } from "./gate.ts";
 
@@ -64,6 +64,7 @@ export function createStepRunner(): StepRunner {
       task: (step: { sub(text: string): void }) => Promise<T>,
       opts?: StepOptions,
     ) {
+      if (interactive()) await settleBackground();
       const step: StepHandle | null = interactive() ? tryOpenStep(pending) : null;
       try {
         const r = await task({ sub: (text) => step?.sub(text) });

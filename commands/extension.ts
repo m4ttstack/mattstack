@@ -14,7 +14,7 @@ import { logCliEvent } from "../lib/cli-logger.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import { interactive } from "../lib/ui/gate.ts";
 import * as out from "../lib/ui/out.ts";
-import { openStep, type StepHandle } from "../lib/ui/spawn.ts";
+import { openStep, settleBackground, type StepHandle } from "../lib/ui/spawn.ts";
 import { detectEditors } from "../lib/editors.ts";
 
 // ─── VSIX Finder ─────────────────────────────────────────────────────────────
@@ -151,6 +151,7 @@ async function installInto(
 ): Promise<number> {
   let installed = 0;
   for (const editor of editors) {
+    if (interactive()) await settleBackground();
     const step = stepFor(`Installing in ${editor.name}`);
     const result = await install(editor.cliPath, vsixPath).catch(
       (err): InstallOutcome => ({ ok: false, output: err instanceof Error ? err.message : String(err) }),
