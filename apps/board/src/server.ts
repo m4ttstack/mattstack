@@ -236,6 +236,7 @@ import {
 import {
   makePeering,
   startPeeringWhenTokenLoads,
+  tickOnPeerInbox,
   tokenMissingNotice,
 } from './peer/runtime.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
@@ -311,7 +312,11 @@ import {
   type ThreadWriteResult,
   type ThreadWriteSend,
 } from './thread-write.ts';
-import { loadReReviewConfig, loadTriageConfig } from './triage/config.ts';
+import {
+  loadPeerAsksConfig,
+  loadReReviewConfig,
+  loadTriageConfig,
+} from './triage/config.ts';
 import {
   attachStandDown,
   readMemory,
@@ -525,11 +530,11 @@ interface PeerAttachments {
   nudges?: PendingNudge[];
 }
 
-/** A config that fails to parse also stops the triage pass, so its asks
-    wait for a click like triage being off. */
-function triageEnabled(): boolean {
+/** Automatic asks off, or a settings read that fails, leaves inbound asks
+    waiting for a click. */
+function peerAsksEnabled(): boolean {
   try {
-    return loadTriageConfig().enabled;
+    return loadPeerAsksConfig().enabled;
   } catch {
     return false;
   }
@@ -543,7 +548,7 @@ function attachPeerState<T extends { webUrl?: string | null }>(
   now: number = Date.now()
 ): Array<T & PeerAttachments> {
   const sent = readSentNudges();
-  const inbound = pendingNudgesByMr(readNudges(), triageEnabled());
+  const inbound = pendingNudgesByMr(readNudges(), peerAsksEnabled());
   return attachPeerReviews(mrs, readPeerReviews()).map(mr => {
     if (!mr.webUrl) return mr;
     const s = sent.get(mr.webUrl);
@@ -4264,6 +4269,7 @@ let relayTimer: ReturnType<typeof setTimeout> | undefined;
 const stopRelay = FIXTURE_DIR
   ? () => {}
   : subscribe((type, data) => {
+      tickOnPeerInbox(type, writer, peering.tickNow);
       // The daemon sends mr:status on every socket open, so this is the
       // reconnect signal; it also fires on connection-state changes, which
       // only costs an extra idempotent resync.

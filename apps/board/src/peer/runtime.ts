@@ -108,6 +108,19 @@ export function makePeering(host: PeeringHost) {
   };
 }
 
+/** Matches PEER_INBOX_EVENT in lib/daemon/peer-waker.ts. */
+export const PEER_INBOX_EVENT = 'peer-inbox';
+
+/** Ticks never overlap (tickNow collapses a burst into one follow-up), so a
+    flurry of wakes costs one extra pull at most. */
+export function tickOnPeerInbox(
+  type: string,
+  isWriter: boolean,
+  tickNow: () => Promise<void>
+): void {
+  if (type === PEER_INBOX_EVENT && isWriter) void tickNow();
+}
+
 export const TOKEN_MISSING_LOG =
   "board: switchboard url is set but no switchboard token is stored, so peer asks cannot arrive; re-invite this board from the team owner's members panel (rt team invite on the owner's machine)";
 
