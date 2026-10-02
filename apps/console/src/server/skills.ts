@@ -1,4 +1,5 @@
 import { realpath as fsRealpath, readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
@@ -56,6 +57,9 @@ interface SkillsCompositionBinder {
   kind: 'verb' | 'stage' | 'skill' | 'external';
   /** `layer` is optional because an rt older than the field answers without it. */
   slots: { name: string; boundTo: string; layer?: string | null }[];
+  /** The console's own addition, on an `external` binder: the SKILL.md the
+      app installed under that name, or null when none is installed. */
+  skillFile?: string | null;
 }
 interface SkillsCompositionFill {
   binding: string;
@@ -660,6 +664,17 @@ function holdOpenForWrite(env: unknown, request: Request): void {
   )?.timeout?.(request, WRITE_TIMEOUT_MS / 1000 + 10);
 }
 
+/** An app-owned skill's installed name: `<app>:<skill>`, no path in it. */
+const APP_SKILL_REF = /^[\w-]+:[\w-]+$/;
+
+/** The skills folder Claude Code loads installed skills from. */
+function installedSkillsDir(): string {
+  return join(
+    process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'),
+    'skills'
+  );
+}
+
 /**
  * `runRt` defaults to the real, Bun-backed spawner; tests inject a fake with
  * no `Bun` global involved. The return type is left inferred -- annotating
@@ -670,9 +685,25 @@ export function mountSkills(
   runRt: RunRt = liveRunRt,
   runGit: RunGit = liveRunGit,
   readPackFile: ReadPackFile = liveReadPackFile,
-  realpath: (path: string) => Promise<string> = path => fsRealpath(path)
+  realpath: (path: string) => Promise<string> = path => fsRealpath(path),
+  skillsDir: () => string = installedSkillsDir
 ) {
   const cache = new Map<string, { at: number; result: RtRunResult }>();
+
+  /** Where an app installed a skill the pack fills (`board:review`), by the
+      name rt reports for it; never a name from the request. */
+  const appSkillDir = (ref: string) =>
+    APP_SKILL_REF.test(ref) ? join(skillsDir(), ref) : null;
+
+  async function installedSkillFile(ref: string): Promise<string | null> {
+    const dir = appSkillDir(ref);
+    if (!dir) return null;
+    const file = join(dir, 'SKILL.md');
+    return realpath(file).then(
+      () => file,
+      () => null
+    );
+  }
 
   /** `runRt` for a write route: every spawn, read or write, first holds the
       request open for as long as a write may run. */
@@ -776,7 +807,15 @@ export function mountSkills(
             502
           );
         }
-        return c.json(payload as SkillsCompositionResponse, 200);
+        const composition = payload as SkillsCompositionResponse;
+        const binders = await Promise.all(
+          (composition.binders ?? []).map(async binder =>
+            binder.kind === 'external'
+              ? { ...binder, skillFile: await installedSkillFile(binder.ref) }
+              : binder
+          )
+        );
+        return c.json({ ...composition, binders }, 200);
       } catch (err) {
         if (err instanceof RtNotFoundError) {
           return c.json({ error: err.message }, 503);
@@ -1383,6 +1422,11 @@ export function mountSkills(
         for (const verb of composition.verbs ?? []) {
           const root = verb.sourcePath ? pluginRootOf(verb.sourcePath) : null;
           if (root) for (const dir of pluginSkillDirs(root)) roots.add(dir);
+        }
+        for (const binder of composition.binders ?? []) {
+          const dir =
+            binder.kind === 'external' ? appSkillDir(binder.ref) : null;
+          if (dir) roots.add(dir);
         }
         // Confinement compares resolved against resolved, so a symlink inside
         // a root cannot lead out of it and a root reached through a symlink

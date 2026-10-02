@@ -129,6 +129,8 @@ export type TemplateView = {
   /** The app that owns the skill (`board` for `board:doctor`), when it is
       not this pack's own and the view shows only the slots the pack fills. */
   app?: string;
+  /** That skill's installed SKILL.md, when the app installed one. */
+  skillFile?: string | null;
 };
 
 type AnatomyPart = SkillsAnatomy['parts'][number];
@@ -682,6 +684,7 @@ export function appSkillView(
       output: null,
       textNoun: 'verb',
       app,
+      skillFile: binder.skillFile ?? null,
     },
     anatomy: {
       pack,

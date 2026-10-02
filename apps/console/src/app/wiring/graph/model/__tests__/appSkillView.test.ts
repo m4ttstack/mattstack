@@ -52,20 +52,21 @@ describe('appSkillView', () => {
     expect(appSkillView(composition, 'work', 'acme')).toBeNull();
   });
 
-  it('opens the fill a slot row or its card names in the drawer', () => {
+  it('opens the fill from its card', () => {
     const { view, anatomy } = appSkillView(
       composition,
       'board:doctor',
       'acme'
     )!;
-    const viaCard = drawerContent(
-      parseTarget(`input:${view.inputs[0]!.id}`)!,
-      view,
-      anatomy,
-      null
-    );
 
-    expect(viaCard).toMatchObject({
+    expect(
+      drawerContent(
+        parseTarget(`input:${view.inputs[0]!.id}`)!,
+        view,
+        anatomy,
+        null
+      )
+    ).toMatchObject({
       filePath: TIERING,
       fileLabel: 'model-tiering/SKILL.md',
       canToggle: false,
@@ -75,8 +76,41 @@ describe('appSkillView', () => {
       sentence:
         'A mattstack default. board:doctor reads it through its tiering slot.',
     });
-    expect(drawerContent(parseTarget('row:1')!, view, anatomy, null)).toEqual(
-      viaCard
-    );
+  });
+
+  it('opens the installed skill itself from a slot row', () => {
+    const installed = {
+      ...composition,
+      binders: composition.binders.map(binder =>
+        binder.ref === 'board:doctor'
+          ? { ...binder, skillFile: '/claude/skills/board:doctor/SKILL.md' }
+          : binder
+      ),
+    };
+    const { view, anatomy } = appSkillView(installed, 'board:doctor', 'acme')!;
+
+    expect(
+      drawerContent(parseTarget('row:1')!, view, anatomy, null)
+    ).toMatchObject({
+      filePath: '/claude/skills/board:doctor/SKILL.md',
+      fileLabel: 'board:doctor/SKILL.md',
+      meta: 'board app · installed skill, read only',
+      tabs: ['text'],
+      usedBy: null,
+      sentence:
+        'board:doctor declares its tiering slot here and reads it when it runs; acme fills it with mattstack:model-tiering.',
+    });
+  });
+
+  it('opens the fill from a slot row when the skill is not installed', () => {
+    const { view, anatomy } = appSkillView(
+      composition,
+      'board:doctor',
+      'acme'
+    )!;
+
+    expect(
+      drawerContent(parseTarget('row:1')!, view, anatomy, null)?.filePath
+    ).toBe(TIERING);
   });
 });
