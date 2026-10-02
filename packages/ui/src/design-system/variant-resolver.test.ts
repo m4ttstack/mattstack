@@ -39,3 +39,36 @@ describe('filled labels', () => {
     expect(result.color).not.toBe('var(--tk-on-fill-ok)');
   });
 });
+
+describe('quiet tones', () => {
+  it('quiet is a raised fill with a muted label and no rule', () => {
+    const result = variantColorResolver({
+      color: 'accent',
+      theme,
+      variant: 'quiet',
+    });
+    expect(result.background).toBe('var(--tk-raised)');
+    expect(result.color).toBe('var(--tk-text-3)');
+    expect(result.border).toContain('solid transparent');
+  });
+
+  it('quiet-outline is a card fill with a muted label and the kit border', () => {
+    const result = variantColorResolver({
+      color: 'accent',
+      theme,
+      variant: 'quiet-outline',
+    });
+    expect(result.background).toBe('var(--tk-card)');
+    expect(result.color).toBe('var(--tk-text-3)');
+    expect(result.border).toContain('solid var(--tk-border)');
+  });
+
+  it.each(['quiet', 'quiet-outline'])(
+    '%s ignores the colour, so the primary default changes nothing',
+    variant => {
+      const plain = variantColorResolver({ color: 'accent', theme, variant });
+      const tinted = variantColorResolver({ color: 'warn', theme, variant });
+      expect(tinted).toEqual(plain);
+    }
+  );
+});

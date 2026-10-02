@@ -1,4 +1,4 @@
-import { Paper, Stack, Text } from '@mantine/core';
+import { Badge, Box, Group, Paper, Stack, Text } from '@mantine/core';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
@@ -49,6 +49,23 @@ function TextTokens() {
   );
 }
 
+function QuietBadges() {
+  return (
+    <Box bg="var(--tk-bg)" p="lg" w={420}>
+      <Stack gap="sm">
+        <Text size="sm">On the page ground (--tk-bg)</Text>
+        <Group gap="sm">
+          <Badge variant="light" color="gray">
+            gray light
+          </Badge>
+          <Badge variant="quiet">quiet</Badge>
+          <Badge variant="quiet-outline">quiet-outline</Badge>
+        </Group>
+      </Stack>
+    </Box>
+  );
+}
+
 export const BgLevels: Story = {
   render: () => <BackgroundLevels />,
 };
@@ -56,4 +73,9 @@ export const BgLevels: Story = {
 export const TextTokensStory: Story = {
   name: 'Text tokens',
   render: () => <TextTokens />,
+};
+
+export const QuietBadgeTones: Story = {
+  name: 'Quiet badge tones',
+  render: () => <QuietBadges />,
 };

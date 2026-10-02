@@ -77,6 +77,23 @@ import { mattstackEslint } from '@mattstack/app-kit/eslint';
 export default mattstackEslint({ app: ['src/**/*.{ts,tsx}'] });
 ```
 
+A page whose tab row is also its header row, above a sidebar, opts the
+root-level tab bar into the title and actions with `tabBar`; without it the
+root bar takes tabs only, and a `PageShell.TabBar` composed in
+`PageShell.Main` sits beside the sidebar instead:
+
+```tsx
+<PageShell tabs={tabs} tabBar={{ title: 'Wiring', actions: <PackPicker /> }}>
+  <PageShell.Sidebar>{/* ... */}</PageShell.Sidebar>
+  <PageShell.Main>{/* ... */}</PageShell.Main>
+</PageShell>
+```
+
+A `Badge` that sits on the page ground (`--tk-bg`) takes one of the kit's
+opt-in quiet tones, `variant="quiet"` (raised fill) or
+`variant="quiet-outline"` (card fill with the kit border); Mantine's gray
+`light` fill is the ground itself there.
+
 An app that registers its own icon adds a `declare module
 '@mattstack/app-kit/icons' { interface AppIcons { hash: true } }` block in
 a `.d.ts` file that does NOT share a basename with a sibling `.ts` file in

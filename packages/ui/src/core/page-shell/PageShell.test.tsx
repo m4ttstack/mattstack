@@ -565,6 +565,83 @@ test('TabBar title leads the tablist as the page heading and actions trail it, n
   ).toBeTruthy();
 });
 
+test('the root tab bar carries tabBar title and actions above the sidebar, full width', () => {
+  renderWithProviders(
+    <PageShell
+      tabs={[{ id: 'graph', label: 'Graph', active: true }]}
+      tabBar={{
+        title: 'Wiring',
+        actions: <button type="button">Open pack</button>,
+      }}
+    >
+      <PageShell.Sidebar>
+        <div>focus list</div>
+      </PageShell.Sidebar>
+      <PageShell.Main>
+        <PageShell.Content>
+          <div>stage</div>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+
+  const tabList = screen.getByRole('tablist', { name: 'Page tabs' });
+  const heading = screen.getByRole('heading', { level: 2, name: 'Wiring' });
+  const open = screen.getByRole('button', { name: 'Open pack' });
+  const sidebar = document.getElementById('page-shell-sidebar')!;
+
+  expect(tabList).not.toContainElement(heading);
+  expect(tabList).not.toContainElement(open);
+  expect(sidebar).not.toContainElement(tabList);
+  expect(
+    tabList.compareDocumentPosition(sidebar) & Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy();
+});
+
+test('tabBar keeps the root tab bar and its title while there are no tabs yet', () => {
+  renderWithProviders(
+    <PageShell tabs={[]} tabBar={{ title: 'Wiring' }}>
+      <div>content body</div>
+    </PageShell>
+  );
+
+  expect(
+    screen.getByRole('heading', { level: 2, name: 'Wiring' })
+  ).toBeTruthy();
+  expect(screen.getByRole('tablist', { name: 'Page tabs' })).toBeTruthy();
+});
+
+test('the sidebar subtracts a root tab bar that carries a title from its height', () => {
+  renderWithProviders(
+    <PageShell
+      tabBarHeight={40}
+      tabs={[{ id: 'graph', label: 'Graph', active: true }]}
+      tabBar={{ title: 'Wiring' }}
+    >
+      <PageShell.Sidebar>
+        {height => <div>sidebar:{height}</div>}
+      </PageShell.Sidebar>
+      <PageShell.Main>
+        <PageShell.Content>
+          <div>stage</div>
+        </PageShell.Content>
+      </PageShell.Main>
+    </PageShell>
+  );
+
+  expect(screen.getByText(/^sidebar:/).textContent).toContain('2.5rem');
+});
+
+test('without tabBar an empty tabs list still renders no tab bar', () => {
+  renderWithProviders(
+    <PageShell tabs={[]}>
+      <div>content body</div>
+    </PageShell>
+  );
+
+  expect(screen.queryByRole('tablist')).toBeNull();
+});
+
 test('a TabBar with neither title nor actions renders no heading', () => {
   renderWithProviders(
     <PageShell tabs={[{ id: 'inventory', label: 'Inventory', active: true }]}>

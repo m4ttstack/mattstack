@@ -232,6 +232,49 @@ export const WithTabBarTitleAndActions: Story = {
   render: () => <WithTabBarTitleAndActionsDemo />,
 };
 
+function WithRootTabBarTitleAndActionsDemo() {
+  const [activeTab, setActiveTab] = useState('graph');
+
+  const tab = (id: string, label: string) => ({
+    id,
+    label,
+    active: activeTab === id,
+    onClick: () => setActiveTab(id),
+  });
+
+  return (
+    <Box h="100vh">
+      {/* Opt-in through `tabBar`: the root-level row spans the sidebar and
+          still carries the page title and actions. */}
+      <PageShell
+        tabBarHeight={40}
+        sidebarWidth={216}
+        tabs={[tab('graph', 'Graph'), tab('surface', 'Surface')]}
+        tabBar={{
+          title: 'Wiring',
+          actions: <Button size="xs">Open pack</Button>,
+        }}
+      >
+        <PageShell.Sidebar hideCollapseButton>
+          <Box p="sm">
+            <Text size="sm">Focus list</Text>
+          </Box>
+        </PageShell.Sidebar>
+        <PageShell.Main>
+          <PageShell.Content>
+            <SomeContent />
+          </PageShell.Content>
+        </PageShell.Main>
+      </PageShell>
+    </Box>
+  );
+}
+
+export const WithRootTabBarTitleAndActions: Story = {
+  name: 'Root tab bar with title + actions, spanning a sidebar (tabBar)',
+  render: () => <WithRootTabBarTitleAndActionsDemo />,
+};
+
 export const WithTabIconsAndColor: Story = {
   name: 'Tabs (iconRight, labelComponent, color, radius)',
   render: () => <WithTabIconsAndColorDemo />,

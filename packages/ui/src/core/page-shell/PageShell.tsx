@@ -16,7 +16,7 @@ import { Header } from './components/Header';
 import { Main } from './components/Main';
 import { Sidebar } from './components/Sidebar';
 import { PAGE_SHELL_TAB_BAR_HEIGHT, TabBar } from './components/TabBar';
-import type { PageShellTab } from './components/TabBar';
+import type { PageShellTab, PageShellTabBarProps } from './components/TabBar';
 import { PageShellContext } from './context';
 import { useSideDrawerState } from './useSideDrawerState';
 
@@ -89,12 +89,19 @@ export interface PageShellProps extends Omit<StackProps, 'children' | 'title'> {
    * sub-navigation between sibling views. Tabs link router-agnostically:
    * `onClick`, or `component`/`href` per `RailEntry`'s pattern (typed-router
    * caveat: AGENTS.md section 10). Works in both simple and compound mode;
-   * the content/sidebar height math subtracts the bar automatically. This
-   * shorthand threads only the tab shape: for a `title`, `actions`, or the
-   * bar-level `color`/`radius`, compose `PageShell.TabBar` inside
-   * `PageShell.Main` instead.
+   * the content/sidebar height math subtracts the bar automatically. Its
+   * `title`, `actions` and bar-level `color`/`radius` come from `tabBar`;
+   * composing `PageShell.TabBar` inside `PageShell.Main` instead puts the row
+   * beside a sidebar rather than above it.
    */
   tabs?: PageShellTab[];
+  /**
+   * Opt-in: the root-level tab bar's `title`, `actions` and bar-level
+   * `color`/`radius`, for a page whose full-width tab row is also its header
+   * row above a sidebar. Setting it renders the bar even while `tabs` is
+   * empty, so the title stays on screen before any tab exists.
+   */
+  tabBar?: Omit<PageShellTabBarProps, 'tabs'>;
   /** Height of the tab bar when `tabs` is set. @default 46 */
   tabBarHeight?: string | number;
 }
@@ -143,8 +150,8 @@ function containsCompoundChild(children: React.ReactNode): boolean {
  * (an auto-wrapped Main/Header/Content).
  *
  * A `tabs` prop renders a page-level tab row (`TabBar`) above the body row
- * in either mode; the height math subtracts it from both the content and
- * the sidebar.
+ * in either mode, with `tabBar` carrying its title and actions; the height
+ * math subtracts it from both the content and the sidebar.
  *
  * Layering: the shell sits on `bg.level1` (page background); sidebar and
  * header share the raised `bg.level2` surface (override via
@@ -166,6 +173,7 @@ function PageShellRoot({
   actions,
   topNotch,
   tabs,
+  tabBar,
   style,
   ...stackProps
 }: PageShellProps) {
@@ -203,15 +211,16 @@ function PageShellRoot({
   const [hasHeader, setHasHeader] = useState(false);
   const [hasSidebar, setHasSidebar] = useState(false);
 
-  // Seeded from the root's own `tabs` prop so the built-in TabBar (rendered
-  // below, gated on `tabs` directly -- not on this state, to avoid a
+  // Seeded from the root's own `tabs`/`tabBar` props so the built-in TabBar
+  // (rendered below, gated on those props directly -- not on this state, to avoid a
   // circular dependency) keeps working with zero consumer effort; the
   // built-in TabBar then registers/unregisters via `setHasTabBar` in a
   // layout effect on mount/unmount, same path a consumer's own tab row
   // uses. The two paths don't fight: only one tab bar is ever mounted for a
   // given shell, and its mount/unmount effect is the single source of
   // truth after the initial render.
-  const [hasTabBar, setHasTabBar] = useState((tabs?.length ?? 0) > 0);
+  const showRootTabBar = (tabs?.length ?? 0) > 0 || tabBar !== undefined;
+  const [hasTabBar, setHasTabBar] = useState(showRootTabBar);
 
   // Compound mode is opted into by composing the statics as direct
   // children; otherwise the shell auto-wraps children in Main/Content
@@ -279,7 +288,7 @@ function PageShellRoot({
         }}
         {...stackProps}
       >
-        {(tabs?.length ?? 0) > 0 && <TabBar tabs={tabs!} />}
+        {showRootTabBar && <TabBar {...tabBar} tabs={tabs ?? []} />}
         <Group gap={0} align="stretch" pos="relative" flex={1} w="100%">
           {body}
         </Group>
