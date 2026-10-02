@@ -231,10 +231,9 @@ export function createPaneHandlers(opts: {
             ...presence,
           };
           const bgClaude = bgSnap.result.snapshot.panes.filter((p) => p.agent === "claude");
-          for (const p of bgClaude) {
-            const row = await paneRow(await withProcessSession(herdr, p, bg.socketPath(), claudeRegistryRoots), bgCtx, formatPaneRef(p.pane_id, "bg"));
-            bgRows.push({ ...row, paneId: formatPaneRef(row.paneId, "bg") });
-          }
+          const bgSock = bg.socketPath();
+          const resolved = await Promise.all(bgClaude.map(async (p) => paneRow(await withProcessSession(herdr, p, bgSock, claudeRegistryRoots), bgCtx, formatPaneRef(p.pane_id, "bg"))));
+          for (const row of resolved) bgRows.push({ ...row, paneId: formatPaneRef(row.paneId, "bg") });
         }
         // A snapshot failure here (server went down between up() and the
         // call) degrades to "no bg panes this round" rather than failing
