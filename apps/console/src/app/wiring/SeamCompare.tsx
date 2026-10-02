@@ -19,7 +19,7 @@ import {
   type DiffHunk,
   type SeamSourceIndex,
 } from './seamAttribution';
-import { SOFT_RULE } from './SlotRow';
+import { SOFT_RULE } from './softRule';
 
 /** Past this the drawer is a wall rather than a reading; the count of what
     was left out is the honest thing to say instead. */

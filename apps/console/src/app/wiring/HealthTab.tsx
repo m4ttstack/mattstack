@@ -24,7 +24,7 @@ import {
   type WiringSpine,
 } from './outline';
 import { QuietBadge } from './QuietBadge';
-import { SOFT_RULE } from './SlotRow';
+import { SOFT_RULE } from './softRule';
 import { useCompositionSnapshot, useSkillsCheck } from './useWiring';
 
 export interface HealthTabProps {

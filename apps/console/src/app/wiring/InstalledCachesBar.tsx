@@ -13,7 +13,7 @@ import { modals } from '@mattstack/app-kit/modals';
 import { notifications } from '@mattstack/app-kit/notifications';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { SOFT_RULE } from './SlotRow';
+import { SOFT_RULE } from './softRule';
 import {
   isSkillsWriting,
   syncRefusal,

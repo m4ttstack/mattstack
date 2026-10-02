@@ -18,7 +18,7 @@ import type { SlotOutlineNode, WiringHealth } from './outline';
 import { QuietBadge } from './QuietBadge';
 import type { SeamSourceIndex } from './seamAttribution';
 import { SeamCompare } from './SeamCompare';
-import { SOFT_RULE } from './SlotRow';
+import { SOFT_RULE } from './softRule';
 import {
   useCompilePreview,
   useSkillsDiff,
