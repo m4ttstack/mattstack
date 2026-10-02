@@ -261,7 +261,7 @@ else does:
 
 | Thought | Reality |
 |---|---|
-| "The stack refusal came back, but I can see the MR targets the default branch, so I'll rebase by hand" | A stack refusal is the guard's verdict, not a hint. Only the two could-not-run texts open the manual path, and only through its own guards. |
+| "The stack refusal came back, but I can see the MR targets the default branch, so I'll rebase by hand" | A stack refusal is the guard's verdict, not a hint. Only the could-not-run errors open the manual path, and only through its own guards. |
 | "`status: "synced"`, so now the push gate" | `branch_sync` already pushed; that is the fast path's contract. A push form for a push that happened is a false choice. Report it as pushed. |
 | "The check could not run, so the safe move is to stop and ask" | The manual guards are the same check by other means. Run them; stop only when they fail too. |
 | "It only said `refusing to sync`; the manual path will get it done" | A preflight refusal is a safety verdict on this tree. Report it and stop; the manual path is only for the rows that send there. |

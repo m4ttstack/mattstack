@@ -152,7 +152,7 @@ test("amend on a branch another worktree holds is a refused note on stderr, exit
   const other = join(root, "other");
   git(repo, "worktree", "add", "-q", "-f", other, "main");
   expect(await exitCodeOf(() => inDir(repo, () => amendCommand([])))).toBe(1);
-  expect(io.stderr()).toBe(`[refused] rt will not rewrite this branch's history\n  why: main is already checked out in another worktree at ${other}\n`);
+  expect(io.stderr()).toBe(`[refused] rt will not rewrite this branch's history\n  why: main is checked out in another worktree: ${other}\n`);
   expect(io.stdout()).toBe("");
 });
 
