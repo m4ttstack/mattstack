@@ -70,6 +70,14 @@ describe("2026-10-02-retire-switchboard-url", () => {
     expect(JSON.parse(p.readFile(boardConfig)!)).toEqual({ switchboard: { note: "keep" } });
   });
 
+  test("the rewritten config.json keeps its file mode", async () => {
+    const p = fakeProbes({ home, files: { [boardConfig]: JSON.stringify({ switchboard: { url: "https://old.example.app" } }) }, modes: { [boardConfig]: 0o600 } });
+
+    await retireSwitchboardUrlMigration.run(ctxWith(p));
+
+    expect(p.fileMode(boardConfig)).toBe(0o600);
+  });
+
   test("BOARD_APP_ROOT's config.json is cleaned too", async () => {
     const pinned = "/srv/board/config.json";
     const p = fakeProbes({ home, env: { BOARD_APP_ROOT: "/srv/board" }, files: { [pinned]: JSON.stringify({ switchboard: { url: "https://old.example.app" } }) } });

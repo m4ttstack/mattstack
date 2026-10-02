@@ -32,7 +32,7 @@ function dropBoardFileUrl(p: Probes, root: string): boolean {
   const kept = block !== null && typeof block === "object" && !Array.isArray(block) ? Object.fromEntries(Object.entries(block).filter(([field]) => field !== "url")) : {};
   if (Object.keys(kept).length === 0) delete config.switchboard;
   else config.switchboard = kept;
-  p.writeFile(`${path}.tmp`, `${JSON.stringify(config, null, 2)}\n`);
+  p.writeFile(`${path}.tmp`, `${JSON.stringify(config, null, 2)}\n`, p.fileMode(path) ?? undefined);
   p.rename(`${path}.tmp`, path);
   return true;
 }
