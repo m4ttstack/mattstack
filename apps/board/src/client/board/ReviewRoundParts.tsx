@@ -7,7 +7,11 @@ import type { CarryoverCall, SkippedEntry } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { SearchCheckIcon } from './icons.tsx';
 import { editedText, sendableTexts } from './respond-post.ts';
-import { EditableReply, EditedChip, PostResolveChoice } from './RespondCards.tsx';
+import {
+  EditableReply,
+  EditedChip,
+  PostResolveChoice,
+} from './RespondCards.tsx';
 import { SEVERITY_LABEL, type CarryoverPick } from './review-gate.ts';
 
 /** Every label names who has to act; none says "open" or "unresolved". */

@@ -473,11 +473,7 @@ function carryQuestion(
   defaults: { post: boolean; resolve: boolean },
   carry: {
     round: number;
-    call:
-      | 'fixed'
-      | 'not-fixed'
-      | 'pushback-accepted'
-      | 'pushback-rejected';
+    call: 'fixed' | 'not-fixed' | 'pushback-accepted' | 'pushback-rejected';
     original: string;
     authorReply?: string;
     note?: string;

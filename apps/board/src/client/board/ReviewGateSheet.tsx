@@ -435,7 +435,9 @@ function ReviewGateSheet({
       : carryovers.length > 0
         ? 'nothing new'
         : null,
-    skippedEntries.length > 0 ? `${skippedEntries.length} skipped earlier` : null,
+    skippedEntries.length > 0
+      ? `${skippedEntries.length} skipped earlier`
+      : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -585,14 +587,14 @@ function ReviewGateSheet({
                                     f.disposition === 'new' &&
                                     carryovers.length > 0
                                   ) && (
-                                  <span
-                                    className="tui-respond-pill"
-                                    data-hue={DISPOSITION[f.disposition].hue}
-                                    data-disposition={f.disposition}
-                                  >
-                                    {DISPOSITION[f.disposition].text}
-                                  </span>
-                                )}
+                                    <span
+                                      className="tui-respond-pill"
+                                      data-hue={DISPOSITION[f.disposition].hue}
+                                      data-disposition={f.disposition}
+                                    >
+                                      {DISPOSITION[f.disposition].text}
+                                    </span>
+                                  )}
                               </span>
                               {f.file && <FindingAnchor file={f.file} />}
                               <span className="tui-review-finding-text">
@@ -619,9 +621,7 @@ function ReviewGateSheet({
             <SkippedEarlier
               entries={skippedEntries}
               selected={selectedSkipped}
-              onToggle={(value, on) =>
-                form.toggleMulti(skippedName, value, on)
-              }
+              onToggle={(value, on) => form.toggleMulti(skippedName, value, on)}
             />
           )}
 
