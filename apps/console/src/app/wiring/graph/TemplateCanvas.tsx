@@ -54,6 +54,20 @@ const MIN_ZOOM = 0.25;
 type Column = { x: number; title: string; sub: string };
 
 function columnsOf(view: TemplateView): Column[] {
+  if (view.app) {
+    return [
+      {
+        x: LAYOUT.inputX,
+        title: 'Filled in',
+        sub: 'Files this pack binds into its slots',
+      },
+      {
+        x: LAYOUT.templateX,
+        title: `${view.app} skill`,
+        sub: `Lives in the ${view.app} app`,
+      },
+    ];
+  }
   const left: Column = {
     x: LAYOUT.inputX,
     title: 'Substituted in',
