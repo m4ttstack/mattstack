@@ -83,11 +83,15 @@
   }
 
   /* Same box as `.root`. `--sb-contextmenu-min-w` is set on the root and
-     reaches this panel by inheritance, since the panel is a DOM descendant. */
+     reaches this panel by inheritance, since the panel is a DOM descendant.
+     `max-content` because an absolute box with `left` set shrinks to fit the
+     space its containing block leaves, which is none on the right-hand path,
+     so the panel would never grow past the min width and rows would wrap. */
   .submenu {
     box-sizing: border-box;
     position: absolute;
     z-index: 1;
+    width: max-content;
     min-width: var(--sb-contextmenu-min-w);
     padding: var(--spacing-px4);
     background: var(--card);

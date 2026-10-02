@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { renderWithTheme } from "../../../test/test-utils.tsx";
 import { ContextMenu } from "./ContextMenu.tsx";
 
@@ -31,8 +31,8 @@ function installNoMotionStyle() {
 }
 
 /** Mounts into a fresh container that already carries `dark` when asked. */
-async function renderFixture(ui: ReactNode, { dark = false } = {}) {
-  await page.viewport(520, 460);
+async function renderFixture(ui: ReactNode, { dark = false, width = 520 } = {}) {
+  await page.viewport(width, 460);
   installNoMotionStyle();
 
   const container = document.createElement("div");
@@ -78,7 +78,113 @@ function boardMenu() {
   );
 }
 
+/** The submenu paints outside the root's box, so these fixtures capture a
+    fixed stage under both menus rather than the root alone. The stage is
+    fixed at the viewport origin with no transform, so the menu still anchors
+    to the viewport exactly as it does in the board. */
+const STAGE = { width: 620, height: 200 } as const;
+
+function Stage({ children }: { children: ReactNode }) {
+  return (
+    <div
+      data-testid="stage"
+      style={{
+        position: "fixed",
+        left: 0,
+        top: 0,
+        width: STAGE.width,
+        height: STAGE.height,
+        background: "var(--bg)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** A Sub opened from the keyboard, so its panel is up and its first item
+    focused, holding a row long enough to need the panel to widen. */
+function subMenu() {
+  return (
+    <Stage>
+      <ContextMenu x={20} y={20} ariaLabel="actions for !4821" onClose={() => {}}>
+        <ContextMenu.Label>!4821</ContextMenu.Label>
+        <ContextMenu.Item label="review" hint="herdr" onClick={() => {}} />
+        <ContextMenu.Sub label="gitlab" ariaLabel="gitlab actions">
+          <ContextMenu.Item label="merge" hint="pipeline running" onClick={() => {}} />
+          <ContextMenu.Item
+            label="ask alice's agent to re-review"
+            hint="ask already sent"
+            disabled
+            onClick={() => {}}
+          />
+          <ContextMenu.Item label="open in gitlab" onClick={() => {}} />
+        </ContextMenu.Sub>
+        <ContextMenu.Sub label="more" ariaLabel="more actions" disabled>
+          <ContextMenu.Item label="copy for slack" onClick={() => {}} />
+        </ContextMenu.Sub>
+      </ContextMenu>
+    </Stage>
+  );
+}
+
+/** The Slack reaction toggles as one Row, the middle one pressed. */
+function reactionRow() {
+  return (
+    <Stage>
+      <ContextMenu x={20} y={20} ariaLabel="actions for !4821" onClose={() => {}}>
+        <ContextMenu.Label>!4821</ContextMenu.Label>
+        <ContextMenu.Row aria-label="slack reactions">
+          <ContextMenu.Item label="👀" aria-label="mark as looking" onClick={() => {}} />
+          <ContextMenu.Item
+            label="💬"
+            aria-label="mark as commented"
+            aria-pressed="true"
+            onClick={() => {}}
+          />
+          <ContextMenu.Item label="✅" aria-label="mark as approved" onClick={() => {}} />
+        </ContextMenu.Row>
+        <ContextMenu.Separator />
+        <ContextMenu.Item label="post to slack" onClick={() => {}} />
+      </ContextMenu>
+    </Stage>
+  );
+}
+
+async function openGitlabSub() {
+  const row = page.getByRole("menuitem", { name: "gitlab", exact: true });
+  (row.element() as HTMLButtonElement).focus();
+  await userEvent.keyboard("{ArrowRight}");
+  await expect.element(page.getByRole("menuitem", { name: "merge" })).toHaveFocus();
+}
+
 describe("ContextMenu (visual)", () => {
+  it("an open Sub with a long row matches its baseline in light mode", async () => {
+    await renderFixture(subMenu(), { width: STAGE.width });
+    await openGitlabSub();
+
+    await expect(page.getByTestId("stage")).toMatchScreenshot("contextmenu-sub-light");
+  });
+
+  it("an open Sub with a long row matches its baseline in dark mode", async () => {
+    await renderFixture(subMenu(), { dark: true, width: STAGE.width });
+    await openGitlabSub();
+
+    await expect(page.getByTestId("stage")).toMatchScreenshot("contextmenu-sub-dark");
+  });
+
+  it("a Row with one pressed toggle matches its baseline in light mode", async () => {
+    await renderFixture(reactionRow(), { width: STAGE.width });
+
+    await expect(page.getByTestId("stage")).toMatchScreenshot("contextmenu-row-light");
+  });
+
+  it("a Row with one pressed toggle matches its baseline in dark mode", async () => {
+    await renderFixture(reactionRow(), { dark: true, width: STAGE.width });
+
+    await expect(page.getByTestId("stage")).toMatchScreenshot("contextmenu-row-dark");
+  });
+
   it("the board menu matches its baseline in light mode", async () => {
     const screen = await renderFixture(boardMenu());
 

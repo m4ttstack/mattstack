@@ -589,6 +589,38 @@ describe("ContextMenu.Sub (browser)", () => {
     expect(Math.abs(box.right - row.element().getBoundingClientRect().left)).toBeLessThan(1);
   });
 
+  it("widens for a long row instead of wrapping it, on both the right and the flipped side", async () => {
+    for (const x of [40, window.innerWidth]) {
+      const screen = await renderWithTheme(
+        <ContextMenu x={x} y={40} ariaLabel="m" onClose={noop}>
+          <ContextMenu.Sub label="gitlab" ariaLabel="gitlab actions">
+            <ContextMenu.Item label="merge" onClick={noop} />
+            <ContextMenu.Item
+              label="ask alice's agent to re-review"
+              hint="ask already sent"
+              onClick={noop}
+            />
+          </ContextMenu.Sub>
+        </ContextMenu>,
+      );
+      await settledBox(rootOf(screen.container));
+      await screen.getByRole("menuitem", { name: "gitlab", exact: true }).click();
+      await expect.element(screen.getByRole("menu", { name: "gitlab actions" })).toBeVisible();
+
+      const short = screen.getByRole("menuitem", { name: "merge" }).element().getBoundingClientRect();
+      const long = screen
+        .getByRole("menuitem", { name: /re-review/ })
+        .element()
+        .getBoundingClientRect();
+      expect(long.height, `x=${x}`).toBeCloseTo(short.height, 0);
+
+      const box = submenuIn(screen.container)!.getBoundingClientRect();
+      expect(box.left, `x=${x}`).toBeGreaterThanOrEqual(MARGIN - 0.5);
+      expect(box.right, `x=${x}`).toBeLessThanOrEqual(window.innerWidth - MARGIN + 0.5);
+      await screen.unmount();
+    }
+  });
+
   it("stamps a stable data-part on the Sub, its panel, its chevron and a Row", async () => {
     const screen = await renderWithTheme(
       <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
