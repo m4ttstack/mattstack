@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { PortEntry } from "../../lib/port-scanner.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { __test__ as gate } from "../../lib/ui/gate.ts";
 
 // mock.module mutates the live namespace object in place, so the real one is
 // captured before any mock is installed.
@@ -10,6 +11,8 @@ const realDaemonClient = await import("../../lib/daemon-client.ts");
 const realDaemonQuery = realDaemonClient.daemonQuery;
 const realPortScanner = await import("../../lib/port-scanner.ts");
 const realScan = realPortScanner.scanListeningPorts;
+const realPickWrappers = await import("../../lib/pick-wrappers.ts");
+const realMultiselect = realPickWrappers.filterableMultiselect;
 const { portBlocks, portScanner, __test__ } = await import("../port.ts");
 
 function fakeDaemon(ports: PortEntry[]): void {
@@ -141,4 +144,86 @@ test("when the daemon does not answer, rt port scans by itself and says so on st
   } finally {
     io.restore();
   }
+});
+
+describe("stopping what listens on a port", () => {
+  const LSOF =
+    "COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME\n" +
+    "node      101 me     23u  IPv4 0x1         0t0  TCP *:3000 (LISTEN)\n" +
+    "node      101 me     24u  IPv6 0x2         0t0  TCP *:3000 (LISTEN)\n" +
+    "postgres  102 root    5u  IPv4 0x3         0t0  TCP *:3000 (LISTEN)\n" +
+    "bun       103 me      7u  IPv4 0x4         0t0  TCP *:3000 (LISTEN)\n" +
+    "ruby      104 me      9u  IPv4 0x5         0t0  TCP *:3000 (LISTEN)\n";
+  const errno = (code: string, message = `kill ${code}`): Error => Object.assign(new Error(message), { code });
+  const OUTCOMES: Record<number, Error | undefined> = { 102: errno("EPERM"), 103: errno("ESRCH"), 104: errno("EINVAL", "invalid signal") };
+  let killed: number[];
+  let io: ReturnType<typeof captureOut>;
+
+  beforeEach(() => {
+    killed = [];
+    __test__.setSystem({
+      listeners: () => LSOF,
+      kill: (pid) => {
+        killed.push(pid);
+        const err = OUTCOMES[pid];
+        if (err) throw err;
+      },
+    });
+    io = captureOut();
+    io.reset();
+    out.__test__.setHuman(() => false);
+  });
+  afterEach(() => {
+    io.restore();
+    __test__.setSystem(undefined);
+    gate.setInteractive(undefined);
+    mock.module("../../lib/pick-wrappers.ts", () => ({ ...realPickWrappers, filterableMultiselect: realMultiselect }));
+  });
+
+  test("rt port <n> names each process by its command and says why one could not stop", async () => {
+    await portScanner(["3000"]);
+    expect(killed).toEqual([101, 102, 103, 104]);
+    expect(io.stdout()).toBe("[ok] Stopped node  pid 101, port 3000\n[skipped] bun had already stopped  pid 103, port 3000\n");
+    expect(io.stderr()).toBe(
+      "Could not stop postgres  pid 102, port 3000\n" +
+        "  why: It belongs to another user or to macOS.\n" +
+        "[failed] Could not stop ruby  pid 104, port 3000\n" +
+        "  why: invalid signal\n",
+    );
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  test("rt port kill <n> takes the same path", async () => {
+    __test__.setSystem({ listeners: () => LSOF.split("\n").slice(0, 2).join("\n") + "\n", kill: (pid) => void killed.push(pid) });
+    await portScanner(["kill", "3000"]);
+    expect(io.stdout()).toBe("[ok] Stopped node  pid 101, port 3000\n");
+    expect(io.stderr()).toBe("");
+  });
+
+  test("a port nothing listens on is one skipped line and no kill", async () => {
+    __test__.setSystem({ listeners: () => "", kill: (pid) => void killed.push(pid) });
+    await portScanner(["3000"]);
+    expect(killed).toEqual([]);
+    expect(io.stdout()).toBe("[skipped] Nothing is listening on port 3000\n");
+  });
+
+  test("the picker stops what was picked and reads the same way", async () => {
+    fakeDaemon(ENTRIES);
+    setTTY(true);
+    gate.setInteractive(() => false);
+    mock.module("../../lib/pick-wrappers.ts", () => ({ ...realPickWrappers, filterableMultiselect: async () => ["101", "102"] }));
+    __test__.setSystem({
+      listeners: () => {
+        throw new Error("the picker path never runs lsof");
+      },
+      kill: (pid) => {
+        killed.push(pid);
+        if (pid === 102) throw errno("ESRCH");
+      },
+    });
+    await portScanner([]);
+    expect(killed).toEqual([101, 102]);
+    expect(io.stdout()).toBe("[ok] Stopped node  pid 101, port 3000\n[skipped] postgres had already stopped  pid 102, port 5432\n");
+    expect(io.stderr()).toBe("");
+  });
 });

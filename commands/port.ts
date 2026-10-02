@@ -102,37 +102,64 @@ export function portBlocks(entries: PortEntry[]): Block[] {
 
 // ─── Kill helpers ────────────────────────────────────────────────────────────
 
-function killByPort(port: number): void {
-  const nothing = (): void => out.print(out.line("skipped", `Nothing is listening on port ${port}`));
-  let output: string;
-  try {
-    // -sTCP:LISTEN: only the listener. Plain `-i :port` also matches clients
-    // connected to the port (browser tabs, curl, etc.).
-    output = execSync(`lsof -iTCP:${port} -sTCP:LISTEN -P -n 2>/dev/null`, { encoding: "utf8", stdio: "pipe" });
-  } catch {
-    nothing();
-    return;
-  }
-  const lines = output.trim().split("\n").filter(Boolean);
-  if (lines.length <= 1) {
-    nothing();
-    return;
-  }
-  const pids = new Set<string>();
-  for (const line of lines.slice(1)) {
-    const pid = line.split(/\s+/)[1];
-    if (pid) pids.add(pid);
-  }
-  const results: Block[] = [];
-  for (const pid of pids) {
+interface PortSystem {
+  /** lsof's listener table for the port, header included; empty when nothing listens. */
+  listeners(port: number): string;
+  kill(pid: number): void;
+}
+
+const realSystem: PortSystem = {
+  listeners: (port) => {
     try {
-      execSync(`kill -9 ${pid}`);
-      results.push(out.line("done", `Stopped pid ${pid}`, `port ${port}`));
+      // -sTCP:LISTEN: only the listener. Plain `-i :port` also matches clients
+      // connected to the port (browser tabs, curl, etc.).
+      return execSync(`lsof -iTCP:${port} -sTCP:LISTEN -P -n 2>/dev/null`, { encoding: "utf8", stdio: "pipe" });
     } catch {
-      results.push(out.line("failed", `Could not stop pid ${pid}`));
+      return "";
+    }
+  },
+  kill: (pid) => process.kill(pid, "SIGKILL"),
+};
+
+let system: PortSystem = realSystem;
+
+interface StopTarget {
+  pid: number;
+  command: string;
+  port: number;
+}
+
+function stopAll(targets: StopTarget[]): void {
+  const done: Block[] = [];
+  const failures: out.FailureInput[] = [];
+  for (const { pid, command, port } of targets) {
+    const where = `pid ${pid}, port ${port}`;
+    try {
+      system.kill(pid);
+      done.push(out.line("done", `Stopped ${command}`, where));
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ESRCH") done.push(out.line("skipped", `${command} had already stopped`, where));
+      else failures.push({ title: `Could not stop ${command}`, hint: where, why: code === "EPERM" ? "It belongs to another user or to macOS." : (err as Error).message });
     }
   }
-  out.print(...results);
+  out.print(...done);
+  for (const f of failures) out.fail(f);
+}
+
+function killByPort(port: number): void {
+  const rows = system.listeners(port).trim().split("\n").filter(Boolean).slice(1);
+  const targets = new Map<number, StopTarget>();
+  for (const row of rows) {
+    const [command, pidText] = row.split(/\s+/);
+    const pid = Number(pidText);
+    if (command && Number.isInteger(pid) && pid > 0 && !targets.has(pid)) targets.set(pid, { pid, command, port });
+  }
+  if (targets.size === 0) {
+    out.print(out.line("skipped", `Nothing is listening on port ${port}`));
+    return;
+  }
+  stopAll([...targets.values()]);
 }
 
 async function showKillPicker(entries: PortEntry[]): Promise<void> {
@@ -168,18 +195,11 @@ async function showKillPicker(entries: PortEntry[]): Promise<void> {
     return;
   }
 
-  const results: Block[] = [];
-  for (const pid of selectedPids) {
+  const targets = selectedPids.flatMap((pid) => {
     const entry = entries.find((p) => String(p.pid) === pid);
-    if (!entry) continue;
-    try {
-      execSync(`kill -9 ${pid}`);
-      results.push(out.line("done", `Stopped ${entry.command}`, `pid ${pid}, port ${entry.port}`));
-    } catch {
-      results.push(out.line("failed", `Could not stop pid ${pid}`));
-    }
-  }
-  out.print(...results);
+    return entry ? [{ pid: entry.pid, command: entry.command, port: entry.port }] : [];
+  });
+  stopAll(targets);
 }
 
 // ─── Entry ───────────────────────────────────────────────────────────────────
@@ -208,4 +228,9 @@ export async function portScanner(args: string[]): Promise<void> {
   await showKillPicker(entries);
 }
 
-export const __test__ = { formatUptime };
+export const __test__ = {
+  formatUptime,
+  setSystem(fake: PortSystem | undefined): void {
+    system = fake ?? realSystem;
+  },
+};
