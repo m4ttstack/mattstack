@@ -9,13 +9,14 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { teamSettingsPath, userSettingsPath } from "../paths.ts";
+import { userSettingsPath } from "../paths.ts";
 import type { MigrationStep } from "../registry-machinery.ts";
 import { valueHash } from "../migrate.ts";
 import { renameProperty } from "../migrations/helpers.ts";
 import { checkStores } from "../check.ts";
 import { storeSections } from "../migrate-stores.ts";
 import { withMigration } from "./with-migration.ts";
+import { sharedStorePath } from "../../../test/org-fixture.ts";
 
 const IDENTITY = "gitlab.example.com/acme/app";
 const TEAM = "acme";
@@ -61,7 +62,7 @@ describe("settings/check over versioned store names", () => {
     writeFileSync(file, JSON.stringify(obj, null, 2));
   }
   const writeUser = (obj: unknown) => write(userSettingsPath(), obj);
-  const writeTeam = (name: string, obj: unknown) => write(teamSettingsPath(name), obj);
+  const writeTeam = (name: string, obj: unknown) => write(sharedStorePath(name), obj);
 
   test("storeSections walks team, user and machine stores, global then repo sections", () => {
     writeTeam(TEAM, { a: 1, repos: { [IDENTITY]: { b: 2 } } });

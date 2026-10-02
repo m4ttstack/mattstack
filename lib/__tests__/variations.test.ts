@@ -4,7 +4,6 @@ import { dirname, join } from "path";
 import { tmpdir } from "os";
 import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
-import { teamSettingsPath } from "../rt-paths.ts";
 import { teamLocalPath } from "../team/team-local.ts";
 import {
   loadVariations,
@@ -12,12 +11,13 @@ import {
   variationKey,
   type Variation,
 } from "../variations.ts";
+import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 
 const IDENTITY = "gitlab.com/acme/test-repo";
 
 /** saveVariation writes to team scope, which refuses without a local team store. */
 function seedTeam(): void {
-  const path = teamSettingsPath("acme");
+  const path = sharedStorePath("acme");
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, "// team store\n{}\n");
 }

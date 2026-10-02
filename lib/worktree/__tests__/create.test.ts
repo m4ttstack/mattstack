@@ -3,13 +3,14 @@ import { execSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { goldenRoot, machineSettingsPath, teamSettingsPath } from "../../rt-paths.ts";
+import { goldenRoot, machineSettingsPath } from "../../rt-paths.ts";
 import { deriveRepoIdentity } from "../../settings/identity.ts";
 import { closeStateDb } from "../../state/index.ts";
 import { GOLDEN_BRANCH, loadRegistry, saveRegistry, type TreeRecord } from "../registry.ts";
 import { branchExistsLocalAsync, listWorktreesAsync } from "../git-async.ts";
 import { createTree, scrapTree, type CreateDeps } from "../create.ts";
 import { loadDopplerConfig } from "../../doppler-config.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 function readMachineStore(): Record<string, unknown> {
   try {
@@ -182,7 +183,7 @@ describe("createTree", () => {
   // actually ran, even once the ladder is approved.
   test("a held team ready ladder leaves readyAt and readyStamp unset", async () => {
     const identity = await ensureIdentity(repo, repoName);
-    const teamFile = teamSettingsPath("acme");
+    const teamFile = sharedStorePath("acme");
     mkdirSync(join(teamFile, ".."), { recursive: true });
     writeFileSync(
       teamFile,
