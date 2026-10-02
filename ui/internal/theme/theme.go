@@ -50,7 +50,7 @@ var (
 	TextSoft = lipgloss.Color("#D2CDEB")
 	Dim      = lipgloss.Color("#B4ADD1")
 	Dimmer   = lipgloss.Color("#9992B5")
-	Faint    = lipgloss.Color("#77729A")
+	Faint    = lipgloss.Color("#7F78A0")
 
 	// Keybar roles. The help bar reads as key (accent) · label (text) ·
 	// group (lav), the same grammar cswap's footer uses, rather than
