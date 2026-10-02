@@ -388,6 +388,13 @@ describe("rt chat CLI — additional verb behavior", () => {
     expect(out).toContain("b");
   });
 
+  test("a who the daemon turns down with no reason names the verb, not the room", async () => {
+    canned["chat:who"] = { ok: false };
+    const { code, stderr } = await runChatRaw(["who", "r"]);
+    expect(code).not.toBe(0);
+    expect(stderr).toBe("The chat who did not go through");
+  });
+
   async function postedId(): Promise<number> {
     for (const h of ["asker", "b", "c"]) await runChat(["join", "r", "--as", h]);
     await runChat(["post", "r", "one", "of", "you:", "TLDR", "--as", "asker"]);

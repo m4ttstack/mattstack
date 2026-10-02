@@ -1019,7 +1019,7 @@ async function runWho(args: string[]): Promise<void> {
   requireValidName("room", room);
 
   const res = await chatWho({ room });
-  const members = unwrap(res, `who (#${room})`).members;
+  const members = unwrap(res, "who").members;
 
   if (args.includes("--json")) {
     out.json({ ok: true, rooms: [{ room, members }] });
