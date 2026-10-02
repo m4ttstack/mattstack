@@ -69,6 +69,32 @@ describe("herdJobTreeHold", () => {
     expect(herdJobTreeHold(s, rec("herd:h1"))).toBe("herd h1 is active");
   });
 
+  describe("a tree whose branch no job row carries (the agent moved to a follow-up branch)", () => {
+    const CLAIMED = "2026-10-01T21:15:44.343Z";
+    const claimedMs = Date.parse(CLAIMED);
+    const followUp = (): TreeRecord => ({ ...rec("herd:h1"), branch: "rt-175-part-2", claimedAt: CLAIMED });
+
+    test.each(["closed", "crashed"] as const)("is released when the job spawned on this claim is %s", (status) => {
+      const s = store([herd("h1", "active")], [{ ...job("h1", "rt-175", status, 9), createdAt: claimedMs + 1000 }]);
+      expect(herdJobTreeHold(s, followUp())).toBeNull();
+    });
+
+    test("is held, naming the job, while the job spawned on this claim is live", () => {
+      const s = store([herd("h1", "active")], [{ ...job("h1", "rt-175", "active", 9), createdAt: claimedMs + 1000 }]);
+      expect(herdJobTreeHold(s, followUp())).toBe("herd job h1/rt-175 is active");
+    });
+
+    test("ignores an ended job from an earlier claim of the same slot (spawn in flight)", () => {
+      const s = store([herd("h1", "active")], [{ ...job("h1", "rt-144", "closed", 9, TREE, "rt-144"), createdAt: claimedMs - 60_000 }]);
+      expect(herdJobTreeHold(s, followUp())).toBe("herd h1 is active");
+    });
+
+    test("without a claim time, judges every job that used the path", () => {
+      const s = store([herd("h1", "active")], [job("h1", "rt-175", "closed", 9)]);
+      expect(herdJobTreeHold(s, { ...rec("herd:h1"), branch: "rt-175-part-2" })).toBeNull();
+    });
+  });
+
   test("a herd with no row left releases the tree; nothing else will ever end it", () => {
     expect(herdJobTreeHold(store([], []), rec("herd:gone"))).toBeNull();
   });

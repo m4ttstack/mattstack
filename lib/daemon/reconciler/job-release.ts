@@ -30,9 +30,16 @@ export function herdJobTreeHold(store: Pick<HerdStore, "get" | "jobs">, rec: Tre
   // row keeps moving (its pane closing) after the slot changed hands, so match
   // on the branch the tree carries rather than on recency.
   const path = canon(rec.path);
-  const jobs = store
-    .jobs(herdId)
-    .filter((j) => canon(j.worktree) === path && (j.branch === null || j.branch === rec.branch));
+  const atPath = store.jobs(herdId).filter((j) => canon(j.worktree) === path);
+  let jobs = atPath.filter((j) => j.branch === null || j.branch === rec.branch);
+  // No row carries the branch when the agent moved to a follow-up branch in
+  // its own tree. Its job is the one spawned on this claim; a row from an
+  // earlier claim of the slot predates claimedAt, and a spawn still in flight
+  // has no row at all, so both keep the herd-wide hold.
+  if (jobs.length === 0) {
+    const claimed = rec.claimedAt ? Date.parse(rec.claimedAt) : NaN;
+    jobs = Number.isNaN(claimed) ? atPath : atPath.filter((j) => j.createdAt >= claimed);
+  }
   if (jobs.length === 0) return `herd ${herdId} is active`;
   const live = jobs.find((j) => !ENDED_JOB_STATUSES.has(j.status));
   return live ? `herd job ${herdId}/${live.name} is ${live.status}` : null;
