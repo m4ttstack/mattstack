@@ -21,6 +21,7 @@ on a dark and a light terminal background.
 | `git-dark.png`, `git-light.png` | the git verbs at 100 columns: `status` dirty and clean, `log`, `branches`, `stash list`, `tag list`, the result lines of amend, undo, backup, restore, push and pull, three refusals (an undo of a pushed commit, the ownership guard, uncommitted changes) and four failures (detached HEAD, a usage failure, a git error, a diverged push) |
 | `diff-dark.png`, `diff-light.png` | `rt git diff` at 80 columns: two hunks with a long deleted line, and a binary file. The light page is rendered with `COLORFGBG=0;15` |
 | `plugins-hooks-dark.png`, `plugins-hooks-light.png` | `rt plugin`, `tools`, `deps`, `hooks` and `intercept` at 100 columns: a scaffold with a failed install, the plugin list and a failed validate, two load warnings, tool results, a failure and a refusal, hooks on and off, and intercept status with a current, a stale and a not-yet-installed shim |
+| `5e1-team-dark.png`, `5e1-team-light.png` | `rt team` at 100 columns: create, status, an invite with manual steps, two joins, members sync and remove, a switchboard warning, a refusal, a daemon failure and a usage failure |
 
 The light pages are rendered with `COLORFGBG=0;15`, which is how a light
 terminal that reports its background gets the pale diff tints. A light
