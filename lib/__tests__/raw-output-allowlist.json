@@ -25,7 +25,6 @@
   "commands/runner.ts",
   "commands/runs-find.ts",
   "commands/runs-write.ts",
-  "commands/sdm.ts",
   "commands/services.ts",
   "commands/state-backup-init.ts",
   "commands/state-backup-status.ts",
