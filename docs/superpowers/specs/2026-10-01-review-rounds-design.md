@@ -156,7 +156,9 @@ replies) and `skipped[]`; `findings[]` is new-only; `prior` is counted from
 the thread calls.
 
 After the gate, the posting step makes one `mr_review_submit`: ticked
-findings and brought-back skipped findings as `comments`, the earlier
+findings and brought-back skipped findings as `comments` (a brought-back
+finding whose code changed since rides in the summary with its recorded
+`file:line`, since its old line may now be other code), the earlier
 threads as `replies` (body when "Post reply" is ticked, `resolve` from
 "Resolve thread"), the summary, the outcome. On a resumed pane, "posted
 already" is one check: this run's summary note is on the MR (the review
