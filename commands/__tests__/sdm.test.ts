@@ -19,6 +19,7 @@ const realBrowserLogin = await import("../../lib/sdm/browser-login.ts");
 const realRunBrowserLogin = realBrowserLogin.runBrowserLogin;
 const realCore = await import("../../lib/sdm/core.ts");
 const realConnectResource = realCore.connectResource;
+const realRequestAccess = realCore.requestAccess;
 const realFlow = await import("../../lib/sdm/flow.ts");
 const realRunGuidedConnect = realFlow.runGuidedConnect;
 
@@ -270,8 +271,9 @@ describe("sdm blocks", () => {
   test("enrichment counts read as English for one connection and for many", () => {
     const counted = (enriched: number, total: number): string => renderPlain(__test__.enrichmentBlocks("/x/e.jsonc", enriched, total)).split("\n")[1]!;
     expect(counted(1, 1)).toBe("[ok] 1 of 1 connection has a label");
-    expect(counted(1, 3)).toBe("[not yet] 1 of 3 connections have a label  the rest show their StrongDM names");
-    expect(counted(0, 1)).toBe("[not yet] 0 of 1 connection has a label  the rest show their StrongDM names");
+    expect(counted(1, 3)).toBe("[not yet] 1 of 3 connections has a label  the rest show their StrongDM names");
+    expect(counted(2, 3)).toBe("[not yet] 2 of 3 connections have a label  the rest show their StrongDM names");
+    expect(counted(0, 1)).toBe("[not yet] 0 of 1 connection have a label  the rest show their StrongDM names");
   });
 
   test("a health or login failure keeps every line of its reason, since no excerpt follows it", () => {
@@ -345,6 +347,15 @@ describe("sdm verbs", () => {
   });
 
   describe("a connect that fails", () => {
+    const fakeAccess = (lines: (reason: string) => string[], result: (reason: string) => { ok: boolean; error?: string }): void => {
+      mock.module("../../lib/sdm/core.ts", () => ({
+        ...realCore,
+        requestAccess: async (_resource: string, _duration: string, reason: string, onLine: (line: string) => void) => {
+          for (const l of lines(reason)) onLine(l);
+          return result(reason);
+        },
+      }));
+    };
     const fakeConnect = (lines: string[], result: { ok: boolean; error?: string }): void => {
       mock.module("../../lib/sdm/core.ts", () => ({
         ...realCore,
@@ -361,7 +372,7 @@ describe("sdm verbs", () => {
       }));
     };
     afterEach(() => {
-      mock.module("../../lib/sdm/core.ts", () => ({ ...realCore, connectResource: realConnectResource }));
+      mock.module("../../lib/sdm/core.ts", () => ({ ...realCore, connectResource: realConnectResource, requestAccess: realRequestAccess }));
       mock.module("../../lib/sdm/flow.ts", () => ({ ...realFlow, runGuidedConnect: realRunGuidedConnect }));
     });
 
@@ -374,6 +385,29 @@ describe("sdm verbs", () => {
       expect(io.stderr()).toBe(
         "Could not connect to Acme QA\n  why: error: no route to gateway\nwhat StrongDM printed:\n  dialing gateway\n  gateway refused the tunnel\n",
       );
+      expect(process.exitCode).toBe(1);
+    });
+
+    test("the access reason never reaches the log, the excerpt or stderr, even when StrongDM echoes it", async () => {
+      const reason = "ticket 4411 customer refund dispute";
+      fakeAccess(
+        (r) => [`requesting access for ops@example.test: ${r}`, "waiting on approval"],
+        (r) => ({ ok: false, error: `denied: ${r}` }),
+      );
+      mock.module("../../lib/sdm/flow.ts", () => ({
+        ...realFlow,
+        runGuidedConnect: async (t: GuidedTarget, _opts: unknown, deps: { requestAccess: (r: string, d: string, why: string) => Promise<{ ok: boolean; error?: string }> }) => {
+          const access = await deps.requestAccess(t.sdmResource, "1h", reason);
+          return { outcome: "failed", stage: "access", error: access.error };
+        },
+      }));
+      await __test__.guidedConnect(target, { interactive: false });
+      expect(io.stderr()).toBe(
+        "Could not get access to Acme QA\n  why: denied: [redacted]\nwhat StrongDM printed:\n  requesting access for ops@example.test: [redacted]\n  waiting on approval\n",
+      );
+      const logged = cliLogLines().filter((l) => l.module === "sdm").map((l) => l.msg);
+      expect(logged).toContain("requesting access for ops@example.test: [redacted]");
+      expect(JSON.stringify(cliLogLines())).not.toContain(reason);
       expect(process.exitCode).toBe(1);
     });
 

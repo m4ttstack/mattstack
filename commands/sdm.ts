@@ -117,6 +117,12 @@ function excerpt(tail: string[], shown?: string): Block[] {
   return rest.length > 0 ? [out.verbatim(rest, "what StrongDM printed")] : [];
 }
 
+// The access reason is free text a person typed; like `--reason` in the CLI log's args, it never reaches the log.
+function hideReason(line: string, reason: string | undefined): string {
+  const needle = reason?.trim();
+  return needle ? line.split(needle).join("[redacted]") : line;
+}
+
 function lastLine(text: string): string {
   return text.split("\n").map((line) => line.trim()).filter(Boolean).at(-1) ?? text.trim();
 }
@@ -243,7 +249,7 @@ function refreshBlocks(count: number, error?: string): Block[] {
 function enrichmentBlocks(path: string, enriched: number, total: number): Block[] {
   if (total === 0) return [out.kv("labels file", path), out.line("skipped", "StrongDM shows no connections to label")];
   const all = enriched === total;
-  const counted = total === 1 ? "connection has" : "connections have";
+  const counted = `${total === 1 ? "connection" : "connections"} ${enriched === 1 ? "has" : "have"}`;
   return [out.kv("labels file", path), out.line(all ? "done" : "pending", `${enriched} of ${total} ${counted} a label`, all ? undefined : "the rest show their StrongDM names")];
 }
 
@@ -308,6 +314,7 @@ async function guidedConnect(
   }
   const { select, textInput, confirm } = await import("../lib/rt-render.ts");
   let tail: string[] = [];
+  let accessReason: string | undefined;
   const streamed = async <T extends { ok: boolean }>(label: string, task: (onLine: (line: string) => void) => Promise<T>): Promise<T> => {
     const r = await withProgress(label, !opts.json, task);
     tail = r.value.ok ? [] : r.tail;
@@ -319,7 +326,10 @@ async function guidedConnect(
       const catalog = await fetchAccessCatalog();
       return catalog.ok ? resourceNeedsAccessRequest(catalog.output, resource) : false;
     },
-    requestAccess: (resource, duration, reason) => streamed(`Asking for access to ${target.label}`, onLine => requestAccess(resource, duration, reason, onLine)),
+    requestAccess: (resource, duration, reason) => {
+      accessReason = reason;
+      return streamed(`Asking for access to ${target.label}`, onLine => requestAccess(resource, duration, reason, line => onLine(hideReason(line, reason))));
+    },
     connect: resource => streamed(`Connecting to ${target.label}`, onLine => connectResource(resource, onLine)),
     verify: url => verifyWithRetries(() => probeQuery(url, VERIFY_ATTEMPT_TIMEOUT_MS)),
     probeTunnel: address => {
@@ -370,7 +380,8 @@ async function guidedConnect(
     process.exitCode = 1;
     return;
   }
-  const failure = connectFailure(target, result);
+  const connectFailed = connectFailure(target, result);
+  const failure = { ...connectFailed, why: connectFailed.why && hideReason(connectFailed.why, accessReason) };
   out.fail(failure, ...excerpt(tail, failure.why));
   process.exitCode = 1;
 }
