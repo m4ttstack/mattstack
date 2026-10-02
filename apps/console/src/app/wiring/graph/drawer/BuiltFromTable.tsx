@@ -105,15 +105,17 @@ export function BuiltFromTable({ rows }: { rows: BuiltFromRow[] }) {
                 </Stack>
               </Table.Td>
               <Table.Td>
-                <Text
-                  ff="monospace"
-                  fz={10}
-                  lh="normal"
-                  c={MUTED}
-                  data-parity="bw"
-                >
-                  {row.builtWith ?? 'not built'}
-                </Text>
+                {row.builtWith && (
+                  <Text
+                    ff="monospace"
+                    fz={10}
+                    lh="normal"
+                    c={MUTED}
+                    data-parity="bw"
+                  >
+                    {row.builtWith}
+                  </Text>
+                )}
               </Table.Td>
               <Table.Td>
                 <Text

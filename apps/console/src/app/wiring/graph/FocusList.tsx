@@ -21,6 +21,7 @@ import {
   type FocusGroups,
   type FocusItem,
 } from './model/focusModel';
+import { StatusDot } from './StatusDot';
 import { useGraphFocus } from './useGraphFocus';
 
 const BODY = 'var(--tk-text-1)';
@@ -41,11 +42,7 @@ const UNWIRED_ROW = { root: classes.unwired, section: classes.section };
 
 function AttentionDot() {
   return (
-    <Box
-      className={classes.dot}
-      data-parity="dot"
-      data-testid="attention-dot"
-    />
+    <StatusDot tone="warn" data-parity="dot" data-testid="attention-dot" />
   );
 }
 

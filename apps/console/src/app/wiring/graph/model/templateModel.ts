@@ -118,7 +118,7 @@ export type TemplateView = {
 };
 
 type AnatomyPart = SkillsAnatomy['parts'][number];
-export type DriftCause = SkillsAnatomy['staleBecause'][number];
+type DriftCause = SkillsAnatomy['staleBecause'][number];
 type CheckRow = SkillsCheck['verbs'][number];
 
 type SlotFacts = {
@@ -131,35 +131,27 @@ type SlotFacts = {
 
 const OWN_TEXT_ID = 'text';
 
-/** In the order a reader would fix them. */
-const STALE_CAUSES: readonly DriftCause[] = [
-  'source',
-  'include',
-  'fill',
-  'frontmatter',
-  'structure',
-  'vendored',
+/** What changed for each cause, in the order a reader would fix them.
+    `own` marks the skill's own part, which a card words as "its template". */
+const STALE_CHANGES: [DriftCause, { what: string; own: boolean }][] = [
+  ['source', { what: 'template', own: true }],
+  ['include', { what: 'a pasted file', own: false }],
+  ['fill', { what: 'pack text', own: true }],
+  ['frontmatter', { what: 'header', own: true }],
+  ['structure', { what: 'files', own: true }],
+  ['vendored', { what: 'files', own: true }],
 ];
 
-const STALE_REASONS: Record<DriftCause, string> = {
-  source: 'its template changed',
-  include: 'a pasted file changed',
-  fill: 'its pack text changed',
-  frontmatter: 'its header changed',
-  structure: 'its files changed',
-  vendored: 'its files changed',
-};
-
-/** The first cause a reader would fix; null for an rt that names none. */
-export function staleCause(
-  causes: readonly DriftCause[] | undefined
-): DriftCause | null {
-  return STALE_CAUSES.find(cause => causes?.includes(cause)) ?? null;
-}
-
-function staleReason(causes: readonly DriftCause[] | undefined): string | null {
-  const cause = staleCause(causes);
-  return cause ? STALE_REASONS[cause] : null;
+/** Why check calls a skill stale, from the first cause a reader would fix:
+    "its template changed", or "template changed" where the skill is already
+    named. Null for an rt that names no cause. */
+export function staleReason(
+  causes: readonly DriftCause[] | undefined,
+  { its = true }: { its?: boolean } = {}
+): string | null {
+  const change = STALE_CHANGES.find(([cause]) => causes?.includes(cause))?.[1];
+  if (!change) return null;
+  return `${its && change.own ? 'its ' : ''}${change.what} changed`;
 }
 
 export const spanOf = ([from, to]: LineRange) => to - from + 1;

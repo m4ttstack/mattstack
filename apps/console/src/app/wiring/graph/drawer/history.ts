@@ -1,11 +1,7 @@
 import { pluginOf, type SkillsCheck } from '../../outline';
 import type { SkillsAnatomy } from '../../useWiring';
 import type { FocusItem } from '../model/focusModel';
-import {
-  fileLabelOf,
-  staleCause,
-  type DriftCause,
-} from '../model/templateModel';
+import { fileLabelOf, staleReason } from '../model/templateModel';
 
 type CheckRow = SkillsCheck['verbs'][number];
 type AnatomySource = SkillsAnatomy['template'];
@@ -32,15 +28,6 @@ export type StaleStep = {
   focus: string;
   /** What changed, in words; null for an rt that names no cause. */
   reason: string | null;
-};
-
-const CHANGED: Record<DriftCause, string> = {
-  source: 'template changed',
-  include: 'a pasted file changed',
-  fill: 'pack text changed',
-  frontmatter: 'header changed',
-  structure: 'files changed',
-  vendored: 'files changed',
 };
 
 function rowOf(
@@ -76,9 +63,9 @@ export function builtFrom(
   const stale = row?.status === 'stale';
   const causes = row?.staleBecause ?? anatomy.staleBecause;
   const statusOf = (source: AnatomySource, changed: boolean): FileStatus => {
+    if (source.builtVersion === null) return 'not built';
     if (!row) return 'unmeasured';
-    if (row.status === 'never-compiled' || source.builtVersion === null)
-      return 'not built';
+    if (row.status === 'never-compiled') return 'not built';
     if (stale && changed) return 'changed';
     return source.builtVersion === source.version ? 'current' : 'unchanged';
   };
@@ -117,6 +104,23 @@ export function stampNote(
   return `Its version stamp says ${template.builtWith}, but none of these files changed since. The text the agent reads is current; a rebuild would only update the stamp.`;
 }
 
+/** Whether the copy of one file in a skill is current, in a plain sentence
+    named for that skill. */
+export function fileNote(row: BuiltFromRow, skill: string): string {
+  switch (row.status) {
+    case 'unchanged':
+      return `This ${row.kind} has not changed since ${skill} was built with ${row.builtWith}, so the copy in ${skill} is current.`;
+    case 'current':
+      return `${skill} was built with the installed copy, ${row.builtWith}, so the copy in ${skill} is current.`;
+    case 'changed':
+      return `This ${row.kind} changed after ${skill} was built with ${row.builtWith}, so the copy in ${skill} is out of date until a sync rebuilds it.`;
+    case 'not built':
+      return `${skill} has never been built, so it holds no copy of this ${row.kind} yet.`;
+    case 'unmeasured':
+      return `rt skills check said nothing about ${skill}, so whether its copy of this ${row.kind} is current is unmeasured.`;
+  }
+}
+
 /** The pipeline's other steps check calls stale, in run order. */
 export function staleSteps(
   pipeline: FocusItem,
@@ -127,12 +131,11 @@ export function staleSteps(
   return pipeline.children.flatMap(step => {
     const row = rows.get(step.skill);
     if (step.skill === current || row?.status !== 'stale') return [];
-    const cause = staleCause(row.staleBecause);
     return [
       {
         skill: step.skill,
         focus: step.key,
-        reason: cause ? CHANGED[cause] : null,
+        reason: staleReason(row.staleBecause, { its: false }),
       },
     ];
   });

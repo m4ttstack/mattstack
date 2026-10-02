@@ -11,9 +11,10 @@ import { Icon } from '@mattstack/app-kit/icons';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import { LAYOUT, type OutputNodeData } from '../layout/templateLayout';
+import { STATUS_TONE } from '../model/statusTone';
 import { selectedPartId } from '../model/templateModel';
+import { StatusDot } from '../StatusDot';
 import { ACCENT, BODY, ICON_STROKE, MUTED, useCanvas } from './canvasContext';
-import { STATUS_TONE } from './LinkCardNode';
 import classes from './nodes.module.css';
 import { parityName } from './parity';
 
@@ -75,11 +76,7 @@ function OutputNodeComponent({
           >
             {output.lines} lines
           </Text>
-          <span
-            className={classes.dot}
-            data-tone={STATUS_TONE[output.status]}
-            data-parity="status"
-          />
+          <StatusDot tone={STATUS_TONE[output.status]} data-parity="status" />
         </UnstyledButton>
         {output.parts.length > 0 && (
           <div className={classes.outputBody}>

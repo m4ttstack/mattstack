@@ -51,14 +51,6 @@
   border-radius: var(--mantine-radius-md);
 }
 
-.dot {
-  flex-shrink: 0;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background-color: var(--tk-dot-warn);
-}
-
 .stage {
   position: relative;
   overflow: hidden;

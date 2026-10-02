@@ -8,6 +8,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { SkillsComposition } from '../../outline';
+import { BuiltFromTable } from '../drawer/BuiltFromTable';
 import { builtFrom, staleSteps } from '../drawer/history';
 import { usedBySites } from '../drawer/usedBy';
 import { buildFocusGroups } from '../model/focusModel';
@@ -15,6 +17,7 @@ import { designFixture, designSource } from './designFixtures';
 
 const anatomyGet = vi.fn();
 const historyGet = vi.fn();
+const compositionGet = vi.fn();
 
 vi.mock('../../../api', () => ({
   client: {
@@ -34,9 +37,7 @@ vi.mock('../../../api', () => ({
               })
             ),
         },
-        composition: {
-          $get: () => Promise.resolve(ok(designFixture('composition'))),
-        },
+        composition: { $get: () => compositionGet() },
         check: { $get: () => Promise.resolve(ok(designFixture('check'))) },
         anatomy: { $get: (...args: unknown[]) => anatomyGet(...args) },
         changes: {
@@ -109,6 +110,7 @@ beforeEach(() => {
     configurable: true,
     value: { writeText },
   });
+  serveComposition(designFixture('composition'));
   const anatomy: Record<string, unknown> = {
     work: designFixture('anatomy.work'),
     'stage-plan': designFixture('anatomy.stage-plan'),
@@ -133,6 +135,55 @@ afterEach(() => {
   vi.clearAllMocks();
   window.history.pushState(null, '', '/');
 });
+
+function serveComposition(composition: SkillsComposition) {
+  compositionGet.mockImplementation(() => Promise.resolve(ok(composition)));
+}
+
+/** The design composition with work also binding model-tiering at a second
+    slot, `domain`, at its template line 100. */
+function workBindsTieringTwice(): SkillsComposition {
+  const composition = designFixture('composition');
+  return {
+    ...composition,
+    binders: composition.binders.map(binder =>
+      binder.ref === 'mattstack:work'
+        ? {
+            ...binder,
+            slots: [
+              ...binder.slots,
+              { name: 'domain', boundTo: 'mattstack:model-tiering' },
+            ],
+          }
+        : binder
+    ),
+    targets: composition.targets?.map(target =>
+      target.name === 'work'
+        ? {
+            ...target,
+            placeholders: [
+              ...target.placeholders,
+              { kind: 'slot', arg: 'domain', line: 100 },
+            ],
+          }
+        : target
+    ),
+  };
+}
+
+/** The design composition with stage-provision run by no pipeline, so the
+    focus list shows it nowhere. */
+function provisionUnlisted(): SkillsComposition {
+  const composition = designFixture('composition');
+  return {
+    ...composition,
+    pipelines: {
+      feature: composition.pipelines!.feature!.filter(
+        ref => ref !== 'mattstack:stage-provision'
+      ),
+    },
+  };
+}
 
 function renderAt(search: string) {
   window.history.pushState(null, '', `/wiring${search}`);
@@ -176,6 +227,7 @@ describe('usedBySites', () => {
       ['NOT WIRED INTO ANYTHING', 'rebase-worktree', 451],
     ]);
     expect(sites[0]!.focus).toBe('pipeline:feature');
+    expect(sites[0]!.label).toBe('work/SKILL.md');
     expect(sites[2]!.focus).toBe('stage-plan');
   });
 
@@ -197,6 +249,43 @@ describe('usedBySites', () => {
       ['BOARD', 'board:respond', null],
       ['BOARD', 'board:doctor', null],
     ]);
+    expect(sites[7]!.label).toBe('board:review');
+  });
+
+  it('lists a skill once for each slot it binds the fill at', () => {
+    const composition = workBindsTieringTwice();
+    const sites = usedBySites(
+      composition,
+      buildFocusGroups(composition, designFixture('check')),
+      { kind: 'fill', name: 'mattstack:model-tiering' }
+    );
+
+    expect(
+      sites
+        .filter(site => site.skill === 'work')
+        .map(site => [site.slot, site.line])
+    ).toEqual([
+      ['domain', 100],
+      ['tiering', 242],
+    ]);
+  });
+
+  it('gives a skill the focus list does not show no focus, and names it plainly', () => {
+    const composition = provisionUnlisted();
+    const sites = usedBySites(
+      composition,
+      buildFocusGroups(composition, designFixture('check')),
+      { kind: 'include', name: 'gate-protocol' }
+    );
+
+    expect(sites.find(site => site.skill === 'stage-provision')).toEqual({
+      group: 'NOT WIRED INTO ANYTHING',
+      skill: 'stage-provision',
+      slot: null,
+      line: 154,
+      focus: null,
+      label: 'stage-provision',
+    });
   });
 });
 
@@ -315,6 +404,73 @@ describe('Used by tab', () => {
     );
   });
 
+  it('lists board skills by their ref, binding the fill with no line', async () => {
+    renderAt(
+      '?tab=graph&focus=pipeline:feature&select=input:slot:tiering&drawerTab=used-by'
+    );
+    const tab = await screen.findByTestId('drawer-used-by');
+
+    expect(
+      within(tab)
+        .getAllByTestId('used-by-group')
+        .map(group => group.textContent)
+    ).toEqual(['PIPELINE STEPS', 'ON-DEMAND', 'BOARD']);
+    const board = within(tab)
+      .getAllByTestId('used-by-row')
+      .find(row => row.textContent?.startsWith('board:review'));
+    expect(board).toHaveTextContent('board:reviewbinds it');
+  });
+
+  it('marks only the slot the drawer was opened from when a skill binds the fill twice', async () => {
+    serveComposition(workBindsTieringTwice());
+    renderAt(
+      '?tab=graph&focus=pipeline:feature&select=input:slot:tiering&drawerTab=used-by'
+    );
+    const tab = await screen.findByTestId('drawer-used-by');
+
+    const work = within(tab)
+      .getAllByTestId('used-by-row')
+      .filter(row => row.textContent?.startsWith('work/SKILL.md'));
+    expect(work.map(row => row.textContent)).toEqual([
+      'work/SKILL.mdpastes it at L100',
+      'work/SKILL.mdyou are here · pastes it at L242',
+    ]);
+    expect(work.map(row => row.hasAttribute('data-active'))).toEqual([
+      false,
+      true,
+    ]);
+  });
+
+  it('says a partial is pasted in when rt names no lines', async () => {
+    serveComposition({ ...designFixture('composition'), targets: undefined });
+    renderAt(
+      '?tab=graph&focus=stage-plan&select=input:include:gate-protocol&drawerTab=used-by'
+    );
+    const tab = await screen.findByTestId('drawer-used-by');
+
+    const rows = within(tab).getAllByTestId('used-by-row');
+    expect(rows).toHaveLength(9);
+    expect(rows[0]).toHaveTextContent('work/SKILL.mdpastes it in');
+    expect(rows.every(row => row.textContent?.endsWith('pastes it in'))).toBe(
+      true
+    );
+  });
+
+  it('shows a skill the focus list does not show as plain text', async () => {
+    serveComposition(provisionUnlisted());
+    renderAt(
+      '?tab=graph&focus=stage-plan&select=input:include:gate-protocol&drawerTab=used-by'
+    );
+    const tab = await screen.findByTestId('drawer-used-by');
+
+    const row = within(tab)
+      .getAllByTestId('used-by-row')
+      .find(candidate => candidate.textContent?.startsWith('stage-provision'))!;
+    expect(row).toHaveTextContent('stage-provisionpastes it at L154');
+    expect(within(row).queryByRole('button')).toBeNull();
+    expect(row.tagName).not.toBe('BUTTON');
+  });
+
   it('focuses the skill a row names, which closes the drawer', async () => {
     renderAt(
       '?tab=graph&focus=stage-plan&select=input:include:gate-protocol&drawerTab=used-by'
@@ -412,15 +568,60 @@ describe('History tab', () => {
     expect(params().get('drawerTab')).toBe('history');
   });
 
-  it("shows a verb's commit timeline under its build", async () => {
+  it("shows an input card only its own file's build in the open skill", async () => {
     renderAt(
       '?tab=graph&focus=pipeline:feature&select=input:include:gate-protocol&drawerTab=history'
     );
     const tab = await screen.findByTestId('drawer-history');
 
+    expect(within(tab).getByTestId('history-heading')).toHaveTextContent(
+      'In work'
+    );
+    const rows = within(tab).getAllByTestId('built-from-row');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent('gate-protocol/SKILL.md');
+    expect(rows[0]).toHaveAttribute('data-status', 'unchanged');
+    expect(within(tab).getByTestId('history-note')).toHaveTextContent(
+      'This partial has not changed since work was built with mattstack 0.28.10, so the copy in work is current.'
+    );
+    expect(within(tab).queryByTestId('version-timeline')).toBeNull();
+    expect(within(tab).queryByTestId('stale-step')).toBeNull();
+    expect(within(tab).queryByTestId('sync-command')).toBeNull();
+    expect(historyGet).not.toHaveBeenCalled();
+  });
+
+  it("shows a verb's commit timeline under a row's history", async () => {
+    renderAt(
+      '?tab=graph&focus=pipeline:feature&select=row:246&view=rendered&drawerTab=history'
+    );
+    const tab = await screen.findByTestId('drawer-history');
+
+    expect(within(tab).getAllByTestId('built-from-row')).toHaveLength(4);
     expect(
       await within(tab).findByTestId('version-timeline')
     ).toBeInTheDocument();
     expect(historyGet).toHaveBeenCalled();
+  });
+});
+
+describe('BuiltFromTable', () => {
+  it('says a file was never built once, in its status', () => {
+    renderWithProviders(
+      <BuiltFromTable
+        rows={[
+          {
+            path: '/fixture/mattstack/attachments/pipeline/standup/SKILL.md',
+            name: 'standup',
+            file: 'standup/SKILL.md',
+            kind: 'template',
+            builtWith: null,
+            installed: '0.30.4',
+            status: 'not built',
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getAllByText('not built')).toHaveLength(1);
   });
 });

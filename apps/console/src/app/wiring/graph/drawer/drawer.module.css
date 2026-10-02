@@ -154,30 +154,6 @@
   line-height: normal;
 }
 
-.dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.dot[data-size='small'] {
-  width: 7px;
-  height: 7px;
-}
-
-.dot[data-tone='ok'] {
-  background-color: var(--tk-dot-ok);
-}
-
-.dot[data-tone='warn'] {
-  background-color: var(--tk-dot-warn);
-}
-
-.dot[data-tone='bad'] {
-  background-color: var(--tk-dot-bad);
-}
-
 .tabBody {
   flex: 1;
   min-height: 0;

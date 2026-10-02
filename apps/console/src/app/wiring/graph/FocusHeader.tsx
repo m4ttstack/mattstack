@@ -13,17 +13,18 @@ import { pluginOf } from '../outline';
 import type { SkillsAnatomy } from '../useWiring';
 import classes from './graph.module.css';
 import { workTypeOf, type FocusItem } from './model/focusModel';
+import { STATUS_TONE, type StatusTone } from './model/statusTone';
 import { countOf, type TemplateView } from './model/templateModel';
 
 const MUTED = 'var(--tk-text-3)';
 
 export type HeaderStatus = {
   label: string;
-  tone: 'ok' | 'warn' | 'quiet';
+  tone: StatusTone;
   icon: 'checkCircle' | 'circleDot';
 };
 
-const GLYPH: Record<HeaderStatus['tone'], string | undefined> = {
+const GLYPH: Record<StatusTone, string | undefined> = {
   ok: 'var(--tk-text-ok-vivid)',
   quiet: MUTED,
   warn: undefined,
@@ -51,29 +52,27 @@ export function statusOf(
 ): HeaderStatus | null {
   const output = view?.output;
   if (!output || !anatomy) return null;
+  const tone = STATUS_TONE[output.status];
+  const icon = tone === 'ok' ? 'checkCircle' : 'circleDot';
   switch (output.status) {
     case 'in-sync':
       return {
         label: `in sync with installed ${pluginOf(anatomy.template.ref)} ${anatomy.template.version}`,
-        tone: 'ok',
-        icon: 'checkCircle',
+        tone,
+        icon,
       };
     case 'stale':
       return {
         label: output.reason ? `stale: ${output.reason}` : 'stale',
-        tone: 'warn',
-        icon: 'circleDot',
+        tone,
+        icon,
       };
     case 'unsynced':
-      return {
-        label: 'rebuilt here, not synced yet',
-        tone: 'warn',
-        icon: 'circleDot',
-      };
+      return { label: 'rebuilt here, not synced yet', tone, icon };
     case 'never-compiled':
-      return { label: 'never compiled', tone: 'warn', icon: 'circleDot' };
+      return { label: 'never compiled', tone, icon };
     case 'unknown':
-      return { label: 'unmeasured', tone: 'quiet', icon: 'circleDot' };
+      return { label: 'unmeasured', tone, icon };
   }
 }
 

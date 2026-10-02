@@ -23,6 +23,7 @@ import {
 } from '../model/drawerContent';
 import type { FocusGroups, FocusItem } from '../model/focusModel';
 import type { TemplateView } from '../model/templateModel';
+import { StatusDot } from '../StatusDot';
 import type { WiringUrl, WiringView } from '../useWiringUrl';
 import classes from './drawer.module.css';
 import { DrawerMenu } from './DrawerMenu';
@@ -267,9 +268,9 @@ export function SkillDrawer({
         </div>
         <div className={classes.row}>
           {content.dot && (
-            <Box
-              className={classes.dot}
-              data-tone={content.dot}
+            <StatusDot
+              tone={content.dot}
+              size="md"
               data-parity="dot"
               data-testid="drawer-dot"
             />
@@ -350,6 +351,7 @@ export function SkillDrawer({
         <UsedByTab
           pack={pack}
           skill={anatomy.skill}
+          slot={content.slot?.name ?? null}
           usedBy={content.usedBy}
           composition={composition}
           groups={groups}
@@ -358,6 +360,7 @@ export function SkillDrawer({
       )}
       {tab === 'history' && composition && (
         <HistoryTab
+          file={content.usedBy ? content.filePath : null}
           pack={pack}
           anatomy={anatomy}
           composition={composition}

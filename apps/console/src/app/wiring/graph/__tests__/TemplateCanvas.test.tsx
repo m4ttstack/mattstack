@@ -4,8 +4,15 @@ import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { statusOf } from '../FocusHeader';
 import { layoutTemplate } from '../layout/templateLayout';
-import { buildTemplateView } from '../model/templateModel';
+import { drawerContent } from '../model/drawerContent';
+import {
+  buildTemplateView,
+  type OutputCard,
+  type SkillStatus,
+  type TemplateView,
+} from '../model/templateModel';
 import TemplateCanvas from '../TemplateCanvas';
 import { designFixture } from './designFixtures';
 
@@ -258,4 +265,75 @@ describe('TemplateCanvas: a pipeline that links its steps', () => {
 
     expect(onSelect).toHaveBeenCalledWith('row:1');
   });
+});
+
+describe('status tones', () => {
+  const TONE: Record<OutputCard['status'], string> = {
+    'in-sync': 'ok',
+    stale: 'warn',
+    unsynced: 'warn',
+    'never-compiled': 'warn',
+    unknown: 'quiet',
+  };
+  const viewOf = (skill: keyof typeof FIXTURES) =>
+    buildTemplateView({
+      anatomy: designFixture(FIXTURES[skill].anatomy),
+      composition: designFixture('composition'),
+      check: designFixture('check'),
+      changes: designFixture('changes.clean'),
+      step: FIXTURES[skill].step,
+      workType: 'feature',
+    });
+  const draw = (view: TemplateView) =>
+    renderWithProviders(
+      <TemplateCanvas
+        layout={layoutTemplate(view)}
+        view={view}
+        height="900px"
+        onSelect={vi.fn()}
+      />
+    );
+
+  it.each(Object.entries(TONE))(
+    'the output card, the drawer and the header draw %s as %s',
+    (status, tone) => {
+      const anatomy = designFixture('anatomy.stage-plan');
+      const base = viewOf('stage-plan');
+      const view = {
+        ...base,
+        output: { ...base.output!, status: status as OutputCard['status'] },
+      };
+      draw(view);
+
+      expect(
+        screen
+          .getByTestId('output-header')
+          .querySelector('[data-parity="status"]')
+      ).toHaveAttribute('data-tone', tone);
+      expect(
+        drawerContent({ kind: 'output', part: null }, view, anatomy, null)?.dot
+      ).toBe(tone);
+      expect(statusOf(view, anatomy)?.tone).toBe(tone);
+    }
+  );
+
+  it.each(Object.entries(TONE).filter(([status]) => status !== 'unsynced'))(
+    'a step card draws %s as %s too',
+    (status, tone) => {
+      const base = viewOf('work');
+      const view = {
+        ...base,
+        links: base.links.map((card, i) =>
+          i === 0 ? { ...card, status: status as SkillStatus } : card
+        ),
+      };
+      draw(view);
+
+      expect(
+        screen
+          .getAllByTestId('link-card')[0]!
+          .querySelector('[data-parity="status"]')
+      ).toHaveAttribute('data-tone', tone);
+    }
+  );
 });

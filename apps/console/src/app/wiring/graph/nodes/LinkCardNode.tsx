@@ -4,21 +4,11 @@ import { Icon } from '@mattstack/app-kit/icons';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import { LAYOUT, type LinkNodeData } from '../layout/templateLayout';
-import type { SkillStatus } from '../model/templateModel';
+import { STATUS_TONE } from '../model/statusTone';
+import { StatusDot } from '../StatusDot';
 import { BODY, ICON_STROKE, MUTED, useCanvas } from './canvasContext';
 import classes from './nodes.module.css';
 import { parityName } from './parity';
-
-export const STATUS_TONE: Record<
-  SkillStatus | 'unsynced',
-  'ok' | 'warn' | 'quiet'
-> = {
-  'in-sync': 'ok',
-  stale: 'warn',
-  unsynced: 'warn',
-  'never-compiled': 'warn',
-  unknown: 'quiet',
-};
 
 function LinkCardNodeComponent({
   data: { card },
@@ -72,7 +62,7 @@ function LinkCardNodeComponent({
               {card.subtitle}
             </Text>
           </div>
-          <span className={classes.dot} data-tone={tone} data-parity="status" />
+          <StatusDot tone={tone} data-parity="status" />
           <Icon
             strokeWidth={ICON_STROKE}
             name="chevronRight"

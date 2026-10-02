@@ -1,6 +1,7 @@
 import { pluginOf } from '../../outline';
 import type { SkillsAnatomy } from '../../useWiring';
 import type { DrawerTab, WiringView } from '../useWiringUrl';
+import { STATUS_TONE, type StatusTone } from './statusTone';
 import {
   countOf,
   fileLabelOf,
@@ -36,8 +37,6 @@ export type DrawerUsedBy = {
   plugin: string;
 };
 
-export type DrawerDot = 'ok' | 'warn' | 'bad';
-
 export type DrawerBand = {
   from: number;
   to: number;
@@ -58,7 +57,7 @@ export type DrawerContent = {
   view: WiringView;
   chip: string | null;
   /** The output's status beside its sentence; null everywhere else. */
-  dot: DrawerDot | null;
+  dot: StatusTone | null;
   sentence: string;
   highlight: { template: LineRange | null; rendered: LineRange | null };
   /** Only in the Rendered view, where each pasted part gets one. */
@@ -353,16 +352,6 @@ function inputContent(
   };
 }
 
-/** `unknown` is check saying nothing, so it gets no dot rather than a
-    healthy one. */
-const OUTPUT_DOT: Record<OutputCard['status'], DrawerDot | null> = {
-  'in-sync': 'ok',
-  stale: 'warn',
-  unsynced: 'warn',
-  'never-compiled': 'bad',
-  unknown: null,
-};
-
 function outputSentence(output: OutputCard, anatomy: SkillsAnatomy): string {
   switch (output.status) {
     case 'unsynced':
@@ -407,7 +396,7 @@ function outputContent(
   if (partId === null) {
     return {
       ...whole,
-      dot: OUTPUT_DOT[output.status],
+      dot: STATUS_TONE[output.status],
       sentence: outputSentence(output, anatomy),
       bands: shown === 'rendered' ? bandsOf(anatomy, null) : [],
     };

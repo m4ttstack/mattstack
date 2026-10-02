@@ -21,12 +21,16 @@ export type UsedByRef = { kind: 'include' | 'fill'; name: string };
 export type UsedBySite = {
   group: UsedByGroup;
   skill: string;
+  /** The slot a fill is bound at; null for a partial. */
+  slot: string | null;
   /** The template line the skill pastes it at; null where rt names none: a
       board skill, whose template is not in this pack, or an rt that predates
       `targets`. */
   line: number | null;
-  /** The focus key that puts the skill on the canvas. */
-  focus: string;
+  /** The focus key that puts the skill on the canvas; null for a skill the
+      focus list does not show, which nothing can focus. */
+  focus: string | null;
+  label: string;
 };
 
 type Place = { group: UsedByGroup; focus: string; rank: number };
@@ -49,18 +53,26 @@ function placesOf(groups: FocusGroups): Map<string, Place> {
   return places;
 }
 
-type Site = { skill: string; line: number | null };
+/** `ref` is the manifest ref a binding site names; a target has none. */
+type Site = {
+  skill: string;
+  slot: string | null;
+  line: number | null;
+  ref: string | null;
+};
 
 function includeSites(composition: SkillsComposition, name: string): Site[] {
   if (!composition.targets)
     return composition.verbs
       .filter(verb => verb.includes?.includes(name))
-      .map(verb => ({ skill: verb.name, line: null }));
+      .map(verb => ({ skill: verb.name, slot: null, line: null, ref: null }));
   return composition.targets.flatMap(target => {
     const at = target.placeholders.find(
       p => p.kind === 'include' && p.arg === name
     );
-    return at ? [{ skill: target.name, line: at.line }] : [];
+    return at
+      ? [{ skill: target.name, slot: null, line: at.line, ref: null }]
+      : [];
   });
 }
 
@@ -71,10 +83,22 @@ function fillSites(composition: SkillsComposition, binding: string): Site[] {
       ?.placeholders.find(p => p.kind === 'slot' && p.arg === slot)?.line ??
     null;
   return (invertBindings(composition)[binding] ?? []).map(site => {
-    if (site.kind === 'external') return { skill: site.ref, line: null };
-    const skill = site.verb ?? suffixOf(site.ref);
-    return { skill, line: lineOf(skill, site.slot) };
+    const external = site.kind === 'external';
+    const skill = external ? site.ref : (site.verb ?? suffixOf(site.ref));
+    return {
+      skill,
+      slot: site.slot,
+      line: external ? null : lineOf(skill, site.slot),
+      ref: site.ref,
+    };
   });
+}
+
+/** A board skill by its ref, any other placed skill by its file; a skill the
+    focus list does not show by the ref its binding names, else its name. */
+function labelOf(site: Site, place: Place | undefined): string {
+  if (!place) return site.ref ?? site.skill;
+  return place.group === 'BOARD' ? site.skill : `${site.skill}/SKILL.md`;
 }
 
 /**
@@ -99,8 +123,10 @@ export function usedBySites(
         site: {
           group: place?.group ?? 'NOT WIRED INTO ANYTHING',
           skill: site.skill,
+          slot: site.slot,
           line: site.line,
-          focus: place?.focus ?? site.skill,
+          focus: place?.focus ?? null,
+          label: labelOf(site, place),
         } satisfies UsedBySite,
         rank: place?.rank ?? places.size + order,
       };

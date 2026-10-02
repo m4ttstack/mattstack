@@ -14,10 +14,6 @@ const BODY = 'var(--tk-text-1)';
 
 const ROW = { root: classes.siteRow, section: classes.siteSection };
 
-function siteFile(site: UsedBySite): string {
-  return site.group === 'BOARD' ? site.skill : `${site.skill}/SKILL.md`;
-}
-
 function siteAt(site: UsedBySite, kind: DrawerUsedBy['kind']): string {
   if (site.line !== null) return `pastes it at L${site.line}`;
   return kind === 'include' ? 'pastes it in' : 'binds it';
@@ -27,6 +23,22 @@ function editNote(usedBy: DrawerUsedBy, pack: string): string {
   return usedBy.plugin === pack
     ? 'Edit it in this pack. Every skill above picks up the change when you sync.'
     : `Edit it in the ${usedBy.plugin} plugin. Every skill above picks up the change on its next compile.`;
+}
+
+function SiteFile({ site, here }: { site: UsedBySite; here: boolean }) {
+  return (
+    <Text
+      span
+      ff="monospace"
+      fz={12}
+      lh="normal"
+      c={here ? undefined : BODY}
+      className={classes.rowLabel}
+      data-parity="f"
+    >
+      {site.label}
+    </Text>
+  );
 }
 
 /** Only the open skill's row paints, so it alone is a layer of its own; a
@@ -43,6 +55,22 @@ function SiteRow({
   onFocus: (focus: string) => void;
 }) {
   const at = siteAt(site, kind);
+  const icon = <Icon name="fileText" size={13} color={MUTED} data-parity="i" />;
+  const where = (
+    <Text span fz={11} lh="normal" c={MUTED} data-parity="at">
+      {here ? `you are here · ${at}` : at}
+    </Text>
+  );
+  const { focus } = site;
+  if (focus === null)
+    return (
+      <Group gap={10} className={classes.siteRow} data-testid="used-by-row">
+        {icon}
+        <SiteFile site={site} here={false} />
+        <span className={classes.spacer} />
+        {where}
+      </Group>
+    );
   return (
     <NavLink
       component="button"
@@ -50,34 +78,18 @@ function SiteRow({
       variant="wash"
       color="accent"
       active={here}
-      label={
-        <Text
-          span
-          ff="monospace"
-          fz={12}
-          lh="normal"
-          c={here ? undefined : BODY}
-          className={classes.rowLabel}
-          data-parity="f"
-        >
-          {siteFile(site)}
-        </Text>
-      }
-      leftSection={
-        <Icon name="fileText" size={13} color={MUTED} data-parity="i" />
-      }
+      label={<SiteFile site={site} here={here} />}
+      leftSection={icon}
       rightSection={
         <Group gap={10}>
-          <Text span fz={11} lh="normal" c={MUTED} data-parity="at">
-            {here ? `you are here · ${at}` : at}
-          </Text>
+          {where}
           <Icon name="chevronRight" size={12} color={MUTED} data-parity="go" />
         </Group>
       }
       classNames={ROW}
       data-parity={here ? `row · ${site.skill}` : undefined}
       data-testid="used-by-row"
-      onClick={() => onFocus(site.focus)}
+      onClick={() => onFocus(focus)}
     />
   );
 }
@@ -89,6 +101,7 @@ function SiteRow({
 export function UsedByTab({
   pack,
   skill,
+  slot,
   usedBy,
   composition,
   groups,
@@ -97,6 +110,8 @@ export function UsedByTab({
   pack: string;
   /** The skill the drawer was opened from. */
   skill: string;
+  /** The slot the drawer was opened from, for a fill. */
+  slot: string | null;
   usedBy: DrawerUsedBy;
   composition: SkillsComposition;
   groups: FocusGroups;
@@ -109,6 +124,8 @@ export function UsedByTab({
   const grouped = USED_BY_GROUPS.map(
     group => [group, sites.filter(site => site.group === group)] as const
   ).filter(([, list]) => list.length > 0);
+  const isHere = (site: UsedBySite) =>
+    site.skill === skill && (site.slot === null || site.slot === slot);
 
   return (
     <Box
@@ -124,10 +141,10 @@ export function UsedByTab({
             </TabHeading>
             {list.map(site => (
               <SiteRow
-                key={`${site.skill}:${site.line}`}
+                key={`${site.skill}:${site.slot ?? ''}`}
                 site={site}
                 kind={usedBy.kind}
-                here={site.skill === skill}
+                here={isHere(site)}
                 onFocus={onFocus}
               />
             ))}

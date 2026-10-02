@@ -20,9 +20,16 @@ import {
 import type { SkillsAnatomy } from '../../useWiring';
 import { VersionTimeline } from '../../VersionTimeline';
 import type { FocusItem } from '../model/focusModel';
+import { StatusDot } from '../StatusDot';
 import { BuiltFromTable } from './BuiltFromTable';
 import classes from './drawer.module.css';
-import { builtFrom, staleSteps, stampNote, type StaleStep } from './history';
+import {
+  builtFrom,
+  fileNote,
+  staleSteps,
+  stampNote,
+  type StaleStep,
+} from './history';
 import { TabHeading } from './TabHeading';
 
 const MUTED = 'var(--tk-text-3)';
@@ -62,14 +69,7 @@ function StaleStepRow({
             {step.skill}/SKILL.md
           </Text>
         }
-        leftSection={
-          <Box
-            className={classes.dot}
-            data-tone="warn"
-            data-size="small"
-            data-parity="dot"
-          />
-        }
+        leftSection={<StatusDot tone="warn" data-parity="dot" />}
         rightSection={
           <Group gap={8}>
             <Text span fz={11} lh="normal" c={WARN} data-parity="w">
@@ -123,19 +123,23 @@ function SyncCommand({ pack }: { pack: string }) {
   );
 }
 
-/**
- * What a compiled skill was built from and whether any of it changed since,
- * the other steps of its pipeline that need a rebuild, and, for a roster
- * verb, its commit history.
- */
-export function HistoryTab({
-  pack,
-  anatomy,
-  composition,
-  check,
-  pipeline,
-  onOpen,
-}: {
+function HistoryNote({ children }: { children: string }) {
+  return (
+    <Paper
+      variant="panel-outline"
+      radius={7}
+      className={classes.note}
+      data-parity="note"
+      data-testid="history-note"
+    >
+      <Text fz={12} lh="normal" c={MUTED} data-parity="t">
+        {children}
+      </Text>
+    </Paper>
+  );
+}
+
+type HistoryProps = {
   pack: string;
   anatomy: SkillsAnatomy;
   composition: SkillsComposition;
@@ -144,7 +148,47 @@ export function HistoryTab({
   pipeline: FocusItem | null;
   /** Opens a stale step's own history. */
   onOpen: (focus: string) => void;
-}) {
+};
+
+/** One file's copy in the open skill: the version the skill was built with,
+    the one installed, and whether the copy is current. */
+function FileHistory({
+  anatomy,
+  check,
+  file,
+}: Pick<HistoryProps, 'anatomy' | 'check'> & { file: string }) {
+  const row = check?.verbs.find(verb => verb.name === anatomy.skill);
+  const own = builtFrom(anatomy, row).find(source => source.path === file);
+  return (
+    <>
+      <TabHeading parity="h1" testId="history-heading">
+        In {anatomy.skill}
+      </TabHeading>
+      {own ? (
+        <>
+          <BuiltFromTable rows={[own]} />
+          <HistoryNote>{fileNote(own, anatomy.skill)}</HistoryNote>
+        </>
+      ) : (
+        <Text fz={12} lh="normal" c={MUTED}>
+          {`${anatomy.skill}'s build names no copy of this file.`}
+        </Text>
+      )}
+    </>
+  );
+}
+
+/** What a compiled skill was built from and whether any of it changed since,
+    the other steps of its pipeline that need a rebuild, and, for a roster
+    verb, its commit history. */
+function SkillHistory({
+  pack,
+  anatomy,
+  composition,
+  check,
+  pipeline,
+  onOpen,
+}: HistoryProps) {
   const row = check?.verbs.find(verb => verb.name === anatomy.skill);
   const rows = builtFrom(anatomy, row);
   const note = stampNote(rows, row);
@@ -162,63 +206,80 @@ export function HistoryTab({
   );
 
   return (
+    <>
+      <TabHeading parity="h1" testId="history-heading">
+        Built from
+      </TabHeading>
+      <BuiltFromTable rows={rows} />
+      {note && <HistoryNote>{note}</HistoryNote>}
+      {stale.length > 0 && (
+        <>
+          <TabHeading parity="h2">Elsewhere in this pipeline</TabHeading>
+          <Stack gap={6}>
+            {stale.map(step => (
+              <StaleStepRow
+                key={step.skill}
+                step={step}
+                onOpen={() => onOpen(step.focus)}
+              />
+            ))}
+          </Stack>
+        </>
+      )}
+      {rebuild && (
+        <>
+          <SyncCommand pack={pack} />
+          <Text fz={11} lh="normal" c={MUTED} data-parity="fixnote">
+            Rebuilds every stale {pipeline ? 'step' : 'skill'} from the
+            installed sources.
+          </Text>
+        </>
+      )}
+      {entry?.verb && (
+        <Box className={classes.timeline}>
+          <VersionTimeline
+            pack={pack}
+            verb={entry.verb}
+            refName={entry.ref}
+            health={entry.health}
+            staleFiles={entry.staleFiles}
+            sourcePath={entry.sourcePath}
+            artifactPath={entry.artifactPath}
+            slots={entry.slots}
+          />
+        </Box>
+      )}
+    </>
+  );
+}
+
+/**
+ * The drawer's History tab. Opened on an input card, it is that one file's
+ * copy in the open skill; opened on a row or the output, it is the whole
+ * compiled skill.
+ */
+export function HistoryTab({
+  file,
+  ...props
+}: HistoryProps & {
+  /** The input card's own file; null for a row or the output. */
+  file: string | null;
+}) {
+  return (
     <Box
       className={`${classes.tabBody} ${classes.history}`}
       data-parity="history"
       data-testid="drawer-history"
     >
       <Stack gap={12}>
-        <TabHeading parity="h1">Built from</TabHeading>
-        <BuiltFromTable rows={rows} />
-        {note && (
-          <Paper
-            variant="panel-outline"
-            radius={7}
-            className={classes.note}
-            data-parity="note"
-            data-testid="history-note"
-          >
-            <Text fz={12} lh="normal" c={MUTED} data-parity="t">
-              {note}
-            </Text>
-          </Paper>
-        )}
-        {stale.length > 0 && (
-          <>
-            <TabHeading parity="h2">Elsewhere in this pipeline</TabHeading>
-            <Stack gap={6}>
-              {stale.map(step => (
-                <StaleStepRow
-                  key={step.skill}
-                  step={step}
-                  onOpen={() => onOpen(step.focus)}
-                />
-              ))}
-            </Stack>
-          </>
-        )}
-        {rebuild && (
-          <>
-            <SyncCommand pack={pack} />
-            <Text fz={11} lh="normal" c={MUTED} data-parity="fixnote">
-              Rebuilds every stale {pipeline ? 'step' : 'skill'} from the
-              installed sources.
-            </Text>
-          </>
-        )}
-        {entry?.verb && (
-          <Box className={classes.timeline}>
-            <VersionTimeline
-              pack={pack}
-              verb={entry.verb}
-              refName={entry.ref}
-              health={entry.health}
-              staleFiles={entry.staleFiles}
-              sourcePath={entry.sourcePath}
-              artifactPath={entry.artifactPath}
-              slots={entry.slots}
-            />
-          </Box>
+        {file ? (
+          <FileHistory
+            anatomy={props.anatomy}
+            check={props.check}
+            file={file}
+          />
+        ) : (
+          <SkillHistory {...props} />
         )}
       </Stack>
     </Box>
