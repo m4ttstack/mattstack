@@ -866,17 +866,6 @@ body {
      vertical-align), which a flex item cannot express directly. */
   transform: translateY(2.5px);
 }
-/* The row tools (ticket, copy) ride the status line's right end. Centered,
-   not baseline-aligned: an icon-only box has no text baseline, so under the
-   line's baseline alignment its bottom edge would push the verb down the
-   moment the tools appear. */
-.tui-status-tools {
-  display: inline-flex;
-  align-items: center;
-  align-self: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
 /* The copy tool is a verb in icon form, so it wears the verb's box: nothing
    at rest, the same tint under the pointer, the same corner. */
 .tui-copy-inline {
@@ -1016,26 +1005,11 @@ body {
   font-size: 0.66rem;
   color: var(--text-4);
 }
-/* In-flow tools take the auto margin and the verbs give theirs up, so the
-   verb keeps its corner and the tools stack to its left. Coarse pointers
-   have no hover, so they get this at rest. */
-.tui-status-tools {
-  margin-left: auto;
-  padding-left: 16px;
-}
-/* The tools wear the verb's box, so one gap runs the whole group: the 6px
-   that separates two verbs separates the last tool from the first verb. */
-.tui-status-tools + .tui-status-verbs {
-  margin-left: 0;
-  padding-left: 6px;
-}
-/* Under a pointer, secondary verbs and the tools wait out of sight at rest
-   but never out of the tab order: clipped to a point, not display: none,
-   so focus-within can reveal them for keyboard users. Clipped tools are out
-   of flow, so the verbs hold the auto margin until the reveal. */
+/* Under a pointer, secondary verbs wait out of sight at rest but never out
+   of the tab order: clipped to a point, not display: none, so focus-within
+   can reveal them for keyboard users. */
 @media (hover: hover) {
-  .tui-status-verb[data-secondary],
-  .tui-status-tools {
+  .tui-status-verb[data-secondary] {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -1043,21 +1017,12 @@ body {
     clip-path: inset(50%);
     white-space: nowrap;
   }
-  .tui-status-tools + .tui-status-verbs {
-    margin-left: auto;
-    padding-left: 16px;
-  }
-  .tui-row:is(:hover, :focus-within) .tui-status-verb[data-secondary],
-  .tui-row:is(:hover, :focus-within) .tui-status-tools {
+  .tui-row:is(:hover, :focus-within) .tui-status-verb[data-secondary] {
     position: static;
     width: auto;
     height: auto;
     overflow: visible;
     clip-path: none;
-  }
-  .tui-row:is(:hover, :focus-within) .tui-status-tools + .tui-status-verbs {
-    margin-left: 0;
-    padding-left: 6px;
   }
 }
 
@@ -2943,11 +2908,11 @@ a.tui-id-card-ref:focus-visible {
 }
 
 /* ── row action menu (right-click): what the ContextMenu recipe left behind ──
-   The menu's whole shell is `[data-part="contextmenu"]` now -- the fixed box,
-   the 200px measure, the 90ms entry animation, the measured viewport clamp,
-   the label/item/hint/separator parts and the item's hover/focus wash and
-   disabled dim all live in the kit. Three groups survive here, none of which a
-   menu shell could own:
+   The menu's whole shell lives in the kit -- the fixed positioner and its
+   viewport clamp, the popup (`[data-part="contextmenu"]`) with its 200px
+   measure and 90ms entry animation, the flyouts and the reaction row, every
+   part, and the item's hover/focus wash and disabled dim. Three groups survive
+   here, none of which a menu shell could own:
 
    1. NOTE MODE (`.tui-menu-noting`, `.tui-menu-note`, `.tui-menu-note-hint`).
       An application mode, not menu chrome: it knows about launch notes, the
@@ -3023,7 +2988,8 @@ a.tui-id-card-ref:focus-visible {
 }
 /* A bulk item that cannot run keeps its words on one line with the reason
    wrapped under them, indented past the 13px icon and 9px gap. The
-   recipe's :disabled rule dims the whole item. */
+   recipe's [data-disabled] rule dims the label; the reason takes the hint's
+   legible token and italic, as the recipe's disabled hint does. */
 .tui-menu-blocked {
   display: flex;
   flex-direction: column;
@@ -3033,8 +2999,23 @@ a.tui-id-card-ref:focus-visible {
   max-width: 15rem;
   padding-left: 22px;
   font-size: 11px;
-  color: var(--text-3);
+  font-style: italic;
+  color: var(--text-4);
   white-space: normal;
+}
+/* A disabled row's glyph dims with its label. An emoji ignores colour, so
+   it is greyed and faded instead. */
+[data-part='contextmenu-item'][data-disabled] .tui-menu-icon-label svg {
+  color: inherit;
+}
+[data-part='contextmenu-item'][data-disabled] .tui-menu-emoji,
+[data-part='contextmenu-item'][aria-busy='true'] .tui-menu-emoji {
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+/* A toggle being written keeps focus, so it is marked busy, never disabled. */
+[data-part='contextmenu-item'][aria-busy='true'] {
+  cursor: progress;
 }
 /* A selection no bulk action fits: one line where the items would be,
    padded like an item so the menu keeps its shape. */
@@ -3054,6 +3035,11 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-menu-agent[data-lane='doctor'] {
   --lane: var(--orange);
+}
+/* A disabled agent action drops its lane colour for the recipe's muted one,
+   so it never reads as a live action. */
+[data-part='contextmenu-item'][data-disabled] .tui-menu-agent {
+  color: inherit;
 }
 /* Trailing nodes a slack-mark item hands the shell: the set mark, and the
    in-flight spinner that replaces it while the reaction is being written. */

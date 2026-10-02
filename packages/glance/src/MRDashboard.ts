@@ -263,6 +263,32 @@ export function getMRDashboardProps(
   };
 }
 
+const MERGE_STATUS_REASON: Record<string, string> = {
+  ci_still_running: 'pipeline running',
+  ci_must_pass: 'pipeline must pass',
+  draft_status: 'draft',
+  need_rebase: 'needs rebase',
+  conflict: 'conflicts',
+  not_approved: 'needs approval',
+  requested_changes: 'changes requested',
+  discussions_not_resolved: 'open threads',
+  checking: 'checking',
+  unchecked: 'checking',
+  preparing: 'checking',
+  approvals_syncing: 'checking',
+};
+
+/** Why the merge action cannot run, in a few words for a menu row, or null
+    when it can. */
+export function mergeBlockedReason(
+  mr: Pick<MRDashboardProps, 'isDraft' | 'statusDetail' | 'mergeButton'>
+): string | null {
+  if (mr.isDraft) return 'draft';
+  if (mr.mergeButton.loading) return 'merging';
+  if (!mr.mergeButton.disabled) return null;
+  return MERGE_STATUS_REASON[mr.statusDetail] ?? 'not mergeable yet';
+}
+
 /**
  * A live MR dashboard binding for a single MR.
  *

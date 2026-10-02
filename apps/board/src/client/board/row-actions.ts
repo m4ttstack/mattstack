@@ -2,17 +2,20 @@
     rowActions; the bulk menu groups several MRs' lists (bulkActions), so the
     one-row and bulk menus can never disagree about what an MR can take.
     DOM-free, so both menus and their tests share it. */
+import { mergeBlockedReason } from '@mattstack/glance';
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
 import { hasStackDescendants, isOwnMr, stackParents } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import {
+  askOutstanding,
+  DOCTOR_ACTIVE,
   doctorItemLabel,
   firstReviewTargets,
   getSlackMarks,
-  gitlabMenuItems,
   laneInterrupted,
   nudgeTargets,
+  respondAskBlock,
   respondAskTarget,
   respondItemLabel,
   reviewLogged,
@@ -22,7 +25,8 @@ import {
 import { laneDismissed } from './row-status.ts';
 
 export type Lane = 'review' | 'respond' | 'doctor';
-export type Section = 'agent' | 'gitlab' | 'slack';
+export type Section =
+  'top' | 'agent' | 'sessions' | 'gitlab' | 'slack' | 'more';
 
 export type ActionGlyph =
   | {
@@ -95,6 +99,8 @@ export interface RowAction extends MenuEntry {
 export interface ActionEnv {
   local: boolean;
   slackEnabled: boolean;
+  /** Auto-doctor on for this board; undefined = unknown. */
+  triageEnabled?: boolean;
   /** The rt repos (as stamped on a row's `rtRepo`) whose Code Owner section
       names carry Slack channels; absent means none. */
   ownerSlackRepos?: string[];
@@ -147,25 +153,38 @@ function item(
   return { key, section, label, glyph, request, ...extra };
 }
 
-/** Every action this MR offers right now, in menu order. Only what is
-    possible renders: a blocked GitLab action is absent, not greyed. The one
-    greyed entry is the seatless board's hint, which stands in for every
-    author action at once. */
+const block = (
+  reason: string | null | false | undefined
+): Partial<RowAction> => (reason ? { blocked: reason } : {});
+
+/** Every action this MR offers, in menu order, each in one section. A row
+    is omitted for who is looking (local board, own MR, seat, Slack on, an
+    opted-in repo) and in three state cases only: call doctor on a healthy
+    MR, rebase locally on a current one, and another author's response
+    report or respond/doctor line while there is nothing to show. Every
+    other state blocks the row with a reason instead of removing it. */
 export function rowActions(
   mrx: BoardMRWithReview,
   env: ActionEnv
 ): RowAction[] {
   const own = isOwnMr(mrx, env.self);
+  const top: RowAction[] = [];
   const agent: RowAction[] = [];
+  const sessions: RowAction[] = [];
+  const gitlab: RowAction[] = [];
+  const slack: RowAction[] = [];
+  const more: RowAction[] = [];
 
   if (env.local) {
     const reviewRunning =
       mrx.review?.status === 'queued' || mrx.review?.status === 'reviewing';
-    for (const it of reviewMenuItems(
+    const reviewItems = reviewMenuItems(
       mrx.review?.status,
       laneInterrupted(mrx.orphan, mrx.review),
       reviewLogged(mrx)
-    )) {
+    );
+    const reReviewOffered = reviewItems.some(it => it.kind === 're-review');
+    for (const it of reviewItems) {
       if (reviewRunning)
         agent.push(
           agentItem('review', 'focus-review', it.label, {
@@ -184,6 +203,16 @@ export function rowActions(
             { notable: true, bulk: 're-review' }
           )
         );
+      else if (reReviewOffered)
+        sessions.push(
+          agentItem(
+            'review',
+            'review',
+            'review from scratch',
+            { kind: 'launch', flow: 'review' },
+            { section: 'sessions', notable: true, bulk: 'review' }
+          )
+        );
       else
         agent.push(
           agentItem(
@@ -195,16 +224,19 @@ export function rowActions(
           )
         );
     }
-    if (mrx.review?.sessionId)
-      agent.push(
-        agentItem(
-          'review',
-          'resume-review',
-          'resume review',
-          { kind: 'launch', flow: 'resume-review' },
-          { notable: true }
-        )
-      );
+    sessions.push(
+      agentItem(
+        'review',
+        'resume-review',
+        'resume review',
+        { kind: 'launch', flow: 'resume-review' },
+        {
+          section: 'sessions',
+          notable: true,
+          ...block(!mrx.review?.sessionId && 'no session'),
+        }
+      )
+    );
     if (own) {
       const label = respondItemLabel(
         mrx.respond?.status,
@@ -229,16 +261,19 @@ export function rowActions(
               { notable: true }
             )
       );
-      if (mrx.respond?.sessionId)
-        agent.push(
-          agentItem(
-            'respond',
-            'resume-respond',
-            'resume response',
-            { kind: 'launch', flow: 'resume-respond' },
-            { notable: true }
-          )
-        );
+      sessions.push(
+        agentItem(
+          'respond',
+          'resume-respond',
+          'resume response',
+          { kind: 'launch', flow: 'resume-respond' },
+          {
+            section: 'sessions',
+            notable: true,
+            ...block(!mrx.respond?.sessionId && 'no session'),
+          }
+        )
+      );
     }
     if (own && (mrx.blockers?.pipelineFailing || mrx.blockers?.hasConflicts)) {
       const label = doctorItemLabel(mrx.doctor?.status);
@@ -274,97 +309,115 @@ export function rowActions(
         )
       );
   }
-  if (mrx.review?.reportReady)
-    agent.push(
-      item('agent', 'view-review', 'view agent review', FILE, {
-        kind: 'view-report',
-        lane: 'review',
-      })
-    );
-  if (mrx.respond?.reportReady)
-    agent.push(
-      item('agent', 'view-respond', 'view agent response', FILE, {
-        kind: 'view-report',
-        lane: 'respond',
-      })
-    );
-  for (const lane of ['review', 'respond', 'doctor'] as const) {
-    const state = mrx[lane];
-    if (state?.status !== 'error' || laneDismissed(state)) continue;
-    agent.push(
-      item('agent', `dismiss-${lane}`, `dismiss ${lane} line`, DISMISS, {
-        kind: 'dismiss',
-        lane,
-      })
-    );
-  }
-  // Auto-doctor only ever acts on the seat's own MRs, so the toggle is theirs.
-  // Matched by url: the MR handed in can be a copy (optimistic overlay, live
-  // slack marks), and the stack walk compares objects.
-  const onBoard = env.allMrs.find(m => m.webUrl === mrx.webUrl) ?? mrx;
-  if (own)
-    agent.push(
+
+  sessions.push(
+    item(
+      'sessions',
+      'view-review',
+      'view agent review',
+      FILE,
+      { kind: 'view-report', lane: 'review' },
+      block(!mrx.review?.reportReady && 'no report yet')
+    )
+  );
+  if (own || mrx.respond?.reportReady)
+    sessions.push(
       item(
-        'agent',
-        'stand-down',
-        mrx.standDown
-          ? 're-enable auto-doctor'
-          : `auto-doctor: ignore this ${hasStackDescendants(onBoard, env.allMrs) ? 'stack' : 'MR'}`,
-        DISMISS,
-        { kind: 'stand-down', on: !mrx.standDown }
+        'sessions',
+        'view-respond',
+        'view agent response',
+        FILE,
+        { kind: 'view-report', lane: 'respond' },
+        block(!mrx.respond?.reportReady && 'no report yet')
       )
     );
-  if (env.local && own)
-    for (const peer of nudgeTargets(mrx))
-      agent.push(
+  if (env.local)
+    for (const lane of ['review', 'respond', 'doctor'] as const) {
+      const state = mrx[lane];
+      const live = state?.status === 'error' && !laneDismissed(state);
+      // A live error line must never lose its dismiss, whoever owns the MR.
+      if (lane !== 'review' && !own && !live) continue;
+      sessions.push(
         item(
-          'agent',
+          'sessions',
+          `dismiss-${lane}`,
+          `dismiss ${lane} line`,
+          DISMISS,
+          { kind: 'dismiss', lane },
+          block(!live && 'nothing to dismiss')
+        )
+      );
+    }
+  if (env.local && own) {
+    const peers = nudgeTargets(mrx);
+    for (const peer of peers)
+      sessions.push(
+        item(
+          'sessions',
           `nudge-${peer.reviewer}`,
           `ask ${peer.reviewer}'s agent to re-review`,
           PEOPLE,
           { kind: 'ask', ask: 're-review', reviewer: peer.reviewer }
         )
       );
-  const respondTarget =
-    env.local && env.self !== null && !own
-      ? respondAskTarget(mrx, env.peers)
-      : null;
-  if (respondTarget)
-    agent.push(
+    if (!peers.length)
+      sessions.push(
+        item(
+          'sessions',
+          'nudge-none',
+          "ask a reviewer's agent to re-review",
+          PEOPLE,
+          { kind: 'ask', ask: 're-review' },
+          {
+            blocked: askOutstanding(mrx)
+              ? 'ask already sent'
+              : 'no peer review',
+          }
+        )
+      );
+    const askTargets = firstReviewTargets(mrx, env.roster, env.peers);
+    sessions.push(
       item(
-        'agent',
-        'ask-respond',
-        `ask ${respondTarget}'s agent to respond`,
-        PEOPLE,
-        { kind: 'ask', ask: 'respond', reviewer: respondTarget }
-      )
-    );
-  const askTargets =
-    env.local && own ? firstReviewTargets(mrx, env.roster, env.peers) : [];
-  if (askTargets.length)
-    agent.push(
-      item(
-        'agent',
+        'sessions',
         'request-review',
         'request review from…',
         PEOPLE,
         { kind: 'ask', ask: 'review' },
-        {
-          pick: {
-            title: 'request review from',
-            aria: 'request review',
-            options: askTargets.map(value => ({ value })),
-          },
-          bulk: 'request review from…',
-        }
+        askTargets.length
+          ? {
+              pick: {
+                title: 'request review from',
+                aria: 'request review',
+                options: askTargets.map(value => ({ value })),
+              },
+              bulk: 'request review from…',
+            }
+          : {
+              blocked: askOutstanding(mrx)
+                ? 'ask already sent'
+                : 'everyone engaged',
+            }
       )
     );
-
-  const gitlab: RowAction[] = [];
-  if (env.local && env.self === null)
-    gitlab.push(
+  }
+  if (env.local && env.self !== null && !own) {
+    const target = respondAskTarget(mrx, env.peers);
+    const who = target ?? mrx.author.username;
+    agent.push(
       item(
-        'gitlab',
+        'agent',
+        'ask-respond',
+        `ask ${who}'s agent to respond`,
+        PEOPLE,
+        { kind: 'ask', ask: 'respond', reviewer: who },
+        target ? {} : { blocked: respondAskBlock(mrx) }
+      )
+    );
+  }
+  if (env.local && env.self === null)
+    agent.push(
+      item(
+        'agent',
         'seat-hint',
         'author actions',
         PEOPLE,
@@ -372,22 +425,83 @@ export function rowActions(
         { blocked: SEAT_HINT }
       )
     );
+  if (!env.local)
+    agent.push(
+      item(
+        'agent',
+        'local-hint',
+        'agent actions',
+        PEOPLE,
+        { kind: 'open', url: '' },
+        { blocked: 'need a local board' }
+      )
+    );
+
   if (env.local && own) {
-    for (const g of gitlabMenuItems(mrx)) {
-      if (g.disabled) continue;
-      gitlab.push(
-        item(
-          'gitlab',
-          g.kind,
-          g.label,
-          GITLAB_GLYPH[g.kind],
-          { kind: 'mr', action: g.kind },
-          g.kind === 'merge'
-            ? { bulk: g.label, confirm: 'really merge?' }
-            : { bulk: g.label }
-        )
-      );
-    }
+    // glance hides both buttons on a draft or an MR that is not open; the
+    // board lists only open MRs, so a hidden button past draft is a state
+    // the row blocks rather than one it trusts.
+    const hidden = mrx.isDraft ? 'draft' : 'not mergeable yet';
+    gitlab.push(
+      item(
+        'gitlab',
+        'merge',
+        'merge',
+        GITLAB_GLYPH.merge,
+        { kind: 'mr', action: 'merge' },
+        {
+          bulk: 'merge',
+          confirm: 'really merge?',
+          ...block(
+            mergeBlockedReason(mrx) || (!mrx.mergeButton.visible && hidden)
+          ),
+        }
+      )
+    );
+    gitlab.push(
+      item(
+        'gitlab',
+        'rebase',
+        'rebase on target',
+        GITLAB_GLYPH.rebase,
+        { kind: 'mr', action: 'rebase' },
+        {
+          bulk: 'rebase on target',
+          ...block(
+            mrx.rebaseButton.loading
+              ? 'rebasing'
+              : !mrx.rebaseButton.visible &&
+                  mrx.behindTarget === 0 &&
+                  'up to date'
+          ),
+        }
+      )
+    );
+    // An armed auto-merge stays cancellable on a draft, where glance hides
+    // the button: GitLab's cancel checks only that auto-merge is on.
+    const autoMerge = mrx.autoMergeButton;
+    gitlab.push(
+      autoMerge.isActive
+        ? item(
+            'gitlab',
+            'cancelAutoMerge',
+            'cancel auto-merge',
+            GITLAB_GLYPH.cancelAutoMerge,
+            { kind: 'mr', action: 'cancelAutoMerge' },
+            { bulk: 'cancel auto-merge' }
+          )
+        : item(
+            'gitlab',
+            'setAutoMerge',
+            'set auto-merge',
+            GITLAB_GLYPH.setAutoMerge,
+            { kind: 'mr', action: 'setAutoMerge' },
+            {
+              bulk: 'set auto-merge',
+              ...block(!autoMerge.visible && hidden),
+            }
+          )
+    );
     gitlab.push(
       mrx.isDraft
         ? item(
@@ -418,17 +532,17 @@ export function rowActions(
     )
   );
 
-  const slack: RowAction[] = [];
   const s = mrx.slack;
   if (env.local && env.slackEnabled) {
-    if (s?.status === 'found') {
+    const found = s?.status === 'found';
+    if (found) {
       const reactions = s.reactions ?? [];
       for (const m of getSlackMarks()) {
         const marked = reactions.includes(m.emoji);
         const label = marked ? `unmark ${m.word}` : `mark as ${m.word}`;
-        slack.push(
+        top.push(
           item(
-            'slack',
+            'top',
             `${marked ? 'unreact' : 'react'}-${m.emoji}`,
             label,
             { kind: 'emoji', glyph: m.glyph },
@@ -437,39 +551,44 @@ export function rowActions(
           )
         );
       }
-      if (s.permalink)
-        slack.push(
-          item('slack', 'open-slack-post', 'open MR post in slack', SLACK, {
-            kind: 'open',
-            url: s.permalink,
-          })
-        );
-    } else {
-      slack.push(
+    }
+    // The author of an unposted MR leads with posting it; finding the thread
+    // leads only for everyone else.
+    const postFirst = own && !found;
+    const findThread = (section: Section) =>
+      item(
+        section,
+        'find-thread',
+        s?.status === 'notfound'
+          ? 'no thread, find it again'
+          : 'find slack thread',
+        SLACK,
+        { kind: 'find-thread' },
+        { bulk: 'find slack threads' }
+      );
+    if (!found && !postFirst) top.push(findThread('top'));
+    slack.push(
+      item(
+        'slack',
+        'open-slack-post',
+        'open MR post in slack',
+        SLACK,
+        { kind: 'open', url: (found && s.permalink) || '' },
+        block(!found ? 'no thread' : !s.permalink && 'no link yet')
+      )
+    );
+    if (postFirst) slack.push(findThread('slack'));
+    if (own)
+      (postFirst ? top : slack).push(
         item(
-          'slack',
-          'find-thread',
-          s?.status === 'notfound'
-            ? 'no thread, find it again'
-            : 'find slack thread',
+          postFirst ? 'top' : 'slack',
+          'post-slack',
+          mrx.slackChannel ? `post to #${mrx.slackChannel}` : 'post to slack',
           SLACK,
-          { kind: 'find-thread' },
-          { bulk: 'find slack threads' }
+          { kind: 'post-slack' },
+          block(found && 'thread exists')
         )
       );
-      if (own)
-        slack.push(
-          item(
-            'slack',
-            'post-slack',
-            mrx.slackChannel ? `post to #${mrx.slackChannel}` : 'post to slack',
-            SLACK,
-            {
-              kind: 'post-slack',
-            }
-          )
-        );
-    }
     if (own && !!mrx.rtRepo && env.ownerSlackRepos?.includes(mrx.rtRepo))
       slack.push(
         item('slack', 'post-owners', 'post to code owners…', SLACK, {
@@ -478,19 +597,45 @@ export function rowActions(
       );
   }
   slack.push(item('slack', 'copy', 'copy for slack', COPY, { kind: 'copy' }));
-  slack.push(
-    item('slack', 'note', mrx.note ? 'edit note' : 'add a note', NOTE, {
+  more.push(
+    item('more', 'note', mrx.note ? 'edit note' : 'add a note', NOTE, {
       kind: 'note',
     })
   );
+  if (env.local && own) {
+    // Auto-doctor only ever acts on the seat's own MRs. Matched by url: the MR
+    // handed in can be a copy (optimistic overlay, live slack marks), and the
+    // stack walk compares objects.
+    const onBoard = env.allMrs.find(m => m.webUrl === mrx.webUrl) ?? mrx;
+    const doctorActive =
+      !!mrx.doctor?.status && DOCTOR_ACTIVE.has(mrx.doctor.status);
+    more.push(
+      item(
+        'more',
+        'stand-down',
+        mrx.standDown
+          ? 're-enable auto-doctor'
+          : `auto-doctor: ignore this ${hasStackDescendants(onBoard, env.allMrs) ? 'stack' : 'MR'}`,
+        DISMISS,
+        { kind: 'stand-down', on: !mrx.standDown },
+        block(
+          !mrx.standDown &&
+            env.triageEnabled === false &&
+            !doctorActive &&
+            'auto-doctor is off'
+        )
+      )
+    );
+  }
 
-  return [...agent, ...gitlab, ...slack];
+  return [...top, ...agent, ...sessions, ...gitlab, ...slack, ...more];
 }
 
 /** Launches past this many ask for a second click. */
 export const LAUNCH_CONFIRM_OVER = 3;
 
 export interface BulkEntry extends MenuEntry {
+  section: BulkSection;
   request: ActionRequest;
   /** The checked MRs that need the action; the rest are already there. */
   targets: BoardMRWithReview[];
@@ -548,7 +693,21 @@ function alreadyThere(
   }
 }
 
-const SECTION_RANK: Record<Section, number> = { agent: 0, gitlab: 1, slack: 2 };
+export type BulkSection = 'agent' | 'gitlab' | 'slack';
+/** The bulk menu keeps its three headings; each row section folds onto one. */
+export const BULK_SECTION: Record<Section, BulkSection> = {
+  top: 'slack',
+  agent: 'agent',
+  sessions: 'agent',
+  gitlab: 'gitlab',
+  slack: 'slack',
+  more: 'slack',
+};
+const SECTION_RANK: Record<BulkSection, number> = {
+  agent: 0,
+  gitlab: 1,
+  slack: 2,
+};
 const BULK_RANK = [
   'review',
   're-review',
@@ -607,6 +766,13 @@ function mergeBlock(checked: BoardMR[], allMrs: BoardMR[]): string | undefined {
   return undefined;
 }
 
+/** An unknown behind count leaves the row's rebase enabled, but a bulk
+    rebase only targets an MR GitLab or the behind count says is behind;
+    the rest count as already there. */
+function rebaseNeeded(mr: BoardMR): boolean {
+  return mr.rebaseButton.visible || (mr.behindTarget ?? 0) > 0;
+}
+
 /** The bulk menu: an action shows when every checked MR either offers it
     (a target) or is already where it leads (skipped); one checked MR that
     cannot get there hides it. Eligibility comes only from rowActions; what
@@ -618,7 +784,9 @@ export function bulkActions(
 ): BulkEntry[] {
   if (!env.local) return [];
   const rows = mrs.map(mr => {
-    const actions = rowActions(mr, env);
+    const actions = rowActions(mr, env).filter(
+      a => !a.blocked && (a.key !== 'rebase' || rebaseNeeded(mr))
+    );
     return {
       mr,
       actions,
@@ -664,7 +832,7 @@ export function bulkActions(
   const entries = [...groups].map(([key, g]): BulkEntry => {
     const entry: BulkEntry = {
       key,
-      section: g.first.section,
+      section: BULK_SECTION[g.first.section],
       label: g.first.bulk ?? g.first.label,
       glyph: g.first.glyph,
       lane: g.first.lane,

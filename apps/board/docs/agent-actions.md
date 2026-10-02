@@ -77,9 +77,11 @@ back. Notes cap at 2000 characters. Triage never sends one.
 
 The actions appear only when the board is opened from a local hostname
 (`localhost`, `127.0.0.1`, any `*.localhost`, any `*.mattstack`). The gate is
-enforced twice: the client hides the menu items, and the server returns `403`
-on the launch endpoints. They never fire when the board is viewed through a
-public tunnel.
+enforced twice: the client leaves the agent items out of the menu, and the
+server returns `403` on the launch endpoints. They never fire when the board
+is viewed through a public tunnel. A remote board shows one greyed-out
+"agent actions" row in their place, noting that they need a local board; it
+does nothing when clicked.
 
 ## Skill bindings (per-pack `skills.jsonc`)
 

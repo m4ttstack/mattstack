@@ -171,8 +171,8 @@ entry does not have to get both calls right in two different scopes itself.
 Modal and SideDrawer are category-2 transient overlays, which the authoring
 skill pairs with `defineCompound`. They use `defineComponent` anyway. The
 pairing exists because in soribashi a transient overlay wraps Base UI parts
-whose open/close lifecycle Base UI owns; this kit has no `@base-ui/react`
-dependency and none planned, the markup is mr-board's own, and the lifecycle is
+whose open/close lifecycle Base UI owns; here only ContextMenu composes Base UI
+(see the next section), the markup is mr-board's own, and the lifecycle is
 the caller's `{open && <Modal/>}` conditional plus `useEscapeClose` /
 `useBodyScrollLock`. The real test for a compound is composability, not slot
 count — nobody imports a `Modal.Overlay` or a `SideDrawer.Panel`, and inventing
@@ -184,6 +184,66 @@ and in what order. Two consequences apply there and nowhere else in the kit —
 `defineCompound` never calls `autoVars` (no automatic fallback at all), and its
 `getStyles` takes an options object (`getStyles({ part: 'hint' })`), never the
 bare-string form.
+
+## ContextMenu composes Base UI Menu
+
+ContextMenu is the one recipe built on `@base-ui/react` (`Menu`). Submenus
+are why. Pointer travel from a row into its flyout, arrow-key focus between
+items, typeahead, focus return, flipping a flyout that does not fit, and the
+menu ARIA are each easy to get subtly wrong by hand, and Base UI already gets
+them right. The public API did not change: the caller still mounts the menu
+at a point and owns `onClose`.
+
+Base UI is driven, not trusted, in eight places:
+
+- The menu is controlled and always open while mounted. Every item has
+  `closeOnClick={false}`, so only the caller closes it.
+- An item's click skips Base UI's own click handlers, one of which refocuses
+  the clicked item. The caller decides where focus goes next.
+- The popup takes its first focus (the caller's `initialFocusRef`, else the
+  popup itself) from its ref callback, before Base UI's focus manager runs,
+  so Base UI never moves it to the first tabbable instead.
+- Base UI's Escape is cancelled. The root and each open submenu join the
+  kit's layer stack (`useEscapeClose`), so one Escape closes one layer
+  whatever order the two `document` listeners run in. A menu over a drawer
+  never takes the drawer with it.
+- Base UI's outside press (a capture-phase `pointerdown`) is cancelled. The
+  recipe's own bubble-phase `mousedown` closes it, so a trigger that stops
+  that mousedown can still act as a toggle.
+- The portal lands in a wrapper the recipe renders in place, not `<body>`, so
+  a scoped `.dark` or theme wrapper still reaches the menu and its submenus.
+- The root is a plain non-modal `Menu.Root`, not Base UI's `ContextMenu.Root`,
+  which is always modal (a backdrop and a scroll lock). It needs a trigger
+  anyway, so it gets a hidden `Menu.Trigger`, tied to it through
+  `triggerId`.
+- A key pressed in a field inside the menu or a submenu (an input, textarea,
+  select or contenteditable) skips Base UI's handlers, all but Escape. Its
+  typeahead and arrow-key navigation would otherwise swallow typed text and
+  pull focus out of the field, and its Shift+Tab would hold focus where it is
+  (or close a submenu) instead of moving it back a field.
+
+Two things depend on Base UI's floating tree, so change either one only
+together with the other:
+
+- the hidden trigger, which supplies the root's floating-tree node id. Without
+  it, Base UI cannot tell the submenus are the root's children;
+- the root's `focus-out` cancel. Without the node id, focus moving into a
+  submenu reads as focus leaving the menu, and the cancel is what stops that
+  closing it.
+
+Base UI's focus return on close is off for the root. The recipe returns focus
+itself, and only when focus was lost with the menu, so a menu swapped in under
+a new key keeps the focus it took.
+
+A disabled Item or Sub is Base UI's own: `aria-disabled` on a button that
+keeps no native `disabled`, focusable and reached by the arrow keys, and inert
+to a click, Enter or Space. A natively disabled button that has focus drops it
+to `<body>` in WebKit and Firefox, which loses the reader's place in the menu.
+The styling keys on `data-disabled`, and the hint stays inside the button, so
+a blocked row's reason is part of its accessible name.
+
+The other overlays (Modal, SideDrawer, Tooltip) stay hand-rolled. Nothing
+they do needs what Base UI adds.
 
 ## Why the intent resolver is hand-written
 
