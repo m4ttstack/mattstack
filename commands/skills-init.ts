@@ -12,7 +12,7 @@ import { homedir } from "os";
 import { dirname, resolve } from "path";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
-import { updateRepoIndexAsync } from "../lib/repo-index.ts";
+import { healErrorClause, updateRepoIndexAsync, type IndexHealResult } from "../lib/repo-index.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { failureFor, logFailureDetail, UserActionableError, userErrorPayload } from "../lib/errors.ts";
@@ -89,6 +89,13 @@ export function initMaterializeVerdict(r: MaterializeSkillsResult, pack: string)
   return { ok: written > 0, detail: row.detail, warnings, pruneWarnings };
 }
 
+export function repoListFailure(dir: string, indexed: Omit<Extract<IndexHealResult, { ok: false }>, "ok">): UserActionableError {
+  return new UserActionableError("locate-failed", `rt could not add ${dir} to its repo list: ${healErrorClause(indexed.error)}`, {}, {
+    ...(indexed.why ? { why: indexed.why } : {}),
+    ...(indexed.next ? { next: indexed.next } : {}),
+  });
+}
+
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -163,7 +170,7 @@ function realDeps(opts: { json: boolean }): InitDeps {
     registerRepo: async (dir) => {
       const identity = serializeIdentity(await deriveRepoIdentity(dir));
       const indexed = await updateRepoIndexAsync(identity, dir);
-      if (!indexed.ok) throw new UserActionableError("locate-failed", `rt could not add ${dir} to its repo list: ${indexed.error}`);
+      if (!indexed.ok) throw repoListFailure(dir, indexed);
       return identity;
     },
     materialize: async (repoName, pack) => {

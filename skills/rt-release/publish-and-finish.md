@@ -212,7 +212,8 @@ legs, in order:
   anything mounts), replaces `/Applications/mattstack.app` by moving the old one aside, and never
   launches either copy.
 - **Dev bundle**: builds in a scratch tree at the released commit, replaces
-  `/Applications/mattstack-dev.app` the same way, opens it and waits for a fresh pid.
+  `/Applications/mattstack-dev.app` the same way, and, only if it was running, reopens it and
+  waits for a fresh pid.
 - **Shared checkout sync**: the shared `~/Documents/GitHub/mattstack` checkout (or the older
   `~/Documents/GitHub/repo-tools` folder on a machine that has not moved it); refuses unless it is
   on main, then fast-forwards it and runs a frozen install.

@@ -14,7 +14,11 @@ import { loadRepoIndex, REPO_INDEX_NS } from "../repo-index.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../worktree/registry.ts";
 import { saveClaims } from "../endpoint/store.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../settings/identity.ts";
-import { applyLocate, findLocateCandidates, isRefusal, planLocate } from "../repo-locate.ts";
+import { applyLocate, findLocateCandidates, isRefusal, parseRefusalText, planLocate, refusalWithNext, splitRefusalNext, __test__ as locateTest } from "../repo-locate.ts";
+
+const LONG_DASH = new RegExp(`[${String.fromCodePoint(0x2013)}${String.fromCodePoint(0x2014)}]`);
+/** A refusal a person reads: no long dash and no flag in the sentence. */
+const plainWords = (message: string) => !LONG_DASH.test(message) && !message.includes("--");
 
 describe("repo locate", () => {
   const origHome = process.env.HOME;
@@ -62,12 +66,14 @@ describe("repo locate", () => {
     mkdirSync(plain);
     const out = await planLocate({ newPath: plain });
     expect(isRefusal(out) && out.refusal).toBe("not-a-git-repo");
+    expect(isRefusal(out) && plainWords(out.message)).toBe(true);
   });
 
   test("nothing lost in the index is refused", async () => {
     const repo = repoWithRemote("alpha");
     const out = await planLocate({ newPath: repo });
     expect(isRefusal(out) && out.refusal).toBe("nothing-lost");
+    expect(isRefusal(out) && plainWords(out.message)).toBe(true);
   });
 
   test("a derived identity matching no lost row refuses and names both sides", async () => {
@@ -77,8 +83,36 @@ describe("repo locate", () => {
     const out = await planLocate({ newPath: repo });
 
     expect(isRefusal(out) && out.refusal).toBe("identity-mismatch");
-    expect(isRefusal(out) && out.message).toContain("remote:gitlab.com%2Fg%2Fbeta");
-    expect(isRefusal(out) && out.message).toContain("remote:gitlab.com%2Fg%2Fsomething-else");
+    expect(isRefusal(out) && plainWords(out.message)).toBe(true);
+    expect(isRefusal(out) && out.message).toBe(
+      `${repo} holds gitlab.com/g/beta, and no missing repo rt knows is gitlab.com/g/beta. The missing ones are gitlab.com/g/something-else.`,
+    );
+  });
+
+  test("a lost repo with the same name on another host is told apart from the one found", async () => {
+    setKvValue(REPO_INDEX_NS, "remote:github.com%2Fg%2Fbeta", join(scratch, "gone"));
+    const repo = repoWithRemote("beta");
+
+    const out = await planLocate({ newPath: repo });
+
+    expect(isRefusal(out) && out.refusal).toBe("identity-mismatch");
+    expect(isRefusal(out) && out.message).toBe(
+      `${repo} holds gitlab.com/g/beta, and no missing repo rt knows is gitlab.com/g/beta. The missing ones are github.com/g/beta.`,
+    );
+    expect(isRefusal(out) && out.message).not.toContain("remote:");
+  });
+
+  test("a named repo that is not the one found is named in full, host and all", async () => {
+    const repo = repoWithRemote("beta");
+    setKvValue(REPO_INDEX_NS, serializeIdentity(await deriveRepoIdentity(repo)), join(scratch, "gone-here"));
+    setKvValue(REPO_INDEX_NS, "remote:github.com%2Fg%2Fbeta", join(scratch, "gone-there"));
+
+    const out = await planLocate({ newPath: repo, repo: "remote:github.com%2Fg%2Fbeta" });
+
+    expect(isRefusal(out) && out.refusal).toBe("identity-mismatch");
+    expect(isRefusal(out) && out.message).toBe(
+      `${repo} holds gitlab.com/g/beta, but the repo you named is github.com/g/beta. rt matches a move by what a repo is, not by its name.`,
+    );
   });
 
   test("a remote-less repo is refused: its identity IS its path, so a move mints a new one", async () => {
@@ -88,7 +122,23 @@ describe("repo locate", () => {
     const out = await planLocate({ newPath: repo });
 
     expect(isRefusal(out) && out.refusal).toBe("identity-changed");
-    expect(isRefusal(out) && out.message).toContain("rt repos register");
+    expect(isRefusal(out) && plainWords(out.message)).toBe(true);
+    expect(isRefusal(out) && out.message).toEndWith(`instead: rt repos register ${repo}`);
+    expect(isRefusal(out) && splitRefusalNext(out.message)).toEqual({
+      sentence: `${repo} has no remote, so rt knows a repo like this by its folder, and moving it makes it a new repo. Register the new folder instead.`,
+      next: `rt repos register ${repo}`,
+    });
+  });
+
+  test("a remote-less repo in a folder with a space gets a register command that pastes", async () => {
+    setKvValue(REPO_INDEX_NS, `path:${encodeURIComponent(join(scratch, "gone"))}`, join(scratch, "gone"));
+    const repo = localRepo("my repo");
+
+    const out = await planLocate({ newPath: repo });
+
+    expect(isRefusal(out) && out.message).toEndWith(`instead: rt repos register '${repo}'`);
+    expect(isRefusal(out) && splitRefusalNext(out.message).next).toBe(`rt repos register '${repo}'`);
+    expect(isRefusal(out) && splitRefusalNext(out.message).sentence).toStartWith(`${repo} has no remote`);
   });
 
   test("an old path that still exists is a second clone, not a move", async () => {
@@ -101,6 +151,7 @@ describe("repo locate", () => {
     const out = await planLocate({ newPath: realpathSync(clone) });
 
     expect(isRefusal(out) && out.refusal).toBe("old-path-exists");
+    expect(isRefusal(out) && plainWords(out.message)).toBe(true);
   });
 
   test("plans the index keys, registry rewrite, claim rewrite and repair paths of a moved repo", async () => {
@@ -252,6 +303,7 @@ describe("repo locate", () => {
     const out = await planLocate({ newPath: treePath });
 
     expect(isRefusal(out) && out.refusal).toBe("not-main-worktree");
+    expect(isRefusal(out) && plainWords(out.message)).toBe(true);
   });
 
   test("a registry record written between plan and apply is moved, not overwritten", async () => {
@@ -459,4 +511,32 @@ describe("repo locate", () => {
 
     expect(await findLocateCandidates()).toEqual([{ path: moved, identity }]);
   });
+});
+
+test("a refusal sent as its code and message reads back; any other error does not", () => {
+  expect(parseRefusalText("old-path-exists: widgets is still at /x, so this folder is a second copy, not a move")).toEqual({
+    refusal: "old-path-exists",
+    message: "widgets is still at /x, so this folder is a second copy, not a move",
+  });
+  expect(parseRefusalText("git worktree repair failed: exit 1")).toBeNull();
+  expect(parseRefusalText("The rt daemon is running but did not answer")).toBeNull();
+});
+
+test("a command joined to a refusal reads back apart from its sentence", () => {
+  const message = refusalWithNext("Register the new folder instead", "rt repos register /a/b");
+  expect(message).toBe("Register the new folder instead: rt repos register /a/b");
+  expect(splitRefusalNext(message)).toEqual({ sentence: "Register the new folder instead.", next: "rt repos register /a/b" });
+  expect(splitRefusalNext("widgets is still at /x, so this folder is a second copy, not a move")).toEqual({
+    sentence: "widgets is still at /x, so this folder is a second copy, not a move",
+  });
+});
+
+test("a command that is not an rt command is refused rather than joined where it cannot be found again", () => {
+  expect(() => refusalWithNext("Do this", "git status")).toThrow();
+});
+
+test("a kept legacy row names each reason in plain words", () => {
+  const base = { moved: [], merged: [], refused: [], removedDir: false };
+  expect(locateTest.retentionReason({ ...base, registry: "refused" })).toBe("rt could not carry over its worktrees");
+  expect(locateTest.retentionReason({ ...base, refused: ["notes.json"], registry: "refused" })).toBe("both names hold notes.json; rt could not carry over its worktrees");
 });
