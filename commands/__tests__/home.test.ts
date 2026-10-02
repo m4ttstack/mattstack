@@ -6,6 +6,7 @@ import {
   gatherHomeState,
   homeClaim,
   homeInit,
+  homeKeyExport,
   homeKeyImport,
   homeRelease,
   homeSnapshot,
@@ -29,6 +30,9 @@ import { STATE_DIR_NAMES } from "../../lib/home/init-plan.ts";
 import type { ExecResult, ExecSeam } from "../../lib/home/init-exec.ts";
 import { renderSopsYaml, type AgeExecResult, type AgeKeySeam } from "../../lib/home/age-key.ts";
 import { mattstackHome } from "../../lib/rt-paths.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { keyExport } from "../../lib/home/age-key.ts";
 import { readOwners } from "../../lib/home/snapshot-owners.ts";
 import type { DaemonResponse } from "../../lib/daemon-client.ts";
 import type { SnapshotResult, SnapshotStatus } from "../../lib/daemon/home-snapshot.ts";
@@ -1616,31 +1620,24 @@ class FakeDaemonSeam implements HomeDaemonSeam {
   }
 }
 
-/** Runs an async CLI function, catching the `process.exit` call the failure paths make. */
+/** Runs an async CLI function, catching the `process.exit` call the failure paths make. `logs` is stdout by line, `errors` is stderr by line, both as plain text. */
 async function runCatchingExit(
   fn: () => Promise<void>,
 ): Promise<{ exitCode: number | undefined; logs: string[]; errors: string[] }> {
   const exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit");
   });
-  const logs: string[] = [];
-  const errors: string[] = [];
-  spyOn(console, "log").mockImplementation((...parts: unknown[]) => {
-    logs.push(parts.map(String).join(" "));
-  });
-  spyOn(console, "error").mockImplementation((...parts: unknown[]) => {
-    errors.push(parts.map(String).join(" "));
-  });
+  const io = captureOut();
+  ui.__test__.setHuman(() => false);
   try {
     await fn();
-    return { exitCode: undefined, logs, errors };
+    return { exitCode: undefined, logs: io.lines(), errors: io.errLines() };
   } catch {
     const code = exitSpy.mock.calls.at(-1)?.[0] as number | undefined;
-    return { exitCode: code, logs, errors };
+    return { exitCode: code, logs: io.lines(), errors: io.errLines() };
   } finally {
     exitSpy.mockRestore();
-    (console.log as unknown as { mockRestore: () => void }).mockRestore();
-    (console.error as unknown as { mockRestore: () => void }).mockRestore();
+    io.restore();
   }
 }
 
@@ -1738,6 +1735,66 @@ describe("homeSnapshot", () => {
     expect(exitCode).toBe(1);
     expect(errors.some((e) => e.includes("git commit failed"))).toBe(true);
   });
+
+  test("status reads as a state line and five facts, with a warning per fault", async () => {
+    const seam = new FakeDaemonSeam(() => ({ ok: true, data: { ...okStatus, enabled: false, lastCommitError: "fatal: unable to create index.lock" } }));
+    const { logs } = await runCatchingExit(() => homeSnapshot(["--status"], {}, seam));
+    expect(logs[0]).toBe("[off] Saving your home repo is disabled  /home/.mattstack");
+    expect(logs).toContain("watching: yes");
+    expect(logs).toContain("[warning] The last save did not commit  fatal: unable to create index.lock");
+  });
+
+  test("a daemon that is down is one failure with the command to start it", async () => {
+    const seam = new FakeDaemonSeam(() => null);
+    const { exitCode, logs, errors } = await runCatchingExit(() => homeSnapshot([], {}, seam));
+    expect(exitCode).toBe(1);
+    expect(logs).toEqual([]);
+    expect(errors).toEqual(["The rt daemon is not running", "  next: rt daemon start"]);
+  });
+});
+
+describe("homeKeyExport", () => {
+  async function expectedBytes(): Promise<string> {
+    let text = "";
+    await keyExport(new FakeAgeKeySeamWithExistingKey(), (t) => {
+      text = `${t}\n`;
+    });
+    return text;
+  }
+
+  test("key export writes the same bytes at a terminal and in a pipe, and nothing else on stdout", async () => {
+    const expected = await expectedBytes();
+    expect(expected).toContain(FAKE_PRIVATE_KEY);
+    const io = captureOut();
+    try {
+      for (const human of [true, false]) {
+        io.clear();
+        ui.__test__.setHuman(() => human);
+        await homeKeyExport([], {}, new FakeAgeKeySeamWithExistingKey());
+        expect(io.stdout()).toBe(expected);
+        expect(io.stderr()).toBe("");
+      }
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("no key yet: a failure on stderr naming the command, nothing on stdout, exit 1", async () => {
+    const exitSpy = spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await expect(homeKeyExport([], {}, new FakeAgeKeySeam())).rejects.toThrow("process.exit");
+      expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe("This Mac has no secrets key yet\n  next: rt home init\n");
+    } finally {
+      exitSpy.mockRestore();
+      io.restore();
+    }
+  });
 });
 
 describe("readStdinTrimmed", () => {
@@ -1830,7 +1887,7 @@ describe("homeKeyImport", () => {
 
     expect(exitCode).toBeUndefined();
     expect(logs.some((l) => l.includes(FAKE_PUBLIC_KEY.slice(0, 12)))).toBe(true);
-    expect(logs.some((l) => l.includes("decryptable on this machine"))).toBe(true);
+    expect(logs.some((l) => l.includes("can now be opened on this Mac"))).toBe(true);
     expect(seam.calls.some((c) => c.includes("add-generic-password") && !c.includes("-U"))).toBe(true);
   });
 
@@ -1891,6 +1948,15 @@ describe("homeKeyImport", () => {
     expect(seam.calls.some((c) => c.includes("add-generic-password"))).toBe(false);
   });
 
+  test("a key already on this Mac is refused, not failed", async () => {
+    const seam = new FakeImportSeam({ existingPrivateKey: OTHER_PRIVATE_KEY, existingPublicKey: OTHER_PUBLIC_KEY });
+    const { exitCode, errors } = await runImport([], seam);
+    expect(exitCode).toBe(1);
+    expect(errors[0]).toBe("[refused] This Mac already has a secrets key");
+    expect(errors[1]).toStartWith(`  why: Its recipient is ${OTHER_PUBLIC_KEY.slice(0, 12)}`);
+    expect(errors[2]).toBe("  next: rt home key import --force");
+  });
+
   test("existing key, --force: overwrites (-U) and succeeds", async () => {
     const seam = new FakeImportSeam({ existingPrivateKey: OTHER_PRIVATE_KEY, existingPublicKey: OTHER_PUBLIC_KEY });
 
@@ -1924,7 +1990,7 @@ describe("homeKeyImport", () => {
     expect(exitCode).toBeUndefined();
     expect(errors).toEqual([]);
     expect(logs.some((l) => l.includes(FAKE_PUBLIC_KEY.slice(0, 12)))).toBe(true);
-    expect(logs.some((l) => l.includes("decryptable on this machine"))).toBe(true);
+    expect(logs.some((l) => l.includes("can now be opened on this Mac"))).toBe(true);
   });
 
   test("--stdin: reads the key via input.fromStdin, never input.fromPrompt", async () => {
@@ -1947,7 +2013,7 @@ describe("homeKeyImport", () => {
     expect(exitCode).toBeUndefined();
     expect(errors).toEqual([]);
     expect(logs.some((l) => l.includes(FAKE_PUBLIC_KEY.slice(0, 12)))).toBe(true);
-    expect(logs.some((l) => l.includes("decryptable on this machine"))).toBe(true);
+    expect(logs.some((l) => l.includes("can now be opened on this Mac"))).toBe(true);
     expect(stdinCalled).toBe(true);
     expect(promptCalled).toBe(false);
   });
@@ -1982,7 +2048,7 @@ describe("homeClaim / homeRelease", () => {
     const owners = readOwners(ownersPath);
     expect(Object.keys(owners.zones)).toEqual(["prefs/"]);
     expect(owners.zones["prefs/"]!.owner).toContain("matt@");
-    expect(logs.some((l) => l.includes("claimed"))).toBe(true);
+    expect(logs.some((l) => l.includes("Claimed"))).toBe(true);
     expect(logs.some((l) => l.includes("prefs/"))).toBe(true);
   });
 
@@ -2009,7 +2075,7 @@ describe("homeClaim / homeRelease", () => {
     const { exitCode, errors } = await runCatchingExit(() => homeClaim([], {}, ownersPath, provisioned));
 
     expect(exitCode).toBe(1);
-    expect(errors.some((e) => e.includes("zone is required"))).toBe(true);
+    expect(errors.some((e) => e.includes("Which path should rt leave"))).toBe(true);
   });
 
   test("claim refuses when ~/.mattstack/user isn't provisioned yet, and never touches the owners file", async () => {
@@ -2054,6 +2120,13 @@ describe("homeClaim / homeRelease", () => {
     expect(readOwners(ownersPath).zones["prefs/"]!.owner).toBe("alice@desktop");
   });
 
+  test("a path someone else claimed is refused, not failed", async () => {
+    await runCatchingExit(() => homeClaim(["prefs/", "--owner", "matt@laptop"], {}, ownersPath, provisioned));
+    const { exitCode, errors } = await runCatchingExit(() => homeClaim(["prefs/", "--owner", "alice@desktop"], {}, ownersPath, provisioned));
+    expect(exitCode).toBe(1);
+    expect(errors).toEqual(["[refused] prefs/ is already claimed by matt@laptop", "  next: rt home claim prefs/ --force"]);
+  });
+
   test("release removes a previously claimed zone and names who owned it", async () => {
     await runCatchingExit(() => homeClaim(["prefs/", "--owner", "matt@laptop"], {}, ownersPath, provisioned));
     expect(Object.keys(readOwners(ownersPath).zones)).toEqual(["prefs/"]);
@@ -2062,14 +2135,14 @@ describe("homeClaim / homeRelease", () => {
 
     expect(exitCode).toBeUndefined();
     expect(Object.keys(readOwners(ownersPath).zones)).toEqual([]);
-    expect(logs.some((l) => l.includes("released"))).toBe(true);
+    expect(logs.some((l) => l.includes("Released"))).toBe(true);
     expect(logs.some((l) => l.includes("matt@laptop"))).toBe(true);
   });
 
   test("release on a never-claimed zone prints 'nothing to release', not a ✓", async () => {
     const { exitCode, logs } = await runCatchingExit(() => homeRelease(["never-claimed/"], {}, ownersPath, provisioned));
     expect(exitCode).toBeUndefined();
-    expect(logs.some((l) => l.includes("nothing to release"))).toBe(true);
+    expect(logs.some((l) => l.includes("Nothing to release"))).toBe(true);
     expect(logs.some((l) => l.includes("✓"))).toBe(false);
   });
 
@@ -2094,7 +2167,7 @@ describe("homeClaim / homeRelease", () => {
     const { exitCode, errors } = await runCatchingExit(() => homeRelease([], {}, ownersPath, provisioned));
 
     expect(exitCode).toBe(1);
-    expect(errors.some((e) => e.includes("zone is required"))).toBe(true);
+    expect(errors.some((e) => e.includes("Which claimed path should rt take back"))).toBe(true);
   });
 
   test("release refuses when ~/.mattstack/user isn't provisioned yet", async () => {

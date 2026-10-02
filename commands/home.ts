@@ -38,6 +38,10 @@ import { join } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { isCompiledRt } from "../lib/rt-self.ts";
 import { bold, dim, green, red, reset, yellow } from "../lib/ansi.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
+import { refusalNote } from "./git/shared.ts";
 import { isSafeMachineKeySegment, machineKey, mattstackHome } from "../lib/rt-paths.ts";
 import { resolveInitialMachineKey } from "../lib/home/machine-id.ts";
 import {
@@ -810,16 +814,24 @@ export async function homeInit(args: string[], _ctx: CommandContext = {}, seams:
   console.log(`\nrt home init: ${home} is provisioned.`);
 }
 
+/** rt declining by policy rather than failing: a refused line on stderr, never a failure block; `home` exits 1 either way. */
+function refuse(title: string, ...callouts: Block[]): never {
+  out.note(...refusalNote({ title }), ...callouts);
+  process.exit(1);
+}
+
 export async function homeKeyExport(
   _args: string[],
   _ctx: CommandContext = {},
   seams: AgeKeySeam = createRealAgeKeySeam(),
 ): Promise<void> {
   try {
-    await keyExport(seams, (text) => console.log(text));
+    // The key and its header are a payload: a person pipes them to a
+    // password manager, so they are never styled and nothing else joins them.
+    await keyExport(seams, (text) => out.payload(`${text}\n`));
   } catch (err) {
     if (err instanceof AgeKeyAbsentError) {
-      console.error(`rt home key export: ${err.message}`);
+      out.fail({ title: "This Mac has no secrets key yet", next: out.cmd("rt home init") });
       process.exit(1);
     }
     throw err;
@@ -886,13 +898,11 @@ export async function homeKeyImport(
   // silently proceeding as if the leak never happened.
   const pastedKeyArg = args.find((a) => a.startsWith(AGE_PRIVATE_KEY_PREFIX));
   if (pastedKeyArg !== undefined) {
-    console.error(
-      "rt home key import: the private key must be piped via --stdin or entered at the interactive prompt, " +
-        "never as a positional argument — it just landed in your shell history and rt's own CLI log. " +
-        "Treat it as compromised and rotate it (mint a new key, re-encrypt every secret to the new recipient) " +
-        "before using it for anything.",
+    refuse(
+      "rt will not import a key passed as a positional argument",
+      out.callout("why", "It just landed in your shell history and in rt's own log, so treat it as leaked and rotate it before you use it for anything."),
+      out.callout("next", out.cmd("rt home key import --stdin")),
     );
-    process.exit(1);
   }
 
   const force = args.includes("--force");
@@ -901,7 +911,7 @@ export async function homeKeyImport(
   try {
     privateKey = args.includes("--stdin") ? await input.fromStdin() : await input.fromPrompt();
   } catch (err) {
-    console.error(`rt home key import: ${(err as Error).message}`);
+    out.fail({ title: "rt could not read the key", hint: (err as Error).message });
     process.exit(1);
   }
 
@@ -909,14 +919,14 @@ export async function homeKeyImport(
 
   if (!result.ok) {
     if (result.reason === "malformed") {
-      console.error("rt home key import: not a valid age private key (expected an AGE-SECRET-KEY-1… value)");
-    } else {
-      console.error(
-        `rt home key import: a key already exists in the keychain (recipient ${truncateKey(result.existingPublicKey)}) — ` +
-          "pass --force to overwrite it.",
-      );
+      out.fail({ title: "That is not a valid age private key", why: "A key starts with AGE-SECRET-KEY-1." });
+      process.exit(1);
     }
-    process.exit(1);
+    refuse(
+      "This Mac already has a secrets key",
+      out.callout("why", `Its recipient is ${truncateKey(result.existingPublicKey)}.`),
+      out.callout("next", out.cmd("rt home key import --force")),
+    );
   }
 
   const { publicKey } = result;
@@ -927,17 +937,15 @@ export async function homeKeyImport(
   const existingRecipient = existing === null ? null : sopsYamlRecipient(existing);
 
   if (existingRecipient !== null && existingRecipient !== publicKey) {
-    console.error(
-      `rt home key import: imported key's recipient (${truncateKey(publicKey)}) does not match this repo's ` +
-        `.sops.yaml recipient (${truncateKey(existingRecipient)}) — this key can't decrypt the secrets already here. ` +
-        "The wrong key is already stored, so a plain retry will hit the exists-refusal — " +
-        "re-run `rt home key import --force` once you have the right key.",
-    );
+    out.fail({
+      title: "That key cannot open the secrets in your home repo",
+      why: `It is ${truncateKey(publicKey)}, and they are locked to ${truncateKey(existingRecipient)}. The key you just imported is stored now, so import the right one over it.`,
+      next: out.cmd("rt home key import --force"),
+    });
     process.exit(2);
   }
 
-  console.log(`  ${green}✓${reset} imported — recipient ${bold}${truncateKey(publicKey)}${reset}`);
-  console.log(`    ${dim}secrets encrypted to this recipient are now decryptable on this machine${reset}`);
+  out.print(out.line("done", "Imported your secrets key", truncateKey(publicKey)), out.callout("note", "Secrets locked to this key can now be opened on this Mac"));
 }
 
 // ─── snapshot / claim / release ─────────────────────────────────────────────
@@ -952,7 +960,7 @@ function defaultHomeDaemonSeam(): HomeDaemonSeam {
 }
 
 function daemonDownAndExit(command: string): never {
-  console.error(`\n  ${yellow}rt daemon is not running${reset} — start it: ${bold}rt daemon start${reset}\n`);
+  out.fail({ title: "The rt daemon is not running", next: out.cmd("rt daemon start") });
   process.exit(1);
   throw new Error(`unreachable: process.exit did not stop ${command}`);
 }
@@ -961,45 +969,28 @@ function formatTimestamp(ms: number): string {
   return ms === 0 ? "never" : new Date(ms).toLocaleString();
 }
 
-function printSnapshotResult(result: SnapshotResult): void {
-  if (result.skipped) {
-    console.log(`  ${dim}snapshot skipped: ${result.skipped}${reset}`);
-    return;
-  }
-  if (!result.committed) {
-    console.log(`  ${dim}snapshot: no changes${reset}`);
-    return;
-  }
-  console.log(`  ${green}✓${reset} snapshot committed ${dim}${result.sha ? result.sha.slice(0, 8) : "(no sha)"}${reset}`);
-  console.log(`    ${dim}paths: ${result.paths.length > 0 ? result.paths.join(", ") : "(none)"}${reset}`);
+function snapshotResultBlocks(result: SnapshotResult): Block[] {
+  if (result.skipped) return [out.line("skipped", "Nothing was saved", result.skipped)];
+  if (!result.committed) return [out.line("skipped", "Nothing has changed since the last save")];
+  return [
+    out.line("done", "Saved your home repo", result.sha ? result.sha.slice(0, 8) : undefined),
+    out.kv("paths", result.paths.length > 0 ? result.paths.join(", ") : "none"),
+  ];
 }
 
-function printSnapshotStatus(status: SnapshotStatus): void {
-  const stateIcon = status.enabled ? `${green}●${reset}` : `${dim}○${reset}`;
-  console.log(`  ${stateIcon} home snapshot ${status.enabled ? "enabled" : "disabled"} ${dim}(${status.repoDir})${reset}`);
-  console.log(`    ${dim}watching: ${status.watching ? "yes" : "no"}${reset}`);
-  console.log(`    ${dim}last run: ${formatTimestamp(status.lastRunAt)}${reset}`);
-  console.log(
-    `    ${dim}last commit: ${status.lastCommit ? `${status.lastCommit.sha.slice(0, 8)} ${status.lastCommit.message}` : "none"}${reset}`,
-  );
-  if (status.lastCommitError) {
-    console.log(`    ${yellow}commit error: ${status.lastCommitError}${reset}`);
-  }
-  const pushLine = status.pushPending
-    ? "pending"
-    : status.lastPushAt !== 0
-      ? `last pushed ${formatTimestamp(status.lastPushAt)}`
-      : "never pushed";
-  console.log(`    ${dim}push: ${pushLine}${reset}`);
-  if (status.lastPushError) {
-    console.log(`    ${yellow}push error: ${status.lastPushError}${reset}`);
-  }
-  console.log(
-    `    ${dim}claimed zones: ${status.claimedZones.length > 0 ? status.claimedZones.join(", ") : "(none)"}${reset}`,
-  );
-  if (status.ownersError) {
-    console.log(`    ${red}owners file unreadable: ${status.ownersError}${reset}`);
-  }
+function snapshotStatusBlocks(status: SnapshotStatus): Block[] {
+  const push = status.pushPending ? "waiting to push" : status.lastPushAt !== 0 ? `last pushed ${formatTimestamp(status.lastPushAt)}` : "never pushed";
+  return [
+    out.line(status.enabled ? "running" : "off", status.enabled ? "Saving your home repo is enabled" : "Saving your home repo is disabled", status.repoDir),
+    out.kv("watching", status.watching ? "yes" : "no"),
+    out.kv("last run", formatTimestamp(status.lastRunAt)),
+    out.kv("last commit", status.lastCommit ? `${status.lastCommit.sha.slice(0, 8)} ${status.lastCommit.message}` : "none"),
+    out.kv("push", push),
+    out.kv("claimed zones", status.claimedZones.length > 0 ? status.claimedZones.join(", ") : "none"),
+    ...(status.lastCommitError ? [out.line("warn", "The last save did not commit", status.lastCommitError)] : []),
+    ...(status.lastPushError ? [out.line("warn", "The last push did not go through", status.lastPushError)] : []),
+    ...(status.ownersError ? [out.line("warn", "The list of claimed paths could not be read", status.ownersError)] : []),
+  ];
 }
 
 export async function homeSnapshot(
@@ -1011,20 +1002,20 @@ export async function homeSnapshot(
     const res = await daemon.query("home:snapshot-status");
     if (!res) daemonDownAndExit("rt home snapshot --status");
     if (!res.ok) {
-      console.error(`rt home snapshot --status: ${res.error ?? "unknown daemon error"}`);
+      out.fail({ title: "rt could not read the snapshot status", hint: res.error ?? "the daemon gave no reason" });
       process.exit(1);
     }
-    printSnapshotStatus(res.data as SnapshotStatus);
+    out.print(...snapshotStatusBlocks(res.data as SnapshotStatus));
     return;
   }
 
   const res = await daemon.query("home:snapshot", { reason: "manual" });
   if (!res) daemonDownAndExit("rt home snapshot");
   if (!res.ok) {
-    console.error(`rt home snapshot: ${res.error ?? "unknown daemon error"}`);
+    out.fail({ title: "rt could not save your home repo", hint: res.error ?? "the daemon gave no reason" });
     process.exit(1);
   }
-  printSnapshotResult(res.data as SnapshotResult);
+  out.print(...snapshotResultBlocks(res.data as SnapshotResult));
 }
 
 function defaultOwnersPath(): string {
@@ -1058,10 +1049,9 @@ function homeRepoRoot(): string {
 }
 
 /** Shared by claim/release: writing (or even mkdir-ing the dir for) snapshot-owners.jsonc into a tree `rt home init` never provisioned would create a bare, non-git ~/.mattstack/user — refuse instead. */
-function refuseUnlessProvisioned(command: string, probes: HomeProbes): void {
-  const repoRoot = homeRepoRoot();
-  if (!probes.isGitRepo(repoRoot)) {
-    console.error(`rt home ${command}: ${repoRoot} isn't provisioned yet — run \`rt home init\` first.`);
+function refuseUnlessProvisioned(_command: string, probes: HomeProbes): void {
+  if (!probes.isGitRepo(homeRepoRoot())) {
+    out.fail({ title: "Your home repo is not set up yet", next: out.cmd("rt home init") });
     process.exit(1);
   }
 }
@@ -1080,7 +1070,7 @@ export async function homeClaim(
       zone = await textInput({ message: "Zone to claim (path relative to the home repo)", placeholder: "prefs/ or scripts/deploy.sh" });
       if (!zone) process.exit(0);
     } else {
-      console.error("rt home claim: a zone is required, e.g. `rt home claim prefs/` or `rt home claim scripts/deploy.sh`");
+      out.fail(usageFailure("Which path should rt leave for you to commit?", "rt home claim <zone>", "A zone is a folder such as prefs/ or one file such as scripts/deploy.sh."));
       process.exit(1);
     }
   }
@@ -1103,18 +1093,16 @@ export async function homeClaim(
     claimZone(ownersPath, zone, owner, { note, kind, force });
   } catch (err) {
     if (err instanceof InvalidZoneError) {
-      console.error(`rt home claim: ${err.message}`);
+      out.fail({ title: "That path cannot be claimed", why: err.message });
       process.exit(1);
     }
     if (err instanceof ZoneOwnedByOthersError) {
-      console.error(`rt home claim: ${err.message}`);
-      process.exit(1);
+      refuse(`${err.zone} is already claimed by ${err.existingOwner}`, out.callout("next", out.cmd(`rt home claim ${err.zone} --force`)));
     }
     throw err;
   }
 
-  console.log(`  ${green}✓${reset} claimed ${bold}${normalizeZone(zone, kind)}${reset} for ${owner}`);
-  console.log(`    ${dim}the daemon snapshots ${ownersPath} like any other path — it'll pick this up on its next cycle${reset}`);
+  out.print(out.line("done", `Claimed ${normalizeZone(zone, kind)}`, `for ${owner}`), out.callout("note", "The daemon picks this up the next time it takes a snapshot"));
 }
 
 export async function homeRelease(
@@ -1135,7 +1123,7 @@ export async function homeRelease(
         })) ?? undefined;
       if (!zone) process.exit(0);
     } else {
-      console.error("rt home release: a zone is required, e.g. `rt home release prefs/`");
+      out.fail(usageFailure("Which claimed path should rt take back?", "rt home release <zone>"));
       process.exit(1);
     }
   }
@@ -1147,17 +1135,16 @@ export async function homeRelease(
     result = releaseZone(ownersPath, zone);
   } catch (err) {
     if (err instanceof InvalidZoneError) {
-      console.error(`rt home release: ${err.message}`);
+      out.fail({ title: "That path cannot be released", why: err.message });
       process.exit(1);
     }
     throw err;
   }
 
   if (!result.released) {
-    console.log(`  ${dim}nothing to release — "${zone}" isn't claimed${reset}`);
+    out.print(out.line("skipped", "Nothing to release", `${zone} is not claimed`));
     return;
   }
 
-  console.log(`  ${green}✓${reset} released ${bold}${result.zone}${reset} ${dim}(was claimed by ${result.owner})${reset}`);
-  console.log(`    ${dim}the daemon snapshots ${ownersPath} like any other path — it'll pick this up on its next cycle${reset}`);
+  out.print(out.line("done", `Released ${result.zone}`, `was claimed by ${result.owner}`), out.callout("note", "The daemon picks this up the next time it takes a snapshot"));
 }
