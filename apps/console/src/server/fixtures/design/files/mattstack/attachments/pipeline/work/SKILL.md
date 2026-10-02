@@ -3,12 +3,12 @@ name: work
 disable-model-invocation: true
 description: "Use when running a unit of work end to end through a pack's compiled pipeline -- '
 allowed-tools:
-- Bash(git -C *:*)
-- Bash(*/scripts/ci-triage.sh:*)
-- Bash(*/scripts/ci-forge.sh:*)
+  - Bash(git -C *:*)
+  - Bash(*/scripts/ci-triage.sh:*)
+  - Bash(*/scripts/ci-forge.sh:*)
 type: pipeline-step
 slots:
-tiering: { contract: model-tiering@1, required: false }
+  tiering: { contract: model-tiering@1, required: false }
 ---
 
 # work -- the pipeline orchestrator
@@ -41,23 +41,23 @@ stage starts, and follow it.
 
 ```dot
 digraph work {
-rankdir=TB;
+    rankdir=TB;
 
-"Work entered" [shape=ellipse];
-"run_start with the flags above" [shape=plaintext];
-"Next stage?" [shape=diamond];
-"Read the stage file and follow it" [shape=box];
-"Stage failed?" [shape=diamond];
-"Gate: retry, hold or stop" [shape=box];
-"Work done" [shape=doublecircle];
+    "Work entered" [shape=ellipse];
+    "run_start with the flags above" [shape=plaintext];
+    "Next stage?" [shape=diamond];
+    "Read the stage file and follow it" [shape=box];
+    "Stage failed?" [shape=diamond];
+    "Gate: retry, hold or stop" [shape=box];
+    "Work done" [shape=doublecircle];
 
-"Work entered" -> "run_start with the flags above";
-"run_start with the flags above" -> "Next stage?";
-"Next stage?" -> "Read the stage file and follow it" [label="one left"];
-"Next stage?" -> "Work done" [label="none left"];
-"Read the stage file and follow it" -> "Stage failed?";
-"Stage failed?" -> "Next stage?" [label="no"];
-"Stage failed?" -> "Gate: retry, hold or stop" [label="yes"];
+    "Work entered" -> "run_start with the flags above";
+    "run_start with the flags above" -> "Next stage?";
+    "Next stage?" -> "Read the stage file and follow it" [label="one left"];
+    "Next stage?" -> "Work done" [label="none left"];
+    "Read the stage file and follow it" -> "Stage failed?";
+    "Stage failed?" -> "Next stage?" [label="no"];
+    "Stage failed?" -> "Gate: retry, hold or stop" [label="yes"];
 }
 ```
 

@@ -17,29 +17,29 @@ graph marks STOP, open the Off-script gate (below) instead.
 
 ```dot
 digraph gate_protocol {
-rankdir=TB;
+    rankdir=TB;
 
-"Trigger: a site reaches its gate" [shape=ellipse];
-"Build the gate's questions and context" [shape=box];
-"Under a run: bracket the gate?" [shape=diamond];
-"run_field_set {key: gate, value: <scope>, stage}" [shape=plaintext];
-"gate_ask {questions, kind: <scope>, context?, subject?}" [shape=plaintext];
-"gate_ask result?" [shape=diamond];
-"Fixed this gate_ask call once already?" [shape=diamond];
-"Fix what the gate_ask refusal names" [shape=box];
-"Daemon down: is the gated pane unattended?" [shape=diamond];
-"Under a run: fail the stage at the gate?" [shape=diamond];
-"Present the gate form with no registry" [shape=box];
-"gate_ask presentation?" [shape=diamond];
-"Act on the presentation" [shape=box];
-"Record the answer" [shape=box];
-"Gate closed" [shape=doublecircle];
+    "Trigger: a site reaches its gate" [shape=ellipse];
+    "Build the gate's questions and context" [shape=box];
+    "Under a run: bracket the gate?" [shape=diamond];
+    "run_field_set {key: gate, value: <scope>, stage}" [shape=plaintext];
+    "gate_ask {questions, kind: <scope>, context?, subject?}" [shape=plaintext];
+    "gate_ask result?" [shape=diamond];
+    "Fixed this gate_ask call once already?" [shape=diamond];
+    "Fix what the gate_ask refusal names" [shape=box];
+    "Daemon down: is the gated pane unattended?" [shape=diamond];
+    "Under a run: fail the stage at the gate?" [shape=diamond];
+    "Present the gate form with no registry" [shape=box];
+    "gate_ask presentation?" [shape=diamond];
+    "Act on the presentation" [shape=box];
+    "Record the answer" [shape=box];
+    "Gate closed" [shape=doublecircle];
 
-"Trigger: a site reaches its gate" -> "Build the gate's questions and context";
-"Build the gate's questions and context" -> "Under a run: bracket the gate?";
-"gate_ask presentation?" -> "Act on the presentation" [label="form"];
-"Act on the presentation" -> "Record the answer";
-"Record the answer" -> "Gate closed";
+    "Trigger: a site reaches its gate" -> "Build the gate's questions and context";
+    "Build the gate's questions and context" -> "Under a run: bracket the gate?";
+    "gate_ask presentation?" -> "Act on the presentation" [label="form"];
+    "Act on the presentation" -> "Record the answer";
+    "Record the answer" -> "Gate closed";
 }
 ```
 
