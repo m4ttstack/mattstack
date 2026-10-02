@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { assertNoPlaceholders, findPlaceholders, substitute } from "../placeholders.ts";
+import { assertNoPlaceholders, findPlaceholders, substitute, type TraceEntry } from "../placeholders.ts";
 import type { AttachmentSource, PlaceholderContext } from "../types.ts";
 
 describe("findPlaceholders", () => {
@@ -353,5 +353,37 @@ describe("a heading above an unbound slot", () => {
 
   test("the dropped slot still counts as placed", () => {
     expect(substitute("## Reviewer\n{{slot:domain}}", unbound(), "x").used.slots).toEqual(["domain"]);
+  });
+});
+
+describe("substitute trace", () => {
+  test("maps each template line to the rendered lines it produced", () => {
+    const entries: TraceEntry[] = [];
+    substitute("intro\n{{slot:domain}}\nmid\n{{include:review-core-body}}\nend", ctx(), "stage-plan", (e) => entries.push(e));
+    expect(entries.map((e) => [e.templateIndex, e.outStart, e.outCount, e.placeholders.map((p) => `${p.kind}:${p.arg}`)])).toEqual([
+      [0, 0, 1, []],
+      [1, 1, 4, ["slot:domain"]],
+      [2, 5, 1, []],
+      [3, 6, 3, ["include:review-core-body"]],
+      [4, 9, 1, []],
+    ]);
+  });
+
+  test("an empty slot under a heading renders nothing and is still traced", () => {
+    const entries: TraceEntry[] = [];
+    substitute("## Domain\n\n{{slot:domain}}\n\nafter", ctx({ fills: { domain: null } }), "stage-plan", (e) => entries.push(e));
+    expect(entries.map((e) => [e.templateIndex, e.outStart, e.outCount, e.placeholders.length])).toEqual([
+      [0, 0, 0, 0],
+      [1, 0, 0, 0],
+      [2, 0, 0, 1],
+      [3, 0, 0, 0],
+      [4, 0, 1, 0],
+    ]);
+  });
+
+  test("an inline placeholder in a table row is traced on that row", () => {
+    const entries: TraceEntry[] = [];
+    substitute("| plan | {{verb.path:stage-plan}} |", ctx(), "work", (e) => entries.push(e));
+    expect(entries[0]).toEqual({ templateIndex: 0, outStart: 0, outCount: 1, placeholders: [{ kind: "verb.path", arg: "stage-plan" }] });
   });
 });

@@ -24,7 +24,7 @@ import {
   type WiringSpine,
 } from './outline';
 import { QuietBadge } from './QuietBadge';
-import { SOFT_RULE } from './SlotRow';
+import { SOFT_RULE } from './softRule';
 import { useCompositionSnapshot, useSkillsCheck } from './useWiring';
 
 export interface HealthTabProps {
@@ -53,7 +53,7 @@ function computeHealthGroups(spine: WiringSpine) {
     neverCompiledEntries,
     unwiredEntries,
     // Fills nothing binds. Grouped WITH the unwired verbs below: both are
-    // "nothing binds this, safe to prune", and the On-demand tab's pointer
+    // "nothing binds this, safe to prune", and the Graph tab's Unwired row
     // counts the two together, so Health has to list the two together or the
     // count it points at would be a claim about rows that were never shown.
     orphanFills: spine.orphans,
@@ -90,9 +90,8 @@ function slugify(label: string): string {
 interface StatCardProps {
   count: number;
   label: string;
-  /** `null` renders the quiet/uncolored stat (Unwired) -- the same
-      dot-or-nothing fallback `HealthDot`/`HealthChip` already use for a
-      state with no assigned intent color. */
+  /** `null` renders the quiet/uncolored stat (Unwired), a state with no
+      intent color of its own. */
   color: MantineColor | null;
 }
 
@@ -136,8 +135,9 @@ interface HealthIssueRowProps {
   name: string;
   reference: string | null;
   why: string;
-  /** A verb row opens its detail panel; an orphan FILL has no panel to open,
-      so it renders as a plain, non-interactive line (no button, no chevron). */
+  /** A verb row opens its skill on the Graph tab; an orphan FILL has nothing
+      to open, so it renders as a plain, non-interactive line (no button, no
+      chevron). */
   onOpen?: () => void;
   /** Only the recompile/never-compiled groups offer this -- Unwired rows
       have nothing to preview compiling. */
@@ -370,8 +370,8 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
   };
 
   // Unwired verbs and orphan fills share one group: both are "nothing binds
-  // this". Verb rows open their detail panel; orphan-fill rows are inert (no
-  // panel exists for a fill).
+  // this". Verb rows open their skill on the Graph tab; orphan-fill rows are
+  // inert.
   const unwiredRows = [
     ...groups.unwiredEntries.map(entry => ({
       kind: 'verb' as const,

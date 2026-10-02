@@ -3,11 +3,15 @@ import { Hono } from 'hono';
 import { agentModels } from './agent-models';
 import { mountEffectiveInputs } from './effectiveInputs';
 import { enrich } from './enrich';
+import { fixtureMode, fixtureRt } from './fixtures/design/fixtureRt';
 import { gates } from './gates';
 import { panes } from './panes';
 import { runs } from './runs';
 import { settings } from './settings';
 import { mountSkills } from './skills';
+
+const scenario = fixtureMode(process.env);
+const fixture = scenario ? fixtureRt(scenario) : null;
 
 /**
  * Routes are CHAINED and handlers INLINE, both load-bearing for Hono's RPC
@@ -21,7 +25,16 @@ export const routes = new Hono()
   .route('/', gates)
   .route('/', settings)
   .route('/', agentModels)
-  .route('/', mountSkills(new Hono()))
+  .route(
+    '/',
+    mountSkills(
+      new Hono(),
+      fixture?.runRt,
+      fixture?.runGit,
+      fixture?.readPackFile,
+      fixture?.realpath
+    )
+  )
   .route('/', mountEffectiveInputs(new Hono()));
 
 export type AppType = typeof routes;

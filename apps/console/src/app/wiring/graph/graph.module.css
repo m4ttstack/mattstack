@@ -1,0 +1,169 @@
+.list {
+  flex: 1;
+  padding: 14px 10px;
+}
+
+.group {
+  padding: 12px 8px 4px;
+}
+
+.notice {
+  padding: 0 8px 4px;
+}
+
+.item {
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--mantine-radius-md);
+}
+
+.step {
+  height: 26px;
+  padding: 0 8px 0 30px;
+  border-radius: var(--mantine-radius-md);
+}
+
+.children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.section[data-position='left'] {
+  margin-inline-end: 8px;
+}
+
+.section[data-position='right'] {
+  margin-inline-start: 8px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.toggle {
+  padding: 8px;
+}
+
+.unwired {
+  height: 30.5px;
+  padding: 0 8px;
+  border-radius: var(--mantine-radius-md);
+}
+
+.stage {
+  position: relative;
+  overflow: hidden;
+}
+
+/* The stage's own middle, wherever the canvas would have been. */
+.canvasError {
+  position: absolute;
+  inset: 0;
+  padding: 24px;
+}
+
+.canvasErrorAlert {
+  max-width: 480px;
+}
+
+/* As wide as what it says, not the header. */
+.statusAlert {
+  align-self: flex-start;
+}
+
+/* Over the canvas, which stays draggable and clickable through it. */
+.header {
+  position: absolute;
+  top: 20px;
+  left: 24px;
+  right: 24px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Badge always draws a 1px border, so each padding is a pixel short of the
+   board's to keep the label where the board puts it. */
+.pill {
+  --badge-height: 17px;
+  --badge-padding-x: 7px;
+  --badge-fz: 11px;
+  --badge-lh: normal;
+  letter-spacing: 0;
+}
+
+.statusPill {
+  --badge-height: 19px;
+  --badge-padding-x: 8px;
+  --badge-fz: 11px;
+  --badge-lh: normal;
+  letter-spacing: 0;
+}
+
+.pillIcon[data-position='left'] {
+  margin-inline-end: 6px;
+}
+
+.stepNumber {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The boards draw a control's rule inside its edge and pad from there; the
+   kit's controls pad inside a 1px border. */
+.boardButton {
+  padding-inline: 11px;
+}
+
+.boardButtonSection[data-position='left'] {
+  margin-inline-end: 6px;
+}
+
+/* The board's bottom rule sits inside the banner's 10px padding, as the
+   board buttons' does. */
+.banner {
+  width: 100%;
+  padding: 10px 16px 9px;
+  border-width: 0 0 1px;
+}
+
+.bannerWrapper {
+  align-items: center;
+}
+
+.bannerIcon {
+  width: 16px;
+  height: 16px;
+  margin-top: 0;
+  margin-inline-end: 12px;
+}
+
+.bannerText {
+  flex: 1;
+  min-width: 0;
+}
+
+.changeLine {
+  min-width: 0;
+}
+
+.bannerMore {
+  align-self: flex-start;
+}
+
+.changeList {
+  padding: 10px 12px;
+}
+
+/* The board's title row is as tall as the title: the gap under it is the
+   column's 14px, and the close glyph sits in the row without growing it.
+   Mantine pads the header's end 5px short of its start, so the glyph's own
+   6px inset needs only 1px more to land on the padding edge. */
+.confirmHeader {
+  min-height: 0;
+  padding-bottom: 14px;
+}
+
+.confirmClose {
+  margin-block: -6px;
+  margin-inline-end: -1px;
+}

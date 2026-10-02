@@ -16,10 +16,20 @@ import { useSchemeColors } from '@mattstack/app-kit/hooks';
 // no kit defaults). Prefer the kit `Table` below.
 export { MantineTable };
 
-export interface TableProps extends Omit<MantineTableProps, 'withTableBorder'> {
+export interface TableProps extends Omit<
+  MantineTableProps,
+  'withTableBorder' | 'variant'
+> {
+  /**
+   * Mantine's own `default` and `vertical`, or the kit's opt-in `soft`: a
+   * table inside a card, ruled in the soft line step with its header row on
+   * the panel surface. A soft table's `Paper` is a `soft-outline` card, so it
+   * is always ruled and takes the surface it sits on.
+   */
+  variant?: MantineTableProps['variant'] | 'soft';
   /** Render the bare `<table>` with no wrapping `Paper` surface. @default false */
   noPaper?: boolean;
-  /** Tint the header row using the kit's layered background tokens (`--ui-bg-*`). @default true */
+  /** Tint the header row using the kit's layered background tokens (`--ui-bg-*`). A `soft` table's header takes the panel surface instead. @default true */
   headerAccent?: boolean;
   /** Outer border, on the `Paper` wrapper (or the table itself when `noPaper`). @default false */
   withTableBorder?: boolean;
@@ -60,6 +70,7 @@ const KIT_DEFAULTS = {
 const KitTable = /* @__PURE__ */ forwardRef<HTMLTableElement, TableProps>(
   function KitTable(
     {
+      variant,
       noPaper = false,
       headerAccent = true,
       withTableBorder = false,
@@ -77,6 +88,7 @@ const KitTable = /* @__PURE__ */ forwardRef<HTMLTableElement, TableProps>(
     ref
   ) {
     const { bg } = useSchemeColors();
+    const soft = variant === 'soft';
 
     // `styles` can also be a function (theme, props, ctx) => record -- in that
     // rarer form we can't merge our accent in, so leave it untouched and let
@@ -87,7 +99,7 @@ const KitTable = /* @__PURE__ */ forwardRef<HTMLTableElement, TableProps>(
         : {
             ...styles,
             thead: {
-              backgroundColor: headerAccent ? bg.level4 : undefined,
+              backgroundColor: headerAccent && !soft ? bg.level4 : undefined,
               ...styles?.thead,
             },
           };
@@ -96,6 +108,7 @@ const KitTable = /* @__PURE__ */ forwardRef<HTMLTableElement, TableProps>(
       <MantineTable
         {...KIT_DEFAULTS}
         {...props}
+        variant={variant as MantineTableProps['variant']}
         ref={ref}
         withTableBorder={noPaper ? withTableBorder : false}
         styles={mergedStyles}
@@ -114,7 +127,8 @@ const KitTable = /* @__PURE__ */ forwardRef<HTMLTableElement, TableProps>(
       <Paper
         component="div"
         shadow={shadow ? 'sm' : 'none'}
-        withBorder={withTableBorder}
+        variant={soft ? 'soft-outline' : undefined}
+        withBorder={!soft && withTableBorder}
         radius={radius}
         p={padding}
         style={{ overflow: 'hidden' }}

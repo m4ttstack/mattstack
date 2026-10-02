@@ -8,7 +8,7 @@
 
 **Tech Stack:** React + Mantine (`@ui/core` re-exports all of `@mantine/core`), TanStack Query, Hono client, Vitest + jsdom, Storybook.
 
-**Spec:** `docs/design/wiring-views/` — the `.dc.html` artboards are the parity spec (Tokyo-theme literals). `README.md` there carries the literal→token map. Published canvas: https://claude.ai/code/artifact/d753efeb-72fd-48ca-91e9-64798c66be32
+**Spec:** `docs/design/wiring-views/` (since removed; the console's current boards live in `docs/apps/design/console/`). The `.dc.html` artboards are the parity spec (Tokyo-theme literals). `README.md` there carries the literal→token map. Published canvas: https://claude.ai/code/artifact/d753efeb-72fd-48ca-91e9-64798c66be32
 
 ## Global Constraints
 

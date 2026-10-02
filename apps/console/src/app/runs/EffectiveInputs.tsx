@@ -29,8 +29,8 @@ import { CommandProvenance } from './CommandProvenance';
 const ATTRIBUTION =
   'joins rt runs show, rt skills packs --json, and git show at the recorded pack sha';
 
-/** Matches every other code surface in the console (CompiledView's
-    CODE_STYLE) rather than Code's own default block padding and size. */
+/** Matches every other code surface in the console rather than Code's own
+    default block padding and size. */
 const CODE_STYLE = {
   padding: 0,
   background: 'transparent',

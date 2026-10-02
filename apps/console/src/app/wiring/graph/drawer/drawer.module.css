@@ -1,0 +1,372 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+}
+
+.header {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--tk-line-3);
+}
+
+/* The tab strip sits on the header's rule, so the header has no padding
+   under it. */
+.header[data-tabs] {
+  padding-bottom: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.sentence {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Badge always draws a 1px border, so each padding is a pixel short of the
+   board's to keep the label where the board puts it. */
+.kind {
+  --badge-height: 17px;
+  --badge-padding-x: 6px;
+  --badge-fz: 10px;
+  --badge-lh: normal;
+  --badge-radius: 9px;
+  flex: none;
+  letter-spacing: 0;
+}
+
+.chip {
+  --badge-height: 18px;
+  --badge-padding-x: 7px;
+  --badge-fz: 11px;
+  --badge-lh: normal;
+  --badge-radius: 9px;
+  flex: none;
+  font-family: var(--mantine-font-family-monospace);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.segmented {
+  flex: none;
+  padding: 3px;
+  gap: 2px;
+}
+
+/* Mantine shares the track out evenly; the boards size each segment to its
+   label. */
+.segment {
+  flex: none;
+}
+
+.segmentLabel {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: normal;
+}
+
+.more {
+  flex: none;
+}
+
+/* A 28px target in the 16px the board gives the icon. */
+.close {
+  flex: none;
+  margin: -6px;
+}
+
+.tabs {
+  gap: 4px;
+}
+
+/* The header's own rule is the line the tabs sit on. */
+.tabs::before {
+  display: none;
+}
+
+/* The active tab's rule overlaps the header's by a pixel, as on the
+   boards. */
+.tab {
+  margin-bottom: -1px;
+  padding: 8px 10px 7px;
+}
+
+.code {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px 0;
+  background-color: var(--tk-card);
+}
+
+.code[data-dimmed] {
+  opacity: 0.55;
+}
+
+.viewport {
+  flex: 1;
+  min-height: 0;
+}
+
+.band {
+  box-sizing: content-box;
+  width: 87px;
+  margin-right: -1px;
+  padding: 0 8px;
+}
+
+.bandLabel {
+  font-size: 9px;
+  line-height: normal;
+}
+
+.numberCell {
+  box-sizing: border-box;
+  width: 48px;
+  padding: 0 10px;
+}
+
+.code[data-banded] .numberCell {
+  width: 40px;
+  padding: 0 8px;
+}
+
+.number {
+  font-size: 10px;
+  line-height: normal;
+}
+
+.text {
+  padding-right: 0;
+  font-size: 11px;
+  line-height: normal;
+}
+
+.tabBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background-color: var(--tk-card);
+}
+
+.usedBy {
+  padding: 12px 18px;
+}
+
+.history {
+  padding: 16px 18px;
+}
+
+.siteRow {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+}
+
+/* A NavLink label set as a block, so its box is its own line height rather
+   than the line box of the span around it. */
+.rowLabel {
+  display: block;
+}
+
+.siteSection[data-position='left'] {
+  margin-inline-end: 10px;
+}
+
+.siteSection[data-position='right'] {
+  margin-inline-start: 10px;
+}
+
+.sources {
+  overflow: hidden;
+}
+
+.cell {
+  padding: 0 8px 0 0;
+  vertical-align: middle;
+}
+
+.cell:first-child {
+  padding-left: 12px;
+}
+
+/* Each column is the board's width plus the 8px gap before the next. */
+.fileColumn {
+  width: 220px;
+}
+
+.builtColumn {
+  width: 98px;
+}
+
+.installedColumn {
+  width: 88px;
+}
+
+/* Each body row's rule straddles the edge above it, as the board draws it,
+   so the header row ends half a pixel into the first rule. */
+.head > tr {
+  height: 27.5px;
+}
+
+.rows > tr {
+  height: 38px;
+}
+
+.changed {
+  --badge-height: 17px;
+  --badge-padding-x: 6px;
+  --badge-fz: 10px;
+  --badge-lh: normal;
+  letter-spacing: 0;
+}
+
+.note {
+  padding: 10px 12px;
+}
+
+.staleRow {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+}
+
+.staleSection[data-position='left'] {
+  margin-inline-end: 8px;
+}
+
+.staleSection[data-position='right'] {
+  margin-inline-start: 8px;
+}
+
+/* Mantine pads a block Code through `[data-block]`. */
+.fix[data-block] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.command {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A 21px target around the 13px glyph the board draws, without growing
+   the block. */
+.copy {
+  flex: none;
+  margin: -4px;
+}
+
+.timeline {
+  padding-top: 12px;
+}
+
+/* Sits on the context row without growing it. */
+.change {
+  flex: none;
+  margin-block: -2px;
+}
+
+/* rt's message keeps its own line breaks: the paths it searched. */
+.errorText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The board leaves a pixel more under the buttons than over the title. */
+.rebind {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px 17px;
+  border-bottom: 1px solid var(--tk-line-3);
+  background-color: var(--tk-card);
+}
+
+/* Two equal columns whatever each side pads itself with. */
+.fromTo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  text-align: start;
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+}
+
+.optionsLabel {
+  padding: 6px 10px;
+}
+
+.optionList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+}
+
+/* Mantine pads a block Code through `[data-block]`. */
+.bindCommand[data-block] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  white-space: normal;
+}
+
+/* The boards draw a control's rule inside its edge and pad from there; the
+   kit's controls pad inside a 1px border. */
+.panelButton {
+  padding-inline: 11px;
+}
+
+.picker {
+  padding-inline: 9px;
+}
+
+.publicSwitch {
+  flex: none;
+}

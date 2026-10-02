@@ -18,7 +18,7 @@ import type { SlotOutlineNode, WiringHealth } from './outline';
 import { QuietBadge } from './QuietBadge';
 import type { SeamSourceIndex } from './seamAttribution';
 import { SeamCompare } from './SeamCompare';
-import { SOFT_RULE } from './SlotRow';
+import { SOFT_RULE } from './softRule';
 import {
   useCompilePreview,
   useSkillsDiff,
@@ -161,13 +161,12 @@ export interface VersionTimelineProps {
 }
 
 /**
- * A verb's pack history, and — on selecting two commits — the diff between
- * them with each hunk placed against the seam it fell inside. Folded out of
- * its old drawer into the detail panel's "History" tab.
+ * A verb's pack history and, on selecting two commits, the diff between
+ * them with each hunk placed against the seam it fell inside.
  *
- * The panel's one structural rule: runtime facts and git history are two
+ * Its one structural rule: runtime facts and git history are two
  * regions on two surfaces, never one list. A commit row and a "working tree
- * is dirty" row look alike and mean nothing alike — one is ordered, immutable
+ * is dirty" row look alike and mean nothing alike: one is ordered, immutable
  * and attributable, the other is momentary and true only of this machine.
  */
 export function VersionTimeline({
@@ -329,7 +328,7 @@ export function VersionTimeline({
         <Stack gap="lg">
           <Stack gap="xs">
             <Text size="xs" c={text.muted}>
-              Right now — this machine, not history
+              Right now, on this machine, not history
             </Text>
             <Paper
               bg={bg.level3}
@@ -345,7 +344,7 @@ export function VersionTimeline({
                 }
               >
                 {dirty === null
-                  ? 'not measured — git status did not answer'
+                  ? 'not measured: git status did not answer'
                   : dirty.length === 0
                     ? `clean under ${scope}`
                     : `${dirty.length}${runtime?.moreDirtyFiles ? '+' : ''} uncommitted ${dirty.length === 1 ? 'file' : 'files'} under ${scope}`}
@@ -357,7 +356,7 @@ export function VersionTimeline({
               <RuntimeRow label="pack manifest">
                 {runtime?.packVersion
                   ? `declares ${pack} ${runtime.packVersion}`
-                  : 'no plugin manifest in this pack — nothing states a version'}
+                  : 'no plugin manifest in this pack, so nothing states a version'}
               </RuntimeRow>
               <RuntimeRow label="compiled output" color={compiled.color}>
                 {compiled.text}
@@ -368,7 +367,7 @@ export function VersionTimeline({
           <Stack gap="xs">
             <Group justify="space-between" wrap="nowrap">
               <Text size="xs" c={text.muted} data-testid="history-count">
-                History — {commits.length} of {history.data?.limit ?? 0}{' '}
+                History: {commits.length} of {history.data?.limit ?? 0}{' '}
                 requested
               </Text>
               <Button
@@ -467,7 +466,7 @@ export function VersionTimeline({
             <Text size="xs" c={text.muted}>
               This pack&apos;s repo holds the fills and the compiled output. The
               step&apos;s own source lives in the mattstack plugin, a different
-              repo — its changes are not in this list.
+              repo, so its changes are not in this list.
             </Text>
           </Group>
         </Stack>

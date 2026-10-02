@@ -1,6 +1,6 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { screen, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -21,6 +21,7 @@ vi.mock('../../api', () => ({
 }));
 
 const { HealthTab } = await import('../HealthTab');
+const { holdWrite } = await import('./writeLock');
 
 function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json };
@@ -154,11 +155,12 @@ function renderHealthTab(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return renderWithProviders(
+  const view = renderWithProviders(
     <QueryClientProvider client={queryClient}>
       <HealthTab pack="demo" onOpenSkill={onOpenSkill} />
     </QueryClientProvider>
   );
+  return Object.assign(view, { queryClient });
 }
 
 afterEach(() => {
@@ -223,10 +225,10 @@ describe('HealthTab: grouped issues', () => {
     expect(group).toHaveTextContent('unused');
     expect(group).toHaveTextContent('unused@1');
     expect(group).toHaveTextContent('unregistered fill · nothing binds it');
-    // 2 unwired verbs + 1 orphan fill; the pointer on the On-demand tab counts
-    // the same three, so the two surfaces now agree.
+    // 2 unwired verbs + 1 orphan fill; the Graph tab's Unwired row counts
+    // the same three, so the two surfaces agree.
     expect(screen.getByTestId('health-stat-unwired')).toHaveTextContent('3');
-    // A fill has no detail panel, so its row opens nothing.
+    // A fill has no skill to open, so its row opens nothing.
     expect(
       screen.queryByRole('button', { name: 'open unused' })
     ).not.toBeInTheDocument();
@@ -318,6 +320,46 @@ describe('HealthTab: installed caches bar', () => {
     expect(bar).toHaveTextContent('0.5.2 installed');
     expect(bar).toHaveTextContent('0.5.3 source');
     expect(screen.getByTestId('installed-caches-sync')).toBeEnabled();
+  });
+
+  it('holds Sync while another write to the pack is in flight', async () => {
+    const { queryClient } = renderHealthTab(
+      undefined,
+      ALL_IN_SYNC_COMPOSITION,
+      LAG_CHECK
+    );
+    expect(await screen.findByTestId('installed-caches-sync')).toBeEnabled();
+
+    act(() => {
+      holdWrite(queryClient, 'demo');
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('installed-caches-sync')).toBeDisabled()
+    );
+  });
+
+  it('refuses a confirmed sync while another write to the pack runs, and says so', async () => {
+    const user = userEvent.setup();
+    const { queryClient } = renderHealthTab(
+      undefined,
+      ALL_IN_SYNC_COMPOSITION,
+      LAG_CHECK
+    );
+    await user.click(await screen.findByTestId('installed-caches-sync'));
+    const confirm = await screen.findByRole('dialog');
+    act(() => {
+      holdWrite(queryClient, 'demo');
+    });
+
+    await user.click(within(confirm).getByRole('button', { name: 'Run sync' }));
+
+    expect(
+      await screen.findByText(
+        'Another change to demo is still being written. Try again once it finishes.'
+      )
+    ).toBeInTheDocument();
+    expect(syncPost).not.toHaveBeenCalled();
   });
 
   it('shows "recompile needed" on the bar when check reports drift', async () => {

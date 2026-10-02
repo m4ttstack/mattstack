@@ -43,7 +43,7 @@ describe("agent-safe surface", () => {
 
   test("the skills leaves that recompile, commit or push deny the flags that would point them at a caller-written manifest or pack", () => {
     const skills = TREE.skills!.subcommands!;
-    expect(skills.sync!.agentDeniedFlags).toEqual(["--manifest"]);
+    expect(skills.sync!.agentDeniedFlags).toEqual(["--manifest", "--commit-pending"]);
     expect(skills.bind!.agentDeniedFlags).toEqual(["--manifest"]);
     expect(skills.compile!.agentDeniedFlags).toEqual(["--manifest", "--pack-dir"]);
     expect(skills.check!.agentDeniedFlags).toBeUndefined();
@@ -60,12 +60,14 @@ describe("agent-safe surface", () => {
     expect(flags).toEqual(expect.arrayContaining(["--public", "--internal"]));
   });
 
-  test("every confined flag names a declared text flag of its leaf", () => {
+  test("every confined path flag names a declared text flag of its leaf, and every denied flag a declared flag", () => {
     for (const { path, node } of listAgentSafe(TREE)) {
       const textFlags = new Set((node.args ?? []).filter((a) => a.flag && a.type === "text").map((a) => a.flag));
-      for (const flag of [...(node.agentTempRootFlags ?? []), ...(node.agentReadRootFlags ?? []), ...(node.agentDeniedFlags ?? [])]) {
+      const allFlags = new Set((node.args ?? []).map((a) => a.flag).filter(Boolean));
+      for (const flag of [...(node.agentTempRootFlags ?? []), ...(node.agentReadRootFlags ?? [])]) {
         expect(textFlags.has(flag), `${path.join(" ")} ${flag}`).toBe(true);
       }
+      for (const flag of node.agentDeniedFlags ?? []) expect(allFlags.has(flag), `${path.join(" ")} ${flag}`).toBe(true);
     }
   });
 

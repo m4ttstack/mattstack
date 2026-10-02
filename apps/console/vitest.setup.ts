@@ -28,3 +28,21 @@ if (typeof window !== 'undefined') {
 if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
+
+// React Flow reads the zoom back from the viewport's CSS transform through
+// `DOMMatrixReadOnly`, which jsdom lacks. `ResizeObserver` is the kit's no-op
+// polyfill above, and jsdom measures every box as 0x0 anyway, so nodes stay
+// unmeasured and edges never draw: canvas tests assert on node content only.
+if (typeof window !== 'undefined' && !('DOMMatrixReadOnly' in window)) {
+  class DOMMatrixReadOnlyStub {
+    readonly m22: number;
+    constructor(transform?: string) {
+      const scale = /scale\(([\d.]+)\)/.exec(transform ?? '')?.[1];
+      this.m22 = scale === undefined ? 1 : Number(scale);
+    }
+  }
+  Object.defineProperty(window, 'DOMMatrixReadOnly', {
+    value: DOMMatrixReadOnlyStub,
+    configurable: true,
+  });
+}

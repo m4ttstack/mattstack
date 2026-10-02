@@ -10,10 +10,14 @@ import type { MantineColor } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 import { modals } from '@mattstack/app-kit/modals';
+import { useQueryClient } from '@tanstack/react-query';
 
-import { SOFT_RULE } from './SlotRow';
+import { SOFT_RULE } from './softRule';
 import {
+  guardedWrite,
+  syncRefusal,
   useSkillsSync,
+  useSkillsWriting,
   type SkillsInstalled,
   type SkillsSyncReport,
 } from './useWiring';
@@ -47,15 +51,6 @@ const STATE_COLOR: Record<BarState, MantineColor> = {
   'in-sync': 'ok',
 };
 
-function refusalDetailOf(report: SkillsSyncReport | undefined): string | null {
-  if (!report || report.ok) return null;
-  if (typeof report.error === 'string') return report.error;
-  const stopped = report.steps?.find(
-    step => step.status === 'refused' || step.status === 'failed'
-  );
-  return stopped?.detail ?? 'sync stopped without a reason';
-}
-
 function versionsLine(
   installed: SkillsInstalled | null | undefined,
   report: SkillsSyncReport | undefined
@@ -84,7 +79,9 @@ export function InstalledCachesBar({
   drift,
 }: InstalledCachesBarProps) {
   const { bg, text, border } = useSchemeColors();
+  const queryClient = useQueryClient();
   const sync = useSkillsSync(pack);
+  const writing = useSkillsWriting(pack);
   const report = sync.data;
 
   if (!drift && installed == null && !report && !sync.isPending) return null;
@@ -101,7 +98,7 @@ export function InstalledCachesBar({
           ? 'update'
           : 'in-sync';
 
-  const refusal = state === 'refused' ? refusalDetailOf(report) : null;
+  const refusal = state === 'refused' ? syncRefusal(report) : null;
   const versions = versionsLine(installed, report);
   const showRestart = state === 'synced' && report?.restartNeeded === true;
   const stepTone = (status: string) =>
@@ -174,10 +171,11 @@ export function InstalledCachesBar({
                 title: `Sync ${pack}?`,
                 message: `Pulls the engine and pack checkouts, and may bump, compile, commit, push, and update the installed plugins for ${pack}. Refuses safely on dirty trees or content drift.`,
                 labels: { confirm: 'Run sync', cancel: 'Cancel' },
-                onConfirm: () => sync.mutate(),
+                onConfirm: () =>
+                  guardedWrite(queryClient, pack, () => sync.mutate()),
               })
             }
-            disabled={sync.isPending}
+            disabled={writing}
             data-testid="installed-caches-sync"
             style={{
               display: 'inline-flex',
@@ -192,7 +190,7 @@ export function InstalledCachesBar({
               fontSize: 11,
               fontWeight: 600,
               flex: 'none',
-              opacity: sync.isPending ? 0.5 : 1,
+              opacity: writing ? 0.5 : 1,
             }}
           >
             <Icons.refresh size={13} aria-hidden />

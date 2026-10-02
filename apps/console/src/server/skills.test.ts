@@ -2,7 +2,7 @@
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 
-import { RtNotFoundError } from './rt-bin';
+import { RtNotFoundError, WRITE_TIMEOUT_MS } from './rt-bin';
 import { mountSkills, type ReadPackFile } from './skills';
 
 const fakeRt = (result: { code: number; stdout: string; stderr: string }) => {
@@ -950,7 +950,9 @@ type RtResult = { code: number; stdout: string; stderr: string };
     roster read), and each needs its own answer. */
 function fakeRtHandler(handler: (argv: string[]) => RtResult) {
   const calls: string[][] = [];
-  const run = vi.fn(async (argv: string[]) => {
+  const run = vi.fn<
+    (argv: string[], opts?: { timeoutMs?: number }) => Promise<RtResult>
+  >(async argv => {
     calls.push(argv);
     return handler(argv);
   });
@@ -1694,6 +1696,64 @@ describe('skills bind route', () => {
     });
   });
 
+  it('binds a pipeline stage by the slots its template declares', async () => {
+    const stageComposition = () => ({
+      ...bindComposition(),
+      targets: [
+        {
+          name: 'stage-plan',
+          kind: 'stage',
+          public: false,
+          artifactPath: '/p/attachments/stage-plan/SKILL.md',
+          templatePath: '/s/stage-plan/SKILL.md',
+          placeholders: [{ kind: 'slot', arg: 'domain', line: 20 }],
+          slots: [
+            { name: 'domain', contract: 'watch-ci-domain@1', required: true },
+          ],
+          engineError: null,
+        },
+      ],
+    });
+    const rt = fakeRtHandler(argv => {
+      if (isComposition(argv)) {
+        return {
+          code: 0,
+          stdout: JSON.stringify(stageComposition()),
+          stderr: '',
+        };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const ghostSlot = await postBind(app, {
+      pack: 'demo',
+      verb: 'stage-plan',
+      slot: 'ghost-slot',
+      fill: 'demo:watch-ci-domain-v2',
+    });
+    expect(ghostSlot.status).toBe(400);
+    expect(rt.calls.some(isBind)).toBe(false);
+
+    const res = await postBind(app, {
+      pack: 'demo',
+      verb: 'stage-plan',
+      slot: 'domain',
+      fill: 'demo:watch-ci-domain-v2',
+    });
+
+    expect(res.status).toBe(200);
+    expect(rt.calls.find(isBind)).toEqual([
+      'skills',
+      'bind',
+      'stage-plan',
+      'domain',
+      'demo:watch-ci-domain-v2',
+      '--pack',
+      'demo',
+    ]);
+  });
+
   it('surfaces a non-zero rt exit as 502, carrying rt own stderr -- never a false success', async () => {
     const rt = fakeRtHandler(argv => {
       if (isComposition(argv)) {
@@ -1784,5 +1844,864 @@ describe('skills bind route', () => {
     await expect(after.json()).resolves.toMatchObject({
       verbs: [{ slots: [{ boundTo: 'demo:watch-ci-domain-v2' }] }],
     });
+  });
+});
+
+describe('write routes', () => {
+  const ok = (stdout = '{}') => ({ code: 0, stdout, stderr: '' });
+  const handler = (argv: string[]): RtResult => {
+    if (isComposition(argv)) return ok(JSON.stringify(bindComposition()));
+    if (isList(argv))
+      return ok(
+        surfaceList([{ name: 'watch-ci', kind: 'compiled', status: 'public' }])
+      );
+    return ok(JSON.stringify({ ok: true, pack: 'demo' }));
+  };
+  const writes: [string, Record<string, unknown>][] = [
+    [
+      '/api/skills/bind',
+      {
+        pack: 'demo',
+        verb: 'watch-ci',
+        slot: 'domain',
+        fill: 'demo:watch-ci-domain-v2',
+      },
+    ],
+    [
+      '/api/skills/surface/apply',
+      { pack: 'demo', toPublic: [], toInternal: ['watch-ci'] },
+    ],
+    ['/api/skills/sync', { pack: 'demo' }],
+    ['/api/skills/discard', { pack: 'demo', expect: 'a'.repeat(64) }],
+  ];
+
+  it.each(writes)(
+    '%s gives its write the write timeout, its reads the default, and holds the request open as long',
+    async (path, body) => {
+      const rt = fakeRtHandler(handler);
+      const timeout = vi.fn();
+      const app = mountSkills(new Hono(), rt.run);
+
+      const res = await app.request(
+        path,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        { timeout }
+      );
+
+      expect(res.status).toBe(200);
+      const writeCalls = rt.run.mock.calls.filter(
+        ([argv]) => !isComposition(argv) && !isList(argv)
+      );
+      expect(writeCalls).toHaveLength(1);
+      expect(writeCalls[0]![1]).toEqual({ timeoutMs: WRITE_TIMEOUT_MS });
+      for (const [argv, opts] of rt.run.mock.calls)
+        if (isComposition(argv) || isList(argv)) expect(opts).toBeUndefined();
+      expect(timeout).toHaveBeenCalledWith(
+        expect.any(Request),
+        WRITE_TIMEOUT_MS / 1000 + 10
+      );
+    }
+  );
+
+  it.each([
+    [
+      '/api/skills/surface/apply',
+      {
+        pack: 'demo',
+        toPublic: ['watch-ci'],
+        toInternal: ['ship'],
+      },
+      4,
+    ],
+    [
+      '/api/skills/bind',
+      {
+        pack: 'demo',
+        verb: 'watch-ci',
+        slot: 'domain',
+        fill: 'demo:watch-ci-domain-v2',
+      },
+      2,
+    ],
+  ] as const)(
+    '%s holds the request open afresh before each of its spawns',
+    async (path, body, spawns) => {
+      const order: string[] = [];
+      const rt = fakeRtHandler(argv => {
+        order.push('spawn');
+        if (isList(argv))
+          return ok(
+            surfaceList([
+              { name: 'watch-ci', kind: 'compiled', status: 'internal' },
+              { name: 'ship', kind: 'compiled', status: 'public' },
+            ])
+          );
+        return handler(argv);
+      });
+      const timeout = vi.fn(() => order.push('arm'));
+      const app = mountSkills(new Hono(), rt.run);
+
+      const res = await app.request(
+        path,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        { timeout }
+      );
+
+      expect(res.status).toBe(200);
+      expect(order).toEqual(
+        Array.from({ length: spawns }, () => ['arm', 'spawn']).flat()
+      );
+    }
+  );
+
+  it.each([
+    ['exits nonzero', () => ({ code: 143, stdout: '', stderr: '' })],
+    [
+      'throws',
+      () => {
+        throw new Error('spawn failed');
+      },
+    ],
+  ])(
+    'drops the pack cached reads when the bind %s, since the binding may already be written',
+    async (_, bindAnswer) => {
+      let bound = false;
+      const rt = fakeRtHandler(argv => {
+        if (isComposition(argv))
+          return ok(
+            JSON.stringify(
+              bindComposition({
+                boundTo: bound
+                  ? 'demo:watch-ci-domain-v2'
+                  : 'demo:watch-ci-domain',
+              })
+            )
+          );
+        bound = true;
+        return bindAnswer();
+      });
+      const app = mountSkills(new Hono(), rt.run);
+
+      await app.request('/api/skills/composition?pack=demo');
+      const res = await postBind(app, {
+        pack: 'demo',
+        verb: 'watch-ci',
+        slot: 'domain',
+        fill: 'demo:watch-ci-domain-v2',
+      });
+      expect(res.status).toBe(502);
+
+      const after = await app.request('/api/skills/composition?pack=demo');
+      await expect(after.json()).resolves.toMatchObject({
+        verbs: [{ slots: [{ boundTo: 'demo:watch-ci-domain-v2' }] }],
+      });
+    }
+  );
+});
+
+const SIGNATURE =
+  '7ce21e4417715d4f9cc0069f90e6123eff0bac0da6995ce8e7feb2b3da634bba';
+
+const postJson = (app: Hono, path: string, body: unknown) =>
+  app.request(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+describe('skills anatomy route', () => {
+  it('runs rt skills anatomy for the pack and skill', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify({ pack: 'acme', skill: 'stage-plan', parts: [] }),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request(
+      '/api/skills/anatomy?pack=acme&skill=stage-plan'
+    );
+
+    expect(res.status).toBe(200);
+    expect(rt.calls[0]).toEqual([
+      'skills',
+      'anatomy',
+      '--pack',
+      'acme',
+      '--skill',
+      'stage-plan',
+      '--json',
+    ]);
+  });
+
+  it('400s without a skill or without a pack, before rt is spawned', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    expect((await app.request('/api/skills/anatomy?pack=acme')).status).toBe(
+      400
+    );
+    expect(
+      (await app.request('/api/skills/anatomy?skill=stage-plan')).status
+    ).toBe(400);
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
+  it('is cached like the other reads', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{"parts":[]}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    await app.request('/api/skills/anatomy?pack=acme&skill=stage-plan');
+    await app.request('/api/skills/anatomy?pack=acme&skill=stage-plan');
+
+    expect(rt.calls).toHaveLength(1);
+  });
+
+  it('is 502 with rt stderr when rt prints nothing', async () => {
+    const rt = fakeRt({
+      code: 1,
+      stdout: '',
+      stderr: 'rt skills: no skill named "nope"',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request('/api/skills/anatomy?pack=acme&skill=nope');
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining('nope'),
+    });
+  });
+
+  it('is 503 when rt is not installed', async () => {
+    const run = vi.fn(async () => {
+      throw new RtNotFoundError(['/nowhere/rt']);
+    });
+    const app = mountSkills(new Hono(), run);
+
+    const res = await app.request('/api/skills/anatomy?pack=acme&skill=x');
+
+    expect(res.status).toBe(503);
+  });
+});
+
+describe('skills source route', () => {
+  const compositionOf = (packDir: string) => ({
+    pack: 'acme',
+    packDir,
+    verbs: [
+      {
+        sourcePath:
+          '/cache/mattstack/0.30.4/attachments/pipeline/work/SKILL.md',
+      },
+    ],
+    fills: [],
+    binders: [],
+    targets: [],
+  });
+  const compositionRt = (packDir = '/packs/acme') =>
+    fakeRtHandler(argv =>
+      argv[1] === 'composition'
+        ? {
+            code: 0,
+            stdout: JSON.stringify(compositionOf(packDir)),
+            stderr: '',
+          }
+        : { code: 1, stdout: '', stderr: '' }
+    );
+  const files: Record<string, string> = {
+    '/packs/acme/attachments/stage-plan/SKILL.md': 'a\nb',
+    '/cache/mattstack/0.30.4/attachments/gate-protocol/SKILL.md': 'g',
+    '/cache/mattstack/0.30.4/skills/review/SKILL.md': 'r',
+    '/cache/mattstack/0.30.4/README.md': 'the plugin readme',
+    '/cache/mattstack/0.30.4/docs/notes.md': 'plugin docs',
+    '/cache/mattstack/0.30.4/skills-extra/x.md': 'beside skills/',
+    '/packs/acme/attachments/big/SKILL.md': 'x'.repeat(1_048_577),
+    '/packs/acme-evil/SKILL.md': 'sibling pack',
+    '/elsewhere/SKILL.md': 'outside every root',
+    '/packs/acme/../other/SKILL.md': 'climbs out lexically',
+    '/etc/passwd': 'root:x:0:0',
+    '/packs/acme/notes.txt': 'not markdown',
+    '/packs/acme/attachments/alias/SKILL.md':
+      'the alias path, not the real one',
+    '/packs/acme/attachments/empty/SKILL.md': '',
+    '/packs/acme/attachments/trailing/SKILL.md': 'a\nb\n',
+    '/real/packs/acme/attachments/stage-plan/SKILL.md': 'under a linked root',
+  };
+  const linking = (links: Record<string, string>) => async (p: string) =>
+    links[p] ?? p;
+  const read: ReadPackFile = async p => {
+    if (p in files) return files[p]!;
+    throw new Error('ENOENT');
+  };
+  const identity = async (p: string) => p;
+  const noGit = () => fakeGit(() => ({ code: 0, stdout: '', stderr: '' })).run;
+  const getSource = (app: Hono, path: string, pack = 'acme') =>
+    app.request(
+      `/api/skills/source?pack=${pack}&path=${encodeURIComponent(path)}`
+    );
+
+  it('serves a markdown file under the pack', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      identity
+    );
+
+    const res = await getSource(
+      app,
+      '/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      path: '/packs/acme/attachments/stage-plan/SKILL.md',
+      content: 'a\nb',
+      lines: 2,
+    });
+  });
+
+  it('serves a markdown file under the engine plugin root', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      identity
+    );
+
+    const res = await getSource(
+      app,
+      '/cache/mattstack/0.30.4/attachments/gate-protocol/SKILL.md'
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it('serves a markdown file under the engine plugin root skills directory', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      identity
+    );
+
+    const res = await getSource(
+      app,
+      '/cache/mattstack/0.30.4/skills/review/SKILL.md'
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ content: 'r' });
+  });
+
+  it.each([
+    '/cache/mattstack/0.30.4/README.md',
+    '/cache/mattstack/0.30.4/docs/notes.md',
+    '/cache/mattstack/0.30.4/skills-extra/x.md',
+  ])(
+    '404s %s, a markdown file of the engine outside its skill folders',
+    async path => {
+      const app = mountSkills(
+        new Hono(),
+        compositionRt().run,
+        noGit(),
+        read,
+        identity
+      );
+
+      expect((await getSource(app, path)).status).toBe(404);
+    }
+  );
+
+  it.each([
+    '/packs/acme/../other/SKILL.md',
+    '/etc/passwd',
+    '/packs/acme/notes.txt',
+    '/packs/acme-evil/SKILL.md',
+  ])('404s %s', async path => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      identity
+    );
+
+    expect((await getSource(app, path)).status).toBe(404);
+  });
+
+  it('404s a symlink whose real path leaves the roots', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      linking({
+        '/packs/acme/attachments/stage-plan/SKILL.md': '/elsewhere/SKILL.md',
+      })
+    );
+
+    const res = await getSource(
+      app,
+      '/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  it('404s a path that does not resolve on disk', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      async () => {
+        throw new Error('ENOENT');
+      }
+    );
+
+    const res = await getSource(
+      app,
+      '/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  it('404s when rt cannot name the pack', async () => {
+    const rt = fakeRtHandler(() => ({
+      code: 1,
+      stdout: '',
+      stderr: 'no pack',
+    }));
+    const app = mountSkills(new Hono(), rt.run, noGit(), read, identity);
+
+    const res = await getSource(
+      app,
+      '/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  it('413s a file past 1 MB', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      identity
+    );
+
+    const res = await getSource(app, '/packs/acme/attachments/big/SKILL.md');
+
+    expect(res.status).toBe(413);
+  });
+
+  it('413s on bytes, not characters', async () => {
+    const wide = '€'.repeat(400_000);
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      async () => wide,
+      identity
+    );
+
+    const res = await getSource(
+      app,
+      '/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(413);
+  });
+
+  it('serves a file under a root that itself resolves through a symlink', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt('/link/packs/acme').run,
+      noGit(),
+      read,
+      linking({
+        '/link/packs/acme': '/real/packs/acme',
+        '/link/packs/acme/attachments/stage-plan/SKILL.md':
+          '/real/packs/acme/attachments/stage-plan/SKILL.md',
+      })
+    );
+
+    const res = await getSource(
+      app,
+      '/link/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      path: '/link/packs/acme/attachments/stage-plan/SKILL.md',
+      content: 'under a linked root',
+    });
+  });
+
+  it('still refuses an escape when the root is linked', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt('/link/packs/acme').run,
+      noGit(),
+      read,
+      linking({
+        '/link/packs/acme': '/real/packs/acme',
+        '/link/packs/acme/attachments/stage-plan/SKILL.md':
+          '/elsewhere/SKILL.md',
+      })
+    );
+
+    const res = await getSource(
+      app,
+      '/link/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  it('falls back to the raw root when a root does not resolve', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      async p => {
+        if (p === '/packs/acme') throw new Error('ENOENT');
+        return p;
+      }
+    );
+
+    const res = await getSource(
+      app,
+      '/packs/acme/attachments/stage-plan/SKILL.md'
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it('reads the resolved real path, not the requested one', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      linking({
+        '/packs/acme/attachments/alias/SKILL.md':
+          '/packs/acme/attachments/stage-plan/SKILL.md',
+      })
+    );
+
+    const res = await getSource(app, '/packs/acme/attachments/alias/SKILL.md');
+
+    await expect(res.json()).resolves.toEqual({
+      path: '/packs/acme/attachments/alias/SKILL.md',
+      content: 'a\nb',
+      lines: 2,
+    });
+  });
+
+  it('counts lines the way an editor does', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      identity
+    );
+
+    const trailing = await getSource(
+      app,
+      '/packs/acme/attachments/trailing/SKILL.md'
+    );
+    const empty = await getSource(
+      app,
+      '/packs/acme/attachments/empty/SKILL.md'
+    );
+
+    await expect(trailing.json()).resolves.toMatchObject({
+      content: 'a\nb\n',
+      lines: 2,
+    });
+    await expect(empty.json()).resolves.toMatchObject({
+      content: '',
+      lines: 0,
+    });
+  });
+
+  it('404s a relative path even when it would resolve inside a root', async () => {
+    const app = mountSkills(
+      new Hono(),
+      compositionRt().run,
+      noGit(),
+      read,
+      linking({
+        'attachments/stage-plan/SKILL.md':
+          '/packs/acme/attachments/stage-plan/SKILL.md',
+      })
+    );
+
+    const res = await getSource(app, 'attachments/stage-plan/SKILL.md');
+
+    expect(res.status).toBe(404);
+  });
+
+  it('is 503 when rt is not installed, 404 for every other failure', async () => {
+    const missing = vi.fn(async () => {
+      throw new RtNotFoundError(['/nowhere/rt']);
+    });
+    const broken = vi.fn(async () => {
+      throw new Error('spawn exploded');
+    });
+
+    const notInstalled = mountSkills(new Hono(), missing, noGit(), read);
+    const failed = mountSkills(new Hono(), broken, noGit(), read);
+    const path = '/packs/acme/attachments/stage-plan/SKILL.md';
+
+    expect((await getSource(notInstalled, path)).status).toBe(503);
+    expect((await getSource(failed, path)).status).toBe(404);
+  });
+
+  it('400s without a pack or a path', async () => {
+    const rt = compositionRt();
+    const app = mountSkills(new Hono(), rt.run, noGit(), read, identity);
+
+    expect((await app.request('/api/skills/source?path=%2Fa.md')).status).toBe(
+      400
+    );
+    expect((await app.request('/api/skills/source?pack=acme')).status).toBe(
+      400
+    );
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+});
+
+describe('skills changes and discard routes', () => {
+  it('changes passes the pack through and is never cached', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify({ dirty: false }),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const first = await app.request('/api/skills/changes?pack=acme');
+    await app.request('/api/skills/changes?pack=acme');
+
+    expect(first.status).toBe(200);
+    expect(rt.calls).toHaveLength(2);
+    expect(rt.calls[0]).toEqual([
+      'skills',
+      'changes',
+      '--pack',
+      'acme',
+      '--json',
+    ]);
+  });
+
+  it('changes 400s without a pack', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    expect((await app.request('/api/skills/changes')).status).toBe(400);
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
+  it('changes answers a pack outside git as a non-2xx { error }', async () => {
+    const rt = fakeRt({
+      code: 1,
+      stdout: '',
+      stderr: 'rt skills: pack acme is not in a git repo',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await app.request('/api/skills/changes?pack=acme');
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining('not in a git repo'),
+    });
+  });
+
+  it('discard posts rt skills discard', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify({ discarded: [] }),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postJson(app, '/api/skills/discard', {
+      pack: 'acme',
+      expect: SIGNATURE,
+    });
+
+    expect(res.status).toBe(200);
+    expect(rt.calls[0]).toEqual([
+      'skills',
+      'discard',
+      '--pack',
+      'acme',
+      '--json',
+      '--expect',
+      SIGNATURE,
+    ]);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['without a signature', { pack: 'acme' }],
+    ['with a signature that is not one', { pack: 'acme', expect: 'abc' }],
+    ['with a signature that is not a string', { pack: 'acme', expect: 7 }],
+  ])('discard 400s %s, before rt is spawned', async (_label, body) => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postJson(app, '/api/skills/discard', body);
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining('signature'),
+    });
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
+  it('discard 400s without a pack, before rt is spawned', async () => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    expect((await postJson(app, '/api/skills/discard', {})).status).toBe(400);
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
+  it('discard surfaces a refusal as a non-2xx { error }', async () => {
+    const rt = fakeRt({
+      code: 1,
+      stdout: '',
+      stderr: 'rt skills: pack acme is in the shared checkout',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postJson(app, '/api/skills/discard', {
+      pack: 'acme',
+      expect: SIGNATURE,
+    });
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining('shared checkout'),
+    });
+  });
+
+  it("discard drops the pack's cached reads so anatomy refetches", async () => {
+    const rt = fakeRtHandler(argv =>
+      argv[1] === 'discard'
+        ? { code: 0, stdout: '{"discarded":[]}', stderr: '' }
+        : { code: 0, stdout: '{"parts":[]}', stderr: '' }
+    );
+    const app = mountSkills(new Hono(), rt.run);
+    const anatomy = '/api/skills/anatomy?pack=acme&skill=stage-plan';
+
+    await app.request(anatomy);
+    await postJson(app, '/api/skills/discard', {
+      pack: 'acme',
+      expect: SIGNATURE,
+    });
+    await app.request(anatomy);
+
+    expect(rt.calls.filter(argv => argv[1] === 'anatomy')).toHaveLength(2);
+  });
+
+  it("discard leaves another pack's cached reads alone", async () => {
+    const rt = fakeRtHandler(argv =>
+      argv[1] === 'discard'
+        ? { code: 0, stdout: '{"discarded":[]}', stderr: '' }
+        : { code: 0, stdout: '{"parts":[]}', stderr: '' }
+    );
+    const app = mountSkills(new Hono(), rt.run);
+    const anatomy = '/api/skills/anatomy?pack=globex&skill=stage-plan';
+
+    await app.request(anatomy);
+    await postJson(app, '/api/skills/discard', {
+      pack: 'acme',
+      expect: SIGNATURE,
+    });
+    await app.request(anatomy);
+
+    expect(rt.calls.filter(argv => argv[1] === 'anatomy')).toHaveLength(1);
+  });
+
+  it('sync passes --commit-pending when asked', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify({ ok: true, steps: [] }),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    await postJson(app, '/api/skills/sync', {
+      pack: 'acme',
+      commitPending: true,
+      expect: SIGNATURE,
+    });
+
+    expect(rt.calls[0]).toEqual([
+      'skills',
+      'sync',
+      '--pack',
+      'acme',
+      '--json',
+      '--commit-pending',
+      '--expect',
+      SIGNATURE,
+    ]);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['without a signature', { pack: 'acme', commitPending: true }],
+    [
+      'with a signature that is not one',
+      { pack: 'acme', commitPending: true, expect: 'ABC' },
+    ],
+    ['with a bad signature and no commit', { pack: 'acme', expect: 'abc' }],
+  ])('sync 400s %s, before rt is spawned', async (_label, body) => {
+    const rt = fakeRt({ code: 0, stdout: '{}', stderr: '' });
+    const app = mountSkills(new Hono(), rt.run);
+
+    const res = await postJson(app, '/api/skills/sync', body);
+
+    expect(res.status).toBe(400);
+    expect(rt.run).not.toHaveBeenCalled();
+  });
+
+  it('sync leaves --commit-pending off unless it is exactly true', async () => {
+    const rt = fakeRt({
+      code: 0,
+      stdout: JSON.stringify({ ok: true, steps: [] }),
+      stderr: '',
+    });
+    const app = mountSkills(new Hono(), rt.run);
+
+    await postJson(app, '/api/skills/sync', { pack: 'acme' });
+    await postJson(app, '/api/skills/sync', {
+      pack: 'acme',
+      commitPending: 'yes',
+    });
+
+    expect(rt.calls[0]).not.toContain('--commit-pending');
+    expect(rt.calls[1]).not.toContain('--commit-pending');
   });
 });

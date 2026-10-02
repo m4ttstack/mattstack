@@ -1,0 +1,89 @@
+{
+  "ok": true,
+  "pack": "acme",
+  "steps": [
+    {
+      "name": "guards",
+      "status": "ran",
+      "detail": "pack checkout is on main"
+    },
+    {
+      "name": "pull-engine",
+      "status": "skipped",
+      "detail": "mattstack is an installed copy"
+    },
+    {
+      "name": "pull-pack",
+      "status": "ran",
+      "detail": "already up to date"
+    },
+    {
+      "name": "commit-pending",
+      "status": "ran",
+      "detail": "committed pack/skills.jsonc"
+    },
+    {
+      "name": "update-engine",
+      "status": "skipped",
+      "detail": "mattstack 0.30.4 is current"
+    },
+    {
+      "name": "materialize",
+      "status": "ran",
+      "detail": "bindings unchanged"
+    },
+    {
+      "name": "check",
+      "status": "ran",
+      "detail": "5 skills stale"
+    },
+    {
+      "name": "bump",
+      "status": "ran",
+      "detail": "0.8.14 -> 0.8.15"
+    },
+    {
+      "name": "compile",
+      "status": "ran",
+      "detail": "rebuilt 20 skills"
+    },
+    {
+      "name": "recheck",
+      "status": "ran",
+      "detail": "every skill in sync"
+    },
+    {
+      "name": "commit-push",
+      "status": "ran",
+      "detail": "pushed to origin/main"
+    },
+    {
+      "name": "update-pack",
+      "status": "ran",
+      "detail": "installed acme 0.8.15"
+    },
+    {
+      "name": "verify-installed",
+      "status": "ran",
+      "detail": "installed copy is 0.8.15"
+    },
+    {
+      "name": "cswap-sweep",
+      "status": "skipped",
+      "detail": "no other accounts"
+    }
+  ],
+  "versions": {
+    "engine": {
+      "before": "0.30.4",
+      "after": "0.30.4"
+    },
+    "pack": {
+      "source": "0.8.15",
+      "installedBefore": "0.8.14",
+      "installedAfter": "0.8.15"
+    }
+  },
+  "warnings": [],
+  "restartNeeded": true
+}

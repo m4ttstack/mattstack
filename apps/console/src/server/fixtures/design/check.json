@@ -1,0 +1,162 @@
+{
+  "pack": "acme",
+  "packDir": "/fixture/packs/acme",
+  "verbs": [
+    {
+      "name": "work",
+      "status": "stale",
+      "staleFiles": ["SKILL.md"],
+      "orphanFiles": [],
+      "side": "skills",
+      "staleBecause": ["source"]
+    },
+    {
+      "name": "shepherdr",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "skills"
+    },
+    {
+      "name": "review",
+      "status": "stale",
+      "staleFiles": ["SKILL.md"],
+      "orphanFiles": [],
+      "side": "skills",
+      "staleBecause": ["source"]
+    },
+    {
+      "name": "self-review",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "attachments"
+    },
+    {
+      "name": "receive-review",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "attachments"
+    },
+    {
+      "name": "ship",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "skills"
+    },
+    {
+      "name": "watch-ci",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "skills"
+    },
+    {
+      "name": "checkout",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "skills"
+    },
+    {
+      "name": "sync-open-mrs",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "skills"
+    },
+    {
+      "name": "rebase-worktree",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "skills"
+    },
+    {
+      "name": "release-notes",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "skills"
+    },
+    {
+      "name": "standup",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "skills"
+    },
+    {
+      "name": "stage-provision",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "attachments"
+    },
+    {
+      "name": "stage-plan",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "attachments"
+    },
+    {
+      "name": "stage-gates",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "attachments"
+    },
+    {
+      "name": "stage-evidence",
+      "status": "stale",
+      "staleFiles": ["SKILL.md"],
+      "orphanFiles": [],
+      "side": "attachments",
+      "staleBecause": ["source"]
+    },
+    {
+      "name": "stage-implement",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "attachments"
+    },
+    {
+      "name": "stage-self-review",
+      "status": "in-sync",
+      "staleFiles": [],
+      "orphanFiles": [],
+      "side": "attachments"
+    },
+    {
+      "name": "stage-ship",
+      "status": "stale",
+      "staleFiles": ["SKILL.md"],
+      "orphanFiles": [],
+      "side": "attachments",
+      "staleBecause": ["source"]
+    },
+    {
+      "name": "stage-watch-ci",
+      "status": "stale",
+      "staleFiles": ["SKILL.md"],
+      "orphanFiles": [],
+      "side": "attachments",
+      "staleBecause": ["source"]
+    }
+  ],
+  "chainErrors": [],
+  "installed": {
+    "plugin": "acme",
+    "marketplace": "acme-skills",
+    "version": "0.8.14",
+    "sourceVersion": "0.8.14",
+    "status": "current"
+  },
+  "mcpLint": [],
+  "scriptLint": [],
+  "strictLint": false
+}

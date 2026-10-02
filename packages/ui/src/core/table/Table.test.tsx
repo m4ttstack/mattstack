@@ -25,3 +25,43 @@ test('Table forwards its ref to the underlying HTMLTableElement', () => {
 test('Table.DataRenderer is defined', () => {
   expect(Table.DataRenderer).toBeDefined();
 });
+
+// --- soft variant ----------------------------------------------------------
+//
+// A soft table sits inside a card: its own Paper takes the card's surface
+// under the soft rule, and the header leaves its tint to the variant's CSS
+// rather than the inline accent.
+
+test('a soft Table wraps itself in a soft-outline Paper with no inline header accent', () => {
+  const { container } = renderWithProviders(
+    <Table variant="soft">
+      <Table.Thead>
+        <Table.Tr>
+          <Table.Th>file</Table.Th>
+        </Table.Tr>
+      </Table.Thead>
+    </Table>
+  );
+
+  const table = container.querySelector('table')!;
+  expect(table).toHaveAttribute('data-variant', 'soft');
+  expect(table.parentElement).toHaveAttribute('data-variant', 'soft-outline');
+  expect(container.querySelector('thead')!.style.backgroundColor).toBe('');
+});
+
+test('a default Table keeps its header accent and an unmarked Paper', () => {
+  const { container } = renderWithProviders(
+    <Table>
+      <Table.Thead>
+        <Table.Tr>
+          <Table.Th>file</Table.Th>
+        </Table.Tr>
+      </Table.Thead>
+    </Table>
+  );
+
+  expect(container.querySelector('table')!.parentElement).not.toHaveAttribute(
+    'data-variant'
+  );
+  expect(container.querySelector('thead')!.style.backgroundColor).not.toBe('');
+});

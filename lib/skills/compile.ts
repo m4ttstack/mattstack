@@ -1,6 +1,6 @@
 import { existsSync } from "fs";
 import { isAbsolute, relative as relativePath, resolve as resolvePath, sep } from "path";
-import { assertNoPlaceholders, findPlaceholders, skillDirFor, substitute, substituteIncludesOnly } from "./placeholders.ts";
+import { assertNoPlaceholders, findPlaceholders, skillDirFor, substitute, substituteIncludesOnly, type TraceEntry } from "./placeholders.ts";
 import type {
   AttachmentSource,
   CompiledFile,
@@ -274,6 +274,7 @@ type BuildOpts = {
   internalRoster: Set<string>;
   ctx: PlaceholderContext | null;
   stageDir: string | null;
+  trace?: (entry: TraceEntry) => void;
 };
 
 /**
@@ -315,7 +316,7 @@ function buildBody(step: StepSource, boundSlots: BoundSlot[], opts: BuildOpts): 
       throw new Error(`engine "${step.name}": compile-native engine calls the runtime resolver (resolve-args.sh)`);
     }
     if (!opts.ctx) throw new Error(`engine "${step.name}": placeholders present but no placeholder context`);
-    const { body, used } = substitute(stepBody, opts.ctx, step.name);
+    const { body, used } = substitute(stepBody, opts.ctx, step.name, opts.trace);
     assertNoPlaceholders(body, step.name);
     assertNoStrayBraces(body, step.name);
     for (const { slotName } of boundSlots) {
@@ -504,6 +505,7 @@ export function compileSkill(
     where?: string;
     verbSides?: Record<string, Side>;
     side?: Side;
+    trace?: (entry: TraceEntry) => void;
   } = {},
 ): CompileResult {
   const internalRoster = opts.internalRoster ?? new Set<string>();
@@ -545,6 +547,7 @@ export function compileSkill(
     internalRoster,
     ctx,
     stageDir: opts.stageDir ?? null,
+    trace: opts.trace,
   });
   const frontmatter = buildFrontmatter(verb, allowedTools, compiledParts);
   const content = `${frontmatter}\n\n${body}\n`;

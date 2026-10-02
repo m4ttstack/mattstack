@@ -145,6 +145,13 @@ describe("runRtVerb", () => {
     }
   });
 
+  test("agentDeniedFlags: skills sync refuses --commit-pending, which would commit and push a person's pending pack edits", async () => {
+    const calls: { argv: string[]; opts: unknown }[] = [];
+    const r = await runRtVerb({ args: ["skills", "sync", "--pack", "acme", "--commit-pending"] }, { ...deps(ok("{}"), calls), tree: TREE });
+    expect(r.ok ? "" : r.error).toContain("--commit-pending is not available through rt_verb");
+    expect(calls).toEqual([]);
+  });
+
   test("agentDeniedFlags: the leaf's other flags still run", async () => {
     const calls: { argv: string[]; opts: unknown }[] = [];
     const r = await runRtVerb({ args: ["worktree", "publish", "--pack", "acme"] }, deps(ok("{}"), calls));

@@ -165,7 +165,7 @@ export interface CommandNode {
   /** Value flags whose file rt_verb reads only from the Claude Code temp root or an installed plugin or pack root (see lib/mcp/temp-root-guard.ts): a leaf that echoes a caller-named file back must not let an agent read a key or a token through it. */
   agentReadRootFlags?: string[];
 
-  /** Declared flags rt_verb refuses outright: they let a caller-written file (a manifest, a pack tree) drive a leaf that recompiles, commits or pushes a shared pack. */
+  /** Declared flags rt_verb refuses outright: they let a caller-written file (a manifest, a pack tree) drive a leaf that recompiles, commits or pushes a shared pack, or make it commit and push edits a person left pending. */
   agentDeniedFlags?: string[];
 
   /** rt_verb refuses a caller-chosen cwd: this leaf resolves its pack from the enclosing tree, so a cwd in a caller-written stub pack reproduces a denied --pack-dir. */

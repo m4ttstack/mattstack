@@ -4,10 +4,11 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { PackInfo } from "../../lib/skills/packs.ts";
 import type { MaterializeSkillsResult } from "../../lib/setup/skills-materialize.ts";
+import { TREE } from "../../lib/command-tree-def.ts";
 import type { SyncReport } from "../../lib/skills/sync.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
-import { deriveEngine, manifestTarget, syncBlocks, syncFailure, syncMaterializeVerdict, syncRefusal } from "../skills-sync.ts";
+import { deriveEngine, manifestTarget, syncBlocks, syncFailure, syncMaterializeVerdict, syncOptions, syncRefusal } from "../skills-sync.ts";
 
 function pack(name: string): PackInfo {
   return { name, dir: `/fake/${name}`, layout: "flat", surfacePath: `/fake/${name}/surface.jsonc`, marketplace: "local" };
@@ -94,6 +95,42 @@ describe("manifestTarget", () => {
 
   test("omits what was not passed", () => {
     expect(manifestTarget(["--pack", "acme", "--json"])).toEqual({});
+  });
+});
+
+describe("syncOptions", () => {
+  test("--commit-pending reaches syncPack as commitPending", () => {
+    expect(syncOptions(["--pack", "acme", "--commit-pending", "--json"])).toEqual({ commitPending: true });
+  });
+
+  test("without the flag nothing is committed", () => {
+    expect(syncOptions(["--pack", "acme"])).toEqual({ commitPending: false });
+  });
+
+  test("the sync command lists the flag", () => {
+    const sync = TREE.skills?.subcommands?.sync;
+    expect(sync?.args?.some((a) => a.flag === "--commit-pending")).toBe(true);
+  });
+
+  test("--expect reaches syncPack as the signature to match", () => {
+    const signature = "a".repeat(64);
+    expect(syncOptions(["--pack", "acme", "--commit-pending", "--expect", signature, "--json"])).toEqual({ commitPending: true, expect: signature });
+  });
+
+  test("an --expect that is not a signature is refused before anything runs", () => {
+    expect(() => syncOptions(["--pack", "acme", "--expect"])).toThrow("signature");
+    expect(() => syncOptions(["--pack", "acme", "--expect", "--json"])).toThrow("signature");
+    expect(() => syncOptions(["--pack", "acme", "--expect", "abc"])).toThrow("signature");
+  });
+
+  test("sync and discard list --expect, and agents may pass it to sync while --commit-pending stays theirs to refuse", () => {
+    const sync = TREE.skills?.subcommands?.sync;
+    const discard = TREE.skills?.subcommands?.discard;
+    expect(sync?.args?.some((a) => a.flag === "--expect")).toBe(true);
+    expect(discard?.args?.some((a) => a.flag === "--expect")).toBe(true);
+    expect(sync?.agentSafe).toBe(true);
+    expect(sync?.agentDeniedFlags).toContain("--commit-pending");
+    expect(sync?.agentDeniedFlags).not.toContain("--expect");
   });
 });
 
@@ -191,6 +228,19 @@ describe("syncBlocks", () => {
 
   test("nothing to do is one summary", () => {
     expect(renderPlain(syncBlocks(report({})))).toBe("[ok] Already current\n");
+  });
+
+  test("staging pending pack edits has its own plain title", () => {
+    const text = renderPlain(syncBlocks(report({ steps: [{ name: "commit-pending", status: "ran", detail: "staged 2 files" }] })));
+    expect(text).toContain("[ok] Stage your pack edits  staged 2 files");
+    expect(text).not.toContain("commit-pending");
+  });
+
+  test("changes outside the pack refuse the sync as policy, never as a failure", () => {
+    const detail = "The pack checkout at /z/packs/acme has changes outside the pack: README.md. Commit or stash those, then run this again";
+    const refused = report({ ok: false, steps: [{ name: "guards", status: "refused", detail }] });
+    expect(renderPlain(syncRefusal(refused)!)).toBe(`[refused] rt did not sync acme  it stopped at: Safety checks\n  why: ${detail}\n`);
+    expect(syncFailure(refused)).toBeNull();
   });
 
   test("a refusal is not a failure: the steps before it on stdout, then a refused note", () => {

@@ -2,13 +2,14 @@ import { Component, type ReactNode } from 'react';
 import { MattstackShell } from '@mattstack/app-kit/app';
 import { GenericError, PageShell } from '@mattstack/app-kit/core';
 import { RailLink } from '@mattstack/app-kit/router';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { Redirect, useLocation } from 'wouter';
 
 import { SHELL_HEADER_HEIGHT } from './chrome';
 import { GateRedirect } from './gates/GateRedirect';
 import { NotFoundPage } from './NotFoundPage';
 import { ConsolePalette } from './palette/ConsolePalette';
+import { createQueryClient } from './queryClient';
 import { useAppRoute, type AppRoute } from './routes';
 import { RunBoard } from './runs/RunBoard';
 import { RunDetail } from './runs/RunDetail';
@@ -18,7 +19,7 @@ import { SettingsPage } from './settings/SettingsPage';
 import { WiringMap } from './wiring/WiringMap';
 import { WiringRailEntry } from './wiring/WiringRailEntry';
 
-const queryClient = new QueryClient();
+const queryClient = createQueryClient();
 
 type ConsoleSection = 'runs' | 'search' | 'wiring' | 'settings';
 

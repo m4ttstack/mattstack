@@ -228,6 +228,16 @@ const TK_CODEMIRROR_NAMES = new Set([
 // real defined-but-unreferenced failure and stay out of this waiver set.
 const TK_CHART_DEFAULTS_NAMES = new Set(['--tk-line-3']);
 
+// Read by packages/ui/src/design-system/component-styles.module.css (the
+// contrast Switch's off track, the segmented Progress's part tones, a ground
+// card's attention rings), so they stay out of this waiver set too.
+const TK_COMPONENT_STYLES_NAMES = new Set([
+  '--tk-line-1',
+  '--tk-line-2',
+  '--tk-fill-warn',
+  '--tk-fill-bad',
+]);
+
 const TK_ON_FILL_NAMES = RAMP_HUES.map(h => `--tk-on-fill-${h}`);
 const TK_ON_FILL_WAIVER =
   "app-kit's variantColorResolver builds this name at runtime from the intent, so no static reference to any single hue exists; the filled label is genuinely wired.";
@@ -239,7 +249,8 @@ const WAIVED_TOKYO: Record<string, string> = {
         !TK_TEXT_SLOT_NAMES.has(name) &&
         !TK_APP_LAUNCHER_NAMES.has(name) &&
         !TK_CODEMIRROR_NAMES.has(name) &&
-        !TK_CHART_DEFAULTS_NAMES.has(name)
+        !TK_CHART_DEFAULTS_NAMES.has(name) &&
+        !TK_COMPONENT_STYLES_NAMES.has(name)
     ).map(name => [name, TK_RAMP_WAIVER])
   ),
   ...Object.fromEntries(

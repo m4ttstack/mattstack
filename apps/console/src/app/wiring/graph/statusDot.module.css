@@ -1,0 +1,24 @@
+.dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.dot[data-size='md'] {
+  width: 8px;
+  height: 8px;
+}
+
+.dot[data-tone='ok'] {
+  background-color: var(--tk-dot-ok);
+}
+
+.dot[data-tone='warn'] {
+  background-color: var(--tk-dot-warn);
+}
+
+.dot[data-tone='quiet'] {
+  background-color: var(--tk-line-1);
+}

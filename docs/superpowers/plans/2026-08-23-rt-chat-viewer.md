@@ -20,7 +20,7 @@
 
 **Reference implementation:** `~/Documents/GitHub/console` is the precedent for every structural decision below. Read `src/server/{app,index,ws,runs}.ts` before Task 2 — to understand the shape. What is genuinely shared (the Tokyo tokens, the relay, the probe) arrives as packages in Task 0; the UI kit is scaffolded from the template and is this app's own to edit.
 
-**Design reference:** the approved mockups — https://claude.ai/code/artifact/933b24c5-9edd-4c70-9930-f5afbf14c9a9 — land in this repo as `design/` in Task 1 (console's `design/wiring` pattern: artboards, `canvas.json`, README naming what each value was lifted from). Implementation is checked against them, not against memory of them.
+**Design reference:** the approved mockups (https://claude.ai/code/artifact/933b24c5-9edd-4c70-9930-f5afbf14c9a9) land in this repo as `design/` in Task 1 (console's `design/wiring` pattern, since removed from console: artboards, `canvas.json`, README naming what each value was lifted from). Implementation is checked against them, not against memory of them.
 
 **Repo:** a new checkout at `~/Documents/GitHub/chat`. It depends on nothing by sibling path: `@mattstack/rt-client` and `@mattstack/mantine-tokyo` come from npm.
 
@@ -208,7 +208,7 @@ Mantine's stock unsized `h2` renders about twice the largest body text in this m
 
 - [ ] **Step 3: Prove nothing moved visually**
 
-Run console's design parity capture (`design/wiring/capture.sh` + `normalize-captures.mjs`) and diff against `design/wiring/reference/*.png`: zero pixel drift is the acceptance test for an extraction.
+Run console's design parity capture (`design/wiring/capture.sh` + `normalize-captures.mjs`, since removed from console) and diff against `design/wiring/reference/*.png`: zero pixel drift is the acceptance test for an extraction.
 
 **Known defect, read before you trust this gate.** The capture renders static mocks, not the running app, so it can pass while the real theme is broken. Zero drift here is necessary, not sufficient.
 

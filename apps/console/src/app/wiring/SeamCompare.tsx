@@ -19,7 +19,7 @@ import {
   type DiffHunk,
   type SeamSourceIndex,
 } from './seamAttribution';
-import { SOFT_RULE } from './SlotRow';
+import { SOFT_RULE } from './softRule';
 
 /** Past this the drawer is a wall rather than a reading; the count of what
     was left out is the honest thing to say instead. */
@@ -115,7 +115,7 @@ export function seamTally(result: AttributedDiff): string {
     return 'No seam in this compile carries a source span, so no hunk below can be attributed.';
   }
   if (result.placedSeamCount === 0) {
-    return `${result.seamCount} seams read, none of them naming a file this pack's repo holds — nothing below can attribute.`;
+    return `${result.seamCount} seams read, none of them naming a file this pack's repo holds, so nothing below can attribute.`;
   }
   return `${result.attributedCount} of ${result.hunks.length} hunks matched a seam · ${result.placedSeamCount} of ${result.seamCount} seams name a file in this repo`;
 }
@@ -210,7 +210,7 @@ function HunkBlock({ hunk, seam }: Pick<AttributedHunk, 'hunk' | 'seam'>) {
 
       {!seam && (
         <Text size="xs" c={text.muted} pl={2}>
-          No part&apos;s body span contains these lines — they belong to the
+          No part&apos;s body span contains these lines: they belong to the
           compile itself, or to a file no seam of this verb names.
         </Text>
       )}
@@ -249,7 +249,7 @@ const NO_INDEX: SeamSourceIndex = {
  * source it fell inside.
  *
  * Two things it must never imply. A hunk no seam contains renders as itself,
- * unattributed — that is the designed answer, not a gap. And the seams come
+ * unattributed, which is the designed answer, not a gap. And the seams come
  * from a compile of the sources as they are NOW, so they are a map of where
  * text comes from today, laid over a change from then; the panel says so
  * where it is read rather than leaving it to a doc.
@@ -307,7 +307,7 @@ export function SeamCompare({
             {!thisVerb && i === ownCount && (
               <Text size="xs" c={text.muted} pb="md" data-testid="elsewhere">
                 {elsewhere} more {elsewhere === 1 ? 'hunk' : 'hunks'} elsewhere
-                in this pack — this diff covers the pack, not just {verb}.
+                in this pack. This diff covers the pack, not just {verb}.
               </Text>
             )}
             <HunkBlock hunk={hunk} seam={seam} />
@@ -322,7 +322,7 @@ export function SeamCompare({
       )}
       {diffTruncated && (
         <Text size="xs" c={text.muted} data-testid="compare-truncated">
-          The diff was larger than this surface reads and was cut — later
+          The diff was larger than this surface reads and was cut, so later
           changes are missing from the list above.
         </Text>
       )}
@@ -337,7 +337,7 @@ export function SeamCompare({
         <Icons.info size={14} color={text.muted} style={{ flex: 'none' }} />
         <Text size="xs" c={text.muted}>
           A seam&apos;s line span is measured in its own source file, not in the
-          compiled output — so each hunk above is placed against the file its
+          compiled output, so each hunk above is placed against the file its
           header names, and the spans come from a fresh compile of today&apos;s
           sources. The step&apos;s source is in another repo and no hunk here
           can attribute to it.

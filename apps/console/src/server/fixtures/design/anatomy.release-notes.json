@@ -1,0 +1,54 @@
+{
+  "pack": "acme",
+  "skill": "release-notes",
+  "kind": "verb",
+  "public": true,
+  "description": "Drafts release notes from the work merged since the last tag.",
+  "template": {
+    "ref": "mattstack:release-notes",
+    "path": "/fixture/mattstack/skills/release-notes/SKILL.md",
+    "version": "0.30.4",
+    "builtVersion": "0.28.10",
+    "lines": 30
+  },
+  "rendered": {
+    "path": "/fixture/packs/acme/skills/release-notes/SKILL.md",
+    "exists": true,
+    "lines": 35
+  },
+  "status": "in-sync",
+  "staleBecause": [],
+  "parts": [
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [5, 21],
+      "renderedLines": [11, 27],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "slot",
+      "name": "changelog",
+      "templateLines": [22, 22],
+      "renderedLines": null,
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    },
+    {
+      "kind": "text",
+      "name": null,
+      "templateLines": [23, 30],
+      "renderedLines": [28, 35],
+      "mode": null,
+      "source": null,
+      "target": null,
+      "changed": false
+    }
+  ],
+  "links": []
+}

@@ -74,11 +74,45 @@ WebSocket wire-up.
 
 ## Wiring map (`src/app/wiring/`)
 
-The wiring map (skills, surfaces, seams, version timeline, on-demand view) is console's largest
-app-specific feature: it visualizes the mattstack skill/pipeline graph read from
-`@mattstack/rt-client`. It has no kit dependency beyond the shared UI facades; `WiringRailEntry`
-is the one component that reaches into the shell's rail context (`useShellRail` from
-`@mattstack/app-kit/app`) to badge the rail entry with attention state.
+The Wiring page (`WiringMap.tsx`) shows the mattstack skill graph read from
+`@mattstack/rt-client` in three tabs: Graph, Surface and Health. Its state lives in the URL
+(`graph/useWiringUrl.ts`), so every view, selection and open drawer is a link.
+
+- **Graph tab** (`graph/`). The focus list (`FocusList.tsx`: Pipeline, On-demand, Board and an
+  Unwired row) is `PageShell.Sidebar` content. The focused skill draws on a React Flow template
+  canvas (`TemplateCanvas.tsx`) in `PageShell.Content`, which sets its own `bg` and a dotted
+  `Background`: the template's rows in the middle, the files that fill its placeholders on one
+  side, and the steps it links to or its compiled output on the other. Selecting a row or card
+  opens the compiled-skill drawer (`drawer/SkillDrawer.tsx`, with Text, Used by and History tabs),
+  and a slot's Bind or Change opens the rebind panel (`drawer/RebindPanel.tsx`). A binding or
+  surface change that is not synced yet shows the unsynced banner (`UnsyncedBanner.tsx`), docked
+  in PageShell's `topNotch`, with Sync and Discard.
+- **Template model** (`graph/model/*`). Pure functions from rt's payloads (composition, check,
+  anatomy, changes) to what the tab draws: `focusModel` (the focus list), `templateModel` (rows,
+  input cards, link cards, output card), `drawerContent` (what the drawer shows for a selection),
+  `pendingChanges` (what the banner lists) and `statusTone`. `graph/layout/templateLayout.ts`
+  places the nodes. A change to what the tab shows starts in the model and its tests.
+- **Writes** (bind, surface, sync, discard) confirm through `modals.confirm` and report through
+  `notifications`, and one write per pack runs at a time. The banner's Sync and Discard send the
+  `signature` of the `changes` read their confirm listed; the server refuses a commit-pending sync
+  or a discard without one, and rt refuses either once the pack no longer matches it.
+- **Surface and Health tabs** (`SurfaceTab.tsx`, `HealthTab.tsx`). `VersionTimeline` and
+  `SeamCompare` serve the drawer's History tab.
+
+`WiringRailEntry` is the one component that reaches into the shell's rail context (`useShellRail`
+from `@mattstack/app-kit/app`) to badge the rail entry with attention state.
+
+### Design parity
+
+The Graph tab is built against the boards in `docs/apps/design/console/`. Its README lists them
+and the board-fix list of expected differences. Every UI change to the tab ends with a parity run
+for its boards in light and dark, following `apps/console/scripts/parity/run.md`.
+
+The parity data source is the design fixture: started with `CONSOLE_FIXTURE=design`, the server
+answers the skills routes from the invented `acme` pack in `src/server/fixtures/design/`, with no
+rt, git or pack on the machine. `CONSOLE_FIXTURE_SCENARIO` picks the data: `clean` (the default),
+`unsynced` for the two unsynced boards, or one of the states no board draws (listed in
+`scenarios.ts`).
 
 ## Embedded server / `build:binary`
 

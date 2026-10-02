@@ -60,7 +60,7 @@ test("skills compile --json is one line with these keys", async () => {
 
 test("skills composition --json is one line with these keys", async () => {
   await skillsComposition(["--pack-dir", makePack(), "--json"]);
-  expect(Object.keys(oneJsonLine().value)).toEqual(["pack", "packDir", "manifestPath", "verbs", "fills", "binders", "pipelines"]);
+  expect(Object.keys(oneJsonLine().value)).toEqual(["pack", "packDir", "manifestPath", "verbs", "fills", "binders", "pipelines", "targets"]);
 });
 
 test("skills surface list --json is one line with these keys", async () => {
