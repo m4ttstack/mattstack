@@ -40,8 +40,8 @@ final class DeckLifecycle {
 
     /// Concurrent callers (menu, splash, the poll) share one restart.
     func restart(origin: String) async -> Bool {
-        if let inFlight { return await inFlight.value }
         if origin != Self.healOrigin { policy.manualRestart() }
+        if let inFlight { return await inFlight.value }
         let label = label
         let registrar = registrar
         let task = Task { () -> Bool in
@@ -58,6 +58,7 @@ final class DeckLifecycle {
         let ok = await task.value
         inFlight = nil
         policy.restartFinished()
+        if !ok { TrayLog.warn("deck restart failed", ["label": label, "origin": origin]) }
         return ok
     }
 
@@ -65,11 +66,17 @@ final class DeckLifecycle {
     /// after the line is returned so the menu says "restarting" meanwhile.
     func poll() async -> (status: String, diagnostic: String?) {
         let probe = await LiveDeckProbe.probe()
-        let healthyPid: String?
-        if case .healthy(let pid) = probe { healthyPid = pid } else { healthyPid = nil }
-        let decision = policy.observe(healthy: healthyPid != nil, hold: hold(),
+        var healthyPid: String?
+        var proxyDownPid: String?
+        if case .healthy(let pid) = probe {
+            healthyPid = pid
+        } else {
+            proxyDownPid = await ownDeckAnsweringOnLoopback()
+        }
+        let decision = policy.observe(healthy: healthyPid != nil || proxyDownPid != nil, hold: hold(),
                                       now: ProcessInfo.processInfo.systemUptime)
-        let status = DeckStatusLines.status(for: decision, pid: healthyPid, runMode: runMode())
+        let status = proxyDownPid.map(DeckStatusLines.proxyDown(pid:))
+            ?? DeckStatusLines.status(for: decision, pid: healthyPid, runMode: runMode())
         let previous = lastDecision
         lastDecision = decision
         if decision == .healthy, let previous, previous != .healthy {
@@ -101,12 +108,29 @@ final class DeckLifecycle {
         }
     }
 
+    /// The pid when this flavor's own deck job answers on its loopback port,
+    /// so only the proxy is down. The other flavor's deck shares api.json and
+    /// the port, which is why the answer must come from this label's pid.
+    private func ownDeckAnsweringOnLoopback() async -> String? {
+        guard let data = apiJSON(), let urlString = DeckStatusLines.loopbackHealthURL(apiJSON: data),
+              let url = URL(string: urlString) else { return nil }
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData,
+                                 timeoutInterval: DeckWaitTuning.probeTimeout)
+        guard let response = try? await URLSession.shared.data(for: request).1 as? HTTPURLResponse,
+              case .healthy(let pid) = DeckHealth.classify(status: response.statusCode,
+                                                          deckPid: response.value(forHTTPHeaderField: "x-deck-pid")),
+              case .loaded(let job) = await registrar.launchdLookup(label: label),
+              job.pid.map(String.init) == pid else { return nil }
+        return pid
+    }
+
     /// Only the dev shim can fall back from source, so only dev shows it.
     private func runMode() -> String? {
-        guard BundleFlavor.isDevBuild,
-              let data = FileManager.default.contents(atPath: AppHome.current + "/.mattstack/deck/api.json") else {
-            return nil
-        }
+        guard BundleFlavor.isDevBuild, let data = apiJSON() else { return nil }
         return DeckStatusLines.runMode(apiJSON: data)
+    }
+
+    private func apiJSON() -> Data? {
+        FileManager.default.contents(atPath: AppHome.current + "/.mattstack/deck/api.json")
     }
 }

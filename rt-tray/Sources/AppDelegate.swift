@@ -1316,8 +1316,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         Task { @MainActor in
             TrayState.shared.deckStatusText = DeckStatusLines.status(for: .held(.restartInFlight), pid: nil, runMode: nil)
             TrayState.shared.deckDiagnostic = nil
-            let ok = await deckLifecycle.restart(origin: origin)
-            if !ok { TrayLog.warn("deck restart failed", ["origin": origin]) }
+            _ = await deckLifecycle.restart(origin: origin)
             await refreshDeck()
         }
     }
@@ -1326,12 +1325,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// the daemon answers, and the reverse.
     @MainActor
     private func refreshDeck() async {
-        guard let deckLifecycle, !isRefreshingDeck else { return }
+        guard let deckLifecycle else { return }
+        guard !isRefreshingDeck else {
+            deckRefreshQueued = true
+            return
+        }
         isRefreshingDeck = true
         defer { isRefreshingDeck = false }
-        let (status, diagnostic) = await deckLifecycle.poll()
-        TrayState.shared.deckStatusText = status
-        TrayState.shared.deckDiagnostic = diagnostic
+        var status: String
+        var diagnostic: String?
+        repeat {
+            deckRefreshQueued = false
+            (status, diagnostic) = await deckLifecycle.poll()
+            TrayState.shared.deckStatusText = status
+            TrayState.shared.deckDiagnostic = diagnostic
+        } while deckRefreshQueued
         if DeckStatusLines.isQuiet(status), case .unreachable = windowModel?.deckWait {
             windowModel?.retryDeckWait()
         }
@@ -1723,6 +1731,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
     private var isRefreshing = false
     private var isRefreshingDeck = false
+    /// A restart's own refresh that arrived mid-poll; the poll runs once more.
+    private var deckRefreshQueued = false
     private var consecutiveStatusFailures = 0
     /// Stamped whenever `setHealth(.starting)` runs. `.starting` has no
     /// natural "it failed" signal of its own -- unlike `.down`, which the

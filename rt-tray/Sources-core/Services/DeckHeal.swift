@@ -25,44 +25,48 @@ public enum DeckHealDecision: Equatable, Sendable {
 /// `SuccessfulExit: false`, so a deck that exits 0 stays down, and the
 /// window cannot open past deck.
 ///
-/// Gave-up is not latched: it is what a heal turns into while the window
-/// still holds `maxAttempts` restarts, so a deck that flaps up and down
-/// between restarts hits the same cap as one that never comes back.
+/// `grace` matches LaunchSettle's deck budget, so a cold boot is never
+/// restarted sooner than launch itself would give up on it. Gave-up is not
+/// latched: it is what a heal turns into while the window still holds
+/// `maxAttempts` restarts, so a deck that flaps up and down between restarts
+/// hits the same cap as one that never comes back.
 public struct DeckHealPolicy: Sendable {
-    public static let missesBeforeHeal = 2
+    public static let grace: TimeInterval = 30
     public static let maxAttempts = 3
     public static let window: TimeInterval = 600
 
-    private var misses = 0
+    private var downSince: TimeInterval?
     private var attempts: [TimeInterval] = []
 
     public init() {}
 
     public mutating func observe(healthy: Bool, hold: DeckHealHold?, now: TimeInterval) -> DeckHealDecision {
         guard !healthy else {
-            misses = 0
+            downSince = nil
             return .healthy
         }
-        misses += 1
-        if let hold { return .held(hold) }
-        guard misses >= Self.missesBeforeHeal else { return .waiting }
+        if let hold {
+            downSince = nil
+            return .held(hold)
+        }
+        let since = downSince ?? now
+        downSince = since
+        guard now - since >= Self.grace else { return .waiting }
         prune(now: now)
         guard attempts.count < Self.maxAttempts else { return .gaveUp }
         attempts.append(now)
-        misses = 0
+        downSince = nil
         return .heal
     }
 
     /// Someone asked for a restart by hand: that is a fresh start for the cap.
     public mutating func manualRestart() {
-        misses = 0
+        downSince = nil
         attempts = []
     }
 
-    /// Deck gets a fresh two polls to answer after any restart finishes, so a
-    /// slow boot is never restarted again the moment the restart's hold lifts.
     public mutating func restartFinished() {
-        misses = 0
+        downSince = nil
     }
 
     public mutating func attemptCount(now: TimeInterval) -> Int {
@@ -95,6 +99,13 @@ public enum DeckStatusLines {
         }
     }
 
+    /// deck.mattstack goes through the local proxy and its TLS trust, so it
+    /// can fail while deck itself answers on loopback; restarting deck would
+    /// not fix that.
+    public static func proxyDown(pid: String) -> String {
+        "Deck: up (pid \(pid)), but deck.mattstack is not answering"
+    }
+
     public static func isQuiet(_ status: String) -> Bool {
         status.hasPrefix("Deck: running")
     }
@@ -102,7 +113,15 @@ public enum DeckStatusLines {
     /// `runMode` in deck's api.json says whether the dev shim is serving
     /// source or fell back to the pinned build.
     public static func runMode(apiJSON: Data) -> String? {
-        guard let object = try? JSONSerialization.jsonObject(with: apiJSON) as? [String: Any] else { return nil }
-        return object["runMode"] as? String
+        apiObject(apiJSON)?["runMode"] as? String
+    }
+
+    public static func loopbackHealthURL(apiJSON: Data) -> String? {
+        guard let port = apiObject(apiJSON)?["port"] as? Int else { return nil }
+        return "http://127.0.0.1:\(port)/healthz"
+    }
+
+    private static func apiObject(_ data: Data) -> [String: Any]? {
+        try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 }

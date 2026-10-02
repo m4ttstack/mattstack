@@ -99,7 +99,7 @@ private extension VerticalAlignment {
 struct SplashView: View {
     let content: SplashContent
     let retry: () -> Void
-    let restartDeck: () -> Void
+    let restartDeck: (() -> Void)?
     @State private var play = false
 
     private var markColor: Color { BundleFlavor.isDevBuild ? devMarkColor : prodMarkColor }
@@ -175,7 +175,7 @@ struct SplashView: View {
 private struct UnreachablePanel: View {
     let reason: String
     let retry: () -> Void
-    let restartDeck: () -> Void
+    let restartDeck: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 10) {
@@ -190,8 +190,10 @@ private struct UnreachablePanel: View {
                 .textSelection(.enabled)
             HStack(spacing: 8) {
                 Button("Retry", action: retry)
-                Button("Restart Deck", action: restartDeck)
                     .keyboardShortcut(.defaultAction)
+                if let restartDeck {
+                    Button("Restart Deck", action: restartDeck)
+                }
             }
             .padding(.top, 4)
         }
