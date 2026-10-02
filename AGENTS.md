@@ -209,14 +209,33 @@ Five rules cost the most when broken:
   the theme lives in `ui/internal/theme` and nowhere else.
 - **Body text takes the terminal's own foreground.** Only accents (glyphs,
   callout labels, keys, hints, rails) use theme colors, so output reads on a
-  light terminal as well as a dark one. Never give body text a fixed color.
+  light terminal as well as a dark one. Static output takes its accents from
+  `theme.StaticDark` on a dark background and `theme.StaticLight` otherwise;
+  `ui/internal/background` picks from the `rt.ui.background` setting
+  (`auto`, `dark`, `light`), then on `auto` `COLORFGBG`, Ghostty's configured
+  background (only when `TERM_PROGRAM` is unset, `ghostty`, `herdr` or
+  `tmux`, since Ghostty's environment leaks into editors and multiplexers
+  started from it) and last the terminal's OSC 11 answer, and an unknown
+  background gets the light set. Setting `dark` or `light` skips the
+  terminal query. A new accent needs a tone in both sets that passes both
+  sets' contrast tests. Never give body text a fixed color.
 
 Plain output collapses newlines and tabs in single-line fields (titles,
 hints, cells, labels) to a space and indents paragraph lines two spaces, so
 untrusted text cannot forge a status row. A `copy` block prints at column 0
-so it pastes clean, which means it must never carry untrusted multi-line
-text. Step sub-lines sit under their running step: they clear when the step
-ends with `done` and stay beneath it when it fails.
+with no rail, at a terminal and off one, so a drag-select pastes it clean;
+that is also why it must never carry untrusted multi-line text. Step
+sub-lines sit under their running step: they clear when the step ends with
+`done` and stay beneath it when it fails.
+
+A callout row that is only a command prints whole. A row whose one command
+is its last segment (`["Commit them, or set them aside with ", out.cmd("rt git
+stash push")]`) prints its sentence on the label row and the command on the
+row under it, so end the sentence where the command starts; any other row
+wraps at its spaces and never splits a command. A command too wide for the
+label column moves to the bar column, then to column 0 with no bar, and only
+one wider than the pane runs past it. Off a terminal the row stays one line. Consecutive `kv` blocks in one `out.print` share a key column, so
+print a group of them in one call.
 
 `out.print` writes plain text to stdout under `--json` too, so a verb whose
 `--json` branch can still print a note (a repo whose identity cannot derive,
@@ -282,12 +301,15 @@ The dispatcher draws the breadcrumb before the handler runs, through
 `out.note`, on stderr, when a person is reading stderr (a terminal, no
 `--json`, no `RT_BATCH`) and the leaf is neither `fullscreen` nor `hidden`.
 It is its own render call (one helper launch per command), so it is first on
-screen whatever the command paints first, and one blank line follows it.
+screen whatever the command paints first, and one blank line follows it
+(`out.blank()`, the one block that prints an empty row on purpose; never an
+empty table).
 
 A spinner that should leave nothing behind is `withTransientStep(label, task)`
 from `lib/ui/transient-step.ts`: the Go step draws it and a `done` event
 carrying `clear: true` erases it when the task settles. The flag rides `done`
-so a helper that predates it ends the step with a plain row; a source checkout
+so a helper that predates it ends the step with a plain row, on the neutral
+dot when the task threw (`status: "failed"` rides along); a source checkout
 runs the installed helper when `ui/dist/rt-ui` is missing or stale, so run
 `bun run ui:build` after pulling. It loads `lib/ui/spawn.ts` on first use, so
 a file the daemon also loads may import it; keep it that way.
@@ -305,11 +327,15 @@ spaces aside), and a `line` with status `failed` keep the tag.
 
 Both renderers drop bidi controls and zero-width characters from every field
 (`ui/fixtures/clean-cases.json` is the shared test). Wrapped text breaks at
-spaces only, so a flag or a branch name is never split at a hyphen;
+spaces, so a flag or a branch name that fits its row is never split at a
+hyphen; a word wider than its row breaks after its last `/` that fits (then
+`\`, `-`, `_`, `.`, `:`), and only a word with none is cut between
+characters. A `line` hint with a word too wide for its column takes the row
+under its title, whole. `verbatim` wraps the same way;
 `textwrap.Spans` keeps its hyphen breaks for the mission diff, and prose goes
-through `textwrap.SpansWith` with `WordsOnly`. `rt-ui render` reads
-`COLORFGBG` and paints the diff with pale tints on a light background; with no
-`COLORFGBG` it keeps the dark tints.
+through `textwrap.SpansWith` with `WordsOnly`. The diff takes pale tints only
+when the background resolves light (the same resolver as the accents); a dark
+or unknown background keeps the dark tints.
 
 A verb that prints a report builds it in a pure function that returns blocks
 (`checkBlocks`, `syncBlocks`, `linkBlocks` in `commands/skills*.ts`) and prints
@@ -354,8 +380,10 @@ after the failure breaks the tool's error.
 
 `lib/ui/steps.ts` prints nothing by hand: off a terminal a step's ending is
 `out.print(out.line("done" or "failed", ...))`, and a helper that dies costs
-one warning through `out.note` and a line in the CLI log. The runner has no
-`log()`; a line between steps is an `out.print` at the call site.
+one warning through `out.note` and a line in the CLI log. A step run with
+`failSilently` prints nothing off a terminal either; at a terminal it ends
+with `clear({ thrown: true })`, so its row is erased and the caller draws the
+failure. The runner has no `log()`; a line between steps is an `out.print` at the call site.
 
 A `print` seam on a command's deps (`TeamDeps`, `RegisterDeps`,
 `ReidentifyDeps`) carries the `--json` envelope line and nothing else; its

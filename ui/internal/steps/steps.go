@@ -34,34 +34,31 @@ const frameEvery = theme.SpinnerInterval
 // past the top of the screen, where the erase on success cannot reach.
 const maxSubs = 5
 
-var (
-	spinStyle = lipgloss.NewStyle().Foreground(theme.Mint)
-	textStyle = lipgloss.NewStyle()
-	hintStyle = lipgloss.NewStyle().Foreground(theme.Faint)
-	subStyle  = lipgloss.NewStyle().Foreground(theme.Dimmer)
-	railGlyph = lipgloss.NewStyle().Foreground(theme.Panel).Render("│")
-	okGlyph   = render.Glyph("done")
-	badGlyph  = render.Glyph("failed")
-	infoGlyph = lipgloss.NewStyle().Foreground(theme.Faint).Render("•")
-)
-
-func logGlyph(level string) string {
-	switch level {
-	case "warn":
-		return render.Glyph("warn")
-	case "error":
-		return badGlyph
-	case "success":
-		return okGlyph
-	}
-	return infoGlyph
-}
+var textStyle = lipgloss.NewStyle()
 
 // Run consumes events until done/fail, the channel closes (parent gone), or
 // a signal arrives. The spinner line is only ever painted once the first
 // frame tick fires, so a step that finishes inside 80 ms paints its final
-// line and nothing else.
-func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.File) Outcome {
+// line and nothing else. tones must come from render.Tones, so a step and
+// the blocks around it agree.
+func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.File, tones theme.StaticTones) Outcome {
+	spinStyle := lipgloss.NewStyle().Foreground(tones.Mint)
+	quiet := lipgloss.NewStyle().Foreground(tones.Quiet)
+	railGlyph := lipgloss.NewStyle().Foreground(tones.Rule).Render("│")
+	okGlyph := render.Glyph(tones, "done")
+	badGlyph := render.Glyph(tones, "failed")
+	logGlyph := func(level string) string {
+		switch level {
+		case "warn":
+			return render.Glyph(tones, "warn")
+		case "error":
+			return badGlyph
+		case "success":
+			return okGlyph
+		}
+		return quiet.Render("•")
+	}
+
 	var title string
 	painted := false
 	frame := 0
@@ -110,7 +107,7 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 	line := func(glyph, t, hint string) string {
 		l := "  " + glyph + " " + textStyle.Render(t)
 		if hint != "" {
-			l += "  " + hintStyle.Render(hint)
+			l += "  " + quiet.Render(hint)
 		}
 		return l + "\n"
 	}
@@ -178,7 +175,7 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 					toTop()
 					fmt.Fprint(term, "\x1b[J")
 				}
-				subs = append(subs, "    "+railGlyph+" "+subStyle.Render(ansi.Truncate(render.Clean(ev.Text), subWidth, "…")))
+				subs = append(subs, "    "+railGlyph+" "+quiet.Render(ansi.Truncate(render.Clean(ev.Text), subWidth, "…")))
 				if len(subs) > subCap {
 					subs = subs[len(subs)-subCap:]
 				}
@@ -205,9 +202,9 @@ func Run(events <-chan protocol.StepEvent, signals <-chan os.Signal, term *os.Fi
 				switch ev.Status {
 				case "":
 				case "failed":
-					g = render.Glyph("")
+					g = render.Glyph(tones, "")
 				default:
-					g = render.Glyph(ev.Status)
+					g = render.Glyph(tones, ev.Status)
 				}
 				final(g, t, ev.Hint)
 				return Done

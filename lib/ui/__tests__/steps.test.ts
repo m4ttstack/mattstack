@@ -92,7 +92,7 @@ test("a step that fails silently erases itself, draws no failed line, and rethro
   expect(sent()).toEqual([
     { t: "hello", protocol: 1 },
     { t: "start", title: "Pushing…" },
-    { t: "done", title: "Pushing…", clear: true },
+    { t: "done", title: "Pushing…", status: "failed", clear: true },
   ]);
   expect(io.stdout()).toBe("");
   expect(io.stderr()).toBe("");

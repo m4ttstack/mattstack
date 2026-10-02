@@ -41,7 +41,7 @@ import { ensureSdmApp, isSdmAppRunning } from "../lib/sdm/app.ts";
 import { interactive as atTerminal } from "../lib/ui/gate.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
-import { openStep, type StepHandle } from "../lib/ui/spawn.ts";
+import { openStep, settleBackground, type StepHandle } from "../lib/ui/spawn.ts";
 import { withTransientStep } from "../lib/ui/transient-step.ts";
 
 // `sdm` is a branch node in the command tree (cli.ts); each subcommand below
@@ -96,6 +96,7 @@ function tryOpenStep(label: string): StepHandle | null {
  */
 async function withProgress<T>(label: string, draw: boolean, task: (onLine: (line: string) => void) => Promise<T>): Promise<{ value: T; tail: string[] }> {
   const tail: string[] = [];
+  if (draw && atTerminal()) await settleBackground();
   const step = draw && atTerminal() ? tryOpenStep(label) : null;
   const onLine = (raw: string): void => {
     const line = redact(raw);

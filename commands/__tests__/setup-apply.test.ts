@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
-import { readdirSync, readFileSync } from "fs";
+import { appendFileSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
+import * as background from "../../lib/ui/background.ts";
+import { __test__ as gate } from "../../lib/ui/gate.ts";
 import { logsDir } from "../../lib/rt-paths.ts";
 import {
   realIntentDeps,
@@ -722,5 +726,56 @@ describe("setup apply --json bytes", () => {
     } finally {
       cap.restore();
     }
+  });
+});
+
+describe("setupApply — the background settles before any step runs", () => {
+  const preloadBlock = process.env.RT_UI_NO_TERMINAL_QUERY;
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "rt-setup-settle-"));
+    delete process.env.RT_UI_NO_TERMINAL_QUERY;
+    background.__test__.reset();
+    background.__test__.setTTY(() => true);
+    gate.setInteractive(() => true);
+    process.env.RT_UI_BIN = resolve(import.meta.dir, "../../lib/ui/__tests__/fake-rt-ui.ts");
+  });
+  afterEach(() => {
+    process.env.RT_UI_NO_TERMINAL_QUERY = preloadBlock;
+    background.__test__.reset();
+    gate.setInteractive(undefined);
+    delete process.env.RT_UI_BIN;
+    delete process.env.RT_UI_FAKE;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("the auto query finishes before the first step's work starts", async () => {
+    const record = join(dir, "record.ndjson");
+    process.env.RT_UI_FAKE = JSON.stringify({ record, renderErr: "background=dark\n" });
+    const deps = baseApplyDeps({
+      steps: [fakeStep("path.link", async () => {
+        appendFileSync(record, `{"work":"started"}\n`);
+        return { state: "done" };
+      })],
+    });
+    await setupApply([], {}, deps);
+    const lines = readFileSync(record, "utf8").split("\n");
+    const settled = lines.findIndex((l) => l.startsWith(`{"argv":["--report-background"]`));
+    expect(settled).toBeGreaterThanOrEqual(0);
+    expect(settled).toBeLessThan(lines.indexOf(`{"work":"started"}`));
+  });
+
+  test("under the test preload no query runs", async () => {
+    process.env.RT_UI_NO_TERMINAL_QUERY = preloadBlock;
+    const record = join(dir, "record.ndjson");
+    process.env.RT_UI_FAKE = JSON.stringify({ record, renderErr: "background=dark\n" });
+    const deps = baseApplyDeps({
+      steps: [fakeStep("path.link", async () => {
+        appendFileSync(record, `{"work":"started"}\n`);
+        return { state: "done" };
+      })],
+    });
+    await setupApply([], {}, deps);
+    expect(readFileSync(record, "utf8")).not.toContain(`"--report-background"`);
   });
 });

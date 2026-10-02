@@ -297,3 +297,9 @@ test("the clear fixture ends a step with a done event that carries clear", () =>
   expect(events.map((e) => e.t)).toEqual(["hello", "start", "sub", "done"]);
   expect(events.at(-1)).toEqual({ t: "done", title: "scanning ports…", clear: true });
 });
+
+test("the thrown clear fixture ends a step with clear and the failed status", () => {
+  const events = fixture("steps-stream-clear-thrown.json") as StepEvent[];
+  expect(events.map((e) => e.t)).toEqual(["hello", "start", "done"]);
+  expect(events.at(-1)).toEqual({ t: "done", title: "Pushing…", status: "failed", clear: true });
+});

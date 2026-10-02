@@ -1,23 +1,27 @@
 package render
 
 import (
+	"slices"
 	"strings"
 
+	"rt-ui/internal/background"
 	"rt-ui/internal/protocol"
 )
 
 type Options struct {
 	// Width is the terminal's column count; values under 20 fall back to 80.
 	Width int
-	// Light says the terminal's background is light. The zero value keeps the
-	// dark tints, which is also what a terminal that says nothing gets.
-	Light bool
+	// Background picks the accent set and the diff tints. The zero value,
+	// Unknown, takes the light accents and the dark tints.
+	Background background.Background
 }
 
 type renderer struct {
-	width int
-	light bool
-	out   strings.Builder
+	width     int
+	light     bool
+	afterCopy bool
+	p         palette
+	out       strings.Builder
 }
 
 // Render returns the styled text for blocks: every line newline-terminated,
@@ -27,7 +31,7 @@ func Render(blocks []protocol.Block, opts Options) string {
 	if w < 20 {
 		w = 80
 	}
-	r := &renderer{width: w, light: opts.Light}
+	r := &renderer{width: w, light: opts.Background == background.Light, p: newPalette(Tones(opts.Background))}
 	r.blocks(blocks)
 	return r.out.String()
 }
@@ -46,27 +50,43 @@ func (r *renderer) gap() {
 	r.out.WriteByte('\n')
 }
 
+// blocks leads the block after a copy with a gap, since a copy carries no
+// rail to set it apart and must not end on a blank row.
 func (r *renderer) blocks(bs []protocol.Block) {
 	for i := 0; i < len(bs); i++ {
-		if bs[i].T != "line" {
+		if r.afterCopy && bs[i].T != "blank" {
+			r.gap()
+		}
+		r.afterCopy = false
+		switch bs[i].T {
+		case "line":
+			j := runEnd(bs, i, "line", "callout")
+			r.lineRun(bs[i:j])
+			i = j - 1
+		case "kv":
+			j := runEnd(bs, i, "kv")
+			r.kvRun(bs[i:j])
+			i = j - 1
+		default:
 			r.block(bs[i])
-			continue
 		}
-		j := i
-		for j < len(bs) && (bs[j].T == "line" || bs[j].T == "callout") {
-			j++
-		}
-		r.lineRun(bs[i:j])
-		i = j - 1
 	}
+}
+
+// runEnd returns the index just past the run of blocks from i whose types
+// are all in types.
+func runEnd(bs []protocol.Block, i int, types ...string) int {
+	j := i
+	for j < len(bs) && slices.Contains(types, bs[j].T) {
+		j++
+	}
+	return j
 }
 
 func (r *renderer) block(b protocol.Block) {
 	switch b.T {
 	case "callout":
 		r.callout(b)
-	case "kv":
-		r.kv(b)
 	case "summary":
 		r.summary(b)
 	case "banner":
@@ -83,6 +103,8 @@ func (r *renderer) block(b protocol.Block) {
 		r.changes(b)
 	case "paragraph":
 		r.paragraph(b)
+	case "blank":
+		r.emit("")
 	case "copy":
 		r.copy(b)
 	case "verbatim":

@@ -68,7 +68,7 @@ type Block struct {
 
 var blockTypes = map[string]bool{
 	"line": true, "callout": true, "kv": true, "table": true, "tree": true,
-	"section": true, "summary": true, "paragraph": true, "copy": true,
+	"section": true, "summary": true, "paragraph": true, "blank": true, "copy": true,
 	"verbatim": true, "changes": true, "diff": true, "banner": true, "failure": true,
 }
 

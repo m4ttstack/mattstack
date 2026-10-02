@@ -14,6 +14,7 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 
+	"rt-ui/internal/background"
 	"rt-ui/internal/prompt"
 	"rt-ui/internal/protocol"
 	"rt-ui/internal/render"
@@ -182,7 +183,7 @@ func runSteps() int {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(signals)
-	if steps.Run(events, signals, term) == steps.Signalled {
+	if steps.Run(events, signals, term, render.Tones(backgroundFor(colorprofile.Env(os.Environ())))) == steps.Signalled {
 		return ExitCancel
 	}
 	return ExitOK
@@ -258,7 +259,7 @@ func viewFor(name string) func(*session.Emitter) session.View {
 // from the environment, not from stdout, because rt pipes this output and
 // writes it to the terminal itself.
 func runRender(args []string) int {
-	width, noColor := 80, false
+	width, noColor, reportBackground := 80, false, false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--width":
@@ -270,6 +271,8 @@ func runRender(args []string) int {
 			}
 		case "--no-color":
 			noColor = true
+		case "--report-background":
+			reportBackground = true
 		}
 	}
 
@@ -313,9 +316,25 @@ func runRender(args []string) int {
 	if noColor {
 		profile = colorprofile.NoTTY
 	}
+	colored := profile != colorprofile.NoTTY && profile != colorprofile.Ascii
+	bg := backgroundFor(profile)
 	w := &colorprofile.Writer{Forward: os.Stdout, Profile: profile}
-	if _, err := w.WriteString(render.Render(blocks, render.Options{Width: width, Light: render.LightBackground(os.Getenv("COLORFGBG"))})); err != nil {
+	if _, err := w.WriteString(render.Render(blocks, render.Options{Width: width, Background: bg})); err != nil {
 		return ExitInternal
 	}
+	// rt passes the word back on its next spawns, so one rt command asks
+	// the terminal at most once.
+	if reportBackground && colored {
+		fmt.Fprintf(os.Stderr, "background=%s\n", bg)
+	}
 	return ExitOK
+}
+
+// backgroundFor resolves the background only when there are colors to pick,
+// so a NO_COLOR run never asks the terminal.
+func backgroundFor(profile colorprofile.Profile) background.Background {
+	if profile == colorprofile.NoTTY || profile == colorprofile.Ascii {
+		return background.Unknown
+	}
+	return background.Detect()
 }

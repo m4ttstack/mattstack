@@ -7,7 +7,7 @@
 import { interactive } from "../ui/gate.ts";
 import * as out from "../ui/out.ts";
 import type { Block, RenderStatus } from "../ui/protocol.ts";
-import { openStep, type StepHandle } from "../ui/spawn.ts";
+import { openStep, settleBackground, type StepHandle } from "../ui/spawn.ts";
 import type { ApplyEvent, EventId, StepState } from "./contract.ts";
 
 export type Emit = (ev: ApplyEvent) => void;
@@ -34,6 +34,8 @@ export interface StepEmitter {
   tip(id: EventId, line: string): void;
   /** Resolves once every step line and the summary are drawn. Await it before exiting. */
   flush(): Promise<void>;
+  /** Resolves the terminal's background when steps will be drawn. Await it before the run starts: a step's work (sudo) may read the terminal, which the query holds raw. */
+  settle(): Promise<void>;
 }
 
 type FinalState = Exclude<StepState, "pending" | "running">;
@@ -178,7 +180,10 @@ export function createStepEmitter(opts: StepEmitterOptions): StepEmitter {
       case "step": {
         if (ev.state === "pending") return;
         if (ev.state === "running") {
-          chain(() => start(ev.id));
+          chain(async () => {
+            if (human) await settleBackground();
+            start(ev.id);
+          });
           return;
         }
         const final = ev as StepEvent & { state: FinalState };
@@ -215,6 +220,9 @@ export function createStepEmitter(opts: StepEmitterOptions): StepEmitter {
     },
     async flush() {
       await queue;
+    },
+    async settle() {
+      if (human) await settleBackground();
     },
   };
 }

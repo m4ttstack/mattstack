@@ -161,7 +161,7 @@ func TestDoneWithAStatusEndsInThatStatusNotAFailure(t *testing.T) {
 	if exit != 0 || !strings.Contains(tty, "◆") || !strings.Contains(tty, "Slack") {
 		t.Fatalf("exit %d tty %q", exit, tty)
 	}
-	if strings.Contains(tty, "✓") || strings.Contains(tty, "✗") || strings.Contains(tty, "255;121;121") {
+	if strings.Contains(tty, "✓") || strings.Contains(tty, "✗") || strings.Contains(tty, "224;72;78") {
 		t.Fatalf("a needs-you ending was painted as done or as a failure: %q", tty)
 	}
 }
@@ -172,7 +172,7 @@ func TestDoneWithTheFailedStatusIsNotPaintedAsAFailure(t *testing.T) {
 	if exit != 0 || !strings.Contains(tty, "•") || !strings.Contains(tty, "synced") {
 		t.Fatalf("exit %d tty %q", exit, tty)
 	}
-	if strings.Contains(tty, "✗") || strings.Contains(tty, "255;121;121") {
+	if strings.Contains(tty, "✗") || strings.Contains(tty, "224;72;78") {
 		t.Fatalf("done painted the coral cross: %q", tty)
 	}
 }
@@ -183,7 +183,7 @@ func TestDoneWithAnUnknownStatusGetsTheDimDot(t *testing.T) {
 	if exit != 0 || !strings.Contains(tty, "•") || !strings.Contains(tty, "synced") {
 		t.Fatalf("exit %d tty %q", exit, tty)
 	}
-	if strings.Contains(tty, "✗") || strings.Contains(tty, "255;121;121") {
+	if strings.Contains(tty, "✗") || strings.Contains(tty, "224;72;78") {
 		t.Fatalf("done painted the coral cross: %q", tty)
 	}
 }
@@ -305,5 +305,78 @@ func TestADoneWithoutTheFlagStillPaintsItsRow(t *testing.T) {
 	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
 	if !strings.Contains(testutil.Screen(tty), "✓ scanning ports…") {
 		t.Fatalf("screen %q", testutil.Screen(tty))
+	}
+}
+
+func TestAClearAfterAThrowLeavesNothingOnScreen(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"Pushing…"}`, `{"t":"sub","text":"writing objects"}`, `{"t":"done","title":"Pushing…","status":"failed","clear":true}`}
+	stdout, tty, exit := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	if exit != 0 || stdout != "" {
+		t.Fatalf("exit %d stdout %q", exit, stdout)
+	}
+	if screen := testutil.Screen(tty); strings.TrimSpace(screen) != "" {
+		t.Fatalf("a cleared step left text on screen: %q", screen)
+	}
+}
+
+// What a helper without the flag does with the same event: the neutral dot,
+// never the check a failed push must not show.
+func TestAThrownClearOnAHelperWithoutTheFlagEndsOnTheDot(t *testing.T) {
+	lines := []string{hello, `{"t":"start","title":"Pushing…"}`, `{"t":"done","title":"Pushing…","status":"failed"}`}
+	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, lines, nil, nil, true)
+	if screen := testutil.Screen(tty); !strings.Contains(screen, "• Pushing…") || strings.Contains(screen, "✓") {
+		t.Fatalf("screen %q", screen)
+	}
+}
+
+var toneLines = []string{hello, `{"t":"start","title":"connecting…"}`, `{"t":"sub","text":"asking the gateway"}`, `{"t":"fail","title":"Could not connect"}`}
+
+const (
+	lightMint = "38;2;18;171;86m"
+	darkMint  = "38;2;98;230;168m"
+)
+
+func TestStepTonesComeFromTheStaticPalette(t *testing.T) {
+	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, toneLines, nil, nil, true)
+	for _, tone := range []string{"38;2;115;109;150m│", "38;2;119;114;154m", "38;2;224;72;78m", lightMint} {
+		if !strings.Contains(tty, tone) {
+			t.Fatalf("missing %q in %q", tone, tty)
+		}
+	}
+	if strings.Contains(tty, "\x1b]11;?") {
+		t.Fatalf("the terminal was asked with no setting from rt: %q", tty)
+	}
+}
+
+func TestADarkSettingPaintsTheDarkSpinner(t *testing.T) {
+	_, tty, _ := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, toneLines, nil, map[string]string{"RT_UI_BACKGROUND": "dark"}, true)
+	if !strings.Contains(tty, darkMint) || strings.Contains(tty, lightMint) {
+		t.Fatalf("no dark mint spinner in %q", tty)
+	}
+	if !strings.Contains(tty, "38;2;149;144;179m") || strings.Contains(tty, "38;2;119;114;154m") {
+		t.Fatalf("no dark quiet sub-line in %q", tty)
+	}
+}
+
+func TestAutoTakesTheTerminalsAnswer(t *testing.T) {
+	_, tty, _ := testutil.RunPTYAnswering(t, []string{testutil.Binary(t), "steps"}, toneLines, map[string]string{"RT_UI_BACKGROUND": "auto"}, "\x1b]11;rgb:1a1a/1b1b/2626\x1b\\\x1b[?62;22c")
+	if !strings.Contains(tty, "\x1b]11;?\x1b\\\x1b[c") {
+		t.Fatalf("the terminal was not asked: %q", tty)
+	}
+	if !strings.Contains(tty, darkMint) {
+		t.Fatalf("no dark mint spinner in %q", tty)
+	}
+	if strings.Contains(testutil.Screen(tty), "rgb:") {
+		t.Fatalf("the reply was echoed: %q", testutil.Screen(tty))
+	}
+}
+
+func TestAutoWithASilentTerminalFallsBackToTheLightSet(t *testing.T) {
+	_, tty, exit := testutil.RunPTY(t, []string{testutil.Binary(t), "steps"}, toneLines, nil, map[string]string{"RT_UI_BACKGROUND": "auto"}, true)
+	if exit != 0 {
+		t.Fatalf("exit %d", exit)
+	}
+	if !strings.Contains(tty, lightMint) {
+		t.Fatalf("no light mint spinner in %q", tty)
 	}
 }

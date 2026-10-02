@@ -103,6 +103,14 @@ test("clear ends the step with a done event that carries the label and clear", a
   expect(sent).toEqual([{ t: "hello", protocol: 1 }, { t: "start", title: "scanning ports…" }, { t: "done", title: "scanning ports…", clear: true }]);
 });
 
+test("a clear after a throw carries the failed status for a helper that predates the flag", async () => {
+  process.env.RT_UI_FAKE = JSON.stringify({ record });
+  const step = openStep("pushing…");
+  expect(await step.clear({ thrown: true })).toBe(true);
+  const sent = readFileSync(record, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  expect(sent.at(-1)).toEqual({ t: "done", title: "pushing…", status: "failed", clear: true });
+});
+
 test("done never carries clear", async () => {
   process.env.RT_UI_FAKE = JSON.stringify({ record });
   const step = openStep("pushing…");

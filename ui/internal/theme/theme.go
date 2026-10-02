@@ -171,15 +171,39 @@ var (
 	DiffDelGutterBg = blendToward(Coral, Bg, diffGutterBlend)
 )
 
-// Static output lands on the terminal's own background, which rt-ui never
-// paints and cannot ask about. The light tints are the diff tints for a
-// terminal that says its background is light, and StaticRule is one tone
-// that reads as a quiet line on a dark background and on a light one.
+// The light tints are the diff tints for a terminal whose background
+// resolves light.
 var (
 	paper          = lipgloss.Color("#FFFFFF")
 	DiffAddBgLight = blendToward(Mint, paper, diffTintBlend)
 	DiffDelBgLight = blendToward(Coral, paper, diffTintBlend)
-	StaticRule     = lipgloss.Color("#655E88")
+)
+
+// StaticTones are the accents of static output (rt-ui render and the steps
+// verb), which lands on the terminal's own background. Body text never takes
+// one: it keeps the terminal's foreground.
+type StaticTones struct {
+	Mint, Peach, Lav, Coral, Cyan, Quiet, Rule color.Color
+}
+
+var (
+	// StaticLight clears 3:1 on white (lavender 3.5:1, quiet 4:1) and 3.5:1
+	// on Bg, so it also reads on a dark background nobody could identify.
+	StaticLight = StaticTones{
+		Mint:  lipgloss.Color("#12AB56"),
+		Peach: lipgloss.Color("#E17A0D"),
+		Lav:   lipgloss.Color("#A169FF"),
+		Coral: lipgloss.Color("#E0484E"),
+		Cyan:  lipgloss.Color("#2E86DE"),
+		Quiet: lipgloss.Color("#77729A"),
+		Rule:  lipgloss.Color("#736D96"),
+	}
+	// StaticDark matches the TUI's accents and falls to about 1.6:1 on white,
+	// so it is only for a background known to be dark.
+	StaticDark = StaticTones{
+		Mint: Mint, Peach: Peach, Lav: Lav, Coral: Coral, Cyan: Cyan,
+		Quiet: lipgloss.Color("#9590B3"), Rule: lipgloss.Color("#6E6992"),
+	}
 )
 
 func Hex(c color.Color) string {

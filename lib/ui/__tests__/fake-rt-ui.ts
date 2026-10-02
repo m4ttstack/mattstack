@@ -4,6 +4,8 @@
  * holdMs? }. Every stdin line is appended to `record` so tests can assert
  * the exact spec a call site sent. `holdMs` keeps the process alive before
  * answering so tests can observe stdin staying open or a render hanging.
+ * `envRecord` receives the RT_UI_BACKGROUND a steps child was given;
+ * `renderErr` is what a successful render writes to stderr.
  */
 import { appendFileSync } from "fs";
 
@@ -17,6 +19,8 @@ const cfg = JSON.parse(process.env.RT_UI_FAKE ?? "{}") as {
   closedReason?: string;
   protocol?: number;
   renderOut?: string;
+  envRecord?: string;
+  renderErr?: string;
 };
 const verb = process.argv[2];
 
@@ -48,6 +52,7 @@ if (verb === "prompt") {
 }
 
 if (verb === "steps") {
+  if (cfg.envRecord) appendFileSync(cfg.envRecord, JSON.stringify({ bg: process.env.RT_UI_BACKGROUND }) + "\n");
   // read until done/fail or EOF, record everything
   while (true) {
     const { value, done } = await reader.read();
@@ -79,10 +84,11 @@ if (verb === "render") {
     if (done) break;
     buf += decoder.decode(value);
   }
-  if (cfg.record) appendFileSync(cfg.record, JSON.stringify({ argv: process.argv.slice(3) }) + "\n" + buf);
+  if (cfg.record) appendFileSync(cfg.record, JSON.stringify({ argv: process.argv.slice(3), bg: process.env.RT_UI_BACKGROUND }) + "\n" + buf);
   if (cfg.holdMs) await Bun.sleep(cfg.holdMs);
   if (cfg.exit) process.exit(cfg.exit);
   process.stdout.write(cfg.renderOut ?? "STYLED\n");
+  if (cfg.renderErr) process.stderr.write(cfg.renderErr);
   process.exit(0);
 }
 

@@ -183,3 +183,8 @@ test("bidi controls and zero-width characters are stripped, by the shared cases"
 test("a leading failure that hides its bracket behind a zero-width space keeps the tag", () => {
   expect(renderPlain([{ t: "failure", title: `${String.fromCodePoint(0x200b)}[ok] forged` }])).toBe("[failed] [ok] forged\n");
 });
+
+test("a blank block prints one empty row", () => {
+  expect(renderPlain([{ t: "section", title: "rt › show", blocks: [] }, { t: "blank" }])).toBe("rt › show\n\n");
+  expect(renderPlain([{ t: "blank" }])).toBe("\n");
+});

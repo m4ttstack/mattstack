@@ -10,6 +10,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"rt-ui/internal/textwrap"
 	"rt-ui/internal/theme"
 )
 
@@ -391,42 +392,8 @@ func renderSegment(width int, spec segmentSpec, hovered, isOpen bool) string {
 	return pad + "\n" + row1 + "\n" + row2 + "\n" + row3
 }
 
-// clip truncates already-rendered (possibly ANSI-colored) text to w cells,
-// appending an ellipsis when it had to cut anything. Mirrors the board
-// view's clip (render.go): a one-cell window has no room beside the marker,
-// so it is the whole cell.
-func clip(s string, w int) string {
-	// MaxWidth(0) does not truncate in lipgloss v2.0.6 (it no-ops on a
-	// non-positive budget), so a zero/negative w must short-circuit here
-	// rather than fall through to Render(s) below.
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) > w {
-		if w == 1 {
-			return "…"
-		}
-		return lipgloss.NewStyle().Inline(true).MaxWidth(w-1).Render(s) + "…"
-	}
-	return lipgloss.NewStyle().Inline(true).MaxWidth(w).Render(s)
-}
+// clip is textwrap.Clip, the one text clipper rt-ui has.
+func clip(s string, w int) string { return textwrap.Clip(s, w) }
 
-// clipOn mirrors clip but paints its ellipsis with on rather than leaving it
-// bare. clip's other callers feed it plain text that a further Render call
-// colors afterward, so a bare "…" there ends up styled anyway; a caller
-// that instead feeds clip an already-styled ANSI string (composing several
-// pre-colored fragments, then clipping the result) gets a truncation that
-// lipgloss ends on a reset, and a bare "…" after that reset falls through
-// to the terminal's own default instead of the row's own fill.
-func clipOn(s string, w int, on lipgloss.Style) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) > w {
-		if w == 1 {
-			return on.Render("…")
-		}
-		return lipgloss.NewStyle().Inline(true).MaxWidth(w-1).Render(s) + on.Render("…")
-	}
-	return lipgloss.NewStyle().Inline(true).MaxWidth(w).Render(s)
-}
+// clipOn is textwrap.ClipOn.
+func clipOn(s string, w int, on lipgloss.Style) string { return textwrap.ClipOn(s, w, on) }
