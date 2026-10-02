@@ -9,13 +9,14 @@
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
 import { loadRepoIndex } from "../../lib/repo-index.ts";
 import { saveRegistry, loadRegistry } from "../../lib/worktree/registry.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../../lib/settings/identity.ts";
+import { repoDataDir } from "../../lib/rt-paths.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { reposLocate, type RegisterDeps } from "../repos.ts";
@@ -95,6 +96,50 @@ describe("reposLocate", () => {
     expect(loadRegistry(identity)[0]?.path).toBe(to);
     expect(lines[0]).toStartWith("[ok] Moved ");
     expect(lines[0]).toContain(`${from} → ${to}`);
+  });
+
+  test("a move reports a record left for clean-up, an old entry folded in and one kept", async () => {
+    const dir = join(scratch, "theta");
+    mkdirSync(dir, { recursive: true });
+    execSync("git init -q -b main", { cwd: dir, stdio: "pipe" });
+    execSync("git remote add origin https://gitlab.com/g/theta.git", { cwd: dir, stdio: "pipe" });
+    execSync("git -c user.email=t@t -c user.name=t commit --allow-empty -q -m init", { cwd: dir, stdio: "pipe" });
+    const from = realpathSync(dir);
+    const identity = serializeIdentity(await deriveRepoIdentity(from));
+    setKvValue("repo-index", identity, from);
+    setKvValue("repo-index", "theta-old", from);
+    setKvValue("repo-index", "theta-kept", from);
+    saveRegistry(identity, [
+      { name: "main", path: from, kind: "main", branch: "main", createdAt: "2026-01-01T00:00:00.000Z" },
+      { name: "t1", path: join(from, ".worktrees", "t1"), kind: "ephemeral", state: "on-deck", branch: "feat", createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    for (const key of [identity, "theta-kept"]) {
+      mkdirSync(repoDataDir(key), { recursive: true });
+      writeFileSync(join(repoDataDir(key), "notes.json"), "{}");
+    }
+    const to = join(scratch, "theta-moved");
+    renameSync(from, to);
+
+    const { lines } = await human(() => reposLocate([to], {}, testDeps()));
+
+    expect(lines).toContain(`[out of date] Left an old record for rt to clean up  ${join(to, ".worktrees", "t1")}`);
+    expect(lines).toContain("[ok] Folded in the old entry theta-old");
+    expect(lines).toContain("[warning] Kept the old entry theta-kept  both names hold notes.json");
+  });
+
+  test("with no terminal, folders rt found are listed for a person to name instead of asked about", async () => {
+    await movedRepo("iota");
+    const tty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    try {
+      const { code, stderr } = await human(() => reposLocate([], {}, testDeps()));
+      expect(code).toBe(1);
+      expect(stderr).toStartWith("Which folder did it move to?\n  why: rt found folders it could be, and cannot ask which one without a terminal.\n");
+      expect(stderr).toContain("iota");
+    } finally {
+      if (tty) Object.defineProperty(process.stdin, "isTTY", tty);
+      else delete (process.stdin as { isTTY?: boolean }).isTTY;
+    }
   });
 
   test("--dry-run reports the plan and writes nothing", async () => {

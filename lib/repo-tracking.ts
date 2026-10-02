@@ -457,4 +457,7 @@ export const __test__ = {
   resetPrimedIdentityMap(): void {
     primedIdentityMap = {};
   },
+  resetTeamTrackingWarning(): void {
+    lastTeamTrackingWarning = null;
+  },
 };
