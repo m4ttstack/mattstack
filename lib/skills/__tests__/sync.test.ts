@@ -1202,7 +1202,7 @@ describe("commit-pending", () => {
       "add -- :(literal)pack/skills.jsonc",
       "check",
       "check",
-      "commit skills: acme changes from console",
+      "commit skills: acme pending changes",
       `add -- ${join(".claude-plugin", "plugin.json")}`,
       "commit skills sync: acme v1.0.1",
       "push",
@@ -1485,7 +1485,7 @@ describe("commit-pending against real git", () => {
     const report = await syncPack(pack, engine, realGitDeps(root, pack, engine, world), { commitPending: true });
 
     expect(report.ok).toBe(true);
-    expect(remoteLog(remote)).toEqual(["skills sync: acme v1.0.1", "skills: acme changes from console", "base"]);
+    expect(remoteLog(remote)).toEqual(["skills sync: acme v1.0.1", "skills: acme pending changes", "base"]);
     expect(mustGit(root, "show", "--name-status", "--format=", "HEAD~1").trim().split("\n").sort()).toEqual(["D\tattachments/old/SKILL.md", "D\tskills/keep/SKILL.md", "M\tpack/skills.jsonc"]);
     expect(mustGit(root, "status", "--porcelain")).toBe("");
   }, REAL_GIT_TIMEOUT_MS);
@@ -1499,7 +1499,7 @@ describe("commit-pending against real git", () => {
     const report = await syncPack(pack, engine, realGitDeps(root, pack, engine, world), { commitPending: true });
 
     expect(report.ok).toBe(true);
-    expect(remoteLog(remote)).toEqual(["skills sync: acme v1.0.1", "skills: acme changes from console", "base"]);
+    expect(remoteLog(remote)).toEqual(["skills sync: acme v1.0.1", "skills: acme pending changes", "base"]);
     expect(mustGit(root, "show", "--name-only", "--format=", "HEAD~1").trim()).toBe("packs/acme/pack/skills.jsonc");
   }, REAL_GIT_TIMEOUT_MS);
 

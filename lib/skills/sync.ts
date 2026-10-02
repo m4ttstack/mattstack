@@ -497,7 +497,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   const commitPush = await tryStep(async () => {
     if (!rebuild) return skipped("nothing changed, so there is nothing to commit");
     if (published) {
-      const pendingCommit = await deps.run("git", ["commit", "-m", `skills: ${pack.name} changes from console`], { cwd: pack.dir });
+      const pendingCommit = await deps.run("git", ["commit", "-m", `skills: ${pack.name} pending changes`], { cwd: pack.dir });
       if (pendingCommit.code !== 0) return failed(`git commit failed: ${pendingCommit.stderr.trim()}`);
     }
     const addPaths = [join(".claude-plugin", "plugin.json"), "skills", "attachments"].filter((rel) => existsSync(join(pack.dir, rel)));
