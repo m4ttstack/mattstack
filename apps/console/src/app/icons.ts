@@ -17,6 +17,7 @@ import {
   Replace,
   SquareTerminal,
   Workflow,
+  WrapText,
 } from 'lucide-react';
 
 registerIcons({
@@ -34,4 +35,5 @@ registerIcons({
   fitView: lucideWrapperFn(Maximize),
   panelRight: lucideWrapperFn(PanelRight),
   panelRightOpen: lucideWrapperFn(PanelRightOpen),
+  wrapText: lucideWrapperFn(WrapText),
 });

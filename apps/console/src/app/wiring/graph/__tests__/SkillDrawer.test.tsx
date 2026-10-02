@@ -310,6 +310,26 @@ describe('SkillDrawer', () => {
     );
   });
 
+  it('wraps long lines on request, and keeps wrapping them next time', async () => {
+    mockDesignPack();
+    const first = renderAt('?tab=graph&focus=stage-plan&select=row:140');
+    const user = userEvent.setup();
+
+    const wrap = within(await drawer()).getByRole('button', {
+      name: 'Wrap lines',
+    });
+    expect(wrap).toHaveAttribute('aria-pressed', 'false');
+    expect((await drawerText()).querySelector('[data-wrap]')).toBeNull();
+
+    await user.click(wrap);
+    expect(wrap).toHaveAttribute('aria-pressed', 'true');
+    expect((await drawerText()).querySelector('[data-wrap]')).not.toBeNull();
+
+    first.unmount();
+    renderAt('?tab=graph&focus=stage-plan&select=row:140');
+    expect((await drawerText()).querySelector('[data-wrap]')).not.toBeNull();
+  });
+
   it('closes the full screen on Escape', async () => {
     mockDesignPack();
     renderAt('?tab=graph&focus=stage-plan&select=row:140');

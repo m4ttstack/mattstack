@@ -171,6 +171,12 @@
   line-height: normal;
 }
 
+/* Wrapped text breaks at the viewport's edge, so it keeps the header's
+   inset there. */
+.code [data-wrap] .text {
+  padding-right: 18px;
+}
+
 .tabBody {
   flex: 1;
   min-height: 0;

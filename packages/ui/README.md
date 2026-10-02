@@ -145,7 +145,9 @@ each part of a row (gutter, number cell, number, code), and `rowAttributes`
 puts data attributes on each part from what that row shows, including
 whether it is in the viewport. Every row is as wide as the longest line, so
 a highlight follows a sideways scroll, and `scrollbarType` passes a
-ScrollArea `type` (`hover` keeps the scrollbars out of sight at rest).
+ScrollArea `type` (`hover` keeps the scrollbars out of sight at rest). With
+`wrap`, a long line breaks at the viewport's width and its row grows to fit,
+instead of the rows scrolling sideways.
 
 An app that registers its own icon adds a `declare module
 '@mattstack/app-kit/icons' { interface AppIcons { hash: true } }` block in

@@ -14,6 +14,7 @@ declare module '@mattstack/app-kit/icons' {
     fitView: true;
     panelRight: true;
     panelRightOpen: true;
+    wrapText: true;
   }
 }
 export {};

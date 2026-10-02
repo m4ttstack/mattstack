@@ -117,3 +117,31 @@
 .root[data-variant='wash'] .gutter[data-tone='muted'] {
   border-right-color: var(--tk-line-2);
 }
+
+/* Wrapped, a line breaks at the viewport's width and its row grows to fit,
+   so nothing scrolls sideways. Each wrapped line keeps the unwrapped row's
+   19px, and the gutter label and number sit on the first of them. */
+.root[data-wrap] .row {
+  align-items: flex-start;
+  height: auto;
+  min-height: 19px;
+  min-width: 0;
+}
+
+.root[data-wrap] .code {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 19px;
+}
+
+.root[data-wrap] .gutter,
+.root[data-wrap] .numberCell {
+  align-items: flex-start;
+}
+
+.root[data-wrap] .gutterLabel,
+.root[data-wrap] .number {
+  line-height: 19px;
+}
