@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { boardPeering } from "../board-token.ts";
+import { boardPeering, readBoardSwitchboardToken } from "../board-token.ts";
 
 const HOME = "/fake-home";
 const COMPILED_ENV = `${HOME}/.mattstack/board/.env`;
@@ -101,5 +101,23 @@ describe("boardPeering: which Macs it applies to", () => {
 
   test("a joined team with no switchboard declaration still applies", async () => {
     expect(await verdict(joined())).toEqual({ kind: "unpeered", teams: ["acme"] });
+  });
+});
+
+describe("readBoardSwitchboardToken: the token the board peers with", () => {
+  const secret = (value: string | null) => async () => value;
+
+  test("the board's .env wins over rt's secret, as it does for the board itself", async () => {
+    const p = joined({ [COMPILED_ENV]: 'export SWITCHBOARD_TOKEN="tok-env"\n' });
+    expect(await readBoardSwitchboardToken(p, secret("tok-secret"), [])).toBe("tok-env");
+  });
+
+  test("with no .env token it falls back to rt's secret", async () => {
+    expect(await readBoardSwitchboardToken(joined(), secret("tok-secret"), [])).toBe("tok-secret");
+  });
+
+  test("an empty or commented .env line falls through to the secret", async () => {
+    const p = joined({ [COMPILED_ENV]: "SWITCHBOARD_TOKEN=\n# SWITCHBOARD_TOKEN=old\n" });
+    expect(await readBoardSwitchboardToken(p, secret(null), [])).toBeNull();
   });
 });

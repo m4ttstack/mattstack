@@ -24,13 +24,29 @@ export function sourceBoardRoots(): string[] {
   return isCompiledRt() ? [] : [join(import.meta.dir, "..", "..", "apps", "board")];
 }
 
-/** Whether any board root's .env sets `key`; the board loads that file into its own environment. */
-export function boardEnvHas(p: Pick<Probes, "home" | "env" | "readFile">, key: string, extraRoots: string[] = sourceBoardRoots()): boolean {
+/** The value the first board root's .env sets for `key`; the board loads that file into its own environment. */
+export function boardEnvValue(p: Pick<Probes, "home" | "env" | "readFile">, key: string, extraRoots: string[] = sourceBoardRoots()): string | null {
   const line = envLine(key);
-  return boardRoots(p, extraRoots).some((root) => {
+  for (const root of boardRoots(p, extraRoots)) {
     const raw = p.readFile(join(root, ".env"));
-    return raw !== null && line.test(raw);
-  });
+    const match = raw === null ? null : line.exec(raw);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+/** Whether any board root's .env sets `key`. */
+export function boardEnvHas(p: Pick<Probes, "home" | "env" | "readFile">, key: string, extraRoots: string[] = sourceBoardRoots()): boolean {
+  return boardEnvValue(p, key, extraRoots) !== null;
+}
+
+/** The switchboard token the board peers with, read in the board's own order: its .env, then rt's secret (`rt / switchboardToken`). */
+export async function readBoardSwitchboardToken(
+  p: Pick<Probes, "home" | "env" | "readFile">,
+  readSecretToken: () => Promise<string | null>,
+  extraRoots: string[] = sourceBoardRoots(),
+): Promise<string | null> {
+  return boardEnvValue(p, "SWITCHBOARD_TOKEN", extraRoots) ?? (await readSecretToken());
 }
 
 /** The board falls back to its legacy config.json's projects when the team declares none, so a board configured there runs too. */

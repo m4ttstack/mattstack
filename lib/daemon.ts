@@ -57,6 +57,7 @@ import { createRealAgeKeySeam } from "./home/age-key.ts";
 import { readSecret, createRealSecretsExecSeam, type SecretsSeams } from "./secrets/store.ts";
 import { startPeerWaker } from "./daemon/peer-waker.ts";
 import { readSwitchboardToken } from "./daemon/handlers/secrets.ts";
+import { readBoardSwitchboardToken } from "./team/board-token.ts";
 
 import { SystemProcessScanner } from "./daemon/system-process-scanner.ts";
 
@@ -1118,7 +1119,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           log: peerWakerLog,
           emit,
           readUrl: () => switchboardUrl(),
-          readToken: () => readSwitchboardToken(),
+          readToken: () => readBoardSwitchboardToken(createRealProbes(), () => readSwitchboardToken()),
         });
         peerWaker.done.catch((err) => peerWakerLog.warn({ err }, "peer waker stopped unexpectedly"));
 
