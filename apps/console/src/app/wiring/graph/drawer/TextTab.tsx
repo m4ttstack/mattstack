@@ -45,9 +45,13 @@ export function linesOf(content: string): string[] {
   return content.replace(/\n$/, '').split('\n');
 }
 
-/** Where the drawer opens a file: a few lines above its highlighted range. */
-export function scrollLineOf(highlight: [number, number] | null) {
-  return highlight ? Math.max(1, highlight[0] - CONTEXT_LINES) : null;
+/** Where the drawer opens a file: a few lines above its highlighted range,
+    or the range itself when a panel above leaves less room. */
+export function scrollLineOf(
+  highlight: [number, number] | null,
+  context = CONTEXT_LINES
+) {
+  return highlight ? Math.max(1, highlight[0] - context) : null;
 }
 
 /** The file the drawer reads, numbered, its range highlighted and each pasted
@@ -55,9 +59,12 @@ export function scrollLineOf(highlight: [number, number] | null) {
 export function TextTab({
   pack,
   content,
+  beneathPanel = false,
 }: {
   pack: string;
   content: DrawerContent;
+  /** Under a panel that edits it: dimmed, and opened at its range. */
+  beneathPanel?: boolean;
 }) {
   const source = useSkillSource(pack, content.filePath);
   const { ref, height } = useElementSize();
@@ -72,6 +79,7 @@ export function TextTab({
     <Box
       className={classes.code}
       data-banded={banded || undefined}
+      data-dimmed={beneathPanel || undefined}
       data-parity="code"
       data-testid="drawer-text"
     >
@@ -90,7 +98,7 @@ export function TextTab({
             bands={content.bands}
             tintPattern={PLACEHOLDER}
             mutedPattern={MARKER}
-            scrollTo={scrollLineOf(highlight)}
+            scrollTo={scrollLineOf(highlight, beneathPanel ? 0 : undefined)}
             classNames={CODE_CLASSES}
             scrollbarType="hover"
             rowAttributes={parityLayers}

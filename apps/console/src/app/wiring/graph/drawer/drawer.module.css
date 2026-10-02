@@ -115,6 +115,10 @@
   background-color: var(--tk-card);
 }
 
+.code[data-dimmed] {
+  opacity: 0.55;
+}
+
 .viewport {
   flex: 1;
   min-height: 0;
@@ -274,4 +278,86 @@
 
 .timeline {
   padding-top: 12px;
+}
+
+/* Sits on the context row without growing it. */
+.change {
+  flex: none;
+  margin-block: -2px;
+}
+
+.rebind {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--tk-line-3);
+  background-color: var(--tk-card);
+}
+
+.fromTo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  text-align: start;
+}
+
+.pickerRoot {
+  flex: 1;
+  min-width: 0;
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+}
+
+.optionsLabel {
+  padding: 6px 10px;
+}
+
+.optionList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+}
+
+/* Mantine pads a block Code through `[data-block]`. */
+.bindCommand[data-block] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  white-space: normal;
+}
+
+.panelButton {
+  --button-padding-x: 12px;
+}
+
+.publicSwitch {
+  flex: none;
 }

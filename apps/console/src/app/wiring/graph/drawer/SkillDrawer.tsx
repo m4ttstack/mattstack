@@ -2,18 +2,26 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Badge,
   Box,
+  Button,
   CloseButton,
   Drawer,
   SegmentedControl,
+  Switch,
   Tabs,
   Text,
 } from '@mattstack/app-kit/core';
 import { useHotkeys } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
+import { modals } from '@mattstack/app-kit/modals';
+import { notifications } from '@mattstack/app-kit/notifications';
 
 import { useDrawerSurface } from '../../drawerSurface';
 import type { SkillsCheck, SkillsComposition } from '../../outline';
-import { useSkillSource, type SkillsAnatomy } from '../../useWiring';
+import {
+  useSkillsApply,
+  useSkillSource,
+  type SkillsAnatomy,
+} from '../../useWiring';
 import {
   drawerContent,
   parseTarget,
@@ -28,6 +36,7 @@ import type { WiringUrl, WiringView } from '../useWiringUrl';
 import classes from './drawer.module.css';
 import { DrawerMenu } from './DrawerMenu';
 import { HistoryTab } from './HistoryTab';
+import { RebindPanel } from './RebindPanel';
 import { TextTab } from './TextTab';
 import { UsedByTab } from './UsedByTab';
 
@@ -36,7 +45,8 @@ export const DRAWER_WIDTH = 600;
 const MUTED = 'var(--tk-text-3)';
 const BODY = 'var(--tk-text-1)';
 
-const MENU = '[role="menu"]';
+/** Where a key belongs to what it was pressed in, not to the drawer. */
+const OWN_KEYS = '[role="menu"], [data-own-keys]';
 
 const VIEW_LABEL: Record<WiringView, string> = {
   template: 'Template',
@@ -73,6 +83,39 @@ function steppedRow(
   const at = view.rows.findIndex(row => row.line === target.line);
   const next = at === -1 ? undefined : view.rows[at + step];
   return next ? `row:${next.line}` : null;
+}
+
+/** Asks before a verb goes public or internal, then applies it. */
+function usePublicSwitch(pack: string) {
+  const { surfaceApply } = useSkillsApply(pack);
+  const toggle = (skill: string, toPublic: boolean) => {
+    const next = toPublic ? 'public' : 'internal';
+    modals.confirm({
+      title: `Make ${skill} ${next}?`,
+      message: toPublic
+        ? `${skill} is compiled into skills/${skill}/, so it runs as a skill of its own. Nothing is shared until you sync.`
+        : `skills/${skill}/ stops being compiled and is removed, so ${skill} no longer runs as a skill of its own. Nothing is shared until you sync.`,
+      labels: { confirm: `Make ${next}` },
+      onConfirm: () =>
+        surfaceApply.mutate(
+          toPublic
+            ? { toPublic: [skill], toInternal: [] }
+            : { toPublic: [], toInternal: [skill] },
+          {
+            onSuccess: result => {
+              const failed = result.steps.find(step => !step.ok);
+              if (failed) {
+                notifications.error(failed.error ?? 'rt skills surface failed');
+                return;
+              }
+              notifications.success(`${skill} is ${next}`);
+            },
+            onError: error => notifications.error(error.message),
+          }
+        ),
+    });
+  };
+  return { toggle, pending: surfaceApply.isPending };
 }
 
 /** What the drawer shows for the URL's selection; null keeps it shut. */
@@ -145,7 +188,8 @@ export function SkillDrawer({
   // The menu closes on its own Escape before that key reaches the document,
   // so a key from inside the menu is the menu's even once it has shut.
   const drawerKey = (run: () => void) => (event: KeyboardEvent) => {
-    if (!(event.target instanceof Element && event.target.closest(MENU))) run();
+    if (!(event.target instanceof Element && event.target.closest(OWN_KEYS)))
+      run();
   };
   useHotkeys(
     opened && !menuOpened
@@ -158,6 +202,7 @@ export function SkillDrawer({
   );
 
   const source = useSkillSource(pack, content?.filePath ?? null);
+  const publicSwitch = usePublicSwitch(pack);
   if (!content || !anatomy || !view) return null;
 
   const layers = layersOf(content);
@@ -172,6 +217,14 @@ export function SkillDrawer({
     content.meta && card && source.data
       ? `${content.meta} · ${source.data.lines} lines`
       : content.meta;
+  const slot = target?.kind === 'input' ? null : content.slot;
+  const rebinding = slot !== null && url.rebind && composition !== undefined;
+  const ownFile =
+    content.filePath === anatomy.template.path ||
+    content.filePath === anatomy.rendered.path;
+  const verb = ownFile
+    ? composition?.verbs.find(v => v.name === anatomy.skill)
+    : undefined;
 
   return (
     <Drawer
@@ -218,6 +271,19 @@ export function SkillDrawer({
             >
               {content.badge}
             </Badge>
+          )}
+          {verb && (
+            <Switch
+              size="xs"
+              variant="contrast"
+              label="public"
+              checked={verb.public}
+              disabled={publicSwitch.pending}
+              onChange={event =>
+                publicSwitch.toggle(verb.name, event.currentTarget.checked)
+              }
+              classNames={{ root: classes.publicSwitch }}
+            />
           )}
           <span className={classes.spacer} />
           {content.canToggle && tab === 'text' && (
@@ -297,6 +363,17 @@ export function SkillDrawer({
           >
             {content.sentence}
           </Text>
+          {slot && !rebinding && (
+            <Button
+              variant="subtle"
+              size="compact-xs"
+              leftSection={<Icon name="replace" size={12} />}
+              className={classes.change}
+              onClick={() => setUrl({ rebind: true })}
+            >
+              Change
+            </Button>
+          )}
         </div>
         {meta && (
           <Text
@@ -346,7 +423,20 @@ export function SkillDrawer({
           </Tabs>
         )}
       </Box>
-      {tab === 'text' && <TextTab pack={pack} content={content} />}
+      {rebinding && slot && (
+        <RebindPanel
+          key={`${anatomy.skill}:${slot.name}`}
+          pack={pack}
+          skill={anatomy.skill}
+          skillRef={anatomy.template.ref}
+          slot={slot.name}
+          composition={composition}
+          onDone={() => setUrl({ rebind: false })}
+        />
+      )}
+      {tab === 'text' && (
+        <TextTab pack={pack} content={content} beneathPanel={rebinding} />
+      )}
       {tab === 'used-by' && content.usedBy && composition && groups && (
         <UsedByTab
           pack={pack}
