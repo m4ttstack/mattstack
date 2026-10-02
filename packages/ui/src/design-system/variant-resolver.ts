@@ -97,38 +97,40 @@ function wash(hue: string): VariantColorResolverResult {
  * card fill ringed in the hue's fill, with the same label: a status chip on
  * a card. None of them is interactive, so hover keeps the rest fill.
  */
-const HUE_TONES: Record<
+const HUE_TONES = new Map<
   string,
   { fallback: string; tone: (hue: string) => VariantColorResolverResult }
-> = {
-  tint: {
-    fallback: 'light',
-    tone: hue => ({
-      background: washOf(hue, '--ui-tint'),
-      hover: washOf(hue, '--ui-tint'),
-      color: `var(--tk-text-${hue})`,
-      border: `${rem(1)} solid transparent`,
-    }),
-  },
-  'tint-outline': {
-    fallback: 'light',
-    tone: hue => ({
-      background: washOf(hue, '--ui-tint'),
-      hover: washOf(hue, '--ui-tint'),
-      color: `var(--tk-text-${hue})`,
-      border: `${rem(1)} solid var(--tk-fill-${hue})`,
-    }),
-  },
-  'hue-outline': {
-    fallback: 'outline',
-    tone: hue => ({
-      background: 'var(--tk-card)',
-      hover: 'var(--tk-card)',
-      color: `var(--tk-text-${hue})`,
-      border: `${rem(1)} solid var(--tk-fill-${hue})`,
-    }),
-  },
-};
+>(
+  Object.entries({
+    tint: {
+      fallback: 'light',
+      tone: hue => ({
+        background: washOf(hue, '--ui-tint'),
+        hover: washOf(hue, '--ui-tint'),
+        color: `var(--tk-text-${hue})`,
+        border: `${rem(1)} solid transparent`,
+      }),
+    },
+    'tint-outline': {
+      fallback: 'light',
+      tone: hue => ({
+        background: washOf(hue, '--ui-tint'),
+        hover: washOf(hue, '--ui-tint'),
+        color: `var(--tk-text-${hue})`,
+        border: `${rem(1)} solid var(--tk-fill-${hue})`,
+      }),
+    },
+    'hue-outline': {
+      fallback: 'outline',
+      tone: hue => ({
+        background: 'var(--tk-card)',
+        hover: 'var(--tk-card)',
+        color: `var(--tk-text-${hue})`,
+        border: `${rem(1)} solid var(--tk-fill-${hue})`,
+      }),
+    },
+  })
+);
 
 /**
  * Mantine 9's variant-color hook. Starts from Mantine's `defaultVariantColorsResolver`
@@ -154,7 +156,7 @@ export const variantColorResolver: VariantColorsResolver = input => {
       : defaultVariantColorsResolver({ ...input, variant: 'light' });
   }
 
-  const hueTone = input.variant ? HUE_TONES[input.variant] : undefined;
+  const hueTone = input.variant ? HUE_TONES.get(input.variant) : undefined;
   if (hueTone) {
     return typeof input.color === 'string' && ON_FILL_HUES.has(input.color)
       ? hueTone.tone(input.color)

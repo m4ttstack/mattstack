@@ -229,9 +229,13 @@ const TK_CODEMIRROR_NAMES = new Set([
 const TK_CHART_DEFAULTS_NAMES = new Set(['--tk-line-3']);
 
 // Read by packages/ui/src/design-system/component-styles.module.css (the
-// contrast Switch's off track, the segmented Progress's part tones), so they
-// stay out of this waiver set too.
-const TK_COMPONENT_STYLES_NAMES = new Set(['--tk-line-1', '--tk-line-2']);
+// contrast Switch's off track, the segmented Progress's part tones, a ground
+// card's attention ring), so they stay out of this waiver set too.
+const TK_COMPONENT_STYLES_NAMES = new Set([
+  '--tk-line-1',
+  '--tk-line-2',
+  '--tk-fill-warn',
+]);
 
 const TK_ON_FILL_NAMES = RAMP_HUES.map(h => `--tk-on-fill-${h}`);
 const TK_ON_FILL_WAIVER =

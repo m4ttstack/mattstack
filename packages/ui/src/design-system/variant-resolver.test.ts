@@ -1,4 +1,8 @@
-import { DEFAULT_THEME, mergeMantineTheme } from '@mantine/core';
+import {
+  DEFAULT_THEME,
+  defaultVariantColorsResolver,
+  mergeMantineTheme,
+} from '@mantine/core';
 import { describe, expect, it } from 'vitest';
 
 import { baseTheme } from './base-theme';
@@ -193,5 +197,17 @@ describe('tint tones', () => {
         variantColorResolver({ color: 'gray', theme, variant: fallback })
       );
     }
+  );
+});
+
+it('a variant named like an Object property is no tone of the kit', () => {
+  expect(
+    variantColorResolver({ color: 'warn', theme, variant: 'constructor' })
+  ).toEqual(
+    defaultVariantColorsResolver({
+      color: 'warn',
+      theme,
+      variant: 'constructor',
+    })
   );
 });
