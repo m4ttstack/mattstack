@@ -12,7 +12,7 @@ Deep-validate installed plugins
 ## Usage
 
 ```bash
-rt plugin validate <plugin>
+rt plugin validate <plugin> [flags]
 ```
 
 ## Arguments & flags
@@ -20,6 +20,7 @@ rt plugin validate <plugin>
 | Flag / Arg | Type | Default | Description |
 | --- | --- | --- | --- |
 | `<plugin>` | text |  | Validate only this plugin by directory name; omit to validate all installed plugins |
+| [`--json`](/guides/common-flags) | boolean | `false` | Print the result as one JSON object |
 
 _See code: [commands/plugin.ts › runValidate](https://github.com/m4ttstack/mattstack/blob/main/commands/plugin.ts)_
 

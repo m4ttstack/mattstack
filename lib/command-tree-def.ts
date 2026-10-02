@@ -2541,6 +2541,7 @@ export const TREE: Record<string, CommandNode> = {
         omitBehavior: "list",
         args: [
           { name: "Plugin", type: "text", placeholder: "my-plugin", hint: "Validate only this plugin by directory name; omit to validate all installed plugins" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the result as one JSON object" },
         ],
       },
     },
