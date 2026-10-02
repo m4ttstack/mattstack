@@ -23,6 +23,7 @@
 import { existsSync, statSync } from "fs";
 import { join, resolve as resolvePath } from "path";
 import { canon } from "./fs-canon.ts";
+import { shellQuote } from "./nav-fs.ts";
 import {
   getKnownRepos,
   loadRepoIndexEntries,
@@ -120,7 +121,14 @@ const NEXT_JOIN = ": ";
 
 /** A refusal that names a command to run keeps it last in its message, so a `--json` envelope still ends in it; the command must start with `rt ` for `splitRefusalNext` to find it. */
 export function refusalWithNext(sentence: string, command: string): string {
+  if (!command.startsWith("rt ")) throw new Error(`a refusal's command must be an rt command, got: ${command}`);
   return `${sentence}${NEXT_JOIN}${command}`;
+}
+
+const SHELL_SAFE = /^[\w./~@%+=:,-]+$/;
+
+function shellArg(value: string): string {
+  return SHELL_SAFE.test(value) ? value : shellQuote(value);
 }
 
 /** `refusalWithNext` read back for a person: the sentence alone, and the command apart. */
@@ -232,7 +240,7 @@ export async function planLocate(opts: { newPath: string; repo?: string }): Prom
     if (parseIdentity(identity)?.kind === "path") {
       return refuse(
         "identity-changed",
-        refusalWithNext(`${newPath} has no remote, so rt knows a repo like this by its folder, and moving it makes it a new repo. Register the new folder instead`, `rt repos register ${newPath}`),
+        refusalWithNext(`${newPath} has no remote, so rt knows a repo like this by its folder, and moving it makes it a new repo. Register the new folder instead`, `rt repos register ${shellArg(newPath)}`),
       );
     }
     return refuse(
@@ -518,3 +526,5 @@ export async function findLocateCandidates(): Promise<LocateCandidate[]> {
   }
   return candidates;
 }
+
+export const __test__ = { retentionReason };

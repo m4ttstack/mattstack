@@ -22,7 +22,7 @@ import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.
 import { CACHE_KINDS, loadMachineRepoTrackingRaw, parseCachesArg, saveRepoTrackingRaw, type CacheKind, type TrackingMode } from "../lib/repo-tracking.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/errors.ts";
-import { findLocateCandidates, parseRefusalText, splitRefusalNext } from "../lib/repo-locate.ts";
+import { findLocateCandidates, parseRefusalText, splitRefusalNext, type LocateCandidate } from "../lib/repo-locate.ts";
 import { locateMovedRepo } from "../lib/repo-locate-dispatch.ts";
 import { tryResolveRepoArg } from "../lib/repo-arg.ts";
 import { repoLabel, repoLabelFull, repoLabelQualified } from "../lib/repo-label.ts";
@@ -400,6 +400,14 @@ export async function reposLocate(args: string[], _ctx: CommandContext = {}, dep
   );
 }
 
+export function locateConfirmMessage(candidate: LocateCandidate): string {
+  return `Locate ${repoLabelFull(candidate.identity)} at ${candidate.path}?`;
+}
+
+export function locateCandidateOptions(candidates: LocateCandidate[]): { value: string; label: string; hint: string }[] {
+  return candidates.map((c) => ({ value: c.path, label: c.path, hint: repoLabelFull(c.identity) }));
+}
+
 /**
  * No `<new-path>`: propose, never auto-pick. One candidate still asks; several
  * open a picker; none is a hard stop that names what is lost.
@@ -424,6 +432,7 @@ async function pickLocateTarget(json: boolean, deps: RegisterDeps): Promise<stri
           candidates.length === 0 ? "rt could not find it by itself." : "rt found folders it could be, and cannot ask which one without a terminal.",
         ),
         out.section("Missing repos", undefined, out.table(lost.map((r) => [repoLabel(r.repoName), out.dim(`last seen at ${r.worktrees[0]?.path ?? "an unknown folder"}`)]))),
+        ...(candidates.length > 0 ? [out.section("Folders it could be", undefined, out.table(candidates.map((c) => [c.path, out.dim(repoLabelFull(c.identity))])))] : []),
       );
     }
     process.exit(1);
@@ -432,7 +441,7 @@ async function pickLocateTarget(json: boolean, deps: RegisterDeps): Promise<stri
   if (candidates.length === 1) {
     const only = candidates[0]!;
     const { confirm } = await import("../lib/rt-render.ts");
-    const ok = await confirm({ message: `Locate ${only.identity} at ${only.path}?`, stderr: true });
+    const ok = await confirm({ message: locateConfirmMessage(only), stderr: true });
     if (!ok) process.exit(0);
     return only.path;
   }
@@ -440,7 +449,7 @@ async function pickLocateTarget(json: boolean, deps: RegisterDeps): Promise<stri
   const { filterableSelect } = await import("../lib/pick-wrappers.ts");
   const picked = await filterableSelect({
     message: "Which directory did it move to?",
-    options: candidates.map((c) => ({ value: c.path, label: c.path, hint: c.identity })),
+    options: locateCandidateOptions(candidates),
     stderr: true,
   });
   if (!picked) process.exit(0);

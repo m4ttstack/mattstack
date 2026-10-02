@@ -19,7 +19,7 @@ import { deriveRepoIdentity, serializeIdentity } from "../../lib/settings/identi
 import { repoDataDir } from "../../lib/rt-paths.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { reposLocate, type RegisterDeps } from "../repos.ts";
+import { locateCandidateOptions, locateConfirmMessage, reposLocate, type RegisterDeps } from "../repos.ts";
 
 function testDeps(): RegisterDeps & { lines: string[] } {
   const lines: string[] = [];
@@ -135,11 +135,26 @@ describe("reposLocate", () => {
       const { code, stderr } = await human(() => reposLocate([], {}, testDeps()));
       expect(code).toBe(1);
       expect(stderr).toStartWith("Which folder did it move to?\n  why: rt found folders it could be, and cannot ask which one without a terminal.\n");
-      expect(stderr).toContain("iota");
+      expect(stderr).toContain("Folders it could be\n");
+      expect(stderr).toContain(join(scratch, "iota-moved"));
+      expect(stderr).toContain("gitlab.com/g/iota");
+      expect(stderr).not.toContain("remote:");
     } finally {
       if (tty) Object.defineProperty(process.stdin, "isTTY", tty);
       else delete (process.stdin as { isTTY?: boolean }).isTTY;
     }
+  });
+
+  test("the question and the choices name a found folder's repo in full, never by its key", () => {
+    const found = [
+      { path: "/a/widgets", identity: "remote:gitlab.com%2Fg%2Fwidgets" },
+      { path: "/b/widgets", identity: "remote:github.com%2Fg%2Fwidgets" },
+    ];
+    expect(locateConfirmMessage(found[0]!)).toBe("Locate gitlab.com/g/widgets at /a/widgets?");
+    expect(locateCandidateOptions(found)).toEqual([
+      { value: "/a/widgets", label: "/a/widgets", hint: "gitlab.com/g/widgets" },
+      { value: "/b/widgets", label: "/b/widgets", hint: "github.com/g/widgets" },
+    ]);
   });
 
   test("--dry-run reports the plan and writes nothing", async () => {

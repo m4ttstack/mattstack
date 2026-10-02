@@ -14,7 +14,7 @@ import { loadRepoIndex, REPO_INDEX_NS } from "../repo-index.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../worktree/registry.ts";
 import { saveClaims } from "../endpoint/store.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../settings/identity.ts";
-import { applyLocate, findLocateCandidates, isRefusal, parseRefusalText, planLocate, refusalWithNext, splitRefusalNext } from "../repo-locate.ts";
+import { applyLocate, findLocateCandidates, isRefusal, parseRefusalText, planLocate, refusalWithNext, splitRefusalNext, __test__ as locateTest } from "../repo-locate.ts";
 
 const LONG_DASH = new RegExp(`[${String.fromCodePoint(0x2013)}${String.fromCodePoint(0x2014)}]`);
 /** A refusal a person reads: no long dash and no flag in the sentence. */
@@ -128,6 +128,17 @@ describe("repo locate", () => {
       sentence: `${repo} has no remote, so rt knows a repo like this by its folder, and moving it makes it a new repo. Register the new folder instead`,
       next: `rt repos register ${repo}`,
     });
+  });
+
+  test("a remote-less repo in a folder with a space gets a register command that pastes", async () => {
+    setKvValue(REPO_INDEX_NS, `path:${encodeURIComponent(join(scratch, "gone"))}`, join(scratch, "gone"));
+    const repo = localRepo("my repo");
+
+    const out = await planLocate({ newPath: repo });
+
+    expect(isRefusal(out) && out.message).toEndWith(`instead: rt repos register '${repo}'`);
+    expect(isRefusal(out) && splitRefusalNext(out.message).next).toBe(`rt repos register '${repo}'`);
+    expect(isRefusal(out) && splitRefusalNext(out.message).sentence).toStartWith(`${repo} has no remote`);
   });
 
   test("an old path that still exists is a second clone, not a move", async () => {
@@ -518,4 +529,14 @@ test("a command joined to a refusal reads back apart from its sentence", () => {
   expect(splitRefusalNext("widgets is still at /x, so this folder is a second copy, not a move")).toEqual({
     sentence: "widgets is still at /x, so this folder is a second copy, not a move",
   });
+});
+
+test("a command that is not an rt command is refused rather than joined where it cannot be found again", () => {
+  expect(() => refusalWithNext("Do this", "git status")).toThrow();
+});
+
+test("a kept legacy row names each reason in plain words", () => {
+  const base = { moved: [], merged: [], refused: [], removedDir: false };
+  expect(locateTest.retentionReason({ ...base, registry: "refused" })).toBe("rt could not carry over its worktrees");
+  expect(locateTest.retentionReason({ ...base, refused: ["notes.json"], registry: "refused" })).toBe("both names hold notes.json; rt could not carry over its worktrees");
 });

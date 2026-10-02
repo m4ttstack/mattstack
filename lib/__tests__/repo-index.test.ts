@@ -30,7 +30,7 @@ import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
 import { closeStateDb, getStateDb, setKvValue } from "../state/index.ts";
 import * as stateNs from "../state/index.ts";
-import { getKnownRepos, loadRepoIndex, updateRepoIndex, __test__ } from "../repo-index.ts";
+import { getKnownRepos, healErrorClause, loadRepoIndex, updateRepoIndex, __test__ } from "../repo-index.ts";
 import * as ui from "../ui/out.ts";
 import { captureOut } from "../ui/__tests__/capture-out.ts";
 import { setWarningLog, __test__ as warnTest } from "../ui/warn.ts";
@@ -972,4 +972,12 @@ describe("pickerWorktrees", () => {
     };
     expect(pickerWorktrees(repo).map((w) => w.path)).toEqual(["/pool/x/main", "/pool/x/gitq-ish"]);
   });
+});
+
+test("a heal error carried on after a colon starts lower case, and a name keeps its capitals", () => {
+  expect(healErrorClause("The rt daemon is running but did not answer")).toBe("the rt daemon is running but did not answer");
+  expect(healErrorClause("No repo rt knows is missing")).toBe("no repo rt knows is missing");
+  expect(healErrorClause("GitLab refused the token")).toBe("GitLab refused the token");
+  expect(healErrorClause("Docker is not running")).toBe("Docker is not running");
+  expect(healErrorClause("identity-changed: /a has no remote")).toBe("identity-changed: /a has no remote");
 });

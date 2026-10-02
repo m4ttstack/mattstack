@@ -270,7 +270,7 @@ export type IndexHealResult = { ok: true; healed: boolean } | { ok: false; error
 
 /** A failed heal's `error` carried on after a colon in the caller's own sentence. */
 export function healErrorClause(error: string): string {
-  return /^[A-Z][a-z]/.test(error) ? `${error[0]!.toLowerCase()}${error.slice(1)}` : error;
+  return /^(The|A|An|No|Nothing|Every|This|That|It|Could|Can|Cannot) /.test(error) ? `${error[0]!.toLowerCase()}${error.slice(1)}` : error;
 }
 
 /**
