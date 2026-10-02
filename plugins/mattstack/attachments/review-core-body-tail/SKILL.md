@@ -68,15 +68,19 @@ draft exactly (never re-judged). It is version 3 of this file:
   raise in earlier rounds: every one of them back, in the order given, as
   `{id, round, tier, title, file, line, excerpt, changed}`. `id`, `round`,
   `title`, `file`, `line` and `excerpt` are the caller's, unchanged, and
-  `file` and `line` are left out when the caller's entry has none; `tier`
-  is the caller's severity capitalised (`Critical` | `Important` |
-  `Minor`). `changed` is true when the code the finding pointed at has
-  moved since the round that skipped it: `git diff <that round's
-  sha>..HEAD -- <file>` touches its line (any hunk in the file, for an
-  entry with a `file` and no `line`), or, when a non-empty `snippet` was
-  recorded, that snippet is no longer in the file (an empty `snippet`
-  means none was recorded and tests nothing); false when it has no `file`
-  or that round's sha is `unknown`.
+  `file` and `line` are left out when the caller's entry has none;
+  `excerpt` is the finding's recorded text, its body and then, when it
+  had a fix, a blank line and `Fix: <fix>`; `tier` is the caller's
+  severity capitalised (`Critical` | `Important` | `Minor`). `changed` is
+  true when the code the finding pointed at has moved since the round
+  that skipped it: `git diff <that round's sha>..HEAD -- <file>` touches
+  its line (any hunk in the file, for an entry with a `file` and no
+  `line`), or, when a non-empty `snippet` was recorded, that snippet is
+  no longer in the file (an empty `snippet` means none was recorded and
+  tests nothing). When that round's sha is `unknown` or not in the
+  checkout (`git cat-file -e <sha>^{commit}` fails: the MR was rebased or
+  force-pushed), the snippet test alone decides, and with no snippet
+  `changed` is false. It is false when the entry has no `file`.
 - A would-be finding that says what a skipped one says, about the same
   code, is that skipped finding: it stays out of `findings` and is
   reported only under `skipped`. The reviewer already decided not to

@@ -36,11 +36,16 @@ caller.
   earlier thread the human chose to act on, already decided. `body` is
   absent when the human held the reply and only resolves. They post in
   the same submitted review as the findings; never as separate replies.
-- On a re-review, `restored`: one `{id, title, body, file, line}` per
-  finding the human brought back from an earlier round, each with its
-  recorded title, body and anchor (`file` and `line` left out when it
-  has none). They post as selected findings, with their recorded text as
-  written: never re-judged, re-worded or put into the writing style.
+- On a re-review, `restored`: one `{id, title, body, file, line,
+  changed}` per finding the human brought back from an earlier round,
+  each with its recorded title, body and anchor (`file` and `line` left
+  out when it has none), and `changed` true when the code it pointed at
+  moved since the round that skipped it. They post as selected findings,
+  with their recorded text as written: never re-judged, re-worded or put
+  into the writing style. One with `changed` true posts in the summary's
+  issue list with its recorded `file:line` in its text, never inline: its
+  recorded line may now hold other code. One with `changed` false posts
+  inline at its recorded anchor.
 - The draft, in the review flow's Strengths / Issues shape: Strengths /
   Issues (Critical / Important / Minor, each `file:line`) / Assessment
   (yes | no | with fixes), when it is in context -- take it as given, never
@@ -86,8 +91,9 @@ summary carries Strengths and the Assessment, and its issue list is
 scoped to what was actually selected, restored findings included: a
 deselected Minor does not resurface in the summary either. A selected
 finding with no `file` anchor, or a restored one missing its `file` or
-`line`, lives in that issue list, and only there; a restored one keeps
-its recorded text there too.
+`line` or with `changed` true, lives in that issue list, and only there;
+a restored one keeps its recorded text there too, plus its recorded
+`file:line` when it has one.
 
 Empty selection (`findings`, or legacy `levels`, is empty, and nothing
 restored): no inline threads, post only the summary. Under Approve with nothing selected: skip
@@ -102,12 +108,13 @@ Request changes. Where it is unavailable, post a blocking-framed Comment:
 the summary's Assessment names the findings that block the merge and says
 approval is withheld until they are fixed.
 
-On GitLab a review is ONE submitted review: the selected and restored
-findings with a `file` and `line` as its comments, the summary as its
-summary note, the disposition as its outcome, and on a re-review the
-decided `replies` as its replies, all in a single call. Nothing posts on
-its own before or after that call. The forge marks the reviewer as having
-reviewed, and approves when the disposition is Approve.
+On GitLab a review is ONE submitted review: the selected findings with a
+`file` and `line`, and the restored ones with both and `changed` false,
+as its comments, the summary as its summary note, the disposition as its
+outcome, and on a re-review the decided `replies` as its replies, all in
+a single call. Nothing posts on its own before or after that call. The
+forge marks the reviewer as having reviewed, and approves when the
+disposition is Approve.
 
 A comment whose line is outside the diff cannot be placed. The call says
 which ones and posts nothing: move each named finding into the summary's
@@ -144,6 +151,7 @@ left as a bare id or number. Required every time, on every disposition.
 | "No selection arrived, I'll ask which levels to post" | Never improvise a question here. Arriving without a decided selection is a caller bug: stop and say so. |
 | "It handed me finding ids, but the contract says levels" | Both shapes are the contract. Ids post exactly those findings; levels post whole tiers. Only a payload carrying neither is a caller bug. |
 | "This selected finding has no `file`, I'll anchor it to the nearest line" | Never invent an anchor. A selected entry with no `file` goes in the summary comment. |
+| "This restored finding has a `file` and `line`, so it goes inline" | Not with `changed` true: its recorded line may now hold other code. It goes in the summary's issue list, its recorded `file:line` in the text. |
 | "I'll fold the deselected Minors into the summary note" | No side door. A deselected finding drops entirely; it does not move to a different channel. |
 | "No approval landed, but I'll still say 'nothing blocking'" | Tacit approval. Strip the all-clear language unless the disposition actually approves. |
 | "I'll close with !123" | Bare id. The close HARD-GATE needs a markdown link to the real URL, read from the forge (a posting tool's `mrUrl`; else `mr_view`'s `webUrl`, called with `mrUrl` or `repoName` plus `iid`, on GitLab, `gh pr view` on GitHub). |
@@ -158,7 +166,7 @@ left as a bare id or number. Required every time, on every disposition.
 |---|---|
 | Decided `{findings, disposition}`, or legacy `{levels, disposition}`, + draft (parked: the report file AND its json sibling) + target in hand | Post per the sections above. |
 | No decided selection arrived | Stop; name it a caller bug. Never ask a question here. |
-| Posting inline threads | Selected findings only (legacy: whole selected levels), plus restored findings with their recorded text; deselected findings drop, no side door. |
+| Posting inline threads | Selected findings only (legacy: whole selected levels), plus restored findings with their recorded text (one with `changed` true goes in the summary instead); deselected findings drop, no side door. |
 | A selected finding carries no `file` anchor | It rides in the summary comment; never invent a line for it. |
 | Posting the summary | One comment, scoped to what was selected; an unanchorable selected finding lives here. |
 | Disposition is Approve | GitLab: outcome approve on the one submit. GitHub: gh pr review --approve. |

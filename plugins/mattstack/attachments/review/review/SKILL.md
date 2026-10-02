@@ -499,8 +499,9 @@ form after the depth block, in the fresh reviewer's context, like every
 judgment in this verb (`Dispatch the fresh reviewer; it forms the
 findings`). `HEAD` above is the MR head:
 the fetched `origin/mr-<iid>` (`origin/pr-<n>` on GitHub) when no
-MR-head checkout is in hand. With no last reviewed commit, or one the
-fetch does not have, the whole change is what changed. Each thread's
+MR-head checkout is in hand. With no last reviewed commit, a last
+reviewed commit of `unknown` (a round rebuilt from an old report), or one
+the fetch does not have, the whole change is what changed. Each thread's
 reply is drafted in the writing style from its call and note.
 
 ### Print the review depth block
@@ -757,11 +758,17 @@ neither option gets no entry. A caller that decided the selection hands
 A skipped finding the human brought back (`restore:<id>` picked in a
 `skipped-<n>` answer) posts like a selected finding: a comment at its
 recorded `file` and `line` with its recorded text as the body, or in the
-summary's issue list when it lacks a `file` or a `line`. Its text is the
-caller's record of it, never rewritten or put into the writing style,
-in a comment or in the summary: the caller's `restored` entry when it
-decided the selection (`title`, then `body` verbatim), else the skipped
-entry it handed in with that `id` (`title`, then `excerpt` verbatim).
+summary's issue list when it lacks a `file` or a `line`. One with
+`changed` true (its code moved since the round that skipped it, so its
+recorded line may now hold other code) always posts in the summary's
+issue list, its recorded `file:line` in its text, never as a comment.
+Its text is the caller's record of it, never rewritten or put into the
+writing style, in a comment or in the summary: the caller's `restored`
+entry when it decided the selection (`title`, then `body` verbatim),
+else the skipped entry it handed in with that `id` (`title`, then
+`excerpt` verbatim). Its `changed` is the caller's `restored` entry's
+when it decided the selection, else the report json's `skipped` entry
+with that `id`.
 
 ### Move the bad-anchor findings into the summary
 
@@ -887,10 +894,10 @@ the turn.
   unmigrated caller the legacy `{tiers, outcome}`. On a re-review it may
   also carry `replies`, already in the submit's shape; posting hands them
   through unchanged. It may also carry `restored: [{id, title, body, file,
-  line}]`, the skipped findings the human brought back, handed in by the
-  caller from its own record; each posts as `Compose the submitted review:
-  comments, summary, outcome` says, with the caller's text. Use the
-  decider the caller names alongside it.
+  line, changed}]`, the skipped findings the human brought back, handed in
+  by the caller from its own record; each posts as `Compose the submitted
+  review: comments, summary, outcome` says, with the caller's text and
+  `changed`. Use the decider the caller names alongside it.
 - Posting runs per review-posting below, handed `{findings: <ids>,
   disposition: <outcome>}`: `<ids>` is the union of every `findings-<n>`
   answer (unwrap a `{value, note}` object to its value), empty when the
@@ -902,8 +909,9 @@ the turn.
   from the `thread-<n>` answers as `Compose the submitted review:
   comments, summary, outcome` says. So do the restored findings: the
   caller's `restored` as handed, else one per `restore:<id>` value in the
-  `skipped-<n>` answers. A restored finding is a selected one for posting,
-  never a deselected one.
+  `skipped-<n>` answers, each carrying the `changed` of the report json's
+  `skipped` entry with that `id`. A restored finding is a selected one for
+  posting, never a deselected one.
 - The post record's `selection` is that same object (for example
   `{"findings": ["f1", "f3"], "disposition": "comment"}`); `decidedBy`
   names the surface that actually answered (`board`, `console`, `pane`, or

@@ -454,9 +454,9 @@ What the graph cannot show:
   `call` and drafted `reply`: the json sibling's `threads` on the domain
   path, `--report`'s Earlier threads section on the generic path. The
   skipped findings, each by its round-qualified `id` with its `title`,
-  `file`, `line` and recorded `excerpt`: the json sibling's `skipped` on
-  the domain path, `--report`'s Skipped earlier section on the generic
-  path. From
+  `file`, `line`, recorded `excerpt` and `changed`: the json sibling's
+  `skipped` on the domain path, `--report`'s Skipped earlier section on
+  the generic path. From
   `--report`'s `review-round:` line: the round and the sha it reviewed.
   From the launch: `<mrUrl>`. Nothing else survives the earlier pane.
 - **Finding ids.** A per-finding option's value is the finding's `id` from
@@ -471,7 +471,8 @@ What the graph cannot show:
   question. On a re-review the same call carries `replies`, one per
   earlier thread whose `thread-N` answer picked anything, and every
   restored finding (a `restore:<id>` picked in a `skipped-N` answer),
-  posted like a picked one with its recorded text. A finding is
+  posted like a picked one with its recorded text, except that one with
+  `changed` true posts in the summary, never inline. A finding is
   anchored when it has both a `file` and a `line`:
   its comment's `path` is the finding's `file` and its `line` the
   finding's `line`, always both, never a `position` object; for a line the
@@ -574,8 +575,8 @@ anything posts. The answer's keys say which file it needs:
   threads section.
 - `skipped-N` keys, beside any of these: each restored finding, joined
   by its `id` (the option value after `restore:`) for its `title`,
-  `file`, `line` and recorded `excerpt`. They come from the json
-  sibling's `skipped` when a domain skill resolved, else from
+  `file`, `line`, recorded `excerpt` and `changed`. They come from the
+  json sibling's `skipped` when a domain skill resolved, else from
   `--report`'s Skipped earlier section.
 
 Every shape also reads `--report`'s `review-round:` line, for the round
@@ -671,13 +672,15 @@ is in no `findings-N` value of that answer (a `{value, note}` answer
 unwrapped to its value), each `{id, title, severity, file, line,
 excerpt}`: `id` and `title` are the json's, `severity` its `tier`
 lowercased, `file` and `line` its own (left out when it has none), and
-`excerpt` its `body` verbatim (its `title` when it has no `body`). An
+`excerpt` its `body` verbatim (its `title` when it has no `body`), then,
+when it has a `fix`, a blank line and `Fix: <fix>`. An
 answer that carried `tiers` in place of `findings-N` keys gives `[]`:
 that pass's gate could not read the json finding by finding, so its
 picks name no finding ids to compare against.
 
 Record it as round 1 with `--sha unknown`, since that review's commit is
-not known (so none of its skipped findings ever reads as `changed`), and
+not known (with no snippets recorded either, none of its skipped findings
+ever reads as `changed`), and
 `--outcome` the answer's `outcome` value, the `--skipped` json quoted as
 `Record the verdict answer in --report` says. Then read the ledger again:
 its `round` is now 1, so this pass is round 2, and its `skipped` holds
@@ -765,7 +768,8 @@ Read the diff critically and produce findings. Each finding has:
 - a severity tier: `Critical`, `Important` or `Minor`, the report's fixed
   tier vocabulary;
 - its anchor, `file:line` (or `file` alone when no single line fits);
-- what to change.
+- what is wrong;
+- what to change: its fix.
 
 Honor the operator note (for example "focus on the migration files", "skip
 the vendored code").
@@ -788,8 +792,9 @@ post:
 
 Then hunt for new issues, weighting the diff since the last reviewed
 commit (`git diff <last reviewed sha>..origin/<source branch>`) while
-still reading the whole change; with no last reviewed commit, or one the
-fetch does not have, the whole change is what changed. An issue an
+still reading the whole change; with no last reviewed commit, a last
+reviewed commit of `unknown` (a round rebuilt from an old report), or one
+the fetch does not have, the whole change is what changed. An issue an
 earlier thread already raises lives on its thread and is never a
 finding: the findings are new issues only. Each reply is in the loaded
 voice and never empty. With no earlier threads handed in, the pass is a
@@ -808,14 +813,18 @@ out of the findings, so out of `tiers` too, and the gate offers it back
 on its own. For each skipped finding work out `changed`: true when `git
 diff <its round's sha>..origin/<source branch> -- <file>` touches its
 `line` (any hunk in the file, when it has a `file` and no `line`), or its
-`snippet`, when it has one, is no longer in the file at `origin/<source
-branch>`; false when it has no `file` or its round's sha is `unknown`.
+`snippet`, when non-empty, is no longer in the file at `origin/<source
+branch>`. When its round's sha is `unknown` or not in this checkout (`git
+cat-file -e <sha>^{commit}` fails: the MR was rebased or force-pushed),
+the snippet test alone decides, and with no snippet `changed` is false.
+It is false when the finding has no `file`.
 
 ### Write the review report to --report
 
 Save the review to `--report <path>` as Markdown: a short summary line,
 then the findings, grouped by tier, each led by a short label (its
-title) and then its anchor and what to change. Write it before the gate opens, so the board makes the
+title), then its anchor and what is wrong, then a `Fix:` line saying
+what to change. Write it before the gate opens, so the board makes the
 "reviewing..." badge clickable to open the review modal while you hold at
 the gate. On the domain path the domain skill wrote the report itself;
 this box is the generic path's. Either way the file exists before `done`.
@@ -841,21 +850,25 @@ tier, so no thread is ever read as a finding.
 With skipped findings handed in, a Skipped earlier section follows, still
 ahead of the findings: one entry per skipped finding, in the order
 Re-review mode handed them in. A resumed pane posts a restored finding
-from it, so each entry carries its id, anchor, round, tier, title and
-recorded text:
+from it, so each entry carries its id, anchor, round, tier, title,
+`changed` and recorded text:
 
 ```markdown
 ## Skipped earlier
 
 - `<id>` · `<file:line>` · round <k> · <Tier> · <title>
+  - Changed: <yes or no>
   - Recorded: <its excerpt, verbatim>
 ```
 
 Fill the placeholders from the skipped entry: `<Tier>` is its severity
-capitalised, and the anchor is the file alone when it has no line, or
-`no anchor` when it has no file. This section is not a tier either: no
-skipped finding is ever read as one of this round's findings or numbered
-with them.
+capitalised, the anchor is the file alone when it has no line, or `no
+anchor` when it has no file, and `Changed` is the `changed` you worked
+out for it. Each line of the excerpt after its first sits under
+`Recorded:`, indented four spaces (a blank line stays blank), so the
+entry stays one list item and its `Fix:` line survives. This section is
+not a tier either: no skipped finding is ever read as one of this round's
+findings or numbered with them.
 
 The generic path writes the Markdown only. The json sibling is the domain
 skill's structured report, so without one the gate takes the tier
@@ -1030,7 +1043,8 @@ each, with this round's own bare `id` (the record round-qualifies it):
   as `{id, title, severity, file, line, excerpt, snippet}`. `id` and
   `title` are the entry's; `severity` is its `tier` lowercased; `file`
   and `line` are its own, left out when it has none; `excerpt` is its
-  `body` verbatim (its `title` when it carries no `body`); `snippet` is
+  `body` verbatim (its `title` when it carries no `body`), then, when it
+  carries a `fix`, a blank line and `Fix: <fix>`; `snippet` is
   the code at its anchor at the reviewed sha (`git show <sha>:<file>`,
   its `line` and up to two lines either side), left out when it has no
   `line` or that read fails.
@@ -1051,7 +1065,8 @@ each, with this round's own bare `id` (the record round-qualifies it):
     has no separate label), never empty, since the record refuses an
     empty title; `severity` is the tier lowercased; `file` and `line` are
     its anchor, left out when it has none; `excerpt` is the finding's
-    text from `--report`.
+    text from `--report` without its `Fix:` line, then, when its entry
+    there has one, a blank line and that `Fix:` line as written.
 - **Clean review** (neither key): `[]`.
 
 `--restored` is every `skipped-N` answer value with its `restore:`
@@ -1059,7 +1074,7 @@ prefix removed, already round-qualified; `[]` when no `skipped-N`
 question picked anything. For example, with an invented finding left
 unticked and one invented skipped finding brought back:
 
-`--skipped '[{"id":"f3","title":"Example retry limit ignores the config","severity":"important","file":"lib/example/retry.ts","line":14,"excerpt":"<that finding's body, verbatim>","snippet":"<lines 12 to 16 of lib/example/retry.ts at the reviewed sha>"}]' --restored '["r1-f4"]'`
+`--skipped '[{"id":"f3","title":"Example retry limit ignores the config","severity":"important","file":"lib/example/retry.ts","line":14,"excerpt":"<that finding's body, verbatim>\n\nFix: <that finding's fix>","snippet":"<lines 12 to 16 of lib/example/retry.ts at the reviewed sha>"}]' --restored '["r1-f4"]'`
 
 Every value there is invented: fill each from this round's own findings
 and answers, and never copy the example.
@@ -1067,7 +1082,8 @@ and answers, and never copy the example.
 Each of `--skipped`, `--restored` and `--confirmed` rides as one
 single-quoted shell argument. A single quote inside a title, body or
 snippet is written `'\''` (close the quote, an escaped quote, reopen it),
-so the argument reaches the record whole.
+so the argument reaches the record whole. A line break inside a JSON
+string is `\n`, so the blank line before `Fix:` is `\n\n`.
 
 `<n>` is 1 on a first review and the re-review's round otherwise.
 `--confirmed` lists the `discussionId` of every thread whose call is
@@ -1109,14 +1125,17 @@ path, so it executes the posting:
   way when the gate carried `thread-N` questions.
 
 Either way, a gate that carried `skipped-N` questions adds `restored`:
-one `{id, title, body, file, line}` per `restore:<id>` value picked, its
-`id` as picked and the rest from the skipped entry with that `id`
-(`body` is the entry's `excerpt`; `file` and `line` left out when it has
-none). The entries come from the ledger read this pass made at the start
-of the re-review. A pane resumed on the verdict or at a posting origin
-holds no such read, and a read made after the record leaves every
+one `{id, title, body, file, line, changed}` per `restore:<id>` value
+picked, its `id` as picked and the rest from the skipped entry with that
+`id` (`body` is the entry's `excerpt`; `file` and `line` left out when it
+has none). The entries come from the ledger read this pass made at the
+start of the re-review. A pane resumed on the verdict or at a posting
+origin holds no such read, and a read made after the record leaves every
 restored finding out, so it takes them from the json sibling's `skipped`
-instead. `restored` is empty when nothing was brought back.
+instead. `changed` always comes from the json sibling's `skipped` entry
+with that `id`, since the ledger keeps none: true sends the finding to
+the summary's issue list with its recorded `file:line`, never inline.
+`restored` is empty when nothing was brought back.
 
 Pass each answer's notes along with it. On a resumed pane
 (`--resumed-gate` given), tell the domain skill the pass is a resume, so
@@ -1137,10 +1156,11 @@ The finding has no `file` and `line` to anchor to (its option's anchor was
 the json's `fileLabel`, or `file` alone). It posts in the review's summary
 comment instead of an inline thread. Add it to the summary note: its tier
 and title, what to change, and its `fileLabel` or `file` when it has one.
-A restored finding with no anchor adds its recorded title and text as
-written, never put into the loaded voice, then its `file` when it has
-one. The summary posts once, as the `summary` of the one
-`mr_review_submit` call.
+A restored finding with no anchor, or with `changed` true, adds its
+recorded title and text as written, never put into the loaded voice,
+then its recorded `file:line` (its `file` alone when it has no `line`)
+when it has a `file`. The summary posts once, as the `summary` of the
+one `mr_review_submit` call.
 
 ### Fix what the mr_view error names (review)
 
@@ -1232,10 +1252,14 @@ A restored finding (a `restore:<id>` picked in a `skipped-N` answer)
 posts like a picked one: a comment at its recorded `file` and `line`,
 `body` its recorded `title` and then its `excerpt` verbatim, or in the
 summary note (`Add the finding to the summary note`) when it lacks a
-`file` or a `line`. Its text is the board's record of it, never
-rewritten: from the ledger read this pass made at the start of the
-re-review, or on a pane resumed on the verdict or at a posting origin,
-from `--report`'s Skipped earlier section.
+`file` or a `line`, or when its `changed` is true: its code moved since
+the round that skipped it, so its recorded line may now hold other code.
+Its text is the board's record of it, never rewritten: from the ledger
+read this pass made at the start of the re-review, or on a pane resumed
+on the verdict or at a posting origin, from `--report`'s Skipped earlier
+section. Its `changed` is the one the reviewing pass worked out, as that
+entry's `Changed:` line in `--report`'s Skipped earlier section records
+it.
 
 ### Move the bad-anchor findings into the summary (review)
 
@@ -2030,8 +2054,10 @@ before anything else.
    round number and the read's `skipped` list, each entry with the
    `reviewedSha` of its round in `rounds`, with the framing: judge each
    earlier thread, then find what is new, and raise no skipped finding
-   again. With no earlier threads, say so explicitly in the report's
-   summary line; the pass is then a full review.
+   again. A `reviewedSha` of `unknown` (a round rebuilt from an old
+   report) is handed on as it is: the whole change is what changed. With
+   no earlier threads, say so explicitly in the report's summary line;
+   the pass is then a full review.
 
 A read that exits nonzero (no board db, no state row for `<state>`)
 reads as `round: 0` with nothing confirmed and nothing skipped: quote its
