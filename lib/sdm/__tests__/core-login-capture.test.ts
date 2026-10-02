@@ -3,8 +3,10 @@ import { join } from "path";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { startLoginCapture } from "../core.ts";
+import { __test__ as sdmCmd } from "../../../commands/sdm.ts";
 
 const FAKE = join(import.meta.dir, "fixtures", "fake-sdm-login.sh");
+const SPLIT = join(import.meta.dir, "fixtures", "fake-sdm-login-split.sh");
 let cleanup: Array<() => void> = [];
 afterEach(() => {
   for (const c of cleanup) c();
@@ -42,5 +44,25 @@ describe("startLoginCapture", () => {
     cap.cancel();
     const done = await cap.donePromise;
     expect(done.ok).toBe(false);
+  });
+
+  test("an auth url split across two pipe chunks comes out as one whole line", async () => {
+    process.env.RT_SDM_BIN = SPLIT;
+    const lines: string[] = [];
+    const cap = startLoginCapture(null, l => lines.push(l));
+    expect(await cap.urlPromise).toBe("https://app.strongdm.com/auth-confirm-native/split456secret");
+    expect((await cap.donePromise).ok).toBe(true);
+    expect(lines).toEqual(["Please complete logging in at: https://app.strongdm.com/auth-confirm-native/split456secret", "authentication successful"]);
+  });
+
+  test("through the sdm command's progress, the split token is redacted whole", async () => {
+    process.env.RT_SDM_BIN = SPLIT;
+    const r = await sdmCmd.withProgress("Logging in to StrongDM", false, async onLine => {
+      const cap = startLoginCapture(null, onLine);
+      await cap.urlPromise;
+      return cap.donePromise;
+    });
+    expect(r.tail).toEqual(["Please complete logging in at: https://app.strongdm.com/auth-confirm-native/<redacted>", "authentication successful"]);
+    expect(r.tail.join("\n")).not.toContain("secret");
   });
 });

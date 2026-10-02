@@ -178,6 +178,31 @@ export function sdmEnv(): NodeJS.ProcessEnv {
   return { ...process.env, PATH: `${extra}:${process.env.PATH ?? ""}` };
 }
 
+/**
+ * Whole lines from one child stream. A pipe chunk can end mid-line, and so
+ * mid auth token, so a line is handed on only once its newline arrives;
+ * flush() hands on the unterminated rest when the stream ends.
+ */
+function lineReader(onLine: (line: string) => void): { push(chunk: Buffer | string): void; flush(): void } {
+  let rest = "";
+  const emit = (line: string): void => {
+    const trimmed = line.trim();
+    if (trimmed) onLine(trimmed);
+  };
+  return {
+    push(chunk) {
+      const parts = (rest + String(chunk)).split("\n");
+      rest = parts.pop() ?? "";
+      for (const part of parts) emit(part);
+    },
+    flush() {
+      const last = rest;
+      rest = "";
+      emit(last);
+    },
+  };
+}
+
 export interface RunSdmResult {
   ok: boolean;
   output: string;
@@ -222,30 +247,37 @@ export function runSdmCommand(
         }, opts.timeoutMs)
       : null;
     let output = "";
-    const handle = (d: Buffer) => {
-      const s = String(d);
-      output += s;
-      for (const line of s.split("\n")) if (line.trim()) onLine(line.trim());
+    const readers = [lineReader(onLine), lineReader(onLine)] as const;
+    const flush = () => {
+      for (const r of readers) r.flush();
     };
-    proc.stdout?.on("data", handle);
-    proc.stderr?.on("data", handle);
-    proc.on("error", err =>
+    proc.stdout?.on("data", (d: Buffer) => {
+      output += String(d);
+      readers[0].push(d);
+    });
+    proc.stderr?.on("data", (d: Buffer) => {
+      output += String(d);
+      readers[1].push(d);
+    });
+    proc.on("error", err => {
+      flush();
       settle({
         ok: false,
         output,
         spawnErrorCode: (err as NodeJS.ErrnoException).code ?? "EUNKNOWN",
         exitCode: null,
-      }),
-    );
-    proc.on("close", code =>
+      });
+    });
+    proc.on("close", code => {
+      flush();
       settle({
         ok: code === 0 && !timedOut,
         output,
         timedOut,
         spawnErrorCode: timedOut ? "ETIMEDOUT" : null,
         exitCode: code,
-      }),
-    );
+      });
+    });
   });
 }
 
@@ -469,7 +501,8 @@ export interface LoginUrlCapture {
  * dedicated profile instead); SDM_EMAIL skips the email prompt and a piped
  * newline accepts the App Domain default. urlPromise resolves when sdm prints
  * the auth URL; donePromise resolves when sdm exits (after the browser reaches
- * auth/complete). Nothing here logs the URL or email.
+ * auth/complete). The auth url's token is redacted by the caller's onLine;
+ * nothing else this prints is secret.
  */
 export function startLoginCapture(
   email: string | null,
@@ -499,31 +532,37 @@ export function startLoginCapture(
   let urlSeen = false;
   let output = "";
 
-  const handle = (d: Buffer) => {
-    const s = String(d);
-    output += s;
-    for (const line of s.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      onLine(trimmed);
-      if (!urlSeen) {
-        const u = AUTH_URL_RE.exec(trimmed)?.[1];
-        if (u) {
-          urlSeen = true;
-          resolveUrl(u);
-        }
+  const handleLine = (line: string) => {
+    onLine(line);
+    if (!urlSeen) {
+      const u = AUTH_URL_RE.exec(line)?.[1];
+      if (u) {
+        urlSeen = true;
+        resolveUrl(u);
       }
     }
   };
-  proc.stdout?.on("data", handle);
-  proc.stderr?.on("data", handle);
+  const readers = [lineReader(handleLine), lineReader(handleLine)] as const;
+  const flush = () => {
+    for (const r of readers) r.flush();
+  };
+  proc.stdout?.on("data", (d: Buffer) => {
+    output += String(d);
+    readers[0].push(d);
+  });
+  proc.stderr?.on("data", (d: Buffer) => {
+    output += String(d);
+    readers[1].push(d);
+  });
 
   const donePromise = new Promise<RunSdmResult>(resolve => {
     proc.on("error", err => {
+      flush();
       if (!urlSeen) rejectUrl(err as Error);
       resolve({ ok: false, output: String(err), spawnErrorCode: (err as NodeJS.ErrnoException).code ?? "EUNKNOWN", exitCode: null });
     });
     proc.on("close", code => {
+      flush();
       rmSync(shimDir, { recursive: true, force: true });
       if (!urlSeen) rejectUrl(new Error("sdm login exited before printing an auth URL"));
       resolve({ ok: code === 0, output, spawnErrorCode: null, exitCode: code });
