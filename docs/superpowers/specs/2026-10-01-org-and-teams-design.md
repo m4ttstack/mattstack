@@ -56,9 +56,13 @@ The words change meaning, so every API that takes a slug says which one.
   `activeTeam`.
 - **`--team`**: the org-level verbs that take `--team <clone slug>` today
   (`rt team publish`, `manage-membership`, `members sync`, `members remove`,
-  `status` and `pull`) drop the flag, since there is one org per Mac. `--team`
-  survives only where it names team folders: `rt team invite`,
-  `rt team members set` and `rt skills init`.
+  `status` and `pull`) keep it with exactly that meaning, optional since there
+  is one org per Mac. The Mac app passes it (`members sync --team <t>` from
+  the member-joined alert), so changing its meaning would break the app.
+  Team folders are named with `--teams <name>[,<name>]` on `rt team invite`
+  and `rt team members set`, positionally on `rt team add` and `rt team use`,
+  and with `--team <name>` on `rt skills init`, whose `--zone` keeps naming
+  the clone.
 - **Pack name**: a team's pack is named after its team folder, so pack
   names are unique across the org's one marketplace. The base pack is named
   `<org>-base` unless the admin names it otherwise.
@@ -157,10 +161,14 @@ An org whose host is no recognized forge (`forgeFromHost` returns null)
 records `$USER`, the same fallback `lib/team/invite.ts` already uses, so its
 creator is still its admin under that name.
 
-When the forge is recognized but the CLI is signed out, so no username can be
-recorded: the active team comes from `mattstack.activeTeam` alone, every org
-and team write is refused with "rt can't tell who you are", and setup shows a
-`team.identity` row whose action signs in and reruns the step.
+`forgeLogin` (`lib/team/forge.ts`) already prefers the rt-held forge token
+over the CLI's own sign-in, so the username can be recorded on any Mac whose
+forge account row is connected. When it still cannot be (no token and no
+signed-in CLI): the active team comes from `mattstack.activeTeam` alone, every
+org and team write is refused with "rt can't tell who you are", and setup
+shows a `team.identity` row. Its action is the forge account's existing
+`connect` (the Mac app has no action that runs `gh auth login`); connecting
+reruns the step.
 
 ### Membership and the active team
 
@@ -183,11 +191,15 @@ members stay the apps' own overlays (`board.hiddenMembers`,
 | The roster lists you on | `mattstack.activeTeam` (user scope) | Active team |
 |---|---|---|
 | no team | any | none: org layer only, and the `team.none` setup row |
-| one team | ignored | that team |
-| several teams | names one of them | that team |
-| several teams | unset or not one of them | none, and the `team.choose` setup row |
+| one or more teams | names one of them | that team |
+| one or more teams | unset or not one of them | the first team in your roster entry |
 | unknown (no stored username) | names a team folder | that team |
 | unknown | unset | none, and the `team.identity` row |
+
+The first team in a roster entry is the member's primary team, and the admin
+orders it. A member the admin later adds to a second team keeps working as
+their first team until they run `rt team use`; nothing flips them to "no
+team", so no "choose a team" row exists.
 
 The board and boxscore show the roster entries for the active team. The
 roster and every team's settings are readable by every member, so an app may
@@ -299,7 +311,14 @@ who bypasses rt.
 Forge access is not rt's job. An invite keeps granting read only on a repo
 rt created, and nothing on any other repo. An owner's push needs write access
 the admin grants on the forge; when an owner's sync push is refused, setup
-shows a `needs-you` row, `team.push-access`, telling them to ask the admin. A repo whose branch
+shows a `needs-you` row, `team.push-access`, telling them to ask the admin.
+
+`forgeRole` (`lib/setup/token-create.ts`), which picks the scopes rt asks for
+when a member creates a forge token, keys on the role, not on `joinedByRt`:
+an admin or owner gets owner scopes, a member gets member scopes. A member
+who later becomes an owner has a read-only token, so `team.push-access` also
+fires on "your token cannot push", and its action is the forge account's
+`connect` with owner scopes prefilled through `token-create.ts`. A repo whose branch
 protection blocks direct pushes must let its admins and owners through.
 
 ## 6. Secrets
@@ -317,28 +336,40 @@ protection blocks direct pushes must let its admins and owners through.
 
 - `rt team create` makes the new layout: the org folder, the creator as org
   admin, and a first team folder with the creator as its owner, named by
-  `--team <name>` (default: the org slug).
+  `--team <name>` (default: the org slug). It also writes the creator's
+  roster entry with that team (today create adds the creator to no roster,
+  which would leave them on no team), and records `forgeUsername`.
 - `rt team add <team> --owner <username>` (admin): creates the team folder,
   its settings file and pack skeleton, the marketplace entry, and the owners
   in `mattstack.org`. Changing owners later is an admin settings edit of
   `mattstack.org`.
-- `rt team invite --team <team>[,<team>]` (admin): the invite carries the org
-  remote, and the roster entry it adds carries those teams. `rt team join`
-  keeps its name and joins the org.
+- `rt team invite --teams <team>[,<team>]` (admin only; a team owner is
+  refused with "only an org admin invites"): with no `--teams` it uses the
+  inviter's active team, so the Mac app's Invite button
+  (`team invite --handle <h> --json`) keeps working unchanged. The roster
+  entry it adds carries those teams, first team first. `rt team join` keeps
+  its name and joins the org.
 - `rt team members set <username> --teams <team>[,<team>]` (admin) changes a
   member's teams.
 - `rt team use <team>` writes `mattstack.activeTeam`, refuses a team the
   roster does not list you on, then runs the update-safe plugins and
   materialize steps for the new team and restarts the board and boxscore
-  through deck. The previous team's pack is disabled, not removed, so
-  switching back is quick. The daemon and the CLI read settings on every call
-  and need nothing.
+  through deck. Because the member chose the switch, the new team's pack is
+  enabled (a team pack otherwise stays team-authored: installed, never
+  auto-enabled), and the previous team's pack is disabled, not removed. The
+  daemon and the CLI read settings on every call and need nothing.
+- `rt team status --json` gains `role`, `activeTeam` and `teams`. Existing
+  fields keep their shape.
 - The one-org-per-Mac rule stays: `assertOnlyTeam` (`lib/team/one-team.ts`)
   and the `team.one-per-machine` row keep refusing a second clone.
-- Setup rows, all `needs-you`, none required or finish-gated: `team.choose`
-  (several teams, none chosen; action `rt team use`), `team.none` (no team
-  lists you), `team.identity` (no stored username), and `team.push-access`
-  (section 5).
+- Setup rows, all `needs-you`, none required or finish-gated: `team.none`
+  (no team lists you), `team.identity` (no stored username) and
+  `team.push-access` (section 5). The Mac app lists an optional row on Done
+  only when its action is `steps` or `open-url` (`ReadinessModel.swift`), so
+  `team.none` carries a `steps` action, and `team.identity` and
+  `team.push-access` carry the forge `connect` (shown in the checklist and
+  in Setup status) with a `steps` fallback where the row also has to read on
+  Done.
 - Setup's team reads (`OrgRef`, `readTeamSnapshot`, `composePlan`, the
   connect verbs) read the org layer plus the active team.
 - The switchboard mechanics are unchanged; its URL and tokens come from the
@@ -346,7 +377,78 @@ protection blocks direct pushes must let its admins and owners through.
   `lib/setup/validators/accounts.ts` and `lib/setup/validators/access.ts`
   change together.
 
-## 8. Converting the existing team repo
+## 8. Onboarding through the Mac app
+
+The Mac app's wizard (welcome, team, checklist, install, done) only spawns rt
+verbs and decodes the plan contract (`rt-tray/Sources-core/Setup/`,
+`PlanModels.swift`), so every rule here lives in rt. The new rows use
+existing fields and action kinds, so no Swift change is needed for create,
+join or solo.
+
+### Create
+
+The team screen runs `rt team create <name>`, as today. The name becomes the
+org slug and the first team's name; the wizard keeps its one name field. The
+creator is admin, owner of that team, and on the roster, and `forgeUsername`
+is recorded (create already uses the CLI's own sign-in for
+`gh repo create`; with `--remote`, `forgeLogin` uses the rt-held token, else
+the `$USER` fallback).
+
+### Join
+
+The team screen runs `rt team join --dry-run` on the pasted code; Install's
+`team.join` step redeems it.
+
+- The sealed pointer gains `username` (the invited handle) and `teams`, and
+  its `v` bumps. A pointer from before the bump is refused with "ask for a new
+  invite".
+- The dry run reports the org and the teams. The clone does not exist before
+  Install, so the pre-Install plan takes the teams from the pointer, never
+  from settings.
+- Join already refuses to redeem without a forge login (`forge-login-unknown`
+  in `lib/team/join.ts`). It now also compares that login with the pointer's
+  `username`, case-insensitively, and refuses a mismatch before redeeming:
+  "This invite is for <x>; you're signed in as <y>." Today nothing compares
+  them, and a mismatch would leave the joiner on no team.
+- Join records `forgeUsername` from that login and writes
+  `mattstack.activeTeam` to the pointer's first team, so the active team is
+  known before `plugins.install` runs and the first Install installs the
+  right team pack.
+- Secrets follow today's flow: the inviter's Mac gets the member-joined alert
+  and its confirm runs `members sync`. Only admins invite, so the Mac that
+  gets the alert is an admin's and the sync is allowed. Until then the joiner
+  sees today's waiting rows.
+
+### Solo and the second-org guard
+
+Solo is unchanged, and `rt setup intent solo` still refuses when a clone
+exists. Settings' "Join another team…" and "Create a team…" reopen the
+wizard as today; a second org is refused by `assertOnlyTeam`. Joining another
+team in the same org is not an invite: the admin adds the team to the
+member's roster entry (`rt team members set`), and the member switches with
+`rt team use`. An invite for the org already on the Mac re-joins, as today.
+
+### The update run
+
+Today no update-safe step pulls the clone; only the daemon's timer does. A
+member whose app updates before the timer fires would run the new code
+against the old layout. So two update-safe steps are added at the front of
+the update run, and to the set pinned in `lib/setup/__tests__/update-safe.test.ts`:
+
+1. `org.pull`: one fetch and rebase cycle, the same as `rt team pull`. A
+   failure is a failed item and the run continues.
+2. `team.identity`: records `forgeUsername` while it is absent.
+
+Then the existing update-safe steps run. `skills.materialize` no longer seeds
+`board.defaultPack`.
+
+### Has a team
+
+`requiresTeam` on board and boxscore keeps meaning "this Mac has an org"
+(`deck.managed` keys on the clone). A member on no team keeps both apps on,
+with the "no pack" pill and the `team.none` row.
+
+## 9. Converting the existing team repo
 
 There is one team repo today, so a one-off script under `scripts/` converts
 it in one commit; no shipped verb and no reader for the old layout.
@@ -355,8 +457,9 @@ it in one commit; no shipped verb and no reader for the old layout.
    `teams/<team>/settings.team.jsonc` by the table in section 3. The script
    prints the split for review before writing.
 2. Move the roster to the org, add `teams: ["<team>"]` to every entry, add
-   any `board.members` username the roster lacks, and write `mattstack.org`
-   with the repo owner as org admin and team owner.
+   any `board.members` username the roster lacks, add the admin's own entry
+   if it is missing, and write `mattstack.org` with the repo owner as org
+   admin and team owner.
 3. Move `mattstack/secrets/` to `mattstack/org/secrets/` and update
    `.sops.yaml`.
 4. Move `mattstack/packs/<pack>/` to `mattstack/teams/<team>/packs/<team>/`,
@@ -365,18 +468,26 @@ it in one commit; no shipped verb and no reader for the old layout.
 5. Rewrite stored values whose `${team:<name>}` path moved; write the new
    marker; delete `team.jsonc`.
 
+Roster usernames were typed by whoever sent each invite, and the active team
+now matches them against each member's forge login. So the script prints
+every roster username and asks the admin to confirm each is that member's
+forge username before it writes. The `team.none` row names the login rt
+looked for, so a miss after rollout says exactly what to fix.
+
 ### Rollout
 
 1. Merge, and ship one app and plugin release.
 2. Once the admin's Mac runs it, run the conversion and push.
-3. Members update the app. The launch-time `rt setup update` pulls the clone,
-   records `forgeUsername`, reinstalls the team pack (its version moved),
-   materializes, and unsets `board.defaultPack` (a dated `MigrationDef`).
+3. Members update the app. The launch-time `rt setup update` unsets
+   `board.defaultPack` (a dated `MigrationDef`, which runs before the steps),
+   then `org.pull` pulls the converted layout, `team.identity` records
+   `forgeUsername`, `plugins.install` reinstalls the team pack (its version
+   moved), and `skills.materialize` writes the bindings.
 
 Between steps 2 and 3 a member's older rt reads the moved files as missing.
 That window is accepted: it affects two members, who update right after.
 
-## 9. Build order
+## 10. Build order
 
 Four stacked PRs. The old layout stops being read at PR 1, and the dev app
 runs from main, so the four merge together and the conversion follows at
@@ -390,9 +501,13 @@ once on the admin's Mac:
    compile and materialize, the zone header and sweep, the install filter,
    the init rule per team folder, retiring `board.defaultPack` and
    `board.members`.
-3. Writes and secrets: roles replacing `joinedByRt`, the write guard in
-   every write path and the sync engine, org secrets, `rt team create`,
-   `add`, `invite --team`, `members set --teams`, `use`, and the setup rows.
+3. Writes, secrets and onboarding: roles replacing `joinedByRt` (including
+   `forgeRole`), the write guard in every write path and the sync engine, org
+   secrets, `rt team create` with the creator's roster entry, `add`,
+   `invite --teams` with its default, `members set --teams`, `use`, the
+   pointer's `username` and `teams` with the join check, the `org.pull` and
+   `team.identity` update steps, the `team status --json` fields, and the
+   setup rows.
 4. The conversion script and the migration that unsets `board.defaultPack`.
 
 ## Testing
@@ -415,6 +530,16 @@ once on the admin's Mac:
   version bump, the marketplace entry and the `${team:}` rewrite.
 - End to end under an isolated HOME: an org with two teams, a member of each,
   and a member on both switching with `rt team use`.
+- Onboarding, through the same verbs the Mac app spawns, under an isolated
+  HOME: create (`team create`, then `setup plan --json` and `setup apply`)
+  leaves the creator admin, owner and on the roster with the first team
+  active; join (`team join --dry-run`, then apply) shows the pointer's teams
+  before Install, installs only the first team's pack, and refuses a
+  mismatched login and an old-version pointer; a member the admin adds to a
+  second team keeps their first team; the update run orders the migration,
+  `org.pull`, `team.identity` and `plugins.install` as section 8 says.
+- The Mac app's plan decoding: a `PlanModels` decode test with the new rows,
+  and the Done screen listing `team.none`.
 - The board and boxscore rendered in Fast Browser in both schemes, showing the
   active team's roster.
 - Docs: `docs/settings-architecture.md` (scopes, the `add` merge),
