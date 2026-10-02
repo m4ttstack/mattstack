@@ -152,9 +152,7 @@ describe('KeyPanel', () => {
     await warming;
     first.unmount();
     renderPanel(d, newer);
-    expect(screen.getByTestId('layer-value-user')).toHaveTextContent(
-      'm-newer'
-    );
+    expect(screen.getByTestId('layer-value-user')).toHaveTextContent('m-newer');
   });
 
   it('shows the tab it is given and reports a switch', async () => {
