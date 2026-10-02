@@ -1,5 +1,4 @@
 import {
-  useEffect,
   useId,
   useMemo,
   useRef,
@@ -160,12 +159,11 @@ export function SettingRow({
   const isOpen = open !== null;
   const reduceMotion = useReducedMotion();
   const { shown, opening, settle } = usePanelOpen(open, reduceMotion);
-  const [asJson, setAsJson] = useState(false);
-  // A closed row starts fresh: JSON mode chosen in one opening must not
-  // resurface on the next.
-  useEffect(() => {
-    if (!isOpen) setAsJson(false);
-  }, [isOpen]);
+  // JSON mode belongs to the opening it was chosen in: it holds while that
+  // panel collapses, and the next opening starts in the form.
+  const [jsonIn, setJsonIn] = useState<number | null>(null);
+  const asJson = jsonIn === opening && shown !== null;
+  const setAsJson = (on: boolean) => setJsonIn(on ? opening : null);
   const parts = useRowParts(def, row, { suggestions, asJson, setAsJson });
   const chevron = useRef<HTMLButtonElement>(null);
   const panelId = useId();

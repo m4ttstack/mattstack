@@ -217,6 +217,44 @@ describe('JSON editor', () => {
     );
   });
 
+  it('JSON mode holds while the row closes and starts over on the next opening', async () => {
+    // With no animation frames the collapse never leaves its exit.
+    const frames = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation(() => 0);
+    try {
+      stubRows([]);
+      renderWithProviders(
+        <SettingRow
+          def={def(
+            'rt.repoIdentityOverrides',
+            { 'https://example.dev/a.git': 'a' },
+            { type: 'object' }
+          )}
+          store={store()}
+          subhead={null}
+          query=""
+          defaultOpen={{ tab: 'value', fix: null }}
+        />
+      );
+      await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
+      expect(editor()).toBeInTheDocument();
+      await userEvent.click(
+        screen.getByRole('button', { name: 'close rt.repoIdentityOverrides' })
+      );
+      expect(
+        screen.getByRole('textbox', { name: 'JSON', hidden: true })
+      ).toBeInTheDocument();
+      await userEvent.click(
+        screen.getByRole('button', { name: 'open rt.repoIdentityOverrides' })
+      );
+      expect(screen.getByRole('radio', { name: 'Form' })).toBeChecked();
+      expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull();
+    } finally {
+      frames.mockRestore();
+    }
+  });
+
   it("a string map's JSON toggle opens the JSON editor, and Form comes back", async () => {
     stubRows([]);
     renderWithProviders(
