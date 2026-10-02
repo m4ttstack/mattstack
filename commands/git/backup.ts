@@ -61,10 +61,13 @@ export function restoreBlocks(current: string | null, backup: BackupBranch, age:
     };
   }
   const title = `Reset ${here} to ${backup.originalBranch}'s backup`;
+  const note = current === null
+    ? "This moves HEAD to that backup, and throws away every change here that is not in it."
+    : `This replaces ${here} with that backup, and throws away every commit and change on ${here} that is not in it.`;
   return {
     pending: [
       out.line("pending", `${title} ${backup.sha}`, from),
-      out.callout("note", `This replaces ${here} with that backup, and throws away every commit and change on ${here} that is not in it.`),
+      out.callout("note", note),
     ],
     done: out.line("done", title, backup.ref),
   };

@@ -66,5 +66,6 @@ test("restoring another branch's backup names the branch that is reset, and what
 test("restoring onto a detached HEAD says detached HEAD", () => {
   const { pending, done } = restoreBlocks(null, backupOf("feature-a"), "2h ago");
   expect(renderPlain(pending).split("\n")[0]).toBe("[not yet] Reset detached HEAD to feature-a's backup 0123abcd  rebase backup from 2h ago");
+  expect(renderPlain(pending)).toContain("  note: This moves HEAD to that backup, and throws away every change here that is not in it.\n");
   expect(renderPlain([done])).toBe("[ok] Reset detached HEAD to feature-a's backup  rt-backup/rebase/feature-a/2026-09-30T10-00-00\n");
 });
