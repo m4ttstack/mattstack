@@ -381,10 +381,10 @@ test('a checked child of an open MR blocks bulk merge with the reason', async ()
   await check(101);
   await check(103);
   await rightClick(101);
-  const merge = items().find(i => i.textContent?.includes('blocked'));
-  expect(merge?.textContent).toContain(
-    '!103 sits on !101, which is still open'
+  const merge = items().find(i =>
+    i.textContent?.includes('!103 sits on !101, which is still open')
   );
+  expect(merge?.textContent?.startsWith('merge')).toBe(true);
   expect(merge?.hasAttribute('disabled')).toBe(true);
   await React.act(async () => merge?.click());
   await settle();

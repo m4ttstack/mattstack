@@ -90,6 +90,32 @@ test('a blocked row in a flyout shows its reason and does not run', async () => 
   expect(harness.effects).toEqual([]);
 });
 
+test('a blocked row shows its reason without a blocked tag; one with no reason keeps the tag', async () => {
+  const blocked = (key: string, reason: string): MenuEntry => ({
+    key,
+    section: 'gitlab',
+    label: key,
+    glyph: null,
+    blocked: reason,
+  });
+  await openActionMenu(
+    [blocked('merge', 'needs approval'), blocked('rebase', ' ')],
+    { flat: true }
+  );
+  const row = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      el => el.textContent?.startsWith(label)
+    )!;
+  const tagOf = (el: HTMLElement) =>
+    el.querySelector('[data-part="contextmenu-hint"]')?.textContent ?? null;
+
+  expect(row('merge').disabled).toBe(true);
+  expect(row('merge').textContent).toBe('mergeneeds approval');
+  expect(tagOf(row('merge'))).toBeNull();
+  expect(row('rebase').disabled).toBe(true);
+  expect(tagOf(row('rebase'))).toBe('blocked');
+});
+
 test('a one-row section renders inline, not as a flyout', async () => {
   await openMenu(
     mrx(1418, { author: { username: 'kim', name: 'Kim' } }),

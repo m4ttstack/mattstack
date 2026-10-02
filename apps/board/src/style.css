@@ -3023,7 +3023,8 @@ a.tui-id-card-ref:focus-visible {
 }
 /* A bulk item that cannot run keeps its words on one line with the reason
    wrapped under them, indented past the 13px icon and 9px gap. The
-   recipe's :disabled rule dims the whole item. */
+   recipe's :disabled rule mutes the label; the reason takes the hint's
+   token. */
 .tui-menu-blocked {
   display: flex;
   flex-direction: column;
@@ -3033,7 +3034,7 @@ a.tui-id-card-ref:focus-visible {
   max-width: 15rem;
   padding-left: 22px;
   font-size: 11px;
-  color: var(--text-3);
+  color: var(--text-4);
   white-space: normal;
 }
 /* A selection no bulk action fits: one line where the items would be,
@@ -3054,6 +3055,11 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-menu-agent[data-lane='doctor'] {
   --lane: var(--orange);
+}
+/* A disabled agent action drops its lane colour for the recipe's muted one,
+   so it never reads as a live action. */
+[data-part='contextmenu-item']:disabled .tui-menu-agent {
+  color: inherit;
 }
 /* Trailing nodes a slack-mark item hands the shell: the set mark, and the
    in-flight spinner that replaces it while the reaction is being written. */

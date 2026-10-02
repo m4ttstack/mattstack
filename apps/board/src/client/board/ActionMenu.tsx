@@ -250,7 +250,13 @@ function ActionMenu({
     fire(e);
   };
   const hintOf = (e: MenuEntry) =>
-    e.blocked ? 'blocked' : e.notable && altHeld ? '+ note' : e.hint;
+    e.blocked
+      ? e.blocked.trim()
+        ? undefined
+        : 'blocked'
+      : e.notable && altHeld
+        ? '+ note'
+        : e.hint;
   const trailingOf = (e: MenuEntry) =>
     pending.includes(e.key) ? (
       <span className="tui-menu-spin" aria-label="working" />
