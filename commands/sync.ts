@@ -24,6 +24,7 @@ import { getCurrentBranch, getRemoteDefaultBranch, hasUncommittedChanges } from 
 import { loadSyncConfig } from "../lib/sync-config.ts";
 import { deriveRepoIdentity } from "../lib/settings/identity.ts";
 import { repoLabel } from "../lib/repo-label.ts";
+import { shellQuote } from "../lib/herdr-launch.ts";
 import { rebaseOnto, type RebaseResult } from "./git/rebase.ts";
 import { resetToOrigin, type ResetResult } from "./git/reset.ts";
 import { syncLog } from "../lib/sync-log.ts";
@@ -380,7 +381,7 @@ export function syncAllBlocks(summaries: SyncSummary[]): Block[] {
 
 async function syncAll(
   repoIdentity: string,
-  opts: { dryRun?: boolean },
+  opts: { dryRun?: boolean; repoRoot?: string },
 ): Promise<void> {
   const { daemonQuery, isDaemonRunning } = await import("../lib/daemon-client.ts");
   const running = await isDaemonRunning();
@@ -410,7 +411,7 @@ async function syncAll(
 
   const repoEntry = repoMap[repoIdentity];
   if (!repoEntry) {
-    out.fail({ title: `The rt daemon does not know ${repoLabel(repoIdentity)} yet`, next: out.cmd("rt repos register") });
+    out.fail({ title: `The rt daemon does not know ${repoLabel(repoIdentity)} yet`, next: out.cmd(`rt repos register ${shellQuote(opts.repoRoot || ".")}`) });
     process.exit(1);
   }
 
@@ -468,7 +469,7 @@ export async function syncAllCommand(
   if (!ensureOriginRemote(ctx.identity!.repoRoot)) return;
   syncLog.start(`rt sync all  repo=${repoName}${dryRun ? "  --dry-run" : ""}`);
   try {
-    await syncAll(ctx.identity!.identity, { dryRun });
+    await syncAll(ctx.identity!.identity, { dryRun, repoRoot: ctx.identity!.repoRoot });
   } finally {
     syncLog.end();
   }
