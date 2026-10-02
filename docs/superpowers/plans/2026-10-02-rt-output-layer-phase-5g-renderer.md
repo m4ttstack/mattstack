@@ -26,7 +26,7 @@ The items list for this slice lives outside the repo, so it is restated here. Th
 | 4 | A callout holding a sentence plus a command reads heavy; decide the shape and apply it in the renderer | 4 |
 | 5 | Failure details sit at the block's left edge after a blank row, so back-to-back failures blur together | 5 |
 | 6 | kv blocks do not share a key column; decide whether adjacent kv blocks align | 6 |
-| 7 | Copy blocks carry a rail in styled output, so a drag-select picks it up; spec rule 7 mandates the rail, AGENTS.md says copy pastes clean. **Matt rules** (Decision D1) | 9 |
+| 7 | Copy blocks carry a rail in styled output, so a drag-select picks it up; spec rule 7 mandates the rail, AGENTS.md says copy pastes clean. Matt ruled option B: no rail, text at column 0 (Decision D1) | 9 |
 | 8 | The breadcrumb's blank line is an empty one-cell table | 7 |
 | 9 | Remove the `lib/tui/inline-spinner.ts` shim if no caller remains | 8 |
 | 10 | A helper older than the steps `clear` flag ends a `failSilently` step as a plain done row; decide whether TS detects the helper version | 8 |
@@ -34,19 +34,11 @@ The items list for this slice lives outside the repo, so it is restated here. Th
 
 Already fixed, not redone: a wrapped paragraph keeps a line's leading indent (PR 659, `blocks_text.go`). Out of scope: per-verb copy nits, exit codes, the shell strings in `lib/git-backup.ts` and `lib/git-ops.ts`, chat daemon refusal codes, the raw-output allowlist, hidden verbs.
 
-## Decision D1 for Matt: copy blocks and the rail (blocks Task 9 only)
+## Decision D1: copy blocks and the rail (ruled 2026-10-02: option B)
 
-**The conflict.** Spec rule 7: "`copy` and `verbatim` use a thin `│` rail". AGENTS.md "Output layer": "A `copy` block prints at column 0 so it pastes clean". Both are true today, of different renderers: the plain renderer prints copy text at column 0, and the styled renderer draws it behind `    │ `. At a terminal a person drags across `rt team invite`'s multi-line message and pastes four spaces and a `│` at the start of every line into Slack.
+**The conflict.** Spec rule 7: "`copy` and `verbatim` use a thin `│` rail". AGENTS.md "Output layer": "A `copy` block prints at column 0 so it pastes clean". Both were true, of different renderers: the plain renderer prints copy text at column 0, and the styled renderer drew it behind `    │ `, so a person dragging across `rt team invite`'s message pasted four spaces and a `│` at the start of every line.
 
-**Option A: keep the rail.** Spec rule 7 stands. AGENTS.md is corrected to say the column-0 promise is the plain renderer's, and that at a terminal the rail comes along with a drag. No renderer change. Cost: the invite message, the one copy block a new person is told to paste, keeps pasting dirty, and the copy blocks for commands (`rt git push`'s "the command") do too.
-
-**Option B: no rail, text at column 0 (recommended).** The styled `copy` block prints its caption at the body column (faint, as today) and its text at column 0 in the terminal's foreground, with no glyph on any text row. Spec rule 7 becomes "`verbatim` uses a thin `│` rail; `copy` has none and prints at column 0 so a drag-select pastes clean". The block still stands apart: it is the only text at column 0 in a render where everything else starts at column 2 or 4, under its own caption. Cost: a copy block reads less boxed-in than a verbatim one, and AGENTS.md's existing warning (never put untrusted multi-line text in a copy) now matters at a terminal too, since a line at column 0 could pose as output.
-
-**Option C: no glyph on the text rows, a frame above and below.** A faint `╭─ <caption> ─` row above and a `╰─` row below, both at column 0, with the text rows between them at column 0. A drag across the text rows pastes clean; a drag that takes the frame rows takes two easy-to-trim lines. Cost: two extra rows per copy block, and a frame style no other block uses.
-
-**Recommendation: B.** It is the smallest change that makes the paste clean, it matches what the plain renderer already prints, and the column itself is the cue.
-
-Task 9 implements whichever option Matt picks and does not start without his answer.
+**Matt's ruling: option B.** A styled `copy` block prints its caption at the body column (faint, as today) and its text at column 0 in the terminal's foreground, with no rail and no glyph on any text row. Spec rule 7 becomes "`verbatim` keeps its thin rail; `copy` has none". The options not taken were keeping the rail (A) and a frame row above and below the text (C). Task 9 implements B.
 
 ## Global Constraints
 
@@ -65,6 +57,7 @@ Task 9 implements whichever option Matt picks and does not start without his ans
 - Never run a built `rt` binary outside an isolated HOME (`env -i HOME=<temp> PATH="$PATH" ...`). The renders in this plan run only `ui/dist/rt-ui render`, which reads stdin and nothing else.
 - Git commands are run plain and alone from the worktree root, never joined with `cd`, `&&`, pipes or heredocs. Never `git add -A`, `git add .` or `git add -u`.
 - Every commit message ends with the trailer line `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- `AGENTS.md` wraps its paragraphs at about 78 columns, so every sentence this plan quotes for replacement spans lines (the copy sentence at 216 to 218, the wrap sentence at 307 to 308, the transient-step flag sentence at 289 to 290, the body-text rule at 210 to 212). Edit them by hand; a one-line find-and-replace will miss.
 - Sample data in tests and renders is invented. No real team, person or host names.
 - UI validation is mandatory: every task that changes a drawing renders it dark and light, screenshots both with Fast Browser, and writes down plainly what reads wrong. Tests and contrast maths do not stand in for looking.
 
@@ -90,7 +83,7 @@ Task 9 implements whichever option Matt picks and does not start without his ans
 | `ui/internal/render/render.go` (modify) | Runs of `kv`; the `blank` block | 6, 7 |
 | `ui/internal/render/blocks_basic.go` (modify) | Hints that drop below, callout rows, failure details, kv runs | 1, 2, 4, 5, 6 |
 | `ui/internal/render/blocks_layout.go` (modify) | Tables and trees that fit the pane | 1, 3 |
-| `ui/internal/render/blocks_text.go` (modify) | Verbatim word wrap, diff wrap, copy (per D1) | 2, 3, 9 |
+| `ui/internal/render/blocks_text.go` (modify) | Verbatim word wrap, diff wrap, copy at column 0 | 2, 3, 9 |
 | `ui/internal/render/*_test.go` (modify) | Their tests | 1 to 7, 9 |
 | `ui/internal/steps/steps.go`, `steps_test.go` (modify) | Static tones; a cleared step after a throw | 1, 8 |
 | `ui/internal/protocol/render.go`, `render_test.go`, `protocol_test.go` (modify) | `blank` on the wire; the new steps fixture | 7, 8 |
@@ -618,7 +611,7 @@ Read each PNG next to its `before/` page and write down plainly what reads wrong
 - **Dark:** idle and offline (the `pending` and `off` rows under "Who is here") read quieter than listening; tree branches, the table rule and the verbatim rail are visible, and quieter than text.
 - **Both:** warn and stale read as orange, failed reads as red, and the two are never confused; body text is the page's own foreground; the banner is the only coral that is not a failure.
 
-If idle and offline do not read quieter than listening on dark, set `StaticQuiet` to `#77729A` (4.5:1 on white, 4.1:1 on `Bg`, still above the test's 4:1), re-run Steps 7 and 8, and say so in the report. A fault found here is fixed in this task, re-rendered and named in the report. Do not declare success from the tests.
+If idle and offline do not read quieter than listening on dark, set `StaticQuiet` to `#77729A` (4.5:1 on white, 4.1:1 on `Bg`, still above the test's 4:1), re-run Steps 7 and 8, and say so in the report. Four tests pin the quiet tone as `127;120;160` and change to `119;114;154` with it: `TestEveryStatusGlyphUsesAStaticTone` and `TestKeysLabelsAndRailsUseStaticTones` (this task's), `TestAWrappedHintKeepsItsFaintToneOnEveryRow` (`blocks_basic_test.go`, existing) and `TestStepTonesComeFromTheStaticPalette` (`steps_test.go`, this task's). A fault found here is fixed in this task, re-rendered and named in the report. Do not declare success from the tests.
 
 - [ ] **Step 9: Write it down**
 
@@ -678,7 +671,7 @@ Item 2. The mid-word breaks in the renders come from two places: `verbatim` cuts
 In `ui/internal/textwrap/textwrap_test.go`, add:
 
 ```go
-func wrapWords(s string, width int, seps string) []string {
+func wrapAt(s string, width int, seps string) []string {
 	rows := SpansWith([]run{{text: s}}, width, Options{WordsOnly: true, Separators: seps}, runText, withText)
 	out := make([]string, len(rows))
 	for i, r := range rows {
@@ -688,7 +681,7 @@ func wrapWords(s string, width int, seps string) []string {
 }
 
 func TestAnOverlongWordBreaksAfterTheLastSeparatorThatFits(t *testing.T) {
-	got := wrapWords("see rt-backup/reset/feature/login/2026-09-30T10-00-00", 20, "/-")
+	got := wrapAt("see rt-backup/reset/feature/login/2026-09-30T10-00-00", 20, "/-")
 	want := []string{"see", "rt-backup/reset/", "feature/login/", "2026-09-30T10-00-00"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %q want %q", got, want)
@@ -696,28 +689,28 @@ func TestAnOverlongWordBreaksAfterTheLastSeparatorThatFits(t *testing.T) {
 }
 
 func TestSeparatorsAreTriedInTheirOrder(t *testing.T) {
-	if got, want := wrapWords("alpha-beta/gamma-delta", 12, "/-"), []string{"alpha-beta/", "gamma-delta"}; !reflect.DeepEqual(got, want) {
+	if got, want := wrapAt("alpha-beta/gamma-delta", 12, "/-"), []string{"alpha-beta/", "gamma-delta"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("slash first: got %q want %q", got, want)
 	}
-	if got, want := wrapWords("alpha-beta/gamma-delta", 12, "-/"), []string{"alpha-", "beta/gamma-", "delta"}; !reflect.DeepEqual(got, want) {
+	if got, want := wrapAt("alpha-beta/gamma-delta", 12, "-/"), []string{"alpha-", "beta/gamma-", "delta"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("dash first: got %q want %q", got, want)
 	}
 }
 
 func TestAWordThatFitsIsNeverBrokenAtASeparator(t *testing.T) {
-	if got, want := wrapWords("a feature/login b", 14, "/"), []string{"a", "feature/login", "b"}; !reflect.DeepEqual(got, want) {
+	if got, want := wrapAt("a feature/login b", 14, "/"), []string{"a", "feature/login", "b"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
 func TestAnOverlongWordWithNoSeparatorIsStillCutBetweenCharacters(t *testing.T) {
-	if got, want := wrapWords("abcdefghijklmnop", 6, "/"), []string{"abcdef", "ghijkl", "mnop"}; !reflect.DeepEqual(got, want) {
+	if got, want := wrapAt("abcdefghijklmnop", 6, "/"), []string{"abcdef", "ghijkl", "mnop"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
 ```
 
-`text(r)` and `reflect` are already in the file.
+`text(r)` and `reflect` are already in the file. The name is `wrapAt` because the file already has `wrapWords(runs []run, width int) [][]run` (line 114, used by five tests), and Go has no overloading.
 
 In `ui/internal/render/blocks_basic_test.go`, add:
 
@@ -795,7 +788,7 @@ func TestAVerbatimTokenWithNoSeparatorIsCutAndKeepsEveryCharacter(t *testing.T) 
 - [ ] **Step 2: Run the tests to see them fail**
 
 Run: `go -C ui test ./internal/textwrap/ ./internal/render/`
-Expected: FAIL. `textwrap` does not compile (`unknown field Separators in struct literal`). Once it does, `render` fails: the backup ref is cut at column 41 ("rt-backup/reset/feature/login/2026-09-30T" then "10-00-00"), and the verbatim rows are cut every 34 or 54 cells mid-word.
+Expected: FAIL. The `textwrap` tests do not compile: `wrapAt` names `Options.Separators`, which does not exist yet (`unknown field Separators in struct literal`). If the build instead says `wrapWords redeclared`, the helper was added under the old name: rename it to `wrapAt`. Once `textwrap` compiles, `render` fails: the backup ref is cut at column 41 ("rt-backup/reset/feature/login/2026-09-30T" then "10-00-00"), and the verbatim rows are cut every 34 or 54 cells mid-word.
 
 - [ ] **Step 3: Separators in `textwrap`**
 
@@ -1271,7 +1264,7 @@ In `ui/internal/views/board/render.go`, replace `clip` (lines 300 to 310) with:
 func clip(s string, w int) string { return textwrap.Clip(s, w) }
 ```
 
-and add the import. The board's copy returned `s` whole for a window under one cell, where the lifted one returns `""`. Run `go -C ui test ./internal/views/board/ ./internal/views/mission/`. If a board test fails only because a zero-width column now prints nothing, keep the board's old edge in front of the delegation (`if w < 1 { return lipgloss.NewStyle().Inline(true).Render(s) }`) and name it in the report; do not change the lifted copy.
+and add the import. The board's copy returned `s` whole for a window under one cell, where the lifted one returns `""`. That change is accepted: a column with no width prints nothing rather than its whole text past the pane. Two existing tests pin the lifted behavior and must pass untouched: mission's `TestClipNonPositiveWidthReturnsEmpty` (`ui/internal/views/mission/render_test.go`) and the board's `TestClipOneCellIsJustTheMarker` (`ui/internal/views/board/clip_internal_test.go`). Run `go -C ui test ./internal/views/board/ ./internal/views/mission/`; a failure there is a fault in the lift, not a reason to keep a second clipper.
 
 - [ ] **Step 4: Tables and trees fit the pane**
 
@@ -2531,40 +2524,28 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 9: Copy blocks, as Matt rules (Decision D1)
+### Task 9: Copy blocks print at column 0 with no rail
 
-Item 7. **Depends on Matt's answer to Decision D1.** Before Step 1, read the ruling (the shepherd's ledger, or the herd room). If there is none, do not start: report "Task 9 waits on Decision D1" and stop. Do not pick an option.
+Item 7, as Matt ruled (Decision D1, option B): the caption stays faint at the body column, and the text prints at column 0 in the terminal's foreground with no rail, so a drag-select pastes it clean. `verbatim` keeps its rail. Plain output does not change: `lib/ui/out-plain.ts` already prints copy text at column 0.
 
 **Files:**
-- Modify (options B and C): `ui/internal/render/blocks_text.go:52-58` (`copy`)
-- Test (options B and C): `ui/internal/render/blocks_text_test.go`
-- Modify (every option): the spec (rule 7), `AGENTS.md`, `docs/design/output-layer/README.md`
-- Create (every option): `docs/design/output-layer/5g-copy-dark.png`, `5g-copy-light.png`
+- Modify: `ui/internal/render/blocks_text.go:52-58` (`copy`)
+- Test: `ui/internal/render/blocks_text_test.go`
+- Modify: the spec (rule 7), `AGENTS.md`, `docs/design/output-layer/README.md`
+- Create: `docs/design/output-layer/5g-copy-dark.png`, `5g-copy-light.png`
 
 **Interfaces:**
-- Consumes: `ruleStyle`, `faintStyle` (Task 1), `caption` (`blocks_text.go`).
-- Produces: nothing later tasks call. Plain output does not change under any option: `lib/ui/out-plain.ts` already prints copy text at column 0.
+- Consumes: `caption` and `textStyle` (`blocks_text.go`, `style.go`).
+- Produces: nothing later tasks call.
 
-- [ ] **Step 1: Write the failing tests (options B and C; option A skips to Step 5)**
+- [ ] **Step 1: Write the failing tests**
 
-**Option B.** In `ui/internal/render/blocks_text_test.go`, change `TestCopyBlockIsNeverWrapped`'s `want` to `"    send this link\n" + long + "\n"`, `TestCopyBlockKeepsEachOfItsLines`'s `want` to `"line one\nline two\n"`, and add:
+In `ui/internal/render/blocks_text_test.go`, change `TestCopyBlockIsNeverWrapped`'s `want` to `"    send this link\n" + long + "\n"`, `TestCopyBlockKeepsEachOfItsLines`'s `want` to `"line one\nline two\n"`, and add:
 
 ```go
 func TestACopyBlockPrintsAtColumnZeroWithNoRail(t *testing.T) {
 	got := plain(protocol.Block{T: "copy", Caption: "message to send", Text: "Join the team:\n  rt team join sample\x1b[2J"})
 	want := "    message to send\nJoin the team:\n  rt team join sample\n"
-	if got != want {
-		t.Fatalf("got\n%q\nwant\n%q", got, want)
-	}
-}
-```
-
-**Option C.** Change `TestCopyBlockIsNeverWrapped`'s `want` to `"╭─ send this link ─\n" + long + "\n╰─\n"`, `TestCopyBlockKeepsEachOfItsLines`'s `want` to `"╭─\nline one\nline two\n╰─\n"`, and add:
-
-```go
-func TestACopyBlockSitsBetweenFrameRowsWithNoGlyphOnItsText(t *testing.T) {
-	got := plain(protocol.Block{T: "copy", Caption: "message to send", Text: "Join the team:\n  rt team join sample\x1b[2J"})
-	want := "╭─ message to send ─\nJoin the team:\n  rt team join sample\n╰─\n"
 	if got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
@@ -2578,7 +2559,7 @@ Expected: FAIL: every text row still starts with `    │ `.
 
 - [ ] **Step 3: Implement**
 
-**Option B.** Replace `copy` in `ui/internal/render/blocks_text.go` with:
+Replace `copy` in `ui/internal/render/blocks_text.go` with:
 
 ```go
 // copy prints its text at column 0 with no rail, never wrapped and never
@@ -2593,67 +2574,53 @@ func (r *renderer) copy(b protocol.Block) {
 }
 ```
 
-**Option C.** Replace `copy` with:
-
-```go
-// copy prints its text at column 0 between two faint frame rows, never
-// wrapped and never restyled inside, so a drag across the text rows pastes
-// clean. That is also why it must never carry untrusted multi-line text.
-func (r *renderer) copy(b protocol.Block) {
-	top := "╭─"
-	if c := Clean(b.Caption); c != "" {
-		top += " " + c + " ─"
-	}
-	r.emit(ruleStyle.Render(top))
-	for _, l := range splitLines(b.Text) {
-		r.emit(textStyle.Render(Clean(l)))
-	}
-	r.emit(ruleStyle.Render("╰─"))
-}
-```
-
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `go -C ui test ./internal/render/`
 Run: `bun run ui:build`
 Run: `bun test lib/ui/__tests__/protocol.test.ts lib/ui/__tests__/out-plain.test.ts`
-Expected: PASS.
+Expected: PASS. No wire change.
 
-- [ ] **Step 5: Render and look (every option)**
+- [ ] **Step 5: Render and look**
 
 From `<scratch>/5g/`: `sh render.sh copy 100`. Screenshot both pages and save them as `docs/design/output-layer/5g-copy-dark.png` and `5g-copy-light.png`.
 
 Then the real test of this item, in a real terminal pane (not the browser): `env -i HOME="$(mktemp -d)" PATH="$PATH" TERM=xterm-256color COLORTERM=truecolor <repo>/ui/dist/rt-ui render --width 100 < <scratch>/5g/copy.ndjson`, drag-select the three lines of "message to send", paste into a plain text file and look at the bytes (`cat -v`).
 
 Check, on both backgrounds:
-- **A:** the paste carries `    │ ` on every line; say so in the report, as Matt chose it.
-- **B and C:** the paste is exactly the message, with its own two-space indent on the third line and nothing else; the copy blocks still read as set apart from the lines around them; the caption names what to copy.
+- The paste is exactly the message, with its own two-space indent on the third line and nothing else: no rail, no leading spaces.
+- The copy blocks still read as set apart from the lines around them (the only text at column 0, under a caption), and the caption names what to copy.
+- The `verbatim` blocks elsewhere (`wrap`, `failures`) keep their rail.
+
+A fault found here is fixed in this task, re-rendered and named in the report.
 
 - [ ] **Step 6: Write it down**
 
-**Option A.** In `AGENTS.md`, replace "A `copy` block prints at column 0 so it pastes clean, which means it must never carry untrusted multi-line text." with "A `copy` block prints at column 0 off a terminal, so it pastes clean there; at a terminal it sits behind the thin rail (spec rule 7), so a drag-select takes the rail with it. It must never carry untrusted multi-line text." The spec does not change.
+In `AGENTS.md` "Output layer", replace "A `copy` block prints at column 0 so it pastes clean, which means it must never carry untrusted multi-line text." with "A `copy` block prints at column 0 with no rail, at a terminal and off one, so a drag-select pastes it clean; that is also why it must never carry untrusted multi-line text." (The sentence wraps across lines 216 to 218; edit it by hand.)
 
-**Option B.** In `AGENTS.md`, replace the same sentence with "A `copy` block prints at column 0 with no rail, at a terminal and off one, so a drag-select pastes it clean; that is also why it must never carry untrusted multi-line text." In the spec, rule 7 becomes: "7. **Rails.** Callouts use the thick `▌` bar in the label's color. `verbatim` uses a thin `│` rail in the `StaticRule` tone. `copy` has no rail: its text prints at column 0 so a drag-select pastes clean (ruled <date of Matt's answer>)."
+In the spec, rule 7 becomes:
 
-**Option C.** In `AGENTS.md`, replace the same sentence with "A `copy` block prints its text at column 0 between two faint frame rows at a terminal (at column 0 with no frame off one), so a drag across the text pastes clean; that is also why it must never carry untrusted multi-line text." In the spec, rule 7 becomes: "7. **Rails.** Callouts use the thick `▌` bar in the label's color. `verbatim` uses a thin `│` rail in the `StaticRule` tone. `copy` has no rail: its text prints at column 0 between a `╭─ caption ─` row and a `╰─` row, so a drag across the text pastes clean (ruled <date of Matt's answer>)."
+```markdown
+7. **Rails.** Callouts use the thick `▌` bar in the label's color. `verbatim` keeps its thin `│` rail in the `StaticRule` tone; `copy` has none: its text prints at column 0 so a drag-select pastes clean. Ruled 2026-10-02 (Matt).
+```
 
 In `docs/design/output-layer/README.md`, append to the 5g table:
 
 ```markdown
-| `5g-copy-dark.png`, `5g-copy-light.png` | `rt team invite`'s link and message and `rt git pull`'s dry-run command as `copy` blocks, drawn as Matt ruled on the rail (Decision D1 in the 5g plan) |
+| `5g-copy-dark.png`, `5g-copy-light.png` | `rt team invite`'s link and message and `rt git pull`'s dry-run command as `copy` blocks: caption at the body column, text at column 0 with no rail, so a drag-select pastes clean |
 ```
 
 - [ ] **Step 7: Commit**
 
-Option A: `git add docs/superpowers/specs/2026-09-30-rt-output-layer-design.md AGENTS.md docs/design/output-layer/README.md docs/design/output-layer/5g-copy-dark.png docs/design/output-layer/5g-copy-light.png` (the spec only if it changed). Options B and C add `ui/internal/render/blocks_text.go ui/internal/render/blocks_text_test.go` to the same `git add`.
+```bash
+git add ui/internal/render/blocks_text.go ui/internal/render/blocks_text_test.go docs/superpowers/specs/2026-09-30-rt-output-layer-design.md AGENTS.md docs/design/output-layer/README.md docs/design/output-layer/5g-copy-dark.png docs/design/output-layer/5g-copy-light.png
+```
 
 ```bash
-git commit -m "rt-ui render: draw copy blocks as ruled so they paste clean
+git commit -m "rt-ui render: print copy blocks at column 0 with no rail
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
-
-(Option A's message: `docs: say where a copy block pastes clean`.)
 
 ---
 
@@ -2662,12 +2629,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Files:** none beyond what a rebase touches.
 
 **Interfaces:**
-- Consumes: the finished branch, with Task 9 done.
+- Consumes: the finished branch, Tasks 1 to 9 done.
 - Produces: one PR against `m4ttstack/mattstack`.
 
-- [ ] **Step 1: Confirm Task 9 is done**
+- [ ] **Step 1: Confirm this plan rides in the branch**
 
-If Task 9 is waiting on Decision D1, stop here and report it. The PR does not ship without the copy ruling.
+5g runs now (Matt's ruling), so this plan file ships inside the 5g PR; there is no separate docs PR. Run: `git log --oneline origin/main..HEAD -- docs/superpowers/plans/2026-10-02-rt-output-layer-phase-5g-renderer.md`. Expected: the commit that added the plan (and any that revised it). If the execution branch was cut without it, cherry-pick those commits from `rt-369-phase-5g-plan` before going on.
 
 - [ ] **Step 2: Rebase**
 
@@ -2692,14 +2659,14 @@ Run each from the repo root, one at a time:
 
 Expected: all pass. `bun run docs:gen` is not needed: no command description changed. Known noise, per the herd notes: about ten rotating load flakes in the unit suite (flavor-takeover, sync-stack-guard, git reset, setup-connect oauth, daemon-logdy-config) and the `rt plugin new` e2e on this machine. A failure in a file this plan did not touch that passes when its file runs alone is a flake; say so in the report with both results.
 
-Then confirm no `--json` or payload path moved: `git diff origin/main...HEAD --stat -- commands/` must list only `commands/sync.ts`, with one changed line.
+Then confirm no `--json` or payload path moved (the plan file under `docs/superpowers/plans/` is expected in the diff): `git diff origin/main...HEAD --stat -- commands/` must list only `commands/sync.ts`, with one changed line.
 
 Then check for dashes. BSD grep has no `-P` and fails open, so write the diff to a file, `git diff origin/main...HEAD > <scratch>/5g/branch.diff`, and run `bun -e 'const dashes = String.fromCharCode(0x2013, 0x2014); const t = await Bun.file("<scratch>/5g/branch.diff").text(); const bad = t.split("\n").filter((l) => [...dashes].some((d) => l.includes(d))); console.log(bad.length ? bad.join("\n") : "none")'`. Expected: `none`.
 
 - [ ] **Step 4: Measure the diff**
 
 Run: `git diff --shortstat origin/main...HEAD`
-Expected: about 1,350 changed lines (insertions plus deletions; the PNGs count as files, not lines). Put the number in the report. Over 2,500, stop and split along the cut in "Size" before pushing.
+Expected: about 1,350 changed lines of code, tests and docs, plus this plan file (about 2,750 lines of plan, which does not count toward the split threshold; the PNGs count as files, not lines). Put the number in the report. Over 2,500, stop and split along the cut in "Size" before pushing.
 
 - [ ] **Step 5: Push**
 
@@ -2711,7 +2678,7 @@ Write the body to `<scratch>/pr-body-5g.md`, then run:
 
 `gh pr create --repo m4ttstack/mattstack --title "RT-369: output layer phase 5g, renderer" --body-file <scratch>/pr-body-5g.md`
 
-The body, in the style of PR 639: one framing paragraph (the shared renderer now reads right on a light and a dark terminal and on a narrow pane); bold-labelled bullet groups (**Palette**: the `Static*` tones, one palette for both backgrounds, dim and faint as one tone; **Wrapping**: words-only rows that break a long ref at a separator, hints that drop below whole, verbatim word wrap; **Narrow panes**: tables and trees that wrap their last column and clip a leading one, diff lines that wrap, `Clip`/`ClipOn` lifted to `textwrap`; **Blocks**: a closing command on its own callout row, failure details under their block, kv runs on one key column, the `blank` block, copy blocks as Matt ruled; **Also**: the inline spinner shim removed, a thrown cleared step ends on the neutral dot on an older helper); the renders (the regenerated `fixture` and `statuses` pages and the eight `5g-*` pairs); a verification line with the gate results and the measured diff; an **After pulling** line: run `bun run ui:build`, or the dev helper there rejects the `blank` block and the breadcrumb prints unstyled; and the last line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+The body, in the style of PR 639 (the plan ships in this PR, so link it under **Also**): one framing paragraph (the shared renderer now reads right on a light and a dark terminal and on a narrow pane); bold-labelled bullet groups (**Palette**: the `Static*` tones, one palette for both backgrounds, dim and faint as one tone; **Wrapping**: words-only rows that break a long ref at a separator, hints that drop below whole, verbatim word wrap; **Narrow panes**: tables and trees that wrap their last column and clip a leading one, diff lines that wrap, `Clip`/`ClipOn` lifted to `textwrap`; **Blocks**: a closing command on its own callout row, failure details under their block, kv runs on one key column, the `blank` block, copy blocks at column 0 with no rail; **Also**: the inline spinner shim removed, a thrown cleared step ends on the neutral dot on an older helper, the 5g plan doc; **Follow-up**: `commands/sdm.ts` `withProgress` still calls `clear()` without `thrown`, and the huh prompts keep the app palette); the renders (the regenerated `fixture` and `statuses` pages and the eight `5g-*` pairs); a verification line with the gate results and the measured diff; an **After pulling** line: run `bun run ui:build`, or the dev helper there rejects the `blank` block and the breadcrumb prints unstyled; and the last line `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
 - [ ] **Step 7: Report**
 
@@ -2721,7 +2688,7 @@ Report the PR url, the gate results, the flakes seen with both results, the meas
 
 ## Decisions this plan made that the items list and the spec do not settle
 
-Each is the plan's best reading; Matt or the reviewer may overrule one before execution. Decision D1 (the copy rail) is Matt's and is above, not here.
+Each is the plan's best reading; Matt or the reviewer may overrule one before execution. Decision D1 (the copy rail) was Matt's, ruled option B, and is above, not here.
 
 1. **The palette values.** Seven `Static*` tones, each chosen at a mid luminance so it clears 3.5:1 on white and on `Bg` (the text tones 4:1). They keep the spec's hue names: mint, coral, peach, lavender. They are darker than the app palette on dark and lighter than a light-terminal palette would be on light, which is the price of one palette. The app views keep `Mint`, `Coral` and the rest on their own painted background.
 2. **Dim and faint become one tone in static output.** No second gray clears 4:1 on both backgrounds and stays distinguishable from the first. The roles stay on the wire; they draw the same.
@@ -2732,7 +2699,7 @@ Each is the plan's best reading; Matt or the reviewer may overrule one before ex
 7. **Failure details move to the body column with no blank row and no rail** (item 5). The `why` and `next` bars and any excerpt already start there, so the block reads as one unit. Plain output keeps its layout: the details are already indented under a title at column 0, and plain verbatim captions stay at column 0, where agents and pinned tests read them.
 8. **Tables clip leading columns down to 8 cells before the last column gives up wrapping,** and a row the floors still leave too wide is clipped whole. Clipping is lossy, but the alternative is the terminal wrapping a row flush left, which reads worse.
 9. **Verbatim wraps at words now, and drops the spaces at a break.** `cutRows` kept every byte but split words; an excerpt is read, not re-run, so readable rows win. A token with no space and no separator is still cut between characters with nothing dropped.
-10. **No helper version detection** (item 10). A cleared step after a throw sends `status: "failed"`, which costs nothing on a current helper and turns the misleading check into the neutral dot on an older one. A version handshake would mean a protocol change for a skew that only a source checkout with a stale `ui/dist` can hit.
+10. **No helper version detection** (item 10). A cleared step after a throw sends `status: "failed"`, which costs nothing on a current helper and turns the misleading check into the neutral dot on an older one. A version handshake would mean a protocol change for a skew that only a source checkout with a stale `ui/dist` can hit. A third `clear()` caller, `withProgress` in `commands/sdm.ts` (line 110), is out of scope: it is a verb file, and on an older helper a failed sdm connect still ends on a check there. The PR names it as a follow-up.
 11. **`commands/sync.ts`'s `BRANCH_GAP` moves to `out.blank()`** with the breadcrumb, though it is a verb file: it is the same workaround item 8 names, and its plain bytes do not change.
 12. **The live step's sub-lines keep their ellipsis cut.** The erase on success counts one row per sub-line, so they cannot wrap; the mid-word breaks the renders showed came from `verbatim`, which Task 2 fixes.
 
@@ -2748,16 +2715,16 @@ Each is the plan's best reading; Matt or the reviewer may overrule one before ex
 | 6 kv column | 140 |
 | 7 Blank block | 80 |
 | 8 Step runner | 100 |
-| 9 Copy (option B; A is about 10, C about 40) | 30 |
+| 9 Copy (option B, as ruled) | 30 |
 | Total | about 1,350 |
 
 Under 2,500: one PR. Were it to come in over, the cut is after Task 3: PR one is the palette, wrapping and narrow panes (Tasks 1 to 3, all Go, no wire change); PR two is the block shapes, the `blank` block, the step runner and the copy ruling (Tasks 4 to 9).
 
 ## Self-Review
 
-**Spec coverage.** Items 1 to 11 each map to a task (the Scope table). Spec "Color roles" and Matt's one-palette ruling: Task 1, with the spec amended. Rule 6 (hints align): Task 6 extends it to kv. Rule 7 (rails): Task 1 (tone), Task 9 (copy, per D1). Rule 8 (spacing): Task 7. Rule 9 (diff keeps the mission coral): Task 1 keeps the diff on the app tints and its test on `missionCoral`. "Steps" (the `clear` flag and its old-helper behavior): Task 8. "Testing": a Go layout test per changed block, the coral rule test kept, the shared fixture extended from both languages (Task 7, Task 8), the pty gate re-run (Tasks 4, 5, 10), and renders for every drawing change ("Eyes").
+**Spec coverage.** Items 1 to 11 each map to a task (the Scope table). Spec "Color roles" and Matt's one-palette ruling: Task 1, with the spec amended. Rule 6 (hints align): Task 6 extends it to kv. Rule 7 (rails): Task 1 (tone), Task 9 (copy, option B as ruled). Rule 8 (spacing): Task 7. Rule 9 (diff keeps the mission coral): Task 1 keeps the diff on the app tints and its test on `missionCoral`. "Steps" (the `clear` flag and its old-helper behavior): Task 8. "Testing": a Go layout test per changed block, the coral rule test kept, the shared fixture extended from both languages (Task 7, Task 8), the pty gate re-run (Tasks 4, 5, 10), and renders for every drawing change ("Eyes").
 
-**Placeholders.** None. `<repo>`, `<scratch>` and `<date of Matt's answer>` are the implementer's own paths and Matt's date, named as such. Task 9's code is given for every option; which one runs is Matt's ruling, not a gap.
+**Placeholders.** None. `<repo>` and `<scratch>` are the implementer's own paths, named as such. Task 9 implements Matt's ruled option B only.
 
 **Type consistency.** `textwrap.Options{WordsOnly, Separators}`, `wordRows(s, width, seps)`, `breakAfter(row, seps)`, `textwrap.Clip(s, w)`, `textwrap.ClipOn(s, w, on)`, `separators`, `wrapCell(c, w)`, `codeRows(s, w)`, `longestWord(s)`, `fitColumns(widths, avail)`, `rowLines(row, widths, avail)`, `fitLine(s, avail)`, `clipFloor`, `diffRows(s, w)`, `calloutRows(line, w)`, `trailingCommand`, `onlyCommands`, `widestCommand`, `withCommandSpaces(rows, from, to)`, `nbsp`, `kvRun(run)`, `runEnd(bs, i, types...)`, `out.blank()`, `StepHandle.clear(opts?: { thrown?: boolean })` and the theme names `StaticMint`, `StaticCoral`, `StaticPeach`, `StaticLav`, `StaticCyan`, `StaticQuiet`, `StaticRule` are spelled the same in every Interfaces block, the code and the tests. The SGR fragments in the tests match the hex values in Task 1's Interfaces block.
 
