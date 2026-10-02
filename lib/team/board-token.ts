@@ -12,13 +12,13 @@ import { isCompiledRt } from "../rt-self.ts";
 const TOKEN_LINE = /^[ \t]*(?:export[ \t]+)?SWITCHBOARD_TOKEN[ \t]*=[ \t]*["']?([^"'\s#]+)/m;
 
 /** Mirrors apps/board/src/app-root.ts: BOARD_APP_ROOT wins, the compiled board lives under ~/.mattstack/board. */
-function boardRoots(p: Pick<Probes, "home" | "env">, extraRoots: string[]): string[] {
+export function boardRoots(p: Pick<Probes, "home" | "env">, extraRoots: string[]): string[] {
   const override = p.env.BOARD_APP_ROOT;
   return [...(override ? [resolve(override)] : []), join(p.home, ".mattstack", "board"), ...extraRoots];
 }
 
 /** A dev-mode board runs from this same checkout, so an rt running from source also checks the checkout's board. */
-function sourceBoardRoots(): string[] {
+export function sourceBoardRoots(): string[] {
   return isCompiledRt() ? [] : [join(import.meta.dir, "..", "..", "apps", "board")];
 }
 
