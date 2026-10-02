@@ -3043,9 +3043,14 @@ a.tui-id-card-ref:focus-visible {
 [data-part='contextmenu-item'][data-disabled] .tui-menu-icon-label svg {
   color: inherit;
 }
-[data-part='contextmenu-item'][data-disabled] .tui-menu-emoji {
+[data-part='contextmenu-item'][data-disabled] .tui-menu-emoji,
+[data-part='contextmenu-item'][aria-busy='true'] .tui-menu-emoji {
   filter: grayscale(1);
   opacity: 0.45;
+}
+/* A toggle being written keeps focus, so it is marked busy, never disabled. */
+[data-part='contextmenu-item'][aria-busy='true'] {
+  cursor: progress;
 }
 /* A selection no bulk action fits: one line where the items would be,
    padded like an item so the menu keeps its shape. */

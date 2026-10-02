@@ -275,7 +275,8 @@ function ActionMenu({
       )}
       hint={hintOf(e)}
       trailing={trailingOf(e)}
-      disabled={!!e.blocked || pending.includes(e.key)}
+      disabled={!!e.blocked}
+      aria-busy={pending.includes(e.key) || undefined}
       onClick={click(e)}
     />
   );
@@ -332,14 +333,17 @@ function ActionMenu({
             const name = e.blocked
               ? `${e.label} (${e.blocked.trim() || 'blocked'})`
               : e.label;
+            // Keyed past the react/unreact flip, so the toggle that has focus
+            // is the same element once the mark lands.
             return (
               <ContextMenu.Item
-                key={e.key}
+                key={e.key.replace(/^un/, '')}
                 label={e.glyph ? glyphNode(e.glyph) : e.label}
                 aria-label={name}
                 title={name}
                 trailing={trailingOf(e)}
-                disabled={!!e.blocked || pending.includes(e.key)}
+                disabled={!!e.blocked}
+                aria-busy={pending.includes(e.key) || undefined}
                 onClick={click(e)}
               />
             );

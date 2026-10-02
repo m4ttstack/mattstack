@@ -3,12 +3,14 @@ import { expect, test } from 'bun:test';
 import type { MenuEntry } from '../row-actions.ts';
 import { mrx, ownEnv, ownIdle, teammateReviewed } from './menu-fixtures.ts';
 import {
+  act,
   clickItem,
   harness,
   menuLines,
   openActionMenu,
   openMenu,
   openSub,
+  pressEnter,
   typeNote,
   useMenuHarness,
 } from './row-menu-harness.tsx';
@@ -76,6 +78,46 @@ test('the reaction row toggles a mark and keeps the menu open', async () => {
   await clickItem('mark as looking');
   expect(harness.effects.map(e => e.effect)).toEqual(['react:eyes:false']);
   expect(harness.closed).toBe(false);
+});
+
+test('Enter on a reaction keeps focus on it through the write, and the arrows still move', async () => {
+  let land!: () => void;
+  const reactionsHeld = new Promise<void>(resolve => {
+    land = resolve;
+  });
+  await openMenu(teammateReviewed, ownEnv, {
+    reactionsReply: ['white_check_mark', 'eyes'],
+    reactionsHeld,
+  });
+  const toggle = (title: string) =>
+    document.querySelector<HTMLButtonElement>(
+      `[data-part="contextmenu-row"] [title="${title}"]`
+    );
+  const eyes = toggle('mark as looking')!;
+  await act(() => eyes.focus());
+  await pressEnter(eyes);
+
+  expect(harness.effects.map(e => e.effect)).toEqual(['react:eyes:false']);
+  expect(eyes.hasAttribute('disabled')).toBe(false);
+  expect(eyes.getAttribute('aria-disabled')).toBe('false');
+  expect(eyes.getAttribute('aria-busy')).toBe('true');
+  expect(document.activeElement).toBe(eyes);
+
+  await act(async () => {
+    land();
+    await reactionsHeld;
+  });
+  expect(toggle('unmark looking')).toBe(eyes);
+  expect(eyes.isConnected).toBe(true);
+  expect(eyes.hasAttribute('aria-busy')).toBe(false);
+  expect(document.activeElement).toBe(eyes);
+
+  await act(() =>
+    eyes.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })
+    )
+  );
+  expect(document.activeElement).toBe(toggle('mark as commented'));
 });
 
 test('a blocked reaction is aria-disabled, names its reason, and does not run', async () => {

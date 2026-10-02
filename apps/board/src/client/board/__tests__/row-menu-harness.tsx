@@ -82,7 +82,8 @@ function effectOf(req: ActionRequest, opts: RunOpts): string {
 function renderRowMenu(
   mr: BoardMRWithReview,
   env: MenuEnv,
-  reactionsReply: string[] | null
+  reactionsReply: string[] | null,
+  reactionsHeld: Promise<void>
 ) {
   return (
     <RowMenu
@@ -94,24 +95,35 @@ function renderRowMenu(
       onRun={(action, m, opts) => {
         record(effectOf(action.request, opts), m, opts.note);
         return action.request.kind === 'react'
-          ? Promise.resolve({
+          ? reactionsHeld.then(() => ({
               ok: true,
               status: 200,
               body: reactionsReply ? { reactions: reactionsReply } : null,
               text: '',
-            })
+            }))
           : undefined;
       }}
     />
   );
 }
 
+/** `reactionsHeld` keeps a reaction's write in flight until it settles. */
 export async function openMenu(
   mr: BoardMRWithReview,
   env: MenuEnv,
-  opts: { reactionsReply?: string[] | null } = {}
+  opts: {
+    reactionsReply?: string[] | null;
+    reactionsHeld?: Promise<void>;
+  } = {}
 ): Promise<void> {
-  await mount(renderRowMenu(mr, env, opts.reactionsReply ?? null));
+  await mount(
+    renderRowMenu(
+      mr,
+      env,
+      opts.reactionsReply ?? null,
+      opts.reactionsHeld ?? Promise.resolve()
+    )
+  );
 }
 
 /** The shared menu on its own, as the bulk menu draws it: effects are the
@@ -302,6 +314,26 @@ export async function typeNote(text: string): Promise<void> {
     ta.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })
     );
+  });
+}
+
+export async function act(fn: () => unknown): Promise<void> {
+  await React.act(async () => {
+    await fn();
+  });
+}
+
+/** happy-dom never turns Enter on a button into a click, so this does what
+    the browser does: the click follows unless the keydown was prevented. */
+export async function pressEnter(el: HTMLElement): Promise<void> {
+  await act(() => {
+    const down = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true,
+    });
+    if (el.dispatchEvent(down))
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
   });
 }
 
