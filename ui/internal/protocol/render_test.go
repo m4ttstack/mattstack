@@ -26,7 +26,7 @@ func TestRenderFixtureDecodesAndReencodes(t *testing.T) {
 			t.Fatalf("re-encode drift\n got %s\nwant %s", back, raw)
 		}
 	}
-	for _, name := range []string{"line", "callout", "kv", "table", "tree", "section", "summary", "paragraph", "copy", "verbatim", "changes", "diff", "banner", "failure"} {
+	for _, name := range []string{"line", "callout", "kv", "table", "tree", "section", "summary", "paragraph", "blank", "copy", "verbatim", "changes", "diff", "banner", "failure"} {
 		if !seen[name] {
 			t.Fatalf("fixture has no %q block", name)
 		}

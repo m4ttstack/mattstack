@@ -7,9 +7,12 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"rt-ui/internal/background"
 	"rt-ui/internal/protocol"
 	"rt-ui/internal/render"
 )
+
+const missionCoral = "255;121;121"
 
 func TestParagraphWrapsToTheTerminalAndKeepsItsOwnLineBreaks(t *testing.T) {
 	b := protocol.Block{T: "paragraph", Text: "one two three four five six seven eight nine ten\nsecond"}
@@ -72,7 +75,7 @@ func TestAParagraphLeadWiderThanTheColumnStillFitsAndStaysIndented(t *testing.T)
 func TestCopyBlockIsNeverWrapped(t *testing.T) {
 	long := "example://join?invite=" + strings.Repeat("a", 120)
 	got := ansi.Strip(render.Render([]protocol.Block{{T: "copy", Caption: "send this link", Text: long}}, render.Options{Width: 40}))
-	want := "    send this link\n    │ " + long + "\n"
+	want := "    send this link\n" + long + "\n"
 	if got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
@@ -80,7 +83,15 @@ func TestCopyBlockIsNeverWrapped(t *testing.T) {
 
 func TestCopyBlockKeepsEachOfItsLines(t *testing.T) {
 	got := plain(protocol.Block{T: "copy", Text: "line one\nline two"})
-	want := "    │ line one\n    │ line two\n"
+	want := "line one\nline two\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestACopyBlockPrintsAtColumnZeroWithNoRail(t *testing.T) {
+	got := plain(protocol.Block{T: "copy", Caption: "message to send", Text: "Join the team:\n  rt team join sample\x1b[2J"})
+	want := "    message to send\nJoin the team:\n  rt team join sample\n"
 	if got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
@@ -94,12 +105,40 @@ func TestVerbatimSplitsALineThatHoldsANewline(t *testing.T) {
 	}
 }
 
-func TestALongVerbatimLineIsCutWithTheRailOnEveryRow(t *testing.T) {
-	line := "    at run (/Users/sample/.mattstack/user/plugins/seam-fixture-with-a-long-name/boom.ts:1:41)"
-	got := ansi.Strip(render.Render([]protocol.Block{{T: "verbatim", Lines: []string{line}}}, render.Options{Width: 60}))
-	want := "    │ " + line[:54] + "\n    │ " + line[54:] + "\n"
+func TestAVerbatimLineWrapsAtItsWordsWithTheRailOnEveryRow(t *testing.T) {
+	got := plainAt(40, protocol.Block{T: "verbatim", Lines: []string{"The app's deck helper owns deck, so rt did not run deck setup: it would add a second copy."}})
+	want := "    │ The app's deck helper owns deck,\n" +
+		"    │ so rt did not run deck setup: it\n" +
+		"    │ would add a second copy.\n"
 	if got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestALongVerbatimLineHangsUnderItsOwnIndentAndBreaksAPathAtASlash(t *testing.T) {
+	line := "    at run (/Users/sample/.mattstack/user/plugins/seam-fixture-with-a-long-name/boom.ts:1:41)"
+	got := plainAt(60, protocol.Block{T: "verbatim", Lines: []string{line}})
+	want := "    │     at run\n" +
+		"    │     (/Users/sample/.mattstack/user/plugins/\n" +
+		"    │     seam-fixture-with-a-long-name/boom.ts:1:41)\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestAVerbatimTokenWithNoSeparatorIsCutAndKeepsEveryCharacter(t *testing.T) {
+	blob := strings.Repeat("QmFzZTY0", 12)
+	got := plainAt(40, protocol.Block{T: "verbatim", Lines: []string{blob}})
+	checkWidth(t, got, 40)
+	var joined strings.Builder
+	for _, r := range rows(got) {
+		if !strings.HasPrefix(r, "    │ ") {
+			t.Fatalf("a row lost its rail: %q", r)
+		}
+		joined.WriteString(strings.TrimPrefix(r, "    │ "))
+	}
+	if joined.String() != blob {
+		t.Fatalf("characters lost: %q", joined.String())
 	}
 }
 
@@ -130,7 +169,7 @@ func TestDiffMarksAddedAndRemovedLines(t *testing.T) {
 	if got := plain(b); got != want {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
-	if !strings.Contains(styled(b), coral) {
+	if !strings.Contains(styled(b), missionCoral) {
 		t.Fatal("a deleted diff line should keep the coral tint")
 	}
 }
@@ -151,24 +190,14 @@ func TestTextBlocksTolerateEmptyFields(t *testing.T) {
 	}
 }
 
-func TestLightBackgroundReadsColorfgbg(t *testing.T) {
-	for value, want := range map[string]bool{
-		"": false, "15;0": false, "7;8": false, "12;default": false, "0;99": false,
-		"0;15": true, "0;default;15": true, "0;7": true,
-	} {
-		if got := render.LightBackground(value); got != want {
-			t.Errorf("COLORFGBG=%q: got %v want %v", value, got, want)
-		}
-	}
-}
-
 func TestDiffTintsFollowTheBackground(t *testing.T) {
 	blocks := []protocol.Block{{T: "diff", Hunks: []protocol.DiffHunk{{Header: "@@ -1 +1 @@", Lines: []protocol.DiffLine{{Kind: "del", Text: "old();"}, {Kind: "add", Text: "next();"}}}}}}
-	dark := render.Render(blocks, render.Options{Width: 80})
-	light := render.Render(blocks, render.Options{Width: 80, Light: true})
+	dark := render.Render(blocks, render.Options{Width: 80, Background: background.Dark})
+	light := render.Render(blocks, render.Options{Width: 80, Background: background.Light})
+	unknown := render.Render(blocks, render.Options{Width: 80})
 	for _, want := range []string{"48;2;59;34;49", "48;2;34;51;57"} {
-		if !strings.Contains(dark, want) {
-			t.Fatalf("dark render lost its tint %s: %q", want, dark)
+		if !strings.Contains(dark, want) || !strings.Contains(unknown, want) {
+			t.Fatalf("dark or unknown render lost its tint %s:\n%q\n%q", want, dark, unknown)
 		}
 	}
 	for _, want := range []string{"38;2;22;18;36;48;2;255;233;233", "38;2;22;18;36;48;2;229;251;241"} {
@@ -176,7 +205,57 @@ func TestDiffTintsFollowTheBackground(t *testing.T) {
 			t.Fatalf("light render has no dark ink on a pale tint %s: %q", want, light)
 		}
 	}
-	if strings.Contains(light, coral) {
+	if strings.Contains(light, missionCoral) {
 		t.Fatalf("light render kept coral text, which washes out on the pale tint: %q", light)
+	}
+}
+
+func TestALongDiffLineWrapsInsideThePane(t *testing.T) {
+	long := "next(alpha, beta, gamma, delta, epsilon, zeta);"
+	got := plainAt(30, protocol.Block{T: "diff", Hunks: []protocol.DiffHunk{{Header: "@@ -1 +1 @@", Lines: []protocol.DiffLine{
+		{Kind: "del", Text: "old();"},
+		{Kind: "add", Text: long},
+	}}}})
+	checkWidth(t, got, 30)
+	rs := rows(got)
+	if len(rs) < 4 || !strings.HasPrefix(rs[2], "   + next(") || !strings.HasPrefix(rs[3], "     ") {
+		t.Fatalf("the added line did not wrap under its sign:\n%s", got)
+	}
+	if noSpace(strings.Join(rs[2:], "")) != "+"+noSpace(long) {
+		t.Fatalf("the added line lost text:\n%s", got)
+	}
+}
+
+func TestALongDiffLineStaysInsideTheNarrowestPane(t *testing.T) {
+	long := "next(alpha, beta, gamma, delta, epsilon, zeta);"
+	got := plainAt(20, protocol.Block{T: "diff", Hunks: []protocol.DiffHunk{{Header: "@@ -1 +1 @@", Lines: []protocol.DiffLine{
+		{Kind: "del", Text: "old();"},
+		{Kind: "add", Text: long},
+	}}}})
+	checkWidth(t, got, 20)
+	rs := rows(got)
+	if noSpace(strings.Join(rs[1:], "")) != "-old();+"+noSpace(long) {
+		t.Fatalf("the diff lost text:\n%s", got)
+	}
+}
+
+func TestABlockAfterACopyBlockStartsAfterOneBlankRow(t *testing.T) {
+	copyBlock := protocol.Block{T: "copy", Caption: "send this link", Text: "example://join?invite=abc123"}
+	line := protocol.Block{T: "line", Status: "done", Title: "Invite created"}
+	if got, want := plain(copyBlock, line), "    send this link\nexample://join?invite=abc123\n\n  ✓ Invite created\n"; got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+	if got, want := plain(copyBlock, copyBlock), "    send this link\nexample://join?invite=abc123\n\n    send this link\nexample://join?invite=abc123\n"; got != want {
+		t.Fatalf("two copies: got\n%q\nwant\n%q", got, want)
+	}
+	if got, want := plain(copyBlock, protocol.Block{T: "blank"}, line), "    send this link\nexample://join?invite=abc123\n\n  ✓ Invite created\n"; got != want {
+		t.Fatalf("a blank after a copy: got\n%q\nwant\n%q", got, want)
+	}
+	nested := protocol.Block{T: "section", Title: "Invite", Blocks: []protocol.Block{copyBlock}}
+	if got, want := plain(nested, line), "  Invite\n    send this link\nexample://join?invite=abc123\n\n  ✓ Invite created\n"; got != want {
+		t.Fatalf("a copy ending a section: got\n%q\nwant\n%q", got, want)
+	}
+	if got := plain(line, copyBlock); strings.HasSuffix(got, "\n\n") {
+		t.Fatalf("a copy left a trailing blank row: %q", got)
 	}
 }

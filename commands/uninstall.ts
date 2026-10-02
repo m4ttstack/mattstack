@@ -131,6 +131,7 @@ export async function runUninstallCommand(args: string[], _ctx: CommandContext =
       needOpts: deps.needOpts,
     });
 
+    await human?.settle();
     const result = await runUninstall(ctx, actions);
     await human?.flush();
 

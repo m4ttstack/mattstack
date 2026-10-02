@@ -115,6 +115,9 @@ function render(blocks: Block[], out: string[], continuing: boolean): void {
       case "paragraph":
         out.push(...lines(b.text, "  "));
         break;
+      case "blank":
+        out.push("");
+        break;
       case "copy":
         caption(out, b.caption);
         out.push(...lines(b.text, ""));

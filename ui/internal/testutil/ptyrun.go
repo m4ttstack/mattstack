@@ -21,14 +21,14 @@ import (
 // are written first; keys are typed to the pty after the first tty paint.
 func RunPTY(t *testing.T, argv []string, stdinLines []string, keys []string, env map[string]string, closeStdin bool) (stdout, tty string, exit int) {
 	t.Helper()
-	return runPTY(t, ptyRows, ptyCols, argv, stdinLines, keys, env, closeStdin, 0)
+	return runPTY(t, ptyRows, ptyCols, argv, stdinLines, keys, env, closeStdin, 0, "")
 }
 
 // RunPTYSized is RunPTY on a rows x cols pty, with stdin closed after the
 // lines are written.
 func RunPTYSized(t *testing.T, rows, cols int, argv []string, stdinLines []string, env map[string]string) (stdout, tty string, exit int) {
 	t.Helper()
-	return runPTY(t, rows, cols, argv, stdinLines, nil, env, true, 0)
+	return runPTY(t, rows, cols, argv, stdinLines, nil, env, true, 0, "")
 }
 
 // RunPTYWithSignal is RunPTY with sig delivered to the child process itself
@@ -37,10 +37,18 @@ func RunPTYSized(t *testing.T, rows, cols int, argv []string, stdinLines []strin
 // the terminal as a key.
 func RunPTYWithSignal(t *testing.T, argv []string, stdinLines []string, sig syscall.Signal, env map[string]string) (stdout, tty string, exit int) {
 	t.Helper()
-	return runPTY(t, ptyRows, ptyCols, argv, stdinLines, nil, env, false, sig)
+	return runPTY(t, ptyRows, ptyCols, argv, stdinLines, nil, env, false, sig, "")
 }
 
-func runPTY(t *testing.T, rows, cols int, argv []string, stdinLines []string, keys []string, env map[string]string, closeStdin bool, sig syscall.Signal) (stdout, tty string, exit int) {
+// RunPTYAnswering is RunPTYSized at the default size with a terminal that
+// writes answer back once the child sends a DA1 query, as a real terminal
+// answers the background probe.
+func RunPTYAnswering(t *testing.T, argv []string, stdinLines []string, env map[string]string, answer string) (stdout, tty string, exit int) {
+	t.Helper()
+	return runPTY(t, ptyRows, ptyCols, argv, stdinLines, nil, env, true, 0, answer)
+}
+
+func runPTY(t *testing.T, rows, cols int, argv []string, stdinLines []string, keys []string, env map[string]string, closeStdin bool, sig syscall.Signal, answer string) (stdout, tty string, exit int) {
 	t.Helper()
 	ptmx, pts, err := pty.Open()
 	if err != nil {
@@ -52,7 +60,10 @@ func runPTY(t *testing.T, rows, cols int, argv []string, stdinLines []string, ke
 	}
 
 	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
+	// The background signals of whoever runs the tests are blanked, so the
+	// accent set depends only on what a test passes.
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor",
+		"RT_UI_BACKGROUND=", "COLORFGBG=", "GHOSTTY_RESOURCES_DIR=", "TERM_PROGRAM=")
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
@@ -82,7 +93,12 @@ func runPTY(t *testing.T, rows, cols int, argv []string, stdinLines []string, ke
 			if n > 0 {
 				mu.Lock()
 				ttyBuf.Write(buf[:n])
+				ask := answer != "" && strings.Contains(ttyBuf.String(), "\x1b[c")
 				mu.Unlock()
+				if ask {
+					io.WriteString(ptmx, answer)
+					answer = ""
+				}
 			}
 			if err != nil {
 				close(done)

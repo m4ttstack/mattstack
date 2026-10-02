@@ -4,6 +4,7 @@
  */
 import { BackNavigation } from "../back-navigation.ts";
 import { encodeLine, parsePromptResult, parseSessionLine, PROTOCOL_VERSION, type PromptResult, type PromptSpec, type RenderStatus, type SessionClosed, type SessionIntent, type StepLevel } from "./protocol.ts";
+import { noteBackgroundReport, rtUiEnv } from "./background.ts";
 import { interactive } from "./gate.ts";
 import { resolveRtUi } from "./resolve.ts";
 
@@ -28,6 +29,29 @@ function killLiveOnExit(): void {
   });
 }
 
+/**
+ * Resolves an auto background in a render with nothing to draw, so a step's
+ * helper starts with the answer. The query holds the tty in raw mode for up
+ * to 250 ms, and a step's task may start a child that reads /dev/tty itself
+ * (an ssh passphrase), so await this before opening a step whose task
+ * follows. A failed run leaves auto for the steps helper to resolve.
+ */
+export async function settleBackground(): Promise<void> {
+  const env = rtUiEnv();
+  if (env.RT_UI_BACKGROUND !== "auto") return;
+  try {
+    const proc = Bun.spawn([resolveRtUi(), "render", "--report-background"], {
+      stdin: new TextEncoder().encode(encodeLine({ t: "hello", protocol: PROTOCOL_VERSION })),
+      stdout: "ignore",
+      stderr: "pipe",
+      env,
+      timeout: 2000,
+    });
+    const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+    if (code === 0) noteBackgroundReport(stderr);
+  } catch { /* the steps helper resolves auto itself */ }
+}
+
 function spawnVerb(verb: "prompt" | "steps" | "session", extra: string[] = []) {
   const bin = resolveRtUi();
   killLiveOnExit();
@@ -35,7 +59,7 @@ function spawnVerb(verb: "prompt" | "steps" | "session", extra: string[] = []) {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env },
+    env: verb === "steps" ? rtUiEnv() : { ...process.env },
   });
   live.add(proc);
   proc.exited.then(() => live.delete(proc));
@@ -77,8 +101,11 @@ export interface StepHandle {
   /** Resolves true when rt-ui painted the final line; false when it was dead (caller prints the line itself). A status ends the step in that state in place of done; a failing ending is `fail`. */
   done(title?: string, hint?: string, status?: Exclude<RenderStatus, "failed">): Promise<boolean>;
   fail(title?: string, hint?: string): Promise<boolean>;
-  /** Ends the step and erases its row and sub-lines, leaving nothing. Resolves true when rt-ui ended the step. */
-  clear(): Promise<boolean>;
+  /**
+   * Ends the step and erases its row and sub-lines, leaving nothing. Resolves true when rt-ui ended the step.
+   * `thrown` says the task failed: a helper that predates the flag then ends the row on the neutral dot, never a check.
+   */
+  clear(opts?: { thrown?: boolean }): Promise<boolean>;
 }
 
 export function openStep(title: string): StepHandle {
@@ -116,9 +143,10 @@ export function openStep(title: string): StepHandle {
     },
     done: (t, h, s) => finish("done", t, h, s),
     fail: (t, h) => finish("fail", t, h),
-    // The label rides along as the title: a helper that predates the flag
-    // paints it as a done row.
-    clear: () => finish("done", undefined, undefined, undefined, true),
+    // The label rides along as the title and a thrown task as the failed
+    // status: a helper that predates the flag paints a done row, on the
+    // neutral dot when the task threw.
+    clear: (opts) => finish("done", undefined, undefined, opts?.thrown ? "failed" : undefined, true),
   };
 }
 

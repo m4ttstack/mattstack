@@ -53,5 +53,5 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: rt-ui prompt | rt-ui pick | rt-ui steps | rt-ui render [--width N] [--no-color] | rt-ui session --view <kind> | rt-ui --version")
+	fmt.Fprintln(os.Stderr, "usage: rt-ui prompt | rt-ui pick | rt-ui steps | rt-ui render [--width N] [--no-color] [--report-background] | rt-ui session --view <kind> | rt-ui --version")
 }

@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { logsDir } from "../../rt-paths.ts";
+import { __test__ as background } from "../background.ts";
 import * as out from "../out.ts";
 
 const FAKE = resolve(import.meta.dir, "fake-rt-ui.ts");
@@ -20,6 +21,8 @@ beforeEach(() => {
   process.env.RT_UI_FAKE = JSON.stringify({ record });
   delete process.env.NO_COLOR;
   out.__test__.setHuman(() => true);
+  background.reset();
+  background.setTTY(() => false);
   stdout = [];
   stderr = [];
   process.stdout.write = ((c: string | Uint8Array) => (stdout.push(String(c)), true)) as typeof process.stdout.write;
@@ -29,6 +32,7 @@ afterEach(() => {
   process.stdout.write = realOut;
   process.stderr.write = realErr;
   out.__test__.reset();
+  background.reset();
   delete process.env.RT_UI_BIN;
   delete process.env.RT_UI_FAKE;
   delete process.env.NO_COLOR;
@@ -302,4 +306,10 @@ test("a failure that is the first thing on stderr drops its tag, and a reset mak
   stderr.length = 0;
   out.fail({ title: "The rebase stopped" });
   expect(stderr.join("")).toBe("The rebase stopped\n");
+});
+
+test("a helper that rejects the blank block still prints the breadcrumb plain", () => {
+  process.env.RT_UI_FAKE = JSON.stringify({ record, exit: 2 });
+  out.note(out.section("rt › show", undefined), out.blank());
+  expect(stderr.join("")).toBe("rt › show\n\n");
 });

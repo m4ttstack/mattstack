@@ -23,6 +23,7 @@
   },
   { "t": "summary", "status": "needs-you", "title": "Setup needs you", "counts": ["5 ready", "1 needs you"] },
   { "t": "paragraph", "text": "Two skills disagree about when to push." },
+  { "t": "blank" },
   { "t": "copy", "text": "example://join?invite=abc123", "caption": "send this link" },
   { "t": "verbatim", "lines": ["{", "  \"sound\": \"glass\"", "}"], "caption": "value" },
   { "t": "changes", "changes": [{ "op": "+", "name": "review", "hint": "now public" }, { "op": "-", "name": "triage" }] },

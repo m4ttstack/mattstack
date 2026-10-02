@@ -8,6 +8,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"rt-ui/internal/textwrap"
 	"rt-ui/internal/theme"
 )
 
@@ -297,14 +298,5 @@ func justify(width int, left, right string) string {
 	return onBg.Render("  ") + left + lipgloss.PlaceHorizontal(avail, lipgloss.Right, right, lipgloss.WithWhitespaceStyle(onBg)) + onBg.Render(" ")
 }
 
-func clip(s string, w int) string {
-	if w >= 1 && lipgloss.Width(s) > w {
-		// MaxWidth(0) does not truncate, so a one-cell window has no room for
-		// any content beside the marker: the ellipsis is the whole cell.
-		if w == 1 {
-			return "…"
-		}
-		return lipgloss.NewStyle().Inline(true).MaxWidth(w-1).Render(s) + "…"
-	}
-	return lipgloss.NewStyle().Inline(true).MaxWidth(w).Render(s)
-}
+// clip is textwrap.Clip, the one text clipper rt-ui has.
+func clip(s string, w int) string { return textwrap.Clip(s, w) }

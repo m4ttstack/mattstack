@@ -12,16 +12,21 @@ import { interactive } from "./gate.ts";
 
 export async function withTransientStep<T>(label: string, task: () => Promise<T>): Promise<T> {
   if (!interactive()) return task();
-  let step: { clear(): Promise<boolean> } | null = null;
+  let step: { clear(opts?: { thrown?: boolean }): Promise<boolean> } | null = null;
   try {
-    const { openStep } = await import("./spawn.ts");
+    const { openStep, settleBackground } = await import("./spawn.ts");
+    await settleBackground();
     step = openStep(label);
   } catch (err) {
     logCliEvent("warn", "rt-ui", "rt-ui steps did not start; ran without a spinner", { error: err instanceof Error ? err.message : String(err) });
   }
+  let thrown = false;
   try {
     return await task();
+  } catch (err) {
+    thrown = true;
+    throw err;
   } finally {
-    await step?.clear();
+    await step?.clear({ thrown });
   }
 }

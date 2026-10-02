@@ -63,9 +63,9 @@ test("at a terminal the breadcrumb is drawn once, on stderr, before the handler 
   expect(drawnBeforeHandler).toBe(CLEAR + "STYLED\n");
   expect(io.stderr()).toBe(CLEAR + "STYLED\n");
   expect(io.stdout()).toBe("");
-  expect(wire()).toEqual(["call", "hello", "section", "table"]);
+  expect(wire()).toEqual(["call", "hello", "section", "blank"]);
   expect(sent()[2]).toMatchObject({ t: "section", title: "rt › show" });
-  expect(sent()[3]).toEqual({ t: "table", rows: [{ cells: [[{ text: "" }]] }] });
+  expect(sent()[3]).toEqual({ t: "blank" });
 });
 
 test("a nested command's breadcrumb names the whole path", async () => {

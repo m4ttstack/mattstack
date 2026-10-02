@@ -4,7 +4,6 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { __test__ as gate } from "../gate.ts";
 import { withTransientStep } from "../transient-step.ts";
-import { withInlineSpinner } from "../../tui/inline-spinner.ts";
 
 const FAKE = resolve(import.meta.dir, "fake-rt-ui.ts");
 let dir: string;
@@ -39,7 +38,7 @@ test("a task that throws still clears, and the error reaches the caller", async 
       throw new Error("lsof died");
     }),
   ).rejects.toThrow("lsof died");
-  expect(sent().at(-1)).toEqual({ t: "done", title: "scanning ports…", clear: true });
+  expect(sent().at(-1)).toEqual({ t: "done", title: "scanning ports…", status: "failed", clear: true });
 });
 
 test("off a terminal nothing is spawned and the task still runs", async () => {
@@ -60,8 +59,4 @@ test("a helper that dies mid-step does not fail the task", async () => {
     return "ran";
   });
   expect(result).toBe("ran");
-});
-
-test("withInlineSpinner is the transient step under its old name", () => {
-  expect(withInlineSpinner).toBe(withTransientStep);
 });

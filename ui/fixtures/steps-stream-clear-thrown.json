@@ -1,0 +1,5 @@
+[
+  { "t": "hello", "protocol": 1 },
+  { "t": "start", "title": "Pushing…" },
+  { "t": "done", "title": "Pushing…", "status": "failed", "clear": true }
+]

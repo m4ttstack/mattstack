@@ -212,3 +212,41 @@ func TestWordsOnlyLosesNoTextAtAnyWidth(t *testing.T) {
 		}
 	}
 }
+
+func wrapAt(s string, width int, seps string) []string {
+	rows := SpansWith([]run{{text: s}}, width, Options{WordsOnly: true, Separators: seps}, runText, withText)
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = text(r)
+	}
+	return out
+}
+
+func TestAnOverlongWordBreaksAfterTheLastSeparatorThatFits(t *testing.T) {
+	got := wrapAt("see rt-backup/reset/feature/login/2026-09-30T10-00-00", 20, "/-")
+	want := []string{"see", "rt-backup/reset/", "feature/login/", "2026-09-30T10-00-00"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestSeparatorsAreTriedInTheirOrder(t *testing.T) {
+	if got, want := wrapAt("alpha-beta/gamma-delta", 12, "/-"), []string{"alpha-beta/", "gamma-delta"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("slash first: got %q want %q", got, want)
+	}
+	if got, want := wrapAt("alpha-beta/gamma-delta", 12, "-/"), []string{"alpha-", "beta/gamma-", "delta"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("dash first: got %q want %q", got, want)
+	}
+}
+
+func TestAWordThatFitsIsNeverBrokenAtASeparator(t *testing.T) {
+	if got, want := wrapAt("a feature/login b", 14, "/"), []string{"a", "feature/login", "b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestAnOverlongWordWithNoSeparatorIsStillCutBetweenCharacters(t *testing.T) {
+	if got, want := wrapAt("abcdefghijklmnop", 6, "/"), []string{"abcdef", "ghijkl", "mnop"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}

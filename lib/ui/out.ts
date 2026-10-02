@@ -6,6 +6,7 @@
  */
 import { renderPlain } from "./out-plain.ts";
 import { encodeLine, PROTOCOL_VERSION, type Block, type CalloutLabel, type Cell, type ChangeRow, type DiffHunk, type RenderStatus, type Segment } from "./protocol.ts";
+import { noteBackgroundReport, rtUiEnv } from "./background.ts";
 import { resolveRtUi } from "./resolve.ts";
 import { logCliEvent } from "../cli-logger.ts";
 
@@ -72,6 +73,11 @@ export function summary(status: RenderStatus, title: string, counts?: string[]):
 
 export function paragraph(text: string): Block {
   return { t: "paragraph", text };
+}
+
+/** One empty row, on purpose: under the breadcrumb, between `sync all`'s branches. */
+export function blank(): Block {
+  return { t: "blank" };
 }
 
 export function copy(text: string, caption?: string): Block {
@@ -149,9 +155,15 @@ function renderStyled(blocks: Block[], stream: Stream): string | null {
     const columns = (stream === "stdout" ? process.stdout : process.stderr).columns ?? 80;
     const args = [bin, "render", "--width", String(columns)];
     if (process.env.NO_COLOR) args.push("--no-color");
+    const env = rtUiEnv();
+    const report = env.RT_UI_BACKGROUND === "auto";
+    if (report) args.push("--report-background");
     const input = encodeLine({ t: "hello", protocol: PROTOCOL_VERSION }) + blocks.map(encodeLine).join("");
-    const r = Bun.spawnSync(args, { stdin: Buffer.from(input), stdout: "pipe", stderr: "pipe", env: { ...process.env }, timeout: RENDER_TIMEOUT_MS });
-    if (r.exitCode === 0 && r.success) return r.stdout.toString();
+    const r = Bun.spawnSync(args, { stdin: Buffer.from(input), stdout: "pipe", stderr: "pipe", env, timeout: RENDER_TIMEOUT_MS });
+    if (r.exitCode === 0 && r.success) {
+      if (report) noteBackgroundReport(r.stderr.toString());
+      return r.stdout.toString();
+    }
     // A helper killed by the timeout has exitCode null and signalCode SIGTERM.
     helperFailed("rt-ui render exited non-zero", { bin, exitCode: r.exitCode, signalCode: r.signalCode, stderr: r.stderr.toString().trim().slice(-500) });
     return null;

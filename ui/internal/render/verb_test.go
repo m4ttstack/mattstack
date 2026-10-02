@@ -124,3 +124,18 @@ func TestRenderVerbTakesALightBackgroundFromColorfgbg(t *testing.T) {
 		t.Fatalf("a terminal that says nothing should keep the dark tint: %q", out)
 	}
 }
+
+func TestRenderVerbTakesTheBackgroundSettingFromRt(t *testing.T) {
+	stdin := helloLine + `{"t":"line","status":"done","title":"x"}` + "\n"
+	env := []string{"COLORTERM=truecolor", "TERM=xterm-256color", "COLORFGBG=0;15"}
+	for setting, mint := range map[string]string{"dark": "98;230;168", "light": "18;171;86"} {
+		out, _, exit := runVerb(t, nil, append([]string{"RT_UI_BACKGROUND=" + setting}, env...), stdin)
+		if exit != 0 || !strings.Contains(out, "38;2;"+mint+"m") {
+			t.Errorf("%s: exit %d, no %s in %q", setting, exit, mint, out)
+		}
+	}
+	out, _, _ := runVerb(t, nil, env[:2], stdin)
+	if !strings.Contains(out, "38;2;18;171;86m") {
+		t.Fatalf("a terminal nothing is known about should get the light set: %q", out)
+	}
+}

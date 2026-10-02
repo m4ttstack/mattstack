@@ -97,6 +97,10 @@ type Options struct {
 	// than the row is cut between grapheme clusters, so a combining mark
 	// never starts a row without its base.
 	WordsOnly bool
+	// Separators, with WordsOnly, are where a word wider than the row may
+	// break first: just after the last occurrence, in the row so far, of the
+	// first of them, in this order, that the row holds.
+	Separators string
 }
 
 // SpansWith is Spans with Options applied.
@@ -109,7 +113,7 @@ func SpansWith[T any](runs []T, width int, opts Options, text func(T) string, wi
 	if width < 1 || ansi.StringWidth(plain) <= width {
 		return [][]T{runs}
 	}
-	bounds := wordRows(plain, width)
+	bounds := wordRows(plain, width, opts.Separators)
 	if len(bounds) == 0 {
 		return [][]T{nil}
 	}
@@ -149,7 +153,7 @@ func pieces(s string) []piece {
 
 // wordRows returns the byte range of every row. The whitespace a row breaks
 // at belongs to no row; indentation before the first word stays on its row.
-func wordRows(s string, width int) [][2]int {
+func wordRows(s string, width int, seps string) [][2]int {
 	var rows [][2]int
 	start, end, used := -1, 0, 0
 	flush := func() {
@@ -184,8 +188,18 @@ func wordRows(s string, width int) [][2]int {
 			if cluster == "" {
 				break
 			}
-			if start >= 0 && used+w > width {
-				flush()
+			for start >= 0 && used+w > width {
+				k := breakAfter(s[start:end], seps)
+				if k == 0 {
+					flush()
+					break
+				}
+				rows = append(rows, [2]int{start, start + k})
+				start += k
+				used = ansi.StringWidth(s[start:end])
+				if start == end {
+					start, used = -1, 0
+				}
 			}
 			if start < 0 {
 				start = i
@@ -196,4 +210,15 @@ func wordRows(s string, width int) [][2]int {
 	}
 	flush()
 	return rows
+}
+
+// breakAfter returns the byte offset just past the last occurrence in row of
+// the first of seps that row holds, or 0 when it holds none.
+func breakAfter(row, seps string) int {
+	for _, sep := range seps {
+		if i := strings.LastIndex(row, string(sep)); i >= 0 {
+			return i + utf8.RuneLen(sep)
+		}
+	}
+	return 0
 }

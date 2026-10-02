@@ -317,6 +317,14 @@ export const REGISTRY: readonly SettingDef[] = [
     merge: "replace",
     description: "Verbs left out of rt's pickers, usage and --help, by path (\"pane\", or \"worktree provision\" for a nested verb). The default hides the verbs the mattstack apps, skills and daemon run; edit it to show one of those or hide any other verb, and [] lists everything. Hidden verbs still run by name, and `rt --all` lists everything once.",
   },
+  {
+    key: "rt.ui.background",
+    type: "string",
+    scopes: ["user"],
+    default: "auto",
+    merge: "replace",
+    description: "Whether rt's output uses its colors for a dark or a light terminal: auto, dark or light. Auto reads COLORFGBG and Ghostty's config, then asks the terminal for its background, and uses the light-terminal colors when none of them answers. Set dark or light when auto picks wrong, or to keep rt from asking the terminal. A fresh key, not an ownership-latch port, so a default is fine here.",
+  },
 
   // --- mattstack (installer-lane) -----------------------------------------
   {
