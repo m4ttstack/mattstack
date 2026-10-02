@@ -3,7 +3,7 @@ import { basename, dirname, join } from "path";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
-import { teamSettingsPath, userSettingsPath } from "../../rt-paths.ts";
+import { userSettingsPath } from "../../rt-paths.ts";
 import { updateRepoIndex } from "../../repo-index.ts";
 import { setSetting } from "../../settings/write.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
@@ -39,6 +39,7 @@ import { teamSyncRow } from "../validators/rt-health.ts";
 import { finalizePlan, type Row } from "../contract.ts";
 import { rowsToChecks } from "../../../commands/verify.ts";
 import { updateNotification } from "../update.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 // ─── shared fakes (mirrors steps-a/b.test.ts's trivial no-ops) ─────────────
 
@@ -2022,7 +2023,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         // real (if minimal) settings.team.jsonc plus the integration setting,
         // the same seeding pattern lib/daemon/__tests__/repo-tracking.test.ts
         // uses for a `scope: "team"` write.
-        const teamPath = teamSettingsPath("acme");
+        const teamPath = sharedStorePath("acme");
         mkdirSync(dirname(teamPath), { recursive: true });
         writeFileSync(teamPath, "// team store\n{}\n");
         setSetting("mattstack.integrations", { forge: { host: "github.com", provider: "github" } }, "team", { team: "acme" });

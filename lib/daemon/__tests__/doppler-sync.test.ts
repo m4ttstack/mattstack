@@ -2,13 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { dirname, join } from "path";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const tmpHome = mkdtempSync(join(tmpdir(), "rt-doppler-sync-"));
 process.env.HOME = tmpHome;
 
 const { reconcileForRepo } = await import("../doppler-sync.ts");
 const { setSetting } = await import("../../settings/write.ts");
-const { machineSettingsPath, teamSettingsPath } = await import("../../rt-paths.ts");
+const { machineSettingsPath } = await import("../../rt-paths.ts");
 const { loadDopplerConfig, writeDopplerConfig } = await import("../../doppler-config.ts");
 
 const IDENTITY = "gitlab.com/acme/test-repo";
@@ -19,7 +20,7 @@ function seedTemplate(entries: unknown[]): void {
 
 /** setSetting(..., "team", ...) refuses without a local team store (write.ts's team-selection rule). */
 function seedTeam(): void {
-  const path = teamSettingsPath("acme");
+  const path = sharedStorePath("acme");
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, "// team store\n{}\n");
 }

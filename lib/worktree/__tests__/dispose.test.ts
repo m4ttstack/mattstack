@@ -3,7 +3,6 @@ import { execSync } from "child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
-import { teamSettingsPath } from "../../rt-paths.ts";
 import { setSetting } from "../../settings/write.ts";
 import { closeStateDb, getBranchCacheStore, type CacheEntry } from "../../state/index.ts";
 import { branchOf } from "../../state/branch-cache.ts";
@@ -16,6 +15,7 @@ import {
   STATUS_FAILED_BLOCKER,
   type DisposeDeps,
 } from "../dispose.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const GIT_ID = "-c user.email=t@t -c user.name=t";
 
@@ -54,7 +54,7 @@ const IDENTITY = "test/acme";
  */
 function seedIdentity(originUrl: string): void {
   setSetting("rt.repoIdentityOverrides", { [originUrl]: IDENTITY }, "machine");
-  const teamPath = teamSettingsPath("acme");
+  const teamPath = sharedStorePath("acme");
   mkdirSync(dirname(teamPath), { recursive: true });
   writeFileSync(teamPath, "// team store\n{}\n");
 }

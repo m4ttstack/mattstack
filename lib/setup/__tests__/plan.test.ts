@@ -6,12 +6,12 @@ import { setSetting } from "../../settings/write.ts";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { teamSettingsPath } from "../../rt-paths.ts";
 import { UserActionableError } from "../../errors.ts";
 import { writeIntent, type SetupIntent } from "../intent.ts";
 import type { SecretPresence } from "../validators/accounts.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 function fakeSecrets(stored: Record<string, string> = {}): SecretPresence {
   return {
@@ -138,7 +138,7 @@ describe("composePlan", () => {
     const home = mkdtempSync(join(tmpdir(), "rt-plan-switchboard-"));
     process.env.HOME = home;
     try {
-      const teamPath = teamSettingsPath("acme");
+      const teamPath = sharedStorePath("acme");
       mkdirSync(dirname(teamPath), { recursive: true });
       writeFileSync(teamPath, `// team store\n${JSON.stringify({ "mattstack.integrations": { switchboard: { url: "https://sw.example.com" } } })}\n`);
 

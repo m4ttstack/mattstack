@@ -10,11 +10,12 @@ import { execSync } from "child_process";
 import { mkdtempSync, realpathSync, writeFileSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { teamSettingsPath, userSettingsPath } from "../../rt-paths.ts";
+import { userSettingsPath } from "../../rt-paths.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../../settings/identity.ts";
 import { loadWorktreeRepoConfig } from "../config.ts";
 import { readyLadderHash, writeReadyApproval } from "../ready-approval.ts";
 import { heldReadyLadders, resetHeldReadyLaddersCache } from "../ready-held.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 /** The raw host/path form: what the settings store's `repos.<identity>` keys on. */
 const IDENTITY = "gitlab.com/acme/held-snapshot";
@@ -35,7 +36,7 @@ function repoWithRemote(): string {
 }
 
 function teamReady(steps: unknown): void {
-  writeStore(teamSettingsPath("acme"), {
+  writeStore(sharedStorePath("acme"), {
     repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 1, ready: steps } } },
   });
 }

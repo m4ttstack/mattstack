@@ -5,7 +5,6 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import {
   machineSettingsPath,
-  teamSettingsPath,
   userSettingsPath,
   worktreePoolRoot,
 } from "../../rt-paths.ts";
@@ -26,6 +25,7 @@ import {
   worktreePoolDormant,
   type WorktreeRepoConfig,
 } from "../config.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 /** The out-of-repo pool root (RT-52) `sanitizeRoot` defaults to for `repoPath`. */
 async function defaultRoot(repoPath: string): Promise<string> {
@@ -133,7 +133,7 @@ describe("worktree config", () => {
       const repoPath = tmpRepoWithRemote("rtcfg-merge-", REMOTE);
 
       // team: the shared pool size and the shared ready ladder
-      writeStore(teamSettingsPath("acme"), {
+      writeStore(sharedStorePath("acme"), {
         repos: {
           [IDENTITY]: {
             "rt.worktrees": {
@@ -171,7 +171,7 @@ describe("worktree config", () => {
 
     test("a store-only repo resolves with no store section at all", async () => {
       const repoPath = tmpRepoWithRemote("rtcfg-storeonly-", REMOTE);
-      writeStore(teamSettingsPath("acme"), {
+      writeStore(sharedStorePath("acme"), {
         repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 2, namePool: ["luna"] } } },
       });
 
@@ -185,7 +185,7 @@ describe("worktree config", () => {
 
     test("${repoRoot} in a shared-scope root expands to the repo path", async () => {
       const repoPath = tmpRepoWithRemote("rtcfg-var-", REMOTE);
-      writeStore(teamSettingsPath("acme"), {
+      writeStore(sharedStorePath("acme"), {
         repos: { [IDENTITY]: { "rt.worktrees": { root: "${repoRoot}/trees" } } },
       });
 
@@ -235,7 +235,7 @@ describe("worktree config", () => {
       // prove it can never leak in — is simply unreachable. No legacy
       // fallback exists anymore; defaults are the honest answer.
       const repoPath = tmpRepoPath("rtcfg-noident-");
-      writeStore(teamSettingsPath("acme"), {
+      writeStore(sharedStorePath("acme"), {
         repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 9 } } },
       });
 
@@ -262,7 +262,7 @@ describe("worktree config", () => {
 
     test("a team store section -> true", async () => {
       const repoPath = tmpRepoWithRemote("rtcfg-act-store-", REMOTE);
-      writeStore(teamSettingsPath("acme"), {
+      writeStore(sharedStorePath("acme"), {
         repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 2 } } },
       });
       expect(await worktreeSettingsDeclared("store-only", repoPath)).toBe(true);
@@ -270,7 +270,7 @@ describe("worktree config", () => {
 
     test("an EMPTY declared block still counts as declared", async () => {
       const repoPath = tmpRepoWithRemote("rtcfg-act-empty-", REMOTE);
-      writeStore(teamSettingsPath("acme"), {
+      writeStore(sharedStorePath("acme"), {
         repos: { [IDENTITY]: { "rt.worktrees": {} } },
       });
       expect(await worktreeSettingsDeclared("store-only", repoPath)).toBe(true);
@@ -278,7 +278,7 @@ describe("worktree config", () => {
 
     test("a repo section with other keys but no worktrees block -> false", async () => {
       const repoPath = tmpRepoWithRemote("rtcfg-act-other-", REMOTE);
-      writeStore(teamSettingsPath("acme"), {
+      writeStore(sharedStorePath("acme"), {
         repos: { [IDENTITY]: { "rt.roles": { web: { pool: [3000] } } } },
       });
       expect(await worktreeSettingsDeclared("store-only", repoPath)).toBe(false);
@@ -291,7 +291,7 @@ describe("worktree config", () => {
 
     test("declared pool, unowned machine (default disabled): dormant", async () => {
       const repoPath = tmpRepoWithRemote("rtcfg-dormant-team-", REMOTE);
-      writeStore(teamSettingsPath("acme"), {
+      writeStore(sharedStorePath("acme"), {
         repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 2 } } },
       });
       expect(await worktreePoolDormant("dormant-only", repoPath)).toBe(true);
@@ -299,7 +299,7 @@ describe("worktree config", () => {
 
     test("declared pool, machine explicitly enabled: not dormant", async () => {
       const repoPath = tmpRepoWithRemote("rtcfg-dormant-owned-", REMOTE);
-      writeStore(teamSettingsPath("acme"), {
+      writeStore(sharedStorePath("acme"), {
         repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 2 } } },
       });
       writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: true } });
@@ -308,7 +308,7 @@ describe("worktree config", () => {
 
     test("declared pool, team turns the app on: not dormant", async () => {
       const repoPath = tmpRepoWithRemote("rtcfg-dormant-teamon-", REMOTE);
-      writeStore(teamSettingsPath("acme"), {
+      writeStore(sharedStorePath("acme"), {
         "rt.worktreeApp": { enabled: true },
         repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 2 } } },
       });
@@ -317,7 +317,7 @@ describe("worktree config", () => {
 
     test("declared pool, team on but machine off: dormant", async () => {
       const repoPath = tmpRepoWithRemote("rtcfg-dormant-machineoff-", REMOTE);
-      writeStore(teamSettingsPath("acme"), {
+      writeStore(sharedStorePath("acme"), {
         "rt.worktreeApp": { enabled: true },
         repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 2 } } },
       });
@@ -604,19 +604,19 @@ describe("worktree config", () => {
     });
 
     test("team turns the pool on for a member with no value of its own", () => {
-      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
+      writeStore(sharedStorePath("acme"), { "rt.worktreeApp": { enabled: true } });
 
       expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: true });
     });
 
     test("a team value without enabled never turns the pool on", () => {
-      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { killProcesses: false } });
+      writeStore(sharedStorePath("acme"), { "rt.worktreeApp": { killProcesses: false } });
 
       expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
     });
 
     test("user off beats team on", () => {
-      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
+      writeStore(sharedStorePath("acme"), { "rt.worktreeApp": { enabled: true } });
       writeStore(userSettingsPath(), { "rt.worktreeApp": { enabled: false } });
 
       expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
@@ -630,7 +630,7 @@ describe("worktree config", () => {
     });
 
     test("fields merge across scopes: each one comes from the strongest scope that sets it", () => {
-      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true, killProcesses: false } });
+      writeStore(sharedStorePath("acme"), { "rt.worktreeApp": { enabled: true, killProcesses: false } });
       writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: false } });
 
       expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
@@ -648,21 +648,21 @@ describe("worktree config", () => {
     });
 
     test("a claudeHook at team or user scope changes nothing", () => {
-      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { claudeHook: "declined" } });
+      writeStore(sharedStorePath("acme"), { "rt.worktreeApp": { claudeHook: "declined" } });
       writeStore(userSettingsPath(), { "rt.worktreeApp": { claudeHook: "installed" } });
 
       expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
     });
 
     test("a machine value carrying claudeHook is honored like any other", () => {
-      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
+      writeStore(sharedStorePath("acme"), { "rt.worktreeApp": { enabled: true } });
       writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: false, killProcesses: true, claudeHook: "declined" } });
 
       expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
     });
 
     test("a refused team value warns once, naming the key and scope but not the value", () => {
-      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": ["secret-ish"] });
+      writeStore(sharedStorePath("acme"), { "rt.worktreeApp": ["secret-ish"] });
       const warnings: string[] = [];
       const orig = console.warn;
       console.warn = (...args: unknown[]) => {
@@ -679,7 +679,7 @@ describe("worktree config", () => {
     });
 
     test("a refused machine value falls through to the scopes below it", () => {
-      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
+      writeStore(sharedStorePath("acme"), { "rt.worktreeApp": { enabled: true } });
       writeStore(machineSettingsPath(), { "rt.worktreeApp": ["nope"] });
       const orig = console.warn;
       console.warn = () => {};
@@ -704,7 +704,7 @@ describe("worktree config", () => {
       }
 
       test("with no log set it is one plain stderr line, and the defaults stand", () => {
-        writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": BAD });
+        writeStore(sharedStorePath("acme"), { "rt.worktreeApp": BAD });
         const io = capture();
         try {
           expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
@@ -717,7 +717,7 @@ describe("worktree config", () => {
       });
 
       test("in the CLI the person reads a plain warning with the command to run, and the log keeps the detail", () => {
-        writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": BAD });
+        writeStore(sharedStorePath("acme"), { "rt.worktreeApp": BAD });
         const logged: Array<[string, string]> = [];
         const io = capture();
         setWarningLog((module, message) => {
@@ -786,7 +786,7 @@ describe("worktree config", () => {
       ["user off, machine on and no kill", { user: { enabled: false }, machine: { enabled: true, killProcesses: false } }],
     ] as const)("rt settings get agrees with the reader: %s", async (_label, layers) => {
       const set = layers as { team?: object; user?: object; machine?: object };
-      if (set.team) writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": set.team });
+      if (set.team) writeStore(sharedStorePath("acme"), { "rt.worktreeApp": set.team });
       if (set.user) writeStore(userSettingsPath(), { "rt.worktreeApp": set.user });
       if (set.machine) writeStore(machineSettingsPath(), { "rt.worktreeApp": set.machine });
 

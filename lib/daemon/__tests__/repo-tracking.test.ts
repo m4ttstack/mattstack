@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { machineSettingsPath, teamSettingsPath } from "../../rt-paths.ts";
+import { machineSettingsPath } from "../../rt-paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { runCapture } from "../../subprocess.ts";
@@ -19,6 +19,7 @@ import {
   __test__ as repoTrackingTest,
   type CacheKind,
 } from "../../repo-tracking.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 /** The serialized wire identity every store keys on, from a readable host/path. */
 const idOf = (hostPath: string): string => serializeIdentity({ kind: "remote", id: hostPath });
@@ -33,7 +34,7 @@ function writeStore(file: string, obj: unknown): void {
 
 /** setSetting("mattstack.tracking", ..., "team") refuses without a local team store. */
 function seedTeam(): void {
-  const path = teamSettingsPath("acme");
+  const path = sharedStorePath("acme");
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, "// team store\n{}\n");
 }

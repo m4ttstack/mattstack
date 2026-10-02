@@ -11,10 +11,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "../paths.ts";
+import { machineSettingsPath, userSettingsPath } from "../paths.ts";
 import { checkStores } from "../check.ts";
 import { setSettingsWarnSink } from "../resolve.ts";
 import { withSchema } from "./with-schema.ts";
+import { sharedStorePath } from "../../../test/org-fixture.ts";
 
 const SNAPSHOT = { type: "object", properties: { enabled: { type: "boolean" }, debounceSec: { type: "number" } }, required: ["enabled", "debounceSec"] };
 const WORKTREES = { type: "object", properties: { onDeck: { type: "number" } } };
@@ -43,7 +44,7 @@ describe("settings/check", () => {
 
   const writeUser = (obj: unknown) => write(userSettingsPath(), obj);
   const writeMachine = (obj: unknown) => write(machineSettingsPath(), obj);
-  const writeTeam = (name: string, obj: unknown) => write(teamSettingsPath(name), obj);
+  const writeTeam = (name: string, obj: unknown) => write(sharedStorePath(name), obj);
 
   test("a global value on a repo-only key is a failing invalid finding; its repo section is fine", () => {
     const tpl = [{ path: "apps/api", project: "acme", config: "dev" }];
