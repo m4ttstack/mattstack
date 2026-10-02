@@ -115,8 +115,9 @@ background subsystems.
   `board.peerAsks` is on, each independently.
 - A dated `MigrationDef` installs `board-peer` on machines that already have
   `board-triage`, reusing its `run` prefix, when `board.peerAsks` is on.
-- The daemon reads `rt.cron` at boot only, so the trigger takes effect at
-  the next daemon restart, which the release update performs.
+- The daemon's cron layer re-reads `rt.cron` on a broadcast once its last
+  read is 30s old, so a trigger the migration writes after the daemon boots
+  arms without a restart.
 
 ### Board: `triage --peer`
 

@@ -1110,7 +1110,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         ));
 
         // Cron trigger layer (mechanism-only): sees every broadcast frame.
-        cron = startCron(loadCronConfig(log), { log });
+        cron = startCron(loadCronConfig, { log });
         eventsBus.onBroadcast((type, data) => cron.onBroadcast(type, data));
         eventsBus.onBroadcast((type, data) => {
           if (type !== "worktree:disposed") return;

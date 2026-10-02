@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { machineSettingsPath } from "../../rt-paths.ts";
 import { setSetting } from "../../settings/write.ts";
-import { parseCronConfig, loadCronConfig, startCron, type CronTrigger } from "../cron.ts";
+import { CRON_RELOAD_AFTER_MS, parseCronConfig, loadCronConfig, startCron, type CronTrigger } from "../cron.ts";
 
 const log = { info: () => {}, warn: () => {} };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -80,6 +80,110 @@ describe("loadCronConfig through the settings resolver", () => {
     expect(() => loadCronConfig({ info: () => {}, warn: (m) => warnings.push(m) })).not.toThrow();
     expect(loadCronConfig()).toEqual({ triggers: [] });
     expect(warnings.length).toBeGreaterThan(0);
+  });
+});
+
+describe("startCron with the settings loader", () => {
+  const origHome = process.env.HOME;
+  let home: string;
+  let clock: number;
+  const now = () => clock;
+  const peer = (run: string[] = ["peer"], debounceMs = 5): CronTrigger => ({ name: "board-peer", event: "peer-inbox", run, debounceMs });
+  const store = (triggers: CronTrigger[]) => setSetting("rt.cron", { triggers }, "machine");
+
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-cron-live-")));
+    process.env.HOME = home;
+    clock = 1_000_000;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("a trigger written after start fires once the reload window has passed", async () => {
+    const runs: string[][] = [];
+    const cron = startCron(loadCronConfig, { log, now, runCommand: (argv) => runs.push(argv) });
+    store([peer()]);
+
+    clock += CRON_RELOAD_AFTER_MS - 1;
+    cron.onBroadcast("peer-inbox", null);
+    await sleep(20);
+    expect(runs).toEqual([]);
+
+    clock += 1;
+    cron.onBroadcast("peer-inbox", null);
+    await sleep(20);
+    expect(runs).toEqual([["peer"]]);
+    cron.dispose();
+  });
+
+  test("a removed trigger stops firing and its pending run is dropped", async () => {
+    store([peer(["peer"], 30)]);
+    const runs: string[][] = [];
+    const cron = startCron(loadCronConfig, { log, now, runCommand: (argv) => runs.push(argv) });
+
+    cron.onBroadcast("peer-inbox", null);
+    store([]);
+    clock += CRON_RELOAD_AFTER_MS;
+    cron.onBroadcast("project-mrs", null);
+    await sleep(60);
+    expect(runs).toEqual([]);
+
+    cron.onBroadcast("peer-inbox", null);
+    await sleep(60);
+    expect(runs).toEqual([]);
+    cron.dispose();
+  });
+
+  test("a pending run survives a reload and runs the trigger as reloaded", async () => {
+    store([peer(["old"], 30)]);
+    const runs: string[][] = [];
+    const cron = startCron(loadCronConfig, { log, now, runCommand: (argv) => runs.push(argv) });
+
+    cron.onBroadcast("peer-inbox", null);
+    store([peer(["new"], 30)]);
+    clock += CRON_RELOAD_AFTER_MS;
+    cron.onBroadcast("project-mrs", null);
+    await sleep(60);
+    expect(runs).toEqual([["new"]]);
+    cron.dispose();
+  });
+
+  test("the armed line logs only when the armed set changes", () => {
+    store([peer()]);
+    const infos: string[] = [];
+    const cron = startCron(loadCronConfig, { log: { info: (m) => infos.push(m), warn: () => {} }, now, runCommand: () => {} });
+    for (let i = 0; i < 3; i++) {
+      clock += CRON_RELOAD_AFTER_MS;
+      cron.onBroadcast("project-mrs", null);
+    }
+    expect(infos.filter((m) => m.includes("armed"))).toEqual(["cron: 1 trigger(s) armed"]);
+
+    store([peer(), { name: "board-triage", event: "project-mrs", run: ["triage"] }]);
+    clock += CRON_RELOAD_AFTER_MS;
+    cron.onBroadcast("project-mrs", null);
+    expect(infos.filter((m) => m.includes("armed"))).toEqual(["cron: 1 trigger(s) armed", "cron: 2 trigger(s) armed"]);
+    cron.dispose();
+  });
+
+  test("an invalid setting warns once per distinct message across reloads", () => {
+    mkdirSync(dirname(machineSettingsPath()), { recursive: true });
+    writeFileSync(machineSettingsPath(), JSON.stringify({ "rt.cron": { triggers: [{ name: "t" }] } }));
+    const warnings: string[] = [];
+    const cron = startCron(loadCronConfig, { log: { info: () => {}, warn: (m) => warnings.push(m) }, now, runCommand: () => {} });
+    for (let i = 0; i < 3; i++) {
+      clock += CRON_RELOAD_AFTER_MS;
+      cron.onBroadcast("project-mrs", null);
+    }
+    expect(warnings).toHaveLength(1);
+
+    writeFileSync(machineSettingsPath(), JSON.stringify({ "rt.cron": { triggers: [{ name: "t", event: "e" }] } }));
+    clock += CRON_RELOAD_AFTER_MS;
+    cron.onBroadcast("project-mrs", null);
+    expect(warnings).toHaveLength(2);
+    cron.dispose();
   });
 });
 

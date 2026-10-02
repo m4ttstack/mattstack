@@ -84,23 +84,74 @@ function defaultRunCommand(argv: string[], trigger: CronTrigger, log: CronLog): 
   }
 }
 
+/** A loader is re-read on a broadcast once the last read is older than this, so
+    a trigger written after boot (a setup migration) arms without a restart. */
+export const CRON_RELOAD_AFTER_MS = 30_000;
+
+export type CronLoader = (log: CronLog) => CronConfig;
+
 export function startCron(
-  config: CronConfig,
-  opts: { log: CronLog; runCommand?: (argv: string[], trigger: CronTrigger) => void },
+  source: CronConfig | CronLoader,
+  opts: {
+    log: CronLog;
+    runCommand?: (argv: string[], trigger: CronTrigger) => void;
+    now?: () => number;
+  },
 ): { onBroadcast(type: string, data: unknown): void; dispose(): void } {
   const { log } = opts;
+  const now = opts.now ?? Date.now;
   const runCommand = opts.runCommand ?? ((argv: string[], trigger: CronTrigger) => defaultRunCommand(argv, trigger, log));
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   let disposed = false;
+  let triggers: CronTrigger[] = [];
+  let armedKey = "[]";
+  let lastWarning: string | null = null;
+  let warned = false;
+  let loadedAt = 0;
 
-  if (config.triggers.length > 0) {
-    log.info(`cron: ${config.triggers.length} trigger(s) armed`);
+  // A reload repeats the same invalid value every 30s, so a warning prints
+  // once until the message changes or a clean load clears it.
+  const loadLog: CronLog = {
+    info: (msg) => log.info(msg),
+    warn: (msg) => {
+      warned = true;
+      if (msg === lastWarning) return;
+      lastWarning = msg;
+      log.warn(msg);
+    },
+  };
+
+  function arm(config: CronConfig): void {
+    triggers = config.triggers;
+    const key = JSON.stringify(triggers);
+    if (key !== armedKey) {
+      armedKey = key;
+      log.info(`cron: ${triggers.length} trigger(s) armed`);
+    }
+    const names = new Set(triggers.map((t) => t.name));
+    for (const [name, timer] of timers) {
+      if (names.has(name)) continue;
+      clearTimeout(timer);
+      timers.delete(name);
+    }
   }
+
+  function load(): void {
+    if (typeof source !== "function") return arm(source);
+    warned = false;
+    const config = source(loadLog);
+    if (!warned) lastWarning = null;
+    loadedAt = now();
+    arm(config);
+  }
+
+  load();
 
   return {
     onBroadcast(type: string, data: unknown): void {
       if (disposed) return;
-      for (const trigger of config.triggers) {
+      if (typeof source === "function" && now() - loadedAt >= CRON_RELOAD_AFTER_MS) load();
+      for (const trigger of triggers) {
         if (trigger.event !== type) continue;
         if (trigger.repoName !== undefined && (data as { repoName?: unknown } | null)?.repoName !== trigger.repoName) continue;
         const prior = timers.get(trigger.name);
@@ -109,7 +160,8 @@ export function startCron(
           trigger.name,
           setTimeout(() => {
             timers.delete(trigger.name);
-            runCommand(trigger.run, trigger);
+            const current = triggers.find((t) => t.name === trigger.name);
+            if (current) runCommand(current.run, current);
           }, trigger.debounceMs ?? DEFAULT_DEBOUNCE_MS),
         );
       }
