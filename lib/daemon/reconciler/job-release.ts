@@ -32,14 +32,18 @@ export function herdJobTreeHold(store: Pick<HerdStore, "get" | "jobs">, rec: Tre
   // on the branch the tree carries rather than on recency.
   const path = canon(rec.path);
   const atPath = store.jobs(herdId).filter((j) => canon(j.worktree) === path);
-  let jobs = atPath.filter((j) => j.branch === null || j.branch === rec.branch);
-  // No row carries the branch when the agent moved to a follow-up branch in
-  // its own tree. Its job is the one spawned on this claim; a row from an
-  // earlier claim of the slot predates claimedAt, and a spawn still in flight
-  // has no row at all, so both keep the herd-wide hold.
-  if (jobs.length === 0) {
-    const claimed = rec.claimedAt ? Date.parse(rec.claimedAt) : NaN;
-    jobs = Number.isNaN(claimed) ? atPath : atPath.filter((j) => j.createdAt >= claimed);
+  const onBranch = atPath.filter((j) => j.branch === rec.branch);
+  // The agent may have moved to a follow-up branch in its own tree, so the
+  // jobs spawned on this claim count too, whatever branch their row carries
+  // (a `--dir` job's is null). A row from an earlier claim of the slot
+  // predates claimedAt, and a spawn still in flight has no row at all, so
+  // both leave the herd-wide hold.
+  const claimed = rec.claimedAt ? Date.parse(rec.claimedAt) : NaN;
+  let jobs: typeof atPath;
+  if (!Number.isNaN(claimed)) {
+    jobs = atPath.filter((j) => onBranch.includes(j) || j.createdAt >= claimed);
+  } else {
+    jobs = onBranch.length > 0 ? atPath.filter((j) => onBranch.includes(j) || j.branch === null) : atPath;
   }
   if (jobs.length === 0) return `herd ${herdId} is active`;
   const live = jobs.find((j) => !ENDED_JOB_STATUSES.has(j.status));

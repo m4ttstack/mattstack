@@ -89,6 +89,16 @@ describe("herdJobTreeHold", () => {
       expect(herdJobTreeHold(s, followUp())).toBe("herd h1 is active");
     });
 
+    test("an ended --dir job on the tree does not release it while the worker spawned on this claim is live", () => {
+      const s = store([herd("h1", "active")], [
+        { ...job("h1", "reviewer", "closed", 9, TREE, null), createdAt: claimedMs + 5000 },
+        { ...job("h1", "rt-175", "active", 9), createdAt: claimedMs + 1000 },
+      ]);
+      expect(herdJobTreeHold(s, followUp())).toBe("herd job h1/rt-175 is active");
+      const noClaim = { ...followUp(), claimedAt: undefined };
+      expect(herdJobTreeHold(s, noClaim)).toBe("herd job h1/rt-175 is active");
+    });
+
     test("without a claim time, judges every job that used the path", () => {
       const s = store([herd("h1", "active")], [job("h1", "rt-175", "closed", 9)]);
       expect(herdJobTreeHold(s, { ...rec("herd:h1"), branch: "rt-175-part-2" })).toBeNull();
