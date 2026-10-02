@@ -23,6 +23,8 @@ import { latchGateway } from '../src/latch/gateway.ts';
 import { packForLaunch, resolveLaunchSkill } from '../src/manifest-bindings.ts';
 import { makeSwitchboardClient } from '../src/peer/client.ts';
 import { makeEnvelope } from '../src/peer/envelope.ts';
+import { runPeerTick } from '../src/peer/inbox.ts';
+import { boardMaterializeDeps } from '../src/peer/materialize-deps.ts';
 import { markNudgeHandled, readNudges } from '../src/peer/nudges.ts';
 import { drainOutbox, enqueueOutbox } from '../src/peer/outbox.ts';
 import { readRespondStates } from '../src/respond-state.ts';
@@ -39,7 +41,11 @@ import {
 } from '../src/review-state.ts';
 import { createBoardAttendants } from '../src/triage/attendant.ts';
 import { appendAudit } from '../src/triage/audit.ts';
-import { loadReReviewConfig, loadTriageConfig } from '../src/triage/config.ts';
+import {
+  loadPeerAsksConfig,
+  loadReReviewConfig,
+  loadTriageConfig,
+} from '../src/triage/config.ts';
 import type { OwnMrFacts } from '../src/triage/edge.ts';
 import { runLatchPass, type LatchMrFacts } from '../src/triage/latch.ts';
 import {
@@ -50,6 +56,7 @@ import {
 } from '../src/triage/memory-store.ts';
 import { boardMrLink, notifyEscalation } from '../src/triage/notify.ts';
 import { runNudgePass } from '../src/triage/nudge.ts';
+import { claimCronWaiting, triageShouldRun } from '../src/triage/peer-pass.ts';
 import { collectProjectPRs } from '../src/triage/projects.ts';
 import {
   numericPipelineId,
@@ -58,17 +65,30 @@ import {
 } from '../src/triage/run.ts';
 import { triageOwns } from '../src/triage/seat.ts';
 
-// Fully disabled is the common cron-invoked case: decide it BEFORE taking the
-// lock, because process.exit() skips finally blocks and would strand the lock
-// file. Two switches: board.triage gates the doctor/nudge sweeps, board.reReview
-// gates the latch pass, and either one alone is reason to run.
+// Decide whether to run BEFORE taking the lock, because process.exit() skips
+// finally blocks and would strand the lock file. Three switches: board.triage
+// gates the doctor sweep, board.reReview the latch pass, board.peerAsks the
+// automatic nudge pass. A full run needs any one of them; --peer (the
+// board-peer cron trigger) needs board.peerAsks.
+const peerMode = process.argv.includes('--peer');
 const triage = loadTriageConfig();
 const reReview = loadReReviewConfig();
-if (!triage.enabled && !reReview.enabled) process.exit(0);
+const peerAsks = loadPeerAsksConfig();
+if (
+  !triageShouldRun(peerMode, {
+    triage: triage.enabled,
+    reReview: reReview.enabled,
+    peerAsks: peerAsks.enabled,
+  })
+)
+  process.exit(0);
 
-// One run at a time: cron debounces, but a slow run + a fresh trigger must
-// not interleave dispatches. A stale claim (crashed run) is reclaimed.
-const lockToken = tryClaimCron(Date.now());
+// One run at a time: a slow run plus a fresh trigger must not interleave
+// dispatches. A stale claim (crashed run) is reclaimed. A peer pass waits for
+// a held claim; a full pass yields to it.
+const lockToken = peerMode
+  ? await claimCronWaiting({ tryClaim: tryClaimCron })
+  : tryClaimCron(Date.now());
 if (lockToken === false) {
   process.exit(0);
 }
@@ -190,32 +210,34 @@ try {
       }));
   };
 
-  const result = await runTriage({
-    triage,
-    doctorCwd: boardConfig.doctorCwd || boardConfig.reviewCwd,
-    doctorsWorkspace: boardConfig.doctorsWorkspace,
-    ...loadAgentSettings(),
-    repoForMr: repoForMrUrl,
-    // Same resolved identity fetchOwnMrs just filtered by (MAT-351 re-check).
-    identity: username,
-    fetchOwnMrs,
-    readDoctorStates,
-    launchDoctor,
-    pack: launchPack ?? undefined,
-    writeDoctorState,
-    doctorFilePath: mrUrl => doctorFilePath(mrUrl),
-    appendAudit,
-    notify,
-    memory,
-    writeMemory,
-    readFreshMemory: readMemory,
-    sendPaneText,
-    now: () => Date.now(),
-    attendants: createBoardAttendants(),
-  });
-  console.log(
-    `triage: dispatched ${result.dispatched}, escalated ${result.escalated}, skipped ${result.skipped}`
-  );
+  if (!peerMode) {
+    const result = await runTriage({
+      triage,
+      doctorCwd: boardConfig.doctorCwd || boardConfig.reviewCwd,
+      doctorsWorkspace: boardConfig.doctorsWorkspace,
+      ...loadAgentSettings(),
+      repoForMr: repoForMrUrl,
+      // Same resolved identity fetchOwnMrs just filtered by (MAT-351 re-check).
+      identity: username,
+      fetchOwnMrs,
+      readDoctorStates,
+      launchDoctor,
+      pack: launchPack ?? undefined,
+      writeDoctorState,
+      doctorFilePath: mrUrl => doctorFilePath(mrUrl),
+      appendAudit,
+      notify,
+      memory,
+      writeMemory,
+      readFreshMemory: readMemory,
+      sendPaneText,
+      now: () => Date.now(),
+      attendants: createBoardAttendants(),
+    });
+    console.log(
+      `triage: dispatched ${result.dispatched}, escalated ${result.escalated}, skipped ${result.skipped}`
+    );
+  }
 
   const switchboardToken = await loadSwitchboardToken();
   if (boardConfig.switchboard.url && switchboardToken) {
@@ -223,6 +245,11 @@ try {
       boardConfig.switchboard.url,
       switchboardToken
     );
+    if (peerMode)
+      await runPeerTick(
+        client,
+        boardMaterializeDeps(line => console.error(line))
+      );
     const ownUrls = new Set((await fetchOwnMrs()).map(m => m.mrUrl));
     const nudgeResult = await runNudgePass({
       readNudges,
@@ -257,7 +284,7 @@ try {
       publishOutcome: (to, payload) =>
         enqueueOutbox(makeEnvelope(to, 'nudge-outcome', payload)),
       memory,
-      cfg: triage,
+      cfg: { ...triage, enabled: peerAsks.enabled },
       appendAudit,
       notify,
       now: () => Date.now(),
@@ -273,7 +300,7 @@ try {
   // memory, and this one runs whether or not a switchboard is configured, so
   // the persist below sits outside that block.
   const latchToken = await loadGitLabToken();
-  if (latchToken && reReview.enabled) {
+  if (!peerMode && latchToken && reReview.enabled) {
     try {
       const latchResult = await runLatchPass({
         readReviewStates,

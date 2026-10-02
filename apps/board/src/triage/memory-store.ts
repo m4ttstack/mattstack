@@ -100,7 +100,7 @@ interface CronClaim {
   at: number;
 }
 
-const CRON_CLAIM_STALE_MS = 2 * 60_000;
+export const CRON_CLAIM_STALE_MS = 2 * 60_000;
 
 /** Every read-modify-write of the triage memory row (the auto triage pass,
     and the manual /doctor launch's identity refresh) must serialize behind

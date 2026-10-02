@@ -205,20 +205,17 @@ import {
   type ReReviewRequestPayload,
   type ReviewStatePayload,
 } from './peer/envelope.ts';
-import { type MaterializeDeps } from './peer/inbox.ts';
+import { boardMaterializeDeps } from './peer/materialize-deps.ts';
 import {
   dismissSentNudge,
-  finishSentNudge,
   pendingNudgesByMr,
   pruneFinishedSentNudges,
   pruneNudges,
   pruneSentNudges,
   readNudges,
   readSentNudges,
-  resolveSentNudge,
   reviewerDisplayName,
   sentNudgeView,
-  writeNudge,
   writeSentNudge,
   type PendingNudge,
   type SentNudgeView,
@@ -234,7 +231,6 @@ import {
   attachPeerReviews,
   prunePeerReviews,
   readPeerReviews,
-  writePeerReview,
   type PeerReviewState,
 } from './peer/peer-reviews.ts';
 import {
@@ -492,16 +488,7 @@ async function fetchReconcilerView(): Promise<ReconcilerView> {
 // either, peering stays unstarted and every peer feature (publish, poll,
 // /nudge) is off, leaving the board exactly as it was. The runtime is startable
 // later at runtime too, so joining a switchboard needs no restart.
-const peerDeps: Omit<MaterializeDeps, 'reportAuth'> = {
-  writePeerReview,
-  writeNudge,
-  // Adapters: the store takes its db before the nudge id and the sender.
-  resolveSentNudge: (mrUrl, resolution, from) =>
-    resolveSentNudge(mrUrl, resolution, undefined, from),
-  finishSentNudge: (mrUrl, finish, ifSentBefore, nudgeId, from) =>
-    finishSentNudge(mrUrl, finish, ifSentBefore, undefined, nudgeId, from),
-  log: line => console.error(line),
-};
+const peerDeps = boardMaterializeDeps(line => console.error(line));
 const peering = makePeering({
   makeClient: makeSwitchboardClient,
   deps: peerDeps,
