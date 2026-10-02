@@ -9,14 +9,7 @@
 import type { Probes } from "../setup/probes.ts";
 import { UserActionableError } from "../errors.ts";
 
-export const DEFAULT_INVITE_RELAY_URL = "https://switchboard.mattstack.dev";
-
 const REQUEST_TIMEOUT_MS = 10_000;
-
-export function inviteRelayUrl(env: Record<string, string | undefined>): string {
-  const override = env.RT_INVITE_RELAY_URL;
-  return stripTrailingSlash(override && override.length > 0 ? override : DEFAULT_INVITE_RELAY_URL);
-}
 
 function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");

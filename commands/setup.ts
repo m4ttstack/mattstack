@@ -56,7 +56,8 @@ import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
 import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
 import type { Plan } from "../lib/setup/contract.ts";
-import { createRelayClient, inviteRelayUrl, type RelayClient } from "../lib/team/relay-client.ts";
+import { createRelayClient, type RelayClient } from "../lib/team/relay-client.ts";
+import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
 
 export interface SetupDeps {
@@ -173,7 +174,7 @@ export function realApplyDeps(): ApplyDeps {
   return {
     probes,
     secrets: { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
-    relay: createRelayClient(probes.fetch, inviteRelayUrl(probes.env)),
+    relay: createRelayClient(probes.fetch, switchboardUrl(probes.env)),
     json: (v) => out.json(v),
     exit: process.exit,
     isTTY: () => process.stdin.isTTY === true,

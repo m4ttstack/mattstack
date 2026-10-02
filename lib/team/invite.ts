@@ -52,7 +52,7 @@ function isSafeJoinBase(url: string): boolean {
   return parsed.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]", "::1"].includes(parsed.hostname);
 }
 
-/** Mirrors DEFAULT_INVITE_RELAY_URL/RT_INVITE_RELAY_URL in relay-client.ts: same class of value, read only by rt, and the VM harness needs to point it elsewhere without a team store. */
+/** Read only by rt, and the VM harness needs to point it elsewhere without a team store. */
 export function joinLinkBase(env: Record<string, string | undefined>): string {
   const override = env.RT_JOIN_BASE_URL;
   if (!override) return DEFAULT_JOIN_BASE_URL;

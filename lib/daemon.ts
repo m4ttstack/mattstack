@@ -40,7 +40,8 @@ import {
 import { onNotification, notifyEnabled, notifyEvent, loadNotificationPrefs } from "./notifier.ts";
 import { checkInviteReplies, INVITE_REPLIES_NS, listInviteSlugs, MEMBER_JOINED_CATEGORY } from "./daemon/invite-replies.ts";
 import { readInviteRecords } from "./team/invite-records.ts";
-import { createRelayClient, inviteRelayUrl } from "./team/relay-client.ts";
+import { createRelayClient } from "./team/relay-client.ts";
+import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import { openReply } from "./team/invite-crypto.ts";
 import { base64ToKey, isValidAgePublicKey } from "./team/members.ts";
 import { hasKvValue, setKvValueCritical } from "./state/kv-blob.ts";
@@ -946,7 +947,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           "invite-replies",
           async () => {
             const probes = createRealProbes();
-            const relay = createRelayClient(probes.fetch, inviteRelayUrl(probes.env));
+            const relay = createRelayClient(probes.fetch, switchboardUrl(probes.env));
             const db = getStateDb("daemon");
             const { notified } = await checkInviteReplies({
               slugs: () => listInviteSlugs(probes.home),

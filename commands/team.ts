@@ -42,7 +42,8 @@ import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, re
 import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, preferredRoster, teamRemote, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
-import { createRelayClient, inviteRelayUrl } from "../lib/team/relay-client.ts";
+import { createRelayClient } from "../lib/team/relay-client.ts";
+import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { daemonQuery } from "../lib/daemon-client.ts";
 import type { TeamSnapshotEntry } from "../lib/daemon/team-snapshots.ts";
@@ -340,7 +341,7 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
       }
     }
 
-    const relay = createRelayClient(deps.probes.fetch, inviteRelayUrl(deps.probes.env));
+    const relay = createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env));
     const result = await mintInvite(deps.probes, relay, { slug, handle, now: deps.probes.now(), requirePeering: args.includes("--require-peering") });
 
     if (json) {
@@ -412,7 +413,7 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
     }
 
     const code = await (deps.readCode ?? defaultReadCode)(json);
-    const relay = createRelayClient(deps.probes.fetch, inviteRelayUrl(deps.probes.env));
+    const relay = createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env));
 
     let result: JoinResult;
     if (dryRun) {
@@ -477,7 +478,7 @@ export async function teamMembersSync(args: string[], _ctx: CommandContext = {},
 
   try {
     const slug = resolveTeamSlug(args, "team members sync");
-    const relay = createRelayClient(deps.probes.fetch, inviteRelayUrl(deps.probes.env));
+    const relay = createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env));
     const secrets = createRealTeamSecretsSeams(slug);
     const result = await membersSync(deps.probes, relay, secrets, slug);
 
