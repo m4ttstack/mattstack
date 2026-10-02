@@ -32,13 +32,13 @@ Columns: guard lines / seam lines; who reads stdout; how the file leaves the lis
 
 | File | Guard / seam | Reader of its output | Leaves by | Slice |
 |---|---|---|---|---|
-| `commands/gate.ts` | 18 / 0 | agents (gate skills, `rt gate wait` in eight skills), the board | `out.json`; stderr notes and failures onto the layer, same words | 6a |
-| `commands/events.ts` | 7 / 0 | agents, the board | `out.json` | 6a |
-| `commands/mcp.ts` | 2 / 0 | Claude Code (stdio MCP), `rt mcp tools --json` readers | `out.json` plus a new `out.drain()`; tool names through `out.payload` | 6a |
-| `commands/ci.ts` | 3 / 0 | agents (CI lease) | `out.json`, `out.payload`, failures through `out.fail` | 6a |
+| `commands/gate.ts` | 18 / 0 | agents (gate skills, `rt gate wait` in eight skills), the board | `out.json`; stderr through `out.diagnostic`, same bytes | 6a |
+| `commands/events.ts` | 7 / 0 | agents, the board | `out.json`; stderr through `out.diagnostic` | 6a |
+| `commands/mcp.ts` | 2 / 0 | Claude Code (stdio MCP), `rt mcp tools --json` readers | `out.jsonFlushed`; tool names through `out.payload` | 6a |
+| `commands/ci.ts` | 3 / 0 | agents (CI lease) | `out.json`, `out.payload`, `out.diagnostic` | 6a |
 | `commands/runs-find.ts` | 1 / 0 | `plugins/mattstack/hooks/pipeline-gate-stop.sh` | `out.payload` | 6a |
 | `commands/runs-write.ts` | 1 / 0 | the pipeline skills | `out.payload` | 6a |
-| `commands/worktree-hook.ts` | 11 / 0 | Claude Code's WorktreeCreate hook reads the path on stdout; `skills/rt-worktree` reads `hook status --json` | `out.payload`, `out.json`, `warn`, `out.fail` | 6a |
+| `commands/worktree-hook.ts` | 11 / 0 | Claude Code's WorktreeCreate hook reads the path on stdout; `skills/rt-worktree` reads `hook status --json` | `claude-hook`: `out.payload` and `out.diagnostic`, same bytes; `hook install/uninstall/status` (a person runs them): blocks; two warnings through `warn` | 6a |
 | `lib/cli-logger.ts` | 1 / 0 | nobody: the crash handler's last-resort print | permanent exemption (`lib/ui/out.ts` imports this module) | 6a |
 | `lib/daemon-logger.ts` | 6 / 0 | the daemon log | permanent exemption (it is the daemon's stderr capture) | 6a |
 | `lib/daemon/inject.ts` | 1 / 0 | nobody: a regex that reads escapes in a pane capture | permanent exemption (it parses escapes, prints none) | 6a |
@@ -161,7 +161,7 @@ Each item has exactly one owner.
 | # | Item | Owner | What the others see |
 |---|---|---|---|
 | 1 | **Permanent exemptions.** A new `lib/__tests__/raw-output-exemptions.json`: `[{ "file": string, "reason": string, "lines": number }]`. The guard skips an exempt file only while its raw-line count is at most `lines`, so an exemption never grows silently, and the test fails if an exempt file is also on the allowlist. | 6a creates it and the three seam entries | 6f appends entries only under Decision 1 option A. 6k checks it holds only seams |
-| 2 | **`out.drain(): Promise<void>`** in `lib/ui/out.ts`: resolves once stdout has flushed everything written before it. `rt mcp tools --json` needs it (a roster larger than a pipe buffer). | 6a | Nobody else calls it |
+| 2 | **Two exports in `lib/ui/out.ts`.** `out.jsonFlushed(value: unknown): Promise<void>` writes a `--json` envelope exactly as `out.json` does and resolves when the write has flushed (`rt mcp tools --json` writes a roster larger than a pipe buffer and exits right after). `out.diagnostic(text: string): void` writes stderr text byte for byte, never styled: the stderr twin of `out.payload`, for the agent-only verbs the spec leaves unconverted (`gate`, `events`, `ci`, `runs`, the herd worker verbs, `worktree claude-hook`), whose stderr an agent reads as it is. A person's failure still goes through `out.fail`. | 6a | 6b calls `diagnostic` for the herd worker verbs, `pane` and `agent`; nobody else |
 | 3 | **`out.holdStdout(): () => void`** in `lib/ui/out.ts` (Decision 1 option B only): until the returned release runs, writes to stdout go to stderr; the release restores stdout and returns nothing. It replaces the hand-rolled `process.stdout.write` swaps in `cd.ts` and `nav.ts`. | 6f | Nobody else calls it |
 | 4 | **Lib warnings.** 5a's warnings table already decided every phase 6 row (5a plan, "The warnings table", rows 1 to 5 and 24 to 39, marked P6). Rows 46 to 52 below are the ones 5a did not see. Each slice applies its rows. | 6d, 6e, 6a, 6f | |
 | 5 | **The "not ours" phrase** (section 2). | 6g, 6h at their own sites | |
@@ -187,7 +187,7 @@ Eleven slices. Every slice also touches the shared files of cross-phase ruling 7
 
 | Slice | Name | Owns | Allowlist lines | Est. size |
 |---|---|---|---|---|
-| 6a | agent-only | `commands/gate.ts`, `events.ts`, `mcp.ts`, `ci.ts`, `runs-find.ts`, `runs-write.ts`, `worktree-hook.ts`; `lib/cli-logger.ts`, `lib/daemon-logger.ts`, `lib/daemon/inject.ts`; `lib/__tests__/no-raw-output.test.ts`; new `lib/__tests__/raw-output-exemptions.json`; `out.drain` in `lib/ui/out.ts` | 10 | 1,300 |
+| 6a | agent-only | `commands/gate.ts`, `events.ts`, `mcp.ts`, `ci.ts`, `runs-find.ts`, `runs-write.ts`, `worktree-hook.ts`; `lib/cli-logger.ts`, `lib/daemon-logger.ts`, `lib/daemon/inject.ts`; `lib/__tests__/no-raw-output.test.ts`; new `lib/__tests__/raw-output-exemptions.json`; `out.jsonFlushed` and `out.diagnostic` in `lib/ui/out.ts` | 10 | 1,300 |
 | 6b | herd-pane-agent | `commands/herd.ts`, `pane.ts`, `agent.ts` | 3 | 1,400 |
 | 6c | daemon | `commands/daemon.ts` | 1 | 2,100 |
 | 6d | services | `commands/services.ts`, `apps.ts`, `flavor.ts`, `bg.ts`, `cron.ts`, `reconciler.ts`, `endpoint.ts`, `post-install.ts`; `lib/endpoint/config.ts`, `lib/endpoint/run.ts` | 9 | 1,700 |
@@ -201,12 +201,12 @@ Eleven slices. Every slice also touches the shared files of cross-phase ruling 7
 
 No slice passes 2,500 lines. 6c is the largest; its plan names a second cut (`status`/`track` first, the lifecycle verbs and `logs` second).
 
-**Must not touch (every slice):** a file another slice owns; `ui/**` (6i's alone); `lib/ui/**` except the one export a slice is named for in section 3 (6a `drain`, 6f `holdStdout`, 6i `spawn.ts`); `lib/ui/__tests__/capture-out.ts`.
+**Must not touch (every slice):** a file another slice owns; `ui/**` (6i's alone); `lib/ui/**` except the exports a slice is named for in section 3 (6a `jsonFlushed` and `diagnostic`, 6f `holdStdout`, 6i `spawn.ts`); `lib/ui/__tests__/capture-out.ts`.
 
 ## 5. Order and parallelism
 
 - **6a lands first.** It creates the exemption file (6f's option A appends to it) and the shape of the agent-verb conversion 6b copies. Nothing else waits on it for code.
-- **6b to 6j run in parallel** once 6a's plan is approved. They share no source file. Two of them append one export each to `lib/ui/out.ts` (6a `drain`, 6f `holdStdout`): whoever merges second rebases by hand, as with the allowlist.
+- **6b to 6j run in parallel** once 6a's plan is approved. They share no source file. Two of them append exports to `lib/ui/out.ts` (6a `jsonFlushed` and `diagnostic`, 6f `holdStdout`): whoever merges second rebases by hand, as with the allowlist. 6b calls `out.diagnostic`, so its tasks that do wait for 6a on main.
 - **6f waits for Matt's answer to Decision 1** before Task 2. Its Task 1 stops if the answer is not in its plan's ledger.
 - **6g's Task for `tag push` waits for Matt's answer to Decision 2.** Every other 6g task can run.
 - **6k runs last,** after every other slice is on main. Its first task stops unless the allowlist is empty on `origin/main`.
