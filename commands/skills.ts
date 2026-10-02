@@ -26,7 +26,7 @@
  */
 
 import { execFileSync, spawnSync } from "child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { applyEdits, modify } from "jsonc-parser";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
@@ -45,7 +45,7 @@ import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsi
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
-import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
+import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
@@ -1903,19 +1903,6 @@ const REAL_DISCARD_IO: DiscardIo = {
   sharedCheckout: () => resolveSharedCheckout(homedir()),
 };
 
-/** git clean leaves behind the directories it empties; climb from each removed file toward the pack, stopping at the first that still holds anything. */
-function pruneEmptiedDirs(packDir: string, removed: PendingFile[]): void {
-  for (const f of removed) {
-    for (let dir = dirname(join(packDir, f.path)); dir.startsWith(`${packDir}${sep}`); dir = dirname(dir)) {
-      try {
-        rmdirSync(dir);
-      } catch {
-        break;
-      }
-    }
-  }
-}
-
 /**
  * Every path, tracked or not, is one the pending read listed, named to git
  * literally: tracked files are restored, both sides of a rename included, and
@@ -1941,7 +1928,7 @@ async function discardPending(packDir: string, team: string, pending: PendingFil
     if (doomed.length > 0) {
       const res = await runGit(packDir, ["clean", "-f", "--", ...literalPathspecs(doomed)], { timeoutMs: GIT_WRITE_TIMEOUT_MS });
       if (res.exitCode !== 0) throw fail(res);
-      pruneEmptiedDirs(packDir, doomed);
+      pruneEmptiedDirs(packDir, doomed.map((f) => f.path));
       discarded.push(...doomed);
     }
   }

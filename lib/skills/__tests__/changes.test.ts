@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { bindingChanges, describeGitFailure, fullyInScope, inScope, isNotARepo, literalPathspecs, needsStaging, outOfScopeSides, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, parsePorcelainEntries, pendingSignature, surfaceChanges, touchesPack, withHashes, type HashedFile } from "../changes.ts";
+import { bindingChanges, describeGitFailure, fullyInScope, inScope, isNotARepo, literalPathspecs, needsStaging, outOfScopeSides, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, surfaceChanges, touchesPack, withHashes, type HashedFile } from "../changes.ts";
 
 describe("parsePorcelain", () => {
   test("reads status and path, including renames and untracked", () => {
@@ -339,5 +339,21 @@ describe("packSideChanges", () => {
         { skill: "work", from: "internal", to: "public" },
       ],
     });
+  });
+});
+
+describe("pruneEmptiedDirs", () => {
+  test("removes the folders a removed file emptied, stopping at one that still holds anything and never the pack itself", () => {
+    const pack = realpathSync(mkdtempSync(join(tmpdir(), "rt-changes-prune-")));
+    mkdirSync(join(pack, "attachments", "x", "parts"), { recursive: true });
+    put(pack, "attachments/keep.md", "keep\n");
+    mkdirSync(join(pack, "skills", "y"), { recursive: true });
+
+    pruneEmptiedDirs(pack, ["attachments/x/parts/gone.md", "skills/y/gone.md"]);
+
+    expect(existsSync(join(pack, "attachments", "x"))).toBe(false);
+    expect(existsSync(join(pack, "attachments", "keep.md"))).toBe(true);
+    expect(existsSync(join(pack, "skills"))).toBe(false);
+    expect(existsSync(pack)).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
-import { existsSync, lstatSync, readFileSync, readlinkSync } from "fs";
+import { existsSync, lstatSync, readFileSync, readlinkSync, rmdirSync } from "fs";
 import { parse as parseJsonc } from "jsonc-parser";
-import { join, posix, relative } from "path";
+import { dirname, join, posix, relative, sep } from "path";
 import { surfaceFileFor } from "./packs.ts";
 
 export const PACK_SCOPE = ["pack", "skills", "attachments", ".claude-plugin", "surface.jsonc"] as const;
@@ -117,6 +117,19 @@ export function touchesPack(f: PendingFile): boolean {
 
 export function fullyInScope(f: PendingFile): boolean {
   return outOfScopeSides(f).length === 0;
+}
+
+/** Removing files leaves their folders behind; climb from each pack-relative path toward the pack, stopping at the first folder that still holds anything. */
+export function pruneEmptiedDirs(packDir: string, paths: string[]): void {
+  for (const path of paths) {
+    for (let dir = dirname(join(packDir, path)); dir.startsWith(`${packDir}${sep}`); dir = dirname(dir)) {
+      try {
+        rmdirSync(dir);
+      } catch {
+        break;
+      }
+    }
+  }
 }
 
 export function literalPathspecs(files: PendingFile[]): string[] {
