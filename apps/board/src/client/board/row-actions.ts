@@ -157,10 +157,12 @@ const block = (
   reason: string | null | false | undefined
 ): Partial<RowAction> => (reason ? { blocked: reason } : {});
 
-/** Every action this MR offers, in menu order, each in one section. Who is
-    looking (local board, own MR, seat, Slack on) decides whether a row
-    exists; the MR's own state only blocks it, with a reason, so no action
-    can vanish because of a wrong guess about state. */
+/** Every action this MR offers, in menu order, each in one section. A row
+    is omitted for who is looking (local board, own MR, seat, Slack on, an
+    opted-in repo) and in three state cases only: call doctor on a healthy
+    MR, rebase locally on a current one, and another author's response
+    report or respond/doctor line while there is nothing to show. Every
+    other state blocks the row with a reason instead of removing it. */
 export function rowActions(
   mrx: BoardMRWithReview,
   env: ActionEnv
@@ -333,7 +335,7 @@ export function rowActions(
     for (const lane of ['review', 'respond', 'doctor'] as const) {
       const state = mrx[lane];
       const live = state?.status === 'error' && !laneDismissed(state);
-      // A lane line that is live stays dismissable on any MR, own or not.
+      // A live error line must never lose its dismiss, whoever owns the MR.
       if (lane !== 'review' && !own && !live) continue;
       sessions.push(
         item(
@@ -757,6 +759,13 @@ function mergeBlock(checked: BoardMR[], allMrs: BoardMR[]): string | undefined {
   return undefined;
 }
 
+/** An unknown behind count leaves the row's rebase enabled, but a bulk
+    rebase only targets an MR GitLab or the behind count says is behind;
+    the rest count as already there. */
+function rebaseNeeded(mr: BoardMR): boolean {
+  return mr.rebaseButton.visible || (mr.behindTarget ?? 0) > 0;
+}
+
 /** The bulk menu: an action shows when every checked MR either offers it
     (a target) or is already where it leads (skipped); one checked MR that
     cannot get there hides it. Eligibility comes only from rowActions; what
@@ -768,7 +777,9 @@ export function bulkActions(
 ): BulkEntry[] {
   if (!env.local) return [];
   const rows = mrs.map(mr => {
-    const actions = rowActions(mr, env).filter(a => !a.blocked);
+    const actions = rowActions(mr, env).filter(
+      a => !a.blocked && (a.key !== 'rebase' || rebaseNeeded(mr))
+    );
     return {
       mr,
       actions,

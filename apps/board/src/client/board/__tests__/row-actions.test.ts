@@ -404,6 +404,15 @@ test('an action acts on the MRs that need it and skips the ones already there', 
   ]);
 });
 
+test('bulk rebase skips an MR whose behind count is unknown', () => {
+  const behind = mrx(301, { behindTarget: 2 });
+  const unknown = mrx(302, { behindTarget: null });
+  const rebase = bulkActions([behind, unknown], env3([behind, unknown])).find(
+    e => e.key === 'rebase'
+  );
+  expect(rebase?.targets.map(t => t.iid)).toEqual([301]);
+});
+
 test('one checked MR that cannot take an action hides it', () => {
   const keys = bulkActions([a, b, c], env3([a, b, c])).map(e => e.key);
   for (const k of ['merge', 'request-review', 'mark-ready', 'mark-draft'])
