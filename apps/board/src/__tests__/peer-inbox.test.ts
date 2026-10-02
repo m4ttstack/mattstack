@@ -255,6 +255,7 @@ describe('materializeEnvelope', () => {
           from: 'ada',
           note: 'please re-check the migration',
           receivedAt: 777,
+          materializedAt: 1000,
         },
       ]);
       expect(deps.resolutions).toEqual([]);
@@ -293,6 +294,7 @@ describe('materializeEnvelope', () => {
           from: 'ada',
           note: 'fresh eyes please',
           receivedAt: 888,
+          materializedAt: 1000,
           kind: 'review',
         },
       ]);
@@ -332,6 +334,7 @@ describe('materializeEnvelope', () => {
           from: 'jo',
           note: undefined,
           receivedAt: 900,
+          materializedAt: 1000,
           kind: 'respond',
         },
       ]);
@@ -498,6 +501,44 @@ describe('materializeEnvelope', () => {
       expect(deps.resolutions.length).toBe(1);
       const at = deps.resolutions[0]!.resolution.at;
       expect(at >= before && at <= after).toBe(true);
+    });
+  });
+
+  describe('ask echo', () => {
+    test('a finishing review-state passes its nudgeId to finish', () => {
+      const deps = fakeDeps();
+      materializeEnvelope(
+        envelope({
+          payload: { mrUrl: URL_A, iid: 4821, status: 'done', outcome: 'comment', updatedAt: 500, nudgeId: 'ask-1' },
+        }),
+        deps,
+        1000
+      );
+      expect(deps.finishes[0]?.nudgeId).toBe('ask-1');
+    });
+
+    test('a review-state with no nudgeId still finishes on the updatedAt guard', () => {
+      const deps = fakeDeps();
+      materializeEnvelope(
+        envelope({ payload: { mrUrl: URL_A, iid: 4821, status: 'done', updatedAt: 500 } }),
+        deps,
+        1000
+      );
+      expect(deps.finishes[0]).toEqual({
+        mrUrl: URL_A,
+        finish: { result: 'done', at: 1000 },
+        ifSentBefore: 500,
+      });
+    });
+
+    test('an inbound ask records when this board materialized it', () => {
+      const deps = fakeDeps();
+      materializeEnvelope(
+        envelope({ id: 'env-9', type: 're-review-request', payload: { mrUrl: URL_A, iid: 4821 } }),
+        deps,
+        1234
+      );
+      expect(deps.nudges[0]?.materializedAt).toBe(1234);
     });
   });
 });

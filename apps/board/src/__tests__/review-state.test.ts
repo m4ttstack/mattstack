@@ -223,3 +223,35 @@ describe('attachReviews', () => {
     expect(b!.review).toBeUndefined();
   });
 });
+
+describe('writeReviewState runStartedAt', () => {
+  test('the first launch write stamps the run start', () => {
+    const p = reviewFilePath(URL_A);
+    writeReviewState(p, { mrUrl: URL_A, iid: 4821, status: 'queued' }, 1000, db);
+    expect(readReviewStates(db).get(URL_A)?.runStartedAt).toBe(1000);
+  });
+
+  test('moving on within a run keeps the stamp', () => {
+    const p = reviewFilePath(URL_A);
+    writeReviewState(p, { mrUrl: URL_A, iid: 4821, status: 'queued' }, 1000, db);
+    writeReviewState(p, { status: 'reviewing' }, 2000, db);
+    writeReviewState(p, { status: 'done', outcome: 'comment' }, 3000, db);
+    expect(readReviewStates(db).get(URL_A)?.runStartedAt).toBe(1000);
+  });
+
+  test('a relaunch after the run finished stamps a new start', () => {
+    const p = reviewFilePath(URL_A);
+    writeReviewState(p, { mrUrl: URL_A, iid: 4821, status: 'queued' }, 1000, db);
+    writeReviewState(p, { status: 'done' }, 2000, db);
+    writeReviewState(p, { status: 'reviewing' }, 3000, db);
+    expect(readReviewStates(db).get(URL_A)?.runStartedAt).toBe(3000);
+  });
+
+  test('a relaunch after an error stamps a new start', () => {
+    const p = reviewFilePath(URL_A);
+    writeReviewState(p, { mrUrl: URL_A, iid: 4821, status: 'queued' }, 1000, db);
+    writeReviewState(p, { status: 'error' }, 2000, db);
+    writeReviewState(p, { status: 'queued' }, 3000, db);
+    expect(readReviewStates(db).get(URL_A)?.runStartedAt).toBe(3000);
+  });
+});

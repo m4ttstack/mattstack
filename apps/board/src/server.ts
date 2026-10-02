@@ -205,6 +205,7 @@ import {
   type ReReviewRequestPayload,
   type ReviewStatePayload,
 } from './peer/envelope.ts';
+import { askIdForRun } from './peer/ask-echo.ts';
 import { boardMaterializeDeps } from './peer/materialize-deps.ts';
 import {
   dismissSentNudge,
@@ -4034,6 +4035,12 @@ async function handleAgentSignal(
       canonicalUsername(authorUsername) !==
         canonicalUsername(config.defaultMember)
     ) {
+      const askId = askIdForRun(
+        readNudges(),
+        signal.mrUrl,
+        authorUsername,
+        readReviewStates().get(signal.mrUrl)?.runStartedAt
+      );
       enqueueOutbox(
         makeEnvelope(authorUsername, 'review-state', {
           mrUrl: signal.mrUrl,
@@ -4041,6 +4048,7 @@ async function handleAgentSignal(
           status: signal.status,
           outcome: signal.outcome,
           updatedAt: emittedAt,
+          ...(askId ? { nudgeId: askId } : {}),
         } satisfies ReviewStatePayload)
       );
       kickOutbox(pc);
