@@ -422,8 +422,9 @@ function inputContent(
   };
 }
 
-/** A skill another app owns has no file of its own here, so a slot row and
-    its card both open the fill this pack binds into that slot. */
+/** A skill another app owns: a slot row opens the skill's installed file,
+    where it declares the slot, and a card opens the fill this pack binds
+    into it. A row opens the fill too when the app installed no file. */
 function appFillContent(
   target: DrawerTarget,
   view: TemplateView,
@@ -436,7 +437,27 @@ function appFillContent(
         view.inputs.some(c => c.id === target.id && c.rowId === r.id)
   );
   const card = row && view.inputs.find(c => c.rowId === row.id);
-  if (!card?.path || row?.kind !== 'placeholder' || !row.boundTo) return null;
+  if (row?.kind !== 'placeholder' || !row.boundTo) return null;
+  if (target.kind === 'row' && view.skillFile) {
+    return {
+      filePath: view.skillFile,
+      fileLabel: fileLabelOf(view.skillFile),
+      badge: null,
+      meta: `${view.app} app · installed skill, read only`,
+      canToggle: false,
+      view: 'template',
+      chip: null,
+      dot: null,
+      sentence: `${view.skill} declares its ${row.name} slot here and reads it when it runs; ${pack} fills it with ${row.boundTo}.`,
+      highlight: NO_HIGHLIGHT,
+      bands: [],
+      tabs: ['text'],
+      slot: null,
+      usedBy: null,
+      error: null,
+    };
+  }
+  if (!card?.path) return null;
   const plugin = pluginOf(row.boundTo);
   const own = plugin === pack;
   return {

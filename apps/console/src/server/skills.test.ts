@@ -2149,6 +2149,101 @@ describe('skills source route', () => {
       `/api/skills/source?pack=${pack}&path=${encodeURIComponent(path)}`
     );
 
+  const boardRt = () =>
+    fakeRtHandler(argv =>
+      argv[1] === 'composition'
+        ? {
+            code: 0,
+            stdout: JSON.stringify({
+              ...compositionOf('/packs/acme'),
+              binders: [
+                {
+                  ref: 'board:review',
+                  verb: null,
+                  kind: 'external',
+                  slots: [],
+                },
+                {
+                  ref: 'mattstack:work',
+                  verb: 'work',
+                  kind: 'verb',
+                  slots: [],
+                },
+              ],
+            }),
+            stderr: '',
+          }
+        : { code: 1, stdout: '', stderr: '' }
+    );
+  const boardFiles: Record<string, string> = {
+    '/repo/apps/board/skills/review/SKILL.md': 'the board review wrapper',
+    '/claude/skills/other/SKILL.md': 'an unrelated installed skill',
+  };
+  const boardRead: ReadPackFile = async p =>
+    p in boardFiles ? boardFiles[p]! : read(p);
+  const boardLinks = linking({
+    '/claude/skills/board:review': '/repo/apps/board/skills/review',
+    '/claude/skills/board:review/SKILL.md':
+      '/repo/apps/board/skills/review/SKILL.md',
+  });
+
+  it('serves the installed skill of an app the pack fills, through its link', async () => {
+    const app = mountSkills(
+      new Hono(),
+      boardRt().run,
+      noGit(),
+      boardRead,
+      boardLinks,
+      () => '/claude/skills'
+    );
+
+    const res = await getSource(app, '/claude/skills/board:review/SKILL.md');
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      content: 'the board review wrapper',
+    });
+  });
+
+  it('serves no other installed skill', async () => {
+    const app = mountSkills(
+      new Hono(),
+      boardRt().run,
+      noGit(),
+      boardRead,
+      boardLinks,
+      () => '/claude/skills'
+    );
+
+    expect((await getSource(app, '/claude/skills/other/SKILL.md')).status).toBe(
+      404
+    );
+  });
+
+  it('names the installed skill file of each app skill the pack fills', async () => {
+    const app = mountSkills(
+      new Hono(),
+      boardRt().run,
+      noGit(),
+      boardRead,
+      boardLinks,
+      () => '/claude/skills'
+    );
+
+    const res = await app.request('/api/skills/composition?pack=acme');
+    const body = (await res.json()) as {
+      binders: { ref: string; skillFile?: string | null }[];
+    };
+
+    expect(body.binders).toEqual([
+      expect.objectContaining({
+        ref: 'board:review',
+        skillFile: '/claude/skills/board:review/SKILL.md',
+      }),
+      expect.not.objectContaining({ skillFile: expect.anything() }),
+    ]);
+  });
+
   it('serves a markdown file under the pack', async () => {
     const app = mountSkills(
       new Hono(),

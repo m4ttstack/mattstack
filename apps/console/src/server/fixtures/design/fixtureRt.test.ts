@@ -18,6 +18,15 @@ import packs from './packs.json';
 import { scenarioOf, SCENARIOS } from './scenarios';
 import sync from './sync.json';
 
+/** What the composition route answers for the fixture: rt's payload, with
+    the installed skill file it adds to each app binder (none here). */
+const served = {
+  ...composition,
+  binders: composition.binders.map(binder =>
+    binder.kind === 'external' ? { ...binder, skillFile: null } : binder
+  ),
+};
+
 const pack = (verb: string, ...rest: string[]) => [
   'skills',
   verb,
@@ -436,7 +445,7 @@ describe('the skills routes on the fixture', () => {
     const app = mount('clean');
     const res = await app.request('/api/skills/composition?pack=acme');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(composition);
+    expect(await res.json()).toEqual(served);
     const anatomy = await app.request(
       '/api/skills/anatomy?pack=acme&skill=stage-plan'
     );
@@ -516,7 +525,7 @@ describe('server wiring', () => {
   it('answers from the fixture with CONSOLE_FIXTURE=design', async () => {
     const { routes, live } = await routesWith('design');
     const res = await routes.request('/api/skills/composition?pack=acme');
-    expect(await res.json()).toEqual(composition);
+    expect(await res.json()).toEqual(served);
     expect(live).not.toHaveBeenCalled();
   });
 });
