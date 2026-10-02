@@ -510,6 +510,24 @@ describe('canvas errors', () => {
     expect(screen.queryByTestId('canvas-error')).toBeNull();
   });
 
+  it('puts the command rt suggests on its own line, as code', async () => {
+    serve();
+    anatomyGet.mockResolvedValueOnce(
+      failed(
+        'The acme pack has no skill called board:doctor\n  next: rt skills surface list --pack acme'
+      )
+    );
+    renderAt('?tab=graph&focus=stage-plan');
+
+    const error = await screen.findByTestId('canvas-error');
+    expect(within(error).getByTestId('canvas-error-message')).toHaveTextContent(
+      /^The acme pack has no skill called board:doctor$/
+    );
+    expect(within(error).getByTestId('canvas-error-next')).toHaveTextContent(
+      'rt skills surface list --pack acme'
+    );
+  });
+
   it('a skill that fails to reload keeps the canvas it already drew', async () => {
     serve();
     const queryClient = renderAt('?tab=graph&focus=stage-plan');

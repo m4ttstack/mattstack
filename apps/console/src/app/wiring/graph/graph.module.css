@@ -65,6 +65,7 @@
 
 .canvasErrorAlert {
   max-width: 480px;
+  box-shadow: var(--mantine-shadow-md);
 }
 
 /* As wide as what it says, not the header. */
