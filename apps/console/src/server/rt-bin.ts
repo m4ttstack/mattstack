@@ -3,7 +3,8 @@ import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 
 export type RunRt = (
-  argv: string[]
+  argv: string[],
+  opts?: { timeoutMs?: number }
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 export class RtNotFoundError extends Error {
@@ -47,7 +48,12 @@ export function resolveRtBin():
 }
 
 /** A wedged `claude` subprocess inside a wedged `rt` must surface as a 502, not a hung page. */
-const SPAWN_TIMEOUT_MS = 10_000;
+export const READ_TIMEOUT_MS = 10_000;
+
+/** A write recompiles the pack (a bind regenerates its manifest first), and a
+    sync also pushes and refreshes the installed cache: tens of seconds on a
+    large pack, where a read takes a second or two. */
+export const WRITE_TIMEOUT_MS = 120_000;
 
 /**
  * The one Bun-only call in this module -- unreachable from vitest's Node
@@ -55,7 +61,10 @@ const SPAWN_TIMEOUT_MS = 10_000;
  * `skills.ts` takes this as an injectable parameter defaulting to this
  * export, so routes stay testable without the `Bun` global.
  */
-export const runRt: RunRt = async argv => {
+export const runRt: RunRt = async (
+  argv,
+  { timeoutMs = READ_TIMEOUT_MS } = {}
+) => {
   const resolved = resolveRtBin();
   if (resolved.path === null) throw new RtNotFoundError(resolved.searched);
 
@@ -63,7 +72,7 @@ export const runRt: RunRt = async argv => {
     stdout: 'pipe',
     stderr: 'pipe',
   });
-  const timeout = setTimeout(() => proc.kill(), SPAWN_TIMEOUT_MS);
+  const timeout = setTimeout(() => proc.kill(), timeoutMs);
 
   try {
     const [stdout, stderr, code] = await Promise.all([

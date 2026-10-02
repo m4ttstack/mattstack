@@ -2,7 +2,7 @@
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 
-import { RtNotFoundError } from './rt-bin';
+import { RtNotFoundError, WRITE_TIMEOUT_MS } from './rt-bin';
 import { mountSkills, type ReadPackFile } from './skills';
 
 const fakeRt = (result: { code: number; stdout: string; stderr: string }) => {
@@ -950,7 +950,7 @@ type RtResult = { code: number; stdout: string; stderr: string };
     roster read), and each needs its own answer. */
 function fakeRtHandler(handler: (argv: string[]) => RtResult) {
   const calls: string[][] = [];
-  const run = vi.fn(async (argv: string[]) => {
+  const run = vi.fn(async (argv: string[], _opts?: { timeoutMs?: number }) => {
     calls.push(argv);
     return handler(argv);
   });
@@ -1843,6 +1843,111 @@ describe('skills bind route', () => {
       verbs: [{ slots: [{ boundTo: 'demo:watch-ci-domain-v2' }] }],
     });
   });
+});
+
+describe('write routes', () => {
+  const ok = (stdout = '{}') => ({ code: 0, stdout, stderr: '' });
+  const handler = (argv: string[]): RtResult => {
+    if (isComposition(argv)) return ok(JSON.stringify(bindComposition()));
+    if (isList(argv))
+      return ok(
+        surfaceList([{ name: 'watch-ci', kind: 'compiled', status: 'public' }])
+      );
+    return ok(JSON.stringify({ ok: true, pack: 'demo' }));
+  };
+  const writes: [string, Record<string, unknown>][] = [
+    [
+      '/api/skills/bind',
+      {
+        pack: 'demo',
+        verb: 'watch-ci',
+        slot: 'domain',
+        fill: 'demo:watch-ci-domain-v2',
+      },
+    ],
+    [
+      '/api/skills/surface/apply',
+      { pack: 'demo', toPublic: [], toInternal: ['watch-ci'] },
+    ],
+    ['/api/skills/sync', { pack: 'demo' }],
+    ['/api/skills/discard', { pack: 'demo' }],
+  ];
+
+  it.each(writes)(
+    '%s gives its write the write timeout, its reads the default, and holds the request open as long',
+    async (path, body) => {
+      const rt = fakeRtHandler(handler);
+      const timeout = vi.fn();
+      const app = mountSkills(new Hono(), rt.run);
+
+      const res = await app.request(
+        path,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        { timeout }
+      );
+
+      expect(res.status).toBe(200);
+      const writeCalls = rt.run.mock.calls.filter(
+        ([argv]) => !isComposition(argv) && !isList(argv)
+      );
+      expect(writeCalls).toHaveLength(1);
+      expect(writeCalls[0]![1]).toEqual({ timeoutMs: WRITE_TIMEOUT_MS });
+      for (const [argv, opts] of rt.run.mock.calls)
+        if (isComposition(argv) || isList(argv)) expect(opts).toBeUndefined();
+      expect(timeout).toHaveBeenCalledWith(
+        expect.any(Request),
+        WRITE_TIMEOUT_MS / 1000 + 10
+      );
+    }
+  );
+
+  it.each([
+    ['exits nonzero', () => ({ code: 143, stdout: '', stderr: '' })],
+    [
+      'throws',
+      () => {
+        throw new Error('spawn failed');
+      },
+    ],
+  ])(
+    'drops the pack cached reads when the bind %s, since the binding may already be written',
+    async (_, bindAnswer) => {
+      let bound = false;
+      const rt = fakeRtHandler(argv => {
+        if (isComposition(argv))
+          return ok(
+            JSON.stringify(
+              bindComposition({
+                boundTo: bound
+                  ? 'demo:watch-ci-domain-v2'
+                  : 'demo:watch-ci-domain',
+              })
+            )
+          );
+        bound = true;
+        return bindAnswer();
+      });
+      const app = mountSkills(new Hono(), rt.run);
+
+      await app.request('/api/skills/composition?pack=demo');
+      const res = await postBind(app, {
+        pack: 'demo',
+        verb: 'watch-ci',
+        slot: 'domain',
+        fill: 'demo:watch-ci-domain-v2',
+      });
+      expect(res.status).toBe(502);
+
+      const after = await app.request('/api/skills/composition?pack=demo');
+      await expect(after.json()).resolves.toMatchObject({
+        verbs: [{ slots: [{ boundTo: 'demo:watch-ci-domain-v2' }] }],
+      });
+    }
+  );
 });
 
 const postJson = (app: Hono, path: string, body: unknown) =>
