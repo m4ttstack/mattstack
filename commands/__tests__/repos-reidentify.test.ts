@@ -55,9 +55,17 @@ describe("rt repos reidentify", () => {
 
   test("plain output lists one line per store with its status and count", async () => {
     setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fold", "/x");
-    await reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) });
-    expect(out.some((l) => /kv:repo-index\s+moved\s+1/.test(l))).toBe(true);
-    expect(out.some((l) => /run_history\.repo\s+none/.test(l))).toBe(true);
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) });
+      expect(io.lines()[0]).toBe("[ok] Moved this repo's data  remote:github.com%2Facme%2Fold → remote:github.com%2Facme%2Fnew");
+      expect(io.lines().some((l) => /kv:repo-index\s+moved\s+1/.test(l))).toBe(true);
+      expect(io.lines().some((l) => /run_history\.repo\s+none/.test(l))).toBe(true);
+      expect(out).toEqual([]);
+    } finally {
+      io.restore();
+    }
   });
 
   test("a refused store prints the whole table, then exits non-zero", async () => {
@@ -70,17 +78,26 @@ describe("rt repos reidentify", () => {
         reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) }),
       );
       expect(code).toBe(2);
-      expect(out.some((l) => /kv:repo-index\s+refused/.test(l))).toBe(true);
-      expect(out.some((l) => /run_history\.repo\s+none/.test(l))).toBe(true);
-      expect(io.stderr()).toContain("refused: kv:repo-index");
+      expect(out).toEqual([]);
+      expect(io.stdout()).toBe("");
+      const lines = io.errLines();
+      expect(lines[0]).toStartWith("[refused] The move stopped partway  ");
+      expect(lines.some((l) => /kv:repo-index\s+refused/.test(l))).toBe(true);
+      expect(lines.some((l) => /run_history\.repo\s+none/.test(l))).toBe(true);
     } finally {
       io.restore();
     }
   });
 
   test("nothing under the old identity says so instead of claiming a move", async () => {
-    await reposReidentify(["github.com/acme/typo", "github.com/acme/new"], {}, { print: (s) => out.push(s) });
-    expect(out[0]).toBe("nothing under remote:github.com%2Facme%2Ftypo to move (local)");
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await reposReidentify(["github.com/acme/typo", "github.com/acme/new"], {}, { print: (s) => out.push(s) });
+      expect(io.lines()[0]).toBe("[skipped] Nothing to move  rt holds nothing under remote:github.com%2Facme%2Ftypo");
+    } finally {
+      io.restore();
+    }
   });
 
   test("a refused --json run prints exactly one document carrying the report", async () => {
@@ -101,15 +118,16 @@ describe("rt repos reidentify", () => {
     expect(JSON.parse(out.join("\n")).via).toBe("local");
   });
 
-  test("a refused plain run does not claim it moved", async () => {
+  test("a refused store is a refused line, not a failure", async () => {
     setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fold", "/x");
     setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fnew", "/y");
     const io = captureOut();
     ui.__test__.setHuman(() => false);
     try {
       await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) }));
-      expect(out[0]).toStartWith("refused, partly moved ");
-      expect(io.stderr()).toContain("refused");
+      expect(io.errLines()[0]).toStartWith("[refused] The move stopped partway  ");
+      expect(io.stderr()).not.toContain("refused: kv:repo-index\n");
+      expect(io.stdout()).toBe("");
       expect(io.stderr()).not.toContain("[failed]");
     } finally {
       io.restore();
@@ -123,12 +141,30 @@ describe("rt repos reidentify", () => {
       const code = await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old"], {}, { print: (s) => out.push(s) }));
       expect(code).toBe(2);
       expect(out).toEqual([]);
-      expect(io.stderr()).toContain("reidentify takes two identities, got 1; usage: rt repos reidentify");
-      expect(io.stderr()).not.toContain("[failed]");
-      expect(io.stderr()).not.toContain("rt repos reidentify:");
+      expect(io.stderr()).toBe(
+        "This needs the repo's old identity and its new one\n  why: It got 1.\n  next: rt repos reidentify <old-identity> <new-identity> [--dry-run] [--json]\n",
+      );
     } finally {
       io.restore();
     }
+  });
+
+  test("an unknown flag asks nothing and names the command", async () => {
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => reposReidentify(["a", "b", "--force"], {}, { print: (s) => out.push(s) }));
+      expect(code).toBe(2);
+      expect(io.stderr()).toBe("This command has no option called --force\n  next: rt repos reidentify <old-identity> <new-identity> [--dry-run] [--json]\n");
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("a usage error under --json keeps today's message in the envelope", async () => {
+    const code = await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old", "--json"], {}, { print: (s) => out.push(s) }));
+    expect(code).toBe(2);
+    expect(JSON.parse(out.join("\n")).error).toMatchObject({ code: "usage", message: "reidentify takes two identities, got 1; usage: rt repos reidentify <old-identity> <new-identity> [--dry-run] [--json]" });
   });
 
   test("an identity that is not a remote is a refusal with no table", async () => {

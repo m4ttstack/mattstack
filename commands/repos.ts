@@ -447,10 +447,28 @@ async function pickLocateTarget(json: boolean, deps: RegisterDeps): Promise<stri
 
 // ─── status ──────────────────────────────────────────────────────────────────
 
-function failPlain(json: boolean, verb: string, message: string): never {
-  if (json) console.log(JSON.stringify({ ok: false, error: message }));
-  else console.error(`rt ${verb}: ${message}`);
-  process.exit(1);
+export function statusBlocks(repos: RepoStatusRow[]): Block[] {
+  if (repos.length === 0) {
+    return [out.line("pending", "No repo status yet", "rt checks your repos shortly after it starts"), out.callout("next", out.cmd("rt repos status --refresh"))];
+  }
+  const blocks: Block[] = [];
+  for (const row of repos) {
+    const label = repoLabelQualified(row.repo);
+    blocks.push(
+      out.tree(
+        out.strong(label),
+        row.worktrees.map((w) => {
+          const dirt = w.clean
+            ? "clean"
+            : [w.staged ? `${w.staged} staged` : "", w.unstaged ? `${w.unstaged} unstaged` : "", w.untracked ? `${w.untracked} untracked` : "", w.conflicted ? `${w.conflicted} conflicted` : ""].filter(Boolean).join(", ");
+          const position = [w.ahead ? `ahead ${w.ahead}` : "", w.behind ? `behind ${w.behind}` : ""].filter(Boolean).join(", ");
+          return [out.key(w.branch ?? "(detached)"), dirt, position, out.dim(w.worktree)];
+        }),
+      ),
+    );
+    if (row.error) blocks.push(out.line("warn", `rt could not check ${label}`, row.error));
+  }
+  return blocks;
 }
 
 /**
@@ -469,34 +487,20 @@ export async function reposStatus(
   const res = refresh
     ? await query("repos:status", { refresh: true }, 120_000)
     : await query("repos:status", {});
-  if (res === null) failPlain(json, "repos status", "daemon unavailable, the rt daemon must be running for repo status");
-  if (!res.ok) failPlain(json, "repos status", res.error ?? "repos:status failed");
+  if (res === null) {
+    if (json) out.json({ ok: false, error: "daemon unavailable, the rt daemon must be running for repo status" });
+    else out.fail({ title: "The rt daemon is not running", why: "Repo status comes from the daemon.", next: out.cmd("rt daemon start") });
+    process.exit(1);
+  }
+  if (!res.ok) {
+    if (json) out.json({ ok: false, error: res.error ?? "repos:status failed" });
+    else out.fail({ title: "rt could not read your repos' status", hint: res.error ?? "the daemon gave no reason" });
+    process.exit(1);
+  }
   const data = res.data as { repos: RepoStatusRow[]; sweptAt: string | null };
   if (json) {
-    console.log(JSON.stringify({ ok: true, repos: data.repos, sweptAt: data.sweptAt }));
+    out.json({ ok: true, repos: data.repos, sweptAt: data.sweptAt });
     return;
   }
-  if (data.repos.length === 0) {
-    console.log("no repo badges yet (the sweep runs shortly after daemon boot; try --refresh)");
-    return;
-  }
-  for (const row of data.repos) {
-    console.log(repoLabelQualified(row.repo));
-    if (row.error) console.log(`  sweep error: ${row.error}`);
-    for (const w of row.worktrees) {
-      const dirt = w.clean
-        ? "clean"
-        : [
-            w.staged ? `${w.staged} staged` : "",
-            w.unstaged ? `${w.unstaged} unstaged` : "",
-            w.untracked ? `${w.untracked} untracked` : "",
-            w.conflicted ? `${w.conflicted} conflicted` : "",
-          ].filter(Boolean).join(", ");
-      const pos = [
-        w.ahead ? `ahead ${w.ahead}` : "",
-        w.behind ? `behind ${w.behind}` : "",
-      ].filter(Boolean).join(", ");
-      console.log(`  ${w.branch ?? "(detached)"}  ${dirt}${pos ? `  [${pos}]` : ""}  ${w.worktree}`);
-    }
-  }
+  out.print(...statusBlocks(data.repos));
 }

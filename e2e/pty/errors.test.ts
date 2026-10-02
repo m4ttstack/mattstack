@@ -69,7 +69,8 @@ describe("the error seam through a pty", () => {
     await session.waitForText("__rt_exit=2", PAINT_TIMEOUT);
     const screen = await session.screen();
     expect(screen).toContain("✗");
-    expect(screen).toContain("takes two identities");
+    expect(screen).toContain("old identity and its new one");
+    expect(screen).toContain("rt repos reidentify <old-identity> <new-identity>");
     expect(screen).not.toContain("rt repos reidentify:");
     expect(screen).not.toContain("    at ");
   });

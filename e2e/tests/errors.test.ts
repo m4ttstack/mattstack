@@ -61,7 +61,7 @@ describe("the error seam off a terminal", () => {
     const result = await rt(["repos", "reidentify", "github.com/acme/only-one"], { home });
     expect(result.exitCode).toBe(2);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("reidentify takes two identities, got 1; usage: rt repos reidentify");
+    expect(result.stderr).toContain("This needs the repo's old identity and its new one\n  why: It got 1.\n  next: rt repos reidentify <old-identity> <new-identity> [--dry-run] [--json]\n");
     expect(result.stderr).not.toContain("[failed]");
     expect(result.stderr).not.toContain("rt repos reidentify:");
     expect(result.stderr).not.toContain("    at ");

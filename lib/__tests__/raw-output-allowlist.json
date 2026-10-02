@@ -18,7 +18,6 @@
   "commands/pane.ts",
   "commands/post-install.ts",
   "commands/reconciler.ts",
-  "commands/repos.ts",
   "commands/run.ts",
   "commands/runner.ts",
   "commands/runs-find.ts",
