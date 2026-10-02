@@ -178,7 +178,7 @@
    centred by its margins, not a transform: a pressed button's own transform
    would replace that one and move it out from under the pointer. */
 .card[data-action] {
-  padding-inline-end: 76px;
+  padding-inline-end: 64px;
 }
 
 .cardAction {
