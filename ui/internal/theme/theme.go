@@ -187,18 +187,16 @@ type StaticTones struct {
 }
 
 var (
-	staticCoral = lipgloss.Color("#E0484E")
-	staticCyan  = lipgloss.Color("#2E86DE")
-	staticQuiet = lipgloss.Color("#77729A")
-	staticRule  = lipgloss.Color("#736D96")
-
 	// StaticLight clears 3:1 on white (lavender 3.5:1, quiet 4:1) and 3.5:1
 	// on Bg, so it also reads on a dark background nobody could identify.
 	StaticLight = StaticTones{
 		Mint:  lipgloss.Color("#12AB56"),
 		Peach: lipgloss.Color("#E17A0D"),
 		Lav:   lipgloss.Color("#A169FF"),
-		Coral: staticCoral, Cyan: staticCyan, Quiet: staticQuiet, Rule: staticRule,
+		Coral: lipgloss.Color("#E0484E"),
+		Cyan:  lipgloss.Color("#2E86DE"),
+		Quiet: lipgloss.Color("#77729A"),
+		Rule:  lipgloss.Color("#736D96"),
 	}
 	// StaticDark matches the TUI's accents and falls to about 1.6:1 on white,
 	// so it is only for a background known to be dark.
