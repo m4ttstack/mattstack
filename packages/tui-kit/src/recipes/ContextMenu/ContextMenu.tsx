@@ -136,6 +136,28 @@ function buttonRender(disabled: boolean | undefined) {
   );
 }
 
+interface PopupKeyEvent {
+  key: string;
+  target: EventTarget;
+  preventBaseUIHandler: () => void;
+}
+
+/** A key pressed in a field inside a menu belongs to the field. Base UI's
+    typeahead and arrow-key navigation call preventDefault on printable keys,
+    the arrows, Home and End, so typed text never lands and the arrows move
+    menu focus out of the field. Tab is the field's too: Base UI's Shift+Tab
+    holds focus where it is (or closes a submenu) instead of moving it back a
+    field. Escape still goes to Base UI, which hands it to the layer stack. */
+function keepFieldKeys(event: PopupKeyEvent) {
+  if (event.key === "Escape") return;
+  const target = event.target;
+  if (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || target.matches("input, textarea, select"))
+  )
+    event.preventBaseUIHandler();
+}
+
 /** Joins the layer stack for as long as it is mounted. */
 function EscapeLayer({ onClose }: { onClose: () => void }) {
   useEscapeClose(onClose);
@@ -371,6 +393,10 @@ export const ContextMenu = defineCompound({
                     ref={setRefs}
                     finalFocus={false}
                     {...rest}
+                    onKeyDown={(e) => {
+                      rest.onKeyDown?.(e);
+                      keepFieldKeys(e);
+                    }}
                     {...rootStyles}
                     data-part={CONTEXTMENU_PARTS.root}
                     aria-labelledby={undefined}
@@ -488,6 +514,7 @@ export const ContextMenu = defineCompound({
                   {...getStyles({ part: "positioner" })}
                 >
                   <Menu.Popup
+                    onKeyDown={keepFieldKeys}
                     {...getStyles({ part: "submenu" })}
                     data-part={CONTEXTMENU_PARTS.submenu}
                     aria-labelledby={undefined}

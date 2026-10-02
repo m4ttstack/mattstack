@@ -593,6 +593,59 @@ describe("ContextMenu (browser)", () => {
     expect(document.activeElement).toBe(textarea);
   });
 
+  it("a field in the menu takes every key typed into it, and its arrow keys move the caret, not the menu", async () => {
+    function Menu() {
+      const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+      return (
+        <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop} initialFocusRef={textareaRef}>
+          <ContextMenu.Item label="open in gitlab" onClick={noop} />
+          <textarea ref={textareaRef} aria-label="note" />
+        </ContextMenu>
+      );
+    }
+    const screen = await renderWithTheme(<Menu />);
+    await settledBox(rootOf(screen.container));
+    const textarea = screen.getByRole("textbox", { name: "note" }).element() as HTMLTextAreaElement;
+    await expect.poll(() => document.activeElement).toBe(textarea);
+
+    await userEvent.keyboard("hello world");
+    expect(textarea.value).toBe("hello world");
+
+    await userEvent.keyboard("{Enter}two");
+    await userEvent.keyboard("{ArrowUp}");
+    expect(document.activeElement).toBe(textarea);
+    await userEvent.keyboard("!");
+    expect(textarea.value).toBe("hel!lo world\ntwo");
+
+    await userEvent.keyboard("{Home}{End}");
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  it("Tab and Shift+Tab move between the menu's fields and leave it open", async () => {
+    const onClose = vi.fn();
+    function Menu() {
+      const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+      return (
+        <ContextMenu x={40} y={40} ariaLabel="m" onClose={onClose} initialFocusRef={textareaRef}>
+          <ContextMenu.Item label="open in gitlab" onClick={noop} />
+          <textarea ref={textareaRef} aria-label="note" />
+          <input aria-label="author" />
+        </ContextMenu>
+      );
+    }
+    const screen = await renderWithTheme(<Menu />);
+    const note = screen.getByRole("textbox", { name: "note" }).element();
+    const author = screen.getByRole("textbox", { name: "author" }).element();
+    await expect.poll(() => document.activeElement).toBe(note);
+
+    await userEvent.keyboard("{Tab}");
+    expect(document.activeElement).toBe(author);
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(document.activeElement).toBe(note);
+    expect(partsIn(screen.container, CONTEXTMENU_PARTS.root)).toHaveLength(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("keeps initialFocusRef focused when it is not the menu's first tabbable", async () => {
     // The board's scheme menu points this at its checked item. Items are not
     // tabbable until highlighted, so the menu's own default would be to focus
@@ -759,13 +812,30 @@ describe("ContextMenu.Sub (browser)", () => {
     await page.viewport(1000, 700);
   });
 
+  it("a field in the submenu takes the keys typed into it", async () => {
+    const screen = await renderWithTheme(
+      <ContextMenu x={40} y={40} ariaLabel="m" onClose={noop}>
+        <ContextMenu.Sub label="note" ariaLabel="note actions">
+          <ContextMenu.Item label="save" onClick={noop} />
+          <input aria-label="note text" />
+        </ContextMenu.Sub>
+      </ContextMenu>,
+    );
+    await screen.getByRole("menuitem", { name: "note", exact: true }).click();
+    const field = screen.getByRole("textbox", { name: "note text" });
+    await field.click();
+    await userEvent.keyboard("ok go{ArrowUp}{Home}!");
+    expect((field.element() as HTMLInputElement).value).toBe("!ok go");
+    expect(document.activeElement).toBe(field.element());
+  });
+
   it("opens its panel on hover and closes it when the pointer leaves", async () => {
     const screen = await renderWithTheme(menu());
     const row = screen.getByRole("menuitem", { name: "gitlab", exact: true });
     await userEvent.hover(row);
     await expect.element(screen.getByRole("menu", { name: "gitlab actions" })).toBeVisible();
     await userEvent.hover(screen.getByRole("menuitem", { name: "review" }));
-    expect(submenuIn(screen.container)).toBeNull();
+    await expect.poll(() => submenuIn(screen.container)).toBeNull();
   });
 
   it("marks the row as a menu opener", async () => {

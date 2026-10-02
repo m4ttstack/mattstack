@@ -120,8 +120,4 @@
     flex: 1;
     justify-content: center;
   }
-
-  .row > .item[aria-pressed="true"] {
-    background: var(--surface-wash-accent-16);
-  }
 }

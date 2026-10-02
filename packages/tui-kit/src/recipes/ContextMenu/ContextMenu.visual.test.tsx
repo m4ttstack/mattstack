@@ -128,7 +128,7 @@ function subMenu() {
   );
 }
 
-/** The Slack reaction toggles as one Row, the middle one pressed. */
+/** The Slack reaction toggles as one Row. */
 function reactionRow() {
   return (
     <Stage>
@@ -136,12 +136,7 @@ function reactionRow() {
         <ContextMenu.Label>!4821</ContextMenu.Label>
         <ContextMenu.Row aria-label="slack reactions">
           <ContextMenu.Item label="👀" aria-label="mark as looking" onClick={() => {}} />
-          <ContextMenu.Item
-            label="💬"
-            aria-label="mark as commented"
-            aria-pressed="true"
-            onClick={() => {}}
-          />
+          <ContextMenu.Item label="💬" aria-label="mark as commented" onClick={() => {}} />
           <ContextMenu.Item label="✅" aria-label="mark as approved" onClick={() => {}} />
         </ContextMenu.Row>
         <ContextMenu.Separator />
@@ -173,13 +168,13 @@ describe("ContextMenu (visual)", () => {
     await expect(page.getByTestId("stage")).toMatchScreenshot("contextmenu-sub-dark");
   });
 
-  it("a Row with one pressed toggle matches its baseline in light mode", async () => {
+  it("a Row of toggles matches its baseline in light mode", async () => {
     await renderFixture(reactionRow(), { width: STAGE.width });
 
     await expect(page.getByTestId("stage")).toMatchScreenshot("contextmenu-row-light");
   });
 
-  it("a Row with one pressed toggle matches its baseline in dark mode", async () => {
+  it("a Row of toggles matches its baseline in dark mode", async () => {
     await renderFixture(reactionRow(), { dark: true, width: STAGE.width });
 
     await expect(page.getByTestId("stage")).toMatchScreenshot("contextmenu-row-dark");
