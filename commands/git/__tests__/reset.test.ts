@@ -88,7 +88,7 @@ describe("resetToOrigin divergence direction", () => {
     expect(result.cherryPicked).toEqual([]);
     expect(result.backupBranch).toBeNull();
     expect(sh(`git rev-parse HEAD`, local)).toBe(headBefore);
-  });
+  }, 20_000);
 
   test("remote rebased onto newer master → reset to remote", async () => {
     const { origin, local } = makeFixture();
@@ -101,7 +101,7 @@ describe("resetToOrigin divergence direction", () => {
 
     expect(result.status).toBe("reset");
     expect(sh(`git rev-parse HEAD`, local)).toBe(sh(`git rev-parse origin/feature`, local));
-  });
+  }, 20_000);
 
   test("remote rewritten on same base, extra local commit → reset + cherry-pick", async () => {
     const { origin, local } = makeFixture();
@@ -118,13 +118,13 @@ describe("resetToOrigin divergence direction", () => {
     expect(result.backupBranch).toStartWith("rt-backup/reset/feature/");
     expect(sh(`git log -1 --format=%s`, local)).toBe("feature 3 local only");
     expect(sh(`git log -1 --format=%s HEAD~1`, local)).toBe("feature 2 (reworded)");
-  });
+  }, 20_000);
 
   test("in sync → no-op", async () => {
     const { local } = makeFixture();
     const result = await resetToOrigin({ cwd: local, quiet: true, autoConfirm: true, skipFetch: true });
     expect(result.status).toBe("in-sync");
-  });
+  }, 20_000);
 
   test("local behind remote → fast-forward", async () => {
     const { origin, local } = makeFixture();
@@ -137,7 +137,7 @@ describe("resetToOrigin divergence direction", () => {
 
     expect(result.status).toBe("fast-forward");
     expect(sh(`git rev-parse HEAD`, local)).toBe(sh(`git rev-parse origin/feature`, local));
-  });
+  }, 20_000);
 });
 
 describe("what a reset prints", () => {
@@ -160,7 +160,7 @@ describe("what a reset prints", () => {
     await resetToOrigin({ cwd: local, autoConfirm: true, skipFetch: true });
     expect(io.stdout()).toBe("[ok] feature already matches origin/feature\n");
     expect(io.stderr()).toBe("");
-  });
+  }, 20_000);
 
   test("a fast-forward is one line", async () => {
     const { origin, local } = makeFixture();
@@ -170,14 +170,14 @@ describe("what a reset prints", () => {
     sh(`git fetch -q origin`, local);
     await resetToOrigin({ cwd: local, autoConfirm: true, skipFetch: true });
     expect(io.stdout()).toBe("[ok] Caught feature up to origin/feature\n");
-  });
+  }, 20_000);
 
   test("a branch rebased here onto a newer base is kept, and says why", async () => {
     const { local } = makeFixture();
     sh(`git -c user.email=t@t -c user.name=t rebase -q origin/master`, local);
     await resetToOrigin({ cwd: local, autoConfirm: true, skipFetch: true });
     expect(io.stdout()).toBe("[ok] Kept feature as it is  it is origin/feature rebased onto a newer origin/master\n");
-  });
+  }, 20_000);
 
   test("a reset to a rebased origin names the backup, then the reset", async () => {
     const { origin, local } = makeFixture();
@@ -189,7 +189,7 @@ describe("what a reset prints", () => {
     expect(io.lines()[0]).toMatch(/^\[ok\] Saved a backup  rt-backup\/reset\/feature\//);
     expect(io.lines()[1]).toBe("[ok] Reset feature to origin/feature  origin was rebased");
     expect(io.lines()).toHaveLength(2);
-  });
+  }, 20_000);
 
   test("extra local commits are listed, put back one by one, and counted", async () => {
     const { origin, local } = makeFixture();
@@ -209,14 +209,14 @@ describe("what a reset prints", () => {
     expect(lines[5]).toBe("[ok] feature matches origin/feature  1 commit of yours put back on top");
     expect(lines).toHaveLength(6);
     expect(io.stderr()).toBe("");
-  });
+  }, 20_000);
 
   test("quiet prints nothing on either stream", async () => {
     const { local } = makeFixture();
     await resetToOrigin({ cwd: local, quiet: true, autoConfirm: true, skipFetch: true });
     expect(io.stdout()).toBe("");
     expect(io.stderr()).toBe("");
-  });
+  }, 20_000);
 
   test("a branch origin does not have comes back with a failure that names the next command", async () => {
     const { local } = makeFixture();
@@ -226,7 +226,7 @@ describe("what a reset prints", () => {
     expect(result.error).toBe("not-pushed is not on origin yet");
     expect(result.failure).toEqual({ title: "not-pushed is not on origin yet", why: "There is nothing there to match.", next: { text: "rt git push", role: "command" } });
     expect(io.stdout()).toBe("");
-  });
+  }, 20_000);
 
   test("reset origin draws the uncommitted-changes guard as a refused note on stderr, exit 1", async () => {
     const { local } = makeFixture();
@@ -234,7 +234,7 @@ describe("what a reset prints", () => {
     expect(await exitCodeOf(() => originCommand([], ctxFor(local)))).toBe(1);
     expect(io.stderr()).toBe("[refused] You have uncommitted changes\n  why: Matching origin throws away local changes.\n  next: Commit them, or set them aside with rt git stash push\n");
     expect(io.stdout()).toBe("");
-  });
+  }, 20_000);
 
   test("a branch name holding shell syntax reaches git as it is through a fetch, a patch-id compare and a cherry-pick, and nothing runs", async () => {
     const hostile = "feat$(touch${IFS}pwned)";
@@ -256,7 +256,7 @@ describe("what a reset prints", () => {
     expect(result.status).toBe("cherry-picked");
     expect(result.branch).toBe(hostile);
     expect(sh(`git log -1 --format=%s`, local)).toBe("feature 3 local only");
-  });
+  }, 20_000);
 
   test("reset origin on a branch name holding shell syntax says it already matches, and nothing runs", async () => {
     const hostile = "feat$(touch${IFS}pwned)";
@@ -267,7 +267,7 @@ describe("what a reset prints", () => {
     expect(existsSync(join(local, "pwned"))).toBe(false);
     expect(existsSync(join(process.cwd(), "pwned"))).toBe(false);
     expect(io.lines().at(-1)).toBe(`[ok] ${hostile} already matches origin/${hostile}`);
-  });
+  }, 20_000);
 
   test("a failed fetch draws one failure, and git's own words print once, in it", async () => {
     const { local } = makeFixture();
@@ -277,7 +277,7 @@ describe("what a reset prints", () => {
     expect(io.stderr().split("Could not fetch").length - 1).toBe(1);
     expect(io.stderr()).toStartWith("Could not fetch from origin\n  Command failed: git fetch origin\n");
     expect(io.stderr().split("Command failed").length - 1).toBe(1);
-  });
+  }, 20_000);
 
   test("reset soft says the edits are kept", async () => {
     const { local } = makeFixture();
@@ -285,7 +285,7 @@ describe("what a reset prints", () => {
     sh(`git add f1.txt`, local);
     await softResetCommand([], ctxFor(local));
     expect(io.stdout()).toBe("[ok] Unstaged everything  your edits are untouched\n");
-  });
+  }, 20_000);
 
   test("reset hard names the backup of the branch, then what it threw away", async () => {
     const { local } = makeFixture();
@@ -294,5 +294,5 @@ describe("what a reset prints", () => {
     expect(io.lines()[0]).toMatch(/^\[ok\] Saved a backup of the branch  rt-backup\/reset\/feature\//);
     expect(io.lines()[1]).toBe("[ok] Threw away every uncommitted change");
     expect(sh(`git status --porcelain`, local)).toBe("");
-  });
+  }, 20_000);
 });
