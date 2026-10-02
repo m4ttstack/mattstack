@@ -762,7 +762,22 @@ function compileVerb(
   }
 }
 
-function writeCompiledVerb(outDir: string, result: CompileResult): void {
+/** The files a compile wrote and removed, pack-relative, so a caller commits exactly them and nothing that merely sits beside them. */
+export type CompileWrites = { written: string[]; removed: string[] };
+
+function packRelativeFiles(packDir: string, dir: string, files: string[]): string[] {
+  const rel = relativePath(packDir, dir).split(sep).join("/");
+  return files.map((f) => `${rel}/${f}`);
+}
+
+/** Sweeps a stale compiled dir, reporting each file it held as removed. */
+function removeCompiledDir(packDir: string, dir: string, into: CompileWrites): void {
+  into.removed.push(...packRelativeFiles(packDir, dir, listFilesRecursive(dir)));
+  rmSync(dir, { recursive: true, force: true });
+}
+
+function writeCompiledVerb(packDir: string, outDir: string, result: CompileResult, into: CompileWrites): void {
+  const before = listFilesRecursive(outDir);
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
 
@@ -776,6 +791,9 @@ function writeCompiledVerb(outDir: string, result: CompileResult): void {
       chmodSync(dest, statSync(file.copyFrom).mode);
     }
   }
+  const written = new Set(result.files.map((f) => f.path));
+  into.written.push(...packRelativeFiles(packDir, outDir, [...written]));
+  into.removed.push(...packRelativeFiles(packDir, outDir, before.filter((f) => !written.has(f))));
 }
 
 type CompileVerbStatus = "compiled" | "errored";
@@ -875,6 +893,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   outcomes: { target: CompileTarget; outcome: CompileOutcome }[];
   failures: string[];
   misplaced: string[];
+  writes: CompileWrites;
 } {
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
   const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, verbFilter);
@@ -890,6 +909,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   const failures = outcomes.flatMap(({ outcome }) => (outcome.ok ? [] : [outcome.message]));
 
   const writing = write && failures.length === 0;
+  const writes: CompileWrites = { written: [], removed: [] };
   if (writing) {
     for (const { target, outcome } of outcomes) {
       if (!outcome.ok) continue;
@@ -898,8 +918,8 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
       // its door compiles into skills/<verb>/: the other side is only stale when
       // it carries the compiler header, never when it is the hand-written source.
       const stale = otherSideDir(resolved.packDir, verb.name, isPublic);
-      if (existsSync(stale) && !isHandWrittenDir(stale)) rmSync(stale, { recursive: true, force: true });
-      writeCompiledVerb(outDirFor(resolved.packDir, verb.name, isPublic), outcome.result);
+      if (existsSync(stale) && !isHandWrittenDir(stale)) removeCompiledDir(resolved.packDir, stale, writes);
+      writeCompiledVerb(resolved.packDir, outDirFor(resolved.packDir, verb.name, isPublic), outcome.result, writes);
     }
   }
 
@@ -922,7 +942,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     }
   }
 
-  return { outcomes, failures, misplaced };
+  return { outcomes, failures, misplaced, writes };
 }
 
 export type CompiledRow = { name: string; side: Side; files: number; warnings: string[] };
@@ -1050,7 +1070,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
  * verbs -- each named in `errors` -- with no partial write on failure,
  * exactly as the handler behaves today.
  */
-export async function compilePackAll(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string; verbs?: string[] | null; write?: boolean }): Promise<{ ok: boolean; errors: string[] }> {
+export async function compilePackAll(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string; verbs?: string[] | null; write?: boolean }): Promise<{ ok: boolean; errors: string[] } & CompileWrites> {
   const args: string[] = [];
   if (opts.pack) args.push("--pack", opts.pack);
   if (opts.packDir) args.push("--pack-dir", opts.packDir);
@@ -1059,10 +1079,10 @@ export async function compilePackAll(opts: { pack?: string; packDir?: string; ma
   if (opts.mattstackDir) args.push("--mattstack-dir", opts.mattstackDir);
   const resolved = await resolve(parseFlags(args));
   const chainErrors = pipelineChainErrors(resolved);
-  if (chainErrors.length > 0) return { ok: false, errors: chainErrors };
-  const { failures, misplaced } = performCompile(resolved, opts.verbs ?? null, opts.write ?? true);
+  if (chainErrors.length > 0) return { ok: false, errors: chainErrors, written: [], removed: [] };
+  const { failures, misplaced, writes } = performCompile(resolved, opts.verbs ?? null, opts.write ?? true);
   const errors = [...failures, ...misplaced.map((name) => `misplaced: ${name}`)];
-  return { ok: errors.length === 0, errors };
+  return { ok: errors.length === 0, errors, ...writes };
 }
 
 type CheckVerbStatus = "in-sync" | "stale" | "never-compiled";

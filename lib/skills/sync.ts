@@ -11,7 +11,8 @@ export type SyncDeps = {
   run: (cmd: string, args: string[], opts?: { cwd?: string }) => Promise<RunResult>;
   claudeBin: string | null;
   checkPack: (packName: string) => Promise<{ drift: boolean; lintHits: number; strict: boolean }>;
-  compilePack: (packName: string) => Promise<{ ok: boolean; errors: string[] }>;
+  /** `written` and `removed` are the pack-relative files the compile touched: the version commit holds exactly these and the manifest. */
+  compilePack: (packName: string) => Promise<{ ok: boolean; errors: string[]; written: string[]; removed: string[] }>;
   /** Regenerates every registered repo's per-pack files; a base pack the pack extends may have moved since the last install. Only the named pack's failures fail the step. */
   materialize(packName: string): Promise<{ ok: boolean; detail: string; warnings?: string[] }>;
   configDir: string;
@@ -213,6 +214,18 @@ function sameEntry(a: HashedFile, b: HashedFile): boolean {
   return a.path === b.path && (a.from ?? null) === (b.from ?? null) && a.status === b.status && a.hash === b.hash;
 }
 
+const MANIFEST_REL = ".claude-plugin/plugin.json";
+
+const literal = (path: string): string => `:(literal)${path}`;
+
+/** git add refuses an ignored path named outright, where adding its folder skipped it. */
+async function ignoredUntracked(deps: SyncDeps, dir: string, paths: string[]): Promise<Set<string>> {
+  if (paths.length === 0) return new Set();
+  const res = await deps.run("git", ["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", ...paths.map(literal)], { cwd: dir });
+  if (res.code !== 0) throw new Error(`git ls-files failed in ${dir}: ${res.stderr.trim()}`);
+  return new Set(res.stdout.split("\0").filter(Boolean));
+}
+
 function shownPath(f: PendingFile): string {
   return f.from === undefined ? f.path : `${f.from} -> ${f.path}`;
 }
@@ -280,6 +293,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   let pendingHashed: HashedFile[] = [];
   let packPrefix = "";
   let published = false;
+  let compiled: { written: string[]; removed: string[] } = { written: [], removed: [] };
 
   const finish = (): SyncReport => ({
     ok: !steps.some(stops),
@@ -547,6 +561,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       const leftAs = published ? "your pack edits are still staged, not committed" : "the checkout stays clean";
       return refused(`${result.errors.join("; ")}. rt put the version back to ${bumpBefore}, so ${leftAs}`);
     }
+    compiled = { written: result.written, removed: result.removed };
     return ran("compiled clean");
   });
   steps.push({ name: "compile", ...compile });
@@ -571,9 +586,16 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       const pendingCommit = await deps.run("git", ["commit", "-m", `skills: ${pack.name} pending changes`], { cwd: pack.dir });
       if (pendingCommit.code !== 0) return failed(`git commit failed: ${pendingCommit.stderr.trim()}`);
     }
-    const addPaths = [join(".claude-plugin", "plugin.json"), "skills", "attachments"].filter((rel) => existsSync(join(pack.dir, rel)));
-    const add = await deps.run("git", ["add", "--", ...addPaths], { cwd: pack.dir });
+    // Only the files this run's compile wrote or removed, by literal name: a
+    // file dropped into a compiled folder meanwhile stays out of the commit.
+    const ignored = await ignoredUntracked(deps, pack.dir, compiled.written);
+    const addPaths = [MANIFEST_REL, ...compiled.written.filter((p) => !ignored.has(p))];
+    const add = await deps.run("git", ["add", "--", ...addPaths.map(literal)], { cwd: pack.dir });
     if (add.code !== 0) return failed(`git add failed: ${add.stderr.trim()}`);
+    if (compiled.removed.length > 0) {
+      const rm = await deps.run("git", ["rm", "--cached", "--ignore-unmatch", "--quiet", "--", ...compiled.removed.map(literal)], { cwd: pack.dir });
+      if (rm.code !== 0) return failed(`git rm failed: ${rm.stderr.trim()}`);
+    }
     const commit = await deps.run("git", ["commit", "-m", `skills sync: ${pack.name} v${bumpAfter}`], { cwd: pack.dir });
     if (commit.code !== 0) return failed(`git commit failed: ${commit.stderr.trim()}`);
     const push = await deps.run("git", ["push"], { cwd: pack.dir });

@@ -778,8 +778,23 @@ describe("skillsCompile", () => {
 
     const result = await compilePackAll({ pack: "t", packDir, mattstackDir, manifest });
 
-    expect(result).toEqual({ ok: true, errors: [] });
+    expect(result).toMatchObject({ ok: true, errors: [], removed: [] });
+    expect(result.written).toContain("skills/watch-ci/SKILL.md");
     expect(existsSync(join(packDir, "skills", "watch-ci", "SKILL.md"))).toBe(true);
+  });
+
+  test("compilePackAll names every file it wrote and every file it removed, pack-relative", async () => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir();
+    const manifest = makeManifest();
+    writeFile(join(packDir, "skills", "watch-ci", "left-over.md"), "from an older compile\n");
+
+    const result = await compilePackAll({ pack: "t", packDir, mattstackDir, manifest });
+
+    const filesUnder = (rel: string) => (readdirSync(join(packDir, rel), { recursive: true }) as string[]).filter((p) => statSync(join(packDir, rel, p)).isFile()).map((p) => `${rel}/${p}`);
+    expect(result.removed).toEqual(["skills/watch-ci/left-over.md"]);
+    expect([...result.written].sort()).toEqual(filesUnder("skills").sort());
+    expect(existsSync(join(packDir, "skills", "watch-ci", "left-over.md"))).toBe(false);
   });
 
   test("compilePackAll surfaces lint failures as errors, writing nothing", async () => {
@@ -791,6 +806,7 @@ describe("skillsCompile", () => {
 
     expect(result.ok).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
+    expect(result).toMatchObject({ written: [], removed: [] });
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
   });
 });

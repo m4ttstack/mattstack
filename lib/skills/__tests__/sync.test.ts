@@ -50,6 +50,8 @@ type World = {
   checkThrows?: boolean;
   compileOk?: boolean;
   compileErrors?: string[];
+  /** What the fake compile reports it wrote and removed. */
+  compileWrites?: { written: string[]; removed: string[] };
   pullFail?: Record<string, string>;
   pullBumps?: Record<string, string>;
   updateFail?: Record<string, string>;
@@ -204,7 +206,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
       if (next === undefined) throw new Error("checkPack: fixture ran out of configured drift answers");
       return { drift: next, lintHits: lintHitsAnswers.shift() ?? 0, strict: lintStrictAnswers.shift() ?? false };
     },
-    compilePack: async () => ({ ok: world.compileOk ?? true, errors: world.compileErrors ?? [] }),
+    compilePack: async () => ({ ok: world.compileOk ?? true, errors: world.compileErrors ?? [], written: world.compileWrites?.written ?? [], removed: world.compileWrites?.removed ?? [] }),
     materialize: async () => ({ ok: true, detail: "materialized 1" }),
     configDir: world.configDir ?? tmp("rt-sync-config-"),
     cswapSessionsDir: world.cswapSessionsDir ?? join(tmpdir(), "rt-sync-no-such-cswap-dir"),
@@ -829,7 +831,7 @@ describe("syncPack", () => {
     expect(readVersion(pack.dir)).toBe("0.5.3");
   });
 
-  test("23: commit-push scopes git add to plugin.json and the compiled output dirs, never -A", async () => {
+  test("23: commit-push stages plugin.json and exactly the files compile wrote and removed, by literal name, never a whole folder", async () => {
     const pack = fixturePack("acme", "local", "0.5.2");
     mkdirSync(join(pack.dir, "skills"), { recursive: true });
     const engine = fixturePack("beacon", "local", "2.0.0");
@@ -838,13 +840,14 @@ describe("syncPack", () => {
       calls,
       installed: { [pluginId(pack)]: "0.5.2", [pluginId(engine)]: "2.0.0" },
       drift: [true, false],
+      compileWrites: { written: ["skills/work/SKILL.md"], removed: ["attachments/work/SKILL.md"] },
     });
 
     const report = await syncPack(pack, engine, deps);
 
-    const add = calls.find((c) => c.cwd === pack.dir && c.cmd === "git" && c.args[0] === "add")!;
-    expect(add.args).not.toContain("-A");
-    expect(add.args).toEqual(["add", "--", join(".claude-plugin", "plugin.json"), "skills"]);
+    const git = (verb: string) => calls.find((c) => c.cwd === pack.dir && c.cmd === "git" && c.args[0] === verb)!;
+    expect(git("add").args).toEqual(["add", "--", ":(literal).claude-plugin/plugin.json", ":(literal)skills/work/SKILL.md"]);
+    expect(git("rm").args).toEqual(["rm", "--cached", "--ignore-unmatch", "--quiet", "--", ":(literal)attachments/work/SKILL.md"]);
     expect(report.steps.find((s) => s.name === "commit-push")!.status).toBe("ran");
   });
 
@@ -1214,7 +1217,7 @@ describe("commit-pending", () => {
       "check",
       "check",
       "commit skills: acme pending changes",
-      `add -- ${join(".claude-plugin", "plugin.json")}`,
+      "add -- :(literal).claude-plugin/plugin.json",
       "commit skills sync: acme v1.0.1",
       "push",
     ]);
@@ -1608,6 +1611,64 @@ describe("commit-pending against real git", () => {
     expect(mustGit(root, "rev-list", "--count", "HEAD").trim()).toBe("1");
     expect(mustGit(root, "status", "--porcelain")).toBe(after);
     expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("the version commit holds the manifest and exactly what compile wrote and removed, never a file dropped beside them", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = async () => {
+      writeFileSync(join(pack.dir, "skills", "keep", "SKILL.md"), "keep, recompiled\n");
+      mkdirSync(join(pack.dir, "attachments", "fresh"), { recursive: true });
+      writeFileSync(join(pack.dir, "attachments", "fresh", "SKILL.md"), "fresh\n");
+      rmSync(join(pack.dir, "attachments", "old"), { recursive: true });
+      return { ok: true, errors: [], written: ["skills/keep/SKILL.md", "attachments/fresh/SKILL.md"], removed: ["attachments/old/SKILL.md", "attachments/old/stray.md"] };
+    };
+    const checkPack = deps.checkPack;
+    deps.checkPack = async (name) => {
+      const answer = await checkPack(name);
+      if (world.calls.filter((c) => c.cmd === "checkPack").length === 2) {
+        writeFileSync(join(pack.dir, "skills", "keep", "hand.md"), "dropped in by hand\n");
+        writeFileSync(join(pack.dir, "attachments", "fresh", "hand.md"), "dropped in by hand\n");
+      }
+      return answer;
+    };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    expect(report.ok).toBe(true);
+    expect(remoteLog(remote)).toEqual(["skills sync: acme v1.0.1", "skills: acme pending changes", "base"]);
+    expect(mustGit(root, "show", "--name-status", "--format=", "HEAD").trim().split("\n").sort()).toEqual([
+      "A\tattachments/fresh/SKILL.md",
+      "D\tattachments/old/SKILL.md",
+      "M\t.claude-plugin/plugin.json",
+      "M\tskills/keep/SKILL.md",
+    ]);
+    expect(mustGit(root, "status", "--porcelain")).toBe("?? attachments/fresh/hand.md\n?? skills/keep/hand.md\n");
+  }, REAL_GIT_TIMEOUT_MS);
+
+  test("a compiled file the pack ignores stays out of the version commit instead of failing the add", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(root, ".gitignore"), "*.log\n");
+    mustGit(root, "add", ".gitignore");
+    mustGit(root, "commit", "-q", "-m", "ignore logs");
+    mustGit(root, "push", "-q");
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = async () => {
+      writeFileSync(join(pack.dir, "skills", "keep", "SKILL.md"), "keep, recompiled\n");
+      writeFileSync(join(pack.dir, "skills", "keep", "build.log"), "noise\n");
+      return { ok: true, errors: [], written: ["skills/keep/SKILL.md", "skills/keep/build.log"], removed: [] };
+    };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.ok).toBe(true);
+    expect(mustGit(root, "show", "--name-only", "--format=", "HEAD").trim().split("\n").sort()).toEqual([".claude-plugin/plugin.json", "skills/keep/SKILL.md"]);
+    expect(remoteLog(remote)[0]).toBe("skills sync: acme v1.0.1");
   }, REAL_GIT_TIMEOUT_MS);
 
   test("an unstaged deletion the pulled commits also delete is no longer staged, and the rest commits", async () => {
