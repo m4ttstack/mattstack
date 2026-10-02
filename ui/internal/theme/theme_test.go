@@ -189,6 +189,7 @@ func TestTheLightStaticSetReadsOnWhiteAndOnBg(t *testing.T) {
 func TestTheDarkStaticSetIsTheAppsAccentsAndReadsOnBg(t *testing.T) {
 	for name, c := range map[string]struct{ tone, app color.Color }{
 		"mint": {StaticDark.Mint, Mint}, "peach": {StaticDark.Peach, Peach}, "lavender": {StaticDark.Lav, Lav},
+		"coral": {StaticDark.Coral, Coral}, "cyan": {StaticDark.Cyan, Cyan},
 	} {
 		if Hex(c.tone) != Hex(c.app) {
 			t.Errorf("dark %s is %s, want the app's %s", name, Hex(c.tone), Hex(c.app))
@@ -198,7 +199,6 @@ func TestTheDarkStaticSetIsTheAppsAccentsAndReadsOnBg(t *testing.T) {
 		}
 	}
 	for name, pair := range map[string][2]color.Color{
-		"coral": {StaticDark.Coral, StaticLight.Coral}, "cyan": {StaticDark.Cyan, StaticLight.Cyan},
 		"quiet": {StaticDark.Quiet, StaticLight.Quiet}, "rule": {StaticDark.Rule, StaticLight.Rule},
 	} {
 		if Hex(pair[0]) != Hex(pair[1]) {

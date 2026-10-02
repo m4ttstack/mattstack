@@ -486,7 +486,7 @@ func TestEveryStatusGlyphUsesAStaticTone(t *testing.T) {
 			t.Errorf("%s glyph %q, want tone %s", status, g, rgb)
 		}
 	}
-	for status, rgb := range map[string]string{"done": darkMint, "warn": darkPeach, "failed": "224;72;78"} {
+	for status, rgb := range map[string]string{"done": darkMint, "warn": darkPeach, "failed": darkCoral} {
 		if g := render.Glyph(theme.StaticDark, status); !strings.Contains(g, "38;2;"+rgb+"m") {
 			t.Errorf("dark %s glyph %q, want tone %s", status, g, rgb)
 		}
@@ -496,6 +496,7 @@ func TestEveryStatusGlyphUsesAStaticTone(t *testing.T) {
 const (
 	lightMint, lightPeach, lightLav = "18;171;86", "225;122;13", "161;105;255"
 	darkMint, darkPeach, darkLav    = "98;230;168", "255;183;122", "189;147;249"
+	lightCyan, darkCoral, darkCyan  = "46;134;222", "255;121;121", "90;170;255"
 )
 
 func TestKeysLabelsAndRailsUseStaticTones(t *testing.T) {
@@ -523,6 +524,7 @@ var accentBlocks = []protocol.Block{
 	{T: "failure", Title: "x", Why: "y"},
 	{T: "verbatim", Caption: "value", Lines: []string{"{}"}},
 	{T: "banner", Label: "PRODUCTION", Subject: "db"},
+	{T: "callout", Label: "note", Body: []protocol.Cell{{{Text: "the docs", Role: "link", URL: "https://example.com"}}}},
 }
 
 func TestAnUnknownBackgroundRendersTheLightSet(t *testing.T) {
@@ -531,21 +533,27 @@ func TestAnUnknownBackgroundRendersTheLightSet(t *testing.T) {
 	if unknown != light {
 		t.Fatalf("unknown and light differ:\n%q\n%q", unknown, light)
 	}
-	for _, tone := range []string{lightMint, lightPeach, lightLav} {
-		if !strings.Contains(light, "38;2;"+tone+"m") {
+	for _, tone := range []string{lightMint, lightPeach, lightLav, coral, lightCyan} {
+		if !hasTone(light, tone) {
 			t.Errorf("light render has no %s: %q", tone, light)
 		}
 	}
 }
 
+// hasTone matches a foreground that ends its SGR or is followed by another
+// attribute, as a link's underline is.
+func hasTone(s, rgb string) bool {
+	return strings.Contains(s, "38;2;"+rgb+"m") || strings.Contains(s, "38;2;"+rgb+";")
+}
+
 func TestADarkBackgroundRendersTheDarkSet(t *testing.T) {
 	dark := render.Render(accentBlocks, render.Options{Width: 80, Background: background.Dark})
-	for _, tone := range []string{darkMint, darkPeach, darkLav, "224;72;78", "119;114;154", "115;109;150"} {
-		if !strings.Contains(dark, "38;2;"+tone+"m") {
+	for _, tone := range []string{darkMint, darkPeach, darkLav, darkCoral, darkCyan, "119;114;154", "115;109;150"} {
+		if !hasTone(dark, tone) {
 			t.Errorf("dark render has no %s: %q", tone, dark)
 		}
 	}
-	for _, tone := range []string{lightMint, lightPeach, lightLav} {
+	for _, tone := range []string{lightMint, lightPeach, lightLav, coral, lightCyan} {
 		if strings.Contains(dark, tone) {
 			t.Errorf("dark render kept the light %s: %q", tone, dark)
 		}
