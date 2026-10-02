@@ -1,21 +1,22 @@
 /**
- * rt git push        — Push the current branch, guaranteeing upstream is
- *                      origin/<branch>. Detects post-rebase divergence and
- *                      points the user at `rt git push force`.
- * rt git push force  — Same, with --force-with-lease (for rebased/amended
- *                      branches). Plain --force is intentionally unsupported.
- * rt git upstream    — Fix branch.<name>.remote / .merge without pushing.
+ * rt git push         Push the current branch, guaranteeing upstream is
+ *                     origin/<branch>. Detects post-rebase divergence and
+ *                     points the user at `rt git push force`.
+ * rt git push force   Same, with --force-with-lease (for rebased or amended
+ *                     branches). Plain --force is intentionally unsupported.
+ * rt git upstream     Fix branch.<name>.remote and .merge without pushing.
  *
  * Fixes the common "new feature branch tracks origin/master" issue by
- * rewriting the tracking config pre-push AND using an explicit
- * `git push -u origin <branch>` refspec (so a stale upstream can't
- * misdirect the push).
+ * rewriting the tracking config before the push and using an explicit
+ * `git push -u origin <branch>` refspec, so a stale upstream cannot
+ * misdirect the push.
  */
 
-import { execSync, spawnSync } from "child_process";
-import { bold, cyan, dim, green, red, reset, yellow } from "../../lib/tui.ts";
+import { execFileSync, spawnSync } from "child_process";
+import * as out from "../../lib/ui/out.ts";
 import { getCurrentBranch } from "../../lib/git-ops.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
+import { NOT_ON_A_BRANCH, printable } from "./shared.ts";
 
 function argValue(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
@@ -45,13 +46,13 @@ function getUpstreamConfig(branch: string, cwd: string): UpstreamConfig | null {
 }
 
 function setUpstreamConfig(branch: string, remote: string, cwd: string): void {
-  execSync(`git config branch.${branch}.remote ${remote}`, { cwd, stdio: "pipe" });
-  execSync(`git config branch.${branch}.merge refs/heads/${branch}`, { cwd, stdio: "pipe" });
+  execFileSync("git", ["config", `branch.${branch}.remote`, remote], { cwd, stdio: "pipe" });
+  execFileSync("git", ["config", `branch.${branch}.merge`, `refs/heads/${branch}`], { cwd, stdio: "pipe" });
 }
 
 function labelUpstream(u: UpstreamConfig | null): string {
-  if (!u) return "(unset)";
-  return `${u.remote}/${u.merge.replace(/^refs\/heads\//, "")}`;
+  if (!u) return "nothing";
+  return `${printable(u.remote)}/${u.merge.replace(/^refs\/heads\//, "")}`;
 }
 
 function isUpstreamCorrect(
@@ -76,29 +77,25 @@ export async function upstreamCommand(
 
   const branch = getCurrentBranch(cwd);
   if (!branch) {
-    console.error(`\n  ${red}not on a branch (detached HEAD)${reset}\n`);
+    out.fail(NOT_ON_A_BRANCH);
     process.exit(1);
   }
 
   const current = getUpstreamConfig(branch, cwd);
-  const desired: UpstreamConfig = { remote, merge: `refs/heads/${branch}` };
-
-  console.log(`\n  ${bold}${cyan}rt git upstream${reset} ${dim}(${branch})${reset}\n`);
-  console.log(`  ${dim}current:${reset} ${labelUpstream(current)}`);
-  console.log(`  ${dim}desired:${reset} ${labelUpstream(desired)}`);
+  const wanted = `${printable(remote)}/${branch}`;
 
   if (isUpstreamCorrect(current, branch, remote)) {
-    console.log(`\n  ${green}✓${reset} upstream already ${bold}${labelUpstream(desired)}${reset}\n`);
+    out.print(out.line("done", `${branch} already tracks ${wanted}`));
     return;
   }
 
   if (dryRun) {
-    console.log(`\n  ${yellow}--dry-run — not applying${reset}\n`);
+    out.print(out.line("skipped", `Would point ${branch} at ${wanted}`, `it tracks ${labelUpstream(current)} now`));
     return;
   }
 
   setUpstreamConfig(branch, remote, cwd);
-  console.log(`\n  ${green}✓${reset} upstream set to ${bold}${labelUpstream(desired)}${reset}\n`);
+  out.print(out.line("done", `${branch} now tracks ${wanted}`, `it tracked ${labelUpstream(current)}`));
 }
 
 // ─── rt git push ────────────────────────────────────────────────────────────
@@ -141,10 +138,11 @@ async function runPush(
   const dryRun = args.includes("--dry-run");
   const noVerify = args.includes("--no-verify");
   const remote = argValue(args, "--remote") ?? "origin";
+  const shown = printable(remote);
 
   const branch = getCurrentBranch(cwd);
   if (!branch) {
-    console.error(`\n  ${red}not on a branch (detached HEAD)${reset}\n`);
+    out.fail(NOT_ON_A_BRANCH);
     process.exit(1);
   }
 
@@ -158,20 +156,23 @@ async function runPush(
       if (process.stdin.isTTY) {
         const { select } = await import("../../lib/rt-render.ts");
         const choice = await select({
-          message: `local has diverged from ${remote}/${branch} (likely after a rebase) — force push?`,
+          message: `${branch} and ${shown}/${branch} have diverged, usually after a rebase or an amend. Force push?`,
           options: [
             { value: "force", label: "Force push with --force-with-lease" },
             { value: "cancel", label: "Cancel" },
           ],
         });
         if (choice !== "force") {
-          console.log(`\n  ${dim}cancelled${reset}\n`);
+          out.print(out.line("skipped", "Nothing was pushed"));
           return false;
         }
         force = true;
       } else {
-        console.error(`\n  ${yellow}local has diverged from ${remote}/${branch} (likely after a rebase or amend)${reset}`);
-        console.error(`  ${dim}use${reset} ${bold}rt git push force${reset} ${dim}for --force-with-lease${reset}\n`);
+        out.fail({
+          title: `${branch} and ${shown}/${branch} have diverged`,
+          why: "This usually follows a rebase or an amend, and a plain push would be rejected.",
+          next: out.cmd("rt git push force"),
+        });
         process.exit(1);
       }
     }
@@ -185,27 +186,30 @@ async function runPush(
     setUpstreamConfig(branch, remote, cwd);
   }
 
-  const label = opts.force ? "rt git push force" : "rt git push";
-
   const gitArgs: string[] = ["push"];
   if (force) gitArgs.push("--force-with-lease");
   if (noVerify) gitArgs.push("--no-verify");
   gitArgs.push("-u", remote, branch);
 
-  console.log(`\n  ${bold}${cyan}${label}${reset} ${dim}(${branch} → ${remote}/${branch})${reset}`);
-  if (upstreamWasWrong) {
-    console.log(`  ${dim}upstream:${reset} ${labelUpstream(current)} ${dim}→${reset} ${remote}/${branch}`);
-  }
-  console.log(`  ${dim}git ${gitArgs.join(" ")}${reset}\n`);
+  const target = `${shown}/${branch}`;
 
   if (dryRun) {
-    console.log(`  ${yellow}--dry-run — not running${reset}\n`);
+    out.print(
+      out.line("skipped", `Would push ${branch} to ${target}`, force ? "dry run, forcing with a lease" : "dry run"),
+      ...(upstreamWasWrong ? [out.callout("note", `This branch tracks ${labelUpstream(current)}. A real push points it at ${target}.`)] : []),
+      out.copy(`git ${[...gitArgs.slice(0, -2), shown, branch].join(" ")}`, "the command"),
+    );
     return true;
   }
 
+  out.print(
+    out.line("running", `Pushing ${branch} to ${target}`, force ? "forcing, with a lease" : undefined),
+    ...(upstreamWasWrong ? [out.callout("note", `This branch tracked ${labelUpstream(current)}. It now tracks ${target}.`)] : []),
+  );
+
   const r = spawnSync("git", gitArgs, { cwd, stdio: "inherit" });
   if (r.status === 0) {
-    console.log(`\n  ${green}✓${reset} pushed ${bold}${branch}${reset} to ${remote}/${branch}\n`);
+    out.print(out.line("done", `Pushed ${branch}`, `to ${target}`));
     return true;
   }
   process.exit(r.status ?? 1);

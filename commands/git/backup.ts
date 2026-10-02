@@ -1,19 +1,16 @@
 /**
- * rt git backup — Manual branch backup.
- * rt git restore — Interactive restore from backup.
+ * rt git backup: Manual branch backup.
+ * rt git restore: Interactive restore from backup.
  *
  * Thin wrappers over lib/git-backup.ts.
  */
 
-import { bold, cyan, dim, green, yellow, red, reset } from "../../lib/tui.ts";
+import * as out from "../../lib/ui/out.ts";
 import { getCurrentBranch } from "../../lib/git-ops.ts";
-import {
-  createBackup,
-  listBackups,
-  restoreFromBackup,
-  type BackupBranch,
-} from "../../lib/git-backup.ts";
+import { createBackup, listBackups, restoreFromBackup, type BackupBranch } from "../../lib/git-backup.ts";
+import type { Block } from "../../lib/ui/protocol.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
+import { NOT_ON_A_BRANCH } from "./shared.ts";
 
 // ─── rt git backup ──────────────────────────────────────────────────────────
 
@@ -25,18 +22,18 @@ export async function backupCommand(
   const branch = getCurrentBranch(cwd);
 
   if (!branch) {
-    console.error(`\n  ${red}not on a branch (detached HEAD)${reset}\n`);
+    out.fail(NOT_ON_A_BRANCH);
     process.exit(1);
   }
 
   const backupRef = createBackup("manual", cwd);
-  console.log(`\n  ${green}✓${reset} backed up ${bold}${branch}${reset} → ${dim}${backupRef}${reset}\n`);
+  out.print(out.line("done", `Backed up ${branch}`, backupRef));
 }
 
 // ─── rt git restore ─────────────────────────────────────────────────────────
 
 function formatAge(ts: string): string {
-  // Timestamp is like "2026-04-09T00-27-40" — convert back to Date
+  // Timestamp is like "2026-04-09T00-27-40"; convert it back to a Date
   const normalized = ts.replace(
     /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})$/,
     "$1:$2:$3",
@@ -53,6 +50,29 @@ function formatAge(ts: string): string {
   return `${days}d ago`;
 }
 
+/** A restore hard-resets the branch you are on, which need not be the branch the backup was taken from. */
+export function restoreBlocks(current: string | null, backup: BackupBranch, age: string): { pending: Block[]; done: Block } {
+  const here = current ?? "detached HEAD";
+  const from = `${backup.operation} backup from ${age}`;
+  if (current === backup.originalBranch) {
+    return {
+      pending: [out.line("pending", `Restore ${here} to ${backup.sha}`, from), out.callout("note", "This throws away every change made since that backup.")],
+      done: out.line("done", `Restored ${here}`, backup.ref),
+    };
+  }
+  const title = `Reset ${here} to ${backup.originalBranch}'s backup`;
+  const note = current === null
+    ? "This moves HEAD to that backup, and throws away every change here that is not in it."
+    : `This replaces ${here} with that backup, and throws away every commit and change on ${here} that is not in it.`;
+  return {
+    pending: [
+      out.line("pending", `${title} ${backup.sha}`, from),
+      out.callout("note", note),
+    ],
+    done: out.line("done", title, backup.ref),
+  };
+}
+
 export async function restoreCommand(
   _args: string[],
   ctx: CommandContext,
@@ -61,7 +81,7 @@ export async function restoreCommand(
   const backups = listBackups(cwd);
 
   if (backups.length === 0) {
-    console.log(`\n  ${dim}no backup branches found${reset}\n`);
+    out.print(out.line("skipped", "There are no backups to restore"));
     return;
   }
 
@@ -78,14 +98,13 @@ export async function restoreCommand(
   });
 
   if (!selected) {
-    console.log(`\n  ${dim}cancelled${reset}\n`);
+    out.print(out.line("skipped", "Nothing was restored"));
     return;
   }
 
   const backup = backups.find((b) => b.ref === selected)!;
-
-  console.log(`\n  restore ${bold}${backup.originalBranch}${reset} to backup ${dim}${backup.sha}${reset}`);
-  console.log(`  ${dim}(${backup.operation} from ${formatAge(backup.timestamp)})${reset}`);
+  const { pending, done } = restoreBlocks(getCurrentBranch(cwd), backup, formatAge(backup.timestamp));
+  out.print(...pending);
 
   const ok = await inkConfirm({
     message: "Restore? (this does a hard reset)",
@@ -93,10 +112,10 @@ export async function restoreCommand(
   });
 
   if (!ok) {
-    console.log(`\n  ${dim}cancelled${reset}\n`);
+    out.print(out.line("skipped", "Nothing was restored"));
     return;
   }
 
   restoreFromBackup(selected, cwd);
-  console.log(`\n  ${green}✓${reset} restored to ${dim}${selected}${reset}\n`);
+  out.print(done);
 }

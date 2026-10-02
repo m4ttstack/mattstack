@@ -1,83 +1,95 @@
-import { createGitClient } from "../../packages/git-core/src/index.ts";
-import { flagValue } from "../../lib/cli-args.ts";
-
-export function failPlain(json: boolean, verb: string, message: string): never {
-  if (json) console.log(JSON.stringify({ ok: false, error: message }));
-  else console.error(`rt ${verb}: ${message}`);
-  process.exit(1);
-}
+import { createGitClient, type BranchInfo, type FileDiff, type LogEntry, type RepoSnapshot } from "../../packages/git-core/src/index.ts";
+import * as out from "../../lib/ui/out.ts";
+import type { Block } from "../../lib/ui/protocol.ts";
+import { errText, failPlain, failUsage, readFlag } from "./shared.ts";
 
 export function repoClient() {
   return createGitClient(process.cwd());
 }
 
+function position(ahead: number | null, behind: number | null): string[] {
+  return [ahead ? `${ahead} ahead` : "", behind ? `${behind} behind` : ""].filter(Boolean);
+}
+
+export function statusBlocks(snap: RepoSnapshot): Block[] {
+  const head = snap.detached || !snap.branch ? "detached HEAD" : snap.branch;
+  const notes = [snap.upstream ? `tracking ${snap.upstream}` : "", ...position(snap.ahead, snap.behind)].filter(Boolean).join(", ");
+  const headRow: out.CellInput[] = notes ? [out.key(head), out.dim(notes)] : [out.key(head)];
+  if (snap.clean) return [out.table([headRow]), out.line("done", "Nothing to commit")];
+  const rows: out.CellInput[][] = snap.files.map((f) => [
+    f.originalPath ? [f.path, out.dim(` (was ${f.originalPath})`)] : f.path,
+    out.dim(f.kind),
+    out.dim(f.staged && f.unstaged ? "partly" : f.staged ? "yes" : "no"),
+  ]);
+  return [out.table([headRow]), out.table(rows, ["FILE", "CHANGE", "STAGED"])];
+}
+
+export function logBlocks(entries: LogEntry[]): Block[] {
+  if (entries.length === 0) return [out.line("skipped", "No commits to show")];
+  return [out.table(entries.map((e) => [out.dim(e.sha.slice(0, 8)), out.dim(e.authorDate.slice(0, 10)), e.subject]))];
+}
+
+export function branchesBlocks(branches: BranchInfo[]): Block[] {
+  if (branches.length === 0) return [out.line("skipped", "No branches yet")];
+  return [
+    out.table(
+      branches.map((b) => {
+        const notes = [b.current ? "current" : "", b.upstream ? `tracking ${b.upstream}` : "", ...position(b.ahead, b.behind), b.upstreamGone ? "its upstream is gone" : ""].filter(Boolean).join(", ");
+        return notes ? [out.key(b.name), out.dim(notes)] : [out.key(b.name)];
+      }),
+    ),
+  ];
+}
+
+export function diffBlocks(diff: FileDiff): Block[] {
+  if (diff.kind !== "text") return [out.line("skipped", `${diff.path} is ${diff.kind === "binary" ? "a binary file" : "a submodule"}`, "no line diff to show")];
+  if (diff.hunks.length === 0) return [out.line("skipped", `No changes in ${diff.path}`)];
+  return [out.diff(diff.hunks.map((h) => ({ header: h.header, lines: h.lines.map((l) => ({ kind: l.type, text: l.content })) })))];
+}
+
+const STATUS_FAILED = "Could not read what has changed here";
+
 export async function statusCommand(args: string[]): Promise<void> {
   const json = args.includes("--json");
+  let snap: RepoSnapshot;
   try {
-    const snap = await repoClient().snapshot();
-    if (json) {
-      console.log(JSON.stringify({ ok: true, ...snap }));
-      return;
-    }
-    const head = snap.detached ? "(detached)" : snap.branch ?? "(unborn)";
-    const pos = [
-      snap.ahead ? `ahead ${snap.ahead}` : "",
-      snap.behind ? `behind ${snap.behind}` : "",
-    ].filter(Boolean).join(", ");
-    console.log(`${head}${snap.upstream ? ` -> ${snap.upstream}` : ""}${pos ? `  [${pos}]` : ""}`);
-    if (snap.clean) {
-      console.log("clean");
-      return;
-    }
-    for (const f of snap.files) {
-      const marks = `${f.staged ? "S" : " "}${f.unstaged ? "W" : " "}`;
-      console.log(`  ${marks} ${f.kind.padEnd(10)} ${f.path}${f.originalPath ? ` (from ${f.originalPath})` : ""}`);
-    }
+    snap = await repoClient().snapshot();
   } catch (err) {
-    failPlain(json, "git status", err instanceof Error ? err.message : String(err));
+    failPlain(json, STATUS_FAILED, errText(err));
   }
+  if (json) out.json({ ok: true, ...snap });
+  else out.print(...statusBlocks(snap));
 }
+
+const LOG_USAGE = "usage: rt git log [--max <n>] [--file <path>] [--json]";
 
 export async function logCommand(args: string[]): Promise<void> {
   const json = args.includes("--json");
+  const max = Number(readFlag(json, args, "--max", LOG_USAGE) ?? 20);
+  const file = readFlag(json, args, "--file", LOG_USAGE);
+  let entries: LogEntry[];
   try {
-    const max = Number(flagValue(args, "--max") ?? 20);
-    const file = flagValue(args, "--file") ?? undefined;
-    const entries = await repoClient().log({
+    entries = await repoClient().log({
       maxCount: Number.isFinite(max) && max > 0 ? max : 20,
       ...(file ? { file } : {}),
     });
-    if (json) {
-      console.log(JSON.stringify({ ok: true, entries }));
-      return;
-    }
-    for (const e of entries) {
-      console.log(`${e.sha.slice(0, 8)}  ${e.authorDate.slice(0, 10)}  ${e.subject}`);
-    }
   } catch (err) {
-    failPlain(json, "git log", err instanceof Error ? err.message : String(err));
+    failPlain(json, "Could not read this branch's commits", errText(err));
   }
+  if (json) out.json({ ok: true, entries });
+  else out.print(...logBlocks(entries));
 }
 
 export async function branchesCommand(args: string[]): Promise<void> {
   const json = args.includes("--json");
+  let branches: BranchInfo[];
   try {
-    const branches = await repoClient().branches();
-    if (json) {
-      console.log(JSON.stringify({ ok: true, branches }));
-      return;
-    }
-    for (const b of branches) {
-      const pos = [
-        b.ahead ? `ahead ${b.ahead}` : "",
-        b.behind ? `behind ${b.behind}` : "",
-        b.upstreamGone ? "upstream gone" : "",
-      ].filter(Boolean).join(", ");
-      console.log(`${b.current ? "*" : " "} ${b.name}${b.upstream ? ` -> ${b.upstream}` : ""}${pos ? `  [${pos}]` : ""}`);
-    }
+    branches = await repoClient().branches();
   } catch (err) {
-    failPlain(json, "git branches", err instanceof Error ? err.message : String(err));
+    failPlain(json, "Could not list the branches", errText(err));
   }
+  if (json) out.json({ ok: true, branches });
+  else out.print(...branchesBlocks(branches));
 }
 
 const DIFF_USAGE = "usage: rt git diff <path> [--staged] [--json]";
@@ -99,13 +111,13 @@ export async function diffCommand(args: string[]): Promise<void> {
   let path = positional(args);
   let untracked = false;
   if (!path && process.stdin.isTTY && !json && !process.env.RT_BATCH) {
-    let files: Awaited<ReturnType<typeof client.snapshot>>["files"];
+    let files: RepoSnapshot["files"];
     try {
       files = (await client.snapshot()).files;
     } catch (err) {
-      failPlain(json, "git diff", err instanceof Error ? err.message : String(err));
+      failPlain(json, STATUS_FAILED, errText(err));
     }
-    if (files.length === 0) failPlain(json, "git diff", DIFF_USAGE);
+    if (files.length === 0) failUsage(json, "Which file?", DIFF_USAGE, "Nothing has changed here, so there is no file to pick from.");
     const { filterableSelect } = await import("../../lib/pick-wrappers.ts");
     const picked = await filterableSelect({
       message: "Diff which file?",
@@ -115,26 +127,13 @@ export async function diffCommand(args: string[]): Promise<void> {
     path = picked;
     untracked = files.find((f) => f.path === picked)?.kind === "untracked";
   }
-  if (!path) failPlain(json, "git diff", DIFF_USAGE);
-  let diff: Awaited<ReturnType<typeof client.diffFile>>;
+  if (!path) failUsage(json, "Which file?", DIFF_USAGE);
+  let diff: FileDiff;
   try {
     diff = await client.diffFile(path, { staged, ...(untracked ? { untracked: true } : {}) });
   } catch (err) {
-    failPlain(json, "git diff", err instanceof Error ? err.message : String(err));
+    failPlain(json, "Could not read that file's changes", errText(err));
   }
-  if (json) {
-    console.log(JSON.stringify({ ok: true, diff }));
-    return;
-  }
-  if (diff.kind !== "text") {
-    console.log(`${diff.path}: ${diff.kind} (no line diff)`);
-    return;
-  }
-  for (const hunk of diff.hunks) {
-    console.log(hunk.header);
-    for (const line of hunk.lines) {
-      const mark = line.type === "add" ? "+" : line.type === "del" ? "-" : " ";
-      console.log(`${mark}${line.content}`);
-    }
-  }
+  if (json) out.json({ ok: true, diff });
+  else out.print(...diffBlocks(diff));
 }

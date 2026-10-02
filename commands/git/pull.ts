@@ -1,5 +1,5 @@
 /**
- * rt git pull — Mirror of GitHub Desktop's "Pull origin" button.
+ * rt git pull: mirror of GitHub Desktop's "Pull origin" button.
  *
  * Faithful to desktop/desktop app/src/lib/git/pull.ts:
  *   git -c rebase.backend=merge pull [--ff] --recurse-submodules --progress [--no-verify] <remote>
@@ -10,9 +10,10 @@
  */
 
 import { spawnSync } from "child_process";
-import { bold, cyan, dim, green, red, reset, yellow } from "../../lib/tui.ts";
+import * as out from "../../lib/ui/out.ts";
 import { getCurrentBranch, hasUncommittedChanges } from "../../lib/git-ops.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
+import { NOT_ON_A_BRANCH, printable, refusalNote, uncommittedChanges } from "./shared.ts";
 
 function argValue(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
@@ -35,16 +36,17 @@ export async function pullCommand(
 
   const branch = getCurrentBranch(cwd);
   if (!branch) {
-    console.error(`\n  ${red}not on a branch (detached HEAD)${reset}\n`);
+    out.fail(NOT_ON_A_BRANCH);
     process.exit(1);
   }
 
   if (hasUncommittedChanges(cwd)) {
-    console.error(`\n  ${red}uncommitted changes — commit or stash before pulling${reset}\n`);
+    out.note(...refusalNote(uncommittedChanges("A pull could overwrite them.")));
     process.exit(1);
   }
 
   const remote = argValue(args, "--remote") ?? "origin";
+  const shown = printable(remote);
   const dryRun = args.includes("--dry-run");
   const noVerify = args.includes("--no-verify");
   const forceRebase = args.includes("--rebase");
@@ -59,17 +61,15 @@ export async function pullCommand(
   if (noVerify) gitArgs.push("--no-verify");
   gitArgs.push(remote);
 
-  console.log(`\n  ${bold}${cyan}rt git pull${reset} ${dim}(${branch} ← ${remote})${reset}`);
-  console.log(`  ${dim}git ${gitArgs.join(" ")}${reset}\n`);
-
   if (dryRun) {
-    console.log(`  ${yellow}--dry-run — not running${reset}\n`);
+    out.print(out.line("skipped", `Would pull ${branch} from ${shown}`, "dry run"), out.copy(`git ${[...gitArgs.slice(0, -1), shown].join(" ")}`, "the command"));
     return;
   }
 
+  out.print(out.line("running", `Pulling ${branch} from ${shown}`));
   const r = spawnSync("git", gitArgs, { cwd, stdio: "inherit" });
   if (r.status === 0) {
-    console.log(`\n  ${green}✓${reset} pulled ${bold}${branch}${reset} from ${remote}\n`);
+    out.print(out.line("done", `Pulled ${branch}`, `from ${shown}`));
     return;
   }
 

@@ -323,6 +323,14 @@ plain copy even when an envelope carries it, with the envelope's keys and
 machine-read values kept. A refusal by policy is `out.note` with a
 `refused` line, never `out.fail`.
 
+The git verbs fail through `commands/git/shared.ts`: `failPlain(json, title,
+message)` keeps git's own message as the `--json` error and prints it under a
+plain title for a person, `failUsage` does the same for a usage string, and
+both exit 1. A refusal by policy (the ownership guard, an undo rt will not
+do, the uncommitted-changes guard) is never a failure: `refuseWith` prints a
+`refused` note on stderr and keeps the `--json` error and exit code, and
+`refusalNote` returns the note's blocks.
+
 ## The TypeScript CLI is UI-free
 
 The rt TS CLI (`commands/`, `lib/`, `cli.ts`, `scripts/`) is pure Bun/TypeScript
