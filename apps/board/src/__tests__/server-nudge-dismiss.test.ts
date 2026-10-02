@@ -100,6 +100,17 @@ test('refuses a body without an mrUrl', async () => {
   expect((await dismiss({})).status).toBe(400);
 });
 
+test('refuses a body that is not json, and deletes nothing', async () => {
+  await ready();
+  const res = await fetch(`http://127.0.0.1:${PORT}/nudge/dismiss`, {
+    method: 'POST',
+    headers: { 'content-type': 'text/plain' },
+    body: JSON.stringify({ mrUrl: MR_B }),
+  });
+  expect(res.ok).toBe(false);
+  expect(readSentNudges(db).has(MR_B)).toBe(true);
+});
+
 test('refuses a non-POST', async () => {
   await ready();
   const res = await fetch(`http://127.0.0.1:${PORT}/nudge/dismiss`);

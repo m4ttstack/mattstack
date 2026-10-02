@@ -21,7 +21,9 @@ export interface MaterializeDeps {
       result: NudgeResult | 'confirmed';
       reason?: string;
       at: number;
-    }
+    },
+    /** Who sent the report: only the teammate that was asked can answer. */
+    from?: string
   ): void;
   finishSentNudge(
     mrUrl: string,
@@ -32,7 +34,8 @@ export interface MaterializeDeps {
       at: number;
     },
     ifSentBefore: number,
-    nudgeId?: string
+    nudgeId?: string,
+    from?: string
   ): void;
   log(line: string): void;
   /** Called once per tick that reached the relay: "unauthorized" on a 401
@@ -57,7 +60,7 @@ export function materializeEnvelope(
     // A reviewing transition confirms any pending sent nudge for this MR: the
     // re-review actually started, whichever of state/outcome lands first.
     if (p.status === 'queued' || p.status === 'reviewing') {
-      deps.resolveSentNudge(p.mrUrl, { result: 'confirmed', at: now });
+      deps.resolveSentNudge(p.mrUrl, { result: 'confirmed', at: now }, e.from);
     }
     // The review ended: keep the ask on the row with its result, so the
     // asker can read it and dismiss or retry. Guarded on the report's own
@@ -71,7 +74,9 @@ export function materializeEnvelope(
           ...(p.status === 'done' && p.outcome ? { outcome: p.outcome } : {}),
           at: now,
         },
-        p.updatedAt
+        p.updatedAt,
+        undefined,
+        e.from
       );
     }
     return;
@@ -84,14 +89,15 @@ export function materializeEnvelope(
     if (!p)
       return deps.log(`peer: malformed respond-state from ${e.from} (${e.id})`);
     if (p.status !== 'done' && p.status !== 'error') {
-      deps.resolveSentNudge(p.mrUrl, { result: 'confirmed', at: now });
+      deps.resolveSentNudge(p.mrUrl, { result: 'confirmed', at: now }, e.from);
     }
     if (p.status === 'done' || p.status === 'error') {
       deps.finishSentNudge(
         p.mrUrl,
         { result: p.status === 'done' ? 'done' : 'failed', at: now },
         p.updatedAt,
-        p.nudgeId
+        p.nudgeId,
+        e.from
       );
     }
     return;
@@ -125,11 +131,11 @@ export function materializeEnvelope(
     const p = parseNudgeOutcomePayload(e.payload);
     if (!p)
       return deps.log(`peer: malformed nudge-outcome from ${e.from} (${e.id})`);
-    deps.resolveSentNudge(p.mrUrl, {
-      result: p.result,
-      reason: p.reason,
-      at: now,
-    });
+    deps.resolveSentNudge(
+      p.mrUrl,
+      { result: p.result, reason: p.reason, at: now },
+      e.from
+    );
     return;
   }
   deps.log(

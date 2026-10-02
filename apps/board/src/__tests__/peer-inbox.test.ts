@@ -33,6 +33,8 @@ function fakeDeps(): MaterializeDeps & {
     };
   }>;
   finishes: FinishCall[];
+  /** The sender each resolve or finish call named, in call order. */
+  froms: Array<string | undefined>;
   logs: string[];
 } {
   const peerReviews: PeerReviewState[] = [];
@@ -46,8 +48,10 @@ function fakeDeps(): MaterializeDeps & {
     };
   }> = [];
   const finishes: FinishCall[] = [];
+  const froms: Array<string | undefined> = [];
   const logs: string[] = [];
   return {
+    froms,
     peerReviews,
     nudges,
     resolutions,
@@ -60,10 +64,12 @@ function fakeDeps(): MaterializeDeps & {
     writeNudge(n) {
       nudges.push(n);
     },
-    resolveSentNudge(mrUrl, resolution) {
+    resolveSentNudge(mrUrl, resolution, from) {
       resolutions.push({ mrUrl, resolution });
+      froms.push(from);
     },
-    finishSentNudge(mrUrl, finish, ifSentBefore, nudgeId) {
+    finishSentNudge(mrUrl, finish, ifSentBefore, nudgeId, from) {
+      froms.push(from);
       finishes.push({
         mrUrl,
         finish,
@@ -186,6 +192,20 @@ describe('materializeEnvelope', () => {
           ifSentBefore: 500,
         },
       ]);
+    });
+
+    test('every resolve and finish names the sender, so the store can ignore a different teammate', () => {
+      const deps = fakeDeps();
+      for (const status of ['reviewing', 'done', 'error'])
+        materializeEnvelope(
+          envelope({
+            from: 'bob',
+            payload: { mrUrl: URL_A, iid: 4821, status, updatedAt: 500 },
+          }),
+          deps,
+          1000
+        );
+      expect(deps.froms).toEqual(['bob', 'bob', 'bob']);
     });
 
     test('an in-flight status never finishes the sent nudge', () => {

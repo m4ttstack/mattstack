@@ -41,6 +41,8 @@ function Trail({
       ariaLabel={band.title}
       onClose={onClose}
       className="tui-ask-trail"
+      onClick={e => e.stopPropagation()}
+      onContextMenu={e => e.stopPropagation()}
     >
       <ContextMenu.Label>{band.title}</ContextMenu.Label>
       {band.steps.map((step, i) => (

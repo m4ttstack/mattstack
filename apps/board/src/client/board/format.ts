@@ -107,9 +107,9 @@ const DOCTOR_ACTIVE = new Set<DoctorStatus>([
 
 // ── peer switchboard ────────────────────────────────────────────────────────
 
-/** Nudge states that leave the ask unanswered, so asking again is the honest
-    next move. Shared by the status line's wording and the menu item's
-    condition -- the item reappearing IS the retry affordance. */
+/** Sent-ask states that are over (declined, unanswered, failed, done), so the
+    row may take another ask. The ask menu items' condition: they come back
+    exactly when this set holds. */
 const NUDGE_RETRYABLE = new Set<SentNudgeInfo['display']>([
   'rejected',
   'expired',

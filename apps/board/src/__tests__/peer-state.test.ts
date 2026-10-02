@@ -16,6 +16,7 @@ import {
   readNudges,
   readSentNudges,
   resolveSentNudge,
+  reviewerDisplayName,
   SENT_FINISH_KEEP_MS,
   sentNudgeDisplay,
   sentNudgeView,
@@ -503,6 +504,58 @@ describe('finishSentNudge', () => {
     resolveSentNudge(URL_A, { result: 'rejected', at: 5 }, db);
     finishSentNudge(URL_A, { result: 'done', at: 20 }, 10, db);
     expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe('rejected');
+  });
+});
+
+describe('a report only counts from the teammate that was asked', () => {
+  const ask = () =>
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
+      db
+    );
+
+  test('another reviewer finishing the MR leaves the ask alone', () => {
+    ask();
+    finishSentNudge(URL_A, DONE, 10, db, undefined, 'bob');
+    expect(readSentNudges(db).get(URL_A)?.resolution).toBeUndefined();
+  });
+
+  test('the asked reviewer finishes it', () => {
+    ask();
+    finishSentNudge(URL_A, DONE, 10, db, undefined, 'grace');
+    expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe('done');
+  });
+
+  test('another reviewer starting a review does not confirm the ask', () => {
+    ask();
+    resolveSentNudge(URL_A, { result: 'confirmed', at: 5 }, db, 'bob');
+    expect(readSentNudges(db).get(URL_A)?.resolution).toBeUndefined();
+    resolveSentNudge(URL_A, { result: 'confirmed', at: 6 }, db, 'grace');
+    expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe('confirmed');
+  });
+});
+
+describe('reviewerDisplayName', () => {
+  const members = [
+    { username: 'Grace', name: 'Grace Hopper' },
+    { username: 'bob', name: null },
+  ];
+
+  test('finds a roster entry whatever the case of its username', () => {
+    expect(reviewerDisplayName('grace', members, new Map())).toBe(
+      'Grace Hopper'
+    );
+  });
+
+  test('prefers the resolved display name over the configured one', () => {
+    expect(
+      reviewerDisplayName('grace', members, new Map([['Grace', 'G. Hopper']]))
+    ).toBe('G. Hopper');
+  });
+
+  test('is undefined for a member with no name or no roster entry', () => {
+    expect(reviewerDisplayName('bob', members, new Map())).toBeUndefined();
+    expect(reviewerDisplayName('zed', members, new Map())).toBeUndefined();
   });
 });
 

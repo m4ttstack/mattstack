@@ -216,6 +216,7 @@ import {
   readNudges,
   readSentNudges,
   resolveSentNudge,
+  reviewerDisplayName,
   sentNudgeView,
   writeNudge,
   writeSentNudge,
@@ -494,10 +495,11 @@ async function fetchReconcilerView(): Promise<ReconcilerView> {
 const peerDeps: Omit<MaterializeDeps, 'reportAuth'> = {
   writePeerReview,
   writeNudge,
-  resolveSentNudge,
-  // Adapter: the store takes its db before the nudge id.
-  finishSentNudge: (mrUrl, finish, ifSentBefore, nudgeId) =>
-    finishSentNudge(mrUrl, finish, ifSentBefore, undefined, nudgeId),
+  // Adapters: the store takes its db before the nudge id and the sender.
+  resolveSentNudge: (mrUrl, resolution, from) =>
+    resolveSentNudge(mrUrl, resolution, undefined, from),
+  finishSentNudge: (mrUrl, finish, ifSentBefore, nudgeId, from) =>
+    finishSentNudge(mrUrl, finish, ifSentBefore, undefined, nudgeId, from),
   log: line => console.error(line),
 };
 const peering = makePeering({
@@ -559,9 +561,9 @@ function attachPeerState<T extends { webUrl?: string | null }>(
     if (!mr.webUrl) return mr;
     const s = sent.get(mr.webUrl);
     const view = s ? sentNudgeView(s, now) : null;
-    const reviewerName =
-      memberNames.get(s?.reviewer ?? '') ??
-      config.members.find(m => m.username === s?.reviewer)?.name;
+    const reviewerName = s
+      ? reviewerDisplayName(s.reviewer, config.members, memberNames)
+      : undefined;
     const sentNudge = view
       ? { ...view, ...(reviewerName ? { reviewerName } : {}) }
       : null;

@@ -180,6 +180,30 @@ test('a clicked action does not bubble to the row', async () => {
   expect(rowClicks).toBe(0);
 });
 
+test('clicks inside the open trail do not reach the row', async () => {
+  const seen: string[] = [];
+  await React.act(async () => {
+    root.render(
+      <div
+        onClick={() => seen.push('click')}
+        onContextMenu={() => seen.push('context')}
+      >
+        <AskBand mr={mrWith({})} ctx={ctx()} />
+      </div>
+    );
+  });
+  const trigger =
+    container.querySelector<HTMLButtonElement>('.tui-ask-trigger')!;
+  await React.act(async () => trigger.click());
+  seen.length = 0;
+  const step = document.querySelector('.tui-ask-trail-step')!;
+  await React.act(async () => {
+    step.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    step.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+  });
+  expect(seen).toEqual([]);
+});
+
 test('a remote viewer sees the band without actions', async () => {
   await render(mrWith({ display: 'failed' }), ctx({ local: false }));
   expect(container.querySelector('.tui-ask')).not.toBeNull();

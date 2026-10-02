@@ -22,7 +22,7 @@ What it adds:
 - **The ask band.** Whatever you asked a teammate's agent for shows as a band
   at the foot of the row, outside the status line and its "+N active" count:
   requested, running, done (with the verdict), failed, declined or no answer.
-  Hovering it shows the trail with times. A finished ask stays for 24 hours.
+  Clicking it opens the trail with times. A finished ask stays for 24 hours.
   **Dismiss** (done, failed, declined, no answer) drops it from the row;
   **Retry** (failed, declined, no answer) scraps the recorded ask and sends the
   same kind of ask to the same teammate again.

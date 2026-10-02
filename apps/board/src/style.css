@@ -4734,9 +4734,10 @@ a.tui-id-card-ref:focus-visible {
    row's content and tinted by where the ask stands, so the row's divider
    falls below it and it cannot read as the next row's header. */
 .tui-ask {
-  --ask-fill: var(--text-4);
+  --ask-fill: var(--border);
+  --ask-line: 100%;
   --ask-text: var(--text-1);
-  --ask-mix: 5%;
+  --ask-mix: 0%;
   --ask-base: color-mix(in srgb, var(--card) 55%, var(--chrome));
   grid-column: 2;
   display: flex;
@@ -4753,30 +4754,35 @@ a.tui-id-card-ref:focus-visible {
     var(--ask-fill) var(--ask-mix),
     var(--ask-base)
   );
-  border: 1px solid color-mix(in srgb, var(--ask-fill) 40%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--ask-fill) var(--ask-line), transparent);
   border-radius: 6px;
 }
 .tui-ask[data-ask-tone='work'] {
   --ask-fill: var(--fill-accent);
   --ask-mix: 15%;
+  --ask-line: 40%;
   --ask-base: var(--card);
   --ask-text: var(--text-accent-small);
 }
 .tui-ask[data-ask-tone='ok'] {
   --ask-fill: var(--fill-ok);
   --ask-mix: 15%;
+  --ask-line: 40%;
   --ask-base: var(--card);
   --ask-text: var(--text-ok-small);
 }
 .tui-ask[data-ask-tone='bad'] {
   --ask-fill: var(--fill-bad);
   --ask-mix: 15%;
+  --ask-line: 40%;
   --ask-base: var(--card);
   --ask-text: var(--text-bad-small);
 }
 .tui-ask[data-ask-tone='warn'] {
   --ask-fill: var(--fill-warn);
   --ask-mix: 15%;
+  --ask-line: 40%;
   --ask-base: var(--card);
   --ask-text: var(--text-warn-small);
 }

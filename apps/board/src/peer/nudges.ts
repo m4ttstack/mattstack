@@ -199,12 +199,14 @@ function readSentNudgeRow(mrUrl: string, db: Database): SentNudge | null {
 export function resolveSentNudge(
   mrUrl: string,
   resolution: SentNudgeResolution,
-  db: Database = getStateDb()
+  db: Database = getStateDb(),
+  reviewer?: string
 ): void {
   runCriticalWrite('sent nudge resolve', () => {
     const tx = db.transaction(() => {
       const prev = readSentNudgeRow(mrUrl, db);
       if (!prev) return;
+      if (reviewer !== undefined && prev.reviewer !== reviewer) return;
       if (prev.resolution && prev.resolution.result !== 'confirmed') return;
       const next: SentNudge = { ...prev, resolution };
       db.query(
@@ -228,7 +230,9 @@ export const SENT_FINISH_KEEP_MS = 24 * 60 * 60_000;
     fallback compares two boards' clocks, so skew can hold a finished ask
     open until it self-expires; peers that echo the id back never hit that.
     Only an unresolved, confirmed or launched ask finishes: a rejected,
-    expired or already finished one keeps its first verdict. */
+    expired or already finished one keeps its first verdict. `reviewer`, when
+    given, is who sent the report: another teammate's review of the same MR
+    is not the answer to this ask. */
 export function finishSentNudge(
   mrUrl: string,
   finish: Pick<SentNudgeResolution, 'outcome' | 'reason' | 'at'> & {
@@ -236,12 +240,14 @@ export function finishSentNudge(
   },
   ifSentBefore: number,
   db: Database = getStateDb(),
-  nudgeId?: string
+  nudgeId?: string,
+  reviewer?: string
 ): void {
   persistOrWarn('sent nudge finish', () => {
     const tx = db.transaction(() => {
       const prev = readSentNudgeRow(mrUrl, db);
       if (!prev) return;
+      if (reviewer !== undefined && prev.reviewer !== reviewer) return;
       if (nudgeId !== undefined) {
         if (prev.nudgeId !== nudgeId) return;
       } else if (prev.sentAt >= ifSentBefore) return;
@@ -310,6 +316,20 @@ export function pruneSentNudges(
     });
     tx();
   });
+}
+
+/** The roster's name for a sent ask's reviewer. Roster usernames keep the case
+    they were configured in; a sent ask's reviewer is canonical (lowercase). */
+export function reviewerDisplayName(
+  reviewer: string,
+  members: ReadonlyArray<{ username: string; name?: string | null }>,
+  memberNames: ReadonlyMap<string, string | null>
+): string | undefined {
+  const member = members.find(
+    m => m.username.trim().toLowerCase() === reviewer
+  );
+  if (!member) return undefined;
+  return memberNames.get(member.username) ?? member.name ?? undefined;
 }
 
 /** The board payload's view of a sent ask, or null once a finished one has
