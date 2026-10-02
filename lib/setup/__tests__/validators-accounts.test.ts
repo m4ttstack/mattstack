@@ -1,5 +1,6 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { accountRows, type SecretPresence } from "../validators/accounts.ts";
+import { __test__ as boardToken } from "../../team/board-token.ts";
 import { fakeProbes, ok } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
@@ -472,6 +473,9 @@ describe("accountRows — account.linear declared / not declared", () => {
 });
 
 describe("accountRows: account.board-peering", () => {
+  beforeEach(() => boardToken.setRunsBoard(() => true));
+  afterEach(() => boardToken.reset());
+
   const HOME = "/fake-home";
   const TEAMS = `${HOME}/.mattstack/teams`;
   const reachable = async (url: string) => (url === `${SWITCHBOARD_URL}/healthz` ? { status: 200, body: "", headers: {} } : { status: 0, body: "", headers: {} });
@@ -489,6 +493,7 @@ describe("accountRows: account.board-peering", () => {
   const rowsFor = (p: ReturnType<typeof fakeProbes>, secrets: SecretPresence = fakeSecrets()) => accountRows(p, baseTeam(), [], secrets, null);
   const peeringRow = async (p: ReturnType<typeof fakeProbes>, secrets?: SecretPresence) => pickRow(rowsFor(p, secrets), "account.board-peering");
   const withToken = fakeSecrets({ "rt.switchboardToken": "tok-1" });
+  const withAdmin = fakeSecrets({ "rt.switchboardAdminToken": "admin-1" });
 
   test("a team with no token anywhere -> needs-you with the re-invite remedy, never required, no relay probe", async () => {
     const p = machine({ acme: { joinedByRt: true } });
@@ -570,14 +575,14 @@ describe("accountRows: account.board-peering", () => {
     expect(rows.some((row) => row.id === "account.board-peering")).toBe(false);
   });
 
-  test("a team created on this Mac gets the row too", async () => {
-    const r = await peeringRow(machine({ acme: { joinedByRt: false } }));
+  test("a team created on this Mac that holds the admin token gets the row too", async () => {
+    const r = await peeringRow(machine({ acme: { joinedByRt: false } }), withAdmin);
     expect(r.status).toBe("needs-you");
     expect(r.detail).toContain("acme");
   });
 
   test("on the Mac that created the team, the row points at inviting your own board, never at asking the owner", async () => {
-    const r = await peeringRow(machine({ acme: { joinedByRt: false } }));
+    const r = await peeringRow(machine({ acme: { joinedByRt: false } }), withAdmin);
     expect(r.status).toBe("needs-you");
     expect(r.required).toBe(false);
     expect(r.finishGated).toBeUndefined();
@@ -590,15 +595,36 @@ describe("accountRows: account.board-peering", () => {
       label: "Show steps…",
       steps: [
         "Open your board's team members panel",
-        "Invite your own username there. The invite row shows only when this Mac holds the switchboard admin token",
+        "Invite your own username there",
         "Paste that invite into the panel's join row",
         "Re-check this row",
       ],
     });
   });
 
+  test("the creator's Mac without the admin token has no way to peer, so it gets no row", async () => {
+    const rows = await rowsFor(machine({ acme: { joinedByRt: false } }));
+    expect(rows.find((r) => r.id === "account.board-peering")).toBeUndefined();
+  });
+
+  test("the admin token in the environment counts for the creator's Mac", async () => {
+    const r = await peeringRow(machine({ acme: { joinedByRt: false } }, { env: { SWITCHBOARD_ADMIN_TOKEN: "admin-1" } }));
+    expect(r.status).toBe("needs-you");
+  });
+
+  test("a team that runs no board gets no row", async () => {
+    boardToken.setRunsBoard(() => false);
+    const rows = await rowsFor(machine({ acme: { joinedByRt: true } }));
+    expect(rows.find((r) => r.id === "account.board-peering")).toBeUndefined();
+  });
+
+  test("a Just Me Mac gets no row", async () => {
+    const rows = await accountRows(machine({ acme: { joinedByRt: true } }), baseTeam(), [], fakeSecrets(), null, {}, true);
+    expect(rows.find((r) => r.id === "account.board-peering")).toBeUndefined();
+  });
+
   test("every team on the Mac is named, not only the active one", async () => {
-    const r = await peeringRow(machine({ acme: { joinedByRt: false }, beta: { joinedByRt: true } }));
+    const r = await peeringRow(machine({ acme: { joinedByRt: false }, beta: { joinedByRt: true } }), withAdmin);
     expect(r.status).toBe("needs-you");
     expect(r.detail).toContain("acme");
     expect(r.detail).toContain("beta");

@@ -612,8 +612,10 @@ when this Mac holds the switchboard admin token and seals only the token into
 the invite; `rt team join` stores it under the rt secrets scope, writes no URL
 setting, and refuses a pointer from an older rt whose URL is not
 `switchboardUrl()`. The board refuses a pasted invite on any other origin.
-The `account.board-peering` row applies on every Mac in a team, created or
-joined: `needs-you` when neither the board's `.env` nor rt's
+The `account.board-peering` row applies on a Mac in a team (created or
+joined) whose team runs a board (`board.projects` is set), never on a Just
+Me Mac, and never on a team creator's Mac that lacks the switchboard admin
+token (it has no way to peer from there): `needs-you` when neither the board's `.env` nor rt's
 `switchboardToken` holds a token (with the re-invite remedy, or, on a Mac
 that created one of its teams, the steps to invite its own board from the
 board's members panel), `error` with a re-check when

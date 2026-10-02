@@ -1,6 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { boardPeering } from "../board-token.ts";
+import { __test__, boardPeering } from "../board-token.ts";
+
+beforeEach(() => __test__.setRunsBoard(() => true));
+afterEach(() => __test__.reset());
 
 const HOME = "/fake-home";
 const COMPILED_ENV = `${HOME}/.mattstack/board/.env`;
@@ -63,6 +66,16 @@ describe("boardPeering: rt's secret", () => {
 describe("boardPeering: which Macs it applies to", () => {
   test("a Mac in no team is not applicable", async () => {
     const p = fakeProbes({ home: HOME, dirs: { [TEAMS]: [] } });
+    expect(await verdict(p)).toEqual({ kind: "not-applicable" });
+  });
+
+  test("a team whose board does not run is not applicable", async () => {
+    __test__.setRunsBoard(() => false);
+    const p = fakeProbes({
+      home: HOME,
+      dirs: { [TEAMS]: ["acme"] },
+      files: { [`${TEAMS}/acme/mattstack/settings.team.jsonc`]: "{}" },
+    });
     expect(await verdict(p)).toEqual({ kind: "not-applicable" });
   });
 

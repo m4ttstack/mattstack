@@ -1,26 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { getSetting } from '@mattstack/rt-client';
 import { switchboardUrl } from '@mattstack/rt-client';
 import {
   daemonRepoField,
-  loadConfigFrom,
   parseConfig,
   repoIdentityField,
   setHiddenInRaw,
 } from '../config.ts';
-
-type GetSettingFn = typeof getSetting;
-
-/** A resolve stand-in returning `values[key]` (or undefined for an absent
-    key), matching getSetting's shape without touching any real store --
-    same precedent as config-store-latch.test.ts's fakeResolve. */
-function fakeResolve(values: Record<string, unknown>): GetSettingFn {
-  return (<T>(key: string) => ({
-    value: values[key] as T,
-    provenance: [],
-  })) as GetSettingFn;
-}
 
 const base = {
   gitlabHost: 'https://gitlab.com',

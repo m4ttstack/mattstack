@@ -252,7 +252,7 @@ const SELF_INVITE_STEPS: Action = {
   label: "Show steps…",
   steps: [
     "Open your board's team members panel",
-    "Invite your own username there. The invite row shows only when this Mac holds the switchboard admin token",
+    "Invite your own username there",
     "Paste that invite into the panel's join row",
     "Re-check this row",
   ],
@@ -266,6 +266,9 @@ async function boardPeeringRow(p: Probes, secrets: SecretPresence): Promise<Row 
     const created = peering.teams.filter((slug) => readTeamLocal(p, slug).createdByRt);
     // The board token is one per Mac, not per team, so creating any one team here is enough to self-invite.
     if (created.length > 0) {
+      // Without the admin token the owner has no way to peer from here, so the row would only nag.
+      const canSelfInvite = Boolean(p.env.SWITCHBOARD_ADMIN_TOKEN) || (await secrets.has("rt", "switchboardAdminToken")) !== null;
+      if (!canSelfInvite) return null;
       return row({
         ...BOARD_PEERING_BASE,
         optionalNote: "Your board does not peer until you invite it from the board's members panel.",
@@ -464,7 +467,7 @@ export async function accountRows(
     if (entry.id === "slack" && slackAppNeeded) rows.push(slackAppRow(slackAppRequired));
     rows.push(idRows[i]!);
   });
-  const peering = await boardPeeringRowSafe(p, secrets);
+  const peering = solo ? null : await boardPeeringRowSafe(p, secrets);
   if (peering) rows.push(peering);
   return rows;
 }

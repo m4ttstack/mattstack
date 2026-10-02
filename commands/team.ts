@@ -56,7 +56,7 @@ export interface TeamDeps {
   ageKeySeam?: AgeKeySeam;
   /** `json` gates the interactive TTY prompt — a machine caller must never block waiting on a terminal that isn't there. */
   readCode?: (json: boolean) => Promise<string>;
-  /** Overrides `joinRedeem`'s `read`/`readTeamSecret`/`forgeLogin`/`warn` seams — real by default, so a test never has to rely on the isolated test HOME happening to lack a team switchboard admin token. */
+  /** Overrides `joinRedeem`'s `read`/`readTeamSecret`/`forgeLogin`/`warn` seams, real by default, so a test never has to rely on the isolated test HOME happening to lack a team switchboard admin token. */
   joinRedeemSeams?: Partial<JoinRedeemSeams>;
   /** Overrides `mintInvite`'s seams; real by default. */
   mintInviteSeams?: Partial<MintInviteSeams>;
