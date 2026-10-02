@@ -1148,8 +1148,9 @@ describe("homeInit", () => {
       // boardSetup never spawns — mr-board's setup prompts interactively — it only prints the manual command, once.
       expect(logs.some((l) => l.includes("Set up mr-board"))).toBe(true);
       const manualCommandLines = logs.filter((l) => l.includes("/repos/mr-board") && l.includes("scripts/setup.ts"));
-      expect(manualCommandLines).toEqual(['  next: Run this yourself, it asks questions: cd "/repos/mr-board" && bun run scripts/setup.ts']);
-      expect(logs[logs.indexOf(manualCommandLines[0]!) - 1]).toBe("[needs you] Set up mr-board  you run this one yourself");
+      expect(manualCommandLines).toEqual(['        cd "/repos/mr-board" && bun run scripts/setup.ts']);
+      const at = logs.indexOf(manualCommandLines[0]!);
+      expect(logs.slice(at - 2, at)).toEqual(["[needs you] Set up mr-board  you run this one yourself", "  next: Run this yourself, it asks questions:"]);
     });
 
     test("deck on PATH but already healthy: deck setup never spawns (it restarts the live proxy) — reported as skipped instead", async () => {
