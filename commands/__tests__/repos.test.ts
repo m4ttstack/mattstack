@@ -199,7 +199,7 @@ describe("reposRegister", () => {
       const { code, stderr } = await human(() => reposRegister([repoPath], {}, testDeps()));
       expect(code).toBe(2);
       expect(stderr).toBe(
-        `rt could not move ${basename(repoPath)} to ${repoPath}: The rt daemon is running but did not answer\n` +
+        `rt could not move ${basename(repoPath)} to ${repoPath}: the rt daemon is running but did not answer\n` +
           "  why: rt knows it at a folder that is gone, and moving its records did not finish.\n" +
           "  next: rt daemon status\n",
       );
@@ -207,7 +207,7 @@ describe("reposRegister", () => {
       const deps = testDeps();
       expect(await runExpectingProcessExit(() => reposRegister([repoPath, "--json"], {}, deps))).toBe(2);
       const body = JSON.parse(deps.lines[0]!);
-      expect(body.error).toEqual({ code: "locate-failed", message: `rt could not move ${basename(repoPath)} to ${repoPath}: The rt daemon is running but did not answer` });
+      expect(body.error).toEqual({ code: "locate-failed", message: `rt could not move ${basename(repoPath)} to ${repoPath}: the rt daemon is running but did not answer` });
     } finally {
       rmSync(DAEMON_SOCK_PATH, { force: true });
     }

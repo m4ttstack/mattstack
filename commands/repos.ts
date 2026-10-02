@@ -17,7 +17,7 @@ import { realpathSync } from "fs";
 import { homedir } from "os";
 import { basename } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
-import { getKnownRepos, pruneRepoIndex, updateRepoIndexAsync, type PrunedEntry } from "../lib/repo-index.ts";
+import { getKnownRepos, healErrorClause, pruneRepoIndex, updateRepoIndexAsync, type PrunedEntry } from "../lib/repo-index.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.ts";
 import { CACHE_KINDS, loadMachineRepoTrackingRaw, parseCachesArg, saveRepoTrackingRaw, type CacheKind, type TrackingMode } from "../lib/repo-tracking.ts";
 import { envelope } from "../lib/setup/contract.ts";
@@ -160,7 +160,7 @@ export async function reposRegister(args: string[], _ctx: CommandContext = {}, d
     const indexed = await updateRepoIndexAsync(identity, real);
     if (!indexed.ok) {
       exitUserError(
-        new UserActionableError("locate-failed", `rt could not move ${name} to ${real}: ${indexed.error}`, {}, {
+        new UserActionableError("locate-failed", `rt could not move ${name} to ${real}: ${healErrorClause(indexed.error)}`, {}, {
           why: "rt knows it at a folder that is gone, and moving its records did not finish.",
           ...(indexed.next ? { next: indexed.next } : {}),
         }),

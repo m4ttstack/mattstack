@@ -268,6 +268,11 @@ export function updateRepoIndex(repoName: string, repoRoot: string): void {
  */
 export type IndexHealResult = { ok: true; healed: boolean } | { ok: false; error: string; why?: string; next?: string };
 
+/** A failed heal's `error` carried on after a colon in the caller's own sentence. */
+export function healErrorClause(error: string): string {
+  return /^[A-Z][a-z]/.test(error) ? `${error[0]!.toLowerCase()}${error.slice(1)}` : error;
+}
+
 /**
  * `updateRepoIndex` for callers that can await: the same write, plus the move
  * heal the sync seam cannot perform. The locate runs in the daemon whenever
