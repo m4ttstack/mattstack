@@ -6,7 +6,7 @@ import { getRemoteDefaultBranch } from "../../lib/git-ops.ts";
 import * as out from "../../lib/ui/out.ts";
 import type { Block } from "../../lib/ui/protocol.ts";
 import { execFileSync } from "node:child_process";
-import { errText, failPlain, failUsage, readFlag, refuseWith } from "./shared.ts";
+import { errText, failPlain, failUsage, printable, readFlag, refuseWith } from "./shared.ts";
 
 // Zero-commit repos have no HEAD for rev-parse to resolve; that's the
 // mutation's own error to raise (git's real message), not the guard's.
@@ -292,5 +292,5 @@ export async function tagPushCommand(args: string[]): Promise<void> {
     failPlain(json, "Could not push that tag", errText(err));
   }
   if (json) out.json({ ok: true, name, remote });
-  else out.print(out.line("done", `Pushed tag ${name}`, `to ${remote}`));
+  else out.print(out.line("done", `Pushed tag ${name}`, `to ${printable(remote)}`));
 }

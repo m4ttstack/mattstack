@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as out from "../../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
-import { errText, failPlain, failUsage, failWith, readFlag, refuseWith } from "../shared.ts";
+import { asError, asRefusal, drawFailure, errText, failPlain, failUsage, failWith, NOT_ON_A_BRANCH, plural, printable, readFlag, refuseWith, uncommittedChanges } from "../shared.ts";
 import { exitCodeOf, trapExit } from "./helpers.ts";
 
 let io: CapturedOut;
@@ -77,7 +77,55 @@ test("readFlag returns the value, and a flag with nothing after it is a usage fa
   expect(io.stderr()).toBe("--max needs a value after it\n  next: rt git log [--max <n>] [--file <path>] [--json]\n");
 });
 
-test("errText", () => {
+test("drawFailure draws a refusal as a note and anything else as a failure", () => {
+  drawFailure(NOT_ON_A_BRANCH);
+  drawFailure(uncommittedChanges("A pull could overwrite them."), true);
+  expect(io.stderr()).toBe(
+    "You are not on a branch\n  why: This needs a branch, and HEAD is detached right now.\n" +
+      "[refused] You have uncommitted changes\n  why: A pull could overwrite them.\n  next: Commit them, or set them aside with rt git stash push\n",
+  );
+  expect(io.stdout()).toBe("");
+});
+
+test("asError and asRefusal carry the title as the error string; only a refusal is marked", () => {
+  expect(asError(NOT_ON_A_BRANCH)).toEqual({ error: "You are not on a branch", failure: NOT_ON_A_BRANCH });
+  const dirty = uncommittedChanges("A pull could overwrite them.");
+  expect(asRefusal(dirty)).toEqual({ error: "You have uncommitted changes", failure: dirty, refused: true });
+});
+
+test("plural and errText", () => {
+  expect(plural(1, "file")).toBe("1 file");
+  expect(plural(2, "file")).toBe("2 files");
+  expect(plural(3, "branch", "branches")).toBe("3 branches");
   expect(errText(new Error("boom"))).toBe("boom");
   expect(errText("plain")).toBe("plain");
+});
+
+test("printable keeps a clean remote exactly as given", () => {
+  for (const clean of ["origin", "upstream", "https://example.test/acme/app.git", "git@example.test:acme/app.git", "ssh://git@example.test/acme/app.git"]) {
+    expect(printable(clean)).toBe(clean);
+  }
+});
+
+test("printable drops credential userinfo and keeps the rest of the URL", () => {
+  expect(printable("https://user:secret@example.test/acme/app.git")).toBe("https://example.test/acme/app.git");
+  expect(printable("ssh://user:secret@example.test/acme/app.git")).toBe("ssh://example.test/acme/app.git");
+  expect(printable(`https://${["ghp", "_sampletoken123"].join("")}@example.test/acme/app.git`)).toBe("https://example.test/acme/app.git");
+  expect(printable("https://sampleuser@example.test/acme/app.git")).toBe("https://example.test/acme/app.git");
+  expect(printable("https://user:p@ss@example.test/x.git")).toBe("https://example.test/x.git");
+  expect(printable("https://u:pw@evil@example.test/x.git")).toBe("https://example.test/x.git");
+  expect(printable("  https://user:secret@example.test/x.git")).toBe("https://example.test/x.git");
+});
+
+test("printable turns a value that still holds a token shape into REMOTE", () => {
+  const token = ["glpat", "-sampletoken123"].join("");
+  expect(printable(`https://example.test/acme/app.git?private_token=${token}`)).toBe("REMOTE");
+  expect(printable(`https://example.test/${token}/app.git`)).toBe("REMOTE");
+  expect(printable(`ssh://${token}@example.test/acme/app.git`)).toBe("REMOTE");
+  expect(printable(token)).toBe("REMOTE");
+});
+
+test("printable prints REMOTE when it cannot tell where the userinfo ends", () => {
+  expect(printable("https://user:pa/ss@example.test/x.git")).toBe("REMOTE");
+  expect(printable("https://u:p@ss/x@example.test/x.git")).toBe("REMOTE");
 });

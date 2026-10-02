@@ -64,7 +64,7 @@ export async function checkBranchGuard(opts: {
   const listWorktrees = opts.listWorktrees ?? listWorktreesAsync;
   const worktrees = await listWorktrees(opts.cwd);
   if (worktrees === null) {
-    return { verdict: "unverified", detail: "could not list worktrees, so branch ownership is unknown" };
+    return { verdict: "unverified", detail: "rt could not list the worktrees, so it cannot tell whether another one has this branch" };
   }
 
   // The caller's cwd is often a subdirectory of its worktree root, not the
@@ -74,18 +74,18 @@ export async function checkBranchGuard(opts: {
   try {
     cwdReal = realpathSync(opts.cwd);
   } catch {
-    return { verdict: "unverified", detail: `could not resolve cwd ${opts.cwd}, so branch ownership is unknown` };
+    return { verdict: "unverified", detail: `rt could not open the folder it ran in, so it cannot tell whether another worktree has this branch: ${opts.cwd}` };
   }
   const ownership = resolveWorktreeOwnership(cwdReal, worktrees);
   if (!ownership.ok) {
-    return { verdict: "unverified", detail: `could not resolve worktree path ${ownership.path}, so branch ownership is unknown` };
+    return { verdict: "unverified", detail: `rt could not open one of the worktrees, so it cannot tell whether another one has this branch: ${ownership.path}` };
   }
   const owner = ownership.ownerByBranch.get(opts.branch);
   if (owner) {
     return {
       verdict: "refuse",
       reason: "worktree",
-      detail: `${opts.branch} is already checked out in another worktree at ${owner.path}`,
+      detail: `${opts.branch} is checked out in another worktree: ${owner.path}`,
     };
   }
 
@@ -135,7 +135,7 @@ export async function buildWorktreeGuardMap(
   if (!ownership.ok) return guards;
 
   for (const [branch, owner] of ownership.ownerByBranch) {
-    guards.set(branch, `${branch} is already checked out in another worktree at ${owner.path}`);
+    guards.set(branch, `${branch} is checked out in another worktree: ${owner.path}`);
   }
   return guards;
 }

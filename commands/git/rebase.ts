@@ -1,5 +1,5 @@
 /**
- * rt git rebase — Smart rebase with auto-resolve rules and escalation flow.
+ * rt git rebase: smart rebase with auto-resolve rules and an escalation flow.
  *
  * Rebases the current branch onto origin/master (or origin/main) with:
  *   - Auto-backup before rebase (rt-backup/rebase/<branch>/<timestamp>)
@@ -19,8 +19,7 @@
  *   rebaseOnto(cwd, opts) → RebaseResult
  */
 
-import { execSync, spawnSync } from "child_process";
-import { bold, cyan, dim, green, yellow, red, reset } from "../../lib/tui.ts";
+import { execFileSync, spawnSync } from "child_process";
 import { getRemoteDefaultBranch, getCurrentBranch, hasUncommittedChanges } from "../../lib/git-ops.ts";
 import { createBackup } from "../../lib/git-backup.ts";
 import { syncLog } from "../../lib/sync-log.ts";
@@ -33,6 +32,10 @@ import {
 } from "../../lib/sync-config.ts";
 import { deriveRepoIdentity } from "../../lib/settings/identity.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
+import * as out from "../../lib/ui/out.ts";
+import type { Block } from "../../lib/ui/protocol.ts";
+import { usageFailure } from "../../lib/ui/usage.ts";
+import { asError, asRefusal, drawFailure, errText, NOT_ON_A_BRANCH, plural, uncommittedChanges } from "./shared.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -54,8 +57,12 @@ export interface RebaseResult {
   backupBranch: string | null;
   /** True when status is "conflict" and the rebase was left paused (onConflict: "pause"). */
   rebaseInProgress?: boolean;
-  /** Error message if status is "error". */
+  /** Error message if status is "error": the title of `failure`. */
   error?: string;
+  /** What a person reads: set with `error`, and alone for a conflict that was undone. */
+  failure?: out.FailureInput;
+  /** `failure` is rt's own guard declining, drawn as a refused note. */
+  refused?: boolean;
 }
 
 export interface RebaseOptions {
@@ -77,10 +84,10 @@ export interface RebaseOptions {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function git(args: string, cwd: string): string {
+function git(args: string[], cwd: string): string {
   let stdout = "";
   try {
-    stdout = execSync(`git ${args}`, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    stdout = execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
     syncLog.cmd(args, cwd, 0, stdout, "");
     return stdout;
   } catch (err: any) {
@@ -89,19 +96,29 @@ function git(args: string, cwd: string): string {
   }
 }
 
-function gitSafe(args: string, cwd: string): { ok: boolean; stdout: string } {
-  const argArr = args.split(" ");
-  const result = spawnSync("git", argArr, {
+function gitSafe(args: string[], cwd: string): { ok: boolean; stdout: string } {
+  const result = spawnSync("git", args, {
     cwd,
     encoding: "utf8",
     stdio: "pipe",
   });
-  syncLog.cmd(argArr, cwd, result.status, result.stdout ?? "", result.stderr ?? "");
+  syncLog.cmd(args, cwd, result.status, result.stdout ?? "", result.stderr ?? "");
   return { ok: result.status === 0, stdout: (result.stdout ?? "").trim() };
 }
 
-function log(msg: string, quiet?: boolean): void {
-  if (!quiet) process.stderr.write(msg);
+function say(quiet: boolean | undefined, ...blocks: Block[]): void {
+  if (!quiet) out.print(...blocks);
+}
+
+const PUT_BACK = "rt put the branch back the way it was.";
+
+/** The failure for a rebase that stopped on conflicts and was undone. */
+export function conflictFailure(result: Pick<RebaseResult, "unresolvedFiles" | "backupBranch">): out.FailureInput {
+  return {
+    title: `The rebase stopped on conflicts in ${plural(result.unresolvedFiles.length, "file")}`,
+    why: PUT_BACK,
+    details: [...result.unresolvedFiles, ...(result.backupBranch ? [`A backup is at ${result.backupBranch}`] : [])].join("\n"),
+  };
 }
 
 /**
@@ -109,7 +126,7 @@ function log(msg: string, quiet?: boolean): void {
  */
 function getConflictedFiles(cwd: string): string[] {
   try {
-    const stdout = git("diff --name-only --diff-filter=U", cwd);
+    const stdout = git(["diff", "--name-only", "--diff-filter=U"], cwd);
     return stdout.split("\n").filter((f) => f.trim());
   } catch {
     return [];
@@ -121,7 +138,7 @@ function getConflictedFiles(cwd: string): string[] {
  */
 function commitsBehind(target: string, cwd: string): number {
   try {
-    const count = git(`rev-list --count HEAD..${target}`, cwd);
+    const count = git(["rev-list", "--count", `HEAD..${target}`], cwd);
     return parseInt(count, 10) || 0;
   } catch {
     return 0;
@@ -147,7 +164,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
       unresolvedFiles: [],
       postResolveSteps: [],
       backupBranch: null,
-      error: "not on a branch (detached HEAD)",
+      ...asError(NOT_ON_A_BRANCH),
     };
   }
 
@@ -162,21 +179,22 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
       unresolvedFiles: [],
       postResolveSteps: [],
       backupBranch: null,
-      error: "uncommitted changes — commit or stash before rebasing",
+      ...asRefusal(uncommittedChanges("A rebase that hits a conflict would lose them.")),
     };
   }
 
   // 1. Fetch (unless caller already did)
   if (!opts.skipFetch) {
     const { withSpinner } = await import("../../lib/rt-render.ts");
-    const { exec } = await import("child_process");
-    const gitAsync = (args: string) =>
+    const { execFile } = await import("child_process");
+    const gitAsync = (args: string[]) =>
       new Promise<void>((resolve, reject) => {
-        exec(`git ${args}`, { cwd }, (err) => (err ? reject(err) : resolve()));
+        execFile("git", args, { cwd }, (err) => (err ? reject(err) : resolve()));
       });
     try {
-      await withSpinner("fetching origin…", () => gitAsync("fetch origin"), {
-        doneLabel: "origin fetched",
+      await withSpinner("Fetching from origin…", () => gitAsync(["fetch", "origin"]), {
+        doneLabel: "Fetched from origin",
+        failSilently: true,
       });
     } catch (err) {
       return {
@@ -188,7 +206,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
         unresolvedFiles: [],
         postResolveSteps: [],
         backupBranch: null,
-        error: `fetch failed: ${err}`,
+        ...asError({ title: "Could not fetch from origin", details: errText(err) }),
       };
     }
   }
@@ -205,14 +223,14 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
       unresolvedFiles: [],
       postResolveSteps: [],
       backupBranch: null,
-      error: "could not detect default branch (no origin/main or origin/master)",
+      ...asError({ title: "rt could not tell which branch is the default", why: "origin has no main or master branch that it can see." }),
     };
   }
 
   // Guard: don't rebase the default branch onto itself
   const targetBranchName = target.replace(/^origin\//, "");
   if (branch === targetBranchName) {
-    log(`  ${dim}${branch} is the default branch — nothing to rebase${reset}\n`, quiet);
+    say(quiet, out.line("skipped", `${branch} is the default branch`, "nothing to rebase"));
     return {
       status: "up-to-date",
       branch,
@@ -228,7 +246,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
   // 3. Check if behind
   const behind = commitsBehind(target, cwd);
   if (behind === 0) {
-    log(`  ${green}✓${reset} ${bold}${branch}${reset} ${dim}already up to date with ${target}${reset}\n`, quiet);
+    say(quiet, out.line("done", `${branch} is up to date with ${target}`));
     return {
       status: "up-to-date",
       branch,
@@ -248,10 +266,11 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
 
   // 5. Dry run
   if (dryRun) {
-    log(`  ${dim}would rebase${reset} ${bold}${branch}${reset} ${dim}onto ${target} (${behind} commit${behind !== 1 ? "s" : ""} behind)${reset}\n`, quiet);
-    if (rules.length > 0) {
-      log(`  ${dim}auto-resolve rules: ${rules.flatMap(ruleGlobs).join(", ")}${reset}\n`, quiet);
-    }
+    say(
+      quiet,
+      out.line("skipped", `Would rebase ${branch} onto ${target}`, `${plural(behind, "commit")} behind`),
+      ...(rules.length > 0 ? [out.callout("note", `Conflicts in these files resolve by themselves: ${rules.flatMap(ruleGlobs).join(", ")}`)] : []),
+    );
     return {
       status: "ok",
       branch,
@@ -264,11 +283,11 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
     };
   }
 
-  // 6. Create backup (mandatory — refuse to proceed without one)
+  // 6. Create backup. Mandatory: refuse to proceed without one.
   let backupBranch: string | null = null;
   try {
     backupBranch = createBackup("rebase", cwd);
-    log(`  ${dim}backup → ${backupBranch}${reset}\n`, quiet);
+    say(quiet, out.line("done", "Saved a backup", backupBranch));
   } catch (err) {
     return {
       status: "error",
@@ -279,12 +298,12 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
       unresolvedFiles: [],
       postResolveSteps: [],
       backupBranch: null,
-      error: `could not create backup branch: ${err}`,
+      ...asError({ title: "Could not save a backup, so nothing was changed", details: errText(err) }),
     };
   }
 
   // 7. Rebase
-  log(`  ${dim}rebasing${reset} ${bold}${branch}${reset} ${dim}onto ${target} (${behind} behind)…${reset}\n`, quiet);
+  say(quiet, out.line("running", `Rebasing ${branch} onto ${target}`, `${plural(behind, "commit")} behind`));
 
   const allResolvedFiles: string[] = [];
   const triggeredRules = new Set<AutoResolveRule>();
@@ -299,7 +318,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
   syncLog.cmd(["rebase", target], cwd, startResult.status, startResult.stdout ?? "", startResult.stderr ?? "");
 
   if (startResult.status === 0) {
-    // Clean rebase — no conflicts
+    // Clean rebase: no conflicts
     rebaseActive = false;
   }
 
@@ -307,7 +326,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
   while (rebaseActive) {
     const conflicted = getConflictedFiles(cwd);
     if (conflicted.length === 0) {
-      // No conflicts at this step — try to continue
+      // No conflicts at this step: try to continue
       const contResult = spawnSync("git", ["rebase", "--continue"], {
         cwd,
         encoding: "utf8",
@@ -321,7 +340,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
       }
       // If continue failed but no conflicts, something else is wrong
       if (getConflictedFiles(cwd).length === 0) {
-        git("rebase --abort", cwd);
+        git(["rebase", "--abort"], cwd);
         return {
           status: "error",
           branch,
@@ -331,7 +350,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
           unresolvedFiles: [],
           postResolveSteps: [],
           backupBranch,
-          error: `rebase --continue failed unexpectedly`,
+          ...asError({ title: "The rebase stopped for a reason rt does not understand", why: PUT_BACK, ...(backupBranch ? { details: `A backup is at ${backupBranch}` } : {}) }),
         };
       }
       // Otherwise fall through to handle the new conflicts
@@ -342,12 +361,12 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
     const { matched, unmatched } = classifyConflicts(conflicted, rules);
 
     if (unmatched.length > 0) {
-      log(`\n  ${red}✗${reset} ${unmatched.length} unresolvable conflict${unmatched.length !== 1 ? "s" : ""}:\n`, quiet);
-      for (const f of unmatched) {
-        log(`    ${red}•${reset} ${f}\n`, quiet);
-      }
       if (opts.onConflict === "pause") {
-        log(`  ${dim}rebase left paused for escalation${reset}\n`, quiet);
+        say(
+          quiet,
+          out.line("needs-you", `${plural(unmatched.length, "file")} ${unmatched.length === 1 ? "has" : "have"} conflicts rt cannot resolve`, "the rebase is paused"),
+          out.verbatim(unmatched, "files"),
+        );
         return {
           status: "conflict",
           branch,
@@ -360,10 +379,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
           rebaseInProgress: true,
         };
       }
-      git("rebase --abort", cwd);
-      if (backupBranch) {
-        log(`  ${dim}backup at ${backupBranch}${reset}\n`, quiet);
-      }
+      git(["rebase", "--abort"], cwd);
       return {
         status: "conflict",
         branch,
@@ -373,25 +389,26 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
         unresolvedFiles: unmatched,
         postResolveSteps: [],
         backupBranch,
+        failure: conflictFailure({ unresolvedFiles: unmatched, backupBranch }),
       };
     }
 
-    // All conflicts matched rules — resolve them. A failing checkout (e.g.
+    // All conflicts matched rules, so resolve them. A failing checkout (a
     // delete/modify conflict where the chosen side has no version of the
-    // file) must abort the rebase like every other unresolvable case, not
-    // die mid-rebase with the repo left in a conflicted state.
+    // file, for one) must abort the rebase like every other unresolvable
+    // case, not die mid-rebase with the repo left in a conflicted state.
     try {
       for (const { file, rule } of matched) {
         const strategy = rule.strategy ?? "ours";
         const flag = strategy === "theirs" ? "--theirs" : "--ours";
-        git(`checkout ${flag} -- "${file}"`, cwd);
-        git(`add "${file}"`, cwd);
+        git(["checkout", flag, "--", file], cwd);
+        git(["add", "--", file], cwd);
         allResolvedFiles.push(file);
         triggeredRules.add(rule);
-        log(`    ${green}✓${reset} ${dim}auto-resolved${reset} ${file} ${dim}(${strategy})${reset}\n`, quiet);
+        say(quiet, out.line("done", `Resolved ${file} for you`, `rule: ${strategy}`));
       }
     } catch (err) {
-      git("rebase --abort", cwd);
+      git(["rebase", "--abort"], cwd);
       return {
         status: "error",
         branch,
@@ -401,7 +418,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
         unresolvedFiles: matched.map((m) => m.file),
         postResolveSteps: [],
         backupBranch,
-        error: `auto-resolve failed: ${err instanceof Error ? err.message : String(err)}`,
+        ...asError({ title: "A conflict rt was set to resolve by itself could not be resolved", why: PUT_BACK, details: errText(err) }),
       };
     }
 
@@ -417,7 +434,7 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
     if (contResult.status === 0) {
       rebaseActive = false;
     }
-    // else: more conflicts on the next commit — loop continues
+    // else: more conflicts on the next commit, so the loop continues
   }
 
   // 8. Run triggered postResolve steps
@@ -439,21 +456,19 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
   let failedStep: { step: string; status: number | null; signal: NodeJS.Signals | null } | null = null;
 
   for (const step of postResolveSteps) {
-    log(`  ${dim}running:${reset} ${step}\n`, quiet);
+    say(quiet, out.line("running", "Running a follow-up step", step));
     const result = spawnSync(userShell, ["-lc", step], {
       cwd,
       stdio: quiet ? "pipe" : "inherit",
     });
     if (result.status !== 0) {
-      log(`  ${red}✗ post-resolve step failed: ${step}${reset}\n`, quiet);
       failedStep = { step, status: result.status, signal: result.signal };
       break;
     }
   }
 
   if (failedStep) {
-    const errMsg = `post-resolve step failed: ${failedStep.step}${failedStep.signal ? ` (signal ${failedStep.signal})` : ` (exit ${failedStep.status ?? "?"})`}`;
-    log(`  ${red}halting — working tree left as-is; restore from ${backupBranch} if needed${reset}\n`, quiet);
+    const how = failedStep.signal ? `was stopped by ${failedStep.signal}` : `exited with ${failedStep.status ?? "an unknown status"}`;
     return {
       status: "error",
       branch,
@@ -463,27 +478,27 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
       unresolvedFiles: [],
       postResolveSteps,
       backupBranch,
-      error: errMsg,
+      ...asError({
+        title: "A follow-up step failed after the rebase",
+        why: `${failedStep.step} ${how}.`,
+        details: ["Your files are as that step left them.", ...(backupBranch ? [`A backup is at ${backupBranch}`] : [])].join("\n"),
+      }),
     };
   }
 
   // 9. Auto-commit regenerated files if any changed
   if (postResolveSteps.length > 0) {
-    const { ok: hasDiff } = gitSafe("diff --quiet", cwd);
+    const { ok: hasDiff } = gitSafe(["diff", "--quiet"], cwd);
     if (!hasDiff) {
-      // There are changes — stage and commit
-      git("add -u", cwd); // only tracked files — don't stage untracked files
+      // Tracked files only: an untracked file is never staged here.
+      git(["add", "-u"], cwd);
       const stepNames = postResolveSteps.join(", ");
-      git(`commit -m "chore: regenerate files after rebase (${stepNames})"`, cwd);
-      log(`  ${green}✓${reset} ${dim}committed regenerated files${reset}\n`, quiet);
+      git(["commit", "-m", `chore: regenerate files after rebase (${stepNames})`], cwd);
+      say(quiet, out.line("done", "Committed the regenerated files"));
     }
   }
 
-  log(`  ${green}✓${reset} ${bold}${branch}${reset} rebased onto ${target}`, quiet);
-  if (allResolvedFiles.length > 0) {
-    log(` ${dim}(${allResolvedFiles.length} auto-resolved)${reset}`, quiet);
-  }
-  log("\n", quiet);
+  say(quiet, out.line("done", `Rebased ${branch} onto ${target}`, allResolvedFiles.length > 0 ? `${plural(allResolvedFiles.length, "conflict")} resolved for you` : undefined));
 
   return {
     status: "ok",
@@ -515,6 +530,9 @@ async function runRebaseWithEscalation(
   const { resolveEscalationMode, runEscalationFlow } = await import("../../lib/rebase-escalation.ts");
   const isTTY = Boolean(process.stdout.isTTY && process.stdin.isTTY);
   const mode = resolveEscalationMode(args, isTTY);
+  // Under --json stdout is the conflict bundle and nothing else: the fetch
+  // step's plain line, printed off a terminal, moves to stderr with this.
+  if (mode === "json") out.payloadOnStdout();
 
   const result = await rebaseOnto({
     cwd,
@@ -525,12 +543,13 @@ async function runRebaseWithEscalation(
   });
 
   if (result.status === "error") {
-    console.error(`\n  ${red}${result.error}${reset}\n`);
+    drawFailure(result.failure ?? { title: result.error ?? "The rebase failed" }, result.refused);
     process.exit(1);
   }
 
   if (result.status === "conflict") {
     if (mode === "off" || !result.rebaseInProgress) {
+      if (result.failure) out.fail(result.failure);
       process.exit(1);
     }
     const exitCode = await runEscalationFlow({
@@ -544,8 +563,6 @@ async function runRebaseWithEscalation(
     });
     process.exit(exitCode);
   }
-
-  console.log("");
 }
 
 /**
@@ -573,7 +590,7 @@ export async function ontoCommand(
     if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
       const cwd = ctx.identity!.repoRoot;
       const current = getCurrentBranch(cwd);
-      const branches = git("for-each-ref --format=%(refname:short) refs/heads", cwd)
+      const branches = git(["for-each-ref", "--format=%(refname:short)", "refs/heads"], cwd)
         .split("\n")
         .map((b) => b.trim())
         .filter((b) => b && b !== current);
@@ -590,7 +607,7 @@ export async function ontoCommand(
     }
   }
   if (!target) {
-    console.error(`\n  ${yellow}usage: rt git rebase onto <branch>${reset}\n`);
+    out.fail(usageFailure("Which branch?", "rt git rebase onto <branch>", "This needs the branch to rebase onto."));
     process.exit(1);
   }
   await runRebaseWithEscalation(args, ctx, target);

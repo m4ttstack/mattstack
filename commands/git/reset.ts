@@ -1,5 +1,5 @@
 /**
- * rt git reset — Safe reset with divergence detection.
+ * rt git reset: safe reset with divergence detection.
  *
  * Three modes:
  *   --origin      Reset to origin/current-branch (after GitLab rebase button)
@@ -17,19 +17,21 @@
  *   resetToOrigin(cwd) → ResetResult
  */
 
-import { execSync, spawnSync } from "child_process";
-import { bold, cyan, dim, green, yellow, red, reset } from "../../lib/tui.ts";
+import { execFileSync, spawnSync } from "child_process";
 import { getCurrentBranch, getRemoteDefaultBranch, hasUncommittedChanges } from "../../lib/git-ops.ts";
 import { createBackup } from "../../lib/git-backup.ts";
 import { syncLog } from "../../lib/sync-log.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
+import * as out from "../../lib/ui/out.ts";
+import type { Block } from "../../lib/ui/protocol.ts";
+import { asError, asRefusal, drawFailure, errText, NOT_ON_A_BRANCH, plural, uncommittedChanges } from "./shared.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type ResetStatus =
   | "in-sync"       // local == origin
   | "fast-forward"  // local is behind, no divergence
-  | "local-newer"   // local is the branch rebased onto a newer base — keep local, push
+  | "local-newer"   // local is the branch rebased onto a newer base: keep local, push
   | "reset"         // diverged, all patches on remote — simple reset
   | "cherry-picked" // diverged, local had extra commits — reset + cherry-pick
   | "error";
@@ -42,8 +44,14 @@ export interface ResetResult {
   cherryPicked: string[];
   /** Backup branch created before reset. */
   backupBranch: string | null;
-  /** Error message if status is "error". */
+  /** Error message if status is "error": the title of `failure`, or "cancelled by user". */
   error?: string;
+  /** What a person reads when status is "error" and they did not cancel. */
+  failure?: out.FailureInput;
+  /** `failure` is rt's own guard declining, drawn as a refused note. */
+  refused?: boolean;
+  /** The person said no at the confirm; nothing was changed. */
+  cancelled?: boolean;
 }
 
 export interface ResetOptions {
@@ -58,11 +66,11 @@ export interface ResetOptions {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function git(args: string, cwd: string): string {
+function git(args: string[], cwd: string): string {
   let stdout = "";
   let stderr = "";
   try {
-    stdout = execSync(`git ${args}`, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    stdout = execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
     syncLog.cmd(args, cwd, 0, stdout, "");
     return stdout;
   } catch (err: any) {
@@ -73,35 +81,41 @@ function git(args: string, cwd: string): string {
   }
 }
 
-function log(msg: string, quiet?: boolean): void {
-  if (!quiet) process.stderr.write(msg);
+function say(quiet: boolean | undefined, ...blocks: Block[]): void {
+  if (!quiet) out.print(...blocks);
 }
+
+// A large commit's diff easily passes the default 1 MiB buffer.
+const PATCH_BUFFER = 256 * 1024 * 1024;
 
 /**
  * Get the patch-id set for a range of commits.
  * Returns a Map of patch-id → commit SHA.
  *
- * Patch-IDs are content-based hashes of the diff — two commits with the
+ * Patch-IDs are content-based hashes of the diff: two commits with the
  * same code change but different SHAs (e.g. after a rebase) share the
  * same patch-id.
  */
-function getPatchIds(revRange: string, cwd: string): Map<string, string> {
+function getPatchIds(revs: string[], cwd: string): Map<string, string> {
   const result = new Map<string, string>();
+  let shas: string[];
   try {
-    // git log outputs patches, patch-id reads them
-    const stdout = execSync(
-      `git log --format="%H" --reverse ${revRange} | while read sha; do echo "$sha $(git diff-tree -p $sha | git patch-id --stable | cut -d' ' -f1)"; done`,
-      { cwd, encoding: "utf8", stdio: "pipe", shell: "/bin/bash" },
-    ).trim();
-
-    for (const line of stdout.split("\n")) {
-      const parts = line.trim().split(" ");
-      if (parts.length === 2 && parts[0] && parts[1]) {
-        const [sha, patchId] = parts;
-        result.set(patchId!, sha!);
-      }
-    }
-  } catch { /* no commits in range */ }
+    shas = execFileSync("git", ["log", "--format=%H", "--reverse", ...revs], { cwd, encoding: "utf8", stdio: "pipe" })
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+  } catch {
+    return result;
+  }
+  for (const sha of shas) {
+    try {
+      const patch = execFileSync("git", ["diff-tree", "-p", sha], { cwd, stdio: "pipe", maxBuffer: PATCH_BUFFER });
+      const patchId = execFileSync("git", ["patch-id", "--stable"], { cwd, input: patch, encoding: "utf8", stdio: "pipe", maxBuffer: PATCH_BUFFER })
+        .trim()
+        .split(" ")[0];
+      if (patchId) result.set(patchId, sha);
+    } catch { /* a commit with no patch has no patch-id */ }
+  }
   return result;
 }
 
@@ -110,7 +124,7 @@ function getPatchIds(revRange: string, cwd: string): Map<string, string> {
  */
 function getCommitOneliner(sha: string, cwd: string): string {
   try {
-    return git(`log --oneline -1 ${sha}`, cwd);
+    return git(["log", "--oneline", "-1", sha], cwd);
   } catch {
     return sha;
   }
@@ -132,7 +146,7 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
       branch: "HEAD",
       cherryPicked: [],
       backupBranch: null,
-      error: "not on a branch (detached HEAD)",
+      ...asError(NOT_ON_A_BRANCH),
     };
   }
 
@@ -143,7 +157,7 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
       branch,
       cherryPicked: [],
       backupBranch: null,
-      error: "uncommitted changes — commit or stash before syncing",
+      ...asRefusal(uncommittedChanges("Matching origin throws away local changes.")),
     };
   }
 
@@ -152,14 +166,15 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
   // 1. Fetch (unless caller already did)
   if (!opts.skipFetch) {
     const { withSpinner } = await import("../../lib/rt-render.ts");
-    const { exec } = await import("child_process");
-    const gitAsync = (args: string) =>
+    const { execFile } = await import("child_process");
+    const gitAsync = (args: string[]) =>
       new Promise<void>((resolve, reject) => {
-        exec(`git ${args}`, { cwd }, (err) => (err ? reject(err) : resolve()));
+        execFile("git", args, { cwd }, (err) => (err ? reject(err) : resolve()));
       });
     try {
-      await withSpinner("fetching origin…", () => gitAsync("fetch origin"), {
-        doneLabel: "origin fetched",
+      await withSpinner("Fetching from origin…", () => gitAsync(["fetch", "origin"]), {
+        doneLabel: "Fetched from origin",
+        failSilently: true,
       });
     } catch (err) {
       return {
@@ -167,46 +182,45 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
         branch,
         cherryPicked: [],
         backupBranch: null,
-        error: `fetch failed: ${err}`,
+        ...asError({ title: "Could not fetch from origin", details: errText(err) }),
       };
     }
   }
 
   // 2. Check if remote branch exists
   try {
-    git(`rev-parse --verify ${remoteBranch}`, cwd);
+    git(["rev-parse", "--verify", remoteBranch], cwd);
   } catch {
     return {
       status: "error",
       branch,
       cherryPicked: [],
       backupBranch: null,
-      error: `remote branch ${remoteBranch} does not exist`,
+      ...asError({ title: `${branch} is not on origin yet`, why: "There is nothing there to match.", next: out.cmd("rt git push") }),
     };
   }
 
   // 3. Compare local and remote
-  const localSha = git("rev-parse HEAD", cwd);
-  const remoteSha = git(`rev-parse ${remoteBranch}`, cwd);
+  const localSha = git(["rev-parse", "HEAD"], cwd);
+  const remoteSha = git(["rev-parse", remoteBranch], cwd);
 
   // Case A: Identical
   if (localSha === remoteSha) {
-    log(`  ${green}✓${reset} ${bold}${branch}${reset} ${dim}already in sync with ${remoteBranch}${reset}\n`, quiet);
+    say(quiet, out.line("done", `${branch} already matches ${remoteBranch}`));
     return { status: "in-sync", branch, cherryPicked: [], backupBranch: null };
   }
 
   // Check merge base to understand relationship
-  const mergeBase = git(`merge-base HEAD ${remoteBranch}`, cwd);
+  const mergeBase = git(["merge-base", "HEAD", remoteBranch], cwd);
 
   // Case B: Local is behind (remote has new commits, local hasn't diverged)
   if (mergeBase === localSha) {
-    log(`  ${dim}fast-forwarding to ${remoteBranch}…${reset}\n`, quiet);
-    git(`merge --ff-only ${remoteBranch}`, cwd);
-    log(`  ${green}✓${reset} ${bold}${branch}${reset} ${dim}fast-forwarded to ${remoteBranch}${reset}\n`, quiet);
+    git(["merge", "--ff-only", remoteBranch], cwd);
+    say(quiet, out.line("done", `Caught ${branch} up to ${remoteBranch}`));
     return { status: "fast-forward", branch, cherryPicked: [], backupBranch: null };
   }
 
-  // Diverged — need to figure out which side is the newer rewrite.
+  // Diverged: work out which side is the newer rewrite.
   //
   // Both a GitLab rebase (remote rewritten) and a local `git rebase
   // origin/master` (local rewritten) look identical topologically: same
@@ -219,14 +233,14 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
   const defaultBranch = getRemoteDefaultBranch(cwd, "origin", { preferRemote: true });
   if (defaultBranch && defaultBranch !== remoteBranch) {
     try {
-      const localBase = git(`merge-base HEAD ${defaultBranch}`, cwd);
-      const remoteBase = git(`merge-base ${remoteBranch} ${defaultBranch}`, cwd);
+      const localBase = git(["merge-base", "HEAD", defaultBranch], cwd);
+      const remoteBase = git(["merge-base", remoteBranch, defaultBranch], cwd);
       if (localBase !== remoteBase) {
         const r = spawnSync("git", ["merge-base", "--is-ancestor", remoteBase, localBase], {
           cwd, stdio: "pipe",
         });
         if (r.status === 0) {
-          log(`  ${green}✓${reset} ${bold}${branch}${reset} ${dim}is ${remoteBranch} rebased onto a newer ${defaultBranch} base — keeping local${reset}\n`, quiet);
+          say(quiet, out.line("done", `Kept ${branch} as it is`, `it is ${remoteBranch} rebased onto a newer ${defaultBranch}`));
           return { status: "local-newer", branch, cherryPicked: [], backupBranch: null };
         }
       }
@@ -238,11 +252,11 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
   // be treated as extra local commits, regardless of patch-id.
   const localPatches = getPatchIds(
     defaultBranch && defaultBranch !== remoteBranch
-      ? `${mergeBase}..HEAD ^${defaultBranch}`
-      : `${mergeBase}..HEAD`,
+      ? [`${mergeBase}..HEAD`, `^${defaultBranch}`]
+      : [`${mergeBase}..HEAD`],
     cwd,
   );
-  const remotePatches = getPatchIds(`${mergeBase}..${remoteBranch}`, cwd);
+  const remotePatches = getPatchIds([`${mergeBase}..${remoteBranch}`], cwd);
 
   // Find local commits whose patch-id is NOT on the remote
   // These are genuinely extra local commits (not just rebased versions)
@@ -258,35 +272,33 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
   let backupBranch: string | null = null;
   try {
     backupBranch = createBackup("reset", cwd);
-    log(`  ${dim}backup → ${backupBranch}${reset}\n`, quiet);
+    say(quiet, out.line("done", "Saved a backup", backupBranch));
   } catch (err) {
     return {
       status: "error",
       branch,
       cherryPicked: [],
       backupBranch: null,
-      error: `could not create backup branch: ${err}`,
+      ...asError({ title: "Could not save a backup, so nothing was changed", details: errText(err) }),
     };
   }
 
   if (extraCommits.length === 0) {
-    // Case C: Diverged but same content — simple reset
-    log(`  ${dim}remote was rebased — resetting to ${remoteBranch}…${reset}\n`, quiet);
-    git(`reset --hard ${remoteBranch}`, cwd);
-    log(`  ${green}✓${reset} ${bold}${branch}${reset} ${dim}reset to ${remoteBranch}${reset}\n`, quiet);
+    // Case C: diverged but same content, so a plain reset.
+    git(["reset", "--hard", remoteBranch], cwd);
+    say(quiet, out.line("done", `Reset ${branch} to ${remoteBranch}`, "origin was rebased"));
     return { status: "reset", branch, cherryPicked: [], backupBranch };
   }
 
-  // Case D: Diverged with extra local commits
-  log(`\n  ${yellow}⚠${reset} ${bold}${branch}${reset} has ${extraCommits.length} extra commit${extraCommits.length !== 1 ? "s" : ""} not on remote:\n`, quiet);
-  for (const sha of extraCommits) {
-    log(`    ${dim}•${reset} ${getCommitOneliner(sha, cwd)}\n`, quiet);
-  }
+  // Case D: diverged with extra local commits.
+  say(
+    quiet,
+    out.line("warn", `${branch} has ${plural(extraCommits.length, "commit")} that origin does not`),
+    out.verbatim(extraCommits.map((sha) => getCommitOneliner(sha, cwd)), "commits"),
+    ...(autoConfirm ? [] : [out.callout("note", `rt will reset to ${remoteBranch} and put these back on top.`)]),
+  );
 
   if (!autoConfirm) {
-    log(`\n  ${dim}Will reset to ${remoteBranch} and cherry-pick these on top.${reset}\n`, quiet);
-    // In interactive mode, we could prompt for confirmation.
-    // For now, proceed — the backup is our safety net.
     const { confirm: inkConfirm } = await import("../../lib/rt-render.ts");
     const ok = await inkConfirm({
       message: "Reset + cherry-pick?",
@@ -294,10 +306,8 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
     });
 
     if (!ok) {
-      log(`\n  ${dim}aborted${reset}\n`, quiet);
-      // Delete the backup we just created since we're not doing anything
       if (backupBranch) {
-        try { git(`branch -D "${backupBranch}"`, cwd); } catch { /* */ }
+        try { git(["branch", "-D", backupBranch], cwd); } catch { /* */ }
       }
       return {
         status: "error",
@@ -305,15 +315,13 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
         cherryPicked: [],
         backupBranch: null,
         error: "cancelled by user",
+        cancelled: true,
       };
     }
   }
 
-  // Reset to remote
-  git(`reset --hard ${remoteBranch}`, cwd);
-  log(`  ${dim}reset to ${remoteBranch}${reset}\n`, quiet);
+  git(["reset", "--hard", remoteBranch], cwd);
 
-  // Cherry-pick extra commits
   const pickedShas: string[] = [];
   for (const sha of extraCommits) {
     const result = spawnSync("git", ["cherry-pick", sha], {
@@ -324,34 +332,31 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
     syncLog.cmd(["cherry-pick", sha], cwd, result.status, result.stdout ?? "", result.stderr ?? "");
 
     if (result.status !== 0) {
-      // Cherry-pick conflict — abort and report
       spawnSync("git", ["cherry-pick", "--abort"], { cwd, stdio: "pipe" });
-      log(`  ${red}✗${reset} cherry-pick conflict on ${getCommitOneliner(sha, cwd)}\n`, quiet);
-      if (backupBranch) {
-        log(`  ${dim}restore with: rt git restore${reset}\n`, quiet);
-      }
       return {
         status: "error",
         branch,
         cherryPicked: pickedShas,
         backupBranch,
-        error: `cherry-pick conflict on ${sha.slice(0, 7)}`,
+        ...asError({
+          title: "One of your commits could not be put back on top",
+          why: `${getCommitOneliner(sha, cwd)} conflicts with what is on origin now.`,
+          next: ["Your branch as it was is in a backup. Bring it back with ", out.cmd("rt git restore")],
+        }),
       };
     }
 
     pickedShas.push(sha);
-    log(`    ${green}✓${reset} ${getCommitOneliner(sha, cwd)}\n`, quiet);
+    say(quiet, out.line("done", `Put back ${getCommitOneliner(sha, cwd)}`));
   }
 
-  log(`  ${green}✓${reset} ${bold}${branch}${reset} synced with remote, cherry-picked ${pickedShas.length} commit${pickedShas.length !== 1 ? "s" : ""}\n`, quiet);
+  say(quiet, out.line("done", `${branch} matches ${remoteBranch}`, `${plural(pickedShas.length, "commit")} of yours put back on top`));
   return { status: "cherry-picked", branch, cherryPicked: pickedShas, backupBranch };
 }
 
-// ─── CLI handler ─────────────────────────────────────────────────────────────
-
 // ─── CLI handlers ────────────────────────────────────────────────────────────
 
-/** rt git reset origin — sync with remote branch */
+/** rt git reset origin: sync with the remote branch */
 export async function originCommand(
   _args: string[],
   ctx: CommandContext,
@@ -359,14 +364,17 @@ export async function originCommand(
   const cwd = ctx.identity!.repoRoot;
   const result = await resetToOrigin({ cwd });
 
-  if (result.status === "error") {
-    console.error(`\n  ${red}${result.error}${reset}\n`);
+  if (result.cancelled) {
+    out.print(out.line("skipped", "Nothing was changed"));
     process.exit(1);
   }
-  console.log("");
+  if (result.status === "error") {
+    drawFailure(result.failure ?? { title: result.error ?? "The reset failed" }, result.refused);
+    process.exit(1);
+  }
 }
 
-/** rt git reset soft — soft reset to HEAD (unstage) */
+/** rt git reset soft: unstage everything */
 export async function softResetCommand(
   _args: string[],
   ctx: CommandContext,
@@ -374,23 +382,25 @@ export async function softResetCommand(
   const cwd = ctx.identity!.repoRoot;
   // `reset --soft HEAD` is a no-op (--soft touches neither index nor
   // worktree); a mixed reset is what actually unstages.
-  git("reset HEAD", cwd);
-  console.log(`  ${green}✓${reset} soft reset to HEAD (unstaged)\n`);
+  git(["reset", "HEAD"], cwd);
+  out.print(out.line("done", "Unstaged everything", "your edits are untouched"));
 }
 
-/** rt git reset hard — hard reset to HEAD (discard all changes) */
+/** rt git reset hard: discard every uncommitted change */
 export async function hardResetCommand(
   _args: string[],
   ctx: CommandContext,
 ): Promise<void> {
   const cwd = ctx.identity!.repoRoot;
 
-  // Create backup before hard reset
+  let backupBranch: string | null = null;
   try {
-    const backupBranch = createBackup("reset", cwd);
-    console.log(`  ${dim}backup → ${backupBranch}${reset}`);
+    backupBranch = createBackup("reset", cwd);
   } catch { /* best-effort */ }
 
-  git("reset --hard HEAD", cwd);
-  console.log(`  ${green}✓${reset} hard reset to HEAD\n`);
+  git(["reset", "--hard", "HEAD"], cwd);
+  out.print(
+    ...(backupBranch ? [out.line("done", "Saved a backup of the branch", backupBranch)] : []),
+    out.line("done", "Threw away every uncommitted change"),
+  );
 }
