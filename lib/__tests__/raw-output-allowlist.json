@@ -8,7 +8,6 @@
   "commands/code.ts",
   "commands/cron.ts",
   "commands/daemon.ts",
-  "commands/deps.ts",
   "commands/endpoint.ts",
   "commands/events.ts",
   "commands/flavor.ts",
