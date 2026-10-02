@@ -25,7 +25,7 @@ let sourceGuardChecks: [Check] = [
     /// Each allowed file fetches only deck.mattstack or the daemon on
     /// 127.0.0.1; a fetch to an app host needs its own session.
     Check("only deck and daemon callers use URLSession.shared") { c in
-        let allowed: Set = ["WindowBackends.swift", "WindowModel.swift", "ServicesRegistrar.swift", "DaemonClient.swift"]
+        let allowed: Set = ["WindowBackends.swift", "WindowModel.swift", "ServicesRegistrar.swift", "DaemonClient.swift", "DeckLifecycle.swift"]
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("../../Sources").standardized
         let files = try c.requireSome(FileManager.default.enumerator(atPath: sources.path))

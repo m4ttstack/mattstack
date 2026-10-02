@@ -329,7 +329,7 @@ final class ServicesRegistrar: ServicesProviding, @unchecked Sendable {
         return DeckSweep.finished(status: (response as? HTTPURLResponse)?.statusCode)
     }
 
-    private func launchdLookup(label: String) async -> LaunchdJobLookup {
+    func launchdLookup(label: String) async -> LaunchdJobLookup {
         let (exe, args) = LaunchdPrint.arguments(label: label, uid: uid)
         return LaunchdPrint.parse(await runner.run(exe, args))
     }

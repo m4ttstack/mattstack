@@ -328,6 +328,13 @@ final class WindowModel: ObservableObject {
         startDeckWait()
     }
 
+    /// The restart itself belongs to the tray's DeckLifecycle; the window only
+    /// starts waiting for the deck it brings back.
+    func restartDeck() {
+        NotificationCenter.default.post(name: .rtRestartDeck, object: DeckLifecycle.splashOrigin)
+        retryDeckWait()
+    }
+
     /// A Retry starts a new wait while the old one may still be sleeping, so
     /// only the latest generation may publish its result.
     private func startDeckWait() {

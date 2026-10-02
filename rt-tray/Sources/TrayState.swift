@@ -16,6 +16,8 @@ class TrayState: ObservableObject {
 
     @Published var health: DaemonHealth = .unknown
     @Published var statusText: String = "Daemon: checking…"
+    @Published var deckStatusText: String = "Deck: checking…"
+    @Published var deckDiagnostic: String? = nil
     /// SMAppService wants the user to approve the daemon in Login Items.
     @Published var needsApproval: Bool = false
     /// Set when UpdaterController finds a newer release (its version string).
@@ -67,6 +69,8 @@ class TrayState: ObservableObject {
 // daemon lifecycle and update checker.
 extension Notification.Name {
     static let rtRestartDaemon  = Notification.Name("rtRestartDaemon")
+    /// `object` is the origin string for the lifecycle log.
+    static let rtRestartDeck    = Notification.Name("rtRestartDeck")
     static let rtViewDaemonLogs = Notification.Name("rtViewDaemonLogs")
     static let rtOpenCrashLog   = Notification.Name("rtOpenCrashLog")
     static let rtCheckUpdates   = Notification.Name("rtCheckUpdates")
