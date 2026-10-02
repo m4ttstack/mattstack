@@ -594,8 +594,16 @@ function peerLines(mr: BoardMRWithReview, now: number): Candidate[] {
       verbs: [verb],
     });
   }
+  const asked = mr.sentNudge;
+  const askInFlight =
+    asked?.display === 'requested' ||
+    asked?.display === 'confirmed' ||
+    asked?.display === 'launched'
+      ? asked.reviewer
+      : undefined;
   for (const p of mr.peerReviews ?? []) {
     if (p.status === 'queued' || p.status === 'reviewing') {
+      if (p.reviewer === askInFlight) continue;
       out.push({
         tone: 'work',
         word: `${p.reviewer} is reviewing…`,
