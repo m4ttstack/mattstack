@@ -18,10 +18,11 @@ on a dark and a light terminal background.
 | `dispatcher-dark.png`, `dispatcher-light.png` | the dispatcher at 100 columns: the breadcrumb header, branch and leaf `--help`, an unknown command, the terminal guard, a missing repo, a usage failure, and the notes for a stopped daemon, a first run, split rt data and an unreadable setting |
 | `wrap-narrow-dark.png`, `wrap-narrow-light.png` | 48 columns: a hint wrapping in its own column, a long title taking its hint below, a flag kept whole, and the rule and tree tone |
 | `skills-dark.png`, `skills-light.png` | `rt skills` at 100 columns: a check with stale, never-compiled and behind-the-source rows, a compile with a warning, a compile failure and a misplaced skill, the packs and surface tables with a palette delta, a bind, a link report with a conflict, a refused sync, and the refused `skills init` and `writing-style new` lines |
-| `git-dark.png`, `git-light.png` | the git verbs at 100 columns: `status` dirty and clean, `log`, `branches`, `stash list`, `tag list`, the result lines of amend, undo, backup, restore, push and pull, three refusals (an undo of a pushed commit, the ownership guard, uncommitted changes) and four failures (detached HEAD, a usage failure, a git error, a diverged push) |
+| `git-dark.png`, `git-light.png` | the git verbs at 100 columns: `status` dirty and clean, `log`, `branches`, `stash list`, `tag list`, the result lines of undo, backup, restore, push and pull, three refusals (an undo of a pushed commit, the ownership guard, uncommitted changes) and four failures (detached HEAD, a usage failure, a git error, a diverged push) |
 | `diff-dark.png`, `diff-light.png` | `rt git diff` at 80 columns: two hunks with a long deleted line, and a binary file. The light page is rendered with `COLORFGBG=0;15` |
 | `plugins-hooks-dark.png`, `plugins-hooks-light.png` | `rt plugin`, `tools`, `deps`, `hooks` and `intercept` at 100 columns: a scaffold with a failed install, the plugin list and a failed validate, two load warnings, tool results, a failure and a refusal, hooks on and off, and intercept status with a current, a stale and a not-yet-installed shim |
 | `5e1-team-dark.png`, `5e1-team-light.png` | `rt team` at 100 columns: create, status, an invite with manual steps, two joins, members sync and remove, a switchboard warning, a refusal, a daemon failure and a usage failure |
+| `sync-dark.png`, `sync-light.png` | `rt sync` at 100 columns: the stack warning, a reset and a rebase with a resolved conflict, a paused conflict with the manual report, the conflict failure, the stack refusal, an agent that timed out, and `sync all` with four branches (two refused and one failed, each ending under its heading) and its summary |
 
 The light pages are rendered with `COLORFGBG=0;15`, which is how a light
 terminal that reports its background gets the pale diff tints. A light
@@ -51,6 +52,22 @@ second line. On light, the `pending` and `off` glyphs (the dotted and hollow
 circles) and the purple `kv` keys are faint. The settings, errors
 and setup pages predate the hint wrap, the words-only wrap and the
 `StaticRule` tone, and show the older drawing.
+
+In the sync renders, a list of conflicted files (under the paused line and
+inside the manual report) is a one-column table with no header, so it sits
+flush with the status glyphs and reads as stray output rather than part of
+the line above it. A failure's `details` follow a blank row in dim with no
+rail, so the files and backup under the conflict failure, and git's own
+`! [rejected]` line under a failed push, read as separate output; that git
+line also starts with `!`, which reads as the warn glyph. A branch whose push
+fails under `sync all` shows two coral lines that say nearly the same thing
+(the step's `Could not push` and the ending's `Could not push <branch>`). A
+backup ref in the hint column hard-breaks mid-word when a longer title above
+sets the column, so it cannot be copied whole. In the `sync all` summary the
+status words `refused` and `failed` are dim, not tinted, and on a light
+terminal the lavender branch names are weak. A section heading draws its
+branch in bold body text, while the summary below draws the same branch in
+lavender.
 
 To regenerate: write the hello line and the fixture blocks as NDJSON, pipe them
 through `ui/dist/rt-ui render --width 80` with `COLORTERM=truecolor`, and view
