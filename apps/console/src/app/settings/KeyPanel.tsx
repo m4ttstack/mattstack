@@ -545,10 +545,12 @@ function RepoSection({
       {loading ? (
         <Skeleton h={38} />
       ) : (
+        // The section header already names the repo, so each line's badge
+        // names only the store.
         set.map(r => (
           <Line
             key={r.scope}
-            scope={r.scope}
+            scope={rungBase(r.scope) ?? r.scope}
             value={<LayerValue def={def} row={r} />}
           />
         ))

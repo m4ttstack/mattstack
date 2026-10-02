@@ -572,7 +572,8 @@ describe('KeyPanel', () => {
       );
       expect(value).toHaveTextContent(/^2 fields$/);
       expect(value.closest(`.${classes.line}`)).not.toBeNull();
-      expect(within(storefront).getByText('user · repo')).toBeInTheDocument();
+      expect(within(storefront).getByText('user')).toBeInTheDocument();
+      expect(within(storefront).queryByText('user · repo')).toBeNull();
       expect(within(storefront).queryByTestId('json-block')).toBeNull();
       expect(within(storefront).queryByRole('link')).toBeNull();
       expect(within(storefront).queryAllByRole('button')).toHaveLength(0);
@@ -580,6 +581,8 @@ describe('KeyPanel', () => {
       expect(
         await within(billing).findByTestId('layer-value-team.repo')
       ).toHaveTextContent(/^1 field$/);
+      expect(within(billing).getByText('team')).toBeInTheDocument();
+      expect(within(billing).queryByText('team · repo')).toBeNull();
     });
 
     it('a repo section shows a string value bare', async () => {

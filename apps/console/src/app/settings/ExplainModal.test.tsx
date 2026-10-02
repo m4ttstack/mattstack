@@ -809,7 +809,7 @@ describe('with a repo picked', () => {
     );
     const section = await screen.findByTestId(`repo-${REPO}`);
     expect(within(section).getByText('acme/app')).toBeInTheDocument();
-    expect(within(section).getByText('team · repo')).toBeInTheDocument();
+    expect(within(section).getByText('team')).toBeInTheDocument();
     expect(
       await within(section).findByTestId('layer-value-team.repo')
     ).toHaveTextContent(/^1 field$/);
