@@ -19,6 +19,7 @@ const ENDED_JOB_STATUSES = new Set(["closed", "crashed"]);
  * a `done` job's pane can still pick up a follow-up in the same tree.
  */
 export function herdJobTreeHold(store: Pick<HerdStore, "get" | "jobs">, rec: TreeRecord): string | null {
+  if (rec.releasedAt) return null;
   const owner = rec.owner;
   if (!owner) return "job tree with no owner";
   if (!owner.startsWith(HERD_OWNER_PREFIX)) return `job tree owned by ${owner}`;

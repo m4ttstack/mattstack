@@ -43,6 +43,7 @@ export interface TreeRecord {
   readyFailure?: string; // failed step name from the last background settle
   disposableReason?: string;
   heldReason?: string; // why the merge reactor is not disposing a claimed tree whose MR merged
+  releasedAt?: string; // ISO; a person released this job tree from its owner (triage Release); cleared by the next claim
   retryFailures?: number; // shared backoff counter (create/freshen)
   nextRetryAt?: string; // ISO; skip mutating work until then
   // Set only by a freshen failure that may have left the working tree out of

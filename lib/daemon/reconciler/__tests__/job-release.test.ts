@@ -95,6 +95,12 @@ describe("herdJobTreeHold", () => {
     });
   });
 
+  test("a tree a person released is free whatever its herd and jobs say", () => {
+    const s = store([herd("h1", "active")], [job("h1", "rt-175", "spawning", 9)]);
+    expect(herdJobTreeHold(s, { ...rec("herd:h1"), releasedAt: "2026-10-02T14:00:00Z" })).toBeNull();
+    expect(herdJobTreeHold(store([], []), { ...rec("alex"), releasedAt: "2026-10-02T14:00:00Z" })).toBeNull();
+  });
+
   test("a herd with no row left releases the tree; nothing else will ever end it", () => {
     expect(herdJobTreeHold(store([], []), rec("herd:gone"))).toBeNull();
   });

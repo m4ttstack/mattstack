@@ -114,6 +114,12 @@ describe("collectFacts", () => {
     const f3 = await collectFacts(repoName, repo, rec, { ...deps(merged("delta")), findRunningRun: () => ({ kind: "match", run: { id: "r1", currentStage: "implement" } }) as any });
     expect(f3.hold).toEqual({ kind: "run", detail: "pipeline run r1 is live at implement" });
   });
+
+  test("a job tree the reactor held for its herd reads as a herd hold, not a process", async () => {
+    const rec = { ...tree("delta3"), disposal: "job" as const, owner: "herd:h1", heldReason: "herd h1 is active" };
+    const held = await collectFacts(repoName, repo, rec, { ...deps(merged("delta3")), jobTreeHold: () => "herd h1 is active" });
+    expect(held.hold).toEqual({ kind: "herd", detail: "herd h1 is active" });
+  });
 });
 
 describe("triageRepo", () => {
