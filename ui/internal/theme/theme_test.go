@@ -198,12 +198,22 @@ func TestTheDarkStaticSetIsTheAppsAccentsAndReadsOnBg(t *testing.T) {
 			t.Errorf("dark %s on Bg is %.2f:1, under 4.5:1", name, got)
 		}
 	}
-	for name, pair := range map[string][2]color.Color{
-		"quiet": {StaticDark.Quiet, StaticLight.Quiet}, "rule": {StaticDark.Rule, StaticLight.Rule},
-	} {
-		if Hex(pair[0]) != Hex(pair[1]) {
-			t.Errorf("%s differs between the sets: %s and %s", name, Hex(pair[0]), Hex(pair[1]))
-		}
+}
+
+func TestTheDarkQuietAndRuleReadOnBgAndStayBelowTheText(t *testing.T) {
+	bg := relLuminance(Bg)
+	quiet, rule := relLuminance(StaticDark.Quiet), relLuminance(StaticDark.Rule)
+	if c := contrast(quiet, bg); c < 5.5 || c > 6.5 {
+		t.Errorf("dark quiet on Bg is %.2f:1, want about 6:1", c)
+	}
+	if c := contrast(rule, bg); c < 3 {
+		t.Errorf("dark rule on Bg is %.2f:1, under 3:1", c)
+	}
+	if rule >= quiet {
+		t.Error("the dark rule must sit dimmer than the dark quiet")
+	}
+	if quiet >= relLuminance(Lav) {
+		t.Error("the dark quiet must sit dimmer than the accents beside it")
 	}
 }
 

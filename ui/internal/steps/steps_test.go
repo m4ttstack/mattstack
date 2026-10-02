@@ -353,6 +353,9 @@ func TestADarkSettingPaintsTheDarkSpinner(t *testing.T) {
 	if !strings.Contains(tty, darkMint) || strings.Contains(tty, lightMint) {
 		t.Fatalf("no dark mint spinner in %q", tty)
 	}
+	if !strings.Contains(tty, "38;2;149;144;179m") || strings.Contains(tty, "38;2;119;114;154m") {
+		t.Fatalf("no dark quiet sub-line in %q", tty)
+	}
 }
 
 func TestAutoTakesTheTerminalsAnswer(t *testing.T) {

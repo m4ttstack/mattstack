@@ -204,7 +204,7 @@ var (
 	// so it is only for a background known to be dark.
 	StaticDark = StaticTones{
 		Mint: Mint, Peach: Peach, Lav: Lav, Coral: Coral, Cyan: Cyan,
-		Quiet: staticQuiet, Rule: staticRule,
+		Quiet: lipgloss.Color("#9590B3"), Rule: lipgloss.Color("#6E6992"),
 	}
 )
 

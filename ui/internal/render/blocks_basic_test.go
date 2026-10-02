@@ -497,6 +497,8 @@ const (
 	lightMint, lightPeach, lightLav = "18;171;86", "225;122;13", "161;105;255"
 	darkMint, darkPeach, darkLav    = "98;230;168", "255;183;122", "189;147;249"
 	lightCyan, darkCoral, darkCyan  = "46;134;222", "255;121;121", "90;170;255"
+	lightQuiet, lightRule           = "119;114;154", "115;109;150"
+	darkQuiet, darkRule             = "149;144;179", "110;105;146"
 )
 
 func TestKeysLabelsAndRailsUseStaticTones(t *testing.T) {
@@ -548,12 +550,12 @@ func hasTone(s, rgb string) bool {
 
 func TestADarkBackgroundRendersTheDarkSet(t *testing.T) {
 	dark := render.Render(accentBlocks, render.Options{Width: 80, Background: background.Dark})
-	for _, tone := range []string{darkMint, darkPeach, darkLav, darkCoral, darkCyan, "119;114;154", "115;109;150"} {
+	for _, tone := range []string{darkMint, darkPeach, darkLav, darkCoral, darkCyan, darkQuiet, darkRule} {
 		if !hasTone(dark, tone) {
 			t.Errorf("dark render has no %s: %q", tone, dark)
 		}
 	}
-	for _, tone := range []string{lightMint, lightPeach, lightLav, coral, lightCyan} {
+	for _, tone := range []string{lightMint, lightPeach, lightLav, coral, lightCyan, lightQuiet, lightRule} {
 		if strings.Contains(dark, tone) {
 			t.Errorf("dark render kept the light %s: %q", tone, dark)
 		}
