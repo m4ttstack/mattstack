@@ -51,6 +51,40 @@ export function teamsDir(): string {
   return join(home(), ".mattstack", "teams");
 }
 
+/** ~/.mattstack/teams/<org>: the org clone. The parent folder keeps its `teams` name. */
+export function orgDir(org: string): string {
+  return join(teamsDir(), org);
+}
+
+export function orgMarkerPath(org: string): string {
+  return join(orgDir(org), "mattstack", "mattstack.jsonc");
+}
+
+export function orgSettingsPath(org: string): string {
+  return join(orgDir(org), "mattstack", "org", "settings.org.jsonc");
+}
+
+export function orgSecretsDir(org: string): string {
+  return join(orgDir(org), "mattstack", "org", "secrets");
+}
+
+export function orgPacksDir(org: string): string {
+  return join(orgDir(org), "mattstack", "org", "packs");
+}
+
+export function teamFoldersDir(org: string): string {
+  return join(orgDir(org), "mattstack", "teams");
+}
+
+export function teamFolderDir(org: string, team: string): string {
+  return join(teamFoldersDir(org), team);
+}
+
+/** A team's pack carries the team's name. */
+export function teamPackDir(org: string, team: string): string {
+  return join(teamFolderDir(org, team), "packs", team);
+}
+
 /**
  * The stable per-machine key that scopes the machine settings store — so
  * `user/local/<key>/` never collides across machines sharing one synced
