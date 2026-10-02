@@ -7,6 +7,7 @@ import {
   HEADER_GAP,
   headingDetail,
   MIN_FRAME_ZOOM,
+  PAN_SLACK,
   panFor,
 } from '../layout/stageFraming';
 import { LAYOUT, layoutTemplate } from '../layout/templateLayout';
@@ -59,10 +60,11 @@ describe('frameStage', () => {
       const framing = frameStage(BOARD_STAGE, { right, bottom });
       expect(framing.viewport).toEqual(BOARD_VIEWPORT);
       expect(framing.contentTop).toBe(72);
-      // No travel either way: the stage already shows the whole graph.
+      // The stage already shows the whole graph, so only the drag room is
+      // left to travel, on every side.
       expect(framing.extent).toEqual([
-        [0, -124],
-        [1408, 828],
+        [-PAN_SLACK, -124 - PAN_SLACK],
+        [1408 + PAN_SLACK, 828 + PAN_SLACK],
       ]);
     }
   });
@@ -77,8 +79,11 @@ describe('frameStage', () => {
     });
 
     expect(framing.viewport).toEqual(BOARD_VIEWPORT);
-    expect(framing.extent[0]).toEqual([0, -124]);
-    expect(framing.extent[1]).toEqual([1408, layout.height + 136]);
+    expect(framing.extent[0]).toEqual([-PAN_SLACK, -124 - PAN_SLACK]);
+    expect(framing.extent[1]).toEqual([
+      1408 + PAN_SLACK,
+      layout.height + 136 + PAN_SLACK,
+    ]);
   });
 
   it('zooms a wide graph out to the stage width on a narrow stage', () => {
@@ -118,7 +123,7 @@ describe('frameStage under a drawer', () => {
 
       expect(framing.viewport).toEqual({ x: -110, y: 124, zoom: 1 });
       const [[minX], [maxX]] = framing.extent;
-      expect(minX).toBe(0);
+      expect(minX).toBe(-PAN_SLACK);
       // The viewport sits inside its extent, so React Flow keeps the pan.
       expect(maxX).toBeGreaterThanOrEqual(110 + BOARD_STAGE.width);
     }
@@ -163,7 +168,7 @@ describe('frameStage under the focus header', () => {
 
     expect(framing.contentTop).toBe(90 + HEADER_GAP);
     expect(framing.viewport.y).toBe(90 + HEADER_GAP + 52);
-    expect(framing.extent[0][1]).toBe(-framing.viewport.y);
+    expect(framing.extent[0][1]).toBe(-framing.viewport.y - PAN_SLACK);
   });
 });
 

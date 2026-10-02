@@ -29,12 +29,12 @@ export type StageShape = {
 /**
  * Frames the graph on the stage once its nodes are measured, and again when
  * the stage or the graph's shape changes; slides it clear of a drawer and
- * back. Returns the full framing, for a fit button. Runs inside React Flow.
+ * back. Runs inside React Flow.
  */
 export function useStageFraming(
   { geometry, cover, headerBottom }: StageShape,
   onFramed: (contentTop: number) => void
-): () => void {
+): void {
   const { getNodes, getNodesBounds, getViewport, setViewport } = useReactFlow();
   const store = useStoreApi();
   const width = useStore(state => state.width);
@@ -105,6 +105,4 @@ export function useStageFraming(
       );
     void setViewport({ ...viewport, x });
   }, [cover, width, height, graph, store, getViewport, setViewport]);
-
-  return frame;
 }

@@ -3,6 +3,7 @@ import {
   Alert,
   Badge,
   Group,
+  Paper,
   Skeleton,
   Stack,
   Text,
@@ -97,68 +98,74 @@ export function FocusHeader({
   checkError?: string | null;
 }) {
   return (
-    <Stack
+    <Paper
       ref={ref}
-      gap={6}
+      withBorder
+      radius="md"
       className={classes.header}
       data-parity="Focus header"
       data-testid="focus-header"
     >
-      <Group gap={10} justify="space-between">
-        <Group gap={10}>
-          <Title order={3} fz={20} lh="normal">
-            <Text span inherit c="var(--tk-text-1)" data-parity="title">
-              {title}
-            </Text>
-          </Title>
-          <Badge
-            variant="quiet"
-            classNames={{ root: classes.pill }}
-            data-parity="badge"
-            attributes={{ label: { 'data-parity': 'l' } }}
-          >
-            {kind}
-          </Badge>
+      <Stack gap={6}>
+        <Group gap={10} justify="space-between">
+          <Group gap={10}>
+            <Title order={3} fz={20} lh="normal">
+              <Text span inherit c="var(--tk-text-1)" data-parity="title">
+                {title}
+              </Text>
+            </Title>
+            <Badge
+              variant="quiet"
+              classNames={{ root: classes.pill }}
+              data-parity="badge"
+              attributes={{ label: { 'data-parity': 'l' } }}
+            >
+              {kind}
+            </Badge>
+          </Group>
+          {status && checkError === null && (
+            <Badge
+              variant={status.tone === 'warn' ? 'hue-outline' : 'quiet-outline'}
+              color={status.tone === 'warn' ? 'warn' : undefined}
+              classNames={{
+                root: classes.statusPill,
+                section: classes.pillIcon,
+              }}
+              leftSection={
+                <Icon
+                  name={status.icon}
+                  size={12}
+                  color={GLYPH[status.tone]}
+                  data-parity="i"
+                />
+              }
+              data-parity="status · engine behind"
+              data-testid="focus-status"
+              attributes={{ label: { 'data-parity': 'l' } }}
+            >
+              {status.label}
+            </Badge>
+          )}
         </Group>
-        {status && checkError === null && (
-          <Badge
-            variant={status.tone === 'warn' ? 'hue-outline' : 'quiet-outline'}
-            color={status.tone === 'warn' ? 'warn' : undefined}
-            classNames={{ root: classes.statusPill, section: classes.pillIcon }}
-            leftSection={
-              <Icon
-                name={status.icon}
-                size={12}
-                color={GLYPH[status.tone]}
-                data-parity="i"
-              />
-            }
-            data-parity="status · engine behind"
-            data-testid="focus-status"
-            attributes={{ label: { 'data-parity': 'l' } }}
-          >
-            {status.label}
-          </Badge>
+        {description ? (
+          <Text fz={13} lh="normal" c={MUTED} data-parity="desc">
+            {description}
+          </Text>
+        ) : (
+          loading && <Skeleton height={16} width={420} />
         )}
-      </Group>
-      {description ? (
-        <Text fz={13} lh="normal" c={MUTED} data-parity="desc">
-          {description}
-        </Text>
-      ) : (
-        loading && <Skeleton height={16} width={420} />
-      )}
-      {checkError !== null && (
-        <Alert
-          variant="light"
-          color="warn"
-          icon={<Icon name="warning" size={14} />}
-          classNames={{ root: classes.statusAlert }}
-          data-testid="status-unavailable"
-        >
-          <Text size="xs">Status unavailable: {checkError}</Text>
-        </Alert>
-      )}
-    </Stack>
+        {checkError !== null && (
+          <Alert
+            variant="light"
+            color="warn"
+            icon={<Icon name="warning" size={14} />}
+            classNames={{ root: classes.statusAlert }}
+            data-testid="status-unavailable"
+          >
+            <Text size="xs">Status unavailable: {checkError}</Text>
+          </Alert>
+        )}
+      </Stack>
+    </Paper>
   );
 }

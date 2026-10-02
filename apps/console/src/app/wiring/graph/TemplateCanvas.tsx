@@ -144,7 +144,7 @@ function ZoomControls({
   onFramed: (contentTop: number) => void;
 }) {
   const { zoomIn, zoomOut } = useReactFlow();
-  const frame = useStageFraming(shape, onFramed);
+  useStageFraming(shape, onFramed);
 
   return (
     <Controls
@@ -181,20 +181,6 @@ function ZoomControls({
           <Icon
             strokeWidth={ICON_STROKE}
             name="minus"
-            size={14}
-            color={MUTED}
-            data-parity="i"
-          />
-        </ControlButton>
-        <ControlButton
-          className={classes.zoomButton}
-          onClick={frame}
-          title="Fit to the stage"
-          aria-label="Fit to the stage"
-        >
-          <Icon
-            strokeWidth={ICON_STROKE}
-            name="fitView"
             size={14}
             color={MUTED}
             data-parity="i"
