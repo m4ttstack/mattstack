@@ -97,7 +97,7 @@ describe("settings/check", () => {
       writeTeam(TEAM, { repos: { [IDENTITY]: { "rt.worktrees": { onDeck: "two" } } } });
       const f = checkStores().findings.find((x) => x.key === "rt.worktrees" && x.kind === "nonconforming")!;
       expect(f.repo).toBe(IDENTITY);
-      expect(f.scope).toBe("team");
+      expect(f.scope).toBe("org");
     });
   });
 

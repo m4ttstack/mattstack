@@ -10,10 +10,17 @@ import { afterAll, expect, test } from 'bun:test';
 // isolation as server-healthz-fast.test.ts.
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-sigterm-'));
 
-const teamDir = join(fakeHome, '.mattstack', 'teams', 'testteam', 'mattstack');
+const teamDir = join(
+  fakeHome,
+  '.mattstack',
+  'teams',
+  'testteam',
+  'mattstack',
+  'org'
+);
 mkdirSync(teamDir, { recursive: true });
 writeFileSync(
-  join(teamDir, 'settings.team.jsonc'),
+  join(teamDir, 'settings.org.jsonc'),
   JSON.stringify({
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['g/p'],

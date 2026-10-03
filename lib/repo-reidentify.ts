@@ -8,7 +8,7 @@
 
 import { Database } from "bun:sqlite";
 import { existsSync, readdirSync } from "fs";
-import { join } from "path";
+import { join, relative } from "path";
 import { isDeepStrictEqual } from "util";
 import { migrateRepoData, migrationIncomplete, refreshRepoIndexMirror, REPO_INDEX_NS } from "./repo-index.ts";
 import { moveRepoTrackingEntry } from "./repo-tracking.ts";
@@ -18,8 +18,8 @@ import { getSetting } from "./settings/resolve.ts";
 import { setSetting } from "./settings/write.ts";
 import { CURSOR_NS } from "./state/cursors-store.ts";
 import { dropTableRows, moveKvKey, moveTableRows, type StoreReport } from "./state/reidentify.ts";
-import { machineSettingsPath, teamSettingsPath, teamsDir, userSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
-import { listTeams } from "../packages/rt-client/src/settings/stores.ts";
+import { machineSettingsPath, teamsDir, userSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
+import { sharedStoreFiles } from "../packages/rt-client/src/settings/stores.ts";
 import { renameRepoSection, storeUnparseable } from "../packages/rt-client/src/settings/write.ts";
 
 export interface IdentityPair {
@@ -102,7 +102,7 @@ function dataDirReport(from: string, to: string, dryRun: boolean): StoreReport {
   return { store, status: "moved", count: count + (m.registry === "none" ? 0 : 1) };
 }
 
-/** listTeams reads an unlistable teams dir as no teams, which would skip every team store silently. */
+/** sharedStoreFiles reads an unlistable teams dir as no org, which would skip every shared store silently. */
 function teamsOrRefusal(): string[] | StoreReport {
   const dir = teamsDir();
   if (existsSync(dir)) {
@@ -112,7 +112,7 @@ function teamsOrRefusal(): string[] | StoreReport {
       return { store: "settings:teams", status: "refused", count: 0, detail: `${dir} is unreadable: ${String(err)}` };
     }
   }
-  return listTeams();
+  return sharedStoreFiles();
 }
 
 function herdsReport(from: string, to: string, dryRun: boolean): StoreReport {
@@ -188,15 +188,17 @@ export async function reidentify(fromArg: string, toArg: string, opts: { dryRun?
   add("settings:user", () => settingsReport("user", userSettingsPath(), from.raw, to.raw, dryRun));
   add("settings:machine", () => settingsReport("machine", machineSettingsPath(), from.raw, to.raw, dryRun));
   add("settings:workspacePrefs.editors", () => workspaceEditorsReport(f, t, dryRun));
-  let teams: string[] = [];
+  let files: string[] = [];
   try {
     const listed = teamsOrRefusal();
-    if (Array.isArray(listed)) teams = listed;
+    if (Array.isArray(listed)) files = listed;
     else stores.push(listed);
   } catch (err) {
     stores.push({ store: "settings:teams", status: "refused", count: 0, detail: String(err) });
   }
-  for (const team of teams) add(`settings:team:${team}`, () => settingsReport(`team:${team}`, teamSettingsPath(team), from.raw, to.raw, dryRun));
+  // Two team folders' stores share a basename, so the label is the path under the teams folder.
+  const sharedLabel = (file: string) => `shared:${relative(teamsDir(), file)}`;
+  for (const file of files) add(`settings:${sharedLabel(file)}`, () => settingsReport(sharedLabel(file), file, from.raw, to.raw, dryRun));
 
   // repos.json mirrors the index for out-of-process readers (gitq, rt-client's
   // fallback); only a write through the index refreshes it otherwise.

@@ -20,7 +20,7 @@
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
-import { listTeams } from "../lib/settings/stores.ts";
+import { listOrgs } from "../lib/settings/stores.ts";
 import { composePlan, realSecretPresence, type PlanInputs } from "../lib/setup/plan.ts";
 import { rowStatus } from "../lib/setup/plan-blocks.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
@@ -201,7 +201,7 @@ export interface VerifyDeps {
 }
 
 export function realVerifyDeps(): VerifyDeps {
-  return { probes: createRealProbes(), secrets: realSecretPresence(), teams: listTeams, compose: composePlan, exit: process.exit };
+  return { probes: createRealProbes(), secrets: realSecretPresence(), teams: listOrgs, compose: composePlan, exit: process.exit };
 }
 
 export async function runVerify(args: string[], _ctx: CommandContext = {}, deps: VerifyDeps = realVerifyDeps()): Promise<void> {

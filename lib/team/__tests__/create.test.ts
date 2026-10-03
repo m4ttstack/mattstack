@@ -247,7 +247,7 @@ describe("createTeam", () => {
   test("a second team on a machine that already has one is refused before any zone or git work", async () => {
     const p = gitAwareFakeProbes("/home/x");
     p.mkdirp(join("/home/x", ".mattstack", "teams", "globex"));
-    p.writeFile(join("/home/x", ".mattstack", "teams", "globex", "mattstack", "settings.team.jsonc"), "{}");
+    p.writeFile(join("/home/x", ".mattstack", "teams", "globex", "mattstack", "org", "settings.org.jsonc"), "{}");
 
     await expect(
       createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false }, new FakeAgeKeySeam()),

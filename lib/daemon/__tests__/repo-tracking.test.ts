@@ -32,7 +32,7 @@ function writeStore(file: string, obj: unknown): void {
   writeFileSync(file, JSON.stringify(obj, null, 2));
 }
 
-/** setSetting("mattstack.tracking", ..., "team") refuses without a local team store. */
+/** setSetting("mattstack.tracking", ..., "org") refuses without an org store. */
 function seedTeam(): void {
   const path = sharedStorePath("acme");
   mkdirSync(dirname(path), { recursive: true });
@@ -144,7 +144,7 @@ describe("loadRepoTracking merges mattstack.tracking team intent", () => {
   test("team intent for a cloned repo folds in under its serialized identity as {mode: live, caches}", () => {
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches", "project-mrs"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     const t = loadRepoTracking({ identityMap: { "gitlab.com/acme/foo": FOO } });
     expect(t[FOO]).toEqual({ mode: "live", caches: ["branches", "project-mrs"] });
@@ -154,7 +154,7 @@ describe("loadRepoTracking merges mattstack.tracking team intent", () => {
     setSetting("rt.repoTracking", { [FOO]: { mode: "poll", caches: ["branches"] } }, "machine");
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["discussions"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     const t = loadRepoTracking({ identityMap: { "gitlab.com/acme/foo": FOO } });
     expect(t[FOO]).toEqual({ mode: "poll", caches: ["branches"] });
@@ -163,7 +163,7 @@ describe("loadRepoTracking merges mattstack.tracking team intent", () => {
   test("a host/path with no local resolution is silently dropped", () => {
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/not-cloned": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     const t = loadRepoTracking({ identityMap: { "gitlab.com/acme/foo": FOO } });
     expect(t).toEqual({});
@@ -182,7 +182,7 @@ describe("loadRepoTracking merges mattstack.tracking team intent", () => {
     setSetting("rt.repoTracking", { [FOO]: { mode: "live", caches: ["branches"] } }, "machine");
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/bar": { caches: ["${repoRoot}"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     warnTest.reset();
     const io = captureOut();
@@ -205,7 +205,7 @@ describe("loadRepoTracking merges mattstack.tracking team intent", () => {
         "gitlab.com/acme/foo": { caches: ["branches", "bogus"] },
         "gitlab.com/acme/baz": { caches: ["bogus"] },
       },
-    }, "team", { team: "acme" });
+    }, "org");
 
     const t = loadRepoTracking({
       identityMap: { "gitlab.com/acme/foo": FOO, "gitlab.com/acme/baz": BAZ },
@@ -218,7 +218,7 @@ describe("loadRepoTracking merges mattstack.tracking team intent", () => {
     setSetting("rt.repoTracking", { [FOO]: { mode: "sideways", caches: ["branches"] } }, "machine");
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     const t = loadRepoTracking({ identityMap: { "gitlab.com/acme/foo": FOO } });
     expect(t[FOO]).toBeUndefined();
@@ -228,7 +228,7 @@ describe("loadRepoTracking merges mattstack.tracking team intent", () => {
     setSetting("rt.repoTracking", { [FOO]: { mode: "off" } }, "machine");
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     const t = loadRepoTracking({ identityMap: { "gitlab.com/acme/foo": FOO } });
     expect(t[FOO]).toBeUndefined();
@@ -270,7 +270,7 @@ describe("repo tracking warnings a person reads", () => {
   }
 
   test("an unreadable team tracking setting is shown in plain words with the command that checks settings", () => {
-    setSetting("mattstack.tracking", { repos: { "gitlab.com/acme/bar": { caches: ["${repoRoot}"] } } }, "team", { team: "acme" });
+    setSetting("mattstack.tracking", { repos: { "gitlab.com/acme/bar": { caches: ["${repoRoot}"] } } }, "org");
 
     const { stderr, logged } = shownWhile(() => loadRepoTracking({ identityMap: { "gitlab.com/acme/bar": BAR } }));
 
@@ -315,7 +315,7 @@ describe("teamNamesIdentity", () => {
   test("true when mattstack.tracking.repos names the serialized identity's host/path, regardless of the value's shape", () => {
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     expect(teamNamesIdentity(FOO)).toBe(true);
   });
@@ -327,7 +327,7 @@ describe("teamNamesIdentity", () => {
   test("false for an identity the team layer never named", () => {
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     expect(teamNamesIdentity(BAR)).toBe(false);
   });
@@ -335,7 +335,7 @@ describe("teamNamesIdentity", () => {
   test("false for a bare host/path (not a serialized identity)", () => {
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     expect(teamNamesIdentity("gitlab.com/acme/foo")).toBe(false);
   });
@@ -359,7 +359,7 @@ describe("loadMachineRepoTracking — the machine-only read (no team merge)", ()
   test("never contains team-declared entries, even with a primed map and team intent present", () => {
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     // Sanity: the merged view WOULD show foo if this test used loadRepoTracking.
     const merged = loadRepoTracking({ identityMap: { "gitlab.com/acme/foo": FOO } });
@@ -373,7 +373,7 @@ describe("loadMachineRepoTracking — the machine-only read (no team merge)", ()
     setSetting("rt.repoTracking", { [EXISTING]: { mode: "poll", caches: ["branches"] } }, "machine");
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches", "project-mrs"] } },
-    }, "team", { team: "acme" });
+    }, "org");
     const identityMap = { "gitlab.com/acme/foo": FOO };
 
     // Prove the merged view sees FOO (the state a track/untrack call must NOT capture).
@@ -401,7 +401,7 @@ describe("loadMachineRepoTracking — the machine-only read (no team merge)", ()
     setSetting("rt.repoTracking", { [FOO]: { mode: "live", caches: ["branches"] } }, "machine");
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
     const identityMap = { "gitlab.com/acme/foo": FOO };
 
     // Sanity: team still declares intent for foo.
@@ -473,7 +473,7 @@ describe("loadMachineRepoTrackingRaw / saveRepoTrackingRaw — off-marker durabi
     setSetting("rt.repoTracking", { [A]: { mode: "live", caches: ["branches"] } }, "machine");
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/a": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     // track A off — team-named, so A gets an explicit marker.
     trackOff(A);
@@ -497,7 +497,7 @@ describe("loadMachineRepoTrackingRaw / saveRepoTrackingRaw — off-marker durabi
     expect(afterALive[B]).toEqual({ mode: "live", caches: ["branches"] }); // B untouched
 
     // track A off once more, but the team no longer names it — plain delete.
-    setSetting("mattstack.tracking", { repos: {} }, "team", { team: "acme" });
+    setSetting("mattstack.tracking", { repos: {} }, "org");
     trackOff(A);
     const afterFinal = getSetting<Record<string, unknown>>("rt.repoTracking").value;
     expect(afterFinal[A]).toBeUndefined();
@@ -536,7 +536,7 @@ describe("primeTeamTrackingIdentityMap", () => {
   test("primes the host/path→serialized-identity map from a repo index, and the default seam picks it up", async () => {
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     await primeTeamTrackingIdentityMap({ foo: repoDir });
 
@@ -550,7 +550,7 @@ describe("primeTeamTrackingIdentityMap", () => {
   test("a mixed index: the repo that fails to derive is left out, the one that succeeds is folded in", async () => {
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     const noRemoteDir = mkdtempSync(join(tmpdir(), "rt-tracking-prime-noremote-"));
     await runCapture(["git", "init", "-q"], { cwd: noRemoteDir });
@@ -565,7 +565,7 @@ describe("primeTeamTrackingIdentityMap", () => {
   test("a transient empty repoIndex (e.g. a repos.json read failure) never blanks an already-primed map", async () => {
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     await primeTeamTrackingIdentityMap({ foo: repoDir });
     expect(loadRepoTracking()[FOO]).toEqual({ mode: "live", caches: ["branches"] });
@@ -627,7 +627,7 @@ describe("the daemon-loop grant lookup keys by serialized identity", () => {
     seedTeam();
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     const tracking = loadRepoTracking({ identityMap: { "gitlab.com/acme/foo": FOO } });
     expect(grants(tracking, FOO).mode).toBe("live");
@@ -638,7 +638,7 @@ describe("the daemon-loop grant lookup keys by serialized identity", () => {
     setSetting("rt.repoTracking", { [FOO]: { mode: "off" } }, "machine");
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
 
     const tracking = loadRepoTracking({ identityMap: { "gitlab.com/acme/foo": FOO } });
     expect(grants(tracking, FOO).mode).toBe("off");

@@ -113,7 +113,7 @@ describe("secrets:forge-token default tracking reader is machine-only", () => {
   test("a repo declared ONLY via team intent is refused, even though the merged view would allow it", async () => {
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
     const identityMap = { "gitlab.com/acme/foo": "remote:foo" };
 
     // Positive control: the merged view really would consider "remote:foo" tracked.
