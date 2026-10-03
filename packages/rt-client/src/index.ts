@@ -170,6 +170,7 @@ export { getSetting, getOrgSetting, listSettings, explainSetting, expandVariable
 export type {
   Scope,
   Provenance,
+  ItemSource,
   ResolveOpts,
   Resolved,
   InvalidScope,

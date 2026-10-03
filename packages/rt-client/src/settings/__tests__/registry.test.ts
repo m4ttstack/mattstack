@@ -451,12 +451,12 @@ describe("settings/registry", () => {
       expect(getDef("mattstack.appPath")?.scopes).toEqual(["machine"]);
     });
 
-    test("claude.marketplaces and claude.plugins are user+team arrays with replace merge", () => {
+    test("claude.marketplaces and claude.plugins are user+team arrays that add up across layers", () => {
       for (const key of ["claude.marketplaces", "claude.plugins"]) {
         const def = getDef(key)!;
         expect([...def.scopes].sort()).toEqual(["org", "team", "user"]);
         expect(def.type).toBe("array");
-        expect(def.merge).toBe("replace");
+        expect(def.merge).toBe("add");
       }
     });
 

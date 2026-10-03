@@ -88,6 +88,17 @@ Prefixes: `rt.*`, `deck.*`, `board.*`, `gitq.*`, `mattstack.*`,
 `rt settings explain <key>` shows per-scope provenance and is the first
 debugging move.
 
+A key's merge mode says how its layers combine:
+
+- `replace` (the default): the strongest layer wins.
+- `deep` (objects only): fields merge across layers, with per-field provenance.
+- `add` (arrays only): every layer's list is concatenated weakest first, user
+  and machine layers included, and duplicates are dropped. Nothing subtracts
+  an inherited item. `getSetting` also returns `items`: each item with every
+  layer that lists it, which is how setup tells a plugin you chose from one
+  only the org or a team listed. `claude.plugins` and `claude.marketplaces`
+  use it; another list opts in by setting `merge: "add"` on its registry row.
+
 Apps read IN-PROCESS via rt-client (deck boots before the daemon, so daemon
 round-trips for settings are wrong by design); the daemon's settings verbs
 exist for out-of-process callers only.
