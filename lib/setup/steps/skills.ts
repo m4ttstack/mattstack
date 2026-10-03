@@ -20,7 +20,6 @@ import type { StepId } from "../contract.ts";
 import { installCronTrigger, peerTrigger, resolveBoardTriage, triageTrigger } from "../cron-install.ts";
 import { linkBundledSkills } from "../skills-link-bundled.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
-import { isBasePack, isPackDir } from "../../skills/init.ts";
 import { linkPersonalSkills } from "../../skills/writing-style-sources.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { resolveForge } from "./forge-identity.ts";
@@ -31,14 +30,6 @@ import { toFailedOutcome, unwritten } from "./step-utils.ts";
 
 async function skillsMaterializeRun(ctx: ApplyContext): Promise<StepOutcome> {
   const result = await materializeSkills(ctx.p, {});
-  // board.keys is not update-safe, so this is the only place an updating
-  // member gets a default pack. It needs only the team zone, so a skipped
-  // materialize still seeds; a thrown one never reaches here.
-  try {
-    seedDefaultPack(ctx, "skills.materialize");
-  } catch (err) {
-    ctx.log("skills.materialize", `board.defaultPack: not seeded: ${err instanceof Error ? err.message : String(err)}`);
-  }
   if (result.skipped) return { state: "skipped", detail: result.reason };
 
   for (const r of result.repos.filter((r) => !r.ok && !r.noManifest)) ctx.log("skills.materialize", `${r.name}: ${r.detail}`);
@@ -176,33 +167,6 @@ async function seedOwnHandle(ctx: ApplyContext, written: string[]): Promise<void
   }
 }
 
-/** The team's packs in name order, each flagged when it is a base (a base claims no repo, so a board never launches with it). */
-function teamPacks(ctx: ApplyContext): { name: string; base: boolean }[] {
-  if (!ctx.team.slug) return [];
-  const teams = join(ctx.p.home, ".mattstack", "teams", ctx.team.slug, "mattstack", "teams");
-  return ctx.p.readDir(teams)
-    .flatMap((team) => ctx.p.readDir(join(teams, team, "packs")).map((name) => ({ name, dir: join(teams, team, "packs", name) })))
-    .filter((pack) => isPackDir(ctx.p, pack.dir))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((pack) => ({ name: pack.name, base: isBasePack(ctx.p, pack.dir) }));
-}
-
-/** Writes board.defaultPack only while no store has written it, so a pack the member chose is never replaced. The pack `rt setup` installs first (the first non-base by name) is the one a fresh board should launch with. */
-function seedDefaultPack(ctx: ApplyContext, stepId: StepId): boolean {
-  if (!writable(ctx, "board.defaultPack", stepId) || !unwritten("board.defaultPack")) return false;
-  const packs = teamPacks(ctx);
-  const pack = packs.find((p) => !p.base)?.name;
-  if (!pack) {
-    ctx.log(stepId, packs.length > 0
-      ? "board.defaultPack: the team has no pack that claims repos, left unset"
-      : "board.defaultPack: the team has no packs, left unset");
-    return false;
-  }
-  setSetting("board.defaultPack", pack, "user");
-  ctx.log(stepId, `board.defaultPack: set to ${pack}`);
-  return true;
-}
-
 async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
   const written: string[] = [];
   const { found, missing } = trackedRepos(ctx);
@@ -236,8 +200,6 @@ async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
       ctx.log("board.keys", "gitq.workSlots: no repo root yet, so it is left unset");
     }
   }
-
-  if (seedDefaultPack(ctx, "board.keys")) written.push("board.defaultPack");
 
   await seedOwnHandle(ctx, written);
 

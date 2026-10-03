@@ -104,7 +104,7 @@ function baseSeams(overrides: Partial<MintInviteSeams> = {}): { seams: MintInvit
       "mattstack.integrations": { forge: { host: "github.com", provider: "github" } },
       "board.title": "Acme Team",
     }),
-    readTeamStore: () => ({ "board.members": [] }),
+    readTeamStore: () => ({ "mattstack.roster": [] }),
     writeSetting: spy,
     currentOrg: () => SLUG,
     grantRead: async () => ({ access: "granted", manualSteps: [] }),
@@ -232,7 +232,7 @@ describe("mintInvite", () => {
     await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, none.seams)).rejects.toMatchObject({ code: "org-not-on-this-mac", next: "rt team join" });
   });
 
-  test("appends the handle to both board.members and mattstack.roster via the writeSetting seam, unless already present", async () => {
+  test("appends the handle to mattstack.roster at org via the writeSetting seam", async () => {
     const p = probesWithRemote(REMOTE);
     const { seams, writeCalls } = baseSeams();
     const relay = fakeRelayClient();
@@ -240,7 +240,6 @@ describe("mintInvite", () => {
     await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
 
     expect(writeCalls).toEqual([
-      { key: "board.members", value: [{ username: "zaphod" }], scope: "org", opts: undefined },
       { key: "mattstack.roster", value: [{ username: "zaphod" }], scope: "org", opts: undefined },
     ]);
   });
@@ -248,27 +247,13 @@ describe("mintInvite", () => {
   test("does not re-add a handle already on the team's own roster", async () => {
     const p = probesWithRemote(REMOTE);
     const { seams, writeCalls } = baseSeams({
-      readTeamStore: () => ({ "board.members": [{ username: "zaphod" }], "mattstack.roster": [{ username: "zaphod" }] }),
+      readTeamStore: () => ({ "mattstack.roster": [{ username: "zaphod" }] }),
     });
     const relay = fakeRelayClient();
 
     await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
 
     expect(writeCalls).toHaveLength(0);
-  });
-
-  test("each roster key is judged on its own contents: a handle on one and not the other gets the missing write only", async () => {
-    const p = probesWithRemote(REMOTE);
-    const { seams, writeCalls } = baseSeams({
-      readTeamStore: () => ({ "board.members": [{ username: "zaphod" }], "mattstack.roster": [] }),
-    });
-    const relay = fakeRelayClient();
-
-    await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
-
-    expect(writeCalls).toEqual([
-      { key: "mattstack.roster", value: [{ username: "zaphod" }], scope: "org", opts: undefined },
-    ]);
   });
 
   test("addToRoster consults the org store's own roster, not the merged view `read` exposes", async () => {
@@ -278,15 +263,15 @@ describe("mintInvite", () => {
       read: fakeRead({
         "mattstack.integrations": { forge: { host: "github.com", provider: "github" } },
         "board.title": "Acme Team",
-        "board.members": [{ username: "zaphod" }],
+        "mattstack.roster": [{ username: "zaphod" }],
       }),
-      readTeamStore: () => ({ "board.members": [] }),
+      readTeamStore: () => ({ "mattstack.roster": [] }),
     });
     const relay = fakeRelayClient();
 
     await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
 
-    expect(writeCalls.map((c) => c.key)).toEqual(["board.members", "mattstack.roster"]);
+    expect(writeCalls.map((c) => c.key)).toEqual(["mattstack.roster"]);
   });
 
   test("replace-on-mint creates the new invite before revoking the old one; a failed old-delete does not wedge the mint", async () => {
