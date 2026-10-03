@@ -592,7 +592,7 @@ describe("skillsCompile", () => {
     const widgetsDir = zone("widgets", "acme:watch-ci-domain");
     const gadgetsDir = zone("gadgets", "gadgets:watch-ci-domain");
     const engine = join(mattstackDir, "plugins", "mattstack");
-    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, claudeHome: mattstackDir, enginePackDir: engine }, "https://gitlab.example.com/acme/widgets.git");
+    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: engine }, "https://gitlab.example.com/acme/widgets.git");
     if (out.kind !== "written") throw new Error(out.kind);
     expect(out.packs.every((p) => p.ok)).toBe(true);
 
@@ -609,6 +609,28 @@ describe("skillsCompile", () => {
     expect(widgetsBody).not.toContain("gadgets:watch-ci-domain");
     expect(gadgetsBody).toContain("gadgets:watch-ci-domain");
     expect(gadgetsBody).not.toContain("acme:watch-ci-domain");
+  });
+
+  test("a team pack compiles a fill that lives in the org base pack", async () => {
+    const mattstackDir = makeMattstackDir();
+    seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
+    const baseDir = join(mattstackDir, "teams", "acme", "mattstack", "org", "packs", "acme-base");
+    const packDir = teamPackDir(mattstackDir, "acme", "widgets");
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
+    writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
+    writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+
+    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: join(mattstackDir, "plugins", "mattstack") }, "https://gitlab.example.com/acme/widgets.git");
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs).toMatchObject([{ pack: "widgets", ok: true, layers: ["base:acme-base", "pack"] }]);
+
+    const { errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
+    expect(errors).toEqual([]);
+    expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toContain("acme-base:watch-ci-domain");
+    expect(existsSync(join(baseDir, "skills"))).toBe(false);
   });
 
   test("another pack's file on the same repo is never picked", async () => {

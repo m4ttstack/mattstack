@@ -64,6 +64,7 @@ import {
   loadAttachment,
   loadInclude,
   loadStepSource,
+  orgBasePackRoots,
   parseStageQualifiedName,
   readManifestBindings,
   readManifestPipelines,
@@ -587,6 +588,14 @@ async function resolve(flags: Flags): Promise<Resolved> {
   const self = packPluginIdentity(packDir);
   if (self && fullRoster.length > 0) pluginRoots.byName[self.name] = { dir: packDir, version: self.version };
   const invocable = fullRoster.length === 0 ? new Set<string>() : invocableRoster(pluginRoots);
+  // After the invocable roster: a base pack is never installed, so nothing in it is invocable.
+  if (fullRoster.length > 0) {
+    for (const baseRoot of orgBasePackRoots(mattstackRoot)) {
+      if (baseRoot.name === self?.name) continue;
+      pluginRoots.byName[baseRoot.name] = { dir: baseRoot.dir, version: baseRoot.version };
+      (pluginRoots.folderOnly ??= new Set()).add(baseRoot.name);
+    }
+  }
   const surface = readSurface(packDir);
   const internalRoster = computeInternalRoster(team, packDir, surface, fullRoster);
 

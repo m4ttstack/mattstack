@@ -4,6 +4,7 @@ import { join, relative, sep } from "path";
 import { parse as parseYaml } from "yaml";
 import { resolveClaudeBin } from "../claude-bin.ts";
 import { stripJsonc } from "../jsonc.ts";
+import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { warn } from "../ui/warn.ts";
 import { findPlaceholders } from "./placeholders.ts";
 import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
@@ -35,7 +36,12 @@ export function stripFrontmatter(
 
 export type PluginListEntry = { id: string; installPath: string; enabled?: boolean; scope?: string; version?: string };
 
-export type PluginRoots = { byName: Record<string, { dir: string; version: string }>; list: PluginListEntry[] };
+export type PluginRoots = {
+  byName: Record<string, { dir: string; version: string }>;
+  list: PluginListEntry[];
+  /** Roots that are read from a folder and never installed: a fill found under their skills/ cannot be invoked at run time. */
+  folderOnly?: Set<string>;
+};
 
 export function listInstalledPlugins(opts: { timeoutMs?: number } = {}): PluginListEntry[] {
   const bin = resolveClaudeBin() ?? "claude";
@@ -208,6 +214,21 @@ function listDirs(dir: string): string[] {
   }
 }
 
+/** Every org clone's base packs under `<mattstackRoot>/teams/<org>/mattstack/org/packs/`. */
+export function orgBasePackRoots(mattstackRoot: string): { name: string; dir: string; version: string }[] {
+  const out: { name: string; dir: string; version: string }[] = [];
+  for (const org of listDirs(join(mattstackRoot, "teams"))) {
+    const packs = join(mattstackRoot, "teams", org, "mattstack", "org", "packs");
+    for (const name of listDirs(packs)) {
+      if (!TEAM_NAME_RE.test(name)) continue;
+      const dir = join(packs, name);
+      if (!existsSync(join(dir, "pack", "skills.jsonc"))) continue;
+      out.push({ name, dir: realpathSync(dir), version: "org" });
+    }
+  }
+  return out;
+}
+
 function tokens(raw: unknown): string[] {
   if (typeof raw === "string") return raw.split(/\s+/).filter((t) => t && t !== "-");
   if (Array.isArray(raw)) return raw.filter((t): t is string => typeof t === "string").map((t) => t.trim()).filter(Boolean);
@@ -343,6 +364,12 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
   if (!foundDir) {
     throw new Error(
       `loadAttachment: slot "${slot}": binding "${binding}" not found; searched:\n${searched.join("\n")}`,
+    );
+  }
+
+  if (registered && roots.folderOnly?.has(plugin)) {
+    throw new Error(
+      `loadAttachment: slot "${slot}": "${binding}" sits under ${plugin}'s skills/, but ${plugin} is an org base pack that is never installed; move it under attachments/ so it is inlined`,
     );
   }
 

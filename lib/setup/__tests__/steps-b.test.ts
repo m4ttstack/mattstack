@@ -905,10 +905,10 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const repoName = basename(repoDir);
       updateRepoIndex(repoName, repoDir);
 
-      const p = fakeProbes({ home, ...materializeWorld(home, { siblingFragment: JSON.stringify({ extends: "acme-base@acme" }) }) });
+      const p = fakeProbes({ home, ...materializeWorld(home, { siblingFragment: JSON.stringify({ extends: "acme-base" }) }) });
       expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({
         state: "done",
-        detail: `Materialized 1 pack file; failed: gadgets (${repoName}): gadgets extends acme-base@acme, which is not installed; add it to the team's claude.plugins`,
+        detail: `Materialized 1 pack file; failed: gadgets (${repoName}): gadgets extends acme-base, but the org has no base pack there (looked in ${home}/.mattstack/teams/acme/mattstack/org/packs/acme-base)`,
       });
     });
 
