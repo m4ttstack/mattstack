@@ -48,6 +48,13 @@ export interface TeamLocalRecord {
    * personal recipients file.
    */
   agePublicKey?: string;
+  /**
+   * This member's username on the org's forge, recorded at join, at create
+   * and by setup. The resolver reads it to pick the active team and the write
+   * guard reads it for the member's role, so it has to be on disk: neither
+   * may spawn a forge CLI.
+   */
+  forgeUsername?: string;
 }
 
 const RECORD_MODE = 0o600;
@@ -70,6 +77,7 @@ export function readTeamLocal(p: Pick<Probes, "readFile" | "home">, slug: string
       joinedByRt: parsed.joinedByRt === true,
       rtMayManageMembership: parsed.rtMayManageMembership === true,
       ...(typeof parsed.agePublicKey === "string" && parsed.agePublicKey.startsWith("age1") ? { agePublicKey: parsed.agePublicKey } : {}),
+      ...(typeof parsed.forgeUsername === "string" && parsed.forgeUsername.trim() !== "" ? { forgeUsername: parsed.forgeUsername.trim() } : {}),
     };
   } catch {
     return { ...EMPTY };
