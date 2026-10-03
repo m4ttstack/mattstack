@@ -8,7 +8,9 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 import { settingsSet, settingsUnset } from "../settings-keys.ts";
-import { userSettingsPath } from "../../lib/rt-paths.ts";
+import { orgSettingsPath, teamSettingsPath, userSettingsPath } from "../../lib/rt-paths.ts";
+import { readStore } from "../../lib/settings/stores.ts";
+import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { closeStateDb } from "../../lib/state/index.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
@@ -59,10 +61,10 @@ describe("rt settings set / unset output", () => {
     expect(existsSync(userSettingsPath())).toBe(false);
   });
 
-  test("a missing scope names the three scopes and the command to type", async () => {
+  test("a missing scope names the four scopes and the command to type", async () => {
     await expect(settingsSet(["rt.logLevel", '"debug"'])).rejects.toThrow("__exit_1");
     expect(cap.stderr()).toBe(
-      "Say which settings to write\n  why: A value lives in exactly one of your user, team or machine settings.\n  next: rt settings set <key> <value> --scope user|team|machine\n",
+      "Say which settings to write\n  why: A value lives in exactly one of your user, org, team or machine settings.\n  next: rt settings set <key> <value> --scope user|org|team|machine\n",
     );
   });
 
@@ -95,5 +97,40 @@ describe("rt settings set / unset output", () => {
         "  next: rt home remote set\n",
     );
     expect(readFileSync(userSettingsPath(), "utf8")).not.toContain('"rt.logLevel"');
+  });
+
+  describe("org and team scopes", () => {
+    beforeEach(() => {
+      seedOrg({ org: "acme", username: "dev1", roster: [{ username: "dev1", teams: ["widgets"] }], teams: { widgets: {}, gadgets: {} } });
+    });
+
+    test("set --scope org writes the org store", async () => {
+      await settingsSet(["board.gitlabHost", '"gitlab.example.com"', "--scope", "org"]);
+      expect(readStore(orgSettingsPath("acme")).global["board.gitlabHost"]).toBe("gitlab.example.com");
+      expect(cap.stdout()).toStartWith("[ok] Saved board.gitlabHost  the org's settings\n");
+    });
+
+    test("set --scope team writes your own team's store", async () => {
+      await settingsSet(["board.title", '"Widgets"', "--scope", "team"]);
+      expect(readStore(teamSettingsPath("acme", "widgets")).global["board.title"]).toBe("Widgets");
+      expect(cap.stdout()).toStartWith("[ok] Saved board.title  your team's settings\n");
+    });
+
+    test("set --scope team --team gadgets writes that team folder", async () => {
+      await settingsSet(["board.title", '"Gadgets"', "--scope", "team", "--team", "gadgets"]);
+      expect(readStore(teamSettingsPath("acme", "gadgets")).global["board.title"]).toBe("Gadgets");
+      expect(cap.stdout()).toStartWith("[ok] Saved board.title  the gadgets team's settings\n");
+    });
+
+    test("a team name with the org scope is refused", async () => {
+      await expect(settingsSet(["board.gitlabHost", '"x"', "--scope", "org", "--team", "widgets"])).rejects.toThrow("__exit_1");
+      expect(cap.stderr()).toStartWith("A team name only goes with the team scope");
+      expect(cap.stderr()).toContain("why: You asked for the org scope.");
+    });
+
+    test("an unknown scope names the four scopes", async () => {
+      await expect(settingsSet(["board.title", '"x"', "--scope", "everyone"])).rejects.toThrow("__exit_1");
+      expect(cap.stderr()).toContain("why: The scopes are user, org, team and machine.");
+    });
   });
 });

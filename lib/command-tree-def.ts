@@ -1820,16 +1820,16 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       set: {
-        description: "Write a setting into one authored store (user/team/machine)",
+        description: "Write a setting for you, your org, your team or this Mac",
         module: "./commands/settings-keys.ts",
         fn: "settingsSet",
         omitBehavior: { exempt: "agent-facing; key and value are passed explicitly (discover keys with rt settings list)" },
         args: [
           { name: "Key", type: "text", placeholder: "rt.worktrees", hint: "Namespaced settings key (must be migrated:true)" },
           { name: "Value", type: "text", placeholder: "{\"onDeck\":3}", hint: "JSON(C) value" },
-          { name: "Scope", flag: "--scope", type: "select", hint: "Which store to write into", options: [{ value: "user", label: "user", hint: "~/.mattstack/user/settings.user.jsonc" }, { value: "team", label: "team", hint: "the local team clone's settings.team.jsonc" }, { value: "machine", label: "machine", hint: "~/.mattstack/user/local/<machine-key>/settings.local.jsonc" }] },
+          { name: "Scope", flag: "--scope", type: "select", hint: "Which store to write into", options: [{ value: "user", label: "user", hint: "~/.mattstack/user/settings.user.jsonc" }, { value: "org", label: "org", hint: "shared by every team in your org" }, { value: "team", label: "team", hint: "your team's own settings" }, { value: "machine", label: "machine", hint: "~/.mattstack/user/local/<machine-key>/settings.local.jsonc" }] },
           { name: "Repo", flag: "--repo", type: "text", placeholder: "acme-dev", hint: "Registered repo (name, path, or identity); required for repo-scoped keys" },
-          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which team's local store to write, for --scope team (only needed when several are cloned)" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "widgets", hint: "A team's name, for --scope team; your own team when left out" },
         ],
       },
       unset: {
@@ -1839,9 +1839,9 @@ export const TREE: Record<string, CommandNode> = {
         omitBehavior: { exempt: "agent-facing; the key is passed explicitly (discover the set with rt settings list)" },
         args: [
           { name: "Key", type: "text", placeholder: "rt.worktrees", hint: "Namespaced settings key to remove" },
-          { name: "Scope", flag: "--scope", type: "select", hint: "Which store to remove it from", options: [{ value: "user", label: "user", hint: "~/.mattstack/user/settings.user.jsonc" }, { value: "team", label: "team", hint: "the local team clone's settings.team.jsonc" }, { value: "machine", label: "machine", hint: "~/.mattstack/user/local/<machine-key>/settings.local.jsonc" }] },
+          { name: "Scope", flag: "--scope", type: "select", hint: "Which store to remove it from", options: [{ value: "user", label: "user", hint: "~/.mattstack/user/settings.user.jsonc" }, { value: "org", label: "org", hint: "shared by every team in your org" }, { value: "team", label: "team", hint: "your team's own settings" }, { value: "machine", label: "machine", hint: "~/.mattstack/user/local/<machine-key>/settings.local.jsonc" }] },
           { name: "Repo", flag: "--repo", type: "text", placeholder: "acme-dev", hint: "Registered repo (name, path, or identity); required for repo-scoped keys" },
-          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which team's local store to edit, for --scope team (only needed when several are cloned)" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "widgets", hint: "A team's name, for --scope team; your own team when left out" },
         ],
       },
       list: {
