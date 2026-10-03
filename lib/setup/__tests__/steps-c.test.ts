@@ -212,6 +212,52 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       });
     });
 
+    test("only the active team's marketplace entry is team-authored; another team's pack is not installed", () => {
+      const { ctx } = makeCtx(fakeProbes({ home: "/h" }), { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "widgets" });
+      const market = { name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] };
+      expect(computePlugins(ctx, market).teamAuthored).toEqual(["widgets@acme"]);
+    });
+
+    test("a Mac with no active team installs no team pack", () => {
+      const { ctx } = makeCtx(fakeProbes({ home: "/h" }), { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => null });
+      expect(computePlugins(ctx, { name: "acme", plugins: [{ name: "widgets" }] }).teamAuthored).toEqual([]);
+    });
+
+    test("with no seam the active team comes from the org's roster through probes", () => {
+      const p = fakeProbes({
+        home: "/h",
+        files: {
+          "/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["gadgets"] }] }),
+          "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }),
+        },
+      });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      expect(computePlugins(ctx, { name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] }).teamAuthored).toEqual(["gadgets@acme"]);
+    });
+
+    test("after a switch, the previous team's pack is neither updated, reinstalled, enabled nor named as awaiting approval", async () => {
+      const marketplacePath = join(home, ".mattstack", "teams", "acme", ".claude-plugin", "marketplace.json");
+      const execCalls: string[][] = [];
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] }) },
+        exec: async (argv) => {
+          execCalls.push(argv);
+          return argv[2] === "list" ? ok(JSON.stringify([{ id: "gadgets@acme", version: "1.0.0", enabled: false }])) : ok("");
+        },
+      });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "widgets" });
+
+      const outcome = await pluginsInstallStep.run(ctx);
+
+      expect(outcome.state).toBe("done");
+      expect(execCalls.filter((a) => a.includes("gadgets@acme"))).toEqual([]);
+      expect(execCalls.filter((a) => a.at(-1) === "widgets@acme").map((a) => a[2])).toEqual(["install", "disable"]);
+      expect(detailOf(outcome)).toContain("awaiting your approval to enable: widgets@acme");
+      expect(detailOf(outcome)).not.toContain("gadgets@acme");
+    });
+
     test("superpowers installs as a trusted baseline plugin, its marketplace added right after rt's own and ahead of team/user sources", async () => {
       const teamDir = join(home, ".mattstack", "teams", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
@@ -227,7 +273,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return argv[2] === "list" ? ok("[]") : ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome.state).toBe("done");
@@ -345,7 +391,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return argv[2] === "list" ? ok("[]") : ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 
@@ -706,7 +752,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 
@@ -754,7 +800,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 
@@ -795,7 +841,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       await pluginsInstallStep.run(ctx);
 
@@ -832,7 +878,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 
@@ -855,7 +901,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       await pluginsInstallStep.run(ctx);
 
@@ -876,7 +922,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx, logs } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx, logs } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 
@@ -898,7 +944,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
           exec: async (argv) => (argv[2] === "list" ? ok(JSON.stringify(installed)) : ok("")),
         });
-        const { ctx, logs } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+        const { ctx, logs } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
         const outcome = await pluginsInstallStep.run(ctx);
 
@@ -932,7 +978,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 
@@ -966,7 +1012,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 

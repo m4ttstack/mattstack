@@ -37,13 +37,15 @@ function probesWith(files: Record<string, string>, reply: (argv: string[]) => Ex
 
 const listing = (entries: unknown[]): ExecResult => ({ code: 0, stdout: JSON.stringify(entries), stderr: "" });
 
+const ACTIVE = { activeTeam: () => "acme-skills" };
+
 describe("convergePackCache", () => {
   test("a pack already at the served version issues no update", async () => {
     const { p, execs } = probesWith(
       { ...served([{ name: "acme-skills", source: "./packs/acme-skills" }]), ...pluginJson("acme-skills", "0.5.28") },
       () => listing([{ id: "acme-skills@acme-market", version: "0.5.28", enabled: false }]),
     );
-    const result = await convergePackCache(p, "acme", quietLog);
+    const result = await convergePackCache(p, "acme", quietLog, ACTIVE);
     expect(result.current).toEqual(["acme-skills@acme-market"]);
     expect(execs.filter((a) => a.includes("update"))).toEqual([]);
   });
@@ -56,7 +58,7 @@ describe("convergePackCache", () => {
           ? listing([{ id: "acme-skills@acme-market", version: "0.5.18", enabled: false }])
           : { code: 0, stdout: "", stderr: "" },
     );
-    const result = await convergePackCache(p, "acme", quietLog);
+    const result = await convergePackCache(p, "acme", quietLog, ACTIVE);
     expect(result.updated).toEqual([{ id: "acme-skills@acme-market", to: "0.5.28" }]);
     expect(execs.some((a) => a[1] === "plugin" && a[2] === "update")).toBe(true);
   });
@@ -66,7 +68,7 @@ describe("convergePackCache", () => {
       { ...served([{ name: "acme-skills", source: "./packs/acme-skills" }]), ...pluginJson("acme-skills", "0.5.28") },
       () => ({ code: 0, stdout: "not json", stderr: "" }),
     );
-    const result = await convergePackCache(p, "acme", quietLog);
+    const result = await convergePackCache(p, "acme", quietLog, ACTIVE);
     expect(result.failed).toHaveLength(1);
     expect(execs.every((a) => a[2] === "list")).toBe(true);
   });
@@ -80,7 +82,7 @@ describe("convergePackCache", () => {
         return { code: 0, stdout: "", stderr: "" };
       },
     );
-    const result = await convergePackCache(p, "acme", quietLog);
+    const result = await convergePackCache(p, "acme", quietLog, ACTIVE);
     expect(result.installed).toEqual(["acme-skills@acme-market"]);
     const verbs = execs.filter((a) => a[1] === "plugin").map((a) => a[2]);
     expect(verbs).toEqual(["list", "update", "install", "disable"]);
@@ -95,7 +97,7 @@ describe("convergePackCache", () => {
         return { code: 0, stdout: "", stderr: "" };
       },
     );
-    const result = await convergePackCache(p, "acme", quietLog);
+    const result = await convergePackCache(p, "acme", quietLog, ACTIVE);
     expect(result.installed).toEqual(["acme-skills@acme-market"]);
     expect(result.failed).toEqual([]);
     const verbs = execs.filter((a) => a[1] === "plugin").map((a) => a[2]);
@@ -105,7 +107,7 @@ describe("convergePackCache", () => {
   test("a null served version is skipped whether or not it is listed", async () => {
     for (const entries of [[], [{ id: "remote@acme-market", version: "1.0.0", enabled: false }]]) {
       const { p, execs } = probesWith(served([{ name: "remote", source: { source: "github", repo: "o/r" } }]), () => listing(entries));
-      const result = await convergePackCache(p, "acme", quietLog);
+      const result = await convergePackCache(p, "acme", quietLog, { activeTeam: () => "remote" });
       expect(result.skipped).toEqual([{ id: "remote@acme-market", reason: "version unknown" }]);
       expect(execs.filter((a) => a[2] === "update" || a[2] === "install")).toEqual([]);
     }
@@ -121,14 +123,14 @@ describe("convergePackCache", () => {
         return { code: 1, stdout: "", stderr: 'Plugin "acme-skills" not found' };
       },
     );
-    const result = await convergePackCache(p, "acme", quietLog, { now: () => clock });
+    const result = await convergePackCache(p, "acme", quietLog, { ...ACTIVE, now: () => clock });
     expect(result.skipped).toEqual([{ id: "acme-skills@acme-market", reason: "settlement did not fit the remaining budget" }]);
     expect(execs.some((a) => a[2] === "install")).toBe(false);
   });
 
   test("no claude on the machine is a skip, not a failure", async () => {
     const p = fakeProbes({ home, env: {}, files: served([{ name: "acme-skills", source: "./packs/acme-skills" }]) });
-    const result = await convergePackCache(p, "acme", quietLog);
+    const result = await convergePackCache(p, "acme", quietLog, ACTIVE);
     expect(result.skipped).toEqual([{ id: "*", reason: "claude not found" }]);
   });
 
@@ -141,7 +143,7 @@ describe("convergePackCache", () => {
         return { code: 0, stdout: "", stderr: "" };
       },
     );
-    const result = await convergePackCache(p, "acme", quietLog, { now: () => clock });
+    const result = await convergePackCache(p, "acme", quietLog, { ...ACTIVE, now: () => clock });
     expect(result.skipped).toEqual([{ id: "acme-skills@acme-market", reason: "converge budget exhausted" }]);
     expect(execs.some((a) => a[2] === "update")).toBe(false);
   });
@@ -159,7 +161,7 @@ describe("convergePackCache", () => {
       },
     );
 
-    const result = await convergePackCache(p, "acme", quietLog, { now: () => clock });
+    const result = await convergePackCache(p, "acme", quietLog, { ...ACTIVE, now: () => clock });
 
     expect(result.updated).toHaveLength(1);
     const updateAt = execs.findIndex((a) => a[2] === "update");
@@ -175,7 +177,7 @@ describe("convergePackCache", () => {
       () => listing([]),
     );
 
-    const result = await convergePackCache(p, "acme", quietLog, { now: () => (reads++ === 0 ? 0 : CONVERGE_BUDGET_MS + 1) });
+    const result = await convergePackCache(p, "acme", quietLog, { ...ACTIVE, now: () => (reads++ === 0 ? 0 : CONVERGE_BUDGET_MS + 1) });
 
     expect(result.skipped).toEqual([{ id: "acme-skills@acme-market", reason: "converge budget exhausted" }]);
     expect(execs).toEqual([]);
@@ -196,7 +198,7 @@ describe("convergePackCache", () => {
       },
     );
 
-    const result = await convergePackCache(p, "acme", quietLog);
+    const result = await convergePackCache(p, "acme", quietLog, ACTIVE);
 
     expect(result.failed).toEqual([{ id, detail: 'Plugin "acme-skills" is not installed' }]);
     expect(result.installed).toEqual([]);
@@ -212,7 +214,7 @@ describe("convergePackCache", () => {
         return { code: 1, stdout: "", stderr: "registry exploded" };
       },
     );
-    const result = await convergePackCache(p, "acme", quietLog);
+    const result = await convergePackCache(p, "acme", quietLog, ACTIVE);
     expect(result.failed).toEqual([{ id: "acme-skills@acme-market", detail: "registry exploded" }]);
     expect(execs.some((a) => a[2] === "install")).toBe(false);
   });
@@ -225,7 +227,7 @@ describe("convergePackCache", () => {
         return { code: 124, stdout: "", stderr: "" };
       },
     );
-    const result = await convergePackCache(p, "acme", quietLog);
+    const result = await convergePackCache(p, "acme", quietLog, ACTIVE);
     expect(result.failed).toHaveLength(1);
     expect(result.installed).toEqual([]);
     expect(execs.some((a) => a[2] === "install")).toBe(false);
@@ -233,7 +235,7 @@ describe("convergePackCache", () => {
 
   test("an unparsable marketplace.json is reported, not silently empty", async () => {
     const { p } = probesWith({ [marketplacePath]: "{ broken" }, () => listing([]));
-    const result = await convergePackCache(p, "acme", quietLog);
+    const result = await convergePackCache(p, "acme", quietLog, ACTIVE);
     expect(result.failed[0]!.detail).toContain("did not parse");
   });
 
@@ -252,9 +254,61 @@ describe("convergePackCache", () => {
       },
     );
 
-    await convergePackCache(p, "acme", quietLog);
+    await convergePackCache(p, "acme", quietLog, ACTIVE);
 
     expect(versions["acme-skills@acme-market"]).toBe("0.5.28");
     expect(enabled["acme-skills@acme-market"]).toBe(false);
+  });
+
+  describe("only the active team's pack", () => {
+    const twoTeams = {
+      ...served([{ name: "widgets", source: "./packs/widgets" }, { name: "gadgets", source: "./packs/gadgets" }]),
+      ...pluginJson("widgets", "1.0.0"),
+      ...pluginJson("gadgets", "2.0.0"),
+    };
+    const absentThenOk = (argv: string[]): ExecResult => {
+      if (argv.includes("list")) return listing([]);
+      if (argv.includes("update")) return { code: 1, stdout: "", stderr: "not found" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+
+    test("of two served packs, only the active team's is installed", async () => {
+      const { p, execs } = probesWith(twoTeams, absentThenOk);
+      const result = await convergePackCache(p, "acme", quietLog, { activeTeam: () => "widgets" });
+      expect(result.installed).toEqual(["widgets@acme-market"]);
+      expect(execs.filter((a) => a.includes("gadgets@acme-market"))).toEqual([]);
+    });
+
+    test("a Mac on no team converges nothing", async () => {
+      const { p, execs } = probesWith(twoTeams, absentThenOk);
+      const result = await convergePackCache(p, "acme", quietLog, { activeTeam: () => null });
+      expect(result).toEqual({ updated: [], installed: [], rolledBack: [], current: [], skipped: [], failed: [] });
+      expect(execs).toEqual([]);
+    });
+
+    test("after a switch, the previous team's stale pack is left alone, never updated", async () => {
+      const { p, execs } = probesWith(twoTeams, (argv) =>
+        argv.includes("list")
+          ? listing([{ id: "widgets@acme-market", version: "1.0.0", enabled: true }, { id: "gadgets@acme-market", version: "1.0.0", enabled: false }])
+          : { code: 0, stdout: "", stderr: "" },
+      );
+      const result = await convergePackCache(p, "acme", quietLog, { activeTeam: () => "widgets" });
+      expect(result.current).toEqual(["widgets@acme-market"]);
+      expect(result.updated).toEqual([]);
+      expect(execs.filter((a) => a.includes("gadgets@acme-market"))).toEqual([]);
+    });
+
+    test("with no seam the active team comes from the org's roster through probes", async () => {
+      const { p } = probesWith(
+        {
+          ...twoTeams,
+          [join(clone, "mattstack", "org", "settings.org.jsonc")]: JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["gadgets"] }] }),
+          [join(home, ".mattstack", "rt", "teams", "acme.json")]: JSON.stringify({ forgeUsername: "dev1" }),
+        },
+        absentThenOk,
+      );
+      const result = await convergePackCache(p, "acme", quietLog);
+      expect(result.installed).toEqual(["gadgets@acme-market"]);
+    });
   });
 });
