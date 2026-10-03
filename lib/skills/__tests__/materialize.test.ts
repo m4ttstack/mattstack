@@ -328,10 +328,10 @@ describe("materializeRepo org base pack", () => {
 
   test("the plugin@marketplace form is refused", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: { extends: "acme-base@acme" } } } }, base: { "acme-base": { base: true } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: { extends: "acme-base@acme" } } } }, base: { "shared-base": { base: true } } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
-    expect(out.packs[0]).toMatchObject({ ok: false, detail: 'widgets extends "acme-base@acme", which is not a base pack name; name the folder under the org\'s packs, for example "extends": "acme-base"' });
+    expect(out.packs[0]).toMatchObject({ ok: false, detail: 'widgets extends "acme-base@acme", which is not a base pack name; name the folder under the org\'s packs, for example "extends": "shared-base"' });
   });
 
   test("a name that would climb out of the packs folder is refused before any path is built", () => {
@@ -339,8 +339,7 @@ describe("materializeRepo org base pack", () => {
     org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: { extends: "../teams" } } } } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
-    expect(out.packs[0]).toMatchObject({ ok: false });
-    if (!out.packs[0]!.ok) expect(out.packs[0]!.detail).toContain("is not a base pack name");
+    expect(out.packs[0]).toMatchObject({ ok: false, detail: 'widgets extends "../teams", which is not a base pack name; name the folder under the org\'s packs, for example "extends": "<base folder name>"' });
   });
 
   test("a folder that is not marked base is refused, and so is a base that extends", () => {
