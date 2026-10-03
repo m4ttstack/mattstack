@@ -1,35 +1,44 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  __setRosterReader,
   __setSettingReader,
   readSettings,
+  type RosterEntry,
 } from '../src/server/config/index.js';
 
-const store = (values: Record<string, unknown>) =>
+const store = (values: Record<string, unknown>, roster: RosterEntry[] = []) => {
   __setSettingReader(<T>(key: string) => values[key] as T | undefined);
+  __setRosterReader(() => roster);
+};
 
-afterEach(() => __setSettingReader(null));
+afterEach(() => {
+  __setSettingReader(null);
+  __setRosterReader(null);
+});
 
 describe('readSettings', () => {
   it('maps every key and derives users from roster minus hiddenMembers', () => {
-    store({
-      'mattstack.roster': [
+    store(
+      {
+        'boxscore.hiddenMembers': ['eve'],
+        'boxscore.projects': ['g/p'],
+        'boxscore.linearDoneStates': ['Done'],
+        'boxscore.sizeBand': { tooSmall: 5, tooLarge: 300 },
+        'boxscore.excludeFilePatterns': ['**/*.json'],
+        'boxscore.ignoredMrs': ['g/p!9'],
+        'boxscore.botPatterns': ['-bot$'],
+        'boxscore.defaultRange': '7d',
+        'mattstack.integrations': {
+          forge: { host: 'gitlab.example', provider: 'gitlab' },
+        },
+      },
+      [
         { username: 'ada', name: 'Ada L' },
         { username: 'bob' },
         { username: 'eve', name: 'Eve M' },
-      ],
-      'boxscore.hiddenMembers': ['eve'],
-      'boxscore.projects': ['g/p'],
-      'boxscore.linearDoneStates': ['Done'],
-      'boxscore.sizeBand': { tooSmall: 5, tooLarge: 300 },
-      'boxscore.excludeFilePatterns': ['**/*.json'],
-      'boxscore.ignoredMrs': ['g/p!9'],
-      'boxscore.botPatterns': ['-bot$'],
-      'boxscore.defaultRange': '7d',
-      'mattstack.integrations': {
-        forge: { host: 'gitlab.example', provider: 'gitlab' },
-      },
-    });
+      ]
+    );
     const s = readSettings();
     expect(s.users).toEqual(['ada', 'bob']);
     expect(s.roster).toHaveLength(3);
@@ -71,8 +80,26 @@ describe('readSettings', () => {
     expect(readSettings().projects).toEqual(['c/d']);
   });
 
-  it('refuses the store-backed reader under vitest', () => {
+  it("users are the active team's members, never the org roster setting", () => {
+    store(
+      {
+        'mattstack.roster': [
+          { username: 'dev1', teams: ['widgets'] },
+          { username: 'dev2', teams: ['gadgets'] },
+        ],
+      },
+      [{ username: 'dev1' }]
+    );
+    const s = readSettings();
+    expect(s.users).toEqual(['dev1']);
+    expect(s.roster).toEqual([{ username: 'dev1' }]);
+  });
+
+  it('refuses the store-backed readers under vitest', () => {
+    __setRosterReader(() => []);
     __setSettingReader(null);
     expect(() => readSettings()).toThrow('inject a setting reader');
+    __setRosterReader(null);
+    expect(() => readSettings()).toThrow('inject a roster reader');
   });
 });

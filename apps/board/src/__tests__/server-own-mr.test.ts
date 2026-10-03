@@ -181,7 +181,7 @@ function boot(
     JSON.stringify({
       'board.gitlabHost': host,
       'board.projects': ['g/p'],
-      'board.members': [{ username: 'alice' }, { username: 'bob' }],
+      'mattstack.roster': [{ username: 'alice' }, { username: 'bob' }],
     })
   );
   const userDir = join(home, '.mattstack', 'user');
