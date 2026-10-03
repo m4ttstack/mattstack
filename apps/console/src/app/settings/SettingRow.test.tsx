@@ -1220,7 +1220,13 @@ describe('with a repo picked', () => {
         query=""
       />
     );
-    expect(screen.getByText('team · repo')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        (_, el) =>
+          !!el?.matches('.mantine-Badge-label') &&
+          el.textContent === 'team · repo'
+      )
+    ).toBeInTheDocument();
     await openRow('rt.worktreeCwd');
     const rung = await screen.findByTestId('layer-team.repo');
     expect(within(rung).queryByRole('button', { name: /^move / })).toBeNull();
