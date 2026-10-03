@@ -17,7 +17,7 @@ export function roleOf(username: string | null, roles: OrgRoles): OrgRole {
   if (username === null || username.trim() === "") return { kind: "unknown" };
   if (roles.admins.some((admin) => sameUser(admin, username))) return { kind: "admin" };
   const teams = Object.entries(roles.teams)
-    .filter(([, team]) => team.owners.some((owner) => sameUser(owner, username)))
+    .filter(([name, team]) => TEAM_NAME_RE.test(name) && team.owners.some((owner) => sameUser(owner, username)))
     .map(([name]) => name)
     .sort();
   return teams.length > 0 ? { kind: "owner", teams } : { kind: "member" };
@@ -25,7 +25,7 @@ export function roleOf(username: string | null, roles: OrgRoles): OrgRole {
 
 export function ownedRoots(role: OrgRole): string[] {
   if (role.kind === "admin") return [...ORG_MANAGED_ROOTS];
-  if (role.kind === "owner") return role.teams.map((team) => `mattstack/teams/${team}`);
+  if (role.kind === "owner") return role.teams.filter((team) => TEAM_NAME_RE.test(team)).map((team) => `mattstack/teams/${team}`);
   return [];
 }
 
@@ -33,12 +33,9 @@ function under(root: string, path: string): boolean {
   return path === root || path.startsWith(`${root}/`);
 }
 
-function normalized(relPath: string): string {
-  return posix.normalize(relPath.split("\\").join("/"));
-}
-
 export function mayWritePath(role: OrgRole, relPath: string): boolean {
-  const path = normalized(relPath);
+  if (relPath.includes("\\")) return false;
+  const path = posix.normalize(relPath);
   if (path.startsWith("/") || path === ".." || path.startsWith("../")) return false;
   return ownedRoots(role).some((root) => under(root, path));
 }
@@ -56,7 +53,10 @@ export function writeRefusalFor(role: OrgRole, roles: OrgRoles, relPath: string)
   if (role.kind === "unknown") {
     return { message: "rt can't tell who you are, so it will not change the org's shared files", why: "Connect your forge account in Setup, then try again." };
   }
-  const team = /^mattstack\/teams\/([^/]+)(\/|$)/.exec(normalized(relPath))?.[1];
+  if (role.kind === "admin") {
+    return { message: "rt does not change that file", why: "rt only changes the org's mattstack folder, .sops.yaml and .claude-plugin." };
+  }
+  const team = /^mattstack\/teams\/([^/]+)(\/|$)/.exec(posix.normalize(relPath))?.[1];
   const noAdmins = "This org names no admins yet. Its mattstack.org setting has to list one.";
   if (team !== undefined && TEAM_NAME_RE.test(team)) {
     const owners = roles.teams[team]?.owners ?? [];

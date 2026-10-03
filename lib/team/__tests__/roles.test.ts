@@ -47,6 +47,15 @@ describe("roleFor", () => {
   });
 });
 
+describe("an owner listed under a key that is not a plain team name", () => {
+  test("is a member through the store text", () => {
+    for (const key of ["Widgets", "a/b", "../org"]) {
+      const store = JSON.stringify({ "mattstack.org": { admins: [], teams: { [key]: { owners: ["dev2"] } } } });
+      expect(roleFor(probes("dev2", store), "acme")).toEqual({ kind: "member" });
+    }
+  });
+});
+
 describe("rolesFor", () => {
   test("names nobody when the org store is missing", () => {
     expect(rolesFor(probes("dev1", null), "acme")).toEqual({ admins: [], teams: {} });
@@ -69,6 +78,25 @@ describe("assertMayWrite", () => {
     }
   });
   test("a Mac with no recorded username refuses and says to connect", () => {
-    expect(() => assertMayWrite(probes(null), "acme", "mattstack/org/settings.org.jsonc")).toThrow(UserActionableError);
+    try {
+      assertMayWrite(probes(null), "acme", "mattstack/org/settings.org.jsonc");
+      throw new Error("expected a refusal");
+    } catch (err) {
+      expect(err).toBeInstanceOf(UserActionableError);
+      expect((err as UserActionableError).code).toBe("team-pull-only");
+      expect((err as UserActionableError).message).toBe("rt can't tell who you are, so it will not change the org's shared files");
+      expect((err as UserActionableError).why).toBe("Connect your forge account in Setup, then try again.");
+    }
+  });
+  test("a malformed org store warns once per refusal, not once per read", () => {
+    const warn = console.warn;
+    const lines: string[] = [];
+    console.warn = (line: string) => void lines.push(line);
+    try {
+      expect(() => assertMayWrite(probes("dev1", "{ not json"), "acme", "mattstack/org/settings.org.jsonc")).toThrow(UserActionableError);
+    } finally {
+      console.warn = warn;
+    }
+    expect(lines.filter((l) => l.includes("malformed settings store"))).toHaveLength(1);
   });
 });
