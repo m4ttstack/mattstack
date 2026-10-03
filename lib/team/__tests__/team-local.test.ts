@@ -82,4 +82,12 @@ describe("team-local record", () => {
     expect(teamLocalPath(HOME, SLUG)).toBe(`${HOME}/.mattstack/rt/teams/${SLUG}.json`);
     expect(teamLocalPath(HOME, SLUG)).not.toContain("/teams/acme/.git");
   });
+
+  test("forgeUsername round-trips and a blank one reads as absent", () => {
+    const p = fakeProbes({ home: HOME });
+    writeTeamLocal(p, SLUG, { createdByRt: false, joinedByRt: true, rtMayManageMembership: false, forgeUsername: "dev1" });
+    expect(readTeamLocal(p, SLUG).forgeUsername).toBe("dev1");
+    updateTeamLocal(p, SLUG, { forgeUsername: "  " });
+    expect(readTeamLocal(p, SLUG).forgeUsername).toBeUndefined();
+  });
 });
