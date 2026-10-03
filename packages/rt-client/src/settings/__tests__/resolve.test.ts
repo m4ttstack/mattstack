@@ -298,6 +298,65 @@ describe("settings/resolve", () => {
     });
   });
 
+  // ─── add merge ─────────────────────────────────────────────────────────────
+
+  describe("add merge", () => {
+    const roster = [{ username: "dev1", teams: ["widgets"] }];
+
+    function seed(layers: { org?: unknown; team?: unknown; user?: unknown }): void {
+      seedOrg({
+        org: ORG,
+        username: "dev1",
+        roster,
+        settings: layers.org === undefined ? {} : { "claude.plugins": layers.org },
+        teams: { widgets: layers.team === undefined ? {} : { "claude.plugins": layers.team } },
+      });
+      if (layers.user !== undefined) writeUser({ "claude.plugins": layers.user });
+    }
+
+    test("every layer's list adds up, weakest first, without duplicates", () => {
+      seed({ org: ["acme-tools@acme", "shared@acme"], team: ["widgets@acme", "shared@acme"], user: ["mine@elsewhere"] });
+      const got = getSetting<string[]>("claude.plugins");
+      expect(got.value).toEqual(["acme-tools@acme", "shared@acme", "widgets@acme", "mine@elsewhere"]);
+      expect(got.provenance.map((p) => p.scope)).toEqual(["org", "team", "user"]);
+    });
+
+    test("each item names every layer it came from", () => {
+      seed({ org: ["shared@acme"], team: ["widgets@acme"], user: ["shared@acme"] });
+      const items = getSetting<string[]>("claude.plugins").items!;
+      expect(items.map((i) => [i.value, i.sources.map((s) => s.scope)])).toEqual([
+        ["shared@acme", ["org", "user"]],
+        ["widgets@acme", ["team"]],
+      ]);
+    });
+
+    test("a layer that holds a non-array is skipped as invalid and the others still add", () => {
+      seed({ org: ["shared@acme"], team: "widgets@acme", user: ["mine@elsewhere"] });
+      const got = getSetting<string[]>("claude.plugins");
+      expect(got.value).toEqual(["shared@acme", "mine@elsewhere"]);
+      expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('ignoring "claude.plugins" from the team scope'))).toBe(true);
+    });
+
+    test("an empty list everywhere resolves to [] and names the strongest layer", () => {
+      seed({ org: [], user: [] });
+      const got = getSetting<string[]>("claude.plugins");
+      expect(got.value).toEqual([]);
+      expect(got.provenance.map((p) => p.scope)).toEqual(["user"]);
+      expect(got.items).toEqual([]);
+    });
+
+    test("nothing set anywhere resolves to undefined with no items", () => {
+      const got = getSetting<string[]>("claude.plugins");
+      expect(got.value).toBeUndefined();
+      expect(got.items).toBeUndefined();
+    });
+
+    test("a replace key carries no items", () => {
+      writeOrg({ "board.title": "Acme" });
+      expect(getSetting<string>("board.title").items).toBeUndefined();
+    });
+  });
+
   // ─── deep merge ────────────────────────────────────────────────────────────
 
   describe("deep merge", () => {
