@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import type { Database } from 'bun:sqlite';
+import { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
@@ -100,6 +100,27 @@ describe('writePeerReview', () => {
       false
     );
     expect(readPeerReviews(db).get(URL_A)?.[0]?.status).toBe('done');
+  });
+
+  test('a busy commit returns false and rolls back the write', () => {
+    db.exec('PRAGMA journal_mode = DELETE; PRAGMA busy_timeout = 0');
+    const reader = new Database(join(dir, 'state.db'));
+    const errors: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => errors.push(args);
+    let wrote: boolean;
+    try {
+      reader.exec('BEGIN');
+      reader.query('SELECT * FROM kv').all();
+      wrote = writePeerReview(base(), db);
+    } finally {
+      reader.exec('ROLLBACK');
+      reader.close();
+      console.error = originalError;
+    }
+    expect(readPeerReviews(db).size).toBe(0);
+    expect(errors).toEqual([['peer review write: write skipped (db busy)']]);
+    expect(wrote).toBe(false);
   });
 
   test('writes nothing to the legacy folder', () => {

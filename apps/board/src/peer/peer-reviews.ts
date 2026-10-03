@@ -59,16 +59,16 @@ export function writePeerReview(
   const key = peerReviewKey(s.mrUrl, s.reviewer);
   let wrote = false;
   persistOrWarn('peer review write', () => {
-    db.transaction(() => {
+    wrote = db.transaction(() => {
       const prev = getKvValue<PeerReviewState | null>(
         PEER_REVIEW_NS,
         key,
         null,
         db
       );
-      if (prev && prev.updatedAt >= s.updatedAt) return;
+      if (prev && prev.updatedAt >= s.updatedAt) return false;
       setKvValue(PEER_REVIEW_NS, key, s, db);
-      wrote = true;
+      return true;
     })();
   });
   return wrote;
