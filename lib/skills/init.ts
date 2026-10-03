@@ -106,6 +106,10 @@ function stored(key: string, section: Record<string, unknown> | null): unknown {
   return read.present ? read.value : undefined;
 }
 
+function isStringList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((p) => typeof p === "string");
+}
+
 function forgeHost(section: Record<string, unknown> | null): unknown {
   return (stored("mattstack.integrations", section) as { forge?: { host?: unknown } | null } | undefined)?.forge?.host;
 }
@@ -139,8 +143,7 @@ export function readZonesFrom(fs: InitFs, teams: string): ZoneInfo[] {
       const dir = join(teamsRoot, team);
       const teamSettings = storeGlobal(fs, join(dir, "settings.team.jsonc"));
       if (teamSettings === null) continue;
-      const claimed = stored("board.projects", teamSettings) ?? stored("board.projects", orgSettings);
-      const projects = Array.isArray(claimed) ? claimed.filter((p): p is string => typeof p === "string") : [];
+      const projects = [stored("board.projects", teamSettings), stored("board.projects", orgSettings)].find(isStringList) ?? [];
       const host =
         hostOnly(stored("board.gitlabHost", teamSettings)) ??
         hostOnly(stored("board.gitlabHost", orgSettings)) ??
