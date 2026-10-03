@@ -29,7 +29,7 @@ const SUBHEAD: Record<
   org: {
     label: 'Org',
     note: 'shared with every team through the org repo',
-    color: 'var(--tk-text-purple-small)',
+    color: 'var(--tk-text-gold-small)',
   },
   team: {
     label: 'Team',

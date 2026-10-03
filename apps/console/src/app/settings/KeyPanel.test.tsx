@@ -269,6 +269,48 @@ describe('KeyPanel', () => {
     );
   });
 
+  it('an add list marks every layer that adds items merged, with its own caption', async () => {
+    renderPanel(
+      def('claude.plugins', {
+        type: 'array',
+        scopes: ['user', 'team', 'org'],
+        merge: 'add',
+        effective: {
+          scope: 'team',
+          file: '/stores/team.jsonc',
+          value: ['acme-tools@acme', 'widgets@acme'],
+        },
+      }),
+      [
+        { scope: 'default', file: null, present: false },
+        {
+          scope: 'org',
+          file: '/stores/org.jsonc',
+          present: true,
+          value: ['acme-tools@acme'],
+        },
+        {
+          scope: 'team',
+          file: '/stores/team.jsonc',
+          present: true,
+          value: ['widgets@acme'],
+        },
+        { scope: 'user', file: '/stores/user.jsonc', present: false },
+      ],
+      { team: 'widgets', org: 'acme' }
+    );
+    expect(
+      await screen.findByText('Every layer adds its items.')
+    ).toBeInTheDocument();
+    expect(
+      within(await screen.findByTestId('layer-org')).getByText('merged')
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('layer-team')).getByText('merged')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('in effect')).toBeNull();
+  });
+
   it('captions a deep-merge key before its layers load', () => {
     explainGet.mockReturnValue(new Promise(() => {}));
     renderWithProviders(
@@ -412,6 +454,10 @@ describe('KeyPanel', () => {
       { team: 'widgets', org: 'acme' }
     );
     const org = await screen.findByTestId('layer-org');
+    expect(within(org).getByText('org (acme)')).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('layer-team')).getByText('team (widgets)')
+    ).toBeInTheDocument();
     await userEvent.hover(
       within(org).getByRole('button', { name: 'set board.agent.model at org' })
     );

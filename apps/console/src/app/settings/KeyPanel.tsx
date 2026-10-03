@@ -169,7 +169,7 @@ function Status({ role, row }: { role: Role; row: ExplainRowWire }) {
 
 function LayerBadge({ scope }: { scope: string }) {
   const { text } = useSchemeColors();
-  if (rungBase(scope)) return <ScopeBadge scope={scope as LayerScope} bare />;
+  if (rungBase(scope)) return <ScopeBadge scope={scope as LayerScope} />;
   if (scope === 'default') return <ScopeBadge scope="default" />;
   return (
     <Text fz={12} fw={500} c={text.muted}>
@@ -720,7 +720,9 @@ function WhereTab({
       <Text fz={12} lh="15px" c={text.muted} className={classes.caption}>
         {def.merge === 'deep' && def.type === 'object'
           ? 'Merged key by key. Lists replace whole.'
-          : 'Weakest first. The last layer set wins.'}
+          : def.merge === 'add'
+            ? 'Every layer adds its items.'
+            : 'Weakest first. The last layer set wins.'}
       </Text>
       {explained.error ? (
         <Alert color="bad" variant="light" mt="md">
