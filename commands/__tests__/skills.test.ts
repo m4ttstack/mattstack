@@ -196,6 +196,19 @@ function makeMattstackDir(): string {
   return dir;
 }
 
+/** An org clone under `<mattstackRoot>/teams/<org>` with one folder per team; every team inherits the org's claim unless it sets its own. */
+function seedOrg(mattstackRoot: string, org: string, opts: { projects: string[]; host?: string | null; teams: string[] }): void {
+  const dir = join(mattstackRoot, "teams", org, "mattstack");
+  writeFile(join(dir, "mattstack.jsonc"), JSON.stringify({ role: "org", org }));
+  const settings: Record<string, unknown> = { "board.projects": opts.projects };
+  if (opts.host !== null) settings["board.gitlabHost"] = opts.host ?? "https://gitlab.example.com";
+  writeFile(join(dir, "org", "settings.org.jsonc"), JSON.stringify(settings));
+  for (const team of opts.teams) writeFile(join(dir, "teams", team, "settings.team.jsonc"), "{}");
+}
+
+const teamPackDir = (mattstackRoot: string, org: string, team: string, pack = team) =>
+  join(mattstackRoot, "teams", org, "mattstack", "teams", team, "packs", pack);
+
 function makePackDir(): string {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-pack-")));
   writeFile(join(dir, "pack", "stubs.jsonc"), STUBS_JSONC);
@@ -539,7 +552,8 @@ describe("skillsCompile", () => {
   test("default pack dir formula (--team + --mattstack-dir, no --pack-dir)", async () => {
     const mattstackDir = makeMattstackDir();
     const manifestPath = makeManifest();
-    writeFile(join(mattstackDir, "teams", "t", "mattstack", "packs", "t", "pack", "stubs.jsonc"), STUBS_JSONC);
+    seedOrg(mattstackDir, "acme", { projects: [], teams: ["t"] });
+    writeFile(join(teamPackDir(mattstackDir, "acme", "t"), "pack", "stubs.jsonc"), STUBS_JSONC);
 
     await skillsCompile([
       "--team", "t",
@@ -568,16 +582,15 @@ describe("skillsCompile", () => {
     writeFile(join(mattstackDir, "plugins", "gadgets", ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.1.0" }));
     writeFile(join(mattstackDir, "plugins", "gadgets", "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
     writeFile(join(mattstackDir, "plugins", "gadgets", "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
-    const zone = (slug: string, pack: string, domain: string) => {
-      const dir = join(mattstackDir, "teams", slug, "mattstack");
-      writeFile(join(dir, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: pack }));
-      writeFile(join(dir, "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }));
-      writeFile(join(dir, "packs", pack, "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { domain, forge: "mattstack:gitlab-forge" } } }));
-      writeFile(join(dir, "packs", pack, "pack", "stubs.jsonc"), STUBS_JSONC);
-      return join(dir, "packs", pack);
+    seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets", "gadgets"] });
+    const zone = (pack: string, domain: string) => {
+      const dir = teamPackDir(mattstackDir, "acme", pack);
+      writeFile(join(dir, "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { domain, forge: "mattstack:gitlab-forge" } } }));
+      writeFile(join(dir, "pack", "stubs.jsonc"), STUBS_JSONC);
+      return dir;
     };
-    const widgetsDir = zone("acme-w", "widgets", "acme:watch-ci-domain");
-    const gadgetsDir = zone("acme-g", "gadgets", "gadgets:watch-ci-domain");
+    const widgetsDir = zone("widgets", "acme:watch-ci-domain");
+    const gadgetsDir = zone("gadgets", "gadgets:watch-ci-domain");
     const engine = join(mattstackDir, "plugins", "mattstack");
     const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, claudeHome: mattstackDir, enginePackDir: engine }, "https://gitlab.example.com/acme/widgets.git");
     if (out.kind !== "written") throw new Error(out.kind);
@@ -613,7 +626,7 @@ describe("skillsCompile", () => {
 
   test.each([["no stale file"], ["a stale bindings file"]])("a base pack has no bindings file of its own, and the error says so (%s)", async (variant) => {
     const mattstackDir = makeMattstackDir();
-    const packDir = join(mattstackDir, "teams", "acme", "mattstack", "packs", "acme-base");
+    const packDir = teamPackDir(mattstackDir, "acme", "acme", "acme-base");
     writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
     if (variant === "a stale bindings file") {
@@ -647,10 +660,8 @@ describe("skillsCompile", () => {
       expect(JSON.parse(io.lines().at(-1)!).manifestPath).toContain("gitlab.example.com-acme-widgets");
     }
 
-    const zone = join(mattstackDir, "teams", "acme", "mattstack");
-    writeFile(join(zone, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "t" }));
-    writeFile(join(zone, "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/gadgets", "acme/widgets"] }));
-    writeFile(join(zone, "packs", "t", "pack", "skills.jsonc"), "{}");
+    seedOrg(mattstackDir, "acme", { projects: ["acme/gadgets", "acme/widgets"], teams: ["t"] });
+    writeFile(join(teamPackDir(mattstackDir, "acme", "t"), "pack", "skills.jsonc"), "{}");
     const tieBroken = await runExpectingCleanExit(() => skillsCompile(base));
     expect(tieBroken.errors).toEqual([]);
     expect(JSON.parse(io.lines().at(-1)!).manifestPath).toContain("gitlab.example.com-acme-gadgets");
@@ -679,15 +690,13 @@ describe("skillsCompile", () => {
     expect(errors[0]).toContain("--repo needs a value");
   });
 
-  test("a zone with no forge host cannot break a two-repo tie, and says so", async () => {
+  test("a team with no forge host cannot break a two-repo tie, and says so", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
     writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-widgets", "packs", "t", "skills.jsonc"), manifestJsonc(true));
     writeFile(join(mattstackDir, "repos", "gitlab.example.com-acme-gadgets", "packs", "t", "skills.jsonc"), manifestJsonc(false));
-    const zone = join(mattstackDir, "teams", "acme", "mattstack");
-    writeFile(join(zone, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "t" }));
-    writeFile(join(zone, "team.jsonc"), JSON.stringify({ projects: ["acme/gadgets", "acme/widgets"] }));
-    writeFile(join(zone, "packs", "t", "pack", "skills.jsonc"), "{}");
+    seedOrg(mattstackDir, "acme", { projects: ["acme/gadgets", "acme/widgets"], host: null, teams: ["t"] });
+    writeFile(join(teamPackDir(mattstackDir, "acme", "t"), "pack", "skills.jsonc"), "{}");
 
     const { exitCode, errors } = await runExpectingCleanExit(() =>
       skillsCompile(["--team", "t", "--dry-run", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
@@ -732,7 +741,7 @@ describe("skillsCompile", () => {
   test("a team-shaped pack OUTSIDE the teams zone (a worktree) still never falls back to its pack/skills.jsonc fragment", async () => {
     const mattstackDir = makeMattstackDir();
     const worktreeRoot = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-worktree-")));
-    const packDir = join(worktreeRoot, "mattstack", "packs", "t");
+    const packDir = join(worktreeRoot, "mattstack", "teams", "t", "packs", "t");
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
     writeFile(join(packDir, "pack", "skills.jsonc"), manifestJsonc(true));
 
@@ -753,7 +762,8 @@ describe("skillsCompile", () => {
 
   test("a team-zone pack never falls back to its own pack/skills.jsonc: that file is a fragment, not the repo's manifest", async () => {
     const mattstackDir = makeMattstackDir();
-    const packDir = join(mattstackDir, "teams", "t", "mattstack", "packs", "t");
+    seedOrg(mattstackDir, "acme", { projects: [], teams: ["t"] });
+    const packDir = teamPackDir(mattstackDir, "acme", "t");
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
     writeFile(join(packDir, "pack", "skills.jsonc"), manifestJsonc(true));
 
@@ -2550,10 +2560,8 @@ describe("skillsMaterialize --dir exit codes", () => {
   }
 
   function declareWidgets(): void {
-    const zone = join(home, ".mattstack", "teams", "acme", "mattstack");
-    writeFile(join(zone, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "acme" }));
-    writeFile(join(zone, "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }));
-    writeFile(join(zone, "packs", "widgets", "pack", "skills.jsonc"), "{}");
+    seedOrg(join(home, ".mattstack"), "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
+    writeFile(join(teamPackDir(join(home, ".mattstack"), "acme", "widgets"), "pack", "skills.jsonc"), "{}");
   }
 
   test("a bare --dir is a usage error, never the every-repo sweep", async () => {
@@ -2602,7 +2610,7 @@ describe("skillsMaterialize --dir exit codes", () => {
     process.env.RT_ENGINE_PACK_DIR = ENGINE;
     declareWidgets();
     const stale = join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "gadgets", "skills.jsonc");
-    writeFile(stale, "// zone: acme\n{}");
+    writeFile(stale, "// zone: acme/widgets\n{}");
     await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
     expect(process.exitCode).toBe(0);
     expect(io.lines()).toContain(`  note: Set aside 1 stale bindings file: ${stale}.stale`);

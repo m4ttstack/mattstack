@@ -47,7 +47,7 @@ import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.t
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
-import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
+import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { discoverPacks, findEnclosingPack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
@@ -168,8 +168,9 @@ function parseFlags(args: string[]): Flags {
   return { team, verbs: verbs.length ? verbs : null, manifest, repo, dryRun, preview, packDir, mattstackDir, json, strict };
 }
 
-function packRootDir(mattstackRoot: string, team: string): string {
-  return join(mattstackRoot, "teams", team, "mattstack", "packs", team);
+function packRootDir(mattstackRoot: string, team: string): string | null {
+  const zone = readZonesFrom(realInitFs, join(mattstackRoot, "teams")).find((z) => z.team === team);
+  return zone ? zonePackDir(zone) : null;
 }
 
 type PackTarget = { team: string; packDir: string };
@@ -234,10 +235,10 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   if (flags.team) {
     const pack = packs.find((p) => p.name === flags.team);
     if (pack) return { team: pack.name, packDir: pack.dir };
-    const legacy = packRootDir(mattstackRoot, flags.team);
-    if (existsSync(legacy)) return { team: flags.team, packDir: legacy };
+    const byFolder = packRootDir(mattstackRoot, flags.team);
+    if (byFolder && existsSync(byFolder)) return { team: flags.team, packDir: byFolder };
     throw new SkillsUsageError(
-      `no pack named "${flags.team}" (discovered: ${packs.map((p) => p.name).join(", ") || "none"}; checked ${legacy})`,
+      `no pack named "${flags.team}" (discovered: ${packs.map((p) => p.name).join(", ") || "none"})`,
       { title: `No pack is called ${flags.team}`, next: out.cmd("rt skills packs"), details: `Packs here: ${packs.map((p) => p.name).join(", ") || "none"}` },
     );
   }
@@ -459,7 +460,7 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
 
   if (candidates.length > 1) {
     const zones = readZonesFrom(realInitFs, join(mattstackRoot, "teams"))
-      .filter((z) => existsSync(join(z.dir, "mattstack", "packs", team)));
+      .filter((z) => z.team === team && existsSync(zonePackDir(z)));
     for (const { host, projects } of zones) {
       if (!host) continue;
       for (const project of projects) {
@@ -470,23 +471,23 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
     const hostless = zones.length > 0 && zones.every((z) => !z.host);
     throw new SkillsUsageError(
       `pack "${team}" binds ${candidates.length} repos (${candidates.map((c) => c.slug).join(", ")})` +
-        (hostless ? `; its team zone declares no forge host, so its projects cannot pick one` : "") +
+        (hostless ? `; its team declares no forge host, so its projects cannot pick one` : "") +
         `; pass --repo <slug or host/path>`,
       {
         title: "Which repo?",
         why:
           `The ${team} pack is bound in ${candidates.length} repos: ${candidates.map((c) => c.slug).join(", ")}.` +
-          (hostless ? " Its team zone names no forge host, so rt cannot pick one." : ""),
+          (hostless ? " Its team names no forge host, so rt cannot pick one." : ""),
         next: ["Run it again with ", out.cmd("--repo <slug>")],
       },
     );
   }
 
-  // Team packs sit at <repo>/mattstack/packs/<team>; that path shape
-  // survives worktrees, unlike the teams-zone location, and a team pack's
+  // Team packs sit at <repo>/mattstack/teams/<team>/packs/<team>; that path
+  // shape survives worktrees, unlike the clone's location, and a team pack's
   // pack/skills.jsonc is a merge fragment, never its manifest.
   const parts = resolvePath(packDir).split(sep);
-  const teamShaped = parts.at(-2) === "packs" && parts.at(-3) === "mattstack";
+  const teamShaped = parts.at(-2) === "packs" && parts.at(-4) === "teams" && parts.at(-5) === "mattstack";
   const standalone = !isUnder(join(mattstackRoot, "teams"), packDir) && !teamShaped;
   if (standalone && existsSync(ownManifest)) return ownManifest;
   throw new SkillsUsageError(
